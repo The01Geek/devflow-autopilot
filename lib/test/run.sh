@@ -1789,6 +1789,92 @@ assert_pin_red_on_removal() {  # name literal [file]   (file defaults to $MAXI_S
   assert_eq "$1" "PASS->FAIL" "$before->$after"
   rm -f "$t"
 }
+# ── #375 assert_pin_red_under: the MUTATION-TAKING pin primitive ──────────────
+# assert_pin_red_on_removal above deletes the pinned literal's whole physical LINE (grep -vF)
+# and re-checks uniqueness. That proves only that the pin notices its OWN line vanishing — for
+# ANY present-and-unique literal it reports PASS->FAIL, whether that line is the operative
+# mechanism or a motivating framing header (issue #370 Rec 3 demonstrated this vacuity directly).
+# assert_pin_red_under instead applies a SPECIFIC regression <mutation> (a `sed -E` program) to a
+# scratch copy and asserts the named pin flips PASS->FAIL under THAT regression. A pin on a
+# framing clause the operative mutation leaves present-and-unique stays PASS after the mutation,
+# so the transition is PASS->PASS and this helper's own assert_eq FAILs — the vacuity is REPORTED,
+# not hidden. This is the primitive issue #375's behavioral-fix-pin rule (and Wave 2 #376's sweep
+# pins) express their pins through, so a framing pin fails at authoring time, not in a later shadow.
+# Contract (mirrors assert_pin_red_on_removal's probe_tmp scratch + probe_assert transition shape):
+#   - copies <file> (default $MAXI_SKILL, like assert_pin_red_on_removal) to a probe_tmp scratch file;
+#   - applies <mutation> to the copy with `sed -E` (the mutation side carries the regex power, so the
+#     LITERAL side stays a fixed string matched by assert_pin_unique/pin_count's -F);
+#   - if the mutated copy is byte-identical to the original (`cmp -s`), records a FAIL naming the
+#     no-op — a mutation that changes nothing would make EVERY pin "pass" vacuously, so it is never
+#     a vacuous pass here;
+#   - otherwise asserts the full PASS->FAIL transition of assert_pin_unique on <literal> between the
+#     REAL file (before) and the mutated copy (after) via probe_assert, so a framing-only pin (still
+#     present-and-unique post-mutation → PASS->PASS) is reported RED here.
+# probe_tmp is fail-closed (records a suite FAIL + returns /dev/null on mktemp failure — self-tested
+# at the git_sandbox/probe_tmp blocks above), and this helper's `|| return 0` inherits that: a
+# temp-alloc failure records a FAIL, never a vacuous pass.
+assert_pin_red_under() {  # name literal mutation [file]   (file defaults to $MAXI_SKILL)
+  local name="$1" literal="$2" mutation="$3" file="${4:-$MAXI_SKILL}" t before after
+  t="$(probe_tmp "$name (mutation setup)")" || return 0
+  # Check sed's own exit status: a MALFORMED mutation program (unbalanced `[`, bad
+  # backreference) errors, writes nothing, and `> "$t"` truncates the copy to EMPTY — which
+  # would then read as a spurious PASS->FAIL (before present, after absent-because-empty),
+  # a green from the file being blanked rather than the operative line being removed. Record
+  # a FAIL naming the broken mutation instead — a mutation that cannot run is never a pass.
+  if ! sed -E "$mutation" "$file" > "$t" 2>/dev/null; then
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         mutation sed program errored (not a valid regression) — a broken mutation is never a vacuous pass\n         mutation: %s\n         file: %s\n' \
+      "$name" "$mutation" "$file"
+    rm -f "$t"
+    return 0
+  fi
+  if cmp -s "$file" "$t"; then
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         mutation was a NO-OP (mutated copy byte-identical to original) — a mutation that changes nothing is never a vacuous pass\n         mutation: %s\n         file: %s\n' \
+      "$name" "$mutation" "$file"
+    rm -f "$t"
+    return 0
+  fi
+  before="$(probe_assert assert_pin_unique 'probe-present' "$literal" "$file")"
+  after="$(probe_assert assert_pin_unique 'probe-mutated' "$literal" "$t")"
+  assert_eq "$name" "PASS->FAIL" "$before->$after"
+  rm -f "$t"
+}
+# #375 self-tests (synthetic fixtures, probed via probe_assert so the intentional REDs never hit
+# the suite tally): the operative-vs-framing discrimination is the whole reason the helper exists.
+PRU_FX="$(probe_tmp '#375 assert_pin_red_under fixture setup')"
+printf 'PRU_OPERATIVE the fix lives on this line\nPRU_FRAMING this sentence merely introduces the fix\n' > "$PRU_FX"
+# Operative pin: the operative mutation (delete only the operative line) removes the pinned text →
+# assert_pin_unique goes PASS->FAIL → assert_pin_red_under reports PASS.
+assert_eq "#375 assert_pin_red_under: operative pin flips PASS->FAIL under the operative mutation (PASS)" \
+  "PASS" "$(probe_assert assert_pin_red_under 'op' 'PRU_OPERATIVE the fix lives on this line' '/PRU_OPERATIVE/d' "$PRU_FX")"
+# Framing pin: the SAME operative mutation leaves the framing line present-and-unique → PASS->PASS →
+# the transition assertion FAILs. This is the vacuity assert_pin_red_on_removal cannot report.
+assert_eq "#375 assert_pin_red_under: framing pin stays present-and-unique under the operative mutation → vacuity reported (FAIL)" \
+  "FAIL" "$(probe_assert assert_pin_red_under 'frame' 'PRU_FRAMING this sentence merely introduces the fix' '/PRU_OPERATIVE/d' "$PRU_FX")"
+# No-op mutation (matches nothing → byte-identical copy) records a FAIL, never a vacuous pass.
+assert_eq "#375 assert_pin_red_under: a no-op mutation (byte-identical copy) records FAIL" \
+  "FAIL" "$(probe_assert assert_pin_red_under 'noop' 'PRU_OPERATIVE the fix lives on this line' 's/ZZZ_NEVER_MATCHES/x/' "$PRU_FX")"
+# Absent literal: the before-probe is already FAIL (count 0), so the transition is FAIL->… , never
+# PASS->FAIL → reported FAIL. This closes the vacuity where a never-present literal would look "red".
+assert_eq "#375 assert_pin_red_under: a literal absent from the real file yields the before-FAIL transition mismatch (FAIL)" \
+  "FAIL" "$(probe_assert assert_pin_red_under 'absent' 'PRU_NEVER_PRESENT' '/PRU_OPERATIVE/d' "$PRU_FX")"
+# Malformed sed mutation (unbalanced `[`): sed errors, blanks the copy — WITHOUT the sed-rc
+# check this would read as a spurious PASS->FAIL (before present, after absent-from-empty). The
+# rc check records a FAIL instead. This is the RED-direction proof for the sed-error arm.
+assert_eq "#375 assert_pin_red_under: a malformed sed mutation records FAIL (no spurious green from a blanked file)" \
+  "FAIL" "$(probe_assert assert_pin_red_under 'badsed' 'PRU_OPERATIVE the fix lives on this line' '/[/d' "$PRU_FX")"
+rm -f "$PRU_FX"
+# Metachar round-trip: a pinned literal carrying regex metacharacters AND a sed-delimiter char
+# (`a.c/[x]`) is matched as a FIXED string by assert_pin_unique (-F), while the mutation's `sed -E`
+# regex (`/a\.c/d`) carries the pattern power — the operative separation the AC3(a3) probe pins for
+# pin_count, re-proven end-to-end through the primitive.
+PRU_META="$(probe_tmp '#375 assert_pin_red_under metachar setup')"
+printf 'operative token a.c/[x] on this line\nunrelated framing line\n' > "$PRU_META"
+assert_eq "#375 assert_pin_red_under: a pinned literal carrying regex+sed-delimiter metachars round-trips (fixed-string match; mutation flips it PASS->FAIL)" \
+  "PASS" "$(probe_assert assert_pin_red_under 'meta' 'a.c/[x]' '/a\.c/d' "$PRU_META")"
+rm -f "$PRU_META"
+#
 assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns its pin RED" \
   'park-calibration gate clean: no parked finding matched'
 assert_pin_red_on_removal "AC3(d): narrowing the mutation-check rule back to fix-only turns its pin RED" \
@@ -2778,32 +2864,27 @@ assert_pin_red_on_removal "#167 core-mp: deleting the false-positive-shape exclu
 # property, so by its own "at least one pin per operative sentence" rule each DIRECTIVE sentence
 # (the text that tells the implementer what to DO) gets its own removal-proof pin; the
 # definitions/rationale/history that merely elaborate them stay unpinned (pinning every clause
-# is the over-pinning treadmill the issue warns against). assert_pin_red_on_removal (not bare
-# assert_pin_unique) bakes step (c) of the rule — "half-revert and confirm RED" — into the
-# suite permanently, instead of leaving it a one-time authoring act. ($DEF_SKILL = the implement
-# SKILL.md; defined at the top of this file.)
+# is the over-pinning treadmill the issue warns against). ($DEF_SKILL = the implement SKILL.md
+# bundle; defined at the top of this file.) #375 update: step (c)/(d) now route through
+# assert_pin_red_under (not a one-time manual half-revert); the old `counterfactually
+# half-revert` step-(c) pin was retired and the (c)/(d) routing + evidence-note directives are
+# pinned in the #375 block below. The operative-vs-framing definition, the at-least-one-pin, and
+# the scope-limiter rules are unchanged and stay pinned here.
 assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting 'pin the operative sentence, not framing' turns its pin RED" \
   'pin the operative sentence, not an adjacent framing clause' "$DEF_SKILL"
-assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the (a)/(b)/(c) counterfactual procedure turns its pin RED" \
-  'counterfactually half-revert' "$DEF_SKILL"
 assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the at-least-one-pin-per-operative-sentence rule turns its pin RED" \
   'at least one pin per operative sentence' "$DEF_SKILL"
 assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the behavioral-fix-pin scope limiter turns its pin RED" \
   'literal constants, token names, count-based guards, absence pins' "$DEF_SKILL"
-# #194: two additions HARDEN the #186 mutation-check guidance — each is its own operative
-# DIRECTIVE sentence, so each gets a removal-proof pin (the rule pins itself). (A) bake the
-# half-revert into the suite via the framework's removal-proof assertion, not a one-time manual
-# act; (B) confirm a newly-added guard REGISTERED — its named assertion appears as PASS and the
-# assertion count rose — because a green suite alone does not prove a guard ran. Both additions
-# are COUPLED across the two skills (implement = $DEF_SKILL, review-and-fix = $MAXI_SKILL), so the
-# same operative literal pins each file; assert_pin_red_on_removal requires it appear exactly once
-# per file. Pinning (B)'s sentence with a *registering* assertion dogfoods the rule it states.
-assert_pin_red_on_removal "#194 (A) implement: deleting the bake-via-removal-proof-assertion directive turns its pin RED" \
-  "your framework's removal-proof assertion" "$DEF_SKILL"
+# #194: the (B) confirm-a-guard-REGISTERED directive — its named assertion appears as PASS AND the
+# assertion count rose — pinned per file (implement = $DEF_SKILL, review-and-fix = $MAXI_SKILL),
+# because a green suite alone does not prove a guard ran. (#194's (A) bake-the-half-revert
+# directive was rewritten by #375 to route through assert_pin_red_under; the old removal-proof
+# wording no longer exists in any target, so its pins were *replaced* — not moved — by the
+# #375-block pins on the new evidence-mechanism literals below.) Pinning (B)'s
+# sentence with a *registering* assertion dogfoods the rule it states.
 assert_pin_red_on_removal "#194 (B) implement: deleting the confirm-guard-registered directive turns its pin RED" \
   'confirm the guard registered' "$DEF_SKILL"
-assert_pin_red_on_removal "#194 (A) review-and-fix: deleting the bake-via-removal-proof-assertion directive turns its pin RED" \
-  "your framework's removal-proof assertion" "$MAXI_SKILL"
 assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the confirm-guard-registered directive turns its pin RED" \
   'confirm the guard registered' "$MAXI_SKILL"
 # (B) is a two-conjunct directive ("named assertion appears as PASS" AND "the assertion
@@ -2827,18 +2908,39 @@ assert_pin_red_on_removal "#194 (B) implement: deleting the named-assertion-appe
   'its named assertion actually appears in the run as a PASS' "$DEF_SKILL"
 assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the named-assertion-appears-as-PASS conjunct turns its pin RED" \
   'its named assertion appears in the run as a PASS' "$MAXI_SKILL"
-# #235 (finding A): the forced per-behavioral-fix-pin operative-sentence NOTE — before writing
-# a behavioral-fix pin the author records a one-line workpad --note naming the operative
-# sentence and asserting the pin literal is a substring of it (the same auditable-commitment
-# idiom as the sweep-selection / test-first notes). COUPLED across the implement skill's Phase
-# 2.3 (phase-2-implement.md, inside $DEF_SKILL) and the review-and-fix fix loop's Step 3 item 4
-# ($MAXI_SKILL), so the same operative literal pins each — a half-revert that drops the
-# directive from either file turns its pin RED. This clause is itself a behavioral-fix pin, so
-# per finding A's own rule the literal targets the operative NOTE directive, not its framing.
-assert_pin_red_on_removal "#235 (A) implement: deleting the forced operative-sentence-note directive turns its pin RED" \
-  'naming the operative sentence and asserting the pin literal is a substring of it' "$DEF_SKILL"
-assert_pin_red_on_removal "#235 (A) review-and-fix: deleting the forced operative-sentence-note directive turns its pin RED" \
-  'naming the operative sentence and asserting the pin literal is a substring of it' "$MAXI_SKILL"
+# #235 (finding A) was the forced per-behavioral-fix-pin NOTE. #375 REPLACED its
+# operative-sentence-substring attestation with an EVIDENCE note (record the mutation you ran and
+# the pin observed RED); the replacement's pins live in the #375 block immediately below, so
+# finding A's old substring-attestation pins were retired there.
+#
+# #375: the behavioral-fix-pin rule rewrite. Steps (c)/(d) now route through assert_pin_red_under
+# and the note records EVIDENCE (the mutation run + the pin observed RED), replacing #194 (A)'s
+# "your framework's removal-proof assertion" wording and #235 (A)'s operative-sentence-substring
+# attestation. The rule has THREE coupled homes: the implement skill Phase 2.3 ($DEF_SKILL
+# bundle), the review-and-fix fix loop Step 3 item 4 ($MAXI_SKILL), and DevFlow's prompt
+# extension ($EXT_IMPL). Each operative sentence is pinned through assert_pin_red_under ITSELF —
+# the rewrite's first customer is its own tooling — with a `sed -E` mutation deleting the
+# operative line; the mutation pattern is a metachar-free sub-phrase of that line, so it
+# addresses it cleanly. NOTE these are self-referential *dogfood* pins, not a demonstration of
+# assert_pin_red_under's discrimination over assert_pin_red_on_removal: two of the three targets
+# (phase-2-implement.md, review-and-fix/SKILL.md) hold the whole rule on a single markdown line,
+# so `/phrase/d` there IS a whole-line strip byte-equivalent to assert_pin_red_on_removal's
+# grep -vF (only $EXT_IMPL, hard-wrapped across lines, splits operative from framing). The
+# operative-vs-framing discrimination the primitive adds is proven by the synthetic 'op'/'frame'
+# self-tests near the assert_pin_red_under definition, NOT by these three prose pins.
+EXT_IMPL="$LIB/../.devflow/prompt-extensions/implement.md"
+assert_pin_red_under "#375 (c)/(d) routing directive — implement Phase 2.3 routes the pin through assert_pin_red_under" \
+  'mutation that re-introduces the named bug' '/mutation that re-introduces the named bug/d' "$DEF_SKILL"
+assert_pin_red_under "#375 (c)/(d) routing directive — review-and-fix Step 3 item 4 routes the pin through assert_pin_red_under" \
+  'mutation that re-introduces the named bug' '/mutation that re-introduces the named bug/d' "$MAXI_SKILL"
+assert_pin_red_under "#375 (c)/(d) routing directive — prompt extension states the assert_pin_red_under routing" \
+  'mutation that re-introduces the named bug' '/mutation that re-introduces the named bug/d' "$EXT_IMPL"
+assert_pin_red_under "#375 evidence-note directive — implement Phase 2.3 records the mutation run + the pin observed RED" \
+  'the mutation you ran and the pin you observed go RED' '/the mutation you ran and the pin you observed go RED/d' "$DEF_SKILL"
+assert_pin_red_under "#375 evidence-note directive — review-and-fix Step 3 item 4 records the mutation run + the pin observed RED" \
+  'the mutation you ran and the pin you observed go RED' '/the mutation you ran and the pin you observed go RED/d' "$MAXI_SKILL"
+assert_pin_red_under "#375 evidence-note directive — prompt extension records the mutation run + the pin observed RED" \
+  'the mutation you ran and the pin you observed go RED' '/the mutation you ran and the pin you observed go RED/d' "$EXT_IMPL"
 # #235 (finding B): the Phase 3.3 observability-persistence backstop — after the inline
 # review-and-fix loop returns, verify the run's telemetry artifacts were persisted, run
 # lib/efficiency-trace.sh --persist when they are missing, and record a dropped-failed
@@ -20008,6 +20110,163 @@ for _gf in workpad.py match-deferrals.py; do
   assert_eq "#343 runtime: $_gf gate names the provision-python3-shim.sh remedy at runtime" \
     "yes" "$(printf '%s' "$_G343_ERR" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
 done
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#375 pin-corpus static self-scan: pin-in-comment lint + wrapped-literal meta-guard"
+# ────────────────────────────────────────────────────────────────────────────
+# Two mechanical guards over the suite's OWN pin corpus (issue #375), driven by the
+# lib/test/pin-corpus-lint.py static scanner (the extract-command-heads.py precedent):
+#   lint    — a pin literal that ALSO appears inside a comment of its own target file
+#             (a #-comment for .sh/.py/.jq/.yml, an <!-- … --> region for .md) AND also
+#             outside every comment inflates the pin's occurrence count / can mask a
+#             refactored-away operative site (issue #370's pin_count-read-3 defect). A
+#             literal living ONLY in a comment (an SPDX-header pin) is the pin's intended
+#             target and is NOT flagged.
+#   wrapped — a source-grep pin whose phrase occurs on NO single line of its target, split
+#             "phrase absent" from "present only in the whitespace-normalized rendering"
+#             (tr -s '[:space:]' ' '), naming the wrapped-literal diagnosis; and any pin into
+#             a multi-literal argparse help= string is FAILed with the rendered-surface
+#             requirement (issue #371's `'… OLD does '`+`'not) …'` help= blind spot).
+# A call site the scanner cannot resolve statically is COUNTED and reported on stderr
+# (UNRESOLVED / UNRESOLVED-COUNT), never silently skipped.
+PCL="$LIB/test/pin-corpus-lint.py"
+assert_eq "#375 pin-corpus-lint helper exists" "yes" "$([ -f "$PCL" ] && echo yes || echo no)"
+# Runtime-resolved target-file bindings the static scanner cannot derive itself: DEF_SKILL /
+# IMPL_SKILL_BUNDLE are the mktemp'd implement-skill bundle (markdown, no extension → --md);
+# the $LIB-relative ones the helper resolves on its own, but binding them explicitly is harmless.
+_PCL_ARGS=( --lib "$LIB" --md "$DEF_SKILL"
+  --var "MAXI_SKILL=$MAXI_SKILL" --var "DEF_SKILL=$DEF_SKILL"
+  --var "IMPL_SKILL_BUNDLE=$IMPL_SKILL_BUNDLE"
+  --var "ST_RAF=$ST_RAF" --var "ST_REV=$ST_REV" --var "ST_RCV=$ST_RCV" )
+# (1) Real corpus: no pin literal collides with a comment of its target; a collision here is a
+# real defect to fix in this same PR (issue #375 AC). The scanner reports every unresolvable
+# call site on stderr (UNRESOLVED / UNRESOLVED-COUNT) — SURFACE that count to the run log rather
+# than discarding it with `2>/dev/null`, so a growing unresolved set (a pin the static resolver
+# cannot reach, hence silently exempt from the guard) is VISIBLE at the real-corpus level, not
+# only in the synthetic self-test — honoring the "reported, never silently skipped" contract.
+# The count is surfaced, not asserted zero: an unresolvable site is not a collision, and the
+# current corpus legitimately carries loop-var / command-substitution targets the resolver
+# cannot reach. probe_tmp fail-closes a mktemp failure (records a suite FAIL, never skips the
+# assertion below); guard the rm against its /dev/null sentinel.
+_PCL_LINT_ERR="$(probe_tmp '#375 real-corpus lint stderr capture')"
+# Capture BOTH stdout and the scanner's exit status. A Python traceback on a real-corpus-only
+# input (a resolved-but-unreadable target, a decode error, a latent tokenizer bug the synthetic
+# fixtures don't exercise) writes to stderr and leaves stdout EMPTY with rc!=0 — which a bare
+# `assert_eq "" "$(...)"` would pass VACUOUSLY, the exact fail-open this PR exists to kill. Fold
+# rc into the comparand so a crash is RED (rc!=0) and a real collision is RED (rc=0, non-empty).
+_PCL_LINT_OUT="$(python3 "$PCL" lint "$SELF_SRC" "${_PCL_ARGS[@]}" 2>"$_PCL_LINT_ERR")"; _PCL_LINT_RC=$?
+assert_eq "#375 lint: no pin literal collides with a comment of its own target (real corpus; exit 0 + empty)" \
+  "rc=0|" "rc=$_PCL_LINT_RC|$_PCL_LINT_OUT"
+# Positive-coverage floor: a regression that silently empties the extraction (build_var_maps /
+# extract_pins resolving zero real-corpus sites) would make the empty-output assertion pass while
+# guarding NOTHING — as vacuous as the framing pins this PR eliminates. Assert the scan actually
+# resolved a lower-bound pin count (currently ~660); a generous floor tolerates ordinary pin churn
+# but catches a corpus-emptying regression. Extract the count with a bash builtin, not a PATH tool
+# whose absence would silently change the compared value (CLAUDE.md non-preflight-tool gotcha); a
+# missing/empty count fails the -ge test → RED (fail-closed), never a false pass.
+_PCL_LINT_RCLINE="$(grep '^RESOLVED-COUNT' "$_PCL_LINT_ERR" 2>/dev/null)"; _PCL_LINT_RESOLVED="${_PCL_LINT_RCLINE##*$'\t'}"
+assert_eq "#375 lint: real-corpus scan resolved a non-trivial pin count (>=300; not a silently-empty scan)" \
+  "yes" "$({ [ -n "$_PCL_LINT_RESOLVED" ] && [ "$_PCL_LINT_RESOLVED" -ge 300 ]; } 2>/dev/null && echo yes || echo no)"
+grep '^UNRESOLVED-COUNT' "$_PCL_LINT_ERR" 2>/dev/null | sed 's/^/  #375 lint (surfaced, not asserted): /' >&2 || true
+[ "$_PCL_LINT_ERR" = /dev/null ] || rm -f "$_PCL_LINT_ERR"
+# (2) Real corpus: no resolvable source-grep pin is an off-line / wrapped-literal / help= blind
+# spot; the unresolved count is surfaced the same way.
+_PCL_WRAP_ERR="$(probe_tmp '#375 real-corpus wrapped stderr capture')"
+# Same exit-status fold as the lint block above: a scanner crash (empty stdout + rc!=0) must be
+# RED, not a vacuous green.
+_PCL_WRAP_OUT="$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" 2>"$_PCL_WRAP_ERR")"; _PCL_WRAP_RC=$?
+assert_eq "#375 wrapped-literal meta-guard: no resolvable pin phrase is off-line/wrapped (real corpus; exit 0 + empty)" \
+  "rc=0|" "rc=$_PCL_WRAP_RC|$_PCL_WRAP_OUT"
+# Same positive-coverage floor as the lint block (bash-builtin count extraction, fail-closed).
+_PCL_WRAP_RCLINE="$(grep '^RESOLVED-COUNT' "$_PCL_WRAP_ERR" 2>/dev/null)"; _PCL_WRAP_RESOLVED="${_PCL_WRAP_RCLINE##*$'\t'}"
+assert_eq "#375 wrapped: real-corpus scan resolved a non-trivial pin count (>=300; not a silently-empty scan)" \
+  "yes" "$({ [ -n "$_PCL_WRAP_RESOLVED" ] && [ "$_PCL_WRAP_RESOLVED" -ge 300 ]; } 2>/dev/null && echo yes || echo no)"
+grep '^UNRESOLVED-COUNT' "$_PCL_WRAP_ERR" 2>/dev/null | sed 's/^/  #375 wrapped (surfaced, not asserted): /' >&2 || true
+[ "$_PCL_WRAP_ERR" = /dev/null ] || rm -f "$_PCL_WRAP_ERR"
+
+# ── #375 synthetic-fixture self-tests (the #342/#343 negative-direction style): prove each
+# guard actually FLAGS the bad shape and is SILENT on the good one, so a future edit that
+# defangs a guard fails RED here. Fail CLOSED if the fixture dir can't be created.
+if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
+  # Targets: a #-comment collision (operative + comment), a comment-free twin, an .md
+  # <!-- --> collision, a wrapped-adjacent-literal .py, a multi-literal argparse help= .py,
+  # and a single-line .py (must NOT flag).
+  printf 'echo FLAG_OPERATIVE running\n# note: FLAG_OPERATIVE is the flag name\n' > "$_F375/tgt.sh"
+  printf 'echo FLAG_OPERATIVE running\n' > "$_F375/tgt_nocomment.sh"
+  printf 'The FLAG_MD operative prose line.\n<!-- FLAG_MD is quoted in this comment -->\n' > "$_F375/tgt.md"
+  # WRAPPED (pure `tr -s` case): a prose phrase wrapped across a line boundary by whitespace
+  # only — no single line holds it, but `tr -s '[:space:]' ' '` over the file rejoins it.
+  printf 'the phrase does\nnot fit on one line\n' > "$_F375/wrapped.md"
+  # HELP case: a phrase split across ADJACENT quoted literals in an argparse help= — the quotes
+  # between the literals mean `tr -s` does NOT rejoin it (that is why help= needs its own check),
+  # so only the rendered --help concatenation contains it.
+  printf "p.add_argument('--x', help='the help text is '\n                           'split across literals')\n" > "$_F375/help.py"
+  printf 'msg = "the phrase sits entirely on one line"\n' > "$_F375/single.py"
+  # Comment-ONLY targets (an SPDX-header pin / deliberately comment-targeted contract): the
+  # literal lives ONLY in a comment, never outside it — the pin's intended home, so it must NOT
+  # be flagged. This is the RED-direction proof for the `lit in outside` conjunct: drop that
+  # conjunct and every legitimate comment-anchored pin over-flags while the collision test above
+  # (which has an operative occurrence too) stays green. Cover both the #-comment and .md arms.
+  printf 'echo unrelated running\n# SPDX-style pin: FLAG_CMTONLY_SH lives only in this comment\n' > "$_F375/cmtonly.sh"
+  printf 'Unrelated prose here.\n<!-- FLAG_CMTONLY_MD lives only in this comment -->\n' > "$_F375/cmtonly.md"
+  # ABSENT target: a phrase on no line AND not in the whitespace-normalized rendering → the
+  # meta-guard's ABSENT branch (distinguished from WRAPPED), not a false WRAPPED.
+  printf 'totally unrelated content on one line\n' > "$_F375/absent.py"
+  # RESOLVED-BUT-UNDECODABLE target (issue #375 review): a real file that passes os.path.isfile
+  # but is not valid UTF-8. Without _read_target's guard the scanner raised an uncaught
+  # UnicodeDecodeError, emptying stdout with a non-zero exit — which the real-corpus assertion
+  # would pass VACUOUSLY. The fail-CLOSED contract requires it be COUNTED (target-unreadable) and
+  # the scan to survive. (A chmod-000 permission target is unreliable here: CI runs as root, which
+  # reads 0000 files, so a decode error is the portable way to force the unreadable path.)
+  printf '\377\376 not valid utf-8 bytes here\n' > "$_F375/undecodable.py"
+  # Fixture pin-source: literal-path file args, plus one deliberately unresolvable site.
+  printf '%s\n' \
+    "assert_pin_unique \"fx-comment-collision\" 'FLAG_OPERATIVE' \"$_F375/tgt.sh\"" \
+    "assert_pin_unique \"fx-no-collision\" 'FLAG_OPERATIVE' \"$_F375/tgt_nocomment.sh\"" \
+    "assert_pin_unique \"fx-md-collision\" 'FLAG_MD' \"$_F375/tgt.md\"" \
+    "assert_pin_unique \"fx-cmtonly-sh\" 'FLAG_CMTONLY_SH' \"$_F375/cmtonly.sh\"" \
+    "assert_pin_unique \"fx-cmtonly-md\" 'FLAG_CMTONLY_MD' \"$_F375/cmtonly.md\"" \
+    "assert_pin_unique \"fx-wrapped\" 'the phrase does not fit on one line' \"$_F375/wrapped.md\"" \
+    "assert_pin_unique \"fx-help\" 'the help text is split across literals' \"$_F375/help.py\"" \
+    "assert_pin_unique \"fx-single\" 'the phrase sits entirely on one line' \"$_F375/single.py\"" \
+    "assert_pin_unique \"fx-absent\" 'this phrase is entirely absent from the target' \"$_F375/absent.py\"" \
+    "assert_pin_unique \"fx-undecodable\" 'undecodable-marker' \"$_F375/undecodable.py\"" \
+    "assert_pin_unique \"fx-unresolvable\" 'x' \"\$NEVER_SET_VAR\"" \
+    > "$_F375/pins.sh"
+  _L375="$(python3 "$PCL" lint "$_F375/pins.sh" --lib "$_F375" 2>"$_F375/lint.err")"
+  _W375="$(python3 "$PCL" wrapped "$_F375/pins.sh" --lib "$_F375" 2>/dev/null)"
+  # Lint self-tests.
+  assert_eq "#375 lint self-test: a #-comment that also quotes an operative literal is flagged" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*tgt.sh.*FLAG_OPERATIVE' && echo yes || echo no)"
+  assert_eq "#375 lint self-test: the comment-free twin is NOT flagged (discriminates)" \
+    "no" "$(printf '%s' "$_L375" | grep -q 'tgt_nocomment.sh' && echo yes || echo no)"
+  assert_eq "#375 lint self-test: an .md <!-- … --> comment collision is flagged" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*tgt.md.*FLAG_MD' && echo yes || echo no)"
+  assert_eq "#375 lint self-test: a literal living ONLY in a #-comment (SPDX-style) is NOT flagged" \
+    "no" "$(printf '%s' "$_L375" | grep -q 'cmtonly.sh' && echo yes || echo no)"
+  assert_eq "#375 lint self-test: a literal living ONLY in an .md <!-- … --> comment is NOT flagged" \
+    "no" "$(printf '%s' "$_L375" | grep -q 'cmtonly.md' && echo yes || echo no)"
+  assert_eq "#375 lint self-test: an unresolvable call site is reported on stderr (never silently skipped)" \
+    "yes" "$(grep -q 'file=?' "$_F375/lint.err" && echo yes || echo no)"
+  # A resolved-but-undecodable target is COUNTED (fail-closed), not an uncaught crash. The scan
+  # SURVIVING (the collision self-tests above still see their findings in $_L375) proves the bad
+  # target did not abort the whole run; this asserts it was reported, not silently swallowed.
+  assert_eq "#375 lint self-test: a resolved-but-undecodable target is counted (target-unreadable), not a crash" \
+    "yes" "$(grep -q 'target-unreadable=.*undecodable.py' "$_F375/lint.err" && echo yes || echo no)"
+  # Wrapped-literal meta-guard self-tests.
+  assert_eq "#375 meta-guard self-test: a whitespace-wrapped phrase is flagged with the wrapped-literal diagnosis" \
+    "yes" "$(printf '%s' "$_W375" | grep -q 'WRAPPED.*wrapped.md.*wrapped-literal' && echo yes || echo no)"
+  assert_eq "#375 meta-guard self-test: a phrase that sits on one line is NOT flagged" \
+    "no" "$(printf '%s' "$_W375" | grep -q 'single.py' && echo yes || echo no)"
+  assert_eq "#375 meta-guard self-test: a pin into a multi-literal argparse help= is FAILed with the rendered-surface requirement" \
+    "yes" "$(printf '%s' "$_W375" | grep -qi 'HELP.*help.py.*rendered' && echo yes || echo no)"
+  assert_eq "#375 meta-guard self-test: a genuinely-absent phrase reads ABSENT, not a false WRAPPED" \
+    "yes" "$(printf '%s' "$_W375" | grep -q 'ABSENT.*absent.py' && ! printf '%s' "$_W375" | grep -q 'WRAPPED.*absent.py' && echo yes || echo no)"
+  rm -rf "$_F375"
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #375 pin-corpus self-tests: mktemp -d failed (guards could not be exercised; not a vacuous skip)\n' >&2
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
