@@ -4703,6 +4703,15 @@ assert_eq "#356 flip: a missing workpad.py sibling is NOT reported as 'comment-a
   "$(! grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
 assert_eq "#356 flip: a missing workpad.py sibling states absence was NOT established" "yes" \
   "$(grep -q 'absence was NOT established' "$S356/ferr" && echo yes || echo no)"
+# The helper screens this class TWICE — a readable-sibling precheck and an rc-2 + non-empty
+# stderr discriminator — and either alone yields a read-failure arm. So asserting only the
+# OUTCOME leaves both guards individually deletable with the suite still GREEN. Pin the
+# PRECHECK specifically, by the breadcrumb only it emits: the discriminator's message names
+# python3's exit, never "a partial vendor copy". Deleting the precheck alone now goes RED.
+# (The precheck is the robust half: the discriminator no-ops when $WP_ERR could not be
+# allocated, and relies on --marker always being explicit.)
+assert_eq "#356 flip: the readable-sibling PRECHECK fired (not merely the rc-2 stderr discriminator)" "yes" \
+  "$(grep -q 'missing or unreadable — a partial vendor copy?' "$S356/ferr" && echo yes || echo no)"
 # An unreadable (mode-000) sibling is the same class and must take the same arm, not the
 # comment-absent one. Skip under a uid that ignores the mode bit (e.g. root in a container).
 cp "$WP_PY" "$S356/lonely/workpad.py"
