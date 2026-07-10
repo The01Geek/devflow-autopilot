@@ -117,8 +117,15 @@ case "$PR_NUMBER" in
       :                                                                                    # rc 0 — resume $WP (this run's own comment)
     elif [ "$?" -eq 2 ] && [ ! -s /tmp/devflow-rv-id.err ]; then
       # (S3) rc 2 AND silent ⇒ genuinely cmd_id's clean-absence exit. This run's first
-      # GitHub write — the marker is the body file's first line, so `create` needs no --marker:
-      WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py create "$PR_NUMBER" /tmp/review-wp.md)
+      # GitHub write — the marker is the body file's first line, so `create` needs no --marker.
+      # Guard the create the SAME way as the id call: a create failure (gh-api error, rate
+      # limit, malformed body file) otherwise leaves WP="" and the downstream patch a silent
+      # no-op — the exact baffling missing-comment this block was rewritten to eliminate. So
+      # capture its stderr and surface a breadcrumb rather than swallowing it:
+      if ! WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py create "$PR_NUMBER" /tmp/review-wp.md 2>/tmp/devflow-rv-create.err); then
+        WP=""
+        echo "::warning::devflow review: live progress-comment create failed (workpad.py create rc≠0): $(cat /tmp/devflow-rv-create.err 2>/dev/null); continuing without the live comment" >&2
+      fi
     else
       # A real gh-api/parse failure (rc 1), OR an rc-2 WITH stderr (an interpreter-level exit
       # — NOT cmd_id's clean scan). Skip seeding to avoid a duplicate, and surface the

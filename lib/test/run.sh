@@ -1116,6 +1116,15 @@ assert_pin_unique "#384 review-seed: rc-2 arm requires empty captured stderr (si
 # (AC4) the captured id stderr is surfaced on the interpreter-level-rc-2 / rc-1 failure arm,
 # no longer discarded on the (now-unreachable-by-an-interpreter-error) create arm:
 assert_pin_unique "#384 review-seed: failure arm surfaces the rc-2-with-stderr interpreter exit" 'rc 2 with stderr — an interpreter-level exit' "$ST_REV"
+# (S2 distinct-cause) AC2 promises a breadcrumb distinguishing a MISSING ([Errno 2]) from an
+# UNREADABLE ([Errno 13]) workpad.py; pin the unreadable-cause literal so collapsing the
+# two-way breadcrumb into one generic message (while keeping the [ ! -r ] guard) goes RED
+# (review-and-fix iter1 pr-test-analyzer gap):
+assert_pin_unique "#384 review-seed: S2 breadcrumb names the unreadable ([Errno 13]) cause distinctly" 'present but unreadable ([Errno 13])' "$ST_REV"
+# (create-arm guard) the S3 create call is guarded like the id call — a create failure emits
+# a specific breadcrumb rather than a silent WP='' no-op (review-and-fix iter1
+# silent-failure-hunter finding); pin the breadcrumb so removing the guard goes RED:
+assert_pin_unique "#384 review-seed: create arm surfaces a breadcrumb on create failure (no silent no-op)" 'live progress-comment create failed (workpad.py create rc≠0)' "$ST_REV"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "self-contradicting-diff verdict carve-out (Phase 4.2, threshold-independent) (#263)"
