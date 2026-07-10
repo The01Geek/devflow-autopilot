@@ -84,10 +84,13 @@ _RULE = re.compile(r"Bash\(([^)]*)\)")
 
 _HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
-# A `case` arm's pattern (`critical|important)`, `*)`, `[RC])`) is shell syntax,
-# not a command. Patterns are restricted to glob/alternation characters so a real
-# command ending in `)` — a subshell close — is never mistaken for one.
-_CASE_PATTERN = re.compile(r"^\s*\(?\s*([\w*?\[\]|.\-\"' ]+?)\)\s*")
+# A `case` arm's pattern (`critical|important)`, `*)`, `[RC])`, `''|*[!0-9]*)`) is
+# shell syntax, not a command. Patterns are restricted to glob/alternation
+# characters so a real command ending in `)` — a subshell close — is never mistaken
+# for one. `!` and `^` are in the class because a bracket expression may be negated
+# in either spelling (bash's `[!0-9]`, POSIX's `[^0-9]`); omitting them leaks the
+# arm itself out as a bogus command head.
+_CASE_PATTERN = re.compile(r"^\s*\(?\s*([\w*?\[\]|.\-\"' !^]+?)\)\s*")
 
 # A leading redirection (`>file`, `2>&1`, `&>log`) is not a command head.
 _REDIRECTION = re.compile(r"^&?[0-9]*[<>]")

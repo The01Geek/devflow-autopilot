@@ -6596,6 +6596,169 @@ assert_eq "#327 Shape 2 fail-open pin: a list item whose only ext token is a roo
   "docs/guide.md" \
   "$(printf '%s\n' "$fx_327_arms_rooted" | bash "$EXTRACT_HELPER")"
 
+# ── issue #380: the `### Documentation Needed` HEADING as a third scope-opening ─
+# shape. Bug-class fix — reproduced RED first at authoring time: against today's
+# extractor a heading-form body extracted NOTHING (rc 0, empty stdout — the exact
+# #363 gap that defeated the Phase 4.1 deliverable cross-check). The four W6A
+# fixtures below assert the widened behavior; the coupled-pair + operative-sentence
+# removal-proof pins follow.
+
+# W6A Case 38: a `### Documentation Needed` heading inside `## Implementation Notes`
+# extracts its paths, the same as the equivalent bold-bullet body.
+fx_380_heading="## Implementation Notes
+
+### Documentation Needed
+
+- update \`docs/a.md\`
+- update \`docs/b.md\`"
+assert_eq "#380 W6A heading shape: '### Documentation Needed' body extracts its paths" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_380_heading" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 39: a heading-opened scope CLOSES at the next heading, so a later
+# subsection's paths never leak.
+fx_380_heading_close="## Implementation Notes
+
+### Documentation Needed
+
+- update \`docs/a.md\`
+
+### Potential Gotchas
+
+names \`docs/leak.md\`."
+assert_eq "#380 W6A heading shape: scope closes at next heading (no leak)" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_380_heading_close" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 40: prose that merely MENTIONS `### Documentation Needed` inside another
+# bullet does NOT open a scope (the line starts with `- `, never `^###`), so a path
+# named in that bullet is not extracted — the heading-form analogue of Case 5.
+fx_380_heading_mention="## Implementation Notes
+
+- **Potential Gotchas** — the \`### Documentation Needed\` heading form is new; do not extract \`docs/leak.md\` mentioned here."
+assert_eq "#380 W6A heading shape: mention inside another bullet does not open scope" \
+  "" \
+  "$(printf '%s\n' "$fx_380_heading_mention" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 41: a `### Documentation Needed` heading OUTSIDE `## Implementation Notes`
+# does not open a scope (the opener is gated on state>=1).
+fx_380_heading_outside="## Technical Context
+
+### Documentation Needed
+
+- update \`docs/should-not.md\`"
+assert_eq "#380 W6A heading shape: heading outside Implementation Notes does not open scope" \
+  "" \
+  "$(printf '%s\n' "$fx_380_heading_outside" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 42 (review pin — discriminating anchor): a DEEPER `#### Documentation Needed`
+# heading does NOT open a scope. The opener is anchored to level 3 (`^###[[:space:]]+…`),
+# so a 4th `#` blocks the `[[:space:]]+` and the line takes the close arm. This pins the
+# exact level-3 discrimination: relaxing the opener to `^###+[[:space:]]+…` (the intuitive
+# "any heading level" generalization) would make `####` open and silently over-extract,
+# and WITHOUT this fixture the whole suite would stay green through that regression.
+fx_380_deeper_noopen="## Implementation Notes
+
+#### Documentation Needed
+
+- update \`docs/should-not.md\`"
+assert_eq "#380 W6A heading shape: a deeper #### Documentation Needed heading does NOT open scope (level-3 anchor)" \
+  "" \
+  "$(printf '%s\n' "$fx_380_deeper_noopen" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 43 (review pin — leak-prevention close path): a deeper `####` sub-heading
+# inside an OPEN `### Documentation Needed` scope CLOSES it (2 -> 1), so a later
+# subsection's paths never leak. Pins the `else if (state == 2) state = 1` close arm on a
+# deeper heading (Case 39 pins only a peer-`###` close); a regression making `####` a
+# no-op fall-through would leak `docs/leak.md`.
+fx_380_deeper_closes="## Implementation Notes
+
+### Documentation Needed
+
+- update \`docs/a.md\`
+
+#### Sub-section
+
+names \`docs/leak.md\`."
+assert_eq "#380 W6A heading shape: a deeper #### sub-heading closes an open ### scope (no leak)" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_380_deeper_closes" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 44 (review pin — bold-tolerance): a bold-wrapped `### **Documentation Needed**`
+# heading opens the scope — the opener's `\*{0,2}` tolerance. Pins the shape the Stage 1
+# safety-net grep's matching `\*{0,2}` (phase-4 §4.1) is coupled to, so the two heading
+# recognizers cannot silently diverge on the bold-in-heading form.
+fx_380_bold_heading="## Implementation Notes
+
+### **Documentation Needed**
+
+- update \`docs/a.md\`"
+assert_eq "#380 W6A heading shape: a bold-wrapped ### **Documentation Needed** heading opens scope" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_380_bold_heading" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 45 (shadow-review pin — the heading arm's `emitted = 0` reset is
+# load-bearing, not vacuous): a MULTI-scope body arms `emitted` in an earlier
+# bold-bullet scope (docs/a.md, a structural deliverable), that scope closes on a
+# peer bullet, then a later `### Documentation Needed` heading re-opens and its
+# reset clears `emitted` so a PRIMARY-PROSE declaration (docs/b.md) is still
+# captured. Cases 38-44 each hold a single scope, so `emitted` is always 0 when the
+# heading opens and deleting the reset leaves them all GREEN; only this multi-scope
+# body makes the reset load-bearing. Verified at authoring time: with the reset the
+# output is {docs/a.md, docs/b.md}; removing the heading-arm `emitted = 0` reset
+# drops docs/b.md to {docs/a.md} — the #289/#309/#327 primary-prose fail-open class,
+# one scope-shape over. Goes RED if the reset is removed.
+fx_380_multiscope="## Implementation Notes
+
+- **Documentation Needed** — update \`docs/a.md\`
+- **Potential Gotchas** — something
+
+### Documentation Needed
+
+Update \`docs/b.md\` to reflect the change."
+assert_eq "#380 W6A heading shape: heading-arm emitted-reset keeps a later primary-prose deliverable (multi-scope, non-vacuous)" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_380_multiscope" | bash "$EXTRACT_HELPER")"
+
+# W6A coupled pair (AC6): the create-issue template canonically emits the bold-bullet
+# `**Documentation Needed**` form, and the extractor accepts all three shapes. Pin
+# BOTH sites with removal proofs so mutating EITHER alone turns the suite RED — the
+# producer/consumer coupling this issue exists to manage.
+assert_pin_red_on_removal "#380 W6A coupled pair: template emits the canonical bold-bullet Documentation Needed form" \
+  '**Documentation Needed** — what doc updates the change requires.' "$CI312_TMPL"
+assert_pin_red_on_removal "#380 W6A coupled pair: extractor opener accepts the ### Documentation Needed heading shape" \
+  '^###[[:space:]]+\*{0,2}Documentation Needed' "$EXTRACT_HELPER"
+
+# W6A operative-sentence removal proofs (AC8) — every new operative sentence pinned.
+# (Interim primitive assert_pin_red_on_removal; #375's assert_pin_red_under supersedes
+# it once that wave lands.)
+P380_P3="$IMPL_PHASES_DIR/phase-3-review.md"
+P380_P4="$IMPL_PHASES_DIR/phase-4-documentation.md"
+P380_P2="$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_red_on_removal "#380 W6A: §3.4 doc-AC deferral rule leaves it unticked and does not block the gate" \
+  'and does not block the gate' "$P380_P3"
+assert_pin_red_on_removal "#380 W6A: §3.4 rule 1 excludes Phase-4.1-owned doc authoring from its 'do it now' channel" \
+  'This "do it now" channel excludes documentation authoring owned by Phase 4.1' "$P380_P3"
+assert_pin_red_on_removal "#380 W6A: §4.1 requires discharging every 3.4-deferred doc-AC before §4.3 Complete" \
+  'Discharge every 3.4-deferred documentation AC (mandatory, before §4.3)' "$P380_P4"
+assert_pin_red_on_removal "#380 W6A: §4.1 Stage 1 safety-net grep fires on the bold-bullet OR ### heading form (bold-tolerant, mirrors the extractor opener)" \
+  "grep -qE '\\*\\*Documentation Needed\\*\\*|^###[[:space:]]+\\*{0,2}Documentation Needed'" "$P380_P4"
+assert_pin_red_on_removal "#380 W6A: phase-2 cross-references the doc-AC deferral (docs stay Phase-4.1-authored)" \
+  'is why an acceptance criterion satisfied by a' "$P380_P2"
+assert_pin_red_on_removal "#380 W6A: create-issue template Move 3 carries the verified-or-obligation mechanical-claim rule" \
+  'A mechanical claim is verified-or-obligation, never a bare prediction.' "$CI312_TMPL"
+assert_pin_red_on_removal "#380 W6A: create-issue SKILL.md drafting step mirrors the verified-or-obligation rule" \
+  'A mechanical claim is verified-or-obligation, never a bare prediction' "$CI312_SKILL"
+# AC8 completeness (shadow-review pin): the Relevant Classes/Files line-anchor rule is a
+# distinct new operative sentence, so it earns its own removal proof in BOTH sites.
+assert_pin_red_on_removal "#380 W6A: create-issue template pins the Relevant Classes/Files line-anchor rule" \
+  '**Relevant Classes/Files line anchors**: cite the symbol or section' "$CI312_TMPL"
+assert_pin_red_on_removal "#380 W6A: create-issue SKILL.md pins the Relevant Classes/Files line-anchor rule" \
+  '`Relevant Classes/Files` references cite the symbol or section, not a `file:line` anchor, which rots.' "$CI312_SKILL"
+# Extractor header names all three shapes and this issue (AC5 documentation clause).
+assert_pin_unique "#380 W6A: extractor header names the ### Documentation Needed shape and issue #380" \
+  'a `### Documentation Needed` level-3 heading (issue #380)' "$EXTRACT_HELPER"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
@@ -20197,6 +20360,40 @@ assert_eq "#363 every subcommand of a compound command is extracted (all 7 separ
 printf '%s\n' '```bash' 'aa 2>&1' 'bb >&2' 'cc &>log' '```' > "$E363/redir.md"
 assert_eq "#363 '&' inside a redirection (2>&1, >&2, &>log) never emits a file descriptor as a head" \
   "aa bb cc" "$(python3 "$ECH" heads "$E363/redir.md" | tr '\n' ' ' | sed 's/ *$//')"
+
+# ── A `case` arm is shell syntax, not a command. Negated bracket expressions are
+# ── legal pattern characters in both spellings — bash's `[!0-9]` and POSIX's
+# ── `[^0-9]` — so the arm-stripping pattern class must accept `!` and `^`. When it
+# ── did not, skills/review/SKILL.md's `''|*[!0-9]*)` arm (added by #384) was emitted
+# ── as the bogus head `*[!0-9]*)` and the two allowlist pins above went RED.
+cat > "$E363/caseneg.md" <<'CASEMD'
+```bash
+case "$N" in
+  ''|*[!0-9]*)
+    aa ;;
+  [^a-z]*)
+    bb ;;
+  *)
+    cc ;;
+esac
+```
+CASEMD
+assert_eq "#363 a negated bracket case arm ([!0-9] and [^a-z]) is pattern syntax, never a command head" \
+  "aa bb cc" "$(python3 "$ECH" heads "$E363/caseneg.md" | tr '\n' ' ' | sed 's/ *$//')"
+
+# ── Non-regression for the widened arm class: a case *body* command ending in `)`
+# ── (a `$(...)` close) is still a head, not a swallowed pattern. This is what keeps
+# ── the `!`/`^` widening from turning body commands into patterns.
+cat > "$E363/casecmd.md" <<'CASECMD'
+```bash
+case "$N" in
+  *)
+    aa $(bb) ;;
+esac
+```
+CASECMD
+assert_eq "#363 a case-body command ending in a \$(...) close is still a head, not a case arm" \
+  "aa bb" "$(python3 "$ECH" heads "$E363/casecmd.md" | tr '\n' ' ' | sed 's/ *$//')"
 
 # ── Process wrappers are stripped before matching, exactly as Claude Code does.
 printf '%s\n' '```bash' 'timeout 300 bash x.sh' 'nice -n 5 aa' 'nohup bb' 'stdbuf -oL cc' 'xargs dd' 'time ee' '```' > "$E363/wrap.md"
