@@ -5836,6 +5836,94 @@ assert_eq "#327 Shape 2 fail-open pin: a list item whose only ext token is a roo
   "docs/guide.md" \
   "$(printf '%s\n' "$fx_327_arms_rooted" | bash "$EXTRACT_HELPER")"
 
+# ── issue #380: the `### Documentation Needed` HEADING as a third scope-opening ─
+# shape. Bug-class fix — reproduced RED first at authoring time: against today's
+# extractor a heading-form body extracted NOTHING (rc 0, empty stdout — the exact
+# #363 gap that defeated the Phase 4.1 deliverable cross-check). The four W6A
+# fixtures below assert the widened behavior; the coupled-pair + operative-sentence
+# removal-proof pins follow.
+
+# W6A Case 38: a `### Documentation Needed` heading inside `## Implementation Notes`
+# extracts its paths, the same as the equivalent bold-bullet body.
+fx_380_heading="## Implementation Notes
+
+### Documentation Needed
+
+- update \`docs/a.md\`
+- update \`docs/b.md\`"
+assert_eq "#380 W6A heading shape: '### Documentation Needed' body extracts its paths" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_380_heading" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 39: a heading-opened scope CLOSES at the next heading, so a later
+# subsection's paths never leak.
+fx_380_heading_close="## Implementation Notes
+
+### Documentation Needed
+
+- update \`docs/a.md\`
+
+### Potential Gotchas
+
+names \`docs/leak.md\`."
+assert_eq "#380 W6A heading shape: scope closes at next heading (no leak)" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_380_heading_close" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 40: prose that merely MENTIONS `### Documentation Needed` inside another
+# bullet does NOT open a scope (the line starts with `- `, never `^###`), so a path
+# named in that bullet is not extracted — the heading-form analogue of Case 5.
+fx_380_heading_mention="## Implementation Notes
+
+- **Potential Gotchas** — the \`### Documentation Needed\` heading form is new; do not extract \`docs/leak.md\` mentioned here."
+assert_eq "#380 W6A heading shape: mention inside another bullet does not open scope" \
+  "" \
+  "$(printf '%s\n' "$fx_380_heading_mention" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 41: a `### Documentation Needed` heading OUTSIDE `## Implementation Notes`
+# does not open a scope (the opener is gated on state>=1).
+fx_380_heading_outside="## Technical Context
+
+### Documentation Needed
+
+- update \`docs/should-not.md\`"
+assert_eq "#380 W6A heading shape: heading outside Implementation Notes does not open scope" \
+  "" \
+  "$(printf '%s\n' "$fx_380_heading_outside" | bash "$EXTRACT_HELPER")"
+
+# W6A coupled pair (AC6): the create-issue template canonically emits the bold-bullet
+# `**Documentation Needed**` form, and the extractor accepts all three shapes. Pin
+# BOTH sites with removal proofs so mutating EITHER alone turns the suite RED — the
+# producer/consumer coupling this issue exists to manage.
+assert_pin_red_on_removal "#380 W6A coupled pair: template emits the canonical bold-bullet Documentation Needed form" \
+  '**Documentation Needed** — what doc updates the change requires.' "$CI312_TMPL"
+assert_pin_red_on_removal "#380 W6A coupled pair: extractor opener accepts the ### Documentation Needed heading shape" \
+  '^###[[:space:]]+\*{0,2}Documentation Needed' "$EXTRACT_HELPER"
+
+# W6A operative-sentence removal proofs (AC8) — every new operative sentence pinned.
+# (Interim primitive assert_pin_red_on_removal; #375's assert_pin_red_under supersedes
+# it once that wave lands.)
+P380_P3="$IMPL_PHASES_DIR/phase-3-review.md"
+P380_P4="$IMPL_PHASES_DIR/phase-4-documentation.md"
+P380_P2="$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_red_on_removal "#380 W6A: §3.4 doc-AC deferral rule leaves it unticked and does not block the gate" \
+  'and does not block the gate' "$P380_P3"
+assert_pin_red_on_removal "#380 W6A: §3.4 rule 1 excludes Phase-4.1-owned doc authoring from its 'do it now' channel" \
+  'This "do it now" channel excludes documentation authoring owned by Phase 4.1' "$P380_P3"
+assert_pin_red_on_removal "#380 W6A: §4.1 requires discharging every 3.4-deferred doc-AC before §4.3 Complete" \
+  'Discharge every 3.4-deferred documentation AC (mandatory, before §4.3)' "$P380_P4"
+assert_pin_red_on_removal "#380 W6A: §4.1 Stage 1 safety-net grep fires on the bold-bullet OR ### heading form" \
+  "grep -qE '\\*\\*Documentation Needed\\*\\*|^###[[:space:]]+Documentation Needed'" "$P380_P4"
+assert_pin_red_on_removal "#380 W6A: phase-2 cross-references the doc-AC deferral (docs stay Phase-4.1-authored)" \
+  'is why an acceptance criterion satisfied by a' "$P380_P2"
+assert_pin_red_on_removal "#380 W6A: create-issue template Move 3 carries the verified-or-obligation mechanical-claim rule" \
+  'A mechanical claim is verified-or-obligation, never a bare prediction.' "$CI312_TMPL"
+assert_pin_red_on_removal "#380 W6A: create-issue SKILL.md drafting step mirrors the verified-or-obligation rule" \
+  'A mechanical claim is verified-or-obligation, never a bare prediction' "$CI312_SKILL"
+# Extractor header names all three shapes and this issue (AC5 documentation clause).
+assert_pin_unique "#380 W6A: extractor header names the ### Documentation Needed shape and issue #380" \
+  'a `### Documentation Needed` level-3 heading (issue #380)' "$EXTRACT_HELPER"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────

@@ -196,6 +196,16 @@ Describe the **one** approach the user chose — not a comparison of candidates.
     exhibiting the exact wrong behavior (the dropped last row, the off-by-one), then pass
     after the fix. "Behavior doesn't exist yet" is the wrong framing for a bug; the wrong
     behavior already exists.
+  - **A mechanical claim is verified-or-obligation, never a bare prediction.** When an
+    assertion states a mechanical outcome — "running X reports Y", "the extractor/grep/command
+    emits Z", "this must fail RED reporting W" — take exactly one of two decided forms: **(a)
+    verified** — you actually ran the extraction/grep/command while drafting the issue and cite
+    its **observed** output, or **(b) an obligation** — write it as a requirement on the
+    implementer ("the pin must cover X"), **never** a prediction of the specific result Y/Z/W
+    you did not execute. An unverified mechanical prediction reads exactly like a decided
+    requirement and sends the implementer to re-derive (or encode) a falsehood. The same
+    discipline governs **Relevant Classes/Files line anchors**: cite the symbol or section, not
+    a `file:line` number, which rots between drafting and implementation.
   - Name the **fixtures / test doubles** the failing test needs, and what must **not** be
     mocked — never mock the unit under test or the boundary the assertion is proving.
   - **Don't test the framework.** Assert observable behavior (the CSV bytes round-trip
