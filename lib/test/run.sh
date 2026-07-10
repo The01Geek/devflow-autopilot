@@ -20885,13 +20885,33 @@ assert_eq "#401 R3 flags a cat-heredoc write even to a NON-/tmp target (heredoc-
 printf '%s\n' '```bash' 'python3 helper.py' '```' > "$E363/s-r4.md"
 assert_eq "#401 R4 flags an interpreter head (python3)" "yes" \
   "$(python3 "$ECS" "$E363/s-r4.md" | grep -q '  R4  ' && echo yes || echo no)"
+# ── R1 fail-open regression (PR #397 review finding): an env-prefix compound whose value is
+# ── a SUBSTITUTION is the same denied leading-`VAR=value` shape as a literal-valued one —
+# ── the substitution-capture exemption applies only to a PURE capture with no following
+# ── command token. Both fixtures linted CLEAN before the fix (observed rc 0).
+printf '%s\n' '```bash' 'M=$(x) printf hi' '```' > "$E363/s-r1c.md"
+assert_eq "#401 R1 flags an env-prefix compound with a substitution value (M=\$(x) cmd)" "yes" \
+  "$(python3 "$ECS" "$E363/s-r1c.md" | grep -q '  R1  ' && echo yes || echo no)"
+printf '%s\n' '```bash' 'VAR="$(x)" printf hi' '```' > "$E363/s-r1d.md"
+assert_eq "#401 R1 flags an env-prefix compound with a quoted-substitution value" "yes" \
+  "$(python3 "$ECS" "$E363/s-r1d.md" | grep -q '  R1  ' && echo yes || echo no)"
+# ── R3 anti-vacuity for the stderr arm: `2>` to /tmp is the ORIGINAL denied capture shape
+# ── from run 29105381021 (the skill's old `2>/tmp/devflow-rv-*.err` captures).
+printf '%s\n' '```bash' 'printf hi 2>/tmp/e.err' '```' > "$E363/s-r3d.md"
+assert_eq "#401 R3 flags a 2> stderr redirect to a /tmp target" "yes" \
+  "$(python3 "$ECS" "$E363/s-r3d.md" | grep -q '  R3  ' && echo yes || echo no)"
+# ── Control-word stripping: a violation BEHIND a stripped control word still fires; a pure
+# ── capture behind one stays clean (the `elif WP=$(…)` idiom Phase 0.3.5 relies on).
+printf '%s\n' '```bash' 'if M=x printf hi; then' 'echo y' 'fi' '```' > "$E363/s-r1e.md"
+assert_eq "#401 R1 still fires behind a stripped control word (if M=x cmd; then)" "yes" \
+  "$(python3 "$ECS" "$E363/s-r1e.md" | grep -q '  R1  ' && echo yes || echo no)"
 
 # ── Discrimination: the PERMITTED shapes are NOT flagged (the false-positive class this
 # ── lint must avoid: a capture, an empty reset, `IFS= read`, `tee`, a pipe into `tee`, and
 # ── a `>` redirect to an in-workspace .devflow/tmp target all pass).
 { printf '%s\n' '```bash' 'WP=$(gh pr view 1)' 'WP=""' 'IFS= read -r x' "tee f <<'EOF'" 'body' 'EOF' \
-    'printf hi | tee f' 'VAR="$(gh pr view 2)"' '```'; } > "$E363/s-ok.md"
-assert_eq "#401 shape-lint does NOT flag permitted shapes (capture, empty reset, IFS= read, tee, pipe-tee)" "" \
+    'printf hi | tee f' 'VAR="$(gh pr view 2)"' 'elif WP=$(gh pr view 3); then' 'cdrecord x' 'pythonize data' '```'; } > "$E363/s-ok.md"
+assert_eq "#401 shape-lint does NOT flag permitted shapes (capture, empty reset, IFS= read, tee, pipe-tee, elif-capture, near-miss heads)" "" \
   "$(python3 "$ECS" "$E363/s-ok.md")"
 printf '%s\n' '```bash' 'somehelper.sh -n > .devflow/tmp/x.json' '```' > "$E363/s-ok2.md"
 assert_eq "#401 shape-lint does NOT flag a > redirect to an in-workspace .devflow/tmp target" "" \
@@ -20906,6 +20926,14 @@ S401_OUT="$(python3 "$ECS" "$S401_MUT" 2>&1)"; S401_RC=$?
 assert_eq "#401 behavioral: reintroducing a cat-heredoc /tmp authoring flips the shape-lint RED (exit 1)" "1" "$S401_RC"
 assert_eq "#401 behavioral: that reintroduced regression is named R3" "yes" \
   "$(printf '%s\n' "$S401_OUT" | grep -q '  R3  ' && echo yes || echo no)"
+
+# ── Phase 4.5's authoring recipe is PROSE the fence lint cannot reach (the PR #397 review
+# ── REJECT: it offered `cat <<'EOF'` while the same diff's discipline bans cat-heredocs).
+# ── Pin the corrected surface both ways: the tee-based clause present, the cat option gone.
+assert_eq "#401 Phase 4.5 authoring prose offers the sanctioned tee heredoc, never cat (corrected clause present)" "1" \
+  "$(grep -cF 'never a `cat`-headed heredoc, which the *Cloud command-shape discipline* classifies as denied' "$ST_REV")"
+assert_eq "#401 Phase 4.5 authoring prose carries NO cat-heredoc authoring option (review-REJECT regression pin)" "0" \
+  "$(grep -cF "(or \`cat <<'EOF'\`" "$ST_REV")"
 
 # ── #401 grounding block: the command-shape rules render into the injected engine-ground-truth
 # ── block. Pin the RENDERED surface (#375 discipline — the switch rule wraps across source lines),

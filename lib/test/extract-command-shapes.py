@@ -74,11 +74,6 @@ _spec.loader.exec_module(_heads)
 _ASSIGNMENT = _heads._ASSIGNMENT
 _HEREDOC = _heads._HEREDOC
 
-# Control words that may legally precede a command (or an assignment-capture) in a
-# condition. Stripped before the shape check so `elif WP=$(cmd)` is read as its
-# `WP=$(cmd)` capture, not misread as a bare-`elif` head.
-_CONTROL = frozenset({"if", "elif", "while", "until", "!"})
-
 _INTERPRETERS = frozenset({"python3", "python", "node"})
 
 # A redirection token: an optional fd/`&` then `>`/`>>`, with the target either
@@ -141,13 +136,6 @@ def _collect_statements(text: str, out: list[str]) -> None:
         out.append(statement)
 
 
-def _leading_after_control(tokens: list[str]) -> list[str]:
-    i = 0
-    while i < len(tokens) and tokens[i] in _CONTROL:
-        i += 1
-    return tokens[i:]
-
-
 def _is_command_token(token: str) -> bool:
     """True when a token is a plausible command head (not an assignment, redirect,
     heredoc opener, separator remnant, or shell syntax word)."""
@@ -161,7 +149,53 @@ def _is_command_token(token: str) -> bool:
     return True
 
 
+# Control words that may legally precede a command (or an assignment-capture) in a
+# condition. Stripped before the shape check so `elif WP=$(cmd)` is read as its
+# `WP=$(cmd)` capture, not misread as a bare-`elif` head.
 _CONTROL_PREFIX = re.compile(r"^(?:if|elif|while|until|!)\s+")
+
+
+def _leading_substitution_split(value: str):
+    """For an assignment value beginning `$(` or `"$(`, find where that leading
+    substitution ends and return `(balanced, rest_after_it)`; return None when the
+    value does not begin with one. The walk tracks paren depth with single/double
+    quote and backslash awareness, so a capture whose inner command carries its own
+    quoted arguments is measured by its real closing paren, not the first `)`."""
+    v = value.lstrip()
+    quoted = v.startswith('"$(')
+    if not (v.startswith("$(") or quoted):
+        return None
+    i = 3 if quoted else 2  # first char inside the substitution
+    depth = 1
+    in_d = in_s = False
+    while i < len(v):
+        c = v[i]
+        if in_s:
+            if c == "'":
+                in_s = False
+        elif c == "\\":
+            i += 1  # skip the escaped char (no escapes exist inside single quotes)
+        elif in_d:
+            if c == '"':
+                in_d = False
+        elif c == "'":
+            in_s = True
+        elif c == '"':
+            in_d = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                i += 1
+                if quoted:
+                    if i < len(v) and v[i] == '"':
+                        i += 1
+                    else:  # `"$(…)` never re-closed its quote — not a clean capture
+                        return (False, v[i:])
+                return (True, v[i:])
+        i += 1
+    return (False, "")
 
 
 def _assignment_violation(statement: str) -> bool:
@@ -176,13 +210,29 @@ def _assignment_violation(statement: str) -> bool:
     if not lead:
         return False
     value_rest = lead.group(2)
-    vlstrip = value_rest.lstrip()
-    # PERMITTED substitution capture: `VAR=$(cmd)` / `VAR="$(cmd)"`. The matcher
-    # descends into the substitution and matches the inner granted head — real-run
-    # evidence (run 29105381021 seeded its progress comment through a
-    # `WP=$(vendored-path create …)` call). Never a denied shape.
-    if vlstrip.startswith("$(") or vlstrip.startswith('"$('):
-        return False
+    # Substitution-valued assignment: `VAR=$(…)` / `VAR="$(…)"`. A PURE capture (the
+    # substitution spans the whole statement) is permitted — the matcher descends into
+    # the substitution and matches the inner granted head; real-run evidence: run
+    # 29105381021 seeded its progress comment through a `WP=$(vendored-path create …)`
+    # call. But the same value followed by a command token — `M=$(x) printf hi` — is
+    # the denied leading-`VAR=value` env-prefix shape exactly like a literal value
+    # (the pre-fix version exempted EVERY `$(`-value here before checking for a
+    # following command — the fail-open the PR #397 review caught). The split is done
+    # by a quote-aware balanced scan, NOT the tokenizer, because a capture whose inner
+    # command carries its own double quotes (`TELEM="$(… "$WORKPAD_DIR" …)"`) splinters
+    # under naive tokenization.
+    sub = _leading_substitution_split(value_rest)
+    if sub is not None:
+        balanced, rest = sub
+        if balanced and not rest.strip():
+            return False
+        if balanced:
+            first = rest.split(None, 1)[0]
+            return _is_command_token(first)
+        # Unbalanced leading substitution inside one statement: a splitting artifact
+        # or crafted input. Fail CLOSED — flag rather than exempt what the scan could
+        # not measure (a guard that shrugs here re-opens the fail-open).
+        return True
     # R1b standalone computed literal: `VAR="…"` whose double-quoted content is
     # non-empty. A bare-word constant (`VAR=critical`), a numeric (`n=0`), a status
     # capture (`rc=$?`), an ANSI-C sentinel (`VAR=$'…'`), and an empty reset
@@ -191,9 +241,11 @@ def _assignment_violation(statement: str) -> bool:
         after = value_rest[1:]
         inner = after.split('"', 1)[0] if '"' in after else after
         return bool(inner.strip())
-    # R1a env-prefix compound: a NON-EMPTY assignment value followed by a real
-    # command (`M=x printf …`, probe row 2). `IFS= read …` — an EMPTY-valued prefix,
-    # the pure-shell field-split idiom — is not this shape and never fires.
+    # R1a env-prefix compound with a literal value: a NON-EMPTY assignment value
+    # followed by a real command (`M=x printf …`, probe row 2). `IFS= read …` — an
+    # EMPTY-valued prefix, the pure-shell field-split idiom — is not this shape and
+    # never fires. (Literal values tokenize reliably; the substitution-valued arm was
+    # handled above by the balanced scan.)
     tokens = _heads._tokenize(raw)
     if not tokens or not _ASSIGNMENT.match(tokens[0]):
         return False
@@ -213,7 +265,9 @@ def _redirect_violation(statement: str) -> bool:
             continue
         target = m.group(2)
         if not target:
-            # target is the next token; skip fd-dup forms handled by the regex not matching `&`
+            # A space-separated redirect (`> /tmp/f`, `2> /tmp/f`) carries its target in
+            # the NEXT token; attached forms (`>/tmp/f`, `2>/tmp/f`, `&>/tmp/f`) already
+            # carry it in group(2) above.
             target = tokens[idx + 1] if idx + 1 < len(tokens) else ""
         target = target.strip("'\"")
         if target.startswith("/tmp/"):
