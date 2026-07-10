@@ -14466,16 +14466,97 @@ GUARD_LN=$(grep -n 'if \[ "\$PROVISION_ENV" = "true" \]' "$RUNNER" | head -1 | c
 assert_eq "provision: freeform append is inside the PROVISION_ENV guard (guard precedes append)" "yes" \
   "$([ -n "$APPEND_LN" ] && [ -n "$GUARD_LN" ] && [ "$GUARD_LN" -lt "$APPEND_LN" ] && echo yes || echo no)"
 
-# (4) Deny-list floor: the catastrophic tier is stripped before appending. Pin
-# the exact-name denies, the command-word denies, and both warnings.
-assert_eq "provision: deny-list names present (Edit/Write/MultiEdit/NotebookEdit)" "1" \
-  "$(grep -cF "DENY_NAMES='Edit Write MultiEdit NotebookEdit'" "$RUNNER" || true)"
-assert_eq "provision: deny-list shells/eval/privilege present" "1" \
-  "$(grep -c "DENY_CMDS='bash sh zsh" "$RUNNER" || true)"
-assert_eq "provision: stripped deny-listed entries warned" "1" \
-  "$(grep -c 'stripped deny-listed entries' "$RUNNER" || true)"
+# (4) Deny-list floor: the catastrophic tier is stripped before appending. The
+# filter logic lives in scripts/filter-runner-tools.sh (issue #402 — extracted so
+# this suite can drive its full adversarial matrix directly, below); the workflow
+# resolves + calls the helper and fails closed. Pin the deny-list names/commands
+# in the HELPER (their new home), and pin the workflow's helper call + fail-closed
+# arm + empty-after-strip warning.
+FRT="$LIB/../scripts/filter-runner-tools.sh"
+assert_eq "provision: helper strips file-tool names (Edit/Write/MultiEdit/NotebookEdit case)" "1" \
+  "$(grep -cF 'Edit|Write|MultiEdit|NotebookEdit) denied=true' "$FRT" || true)"
+assert_eq "provision: helper deny-list shells/eval/privilege present" "1" \
+  "$(grep -c "DENY_CMDS='bash sh zsh" "$FRT" || true)"
+assert_eq "provision: helper emits a per-entry strip warning" "1" \
+  "$(grep -c 'never permitted on the reviewer' "$FRT" || true)"
+assert_eq "provision: workflow calls the filter-runner-tools.sh helper" "1" \
+  "$(grep -c 'bash "\$FILTER_HELPER"' "$RUNNER" || true)"
+assert_eq "provision: workflow fails closed when helper absent (names it)" "1" \
+  "$(grep -c 'deny-list floor helper (filter-runner-tools.sh) not found' "$RUNNER" || true)"
+assert_eq "provision: workflow resolves helper at vendored then in-repo path" "1" \
+  "$(grep -cF '.devflow/vendor/devflow/scripts/filter-runner-tools.sh scripts/filter-runner-tools.sh' "$RUNNER" || true)"
 assert_eq "provision: empty-after-strip warns build-aware review has no tools" "1" \
   "$(grep -c 'build-aware review is enabled with NO build tools' "$RUNNER" || true)"
+
+# ── #402: deny-floor helper — direct adversarial-matrix drive ────────────────
+# filter-runner-tools.sh is the AUTHORITATIVE deny-list floor. Drive it directly
+# over the full input matrix, asserting BOTH channels per row: the kept list on
+# stdout AND the per-entry strip warnings on stderr. This is the unit surface the
+# extraction exists to expose (inline YAML could not be tested); the workflow's
+# call of it stays covered end-to-end by the emit_tools behavioral block below.
+frt_out()  { RUNNER_TOOLS="$1" bash "$FRT" 2>/dev/null; }               # kept list (stdout)
+frt_strip(){ RUNNER_TOOLS="$1" bash "$FRT" 2>&1 1>/dev/null \
+              | grep -c "^devflow_runner.allowed_tools: stripped " || true; }  # # of strip lines
+# --- kept list (stdout), the #402 file-tool tightening: bare AND parameterized ---
+assert_eq "#402 helper: Write(**) stripped (parameterized file-tool)" "" "$(frt_out 'Write(**)')"
+assert_eq "#402 helper: Edit(src/**) stripped (parameterized file-tool)" "" "$(frt_out 'Edit(src/**)')"
+assert_eq "#402 helper: notebookedit(x) stripped (case-insensitive parameterized)" "" "$(frt_out 'notebookedit(x)')"
+assert_eq "#402 helper: bare Write still stripped" "" "$(frt_out 'Write')"
+assert_eq "#402 helper: bare MultiEdit still stripped" "" "$(frt_out 'MultiEdit')"
+# --- every shape the OLD filter stripped stays stripped (AC3 regression corpus) ---
+assert_eq "#402 helper: Bash(sudo rm:*) stripped" "" "$(frt_out 'Bash(sudo rm:*)')"
+assert_eq "#402 helper: Bash(sh -c:*) stripped" "" "$(frt_out 'Bash(sh -c:*)')"
+assert_eq "#402 helper: Bash(env bash:*) wrapper stripped" "" "$(frt_out 'Bash(env bash:*)')"
+assert_eq "#402 helper: Bash(/bin/bash:*) path-form stripped" "" "$(frt_out 'Bash(/bin/bash:*)')"
+assert_eq "#402 helper: Bash(xargs sh -c:*) wrapper stripped" "" "$(frt_out 'Bash(xargs sh -c:*)')"
+assert_eq "#402 helper: Bash(FOO=1 bash:*) env-assignment stripped" "" "$(frt_out 'Bash(FOO=1 bash:*)')"
+assert_eq "#402 helper: bare Bash stripped" "" "$(frt_out 'Bash')"
+assert_eq "#402 helper: Bash(:*) empty-cmd stripped" "" "$(frt_out 'Bash(:*)')"
+assert_eq "#402 helper: Bash(go;sudo:*) metachar stripped" "" "$(frt_out 'Bash(go;sudo:*)')"
+assert_eq "#402 helper: Bash(cat x|sh:*) pipe-to-shell stripped" "" "$(frt_out 'Bash(cat x|sh:*)')"
+assert_eq "#402 helper: Bash(sh):* paren-before-colon stripped" "" "$(frt_out 'Bash(sh):*')"
+assert_eq "#402 helper: Bash(go.x=1:*) leading-assignment stripped" "" "$(frt_out 'Bash(go.x=1:*)')"
+# --- every legit shape it kept stays kept (order preserved, internal space kept) ---
+assert_eq "#402 helper: clean build tools survive (lookalike shellcheck kept)" "Bash(go:*),Bash(go build:*),Bash(shellcheck:*)" \
+  "$(frt_out 'Bash(go:*),Bash(go build:*),Bash(shellcheck:*)')"
+assert_eq "#402 helper: Bash(docker exec:*) kept (subcommand)" "Bash(docker exec:*)" "$(frt_out 'Bash(docker exec:*)')"
+assert_eq "#402 helper: Bash(make CC=gcc:*) kept (arg assignment)" "Bash(make CC=gcc:*)" "$(frt_out 'Bash(make CC=gcc:*)')"
+assert_eq "#402 helper: Read(src/**) kept (read-only file tool)" "Read(src/**)" "$(frt_out 'Read(src/**)')"
+assert_eq "#402 helper: Bash(go run ./cmd/sh:*) kept (sh is a path arg)" "Bash(go run ./cmd/sh:*)" "$(frt_out 'Bash(go run ./cmd/sh:*)')"
+# --- mixed / whitespace-padded / empty / multi-line-smuggle ---
+assert_eq "#402 helper: mixed list keeps only clean entries, order preserved" "Bash(go:*),Bash(make:*),Read(src/**)" \
+  "$(frt_out 'Bash(go:*),Write(**),Bash(sudo:*),Edit,Bash(make:*),Read(src/**)')"
+assert_eq "#402 helper: whitespace-padded entries trimmed + kept" "Bash(go:*),Bash(make:*)" \
+  "$(frt_out '  Bash(go:*) , Bash(make:*)  ')"
+assert_eq "#402 helper: empty input -> empty kept list" "" "$(frt_out '')"
+assert_eq "#402 helper: newline-smuggled Bash(sudo:*) stripped, Bash(go:*) kept" "Bash(go:*)" \
+  "$(frt_out "$(printf 'Bash(go:*)\nBash(sudo:*)')")"
+# --- per-entry stderr strip warnings (AC2: warned, one line per stripped entry) ---
+assert_eq "#402 helper: one strip warning for Write(**)" "1" "$(frt_strip 'Write(**)')"
+assert_eq "#402 helper: three strip warnings for a 3-deny mixed list" "3" \
+  "$(frt_strip 'Bash(go:*),Write(**),Bash(sudo:*),Edit,Bash(make:*)')"
+assert_eq "#402 helper: no strip warning for an all-clean list" "0" \
+  "$(frt_strip 'Bash(go:*),Read(src/**)')"
+
+# ── #402: behavioral-fix pin — the file-tool NAME match, not exact equality ───
+# The fix is: match the tool NAME (token before the first "(") case-insensitively,
+# so Write(**) is stripped. The bug re-introduces itself if the match is weakened
+# back to whole-entry equality (`case "$entry"` instead of `case "$ftname"`), under
+# which Write(**) survives. assert_pin_red_under proves the operative line flips
+# PASS->FAIL under exactly that mutation (a framing-only pin would stay PASS->PASS
+# and be reported RED). Evidence for the #402 behavioral-fix-pin note is this
+# assertion's mutation run, not an attestation.
+assert_pin_red_under "#402 helper file-tool match is NAME-based (matching \$ftname, not \$entry) — weakening to whole-entry equality lets Write(**) survive" \
+  'case "$ftname" in' \
+  's/case "\$ftname" in/case "$entry" in/' \
+  "$FRT"
+
+# ── #402: fail-closed — helper unresolvable at BOTH paths (AC4) ───────────────
+# Run the REAL workflow 'tools' step from a scratch CWD where neither
+# .devflow/vendor/devflow/scripts/ nor scripts/filter-runner-tools.sh resolves.
+# The step must append NOTHING and emit a `::warning::` naming the missing helper.
+# (This block runs only when the emit_tools harness is available — pyyaml present;
+# TOOLS_STEP is extracted there.) Guarded below inside that harness.
 
 # The setup-project-env step is gated on the base-ref provision flag.
 assert_eq "provision: setup-project-env step present" "1" \
@@ -14585,6 +14666,12 @@ PY
   # Bare-word denies + a file-mutation tool are stripped.
   assert_eq "provision(behavior): Write + Bash(bash:*) stripped" "" \
     "$(append_of true 'Write,Bash(bash:*)')"
+  # #402 end-to-end: a PARAMETERIZED file-tool entry is stripped through the real
+  # workflow -> helper call path (the whole point of the issue).
+  assert_eq "provision(behavior): Write(**) parameterized file-tool stripped end-to-end (#402)" "" \
+    "$(append_of true 'Write(**)')"
+  assert_eq "provision(behavior): Edit(src/**) stripped, clean neighbour kept (#402)" ",Bash(go:*)" \
+    "$(append_of true 'Edit(src/**),Bash(go:*)')"
   # Legitimate build tools survive — including an internal space and a lookalike
   # prefix (shellcheck must NOT be caught by the 'sh' deny).
   assert_eq "provision(behavior): clean build tools survive" ",Bash(go:*),Bash(go build:*),Bash(shellcheck:*)" \
@@ -14618,6 +14705,20 @@ PY
   # Leading env-assignment with non-identifier name (go.x=1) stripped, matching jq.
   assert_eq "provision(behavior): Bash(go.x=1:*) leading-assignment stripped" "" \
     "$(append_of true 'Bash(go.x=1:*)')"
+
+  # #402 AC4 — fail closed when the helper resolves at NEITHER path. Run the real
+  # 'tools' step from a scratch CWD (no scripts/ or .devflow/vendor/... there), so
+  # the helper is unresolvable: nothing must be appended AND a `::warning::` must
+  # name the missing helper. Capture stdout (where `::warning::` lands) too.
+  FC_OUT=$(mktemp); FC_LOG=$(mktemp); FC_DIR=$(mktemp -d)
+  ( cd "$FC_DIR" && PROFILE=review PROVISION_ENV=true RUNNER_TOOLS='Bash(go:*)' \
+      GITHUB_OUTPUT="$FC_OUT" bash "$TOOLS_STEP" ) >"$FC_LOG" 2>&1 || true
+  FC_TOOLS=$(awk '/^tools<</{f=1;next} (f && /^EOF_/){f=0} f' "$FC_OUT")
+  assert_eq "#402 AC4: helper-absent fail-closed appends nothing (tools == read-only base)" "yes" \
+    "$(case "$FC_TOOLS" in "$BASE_TOOLS") echo yes ;; *) echo no ;; esac)"
+  assert_eq "#402 AC4: helper-absent emits a warning naming the missing helper" "1" \
+    "$(grep -c 'deny-list floor helper (filter-runner-tools.sh) not found' "$FC_LOG" || true)"
+  rm -rf "$FC_DIR"; rm -f "$FC_OUT" "$FC_LOG"
   rm -f "$TOOLS_STEP"
 
   # Behavioral test of the detect-project-tools.sh jq deny mirror: extract the
@@ -14641,6 +14742,13 @@ PY
   # Env-assignment regex aligned with the runner's `[A-Za-z_]*=*` glob: a leading
   # assignment whose name has non-identifier chars (go.x=1) must deny in BOTH.
   assert_eq "provision(jq-mirror): Bash(go.x=1:*) leading-assignment denied" "true" "$(jq_deny 'Bash(go.x=1:*)')"
+  # #402: the jq mirror gains the same parameterized file-tool check — a tool NAME
+  # before the first "(" matching Edit/Write/MultiEdit/NotebookEdit (case-insensitive)
+  # is denied bare AND parameterized, matching the runner helper.
+  assert_eq "provision(jq-mirror #402): Write(**) denied (parameterized)" "true" "$(jq_deny 'Write(**)')"
+  assert_eq "provision(jq-mirror #402): Edit(src/**) denied (parameterized)" "true" "$(jq_deny 'Edit(src/**)')"
+  assert_eq "provision(jq-mirror #402): notebookedit(x) denied (case-insensitive parameterized)" "true" "$(jq_deny 'notebookedit(x)')"
+  assert_eq "provision(jq-mirror #402): Read(src/**) allowed (read-only file tool)" "false" "$(jq_deny 'Read(src/**)')"
 else
   echo "  SKIP  provision(behavior): python3+pyyaml unavailable; static assertions only"
 fi

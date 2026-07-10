@@ -339,112 +339,60 @@ jobs:
               # SECURITY — deny-list floor. Before appending, strip the
               # categorically-unrecoverable tier no matter what /devflow:init's
               # LLM enrichment or a later hand-edit wrote into the base config:
-              # tree-mutation tools (Edit/Write/MultiEdit/NotebookEdit) and any
-              # Bash entry that can reach a raw shell / eval / privilege binary
-              # (bash/sh/zsh/eval/exec/source/sudo). This is the AUTHORITATIVE
-              # boundary — it runs here, at consume-time, on the trusted base-ref
-              # list, because a fast-feedback guard in detect-project-tools.sh can
-              # be bypassed by a hand-edit but this filter cannot. A denied entry
-              # is dropped + warned, never fatal (a typo must not abort every
-              # review). The list is mirrored in scripts/detect-project-tools.sh
-              # (fast feedback only); keep both in sync — this copy enforces.
+              # tree-mutation tools (Edit/Write/MultiEdit/NotebookEdit — stripped by
+              # tool NAME, so bare AND parameterized forms like Write(**) /
+              # Edit(src/**) alike, issue #402) and any Bash entry that can reach a
+              # raw shell / eval / privilege binary (bash/sh/zsh/eval/exec/source/
+              # sudo). This is the AUTHORITATIVE boundary — it runs here, at
+              # consume-time, on the trusted base-ref list, because a fast-feedback
+              # guard in detect-project-tools.sh can be bypassed by a hand-edit but
+              # this filter cannot. A denied entry is dropped + warned, never fatal
+              # (a typo must not abort every review). The list is mirrored in
+              # scripts/detect-project-tools.sh (fast feedback only); keep both in
+              # sync — this path enforces.
               #
-              # A bare-name blocklist is trivially bypassable, so the Bash check
-              # inspects the COMMAND-POSITION binary (the first whitespace token of
-              # the spec, before the first ':' or ')') by its basename, and denies:
-              #   - a raw shell / eval / privilege binary (bash/sh/zsh/dash/ksh/
-              #     fish/eval/exec/source/sudo/doas/su) — incl. path forms like
-              #     /bin/bash, since we compare the basename;
-              #   - an exec-wrapper (env/xargs/nice/timeout/nohup/setsid/command/
-              #     chroot/runuser) whose first arg would BE the real command —
-              #     this is what closes Bash(env bash:*) / Bash(xargs sh -c:*)
-              #     without having to scan every arg token;
-              #   - a leading env-assignment (FOO=1 bash) — the var prefix shifts
-              #     the executable past token 0;
-              #   - any shell metacharacter anywhere in the spec (; | & $ < > ( )
-              #     backtick), which is the classic "append a second command" vector
-              #     (Bash(go;sudo:*), Bash(cat x|sh:*));
-              #   - an empty command word (bare `Bash`, Bash(:*) = "all shell").
-              # We deliberately do NOT scan non-leading arg tokens by basename — that
-              # over-strips legitimate tools whose subcommand/arg happens to be a
-              # deny word (Bash(docker exec:*), Bash(make CC=gcc:*),
-              # Bash(go run ./cmd/sh:*)). This is the AUTHORITATIVE boundary; the
-              # jq mirror in scripts/detect-project-tools.sh applies the same rules.
+              # The filter logic itself lives in scripts/filter-runner-tools.sh
+              # (extracted so lib/test/run.sh can drive the full adversarial input
+              # matrix — inline YAML cannot be unit-tested; issue #402). The helper
+              # inspects the Bash COMMAND-POSITION binary by basename and the
+              # file-tool NAME before the first '(' case-insensitively; its header
+              # documents every rule. This step only resolves + calls it, fails
+              # closed when it is absent, and re-emits its strip warnings.
               if [ "$PROVISION_ENV" = "true" ]; then
-                DENY_NAMES='Edit Write MultiEdit NotebookEdit'
-                DENY_CMDS='bash sh zsh dash ksh fish eval exec source sudo doas su env xargs nice timeout nohup setsid command chroot runuser'
-                FILTERED=''
-                STRIPPED=''
-                # Newlines/CRs in an entry are normalized to the comma delimiter so
-                # a multi-line entry can't smuggle a second tool past the per-entry
-                # check (the heredoc transport forwards newlines verbatim). Then
-                # split on comma ONCE (an entry like "Bash(go build:*)" keeps its
-                # internal space) and restore the default IFS. `set -f` disables
-                # pathname expansion for the split: every entry contains a literal
-                # `*` (e.g. Bash(npm:*)), so without noglob the unquoted expansion
-                # could glob against the checked-out working tree. All per-entry
-                # parsing below uses parameter expansion / `case` (no word-split of
-                # an unquoted var), so no further globbing occurs.
-                RUNNER_TOOLS="${RUNNER_TOOLS//$'\r'/}"
-                RUNNER_TOOLS="${RUNNER_TOOLS//$'\n'/,}"
-                OLDIFS=$IFS
-                IFS=','
-                set -f
-                set -- $RUNNER_TOOLS
-                set +f
-                IFS=$OLDIFS
-                for raw in "$@"; do
-                  # Trim surrounding whitespace from the whole entry.
-                  entry="${raw#"${raw%%[![:space:]]*}"}"
-                  entry="${entry%"${entry##*[![:space:]]}"}"
-                  [ -z "$entry" ] && continue
-                  denied=false
-                  for n in $DENY_NAMES; do
-                    if [ "$entry" = "$n" ]; then denied=true; break; fi
-                  done
-                  if [ "$denied" = false ]; then
-                    case "$entry" in
-                      Bash) denied=true ;;            # bare Bash = all shell
-                      Bash\(*)                         # prefix match: no trailing ')' required
-                        inner="${entry#Bash(}"
-                        cmd="${inner%%:*}"             # spec: before the first ':'
-                        cmd="${cmd%%)*}"               # and before the first ')'
-                        cmd="${cmd#"${cmd%%[![:space:]]*}"}"
-                        cmd="${cmd%"${cmd##*[![:space:]]}"}"
-                        binword="${cmd%%[[:space:]]*}" # command-position token (no glob)
-                        binbase="${binword##*/}"        # strip any path
-                        if [ -z "$cmd" ]; then
-                          denied=true                  # empty command word = all shell
-                        else
-                          case "$cmd" in
-                            *[';|&$<>()']*) denied=true ;;   # shell metacharacter in spec
-                            *'`'*) denied=true ;;            # backtick command-substitution
-                          esac
-                          case "$binword" in
-                            [A-Za-z_]*=*) denied=true ;;     # leading env-assignment (FOO=1 cmd)
-                          esac
-                          if [ "$denied" = false ]; then
-                            for c in $DENY_CMDS; do
-                              if [ "$binbase" = "$c" ]; then denied=true; break; fi
-                            done
-                          fi
-                        fi
-                        ;;
-                    esac
-                  fi
-                  if [ "$denied" = true ]; then
-                    STRIPPED="${STRIPPED:+$STRIPPED, }$entry"
-                  else
-                    FILTERED="${FILTERED:+$FILTERED,}$entry"
-                  fi
+                # The deny-list floor is applied by scripts/filter-runner-tools.sh
+                # (issue #402) — the AUTHORITATIVE, suite-driven boundary. Resolve
+                # it at the vendored path (consumer repos) then the in-repo path
+                # (DevFlow itself), and FAIL CLOSED when neither resolves: a
+                # security filter that cannot run must append NOTHING, not the
+                # unfiltered list. (Version skew — an updated workflow atop a stale
+                # vendored plugin — hits this arm: no build tools appended, warning
+                # emitted, read-only review still works, until the consumer
+                # re-vendors.)
+                FILTER_HELPER=''
+                for _p in .devflow/vendor/devflow/scripts/filter-runner-tools.sh scripts/filter-runner-tools.sh; do
+                  if [ -f "$_p" ]; then FILTER_HELPER="$_p"; break; fi
                 done
-                if [ -n "$STRIPPED" ]; then
-                  echo "::warning::devflow_runner.allowed_tools: stripped deny-listed entries before building the review profile: $STRIPPED. These are never permitted on the reviewer's write-token job (tree mutation / raw shell / privilege escalation); the review continues with the safe remainder."
-                fi
-                if [ -n "$FILTERED" ]; then
-                  TOOLS="$TOOLS,$FILTERED"
+                if [ -z "$FILTER_HELPER" ]; then
+                  echo "::warning::devflow deny-list floor helper (filter-runner-tools.sh) not found at .devflow/vendor/devflow/scripts/ or scripts/ — failing closed: NO build/verify tools appended to the review profile (the reviewer keeps the read-only profile). Re-vendor the DevFlow plugin so the helper is present."
                 else
-                  echo "::warning::devflow_runner.provision_env is true but devflow_runner.allowed_tools is empty (or empty after deny-list stripping): build-aware review is enabled with NO build tools, so the reviewer has only the read-only profile. Populate devflow_runner.allowed_tools with your build/test/lint tools (e.g. Bash(go:*), Bash(cargo:*)) to enable build-aware review."
+                  # The helper reads the raw RUNNER_TOOLS from the environment,
+                  # prints the KEPT entries as one comma-joined line on stdout, and
+                  # one strip-warning line per stripped entry on stderr. `|| true`
+                  # keeps a helper hiccup non-fatal (best-effort, like the old
+                  # inline loop); an empty FILTERED then routes to the empty-list
+                  # warning below.
+                  STRIP_LOG="$(mktemp)"
+                  FILTERED="$(RUNNER_TOOLS="$RUNNER_TOOLS" bash "$FILTER_HELPER" 2>"$STRIP_LOG")" || FILTERED=''
+                  # Re-emit each per-entry strip line as a workflow `::warning::`.
+                  while IFS= read -r _line; do
+                    if [ -n "$_line" ]; then echo "::warning::$_line"; fi
+                  done < "$STRIP_LOG"
+                  rm -f "$STRIP_LOG"
+                  if [ -n "$FILTERED" ]; then
+                    TOOLS="$TOOLS,$FILTERED"
+                  else
+                    echo "::warning::devflow_runner.provision_env is true but devflow_runner.allowed_tools is empty (or empty after deny-list stripping): build-aware review is enabled with NO build tools, so the reviewer has only the read-only profile. Populate devflow_runner.allowed_tools with your build/test/lint tools (e.g. Bash(go:*), Bash(cargo:*)) to enable build-aware review."
+                  fi
                 fi
               fi
               ;;
