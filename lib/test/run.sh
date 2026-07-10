@@ -4062,7 +4062,7 @@ assert_eq "sweep 2.3.0b: docs/implement-skill.md keeps the rationale table row" 
 # Pin one step token unique to the 2.3.0b procedure (the grep-every-enumerating-site
 # rule) so a reviewer who guts the steps but keeps the heading still trips the suite.
 assert_pin_unique "sweep 2.3.0b: implement SKILL keeps the enumerate-every-site step" 'Enumerate every site that names a member of the set, by grep' "$IMPL_SKILL"
-# Fourth mirror site (unique to 2.3.0b — 2.3.0a/2.3.6 have no OVERVIEW entry): Part C
+# Fourth mirror site (the same pinned-OVERVIEW-row idiom 2.3.0c's AC11 pin reuses below): Part C
 # added a sweep-list line in docs/DEVFLOW_SYSTEM_OVERVIEW.md. This PR's own iteration-1
 # review caught that line stale, proving it is a coupled mirror — so pin it too, or a
 # later edit could silently drop 2.3.0b from the OVERVIEW and the suite would stay green.
@@ -6013,7 +6013,8 @@ assert_pin_unique "#334: docs/implement-skill.md mirrors the 2.3.4a mirror-fact 
 # external-output, fail-open-guard, and agent-prompt-prose rules in
 # phases/phase-2-implement.md. Each operative-sentence pin below is a behavioral-fix
 # pin expressed through assert_pin_red_under (#375): the <mutation> re-introduces
-# the guarded defect by removing ONLY that operative sentence from a scratch copy,
+# the guarded defect by removing (or, for w2-fail-open-defect and w2-cosmetic-carveout,
+# demoting/loosening) ONLY that operative sentence in a scratch copy,
 # so a pin that drifted onto an adjacent framing clause is reported RED rather than
 # passing vacuously. The three coupled-MIRROR checks are the deliberate exceptions to
 # the "assert_pin_red_under" phrasing: the AC8 assert_eq on lib/preflight.sh's header,
@@ -6122,6 +6123,26 @@ assert_eq "#376 AC11 w2-overview-2.3.0c-row: DEVFLOW_SYSTEM_OVERVIEW keeps the �
 # to the docs surface this block's other pins do not touch.
 assert_pin_unique "#376 w2-docs-2.3.0c-row: docs/implement-skill.md mirrors the §2.3.0c sweep-table row (docs↔skill coupled invariant)" \
   "the blind spot 2.3.4 carves out and 2.3.0a/2.3.0b's peer/enum focus misses" "$IMPL_DOC"
+# Class sweep of the AC11/AC12 docs-mirror idiom (PR #397 review pass): the SAME diff also
+# rewrote the docs 2.3.4 row (external-output kind + reproduction obligation), the 2.3.6 row
+# (two mirrored fail-open guard classes), the §2.4 split paragraph, and the boundary-kinds
+# count — pin each so a future edit cannot silently revert one doc row while the fully-pinned
+# phase file stays intact (the docs surface was the only unpinned side of these mirrors).
+assert_pin_unique "#376 w2-docs-2.3.4-row: docs/implement-skill.md 2.3.4 row carries the external-output reproduction obligation (docs↔skill coupled invariant)" \
+  'the external-output kind carries a reproduction obligation (paste the observed bytes; doc prose is not evidence)' "$IMPL_DOC"
+assert_pin_unique "#376 w2-docs-2.3.6-row: docs/implement-skill.md 2.3.6 row carries the two mirrored fail-open guard classes (docs↔skill coupled invariant)" \
+  'two fail-open guard classes mirrored from the reviewer extension' "$IMPL_DOC"
+assert_pin_unique "#376 w2-docs-2.4-split: docs/implement-skill.md describes the §2.4 agent-prompt micro-test split (docs↔skill coupled invariant)" \
+  'subagent RED/GREEN micro-test with a no-guidance control, because a dry-trace cannot catch a prompt-prose defect' "$IMPL_DOC"
+assert_pin_unique "#376 w2-docs-five-kinds: docs/implement-skill.md carries the five-boundary-kinds count (coupled count mirror)" \
+  'The five boundary kinds and how to verify each' "$IMPL_DOC"
+# AC6 (carve-out clause) — the cosmetic-sanitization fail-closed carve-out is itself an operative
+# clause of the un-guaranteed-tool bullet (deleting or loosening it changes what the sweep permits);
+# the mutation LOOSENS the iff-condition to unconditional acceptance, so a future edit that keeps
+# the bullet but drops the fails-closed condition goes RED.
+assert_pin_red_under "#376 w2-cosmetic-carveout: §2.3.6 keys the cosmetic-sanitization carve-out on the missing-tool-fails-closed condition" \
+  'sanitization through such a tool remains acceptable **iff** a missing tool fails closed' \
+  's/remains acceptable \*\*iff\*\* a missing tool fails closed/is always acceptable/' "$P2_FILE"
 
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
