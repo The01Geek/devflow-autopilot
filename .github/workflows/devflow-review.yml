@@ -789,7 +789,12 @@ jobs:
           # would never post. The if-form degrades to the generic fallback below
           # instead (same idiom as preconditions_ok's `if ! pre=$(...)` above).
           if [ -x "$DST" ]; then TITLE=$("$DST" "$SKIP_REASON") || TITLE=""; fi
-          [ -n "$TITLE" ] || TITLE='Devflow review waiting: precondition not met (describe-skip-title.sh missing or produced no output)'
+          # Degraded path: name the OBSERVED skip reason in the fallback title (it was
+          # positively observed, so including it honors the honesty rule) and leave a
+          # ::warning:: breadcrumb, so an operator learns why the review deferred
+          # without opening this log, and the helper breakage is loud.
+          if [ -z "$TITLE" ]; then echo "::warning::devflow review precheck: describe-skip-title.sh missing, not executable, or produced no usable output for skip reason '${SKIP_REASON}' — posting the generic deferral title"; fi
+          [ -n "$TITLE" ] || TITLE="Devflow review waiting: precondition not met (reason: ${SKIP_REASON}; describe-skip-title.sh missing or produced no output)"
           echo "skip_title=$TITLE" >> "$GITHUB_OUTPUT"
 
   create_check:
@@ -859,7 +864,13 @@ jobs:
             # (title): look one up and PATCH it in place, refreshing its
             # details_url/summary; only POST when none exists. Same head +
             # same title = same deferral, so refreshing (not duplicating) is
-            # correct. Match the title in bash (not in --jq, which gh api does
+            # correct. Known trade-off: the degraded-path fallback titles (the
+            # precheck title step's and the ${SKIP_TITLE:-...} default above)
+            # carry diagnostic suffixes that differ from the helper's canonical
+            # titles, so a repo oscillating between healthy and degraded helper
+            # states posts per-spelling checks instead of PATCHing one — the
+            # diagnostic value wins over dedupe convergence on that rare path.
+            # Match the title in bash (not in --jq, which gh api does
             # not let us parameterize with --arg) over the id+title pairs of
             # every neutral 'Devflow Review' check on this head. Best-effort:
             # a lookup failure leaves REUSE_ID empty and falls through to the

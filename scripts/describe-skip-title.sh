@@ -20,7 +20,10 @@
 #
 # Usage: describe-skip-title.sh [SKIP_REASON]
 #   SKIP_REASON  a precheck skip-reason token (see the arms below). A recognized token
-#                maps to its title; any other value (incl. empty) -> the generic default.
+#                maps to its title; any other value (incl. empty) -> the generic default,
+#                plus a stderr breadcrumb so skip-reason vocabulary drift (a new reason
+#                added upstream in derive-review-preconditions.sh without a matching arm
+#                here) is loud in the Actions log rather than silently absorbed.
 # Prints one title to stdout. Always exits 0.
 
 set -u
@@ -30,6 +33,7 @@ case "${1:-}" in
   ci-not-green)         printf '%s\n' 'Devflow review waiting: other CI not green' ;;
   ci-approval-required) printf '%s\n' 'Devflow review waiting: CI approval required' ;;
   unverifiable)         printf '%s\n' 'Devflow review waiting: preconditions unverifiable (API query failed — see the precheck log)' ;;
-  *)                    printf '%s\n' 'Devflow review waiting: precondition not met' ;;
+  *)                    echo "describe-skip-title: unrecognized skip reason '${1:-}' — using the generic title (add a case arm here when adding a reason to derive-review-preconditions.sh)" >&2
+                        printf '%s\n' 'Devflow review waiting: precondition not met' ;;
 esac
 exit 0

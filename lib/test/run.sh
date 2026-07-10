@@ -10913,9 +10913,9 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
   DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"completed","conclusion":"action_required"}]}' \
   drp "#351 external check run action_required (signal-set 3, shared gate) -> false ci-approval-required" "false ci-approval-required"
 # #353 (coupled WORKFLOW half of #351's ci-approval-required, landed via human/PAT):
-# the create_check title pin and the deferral-SUMMARY 'cancelled sibling run'
-# removal pin. These static grep pins move with the workflow change so they land in
-# the same commit as the code they assert.
+# the deferral check-run title pin (the title create_check posts) and the
+# deferral-SUMMARY 'cancelled sibling run' removal pin. These static grep pins move
+# with the workflow change so they land in the same commit as the code they assert.
 # AC10: ci-approval-required maps to its exact title. The SKIP_REASON->title
 # selection moved from create_check's inline `case` arm into describe-skip-title.sh
 # (#389), so this pin now asserts the title lives (once) in the helper.
@@ -21031,6 +21031,14 @@ assert_eq "#389 skip title: a recognized reason exits 0" "0" \
   "$("$DST_SH" behind-base >/dev/null 2>&1; echo $?)"
 assert_eq "#389 skip title: an unrecognized reason exits 0" "0" \
   "$("$DST_SH" bogus >/dev/null 2>&1; echo $?)"
+# Vocabulary drift is LOUD: an unrecognized reason (a new token added upstream in
+# derive-review-preconditions.sh without a matching arm here) emits a stderr breadcrumb
+# alongside the generic title; a recognized reason stays stderr-silent (the title is
+# command-substituted, so stdout must remain exactly the title either way).
+assert_eq "#389 skip title: an unrecognized reason emits a stderr breadcrumb (drift is loud)" "yes" \
+  "$([ -n "$("$DST_SH" bogus 2>&1 >/dev/null)" ] && echo yes || echo no)"
+assert_eq "#389 skip title: a recognized reason emits no stderr" "" \
+  "$("$DST_SH" behind-base 2>&1 >/dev/null)"
 # Arm ORDER is load-bearing (AC2). Because the arms are disjoint literals, a
 # reordered specific arm is behaviorally invisible — pin the SOURCE order so a
 # reorder or deletion turns RED; `*` MUST be last, or a specific reason it
@@ -21039,8 +21047,10 @@ ARM_ORDER_389=$(grep -oE '^[[:space:]]*(behind-base|ci-not-green|ci-approval-req
   | sed -E 's/^[[:space:]]*//; s/\)$//' | tr '\n' ',')
 assert_eq "#389 skip title: case arms appear in the pinned order, * last" \
   "behind-base,ci-not-green,ci-approval-required,unverifiable,*," "$ARM_ORDER_389"
-# The five titles are defined ONCE, in the helper — the workflow keeps only the
-# resolution fallback (the same single-definition contract as describe-denial-count.sh).
+# The titles are defined ONCE, in the helper — the workflow keeps only the generic
+# fallbacks (the same single-definition contract as describe-denial-count.sh). Two
+# sampled uniqueness pins here (behind-base + the generic default); the workflow-absence
+# loop below covers the remaining specific titles' single-home property.
 assert_pin_unique "#389 the behind-base title is defined once, in the helper" \
   'Devflow review waiting: branch behind base' "$DST_SH"
 assert_pin_unique "#389 the generic-default title is defined once, in the helper" \
@@ -21069,6 +21079,15 @@ assert_eq "#389 no abort-prone &&-list invocation of the helper remains in the w
   "$(pin_count '[ -x "$DST" ] && TITLE=' "$REVIEW_YML")"
 assert_pin_unique "#389 precheck verifies the helper OUTCOME with a resolution fallback" \
   '[ -n "$TITLE" ] || TITLE=' "$REVIEW_YML"
+# Pin BOTH halves of the output chain: the outputs mapping alone stays green if the
+# producer echo is deleted or its key typo'd — every deferral would then silently
+# collapse to create_check's defensive fallback title while the suite stayed green.
+assert_pin_unique "#389 the title step writes the skip_title output (the producer half of the wiring)" \
+  'echo "skip_title=$TITLE" >> "$GITHUB_OUTPUT"' "$REVIEW_YML"
+# The title step runs only on a deferral — the diff-added outputs comment ("Empty unless
+# skip_reason is non-empty") depends on this gate, so pin it.
+assert_pin_unique "#389 the title step is gated on a non-empty skip_reason" \
+  "if: steps.route.outputs.skip_reason != ''" "$REVIEW_YML"
 # precheck exposes the computed title as an output, and create_check consumes it (rather
 # than invoking the helper in its checkout-less workspace).
 assert_pin_unique "#389 precheck exposes the deferral title as the skip_title output" \
