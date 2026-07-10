@@ -331,6 +331,71 @@ def md_comment_text(text):
     return "\n".join(re.findall(r"<!--(.*?)-->", text, flags=re.DOTALL))
 
 
+def md_fenced_hash_comment_spans(text):
+    """Return {lineno: comment_text} for #-comment regions inside fenced code
+    blocks (``` / ~~~, language-tagged or indented) of a markdown target.
+
+    The #375 .md arm scanned only HTML ``<!-- … -->`` regions; a pin literal
+    quoted in a ``#`` comment inside a ```` ```bash ```` fence of a skill bundle
+    was folded into the operative "outside" text, so a #370-class count-inflation
+    collision there went unflagged (issue #394). Extracting these fenced ``#``
+    comments lets the .md arm subtract them from "outside" symmetrically with the
+    .sh/.py arm, so such a collision is flagged while a literal living ONLY in a
+    fenced comment (the ``lit in outside`` conjunct) still is not.
+
+    Fence tracking mirrors CommonMark's opener/closer rules enough for this use:
+    an opening fence is a line whose first non-space run is >=3 backticks or
+    tildes (a backtick opener's info string may not itself contain a backtick);
+    the matching closer is the same marker char, at least as long, with only
+    whitespace after it. Language-tagged fences and fences indented up to 3
+    spaces are handled; a run indented >=4 spaces is CommonMark *indented code*,
+    NOT a fence, so it is deliberately not treated as a fence marker — otherwise
+    a deeply-indented ``` in prose would spuriously open a never-closed fence and
+    fold every following operative ``#``-line into the comment region, a
+    fail-open that could hide a real #370-class collision (issue #394 review).
+    The fence markers themselves are never treated as content.
+
+    An UNTERMINATED fence fails closed (issue #394 review): a fence opener that
+    never meets a matching closer before EOF is suspect (a stray/unbalanced ```
+    in a malformed target), so its content lines are discarded rather than folded
+    into the comment region — otherwise every following operative ``#``-line (an
+    ATX heading, say) would be stripped out of "outside", masking a real
+    #370-class collision. Only lines inside a PROPERLY CLOSED fence are trusted.
+    """
+    lines = text.split("\n")
+    fence = None  # (char, length) while inside a fence, else None
+    inside = []  # (lineno, line) content lines strictly inside fences
+    committed = 0  # inside[:committed] are lines from PROPERLY CLOSED fences
+    for i, line in enumerate(lines, 1):
+        # 0-3 leading spaces only (>=4 is indented code, not a fence marker).
+        m = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence is None:
+            # A backtick opener's info string must not contain a backtick.
+            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                fence = (m.group(1)[0], len(m.group(1)))
+            continue
+        if (
+            m
+            and m.group(1)[0] == fence[0]
+            and len(m.group(1)) >= fence[1]
+            and m.group(2).strip() == ""
+        ):
+            fence = None
+            committed = len(inside)  # this fence closed cleanly — trust its lines
+            continue
+        inside.append((i, line))
+    # Fail closed on an UNTERMINATED trailing fence (issue #394 review): a stray or
+    # unbalanced opener that never meets a closer is suspect, so drop its content
+    # rather than fold every following operative `#`-line out of "outside" and mask a
+    # real #370-class collision. Only PROPERLY CLOSED fences' lines are trusted.
+    if fence is not None:
+        inside = inside[:committed]
+    spans = {}
+    for idx, ctext in hash_comment_regions([ln for _, ln in inside]):
+        spans[inside[idx - 1][0]] = ctext
+    return spans
+
+
 def normalize_ws(s):
     return " ".join(s.split())
 
@@ -385,6 +450,17 @@ def _target_ext(path, md_targets):
     return os.path.splitext(path)[1]
 
 
+def _strip_line_spans(lines, spans):
+    """Remove each line-keyed comment suffix from `lines`, returning the joined
+    "outside-comments" text. Shared by the hash arm and the .md fenced-#-comment
+    arm (issue #394) so the two subtractions stay in lockstep rather than being
+    two hand-maintained copies of the same off-by-one-prone slice."""
+    return "\n".join(
+        (line[: len(line) - len(spans[i])] if i in spans else line)
+        for i, line in enumerate(lines, 1)
+    )
+
+
 def _lint_view(path, ext, cache):
     """Memoized per-target-file comment analysis (read + comment regions + the
     outside-comments text). Many pins share a target, so this is derived once per
@@ -400,13 +476,21 @@ def _lint_view(path, ext, cache):
     if ext in COMMENT_HASH_EXTS:
         lines = ftext.split("\n")
         comment_spans = {cln: ctext for cln, ctext in hash_comment_regions(lines)}
-        outside = "\n".join(
-            (line[: len(line) - len(comment_spans.get(i, ""))] if i in comment_spans else line)
-            for i, line in enumerate(lines, 1)
-        )
+        outside = _strip_line_spans(lines, comment_spans)
         v = ("hash", comment_spans, outside)
     elif ext in COMMENT_MD_EXTS:
-        v = ("md", md_comment_text(ftext), re.sub(r"<!--.*?-->", "", ftext, flags=re.DOTALL))
+        # Comment regions of a .md target are BOTH its HTML <!-- … --> spans AND
+        # the #-comments inside its fenced code blocks (issue #394). Union them
+        # into `comments`, and subtract both from `outside` symmetrically so a
+        # literal living only in a fenced # comment is removed from "outside"
+        # (preserving the `lit in outside` conjunct) exactly as the .sh/.py arm.
+        fenced_spans = md_fenced_hash_comment_spans(ftext)
+        comment_text = md_comment_text(ftext)
+        if fenced_spans:
+            comment_text = comment_text + "\n" + "\n".join(fenced_spans.values())
+        without_fenced = _strip_line_spans(ftext.split("\n"), fenced_spans)
+        outside = re.sub(r"<!--.*?-->", "", without_fenced, flags=re.DOTALL)
+        v = ("md", comment_text, outside)
     else:
         v = ("none", None, None)
     cache[path] = v
