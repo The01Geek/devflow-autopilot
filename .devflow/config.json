@@ -13,7 +13,8 @@
       "Bash(lib/preflight.sh:*)",
       "Bash(shellcheck:*)"
     ],
-    "execution_diagnostics_enabled": true
+    "execution_diagnostics_enabled": true,
+    "execution_transcript_artifact_enabled": true
   },
   "devflow_implement": {
     "effort": "low",
