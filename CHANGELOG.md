@@ -4,6 +4,36 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.110] — 2026-07-10
+
+### Changed
+- **Extracted `devflow-review.yml`'s inline `SKIP_REASON`→deferral-title selection into
+  `scripts/describe-skip-title.sh`.** The `create_check` job's five-arm `case` that composed
+  the "Devflow review waiting: …" check-run title now lives in a dedicated helper (mirroring
+  `scripts/describe-denial-count.sh`), so the test suite drives every arm and asserts
+  arm-order — a reordered or deleted arm now turns the suite RED instead of silently
+  misattributing a deferral title. The titles are byte-identical and the honesty rule (never
+  assert a state the precheck did not observe) is carried into the helper. The precheck
+  `title` step tolerates a present-but-broken helper: the invocation is an `if/then` with a
+  `|| TITLE=""` fallback (not an `&&` list `set -e` would abort on), so a helper that exits
+  non-zero degrades to the generic fallback title instead of failing precheck and skipping
+  the deferral check entirely. (#393)
+
+## [2.8.109] — 2026-07-10
+
+### Added
+- **Verification discipline in the vendored review skills.** `receiving-code-review` now
+  carries a negative-test attribution rule (pin the rejecting guard's own distinct signal
+  when more than one guard can reject the input), a positive-control rule (a negative test
+  carries a positive control on the same fixture), a mutation-check requirement before any
+  completion claim, and a fired-on-writing-a-guard rewrite of *Share the Contract* (name the
+  protected downstream operation before writing the predicate; grep for an existing idiom
+  first). `requesting-code-review` now requires stating mutation evidence for the tests a
+  review request presents. All wording is repo-agnostic so consumer repos inherit it. The
+  DevFlow prompt extensions gain two new guard-class shapes (vacuous negative test;
+  re-derived consumer contract) and an interpreter-faithful-probe rule, each recording its
+  PR #340 reproduction. Discharges #371 R3, R4, and R7. (#398)
+
 ## [2.8.108] — 2026-07-10
 
 ### Added
