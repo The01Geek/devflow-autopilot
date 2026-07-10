@@ -32,7 +32,10 @@
 # run that a pull request can add, so it is attacker-controlled text entering a
 # `pull_request_target` prompt. Names are sanitized to printable ASCII with
 # backticks/angle brackets/newlines removed, truncated to 120 characters, and
-# capped at 50 signal lines (plus one line naming how many were dropped).
+# capped at 50 signal lines (plus one line naming how many were dropped). The
+# conclusion field is sanitized the same way and capped at 40 characters; it is a
+# constrained API fact (`success`/`failure`/`in_progress`), never free text, so the
+# cap is a belt-and-braces bound rather than a load-bearing one.
 # Sanitization is a security control, not cosmetics.
 
 set -u
@@ -127,8 +130,13 @@ trap "rm -f '$SIGNALS_FILE'" EXIT
 # (e.g. `in_progress`). Never omitted, and never coerced to a passing value —
 # a `// "success"`-style default here is precisely the documented-off-switch bug.
 # One error-capture file for the whole loop, truncated per iteration, rather than a
-# mktemp+unlink pair per run.
+# mktemp+unlink pair per run. Every `unavailable` call inside the loop exits, so the
+# post-loop `rm -f` below is unreachable on those paths — register the file with the EXIT
+# trap instead. (`_runs_err`/`_checks_err` unlink themselves before their own `unavailable`
+# calls; only this one is opened across a body that can exit.)
 _jobs_err=$(mktemp 2>/dev/null) || _jobs_err=/dev/null
+# shellcheck disable=SC2064  # expand both paths now, not at trap time
+[ "$_jobs_err" = /dev/null ] || trap "rm -f '$SIGNALS_FILE' '$_jobs_err'" EXIT
 for _run_id in $RUN_IDS; do
   [ "$_jobs_err" = /dev/null ] || : > "$_jobs_err"
   if ! JOBS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/actions/runs/$_run_id/jobs" 2>"$_jobs_err"); then

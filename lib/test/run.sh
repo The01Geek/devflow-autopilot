@@ -19104,21 +19104,86 @@ done
 # reach) need the compensating literal pin against BOTH allowlists — pinning only the
 # runner profile shipped a silent manual-path denial of `git cat-file` once (PR #367).
 #
-# The set below is the FULL population of heads the engine invokes from prose/tables
-# rather than from a ```bash fence, re-enumerated by an independent signal (a scan of
-# the between-fence regions of SKILL.md), NOT by the extractor's own pattern — an
-# enumeration that reused that pattern would reproduce its blind spot and prove nothing.
-# `gh pr review` is the load-bearing member: it is the command that EMITS the verdict
-# (Phase 4.4's verdict->command table), it appears in no bash fence, and until this pin
-# existed a TOOLS-line edit dropping it would leave the whole #363 audit GREEN while
-# silently disabling the engine's ability to post any verdict — a verbatim rebuild of the
-# no-verdict bug (#363 / PR #340) this audit was written to detect. `gh pr comment` is
-# Phase 4.4's REJECT fallback, `gh api` Phase 0.3.6's reviews query, `git merge-base` its
-# ancestor check, `git rev-parse` Phase 0.2's head-override, `rg` Phase 2.1a's lite probe,
-# `jq` Phase 0.3.6's page flatten. (`wslpath`/`cygpath`/`filterdiff` are deliberately
-# absent: the first two are only reachable when $CLAUDE_SKILL_DIR is unset, which never
-# holds on the runners these two allowlists govern; the third is an optional convenience
-# the skill names as a fallback. Neither allowlist grants them, and neither needs to.)
+# Two pins cover the prose heads, and the split is load-bearing.
+#
+# (1) DERIVED, and therefore COUPLED to the skill. A hand-maintained list of prose heads is
+#     a detect-all audit whose completeness is asserted by a comment rather than by a check:
+#     nothing makes it go RED when a maintainer adds a NEW prose-invoked command to
+#     skills/review/SKILL.md, so an ungranted newcomer ships a silent runtime denial while
+#     the whole #363 audit stays green — the very no-verdict bug this block exists to catch,
+#     one level up. So derive the prose heads FROM the skill on every run, by an independent
+#     signal (backtick spans in the between-fence regions, plus the `$(...)` substitutions
+#     inside them) rather than by the extractor's fenced-block pattern, and feed them to the
+#     SAME granting matcher. Adding `gh pr edit` to the skill's prose now turns this RED.
+#
+# (2) EXPLICIT, as a floor the derivation cannot regress below. The derivation only sees a
+#     span whose FIRST token is the command (`git rev-parse` reaches the engine only as
+#     `$(git rev-parse HEAD)` inside a larger assignment span, and a future phrasing could
+#     hide another head the same way), so the critical heads are also pinned by literal.
+#     `gh pr review` is the load-bearing member: it EMITS the verdict (Phase 4.4's
+#     verdict->command table) and appears in no bash fence. `gh pr comment` is Phase 4.4's
+#     REJECT fallback, `gh api` Phase 0.3.6's reviews query, `git merge-base` its ancestor
+#     check, `git cat-file` its SHA-resolution check, `rg` Phase 2.1a's lite probe, `jq`
+#     Phase 0.3.6's page flatten.
+#
+# Neither pin alone is a proof of exhaustiveness; together they make the common regressions
+# (a dropped grant, a new prose command) loud. (`wslpath`/`cygpath`/`filterdiff` are
+# deliberately excluded from the derivation: the first two are only reachable when
+# $CLAUDE_SKILL_DIR is unset, which never holds on the runners these two allowlists govern;
+# the third is an optional `patchutils` convenience the skill names as a fallback. Neither
+# allowlist grants them, and neither needs to.)
+python3 - "$REVIEW_SKILL" > "$E363/prose-derived.md" <<'PY363'
+import re, sys
+lines = open(sys.argv[1]).read().split('\n')
+prose, infence = [], False
+for l in lines:
+    if re.match(r'^\s*```', l):
+        infence = not infence
+        continue
+    if not infence:
+        prose.append(l)
+KNOWN = {'gh','git','rg','jq','grep','awk','sed','mkdir','tee','cmp','mktemp','rm','cat',
+         'printf','sort','tr','python3','cut','head','wc','date','echo','cp','mv','ls'}
+EXCLUDE = {'wslpath','cygpath','filterdiff'}
+def candidates(s):
+    yield s
+    for inner in re.findall(r'\$\(([^()]+)\)', s):   # `$PR_HEAD_SHA=$(git rev-parse HEAD)`
+        yield inner
+out = []
+for span in re.findall(r'`([^`\n]+)`', '\n'.join(prose)):
+    for s in candidates(span.strip()):
+        s = s.strip()
+        t = s.split()
+        if len(t) < 2 or t[0] in EXCLUDE or t[0] not in KNOWN:
+            continue
+        # Never emit a heredoc opener: the extractor is heredoc-aware, so a stray
+        # `cat <<'EOF'` would swallow every later line of this fixture and make the
+        # `ungranted` assertions below pass VACUOUSLY over an empty head set.
+        if '<<' in s:
+            continue
+        # `git HEAD` (a noun in prose) is not an invocation; a real subcommand is a
+        # lowercase word or a flag.
+        if not re.match(r'^(-|[a-z][a-z0-9-]*$)', t[1]):
+            continue
+        out.append(s)
+print('```bash')
+for o in sorted(set(out)):
+    print(o)
+print('```')
+PY363
+# Anti-vacuity for the derivation itself: it MUST surface the verdict-emitting command and
+# the Phase 0.3.6 heads. A regexp typo, a fence-toggle bug, or a swallowed heredoc would
+# otherwise empty the fixture and make the two assertions below green over nothing.
+_DERIVED_HEADS="$(python3 "$ECH" heads "$E363/prose-derived.md" | tr '\n' ' ')"
+for _h363 in 'gh pr review' 'gh pr comment' 'gh api' 'git cat-file' 'git merge-base' 'git rev-parse' 'rg' 'jq'; do
+  assert_eq "#363 the prose derivation surfaces '$_h363' from SKILL.md (anti-vacuity)" "yes" \
+    "$(case " $_DERIVED_HEADS " in *" $_h363 "*) echo yes ;; *) echo no ;; esac)"
+done
+# The contract. Adding a prose-invoked command the profile does not grant turns these RED.
+for _w363 in "$RUNNER_YML" "$DEVFLOW_YML"; do
+  assert_eq "#363 $(basename "$_w363")'s TOOLS grant covers every head SKILL.md invokes from PROSE (derived from the skill, not hand-listed)" "" \
+    "$(python3 "$ECH" ungranted "$E363/prose-derived.md" "$_w363" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
+done
 #
 # The heads are checked with the SAME granting matcher the fenced heads use — the
 # extractor's `tools-line` mode — rather than with a whole-file `grep -oF` for a
@@ -19143,17 +19208,19 @@ done
   printf '%s\n' 'jq -s add'
   printf '%s\n' '```'
 } > "$E363/prose-heads.md"
-# Anti-vacuity: the fixture must actually yield the prose-invoked head set. A typo that
-# emptied it would make the two `ungranted` assertions below pass over nothing. Note
+# Anti-vacuity for the EXPLICIT floor. This fixture is deliberately NOT claimed to be the
+# full population of prose-invoked heads — pin (1) above is what enforces completeness
+# against the skill. It is a hand-pinned floor over the heads whose silent denial would be
+# most damaging, so a derivation bug can never quietly stop covering them. Note
 # `gh api --paginate`: name_of() labels a gh head with up to THREE words, so the flag rides
 # along in the reported NAME. That is label-only — is_granted() prefix-matches the raw word
 # list down to one word, so the 2-word `Bash(gh api:*)` spec still grants it (proven by the
 # two `ungranted` assertions below returning empty against the real allowlists).
-assert_eq "#363 the prose-head fixture yields exactly the prose-invoked head set (anti-vacuity)" \
+assert_eq "#363 the explicit prose-head floor yields exactly its pinned head set (anti-vacuity)" \
   "gh api --paginate gh pr comment gh pr review git cat-file git checkout git merge-base git rev-parse jq rg" \
   "$(python3 "$ECH" heads "$E363/prose-heads.md" | tr '\n' ' ' | sed 's/ *$//')"
 for _w363 in "$RUNNER_YML" "$DEVFLOW_YML"; do
-  assert_eq "#363 $(basename "$_w363")'s TOOLS grant covers every prose-invoked head" "" \
+  assert_eq "#363 $(basename "$_w363")'s TOOLS grant covers the explicit prose-head floor" "" \
     "$(python3 "$ECH" ungranted "$E363/prose-heads.md" "$_w363" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
 done
 # The final-pass reviewer (skills/requesting-code-review) is dispatched as an INSTALLED
