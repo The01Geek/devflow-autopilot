@@ -750,6 +750,9 @@ jobs:
           # engine-error step's `|| echo false` assignment guard.)
           ENABLED="$("$CG" .devflow.execution_diagnostics_enabled true || true)"
           [ -n "$ENABLED" ] || ENABLED=true
+          # Exported so the transcript-upload step below shares this gate without
+          # re-reading config from a `uses:` step that cannot run shell.
+          echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
           if [ "$ENABLED" = "false" ]; then
             echo "execution diagnostics: disabled via .devflow.execution_diagnostics_enabled=false; skipping."
             exit 0
@@ -767,3 +770,46 @@ jobs:
           else
             echo "::notice::surface-execution-diagnostics.sh absent; execution diagnostics not surfaced (best-effort)."
           fi
+
+      # Preserve the engine's full execution transcript as a run artifact (issue #401
+      # follow-up). Three no-verdict review runs ended on a VOLUNTARY final message
+      # (subtype success, mid-phase) that nobody could ever read — the execution file
+      # dies with the runner, so every stall diagnosis so far has been inference from
+      # denial counts. Recording it turns the next stall from a guess into a read.
+      # Same config gate as the diagnostics step (via its `enabled` output). The scrub
+      # pass redacts token-shaped strings (the review profile grants Bash(env:*), so a
+      # transcript can contain a dumped environment) before anything becomes an
+      # artifact; fail-closed — a scrub failure uploads nothing.
+      - name: Scrub execution transcript for upload
+        id: scrub_transcript
+        if: always() && steps.diagnostics.outputs.enabled != 'false' && steps.claude.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          OUT="$RUNNER_TEMP/claude-execution-scrubbed.json"
+          if [ ! -f "$EXECUTION_FILE" ]; then
+            echo "::notice::execution file absent; no transcript to preserve."
+            exit 0
+          fi
+          # Redact common credential shapes: GitHub App/installation/classic/fine-grained
+          # tokens, Anthropic keys, and Authorization headers. sed -E only (no GNU flags).
+          if sed -E \
+            -e 's/gh[pousr]_[A-Za-z0-9_]{20,}/[REDACTED-GH-TOKEN]/g' \
+            -e 's/github_pat_[A-Za-z0-9_]{20,}/[REDACTED-GH-PAT]/g' \
+            -e 's/sk-ant-[A-Za-z0-9_-]{20,}/[REDACTED-ANTHROPIC-KEY]/g' \
+            -e 's/(Authorization[":[:space:]]*)[Bb]earer [A-Za-z0-9._~+\/=-]+/\1Bearer [REDACTED]/g' \
+            "$EXECUTION_FILE" > "$OUT"; then
+            echo "path=$OUT" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::transcript scrub failed; NOT uploading the unscrubbed execution file (fail-closed)."
+          fi
+
+      - name: Upload execution transcript artifact
+        if: always() && steps.scrub_transcript.outputs.path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-execution-transcript-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.scrub_transcript.outputs.path }}
+          retention-days: 7
+          if-no-files-found: ignore
