@@ -750,9 +750,16 @@ jobs:
           # engine-error step's `|| echo false` assignment guard.)
           ENABLED="$("$CG" .devflow.execution_diagnostics_enabled true || true)"
           [ -n "$ENABLED" ] || ENABLED=true
-          # Exported so the transcript-upload step below shares this gate without
-          # re-reading config from a `uses:` step that cannot run shell.
+          # Exported so the transcript steps below can gate without re-reading config
+          # from a `uses:` step that cannot run shell. The transcript artifact has its
+          # OWN key with the OPPOSITE polarity: default FALSE and fail-CLOSED on any
+          # config-read failure — a transcript can carry an env dump (Bash(env:*) is
+          # granted), and a consumer must opt in to publishing that as an artifact;
+          # only the exact string "true" enables it.
           echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+          TRANSCRIPT="$("$CG" .devflow.execution_transcript_artifact_enabled false || true)"
+          [ "$TRANSCRIPT" = "true" ] || TRANSCRIPT=false
+          echo "transcript=$TRANSCRIPT" >> "$GITHUB_OUTPUT"
           if [ "$ENABLED" = "false" ]; then
             echo "execution diagnostics: disabled via .devflow.execution_diagnostics_enabled=false; skipping."
             exit 0
@@ -776,13 +783,17 @@ jobs:
       # (subtype success, mid-phase) that nobody could ever read — the execution file
       # dies with the runner, so every stall diagnosis so far has been inference from
       # denial counts. Recording it turns the next stall from a guess into a read.
-      # Same config gate as the diagnostics step (via its `enabled` output). The scrub
-      # pass redacts token-shaped strings (the review profile grants Bash(env:*), so a
-      # transcript can contain a dumped environment) before anything becomes an
-      # artifact; fail-closed — a scrub failure uploads nothing.
+      # Gated by its OWN opt-in key `devflow.execution_transcript_artifact_enabled`
+      # (default FALSE, fail-closed — resolved in the diagnostics step above), NOT the
+      # default-on diagnostics gate: a consumer repo must never start publishing
+      # transcripts merely by upgrading. The scrub pass redacts token-shaped strings
+      # (the review profile grants Bash(env:*), so a transcript can contain a dumped
+      # environment) before anything becomes an artifact; the scrub is a blocklist and
+      # inherently incomplete for third-party credential shapes — another reason the
+      # key is opt-in. Fail-closed — a scrub failure uploads nothing.
       - name: Scrub execution transcript for upload
         id: scrub_transcript
-        if: always() && steps.diagnostics.outputs.enabled != 'false' && steps.claude.outputs.execution_file != ''
+        if: always() && steps.diagnostics.outputs.transcript == 'true' && steps.claude.outputs.execution_file != ''
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
