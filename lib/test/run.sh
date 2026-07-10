@@ -14224,10 +14224,13 @@ assert_eq "et-synth(T4): leading-zero iteration 01 collides with 1 in the dedupe
 assert_eq "et-synth(T4): leading-zero 01 never reaches --argjson (no iter-01 write-failure breadcrumb)" "no" \
   "$(printf '%s' "$ETSA_ERR" | grep -qF 'failed to write synthesized iter-01' && echo yes || echo no)"
 # The documented (iteration1) missing-space lenience: it parses as iteration 1,
-# proven by colliding with the existing iteration-1 in the dedupe (a third
-# duplicate breadcrumb) rather than being skipped as non-numeric.
-assert_eq "et-synth(T4): the (iteration1) lenience parses as iteration 1 (not rejected as non-numeric '1)')" "no" \
-  "$(printf '%s' "$ETSA_ERR" | grep -qF "non-numeric iteration token '1)'" && echo yes || echo no)"
+# proven POSITIVELY by the duplicate-breadcrumb count — the dup "(iteration 1)"
+# commit, the "(iteration 01)" commit, and the "(iteration1)" commit each collide
+# with iteration 1, so exactly three duplicate breadcrumbs fire; a mutation that
+# kills the lenience (rerouting "(iteration1)" to the no-suffix family arm)
+# drops the count to two.
+assert_eq "et-synth(T4): the (iteration1) lenience parses as iteration 1 (three duplicate-iteration-1 breadcrumbs)" "3" \
+  "$(printf '%s' "$ETSA_ERR" | grep -cF 'duplicate iteration 1')"
 # The missing-')' arm has its own distinct breadcrumb.
 assert_eq "et-synth(T4): missing-')' subject gets the does-not-end-with-suffix breadcrumb" "yes" \
   "$(printf '%s' "$ETSA_ERR" | grep -qF "does not END with the '(iteration N)' suffix" && echo yes || echo no)"
@@ -14463,13 +14466,18 @@ assert_eq "et-synth(ambiguity): both candidates are breadcrumbed with the multi-
 assert_eq "et-synth(ambiguity): the breadcrumb-named targeted retry DOES synthesize after the ambiguity skip" "[1]" \
   "$(jq -c '[.per_iteration[].iter]' "$ETSAM_REPO/.devflow/logs/efficiency/pr-cur-run-2.json" 2>/dev/null)"
 # And a targeted --workpad-dir pointing at a NEVER-CREATED dir (the fully-degraded
-# inline-loop shape the retry exists for) must mkdir it — never collapse onto the
-# every-write-failed misdiagnosis; here it then declines via sha exclusion since
-# run-2 already recorded the commit.
+# inline-loop shape the retry exists for) must mkdir it and actually WRITE into it —
+# an UNRECORDED commit (iteration 2, added after run-2's synthesis) forces a real
+# write attempt, so removing the mkdir guard flips this to the rc-4
+# every-write-failed misdiagnosis and the missing-record assert goes RED.
+printf b > "$ETSAM_REPO/b"; git -C "$ETSAM_REPO" add b; git -C "$ETSAM_REPO" commit -qm "fix: address review findings (iteration 2)"
+ETSAM_B="$(git -C "$ETSAM_REPO" rev-parse HEAD)"
 ETSAM_ERR2="$( ( cd "$ETSAM_REPO" && bash "$LIB/efficiency-trace.sh" --workpad-dir "$ETSAM_REPO/.devflow/tmp/review/pr-new/run-9" --slug pr-new --persist ) 2>&1 1>/dev/null )"
-assert_eq "et-synth(ambiguity): targeted retry against a never-created dir creates it (no write-failed misdiagnosis)" "no" \
+assert_eq "et-synth(ambiguity): targeted retry against a never-created dir creates it and synthesizes the unrecorded commit" "$ETSAM_B" \
+  "$(jq -r '.fix_commit_sha' "$ETSAM_REPO/.devflow/tmp/review/pr-new/run-9/iter-2.json" 2>/dev/null)"
+assert_eq "et-synth(ambiguity): never-created-dir retry never emits the write-failed misdiagnosis" "no" \
   "$(printf '%s' "$ETSAM_ERR2" | grep -qF 'every synthesized record write failed' && echo yes || echo no)"
-assert_eq "et-synth(ambiguity): never-created-dir retry declines via sha exclusion (commit already recorded by run-2)" "yes" \
+assert_eq "et-synth(ambiguity): the already-recorded commit is still excluded (breadcrumbed)" "yes" \
   "$(printf '%s' "$ETSAM_ERR2" | grep -qF 'already recorded by another run' && echo yes || echo no)"
 rm -rf "$ETSAM_REPO"
 
