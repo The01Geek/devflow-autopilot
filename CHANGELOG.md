@@ -4,6 +4,18 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.115] — 2026-07-10
+
+### Changed
+### Added
+- The cloud runner now preserves the engine's execution transcript as a
+  short-retention run artifact (`claude-execution-transcript-<run>-<attempt>`),
+  token-scrubbed and gated by the NEW opt-in (default-false, fail-closed)
+  `devflow.execution_transcript_artifact_enabled` key — a consumer must opt in; this repo's own config.json enables it. Follow-up to issue #401: three
+  no-verdict review stalls ended on a voluntary final message that was never
+  readable because the execution file died with the runner — the next stall
+  becomes a read, not an inference (evidence trail on issue #401, PR #397).
+
 ## [2.8.114] — 2026-07-10
 
 ### Changed
