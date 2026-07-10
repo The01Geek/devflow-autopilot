@@ -22036,7 +22036,7 @@ assert_pin_unique "#363 docs: the overview's paraphrase carries the unknown-CI c
 assert_pin_unique "#363 skill: the instructions are conditioned on the block's PRESENCE" \
   "Everything in this section is **conditioned on that block being present in your prompt.**" "$REVIEW_SKILL"
 assert_pin_unique "#363 skill: names review-and-fix as the no-block path that is unaffected" \
-  "as it is under \`/devflow:review-and-fix\`, which executes these phases verbatim under a different, write-enabled profile" "$REVIEW_SKILL"
+  "as it is on the **inline tier** (\`/devflow:review-and-fix\`, and the review engine as executed by an implement run's review phase, both under a write-enabled profile)" "$REVIEW_SKILL"
 # Terminal ❌ on ANY no-verdict path, not only a fatal abort.
 assert_pin_unique "#363 skill: stamps a terminal ❌ on ANY path that reaches no verdict" \
   "**Any path that reaches no verdict — stamp a terminal \`❌\` as your final action.**" "$REVIEW_SKILL"
@@ -22545,6 +22545,80 @@ assert_eq "#362 settings.json: the pre-existing efficiency-trace.sh entry surviv
   "$([ -n "$ISG_ET_CMD" ] && echo yes || echo no)"
 assert_eq "#362 settings.json: the efficiency-trace.sh entry keeps its own '|| true'" "yes" \
   "$(printf '%s' "$ISG_ET_CMD" | grep -qF '|| true' && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#405 cloud implement self-contained: in-env verification, denial-proof resume"
+# ────────────────────────────────────────────────────────────────────────────
+I405_CONFIG="$LIB/../.devflow/config.json"
+I405_P3="$LIB/../skills/implement/phases/phase-3-review.md"
+I405_SKILL="$LIB/../skills/implement/SKILL.md"
+I405_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+I405_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+
+# AC1: both allowed_tools arrays grant the three in-env verification commands. Reuse the
+# established dpt_has() JSON-array-membership helper (the same one the detect-project-tools
+# assertions use against these exact allowed_tools paths) rather than a bespoke inline reader.
+# RED today only if any entry is missing from either array.
+for I405_KEY in devflow devflow_implement; do
+  for I405_ENT in 'Bash(lib/test/run.sh:*)' 'Bash(lib/preflight.sh:*)' 'Bash(shellcheck:*)'; do
+    assert_eq "#405 AC1 config: $I405_KEY.allowed_tools grants $I405_ENT" "yes" \
+      "$(dpt_has ".$I405_KEY.allowed_tools" "$I405_ENT" "$I405_CONFIG")"
+  done
+done
+
+# AC2: the Phase 3.4 gate carries NO gate-time CI channel — neither the "verified via CI"
+# tick arm nor the "deferred to CI" (post-merge) retag arm. Negative pins (RED today):
+assert_eq "#405 AC2 phase-3.4: no 'verified via CI' tick arm remains" "0" "$(pin_count 'verified via CI' "$I405_P3")"
+assert_eq "#405 AC2 phase-3.4: no gate-time 'deferred to CI' retag arm remains" "0" "$(pin_count 'deferred to CI' "$I405_P3")"
+# Behavioral-fix pin: the operative replacement is the in-env-denied Blocked arm naming the
+# config key. A mutation removing that arm re-introduces the silent CI-deferral bug → RED.
+assert_pin_red_under "#405 AC2 phase-3.4: in-env-denied criterion routes to Blocked naming devflow_implement.allowed_tools" \
+  'add it to devflow_implement.allowed_tools (and devflow.allowed_tools for the command path) so the run can verify in-env, then re-run' \
+  '/so the run can verify in-env, then re-run/d' \
+  "$I405_P3"
+# AC3: the §3.4 gate positively forbids waiting for / polling / re-checking / citing CI to
+# gate a verification-command criterion. Behavioral pin on the operative no-wait directive:
+assert_pin_red_under "#405 AC3 phase-3.4: gate never waits for / polls / re-checks / cites CI" \
+  'Do **not** wait for, poll, re-check, or cite CI to gate this criterion' \
+  '/wait for, poll, re-check, or cite CI to gate this criterion/d' \
+  "$I405_P3"
+
+# AC4: the shared review engine, executed inline, takes its test evidence from the
+# orchestrator's in-env suite/lint results — never a CI conclusion. Behavioral pin on the
+# inline-tier evidence sentence in the engine's grounding-block section:
+I405_REVIEW="$LIB/../skills/review/SKILL.md"
+assert_pin_red_under "#405 AC4 review/SKILL.md: inline-tier test evidence is the orchestrator's in-env suite/lint, never CI" \
+  "On the inline tier the test evidence is the orchestrator's own in-environment suite/lint results for the current HEAD" \
+  '/On the inline tier the test evidence is the/d' \
+  "$I405_REVIEW"
+
+# AC5: the implement SKILL.md pins the cloud helper-invocation form (vendored literal as the
+# leading token) and the two-denials-then-switch rule. Behavioral-fix pins via assert_pin_red_under
+# (mutation deletes the operative paragraph, re-introducing the denial-prone iteration bug):
+assert_pin_red_under "#405 AC5 SKILL: bundled helpers granted only as the repo-relative vendored literal (leading token)" \
+  "grants each bundled helper **only** as the repo-relative vendored literal with that path as the command's **leading token**" \
+  '/grants each bundled helper/d' \
+  "$I405_SKILL"
+assert_pin_red_under "#405 AC5 SKILL: after two denials of a command shape, switch to a listed legal form" \
+  'After two denials of a given command shape, do not iterate variants of it' \
+  '/grants each bundled helper/d' \
+  "$I405_SKILL"
+
+# AC6: the stall-backstop resume comment carries the helper-invocation-form line, so a resumed
+# run receives the discipline inside its own triggering comment. Behavioral-fix pin (mutation
+# deletes the printf line → RED):
+assert_pin_red_under "#405 AC6 devflow-implement.yml: resume comment states the vendored-literal helper form" \
+  'Resume note: invoke bundled helpers as' \
+  '/Resume note: invoke bundled helpers as/d' \
+  "$I405_IMPL_YML"
+
+# AC8: after this change, neither writer TOOLS list carries a Bash(/-prefixed rule, and the only
+# wildcard-path rule is the pre-existing Bash(*/load-prompt-extension.sh:*) in devflow.yml.
+assert_eq "#405 AC8 devflow-implement.yml: no Bash(/ absolute-path rule" "0" "$(pin_count 'Bash(/' "$I405_IMPL_YML")"
+assert_eq "#405 AC8 devflow.yml: no Bash(/ absolute-path rule" "0" "$(pin_count 'Bash(/' "$I405_DEVFLOW_YML")"
+assert_eq "#405 AC8 devflow-implement.yml: no wildcard-path Bash(*/ rule" "0" "$(pin_count 'Bash(*/' "$I405_IMPL_YML")"
+assert_eq "#405 AC8 devflow.yml: every wildcard-path Bash(*/ rule is the load-prompt-extension one" \
+  "$(pin_count 'Bash(*/load-prompt-extension.sh' "$I405_DEVFLOW_YML")" "$(pin_count 'Bash(*/' "$I405_DEVFLOW_YML")"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

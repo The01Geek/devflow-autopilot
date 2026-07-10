@@ -284,7 +284,13 @@ than reusing the token minted at the job's start; a `gh`-api/transport/auth
 failure reading the workpad (e.g. an expired token) is a distinct `auth-failure`
 class that fails the job loud **without** consuming a resume attempt, so a healthy
 workpad behind a bad token is never misclassified as corrupt (see
-`docs/implement-skill.md`).
+`docs/implement-skill.md`). The resume comment carries an inline `Resume note:`
+that instructs the resumed run to invoke bundled helpers with the repo-relative
+vendored literal (`.devflow/vendor/devflow/scripts/…`, `.devflow/vendor/devflow/lib/…`)
+as the command's leading token — never an absolute path, never repo-root
+`scripts/…`, never behind a `VAR=` prefix or `bash <path>` wrapper — since the
+cloud allowlist silently denies any other form, which is exactly what killed
+prior auto-resume runs on their first helper call (issue #405).
 
 > **Loop-safety note.** Unlike `GITHUB_TOKEN` pushes (which GitHub suppresses from
 > re-triggering workflows), an **App-token push re-triggers workflows**. For DevFlow
@@ -481,6 +487,44 @@ workflow YAML:
 - Leave a key out (or `[]`) to use the base list unchanged.
 - These come from your committed config, so treat them with the same care as
   `setup.install`: only allowlist commands you trust to run unattended.
+
+### Grant your test/lint commands so the run verifies in-env (issue #405)
+
+`/devflow:implement` verifies **in its own environment, never via CI**. A
+verification-command acceptance criterion — one whose verification is *running a
+test/lint/build command* (your test suite, a linter, a `pytest`/build
+invocation) — is ticked only on a pass the run **observes in-env**. The run
+never waits on, polls, re-checks, or cites CI for its own progress; CI remains
+the **required post-PR check that gates the human merge**, not an in-run
+verification channel.
+
+For the run to actually run those commands, they must be on the allowlist for
+the execution path — invoked by their **direct leading-token** form (the
+`bash <path>` wrapper is deny-floored and can never be granted). So:
+
+- List your project's test/lint commands under **`devflow_implement.allowed_tools`**
+  (the `/devflow:implement` path) **and** under **`devflow.allowed_tools`** (the
+  `/devflow:*` command path, including `/devflow:review-and-fix`):
+
+  ```json
+  "devflow": {
+    "allowed_tools": ["Bash(npm test:*)", "Bash(npm run lint:*)"]
+  },
+  "devflow_implement": {
+    "allowed_tools": ["Bash(npm test:*)", "Bash(npm run lint:*)"]
+  }
+  ```
+
+- **Leave them ungranted and the run does not silently defer to CI** — a
+  verification-command AC goes **`Blocked`**, and the Blocked message names
+  `devflow_implement.allowed_tools` as the exact remedy: grant the command so
+  the run can verify in-env, then re-run. There is never a silent stall, and
+  never a verdict resting on a CI result the run never saw.
+
+(This repo's own `.devflow/config.json` grants `Bash(lib/test/run.sh:*)`,
+`Bash(lib/preflight.sh:*)`, and `Bash(shellcheck:*)` under both keys for exactly
+this reason.) See [`implement-skill.md`](implement-skill.md) for the Phase 3.4
+gate behavior.
 
 ## Letting the reviewer build/test a PR
 

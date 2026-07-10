@@ -1,0 +1,10 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "a5235b5d262ac6c600b7ad7c79f1005bd4e15698",
+  "fix_files": [
+    "lib/efficiency-trace.sh",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}
