@@ -2710,15 +2710,16 @@ assert_pin_unique "step8: CI-fallback: submitting a push is not the same as obse
 # prose shipped to consumer repos, so an assert_pin_unique on the operative sentence is the
 # drift guard; each behavioral-fix pin is additionally proven via assert_pin_red_under with a
 # `sed -E` mutation that re-introduces the NAMED regression (one-shot Step 0 semantics, an
-# unbounded drift chase, a settled-fact Step 0 claim, or dropping the branch-sync gate), so a
-# framing-only pin is reported RED. Literals are gate-unique, apostrophe-free ASCII, and
+# unbounded drift chase, a settled-fact Step 0 claim, dropping the branch-sync gate, or
+# collapsing a failed fetch onto a zero-behind false-sync), so a framing-only pin is reported
+# RED. Literals are gate-unique, apostrophe-free ASCII, and
 # engine-agnostic (no DevFlow machinery named in the pinned text).
 # pin-A (AC1/AC5): the fourth item requires evidence generated in the same turn as completion.
 assert_pin_unique "399: gate item 4 requires same-turn branch-sync evidence" \
   'Generate branch-sync evidence in the same turn as the completion claim' "$RECV_SKILL"
-assert_pin_red_under "399: removing item 4 re-introduces one-shot Step 0 semantics" \
+assert_pin_red_under "399: re-timing item 4 to Step 0 re-introduces one-shot Step 0 semantics" \
   'Generate branch-sync evidence in the same turn as the completion claim' \
-  '/Generate branch-sync evidence in the same turn as the completion claim/d' "$RECV_SKILL"
+  's/Generate branch-sync evidence in the same turn as the completion claim/Generate branch-sync evidence when you update the branch in Step 0/' "$RECV_SKILL"
 # pin-B (AC2): the drift response re-runs the Step 0 update ONCE, never chasing until it settles.
 assert_pin_unique "399: bounded drift response re-runs Step 0 once" \
   're-run the Step 0 update once, regenerate this evidence on the new state' "$RECV_SKILL"
@@ -2737,6 +2738,14 @@ assert_pin_unique "399: gate closing item requires all four evidence items" \
 assert_pin_red_under "399: reverting the closing item to all-three drops the branch-sync gate" \
   'Only after all four pass, claim completion' \
   's/Only after all four pass, claim completion/Only after all three pass, claim completion/' "$RECV_SKILL"
+# pin-E (item 4, d3b0ba5/fbaf447): the safety-critical failed-fetch clause — when the fetch
+# does not succeed BOTH the remote-counterpart divergence and the base-branch divergence are
+# unestablished (unknown), never collapsed onto a stale-remote-tracking-ref zero-behind result.
+assert_pin_unique "399: failed fetch leaves both divergences unestablished, never zero-behind" \
+  'treat both the remote-counterpart divergence and the base-branch divergence as unestablished' "$RECV_SKILL"
+assert_pin_red_under "399: collapsing the failed-fetch clause onto zero-behind re-introduces the stale-ref false-sync bug" \
+  'treat both the remote-counterpart divergence and the base-branch divergence as unestablished' \
+  's/treat both the remote-counterpart divergence and the base-branch divergence as unestablished/treat both the remote-counterpart divergence and the base-branch divergence as zero-behind/' "$RECV_SKILL"
 
 # Drift guards (issue #196): the convergence-discipline additions to the vendored
 # receiving-code-review skill — a stopping rule, a Record-Every-Deferral contract, the
