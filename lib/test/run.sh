@@ -11420,6 +11420,14 @@ assert_eq "install: no shipped cloud-tier file references the old vendored path"
 assert_eq "install: marketplace.json source matches the vendored path" \
   "1" "$(grep -cF '"source": "./.devflow/vendor/devflow"' "$LIB/../install.sh")"
 
+# The generated marketplace.json must mirror the repo-root manifest's #142
+# zero-companion-dependency shape: the allowlist key is retained but empty.
+# A future edit reintroducing "claude-plugins-official" (or any non-empty
+# allowlist) drops this literal's count to 0 and turns the pin RED, so the
+# stale cross-marketplace dependency can never ship to a fresh consumer again.
+assert_eq "install: marketplace.json allowCrossMarketplaceDependenciesOn is empty (#142/#385)" \
+  "1" "$(grep -cF '"allowCrossMarketplaceDependenciesOn": []' "$LIB/../install.sh")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "workflow partition invariant"
 # ────────────────────────────────────────────────────────────────────────────
