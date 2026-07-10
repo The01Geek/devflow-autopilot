@@ -385,12 +385,18 @@ jobs:
                   # one strip-warning line per stripped entry on stderr. Capture the
                   # helper's exit status in the SAME statement (`|| HELPER_RC=$?`):
                   # the helper's contract is `exit 0` always, so a non-zero rc is a
-                  # genuine MALFUNCTION (unreadable/corrupt/partially-vendored helper,
-                  # a bash too old for `shopt -s nocasematch`, resource exhaustion) —
-                  # NOT an empty result. Distinguishing the two below keeps a helper
-                  # crash from being misdiagnosed as "your config is empty" (the
-                  # "unknown is not a real value" breadcrumb-honesty rule); either way
-                  # it fails CLOSED (nothing appended).
+                  # genuine MALFUNCTION whose interpreter invocation itself failed to
+                  # open/parse/run the helper — an unreadable, corrupt, or
+                  # partially-vendored helper, or resource exhaustion — NOT an empty
+                  # result. (A non-fatal in-script hiccup such as a too-old bash
+                  # rejecting `shopt -s nocasematch` does NOT reach this arm: the
+                  # helper has `set -u` but no `set -e` and ends with `exit 0`, so it
+                  # still exits 0 — the file-tool tier merely degrades to
+                  # case-sensitive, which only affects inert lowercase spellings.)
+                  # Distinguishing malfunction from empty below keeps a helper crash
+                  # from being misdiagnosed as "your config is empty" (the "unknown is
+                  # not a real value" breadcrumb-honesty rule); either way it fails
+                  # CLOSED (nothing appended).
                   STRIP_LOG="$(mktemp)"
                   HELPER_RC=0
                   FILTERED="$(RUNNER_TOOLS="$RUNNER_TOOLS" bash "$FILTER_HELPER" 2>"$STRIP_LOG")" || HELPER_RC=$?
@@ -400,7 +406,7 @@ jobs:
                   done < "$STRIP_LOG"
                   rm -f "$STRIP_LOG"
                   if [ "$HELPER_RC" -ne 0 ]; then
-                    echo "::warning::devflow deny-list floor helper ($FILTER_HELPER) exited $HELPER_RC (it is contracted to always exit 0) — failing closed: NO build/verify tools appended to the review profile. This is a helper MALFUNCTION (unreadable/corrupt/partially-vendored helper, or a bash too old for 'shopt -s nocasematch'), NOT an empty devflow_runner.allowed_tools — check the helper, do not re-check your config."
+                    echo "::warning::devflow deny-list floor helper ($FILTER_HELPER) exited $HELPER_RC (it is contracted to always exit 0) — failing closed: NO build/verify tools appended to the review profile. This is a helper MALFUNCTION (the helper is unreadable, corrupt, or partially vendored so 'bash' could not run it), NOT an empty devflow_runner.allowed_tools — check the helper, do not re-check your config."
                   elif [ -n "$FILTERED" ]; then
                     TOOLS="$TOOLS,$FILTERED"
                   else

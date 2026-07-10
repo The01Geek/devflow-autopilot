@@ -14727,6 +14727,28 @@ PY
   assert_eq "#402 AC4: helper-absent emits a warning naming the missing helper" "1" \
     "$(grep -c 'deny-list floor helper (filter-runner-tools.sh) not found' "$FC_LOG" || true)"
   rm -rf "$FC_DIR"; rm -f "$FC_OUT" "$FC_LOG"
+
+  # #402 iter2 — helper PRESENT but MALFUNCTIONS (non-zero exit; the helper is
+  # contracted to always exit 0). Stub a scripts/filter-runner-tools.sh that emits
+  # a PARTIAL stdout line and exits non-zero in a scratch CWD (where the workflow's
+  # relative resolution finds it), run the real tools step, and assert the malfunction
+  # arm fires: nothing appended (the partial FILTERED is ignored — this is the
+  # arm-ordering guard: reordering `elif [ -n "$FILTERED" ]` before the HELPER_RC
+  # check would leak the partial list), the DISTINCT malfunction breadcrumb is emitted,
+  # and the empty-config warning is NOT (the misdiagnosis this branch exists to prevent).
+  MF_DIR=$(mktemp -d); mkdir -p "$MF_DIR/scripts"
+  printf '#!/usr/bin/env bash\necho partial-leak\nexit 3\n' > "$MF_DIR/scripts/filter-runner-tools.sh"
+  MF_OUT=$(mktemp); MF_LOG=$(mktemp)
+  ( cd "$MF_DIR" && PROFILE=review PROVISION_ENV=true RUNNER_TOOLS='Bash(go:*)' \
+      GITHUB_OUTPUT="$MF_OUT" bash "$TOOLS_STEP" ) >"$MF_LOG" 2>&1 || true
+  MF_TOOLS=$(awk '/^tools<</{f=1;next} (f && /^EOF_/){f=0} f' "$MF_OUT")
+  assert_eq "#402 iter2: helper malfunction (non-zero exit) appends nothing — partial stdout NOT leaked" "yes" \
+    "$(case "$MF_TOOLS" in "$BASE_TOOLS") echo yes ;; *) echo no ;; esac)"
+  assert_eq "#402 iter2: helper malfunction emits the distinct MALFUNCTION breadcrumb" "1" \
+    "$(grep -c 'helper MALFUNCTION' "$MF_LOG" || true)"
+  assert_eq "#402 iter2: helper malfunction does NOT misdiagnose as empty config" "0" \
+    "$(grep -c 'allowed_tools is empty' "$MF_LOG" || true)"
+  rm -rf "$MF_DIR"; rm -f "$MF_OUT" "$MF_LOG"
   rm -f "$TOOLS_STEP"
 
   # Behavioral test of the detect-project-tools.sh jq deny mirror: extract the
