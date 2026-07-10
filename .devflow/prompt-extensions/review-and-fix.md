@@ -4,10 +4,13 @@ This repository is the DevFlow plugin itself: its findings frequently concern th
 engine prose in `skills/` and the best-effort shell/`jq`/Python helpers in
 `scripts/`/`lib/`. The base skill's gates stand unchanged — this extension **sharpens**
 (never supplants) the **fix-delta gate** (Step 0.9) and the **Step 2.6 shadow reviewer
-prompts** with two repo-specific fail-open guard classes the issue-#247 dogfooding run
-reproduced at runtime. Flag an instance of either shape as at least **Important** (a
-silent selection/output change is a correctness defect), and require the fix to verify
-the *outcome*, not the precondition.
+prompts** with four repo-specific verification-discipline shapes — two fail-open guard
+classes the issue-#247 dogfooding run reproduced at runtime (shapes 1–2), and two
+vacuous-verification classes the PR #340 fix loop reproduced (shapes 3–4) — plus an
+interpreter-faithful-probe rule (PR #340's R7). Flag an instance of any shape as at least
+**Important** (a silent selection/output change, a vacuous test, or a re-derived guard
+contract is a correctness defect), and require the fix to verify the *outcome*, not the
+precondition.
 
 ## Guard-class shape 1 — existence-vs-sourceability (verify the outcome, not the precondition)
 
@@ -48,3 +51,76 @@ selects the wrong directory / writes the wrong file / no-ops a gate, with no err
   branch slug built with `tr '/' '-' | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-'`) silently
   degrades on a `PATH` without `tr` — the slug comes back empty or unnormalized and the run then
   reads/writes the wrong slug directory, with no error to signal the degraded selection.
+
+## Guard-class shape 3 — vacuous negative test (attribute the rejection, carry a positive control)
+
+A negative test — one asserting that a bad input is *rejected* — passes while proving nothing when
+the rejection comes from somewhere other than the guard it names. Two sub-shapes: the fixture trips
+an **unrelated precondition** and the call fails before reaching the guard under test; or a **different
+guard** rejects the input first (more than one guard can reject it), so an exit-code-and-no-output
+assertion stays green even against a mutant that disables the very guard the test exists to kill.
+
+- **Flag:** a negative test whose only assertions are the exit code and the absence of output/PATCH,
+  on an input that more than one guard could reject — and no positive control on the same fixture
+  proving the fixture is otherwise valid. The test names one guard but pins no signal that distinguishes
+  it from a precondition or a sibling guard firing first.
+- **Fix (attribute + control the outcome):** pin the **rejecting guard's own distinct signal** (its
+  specific message/breadcrumb, e.g. `net-adds` absent with the offending pair named), not merely that
+  the call failed — so the assertion fails if any *other* guard did the rejecting. And add a **positive
+  control on the same fixture**: a companion assertion that the fixture is otherwise valid and the call
+  would succeed but for the one property under test, so an unrelated precondition rejecting the fixture
+  cannot masquerade as the rejection under test.
+- **#340 reproduction (local instance):** *Refusal from an unrelated precondition:* a test asserting "a
+  `--reflection` does not satisfy the `--note` requirement" passed against a fixture with no
+  `## Devflow Reflection` section. The call was rejected by `section '## Devflow Reflection' not found`.
+  The test never reached the guard it named. *Refusal from the wrong guard:* a test asserting "the
+  per-pair guard refuses an append onto a ticked row" passed on a mutant that made the per-pair guard
+  skip `[x]` rows entirely — because the state backstop rejected the call one step later. Exit code and
+  no-PATCH assertions stayed green on the exact mutant the test existed to kill. Only pinning the
+  rejecting guard's own message (`net-adds` absent, offending pair named) turned it red. **PR #340 cost
+  this would have eliminated:** the two vacuous tests written during that session, and the round-0 review
+  findings about untested `--reflection` and missing no-false-fire controls.
+
+## Guard-class shape 4 — re-derived consumer contract (write the guard as the operation it protects)
+
+A guard written as a *separate predicate approximating* a downstream consumer's contract — instead of
+using that consumer's own operation as the guard — accepts a **superset** of what the consumer accepts,
+so inputs the guard waves through still break the consumer: it fails open exactly where it claims to
+fail closed. The tell is a guard that inspects a *proxy* for the protected value (an argument string, a
+subset of separators) rather than the value the consumer actually operates on.
+
+- **Flag:** a new guard/predicate over a string or shape that hand-derives what a nearby parser,
+  splitter, or narrowing op already decides — a regex/`in`-check/type-check standing in for a
+  `strptime`, a `splitlines()`, a `_find_checkbox_row`, a JSON decode — especially when the correct
+  idiom already exists elsewhere in the same file. Naming the protected operation *after* the predicate
+  is written is itself the smell.
+- **Fix (write the guard as the operation):** name the downstream operation the guard protects, in the
+  code, before writing the predicate; then write the guard **as** that operation (share its contract by
+  construction, so the accepted sets are identical and cannot drift). Before writing any new predicate
+  over a string or shape, grep the file for an existing idiom doing the same job and reuse it.
+- **#340 reproduction (local instance):** First, `_pair_appends_post_merge(old, new)` decided whether a
+  rewrite appended the tag by inspecting the **OLD argument string** rather than the row the rewrite
+  would actually resolve — a re-derivation of `_find_checkbox_row`'s contract. Second, and after the
+  principle had been read: a guard rejecting a multi-line `NEW` was written as `'\n' in s or '\r' in s`.
+  Its consumer is `str.splitlines()`, which splits on ten separators. Eight of them — `\v`, `\f`,
+  `\x1c`, `\x1d`, `\x1e`, NEL, LS, PS — passed the guard and still split the checkbox row, injecting a
+  phantom `- [x]` acceptance-criterion row at exit 0. The correct idiom, `' '.join(text.splitlines())`,
+  already existed ten lines above in the same file. **PR #340 cost this would have eliminated:** the
+  original round-0 Important finding, and the whole of iteration 4.
+
+## Probe rule — run interpreter- and environment-dependent probes under the real interpreter
+
+When a fix or a review probes behavior that depends on the **interpreter or environment** the artifact
+actually runs under, run interpreter- and environment-dependent probes under the interpreter the artifact
+actually runs under, and prefer mutation evidence over a hand probe when the two disagree. A probe run
+under the *wrong* interpreter reports a false vacuity — an assertion that is live under the artifact's
+real shell looks dead under the shell you happened to type into — and chasing it costs real effort across
+every reviewer who repeats the mistake, finding zero defects.
+
+- **#340 reproduction (local instance):** a test loop drives eight separators through `printf '%b'`.
+  Three of them are multibyte octal escapes. Bash expands them; that session's zsh does not. The
+  orchestrator and two independent reviewers each probed under zsh, saw literal backslash text, and
+  briefly concluded three assertions were vacuous. They were not — the suite's shebang is bash, and the
+  mutation evidence was decisive. Cost: real effort, three times over; defects found: zero. **PR #340
+  cost this would have eliminated:** the three false vacuity alarms — duplicated investigative effort
+  across the orchestrator and two reviewers with zero defects found.

@@ -126,6 +126,27 @@ run is denied, do this in order — do not skip to the last rung:
 The standard is *evidence before assertion*: a claim that something works must point to a
 command you actually ran and its observed output, or be explicitly flagged unverified.
 
+## Interpreter-faithful probes — probe under the shell the artifact actually runs under
+
+When you probe behavior that depends on the **interpreter or environment** an artifact runs under —
+a shell built-in's expansion, a `printf` escape, a locale effect, a version-specific behavior — run
+the probe under the interpreter the artifact actually runs under, and
+prefer mutation evidence over a hand probe when the two disagree. A probe run under the *wrong*
+interpreter reports a **false vacuity**: an assertion that is live under the artifact's real shell
+looks dead under whatever shell you happened to type into, and chasing that phantom costs real effort —
+multiplied across every reviewer who repeats the same wrong-interpreter probe — while finding zero real
+defects. The artifact's own shebang (or its runner's invocation) is the authority for which interpreter
+is "actual"; a mutation that breaks the pinned behavior and turns the suite red is decisive where a hand
+probe under a different shell is not.
+
+**#340 reproduction (local instance):** a test loop drives eight separators through `printf '%b'`. Three
+of them are multibyte octal escapes. Bash expands them; that session's zsh does not. The orchestrator and
+two independent reviewers each probed under zsh, saw literal backslash text, and briefly concluded three
+assertions were vacuous. They were not — the suite's shebang is bash, and the mutation evidence was
+decisive. Cost: real effort, three times over; defects found: zero. **PR #340 cost this would have
+eliminated:** the three false vacuity alarms — duplicated investigative effort across the orchestrator
+and two reviewers with zero defects found.
+
 ## Dogfood every run — capture process-improvement signal (standing side task)
 
 This repository runs `/devflow:implement` under DevFlow's **own** engine, so every run
