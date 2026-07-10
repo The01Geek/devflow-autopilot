@@ -184,17 +184,22 @@ def _strip_case_patterns(block: str) -> str:
     and cleared after the first non-comment line at an arm position (whether or not a
     pattern actually matched).
 
-    Accepted limitations (all fail CLOSED — an unhandled shape leaks an arm pattern as
-    a bogus head that no allowlist grants, turning the suite RED, never a silently
-    un-granted command; and none occurs in skills/review/SKILL.md today):
-    - `in_case` is a flag, not a depth counter, so a *nested* `case` block would clear
-      the outer state one `esac` too early.
-    - Only `;;` re-arms; the bash fall-through terminators `;&` and `;;&` do not, so an
-      arm terminated by one leaks the *next* arm's pattern.
+    Accepted limitations (none occurs in skills/review/SKILL.md today; left unhandled
+    deliberately, since handling them would add complexity the real input never
+    exercises). Two of the three fail CLOSED — the unhandled shape leaks an arm pattern
+    as a bogus head that no allowlist grants, turning the suite RED, never a silently
+    un-granted command:
+    - The bash fall-through terminators `;&` and `;;&` do not re-arm (only `;;` does),
+      so an arm terminated by one leaks the *next* arm's pattern. (fails CLOSED)
     - A blank line between arms consumes `expect_arm` without a pattern, so the next
-      arm's pattern is not stripped.
-    A depth counter / broader terminator match would add complexity the real input
-    never exercises, so these are left unhandled deliberately.
+      arm's pattern is not stripped. (fails CLOSED)
+    The third can fail OPEN, and is relied upon not to occur:
+    - `in_case` is a flag, not a depth counter, so a *nested* `case` clears the outer
+      state one `esac` too early. The multi-line spelling leaks a bogus head (fails
+      closed), but a *single-line* inner `case … esac` silently drops its body command
+      with no bogus head emitted (fails OPEN). This is backstopped not by a leak but by
+      the `lib/test/run.sh` 88/28 head-count pins on the real skill: a nested `case`
+      added to a review fence would move those counts and turn the suite RED.
     """
     out: list[str] = []
     in_case = False
@@ -215,10 +220,13 @@ def _strip_case_patterns(block: str) -> str:
             expect_arm = False
         elif expect_arm and not stripped.startswith("#"):
             # `expect_arm` is only ever set while inside a `case` block, so it alone
-            # gates the strip (it implies `in_case`). A comment line at an arm
-            # position is skipped without consuming `expect_arm`, so the following
-            # real arm is still stripped; a `;;`-leading line can't reach here
-            # because `expect_arm` is False on the terminator's own line.
+            # gates the strip (it implies `in_case`). The `#` check is defensive:
+            # `extract_heads` runs `_strip_comments_and_heredocs` first, so in the real
+            # pipeline no line reaching here starts with `#` (a comment is already
+            # blanked to whitespace — and such a blank line at an arm position DOES
+            # consume `expect_arm`, which is the documented blank-line limitation). A
+            # `;;`-leading line can't reach here either, because `expect_arm` is False
+            # on the terminator's own line.
             pattern = _CASE_PATTERN.match(line)
             if pattern:
                 line = line[pattern.end() :]
