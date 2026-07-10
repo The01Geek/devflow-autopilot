@@ -354,10 +354,18 @@ def md_fenced_hash_comment_spans(text):
     fold every following operative ``#``-line into the comment region, a
     fail-open that could hide a real #370-class collision (issue #394 review).
     The fence markers themselves are never treated as content.
+
+    An UNTERMINATED fence fails closed (issue #394 review): a fence opener that
+    never meets a matching closer before EOF is suspect (a stray/unbalanced ```
+    in a malformed target), so its content lines are discarded rather than folded
+    into the comment region — otherwise every following operative ``#``-line (an
+    ATX heading, say) would be stripped out of "outside", masking a real
+    #370-class collision. Only lines inside a PROPERLY CLOSED fence are trusted.
     """
     lines = text.split("\n")
     fence = None  # (char, length) while inside a fence, else None
     inside = []  # (lineno, line) content lines strictly inside fences
+    committed = 0  # inside[:committed] are lines from PROPERLY CLOSED fences
     for i, line in enumerate(lines, 1):
         # 0-3 leading spaces only (>=4 is indented code, not a fence marker).
         m = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
@@ -373,8 +381,15 @@ def md_fenced_hash_comment_spans(text):
             and m.group(2).strip() == ""
         ):
             fence = None
+            committed = len(inside)  # this fence closed cleanly — trust its lines
             continue
         inside.append((i, line))
+    # Fail closed on an UNTERMINATED trailing fence (issue #394 review): a stray or
+    # unbalanced opener that never meets a closer is suspect, so drop its content
+    # rather than fold every following operative `#`-line out of "outside" and mask a
+    # real #370-class collision. Only PROPERLY CLOSED fences' lines are trusted.
+    if fence is not None:
+        inside = inside[:committed]
     spans = {}
     for idx, ctext in hash_comment_regions([ln for _, ln in inside]):
         spans[inside[idx - 1][0]] = ctext

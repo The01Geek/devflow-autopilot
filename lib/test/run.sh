@@ -20220,6 +20220,22 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
   # comment region, "outside" would hold no operative occurrence and the collision would vanish —
   # which is precisely what makes this fixture flip RED on a reverted cap rather than pass vacuously.
   printf 'Unrelated prose with no literal on this line.\n    ``` four-space-indented, must NOT open a fence\n# FLAG_DEEPINDENT heading is the only operative occurrence, must not be swallowed\n<!-- FLAG_DEEPINDENT quoted in this real comment -->\n' > "$_F375/deepindent.md"
+  # .md UNTERMINATED-fence fail-open regression (issue #394 review): a stray 0-3-indent ```
+  # opener that never closes is suspect — its content must be DROPPED (fail closed), not folded
+  # to EOF. Here the literal's only operative occurrence is the ATX heading after the stray
+  # opener; if the never-closed fence swallowed it, "outside" would lose the operative occurrence
+  # and the real <!-- … --> collision would go UNFLAGGED. With the fail-closed drop the heading
+  # stays operative and the collision is flagged. Remove the unterminated-fence drop and this
+  # fixture flips yes->no (RED).
+  printf 'Intro line with no literal here.\n```\n# FLAG_UNTERM heading is the only operative occurrence, must not be swallowed\n<!-- FLAG_UNTERM quoted in this real comment -->\n' > "$_F375/unterminated.md"
+  # .md BACKTICK-INFO-STRING regression (issue #394 review): a ```-opener whose info string
+  # itself contains a backtick is NOT a valid fence opener (CommonMark), so it must not open a
+  # fence and swallow the following operative heading. A trailing ``` closer is included so the
+  # mis-opened fence would CLOSE cleanly (defeating the unterminated-fence fail-closed drop),
+  # isolating this pin to the info-string guard: drop that guard and the stray line opens a fence
+  # that the closer commits, folding the heading (the literal's ONLY operative occurrence) out of
+  # "outside" so the real collision goes unflagged -> RED.
+  printf 'Intro line with no literal here.\n```ba`sh info string has a backtick, not a valid opener\n# FLAG_BTINFO heading is the only operative occurrence, must not be swallowed\n```\n<!-- FLAG_BTINFO quoted in this real comment -->\n' > "$_F375/btinfo.md"
   # WRAPPED (pure `tr -s` case): a prose phrase wrapped across a line boundary by whitespace
   # only — no single line holds it, but `tr -s '[:space:]' ' '` over the file rejoins it.
   printf 'the phrase does\nnot fit on one line\n' > "$_F375/wrapped.md"
@@ -20254,6 +20270,8 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
     "assert_pin_unique \"fx-md-fenceonly\" 'FLAG_FENCEONLY' \"$_F375/fenceonly.md\"" \
     "assert_pin_unique \"fx-md-tilde-collision\" 'FLAG_TILDE' \"$_F375/tgt_tilde.md\"" \
     "assert_pin_unique \"fx-md-deepindent-collision\" 'FLAG_DEEPINDENT' \"$_F375/deepindent.md\"" \
+    "assert_pin_unique \"fx-md-unterminated-collision\" 'FLAG_UNTERM' \"$_F375/unterminated.md\"" \
+    "assert_pin_unique \"fx-md-btinfo-collision\" 'FLAG_BTINFO' \"$_F375/btinfo.md\"" \
     "assert_pin_unique \"fx-cmtonly-sh\" 'FLAG_CMTONLY_SH' \"$_F375/cmtonly.sh\"" \
     "assert_pin_unique \"fx-cmtonly-md\" 'FLAG_CMTONLY_MD' \"$_F375/cmtonly.md\"" \
     "assert_pin_unique \"fx-wrapped\" 'the phrase does not fit on one line' \"$_F375/wrapped.md\"" \
@@ -20289,6 +20307,14 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
   # regression pin; reverting the 0-3-space opener cap flips this yes->no (RED).
   assert_eq "#394 lint self-test: a >=4-space-indented \`\`\` does not open a fence (operative heading not swallowed, collision flagged)" \
     "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*deepindent.md.*FLAG_DEEPINDENT' && echo yes || echo no)"
+  # #394 review: an UNTERMINATED fence fails closed — its content is dropped, so an operative
+  # #-heading after a stray opener is not swallowed and its collision is flagged (revert the drop -> RED).
+  assert_eq "#394 lint self-test: an unterminated \`\`\` fence fails closed (operative heading not swallowed, collision flagged)" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*unterminated.md.*FLAG_UNTERM' && echo yes || echo no)"
+  # #394 review: a ```-opener whose info string contains a backtick is not a valid opener, so the
+  # following operative #-heading is not folded and its collision is flagged (drop the guard -> RED).
+  assert_eq "#394 lint self-test: a backtick-in-info-string \`\`\` is not a fence opener (operative heading not swallowed, collision flagged)" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*btinfo.md.*FLAG_BTINFO' && echo yes || echo no)"
   assert_eq "#375 lint self-test: an unresolvable call site is reported on stderr (never silently skipped)" \
     "yes" "$(grep -q 'file=?' "$_F375/lint.err" && echo yes || echo no)"
   # A resolved-but-undecodable target is COUNTED (fail-closed), not an uncaught crash. The scan
