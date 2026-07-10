@@ -14424,6 +14424,25 @@ assert_eq "provision: read-only base profile has no build tools (all 8)" "0" \
   "$(grep "TOOLS='Read,Glob,Grep" "$RUNNER" \
      | grep -cE 'Bash\((npm|npx|node|yarn|pnpm|composer|php|make):\*\)' || true)"
 
+# Issue #401 — probe-gated review-profile grants. matcher-probe.yml run 29111394360
+# empirically measured which shapes the deployed claude-code-action matcher permits:
+#   - row 9: Write(.devflow/tmp/**) PERMITTED (side-effect file created) → LANDED;
+#     the reviewer authors workpad/scratch into the gitignored .devflow/tmp via the
+#     Write tool (never a shell `>` redirect, which the probe recorded DENIED).
+#   - row 8: Write(/tmp/**) DENIED (out-of-workspace) → DROPPED.
+#   - row 3: Bash(cd:*) DENIED, but confounded by an independently-denied `>` redirect
+#     in the same command → UNPROVEN, DROPPED (a redirect-free re-probe must settle it).
+# Pin the landed grant present and the two dropped candidates absent, so a one-sided
+# removal of the scoped Write goes RED and neither dropped candidate is silently
+# re-added without a fresh probe. All three read the review profile TOOLS line only.
+REVIEW_TOOLS_LINE="$(grep "TOOLS='Read,Glob,Grep" "$RUNNER")"
+assert_eq "#401 review profile grants Write(.devflow/tmp/**) (probe row 9 PERMITTED — scoped scratch write)" "1" \
+  "$(printf '%s\n' "$REVIEW_TOOLS_LINE" | grep -cF 'Write(.devflow/tmp/**)' || true)"
+assert_eq "#401 review profile does NOT grant Write(/tmp/**) (probe row 8 DENIED — out-of-workspace)" "0" \
+  "$(printf '%s\n' "$REVIEW_TOOLS_LINE" | grep -cF 'Write(/tmp/**)' || true)"
+assert_eq "#401 review profile does NOT grant Bash(cd:*) (probe row 3 DENIED, confounded by redirect — unproven)" "0" \
+  "$(printf '%s\n' "$REVIEW_TOOLS_LINE" | grep -cF 'Bash(cd:*)' || true)"
+
 # Issue #21: the build append is now the FREEFORM devflow_runner.allowed_tools
 # list (read from the trusted base ref), not the old hard-coded npm…make set.
 # (1) The fixed 8-tool append line must be GONE — listing build tools is now the

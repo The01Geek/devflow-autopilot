@@ -62,16 +62,20 @@ jobs:
 
       # Compose --allowed-tools = the review profile's exact TOOLS literal (kept
       # verbatim in sync with .github/workflows/devflow-runner.yml's `review`
-      # profile) PLUS the candidate grants this probe measures: Bash(cd:*),
-      # Write(/tmp/**), Write(.devflow/tmp/**). If devflow-runner.yml's review
-      # literal changes, update this copy too — this is a deliberate second copy
-      # so the probe measures the real profile, not a paraphrase.
+      # profile — including the Write(.devflow/tmp/**) grant that landed from this
+      # probe's first run, 29111394360) PLUS the candidate grants still under test:
+      # Bash(cd:*) and Write(/tmp/**). Both were DENIED on the first run — cd's row
+      # was confounded by an independently-denied `>` redirect, and Write(/tmp/**)
+      # is a genuine out-of-workspace denial — so they are kept here for a future
+      # redirect-free re-probe rather than granted. If devflow-runner.yml's review
+      # literal changes, update this copy too — a deliberate second copy so the
+      # probe measures the real profile, not a paraphrase.
       - name: Resolve allowed-tools (review profile + candidate grants)
         id: tools
         run: |
           set -euo pipefail
-          REVIEW='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)'
-          CANDIDATES='Bash(cd:*),Write(/tmp/**),Write(.devflow/tmp/**)'
+          REVIEW='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Write(.devflow/tmp/**)'
+          CANDIDATES='Bash(cd:*),Write(/tmp/**)'
           TOOLS="$REVIEW,$CANDIDATES"
           delim="TOOLS_EOF_$(date +%s%N)_$$"
           {
