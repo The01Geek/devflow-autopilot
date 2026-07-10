@@ -84,6 +84,11 @@ for raw in "$@"; do
   # first '(' — so Write, Write(**), Edit(src/**) all match. nocasematch is
   # scoped to THIS case only (unset immediately) so the case-sensitive Bash-tier
   # matching below is unchanged (a lowercase `bash(...)` stays kept, as before).
+  # The Bash tier stays case-sensitive purely for REGRESSION-CORPUS STABILITY —
+  # #402 preserves the pre-#402 Bash behavior byte-for-byte (a run.sh corpus pins
+  # every kept/stripped shape) — NOT because of any security distinction; a
+  # lowercase `bash(...)` is just as inert a Claude Code rule as `write(**)`. If a
+  # future change wants case-insensitive Bash matching too, widen the corpus first.
   ftname="${entry%%(*}"
   ftname="${ftname%"${ftname##*[![:space:]]}"}"   # trim trailing whitespace
   shopt -s nocasematch
