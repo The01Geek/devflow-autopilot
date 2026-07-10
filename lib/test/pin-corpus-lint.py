@@ -234,8 +234,6 @@ def resolve_arg(segments, literal_vars, path_vars, want_path):
                 if not m:
                     return None
                 repl = (path_vars if want_path else literal_vars).get(m.group(1))
-                if repl is None and want_path:
-                    repl = path_vars.get(m.group(1))
                 if repl is None:
                     return None
                 out.append(repl)
@@ -245,8 +243,6 @@ def resolve_arg(segments, literal_vars, path_vars, want_path):
             m = _VARREF.match(val)
             if m:
                 repl = (path_vars if want_path else literal_vars).get(m.group(1))
-                if repl is None and want_path:
-                    repl = path_vars.get(m.group(1))
                 if repl is None:
                     return None
                 out.append(repl)
@@ -374,10 +370,48 @@ def _target_ext(path, md_targets):
     return os.path.splitext(path)[1]
 
 
+def _lint_view(path, ext, cache):
+    """Memoized per-target-file comment analysis (read + comment regions + the
+    outside-comments text). Many pins share a target, so this is derived once per
+    file rather than once per pin."""
+    v = cache.get(path)
+    if v is not None:
+        return v
+    ftext = _read(path)
+    if ext in COMMENT_HASH_EXTS:
+        lines = ftext.split("\n")
+        comment_spans = {cln: ctext for cln, ctext in hash_comment_regions(lines)}
+        outside = "\n".join(
+            (line[: len(line) - len(comment_spans.get(i, ""))] if i in comment_spans else line)
+            for i, line in enumerate(lines, 1)
+        )
+        v = ("hash", comment_spans, outside)
+    elif ext in COMMENT_MD_EXTS:
+        v = ("md", md_comment_text(ftext), re.sub(r"<!--.*?-->", "", ftext, flags=re.DOTALL))
+    else:
+        v = ("none", None, None)
+    cache[path] = v
+    return v
+
+
+def _wrapped_view(path, cache):
+    """Memoized per-target-file wrapped-literal analysis (lines + whitespace-normalized
+    whole file + normalized multi-literal help= renderings). Derived once per file."""
+    v = cache.get(path)
+    if v is not None:
+        return v
+    ftext = _read(path)
+    helps = [normalize_ws(r) for r in multiliteral_help_renderings(ftext)] if path.endswith(".py") else []
+    v = (ftext.split("\n"), normalize_ws(ftext), helps)
+    cache[path] = v
+    return v
+
+
 def run_lint(pin_source, lib, overrides, md_targets):
     text = _read(pin_source)
     unresolved = 0
     collisions = []
+    view_cache = {}
     for pin in extract_pins(text, lib, overrides):
         if pin["literal"] is None or pin["file"] is None:
             unresolved += 1
@@ -395,7 +429,7 @@ def run_lint(pin_source, lib, overrides, md_targets):
             )
             continue
         ext = _target_ext(pin["file"], md_targets)
-        ftext = _read(pin["file"])
+        kind, comments, outside = _lint_view(pin["file"], ext, view_cache)
         lit = pin["literal"]
         # The defect (#370): a comment occurrence that COEXISTS with an operative
         # occurrence — it inflates the count / can mask a refactored-away operative
@@ -403,30 +437,13 @@ def run_lint(pin_source, lib, overrides, md_targets):
         # deliberately comment-targeted contract) is the pin's intended home, not the
         # count-inflation defect, so it is NOT flagged. Hence: flag only when the
         # literal appears in a comment AND ALSO outside every comment region.
-        if ext in COMMENT_HASH_EXTS:
-            lines = ftext.split("\n")
-            comment_spans = {cln: ctext for cln, ctext in hash_comment_regions(lines)}
-            in_comment_line = None
-            for cln, ctext in comment_spans.items():
-                if lit in ctext:
-                    in_comment_line = cln
-                    break
-            if in_comment_line is not None:
-                # Is there any occurrence OUTSIDE a comment? Strip each line's comment
-                # region, then look for the literal in what remains.
-                outside = "\n".join(
-                    (line[: len(line) - len(comment_spans.get(i, ""))] if i in comment_spans else line)
-                    for i, line in enumerate(lines, 1)
-                )
-                if lit in outside:
-                    collisions.append((pin, in_comment_line))
-        elif ext in COMMENT_MD_EXTS:
-            comment_text = md_comment_text(ftext)
-            if lit in comment_text:
-                # Occurrence outside <!-- --> comments?
-                outside = re.sub(r"<!--.*?-->", "", ftext, flags=re.DOTALL)
-                if lit in outside:
-                    collisions.append((pin, None))
+        if kind == "hash":
+            in_comment_line = next((cln for cln, ctext in comments.items() if lit in ctext), None)
+            if in_comment_line is not None and lit in outside:
+                collisions.append((pin, in_comment_line))
+        elif kind == "md":
+            if lit in comments and lit in outside:
+                collisions.append((pin, None))
     for pin, cln in collisions:
         loc = f":{cln}" if cln else ""
         print(f"COLLISION\t{pin['file']}{loc}\t{pin['helper']}@{pin_source}:{pin['lineno']}\t{pin['literal']}")
@@ -437,6 +454,7 @@ def run_lint(pin_source, lib, overrides, md_targets):
 def run_wrapped(pin_source, lib, overrides, md_targets):
     text = _read(pin_source)
     unresolved = 0
+    view_cache = {}
     for pin in extract_pins(text, lib, overrides):
         if pin["literal"] is None or pin["file"] is None:
             unresolved += 1
@@ -444,30 +462,22 @@ def run_wrapped(pin_source, lib, overrides, md_targets):
         if not os.path.isfile(pin["file"]):
             unresolved += 1
             continue
-        ftext = _read(pin["file"])
-        lines = ftext.split("\n")
+        lines, nfile, helps = _wrapped_view(pin["file"], view_cache)
         lit = pin["literal"]
-        on_a_line = any(lit in ln for ln in lines)
-        if on_a_line:
-            # If the phrase IS on a line but that line is inside a multi-literal
-            # help=, it is already fine (single rendered literal); nothing to flag.
+        if any(lit in ln for ln in lines):
+            # The phrase IS on a line; nothing to flag.
             continue
-        # occurs on no single line: distinguish wrapped vs absent.
+        # occurs on no single line: distinguish a multi-literal help= (needs the
+        # rendered surface), a whitespace-wrapped phrase, and a genuinely-absent one.
         nlit = normalize_ws(lit)
-        nfile = normalize_ws(ftext)
-        if pin["file"].endswith(".py"):
-            for rendering in multiliteral_help_renderings(ftext):
-                if nlit and nlit in normalize_ws(rendering):
-                    print(
-                        f"HELP\t{pin['file']}\t{pin['helper']}@{pin_source}:{pin['lineno']}\t"
-                        f"pin targets a multi-literal argparse help= string; pin the RENDERED "
-                        f"surface (captured --help output / real stderr), not the source\t{lit}"
-                    )
-                    break
-            else:
-                _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit)
-        else:
-            _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit)
+        if nlit and any(nlit in h for h in helps):
+            print(
+                f"HELP\t{pin['file']}\t{pin['helper']}@{pin_source}:{pin['lineno']}\t"
+                f"pin targets a multi-literal argparse help= string; pin the RENDERED "
+                f"surface (captured --help output / real stderr), not the source\t{lit}"
+            )
+            continue
+        _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit)
     sys.stderr.write(f"UNRESOLVED-COUNT\t{unresolved}\n")
     return 0
 
