@@ -219,11 +219,13 @@ recorded_fix_shas() {
       echo "::warning::efficiency-trace.sh --persist: could not read fix_commit_sha from ${f} (unreadable or malformed workpad); its sha (if any) cannot be excluded from synthesis" >&2
       continue
     fi
-    # Emit only sha-shaped tokens (lowercase hex, abbreviated-to-full length): a
-    # corrupt string value ("aaa bbb <realsha>", an embedded newline) must not
-    # smuggle arbitrary tokens into the space-delimited exclusion set — the
-    # residual there is only a breadcrumbed under-count, but confining emission
-    # to genuine shas removes even that class.
+    # Emit only sha-shaped tokens (lowercase-hex charset — length deliberately
+    # unchecked, which is sufficient here: the check exists to keep a corrupt
+    # string value ("aaa bbb <realsha>", an embedded newline) from smuggling
+    # arbitrary whitespace-bearing tokens into the space-delimited exclusion
+    # set, and space/newline both fail the charset class; the producer contract
+    # is `git rev-parse HEAD`, so a wrong-length hex token can only cause a
+    # breadcrumbed under-count, never a wrong exclusion of a full-sha match).
     case "$sha_out" in
       ''|*[!0-9a-f]*) [ -n "$sha_out" ] && echo "::warning::efficiency-trace.sh --persist: fix_commit_sha in ${f} is not sha-shaped; not added to the exclusion set" >&2 ;;
       *) printf '%s\n' "$sha_out" ;;
@@ -232,19 +234,27 @@ recorded_fix_shas() {
   return 0
 }
 
-# Emit `N<TAB>sha` lines (oldest-first) for commits reachable from HEAD but not
-# from $2 (the pre-resolved base ref) whose subject matches the fix-commit
-# contract, excluding any sha in $3 (space-separated already-recorded set).
-# Deterministic, network-free. Adversarial subjects each emit an exit-0 stderr
-# breadcrumb and are skipped: prefix present but no trailing `)` iteration
-# suffix, a non-numeric iteration token, an already-recorded sha, or a duplicate
-# N (first unexcluded occurrence wins). Always exits 0.
+# Reads `sha<TAB>subject` lines (oldest-first) on STDIN — the caller captures
+# `git log` output first so a failed log is routed to the rc-3 "never
+# established" arm instead of reading as an empty commit list — and emits
+# `N<TAB>sha` lines for subjects matching the fix-commit contract, excluding any
+# sha in $1 (space-separated already-recorded set). Deterministic, network-free.
+# Adversarial subjects each emit an exit-0 stderr breadcrumb and are skipped:
+# prefix present but no trailing `)` iteration suffix, a non-numeric iteration
+# token, an already-recorded sha, or a duplicate N (first unexcluded occurrence
+# wins). Known accepted lenience: `(iteration1)` (missing space) parses as
+# iteration 1 — the strip drops at most one optional space. Known limitation:
+# iteration numbers restart at 1 per review loop, so a branch carrying TWO
+# unrecorded loops keeps only the first loop's commit for each N (duplicate-N
+# breadcrumbs name the rest) — acceptable for a minimal floor. Always exits 0.
 select_fix_commits() {
-  local root="$1" base="$2" excl="$3" base_subject sha subj n tab seen_ns=" "
+  local excl="$1" base_subject sha subj n tab seen_ns=" "
   tab="$(printf '\t')"
-  # The fix-loop subject family, derived from the coupled prefix constant (no
-  # second hardcoded literal): a commit in this family but WITHOUT the
-  # `(iteration N)` suffix is breadcrumbed, not silently dropped (issue #381 AC4).
+  # The fix-loop subject family, derived from the coupled prefix constant (the
+  # strip pattern necessarily repeats the constant's ` (iteration` tail — keep
+  # the two in lockstep if the subject template is ever reworded): a commit in
+  # this family but WITHOUT the `(iteration N)` suffix is breadcrumbed, not
+  # silently dropped (issue #381 AC4).
   base_subject="${FIX_COMMIT_SUBJECT_PREFIX% (iteration}"
   # --reverse → oldest-first so a duplicate N keeps the EARLIEST commit.
   while IFS="$tab" read -r sha subj; do
@@ -283,7 +293,7 @@ select_fix_commits() {
     esac
     seen_ns="${seen_ns}${n} "
     printf '%s\t%s\n' "$n" "$sha"
-  done < <(git -C "$root" log --reverse --format="%H${tab}%s" "${base}..HEAD" 2>/dev/null)
+  done
   return 0
 }
 
@@ -298,10 +308,18 @@ select_fix_commits() {
 # commits exist was never established); 4 when commits WERE selected but every
 # record write failed (per-commit warnings already emitted).
 synthesize_iter_workpads() {
-  local dir="$1" root="$2" n sha files base excl tab attempted=0 wrote=0
+  local dir="$1" root="$2" n sha files files_ok base excl log_out tab attempted=0 wrote=0
   tab="$(printf '\t')"
   if ! base="$(synth_base_ref "$root")"; then
     echo "::warning::efficiency-trace.sh --persist: could not resolve a base branch ref (.base_branch and origin/<base> both absent); cannot select fix commits for synthesis" >&2
+    return 3
+  fi
+  # Capture the log BEFORE parsing, checking its own exit status: a failed
+  # `git log` (unborn HEAD, index-lock race, corrupt object store) is "the
+  # enumeration never ran" — rc 3, never collapsed onto rc 2's "found none"
+  # (the unknown-is-not-zero gotcha, applied to the search itself).
+  if ! log_out="$(git -C "$root" log --reverse --format="%H${tab}%s" "${base}..HEAD" 2>&1)"; then
+    echo "::warning::efficiency-trace.sh --persist: git log ${base}..HEAD failed (${log_out:-no error text}); whether matching fix commits exist was never established" >&2
     return 3
   fi
   # Join the exclusion set with bash builtins only — it DECIDES which commits are
@@ -315,17 +333,29 @@ synthesize_iter_workpads() {
   while IFS="$tab" read -r n sha; do
     [ -n "$n" ] && [ -n "$sha" ] || continue
     attempted=$((attempted + 1))
-    files="$(git -C "$root" diff-tree --no-commit-id --name-only -r "$sha" 2>/dev/null)"
-    if "$DEVFLOW_JQ" -n --argjson iter "$n" --arg sha "$sha" --arg files "$files" \
+    # Guard the fix_files derivation: a failed diff-tree must record
+    # fix_files: null (unestablished — distinguishable from a genuine
+    # empty/--allow-empty commit's []) with a breadcrumb, never a silent
+    # fabricated "this commit touched no files".
+    files_ok=1
+    if ! files="$(git -C "$root" diff-tree --no-commit-id --name-only -r "$sha" 2>&1)"; then
+      echo "::warning::efficiency-trace.sh --persist: could not derive fix_files for ${sha} (git diff-tree failed: ${files:-no error text}); recording fix_files as null (unestablished)" >&2
+      files_ok=0
+      files=""
+    fi
+    if "$DEVFLOW_JQ" -n --argjson iter "$n" --arg sha "$sha" --arg files "$files" --arg files_ok "$files_ok" \
          '{iter: $iter, fix_commit_sha: $sha,
-           fix_files: ($files | split("\n") | map(select(length > 0))),
+           fix_files: (if $files_ok == "1" then ($files | split("\n") | map(select(length > 0))) else null end),
            loop_role: "fix", synthesized: true}' > "$dir/iter-$n.json" 2>/dev/null; then
       wrote=$((wrote + 1))
     else
       echo "::warning::efficiency-trace.sh --persist: failed to write synthesized iter-${n}.json for ${sha}; skipping" >&2
       rm -f "$dir/iter-$n.json" 2>/dev/null
     fi
-  done < <(select_fix_commits "$root" "$base" "$excl")
+  done < <(select_fix_commits "$excl" <<EOF
+$log_out
+EOF
+)
   [ "$wrote" -gt 0 ] && return 0
   [ "$attempted" -gt 0 ] && return 4
   return 2
@@ -410,17 +440,26 @@ persist_one() {
   if [ ! -e "${iters[0]}" ]; then
     # No per-iteration workpad. Layer-3+ synthesis floor (issue #381): reconstruct
     # a minimal record from this branch's fix commits so a fully-dropped run still
-    # contributes effectiveness telemetry. Two guards keep a fix commit from being
-    # double-counted into two runs' records: (a) sha-level exclusion — synthesis
-    # skips any commit already recorded as a fix_commit_sha by another run's
-    # iter-*.json (real or synthesized, tmp tree or committed durable copy), so a
-    # workpad-holding sibling run, a cross-slug sibling, a later targeted
-    # --workpad-dir invocation, and a later discovery pass all decline the same
-    # commit; and (b) among the workpad-less dirs of one slug, only the
+    # contributes effectiveness telemetry. Three guards keep a fix commit from
+    # being double-counted into (or misattributed across) runs' records: (a)
+    # sha-level exclusion — synthesis skips any commit already recorded as a
+    # fix_commit_sha by another run's iter-*.json (real or synthesized, tmp tree
+    # or committed durable copy), so a workpad-holding sibling run, a later
+    # targeted --workpad-dir invocation, and a later discovery pass all decline
+    # the same commit; (b) among the workpad-less dirs of one slug, only the
     # lexicographically-latest run-id synthesizes (allow_synth=1) — the rest
-    # breadcrumb. The residual window is a run whose EVERY workpad copy (tmp and
-    # durable) was deleted after its record was derived — the durable-copy layer
-    # exists precisely so that does not happen.
+    # breadcrumb; and (c) when the workpad-less dirs span MULTIPLE slugs in one
+    # discovery pass, ownership of the branch's fix commits is ambiguous offline
+    # (a stale slug's leftover empty dir could claim the current branch's
+    # commits), so discovery synthesizes into NONE of them (allow_synth=2,
+    # breadcrumb naming the targeted escape hatch). The residual window is a run
+    # whose EVERY workpad copy (tmp and durable) was deleted after its record
+    # was derived — the durable-copy layer exists precisely so that does not
+    # happen.
+    if [ "$allow_synth" = "2" ]; then
+      echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} has no iter-*.json, but workpad-less run dirs span multiple slugs in this discovery pass — the branch's fix commits cannot be attributed to a slug offline, so synthesis is skipped for all of them; to synthesize this run explicitly, rerun with --persist --workpad-dir <dir> --slug ${slug}" >&2
+      return 0
+    fi
     if [ "$allow_synth" != "1" ]; then
       echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} has no iter-*.json and is not the synthesis target for slug '${slug}' (a later run-id holds it); skipping synthesis so fix commits are not double-counted" >&2
       return 0
@@ -552,10 +591,18 @@ do_persist() {
     # workpad-less run-id per slug: the glob is sorted, so same-slug dirs are
     # contiguous with run-ids ascending — the LAST workpad-less dir of a slug is
     # its latest, and every earlier one gets allow_synth=0 (breadcrumb). This
-    # ordering guard is one of TWO double-count defenses; the sha-level exclusion
+    # ordering guard is one of the double-count defenses; the sha-level exclusion
     # inside synthesis (see persist_one) covers the shapes ordering cannot — a
-    # workpad-holding sibling run, a cross-slug sibling, and later passes.
-    local wl_dirs=() wl_n wl_i next_slug allow d_iters
+    # workpad-holding sibling run and later passes — and the multi-slug ambiguity
+    # guard below covers the shape NEITHER can: workpad-less dirs spanning
+    # multiple slugs, where whichever slug sorts first would otherwise claim the
+    # current branch's fix commits even when it is a stale leftover from an
+    # aborted run of a DIFFERENT branch/PR (misattribution, which the sha
+    # exclusion would then lock in). Slug ownership is not derivable offline
+    # (a pr-<N> slug cannot be mapped to the checkout without the API), so the
+    # ambiguous case fails closed for every candidate, each with a breadcrumb
+    # naming the targeted --workpad-dir escape hatch.
+    local wl_dirs=() wl_n wl_i next_slug allow d_iters wl_slug_first wl_multi_slug=0
     for dir in "$root"/.devflow/tmp/review/*/*/; do
       [ -d "$dir" ] || continue
       dir="${dir%/}"                                # strip trailing slash
@@ -569,13 +616,26 @@ do_persist() {
       fi
     done
     wl_n=${#wl_dirs[@]}
+    wl_slug_first=""
+    for ((wl_i = 0; wl_i < wl_n; wl_i++)); do
+      slug="$(basename "$(dirname "${wl_dirs[$wl_i]}")")"
+      if [ -z "$wl_slug_first" ]; then
+        wl_slug_first="$slug"
+      elif [ "$slug" != "$wl_slug_first" ]; then
+        wl_multi_slug=1
+      fi
+    done
     for ((wl_i = 0; wl_i < wl_n; wl_i++)); do
       dir="${wl_dirs[$wl_i]}"
       run_id="$(basename "$dir")"
       slug="$(basename "$(dirname "$dir")")"
-      next_slug=""
-      [ $((wl_i + 1)) -lt "$wl_n" ] && next_slug="$(basename "$(dirname "${wl_dirs[$((wl_i + 1))]}")")"
-      if [ "$slug" = "$next_slug" ]; then allow=0; else allow=1; fi
+      if [ "$wl_multi_slug" = "1" ]; then
+        allow=2
+      else
+        next_slug=""
+        [ $((wl_i + 1)) -lt "$wl_n" ] && next_slug="$(basename "$(dirname "${wl_dirs[$((wl_i + 1))]}")")"
+        if [ "$slug" = "$next_slug" ]; then allow=0; else allow=1; fi
+      fi
       persist_one "$dir" "$slug" "$run_id" "$root" "$allow"
     done
   fi
