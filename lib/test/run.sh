@@ -2475,11 +2475,12 @@ rm -f "$NHPROBE"
 # loop_role field (fix | promoted). #170 gave it a real consumer —
 # lib/efficiency-trace.jq derives AND surfaces it per iteration — so the field is
 # no longer "legibility-only: no consumer reads it". Pin the field at its schema
-# source-of-truth line and the Step 3 item 7 persist rule that writes it every
+# source-of-truth line and the Step 3 item 7 record-shape rule (the item-6-anchored
+# Write carries it) that persists it every
 # iteration; mutation proof = delete either and the suite goes RED.
 assert_pin_unique "loop_role: field + value set pinned at iter-N json schema source-of-truth" \
   '"loop_role": "fix | promoted"' "$MAXI_SKILL"
-assert_pin_unique "loop_role: Step 3 item 7 persist rule writes it every iteration" \
+assert_pin_unique "loop_role: Step 3 item 7 record-shape rule persists it every iteration (Write anchored at item 6)" \
   'the iteration role from the schema: fix for a normal fix iteration, promoted for a Decide-outcome-2 shadow-promoted iter' "$MAXI_SKILL"
 # Issue #170: the loop_role legibility win is realized — efficiency-trace.jq now
 # DERIVES + SURFACES loop_role per iteration, so SKILL.md no longer claims it is
@@ -3249,8 +3250,9 @@ assert_pin_unique "#236 (B) phase-3.3: bounded re-review re-runs the observabili
 # Lifecycle-restatement pins are literal-constant style (assert_pin_unique), where no
 # operative-vs-framing distinction exists.
 #
-# (1) NON-OPTIONAL EMIT — the operative directive in Step 3 item 7 (the authoritative write
-# site): removing it re-introduces the optional-emit bug on the hand-run path.
+# (1) NON-OPTIONAL EMIT — the operative directive in Step 3 item 7 (the authoritative
+# record-shape spec; the Write act itself is anchored at item 6's fix-commit moment):
+# removing it re-introduces the optional-emit bug on the hand-run path.
 assert_pin_red_on_removal "#296 review-and-fix: deleting the non-optional-emit-on-every-iteration (incl. hand-run) obligation turns its pin RED" \
   'a non-optional emit on every iteration — including a degraded or hand-run path where the review engine was dispatched directly via `Agent` instead of this Skill' "$MAXI_SKILL"
 # (1b) the Write-tool mechanism the emit must use (never a shell redirect) — mechanism token.
@@ -14571,6 +14573,19 @@ assert_eq "et-synth(placeholder): NO placeholder-identity dir is fabricated" "no
   "$([ -d "$ETSPH_REPO/.devflow/tmp/review/<slug>" ] && echo yes || echo no)"
 assert_eq "et-synth(placeholder): NO record is written under a placeholder identity" "no" \
   "$(ls "$ETSPH_REPO/.devflow/logs/efficiency/" 2>/dev/null | grep -q . && echo yes || echo no)"
+# The BASENAME-DERIVED route: a literal '<slug>/<run-id>' DIRECTORY (left by a
+# non-substituting agent running a workpad-dir mkdir fence verbatim) reaches
+# discovery mode without passing through argv — persist_one's twin guard must
+# refuse it too, fabricating no synthesized workpad and no record.
+mkdir -p "$ETSPH_REPO/.devflow/tmp/review/<slug>/<run-id>"
+ETSPH_ERR2="$( ( cd "$ETSPH_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; ETSPH_RC2=$?
+assert_eq "et-synth(placeholder): discovery over a literal <slug>/<run-id> dir exits 0" "0" "$ETSPH_RC2"
+assert_eq "et-synth(placeholder): the basename-derived placeholder identity is refused with its own breadcrumb" "yes" \
+  "$(printf '%s' "$ETSPH_ERR2" | grep -qF "unsubstituted '<placeholder>' identity" && echo yes || echo no)"
+assert_eq "et-synth(placeholder): discovery fabricates NO synthesized workpad under the placeholder dir" "no" \
+  "$(ls "$ETSPH_REPO/.devflow/tmp/review/<slug>/<run-id>/" 2>/dev/null | grep -q . && echo yes || echo no)"
+assert_eq "et-synth(placeholder): discovery writes NO placeholder-named record" "no" \
+  "$(ls "$ETSPH_REPO/.devflow/logs/efficiency/" 2>/dev/null | grep -q . && echo yes || echo no)"
 rm -rf "$ETSPH_REPO"
 
 # rc-3's uncreatable-target-dir arm: a read-only SLUG PARENT (mkdir -p of a
@@ -14592,6 +14607,13 @@ assert_eq "et-synth(unmkdirable): the could-not-create-dir breadcrumb fires" "ye
   "$(printf '%s' "$ETSMK_ERR" | grep -qF 'could not create workpad dir' && echo yes || echo no)"
 assert_eq "et-synth(unmkdirable): NOT misattributed as every-write-failed (rc-4)" "no" \
   "$(printf '%s' "$ETSMK_ERR" | grep -qF 'every synthesized record write failed' && echo yes || echo no)"
+# The rc-3 arm's own honesty pair (mirrors ETSB/ETSU): the never-established
+# wording present, and the rc-2 found-none collapse absent — a rc-3→rc-2
+# misclassification mutation must go RED here, not only lose the rc-4 negative.
+assert_eq "et-synth(unmkdirable): never-established wording present (rc-3 arm)" "yes" \
+  "$(printf '%s' "$ETSMK_ERR" | grep -qF 'was never established' && echo yes || echo no)"
+assert_eq "et-synth(unmkdirable): does NOT emit the found-none collapse" "no" \
+  "$(printf '%s' "$ETSMK_ERR" | grep -qF 'was not captured this run' && echo yes || echo no)"
 rm -rf "$ETSMK_REPO"
 
 # fix_files [] vs null: a genuine --allow-empty fix commit synthesizes fix_files
@@ -14605,12 +14627,16 @@ git -C "$ETSE_REPO" checkout -q -b feat
 git -C "$ETSE_REPO" commit --allow-empty -qm "fix: address review findings (iteration 1)"
 mkdir -p "$ETSE_REPO/.devflow/tmp/review/pr-e/run-e"
 ( cd "$ETSE_REPO" && bash "$LIB/efficiency-trace.sh" --workpad-dir "$ETSE_REPO/.devflow/tmp/review/pr-e/run-e" --slug pr-e --persist ) >/dev/null 2>&1
-assert_eq "et-synth(empty-commit): an --allow-empty fix commit synthesizes fix_files [] (not null, not [\"\"])" "[]" \
+assert_eq "et-synth(empty-commit): an --allow-empty fix commit synthesizes fix_files [] (not the failure-path null; jq split of \"\" is already [], the length filter is belt-and-suspenders)" "[]" \
   "$(jq -c '.fix_files' "$ETSE_REPO/.devflow/tmp/review/pr-e/run-e/iter-1.json" 2>/dev/null)"
 rm -rf "$ETSE_REPO"
 
 # Wrong-type base_branch row (adversarial input-shape matrix): a boolean config
-# value must fail closed to a working default, never detonate.
+# value coerces to the string "false", which resolves as neither origin/false
+# nor false — so the run SKIPS synthesis via the rc-3 unresolvable-base arm
+# (there is no fallback to main here; only the valid-falsy "" row falls back,
+# via the resolver default — see ETSF). Assert the outcome and the diagnosis,
+# never only the blanket exit-0 contract.
 ETSWT_REPO="$(git_sandbox "et-synth wrongtype-base repo")"
 git -C "$ETSWT_REPO" init -q
 git -C "$ETSWT_REPO" config user.email t@e.com; git -C "$ETSWT_REPO" config user.name t
@@ -14622,8 +14648,12 @@ mkdir -p "$ETSWT_REPO/.devflow"
 printf '{"base_branch": false}' > "$ETSWT_REPO/.devflow/config.json"
 mkdir -p "$ETSWT_REPO/.devflow/tmp/review/pr-wt/run-wt"
 ETSWT_RC=0
-( cd "$ETSWT_REPO" && bash "$LIB/efficiency-trace.sh" --workpad-dir "$ETSWT_REPO/.devflow/tmp/review/pr-wt/run-wt" --slug pr-wt --persist ) >/dev/null 2>&1 || ETSWT_RC=$?
+ETSWT_ERR="$( ( cd "$ETSWT_REPO" && bash "$LIB/efficiency-trace.sh" --workpad-dir "$ETSWT_REPO/.devflow/tmp/review/pr-wt/run-wt" --slug pr-wt --persist ) 2>&1 1>/dev/null )" || ETSWT_RC=$?
 assert_eq "et-synth(wrongtype-base): a boolean base_branch config value never detonates (exit 0)" "0" "$ETSWT_RC"
+assert_eq "et-synth(wrongtype-base): the tried value is named (present-but-wrong-type is not reported as absent)" "yes" \
+  "$(printf '%s' "$ETSWT_ERR" | grep -qF ".base_branch resolved to 'false'" && echo yes || echo no)"
+assert_eq "et-synth(wrongtype-base): routes to the rc-3 unresolvable-base skip, no record written" "no" \
+  "$([ -e "$ETSWT_REPO/.devflow/logs/efficiency/pr-wt-run-wt.json" ] && echo yes || echo no)"
 rm -rf "$ETSWT_REPO"
 
 # origin/<base> preferred over a STALE local base: a worktree's local main is

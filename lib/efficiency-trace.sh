@@ -75,14 +75,23 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Unsubstituted-placeholder guard: the phase-3.3 backstop fence carries literal
-# `<slug>`/`<run-id>` placeholders the executing agent must substitute; run
-# verbatim, they would fabricate a `.devflow/tmp/review/<slug>/<run-id>` identity,
-# synthesize the branch's real fix commits under it, and the sha exclusion would
-# then lock the misattribution in while the new files suppressed the gap
-# reflection — a silent, durable corruption. No legitimate slug/run-id/path
-# carries `<` or `>`, so refuse them loudly here at the one producer every
-# prose-substituted call site funnels through (best-effort exit 0 preserved).
+# Unsubstituted-placeholder guard, argv half: the phase-3.3 backstop fence
+# carries literal `<slug>`/`<run-id>` placeholders the executing agent must
+# substitute; run verbatim, they would fabricate a
+# `.devflow/tmp/review/<slug>/<run-id>` identity, synthesize the branch's real
+# fix commits under it, and the sha exclusion would then lock the
+# misattribution in while the new files suppressed the gap reflection — a
+# silent, durable corruption. No legitimate slug/run-id/path carries `<` or
+# `>`, so refuse them loudly (best-effort exit 0 preserved). This covers the
+# ARGV route only; the basename-derived route — a literal `<slug>/<run-id>`
+# DIRECTORY reaching discovery mode — is refused by persist_one's twin guard.
+# Accepted limitation: a repo checked out under a path that itself contains
+# `<`/`>` refuses every targeted invocation (loudly, exit 0) — fail-closed in
+# the safe direction for a vanishingly rare layout. Accepted residual: a
+# CALLER-side shell redirect (e.g. a verbatim Loop Exit `--mode record >
+# "$RECORD"` fence) touches its placeholder-NAMED file before this script
+# runs — the guard keeps the file EMPTY (no fabricated content), but cannot
+# undo the caller's touch.
 case "${WORKPAD_DIR}${SLUG}" in
   *'<'*|*'>'*)
     echo "::warning::efficiency-trace.sh: --workpad-dir/--slug contains an unsubstituted '<placeholder>' (got --workpad-dir '${WORKPAD_DIR}' --slug '${SLUG}'); refusing to run under a placeholder identity — substitute the run's real slug/run-id and rerun" >&2
@@ -208,6 +217,11 @@ synth_base_ref() {
       printf '%s\n' "$ref"; return 0
     fi
   done
+  # Name the tried value on the failure path — "which base was tried" is the
+  # one actionable operand, and a present-but-unresolvable value (a typo'd
+  # branch, a wrong-type config coerced to a string like "false") must not be
+  # misreported as the key being absent.
+  echo "::warning::efficiency-trace.sh: neither 'origin/${base}' nor '${base}' resolves to a commit (.base_branch resolved to '${base}' — absent key, typo, wrong-type value, or missing ref)" >&2
   return 1
 }
 
@@ -339,11 +353,11 @@ synthesize_iter_workpads() {
   # Without this, every write below fails ENOENT and the rc-4 arm misreads a
   # missing directory as a disk/write failure.
   if ! mkdir -p "$dir" 2>/dev/null; then
-    echo "::warning::efficiency-trace.sh --persist: could not create workpad dir ${dir} (permissions/read-only fs?); cannot synthesize into it" >&2
+    echo "::warning::efficiency-trace.sh --persist: could not create workpad dir ${dir} (permissions/read-only fs, or on the cloud tier the sandbox's write denial into .devflow/tmp?); cannot synthesize into it" >&2
     return 3
   fi
   if ! base="$(synth_base_ref "$root")"; then
-    echo "::warning::efficiency-trace.sh --persist: could not resolve a base branch ref (.base_branch and origin/<base> both absent); cannot select fix commits for synthesis" >&2
+    echo "::warning::efficiency-trace.sh --persist: could not resolve a base branch ref (the warning above names the tried value); cannot select fix commits for synthesis" >&2
     return 3
   fi
   # Capture the log BEFORE parsing, checking its own exit status: a failed
@@ -474,6 +488,16 @@ do_self_check() {
 # Persist one run dir's artifacts (best-effort). Returns 0 always.
 persist_one() {
   local dir="$1" slug="$2" run_id="$3" root="$4" allow_synth="${5:-1}"
+  # Basename-derived identities need the same unsubstituted-placeholder refusal
+  # as the argv guard above: a literal `<slug>/<run-id>` DIRECTORY (left by a
+  # non-substituting agent running a workpad-dir mkdir fence verbatim) reaches
+  # discovery mode without ever passing through argv, and synthesizing into it
+  # would fabricate the same placeholder identity the argv guard refuses.
+  case "${dir}${slug}${run_id}" in
+    *'<'*|*'>'*)
+      echo "::warning::efficiency-trace.sh --persist: run dir '${dir}' carries an unsubstituted '<placeholder>' identity (a verbatim '<slug>/<run-id>' directory left by a non-substituting run?); refusing to persist or synthesize under it — remove or rename the directory to recover" >&2
+      return 0 ;;
+  esac
   local src durable record out jq_rc cp_err src_probe
   local iters=("$dir"/iter-*.json)
   if [ ! -e "${iters[0]}" ]; then
@@ -622,12 +646,17 @@ do_persist() {
   root="$(devflow_repo_root)"
   if [ -n "$WORKPAD_DIR" ]; then
     # Targeted: persist exactly the given run. Slug from --slug, else the parent
-    # dir name; run-id is the workpad-dir basename.
-    run_id="$(basename "$WORKPAD_DIR")"
+    # dir name; run-id is the workpad-dir basename. Derived with bash parameter
+    # expansion only — these values DECIDE which run identity receives the
+    # record, and a nested `basename "$(dirname …)"` would mask a missing PATH
+    # tool under set -e (the inner rc-127 is discarded, the outer runs on "",
+    # every identity silently reads empty — guard-class 2 failing open).
+    dir="${WORKPAD_DIR%/}"
+    run_id="${dir##*/}"
     if [ -n "$SLUG" ]; then
       slug="$SLUG"
     else
-      slug="$(basename "$(dirname "$WORKPAD_DIR")")"
+      slug="${dir%/*}"; slug="${slug##*/}"
     fi
     persist_one "$WORKPAD_DIR" "$slug" "$run_id" "$root" 1
   else
@@ -669,8 +698,8 @@ do_persist() {
     for dir in "$root"/.devflow/tmp/review/*/*/; do
       [ -d "$dir" ] || continue
       dir="${dir%/}"                                # strip trailing slash
-      run_id="$(basename "$dir")"
-      slug="$(basename "$(dirname "$dir")")"
+      run_id="${dir##*/}"                           # builtins only (guard-class 2):
+      slug="${dir%/*}"; slug="${slug##*/}"          # these decide record identity
       d_iters=("$dir"/iter-*.json)
       if [ -e "${d_iters[0]}" ]; then
         persist_one "$dir" "$slug" "$run_id" "$root" 1
@@ -681,7 +710,9 @@ do_persist() {
     wl_n=${#wl_dirs[@]}
     wl_slug_first=""
     for ((wl_i = 0; wl_i < wl_n; wl_i++)); do
-      slug="$(basename "$(dirname "${wl_dirs[$wl_i]}")")"
+      slug="${wl_dirs[$wl_i]%/*}"; slug="${slug##*/}"   # builtins only — this
+      # comparison DECIDES the multi-slug ambiguity trip; a masked-failure empty
+      # slug on every dir would fail the guard open (guard-class 2).
       if [ -z "$wl_slug_first" ]; then
         wl_slug_first="$slug"
       elif [ "$slug" != "$wl_slug_first" ]; then
@@ -690,13 +721,15 @@ do_persist() {
     done
     for ((wl_i = 0; wl_i < wl_n; wl_i++)); do
       dir="${wl_dirs[$wl_i]}"
-      run_id="$(basename "$dir")"
-      slug="$(basename "$(dirname "$dir")")"
+      run_id="${dir##*/}"
+      slug="${dir%/*}"; slug="${slug##*/}"
       if [ "$wl_multi_slug" = "1" ]; then
         allow=2
       else
         next_slug=""
-        [ $((wl_i + 1)) -lt "$wl_n" ] && next_slug="$(basename "$(dirname "${wl_dirs[$((wl_i + 1))]}")")"
+        if [ $((wl_i + 1)) -lt "$wl_n" ]; then
+          next_slug="${wl_dirs[$((wl_i + 1))]%/*}"; next_slug="${next_slug##*/}"
+        fi
         if [ "$slug" = "$next_slug" ]; then allow=0; else allow=1; fi
       fi
       persist_one "$dir" "$slug" "$run_id" "$root" "$allow"
