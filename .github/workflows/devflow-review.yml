@@ -783,7 +783,12 @@ jobs:
           DST=.devflow/vendor/devflow/scripts/describe-skip-title.sh
           [ -x "$DST" ] || DST=scripts/describe-skip-title.sh
           TITLE=""
-          [ -x "$DST" ] && TITLE=$("$DST" "$SKIP_REASON")
+          # if/then (not an `&&` list): under set -e, a present-but-broken helper that
+          # exits non-zero as the FINAL command of an && list would abort this step,
+          # fail precheck, and skip create_check (no always()) — the deferral check
+          # would never post. The if-form degrades to the generic fallback below
+          # instead (same idiom as preconditions_ok's `if ! pre=$(...)` above).
+          if [ -x "$DST" ]; then TITLE=$("$DST" "$SKIP_REASON") || TITLE=""; fi
           [ -n "$TITLE" ] || TITLE='Devflow review waiting: precondition not met (describe-skip-title.sh missing or produced no output)'
           echo "skip_title=$TITLE" >> "$GITHUB_OUTPUT"
 

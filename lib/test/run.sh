@@ -21024,6 +21024,13 @@ for _r389 in "" "bogus" "behind_base" "BEHIND-BASE"; do
 done
 assert_eq "#389 skip title: no argument at all still exits 0" "0" \
   "$("$DST_SH" >/dev/null 2>&1; echo $?)"
+# The exit-0 contract holds on the recognized and unrecognized arms too, not only the
+# no-arg path: the assert_eq stdout comparisons above discard the exit status, so an
+# arm regressed to a nonzero exit would otherwise stay invisible to the unit suite.
+assert_eq "#389 skip title: a recognized reason exits 0" "0" \
+  "$("$DST_SH" behind-base >/dev/null 2>&1; echo $?)"
+assert_eq "#389 skip title: an unrecognized reason exits 0" "0" \
+  "$("$DST_SH" bogus >/dev/null 2>&1; echo $?)"
 # Arm ORDER is load-bearing (AC2). Because the arms are disjoint literals, a
 # reordered specific arm is behaviorally invisible — pin the SOURCE order so a
 # reorder or deletion turns RED; `*` MUST be last, or a specific reason it
@@ -21048,6 +21055,18 @@ assert_pin_unique "#389 precheck routes the deferral title through the helper (v
   'DST=.devflow/vendor/devflow/scripts/describe-skip-title.sh' "$REVIEW_YML"
 assert_pin_unique "#389 precheck invokes the helper as a leading-token command" \
   'TITLE=$("$DST" "$SKIP_REASON")' "$REVIEW_YML"
+# The vendored-path miss degrades to the repo-path copy — deleting this fallback would
+# silently collapse every non-vendored deferral to the generic title, suite green.
+assert_pin_unique "#389 precheck falls back to the repo-path helper when the vendored copy is absent" \
+  '[ -x "$DST" ] || DST=scripts/describe-skip-title.sh' "$REVIEW_YML"
+# The invocation is an if/then, never an `&&` list: under the step's set -e, a
+# present-but-executable helper exiting non-zero as the FINAL command of an && list
+# aborts the step -> precheck fails -> create_check (no always()) is skipped and the
+# deferral check is never posted, instead of degrading to the generic fallback.
+assert_pin_unique "#389 precheck tolerates a present-but-broken helper (if/then + || fallback, no set -e abort)" \
+  'if [ -x "$DST" ]; then TITLE=$("$DST" "$SKIP_REASON") || TITLE=""; fi' "$REVIEW_YML"
+assert_eq "#389 no abort-prone &&-list invocation of the helper remains in the workflow" "0" \
+  "$(pin_count '[ -x "$DST" ] && TITLE=' "$REVIEW_YML")"
 assert_pin_unique "#389 precheck verifies the helper OUTCOME with a resolution fallback" \
   '[ -n "$TITLE" ] || TITLE=' "$REVIEW_YML"
 # precheck exposes the computed title as an output, and create_check consumes it (rather
