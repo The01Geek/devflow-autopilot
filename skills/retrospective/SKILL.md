@@ -89,8 +89,9 @@ and you treat its three facets as primary analysis input:
   and let it drive the verdict, categories, and descriptors** — a run that left
   even one reflection is, by construction, not a frictionless run (the clean-gate
   already forces it into analysis for exactly this reason).
-- `signals.workpad_final_status` — the bot's final Status (`Complete` / `Blocked`
-  / an interim state); it bounds the verdict (see below).
+- `signals.workpad_final_status` — the bot's final Status (`Complete` / `Blocked` / `Failed`
+  / an interim state); it bounds the verdict (see below). `Failed` is the cloud stall
+  backstop's dead-run flip: the run died mid-lifecycle rather than deciding an outcome.
 - `workpad_body` — the full workpad, including the `## Progress` notes nested
   under each phase. Mine its append-only notes for the moment-to-moment story.
 
