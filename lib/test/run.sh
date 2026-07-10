@@ -97,9 +97,14 @@ assert_eq() {
 # the captured value and the fallback coincide, so the result is a single clean `0` either
 # way (no double-"0"). An absent literal thus yields a clean 0 (the helper below then fails
 # it as non-unique, not as a pass).
+# The literal is passed to `grep -oF` after an explicit `--` (end-of-options): a literal that
+# begins with `-`/`--` (e.g. a `--tick-progress` flag pin) would otherwise be parsed as grep
+# options and error out to a spurious 0, silently misreading a present literal as absent. With
+# the `--` guard, pin_count (and therefore assert_pin_unique below) accepts a flag-shaped
+# literal — the case that previously forced a hand-guarded raw `grep -qF --` at the call site.
 pin_count() {  # literal file -> prints occurrence count (always a single integer)
   local n
-  n="$(grep -oF "$1" "$2" 2>/dev/null | grep -c .)" || n=0
+  n="$(grep -oF -- "$1" "$2" 2>/dev/null | grep -c .)" || n=0
   printf '%s\n' "${n:-0}"
 }
 
@@ -156,7 +161,8 @@ assert_pin_unique() {  # name literal file
 # inline marker. A deliberate, documented escape hatch — NOT a substitute for
 # assert_pin_unique on a plain unique presence pin.
 grep_present() {  # literal file -> echoes yes if present, no otherwise
-  grep -qF "$1" "$2" && echo yes || echo no
+  # `--` guards a flag-shaped literal from being parsed as grep options, matching pin_count (#374).
+  grep -qF -- "$1" "$2" && echo yes || echo no
 }
 
 # Run a single assertion function against an ISOLATED results file and echo its verdict
@@ -1613,6 +1619,23 @@ assert_eq "AC3(a3): pin_count still matches the exact metachar literal as a fixe
   "1" "$(pin_count 'a.c' "$PINPROBE_RE")"
 rm -f "$PINPROBE_RE"
 #
+# AC3(a4) (#374): pin_count passes its literal to `grep -oF` after an explicit `--`, so a
+# literal that BEGINS with `-`/`--` (a flag-shaped pin such as `--tick-progress`) counts as a
+# search pattern, not grep options. Without the `--`, `grep -oF "--foo"` parses `--foo` as an
+# (invalid) long option, errors to stdout-empty, and the count collapses to 0 — silently
+# misreading a present flag literal as absent. This is a self-contained mutation proof: drop the
+# `--` from pin_count's `grep -oF` and this assertion goes RED (the count reads 0, not 3). Uses a
+# same-line double occurrence so it also confirms the `--`-guarded path still counts occurrences.
+# (Only the count-3 assertion is a mutation proof — an *absent* --leading literal reads 0 with or
+# without the `--` (a clean no-match with the `--`; a suppressed grep option-parse error without
+# it), so it would not discriminate the mutation and is omitted; the absent-literal→0 property is
+# already pinned by AC3(a) above.)
+PINPROBE_DASH="$(probe_tmp 'AC3(a4) leading-dash-literal setup')"
+printf -- '--tick-progress here --tick-progress\n--tick-progress alone\n' > "$PINPROBE_DASH"
+assert_eq "AC3(a4): pin_count counts a --leading literal via the explicit -- guard (not parsed as grep options)" \
+  "3" "$(pin_count '--tick-progress' "$PINPROBE_DASH")"
+rm -f "$PINPROBE_DASH"
+#
 # AC3(b): the meta-test detects a raw SKILL guard injected into the region. Inject a line
 # carrying `grep -qF` + a `_SKILL` var right after the BEGIN marker of a temp copy; the
 # injected text is passed via awk -v (no \x escapes) to stay portable to BSD/mawk.
@@ -1717,7 +1740,9 @@ rm -f "$PINPROBE_EMPTY"
 assert_pin_red_on_removal() {  # name literal [file]   (file defaults to $MAXI_SKILL)
   local t file="${3:-$MAXI_SKILL}" before after; t="$(probe_tmp "$1 (removal setup)")" || return 0
   before="$(probe_assert assert_pin_unique 'probe-present' "$2" "$file")"
-  grep -vF "$2" "$file" > "$t"
+  # `--` guards a flag-shaped literal from grep option-parsing, matching pin_count (#374) — so
+  # the removal step stays consistent with the guarded pin_count-routed presence probe above.
+  grep -vF -- "$2" "$file" > "$t"
   after="$(probe_assert assert_pin_unique 'probe-removal' "$2" "$t")"
   assert_eq "$1" "PASS->FAIL" "$before->$after"
   rm -f "$t"
@@ -1726,6 +1751,25 @@ assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns
   'park-calibration gate clean: no parked finding matched'
 assert_pin_red_on_removal "AC3(d): narrowing the mutation-check rule back to fix-only turns its pin RED" \
   'any added or edited test guard in the diff'
+# #374: the mutation-check discipline is COPY-BASED, never destructive — both coupled sites
+# (review-and-fix Step 3, and the implement skill's Phase 2.3 test-guard rule) must instruct
+# mutating a COPY of the file rather than an in-place "break then restore" that a crash could
+# leave broken. Behavioral-fix pin: the operative sentence is the copy-based directive whose
+# removal alone re-admits the destructive in-place restore; pin that exact substring at each
+# site, mutation-proven (PASS with it → FAIL without it). Coupled mirror — one edit updates both.
+_MC_COPYBASED='on a copy of the file — never edit the working-tree file in place'
+assert_pin_red_on_removal "#374 copy-based mutation-check: review-and-fix instructs mutating a copy, never the working-tree file in place" \
+  "$_MC_COPYBASED"
+assert_pin_red_on_removal "#374 copy-based mutation-check: implement Phase 2.3 test-guard rule instructs mutating a copy, never the working-tree file in place" \
+  "$_MC_COPYBASED" "$DEF_SKILL"
+# #374: both sites must also state that `git checkout -- <file>` cannot restore an UNTRACKED
+# file and silently appears to succeed (the fabricated-RED failure mode from issue #372).
+# Same coupled-mirror shape as _MC_COPYBASED: one shared operative literal, pinned at each site.
+_MC_UNTRACKED='`git checkout -- <file>`: it cannot restore an untracked file and silently appears to succeed'
+assert_pin_red_on_removal "#374 untracked-file warning: review-and-fix states git checkout cannot restore an untracked file" \
+  "$_MC_UNTRACKED"
+assert_pin_red_on_removal "#374 untracked-file warning: implement Phase 2.3 states git checkout cannot restore an untracked file" \
+  "$_MC_UNTRACKED" "$DEF_SKILL"
 # #254 post-shadow gate removal-proofs (the assert_pin_unique presence pins are up in the
 # max_iterations/review-and-fix block; these removal-proofs must sit below the helper def).
 assert_pin_red_on_removal "#254: post-shadow gate logs-only exemption flips RED on removal" \
@@ -4324,9 +4368,12 @@ assert_eq "implement_pr_state: clean-tree backstop precedes the publish gate (ru
 # so renaming one without the other goes red here.
 WP_PY="$LIB/../scripts/workpad.py"
 # NB: `--` ends grep's option parsing — the pattern begins with `--tick-progress`, which
-# grep would otherwise treat as an (invalid) long option.
+# grep would otherwise treat as an (invalid) long option. pin_count now carries the same `--`
+# guard (#374), so the flag shape is no longer the blocker; this stays a raw presence guard
+# only because the literal is NON-UNIQUE across the bundle (it recurs in phase-4-documentation.md
+# alongside the SKILL.md prose site), which assert_pin_unique (== 1) would reject.
 assert_eq "implement finalize: SKILL ticks the workpad.py-owned 'PR marked ready' label" "yes" \
-  "$(grep -qF -- '--tick-progress "PR marked ready"' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: literal begins with --; incompatible with pin_count's unguarded grep -oF
+  "$(grep -qF -- '--tick-progress "PR marked ready"' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: '--tick-progress "PR marked ready"' recurs across the bundle (SKILL.md prose + phase-4)
 assert_eq "implement finalize: workpad.py owns the 'PR marked ready' label (template + _PROGRESS_PHASES agree)" "yes" \
   "$(grep -qF '**PR marked ready**' "$WP_PY" && grep -qF "'PR marked ready'" "$WP_PY" && echo yes || echo no)"
 
