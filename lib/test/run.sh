@@ -13685,6 +13685,174 @@ assert_eq "et-persist: targeted --slug-absent → slug from parent dir name" "ye
   "$([ -f "$ETPT_REPO/.devflow/logs/efficiency/pr-23-run-u.json" ] && echo yes || echo no)"
 rm -rf "$ETPT_REPO"
 
+# ── issue #381: synthesis floor — --persist reconstructs a minimal iteration
+# record from the branch's fix commits when a run left ZERO iter-*.json ────────
+echo "efficiency-trace.sh synthesis floor (issue #381)"
+
+# T2 → AC2: workpad-less run dir + two fix commits → synthesized record.
+ETSY_REPO="$(git_sandbox "et-synth happy-path repo")"
+git -C "$ETSY_REPO" init -q
+git -C "$ETSY_REPO" config user.email t@e.com; git -C "$ETSY_REPO" config user.name t
+git -C "$ETSY_REPO" commit --allow-empty -qm base
+git -C "$ETSY_REPO" branch -M main
+git -C "$ETSY_REPO" checkout -q -b feat
+printf a > "$ETSY_REPO/f1"; git -C "$ETSY_REPO" add f1
+git -C "$ETSY_REPO" commit -qm "fix: address review findings (iteration 1)"
+printf b > "$ETSY_REPO/f2"; git -C "$ETSY_REPO" add f2
+git -C "$ETSY_REPO" commit -qm "fix: address review findings (iteration 2)"
+mkdir -p "$ETSY_REPO/.devflow/tmp/review/pr-1/run-s"
+( cd "$ETSY_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETSY_REPO/.devflow/tmp/review/pr-1/run-s" --slug pr-1 ) >/dev/null 2>&1; ETSY_RC=$?
+ETSY_REC="$ETSY_REPO/.devflow/logs/efficiency/pr-1-run-s.json"
+assert_eq "et-synth(T2): --persist always exits 0" "0" "$ETSY_RC"
+assert_eq "et-synth(T2): a record is synthesized where a workpad-less run left none" "yes" \
+  "$([ -f "$ETSY_REC" ] && echo yes || echo no)"
+assert_eq "et-synth(T2): record-level synthesized flag is true" "true" \
+  "$(jq -r '.synthesized' "$ETSY_REC" 2>/dev/null)"
+assert_eq "et-synth(T2): two iterations reconstructed" "2" \
+  "$(jq -r '.iterations' "$ETSY_REC" 2>/dev/null)"
+assert_eq "et-synth(T2): iters are [1,2] in order" "[1,2]" \
+  "$(jq -c '[.per_iteration[].iter]' "$ETSY_REC" 2>/dev/null)"
+assert_eq "et-synth(T2): per-iteration synthesized flag surfaced" "true" \
+  "$(jq -r '.per_iteration[0].synthesized' "$ETSY_REC" 2>/dev/null)"
+assert_eq "et-synth(T2): synthesized iter loop_role is fix" "fix" \
+  "$(jq -r '.per_iteration[0].loop_role' "$ETSY_REC" 2>/dev/null)"
+assert_eq "et-synth(T2): synthesized iter-1 carries the real fix_commit_sha" \
+  "$(git -C "$ETSY_REPO" rev-list --reverse main..HEAD | head -1)" \
+  "$(jq -r '.fix_commit_sha' "$ETSY_REPO/.devflow/tmp/review/pr-1/run-s/iter-1.json" 2>/dev/null)"
+assert_eq "et-synth(T2): synthesized iter-1 fix_files is the commit's file" '["f1"]' \
+  "$(jq -c '.fix_files' "$ETSY_REPO/.devflow/tmp/review/pr-1/run-s/iter-1.json" 2>/dev/null)"
+assert_eq "et-synth(T2): synthesized iter carries the synthesized:true marker" "true" \
+  "$(jq -r '.synthesized' "$ETSY_REPO/.devflow/tmp/review/pr-1/run-s/iter-1.json" 2>/dev/null)"
+# T4 (jq consumption): synthesized minimal records render in both modes rc-0 with
+# the existing degraded posture (none-recorded), never a null-detonation.
+ETSY_TRACE="$( ( cd "$ETSY_REPO" && bash "$LIB/efficiency-trace.sh" --mode trace --workpad-dir "$ETSY_REPO/.devflow/tmp/review/pr-1/run-s" --slug pr-1 ) 2>/dev/null )"; ETSY_TRC=$?
+assert_eq "et-synth(T4): --mode trace over synthesized records exits 0" "0" "$ETSY_TRC"
+assert_eq "et-synth(T4): trace reports the none-recorded degraded posture" "yes" \
+  "$(printf '%s' "$ETSY_TRACE" | grep -qF 'none recorded' && echo yes || echo no)"
+ETSY_RMODE="$( ( cd "$ETSY_REPO" && bash "$LIB/efficiency-trace.sh" --mode record --workpad-dir "$ETSY_REPO/.devflow/tmp/review/pr-1/run-s" --slug pr-1 ) 2>/dev/null )"; ETSY_RMRC=$?
+assert_eq "et-synth(T4): --mode record over synthesized records exits 0" "0" "$ETSY_RMRC"
+assert_eq "et-synth(T4): record-mode verification_posture is the degraded value" "none-recorded" \
+  "$(printf '%s' "$ETSY_RMODE" | jq -r '.per_iteration[0].verification_posture' 2>/dev/null)"
+# Idempotency: a second --persist makes no new commit.
+ETSY_C1="$(git -C "$ETSY_REPO" rev-list --count HEAD)"
+( cd "$ETSY_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETSY_REPO/.devflow/tmp/review/pr-1/run-s" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-synth(T2): second --persist is a no-op (no new commit)" "$ETSY_C1" \
+  "$(git -C "$ETSY_REPO" rev-list --count HEAD)"
+rm -rf "$ETSY_REPO"
+
+# T4 → AC4: adversarial subject shapes each exit-0 + a specific breadcrumb; only
+# the one well-formed unique iteration is reconstructed.
+ETSA_REPO="$(git_sandbox "et-synth adversarial repo")"
+git -C "$ETSA_REPO" init -q
+git -C "$ETSA_REPO" config user.email t@e.com; git -C "$ETSA_REPO" config user.name t
+git -C "$ETSA_REPO" commit --allow-empty -qm base
+git -C "$ETSA_REPO" branch -M main
+git -C "$ETSA_REPO" checkout -q -b feat
+printf 1 > "$ETSA_REPO/a"; git -C "$ETSA_REPO" add a; git -C "$ETSA_REPO" commit -qm "fix: address review findings (iteration 1)"
+printf 2 > "$ETSA_REPO/b"; git -C "$ETSA_REPO" add b; git -C "$ETSA_REPO" commit -qm "fix: address review findings (iteration 1)"
+printf 3 > "$ETSA_REPO/c"; git -C "$ETSA_REPO" add c; git -C "$ETSA_REPO" commit -qm "fix: address review findings (iteration abc)"
+printf 4 > "$ETSA_REPO/d"; git -C "$ETSA_REPO" add d; git -C "$ETSA_REPO" commit -qm "fix: address review findings"
+printf 5 > "$ETSA_REPO/e"; git -C "$ETSA_REPO" add e; git -C "$ETSA_REPO" commit -qm "feat: unrelated"
+mkdir -p "$ETSA_REPO/.devflow/tmp/review/pr-9/run-a"
+ETSA_ERR="$( ( cd "$ETSA_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETSA_REPO/.devflow/tmp/review/pr-9/run-a" --slug pr-9 ) 2>&1 1>/dev/null )"; ETSA_RC=$?
+ETSA_REC="$ETSA_REPO/.devflow/logs/efficiency/pr-9-run-a.json"
+assert_eq "et-synth(T4): adversarial run exits 0" "0" "$ETSA_RC"
+assert_eq "et-synth(T4): only the one well-formed unique iteration is reconstructed" "[1]" \
+  "$(jq -c '[.per_iteration[].iter]' "$ETSA_REC" 2>/dev/null)"
+assert_eq "et-synth(T4): duplicate-N breadcrumb present" "yes" \
+  "$(printf '%s' "$ETSA_ERR" | grep -qF 'duplicate iteration 1' && echo yes || echo no)"
+assert_eq "et-synth(T4): non-numeric-N breadcrumb present" "yes" \
+  "$(printf '%s' "$ETSA_ERR" | grep -qF 'non-numeric iteration token' && echo yes || echo no)"
+assert_eq "et-synth(T4): no-suffix breadcrumb present" "yes" \
+  "$(printf '%s' "$ETSA_ERR" | grep -qF "no closing ')' iteration suffix" && echo yes || echo no)"
+rm -rf "$ETSA_REPO"
+
+# T4 zero-match: workpad-less dir + NO fix commits → no record, "was not captured"
+# semantics preserved.
+ETSZ_REPO="$(git_sandbox "et-synth zero-match repo")"
+git -C "$ETSZ_REPO" init -q
+git -C "$ETSZ_REPO" config user.email t@e.com; git -C "$ETSZ_REPO" config user.name t
+git -C "$ETSZ_REPO" commit --allow-empty -qm base
+git -C "$ETSZ_REPO" branch -M main
+git -C "$ETSZ_REPO" checkout -q -b feat
+git -C "$ETSZ_REPO" commit --allow-empty -qm "feat: no fix commits here"
+mkdir -p "$ETSZ_REPO/.devflow/tmp/review/pr-0/run-z"
+ETSZ_ERR="$( ( cd "$ETSZ_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETSZ_REPO/.devflow/tmp/review/pr-0/run-z" --slug pr-0 ) 2>&1 1>/dev/null )"; ETSZ_RC=$?
+assert_eq "et-synth(T4): zero-match exits 0" "0" "$ETSZ_RC"
+assert_eq "et-synth(T4): zero-match writes no record" "no" \
+  "$([ -e "$ETSZ_REPO/.devflow/logs/efficiency/pr-0-run-z.json" ] && echo yes || echo no)"
+assert_eq "et-synth(T4): zero-match preserves 'was not captured' semantics" "yes" \
+  "$(printf '%s' "$ETSZ_ERR" | grep -qF 'was not captured this run' && echo yes || echo no)"
+rm -rf "$ETSZ_REPO"
+
+# T3 → AC3: discovery finds a workpad-less run dir (holding a non-iter artifact),
+# and with two workpad-less dirs for one slug, only the lexicographically-latest
+# run-id synthesizes; the other gets a skip breadcrumb.
+ETSM_REPO="$(git_sandbox "et-synth multi-run repo")"
+git -C "$ETSM_REPO" init -q
+git -C "$ETSM_REPO" config user.email t@e.com; git -C "$ETSM_REPO" config user.name t
+git -C "$ETSM_REPO" commit --allow-empty -qm base
+git -C "$ETSM_REPO" branch -M main
+git -C "$ETSM_REPO" checkout -q -b feat
+printf a > "$ETSM_REPO/a"; git -C "$ETSM_REPO" add a; git -C "$ETSM_REPO" commit -qm "fix: address review findings (iteration 1)"
+mkdir -p "$ETSM_REPO/.devflow/tmp/review/pr-2/run-aaa" "$ETSM_REPO/.devflow/tmp/review/pr-2/run-bbb"
+# A run-artifact (deferrals.json) but NO iter-*.json — AC3's "holds run artifacts, zero iter".
+printf '{"deferrals":[]}' > "$ETSM_REPO/.devflow/tmp/review/pr-2/run-bbb/deferrals.json"
+ETSM_ERR="$( ( cd "$ETSM_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; ETSM_RC=$?
+assert_eq "et-synth(T3): discovery --persist exits 0" "0" "$ETSM_RC"
+assert_eq "et-synth(T3): lexicographically-latest run-id synthesizes" "yes" \
+  "$([ -f "$ETSM_REPO/.devflow/logs/efficiency/pr-2-run-bbb.json" ] && echo yes || echo no)"
+assert_eq "et-synth(T3): earlier run-id does NOT double-count the fix commits" "no" \
+  "$([ -e "$ETSM_REPO/.devflow/logs/efficiency/pr-2-run-aaa.json" ] && echo yes || echo no)"
+assert_eq "et-synth(T3): skipped earlier run-id is named in a breadcrumb" "yes" \
+  "$(printf '%s' "$ETSM_ERR" | grep -qF 'run-aaa' && printf '%s' "$ETSM_ERR" | grep -qF 'not the synthesis target' && echo yes || echo no)"
+rm -rf "$ETSM_REPO"
+
+# T5 → AC5: --self-check's no-workpad warning names the synthesis floor and no
+# longer says "there is nothing to persist".
+ETSC2_REPO="$(git_sandbox "et-synth selfcheck-wording repo")"
+git -C "$ETSC2_REPO" init -q
+mkdir -p "$ETSC2_REPO/.devflow/tmp/review/pr-4/run-none"
+ETSC2_OUT="$( ( cd "$ETSC2_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETSC2_REPO/.devflow/tmp/review/pr-4/run-none" --slug pr-4 ) 2>&1 )"
+assert_eq "et-synth(T5): self-check no-workpad warning names the synthesis floor" "yes" \
+  "$(printf '%s' "$ETSC2_OUT" | grep -qF 'synthesizes an iteration record' && echo yes || echo no)"
+assert_eq "et-synth(T5): self-check warning no longer says 'there is nothing to persist'" "no" \
+  "$(printf '%s' "$ETSC2_OUT" | grep -qF 'there is nothing to persist' && echo yes || echo no)"
+# The synthesized-class self-check exemption: a synthesized iter emits NO
+# missing-field warnings (it legitimately lacks most ITER_EXPECTED_FIELDS).
+mkdir -p "$ETSC2_REPO/.devflow/tmp/review/pr-4/run-synth"
+printf '{"iter":1,"fix_commit_sha":"abc","fix_files":["f"],"loop_role":"fix","synthesized":true}' \
+  > "$ETSC2_REPO/.devflow/tmp/review/pr-4/run-synth/iter-1.json"
+ETSC2_OUT2="$( ( cd "$ETSC2_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETSC2_REPO/.devflow/tmp/review/pr-4/run-synth" --slug pr-4 ) 2>&1 )"
+assert_eq "et-synth(T5): synthesized record emits no missing-field warning" "no" \
+  "$(printf '%s' "$ETSC2_OUT2" | grep -qF 'is missing expected field' && echo yes || echo no)"
+rm -rf "$ETSC2_REPO"
+
+# T5 → AC5: the fix-commit subject literal is a coupled TWO-SITE invariant —
+# skills/review-and-fix/SKILL.md item 6 (the producer) ↔ lib/efficiency-trace.sh
+# (the parser). Both sites must carry it; a targeted edit to either turns RED.
+ETSY_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+ETSY_ETSH="$LIB/efficiency-trace.sh"
+assert_eq "et-synth(T5): fix-commit subject literal present in SKILL.md item 6 (producer site)" "yes" \
+  "$([ "$(pin_count 'fix: address review findings (iteration' "$ETSY_RAF")" -ge 1 ] && echo yes || echo no)"
+assert_eq "et-synth(T5): fix-commit subject literal present in efficiency-trace.sh (parser site)" "yes" \
+  "$([ "$(pin_count 'fix: address review findings (iteration' "$ETSY_ETSH")" -ge 1 ] && echo yes || echo no)"
+assert_pin_red_on_removal "et-synth(T5): editing the commit-subject literal in efficiency-trace.sh alone turns RED" \
+  'FIX_COMMIT_SUBJECT_PREFIX="fix: address review findings (iteration"' "$ETSY_ETSH"
+
+# T1 → AC1: the fused item-6 emission clause (removing it while leaving the commit
+# instruction intact turns the pin RED).
+assert_pin_red_on_removal "et-synth(T1): SKILL.md item 6 fused-emit clause flips RED on removal" \
+  'the workpad emit is fused to this fix-commit moment' "$ETSY_RAF"
+assert_pin_red_on_removal "et-synth(AC5-seam): phase-3-review no-inputs seam names synthesis flips RED on removal" \
+  'the zero-workpad case is answered by synthesis, not only a reflection' "$LIB/../skills/implement/phases/phase-3-review.md"
+
+# T6 → AC6 / T7 → AC7: the extraction convention (CLAUDE.md) and the §2.4 carve-out.
+assert_pin_red_on_removal "et-synth(T6): CLAUDE.md inline-shell-extraction convention flips RED on removal" \
+  'inline shell in a workflow that selects a branch or composes a user-facing message is extracted into a `scripts/*.sh` helper' "$LIB/../CLAUDE.md"
+assert_pin_red_on_removal "et-synth(T7): phase-2 §2.4 workflow-shell carve-out flips RED on removal" \
+  'Workflow inline shell that selects a branch or composes a user-facing message is also carved OUT of this no-automated-test class' "$LIB/../skills/implement/phases/phase-2-implement.md"
+
 # Mixed valid + malformed iters where the lexicographically-LAST (probed) iter is
 # the malformed one: the source probe fails, defaults to review-and-fix (the safe
 # direction — the run is NOT wrongly skipped), leaves a breadcrumb, and the record

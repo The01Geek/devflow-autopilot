@@ -196,6 +196,12 @@ def iter_view:
       # segment effectiveness by originating skill (both write into the same
       # .devflow/logs/efficiency/ store; the filename does not disambiguate them).
       source: ($it.source // null),
+      # True when this iteration was RECONSTRUCTED by lib/efficiency-trace.sh's
+      # synthesis floor (issue #381) from a fix commit rather than written by the
+      # loop — a strict `== true` so an absent/malformed field reads false. Surfaced
+      # in the record so downstream analysis never mistakes a reconstructed record
+      # for an agent-written one.
+      synthesized: (($it.synthesized) == true),
       # Carried for the loop_role derivation resolved in the top-level pass below
       # (where the full sorted array is in scope). loop_role_persisted is the
       # workpad's own value when present and non-empty — it wins over derivation.
@@ -250,6 +256,10 @@ def iter_view:
       # run would still classify each iteration correctly even though this
       # run-level label collapses to one value.
       source: ($iters | map(.source) | map(select(. != null)) | (.[0] // "review-and-fix")),
+      # True when ANY iteration was reconstructed by the issue #381 synthesis floor
+      # (a fully-dropped run recovered from fix commits) — the record-level marker a
+      # cross-run analyzer keys on to weight a reconstructed record differently.
+      synthesized: ($iters | any(.synthesized == true)),
       cut_candidate_min_dispatch: $cut_candidate_min_dispatch,
       iterations: ($iters | length),
       per_iteration: ($iters | map({
@@ -257,6 +267,8 @@ def iter_view:
         # Each iteration's role in the fix loop (fix | promoted), derived above
         # (issue #170) — the real consumer of the iter workpad's loop_role field.
         loop_role: .loop_role,
+        # Whether this iteration was reconstructed by the issue #381 synthesis floor.
+        synthesized: .synthesized,
         phase3_dispatched: .phase3_dispatched,
         phase3_dispatched_count: .phase3_dispatched_count,
         # Carried into the durable record so the cross-run analyzer can tell a
