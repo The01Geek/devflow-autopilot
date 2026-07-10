@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.102] — 2026-07-10
+
+### Fixed
+- **Removed the stale `claude-plugins-official` cross-marketplace dependency from the installer's consumer `marketplace.json` template.** `install.sh` now emits `"allowCrossMarketplaceDependenciesOn": []`, mirroring the repo-root manifest's #142 zero-companion-dependency shape, so fresh consumers get a manifest consistent with DevFlow's documented "no companion plugins" install story. A removal-proof `lib/test/run.sh` pin now guards the empty allowlist. (#385)
+
 ## [2.8.101] — 2026-07-10
 
 ### Added
