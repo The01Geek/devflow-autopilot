@@ -864,6 +864,12 @@ jobs:
               {
                 printf '%s\n\n' "$MARKER"
                 printf '**DevFlow stall backstop** — this cloud run ended while the workpad Status was still in-progress (`%s`). Auto-resume attempt %s of %s:\n\n' "$STATUS_OUT" "$K" "$MAX"
+                # Helper-invocation discipline travels inside the resume comment so a
+                # resumed run receives it even if it never re-reads the skill prose:
+                # bundled helpers resolve only as the repo-relative vendored literal with
+                # that path as the LEADING token — an absolute or repo-root scripts/ form
+                # is silently denied and is exactly why prior auto-resume runs died.
+                printf 'Resume note: invoke bundled helpers as `.devflow/vendor/devflow/scripts/…` (and `.devflow/vendor/devflow/lib/…`) with that path as the leading token — never an absolute path, never repo-root `scripts/…`, never behind a `VAR=` prefix or `bash <path>` wrapper (those forms are silently denied).\n\n'
                 printf '/devflow:implement %s\n' "$ISSUE_NUMBER"
               } > "$BODY"
               ;;

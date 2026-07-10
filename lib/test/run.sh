@@ -22152,6 +22152,64 @@ assert_eq "#362 settings.json: the pre-existing efficiency-trace.sh entry surviv
 assert_eq "#362 settings.json: the efficiency-trace.sh entry keeps its own '|| true'" "yes" \
   "$(printf '%s' "$ISG_ET_CMD" | grep -qF '|| true' && echo yes || echo no)"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "#405 cloud implement self-contained: in-env verification, denial-proof resume"
+# ────────────────────────────────────────────────────────────────────────────
+I405_CONFIG="$LIB/../.devflow/config.json"
+I405_P3="$LIB/../skills/implement/phases/phase-3-review.md"
+I405_SKILL="$LIB/../skills/implement/SKILL.md"
+I405_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+I405_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+
+# AC1: both allowed_tools arrays grant the three in-env verification commands. Read via
+# python3 (a hard preflight prereq — no jq/tr dependency) so a membership check never
+# degrades to a false "present". RED today only if any entry is missing from either array.
+for I405_KEY in devflow devflow_implement; do
+  for I405_ENT in 'Bash(lib/test/run.sh:*)' 'Bash(lib/preflight.sh:*)' 'Bash(shellcheck:*)'; do
+    assert_eq "#405 AC1 config: $I405_KEY.allowed_tools grants $I405_ENT" "yes" \
+      "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("yes" if sys.argv[3] in d.get(sys.argv[2],{}).get("allowed_tools",[]) else "no")' "$I405_CONFIG" "$I405_KEY" "$I405_ENT" 2>/dev/null || echo no)"
+  done
+done
+
+# AC2: the Phase 3.4 gate carries NO gate-time CI channel — neither the "verified via CI"
+# tick arm nor the "deferred to CI" (post-merge) retag arm. Negative pins (RED today):
+assert_eq "#405 AC2 phase-3.4: no 'verified via CI' tick arm remains" "0" "$(pin_count 'verified via CI' "$I405_P3")"
+assert_eq "#405 AC2 phase-3.4: no gate-time 'deferred to CI' retag arm remains" "0" "$(pin_count 'deferred to CI' "$I405_P3")"
+# Behavioral-fix pin: the operative replacement is the in-env-denied Blocked arm naming the
+# config key. A mutation removing that arm re-introduces the silent CI-deferral bug → RED.
+assert_pin_red_under "#405 AC2 phase-3.4: in-env-denied criterion routes to Blocked naming devflow_implement.allowed_tools" \
+  'add it to devflow_implement.allowed_tools (and devflow.allowed_tools for the command path) so the run can verify in-env, then re-run' \
+  '/so the run can verify in-env, then re-run/d' \
+  "$I405_P3"
+
+# AC5: the implement SKILL.md pins the cloud helper-invocation form (vendored literal as the
+# leading token) and the two-denials-then-switch rule. Behavioral-fix pins via assert_pin_red_under
+# (mutation deletes the operative paragraph, re-introducing the denial-prone iteration bug):
+assert_pin_red_under "#405 AC5 SKILL: bundled helpers granted only as the repo-relative vendored literal (leading token)" \
+  "grants each bundled helper **only** as the repo-relative vendored literal with that path as the command's **leading token**" \
+  '/grants each bundled helper/d' \
+  "$I405_SKILL"
+assert_pin_red_under "#405 AC5 SKILL: after two denials of a command shape, switch to a listed legal form" \
+  'After two denials of a given command shape, do not iterate variants of it' \
+  '/grants each bundled helper/d' \
+  "$I405_SKILL"
+
+# AC6: the stall-backstop resume comment carries the helper-invocation-form line, so a resumed
+# run receives the discipline inside its own triggering comment. Behavioral-fix pin (mutation
+# deletes the printf line → RED):
+assert_pin_red_under "#405 AC6 devflow-implement.yml: resume comment states the vendored-literal helper form" \
+  'Resume note: invoke bundled helpers as' \
+  '/Resume note: invoke bundled helpers as/d' \
+  "$I405_IMPL_YML"
+
+# AC8: after this change, neither writer TOOLS list carries a Bash(/-prefixed rule, and the only
+# wildcard-path rule is the pre-existing Bash(*/load-prompt-extension.sh:*) in devflow.yml.
+assert_eq "#405 AC8 devflow-implement.yml: no Bash(/ absolute-path rule" "0" "$(pin_count 'Bash(/' "$I405_IMPL_YML")"
+assert_eq "#405 AC8 devflow.yml: no Bash(/ absolute-path rule" "0" "$(pin_count 'Bash(/' "$I405_DEVFLOW_YML")"
+assert_eq "#405 AC8 devflow-implement.yml: no wildcard-path Bash(*/ rule" "0" "$(pin_count 'Bash(*/' "$I405_IMPL_YML")"
+assert_eq "#405 AC8 devflow.yml: every wildcard-path Bash(*/ rule is the load-prompt-extension one" \
+  "$(pin_count 'Bash(*/load-prompt-extension.sh' "$I405_DEVFLOW_YML")" "$(pin_count 'Bash(*/' "$I405_DEVFLOW_YML")"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

@@ -8,13 +8,21 @@
     "allowed_users": "*",
     "workpad_marker": "<!-- devflow:workpad -->",
     "effort": "low",
-    "allowed_tools": [],
+    "allowed_tools": [
+      "Bash(lib/test/run.sh:*)",
+      "Bash(lib/preflight.sh:*)",
+      "Bash(shellcheck:*)"
+    ],
     "execution_diagnostics_enabled": true
   },
   "devflow_implement": {
     "effort": "low",
     "implement_pr_state": "ready_for_review",
-    "allowed_tools": [],
+    "allowed_tools": [
+      "Bash(lib/test/run.sh:*)",
+      "Bash(lib/preflight.sh:*)",
+      "Bash(shellcheck:*)"
+    ],
     "stall_backstop": {
       "enabled": true,
       "max_resume_attempts": 2

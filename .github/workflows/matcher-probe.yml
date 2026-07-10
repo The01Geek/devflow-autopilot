@@ -63,7 +63,11 @@ jobs:
       # Compose --allowed-tools = the review profile's exact TOOLS literal (kept
       # verbatim in sync with .github/workflows/devflow-runner.yml's `review`
       # profile — including the Write(.devflow/tmp/**) grant that landed from this
-      # probe's first run, 29111394360) PLUS the candidate grants still under test:
+      # probe's first run, 29111394360). Shapes 12–14 (issue #405) need NO extra grant
+      # — they probe whether the helper-invocation PATH FORM matters: the vendored
+      # literal (control) is already granted, while the absolute-path and repo-root
+      # `scripts/…` forms are the point (expected DENIED because their leading token is
+      # not the granted vendored literal). PLUS the candidate grants still under test:
       # Bash(cd:*) and Write(/tmp/**). Both were DENIED on the first run — cd's row
       # was confounded by an independently-denied `>` redirect, and Write(/tmp/**)
       # is a genuine out-of-workspace denial — so they are kept here for a future
@@ -92,12 +96,12 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: |
             You are a PERMISSION-MATCHER PROBE. Your ONLY task is to attempt each
-            of the 11 numbered command shapes below EXACTLY ONCE, each in its OWN
+            of the 14 numbered command shapes below EXACTLY ONCE, each in its OWN
             single tool call, VERBATIM — do not modify, wrap, quote-escape, split,
             or combine them, and do not add any command that is not listed. Attempt
-            them in order 1 through 11. If a shape is DENIED or errors, do NOT
+            them in order 1 through 14. If a shape is DENIED or errors, do NOT
             retry it and do NOT try a different formulation — move straight to the
-            next number. After attempting all 11, STOP and reply with the single
+            next number. After attempting all 14, STOP and reply with the single
             word DONE.
 
             Your text output is not measured. Only the harness record of which tool
@@ -149,6 +153,20 @@ jobs:
 
             Shape 11 — plainly granted single command, positive control (Bash):
             grep -c . /etc/hosts
+
+            Shape 12 — helper invocation, repo-relative vendored literal as the
+            leading token (Bash, CONTROL — this is the form the allowlist grants):
+            .devflow/vendor/devflow/scripts/config-get.sh .base_branch hprobe12ok
+
+            Shape 13 — helper invocation, ABSOLUTE-path form (Bash). Same helper, but
+            an absolute leading token the allowlist does not grant; attempt it anyway
+            — permission granted vs denied is what matters:
+            /home/runner/work/devflow-autopilot/devflow-autopilot/.devflow/vendor/devflow/scripts/config-get.sh .base_branch hprobe13abs
+
+            Shape 14 — helper invocation, repo-root `scripts/…` form (Bash). Same
+            helper, but the repo-root leading token the allowlist does not grant;
+            attempt it anyway:
+            scripts/config-get.sh .base_branch hprobe14root
 
           plugin_marketplaces: |
             https://github.com/anthropics/claude-plugins-official.git
@@ -238,6 +256,9 @@ jobs:
               (9,  "Write tool under `Write(.devflow/tmp/**)`",               "probe-09", ".devflow/tmp/probe-09.txt"),
               (10, "pipe into tee (`printf … | tee f`)",                      "probe-10", "/tmp/probe-10.txt"),
               (11, "plainly granted single command (positive control)",       "/etc/hosts", None),
+              (12, "helper: repo-relative vendored literal (leading token, CONTROL)", "hprobe12ok", None),
+              (13, "helper: absolute-path form (leading token)",               "hprobe13abs", None),
+              (14, "helper: repo-root `scripts/…` form (leading token)",       "hprobe14root", None),
           ]
 
           out = []
