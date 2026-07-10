@@ -307,7 +307,18 @@ def hash_comment_regions(lines):
                 insq = not insq
             elif c == '"' and not insq:
                 indq = not indq
-            elif c == "#" and not insq and not indq:
+            elif (
+                c == "#"
+                and not insq
+                and not indq
+                and (j == 0 or line[j - 1] in " \t")
+            ):
+                # A `#` starts a shell/py comment only at a word boundary (line start
+                # or after whitespace) — mirroring tokenize()'s `not cur` rule. Keying
+                # on any unquoted `#` misclassified a mid-word `#` (e.g. `url#anchor`)
+                # as a comment start, moving operative text into the "comment" region
+                # and making a real collision go UNFLAGGED (a fail-open in the guard
+                # direction).
                 start = j
                 break
             j += 1
@@ -381,7 +392,11 @@ def _lint_view(path, ext, cache):
     v = cache.get(path)
     if v is not None:
         return v
-    ftext = _read(path)
+    ftext, err = _read_target(path)
+    if err is not None:
+        v = ("unreadable", err, None)
+        cache[path] = v
+        return v
     if ext in COMMENT_HASH_EXTS:
         lines = ftext.split("\n")
         comment_spans = {cln: ctext for cln, ctext in hash_comment_regions(lines)}
@@ -404,7 +419,11 @@ def _wrapped_view(path, cache):
     v = cache.get(path)
     if v is not None:
         return v
-    ftext = _read(path)
+    ftext, err = _read_target(path)
+    if err is not None:
+        v = ("unreadable", err, None)
+        cache[path] = v
+        return v
     helps = [normalize_ws(r) for r in multiliteral_help_renderings(ftext)] if path.endswith(".py") else []
     v = (ftext.split("\n"), normalize_ws(ftext), helps)
     cache[path] = v
@@ -414,6 +433,7 @@ def _wrapped_view(path, cache):
 def run_lint(pin_source, lib, overrides, md_targets):
     text = _read(pin_source)
     unresolved = 0
+    resolved = 0
     collisions = []
     view_cache = {}
     for pin in extract_pins(text, lib, overrides):
@@ -434,6 +454,14 @@ def run_lint(pin_source, lib, overrides, md_targets):
             continue
         ext = _target_ext(pin["file"], md_targets)
         kind, comments, outside = _lint_view(pin["file"], ext, view_cache)
+        if kind == "unreadable":
+            unresolved += 1
+            sys.stderr.write(
+                f"UNRESOLVED\t{pin_source}:{pin['lineno']}\t{pin['helper']}\t"
+                f"target-unreadable={pin['file']} ({comments})\n"
+            )
+            continue
+        resolved += 1
         lit = pin["literal"]
         # The defect (#370): a comment occurrence that COEXISTS with an operative
         # occurrence — it inflates the count / can mask a refactored-away operative
@@ -452,21 +480,40 @@ def run_lint(pin_source, lib, overrides, md_targets):
         loc = f":{cln}" if cln else ""
         print(f"COLLISION\t{pin['file']}{loc}\t{pin['helper']}@{pin_source}:{pin['lineno']}\t{pin['literal']}")
     sys.stderr.write(f"UNRESOLVED-COUNT\t{unresolved}\n")
+    sys.stderr.write(f"RESOLVED-COUNT\t{resolved}\n")
     return 0
 
 
 def run_wrapped(pin_source, lib, overrides, md_targets):
     text = _read(pin_source)
     unresolved = 0
+    resolved = 0
     view_cache = {}
     for pin in extract_pins(text, lib, overrides):
         if pin["literal"] is None or pin["file"] is None:
             unresolved += 1
+            sys.stderr.write(
+                f"UNRESOLVED\t{pin_source}:{pin['lineno']}\t{pin['helper']}\t"
+                f"literal={'?' if pin['literal'] is None else 'ok'}\t"
+                f"file={'?' if pin['file'] is None else pin['file']}\n"
+            )
             continue
         if not os.path.isfile(pin["file"]):
             unresolved += 1
+            sys.stderr.write(
+                f"UNRESOLVED\t{pin_source}:{pin['lineno']}\t{pin['helper']}\t"
+                f"target-missing={pin['file']}\n"
+            )
             continue
         lines, nfile, helps = _wrapped_view(pin["file"], view_cache)
+        if lines == "unreadable":
+            unresolved += 1
+            sys.stderr.write(
+                f"UNRESOLVED\t{pin_source}:{pin['lineno']}\t{pin['helper']}\t"
+                f"target-unreadable={pin['file']} ({nfile})\n"
+            )
+            continue
+        resolved += 1
         lit = pin["literal"]
         if any(lit in ln for ln in lines):
             # The phrase IS on a line; nothing to flag.
@@ -483,6 +530,7 @@ def run_wrapped(pin_source, lib, overrides, md_targets):
             continue
         _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit)
     sys.stderr.write(f"UNRESOLVED-COUNT\t{unresolved}\n")
+    sys.stderr.write(f"RESOLVED-COUNT\t{resolved}\n")
     return 0
 
 
@@ -503,6 +551,21 @@ def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit):
 def _read(path):
     with open(path, encoding="utf-8") as fh:
         return fh.read()
+
+
+def _read_target(path):
+    """Read a resolved target file, returning (text, None) on success or
+    (None, reason) when the file passed os.path.isfile yet cannot be read or
+    decoded (permission, non-UTF-8, a directory racing in). Its callers turn a
+    non-None reason into an UNRESOLVED count + stderr breadcrumb — so a
+    resolved-but-unreadable target fails CLOSED (counted, matching the module's
+    fail-closed contract) instead of raising an uncaught exception that would
+    empty stdout and pass the real-corpus assertion vacuously (issue #375 review)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read(), None
+    except (OSError, UnicodeDecodeError) as exc:
+        return None, type(exc).__name__
 
 
 def main(argv):

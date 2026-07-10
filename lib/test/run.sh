@@ -2879,8 +2879,9 @@ assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the behavioral-fix-
 # #194: the (B) confirm-a-guard-REGISTERED directive — its named assertion appears as PASS AND the
 # assertion count rose — pinned per file (implement = $DEF_SKILL, review-and-fix = $MAXI_SKILL),
 # because a green suite alone does not prove a guard ran. (#194's (A) bake-the-half-revert
-# directive was rewritten by #375 to route through assert_pin_red_under, so its
-# "your framework's removal-proof assertion" pins moved to the #375 block below.) Pinning (B)'s
+# directive was rewritten by #375 to route through assert_pin_red_under; the old removal-proof
+# wording no longer exists in any target, so its pins were *replaced* — not moved — by the
+# #375-block pins on the new evidence-mechanism literals below.) Pinning (B)'s
 # sentence with a *registering* assertion dogfoods the rule it states.
 assert_pin_red_on_removal "#194 (B) implement: deleting the confirm-guard-registered directive turns its pin RED" \
   'confirm the guard registered' "$DEF_SKILL"
@@ -19985,15 +19986,38 @@ _PCL_ARGS=( --lib "$LIB" --md "$DEF_SKILL"
 # cannot reach. probe_tmp fail-closes a mktemp failure (records a suite FAIL, never skips the
 # assertion below); guard the rm against its /dev/null sentinel.
 _PCL_LINT_ERR="$(probe_tmp '#375 real-corpus lint stderr capture')"
-assert_eq "#375 lint: no pin literal collides with a comment of its own target (real corpus)" \
-  "" "$(python3 "$PCL" lint "$SELF_SRC" "${_PCL_ARGS[@]}" 2>"$_PCL_LINT_ERR")"
+# Capture BOTH stdout and the scanner's exit status. A Python traceback on a real-corpus-only
+# input (a resolved-but-unreadable target, a decode error, a latent tokenizer bug the synthetic
+# fixtures don't exercise) writes to stderr and leaves stdout EMPTY with rc!=0 — which a bare
+# `assert_eq "" "$(...)"` would pass VACUOUSLY, the exact fail-open this PR exists to kill. Fold
+# rc into the comparand so a crash is RED (rc!=0) and a real collision is RED (rc=0, non-empty).
+_PCL_LINT_OUT="$(python3 "$PCL" lint "$SELF_SRC" "${_PCL_ARGS[@]}" 2>"$_PCL_LINT_ERR")"; _PCL_LINT_RC=$?
+assert_eq "#375 lint: no pin literal collides with a comment of its own target (real corpus; exit 0 + empty)" \
+  "rc=0|" "rc=$_PCL_LINT_RC|$_PCL_LINT_OUT"
+# Positive-coverage floor: a regression that silently empties the extraction (build_var_maps /
+# extract_pins resolving zero real-corpus sites) would make the empty-output assertion pass while
+# guarding NOTHING — as vacuous as the framing pins this PR eliminates. Assert the scan actually
+# resolved a lower-bound pin count (currently ~660); a generous floor tolerates ordinary pin churn
+# but catches a corpus-emptying regression. Extract the count with a bash builtin, not a PATH tool
+# whose absence would silently change the compared value (CLAUDE.md non-preflight-tool gotcha); a
+# missing/empty count fails the -ge test → RED (fail-closed), never a false pass.
+_PCL_LINT_RCLINE="$(grep '^RESOLVED-COUNT' "$_PCL_LINT_ERR" 2>/dev/null)"; _PCL_LINT_RESOLVED="${_PCL_LINT_RCLINE##*$'\t'}"
+assert_eq "#375 lint: real-corpus scan resolved a non-trivial pin count (>=300; not a silently-empty scan)" \
+  "yes" "$({ [ -n "$_PCL_LINT_RESOLVED" ] && [ "$_PCL_LINT_RESOLVED" -ge 300 ]; } 2>/dev/null && echo yes || echo no)"
 grep '^UNRESOLVED-COUNT' "$_PCL_LINT_ERR" 2>/dev/null | sed 's/^/  #375 lint (surfaced, not asserted): /' >&2 || true
 [ "$_PCL_LINT_ERR" = /dev/null ] || rm -f "$_PCL_LINT_ERR"
 # (2) Real corpus: no resolvable source-grep pin is an off-line / wrapped-literal / help= blind
 # spot; the unresolved count is surfaced the same way.
 _PCL_WRAP_ERR="$(probe_tmp '#375 real-corpus wrapped stderr capture')"
-assert_eq "#375 wrapped-literal meta-guard: no resolvable pin phrase is off-line/wrapped (real corpus)" \
-  "" "$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" 2>"$_PCL_WRAP_ERR")"
+# Same exit-status fold as the lint block above: a scanner crash (empty stdout + rc!=0) must be
+# RED, not a vacuous green.
+_PCL_WRAP_OUT="$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" 2>"$_PCL_WRAP_ERR")"; _PCL_WRAP_RC=$?
+assert_eq "#375 wrapped-literal meta-guard: no resolvable pin phrase is off-line/wrapped (real corpus; exit 0 + empty)" \
+  "rc=0|" "rc=$_PCL_WRAP_RC|$_PCL_WRAP_OUT"
+# Same positive-coverage floor as the lint block (bash-builtin count extraction, fail-closed).
+_PCL_WRAP_RCLINE="$(grep '^RESOLVED-COUNT' "$_PCL_WRAP_ERR" 2>/dev/null)"; _PCL_WRAP_RESOLVED="${_PCL_WRAP_RCLINE##*$'\t'}"
+assert_eq "#375 wrapped: real-corpus scan resolved a non-trivial pin count (>=300; not a silently-empty scan)" \
+  "yes" "$({ [ -n "$_PCL_WRAP_RESOLVED" ] && [ "$_PCL_WRAP_RESOLVED" -ge 300 ]; } 2>/dev/null && echo yes || echo no)"
 grep '^UNRESOLVED-COUNT' "$_PCL_WRAP_ERR" 2>/dev/null | sed 's/^/  #375 wrapped (surfaced, not asserted): /' >&2 || true
 [ "$_PCL_WRAP_ERR" = /dev/null ] || rm -f "$_PCL_WRAP_ERR"
 
@@ -20025,6 +20049,13 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
   # ABSENT target: a phrase on no line AND not in the whitespace-normalized rendering → the
   # meta-guard's ABSENT branch (distinguished from WRAPPED), not a false WRAPPED.
   printf 'totally unrelated content on one line\n' > "$_F375/absent.py"
+  # RESOLVED-BUT-UNDECODABLE target (issue #375 review): a real file that passes os.path.isfile
+  # but is not valid UTF-8. Without _read_target's guard the scanner raised an uncaught
+  # UnicodeDecodeError, emptying stdout with a non-zero exit — which the real-corpus assertion
+  # would pass VACUOUSLY. The fail-CLOSED contract requires it be COUNTED (target-unreadable) and
+  # the scan to survive. (A chmod-000 permission target is unreliable here: CI runs as root, which
+  # reads 0000 files, so a decode error is the portable way to force the unreadable path.)
+  printf '\377\376 not valid utf-8 bytes here\n' > "$_F375/undecodable.py"
   # Fixture pin-source: literal-path file args, plus one deliberately unresolvable site.
   printf '%s\n' \
     "assert_pin_unique \"fx-comment-collision\" 'FLAG_OPERATIVE' \"$_F375/tgt.sh\"" \
@@ -20036,6 +20067,7 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
     "assert_pin_unique \"fx-help\" 'the help text is split across literals' \"$_F375/help.py\"" \
     "assert_pin_unique \"fx-single\" 'the phrase sits entirely on one line' \"$_F375/single.py\"" \
     "assert_pin_unique \"fx-absent\" 'this phrase is entirely absent from the target' \"$_F375/absent.py\"" \
+    "assert_pin_unique \"fx-undecodable\" 'undecodable-marker' \"$_F375/undecodable.py\"" \
     "assert_pin_unique \"fx-unresolvable\" 'x' \"\$NEVER_SET_VAR\"" \
     > "$_F375/pins.sh"
   _L375="$(python3 "$PCL" lint "$_F375/pins.sh" --lib "$_F375" 2>"$_F375/lint.err")"
@@ -20053,6 +20085,11 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
     "no" "$(printf '%s' "$_L375" | grep -q 'cmtonly.md' && echo yes || echo no)"
   assert_eq "#375 lint self-test: an unresolvable call site is reported on stderr (never silently skipped)" \
     "yes" "$(grep -q 'file=?' "$_F375/lint.err" && echo yes || echo no)"
+  # A resolved-but-undecodable target is COUNTED (fail-closed), not an uncaught crash. The scan
+  # SURVIVING (the collision self-tests above still see their findings in $_L375) proves the bad
+  # target did not abort the whole run; this asserts it was reported, not silently swallowed.
+  assert_eq "#375 lint self-test: a resolved-but-undecodable target is counted (target-unreadable), not a crash" \
+    "yes" "$(grep -q 'target-unreadable=.*undecodable.py' "$_F375/lint.err" && echo yes || echo no)"
   # Wrapped-literal meta-guard self-tests.
   assert_eq "#375 meta-guard self-test: a whitespace-wrapped phrase is flagged with the wrapped-literal diagnosis" \
     "yes" "$(printf '%s' "$_W375" | grep -q 'WRAPPED.*wrapped.md.*wrapped-literal' && echo yes || echo no)"
