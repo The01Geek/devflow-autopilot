@@ -905,6 +905,10 @@ jobs:
       id-token: write
       actions: read
       issues: read
+      # COUPLED with the same grant in devflow-runner.yml (issue #363). The runner
+      # needs it for summarize-ci-checks.sh's check-runs query; a called workflow
+      # exceeding this grant aborts the run as startup_failure. Land both or neither.
+      checks: read
     # Calls the dedicated reusable runner (its own file, so its permission
     # ceiling is a clean subset of this read-only caller — see devflow-runner.yml).
     uses: ./.github/workflows/devflow-runner.yml
@@ -1008,6 +1012,11 @@ jobs:
       # bot identity). This is the auto-path safety net; the skill's Phase
       # 4.4 final step does the same and covers the manual /devflow:review path too.
       pull-requests: write
+      # Required to read the run-keyed progress comment when enriching the
+      # no-verdict ::error:: with the engine's last reported phase (issue #363).
+      # Job-level permissions REPLACE workflow-level ones, so it is declared here.
+      # Its absence degrades the message (no phase clause), never the step.
+      issues: read
     steps:
       # Trusted checkout for dismiss-stale-rejections.sh. This workflow fires
       # on BOTH pull_request (human-authored PRs, routed here by the precheck
@@ -1073,6 +1082,17 @@ jobs:
           # because the deriver's HEAD-SHA verdict scoping remains the primary
           # staleness guard.
           ENGINE_ERROR: ${{ needs.review.outputs.engine_is_error }}
+          # Denials recorded by the review engine. `|| 'unavailable'` covers an
+          # EMPTY output — a version-skewed vendored runner predating the output,
+          # or a review job that never ran; a skipped/disabled diagnostics step
+          # already arrives as `unavailable` from the runner's own fallback. The
+          # fallback is deliberately NOT `0`: a real `0` means "the engine
+          # recorded no denials", while `unavailable` means "the count could not
+          # be established" — collapsing both onto `0` would make the no-verdict
+          # ::error:: assert a denial count it never observed (issue #363). This
+          # gates the ::error:: message's detail, never the fail-closed verdict
+          # itself.
+          PERMISSION_DENIALS_COUNT: ${{ needs.review.outputs.permission_denials_count || 'unavailable' }}
         run: |
           set -euo pipefail
           # The `Devflow Review` check conclusion encodes the review
@@ -1182,6 +1202,38 @@ jobs:
                   CONCLUSION=failure
                   TITLE='Devflow review incomplete — re-run needed'
                   SUMMARY='No positively-observed APPROVE for the current HEAD (the engine stopped short, produced no verdict for this commit, or the verdict could not be verified). Click Re-run on this check to re-review the current HEAD.'
+                  # A no-verdict run used to be undiagnosable: a red required check
+                  # carrying no findings, no verdict, and no cause (issue #363, PR #340).
+                  # Announce it in the job log with the two facts that identify the
+                  # cause — the head reviewed and how many commands the harness refused.
+                  #
+                  # This is the DETERMINISTIC half of the guarantee: it runs even when the
+                  # engine never reached the step that stamps its own terminal status, which
+                  # is exactly the failure mode being diagnosed. The engine's own ❌ stamp is
+                  # the cooperative half; neither is sufficient alone.
+                  #
+                  # The progress comment is a best-effort enrichment: an unreadable comment
+                  # (missing `issues: read`, an API hiccup, a run that never posted one)
+                  # omits the phase clause and NEVER fails this step.
+                  LAST_PHASE=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" 2>/dev/null \
+                    | jq -rs 'map(.[]?) | map(select(((.body // "") | tostring) | contains("<!-- devflow:review-progress")))
+                              | last | ((.body // "") | tostring)
+                              | capture("\\*\\*Status:\\*\\* (?<s>[^\n]*)").s? // empty' 2>/dev/null) || LAST_PHASE=""
+                  # Report an unestablished count AS unestablished. `0` would be a
+                  # concrete claim the run never observed, and it would steer the
+                  # reader away from permission denials — the mis-diagnosis this
+                  # annotation exists to prevent. The arm selection lives in a helper
+                  # so lib/test/run.sh can drive every arm: a reordered `case` or a
+                  # glob typo here would misattribute the diagnosis while the workflow
+                  # still ran clean, which is the whole feature silently defeated.
+                  DDC=.devflow/vendor/devflow/scripts/describe-denial-count.sh
+                  [ -f "$DDC" ] || DDC=scripts/describe-denial-count.sh
+                  DENIAL_CLAUSE=""
+                  [ -f "$DDC" ] && DENIAL_CLAUSE=$(bash "$DDC" "${PERMISSION_DENIALS_COUNT:-}")
+                  # Verify the OUTCOME, not the file's existence: an absent or empty
+                  # helper must not silently drop the clause from the annotation.
+                  [ -n "$DENIAL_CLAUSE" ] || DENIAL_CLAUSE="The permission-denial count could not be established (describe-denial-count.sh missing or produced no output), so denials cannot be ruled out as the cause"
+                  echo "::error::Devflow review produced NO VERDICT for $HEAD_SHA. ${DENIAL_CLAUSE}${LAST_PHASE:+ (engine last reported: ${LAST_PHASE})}. A Re-run will hit the same wall unless the review tool profile grants what the engine needs — see the review job's 'Surface execution diagnostics' step for the exact denied commands."
                   # The engine ended is_error: the review died mid-run, so the
                   # agent likely never flipped its own progress comment out of
                   # 🚀 Reviewing. Flip it here (the helper's own 🚀-guard makes

@@ -89,6 +89,27 @@ PR. Its trigger policy (issue #304):
   `docs/cloud-setup.md`). The precondition *evaluation* itself stays fully generic
   (no job names).
 
+### The injected block reports *observed* CI conclusions, never a green assumption
+
+Every cloud review prompt carries a `> [!IMPORTANT]` engine ground-truth block
+(`scripts/render-grounding-block.sh`) whose CI section is rendered by
+`scripts/summarize-ci-checks.sh` from the GitHub API for the reviewed head. It lists one
+line per signal with **the conclusion actually observed** — `success`, `failure`, or, for a
+job still running, its `status` (e.g. `in_progress`). It never asserts that CI passed.
+
+This is load-bearing precisely because of the trigger asymmetry documented above. On the
+auto path `require_ci_green` defers the review until CI has completed without failing, so a
+green assumption would *usually* be right. But a `check_run[rerequested]` **Re-run** is
+deliberately ungated by the preconditions, so it can reach the engine while CI is still
+running or after it failed. A block that hardcoded "CI passed" would hand that run a false
+premise; a block that reports what it observed hands it the truth.
+
+Two further properties follow from the same rule: `require_ci_green` treats `skipped` and
+`neutral` as green, so rendering per-signal conclusions (rather than one summary boolean)
+keeps a skipped test job from reading as a passing one; and when the CI state cannot be
+determined at all, the block prints the literal `CI status unavailable` rather than
+omitting the section — an absent result is never rendered as a passing one.
+
 ### Known limitation: a behind-base deferral is not re-evaluated when the base advances
 
 A `require_up_to_date` (behind-base) deferral clears only when the review is

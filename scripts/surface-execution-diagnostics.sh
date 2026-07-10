@@ -70,6 +70,63 @@ _emit() {
   fi
 }
 
+# Publish the denial count and, when it is positive, raise a `::warning::` so a run
+# that stalled on permission denials announces itself in the job log instead of
+# hiding in a Markdown block nobody opens (issue #363).
+#
+# The count is read back out of the ALREADY-RENDERED block rather than re-derived,
+# so the human-readable number and the machine-readable one cannot disagree — the
+# jq program below is the single place the reconciliation lives.
+#
+# Parsed with bash builtins ONLY — no `sed`/`head`/`grep`. This value decides
+# whether the ::warning:: fires and what the job output publishes, and a value that
+# is only correct when an un-guaranteed PATH tool is present is an unverified
+# boundary: `tr`/`sed`/`cut` are NOT preflight prerequisites (see lib/preflight.sh),
+# so on a host lacking `sed` the old pipeline silently yielded an empty count,
+# published 0, and suppressed the warning on a run that HAD recorded denials — a
+# fail-open in the exact observability path this function exists to provide.
+#
+# "Unknown" is published as the literal `unavailable`, never as `0`. A consumer must
+# be able to tell "the engine refused no commands" from "the count could not be
+# established": collapsing both onto `0` makes the downstream no-verdict ::error::
+# assert a denial count it never observed, steering the reader away from permission
+# denials — the mis-diagnosis this whole change exists to end. No warning is raised
+# for an unknown count: unknown is not evidence of denials.
+#
+# Both side effects are additive — this script still always exits 0 and never
+# changes a run's pass/fail.
+_publish_denials() {  # rendered-block
+  _count=""
+  _saw_label=0
+  while IFS= read -r _line; do
+    case "$_line" in
+      "- permission_denials_count: "*)
+        _saw_label=1
+        _count="${_line#- permission_denials_count: }"
+        break
+        ;;
+    esac
+  done <<<"$1"   # here-string, not a heredoc: a block line reading exactly `EOF` cannot
+                 # terminate it early, and (unlike `printf … | while`) the loop stays in
+                 # this shell, so `_count` survives it.
+  case "$_count" in
+    *[!0-9]* | "")
+      # `n/a` is the renderer's own honest "unknown". A missing label line means the
+      # renderer's contract changed — also unknown, and worth a breadcrumb, because
+      # "the label is absent" is not evidence that there were no denials.
+      [ "$_saw_label" -eq 1 ] || echo "devflow: surface-execution-diagnostics: no 'permission_denials_count' line in the rendered block (renderer contract changed?) — publishing 'unavailable'; a positive denial count would NOT be reported this run" >&2
+      _count=unavailable
+      ;;
+  esac
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    printf 'permission_denials_count=%s\n' "$_count" >> "$GITHUB_OUTPUT" \
+      || echo "devflow: surface-execution-diagnostics: could not append permission_denials_count to GITHUB_OUTPUT ('$GITHUB_OUTPUT') — downstream jobs will read the 'unavailable' default" >&2
+  fi
+  if [ "$_count" != unavailable ] && [ "$_count" -gt 0 ]; then
+    echo "::warning::DevFlow: this run recorded $_count permission denial(s) — the engine attempted commands its tool profile does not grant. See the execution-diagnostics block for which ones."
+  fi
+}
+
 _HEADER="## DevFlow execution diagnostics"
 _NO_DIAG="$_HEADER
 _No diagnostics available (execution file absent, empty, or unparseable)._"
@@ -80,6 +137,7 @@ if [ -z "$FILE" ] || [ ! -f "$FILE" ] || [ ! -s "$FILE" ]; then
   # otherwise disarm this diagnostic silently (the id-rename hazard).
   echo "devflow: surface-execution-diagnostics: execution file absent or empty ('$FILE') — no diagnostics available" >&2
   _emit "$_NO_DIAG"
+  _publish_denials "$_NO_DIAG"
   exit 0
 fi
 
@@ -157,8 +215,10 @@ if ! BLOCK=$("$DEVFLOW_JQ" -rs --arg header "$_HEADER" '
   # rather than misattributing a missing binary to a parse error.
   echo "devflow: surface-execution-diagnostics: jq ('$DEVFLOW_JQ') exited non-zero on '$FILE' (parse error or unrunnable jq) — no diagnostics available" >&2
   _emit "$_NO_DIAG"
+  _publish_denials "$_NO_DIAG"
   exit 0
 fi
 
 _emit "$BLOCK"
+_publish_denials "$BLOCK"
 exit 0

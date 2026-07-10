@@ -591,6 +591,58 @@ entries. Enabling the reviewer's build environment is then just setting
 > base-pinned install line fail — surfacing as a provisioning error, not a code
 > defect.
 
+### What the reviewer is told before it starts — the engine ground-truth block
+
+Every cloud run of `/devflow:review` — the automated `devflow-review.yml` path and the
+manual `/devflow:review` comment path alike — has a `> [!IMPORTANT]` **engine
+ground-truth** block prepended to its prompt by `scripts/render-grounding-block.sh`. The
+block states two facts the engine would otherwise spend turns rediscovering by attempting
+commands and collecting denials:
+
+1. **The CI results observed for the reviewed commit**, rendered by
+   `scripts/summarize-ci-checks.sh` from the GitHub API. These are the **observed**
+   conclusions — including a `failure` conclusion and an `in_progress` status — never a
+   green assumption. When the CI state cannot be determined the block says
+   `CI status unavailable`; an unknown state is never rendered as a passing one.
+2. **The exact `--allowed-tools` string this run resolved**, quoted verbatim from the
+   same value the runner passes to the engine, so the two cannot drift.
+
+Check-run and job names inside the block are attacker-controlled text (any pull request
+can add a workflow whose job `name:` is arbitrary), so they are sanitized, truncated, and
+rendered inside a plain ` ```text ` fence, beneath prose that declares the names untrusted
+data. The block tells the engine to quote a name, never to obey one — while treating the
+conclusions beside them as the API facts they are.
+
+**How this interacts with `require_ci_green`.** On the **auto** path the review is
+triggered by `devflow-review.yml`'s `workflow_run` `[completed]` trigger and gated by
+`scripts/derive-review-preconditions.sh`, whose `require_ci_green` precondition (default
+`true`) defers the review until every other CI signal on the head has completed without
+failing. CI completion is therefore a *precondition of the reviewer's invocation* on that
+path, and the block's CI section normally reports completed, non-failing checks.
+
+**The one path that bypasses it:** a `check_run[rerequested]` event — clicking **Re-run**
+on the `Devflow Review` check — is deliberately left ungated by the preconditions (that is
+what makes "Click Re-run … to force a review" true). A forced Re-run can therefore reach
+the engine while CI is still running or after it failed. This is exactly why the block
+reports *observed* conclusions rather than asserting green: on such a run the engine sees
+`in_progress` or `failure` and reports it, instead of being told CI passed.
+
+### Where the `review` profile grants its helpers — the path prefix matters
+
+The read-only `review` profile grants its bundled helpers under the **vendored path prefix
+`.devflow/vendor/devflow/`** — e.g. `Bash(.devflow/vendor/devflow/scripts/workpad.py:*)`,
+`Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)`,
+`Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)`. That prefix is not decoration:
+Claude Code matches a `Bash(...)` rule against the command's **leading token after
+expansion**, so a helper invoked by any other path — or through a `bash <path>` wrapper —
+matches nothing and is silently denied.
+
+The one exception is `load-prompt-extension.sh`, granted **directory-agnostically** as
+`Bash(*/load-prompt-extension.sh:*)`. The final-pass reviewer (`requesting-code-review`) is
+dispatched as an *installed skill*, so its `${CLAUDE_SKILL_DIR}` anchor resolves to the
+plugin checkout rather than the vendored tree; without the wildcard rule its prompt-extension
+load is denied and the consumer's extension silently never loads for that reviewer.
+
 ## Effectiveness telemetry on the cloud `/devflow:implement` job
 
 `/devflow:implement`'s Phase 3.3 drives `review-and-fix` **inline in the orchestrator's
