@@ -446,12 +446,21 @@ jobs:
                 # base ref with no helper fails closed (no build tools, warning,
                 # read-only review still works). Both are stated in
                 # docs/DEVFLOW_SYSTEM_OVERVIEW.md's deny-floor paragraph.
+                # Anchor the relative vendored-copy candidate to the git repo ROOT
+                # (issue #409 item 8, #295 convention: `git rev-parse --show-toplevel`,
+                # falling back to `pwd`). A bare relative `.devflow/vendor/…` path
+                # resolves against the step's cwd, so a future `working-directory:` (or a
+                # step that `cd`s) would silently miss the vendored helper and flip EVERY
+                # review to the helper-absent fail-closed arm. Anchoring makes the
+                # candidate cwd-independent. FLOOR_HELPER (base-ref copy in RUNNER_TEMP)
+                # is already absolute, so only the fetch-gated vendored path needs it.
+                _REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
                 FILTER_HELPER=''
                 if [ -n "${FLOOR_HELPER:-}" ] && [ -f "$FLOOR_HELPER" ]; then
                   FILTER_HELPER="$FLOOR_HELPER"
                   echo "deny-list floor source: trusted base ref (${FLOOR_SOURCE:-base-ref})"
-                elif [ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f .devflow/vendor/devflow/scripts/filter-runner-tools.sh ]; then
-                  FILTER_HELPER=.devflow/vendor/devflow/scripts/filter-runner-tools.sh
+                elif [ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f "$_REPO_ROOT/.devflow/vendor/devflow/scripts/filter-runner-tools.sh" ]; then
+                  FILTER_HELPER="$_REPO_ROOT/.devflow/vendor/devflow/scripts/filter-runner-tools.sh"
                   echo "deny-list floor source: runtime-fetched vendored copy (pinned devflow_version)"
                 fi
                 if [ -z "$FILTER_HELPER" ]; then
@@ -474,20 +483,32 @@ jobs:
                   # from being misdiagnosed as "your config is empty" (the "unknown is
                   # not a real value" breadcrumb-honesty rule); either way it fails
                   # CLOSED (nothing appended).
-                  STRIP_LOG="$(mktemp)"
-                  HELPER_RC=0
-                  FILTERED="$(RUNNER_TOOLS="$RUNNER_TOOLS" bash "$FILTER_HELPER" 2>"$STRIP_LOG")" || HELPER_RC=$?
-                  # Re-emit each per-entry strip line as a workflow `::warning::`.
-                  while IFS= read -r _line; do
-                    if [ -n "$_line" ]; then echo "::warning::$_line"; fi
-                  done < "$STRIP_LOG"
-                  rm -f "$STRIP_LOG"
-                  if [ "$HELPER_RC" -ne 0 ]; then
-                    echo "::warning::devflow deny-list floor helper ($FILTER_HELPER) exited $HELPER_RC (it is contracted to always exit 0) — failing closed: NO build/verify tools appended to the review profile. This is a helper MALFUNCTION (the helper is unreadable, corrupt, or partially vendored so 'bash' could not run it), NOT an empty devflow_runner.allowed_tools — check the helper, do not re-check your config."
-                  elif [ -n "$FILTERED" ]; then
-                    TOOLS="$TOOLS,$FILTERED"
+                  # Guard mktemp (issue #409 item 7): a temp-dir that is unwritable or
+                  # exhausted makes `mktemp` fail, leaving STRIP_LOG empty. The old
+                  # unguarded `STRIP_LOG="$(mktemp)"` then let the `2>"$STRIP_LOG"`
+                  # redirect target an empty path and, under GitHub's default `-e` run
+                  # shell, abort the whole `tools` step — a security filter must never
+                  # HARD-ABORT the step (that is a different failure than the intended
+                  # fail-closed). So capture mktemp best-effort and, if it did not yield
+                  # a real file, fail CLOSED (append nothing) with an actionable warning.
+                  STRIP_LOG="$(mktemp 2>/dev/null || true)"
+                  if [ -z "$STRIP_LOG" ] || [ ! -e "$STRIP_LOG" ]; then
+                    echo "::warning::devflow deny-list floor: could not create a temp file (mktemp failed — the runner's temp dir is unwritable or exhausted) to capture the helper's per-entry strip warnings — failing closed: NO build/verify tools appended to the review profile (the reviewer keeps the read-only profile). This is a runner ENVIRONMENT issue, NOT an empty devflow_runner.allowed_tools."
                   else
-                    echo "::warning::devflow_runner.provision_env is true but devflow_runner.allowed_tools is empty (or empty after deny-list stripping): build-aware review is enabled with NO build tools, so the reviewer has only the read-only profile. Populate devflow_runner.allowed_tools with your build/test/lint tools (e.g. Bash(go:*), Bash(cargo:*)) to enable build-aware review."
+                    HELPER_RC=0
+                    FILTERED="$(RUNNER_TOOLS="$RUNNER_TOOLS" bash "$FILTER_HELPER" 2>"$STRIP_LOG")" || HELPER_RC=$?
+                    # Re-emit each per-entry strip line as a workflow `::warning::`.
+                    while IFS= read -r _line; do
+                      if [ -n "$_line" ]; then echo "::warning::$_line"; fi
+                    done < "$STRIP_LOG"
+                    rm -f "$STRIP_LOG"
+                    if [ "$HELPER_RC" -ne 0 ]; then
+                      echo "::warning::devflow deny-list floor helper ($FILTER_HELPER) exited $HELPER_RC (it is contracted to always exit 0) — failing closed: NO build/verify tools appended to the review profile. This is a helper MALFUNCTION (the helper is unreadable, corrupt, or partially vendored so 'bash' could not run it), NOT an empty devflow_runner.allowed_tools — check the helper, do not re-check your config."
+                    elif [ -n "$FILTERED" ]; then
+                      TOOLS="$TOOLS,$FILTERED"
+                    else
+                      echo "::warning::devflow_runner.provision_env is true but devflow_runner.allowed_tools is empty (or empty after deny-list stripping): build-aware review is enabled with NO build tools, so the reviewer has only the read-only profile. Populate devflow_runner.allowed_tools with your build/test/lint tools (e.g. Bash(go:*), Bash(cargo:*)) to enable build-aware review."
+                    fi
                   fi
                 fi
               fi
@@ -840,14 +861,38 @@ jobs:
             exit 0
           fi
           # Redact common credential shapes: GitHub App/installation/classic/fine-grained
-          # tokens, Anthropic keys, and Authorization headers. sed -E only (no GNU flags).
+          # tokens, Anthropic keys, and Authorization headers (both the Bearer form and
+          # the base64 basic-auth form the checkout persists — `Authorization: basic
+          # <base64(x-access-token:<token>)>`, issue #409 item 4). sed -E only (no GNU
+          # flags). Scrub to $OUT first, then gate on non-emptiness and prepend the caveat.
           if sed -E \
             -e 's/gh[pousr]_[A-Za-z0-9_]{20,}/[REDACTED-GH-TOKEN]/g' \
             -e 's/github_pat_[A-Za-z0-9_]{20,}/[REDACTED-GH-PAT]/g' \
             -e 's/sk-ant-[A-Za-z0-9_-]{20,}/[REDACTED-ANTHROPIC-KEY]/g' \
             -e 's/(Authorization[":[:space:]]*)[Bb]earer [A-Za-z0-9._~+\/=-]+/\1Bearer [REDACTED]/g' \
+            -e 's/(Authorization[":[:space:]]*)[Bb]asic [A-Za-z0-9+\/=]+/\1basic [REDACTED]/g' \
             "$EXECUTION_FILE" > "$OUT"; then
-            echo "path=$OUT" >> "$GITHUB_OUTPUT"
+            # Item 3: advertise a path only when the scrubbed output is non-empty — an
+            # empty execution file scrubs to an empty $OUT, which is not worth uploading.
+            if [ -s "$OUT" ]; then
+              # Item 2: the scrub is a best-effort BLOCKLIST covering four credential
+              # shapes and is inherently incomplete for third-party shapes. State that
+              # on the log AND prepend it into the artifact itself. The caveat prepend
+              # goes through the SAME guarded write path that fails closed: a header
+              # write failure must NOT leave an unscrubbed/half-written file advertised
+              # for upload (issue #409 item 2 gotcha).
+              CAVEAT="# DEVFLOW SCRUB CAVEAT: best-effort blocklist redacted four credential shapes (GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, basic Authorization headers). This blocklist is INCOMPLETE — other third-party credential shapes may remain. Treat this artifact as sensitive."
+              echo "::warning::transcript scrub is a best-effort blocklist covering four credential shapes (GitHub tokens/PATs, Anthropic keys, Bearer + basic Authorization headers); it is INCOMPLETE for third-party credential shapes — treat the uploaded artifact as sensitive."
+              HDR="$OUT.hdr"
+              if { printf '%s\n' "$CAVEAT" > "$HDR" && cat "$OUT" >> "$HDR" && mv "$HDR" "$OUT"; }; then
+                echo "path=$OUT" >> "$GITHUB_OUTPUT"
+              else
+                rm -f "$HDR"
+                echo "::warning::transcript caveat-header write failed; NOT uploading the transcript (fail-closed)."
+              fi
+            else
+              echo "::notice::scrubbed transcript is empty; nothing to preserve (no upload)."
+            fi
           else
             echo "::warning::transcript scrub failed; NOT uploading the unscrubbed execution file (fail-closed)."
           fi
