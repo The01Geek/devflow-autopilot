@@ -11858,13 +11858,17 @@ PY
   SCRUB_DIR="$(mktemp -d)"
   SCRUB_EXEC="$SCRUB_DIR/exec.json"
   # A fixture carrying: gh token, PAT, Anthropic key, Bearer header, and the
-  # base64 basic-auth header the checkout persists (item 4).
+  # base64 basic-auth header the checkout persists (item 4). The basic-auth line
+  # uses the REAL UPPERCASE `AUTHORIZATION:` form actions/checkout's git-auth-helper
+  # persists (case-insensitive header match, #409 review) — a mixed-case fixture
+  # would pass vacuously against a case-sensitive `Authorization` literal and give
+  # false confidence against exactly the header item 4 exists to redact.
   {
     printf '%s\n' 'tok=ghs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
     printf '%s\n' 'pat=github_pat_ABCDEFGHIJKLMNOPQRSTUV0123456789'
     printf '%s\n' 'key=sk-ant-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
     printf '%s\n' 'Authorization: Bearer ABCDEFGHIJKLMNOPQRSTUVWXYZ012345'
-    printf '%s\n' 'Authorization: basic eHgtYWNjZXNzLXRva2VuOmdoc19BQkNERUZHSElKS0xNTk9Q'
+    printf '%s\n' 'AUTHORIZATION: basic eHgtYWNjZXNzLXRva2VuOmdoc19BQkNERUZHSElKS0xNTk9Q'
   } > "$SCRUB_EXEC"
   SCRUB_GH_OUT="$SCRUB_DIR/gh_output"
   : > "$SCRUB_GH_OUT"
@@ -11903,6 +11907,33 @@ PY
     "$(grep -qF 'path=' "$SCRUB_GH_OUT2" 2>/dev/null && echo yes || echo no)"
   assert_eq "#409 scrub: empty output leaves its own breadcrumb (item 3)" "yes" \
     "$(grep -qF 'scrubbed transcript is empty' "$SCRUB_DIR/log2" 2>/dev/null && echo yes || echo no)"
+  # item 2 fail-closed arm: if the caveat-header write fails, NO path= is advertised
+  # and a distinct fail-closed breadcrumb is emitted — a half-written/unscrubbed file
+  # must never be uploaded (#409 review: the security fail-closed arm was untested).
+  # Drive it by PATH-shadowing `mv` (used only in the caveat prepend) with a failing shim.
+  MV_BIN="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$MV_BIN/mv"
+  chmod +x "$MV_BIN/mv"
+  SCRUB_GH_OUT3="$SCRUB_DIR/gh_output3"
+  : > "$SCRUB_GH_OUT3"
+  ( PATH="$MV_BIN:$PATH" EXECUTION_FILE="$SCRUB_EXEC" RUNNER_TEMP="$SCRUB_DIR" GITHUB_OUTPUT="$SCRUB_GH_OUT3" \
+      bash "$SCRUB_STEP" ) > "$SCRUB_DIR/log3" 2>&1 || true
+  assert_eq "#409 scrub: caveat-write failure advertises NO path= (fail-closed, item 2)" "no" \
+    "$(grep -qF 'path=' "$SCRUB_GH_OUT3" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#409 scrub: caveat-write failure emits its fail-closed breadcrumb (item 2)" "yes" \
+    "$(grep -qF 'caveat-header write failed' "$SCRUB_DIR/log3" 2>/dev/null && echo yes || echo no)"
+  rm -rf "$MV_BIN"
+  # absent-execution-file arm: the if: gate guarantees a non-empty output name but not
+  # that the file exists, so the `[ ! -f "$EXECUTION_FILE" ]` early-exit is reachable —
+  # it emits a notice and no path= (#409 review, Suggestion).
+  SCRUB_GH_OUT4="$SCRUB_DIR/gh_output4"
+  : > "$SCRUB_GH_OUT4"
+  EXECUTION_FILE="$SCRUB_DIR/does-not-exist.json" RUNNER_TEMP="$SCRUB_DIR" GITHUB_OUTPUT="$SCRUB_GH_OUT4" \
+    bash "$SCRUB_STEP" > "$SCRUB_DIR/log4" 2>&1 || true
+  assert_eq "#409 scrub: absent execution file advertises NO path=" "no" \
+    "$(grep -qF 'path=' "$SCRUB_GH_OUT4" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#409 scrub: absent execution file leaves its own breadcrumb" "yes" \
+    "$(grep -qF 'execution file absent' "$SCRUB_DIR/log4" 2>/dev/null && echo yes || echo no)"
   rm -f "$SCRUB_STEP"
   rm -rf "$SCRUB_DIR"
 else

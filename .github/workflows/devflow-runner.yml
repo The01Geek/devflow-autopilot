@@ -450,10 +450,12 @@ jobs:
                 # (issue #409 item 8, #295 convention: `git rev-parse --show-toplevel`,
                 # falling back to `pwd`). A bare relative `.devflow/vendor/…` path
                 # resolves against the step's cwd, so a future `working-directory:` (or a
-                # step that `cd`s) would silently miss the vendored helper and flip EVERY
-                # review to the helper-absent fail-closed arm. Anchoring makes the
-                # candidate cwd-independent. FLOOR_HELPER (base-ref copy in RUNNER_TEMP)
-                # is already absolute, so only the fetch-gated vendored path needs it.
+                # step that `cd`s) would silently miss the vendored helper and flip every
+                # review that RELIES ON the fetch-vendored fallback to the helper-absent
+                # fail-closed arm. (Reviews that resolve the rank-1 trusted base-ref
+                # FLOOR_HELPER, an absolute RUNNER_TEMP path, never reach this branch.)
+                # Anchoring makes the candidate cwd-independent. FLOOR_HELPER is already
+                # absolute, so only the fetch-gated vendored path needs it.
                 _REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
                 FILTER_HELPER=''
                 if [ -n "${FLOOR_HELPER:-}" ] && [ -f "$FLOOR_HELPER" ]; then
@@ -862,15 +864,20 @@ jobs:
           fi
           # Redact common credential shapes: GitHub App/installation/classic/fine-grained
           # tokens, Anthropic keys, and Authorization headers (both the Bearer form and
-          # the base64 basic-auth form the checkout persists — `Authorization: basic
-          # <base64(x-access-token:<token>)>`, issue #409 item 4). sed -E only (no GNU
-          # flags). Scrub to $OUT first, then gate on non-emptiness and prepend the caveat.
+          # the base64 basic-auth form the checkout persists — `AUTHORIZATION: basic
+          # <base64(x-access-token:<token>)>`, issue #409 item 4). The header NAME is
+          # matched case-INSENSITIVELY via an explicit per-letter class — actions/checkout's
+          # git-auth-helper persists the extraheader as UPPERCASE `AUTHORIZATION:`, so a
+          # case-sensitive `Authorization` literal would miss the real persisted header and
+          # leak its base64 token. sed -E only (no GNU flags — `I` is GNU-only), so the class
+          # replaces the GNU case-insensitive flag portably. Scrub to $OUT first, then gate
+          # on non-emptiness and prepend the caveat.
           if sed -E \
             -e 's/gh[pousr]_[A-Za-z0-9_]{20,}/[REDACTED-GH-TOKEN]/g' \
             -e 's/github_pat_[A-Za-z0-9_]{20,}/[REDACTED-GH-PAT]/g' \
             -e 's/sk-ant-[A-Za-z0-9_-]{20,}/[REDACTED-ANTHROPIC-KEY]/g' \
-            -e 's/(Authorization[":[:space:]]*)[Bb]earer [A-Za-z0-9._~+\/=-]+/\1Bearer [REDACTED]/g' \
-            -e 's/(Authorization[":[:space:]]*)[Bb]asic [A-Za-z0-9+\/=]+/\1basic [REDACTED]/g' \
+            -e 's/([Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn][":[:space:]]*)[Bb]earer [A-Za-z0-9._~+\/=-]+/\1Bearer [REDACTED]/g' \
+            -e 's/([Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn][":[:space:]]*)[Bb]asic [A-Za-z0-9+\/=]+/\1basic [REDACTED]/g' \
             "$EXECUTION_FILE" > "$OUT"; then
             # Item 3: advertise a path only when the scrubbed output is non-empty — an
             # empty execution file scrubs to an empty $OUT, which is not worth uploading.
