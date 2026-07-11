@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "slug": "pr-428",
+  "slug": "pr-315",
   "generated_at": "2026-07-11T23:24:07Z",
   "source": "review-and-fix",
   "synthesized": false,
@@ -28,9 +28,9 @@
         "checklist_skipped": null
       },
       "verification_posture": "mixed",
-      "checklist_lite_count": 7,
-      "checklist_agent_count": 17,
-      "fixes_applied": 1,
+      "checklist_lite_count": 8,
+      "checklist_agent_count": 39,
+      "fixes_applied": 16,
       "added_nothing": false,
       "agent_verdicts": [
         {
@@ -39,7 +39,7 @@
         },
         {
           "agent": "devflow:comment-analyzer",
-          "verdict": "noise"
+          "verdict": "unique-effective"
         },
         {
           "agent": "devflow:pr-test-analyzer",
@@ -47,11 +47,15 @@
         },
         {
           "agent": "devflow:requesting-code-review",
-          "verdict": null
+          "verdict": "unique-effective"
         },
         {
           "agent": "devflow:silent-failure-hunter",
-          "verdict": null
+          "verdict": "unique-effective"
+        },
+        {
+          "agent": "step3.5-fix-delta-gate",
+          "verdict": "unique-effective"
         }
       ]
     }
@@ -60,26 +64,51 @@
     {
       "iter": 1,
       "phases": {
-        "phase_1": {
-          "calls": 1,
-          "tokens": 80875,
-          "wall_clock_s": 222
-        },
-        "phase_2": {
+        "phase_0": {
           "calls": 0,
           "tokens": 0,
-          "wall_clock_s": 30
+          "wall_clock_s": 90
+        },
+        "phase_0_5": {
+          "calls": 0,
+          "tokens": 0,
+          "wall_clock_s": 60
+        },
+        "phase_1": {
+          "calls": 2,
+          "tokens": 155639,
+          "wall_clock_s": 194
+        },
+        "phase_1_5": {
+          "calls": 1,
+          "tokens": 60348,
+          "wall_clock_s": 136
+        },
+        "phase_2": {
+          "calls": 39,
+          "tokens": 1949000,
+          "wall_clock_s": 900
         },
         "phase_3": {
           "calls": 5,
-          "tokens": 450643,
-          "wall_clock_s": 665
+          "tokens": 630188,
+          "wall_clock_s": 490
         },
         "step_2_5": {
           "calls": 0,
           "tokens": 0,
-          "wall_clock_s": 2,
+          "wall_clock_s": 30,
           "webfetches": 0
+        },
+        "step_3": {
+          "calls": 1,
+          "tokens": 128318,
+          "wall_clock_s": 1200
+        },
+        "phase_4_x": {
+          "calls": 0,
+          "tokens": 0,
+          "wall_clock_s": 60
         }
       }
     }
