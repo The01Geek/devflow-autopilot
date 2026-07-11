@@ -699,8 +699,8 @@ jobs:
       # dropped only for a provider whose effort_supported is false (AC 7). The
       # Anthropic default path resolves effort_supported=true, so effort is
       # preserved there (for a non-empty effort value — the run body's
-      # flag-injection guard enum-validates effort and rejects flag-shaped or
-      # whitespace/quote-carrying model values).
+      # flag-injection guard enum-validates effort and allowlist-validates the
+      # model id, rejecting flag-shaped or out-of-charset values).
       - name: Build claude_args head (model + conditional effort)
         id: cargs
         env:
@@ -711,8 +711,9 @@ jobs:
           # by reading the head-config claude_model (steps.extract, whose own empty-claude_model
           # guard still fail-closes). A head-sourced model string cannot redirect the endpoint
           # or leak the secret (both come from the base decision), and the run body below
-          # rejects flag-shaped (leading-dash) tokens plus whitespace/quote characters —
-          # and enum-validates EFFORT — so it cannot smuggle extra CLI flags either;
+          # rejects flag-shaped (leading-dash) tokens and any character outside a
+          # conservative model-id allowlist — and enum-validates EFFORT — so it cannot
+          # smuggle extra CLI flags either;
           # --model is never empty while the trust boundary holds.
           MODEL: ${{ steps.provider.outputs.model != '' && steps.provider.outputs.model || steps.extract.outputs.claude_model }}
           EFFORT: ${{ steps.effort.outputs.value }}
@@ -727,14 +728,26 @@ jobs:
           # CLI string), and the runner can read either from PR-head config (EFFORT
           # always via steps.extract when the caller passes no effort input; MODEL in
           # the bootstrap fallback) — so refuse any value that could smuggle an extra
-          # CLI flag. Rejecting whitespace/quotes alone is NOT enough: the action
-          # tokenises claude_args shell-style, so a flag-shaped single token
-          # (`--model --evil`) records --model as valueless and passes --evil through
-          # as its own flag. MODEL therefore also rejects a leading dash; EFFORT is
-          # pinned to its schema enum (or empty, which drops the flag below).
+          # CLI flag. A blacklist is NOT enough here: the action tokenises claude_args
+          # shell-style, so a flag-shaped single token (`--model --evil`) records
+          # --model as valueless and passes --evil through as its own flag, and a
+          # bytewise [[:space:]] check misses Unicode whitespace (NBSP/U+2028/U+3000)
+          # under a non-UTF-8 runner locale while the JS tokeniser still splits on it.
+          # So MODEL is validated POSITIVELY: reject a leading dash, then reject any
+          # character outside the conservative model-id allowlist
+          # A-Za-z0-9 . _ / : @ [ ] -  (covers claude-*, provider/model, Z.ai
+          # bracket-suffix ids like glm-5.2[1m], and Bedrock-style colon ids) — a
+          # multibyte character is rejected in every locale because none of its bytes
+          # (C locale) nor its codepoint (UTF-8 locale) is in the allowlist. EFFORT is
+          # pinned to its schema enum (or empty, which drops the flag below). In the
+          # negated bracket expression, `]` sits first after `!` and `-` last, making
+          # both literal members of the set.
           case "$MODEL" in
-            -* | *[[:space:]]* | *\"* | *\'*)
-              echo "::error::claude_model value is flag-shaped (leading dash) or contains whitespace/quote characters — refusing to compose claude_args (flag-injection guard; the model must be a single non-dash-leading token)."
+            -*)
+              echo "::error::claude_model value is flag-shaped (leading dash) — refusing to compose claude_args (flag-injection guard; the model must be a single non-dash-leading token)."
+              exit 1 ;;
+            *[!]A-Za-z0-9._/:@[-]*)
+              echo "::error::claude_model value contains a character outside the model-id allowlist (A-Za-z0-9 . _ / : @ [ ] -) — refusing to compose claude_args (flag-injection guard)."
               exit 1 ;;
           esac
           case "$EFFORT" in

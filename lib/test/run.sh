@@ -20805,6 +20805,22 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     ( export MODEL=z-ai/glm-5.2 EFFORT='garbage' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
     assert_eq "#313 cargs-body: non-enum EFFORT fails loud (exit 1, enum arm)" "1" "$R313_RC"
     : > "$R313_GOUT"
+    # Positive-allowlist arm (the re-gate's locale finding): a bytewise [[:space:]]
+    # blacklist misses Unicode whitespace (NBSP etc.) under a non-UTF-8 locale while
+    # the action's JS tokeniser still splits on it — the allowlist must reject it in
+    # EVERY locale (C forced here), and a backslash (token-merge class) likewise.
+    R313_RC=0
+    ( export LC_ALL=C MODEL="$(printf 'x\302\240--dangerously-skip-permissions')" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 cargs-body: NBSP-embedded MODEL fails loud under LC_ALL=C (allowlist, locale-proof)" "1" "$R313_RC"
+    : > "$R313_GOUT"
+    R313_RC=0
+    ( export MODEL='x\evil' EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 cargs-body: backslash in MODEL fails loud (allowlist)" "1" "$R313_RC"
+    : > "$R313_GOUT"
+    # Bedrock-style colon id must pass the allowlist (no false fire on legit ids).
+    ( export MODEL='us.anthropic.claude-3:0' EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: colon-carrying Bedrock-style model id passes the allowlist (no false fire)" "args=--model us.anthropic.claude-3:0" "$(gh_kv "$R313_GOUT")"
+    : > "$R313_GOUT"
     # Structural pin on the newline-safe args<< heredoc emit: the whitespace guard now
     # rejects an embedded-newline MODEL before any emit, so the forge test below can no
     # longer catch a revert of the emit itself to `echo "args=$ARGS"` — pin the heredoc
