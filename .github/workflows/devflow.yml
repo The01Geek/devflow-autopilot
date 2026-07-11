@@ -696,6 +696,17 @@ jobs:
             echo "::error::.devflow/config.json section '$SECTION' selects provider '$PROVIDER' but the DEVFLOW_PROVIDER_API_KEY repository secret is empty. Set that secret (the provider API key) before running a provider-routed job. Refusing to run."
             exit 1
           fi
+          # SECURITY: the env-map KEY is interpolated RAW into the `KEY<<DELIM` heredoc
+          # header — the newline-safe heredoc protects VALUES, not keys, so a key
+          # carrying a newline or `<<` could forge a further job env var name or break
+          # the heredoc terminator (leaving an opaque "matching delimiter not found"
+          # abort). Keys come from maintainer-controlled config, but validate them
+          # POSITIVELY against a real env-var-name charset and fail loud on any stray
+          # key rather than emit a malformed/forged $GITHUB_ENV block.
+          if printf '%s' "$DECISION" | jq -e '.env | keys[] | select(test("^[A-Za-z_][A-Za-z0-9_]*$") | not)' >/dev/null 2>&1; then
+            echo "::error::.devflow/config.json section '$SECTION' provider '$PROVIDER' has an env-map key that is not a valid environment variable name ([A-Za-z_][A-Za-z0-9_]*). Fix the providers.$PROVIDER.env keys. Refusing to run."
+            exit 1
+          fi
           # Every $GITHUB_ENV write below uses GitHub's newline-safe multiline (heredoc) form —
           # the scalar endpoint values via genv(), the provider env map via the inline jq heredoc
           # emit at the end — so a config-sourced value carrying an embedded newline cannot split

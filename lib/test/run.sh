@@ -20625,6 +20625,16 @@ for line in open(sys.argv[1]):
     printf 'FORGED=evil\n' > "$R313_TKPROBE"
     assert_eq "#313 gh_topkeys self-test: a plain KEY= line IS reported as a top-level key" "FORGED" \
       "$(gh_topkeys "$R313_TKPROBE")"
+    # gh_topkeys heredoc-swallow arm DIRECT self-test (shadow VC-41): the forge tests
+    # that feed a KEY<<DELIM body carrying a FORGED=evil line rely on this arm treating
+    # that inner line as swallowed (NOT top-level). Prove it directly rather than only
+    # transitively — construct a literal heredoc block and assert the top-level keys are
+    # exactly the header key, and the inner FORGED= line is NOT reported.
+    printf 'REAL<<D\nFORGED=evil\nD\nAFTER=1\n' > "$R313_TKPROBE"
+    assert_eq "#313 gh_topkeys self-test: a FORGED= line INSIDE a KEY<<DELIM body is NOT a top-level key (heredoc-swallow arm)" "yes" \
+      "$(printf '%s\n' "$(gh_topkeys "$R313_TKPROBE")" | grep -qxF 'REAL' \
+         && printf '%s\n' "$(gh_topkeys "$R313_TKPROBE")" | grep -qxF 'AFTER' \
+         && ! printf '%s\n' "$(gh_topkeys "$R313_TKPROBE")" | grep -qxF 'FORGED' && echo yes || echo no)"
     rm -f "$R313_TKPROBE"
   else
     echo "  SKIP  #313 gh_topkeys self-test (no writable temp)"
@@ -20743,6 +20753,30 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     R313_TOPKEYS="$(gh_topkeys "$R313_GENV")"
     assert_eq "#313 inject-body: an embedded-newline env-map value cannot forge a top-level env var (heredoc newline-injection safety)" "yes" \
       "$(printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'MKEY' && ! printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'FORGED' && echo yes || echo no)"
+    : > "$R313_GENV"
+    # env-map KEY validation (shadow S3): the heredoc protects VALUES, not the KEY
+    # interpolated into the `KEY<<DELIM` header — a key carrying a newline or `<<`
+    # could forge a var name or break the terminator. The inject body must fail loud
+    # on a key outside the env-var-name charset, BEFORE writing any $GITHUB_ENV block.
+    R313_RC=0
+    R313_OUT="$( export DECISION=$'{"env":{"A\\nFORGED":"x"}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 inject-body: an env-map key with an embedded newline fails loud (exit 1, key-validation guard)" "1" "$R313_RC"
+    assert_eq "#313 inject-body: the invalid-key guard emits ::error:: naming an invalid env-var-name key" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'not a valid environment variable name' && echo yes || echo no)"
+    R313_TOPKEYS="$(gh_topkeys "$R313_GENV")"
+    assert_eq "#313 inject-body: a forged env-map key writes NO top-level env var (guard fired before emit)" "yes" \
+      "$([ -z "$R313_TOPKEYS" ] && echo yes || echo no)"
+    : > "$R313_GENV"
+    # `<<`-carrying key is also rejected (would break the heredoc terminator).
+    R313_RC=0
+    ( export DECISION='{"env":{"K<<X":"x"}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 inject-body: an env-map key containing '<<' fails loud (exit 1, key-validation guard)" "1" "$R313_RC"
+    : > "$R313_GENV"
+    # A well-formed env-map key still passes (no false fire on the documented keys).
+    ( export DECISION='{"env":{"ANTHROPIC_DEFAULT_HAIKU_MODEL":"glm-4.7"}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
+    gh_kv "$R313_GENV" > "$R313_GENV.kv"
+    assert_eq "#313 inject-body: a valid env-map key passes the key-validation guard (no false fire)" "yes" \
+      "$(grep -qxF 'ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-4.7' "$R313_GENV.kv" && echo yes || echo no)"
     rm -f "$R313_GENV" "$R313_GENV.kv"
   else
     echo "  SKIP  #313 inject-body behavioral checks (no writable temp / body extraction failed)"
@@ -20793,29 +20827,44 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     # `--dangerously-skip-permissions` in MODEL/EFFORT records --model/--effort as
     # valueless and passes the injected token through as its own flag. MODEL rejects a
     # leading dash; EFFORT is enum-pinned (so ANY non-enum junk also fails loud).
+    # Each rejection is ATTRIBUTED to its own arm by a DISTINCT message substring
+    # (shadow S4): the bare `flag-injection guard` phrase appears in all three arms,
+    # so an exit-code-only assertion cannot tell a dash-arm rejection from an
+    # allowlist- or enum-arm one — a reordered/merged arm would stay green. Pin the
+    # arm-specific phrase so each fixture proves the arm it was written to exercise.
     R313_RC=0
-    ( export MODEL='--dangerously-skip-permissions' EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    R313_OUT="$( export MODEL='--dangerously-skip-permissions' EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
     assert_eq "#313 cargs-body: flag-shaped MODEL (leading dash, no whitespace) fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: flag-shaped MODEL rejection is attributed to the leading-dash arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'flag-shaped (leading dash)' && echo yes || echo no)"
     : > "$R313_GOUT"
     R313_RC=0
-    ( export MODEL=z-ai/glm-5.2 EFFORT='--dangerously-skip-permissions' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    R313_OUT="$( export MODEL=z-ai/glm-5.2 EFFORT='--dangerously-skip-permissions' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
     assert_eq "#313 cargs-body: flag-shaped EFFORT fails loud (exit 1, enum arm)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: flag-shaped EFFORT rejection is attributed to the effort-enum arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'not one of low/medium/high/xhigh/max' && echo yes || echo no)"
     : > "$R313_GOUT"
     R313_RC=0
-    ( export MODEL=z-ai/glm-5.2 EFFORT='garbage' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    R313_OUT="$( export MODEL=z-ai/glm-5.2 EFFORT='garbage' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
     assert_eq "#313 cargs-body: non-enum EFFORT fails loud (exit 1, enum arm)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: non-enum EFFORT rejection is attributed to the effort-enum arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'not one of low/medium/high/xhigh/max' && echo yes || echo no)"
     : > "$R313_GOUT"
     # Positive-allowlist arm (the re-gate's locale finding): a bytewise [[:space:]]
     # blacklist misses Unicode whitespace (NBSP etc.) under a non-UTF-8 locale while
     # the action's JS tokeniser still splits on it — the allowlist must reject it in
     # EVERY locale (C forced here), and a backslash (token-merge class) likewise.
     R313_RC=0
-    ( export LC_ALL=C MODEL="$(printf 'x\302\240--dangerously-skip-permissions')" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    R313_OUT="$( export LC_ALL=C MODEL="$(printf 'x\302\240--dangerously-skip-permissions')" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
     assert_eq "#313 cargs-body: NBSP-embedded MODEL fails loud under LC_ALL=C (allowlist, locale-proof)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: NBSP MODEL rejection is attributed to the allowlist arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'outside the model-id allowlist' && echo yes || echo no)"
     : > "$R313_GOUT"
     R313_RC=0
-    ( export MODEL='x\evil' EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    R313_OUT="$( export MODEL='x\evil' EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
     assert_eq "#313 cargs-body: backslash in MODEL fails loud (allowlist)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: backslash MODEL rejection is attributed to the allowlist arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'outside the model-id allowlist' && echo yes || echo no)"
     : > "$R313_GOUT"
     # Bedrock-style colon id must pass the allowlist (no false fire on legit ids).
     ( export MODEL='us.anthropic.claude-3:0' EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
@@ -20863,9 +20912,34 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     R313_RC=0
     ( export OAUTH="oauth-token"; bash -c "$R313_OAUTH_BODY" ) >/dev/null 2>&1 || R313_RC=$?
     assert_eq "#313 oauth-guard: a present OAuth token passes (exit 0)" "0" "$R313_RC"
+    # Degraded-base-read branch (shadow S2): when the trusted base config was UNREADABLE
+    # (config_source=degraded) the empty provider decision is NOT "no provider configured"
+    # — the guard must name the real cause and NOT misdirect. Assert the degraded message,
+    # and that it does NOT falsely claim no provider is configured.
+    R313_RC=0
+    R313_OUT="$( export OAUTH="" CONFIG_SOURCE="degraded"; bash -c "$R313_OAUTH_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 oauth-guard: degraded base read + empty OAuth fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 oauth-guard: degraded branch names the unreadable-config cause, not a false 'no provider configured'" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'trusted base-ref .devflow/config.json could not be read' \
+         && ! printf '%s' "$R313_OUT" | grep -qF 'No model provider is configured' && echo yes || echo no)"
   else
     echo "  SKIP  #313 oauth-guard behavioral check (body extraction failed)"
   fi
+
+  # Step-ordering pin (shadow S1): in devflow-runner.yml the provider-endpoint inject
+  # step (which writes the bearer DEVFLOW_PROVIDER_API_KEY into job-wide $GITHUB_ENV as
+  # ANTHROPIC_AUTH_TOKEN) MUST run AFTER the opt-in 'Provision project environment' step
+  # (which executes PR-author build code) and still BEFORE 'Run Claude Code'. A regression
+  # that moves inject back before provision re-exposes the secret to PR code — pin the order.
+  R313_ORDER="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+names=[s.get("name") for j in d["jobs"].values() for s in j.get("steps",[])]
+def idx(n): return names.index(n) if n in names else -1
+pi=idx("Provision project environment (opt-in)")
+ii=idx("Inject provider endpoint (provider-routed sections only)")
+ri=idx("Run Claude Code")
+print("yes" if (pi>=0 and ii>=0 and ri>=0 and pi<ii<ri) else "no")' "$RUNNER_WF")"
+  assert_eq "#313 security: devflow-runner.yml injects the provider endpoint AFTER provision and before Run Claude Code (shadow S1)" "yes" "$R313_ORDER"
 else
   echo "  SKIP  #313 body-identity + behavioral check (PyYAML unavailable)"
 fi
