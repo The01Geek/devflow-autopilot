@@ -56,7 +56,17 @@ def parse_execution_file(exec_file):
     corrupt (which forces INCONCLUSIVE)."""
     if not (exec_file and os.path.isfile(exec_file)):
         return None, "execution file absent or empty at '%s'" % exec_file
-    raw = open(exec_file, encoding="utf-8", errors="replace").read()
+    try:
+        with open(exec_file, encoding="utf-8", errors="replace") as fh:
+            raw = fh.read()
+    except OSError as e:
+        # Present-but-unreadable (PermissionError/OSError), or a TOCTOU disappearance
+        # after the os.path.isfile() check above (FileNotFoundError): route to the
+        # note_top -> INCONCLUSIVE floor instead of raising an uncaught traceback
+        # through render()/main(), honoring this module's "Always exits 0" contract
+        # (issue #415, PR #417 review finding). Unknown is not zero — a degraded read
+        # is never collapsed onto the shippable REMOVED.
+        return [], "execution file present but unreadable (%s)" % e.__class__.__name__
     try:
         return json.loads(raw), ""
     except Exception:
@@ -235,8 +245,17 @@ def main():
     print(table)
     summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
     if summary:
-        with open(summary, "a", encoding="utf-8") as fh:
-            fh.write(table + "\n")
+        # Best-effort side-output: an unwritable GITHUB_STEP_SUMMARY path must not
+        # raise through main() and break the "Always exits 0" contract — the verdict
+        # table already went to stdout (the authoritative surface).
+        try:
+            with open(summary, "a", encoding="utf-8") as fh:
+                fh.write(table + "\n")
+        except OSError as e:
+            sys.stderr.write(
+                "schedulewakeup-probe-verdict: could not append to "
+                "GITHUB_STEP_SUMMARY (%s); verdict is on stdout\n" % e.__class__.__name__
+            )
     return 0
 
 

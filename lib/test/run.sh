@@ -21210,6 +21210,27 @@ assert_eq "#415 swv: input-less ScheduleWakeup tool_use still reads AVAILABLE, n
 # The helper always exits 0 (best-effort, like describe-denial-count.sh).
 assert_eq "#415 swv: helper exits 0 even on an absent execution file" "0" \
   "$(python3 "$SWV_PY" /no/such/execfile.json >/dev/null 2>&1; echo $?)"
+# PR #417 review finding (Important-1): a PRESENT-but-unreadable execution file
+# (PermissionError, or a TOCTOU disappearance after the os.path.isfile() check) must
+# route to the INCONCLUSIVE floor and still exit 0 — honoring the module's documented
+# "Always exits 0" contract — instead of raising an uncaught traceback through
+# render()/main() (which under matcher-probe.yml's `set -uo pipefail` verdict step
+# yields a red step with NO verdict table, on exactly the degraded run the probe exists
+# to handle). Skipped only where chmod 000 does not actually deny reads (running as
+# root, or a filesystem ignoring the mode) so the suite stays green everywhere.
+SWV_UNREAD="$(probe_tmp swv.unreadable)"
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_UNREAD"
+chmod 000 "$SWV_UNREAD"
+if python3 -c "open('$SWV_UNREAD').read()" 2>/dev/null; then
+  echo "  (skipped #415 swv unreadable-file arm — reads not denied here, e.g. running as root)"
+else
+  assert_eq "#415 swv: present-but-unreadable execution file -> INCONCLUSIVE (no ship), not a raised traceback" "yes" \
+    "$(swv_has_row "$SWV_UNREAD" '| **INCONCLUSIVE** | no |')"
+  assert_eq "#415 swv: helper still exits 0 on a present-but-unreadable execution file" "0" \
+    "$(python3 "$SWV_PY" "$SWV_UNREAD" >/dev/null 2>&1; echo $?)"
+fi
+chmod 644 "$SWV_UNREAD" 2>/dev/null || true
+rm -f "$SWV_UNREAD"
 rm -f "$SWV_F"
 
 # mktemp-guard breadcrumb: after #414 the `BODY_FILE="$(mktemp)"` guard lives ONCE in the
