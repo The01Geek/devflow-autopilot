@@ -504,9 +504,9 @@ above) to whether its PR came out **clean** (the review outcome). It is a **read
 historical store shape — python3 stdlib plus `gh`/`git` subprocesses (the `DEVFLOW_GH` env-read
 pattern, no probe; native `git` subprocess per the #295 Windows rule) — and runs on the
 **local/interactive retrospective tier only** (invoked by `skills/retrospective-weekly/SKILL.md`
-between Step 5 (Materialize) and Step 7 (State PR), best-effort — its failure records a reflection note
-and never blocks the retrospective; `lib/open-state-pr.sh` then commits the store on the state PR so
-`main` is clean entering Stage B).
+between Step 5 (Materialize) and Step 7 (State PR), best-effort — its failure logs a stderr breadcrumb
+carried into the Step 9 status report as a blocker note and never blocks the retrospective;
+`lib/open-state-pr.sh` then commits the store on the state PR so `main` is clean entering Stage B).
 
 Each line joins, for one PR:
 
@@ -522,18 +522,28 @@ Each line joins, for one PR:
 - **`verdict`** — selected by **artifact shape**: the first completed PR review whose body matches the
   `## Verdict:` contract **regardless of bot identity**; when none exists, the run-keyed
   `devflow:review-progress` comment's `## Verdict:` line is the fallback; when neither exists the
-  verdict is `null` (the #403 shape). The `provenance.verdict` field names which arm resolved it.
+  verdict is `null` (the #403 shape). The parser strips both the full-report `(summary)` suffix and
+  the pr-review stub suffix `— full report in PR comment` the engine appends when a live progress
+  comment is active, so the stored verdict is the bare token (`APPROVE` / `REJECT` / …) on every
+  surface. The `provenance.verdict` field names which arm resolved it — `pr-review`,
+  `progress-comment`, `unparseable` (a `## Verdict:` marker was present but its line did not parse),
+  `fetch-failed` (the reviews/comments API call itself failed — an *unestablished* verdict, distinct
+  from a genuinely-absent one), or `absent`.
 - **`important_finding_count`** — parsed from the run-keyed progress comment joined via
   `review.commit_id` == the comment's `**Reviewed HEAD:**` line (the engine's own join — see
-  `skills/review/SKILL.md`, the normative source). `null` with provenance when the comment is absent,
-  superseded, or unparseable.
+  `skills/review/SKILL.md`, the normative source). `null` with provenance when no progress comment
+  joins to the review's commit_id (absent or superseded by a later run's comment), its findings
+  section is unparseable, or the comment fetch failed (`fetch-failed`).
 - **`permission_denials_count`** — read from the `Devflow Review` check-run `output[summary]`
   `permission_denials_count:` line (issue #431) for PRs after that change; for historical PRs it falls
   back to best-effort check-run **annotation** retrieval, whose bias is stated in provenance
   (annotations carry only **positive** counts, so a historical zero is indistinguishable from
   unavailable, and expired logs yield nothing). Carried **verbatim** in every path — `unavailable`
   stays `unavailable`, and **no code path coerces an unestablished count to `0`** (the repo's
-  unknown-is-not-zero contract, end to end).
+  unknown-is-not-zero contract, end to end). When the check-runs API call itself fails, provenance is
+  `fetch-failed` (an *unestablished* count), kept distinct from `absent` (the check-run genuinely
+  carried no count) so the two are never conflated — the provenance-dimension analogue of the
+  value-level contract.
 - **`config_fingerprint`** — from the efficiency record's `config_fingerprint` when present, else
   recomputed from `git show <merge_sha>:.devflow/config.json` (records predating the field);
   `provenance.config_fingerprint` marks the source (`efficiency-record` / `merge-commit-config` /

@@ -162,13 +162,32 @@ warn_on_mixed_source() {
 # Adds NO new command head: python3 is a hard preflight prerequisite and
 # config-source.sh (already sourced above) shells to it on every config read.
 compute_config_fingerprint() {
-  local cfg="$1"
+  local cfg="$1" out fp_err rc
   # Delegate to the shared scripts/config_fingerprint.py — the SINGLE source of
   # truth this producer and the #431 assembler-reader both use, so their
   # fingerprints are byte-identical by construction (not a hand-kept mirror). The
   # script prints the JSON object or the literal `null`; a missing script / python
   # failure degrades to `null` (best-effort — never abort the wrapper under set -e).
-  python3 "$HERE/../scripts/config_fingerprint.py" "$cfg" 2>/dev/null || printf 'null\n'
+  # config_fingerprint.py fails SOFT (prints `null`, exit 0) for the EXPECTED
+  # degradations (no config, neither block, no python), so a non-zero exit here is a
+  # genuine helper defect (ImportError/SyntaxError/wrong interpreter). Capture stderr
+  # and surface a breadcrumb on that path instead of swallowing the signal with
+  # `2>/dev/null`, then still degrade to `null` (issue #431 review).
+  fp_err="$(mktemp 2>/dev/null || printf '')"
+  if [ -z "$fp_err" ]; then
+    # No mktemp — fall back to the swallow-and-degrade form rather than aborting.
+    python3 "$HERE/../scripts/config_fingerprint.py" "$cfg" 2>/dev/null || printf 'null\n'
+    return 0
+  fi
+  if out="$(python3 "$HERE/../scripts/config_fingerprint.py" "$cfg" 2>"$fp_err")"; then
+    printf '%s\n' "$out"
+  else
+    rc=$?
+    printf 'compute_config_fingerprint: config_fingerprint.py crashed (rc=%s): %s — degrading to null\n' \
+      "$rc" "$(head -c 200 "$fp_err" 2>/dev/null)" >&2
+    printf 'null\n'
+  fi
+  rm -f "$fp_err" 2>/dev/null
 }
 
 # Run the jq derivation over VALID_FILES for $1 mode ("trace"|"record") and the

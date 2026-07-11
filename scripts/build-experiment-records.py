@@ -106,26 +106,40 @@ def _run(cmd):
 
 def _gh_json(endpoint, paginate=False):
     """GET a gh api endpoint, parse JSON. Returns the parsed value, or None on any
-    failure (non-zero exit, empty output, parse error) — best-effort, breadcrumbed."""
+    failure (non-zero exit, empty output, parse error) — best-effort, breadcrumbed.
+    Thin wrapper over _gh_json_ex for callers that don't need the fetch-ok signal."""
+    return _gh_json_ex(endpoint, paginate=paginate)[0]
+
+
+def _gh_json_ex(endpoint, paginate=False):
+    """Like _gh_json but returns (value, ok). `ok` is False ONLY when the gh call
+    itself FAILED (non-zero rc: transport/auth/rate-limit/absent-binary) — the
+    "could not establish" case — and True when the call SUCCEEDED, whether the parsed
+    value is present or the artifact was genuinely empty/absent. This lets provenance
+    distinguish a fetch-failure (unestablished) from a genuinely-missing source, the
+    provenance-dimension analogue of the repo's unknown-is-not-zero contract (#431)."""
     cmd = [GH, "api"]
     if paginate:
         cmd.append("--paginate")
     cmd.append(endpoint)
     rc, out, err = _run(cmd)
-    if rc != 0 or not out.strip():
-        if rc != 0:
-            _warn(f"gh api {endpoint} failed (rc={rc}): {(err or '').strip()[:160]}")
-        return None
+    if rc != 0:
+        _warn(f"gh api {endpoint} failed (rc={rc}): {(err or '').strip()[:160]}")
+        return None, False
+    if not out.strip():
+        return None, True
     # --paginate concatenates one JSON value per page. For array endpoints that is
     # `[...][...]`; wrap-and-split so we flatten to a single list. A single object
     # (non-paginated) parses directly.
+    # The gh call SUCCEEDED (rc==0) in every path below, so ok stays True — an
+    # unparseable body is a usable-value failure (value None), not a fetch failure.
     try:
-        return json.loads(out)
+        return json.loads(out), True
     except json.JSONDecodeError:
         pass
     # Paginated concatenation: split top-level JSON values and merge lists.
     merged = []
-    ok = False
+    parsed_any = False
     dec = json.JSONDecoder()
     idx, n = 0, len(out)
     while idx < n:
@@ -137,14 +151,14 @@ def _gh_json(endpoint, paginate=False):
             val, end = dec.raw_decode(out, idx)
         except json.JSONDecodeError:
             _warn(f"gh api {endpoint} returned unparseable paginated output")
-            return merged if ok else None
-        ok = True
+            return (merged if parsed_any else None), True
+        parsed_any = True
         if isinstance(val, list):
             merged.extend(val)
         else:
             merged.append(val)
         idx = end
-    return merged if ok else None
+    return (merged if parsed_any else None), True
 
 
 def _git_show(repo_root, spec):
@@ -312,6 +326,12 @@ def _parse_verdict(body):
     if not m:
         return None
     raw = m.group(1).strip()
+    # Drop the stub-body suffix the engine appends on the pr-review surface when a live
+    # progress comment is active (skills/review/SKILL.md Phase 4.4 stub form:
+    # "## Verdict: {VERDICT} — full report in PR comment"). This is the DEFAULT cloud
+    # path, so without this strip the primary outcome variable stores
+    # "APPROVE — full report in PR comment" instead of "APPROVE" (issue #431 review).
+    raw = re.split(r"\s*[—–-]+\s*full report in PR comment", raw, 1)[0].strip()
     # Drop a trailing "(summary)" the contract allows: "APPROVE with notes (…)".
     raw = re.split(r"\s*\(", raw, 1)[0].strip()
     return raw or None
@@ -355,8 +375,15 @@ def _resolve_verdict_and_important(repo, pr):
     verdict_source = "absent"
     review_commit = None
 
-    reviews = _gh_json(f"repos/{repo}/pulls/{pr}/reviews", paginate=True) if repo else None
-    comments = _gh_json(f"repos/{repo}/issues/{pr}/comments", paginate=True) if repo else None
+    reviews, reviews_ok = _gh_json_ex(f"repos/{repo}/pulls/{pr}/reviews",
+                                      paginate=True) if repo else (None, True)
+    comments, comments_ok = _gh_json_ex(f"repos/{repo}/issues/{pr}/comments",
+                                        paginate=True) if repo else (None, True)
+    # If a source could not be fetched at all (rc≠0), we could not ESTABLISH the
+    # verdict — distinct from a genuinely-absent review/comment (issue #431). Default
+    # the source to "fetch-failed" in that case; a parsed verdict below overrides it.
+    if not reviews_ok or not comments_ok:
+        verdict_source = "fetch-failed"
     progress = [c for c in (comments or [])
                 if PROGRESS_MARKER in ((c or {}).get("body") or "")]
 
@@ -367,9 +394,20 @@ def _resolve_verdict_and_important(repo, pr):
         completed.sort(key=lambda r: r.get("submitted_at") or "")
         if completed:
             r0 = completed[0]
-            verdict = _parse_verdict(r0.get("body"))
-            verdict_source = "pr-review"
-            review_commit = r0.get("commit_id")
+            parsed = _parse_verdict(r0.get("body"))
+            if parsed is not None:
+                # Verdict parsed cleanly — attribute it and take the review's commit_id
+                # as the join key for the Important-count lookup below.
+                verdict = parsed
+                verdict_source = "pr-review"
+                review_commit = r0.get("commit_id")
+            else:
+                # A completed review carried the "## Verdict:" marker but its line did
+                # not parse. Do NOT claim source "pr-review" over a null value (that
+                # asserts a success the code never established) and do NOT set
+                # review_commit — fall through to the progress-comment fallback, giving
+                # verdict a distinct "unparseable" source symmetric with `important`.
+                verdict_source = "unparseable"
 
     fallback_comment = None
     if verdict is None and progress:
@@ -381,9 +419,11 @@ def _resolve_verdict_and_important(repo, pr):
             verdict_source = "progress-comment"
             review_commit = _reviewed_head(fallback_comment.get("body"))
 
-    # Important count — join the progress comment to the review's commit_id.
+    # Important count — join the progress comment to the review's commit_id. The count
+    # lives in the progress (issue) comments, so if that fetch failed we could not
+    # establish it: "fetch-failed", not "absent" (issue #431).
     important = None
-    important_source = "absent"
+    important_source = "fetch-failed" if not comments_ok else "absent"
     target = None
     if review_commit and progress:
         for c in progress:
@@ -412,12 +452,30 @@ def _resolve_denials(repo, shas):
     `unavailable`); no path coerces an unestablished count to 0."""
     if not repo:
         return None, "absent"
+    # Track whether the check-runs fetch itself failed on any probed sha, so a
+    # transport/auth failure is reported as "fetch-failed" rather than laundered into
+    # "absent" — the unknown-is-not-zero provenance analogue (issue #431).
+    any_fetch_failed = False
     for sha in shas:
         if not sha:
             continue
-        crs = _gh_json(f"repos/{repo}/commits/{sha}/check-runs")
-        runs = (crs or {}).get("check_runs") if isinstance(crs, dict) else None
-        dr = [c for c in (runs or []) if (c or {}).get("name") == "Devflow Review"]
+        # Paginate: /commits/{sha}/check-runs serves only the first 30 check-runs per
+        # page, so on a commit with a large CI matrix the `Devflow Review` check can sit
+        # on page 2+ and an unpaginated read silently returns (None, "absent"), defeating
+        # the denial-count durability guarantee (issue #431 review). With --paginate the
+        # endpoint returns one `{check_runs:[…]}` object per page (concatenated), so merge
+        # the `check_runs` arrays across every page shape _gh_json can hand back.
+        crs, crs_ok = _gh_json_ex(f"repos/{repo}/commits/{sha}/check-runs", paginate=True)
+        if not crs_ok:
+            any_fetch_failed = True
+        runs = []
+        if isinstance(crs, dict):
+            runs = crs.get("check_runs") or []
+        elif isinstance(crs, list):
+            for page in crs:
+                if isinstance(page, dict):
+                    runs.extend(page.get("check_runs") or [])
+        dr = [c for c in runs if (c or {}).get("name") == "Devflow Review"]
         for c in dr:
             summary = ((c.get("output") or {}).get("summary")) or ""
             m = DENIAL_SUMMARY_RE.search(summary)
@@ -431,7 +489,7 @@ def _resolve_denials(repo, shas):
                     return (m.group(1),
                             "check-run-annotation (positive-only bias: a historical "
                             "zero is indistinguishable from unavailable)")
-    return None, "absent"
+    return None, ("fetch-failed" if any_fetch_failed else "absent")
 
 
 # ── config fingerprint resolution ────────────────────────────────────────────
@@ -608,10 +666,14 @@ def main(argv=None):
     # Parse the efficiency store ONCE up front (not per candidate PR).
     eff_index = _index_efficiency(eff_dir)
 
+    assembled = 0
+    failed = 0
     for pr in candidates:
         try:
             store[pr] = build_record(repo, repo_root, eff_index, pr, retro.get(pr))
+            assembled += 1
         except Exception as e:  # noqa: BLE001 — one bad PR must never abort the batch
+            failed += 1
             _warn(f"PR #{pr}: assembly failed ({type(e).__name__}: {e}); leaving prior "
                   "store line untouched")
 
@@ -634,6 +696,15 @@ def main(argv=None):
         return 2
     sys.stderr.write(f"build-experiment-records.py: wrote {len(store)} record(s) to "
                      f"{store_path}\n")
+    # Aggregate guard: prior store lines are preserved above, but if EVERY candidate
+    # raised (assembled 0, failed >0) that is a SYSTEMATIC failure — a code regression
+    # or a broken import affecting all PRs — not a clean no-op. Exit non-zero so a
+    # best-effort caller (e.g. retrospective-weekly's `|| …` reflection note) surfaces
+    # it loudly instead of reading a total feature failure as success (issue #431).
+    if assembled == 0 and failed > 0:
+        _warn(f"all {failed} candidate PR(s) failed to assemble — systematic error "
+              "(not a clean no-op); store left unchanged")
+        return 2
     return 0
 
 
