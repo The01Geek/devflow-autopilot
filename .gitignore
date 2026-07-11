@@ -42,3 +42,5 @@ venv/
 # Private maintainer working docs — never publish (kept outside the repo).
 /devflow-roadmap.md
 *.private.md
+# Superpowers-skill working docs (brainstorm specs/plans) — private, never publish.
+/docs/superpowers/
