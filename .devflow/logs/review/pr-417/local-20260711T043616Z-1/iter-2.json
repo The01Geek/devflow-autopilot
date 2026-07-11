@@ -1,0 +1,10 @@
+{
+  "iter": 2,
+  "fix_commit_sha": "0de75555caac6bff06d9bdbab2d7112854e03b68",
+  "fix_files": [
+    ".github/workflows/matcher-probe.yml",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}

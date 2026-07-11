@@ -870,6 +870,12 @@ jobs:
                 # that path as the LEADING token — an absolute or repo-root scripts/ form
                 # is silently denied and is exactly why prior auto-resume runs died.
                 printf 'Resume note: invoke bundled helpers as `.devflow/vendor/devflow/scripts/…` (and `.devflow/vendor/devflow/lib/…`) with that path as the leading token — never an absolute path, never repo-root `scripts/…`, never behind a `VAR=` prefix or `bash <path>` wrapper (those forms are silently denied).\n\n'
+                # Headless-wait discipline travels inside the resume comment too, as a
+                # one-line mirror of skills/implement/SKILL.md's always-resident
+                # Cloud headless-wait rule (coupled sites — one commit, pinned in
+                # lib/test/run.sh), so a resumed run receives it even if it never
+                # re-reads the skill prose.
+                printf 'Headless note: this is a headless run — ending the turn ends the process, with no re-invocation. Never end the turn while any dispatched agent has not returned; poll to keep the turn alive; treat ScheduleWakeup and any future task-notification as unavailable.\n\n'
                 printf '/devflow:implement %s\n' "$ISSUE_NUMBER"
               } > "$BODY"
               ;;

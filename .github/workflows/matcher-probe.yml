@@ -8,12 +8,17 @@ name: Matcher probe
 # unexpanded `"${CLAUDE_SKILL_DIR:-…}"` anchor form). The issue-#363 head
 # extractor validates heads, not shapes, so it stays green on all of them.
 #
-# This workflow runs ONE Haiku claude-code-action session whose --allowed-tools is
+# The `probe` job runs a Haiku claude-code-action session whose --allowed-tools is
 # the review profile literal PLUS the candidate grants under test, instructs the
 # model to attempt each corpus shape once, then computes a per-shape
 # PERMITTED/DENIED/UNATTEMPTED verdict DETERMINISTICALLY from the action's
 # execution file (`permission_denials` + recorded `tool_use` calls) and the
 # on-disk side-effect files. The model's own text output is NEVER the measurement.
+# A sibling `schedulewakeup-probe` job (issue #415) applies the same execution-file
+# measurement to a single `--disallowedTools ScheduleWakeup` session, deriving a
+# DENIED/AVAILABLE/REMOVED/INCONCLUSIVE verdict that gates a claude_args change in
+# devflow-implement.yml; it runs in its own job so the flag never perturbs the
+# matcher probe above.
 #
 # Triggers: workflow_dispatch (available post-merge, from the default branch) plus
 # pull_request scoped to this file's own path (so a change to the probe re-runs it
@@ -340,3 +345,99 @@ jobs:
               with open(summary, "a", encoding="utf-8") as fh:
                   fh.write(table + "\n")
           PY
+
+  # issue #415 — probe whether claude-code-action's headless runner honors
+  # `--disallowedTools ScheduleWakeup` (removes or denies the ScheduleWakeup tool).
+  # The implement-tier early-quit (#408/#415) is the ScheduleWakeup tool result
+  # promising a re-invocation that never happens under `claude -p`. This is ONE
+  # extra claude-code-action invocation with the flag under test, isolated in its
+  # own job so the flag never perturbs the 15-shape matcher probe above. The verdict
+  # is derived DETERMINISTICALLY from the execution file (permission_denials /
+  # recorded tool_use NAME= / tool absence), never the model's text, by the
+  # unit-tested helper scripts/schedulewakeup-probe-verdict.py (extracted so every
+  # arm and the fail-open name-match are driven in lib/test/run.sh — #415 review). TWO positive-
+  # control grep calls bracket the ScheduleWakeup attempt (before AND after Action 2):
+  # the AFTER control proves the model reached and passed Action 2, so an absence of
+  # any ScheduleWakeup tool_use reads as REMOVED-from-context only when both controls
+  # ran — otherwise the run is INCONCLUSIVE (an unmeasured run never collapses onto the
+  # shippable REMOVED). ScheduleWakeup is granted in --allowed-tools so the allowlist
+  # can never be the thing that removes it — a DENIED/REMOVED is attributable to
+  # --disallowedTools alone.
+  # Verdict → claude_args mapping (issue #415 AC4, executed by the implementer):
+  #   DENIED or REMOVED → ship `--disallowedTools ScheduleWakeup` in
+  #                       devflow-implement.yml's claude step + its run.sh pin.
+  #   AVAILABLE         → ship no claude_args change; record the probe run link
+  #                       and this omission rationale on the PR.
+  #   INCONCLUSIVE      → measured nothing conclusive; re-run before deciding.
+  schedulewakeup-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run Claude Code (ScheduleWakeup disallowed-tools probe)
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Allow any bot to initiate the probe (same rationale as the matcher
+          # probe above): this diagnostic is same-repo only and read-only, but
+          # claude-code-action otherwise refuses a bot-initiated run.
+          allowed_bots: "*"
+          prompt: |
+            You are a DISALLOWED-TOOL PROBE. Attempt the three numbered actions below,
+            each EXACTLY ONCE in its OWN single tool call, in order. Do not retry a
+            denied or unavailable action and do not work around it — move straight to
+            the next number. After all three, STOP and reply with the single word DONE.
+
+            Your text output is not measured. Only the harness record of which tool
+            calls the permission matcher allowed, denied, or did not expose is
+            measured. Attempt Action 2 even if the tool appears unavailable — its
+            absence or denial is exactly the signal being collected — and ALWAYS
+            proceed to Action 3 afterward, whatever happened at Action 2.
+
+            Action 1 (positive control, BEFORE) — run this Bash command once:
+            grep -c . /etc/hosts
+
+            Action 2 — attempt to call the ScheduleWakeup tool once: schedule a
+            wakeup roughly 300 seconds from now with any short reason and prompt.
+
+            Action 3 (positive control, AFTER — proves you reached and passed
+            Action 2) — run this Bash command once:
+            grep -c . /etc/os-release
+
+          # No plugin_marketplaces/plugins here (unlike the matcher probe above):
+          # this probe exercises only `grep` (Bash) and the ScheduleWakeup harness
+          # built-in, neither of which needs the devflow plugin — loading it would
+          # add a marketplace clone + install for zero measurement value.
+          #
+          # ScheduleWakeup is GRANTED in --allowed-tools *and* removed by
+          # --disallowedTools deliberately (issue #415 review): granting it means the
+          # allowlist can never be the thing that removes/denies it, so a DENIED or
+          # REMOVED verdict is attributable to --disallowedTools alone — the flag under
+          # test — rather than confounded by an allowlist omission. If --disallowedTools
+          # wins it is removed/denied (ship); if it is ignored the tool stays AVAILABLE
+          # (do not ship). --permission-mode acceptEdits so a granted call does not
+          # prompt-deny and masquerade as a denial.
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --permission-mode acceptEdits
+            --allowed-tools "Bash(grep:*),ScheduleWakeup"
+            --disallowedTools ScheduleWakeup
+
+      # Deterministic verdict from the execution file only — same measurement core
+      # as the matcher probe's verdict step. always() so the verdict is produced
+      # even if the engine ended in error.
+      - name: Compute ScheduleWakeup verdict
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          # Verdict derivation is extracted into a unit-tested helper (issue #415
+          # review, finding #1) so lib/test/run.sh can drive every arm + the
+          # fail-open matrix; see scripts/schedulewakeup-probe-verdict.py.
+          python3 scripts/schedulewakeup-probe-verdict.py "${EXECUTION_FILE}"

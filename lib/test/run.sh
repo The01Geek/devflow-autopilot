@@ -21246,6 +21246,169 @@ assert_pin_red_under "#408 skill: removing the ScheduleWakeup-unavailable rule f
   'Treat `ScheduleWakeup` and any future task-notification as UNAVAILABLE' \
   '/Treat .ScheduleWakeup. and any future task-notification as UNAVAILABLE/d' "$REVIEW_SKILL408"
 
+# ── #415: implement-tier port of the headless-wait discipline ────────────────
+# The implement tier hit the same headless early-quit #410 fixed for review. The
+# skill rule carries TWO co-equal operative sentences (never-end-turn AND
+# ScheduleWakeup-unavailable) — one pin per operative sentence, mirroring the #408
+# review-tier block — plus the one-line headless mirror in devflow-implement.yml's
+# stall-backstop resume comment (so a resumed run receives it even if it never
+# re-reads the skill prose). All must move together in one commit; each is a
+# behavioral-fix pin proven RED under a mutation that removes ONLY its operative
+# sentence.
+IMPL_SKILL415="$REPO_ROOT/skills/implement/SKILL.md"
+WFI415="$REPO_ROOT/.github/workflows/devflow-implement.yml"
+assert_pin_red_under "#415 implement-skill: removing the never-end-turn-with-pending-agent rule flips its pin RED" \
+  'Never end your turn while any dispatched agent' \
+  '/Never end your turn while any dispatched agent/d' "$IMPL_SKILL415"
+assert_pin_red_under "#415 implement-skill: removing the ScheduleWakeup-unavailable rule flips its pin RED" \
+  'Treat `ScheduleWakeup` and any future task-notification as UNAVAILABLE' \
+  '/Treat .ScheduleWakeup. and any future task-notification as UNAVAILABLE/d' "$IMPL_SKILL415"
+assert_pin_red_under "#415 devflow-implement-yml: removing the headless resume-note line flips its pin RED" \
+  'ending the turn ends the process' \
+  '/ending the turn ends the process/d' "$WFI415"
+# The resume note is a single printf line carrying the premise (pinned above) AND the
+# operative instruction; pin the operative instruction too so an in-line reword that keeps
+# the premise but drops the never-end-turn directive still turns the suite RED (the whole
+# printf is one line, so both mutations target it — the two pins guard different clauses).
+assert_pin_red_under "#415 devflow-implement-yml: removing the never-end-turn resume-note directive flips its pin RED" \
+  'Never end the turn while any dispatched agent has not returned' \
+  '/Never end the turn while any dispatched agent has not returned/d' "$WFI415"
+
+# ── #415 review finding #1 + #2: the schedulewakeup-probe verdict core is extracted
+# ── into scripts/schedulewakeup-probe-verdict.py so every arm — and the fail-open
+# ── name-match matrix — is DRIVEN, not left inline-in-YAML untestable (same rationale
+# ── as describe-denial-count.sh, PR #367). matcher-probe.yml routes the verdict step
+# ── through the helper (pinned below), and every four-way arm plus the two fail-open
+# ── regressions (lower-cased name, input-less name) is exercised against the real file.
+SWV_PY="$REPO_ROOT/scripts/schedulewakeup-probe-verdict.py"
+MPROBE415="$REPO_ROOT/.github/workflows/matcher-probe.yml"
+assert_pin_unique "#415 matcher-probe.yml routes the ScheduleWakeup verdict through the testable helper" \
+  'python3 scripts/schedulewakeup-probe-verdict.py "${EXECUTION_FILE}"' "$MPROBE415"
+swv_has_row() {  # fixture expected-row-prefix -> "yes" if the verdict row starts with it
+  python3 "$SWV_PY" "$1" 2>/dev/null | grep -qF "$2" && echo yes || echo no
+}
+swv_has() {  # fixture substring -> "yes" if the rendered output contains it (any line)
+  python3 "$SWV_PY" "$1" 2>/dev/null | grep -qF "$2" && echo yes || echo no
+}
+# Arm: DENIED — permission_denials names ScheduleWakeup (ships).
+SWV_F="$(probe_tmp swv.denied)"
+printf '%s' '[{"permission_denials":[{"tool":"ScheduleWakeup"}]},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}}]' > "$SWV_F"
+assert_eq "#415 swv: DENIED when permission_denials names ScheduleWakeup (ship)" "yes" \
+  "$(swv_has_row "$SWV_F" '| **DENIED** | yes |')"
+# Arm: AVAILABLE — a ScheduleWakeup tool_use recorded, not denied (does NOT ship).
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"ScheduleWakeup","input":{"delaySeconds":60}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: AVAILABLE when ScheduleWakeup attempted and not denied (no ship)" "yes" \
+  "$(swv_has_row "$SWV_F" '| **AVAILABLE** | no |')"
+# Arm: REMOVED — no ScheduleWakeup signal AND both controls ran (presumptive, ships).
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: REMOVED when tool absent and both controls ran (ship)" "yes" \
+  "$(swv_has_row "$SWV_F" '| **REMOVED** | yes |')"
+# Arm: INCONCLUSIVE — only the BEFORE control ran; tool-absence cannot be distinguished
+# from a skipped attempt. "Unknown is not zero" — must NOT collapse onto the shippable
+# REMOVED. This fixture guards the `control_after` conjunct of the REMOVED gate.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}}]' > "$SWV_F"
+assert_eq "#415 swv: INCONCLUSIVE (no ship) when only the before-control ran, not REMOVED" "yes" \
+  "$(swv_has_row "$SWV_F" '| **INCONCLUSIVE** | no |')"
+# And the else-branch [!WARNING] text is rendered with the controls interpolated in order
+# (before=yes, after=no) — guards a garbled/transposed operator diagnostic on this path.
+assert_eq "#415 swv: before-only run renders the [!WARNING] 'controls did not both run (before=yes, after=no)' text" "yes" \
+  "$(swv_has "$SWV_F" 'The controls did not both run (before=yes, after=no)')"
+# Arm: INCONCLUSIVE — only the AFTER control ran (PR #417 shadow — pr-test-analyzer). This
+# is the SYMMETRIC partner of the before-only arm and guards the OTHER conjunct of the
+# REMOVED gate (`control_before and control_after`): without this fixture, a mutation
+# dropping the `control_before` conjunct (`elif control_after:`) would leave every existing
+# pin green while shipping a false REMOVED on an after-only run — the dangerous fail-open
+# direction. Mutation-proven: `elif control_after:` flips this fixture to REMOVED/ship.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: INCONCLUSIVE (no ship) when only the after-control ran, not a fail-open REMOVED" "yes" \
+  "$(swv_has_row "$SWV_F" '| **INCONCLUSIVE** | no |')"
+# Arm: INCONCLUSIVE — execution file absent (note_top floor). Never REMOVED.
+assert_eq "#415 swv: INCONCLUSIVE (no ship) when the execution file is absent" "yes" \
+  "$(swv_has_row "/no/such/schedulewakeup-execfile.json" '| **INCONCLUSIVE** | no |')"
+# Arm: INCONCLUSIVE — present regular file, wholly unparseable (not JSON, not JSONL) →
+# note_top "present but unparseable" floor, never a clean tool-absence REMOVED.
+printf '%s\n' 'not json at all, not a single object' > "$SWV_F"
+assert_eq "#415 swv: INCONCLUSIVE (no ship) when a present file is wholly unparseable" "yes" \
+  "$(swv_has_row "$SWV_F" '| **INCONCLUSIVE** | no |')"
+# Arm: INCONCLUSIVE — partial JSONL corruption (both controls parse, one line drops)
+# forces the floor rather than reading the surviving lines as a clean tool-absence.
+# BOTH controls are present on purpose (PR #417 review — pr-test-analyzer): with both
+# controls run and no ScheduleWakeup signal, the ONLY thing keeping this off the
+# shippable REMOVED is the `dropped -> note_top -> INCONCLUSIVE` precedence in
+# parse_execution_file. A single-control fixture would read INCONCLUSIVE via the
+# else-branch (one control) regardless, so it would pass even if that precedence were
+# deleted — vacuous. The assert_eq below IS the guard: with both controls present it goes
+# RED if `if dropped:` is removed (the fixture then reads REMOVED/ship), so the precedence
+# is genuinely pinned (verified by removing `if dropped:` on a scratch copy → REMOVED).
+printf '%s\n%s\n%s\n' \
+  '{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}}' \
+  '{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}' \
+  '{oops-not-json' > "$SWV_F"
+assert_eq "#415 swv: INCONCLUSIVE (no ship) on partial JSONL corruption with BOTH controls, not a false REMOVED" "yes" \
+  "$(swv_has_row "$SWV_F" '| **INCONCLUSIVE** | no |')"
+# Fail-open regression #2a (case): a ScheduleWakeup call recorded under a LOWER-CASED
+# name must read as present (AVAILABLE, no ship). Case-sensitive matching would miss it
+# and, with both controls run, ship REMOVED — a fail-open in the dangerous direction.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"schedulewakeup","input":{"delaySeconds":60}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: lower-cased tool name still reads AVAILABLE, not a fail-open REMOVED" "yes" \
+  "$(swv_has_row "$SWV_F" '| **AVAILABLE** | no |')"
+# Fail-open regression #2b (input-less): a ScheduleWakeup tool_use with no `input` key
+# must still be recorded by NAME and read AVAILABLE — dropping it would ship REMOVED.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"ScheduleWakeup"},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: input-less ScheduleWakeup tool_use still reads AVAILABLE, not REMOVED" "yes" \
+  "$(swv_has_row "$SWV_F" '| **AVAILABLE** | no |')"
+# The helper always exits 0 (best-effort, like describe-denial-count.sh).
+assert_eq "#415 swv: helper exits 0 even on an absent execution file" "0" \
+  "$(python3 "$SWV_PY" /no/such/execfile.json >/dev/null 2>&1; echo $?)"
+# PR #417 review finding (Important-1): a PRESENT-but-unreadable execution file
+# (PermissionError, or a TOCTOU disappearance after the os.path.isfile() check) must
+# route to the INCONCLUSIVE floor and still exit 0 — honoring the module's documented
+# "Always exits 0" contract — instead of raising an uncaught traceback through
+# render()/main() (which under matcher-probe.yml's `set -uo pipefail` verdict step
+# yields a red step with NO verdict table, on exactly the degraded run the probe exists
+# to handle). Skipped only where chmod 000 does not actually deny reads (running as
+# root, or a filesystem ignoring the mode) so the suite stays green everywhere.
+SWV_UNREAD="$(probe_tmp swv.unreadable)"
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_UNREAD"
+chmod 000 "$SWV_UNREAD"
+if python3 -c "open('$SWV_UNREAD').read()" 2>/dev/null; then
+  echo "  (skipped #415 swv unreadable-file arm — reads not denied here, e.g. running as root)"
+else
+  assert_eq "#415 swv: present-but-unreadable execution file -> INCONCLUSIVE (no ship), not a raised traceback" "yes" \
+    "$(swv_has_row "$SWV_UNREAD" '| **INCONCLUSIVE** | no |')"
+  assert_eq "#415 swv: helper still exits 0 on a present-but-unreadable execution file" "0" \
+    "$(python3 "$SWV_PY" "$SWV_UNREAD" >/dev/null 2>&1; echo $?)"
+fi
+chmod 644 "$SWV_UNREAD" 2>/dev/null || true
+rm -f "$SWV_UNREAD"
+# PR #417 review (pr-test-analyzer, Important): the render() claude_args-DECISION text is
+# the AC4 operator-facing output ("SHIP …" / "DO NOT SHIP …" / "DO NOT ACT …"), selected by
+# an if/elif independent of the table row. Every other pin greps only the verdict row, so a
+# mis-mapped decision (e.g. AVAILABLE routed into the DO-NOT-ACT else, or SHIP/DO-NOT-SHIP
+# transposed) would misdirect the operator while staying green. Pin one decision string per
+# class. The `AC4): SHIP` prefix is distinct from `AC4): DO NOT SHIP` (grep -F is literal).
+# REMOVED fixture (both controls, no ScheduleWakeup) -> SHIP decision + presumptive [!NOTE].
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: REMOVED renders the SHIP claude_args decision (AC4)" "yes" \
+  "$(swv_has "$SWV_F" 'AC4): SHIP')"
+assert_eq "#415 swv: REMOVED renders the presumptive [!NOTE] caveat block" "yes" \
+  "$(swv_has "$SWV_F" '[!NOTE]')"
+# AVAILABLE fixture (ScheduleWakeup attempted, both controls) -> DO NOT SHIP decision.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"ScheduleWakeup","input":{"delaySeconds":60}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: AVAILABLE renders the DO NOT SHIP claude_args decision (AC4)" "yes" \
+  "$(swv_has "$SWV_F" 'AC4): DO NOT SHIP')"
+# INCONCLUSIVE (absent file) -> DO NOT ACT decision + [!WARNING] re-run block.
+assert_eq "#415 swv: INCONCLUSIVE renders the DO NOT ACT claude_args decision (AC4)" "yes" \
+  "$(swv_has "/no/such/swv-decision.json" 'AC4): DO NOT ACT')"
+assert_eq "#415 swv: INCONCLUSIVE renders the [!WARNING] re-run block" "yes" \
+  "$(swv_has "/no/such/swv-decision.json" '[!WARNING]')"
+# Precedence: ScheduleWakeup BOTH denied AND attempted must resolve DENIED (denial checked
+# before attempt in compute_verdict) — a reordering would ship AVAILABLE on a denied tool.
+printf '%s' '[{"permission_denials":[{"tool":"ScheduleWakeup"}]},{"type":"tool_use","name":"ScheduleWakeup","input":{"delaySeconds":60}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: DENIED wins over AVAILABLE when ScheduleWakeup is both denied and attempted" "yes" \
+  "$(swv_has_row "$SWV_F" '| **DENIED** | yes |')"
+rm -f "$SWV_F"
+
 # mktemp-guard breadcrumb: after #414 the `BODY_FILE="$(mktemp)"` guard lives ONCE in the
 # shared helper (no longer a byte-identical mirror across the two YAMLs — the PR #410 review
 # gap this coupled-mirror pin guarded is now structurally impossible). It is pinned against
