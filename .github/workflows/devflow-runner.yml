@@ -180,6 +180,7 @@ jobs:
       # resolve at the literal workspace path. Only `ref` is PR-influenced; the
       # source repo is fixed, so a PR can at most select an official-repo commit.
       - uses: ./.github/actions/vendor-plugin
+        id: vendor
         with:
           ref: ${{ steps.extract.outputs.devflow_version }}
 
@@ -213,6 +214,15 @@ jobs:
           # devflow-bootstrap-via-PR case) all collapse to provision_env=false.
           PROVISION=false
           BASE_JSON='{}'
+          # Trusted deny-floor helper (PR-#404 REJECT fix): materialized from the
+          # base ref below, ONLY inside the successful base-ref fetch branch —
+          # FETCH_HEAD elsewhere (e.g. left by actions/checkout) can point at the
+          # PR HEAD, and reading the floor from there would hand the security
+          # filter to the PR author. Empty means "no trusted base-ref copy"; the
+          # tools step then falls back to a runtime-FETCHED vendored copy or
+          # fails closed — never to the PR-head checkout.
+          FLOOR_HELPER=''
+          FLOOR_SOURCE='absent'
           if [ -n "$BASE_REF" ]; then
             # origin is the upstream repo (fork-PR commits live under upstream
             # refs), so the base tip is the maintainer-controlled config, not the
@@ -252,11 +262,42 @@ jobs:
                 # notice so a silently-downgraded opt-in is at least observable.
                 echo "::notice::No .devflow/config.json on base ref '$BASE_REF'; provision_env=false (read-only review)."
               fi
+              # Materialize the deny-floor helper from the SAME trusted base-ref
+              # tip (FETCH_HEAD is still the base ref here — this block must stay
+              # inside this fetch-success branch). Candidate paths, in order: the
+              # committed vendor copy (self-hosting consumers), then the repo's
+              # own scripts/ copy — the latter ONLY when the base ref IS the
+              # DevFlow plugin repo (same plugin.json-name discriminator as
+              # vendor-slice.sh's self branch), so a consumer's unrelated
+              # like-named script is never executed as the floor. Written to
+              # RUNNER_TEMP: outside the PR-writable workspace, so PR content can
+              # neither pre-place nor overwrite it. Best-effort: any failure
+              # leaves FLOOR_HELPER empty and the tools step fails closed.
+              _floor_raw=''
+              if _floor_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh" 2>/dev/null); then
+                FLOOR_SOURCE='base-ref-vendored'
+              elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq '"name"[[:space:]]*:[[:space:]]*"devflow"' \
+                && _floor_raw=$(git show "FETCH_HEAD:scripts/filter-runner-tools.sh" 2>/dev/null); then
+                FLOOR_SOURCE='base-ref-repo'
+              fi
+              if [ "$FLOOR_SOURCE" != 'absent' ]; then
+                if mkdir -p "$RUNNER_TEMP/devflow-trusted-floor" 2>/dev/null \
+                  && printf '%s\n' "$_floor_raw" > "$RUNNER_TEMP/devflow-trusted-floor/filter-runner-tools.sh" 2>/dev/null; then
+                  FLOOR_HELPER="$RUNNER_TEMP/devflow-trusted-floor/filter-runner-tools.sh"
+                else
+                  echo "::warning::could not write the base-ref deny-floor helper into RUNNER_TEMP; the tools step will fall back to a runtime-fetched vendored copy or fail closed."
+                  FLOOR_SOURCE='absent'
+                fi
+              fi
             else
               echo "::warning::Could not fetch base ref '$BASE_REF'; defaulting to provision_env=false (read-only review)."
             fi
           fi
-          echo "provision_env=$PROVISION" >> "$GITHUB_OUTPUT"
+          {
+            echo "provision_env=$PROVISION"
+            echo "floor_helper=$FLOOR_HELPER"
+            echo "floor_source=$FLOOR_SOURCE"
+          } >> "$GITHUB_OUTPUT"
           # Freeform reviewer build allowlist, read from the SAME trusted base ref
           # as provision_env above (so a PR cannot grant itself tools). Emitted as
           # a comma-joined string. `map(strings)` keeps only string elements so a
@@ -296,6 +337,17 @@ jobs:
           # the review profile only when PROVISION_ENV is 'true', and only after
           # the deny-list floor below strips the catastrophic tier.
           RUNNER_TOOLS: ${{ steps.baseprovision.outputs.runner_tools }}
+          # Trusted deny-floor helper, materialized by baseprovision from the base
+          # ref into RUNNER_TEMP (empty when the base ref carries none). The floor
+          # must never execute a PR-head copy — see the trust rule in the review
+          # profile below.
+          FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}
+          FLOOR_SOURCE: ${{ steps.baseprovision.outputs.floor_source }}
+          # Which vendor-slice branch materialized .devflow/vendor/devflow this
+          # run: committed | self | fetch. Only 'fetch' (a fresh clone of the
+          # official repo at the pinned devflow_version) is a trusted source for
+          # the floor helper; committed/self copies come from the PR-head tree.
+          VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
         run: |
           set -euo pipefail
           # Profiles intentionally kept inline (single-string per profile) to
@@ -347,112 +399,96 @@ jobs:
               # SECURITY — deny-list floor. Before appending, strip the
               # categorically-unrecoverable tier no matter what /devflow:init's
               # LLM enrichment or a later hand-edit wrote into the base config:
-              # tree-mutation tools (Edit/Write/MultiEdit/NotebookEdit) and any
-              # Bash entry that can reach a raw shell / eval / privilege binary
-              # (bash/sh/zsh/eval/exec/source/sudo). This is the AUTHORITATIVE
-              # boundary — it runs here, at consume-time, on the trusted base-ref
-              # list, because a fast-feedback guard in detect-project-tools.sh can
-              # be bypassed by a hand-edit but this filter cannot. A denied entry
-              # is dropped + warned, never fatal (a typo must not abort every
-              # review). The list is mirrored in scripts/detect-project-tools.sh
-              # (fast feedback only); keep both in sync — this copy enforces.
+              # tree-mutation tools (Edit/Write/MultiEdit/NotebookEdit — stripped by
+              # tool NAME, so bare AND parameterized forms like Write(**) /
+              # Edit(src/**) alike, issue #402) and any Bash entry that can reach a
+              # raw shell / eval / privilege binary (bash/sh/zsh/eval/exec/source/
+              # sudo). This is the AUTHORITATIVE boundary — it runs here, at
+              # consume-time, on the trusted base-ref list, because a fast-feedback
+              # guard in detect-project-tools.sh can be bypassed by a hand-edit but
+              # this filter cannot. A denied entry is dropped + warned, never fatal
+              # (a typo must not abort every review). The list is mirrored in
+              # scripts/detect-project-tools.sh (fast feedback only); keep both in
+              # sync — this path enforces.
               #
-              # A bare-name blocklist is trivially bypassable, so the Bash check
-              # inspects the COMMAND-POSITION binary (the first whitespace token of
-              # the spec, before the first ':' or ')') by its basename, and denies:
-              #   - a raw shell / eval / privilege binary (bash/sh/zsh/dash/ksh/
-              #     fish/eval/exec/source/sudo/doas/su) — incl. path forms like
-              #     /bin/bash, since we compare the basename;
-              #   - an exec-wrapper (env/xargs/nice/timeout/nohup/setsid/command/
-              #     chroot/runuser) whose first arg would BE the real command —
-              #     this is what closes Bash(env bash:*) / Bash(xargs sh -c:*)
-              #     without having to scan every arg token;
-              #   - a leading env-assignment (FOO=1 bash) — the var prefix shifts
-              #     the executable past token 0;
-              #   - any shell metacharacter anywhere in the spec (; | & $ < > ( )
-              #     backtick), which is the classic "append a second command" vector
-              #     (Bash(go;sudo:*), Bash(cat x|sh:*));
-              #   - an empty command word (bare `Bash`, Bash(:*) = "all shell").
-              # We deliberately do NOT scan non-leading arg tokens by basename — that
-              # over-strips legitimate tools whose subcommand/arg happens to be a
-              # deny word (Bash(docker exec:*), Bash(make CC=gcc:*),
-              # Bash(go run ./cmd/sh:*)). This is the AUTHORITATIVE boundary; the
-              # jq mirror in scripts/detect-project-tools.sh applies the same rules.
+              # The filter logic itself lives in scripts/filter-runner-tools.sh
+              # (extracted so lib/test/run.sh can drive the full adversarial input
+              # matrix — inline YAML cannot be unit-tested; issue #402). The helper
+              # inspects the Bash COMMAND-POSITION binary by basename and the
+              # file-tool NAME before the first '(' case-insensitively; its header
+              # documents every rule. This step only resolves + calls it, fails
+              # closed when it is absent, and re-emits its strip warnings.
               if [ "$PROVISION_ENV" = "true" ]; then
-                DENY_NAMES='Edit Write MultiEdit NotebookEdit'
-                DENY_CMDS='bash sh zsh dash ksh fish eval exec source sudo doas su env xargs nice timeout nohup setsid command chroot runuser'
-                FILTERED=''
-                STRIPPED=''
-                # Newlines/CRs in an entry are normalized to the comma delimiter so
-                # a multi-line entry can't smuggle a second tool past the per-entry
-                # check (the heredoc transport forwards newlines verbatim). Then
-                # split on comma ONCE (an entry like "Bash(go build:*)" keeps its
-                # internal space) and restore the default IFS. `set -f` disables
-                # pathname expansion for the split: every entry contains a literal
-                # `*` (e.g. Bash(npm:*)), so without noglob the unquoted expansion
-                # could glob against the checked-out working tree. All per-entry
-                # parsing below uses parameter expansion / `case` (no word-split of
-                # an unquoted var), so no further globbing occurs.
-                RUNNER_TOOLS="${RUNNER_TOOLS//$'\r'/}"
-                RUNNER_TOOLS="${RUNNER_TOOLS//$'\n'/,}"
-                OLDIFS=$IFS
-                IFS=','
-                set -f
-                set -- $RUNNER_TOOLS
-                set +f
-                IFS=$OLDIFS
-                for raw in "$@"; do
-                  # Trim surrounding whitespace from the whole entry.
-                  entry="${raw#"${raw%%[![:space:]]*}"}"
-                  entry="${entry%"${entry##*[![:space:]]}"}"
-                  [ -z "$entry" ] && continue
-                  denied=false
-                  for n in $DENY_NAMES; do
-                    if [ "$entry" = "$n" ]; then denied=true; break; fi
-                  done
-                  if [ "$denied" = false ]; then
-                    case "$entry" in
-                      Bash) denied=true ;;            # bare Bash = all shell
-                      Bash\(*)                         # prefix match: no trailing ')' required
-                        inner="${entry#Bash(}"
-                        cmd="${inner%%:*}"             # spec: before the first ':'
-                        cmd="${cmd%%)*}"               # and before the first ')'
-                        cmd="${cmd#"${cmd%%[![:space:]]*}"}"
-                        cmd="${cmd%"${cmd##*[![:space:]]}"}"
-                        binword="${cmd%%[[:space:]]*}" # command-position token (no glob)
-                        binbase="${binword##*/}"        # strip any path
-                        if [ -z "$cmd" ]; then
-                          denied=true                  # empty command word = all shell
-                        else
-                          case "$cmd" in
-                            *[';|&$<>()']*) denied=true ;;   # shell metacharacter in spec
-                            *'`'*) denied=true ;;            # backtick command-substitution
-                          esac
-                          case "$binword" in
-                            [A-Za-z_]*=*) denied=true ;;     # leading env-assignment (FOO=1 cmd)
-                          esac
-                          if [ "$denied" = false ]; then
-                            for c in $DENY_CMDS; do
-                              if [ "$binbase" = "$c" ]; then denied=true; break; fi
-                            done
-                          fi
-                        fi
-                        ;;
-                    esac
-                  fi
-                  if [ "$denied" = true ]; then
-                    STRIPPED="${STRIPPED:+$STRIPPED, }$entry"
-                  else
-                    FILTERED="${FILTERED:+$FILTERED,}$entry"
-                  fi
-                done
-                if [ -n "$STRIPPED" ]; then
-                  echo "::warning::devflow_runner.allowed_tools: stripped deny-listed entries before building the review profile: $STRIPPED. These are never permitted on the reviewer's write-token job (tree mutation / raw shell / privilege escalation); the review continues with the safe remainder."
+                # The deny-list floor is applied by scripts/filter-runner-tools.sh
+                # (issue #402) — the AUTHORITATIVE, suite-driven boundary. TRUST
+                # RULE (the PR-#404 REJECT finding): this job checks out the PR
+                # HEAD, so any copy of the helper in the checked-out tree — the
+                # committed vendor dir or the repo's own scripts/ — is
+                # PR-author-editable, and a floor whose code the PR controls is no
+                # floor at all. The helper is therefore executed ONLY from a
+                # trusted source, in rank order:
+                #   1. FLOOR_HELPER — materialized by the baseprovision step from
+                #      the TRUSTED base ref (git show FETCH_HEAD:…) into
+                #      RUNNER_TEMP, outside the PR-writable workspace;
+                #   2. the vendored copy, ONLY when the vendor-plugin step reports
+                #      vendor_source=fetch — i.e. the copy was cloned THIS RUN from
+                #      the official repo at the pinned devflow_version, never taken
+                #      from the PR-head tree (a PR can at most select an
+                #      official-repo commit — the same accepted posture as the
+                #      vendor step itself).
+                # A committed/self vendor copy is deliberately NEVER consulted
+                # here, and FAIL CLOSED when no trusted source resolves: a security
+                # filter that cannot run must append NOTHING, not the unfiltered
+                # list. Version skew: the floor is as current as the BASE REF's
+                # helper (or the pinned fetch) — a consumer must land a re-vendor
+                # on the base branch for a later tightening (e.g. #402's
+                # parameterized file-tool strip) to take effect; until then a
+                # base ref with no helper fails closed (no build tools, warning,
+                # read-only review still works). Both are stated in
+                # docs/DEVFLOW_SYSTEM_OVERVIEW.md's deny-floor paragraph.
+                FILTER_HELPER=''
+                if [ -n "${FLOOR_HELPER:-}" ] && [ -f "$FLOOR_HELPER" ]; then
+                  FILTER_HELPER="$FLOOR_HELPER"
+                  echo "deny-list floor source: trusted base ref (${FLOOR_SOURCE:-base-ref})"
+                elif [ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f .devflow/vendor/devflow/scripts/filter-runner-tools.sh ]; then
+                  FILTER_HELPER=.devflow/vendor/devflow/scripts/filter-runner-tools.sh
+                  echo "deny-list floor source: runtime-fetched vendored copy (pinned devflow_version)"
                 fi
-                if [ -n "$FILTERED" ]; then
-                  TOOLS="$TOOLS,$FILTERED"
+                if [ -z "$FILTER_HELPER" ]; then
+                  echo "::warning::devflow deny-list floor helper (filter-runner-tools.sh) not found at any TRUSTED source — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned devflow_version (vendor_source='${VENDOR_SOURCE:-unknown}'); the PR-head checkout's own copy is deliberately not consulted, because the floor must not be PR-editable. Failing closed: NO build/verify tools appended to the review profile (the reviewer keeps the read-only profile). Land the DevFlow re-vendor on the BASE branch (or use a thin install with a pinned devflow_version) so a trusted helper is available."
                 else
-                  echo "::warning::devflow_runner.provision_env is true but devflow_runner.allowed_tools is empty (or empty after deny-list stripping): build-aware review is enabled with NO build tools, so the reviewer has only the read-only profile. Populate devflow_runner.allowed_tools with your build/test/lint tools (e.g. Bash(go:*), Bash(cargo:*)) to enable build-aware review."
+                  # The helper reads the raw RUNNER_TOOLS from the environment,
+                  # prints the KEPT entries as one comma-joined line on stdout, and
+                  # one strip-warning line per stripped entry on stderr. Capture the
+                  # helper's exit status in the SAME statement (`|| HELPER_RC=$?`):
+                  # the helper's contract is `exit 0` always, so a non-zero rc is a
+                  # genuine MALFUNCTION whose interpreter invocation itself failed to
+                  # open/parse/run the helper — an unreadable, corrupt, or
+                  # partially-vendored helper, or resource exhaustion — NOT an empty
+                  # result. (A non-fatal in-script hiccup such as a too-old bash
+                  # rejecting `shopt -s nocasematch` does NOT reach this arm: the
+                  # helper has `set -u` but no `set -e` and ends with `exit 0`, so it
+                  # still exits 0 — the file-tool tier merely degrades to
+                  # case-sensitive, which only affects inert lowercase spellings.)
+                  # Distinguishing malfunction from empty below keeps a helper crash
+                  # from being misdiagnosed as "your config is empty" (the "unknown is
+                  # not a real value" breadcrumb-honesty rule); either way it fails
+                  # CLOSED (nothing appended).
+                  STRIP_LOG="$(mktemp)"
+                  HELPER_RC=0
+                  FILTERED="$(RUNNER_TOOLS="$RUNNER_TOOLS" bash "$FILTER_HELPER" 2>"$STRIP_LOG")" || HELPER_RC=$?
+                  # Re-emit each per-entry strip line as a workflow `::warning::`.
+                  while IFS= read -r _line; do
+                    if [ -n "$_line" ]; then echo "::warning::$_line"; fi
+                  done < "$STRIP_LOG"
+                  rm -f "$STRIP_LOG"
+                  if [ "$HELPER_RC" -ne 0 ]; then
+                    echo "::warning::devflow deny-list floor helper ($FILTER_HELPER) exited $HELPER_RC (it is contracted to always exit 0) — failing closed: NO build/verify tools appended to the review profile. This is a helper MALFUNCTION (the helper is unreadable, corrupt, or partially vendored so 'bash' could not run it), NOT an empty devflow_runner.allowed_tools — check the helper, do not re-check your config."
+                  elif [ -n "$FILTERED" ]; then
+                    TOOLS="$TOOLS,$FILTERED"
+                  else
+                    echo "::warning::devflow_runner.provision_env is true but devflow_runner.allowed_tools is empty (or empty after deny-list stripping): build-aware review is enabled with NO build tools, so the reviewer has only the read-only profile. Populate devflow_runner.allowed_tools with your build/test/lint tools (e.g. Bash(go:*), Bash(cargo:*)) to enable build-aware review."
+                  fi
                 fi
               fi
               ;;
