@@ -100,12 +100,24 @@ class InternalError(Exception):
 
 
 def _run_git(args):
-    """Run a git command, returning (rc, stdout_text). Never raises on non-zero."""
+    """Run a git command, returning (rc, stdout_text). Never raises on non-zero.
+
+    Decode git output with an explicit ``utf-8`` codec and ``errors="replace"`` —
+    NEVER the locale-default codec ``text=True`` would pick. Under a ``C``/``POSIX``
+    locale (common in CI containers and the cloud sandbox) that default is strict
+    ASCII, so ``git show <rev>:<path>`` of any file carrying a non-ASCII byte (an
+    en/em-dash, Latin-1, a UTF-8 BOM) would raise ``UnicodeDecodeError`` and abort
+    the *entire* lint to exit 2 — masking every other file's verdict, including a
+    real STALE. ``errors="replace"`` keeps a single odd byte in one reviewed file
+    from detonating the whole pass: that file is still examined (a stray replacement
+    char cannot manufacture a false countable claim), and the contract holds that
+    only an *unreadable rev itself* is exit-2 (validated up front in ``run``)."""
     proc = subprocess.run(
         ["git", *args],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return proc.returncode, proc.stdout
 

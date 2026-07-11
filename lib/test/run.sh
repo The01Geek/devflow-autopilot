@@ -24648,6 +24648,10 @@ assert_eq "#423 T2/R2 emits a STALE R2 row" "yes" "$(spl_has "$SPR" STALE R2)"
 printf '%s\n' '- one' '- two' '- three' '- four' '- five' '- six' '- seven' 'Expected total = 7.' > "$SPF"
 SPR="$(spl_repo "$SPF")"
 assert_eq "#423 T2/R2 reconciled sibling (7 bullets) exits 0" "0" "$(spl_rc "$SPR")"
+# Positive control (parity with T1/T3): the reconciled sibling must emit a VERIFIED R2
+# row, not merely exit 0 — else a mutant that stopped detecting the enumeration block
+# (→ UNRESOLVABLE → exit 0) would leave this GREEN while silently disabling R2 detection.
+assert_eq "#423 T2/R2 reconciled sibling emits a VERIFIED R2 row" "yes" "$(spl_has "$SPR" VERIFIED R2)"
 
 # T3 → R3b two-item count-locked ("a X and a Y … both") and R3 numeric #336 header.
 printf '%s\n' 'We assert a foo and a bar both exist:' '  assert foo' '  assert bar' '  assert baz' > "$SPF"

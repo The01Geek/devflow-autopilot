@@ -492,7 +492,13 @@ When `SP_ENABLED` is exactly `false`, **skip the phase and record it** — do no
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/stale-prose-lint.py --rev HEAD < .devflow/tmp/review/<slug>/<run-id>/diff.patch
 ```
 
-Each output row is `verdict<TAB>rule<TAB>file<TAB>line<TAB>detail`. Route by verdict:
+**Observe the helper's exit code — it is the authoritative arm selector, and stdout alone is not.** The exit code is directly visible in the command result; do **not** capture it into a second shell variable (a split `SP_RC=$?` read in a later statement is stripped by some inline-bash runners — issue #284 — so it would silently read empty). Route on the exit code first, then on each row's verdict, and **never read an empty stdout as "no stale claims" without first confirming the exit code was 0 or 1** — an internal error (exit 2) *also* prints no verdict rows:
+
+- **Exit code `0` or `1`** — the helper ran to completion (`1` simply means at least one STALE row is present; `0` means none). Route each stdout row (`verdict<TAB>rule<TAB>file<TAB>line<TAB>detail`) by its verdict below.
+- **Exit code `2`** — the helper reported an **internal error** and printed no verdict rows on stdout (its diagnostic is on stderr): take degradation arm **(c)**. Do **not** read the empty stdout as a clean pass.
+- **The command was refused (never executed) or reported `No such file`** — take degradation arm **(a)** / **(b)** respectively.
+
+For the exit-code 0/1 path, route each output row by verdict:
 
 - **`STALE`** → enter each row as an **engine finding at `$SP_SEVERITY`**, carrying its **TSV row verbatim as the finding's evidence**. These findings participate in **Phase 4.2 verdict computation** exactly like any other finding at that severity — no new verdict rule, no new accounting rule.
 - **`UNRESOLVABLE`** → record as an **informational note** in the report; it **never gates** the verdict.
