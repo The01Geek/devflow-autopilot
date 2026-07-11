@@ -15008,6 +15008,13 @@ printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_E/i
 assert_eq "et-shadow-floor(e): --persist exits 0 despite a malformed iter file (best-effort)" "0" "$SHF_E_RC"
 assert_eq "et-shadow-floor(e): a malformed iter-N.json with promotion evidence is left untouched (fail-closed, not clobbered)" "{bad json not parseable" \
   "$(cat "$SHF_E/iter-1.json")"
+# (e-breadcrumb): the malformed-iter skip is BREADCRUMBED, not silent — the file's
+# surfacing-failures convention (and the sibling recorded_fix_shas) require it, so a
+# malformed workpad that dropped a real promoted shadow leaves a signal rather than an
+# unattributed silence. Capture stderr (the run above discarded it) and assert the warning.
+SHF_E_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_E" --slug pr-1 ) 2>&1 >/dev/null )"
+assert_eq "et-shadow-floor(e): a malformed iter with promotion evidence emits a breadcrumb (never a silent drop)" "yes" \
+  "$(printf '%s' "$SHF_E_ERR" | grep -qF "could not read '.shadow' from iter-1.json" && echo yes || echo no)"
 # (f) idempotency / no double-count: a SECOND --persist pass over an already-synthesized run is a
 # no-op — the never-overwrite guard recognizes the marker it wrote (a non-null .shadow), so the
 # marker stays exactly one, unchanged.
@@ -15046,6 +15053,20 @@ SHF_H_CFG="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_telemetry_
 assert_eq "et-shadow-floor(h): telemetry disabled → floor does NOT synthesize a marker despite promotion evidence" "null" \
   "$(jq -r '.shadow' "$SHF_H/iter-1.json" 2>/dev/null)"
 rm -f "$SHF_H_CFG"
+# (i) zero-padded numeric stem: the all-digit guard `case "$n" in ''|*[!0-9]*)` ADMITS
+# `08`/`09`, which `$(( ))` would misread as invalid octal ("value too great for base").
+# The base-10 `10#$n` fix computes the successor index cleanly; iter-08's successor (iter-9)
+# is absent, so `[ -e "$next" ]` skips it — no crash, exit 0, the padded stem untouched.
+# (Without 10#$n, `$((08 + 1))` errors — this row flips RED, proving it non-vacuous.)
+SHF_I="$SHF_REPO/.devflow/tmp/review/pr-1/run-i"
+mkdir -p "$SHF_I"
+printf '{"iter":8,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_I/iter-08.json"
+SHF_I_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_I" --slug pr-1 ) 2>&1 >/dev/null )"; SHF_I_RC=$?
+assert_eq "et-shadow-floor(i): a zero-padded stem (iter-08) does not crash on octal arithmetic (exit 0)" "0" "$SHF_I_RC"
+assert_eq "et-shadow-floor(i): a zero-padded stem emits no 'value too great for base' octal error" "no" \
+  "$(printf '%s' "$SHF_I_ERR" | grep -qi 'value too great for base' && echo yes || echo no)"
+assert_eq "et-shadow-floor(i): the padded stem is left untouched (base-10 successor iter-9 is absent → clean skip)" "null" \
+  "$(jq -r '.shadow' "$SHF_I/iter-08.json" 2>/dev/null)"
 # The SKILL↔lib coupled constant: SHADOW_SYNTH_EXPECTED_FIELDS must stay a plain,
 # greppable single-line assignment in efficiency-trace.sh (its self-check reads it).
 assert_pin_unique "et-shadow-floor: efficiency-trace.sh carries the SHADOW_SYNTH_EXPECTED_FIELDS constant" \
@@ -15080,6 +15101,16 @@ assert_pin_red_under "#426 T4: both-paths fused-emit obligation flips RED when t
   '**the Parse-and-compare completion for a full fan-out, and the honest-degradation fail-safe for an outcome-3 pass that dies mid-fan-out**' \
   's/for a full fan-out, and the honest-degradation fail-safe for an outcome-3 pass that dies mid-fan-out/for a full fan-out/' \
   "$MAXI_SKILL"
+# T7 → coupled-mirror guard: docs/shadow-review.md must describe the Phase 1.1 slice as a
+# >-redirect, NOT a `| tee` pipeline (a tee would echo the slice to the orchestrator's
+# stdout — the exact per-pass transit this change removes). This is the coupled-mirror site
+# an earlier tee->redirect fix first left stale here (updating the SKILL/changeset/overview
+# but missing this doc); pin it so a revert to the tee wording flips RED at the desk rather
+# than surviving to a shadow pass. The mutation re-introduces the tee-pipeline description.
+assert_pin_red_under "#426 T7: docs/shadow-review.md pins the slice as a >-redirect (flips RED if reverted to a tee pipeline)" \
+  'redirect over the already-cached' \
+  's/redirect over the already-cached/tee pipeline over the already-cached/' \
+  "$LIB/../docs/shadow-review.md"
 
 # ── issue #381 review fixes: sha-exclusion double-count guard + outcome honesty ──
 

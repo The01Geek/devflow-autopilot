@@ -452,20 +452,34 @@ synthesize_shadow_markers() {
     # write left behind (a string/number). Keying on object-ness alone would
     # clobber such a malformed real block; keying on `== null` fails closed on it
     # while still synthesizing into a genuinely-absent slot. A parse failure is
-    # likewise treated as "present" (skip) — never clobber an unreadable block.
-    has_shadow="$("$DEVFLOW_JQ" -r 'if .shadow == null then "no" else "yes" end' "$iter" 2>/dev/null)" || continue
+    # skipped (never clobber an unreadable block) but BREADCRUMBED, not silent —
+    # matching recorded_fix_shas' unreadable-workpad breadcrumb and the file's
+    # "surfacing failures" convention, so a malformed workpad that dropped a real
+    # promoted shadow (the issue-304 drop shape this floor recovers) leaves a signal
+    # rather than an unattributed silence.
+    if ! has_shadow="$("$DEVFLOW_JQ" -r 'if .shadow == null then "no" else "yes" end' "$iter" 2>/dev/null)"; then
+      echo "::warning::efficiency-trace.sh --persist: could not read '.shadow' from $(basename "$iter") (unreadable or malformed workpad); its shadow attribution (if any) cannot be recovered" >&2
+      continue
+    fi
     [ "$has_shadow" = "no" ] || continue
-    # Promotion evidence: the next iter exists AND is a promoted iter.
-    next="$dir/iter-$((n + 1)).json"
+    # Promotion evidence: the next iter exists AND is a promoted iter. Force base-10
+    # on the stem (`10#$n`) so a zero-padded numeric stem (`iter-08.json`) — which the
+    # all-digit guard above admits — is not misread by `$(( ))` as invalid octal
+    # (`08`/`09` → "value too great for base"); the producer never zero-pads, so this
+    # is an adversarial-input guard, consistent with the guard-class-2 discipline.
+    next="$dir/iter-$((10#$n + 1)).json"
     [ -e "$next" ] || continue
-    promoted="$("$DEVFLOW_JQ" -r 'if .loop_role == "promoted" then "yes" else "no" end' "$next" 2>/dev/null)" || continue
+    if ! promoted="$("$DEVFLOW_JQ" -r 'if .loop_role == "promoted" then "yes" else "no" end' "$next" 2>/dev/null)"; then
+      echo "::warning::efficiency-trace.sh --persist: could not read '.loop_role' from $(basename "$next") (unreadable or malformed workpad); cannot confirm promotion evidence for $(basename "$iter")" >&2
+      continue
+    fi
     [ "$promoted" = "yes" ] || continue
     # Merge the marker in via a temp file + mv (jq cannot edit in place; a direct
     # `> "$iter"` would truncate the source before jq reads it). A failed jq
     # leaves the original untouched with a breadcrumb — never a silent drop.
     if jq_err="$("$DEVFLOW_JQ" '.shadow = {shadow_synthesized: true, promoted_to_iter_next: true}' "$iter" 2>&1 > "$iter.shadowtmp")"; then
       if mv "$iter.shadowtmp" "$iter" 2>/dev/null; then
-        echo "::warning::efficiency-trace.sh --persist: synthesized a minimal shadow marker on $(basename "$iter") — its shadow block was dropped but iter-$((n + 1)).json is a promoted iter, so the promotion linkage is recovered (cost figures are unrecoverable after the fact — attribution only, per the floor's promoted-shadows-only limitation)" >&2
+        echo "::warning::efficiency-trace.sh --persist: synthesized a minimal shadow marker on $(basename "$iter") — its shadow block was dropped but iter-$((10#$n + 1)).json is a promoted iter, so the promotion linkage is recovered (cost figures are unrecoverable after the fact — attribution only, per the floor's promoted-shadows-only limitation)" >&2
       else
         echo "::warning::efficiency-trace.sh --persist: could not move the synthesized shadow marker into $(basename "$iter") (mv failed); leaving it without one" >&2
         rm -f "$iter.shadowtmp" 2>/dev/null

@@ -480,9 +480,10 @@ One component of that spend was **redundant context transit** the audit did not 
 checklist-generator prompts carried their batch-sliced diff **inline** through the orchestrator's
 context on every engine pass — a cost the shadow re-paid on top of every main-pass iteration. That
 handoff is now **by file reference** (see the blinding-boundary contract above): Phase 1.1 authors
-each batch's slice with a shell-only `awk … | tee` pipeline over the already-cached `diff.patch`
+each batch's slice with a shell-only `awk … >`-redirect over the already-cached `diff.patch`
 (reading no `git` objects, so a shallow checkout is unaffected, and taking no filename arguments, so
-paths with spaces cannot break quoting), and Phase 1.2 passes the generator the slice's *path*. A
+paths with spaces cannot break quoting; a `>`-redirect rather than `| tee`, so the slice is never
+echoed to the orchestrator's stdout), and Phase 1.2 passes the generator the slice's *path*. A
 guard-class-2 fail-closed fallback preserves coverage in every degraded environment: before
 dispatch the orchestrator checks the slice is non-empty with a bash builtin (`test -s`), and a
 missing/empty slice — a shallow checkout, a slice-extraction failure that left the batch file empty,
@@ -491,7 +492,7 @@ review surface. (The fallback covers a *slice-authoring* failure over a populate
 host with **no** `awk` at all degrades Phase 0.2's `diff.patch` build first — the whole review, not
 just the slice — so that is a different, upstream failure, not one this batch-level fallback masks.)
 The single-batch case
-passes `diff.patch` directly with no slice written. Because `awk`/`tee`/`test` are already granted in
+passes `diff.patch` directly with no slice written. Because `awk`/`test` are already granted in
 both cloud allowlists, this adds **no** allowlist entry.
 
 ### Non-droppable shadow telemetry, and a promoted-shadow floor
