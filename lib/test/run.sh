@@ -25061,11 +25061,48 @@ STUB2
   chmod +x "$EXP/gh-metafail"
   GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh-metafail" \
     python3 "$BXR" --repo-root "$RMETA" --prs 940 2>"$EXP/meta.err" >/dev/null
+  RC_META=$?
   STMETA="$RMETA/.devflow/learnings/experiment-records.jsonl"
   assert_eq "#431 Tmeta: unestablished merge state → NO row written (never a fabricated merged PR)" "0" \
     "$(exp_count_lines "$STMETA")"
+  # An UNESTABLISHED merge state must reach the caller's failure channel. Excluding it
+  # silently would be the unknown-collapsed-onto-a-value bug in the FLOW-CONTROL dimension:
+  # a gh outage would drop PRs that no later incremental pass re-selects (they never enter
+  # the store, and only stored/retrospective-listed PRs become candidates), while Step 6.5's
+  # exit-code guard reported a clean run (issue #431 fix-delta gate).
+  assert_eq "#431 Tmeta: an unestablished merge state exits 2 (never a silently-clean run)" "2" "$RC_META"
   assert_eq "#431 Tmeta: skip breadcrumb names the unestablished metadata provenance" "yes" \
     "$(grep -q 'fetch-failed' "$EXP/meta.err" && echo yes || echo no)"
+
+  # ── Tretro a retrospective entry IS the merge proof — never re-derived from a field ──
+  # lib/scan.sh builds retrospectives.jsonl from `gh pr list --state merged`, so an entry
+  # exists ONLY for a merged PR. But `merged_at` is a PROXY its producer does not guarantee:
+  # lib/fetch-pr-context.sh passes it as a shell `--arg`, so a failed extraction yields ""
+  # (a shape lib/compute-patterns.jq already guards), and the retrospective SKILL's
+  # LLM-authored JSON can omit the key outright. Gating the retro arm on that field would
+  # drop a genuinely-merged PR carrying real cost and verdict data — PERMANENTLY, since a PR
+  # absent from the store is re-selected and re-skipped every week. That is the #62/#98
+  # operand-contract class: a guard whose accepted-input set is narrower than its consumer's
+  # contract. The row MUST still be written (issue #431 fix-delta gate).
+  RRT="$EXP/rretro"
+  mkdir -p "$RRT/.devflow/learnings"
+  cat > "$RRT/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1080,"merged_at":"","branch":"b1080","head_sha":"h1080","merge_commit_sha":"m1080"}
+{"schema_version":2,"kind":"implementation","pr":1081,"branch":"b1081","head_sha":"h1081","merge_commit_sha":"m1081"}
+EOF
+  seed_eff "$RRT/.devflow/logs/efficiency" "pr-1080-r.json" "pr-1080" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":55}}}]' 'null'
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RRT" --prs 1080,1081 >/dev/null 2>&1
+  RC_RETRO=$?
+  STRT="$RRT/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 Tretro: an empty merged_at on a RETROSPECTIVE entry still writes its row" "1080" \
+    "$(exp_field "$STRT" 1080 pr)"
+  assert_eq "#431 Tretro: its cost row is preserved (the data the old proxy-gate would have dropped)" "55" \
+    "$(exp_field "$STRT" 1080 efficiency_runs.0.cost.tokens)"
+  assert_eq "#431 Tretro: a retrospective entry with NO merged_at key at all still writes its row" "1081" \
+    "$(exp_field "$STRT" 1081 pr)"
+  assert_eq "#431 Tretro: and the run is a clean success (entry presence IS the merge proof)" "0" "$RC_RETRO"
 
   # ── Tmerged an OPEN PR named via --prs is skipped, never stored ───────────────
   # The store is keyed on MERGED PRs — that is what makes the abandoned-run exclusion (and
@@ -25082,11 +25119,16 @@ STUB2
 EOF
   GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" PR_VIEW_JSON="$EXP/prview-open.json" \
     python3 "$BXR" --repo-root "$ROPEN" --prs 990 2>"$EXP/open.err" >/dev/null
+  RC_OPEN=$?
   STOPEN="$ROPEN/.devflow/learnings/experiment-records.jsonl"
   assert_eq "#431 Tmerged: an OPEN PR named via --prs writes NO row (store is merged-PR-keyed)" "0" \
     "$(exp_count_lines "$STOPEN")"
   assert_eq "#431 Tmerged: skip breadcrumb states the merged-PR keying" "yes" \
     "$(grep -q 'keyed on merged PRs' "$EXP/open.err" && echo yes || echo no)"
+  # An OBSERVED not-merged PR (the gh call SUCCEEDED and said so) is a clean, intentional
+  # exclusion — exit 0. Contrast Tmeta, where the state could not be established at all
+  # and the run must exit 2. The two must not be conflated in either direction.
+  assert_eq "#431 Tmerged: an OBSERVED-open PR is a clean exclusion, so the run exits 0" "0" "$RC_OPEN"
 
   # ── Tdup duplicate efficiency records, SAME slug — never newest-wins ──────────
   RDUP="$EXP/rdup"
@@ -25288,8 +25330,16 @@ EOF
     REVIEWS_FAIL=1 COMMENTS_JSON="$EXP/comments1030.json" \
     python3 "$BXR" --repo-root "$RDG" --prs 1030 >/dev/null 2>&1
   STDG="$RDG/.devflow/learnings/experiment-records.jsonl"
+  # A BARE tag — every inhabitant of a provenance field must be matchable on equality, or a
+  # consumer testing `== "progress-comment"` silently misses every degraded row. (An earlier
+  # revision of this very fix used a prose tag, reintroducing the exact defect it removed
+  # from the denial tag — caught by the fix-delta gate.) The reason lives in provenance.notes.
   assert_eq "#431 Tdegraded: comment verdict used because reviews were unestablished is marked degraded" \
-    "progress-comment (reviews unestablished)" "$(exp_field "$STDG" 1030 provenance.verdict)"
+    "progress-comment-degraded" "$(exp_field "$STDG" 1030 provenance.verdict)"
+  assert_eq "#431 Tdegraded: the degradation reason is recorded in provenance.notes" "yes" \
+    "$(python3 -c 'import json,sys
+r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()][0]
+print("yes" if any("may predate the final reviewed HEAD" in n for n in r["provenance"]["notes"]) else "no")' "$STDG")"
 
   # ── Tmixed disagreeing per-run fingerprints → mixed-across-runs, never first-wins ──
   # config_fingerprint is the experiment's ATTRIBUTION KEY. A PR whose runs straddled a
@@ -25432,8 +25482,10 @@ sys.argv = ["ber", "--repo-root", sys.argv[2], "--prs", "2001,2002"]
 rc = ber.main()
 sys.exit(0 if rc == 2 else 1)
 PY
-  assert_eq "#431 Tpartial: a partial assembly failure exits 2 (not a silent success)" "yes" \
-    "$([ $? -eq 0 ] && echo yes || echo no)"
+  # Capture rc immediately (same footgun Tcoh documents — any command inserted between the
+  # heredoc and the expansion would silently rewire `$?` and pass unconditionally).
+  RC_PART=$?
+  assert_eq "#431 Tpartial: a partial assembly failure exits 2 (not a silent success)" "0" "$RC_PART"
   assert_eq "#431 Tpartial: the PR that DID assemble is still written (prior lines preserved)" "1" \
     "$(exp_count_lines "$RPT/.devflow/learnings/experiment-records.jsonl")"
 

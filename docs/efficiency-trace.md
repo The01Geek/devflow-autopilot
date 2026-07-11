@@ -526,10 +526,11 @@ Each line joins, for one PR:
   the pr-review stub suffix `— full report in PR comment` the engine appends when a live progress
   comment is active, so the stored verdict is the bare token (`APPROVE` / `REJECT` / …) on every
   surface. The `provenance.verdict` field names which arm resolved it — `pr-review`,
-  `progress-comment` (or `progress-comment (reviews unestablished)` when the comment supplied the
-  verdict *because* the authoritative reviews call could not be fetched, so the value is degraded
-  rather than merely second-choice), `unparseable` (a `## Verdict:` marker was present but its line
-  did not parse), `absent`, or one of the three **unestablished** tags below.
+  `progress-comment`, `progress-comment-degraded` (the comment supplied the verdict *because* the
+  authoritative reviews call could not be established, so the value may predate the final reviewed
+  HEAD — degraded, not merely second-choice; the reason is spelled out in `provenance.notes`),
+  `unparseable` (a `## Verdict:` marker was present but its line did not parse), `absent`, or one of
+  the three **unestablished** tags below.
 - **`important_finding_count`** — parsed from the run-keyed progress comment joined via
   `review.commit_id` == the comment's `**Reviewed HEAD:**` line (the engine's own join — see
   `skills/review/SKILL.md`, the normative source). `null` with provenance when no progress comment

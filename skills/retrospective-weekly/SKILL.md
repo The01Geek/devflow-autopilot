@@ -254,14 +254,21 @@ count, denial count, config fingerprint). Anchored **here** so this week's PRs j
 against this week's freshly-materialized retrospective entries.
 
 This is a **best-effort** step and **never blocks** the retrospective: a non-zero exit is
-logged as a breadcrumb and the run continues (the state PR still ships without the store
-update; next week's incremental pass backfills the missed PRs, since they will be absent
-from the store). Carry that breadcrumb into the Step 9 status report as a blocker note so
-the failure is visible, then proceed.
+logged as a breadcrumb and the run continues. Carry that breadcrumb into the Step 9 status
+report as a blocker note so the failure is visible, then proceed.
+
+A non-zero exit means **some** PRs did not make it into the store — not necessarily that
+*nothing* was written. The assembler exits 2 when any candidate failed to assemble **or**
+had an **unestablished** merge state (a `gh` outage, an unresolvable repo), and it still
+writes the records that *did* assemble, so a partial failure leaves a partially-updated
+store. Report it as "N PRs missing from the experiment store," not as "the store was not
+updated." **An unestablished PR does not backfill by itself** — it never enters the store,
+and only stored or retrospective-listed PRs are re-selected as candidates — so name the
+PRs from the breadcrumb and re-run with `--prs` once the cause is resolved.
 
 ```bash
 python3 $LIB/../scripts/build-experiment-records.py || \
-  echo "retrospective-weekly: build-experiment-records.py failed (rc=$?) — experiment records not updated this run; next week's incremental pass will backfill" >&2
+  echo "retrospective-weekly: build-experiment-records.py exited non-zero (rc=$?) — one or more PRs are MISSING from the experiment store (see its stderr for which, and whether they failed to assemble or had an unestablished merge state); records that did assemble were still written" >&2
 ```
 
 The assembler is idempotent (one line per merged PR, keyed by PR number) and incremental

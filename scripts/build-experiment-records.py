@@ -158,13 +158,6 @@ def _run(cmd):
         return 127, "", f"{type(e).__name__}: {e}"
 
 
-def _gh_json(endpoint, paginate=False):
-    """GET a gh api endpoint, parse JSON. Returns the parsed value, or None on any
-    failure (non-zero exit, empty output, parse error) — best-effort, breadcrumbed.
-    Thin wrapper over _gh_json_ex for callers that don't need the fetch-ok signal."""
-    return _gh_json_ex(endpoint, paginate=paginate)[0]
-
-
 def _gh_json_ex(endpoint, paginate=False):
     """Like _gh_json but returns (value, ok). `ok` is False whenever the call did not
     yield a USABLE ANSWER — the "could not establish" case — and True only when it did.
@@ -254,6 +247,16 @@ def _resolve_repo():
 class StoreReadError(Exception):
     """The DESTINATION store could not be read in full. Fatal by design — see
     `_read_jsonl`'s `strict` arm."""
+
+
+class UnestablishedPRError(Exception):
+    """This PR's merge state could not be ESTABLISHED (the gh metadata call failed, or
+    the repo was unresolvable), so the run can neither publish it nor honestly exclude
+    it. Distinct from a PR observed to be unmerged, which is a clean exclusion: this one
+    must reach the caller's failure channel, or a gh outage would silently drop PRs that
+    no later incremental pass re-selects (they never enter the store, and only stored or
+    retrospective-listed PRs become candidates). Unknown is not zero, in the flow-control
+    dimension (issue #431 fix-delta gate)."""
 
 
 def _read_jsonl(path, strict=False):
@@ -526,9 +529,16 @@ def _resolve_verdict_and_important(repo, pr):
                 # be fetched at all, a verdict recovered from the comment is DEGRADED: it
                 # may predate the final HEAD. Mark it distinctly so an analysis can tell
                 # "the review was checked and had nothing, so we used the comment" from
-                # "the review was unreachable, so the comment is all we have" (#431 review).
-                verdict_source = ("progress-comment (reviews unestablished)"
-                                  if not reviews_ok else "progress-comment")
+                # "the review was unreachable, so the comment is all we have".
+                #
+                # A BARE tag, not prose — the same closed-vocabulary rule the denial tag
+                # follows: every inhabitant of a provenance field must be matchable on
+                # equality, or a consumer testing `== "progress-comment"` silently misses
+                # every degraded row. The explanation belongs in provenance["notes"], and
+                # the caller records it there (issue #431 fix-delta gate — this is the
+                # defect the same diff fixed on the denial tag, reintroduced here).
+                verdict_source = ("progress-comment-degraded" if not reviews_ok
+                                  else "progress-comment")
             else:
                 verdict_source = "unparseable"
 
@@ -740,21 +750,40 @@ def build_record(repo, repo_root, eff_index, pr, retro_entry):
 
     # Merged-state gate. The store is keyed on MERGED PRs — that is what makes the
     # abandoned-run exclusion (and its documented cost-side survivorship bias) true, and
-    # what keeps every row a finished experiment. The retrospective path supplies only
-    # merged PRs, but `--prs` is an operator handle that can name ANY PR, so without this
-    # gate `--prs <open-pr>` would write a row with a null merged_at, a still-accumulating
-    # cost list, and a verdict scraped from an in-flight review — entering the store as if
-    # it were a shipped PR and skewing the very cost-vs-outcome comparison the store
-    # exists to make (issue #431 review). Skip rather than fabricate.
+    # what keeps every row a finished experiment. `--prs` is an operator handle that can
+    # name ANY PR, so without this gate `--prs <open-pr>` would write a row with a null
+    # merged_at, a still-accumulating cost list, and a verdict scraped from an in-flight
+    # review — entering the store as a shipped PR and skewing the very cost-vs-outcome
+    # comparison the store exists to make (issue #431 review).
     #
-    # An UNESTABLISHED merge state (metadata fetch-failed / no-repo → merged_at None) is
-    # skipped by the same arm, and that is the fail-closed direction: we do not know the
-    # PR merged, so we do not publish a row claiming it did. The breadcrumb names which.
-    if not merged_at:
-        _warn(f"PR #{pr}: not an established merged PR (merged_at is null; metadata "
-              f"provenance={provenance['retrospective']}) — skipping, the experiment "
-              "store is keyed on merged PRs")
-        return None
+    # The gate applies ONLY to the gh-fallback arm, deliberately. On the retrospective
+    # arm, the ENTRY'S EXISTENCE is the merge proof: `lib/scan.sh` builds that store from
+    # `gh pr list --state merged`, so an entry exists only for a merged PR. Re-deriving
+    # the fact from the entry's `merged_at` FIELD would be a guard over a PROXY whose
+    # producer does not guarantee it — `lib/fetch-pr-context.sh` passes it as a shell
+    # `--arg`, so a failed extraction yields `""` (a shape `lib/compute-patterns.jq`
+    # already guards, and the retrospective SKILL's LLM-authored JSON can omit the key
+    # outright). Gating on it would drop a genuinely-merged PR with real cost and verdict
+    # data — permanently, since a PR absent from the store is re-selected and re-skipped
+    # every week. That is the #62/#98 operand-contract class: a guard whose accepted-input
+    # set is narrower than its consumer's contract (issue #431 fix-delta gate).
+    if not retro_entry:
+        if meta_ok:
+            # The call SUCCEEDED, so `mergedAt`/`state` are a real answer. An unmerged PR
+            # here is a clean, intentional exclusion — the caller counts it as a skip.
+            if not merged_at:
+                _warn(f"PR #{pr}: observed not-merged (state="
+                      f"{(meta or {}).get('state') or 'unknown'}) — skipping; the "
+                      "experiment store is keyed on merged PRs")
+                return None
+        else:
+            # The call did NOT succeed (fetch-failed / no-repo), so the merge state is
+            # UNESTABLISHED. Do not publish it (we cannot claim it merged) and do not
+            # silently exclude it either (we cannot claim it did not) — raise, so it
+            # reaches the caller's failure channel. See UnestablishedPRError.
+            raise UnestablishedPRError(
+                f"merge state unestablished (metadata provenance="
+                f"{provenance['retrospective']})")
 
     # Efficiency runs — both slug families.
     target_slugs = {f"pr-{pr}"} | _slug_variants(branch)
@@ -770,6 +799,11 @@ def build_record(repo, repo_root, eff_index, pr, retro_entry):
         _resolve_verdict_and_important(repo, pr)
     provenance["verdict"] = verdict_source
     provenance["important_finding_count"] = important_source
+    if verdict_source == "progress-comment-degraded":
+        # Bare tag above; the caveat lives here, per the closed-vocabulary rule.
+        provenance["notes"].append(
+            "verdict taken from the progress comment because the PR-reviews call could "
+            "not be established; it may predate the final reviewed HEAD")
 
     denials, denials_source = _resolve_denials(repo, [head_sha, merge_sha])
     provenance["permission_denials_count"] = denials_source
@@ -897,16 +931,26 @@ def main(argv=None):
     assembled = 0
     failed = 0
     skipped = 0
+    unestablished = 0
     for pr in candidates:
         try:
             record = build_record(repo, repo_root, eff_index, pr, retro.get(pr))
             if record is None:
-                # Not an established merged PR — build_record already breadcrumbed why.
-                # Not a failure: a clean, intentional exclusion.
+                # OBSERVED not-merged — build_record already breadcrumbed why. A clean,
+                # intentional exclusion, and not a failure.
                 skipped += 1
                 continue
             store[pr] = record
             assembled += 1
+        except UnestablishedPRError as e:
+            # NOT a clean exclusion: we could not establish whether this PR merged, so
+            # excluding it silently would be the unknown-collapsed-onto-a-value bug in the
+            # flow-control dimension. Counted separately and folded into the non-zero exit
+            # below, because the exit code is the caller's ONLY failure channel and such a
+            # PR is otherwise lost for good — it never enters the store, and only stored or
+            # retrospective-listed PRs are ever re-selected as candidates.
+            unestablished += 1
+            _warn(f"PR #{pr}: {e}; skipping, but the run will NOT report success")
         except Exception as e:  # noqa: BLE001 — one bad PR must never abort the batch
             failed += 1
             _warn(f"PR #{pr}: assembly failed ({type(e).__name__}: {e}); leaving prior "
@@ -931,7 +975,7 @@ def main(argv=None):
         return 2
     sys.stderr.write(f"build-experiment-records.py: wrote {len(store)} record(s) to "
                      f"{store_path} (assembled={assembled} skipped={skipped} "
-                     f"failed={failed})\n")
+                     f"unestablished={unestablished} failed={failed})\n")
     # Aggregate guard. Prior store lines are preserved above, but ANY assembly failure
     # means the store is missing records it should carry, so exit non-zero and let the
     # best-effort caller surface it.
@@ -944,10 +988,12 @@ def main(argv=None):
     # of the week's records were never assembled, and the next incremental pass would
     # silently retry-and-fail the same way (issue #431 review). A guard whose comparand
     # the producer never emits on the paths it now selects is a guard that fails open.
-    if failed > 0:
-        systematic = " — SYSTEMATIC (every candidate failed)" if assembled == 0 else ""
-        _warn(f"{failed} of {len(candidates)} candidate PR(s) failed to assemble"
-              f"{systematic}; their prior store lines (if any) are unchanged")
+    if failed > 0 or unestablished > 0:
+        systematic = (" — SYSTEMATIC (no candidate assembled)"
+                      if assembled == 0 else "")
+        _warn(f"{failed} of {len(candidates)} candidate PR(s) failed to assemble and "
+              f"{unestablished} had an unestablished merge state{systematic}; their "
+              "prior store lines (if any) are unchanged")
         return 2
     return 0
 
