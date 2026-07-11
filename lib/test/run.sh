@@ -24791,23 +24791,23 @@ assert_eq "#423 T8 fix-loop Step 3 invokes the same helper (references it, not a
 # iteration while inspecting nothing (a silent no-op that fails OPEN). Guard that the
 # item-6a fence references only a skill-defined base var, and prove the undefined-var
 # regression cannot silently return.
-assert_eq "#424 item 6a fence references no undefined \$BASE_REF (the VC-12 silent-no-op var)" "0" "$(grep -c 'BASE_REF' "$SP_RAF")"
-assert_pin_unique "#424 item 6a fence binds the base to the engine-resolved \$PR_BASE_SHA (defined, three-dot, current-branch fallback)" \
+assert_eq "#424 (item 6a) fence references no undefined \$BASE_REF (the VC-12 silent-no-op var)" "0" "$(grep -c 'BASE_REF' "$SP_RAF")"
+assert_pin_unique "#424 (item 6a) fence binds the base to the engine-resolved \$PR_BASE_SHA (defined, three-dot, current-branch fallback)" \
   'git diff "${PR_BASE_SHA:-origin/main}...HEAD"' "$SP_RAF"
-assert_pin_unique "#424 item 6a skill DEFINES \$PR_BASE_SHA (names it the base the engine's Phase 0.2 resolved this iteration)" \
+assert_pin_unique "#424 (item 6a) skill DEFINES \$PR_BASE_SHA (names it the base the engine's Phase 0.2 resolved this iteration)" \
   'against the base the engine'\''s Phase 0.2 resolved this iteration' "$SP_RAF"
-assert_pin_unique "#424 item 6a recomputes at the POST-fix HEAD, not the cached pre-fix diff.patch" \
+assert_pin_unique "#424 (item 6a) recomputes at the POST-fix HEAD, not the cached pre-fix diff.patch" \
   'not** reading the pre-fix `diff.patch` Phase 0.2 cached' "$SP_RAF"
-assert_pin_red_under "#424 item 6a: reverting the base binding to an undefined var re-introduces the VC-12 silent no-op" \
+assert_pin_red_under "#424 (item 6a): reverting the base binding to an undefined var re-introduces the VC-12 silent no-op" \
   'git diff "${PR_BASE_SHA:-origin/main}...HEAD"' \
   's#PR_BASE_SHA:-origin/main#BASE_REF#' "$SP_RAF"
 # Producer-failure detection (#424 review Suggestion 1): a failing `git diff` must not
 # pipe empty stdout into the helper and read as a clean pass.
-assert_pin_unique "#424 item 6a fence sets pipefail so a git diff producer failure is not read as clean" \
+assert_pin_unique "#424 (item 6a) fence sets pipefail so a producer/helper failure is not read as clean" \
   'set -o pipefail' "$SP_RAF"
-assert_pin_red_under "#424 item 6a: dropping the producer-failure note re-introduces the empty-diff-reads-clean hole" \
-  'stale-prose pre-check: git diff producer failed' \
-  '/stale-prose pre-check: git diff producer failed/d' "$SP_RAF"
+assert_pin_red_under "#424 (item 6a): dropping the producer/helper-failure note re-introduces the empty-diff-reads-clean hole" \
+  'stale-prose pre-check: producer/helper failed (rc=<code>)' \
+  '/stale-prose pre-check: producer\/helper failed/d' "$SP_RAF"
 
 # T10 → Phase 0.6 degradation arms (fail-safe, never fail-silent), pinned on the
 # rendered file surface (#375). All four arms present; the harness-refused remedy is
