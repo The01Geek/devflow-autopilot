@@ -139,7 +139,19 @@ if [ -z "$REPO" ]; then
   emit no-fire unscoped
 fi
 
-# 4. Count existing backstop markers for THIS head — the attempt cap. Each resume
+# 4. The re-trigger comment MUST be authored by a workflow-capable App token; a
+#    GITHUB_TOKEN-authored comment posts fine but never re-triggers the workflow,
+#    so a "resume" without the App token would be a masked green no-op. This guard
+#    is a pure env check and decisive regardless of the attempt count, so it runs
+#    BEFORE the paginated comment fetch below — on the common no-App-token path
+#    (DEVFLOW_APP_ID unset) that skips the network call entirely. It sits after
+#    the disabled/unscoped guards so those keep their more-specific reasons.
+if [ "$APP_TOKEN_PRESENT" != "true" ]; then
+  echo "request-review-backstop: no App token available (DEVFLOW_APP_ID unset / mint skipped) — a GITHUB_TOKEN-authored comment cannot re-trigger the review workflow; degrading to the dead-end flip." >&2
+  emit no-fire no-app-token
+fi
+
+# 5. Count existing backstop markers for THIS head — the attempt cap. Each resume
 #    comment carries `<!-- devflow:review-backstop head=<sha> attempt=<n> -->`;
 #    only markers whose head is THIS HEAD_SHA count (a foreign-head marker from an
 #    earlier commit must never inflate the count and spuriously exhaust the cap).
@@ -162,20 +174,12 @@ if ! ATTEMPTS=$(printf '%s' "$COMMENTS_JSON" | "$DEVFLOW_JQ" -rs --arg m "$MARKE
 fi
 [[ "$ATTEMPTS" =~ ^[0-9]+$ ]] || ATTEMPTS=0
 
-# 5. Enforce the cap. attempts >= max (including MAX=0: 0 >= 0) → exhausted; the
+# 6. Enforce the cap. attempts >= max (including MAX=0: 0 >= 0) → exhausted; the
 #    run degrades to the dead-end flip and a human re-triggers (the #356 flip
 #    still runs, so the dead run is still visibly red — the backstop is additive).
 if [ "$ATTEMPTS" -ge "$MAX" ]; then
   echo "request-review-backstop: $ATTEMPTS backstop attempt(s) already made for HEAD $HEAD_SHA >= cap $MAX — exhausted; no auto-resume (degrading to the dead-end flip)." >&2
   emit no-fire exhausted
-fi
-
-# 6. The re-trigger comment MUST be authored by a workflow-capable App token; a
-#    GITHUB_TOKEN-authored comment posts fine but never re-triggers the workflow,
-#    so a "resume" without the App token would be a masked green no-op.
-if [ "$APP_TOKEN_PRESENT" != "true" ]; then
-  echo "request-review-backstop: no App token available (DEVFLOW_APP_ID unset / mint skipped) — a GITHUB_TOKEN-authored comment cannot re-trigger the review workflow; degrading to the dead-end flip." >&2
-  emit no-fire no-app-token
 fi
 
 # Fire: emit the next attempt number and the marker the workflow embeds in the
