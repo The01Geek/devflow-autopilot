@@ -11833,6 +11833,12 @@ assert_eq "#409 transcript: upload step gates on scrub_transcript.outputs.path !
 # The schema description advertises an "N-day run artifact"; the upload step sets
 # retention-days: N. If one changes without the other the two derived numbers
 # disagree and this assertion goes RED.
+# DEFERRED (#409 review, Suggestion, below the `important` fix threshold): both sides
+# take `head -1` of their match, so a SECOND incidental `N-day` phrase in the schema
+# description or a second `retention-days:` in the workflow could shift the compared
+# pair silently. Low risk today (each token occurs exactly once). Revisit only if a
+# second occurrence of either token is introduced — then anchor the match to the
+# specific property/step instead of first-match.
 TR_RET_SCHEMA="$(jq -r "$TR_PROP.description" "$TR_SCHEMA" | grep -oE '[0-9]+-day' | grep -oE '^[0-9]+' | head -1)"
 TR_RET_UPLOAD="$(grep -oE 'retention-days: [0-9]+' "$TR_RUNNER" | grep -oE '[0-9]+' | head -1)"
 assert_eq "#409 transcript: schema retention phrase present (N-day)" "yes" \
@@ -11911,6 +11917,12 @@ PY
   # and a distinct fail-closed breadcrumb is emitted — a half-written/unscrubbed file
   # must never be uploaded (#409 review: the security fail-closed arm was untested).
   # Drive it by PATH-shadowing `mv` (used only in the caveat prepend) with a failing shim.
+  # DEFERRED (#409 review, Suggestion, below the `important` fix threshold): this only
+  # shadows `mv`. The caveat write is a single `printf … && cat … && mv …` &&-chain, so
+  # a `printf`/`cat` failure takes the IDENTICAL else-branch and the same fail-closed
+  # path — the arm is proven closed via `mv`; shadowing the earlier chain members would
+  # observe the same branch. Revisit only if the chain gains a DISTINCT per-member
+  # branch (then each member needs its own RED observation).
   MV_BIN="$(mktemp -d)"
   printf '#!/usr/bin/env bash\nexit 1\n' > "$MV_BIN/mv"
   chmod +x "$MV_BIN/mv"
@@ -16134,6 +16146,53 @@ PY
   assert_eq "#409 item7: mktemp failure does NOT hard-abort (base tools still emitted)" "yes" \
     "$([ -n "$MK_TOOLS" ] && echo yes || echo no)"
   rm -rf "$MK_BIN"; rm -f "$MK_OUT" "$MK_LOG"
+
+  # ── #409 item 8 (behavior): fetch-vendored floor resolves REPO-ROOT-anchored ──
+  # The `_REPO_ROOT="$(git rev-parse --show-toplevel … || pwd)"` grep above only
+  # proves the line EXISTS. This drives the REAL tools step from a SUBDIRECTORY of a
+  # git repo whose ROOT carries the freshly-fetched vendored helper. Repo-root
+  # anchoring is exactly what lets the (otherwise bare-relative) vendored candidate
+  # resolve from a non-root cwd; a future `working-directory:` (or a step that `cd`s)
+  # would silently miss it and flip every fetch-vendored review to the helper-absent
+  # fail-closed arm. With anchoring the helper is found → Write(**) stripped,
+  # Bash(go:*) kept. If the anchoring regressed to a bare `.devflow/vendor/…` path,
+  # the file would not resolve from the subdir → nothing appended → this assertion's
+  # `,Bash(go:*)` expectation goes RED (mutation-verified: reverting `$_REPO_ROOT/`
+  # to the bare relative path drops the append and turns this row RED).
+  RA_ROOT=$(mktemp -d)
+  git -C "$RA_ROOT" init -q
+  mkdir -p "$RA_ROOT/.devflow/vendor/devflow/scripts" "$RA_ROOT/sub/deeper"
+  cp "$FRT" "$RA_ROOT/.devflow/vendor/devflow/scripts/filter-runner-tools.sh"
+  RA_OUT=$(mktemp); RA_LOG=$(mktemp)
+  ( cd "$RA_ROOT/sub/deeper" && PROFILE=review PROVISION_ENV=true RUNNER_TOOLS='Bash(go:*),Write(**)' \
+      FLOOR_HELPER='' FLOOR_SOURCE=absent VENDOR_SOURCE=fetch \
+      GITHUB_OUTPUT="$RA_OUT" bash "$TOOLS_STEP" ) >"$RA_LOG" 2>&1 || true
+  RA_TOOLS=$(awk '/^tools<</{f=1;next} (f && /^EOF_/){f=0} f' "$RA_OUT")
+  assert_eq "#409 item8 (behavior): fetch-vendored floor resolves from a non-root cwd (repo-root-anchored) — Write(**) stripped, Bash(go:*) kept" ",Bash(go:*)" \
+    "${RA_TOOLS#"$BASE_TOOLS"}"
+  rm -rf "$RA_ROOT"; rm -f "$RA_OUT" "$RA_LOG"
+
+  # ── #409 item 8 (behavior): the non-git `|| pwd` fallback yields a USABLE root ──
+  # When cwd is not inside a git repo, `git rev-parse --show-toplevel` fails and the
+  # `|| pwd` fallback must yield the cwd — NOT an empty _REPO_ROOT, which would make
+  # the candidate "/.devflow/vendor/…" (an absolute path from the filesystem root)
+  # that never resolves → the floor silently fails closed on every non-git runner.
+  # Drive the REAL step from a NON-git dir carrying the fetched vendored helper at
+  # its root: the pwd fallback resolves it → Write(**) stripped, Bash(go:*) kept.
+  # If _REPO_ROOT resolved empty (e.g. the `|| pwd` fallback were dropped) the
+  # candidate would not resolve → nothing appended → this row goes RED
+  # (mutation-verified: forcing _REPO_ROOT='' drops the append and turns this RED).
+  NG_ROOT=$(mktemp -d)   # deliberately NOT a git repo (system temp is not a repo)
+  mkdir -p "$NG_ROOT/.devflow/vendor/devflow/scripts"
+  cp "$FRT" "$NG_ROOT/.devflow/vendor/devflow/scripts/filter-runner-tools.sh"
+  NG_OUT=$(mktemp); NG_LOG=$(mktemp)
+  ( cd "$NG_ROOT" && PROFILE=review PROVISION_ENV=true RUNNER_TOOLS='Bash(go:*),Write(**)' \
+      FLOOR_HELPER='' FLOOR_SOURCE=absent VENDOR_SOURCE=fetch \
+      GITHUB_OUTPUT="$NG_OUT" bash "$TOOLS_STEP" ) >"$NG_LOG" 2>&1 || true
+  NG_TOOLS=$(awk '/^tools<</{f=1;next} (f && /^EOF_/){f=0} f' "$NG_OUT")
+  assert_eq "#409 item8 (behavior): non-git \`|| pwd\` fallback yields a usable root (fetch-vendored floor still resolves) — Write(**) stripped, Bash(go:*) kept" ",Bash(go:*)" \
+    "${NG_TOOLS#"$BASE_TOOLS"}"
+  rm -rf "$NG_ROOT"; rm -f "$NG_OUT" "$NG_LOG"
 
   rm -f "$TOOLS_STEP"
 

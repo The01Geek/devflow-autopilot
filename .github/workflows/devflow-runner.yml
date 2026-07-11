@@ -894,6 +894,13 @@ jobs:
               # family spanning the two `gh[pousr]_`/`github_pat_` sed rules), so the five
               # sed -E rules above map to these four named shapes.
               SHAPES="GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+              # DEFERRED (#409 review, Suggestion, below the `important` fix threshold):
+              # prepending this `#`-comment caveat as line 1 makes the `.json`-named
+              # artifact non-parseable JSON. Deliberate for the CURRENT human
+              # stall-diagnosis purpose (a person reads the transcript; the caveat must
+              # be the first thing they see). Revisit ONLY if an automated `jq`/JSON
+              # consumer of this artifact is introduced — then move the caveat into an
+              # upload-step annotation or a sidecar `.txt` and keep the payload valid JSON.
               CAVEAT="# DEVFLOW SCRUB CAVEAT: best-effort blocklist redacted four credential shapes ($SHAPES). This blocklist is INCOMPLETE — other third-party credential shapes may remain. Treat this artifact as sensitive."
               echo "::warning::transcript scrub is a best-effort blocklist covering four credential shapes ($SHAPES); it is INCOMPLETE for third-party credential shapes — treat the uploaded artifact as sensitive."
               HDR="$OUT.hdr"
