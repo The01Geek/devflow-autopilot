@@ -237,7 +237,7 @@
         },
         "agent_overrides": {
           "type": "object",
-          "description": "Per-subagent model/effort overrides for the shared /devflow:review engine. Applies to BOTH standalone /devflow:review AND the Phase-3 review pass of /devflow:review-and-fix (and thus /devflow:implement), since both drive the same engine. Keys are the nine review-engine subagent identifiers (byte-identical to the telemetry strings) plus an optional `default` fallback. Each value optionally sets `model` (free-form model id, forwarded to the dispatch as given) and/or `effort` (one of low/medium/high/xhigh/max \u2014 an out-of-enum value warns and falls back to the session effort rather than aborting). Resolution is entry-level: a subagent with its own entry uses only that entry (the `default` does NOT backfill its missing fields); `default` supplies model/effort only for subagents with no entry of their own. A subagent with neither its own entry nor a `default` is dispatched exactly as today \u2014 global claude_model + session effort \u2014 with no --agents override emitted for it. See docs/review-agent-overrides.md.",
+          "description": "Per-subagent model/effort overrides for the shared /devflow:review engine. Applies to BOTH standalone /devflow:review AND the Phase-3 review pass of /devflow:review-and-fix (and thus /devflow:implement), since both drive the same engine. Keys are the nine review-engine subagent identifiers (byte-identical to the telemetry strings) plus an optional `default` fallback. Each value optionally sets `model` (free-form model id, forwarded to the dispatch as given), `effort` (one of low/medium/high/xhigh/max \u2014 an out-of-enum value warns and falls back to the session effort rather than aborting), and/or `iterations` (issue #425; only valid value `first-only` \u2014 an agent whose resolved override carries it is excluded from the Phase-3 review roster on fix-loop iterations >= 2, enforced engine-side; an out-of-enum value warns and is dropped rather than aborting; key absent = today's behavior). Resolution is entry-level: a subagent with its own entry uses only that entry (the `default` does NOT backfill its missing fields); `default` supplies model/effort only for subagents with no entry of their own. A subagent with neither its own entry nor a `default` is dispatched exactly as today \u2014 global claude_model + session effort \u2014 with no --agents override emitted for it. See docs/review-agent-overrides.md.",
           "additionalProperties": false,
           "properties": {
             "default": {
@@ -255,6 +255,12 @@
                     "high",
                     "xhigh",
                     "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
                   ]
                 }
               }
@@ -274,6 +280,12 @@
                     "high",
                     "xhigh",
                     "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
                   ]
                 }
               }
@@ -295,6 +307,12 @@
                     "xhigh",
                     "max"
                   ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
                 }
               }
             },
@@ -313,6 +331,12 @@
                     "high",
                     "xhigh",
                     "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
                   ]
                 }
               }
@@ -333,6 +357,12 @@
                     "xhigh",
                     "max"
                   ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
                 }
               }
             },
@@ -351,6 +381,12 @@
                     "high",
                     "xhigh",
                     "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
                   ]
                 }
               }
@@ -371,6 +407,12 @@
                     "xhigh",
                     "max"
                   ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
                 }
               }
             },
@@ -389,6 +431,12 @@
                     "high",
                     "xhigh",
                     "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
                   ]
                 }
               }
@@ -409,6 +457,12 @@
                     "xhigh",
                     "max"
                   ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
                 }
               }
             },
@@ -427,6 +481,12 @@
                     "high",
                     "xhigh",
                     "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
                   ]
                 }
               }
