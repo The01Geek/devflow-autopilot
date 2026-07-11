@@ -76,9 +76,14 @@ jobs:
       # candidate: a trailing-extension glob (unlike the production-proven
       # `*/<fixed-basename>` form) whose permit/deny under the real matcher is
       # unknown — shape 15 invokes a repo-root `scripts/<name>.sh` helper as the
-      # leading token under this grant to measure it. If it is PERMITTED, the
-      # implement profile's enumerated `*/<basename>.sh` helper globs can migrate to
-      # the single future-proof `scripts/*.sh` form. If devflow-runner.yml's review
+      # leading token under this grant to measure it. MEASURED DENIED on run
+      # 29135163829 (PR #413): even with the glob granted, `scripts/config-get.sh …`
+      # was refused — the same DENIED as shape 14's ungranted control — so the
+      # trailing-extension glob does NOT match a repo-root leading token, the
+      # implement profile keeps the enumerated `*/<basename>.sh` helper globs, and
+      # NO migration to `scripts/*.sh` happens. Kept here (like cd / Write(/tmp/**))
+      # as a genuine denial to re-probe after a claude-code-action upgrade — the
+      # version-dependent verdict could change. If devflow-runner.yml's review
       # literal changes, update this copy too — a deliberate second copy so the
       # probe measures the real profile, not a paraphrase.
       - name: Resolve allowed-tools (review profile + candidate grants)
