@@ -889,8 +889,11 @@ jobs:
               # write failure must NOT leave an unscrubbed/half-written file advertised
               # for upload (issue #409 item 2 gotcha).
               # One source of truth for the four redacted shapes, interpolated into both
-              # the artifact caveat and the log warning so they cannot drift.
-              SHAPES="GitHub tokens/PATs, Anthropic keys, Bearer + basic Authorization headers"
+              # the artifact caveat and the log warning so they cannot drift. "Four shapes"
+              # counts the four comma-separated families below (GitHub tokens/PATs is one
+              # family spanning the two `gh[pousr]_`/`github_pat_` sed rules), so the five
+              # sed -E rules above map to these four named shapes.
+              SHAPES="GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
               CAVEAT="# DEVFLOW SCRUB CAVEAT: best-effort blocklist redacted four credential shapes ($SHAPES). This blocklist is INCOMPLETE — other third-party credential shapes may remain. Treat this artifact as sensitive."
               echo "::warning::transcript scrub is a best-effort blocklist covering four credential shapes ($SHAPES); it is INCOMPLETE for third-party credential shapes — treat the uploaded artifact as sensitive."
               HDR="$OUT.hdr"

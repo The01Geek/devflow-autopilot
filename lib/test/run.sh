@@ -11934,6 +11934,21 @@ PY
     "$(grep -qF 'path=' "$SCRUB_GH_OUT4" 2>/dev/null && echo yes || echo no)"
   assert_eq "#409 scrub: absent execution file leaves its own breadcrumb" "yes" \
     "$(grep -qF 'execution file absent' "$SCRUB_DIR/log4" 2>/dev/null && echo yes || echo no)"
+  # outer sed-failure arm: if the sed scrub itself fails, NO path= is advertised and
+  # the unscrubbed file is not uploaded (#409 review, last uncovered scrub branch).
+  # Drive it by PATH-shadowing `sed` with a failing shim.
+  SED_BIN="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$SED_BIN/sed"
+  chmod +x "$SED_BIN/sed"
+  SCRUB_GH_OUT5="$SCRUB_DIR/gh_output5"
+  : > "$SCRUB_GH_OUT5"
+  ( PATH="$SED_BIN:$PATH" EXECUTION_FILE="$SCRUB_EXEC" RUNNER_TEMP="$SCRUB_DIR" GITHUB_OUTPUT="$SCRUB_GH_OUT5" \
+      bash "$SCRUB_STEP" ) > "$SCRUB_DIR/log5" 2>&1 || true
+  assert_eq "#409 scrub: sed-failure advertises NO path= (fail-closed)" "no" \
+    "$(grep -qF 'path=' "$SCRUB_GH_OUT5" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#409 scrub: sed-failure emits its fail-closed breadcrumb" "yes" \
+    "$(grep -qF 'transcript scrub failed' "$SCRUB_DIR/log5" 2>/dev/null && echo yes || echo no)"
+  rm -rf "$SED_BIN"
   rm -f "$SCRUB_STEP"
   rm -rf "$SCRUB_DIR"
 else
