@@ -189,6 +189,14 @@ ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role checkli
 # synthesized record is a recognized degraded class, exempt from the full set above
 # but NOT from its own — a truncated synthesized record must still warn).
 ITER_SYNTH_EXPECTED_FIELDS="iter fix_commit_sha fix_files loop_role synthesized"
+# The synthesized SHADOW-marker minimal field set (issue #426): what
+# synthesize_shadow_markers writes into an iter's `shadow` block when the block
+# was dropped but promotion evidence survives, and what --self-check validates a
+# `shadow_synthesized: true` block against (a recognized degraded class, exempt
+# from a real shadow block's full shape but NOT from its own minimal set — a
+# truncated synthesized shadow marker must still warn). Plain single-line
+# assignment so a run.sh guard can grep `^SHADOW_SYNTH_EXPECTED_FIELDS=`.
+SHADOW_SYNTH_EXPECTED_FIELDS="shadow_synthesized promoted_to_iter_next"
 
 # ── Synthesis backstop (Layer 3+): reconstruct a minimal iteration record from
 # the branch's fix commits when a run left ZERO iter-*.json (issue #381) ───────
@@ -415,6 +423,57 @@ synthesize_iter_workpads() {
   return 2
 }
 
+# Shadow synthesis floor (Layer 3+, issue #426): when an iter-<N>.json carries no
+# `shadow` block but the run holds promotion evidence that iteration N's shadow
+# promoted — iter-<N+1>.json exists with loop_role "promoted" — the shadow block
+# was dropped (the issue-304 drop shape). Synthesize a minimal marker
+# {shadow_synthesized: true, promoted_to_iter_next: true} into iter-<N>.json so
+# the promotion is not left silently unattributable. Best-effort, always returns
+# 0 (a floor failure never aborts --persist). Two guards keep it faithful: it
+# NEVER overwrites an existing `shadow` block (agent-written or already
+# synthesized — the read gates on `.shadow` absence), and it writes at most one
+# marker per promotion-evidenced iter (no double-count — a second --persist pass
+# sees the marker it wrote and declines). STATED LIMITATION: this recovers
+# PROMOTED shadows only — a clean outcome-1 shadow whose block dropped leaves no
+# promotion evidence to synthesize from; the fused Step 2.6 emit is the primary
+# fix and this floor is its backstop, not its equal.
+synthesize_shadow_markers() {
+  local dir="$1" iter n next has_shadow promoted jq_err
+  for iter in "$dir"/iter-*.json; do
+    [ -e "$iter" ] || continue
+    # Parse N from the filename with bash builtins only — this DECIDES whether a
+    # marker is written, so it must not depend on a non-preflight PATH tool
+    # (guard-class 2); a non-numeric stem is skipped, not defaulted.
+    n="${iter##*/iter-}"; n="${n%.json}"
+    case "$n" in ''|*[!0-9]*) continue ;; esac
+    # Never overwrite: skip any iter that already carries a `shadow` object
+    # (agent-written or previously synthesized). A parse failure is treated as
+    # "present" (skip) — fail closed, never clobber an unreadable block.
+    has_shadow="$("$DEVFLOW_JQ" -r 'if (.shadow | type) == "object" then "yes" else "no" end' "$iter" 2>/dev/null)" || continue
+    [ "$has_shadow" = "no" ] || continue
+    # Promotion evidence: the next iter exists AND is a promoted iter.
+    next="$dir/iter-$((n + 1)).json"
+    [ -e "$next" ] || continue
+    promoted="$("$DEVFLOW_JQ" -r 'if .loop_role == "promoted" then "yes" else "no" end' "$next" 2>/dev/null)" || continue
+    [ "$promoted" = "yes" ] || continue
+    # Merge the marker in via a temp file + mv (jq cannot edit in place; a direct
+    # `> "$iter"` would truncate the source before jq reads it). A failed jq
+    # leaves the original untouched with a breadcrumb — never a silent drop.
+    if jq_err="$("$DEVFLOW_JQ" '.shadow = {shadow_synthesized: true, promoted_to_iter_next: true}' "$iter" 2>&1 > "$iter.shadowtmp")"; then
+      if mv "$iter.shadowtmp" "$iter" 2>/dev/null; then
+        echo "::warning::efficiency-trace.sh --persist: synthesized a minimal shadow marker on $(basename "$iter") — its shadow block was dropped but iter-$((n + 1)).json is a promoted iter, so the promotion linkage is recovered (cost figures are unrecoverable after the fact — attribution only, per the floor's promoted-shadows-only limitation)" >&2
+      else
+        echo "::warning::efficiency-trace.sh --persist: could not move the synthesized shadow marker into $(basename "$iter") (mv failed); leaving it without one" >&2
+        rm -f "$iter.shadowtmp" 2>/dev/null
+      fi
+    else
+      echo "::warning::efficiency-trace.sh --persist: could not synthesize a shadow marker on $(basename "$iter") (${jq_err:-no error text}); leaving it without one" >&2
+      rm -f "$iter.shadowtmp" 2>/dev/null
+    fi
+  done
+  return 0
+}
+
 # ── --self-check (Layer 2): warn-only, never writes, never fails ─────────────
 do_self_check() {
   # Silent when telemetry is disabled — there is no record to expect, so a
@@ -457,7 +516,7 @@ do_self_check() {
   #       and skips — otherwise a wrong-shape workpad masquerades as complete.
   # An object yields its missing-field names; field names are bare identifiers, so
   # the `for field in $missing` word-split is safe (and emits one warning line each).
-  local iter field missing
+  local iter field missing shadow_missing
   for iter in "$WORKPAD_DIR"/iter-*.json; do
     [ -e "$iter" ] || continue
     # A synthesized record (issue #381) is a recognized degraded class — it
@@ -480,6 +539,22 @@ do_self_check() {
     for field in $missing; do
       echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is missing expected field '${field}'" >&2
     done
+    # Synthesized shadow marker validation (issue #426): a `shadow` block carrying
+    # `shadow_synthesized: true` is a recognized degraded class — validate it
+    # against its own minimal set (SHADOW_SYNTH_EXPECTED_FIELDS), so a truncated
+    # synthesized marker still warns while a complete one passes cleanly. A real
+    # (agent-written) shadow block has no `shadow_synthesized` key, so this branch
+    # never fires on it — the self-check leaves real shadow blocks unvalidated
+    # exactly as before. The `if !` guards the jq like the field check above: an
+    # unreadable/parse-failed file was already warned about and `continue`d, so
+    # this only runs on a valid object.
+    if shadow_missing="$("$DEVFLOW_JQ" -r --arg sfields "$SHADOW_SYNTH_EXPECTED_FIELDS" \
+                          'if ((.shadow | type) == "object") and (.shadow.shadow_synthesized == true) then (($sfields | split(" ")) - (.shadow | keys))[] else empty end' \
+                          "$iter" 2>/dev/null)"; then
+      for field in $shadow_missing; do
+        echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' has a synthesized shadow marker missing expected field '${field}'" >&2
+      done
+    fi
   done
   return 0
 }
@@ -593,6 +668,15 @@ persist_one() {
     src="review-and-fix"
   fi
   [ "$src" = "review" ] && return 0
+
+  # Shadow synthesis floor (issue #426): recover a dropped-but-promoted shadow
+  # block as a minimal marker BEFORE the durable copy below, so a synthesized
+  # marker is committed alongside the workpads it annotates. Telemetry-gated like
+  # the iter floor above — a synthesized marker is a telemetry artifact, so a
+  # telemetry-disabled repo gets none. (Runs on the real-workpad path too: a
+  # synthesized-iter run is all `loop_role: "fix"` with no promotion evidence, so
+  # the floor is a no-op there and only fires when a real promoted iter exists.)
+  [ "$ENABLED" = "true" ] && synthesize_shadow_markers "$dir"
 
   # Durable workpad copy — NOT telemetry-gated (runs on every writable run).
   # Copies every *.json in the run dir (iter-*.json + deferrals.json), mirroring

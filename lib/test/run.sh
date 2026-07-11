@@ -14932,6 +14932,95 @@ assert_pin_red_under "et-synth(T7): phase-2 §2.3 workflow-shell carve-out flips
   's/is also carved OUT of this no-automated-test class/remains within this no-automated-test class/' \
   "$LIB/../skills/implement/phases/phase-2-implement.md"
 
+# ── issue #426: --persist shadow synthesis floor (synthesize_shadow_markers) ──
+# The floor recovers a dropped-but-promoted shadow block as a minimal marker
+# {shadow_synthesized:true, promoted_to_iter_next:true} on iter-<N>.json when
+# iter-<N+1>.json is a promoted iter. Three fixtures drive AC7's unit contract:
+# (a) promotion evidence + no shadow block → marker synthesized; (b) an
+# agent-written shadow block → untouched; (c) no promotion evidence → no marker.
+# Plus --self-check accepts (a)'s output as a recognized degraded class.
+SHF_REPO="$(git_sandbox "et-shadow-floor repo")"
+git -C "$SHF_REPO" init -q
+git -C "$SHF_REPO" config user.email t@e.com; git -C "$SHF_REPO" config user.name t
+git -C "$SHF_REPO" commit --allow-empty -qm base
+git -C "$SHF_REPO" branch -M main
+git -C "$SHF_REPO" checkout -q -b feat
+git -C "$SHF_REPO" commit --allow-empty -qm "feat: work"
+# (a) iter-1 has NO shadow block; iter-2 is a promoted iter → floor synthesizes.
+SHF_A="$SHF_REPO/.devflow/tmp/review/pr-1/run-a"
+mkdir -p "$SHF_A"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_A/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_A/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_A" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(a): promotion evidence + no shadow block → synthesized marker written" "true" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_A/iter-1.json" 2>/dev/null)"
+assert_eq "et-shadow-floor(a): synthesized marker carries the promotion linkage" "true" \
+  "$(jq -r '.shadow.promoted_to_iter_next' "$SHF_A/iter-1.json" 2>/dev/null)"
+# --self-check accepts the synthesized marker as a recognized degraded class (no
+# "synthesized shadow marker missing expected field" warning on the complete one).
+SHF_A_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_A" --slug pr-1 ) 2>&1 )"
+assert_eq "et-shadow-floor(a): --self-check accepts the synthesized marker (no missing-field warning)" "no" \
+  "$(printf '%s' "$SHF_A_SC" | grep -qF 'synthesized shadow marker missing expected field' && echo yes || echo no)"
+# A TRUNCATED synthesized shadow marker still warns — the flag buys no total exemption.
+mkdir -p "$SHF_REPO/.devflow/tmp/review/pr-1/run-trunc"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix","shadow":{"shadow_synthesized":true}}' \
+  > "$SHF_REPO/.devflow/tmp/review/pr-1/run-trunc/iter-1.json"
+SHF_TR_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_REPO/.devflow/tmp/review/pr-1/run-trunc" --slug pr-1 ) 2>&1 )"
+assert_eq "et-shadow-floor: a TRUNCATED synthesized shadow marker still warns on its minimal set" "yes" \
+  "$(printf '%s' "$SHF_TR_SC" | grep -qF "synthesized shadow marker missing expected field 'promoted_to_iter_next'" && echo yes || echo no)"
+# (b) an AGENT-WRITTEN shadow block (no shadow_synthesized key) is NEVER overwritten.
+SHF_B="$SHF_REPO/.devflow/tmp/review/pr-1/run-b"
+mkdir -p "$SHF_B"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix","shadow":{"coverage":"full","verdict":"APPROVE"}}' > "$SHF_B/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_B/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_B" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(b): an agent-written shadow block is left untouched (no shadow_synthesized key added)" "null" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_B/iter-1.json" 2>/dev/null)"
+assert_eq "et-shadow-floor(b): the agent-written block's own fields survive" "full" \
+  "$(jq -r '.shadow.coverage' "$SHF_B/iter-1.json" 2>/dev/null)"
+# (c) no promotion evidence (iter-2 is a plain fix iter) → no marker synthesized.
+SHF_C="$SHF_REPO/.devflow/tmp/review/pr-1/run-c"
+mkdir -p "$SHF_C"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_C/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_C/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_C" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(c): no promotion evidence → no shadow block synthesized" "null" \
+  "$(jq -r '.shadow' "$SHF_C/iter-1.json" 2>/dev/null)"
+# The SKILL↔lib coupled constant: SHADOW_SYNTH_EXPECTED_FIELDS must stay a plain,
+# greppable single-line assignment in efficiency-trace.sh (its self-check reads it).
+assert_pin_unique "et-shadow-floor: efficiency-trace.sh carries the SHADOW_SYNTH_EXPECTED_FIELDS constant" \
+  'SHADOW_SYNTH_EXPECTED_FIELDS="shadow_synthesized promoted_to_iter_next"' "$LIB/efficiency-trace.sh"
+rm -rf "$SHF_REPO"
+
+# ── issue #426 prose pins: Phase 1 slice handoff + shadow telemetry (T1–T4) ──
+# T1 → slice pipeline: pin Phase 1.1's awk-from-cached-diff slice fence and Phase
+# 1.2's slice-path prompt line; a mutation restoring inline-slice wording flips RED.
+assert_pin_unique "#426 T1: Phase 1.1 authors the batch slice by awk-extracting ^diff --git sections from the cached diff" \
+  "awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e'" "$ST_REV"
+assert_pin_red_under "#426 T1: Phase 1.2 slice-path handoff flips RED when the inline-diff paste is restored" \
+  'The diff you must analyze is cached on disk. Read it directly with your Read tool' \
+  's/The diff you must analyze is cached on disk\. Read it directly with your Read tool/Here is the git diff for this PR inline/' \
+  "$ST_REV"
+# T2 → fail-closed fallback: the mutation re-introduces the empty-review-surface
+# regression (proceed with the empty slice) the fallback exists to prevent.
+assert_pin_red_under "#426 T2: Phase 1.1 fail-closed full-diff fallback flips RED when it is dropped for an empty-slice proceed" \
+  'missing or empty, fall back to passing the full' \
+  's/missing or empty, fall back to passing the full/missing or empty, proceed with the empty slice instead of the full/' \
+  "$ST_REV"
+# T3 → blinding boundary: the mutation inverts the workpad prohibition (the leak
+# channel the contract closes).
+assert_pin_red_under "#426 T3: shadow blinding-boundary workpad prohibition flips RED when inverted to permit workpad content" \
+  'it never carries a workpad path or workpad content' \
+  's/it never carries a workpad path or workpad content/it may carry a workpad path or workpad content/' \
+  "$MAXI_SKILL"
+# T4 → both-paths fused emit: the mutation removes the DEGRADATION-path arm
+# specifically (recreating the issue-304 silent-drop shape on outcome 3), leaving
+# only the full-fan-out arm — a framing-only pin would survive and be reported RED.
+assert_pin_red_under "#426 T4: both-paths fused-emit obligation flips RED when the honest-degradation arm is removed" \
+  '**the Parse-and-compare completion for a full fan-out, and the honest-degradation fail-safe for an outcome-3 pass that dies mid-fan-out**' \
+  's/for a full fan-out, and the honest-degradation fail-safe for an outcome-3 pass that dies mid-fan-out/for a full fan-out/' \
+  "$MAXI_SKILL"
+
 # ── issue #381 review fixes: sha-exclusion double-count guard + outcome honesty ──
 
 # Mixed-sibling shape: a slug with a REAL workpad run (run-aaa, recording commit A)
@@ -22928,14 +23017,28 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (95 occurrences — 95th is Phase 0.3.5's defensive mkdir, review-REJECT fix)" \
-  "95" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (97 occurrences — 96th/97th are Phase 1.1's awk|tee batch-slice authoring, issue #426)" \
+  "97" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (28 distinct names)" \
   "28" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
+
+# #426 no-skew property: Phase 1.1's awk|tee batch-slice authoring and its test -s
+# fail-closed check reuse heads (awk, tee, test) already granted in BOTH cloud
+# TOOLS='…' lines, so the change adds NO allowlist entry and cannot create the
+# #363 consumer-workflow-version-skew class. Pin each head present in both lines;
+# a future edit that dropped one (making the slice fence silently denied) turns RED.
+REV_TOOLS_RUNNER="$LIB/../.github/workflows/devflow-runner.yml"
+REV_TOOLS_CMD="$LIB/../.github/workflows/devflow.yml"
+for _rev_head in 'Bash(awk:*)' 'Bash(tee:*)' 'Bash(test:*)'; do
+  assert_eq "#426 no-skew: review-runner TOOLS grants ${_rev_head} (Phase 1.1 slice fence adds no new head)" "yes" \
+    "$(grep -qF "$_rev_head" "$REV_TOOLS_RUNNER" && echo yes || echo no)"
+  assert_eq "#426 no-skew: devflow.yml TOOLS grants ${_rev_head} (Phase 1.1 slice fence adds no new head)" "yes" \
+    "$(grep -qF "$_rev_head" "$REV_TOOLS_CMD" && echo yes || echo no)"
+done
 
 # ══ #401 fence SHAPE-lint: proven-denied command SHAPES in skills/review/SKILL.md ══════
 # extract-command-heads.py (above) validates command HEADS. But the deployed cloud matcher
