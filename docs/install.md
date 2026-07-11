@@ -164,3 +164,15 @@ If you run Claude Code against a **third-party model provider** (Amazon Bedrock,
 ### Cloud tier
 
 Bump `devflow_version` in `.devflow/config.json` to a newer tag, branch, or commit SHA (the workflows fetch that ref at runtime), or just re-run the same `install.sh` — now a small diff, since it refreshes the workflows/actions without committing the plugin tree, and keeps your config. Re-running only re-stamps `devflow_version` itself when the existing value is empty or already looks like a commit SHA; a hand-set non-SHA value (a branch name, a tag) is preserved — see [`cloud-setup.md`](cloud-setup.md#install-and-update-the-cloud-tier) for the exact rule. (The plugin must be at the literal workspace path when CI runs because a marketplace install isn't reachable from the Actions sandbox; the `vendor-plugin` action satisfies this at runtime — see [`cloud-setup.md`](cloud-setup.md#why-the-plugin-lives-at-a-workspace-path-not-added-as-a-github-marketplace-in-ci).)
+
+#### Upgrade note: re-sync the workflow `TOOLS` grants for the Phase 0.6 stale-prose lint
+
+The shared review engine's **Phase 0.6** (deterministic stale counted-prose lint) runs the vendored helper `scripts/stale-prose-lint.py`. Its invocation must be granted to the review runner. When upgrading an existing install **past this version**, re-sync your installed workflow `TOOLS='…'` grants — in `.github/workflows/devflow-runner.yml` (auto-review path) and `devflow.yml` (manual `/devflow:review` comment path) — to include:
+
+```
+Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)
+```
+
+Until you do, Phase 0.6 emits the **named-remedy degradation note** (harness-refused arm — it names the missing grant and remedy key) rather than silently skipping: the review still completes, but the stale-prose check does not run.
+
+**Config-only bridge (no workflow edit required).** A consumer whose installed workflow lags the vendored plugin can grant the helper through **tracked config** instead of editing the workflow file: add the same `Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)` entry to `devflow_runner.allowed_tools` in `.devflow/config.json`. `devflow-runner.yml` appends the `devflow_runner.allowed_tools` list **post-floor** (after the reviewer deny-list floor strips tree-mutation tools), so this bridges a lagging installed workflow through committed config alone. Re-syncing the workflow `TOOLS` line remains the durable fix once you next update the workflows.
