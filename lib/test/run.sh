@@ -23077,8 +23077,8 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (97 occurrences — 96th/97th are Phase 1.1's awk|tee batch-slice authoring, issue #426)" \
-  "97" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (96 occurrences — the 96th is Phase 1.1's awk batch-slice authoring, a >-redirect not tee, issue #426)" \
+  "96" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (28 distinct names)" \
@@ -23086,11 +23086,12 @@ assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 
-# #426 no-skew property: Phase 1.1's awk|tee batch-slice authoring and its test -s
-# fail-closed check reuse heads (awk, tee, test) already granted in BOTH cloud
-# TOOLS='…' lines, so the change adds NO allowlist entry and cannot create the
-# #363 consumer-workflow-version-skew class. Pin each head present in both lines;
-# a future edit that dropped one (making the slice fence silently denied) turns RED.
+# #426 no-skew property: Phase 1.1's awk >-redirect batch-slice authoring and its
+# test -s fail-closed check reuse heads (awk, test) already granted in BOTH cloud
+# TOOLS='…' lines; tee remains granted+used by Phase 0.2's cache-write. So the change
+# adds NO allowlist entry and cannot create the #363 consumer-workflow-version-skew
+# class. Pin each head present in both lines (tee included — Phase 0.2 still needs it);
+# a future edit that dropped one (making a slice/cache fence silently denied) turns RED.
 REV_TOOLS_RUNNER="$LIB/../.github/workflows/devflow-runner.yml"
 REV_TOOLS_CMD="$LIB/../.github/workflows/devflow.yml"
 for _rev_head in 'Bash(awk:*)' 'Bash(tee:*)' 'Bash(test:*)'; do

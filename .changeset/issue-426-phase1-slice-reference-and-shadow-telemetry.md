@@ -6,9 +6,10 @@ type: Changed
 - **Hand off Phase 1 diff slices by file reference, and make shadow telemetry non-droppable.**
   Two bounded review-engine changes, inherited by every consumer repo automatically (no config
   surface, no allowlist entry, no consumer action). (1) `skills/review/SKILL.md` Phase 1.1 now
-  authors each >10-file batch's diff slice with a shell-only `awk … | tee` pipeline that extracts
+  authors each >10-file batch's diff slice with a shell-only `awk … >`-redirect that extracts
   the batch's `^diff --git` sections from the already-cached `diff.patch` into a run-scoped slice
-  file (no `git` object access — shallow-checkout safe; no filename arguments — space-safe), and
+  file (no `git` object access — shallow-checkout safe; no filename arguments — space-safe; and a
+  redirect rather than `| tee`, so the slice is never echoed to the orchestrator's stdout), and
   Phase 1.2 passes the `devflow:checklist-generator` the slice's *path* instead of inline content
   (the `{DIFF_PATH}` handoff Phase 3 already uses), so the slice never transits the orchestrator's
   context. A guard-class-2 `test -s` non-empty check falls back to the full `diff.patch` path on any

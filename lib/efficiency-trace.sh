@@ -549,9 +549,9 @@ do_self_check() {
     # synthesized marker still warns while a complete one passes cleanly. A real
     # (agent-written) shadow block has no `shadow_synthesized` key, so this branch
     # never fires on it — the self-check leaves real shadow blocks unvalidated
-    # exactly as before. The `if !` guards the jq like the field check above: an
-    # unreadable/parse-failed file was already warned about and `continue`d, so
-    # this only runs on a valid object.
+    # exactly as before. The earlier `if !`/`continue` (the iter-field check above)
+    # already warned about and skipped any unreadable/parse-failed file, so this
+    # plain `if` only ever runs on a valid JSON object.
     if shadow_missing="$("$DEVFLOW_JQ" -r --arg sfields "$SHADOW_SYNTH_EXPECTED_FIELDS" \
                           'if ((.shadow | type) == "object") and (.shadow.shadow_synthesized == true) then (($sfields | split(" ")) - (.shadow | keys))[] else empty end' \
                           "$iter" 2>/dev/null)"; then
