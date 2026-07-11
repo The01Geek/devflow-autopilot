@@ -34,6 +34,21 @@ set -euo pipefail
 devflow_vendor_log() { printf 'devflow-vendor: %s\n' "$1"; }
 devflow_vendor_die() { printf 'devflow-vendor: %s\n' "$1" >&2; exit 1; }
 
+# Report which branch materialized the plugin: committed | self | fetch.
+# Security consumers key TRUST on this — the deny-list floor in
+# devflow-runner.yml executes the vendored filter helper ONLY on `fetch` (a
+# fresh clone of the official repo at the pinned ref, made this run);
+# `committed`/`self` copies come from the checked-out — possibly PR-head — tree
+# and are never trusted as floor code (the PR-#404 REJECT finding). Written to
+# $GITHUB_OUTPUT when running under the composite action; log-only otherwise
+# (install.sh / tests source this file without GITHUB_OUTPUT).
+devflow_vendor_report_source() {
+  devflow_vendor_log "vendor source: $1"
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "vendor_source=$1" >> "$GITHUB_OUTPUT"
+  fi
+}
+
 # The single shared "what is the plugin" definition. Mirrors the file set
 # install.sh has always vendored. SRC = a checkout/clone root; DEST = where the
 # plugin lands. Stages into a sibling temp dir and swaps in with one atomic `mv`
@@ -73,6 +88,7 @@ devflow_vendor_main() {
   # 1. committed branch — a consumer that committed the plugin (self-hosting).
   if [ -d "$dest/scripts" ]; then
     devflow_vendor_log "plugin already present at $dest — using the committed copy."
+    devflow_vendor_report_source committed
     return 0
   fi
 
@@ -84,6 +100,7 @@ devflow_vendor_main() {
      && grep -Eq '"name"[[:space:]]*:[[:space:]]*"devflow"' .claude-plugin/plugin.json; then
     devflow_vendor_log "self: copying plugin from the checkout root → $dest"
     devflow_copy_slice "." "$dest"
+    devflow_vendor_report_source self
     return 0
   fi
 
@@ -116,6 +133,7 @@ devflow_vendor_main() {
     fi
   fi
   devflow_copy_slice "$tmp/src" "$dest"
+  devflow_vendor_report_source fetch
 }
 
 # Sourced (install.sh, tests) → expose the functions and stop. Executed (the
