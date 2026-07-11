@@ -607,9 +607,9 @@ does two extra things before launching Claude:
    matched by tool **name** (the token before the first `(`, compared
    case-insensitively), so a **parameterized** entry like `Write(**)`,
    `Edit(src/**)`, or `notebookedit(x)` is stripped exactly like the bare name —
-   and
-   any `Bash(…)` whose command-position binary is a raw shell / eval / privilege
-   tool (`bash`, `sh`, `zsh`, `dash`, `ksh`, `fish`, `eval`, `exec`, `source`,
+   and any `Bash(…)` whose command-position binary is a raw shell / eval /
+   privilege tool (`bash`, `sh`, `zsh`, `dash`, `ksh`, `fish`, `eval`, `exec`,
+   `source`,
    `sudo`, `doas`, `su`) **or** an exec-wrapper that would run its argument as the
    real command (`env`, `xargs`, `nice`, `timeout`, `nohup`, `setsid`, `command`,
    `chroot`, `runuser`) — so `Bash(env bash:*)`, `Bash(/bin/bash:*)`,

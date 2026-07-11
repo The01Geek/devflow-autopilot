@@ -11779,6 +11779,195 @@ done
 unset -f extract_step
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "execution transcript artifact: config key + scrub/gate hardening (#409)"
+# ────────────────────────────────────────────────────────────────────────────
+# Issue #409 (deferred findings from the PR #407 review) hardens the opt-in
+# execution-transcript artifact path in devflow-runner.yml. The key gates a
+# credential-scrubbed upload of the engine's execution transcript; its polarity
+# is default-FALSE and fail-CLOSED (the OPPOSITE of execution_diagnostics_enabled),
+# so it must be pinned with the same rigor as its sibling.
+TR_SCHEMA="$LIB/../.devflow/config.schema.json"
+TR_EXAMPLE="$LIB/../.devflow/config.example.json"
+TR_RUNNER="$LIB/../.github/workflows/devflow-runner.yml"
+TR_PROP='.properties.devflow.properties.execution_transcript_artifact_enabled'
+# --- item 1: schema family mirrors execution_diagnostics_enabled ---
+assert_eq "#409 transcript key: schema type is boolean" "boolean" \
+  "$(jq -r "$TR_PROP.type" "$TR_SCHEMA")"
+assert_eq "#409 transcript key: schema default is false (fail-closed polarity)" "false" \
+  "$(jq -r "$TR_PROP.default" "$TR_SCHEMA")"
+assert_eq "#409 transcript key: schema has a non-empty description" "yes" \
+  "$(jq -e "$TR_PROP.description | type == \"string\" and (length > 0)" "$TR_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "#409 transcript key: example value matches schema default" \
+  "$(jq -r "$TR_PROP.default" "$TR_SCHEMA")" \
+  "$(jq -r '.devflow.execution_transcript_artifact_enabled' "$TR_EXAMPLE")"
+# resolver read: configured true read back verbatim; absent/missing → default false
+TR_CFG="$(mktemp)"
+printf '%s' '{"devflow":{"execution_transcript_artifact_enabled":true}}' > "$TR_CFG"
+assert_eq "#409 transcript key: configured true read back" "true" \
+  "$("$CG" .devflow.execution_transcript_artifact_enabled false "$TR_CFG")"
+printf '%s' '{}' > "$TR_CFG"
+assert_eq "#409 transcript key: unset key → resolver default false" "false" \
+  "$("$CG" .devflow.execution_transcript_artifact_enabled false "$TR_CFG")"
+rm -f "$TR_CFG"
+# item 1 behavioral: the example's default-OFF polarity. Flipping the example to
+# true (diverging from the documented default-false) turns the pin RED — proven
+# via the mutation, not a static grep (assert_pin_red_under records the flip).
+assert_pin_red_under "#409 transcript: example encodes the default-OFF polarity — flipping it true inverts the documented default" \
+  '"execution_transcript_artifact_enabled": false' \
+  's/"execution_transcript_artifact_enabled": false/"execution_transcript_artifact_enabled": true/' \
+  "$TR_EXAMPLE"
+# item 1 behavioral: the fail-closed clamp in the diagnostics step. Deleting the
+# clamp lets a non-"true" config value through as-is (fail-open); the mutation
+# removes exactly the clamp line and the pin flips RED.
+assert_pin_red_under "#409 transcript: deleting the fail-closed TRANSCRIPT clamp turns its pin RED" \
+  '[ "$TRANSCRIPT" = "true" ] || TRANSCRIPT=false' \
+  '/TRANSCRIPT=false/d' \
+  "$TR_RUNNER"
+# item 1: the scrub step gates on outputs.transcript == 'true'; the upload step
+# gates on the scrub step producing a path (so an empty/failed scrub uploads nothing).
+assert_eq "#409 transcript: scrub step gates on diagnostics.outputs.transcript == 'true'" "1" \
+  "$(grep -cF "steps.diagnostics.outputs.transcript == 'true'" "$TR_RUNNER" || true)"
+assert_eq "#409 transcript: upload step gates on scrub_transcript.outputs.path != ''" "1" \
+  "$(grep -cF "steps.scrub_transcript.outputs.path != ''" "$TR_RUNNER" || true)"
+# --- item 5: coupled pin — schema retention phrase ↔ upload retention-days agree ---
+# The schema description advertises an "N-day run artifact"; the upload step sets
+# retention-days: N. If one changes without the other the two derived numbers
+# disagree and this assertion goes RED.
+# DEFERRED (#409 review, Suggestion, below the `important` fix threshold): both sides
+# take `head -1` of their match, so a SECOND incidental `N-day` phrase in the schema
+# description or a second `retention-days:` in the workflow could shift the compared
+# pair silently. Low risk today (each token occurs exactly once). Revisit only if a
+# second occurrence of either token is introduced — then anchor the match to the
+# specific property/step instead of first-match.
+TR_RET_SCHEMA="$(jq -r "$TR_PROP.description" "$TR_SCHEMA" | grep -oE '[0-9]+-day' | grep -oE '^[0-9]+' | head -1)"
+TR_RET_UPLOAD="$(grep -oE 'retention-days: [0-9]+' "$TR_RUNNER" | grep -oE '[0-9]+' | head -1)"
+assert_eq "#409 transcript: schema retention phrase present (N-day)" "yes" \
+  "$([ -n "$TR_RET_SCHEMA" ] && echo yes || echo no)"
+assert_eq "#409 transcript: schema retention phrase agrees with upload retention-days" \
+  "$TR_RET_UPLOAD" "$TR_RET_SCHEMA"
+# --- items 2/3/4 behavioral: drive the REAL extracted scrub step end-to-end ---
+# Extract the scrub_transcript step's run body from the workflow and exercise it
+# against a fixture transcript carrying every scrubbed credential shape. Driving
+# the real step (not a hand-copied sed) keeps the test honest as the step evolves.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  SCRUB_STEP="$(mktemp)"
+  python3 - "$TR_RUNNER" >"$SCRUB_STEP" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for job in doc["jobs"].values():
+    for s in job.get("steps", []):
+        if s.get("id") == "scrub_transcript" and "run" in s:
+            sys.stdout.write("#!/usr/bin/env bash\n" + s["run"])
+            raise SystemExit
+raise SystemExit("scrub_transcript step not found")
+PY
+  SCRUB_DIR="$(mktemp -d)"
+  SCRUB_EXEC="$SCRUB_DIR/exec.json"
+  # A fixture carrying: gh token, PAT, Anthropic key, Bearer header, and the
+  # base64 basic-auth header the checkout persists (item 4). The basic-auth line
+  # uses the REAL UPPERCASE `AUTHORIZATION:` form actions/checkout's git-auth-helper
+  # persists (case-insensitive header match, #409 review) — a mixed-case fixture
+  # would pass vacuously against a case-sensitive `Authorization` literal and give
+  # false confidence against exactly the header item 4 exists to redact.
+  {
+    printf '%s\n' 'tok=ghs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    printf '%s\n' 'pat=github_pat_ABCDEFGHIJKLMNOPQRSTUV0123456789'
+    printf '%s\n' 'key=sk-ant-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    printf '%s\n' 'Authorization: Bearer ABCDEFGHIJKLMNOPQRSTUVWXYZ012345'
+    printf '%s\n' 'AUTHORIZATION: basic eHgtYWNjZXNzLXRva2VuOmdoc19BQkNERUZHSElKS0xNTk9Q'
+  } > "$SCRUB_EXEC"
+  SCRUB_GH_OUT="$SCRUB_DIR/gh_output"
+  : > "$SCRUB_GH_OUT"
+  EXECUTION_FILE="$SCRUB_EXEC" RUNNER_TEMP="$SCRUB_DIR" GITHUB_OUTPUT="$SCRUB_GH_OUT" \
+    bash "$SCRUB_STEP" > "$SCRUB_DIR/log" 2>&1 || true
+  SCRUB_OUT="$SCRUB_DIR/claude-execution-scrubbed.json"
+  # item 4 + existing shapes: every credential redacted, no raw secret survives.
+  assert_eq "#409 scrub: ghs_ token redacted" "yes" \
+    "$(grep -qF '[REDACTED-GH-TOKEN]' "$SCRUB_OUT" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#409 scrub: github_pat_ redacted" "yes" \
+    "$(grep -qF '[REDACTED-GH-PAT]' "$SCRUB_OUT" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#409 scrub: sk-ant- key redacted" "yes" \
+    "$(grep -qF '[REDACTED-ANTHROPIC-KEY]' "$SCRUB_OUT" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#409 scrub: Bearer header redacted" "yes" \
+    "$(grep -qF 'Bearer [REDACTED]' "$SCRUB_OUT" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#409 scrub: base64 basic-auth header redacted (item 4)" "yes" \
+    "$(grep -qF 'basic [REDACTED]' "$SCRUB_OUT" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#409 scrub: no raw base64 basic-auth token survives (item 4)" "no" \
+    "$(grep -qF 'eHgtYWNjZXNzLXRva2Vu' "$SCRUB_OUT" 2>/dev/null && echo yes || echo no)"
+  # item 2: caveat header prepended into the artifact + best-effort warning emitted.
+  assert_eq "#409 scrub: caveat header prepended into the artifact (item 2)" "yes" \
+    "$(grep -qF 'DEVFLOW SCRUB CAVEAT' "$SCRUB_OUT" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#409 scrub: incomplete-blocklist warning emitted (item 2)" "yes" \
+    "$(grep -qF 'best-effort blocklist covering four credential shapes' "$SCRUB_DIR/log" 2>/dev/null && echo yes || echo no)"
+  # item 3: non-empty output advertises a path=.
+  assert_eq "#409 scrub: non-empty scrub advertises path= (item 3)" "yes" \
+    "$(grep -qF 'path=' "$SCRUB_GH_OUT" 2>/dev/null && echo yes || echo no)"
+  # item 3: an empty execution file scrubs to empty → no path advertised, own breadcrumb.
+  SCRUB_EMPTY_EXEC="$SCRUB_DIR/empty.json"
+  : > "$SCRUB_EMPTY_EXEC"
+  SCRUB_GH_OUT2="$SCRUB_DIR/gh_output2"
+  : > "$SCRUB_GH_OUT2"
+  EXECUTION_FILE="$SCRUB_EMPTY_EXEC" RUNNER_TEMP="$SCRUB_DIR" GITHUB_OUTPUT="$SCRUB_GH_OUT2" \
+    bash "$SCRUB_STEP" > "$SCRUB_DIR/log2" 2>&1 || true
+  assert_eq "#409 scrub: empty output advertises NO path= (item 3)" "no" \
+    "$(grep -qF 'path=' "$SCRUB_GH_OUT2" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#409 scrub: empty output leaves its own breadcrumb (item 3)" "yes" \
+    "$(grep -qF 'scrubbed transcript is empty' "$SCRUB_DIR/log2" 2>/dev/null && echo yes || echo no)"
+  # item 2 fail-closed arm: if the caveat-header write fails, NO path= is advertised
+  # and a distinct fail-closed breadcrumb is emitted — a half-written/unscrubbed file
+  # must never be uploaded (#409 review: the security fail-closed arm was untested).
+  # Drive it by PATH-shadowing `mv` (used only in the caveat prepend) with a failing shim.
+  # DEFERRED (#409 review, Suggestion, below the `important` fix threshold): this only
+  # shadows `mv`. The caveat write is a single `printf … && cat … && mv …` &&-chain, so
+  # a `printf`/`cat` failure takes the IDENTICAL else-branch and the same fail-closed
+  # path — the arm is proven closed via `mv`; shadowing the earlier chain members would
+  # observe the same branch. Revisit only if the chain gains a DISTINCT per-member
+  # branch (then each member needs its own RED observation).
+  MV_BIN="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$MV_BIN/mv"
+  chmod +x "$MV_BIN/mv"
+  SCRUB_GH_OUT3="$SCRUB_DIR/gh_output3"
+  : > "$SCRUB_GH_OUT3"
+  ( PATH="$MV_BIN:$PATH" EXECUTION_FILE="$SCRUB_EXEC" RUNNER_TEMP="$SCRUB_DIR" GITHUB_OUTPUT="$SCRUB_GH_OUT3" \
+      bash "$SCRUB_STEP" ) > "$SCRUB_DIR/log3" 2>&1 || true
+  assert_eq "#409 scrub: caveat-write failure advertises NO path= (fail-closed, item 2)" "no" \
+    "$(grep -qF 'path=' "$SCRUB_GH_OUT3" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#409 scrub: caveat-write failure emits its fail-closed breadcrumb (item 2)" "yes" \
+    "$(grep -qF 'caveat-header write failed' "$SCRUB_DIR/log3" 2>/dev/null && echo yes || echo no)"
+  rm -rf "$MV_BIN"
+  # absent-execution-file arm: the if: gate guarantees a non-empty output name but not
+  # that the file exists, so the `[ ! -f "$EXECUTION_FILE" ]` early-exit is reachable —
+  # it emits a notice and no path= (#409 review, Suggestion).
+  SCRUB_GH_OUT4="$SCRUB_DIR/gh_output4"
+  : > "$SCRUB_GH_OUT4"
+  EXECUTION_FILE="$SCRUB_DIR/does-not-exist.json" RUNNER_TEMP="$SCRUB_DIR" GITHUB_OUTPUT="$SCRUB_GH_OUT4" \
+    bash "$SCRUB_STEP" > "$SCRUB_DIR/log4" 2>&1 || true
+  assert_eq "#409 scrub: absent execution file advertises NO path=" "no" \
+    "$(grep -qF 'path=' "$SCRUB_GH_OUT4" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#409 scrub: absent execution file leaves its own breadcrumb" "yes" \
+    "$(grep -qF 'execution file absent' "$SCRUB_DIR/log4" 2>/dev/null && echo yes || echo no)"
+  # outer sed-failure arm: if the sed scrub itself fails, NO path= is advertised and
+  # the unscrubbed file is not uploaded (#409 review, last uncovered scrub branch).
+  # Drive it by PATH-shadowing `sed` with a failing shim.
+  SED_BIN="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$SED_BIN/sed"
+  chmod +x "$SED_BIN/sed"
+  SCRUB_GH_OUT5="$SCRUB_DIR/gh_output5"
+  : > "$SCRUB_GH_OUT5"
+  ( PATH="$SED_BIN:$PATH" EXECUTION_FILE="$SCRUB_EXEC" RUNNER_TEMP="$SCRUB_DIR" GITHUB_OUTPUT="$SCRUB_GH_OUT5" \
+      bash "$SCRUB_STEP" ) > "$SCRUB_DIR/log5" 2>&1 || true
+  assert_eq "#409 scrub: sed-failure advertises NO path= (fail-closed)" "no" \
+    "$(grep -qF 'path=' "$SCRUB_GH_OUT5" 2>/dev/null && echo yes || echo no)"
+  assert_eq "#409 scrub: sed-failure emits its fail-closed breadcrumb" "yes" \
+    "$(grep -qF 'transcript scrub failed' "$SCRUB_DIR/log5" 2>/dev/null && echo yes || echo no)"
+  rm -rf "$SED_BIN"
+  rm -f "$SCRUB_STEP"
+  rm -rf "$SCRUB_DIR"
+else
+  echo "  SKIP  #409 scrub behavioral tests (python3+pyyaml unavailable)"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "resolve-implement-trigger.sh"
 # ────────────────────────────────────────────────────────────────────────────
 # The implement trigger runs the action in AGENT mode (explicit prompt), which
@@ -15561,9 +15750,15 @@ assert_eq "#404 trust: baseprovision materializes the floor from FETCH_HEAD" "1"
 # exactly that mutation (evidence: the behavioral attack-path test below also
 # goes RED under it; this literal pin catches the edit at the desk).
 assert_pin_red_under "#404 trust: vendored floor fallback is gated on vendor_source=fetch — dropping the gate re-opens PR-head tampering" \
-  '[ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f .devflow/vendor/devflow/scripts/filter-runner-tools.sh ]' \
+  '[ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f "$_REPO_ROOT/.devflow/vendor/devflow/scripts/filter-runner-tools.sh" ]' \
   's/\[ "\$\{VENDOR_SOURCE:-\}" = "fetch" \] \&\& //' \
   "$RUNNER"
+# ── #409 item 8: the deny-floor helper resolution anchors to the git repo ROOT ──
+# (#295 convention: `git rev-parse --show-toplevel`, falling back to `pwd`), so a
+# bare relative `.devflow/vendor/…` candidate can't be silently missed under a
+# future `working-directory:` and flip every review to helper-absent fail-closed.
+assert_eq "#409 item8: deny-floor helper resolution is repo-root-anchored (#295)" "1" \
+  "$(grep -cF '_REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"' "$RUNNER" || true)"
 assert_eq "provision: empty-after-strip warns build-aware review has no tools" "1" \
   "$(grep -c 'build-aware review is enabled with NO build tools' "$RUNNER" || true)"
 
@@ -15625,6 +15820,31 @@ assert_eq "#402 helper: three strip warnings for a 3-deny mixed list" "3" \
 assert_eq "#402 helper: no strip warning for an all-clean list" "0" \
   "$(frt_strip 'Bash(go:*),Read(src/**)')"
 
+# ── #409 item 9: file-tool tier — kept lookalikes AND stripped bare case-variants ─
+# The kept direction: a name that merely STARTS WITH a file-tool word (Editor, WriteLog)
+# is NOT a file-tool name (the match is the whole token before '(', not a prefix), so it
+# survives. The bare direction: a bare, case-variant file-tool name (write, EDIT) has no
+# '(' yet is still matched case-insensitively by name and stripped. Both were untested.
+assert_eq "#409 item9: Editor(x) lookalike kept (near-miss name, not a file tool)" "Editor(x)" "$(frt_out 'Editor(x)')"
+assert_eq "#409 item9: WriteLog(x) lookalike kept (near-miss name)" "WriteLog(x)" "$(frt_out 'WriteLog(x)')"
+assert_eq "#409 item9: bare case-variant 'write' stripped" "" "$(frt_out 'write')"
+assert_eq "#409 item9: bare case-variant 'EDIT' stripped" "" "$(frt_out 'EDIT')"
+
+# ── #409 item 11: a crafted config entry embedding a workflow command is inert ────
+# Bug shape: filter-runner-tools.sh's per-entry strip warning interpolates the raw
+# entry, and the workflow re-emits each strip line as `::warning::<line>`. A crafted
+# entry like Write(**::endgroup::) must NOT let its embedded `::endgroup::` reach the
+# START of a re-emitted line (which GitHub would treat as a log-group command). Because
+# the workflow prefixes `::warning::`, the injected token stays mid-line and inert.
+FRT_INJ_LINE="$(RUNNER_TOOLS='Write(**::endgroup::)' bash "$FRT" 2>&1 1>/dev/null | head -1)"
+FRT_EMIT="::warning::$FRT_INJ_LINE"   # exactly what the workflow's `echo "::warning::$_line"` produces
+assert_eq "#409 item11: the entry is stripped and produces a strip warning line" "yes" \
+  "$(printf '%s' "$FRT_INJ_LINE" | grep -qF "stripped 'Write(**::endgroup::)'" && echo yes || echo no)"
+assert_eq "#409 item11: the re-emitted line begins with ::warning:: (endgroup embedded mid-line)" "yes" \
+  "$(printf '%s' "$FRT_EMIT" | grep -q '^::warning::' && echo yes || echo no)"
+assert_eq "#409 item11: no re-emitted line begins with ::endgroup:: (workflow command not injected)" "no" \
+  "$(printf '%s\n' "$FRT_EMIT" | grep -q '^::endgroup::' && echo yes || echo no)"
+
 # ── #402: behavioral-fix pin — the file-tool NAME match, not exact equality ───
 # The fix is: match the tool NAME (token before the first "(") case-insensitively,
 # so Write(**) is stripped. The bug re-introduces itself if the match is weakened
@@ -15680,6 +15900,24 @@ assert_eq "provision: detect filters runner write through denylisted" "1" \
   "$(grep -cF 'select(denylisted | not)' "$DETECT" || true)"
 assert_eq "provision: detect runner write uses filtered \$runner_tools" "1" \
   "$(grep -cF '.devflow_runner.allowed_tools    = ((.devflow_runner.allowed_tools    // []) + $runner_tools' "$DETECT" || true)"
+
+# ── #409 item 10: behavioral — drive the jq `denylisted` mirror over lookalikes ──
+# The static greps above only prove the filter is DEFINED and WIRED, not that it
+# keeps near-miss names. Extract the `denylisted` def from the script and run it
+# directly via jq, mirroring the runner-helper lookalike assertions (item 9) so the
+# two filters cannot drift: a near-miss name (Editor(x)) and a no-parenthesis
+# malformed entry (WriteLog) are both KEPT (denylisted → false).
+DENY_JQ="$(awk '/def denylisted:/{f=1} f{print} f&&/end;/{exit}' "$DETECT")"
+assert_eq "#409 item10: jq mirror is denylisted-def extractable" "yes" \
+  "$([ -n "$DENY_JQ" ] && echo yes || echo no)"
+assert_eq "#409 item10: jq mirror keeps Editor(x) lookalike (near-miss name)" "false" \
+  "$(printf '%s' 'Editor(x)' | jq -R "$DENY_JQ denylisted")"
+assert_eq "#409 item10: jq mirror keeps WriteLog no-parenthesis malformed entry" "false" \
+  "$(printf '%s' 'WriteLog' | jq -R "$DENY_JQ denylisted")"
+# And confirms the mirror still STRIPS the real thing (so the lookalike-kept test
+# above is not vacuously green because the whole filter stopped denying anything).
+assert_eq "#409 item10: jq mirror still strips a real parameterized file tool (Write(**))" "true" \
+  "$(printf '%s' 'Write(**)' | jq -R "$DENY_JQ denylisted")"
 
 # Behavioral: actually RUN the 'tools' step's deny-list filter. The static greps
 # above only prove the deny-list STRINGS exist, not that filtering works — and
@@ -15886,6 +16124,76 @@ PY
   assert_eq "#402 iter2: helper malfunction does NOT misdiagnose as empty config" "0" \
     "$(grep -c 'allowed_tools is empty' "$MF_LOG" || true)"
   rm -rf "$MF_DIR"; rm -f "$MF_OUT" "$MF_LOG"
+
+  # ── #409 item 7: mktemp failure in the deny-floor helper-call block fails CLOSED ──
+  # The STRIP_LOG temp allocation can fail (temp dir unwritable/exhausted). The
+  # guard must NOT hard-abort the tools step under GitHub's default `-e` shell — it
+  # must emit the documented actionable warning and append nothing (fail-closed).
+  # Drive it by PATH-shadowing `mktemp` with a failing shim so the STRIP_LOG
+  # allocation fails while a valid FLOOR_HELPER keeps the block on its helper-call arm.
+  MK_BIN=$(mktemp -d)
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$MK_BIN/mktemp"
+  chmod +x "$MK_BIN/mktemp"
+  MK_OUT=$(mktemp); MK_LOG=$(mktemp)
+  ( PATH="$MK_BIN:$PATH" PROFILE=review PROVISION_ENV=true RUNNER_TOOLS='Bash(go:*)' \
+      FLOOR_HELPER="$FRT" FLOOR_SOURCE=test VENDOR_SOURCE=committed \
+      GITHUB_OUTPUT="$MK_OUT" bash "$TOOLS_STEP" ) >"$MK_LOG" 2>&1 || true
+  MK_TOOLS=$(awk '/^tools<</{f=1;next} (f && /^EOF_/){f=0} f' "$MK_OUT")
+  assert_eq "#409 item7: mktemp failure appends nothing (fail-closed)" "yes" \
+    "$(case "$MK_TOOLS" in "$BASE_TOOLS") echo yes ;; *) echo no ;; esac)"
+  assert_eq "#409 item7: mktemp failure emits the documented actionable warning" "1" \
+    "$(grep -c 'could not create a temp file (mktemp failed' "$MK_LOG" || true)"
+  assert_eq "#409 item7: mktemp failure does NOT hard-abort (base tools still emitted)" "yes" \
+    "$([ -n "$MK_TOOLS" ] && echo yes || echo no)"
+  rm -rf "$MK_BIN"; rm -f "$MK_OUT" "$MK_LOG"
+
+  # ── #409 item 8 (behavior): fetch-vendored floor resolves REPO-ROOT-anchored ──
+  # The `_REPO_ROOT="$(git rev-parse --show-toplevel … || pwd)"` grep above only
+  # proves the line EXISTS. This drives the REAL tools step from a SUBDIRECTORY of a
+  # git repo whose ROOT carries the freshly-fetched vendored helper. Repo-root
+  # anchoring is exactly what lets the (otherwise bare-relative) vendored candidate
+  # resolve from a non-root cwd; a future `working-directory:` (or a step that `cd`s)
+  # would silently miss it and flip every fetch-vendored review to the helper-absent
+  # fail-closed arm. With anchoring the helper is found → Write(**) stripped,
+  # Bash(go:*) kept. If the anchoring regressed to a bare `.devflow/vendor/…` path,
+  # the file would not resolve from the subdir → nothing appended → this assertion's
+  # `,Bash(go:*)` expectation goes RED (mutation-verified: reverting `$_REPO_ROOT/`
+  # to the bare relative path drops the append and turns this row RED).
+  RA_ROOT=$(mktemp -d)
+  git -C "$RA_ROOT" init -q
+  mkdir -p "$RA_ROOT/.devflow/vendor/devflow/scripts" "$RA_ROOT/sub/deeper"
+  cp "$FRT" "$RA_ROOT/.devflow/vendor/devflow/scripts/filter-runner-tools.sh"
+  RA_OUT=$(mktemp); RA_LOG=$(mktemp)
+  ( cd "$RA_ROOT/sub/deeper" && PROFILE=review PROVISION_ENV=true RUNNER_TOOLS='Bash(go:*),Write(**)' \
+      FLOOR_HELPER='' FLOOR_SOURCE=absent VENDOR_SOURCE=fetch \
+      GITHUB_OUTPUT="$RA_OUT" bash "$TOOLS_STEP" ) >"$RA_LOG" 2>&1 || true
+  RA_TOOLS=$(awk '/^tools<</{f=1;next} (f && /^EOF_/){f=0} f' "$RA_OUT")
+  assert_eq "#409 item8 (behavior): fetch-vendored floor resolves from a non-root cwd (repo-root-anchored) — Write(**) stripped, Bash(go:*) kept" ",Bash(go:*)" \
+    "${RA_TOOLS#"$BASE_TOOLS"}"
+  rm -rf "$RA_ROOT"; rm -f "$RA_OUT" "$RA_LOG"
+
+  # ── #409 item 8 (behavior): the non-git `|| pwd` fallback yields a USABLE root ──
+  # When cwd is not inside a git repo, `git rev-parse --show-toplevel` fails and the
+  # `|| pwd` fallback must yield the cwd — NOT an empty _REPO_ROOT, which would make
+  # the candidate "/.devflow/vendor/…" (an absolute path from the filesystem root)
+  # that never resolves → the floor silently fails closed on every non-git runner.
+  # Drive the REAL step from a NON-git dir carrying the fetched vendored helper at
+  # its root: the pwd fallback resolves it → Write(**) stripped, Bash(go:*) kept.
+  # If _REPO_ROOT resolved empty (e.g. the `|| pwd` fallback were dropped) the
+  # candidate would not resolve → nothing appended → this row goes RED
+  # (mutation-verified: forcing _REPO_ROOT='' drops the append and turns this RED).
+  NG_ROOT=$(mktemp -d)   # deliberately NOT a git repo (system temp is not a repo)
+  mkdir -p "$NG_ROOT/.devflow/vendor/devflow/scripts"
+  cp "$FRT" "$NG_ROOT/.devflow/vendor/devflow/scripts/filter-runner-tools.sh"
+  NG_OUT=$(mktemp); NG_LOG=$(mktemp)
+  ( cd "$NG_ROOT" && PROFILE=review PROVISION_ENV=true RUNNER_TOOLS='Bash(go:*),Write(**)' \
+      FLOOR_HELPER='' FLOOR_SOURCE=absent VENDOR_SOURCE=fetch \
+      GITHUB_OUTPUT="$NG_OUT" bash "$TOOLS_STEP" ) >"$NG_LOG" 2>&1 || true
+  NG_TOOLS=$(awk '/^tools<</{f=1;next} (f && /^EOF_/){f=0} f' "$NG_OUT")
+  assert_eq "#409 item8 (behavior): non-git \`|| pwd\` fallback yields a usable root (fetch-vendored floor still resolves) — Write(**) stripped, Bash(go:*) kept" ",Bash(go:*)" \
+    "${NG_TOOLS#"$BASE_TOOLS"}"
+  rm -rf "$NG_ROOT"; rm -f "$NG_OUT" "$NG_LOG"
+
   rm -f "$TOOLS_STEP"
 
   # ── #404: baseprovision materializes the floor helper from the TRUSTED base ref ──
