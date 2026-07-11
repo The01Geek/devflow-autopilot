@@ -1145,6 +1145,21 @@ assert_pin_unique "sev(rev): rule 6 is threshold-driven (coupled with rule 3)" '
 # with two contradictory verdict specs (coupled-invariant rule; PR #252 review finding).
 assert_pin_unique "sev(rev): Verdict-Criteria summary REJECT line is threshold-driven (mirror of rule 3)" 'at or above the configured verdict threshold ({VERDICT_THRESHOLD}) → REJECT' "$ST_REV"
 assert_pin_unique "sev(rev): Verdict-Criteria summary APPROVE-with-notes line is threshold-driven (mirror of rule 6)" 'Only findings below the verdict threshold → APPROVE with notes' "$ST_REV"
+# #425: agent_overrides `iterations: "first-only"` roster scoping. The engine's Phase 3.1
+# exclusion (skills/review/SKILL.md) and the Step-2.6 shadow-not-scoped boundary
+# (skills/review-and-fix/SKILL.md) are prose-driven dispatch contracts, pinned per the
+# suite's SKILL.md convention. The shadow-not-scoped sentence is a behavioral-fix pin routed
+# through assert_pin_red_under: deleting the sentence must go RED (a thinned shadow is the
+# regression this exists to catch).
+assert_pin_unique "#425(rev): Phase 3.1 excludes a first-only agent on fix-loop iter≥2" \
+  'drop from the Phase-3 launch list every agent whose resolved override carries' "$ST_REV"
+assert_pin_unique "#425(rev): the iterations exclusion is never applied to the Step 2.6 shadow" \
+  'This gate is **never** applied to the Step 2.6 shadow fan-out' "$ST_REV"
+assert_pin_unique "#425(raf): the shadow keeps the full roster regardless of iterations" \
+  'the shadow always dispatches the **full** expected roster above regardless of any' "$ST_RAF"
+# NOTE: the #425 shadow-not-scoped behavioral-fix pin is routed through assert_pin_red_under,
+# which is defined below (~line 1990) — so its call lives after that definition (search
+# "#425(raf): shadow-not-scoped"); calling it here would be a silent command-not-found.
 # Step 2.5's pre-fix verification gate was widened in lockstep with the routing threshold:
 # it now classifies the WHOLE effective fix set, not just Critical/Important. This is the
 # load-bearing safety behavior that keeps a Suggestion-level fix (admitted at
@@ -2022,6 +2037,14 @@ printf 'operative token a.c/[x] on this line\nunrelated framing line\n' > "$PRU_
 assert_eq "#375 assert_pin_red_under: a pinned literal carrying regex+sed-delimiter metachars round-trips (fixed-string match; mutation flips it PASS->FAIL)" \
   "PASS" "$(probe_assert assert_pin_red_under 'meta' 'a.c/[x]' '/a\.c/d' "$PRU_META")"
 rm -f "$PRU_META"
+# #425 shadow-not-scoped behavioral-fix pin (placed here, below the assert_pin_red_under
+# definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
+# Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
+# value. Mutation deletes the sentence's line; the pin must flip PASS->FAIL (a thinned shadow is
+# the regression). $ST_RAF (skills/review-and-fix/SKILL.md) was set far above and persists.
+assert_pin_red_under "#425(raf): shadow-not-scoped sentence is operative (deleting it goes RED)" \
+  'the shadow always dispatches the **full** expected roster above regardless of any' \
+  '/override key is NOT applied to the shadow fan-out/d' "$ST_RAF"
 #
 assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns its pin RED" \
   'park-calibration gate clean: no parked finding matched'

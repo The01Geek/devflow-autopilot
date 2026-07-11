@@ -11,6 +11,14 @@ the subagents about to be dispatched and materializes the per-run `--agents`
 JSON override map the engine passes at dispatch.
 
 Resolution rules (mirroring the schema + docs/review-agent-overrides.md):
+  - `iterations` (issue #425): an optional per-entry key whose only valid value is
+    "first-only". A valid value is passed through in the resolved map; any other
+    value (including an empty string) is dropped with a warning, mirroring the
+    invalid-effort path — the run never aborts. Like model/effort it obeys
+    entry-level precedence (a `default: {iterations: …}` supplies it only to
+    no-entry subagents). This resolver only READS the key; the fix-loop-iteration>=2
+    roster exclusion it drives is enforced engine-side (skills/review/SKILL.md
+    Phase 3.1), and `iterations` is NOT a dispatch-time model/effort parameter.
   - Entry-level precedence: a subagent with its own entry uses ONLY that entry;
     the `default` entry does NOT backfill its missing fields. The `default`
     entry supplies model/effort only for subagents with no entry of their own.
@@ -50,6 +58,14 @@ import subprocess
 import sys
 
 VALID_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+# The only valid `iterations` value (issue #425). An agent whose resolved override
+# carries `iterations: "first-only"` is excluded from the Phase-3 review roster on
+# fix-loop iterations >= 2 — but that exclusion is enforced ENGINE-side
+# (skills/review/SKILL.md Phase 3.1); this resolver only reads the key and passes a
+# valid value through (dropping any other value with a warning, exactly like an
+# out-of-enum effort). Default absent = today's behavior, byte-identical.
+VALID_ITERATIONS = ("first-only",)
 
 # config-get.sh stringifies a non-array config value the way JS String() does (the
 # format config-get.sh's python3 coerce() reproduces for parity); a JSON object
@@ -140,6 +156,17 @@ def resolve_overrides(raw, dispatched):
                     f"{list(VALID_EFFORTS)}; falling back to session effort{scope}."
                 )
 
+        iterations = entry.get("iterations")
+        if iterations is not None:
+            if iterations in VALID_ITERATIONS:
+                resolved["iterations"] = iterations
+            else:
+                warnings.append(
+                    f"agent_overrides[{source}].iterations={iterations!r} is not one of "
+                    f"{list(VALID_ITERATIONS)}; dropping it (agent dispatches on every "
+                    f"iteration){scope}."
+                )
+
         if resolved:
             result[agent] = resolved
     return result, warnings
@@ -188,7 +215,7 @@ def read_raw(dispatched, config_get, config_file):
     for agent in list(dispatched) + ["default"]:
         base = f".devflow_review.agent_overrides.{agent}"
         entry = {}
-        for field in ("model", "effort"):
+        for field in ("model", "effort", "iterations"):
             # Agent ids contain ':' but never '.', so they are a single
             # dot-path segment — config-get.sh splits on '.' only.
             value = _config_get(config_get, config_file, f"{base}.{field}", warnings)
