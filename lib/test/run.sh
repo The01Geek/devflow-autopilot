@@ -20730,18 +20730,17 @@ assert_pin_unique "#408 review-yml: incomplete arm marks the run backstop_eligib
   'echo "backstop_eligible=true" >> "$GITHUB_OUTPUT"' "$WFR408"
 assert_pin_unique "#408 review-yml: 'Review stall backstop' step present" \
   "name: Review stall backstop" "$WFR408"
-# request-review-backstop.sh / post-issue-comment.sh each appear twice by design
-# (vendored path + repo-path fallback), so assert PRESENCE, not uniqueness.
-assert_eq "#408 review-yml: step calls the vendored/repo decision helper" "yes" \
-  "$(grep -qF "request-review-backstop.sh" "$WFR408" && echo yes || echo no)"
+# The post-and-annotate glue (decision call + POST + notice/warning selection, incl.
+# the request-review-backstop.sh / post-issue-comment.sh calls and the stall-backstop
+# header) is now the shared post-review-backstop-comment.sh helper (issue #414); the
+# step just calls it (vendored path + repo-path fallback, so the name appears twice).
+# The moved helper-content literals are pinned against the helper in the #414 block.
+assert_eq "#408/#414 review-yml: step calls the extracted post-and-annotate helper" "yes" \
+  "$(grep -qF "post-review-backstop-comment.sh" "$WFR408" && echo yes || echo no)"
 assert_pin_unique "#408 review-yml: fresh backstop-token mint step present" \
   "id: backstop-token" "$WFR408"
 assert_eq "#408 review-yml: backstop-token mint gated on always()+eligible+DEVFLOW_APP_ID" "1" \
   "$(grep -cF "if: \${{ always() && steps.finalize.outputs.backstop_eligible == 'true' && vars.DEVFLOW_APP_ID != '' }}" "$WFR408")"
-assert_eq "#408 review-yml: re-trigger posted via the best-effort REST helper" "yes" \
-  "$(grep -qF "post-issue-comment.sh" "$WFR408" && echo yes || echo no)"
-assert_pin_unique "#408 review-yml: re-trigger body carries the review stall-backstop header" \
-  "**DevFlow review stall backstop**" "$WFR408"
 # The run-step's OWN if: gate is load-bearing: the step hardcodes VERDICT: incomplete,
 # so the helper's verdict guard cannot protect against firing on an approve/reject run
 # — the only protection is (a) backstop_eligible set ONLY in the incomplete arm (pinned
@@ -20755,17 +20754,16 @@ assert_eq "#408 review-yml: run-step gated on always()+backstop_eligible" "1" \
 assert_eq "#408 review-yml: backstop_eligible=true lives in the incomplete case arm" "yes" \
   "$(awk '/\*\)  # incomplete/{f=1} f && /backstop_eligible=true/{print "hit"; exit} f && /^              esac/{exit}' "$WFR408" | grep -q hit && echo yes || echo no)"
 # Fix A (issue #408 review): the success ::notice:: must be gated on post-issue-comment.sh's
-# exact success breadcrumb, because that helper ALWAYS exits 0 — an exit-code check would let
-# a failed POST be annotated as a fired re-trigger. Pin the consumer-side breadcrumb grep.
-assert_pin_unique "#408 review-yml: success notice gated on the post-comment success breadcrumb" \
-  'grep -qxF "devflow: posted comment on #$PR_NUMBER"' "$WFR408"
+# exact success breadcrumb (that helper ALWAYS exits 0, so an exit-code check would annotate a
+# failed POST as a fired re-trigger). After #414 that selection lives in the shared helper and
+# is DRIVEN — not merely presence-pinned — in the #414 block below (fire+success vs fire+silent).
 
 # Workflow wiring — devflow.yml manual /devflow:review dead-run arm.
 WFD408="$REPO_ROOT/.github/workflows/devflow.yml"
 assert_pin_unique "#408 devflow-yml: 'Review stall backstop' step present on the manual path" \
   "name: Review stall backstop" "$WFD408"
-assert_eq "#408 devflow-yml: manual-path step calls the decision helper" "yes" \
-  "$(grep -qF "request-review-backstop.sh" "$WFD408" && echo yes || echo no)"
+assert_eq "#408/#414 devflow-yml: manual-path step calls the extracted post-and-annotate helper" "yes" \
+  "$(grep -qF "post-review-backstop-comment.sh" "$WFD408" && echo yes || echo no)"
 assert_eq "#408 devflow-yml: manual-path backstop gated on a /devflow:review command" "yes" \
   "$(grep -A1 'name: Review stall backstop' "$WFD408" | grep -qF "startsWith(needs.gate.outputs.command, '/devflow:review ')" && echo yes || echo no)"
 # The manual-path DEAD-RUN trigger clause is the sole logic distinguishing a dead review
@@ -20780,9 +20778,8 @@ assert_pin_unique "#408 devflow-yml: manual-path fresh backstop-token mint step 
   "id: backstop-token" "$WFD408"
 assert_eq "#408 devflow-yml: manual-path mint gated on the dead-run trigger + DEVFLOW_APP_ID" "1" \
   "$(grep -cF "(steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') && vars.DEVFLOW_APP_ID != '' }}" "$WFD408")"
-# Fix A consumer-side breadcrumb pin on the manual path too.
-assert_pin_unique "#408 devflow-yml: success notice gated on the post-comment success breadcrumb" \
-  'grep -qxF "devflow: posted comment on #$PR_NUMBER"' "$WFD408"
+# Fix A consumer-side breadcrumb selection now lives in the shared helper (issue #414),
+# driven in the #414 block below for both the manual and auto-review paths.
 
 # The backstop-marker literal is a coupled contract: the helper WRITES it (the
 # count-prefix AND the emitted marker, so it appears twice) and the workflows post
@@ -20819,14 +20816,114 @@ assert_pin_red_under "#408 skill: removing the ScheduleWakeup-unavailable rule f
   'Treat `ScheduleWakeup` and any future task-notification as UNAVAILABLE' \
   '/Treat .ScheduleWakeup. and any future task-notification as UNAVAILABLE/d' "$REVIEW_SKILL408"
 
-# mktemp-guard coupled mirror (PR #410 review gap): the `BODY_FILE="$(mktemp)"` guard
-# in the two backstop steps is byte-identical across both workflows and was unpinned,
-# so a future edit diverging or dropping one copy would stay green. Pin the mktemp
-# breadcrumb on both files so they must move together (the coupled-mirror discipline).
-assert_pin_unique "#408 review-yml: mktemp guard breadcrumb present" \
-  'review stall backstop: mktemp failed; cannot compose the re-trigger comment' "$WFR408"
-assert_pin_unique "#408 devflow-yml: mktemp guard breadcrumb present" \
-  'review stall backstop: mktemp failed; cannot compose the re-trigger comment' "$WFD408"
+# mktemp-guard breadcrumb: after #414 the `BODY_FILE="$(mktemp)"` guard lives ONCE in the
+# shared helper (no longer a byte-identical mirror across the two YAMLs — the PR #410 review
+# gap this coupled-mirror pin guarded is now structurally impossible). It is pinned against
+# the helper in the #414 block below.
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#414 review stall-backstop post-and-annotate helper extraction"
+# ────────────────────────────────────────────────────────────────────────────
+# The ~40-line post-and-annotate glue that both backstop steps duplicated (parse the
+# request-review-backstop.sh decision, compose the /devflow:review re-trigger body, POST
+# it, then select ::notice:: vs ::warning:: on the POST success breadcrumb) is extracted
+# into scripts/post-review-backstop-comment.sh (issue #414) so the suite can DRIVE the
+# selection — the load-bearing fail-closed arm (a failed/absent POST must NEVER be
+# annotated as a fired re-trigger, issue #408 review) — instead of only presence-pinning a
+# breadcrumb literal in each YAML. Same rationale as describe-denial-count.sh.
+PRBC="$REPO_ROOT/scripts/post-review-backstop-comment.sh"
+assert_eq "#414 post-review-backstop-comment.sh exists and is executable" "yes" \
+  "$([ -x "$PRBC" ] && echo yes || echo no)"
+
+# Scratch repo-root with stub helpers the extracted glue resolves cwd-relative
+# (.devflow/vendor/... absent -> scripts/... wins). The stubs control the two inputs the
+# selection reads: the decision (request-review-backstop.sh) and the POST success
+# breadcrumb (post-issue-comment.sh). The helper calls each via `bash <path>`, so no +x
+# is required, but chmod anyway for cleanliness.
+T414="$(mktemp -d)"
+mkdir -p "$T414/scripts"
+# FIRE decision stub.
+cat > "$T414/scripts/request-review-backstop.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'decision=fire\nreason=guarantee-class\nattempt=1\nmarker=<!-- devflow:review-backstop head=abc attempt=1 -->\n'
+EOF
+# POST stub emitting the EXACT success breadcrumb on stderr (-> ::notice:: posted).
+cat > "$T414/scripts/post-issue-comment.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "devflow: posted comment on #$1" >&2
+EOF
+chmod +x "$T414/scripts/"*.sh
+OUT_OK=$(cd "$T414" && PR_NUMBER=99 HEAD_SHA=abc REPO=o/r VERDICT=incomplete APP_TOKEN_PRESENT=true bash "$PRBC" 2>&1); RC_OK=$?
+assert_eq "#414 fire + POST success breadcrumb -> fired-re-trigger ::notice::" "yes" \
+  "$(printf '%s\n' "$OUT_OK" | grep -qF '::notice::review stall backstop: posted /devflow:review re-trigger (attempt 1) for PR #99' && echo yes || echo no)"
+assert_eq "#414 fire + POST success -> NO 'did NOT post' ::warning::" "no" \
+  "$(printf '%s\n' "$OUT_OK" | grep -qF 'did NOT post' && echo yes || echo no)"
+assert_eq "#414 helper always exits 0 (success arm)" "0" "$RC_OK"
+
+# SAME fire decision, but the POST stub stays SILENT (no success breadcrumb) — the
+# load-bearing fail-closed arm (AC3): a failed POST is a ::warning::, NEVER a fired notice.
+cat > "$T414/scripts/post-issue-comment.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "devflow: warning: could not post comment on #$1 (best-effort, continuing): boom" >&2
+EOF
+chmod +x "$T414/scripts/post-issue-comment.sh"
+OUT_FAIL=$(cd "$T414" && PR_NUMBER=99 HEAD_SHA=abc REPO=o/r VERDICT=incomplete APP_TOKEN_PRESENT=true bash "$PRBC" 2>&1); RC_FAIL=$?
+assert_eq "#414 fire + POST failed (no breadcrumb) -> 'did NOT post' ::warning:: (fail-closed, AC3)" "yes" \
+  "$(printf '%s\n' "$OUT_FAIL" | grep -qF '::warning::review stall backstop: the /devflow:review re-trigger comment did NOT post for PR #99' && echo yes || echo no)"
+assert_eq "#414 fire + POST failed -> NEVER a fired-re-trigger ::notice:: (fail-closed, AC3)" "no" \
+  "$(printf '%s\n' "$OUT_FAIL" | grep -qF '::notice::review stall backstop: posted /devflow:review re-trigger' && echo yes || echo no)"
+assert_eq "#414 helper always exits 0 (failed-POST arm)" "0" "$RC_FAIL"
+
+# NO-FIRE decision -> no-auto-resume ::notice:: naming the reason; POST never invoked.
+cat > "$T414/scripts/request-review-backstop.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'decision=no-fire\nreason=cap-exhausted\nattempt=\nmarker=\n'
+EOF
+cat > "$T414/scripts/post-issue-comment.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "devflow: posted comment on #$1" >&2
+EOF
+chmod +x "$T414/scripts/"*.sh
+OUT_NF=$(cd "$T414" && PR_NUMBER=99 HEAD_SHA=abc REPO=o/r VERDICT=approve APP_TOKEN_PRESENT=true bash "$PRBC" 2>&1); RC_NF=$?
+assert_eq "#414 no-fire decision -> no-auto-resume ::notice:: naming the reason" "yes" \
+  "$(printf '%s\n' "$OUT_NF" | grep -qF '::notice::review stall backstop: no auto-resume (reason: cap-exhausted)' && echo yes || echo no)"
+assert_eq "#414 no-fire decision -> POST never invoked (no fired-re-trigger notice)" "no" \
+  "$(printf '%s\n' "$OUT_NF" | grep -qF 'posted /devflow:review re-trigger' && echo yes || echo no)"
+assert_eq "#414 helper always exits 0 (no-fire arm)" "0" "$RC_NF"
+
+# request-review-backstop.sh ABSENT -> decision-helper-absent ::warning::.
+T414B="$(mktemp -d)"; mkdir -p "$T414B/scripts"
+OUT_NORRB=$(cd "$T414B" && PR_NUMBER=99 HEAD_SHA=abc REPO=o/r VERDICT=incomplete APP_TOKEN_PRESENT=true bash "$PRBC" 2>&1); RC_NORRB=$?
+assert_eq "#414 request-review-backstop.sh absent -> decision-helper-absent ::warning::" "yes" \
+  "$(printf '%s\n' "$OUT_NORRB" | grep -qF '::warning::review stall backstop: request-review-backstop.sh absent' && echo yes || echo no)"
+assert_eq "#414 helper always exits 0 (RRB-absent arm)" "0" "$RC_NORRB"
+
+# FIRE decided but post-issue-comment.sh ABSENT -> post-helper-absent ::warning::, and
+# NEVER a fired-re-trigger notice.
+T414C="$(mktemp -d)"; mkdir -p "$T414C/scripts"
+cat > "$T414C/scripts/request-review-backstop.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'decision=fire\nreason=guarantee-class\nattempt=1\nmarker=<!-- m -->\n'
+EOF
+chmod +x "$T414C/scripts/request-review-backstop.sh"
+OUT_NOPOST=$(cd "$T414C" && PR_NUMBER=99 HEAD_SHA=abc REPO=o/r VERDICT=incomplete APP_TOKEN_PRESENT=true bash "$PRBC" 2>&1); RC_NOPOST=$?
+assert_eq "#414 post-issue-comment.sh absent -> post-helper-absent ::warning::" "yes" \
+  "$(printf '%s\n' "$OUT_NOPOST" | grep -qF '::warning::review stall backstop: post-issue-comment.sh absent' && echo yes || echo no)"
+assert_eq "#414 post-absent -> NEVER a fired-re-trigger ::notice::" "no" \
+  "$(printf '%s\n' "$OUT_NOPOST" | grep -qF 'posted /devflow:review re-trigger' && echo yes || echo no)"
+
+# Helper-content pins (moved from the #408 workflow-inline pins — coupled-invariant
+# reconciliation): the literals the inline glue carried now live ONCE in the helper.
+assert_pin_unique "#414 helper: re-trigger body carries the review stall-backstop header" \
+  "**DevFlow review stall backstop**" "$PRBC"
+assert_pin_unique "#414 helper: success notice gated on the post-comment success breadcrumb" \
+  'grep -qxF "devflow: posted comment on #$PR_NUMBER"' "$PRBC"
+assert_pin_unique "#414 helper: mktemp guard breadcrumb present" \
+  'review stall backstop: mktemp failed; cannot compose the re-trigger comment' "$PRBC"
+assert_eq "#414 helper: calls the (unchanged-contract) request-review-backstop.sh decision helper" "yes" \
+  "$(grep -qF "request-review-backstop.sh" "$PRBC" && echo yes || echo no)"
+assert_eq "#414 helper: posts via the best-effort post-issue-comment.sh REST helper" "yes" \
+  "$(grep -qF "post-issue-comment.sh" "$PRBC" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#312: workflow endpoint↔permission lint"
