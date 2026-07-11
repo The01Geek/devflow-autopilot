@@ -15064,7 +15064,8 @@ assert_eq "et-shadow-floor(e): a malformed iter-N.json with promotion evidence i
 SHF_E_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_E" --slug pr-1 ) 2>&1 >/dev/null )"
 assert_eq "et-shadow-floor(e): a malformed iter with promotion evidence emits a breadcrumb (never a silent drop)" "yes" \
   "$(printf '%s' "$SHF_E_ERR" | grep -qF "could not read '.shadow' from iter-1.json" && echo yes || echo no)"
-# (e2) the SUCCESSOR-iter parse-failure branch (`promoted=... || continue`) — the parallel of (e)
+# (e2) the SUCCESSOR-iter parse-failure branch (the `if !` guard wrapping the `promoted="$(…)"`
+# read, NOT an `|| continue` suffix — the wrapper is what emits the breadcrumb) — the parallel of (e)
 # on the OTHER jq read. iter-1 is VALID and shadow-less (so the `.shadow` read in (e) SUCCEEDS and
 # cannot be what rejects this fixture — the positive control: swap in a well-formed promoted iter-2
 # and (a) proves this exact shape DOES synthesize), while iter-2 (the successor whose `.loop_role`
@@ -15072,7 +15073,9 @@ assert_eq "et-shadow-floor(e): a malformed iter with promotion evidence emits a 
 # failing jq inside `promoted="$(...)"` abort the whole --persist run non-zero (breaking the
 # best-effort contract); with it the iter is skipped, breadcrumbed, and left untouched. Attribute
 # the rejection: pin the successor-read breadcrumb's own '.loop_role' text, which the (e) branch
-# cannot emit.
+# cannot emit. (The malformed iter-2 is ALSO iterated in its own turn, so stderr additionally
+# carries a `.shadow`-from-iter-2 breadcrumb; the attribution below discriminates the two branches
+# by FIELD NAME — rewording either breadcrumb to a shared phrase would silently un-discriminate it.)
 SHF_E2="$SHF_REPO/.devflow/tmp/review/pr-1/run-e2"
 mkdir -p "$SHF_E2"
 printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_E2/iter-1.json"
@@ -15083,12 +15086,18 @@ assert_eq "et-shadow-floor(e2): an unreadable successor's '.loop_role' emits its
   "$(printf '%s' "$SHF_E2_ERR" | grep -qF "could not read '.loop_role' from iter-2.json" && echo yes || echo no)"
 assert_eq "et-shadow-floor(e2): unconfirmable promotion evidence → no marker synthesized onto the valid iter (fail-closed)" "null" \
   "$(jq -r '.shadow' "$SHF_E2/iter-1.json" 2>/dev/null)"
-# Behavioral-fix pin: a regression DROPPING the successor-read guard (leaving the bare assignment)
-# must not stay green. The mutation strips the `if !` wrapper's condition line; the guard's
-# breadcrumb literal — the thing (e2) attributes the rejection to — disappears with it.
+# Behavioral-fix pin: a regression DROPPING the successor-read guard must not stay green. The
+# mutation UNWRAPS the guard — it collapses the whole `if ! promoted="$(…)"; then / echo / continue
+# / fi` block to the bare assignment, which is precisely the regression: under efficiency-trace.sh's
+# `set -euo pipefail` the failing jq then aborts the whole --persist run non-zero (verified: mutant
+# exits 1 on (e2)'s fixture shape, HEAD exits 0). The breadcrumb literal (e2) attributes the
+# rejection to vanishes with the block, so the pin flips RED — a mutation that re-introduces the
+# named bug, not one that merely strips the pinned line (which `assert_pin_red_on_removal` already
+# does and which would leave the guard itself fully intact).
 assert_pin_red_under "et-shadow-floor(e2): dropping the successor '.loop_role' read guard flips RED" \
   "could not read '.loop_role' from" \
-  "/could not read .\\.loop_role. from/d" "$LIB/efficiency-trace.sh"
+  '/^ *if ! promoted=/,/^ *fi$/{s/if ! (.*); then/\1/; /could not read/d; /^[[:space:]]*continue$/d; /^[[:space:]]*fi$/d;}' \
+  "$LIB/efficiency-trace.sh"
 # (f) idempotency / no double-count: a SECOND --persist pass over an already-synthesized run is a
 # no-op — the never-overwrite guard recognizes the marker it wrote (a non-null .shadow), so the
 # marker stays exactly one, unchanged.
