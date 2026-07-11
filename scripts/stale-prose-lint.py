@@ -118,9 +118,12 @@ def _run_git(args):
     from detonating the whole pass at *decode* time (that file is still examined — a
     stray replacement char cannot manufacture a false countable claim); ``main``
     likewise reconfigures the output streams to ``utf-8``/``errors="replace"`` so
-    emitting that byte cannot detonate the pass at *write* time either. Together they
-    hold the contract that a reviewed file's odd bytes NEVER reach exit 2 (the full
-    exit-2 catalog is the module header's Exit codes list — not re-enumerated here)."""
+    emitting that byte cannot detonate the pass at *write* time either — so an odd byte
+    in a reviewed file body does not detonate the pass through the git-show *read* or
+    the stdout *write*. (A reviewed file's *invalid*-UTF-8 bytes can still reach exit 2
+    by a third, intentional channel — the strict stdin-diff decode in ``main``, which
+    treats a non-UTF-8 diff as a caller error; see the module header's Exit codes list,
+    the single exit-2 catalog.)"""
     proc = subprocess.run(
         ["git", *args],
         stdout=subprocess.PIPE,
