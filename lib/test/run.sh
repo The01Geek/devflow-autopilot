@@ -24768,6 +24768,29 @@ SPR="$(spl_repo "$SPF")"
 assert_eq "#423 T6 UNRESOLVABLE-only content → exit 0" "0" "$(spl_rc "$SPR")"
 assert_eq "#423 T6 UNRESOLVABLE row present but non-gating" "yes" "$(spl_has "$SPR" UNRESOLVABLE R1)"
 
+# T6b → non-ASCII resilience under a strict-ASCII stdout locale (the C/POSIX threat model
+# _run_git's decode hardening names). The read decode was hardened but the stdout WRITE was
+# not: pre-fix, a reviewed line carrying a non-ASCII byte (an em-dash) raised
+# UnicodeEncodeError at sys.stdout.write and detonated the WHOLE pass to exit 2, masking
+# every other file's verdict — the exact failure the F-1 hardening claimed to eliminate.
+# main() now reconfigures stdout/stderr to utf-8/errors="replace" so an odd byte degrades one
+# character, never the pass. Forcing PYTHONCOERCECLOCALE=0/PYTHONUTF8=0/LC_ALL=C is what makes
+# sys.stdout.encoding == 'ascii' (PEP-538 coercion + UTF-8 mode off), reproducing the sandbox
+# condition; T1-T6 fixtures are all pure ASCII, so this path was previously untested. A revert
+# of the main() reconfigure re-reddens this (mutation-verified on a copy at authoring time).
+SPF="$(probe_tmp '#423 t6b non-ascii')"
+printf '%s\n' 'Cases 5-9 are described here — note the em-dash.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T6b non-ASCII line under strict-ASCII stdout does NOT detonate to exit 2" "0" \
+  "$( cd "$SPR" 2>/dev/null || { echo 99; exit; }
+      git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null \
+        | env PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 LC_ALL=C LANG=C python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $? )"
+assert_eq "#423 T6b strict-ASCII stdout still emits the verdict row (pass not masked)" "yes" \
+  "$( cd "$SPR" 2>/dev/null || { echo no; exit; }
+      git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null \
+        | env PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 LC_ALL=C LANG=C python3 "$SPL" --rev HEAD 2>/dev/null \
+        | awk -F '\t' '$1=="UNRESOLVABLE" && $2=="R1"{f=1} END{exit f?0:1}' && echo yes || echo no )"
+
 # T9 → config surfaces + adversarial shape matrix. Schema/example/tracked-config pins.
 SP_PROP='.properties.devflow_review.properties.stale_prose'
 assert_eq "#423 T9 schema: stale_prose is an object" "object" "$(jq -r "$SP_PROP.type" "$SP_SCHEMA")"

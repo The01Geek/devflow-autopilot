@@ -19,6 +19,8 @@ prose lines and resolved against the **post-diff file state**:
 * **R3 / R3b count-locked.** An exact-count claim (``N assertions``) or a two-item
   ``a X and a Y … both`` claim resolved against the adjacent assertion block; a
   mismatch is STALE, a match a VERIFIED ``count-locked`` row (the PR #336 shape).
+  ``R3b`` names the two-item *shape* only; both sub-cases are emitted under the
+  ``rule`` TSV token ``R3`` — there is no ``R3b`` output token.
 * **R4 modality-conflict (operator-token restricted).** A deny-absolute
   (``never``/``no``/``not``/``any``/``forbidden`` …) about a **backticked operator
   token** — one of ``> >> < << | || && & |& 2> 2>> &>`` — that the SAME post-diff
@@ -96,7 +98,10 @@ _BACKTICK_RE = re.compile(r"`([^`]+)`")
 
 
 class InternalError(Exception):
-    """Raised for a fail-closed exit-2 condition (unreadable rev, git failure)."""
+    """Raised for a fail-closed exit-2 condition — an unreadable/unresolvable ``--rev``
+    (validated up front in ``run``). A general ``git show`` non-zero does NOT raise this:
+    it returns None -> UNRESOLVABLE; an unavailable ``git`` binary raises
+    ``FileNotFoundError``, caught by ``main``'s catch-all. This is the single raise site."""
 
 
 def _run_git(args):
@@ -109,9 +114,13 @@ def _run_git(args):
     en/em-dash, Latin-1, a UTF-8 BOM) would raise ``UnicodeDecodeError`` and abort
     the *entire* lint to exit 2 — masking every other file's verdict, including a
     real STALE. ``errors="replace"`` keeps a single odd byte in one reviewed file
-    from detonating the whole pass: that file is still examined (a stray replacement
-    char cannot manufacture a false countable claim), and the contract holds that
-    only an *unreadable rev itself* is exit-2 (validated up front in ``run``)."""
+    from detonating the whole pass at *decode* time (that file is still examined — a
+    stray replacement char cannot manufacture a false countable claim); ``main``
+    likewise reconfigures the output streams to ``utf-8``/``errors="replace"`` so
+    emitting that byte cannot detonate the pass at *write* time either. Together they
+    hold the contract that a reviewed file's odd bytes NEVER reach exit 2 — the only
+    exit-2 causes are an unreadable ``--rev`` (validated up front in ``run``), a
+    non-UTF-8 *diff* on stdin, and an unavailable/failed ``git`` binary."""
     proc = subprocess.run(
         ["git", *args],
         stdout=subprocess.PIPE,
@@ -367,6 +376,21 @@ def run(rev, diff_text):
 
 
 def main(argv):
+    # Harden the OUTPUT streams the same way `_run_git` hardens its input decode. Under a
+    # `C`/`POSIX` locale (the threat model `_run_git` cites) sys.stdout/sys.stderr default
+    # to the strict-ASCII codec, so writing a verdict row (or a diagnostic) whose text
+    # carries a non-ASCII byte — an en/em-dash, Latin-1, a UTF-8 BOM copied out of a
+    # reviewed line — would raise UnicodeEncodeError at write time and abort the ENTIRE
+    # lint to exit 2, masking every other file's verdict (the read-side hardening alone did
+    # not close this; the failure resurfaced at the stdout write). Reconfigure to
+    # utf-8/errors="replace" so an odd byte degrades that one character, never the pass.
+    # Guarded because a replaced/wrapped stream (a test harness, a pipe object) may lack
+    # reconfigure() or reject the call.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     parser = argparse.ArgumentParser(
         prog="stale-prose-lint.py",
         description="Detect stale countable claims in diff-added prose (issue #423).",
