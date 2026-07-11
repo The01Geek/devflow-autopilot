@@ -208,7 +208,14 @@ trap 'rm -f "$TMP"' EXIT
   # tools whose subcommand is a deny word (docker exec, make CC=gcc) are kept.
   def denylisted:
     (gsub("^\\s+|\\s+$";"")) as $t
-    | if (["Edit","Write","MultiEdit","NotebookEdit"] | index($t)) != null then true
+    # File-tool tier (#402): match the tool NAME — the token before the first "(",
+    # trimmed and lowercased — so a parameterized entry (Write(**), Edit(src/**),
+    # notebookedit(x)) is stripped exactly like the bare name, mirroring the runner
+    # nocasematch name-before-paren check in scripts/filter-runner-tools.sh. NOTE:
+    # this whole jq program is inside bash single quotes, so comments stay
+    # apostrophe-free ASCII (a stray apostrophe would end the string; see CLAUDE.md).
+    | (($t | split("(")[0] | gsub("^\\s+|\\s+$";"") | ascii_downcase)) as $ftname
+    | if (["edit","write","multiedit","notebookedit"] | index($ftname)) != null then true
       elif $t == "Bash" then true
       elif ($t | test("^Bash\\(")) then
         (($t | capture("^Bash\\(\\s*(?<spec>[^:)]*)") | .spec) | gsub("^\\s+|\\s+$";"")) as $cmd

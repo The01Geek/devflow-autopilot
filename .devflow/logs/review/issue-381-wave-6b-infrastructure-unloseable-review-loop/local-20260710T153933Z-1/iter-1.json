@@ -83,36 +83,6 @@
     "count": 0,
     "by_category": {}
   },
-  "shadow": {
-    "ran_at": "2026-07-10T17:05:00Z",
-    "reviewed_sha": "19b69755406c190c2d4027128cf473adb1803fd4",
-    "verdict": "REJECT",
-    "coverage": "full",
-    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
-    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
-    "reason": null,
-    "checklist_skipped": null,
-    "phase3_findings": [
-      {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "foreign-slug misattribution in discovery-mode synthesis", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [545, 590], "kind": "logic_error"}},
-      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "git log failure collapses onto rc-2 found-none", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [286, 286], "kind": "logic_error"}},
-      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "git diff-tree failure fabricates fix_files []", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [318, 322], "kind": "logic_error"}},
-      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "sha-shape comment length overclaim (documented_falsehood)", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [222, 228], "kind": "documented_falsehood"}},
-      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "no-second-hardcoded-literal comment vs strip pattern (documented_falsehood)", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [246, 248], "kind": "documented_falsehood"}},
-      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "item-7 write attribution drift in Common Mistakes", "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [1033, 1033], "kind": "comment_drift"}},
-      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "origin-preference untested", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [186, 196], "kind": "test_gap"}},
-      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "durable-glob half of exclusion untested", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [213, 233], "kind": "test_gap"}},
-      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "rc-4 / leading-zero / cross-slug / minor arms untested", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [300, 320], "kind": "test_gap"}}
-    ],
-    "phase2_fails": [],
-    "comparison": {
-      "shadow_total": 11,
-      "overlap_with_iter_N": 0,
-      "new": 11,
-      "new_critical": 0,
-      "new_important": 5
-    },
-    "promoted_to_iter_next": true
-  },
   "telemetry": {
     "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 60},
     "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 30},
