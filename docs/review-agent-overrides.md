@@ -77,7 +77,7 @@ Plus the special `default` key (below).
 
 ## Shape
 
-Each value optionally sets `model` and/or `effort`:
+Each value optionally sets `model`, `effort`, and/or `iterations`:
 
 ```jsonc
 {

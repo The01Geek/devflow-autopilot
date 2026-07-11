@@ -1155,6 +1155,10 @@ assert_pin_unique "#425(rev): Phase 3.1 excludes a first-only agent on fix-loop 
   'drop from the Phase-3 launch list every agent whose resolved override carries' "$ST_REV"
 assert_pin_unique "#425(rev): the iterations exclusion is never applied to the Step 2.6 shadow" \
   'This gate is **never** applied to the Step 2.6 shadow fan-out' "$ST_REV"
+# iterations is a roster-scoping key, NOT a dispatch-time parameter: the --agents block must
+# be built from model/effort only. Pin the sentence that forbids forwarding it to dispatch.
+assert_pin_unique "#425(rev): iterations is not forwarded to the --agents dispatch block" \
+  'you use only its resolved `model`/`effort` and ignore `iterations`' "$ST_REV"
 assert_pin_unique "#425(raf): the shadow keeps the full roster regardless of iterations" \
   'the shadow always dispatches the **full** expected roster above regardless of any' "$ST_RAF"
 # NOTE: the #425 shadow-not-scoped behavioral-fix pin is routed through assert_pin_red_under,
@@ -2042,9 +2046,9 @@ rm -f "$PRU_META"
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
 # value. Mutation deletes the sentence's line; the pin must flip PASS->FAIL (a thinned shadow is
 # the regression). $ST_RAF (skills/review-and-fix/SKILL.md) was set far above and persists.
-assert_pin_red_under "#425(raf): shadow-not-scoped sentence is operative (deleting it goes RED)" \
+assert_pin_red_under "#425(raf): shadow-not-scoped sentence is operative (thinning the shadow goes RED)" \
   'the shadow always dispatches the **full** expected roster above regardless of any' \
-  '/override key is NOT applied to the shadow fan-out/d' "$ST_RAF"
+  's/dispatches the \*\*full\*\* expected roster above regardless of any/dispatches a reduced roster on some/' "$ST_RAF"
 #
 assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns its pin RED" \
   'park-calibration gate clean: no parked finding matched'

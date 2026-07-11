@@ -2333,28 +2333,41 @@ with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _cf:
         '{"devflow_review":{"agent_overrides":{'
         '"default":{"effort":"high"},'
         '"devflow:checklist-verifier":{},'
-        '"devflow:code-reviewer":{"model":"m","effort":"low"}}}}'
+        '"devflow:silent-failure-hunter":{"iterations":{"nested":"obj"}},'
+        '"devflow:code-reviewer":{"model":"m","effort":"low","iterations":"first-only"}}}}'
     )
     _cfg_path = _cf.name
 try:
     _rr_raw, _rr_warn = _rro.read_raw(
         ["devflow:checklist-verifier", "devflow:code-reviewer",
-         "devflow:comment-analyzer"],
+         "devflow:silent-failure-hunter", "devflow:comment-analyzer"],
         _config_get_sh, _cfg_path,
     )
     assert_eq("read_raw: present-but-empty entry is represented as {} (shadows default)",
               {}, _rr_raw.get("devflow:checklist-verifier"))
-    assert_eq("read_raw: full entry's fields are read",
-              {"model": "m", "effort": "low"},
+    # #425: the `iterations` leaf round-trips through the real config-get.sh I/O path
+    # (the pure-resolver tests never exercise read_raw's field loop for the new key).
+    assert_eq("read_raw(#425): full entry reads model+effort+iterations end-to-end",
+              {"model": "m", "effort": "low", "iterations": "first-only"},
               _rr_raw.get("devflow:code-reviewer"))
+    # #425: an OBJECT-valued iterations leaf is dropped with the sentinel warning (read_raw
+    # lines guarding _OBJECT_SENTINEL), leaving the entry empty rather than laundering the
+    # sentinel string into a bogus value.
+    assert_eq("read_raw(#425): object-valued iterations leaf is dropped (sentinel), entry empty",
+              {}, _rr_raw.get("devflow:silent-failure-hunter"))
+    assert_eq("read_raw(#425): object-valued iterations leaf surfaces a warning",
+              True, any("iterations" in _w and "object" in _w for _w in _rr_warn))
     assert_eq("read_raw: absent agent is not added to raw",
               False, "devflow:comment-analyzer" in _rr_raw)
     assert_eq("read_raw: default entry is read", {"effort": "high"},
               _rr_raw.get("default"))
-    assert_eq("read_raw: well-formed config yields no warnings", [], _rr_warn)
     # End-to-end resolution off the real config path: empty entry must NOT inherit default.
     _e2e, _ = _rro.resolve_overrides(_rr_raw, ["devflow:checklist-verifier"])
     assert_eq("read_raw+resolve: empty entry shadows default end-to-end", {}, _e2e)
+    # #425: end-to-end, the valid iterations value survives into the resolved map.
+    _e2e_it, _ = _rro.resolve_overrides(_rr_raw, ["devflow:code-reviewer"])
+    assert_eq("read_raw+resolve(#425): valid iterations survives to the resolved map",
+              "first-only", _e2e_it.get("devflow:code-reviewer", {}).get("iterations"))
 finally:
     _os.unlink(_cfg_path)
 
