@@ -17,9 +17,12 @@ workflows. A few areas warrant care:
 - **Cloud tier credentials.** The optional GitHub Actions automation uses a
   Claude Code OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`). Never commit it. Store it
   as an encrypted GitHub Actions secret. See `docs/cloud-setup.md`.
-- **`config.json` is gitignored** by default precisely so adopters don't
-  accidentally commit environment-specific configuration. Treat it as
-  environment configuration.
+- **`config.json` is committed, not gitignored.** DevFlow's cloud tier reads it
+  from the committed tree, so the scaffolded `.devflow/.gitignore` ignores only
+  `tmp/` and leaves `config.json` tracked. Because it is committed, keep secrets
+  out of it — it holds only non-secret environment configuration (project/board
+  IDs, model names). Store credentials as encrypted GitHub Actions secrets, never
+  in `config.json`.
 - **Skills run shell commands.** DevFlow's skills execute `git`, `gh`, `jq`, and
   bundled Python helpers. Review the skills you install, as you would any plugin.
 - **The retrospective loop opens PRs/issues** on the configured repository. It

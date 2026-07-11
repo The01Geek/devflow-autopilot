@@ -68,10 +68,17 @@ jobs:
       # literal (control) is already granted, while the absolute-path and repo-root
       # `scripts/…` forms are the point (expected DENIED because their leading token is
       # not the granted vendored literal). PLUS the candidate grants still under test:
-      # Bash(cd:*) and Write(/tmp/**). Both were DENIED on the first run — cd's row
-      # was confounded by an independently-denied `>` redirect, and Write(/tmp/**)
-      # is a genuine out-of-workspace denial — so they are kept here for a future
-      # redirect-free re-probe rather than granted. If devflow-runner.yml's review
+      # Bash(cd:*), Write(/tmp/**), and Bash(scripts/*.sh:*). cd and Write(/tmp/**)
+      # were both DENIED on the first run — cd's row was confounded by an
+      # independently-denied `>` redirect, and Write(/tmp/**) is a genuine
+      # out-of-workspace denial — so they are kept here for a future redirect-free
+      # re-probe rather than granted. Bash(scripts/*.sh:*) is the issue-#412
+      # candidate: a trailing-extension glob (unlike the production-proven
+      # `*/<fixed-basename>` form) whose permit/deny under the real matcher is
+      # unknown — shape 15 invokes a repo-root `scripts/<name>.sh` helper as the
+      # leading token under this grant to measure it. If it is PERMITTED, the
+      # implement profile's enumerated `*/<basename>.sh` helper globs can migrate to
+      # the single future-proof `scripts/*.sh` form. If devflow-runner.yml's review
       # literal changes, update this copy too — a deliberate second copy so the
       # probe measures the real profile, not a paraphrase.
       - name: Resolve allowed-tools (review profile + candidate grants)
@@ -79,7 +86,7 @@ jobs:
         run: |
           set -euo pipefail
           REVIEW='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Write(.devflow/tmp/**)'
-          CANDIDATES='Bash(cd:*),Write(/tmp/**)'
+          CANDIDATES='Bash(cd:*),Write(/tmp/**),Bash(scripts/*.sh:*)'
           TOOLS="$REVIEW,$CANDIDATES"
           delim="TOOLS_EOF_$(date +%s%N)_$$"
           {
@@ -102,12 +109,12 @@ jobs:
           allowed_bots: "*"
           prompt: |
             You are a PERMISSION-MATCHER PROBE. Your ONLY task is to attempt each
-            of the 14 numbered command shapes below EXACTLY ONCE, each in its OWN
+            of the 15 numbered command shapes below EXACTLY ONCE, each in its OWN
             single tool call, VERBATIM — do not modify, wrap, quote-escape, split,
             or combine them, and do not add any command that is not listed. Attempt
-            them in order 1 through 14. If a shape is DENIED or errors, do NOT
+            them in order 1 through 15. If a shape is DENIED or errors, do NOT
             retry it and do NOT try a different formulation — move straight to the
-            next number. After attempting all 14, STOP and reply with the single
+            next number. After attempting all 15, STOP and reply with the single
             word DONE.
 
             Your text output is not measured. Only the harness record of which tool
@@ -173,6 +180,14 @@ jobs:
             helper, but the repo-root leading token the allowlist does not grant;
             attempt it anyway:
             scripts/config-get.sh .base_branch hprobe14root
+
+            Shape 15 — helper invocation, repo-root `scripts/…` form under the
+            issue-#412 candidate grant `Bash(scripts/*.sh:*)` (Bash). Identical
+            leading-token form to shape 14, but this time a trailing-extension glob
+            IS granted for it — so a PERMITTED verdict here (versus DENIED at 14)
+            is the evidence that `scripts/*.sh` works and the enumerated
+            `*/<basename>.sh` helper globs can migrate to it:
+            scripts/config-get.sh .base_branch hprobe15glob
 
           plugin_marketplaces: |
             https://github.com/anthropics/claude-plugins-official.git
@@ -265,6 +280,7 @@ jobs:
               (12, "helper: repo-relative vendored literal (leading token, CONTROL)", "hprobe12ok", None),
               (13, "helper: absolute-path form (leading token)",               "hprobe13abs", None),
               (14, "helper: repo-root `scripts/…` form (leading token)",       "hprobe14root", None),
+              (15, "helper: repo-root `scripts/…` under `Bash(scripts/*.sh:*)` glob", "hprobe15glob", None),
           ]
 
           out = []
