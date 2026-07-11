@@ -825,7 +825,14 @@ jobs:
             echo "::notice::review stall backstop: no auto-resume (reason: ${REASON:-unknown}); degraded to the dead-end flip for PR #${PR_NUMBER}."
             exit 0
           fi
-          BODY_FILE="$(mktemp)"
+          # Guard mktemp distinctly (the implement-side sibling names this arm):
+          # a failed mktemp leaves BODY_FILE empty and the `> "$BODY_FILE"` write
+          # would then misdiagnose as a POST failure. Best-effort — degrade to the
+          # dead-end flip with an mktemp-specific breadcrumb, never a false "fired".
+          BODY_FILE="$(mktemp)" || {
+            echo "::warning::review stall backstop: mktemp failed; cannot compose the re-trigger comment for PR #$PR_NUMBER (auto-resume did not fire; degrades to the dead-end flip)."
+            exit 0
+          }
           {
             printf '%s\n\n' "$MARKER"
             printf '**DevFlow review stall backstop** — this cloud review ended with no verdict for `%s`. Auto-resume attempt %s:\n\n' "$HEAD_SHA" "$ATTEMPT"

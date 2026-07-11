@@ -17,7 +17,10 @@
 # as scripts/describe-denial-count.sh). The workflow arms only mint the token,
 # call this helper, and post the comment on a `fire` decision.
 #
-# Inputs (environment; all optional, every unresolved input fails toward no-fire):
+# Inputs (environment; all optional; every unresolved input EXCEPT VERDICT fails
+# toward no-fire — an unresolved VERDICT defaults to the eligible `incomplete`
+# (below), but the missing-scope / App-token guards then keep the AGGREGATE
+# decision at no-fire when the caller supplied nothing else):
 #   VERDICT            the derived verdict for HEAD: approve|reject|incomplete.
 #                      Only `incomplete` (no positively-observed verdict) is
 #                      eligible; approve/reject is a decided end → no-fire. The

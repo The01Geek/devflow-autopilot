@@ -20570,6 +20570,37 @@ assert_eq "#408 helper: non-integer max_resume_attempts falls back to default 2 
 # always passes REPO) — the stub's repo-view arm resolves o/r, so a fresh head fires.
 assert_eq "#408 helper: empty REPO derived via gh repo view -> fire" \
   "fire" "$(rrb408 gh-empty.sh incomplete abc 5 '' true "$T408/cfg-enabled.json")"
+# Nonzero attempt-increment (PR #410 review gap): 1 prior SAME-head marker under a
+# cap of 3 must fire with attempt=2 — the NEXT=ATTEMPTS+1 path was only ever driven
+# at ATTEMPTS=0 (attempt=1), so an off-by-one that re-emitted attempt=1 (a duplicate
+# marker that never advances the cap → unbounded loop) would have passed. Pins the
+# increment AND the emitted marker's attempt number at a nonzero base.
+cat > "$T408/gh-1marker.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"/comments"*) echo '[{"body":"<!-- devflow:review-backstop head=abc attempt=1 -->"},{"body":"<!-- devflow:review-backstop head=zzz attempt=1 -->"}]' ;;
+  *"repo view"*) echo 'o/r' ;;
+  *) echo '[]' ;;
+esac
+EOF
+chmod +x "$T408/gh-1marker.sh"
+printf '%s\n' '{"devflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":3}}}' > "$T408/cfg-max3.json"
+assert_eq "#408 helper: 1 prior same-head marker under cap -> fire (attempts>0 increment path)" \
+  "fire" "$(rrb408 gh-1marker.sh incomplete abc 5 o/r true "$T408/cfg-max3.json")"
+RRB408_FIRE2="$(DEVFLOW_GH="$T408/gh-1marker.sh" VERDICT=incomplete HEAD_SHA=abc PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true CONFIG_FILE="$T408/cfg-max3.json" bash "$RRB408" 2>/dev/null)"
+assert_eq "#408 helper: nonzero-base fire emits the NEXT attempt number (attempt=2, not a re-emitted attempt=1)" "yes" \
+  "$(printf '%s\n' "$RRB408_FIRE2" | grep -qxF 'marker=<!-- devflow:review-backstop head=abc attempt=2 -->' && echo yes || echo no)"
+# Hard config-read failure (PR #410 review gap): a MALFORMED config makes
+# config-get.sh hard-fail with empty stdout; the helper's `[ -n "$ENABLED" ] ||
+# ENABLED=true` (and the parallel MAX fallback) then resolve toward ENABLED — the
+# documented honest-failure direction (a review backstop must stay armed when the
+# config can't be read, not silently disable the safety net). This path was
+# asserted-but-unverified; pin it so a regression flipping it to a silent no-fire
+# (disabling the net on a config typo) goes RED. The aggregate stays bounded — a
+# fire still requires App token + scope + under-cap, all covered above.
+printf '%s\n' '{ this is not valid json' > "$T408/cfg-malformed.json"
+assert_eq "#408 helper: malformed config hard-fail -> fire (honest-failure resolves toward ENABLED, net stays armed)" \
+  "fire" "$(rrb408 gh-empty.sh incomplete abc 5 o/r true "$T408/cfg-malformed.json")"
 rm -rf "$T408"
 
 # Config coupled peer set (2.3.0a): example ↔ schema must both carry
