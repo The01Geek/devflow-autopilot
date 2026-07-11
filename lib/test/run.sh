@@ -20869,9 +20869,14 @@ assert_eq "#414 fire + POST success breadcrumb -> fired-re-trigger ::notice::" "
 assert_eq "#414 fire + POST success -> NO 'did NOT post' ::warning::" "no" \
   "$(printf '%s\n' "$OUT_OK" | grep -qF 'did NOT post' && echo yes || echo no)"
 assert_eq "#414 helper always exits 0 (success arm)" "0" "$RC_OK"
-# Env pass-through: the helper marshals all five inputs to the decision helper (stub-blindness
-# fix — a dropped/misnamed forward would take the real RRB down the wrong marker-scope/verdict arm).
-assert_eq "#414 fire: helper forwards all five inputs to request-review-backstop.sh" \
+# Env delivery to the decision helper: the RRB stub echoes the five inputs it received. This
+# confirms the helper delivers all five to RRB in its environment — it catches the helper
+# scrubbing/clearing the environment before the RRB call (e.g. an `env -i bash "$RRB"`). It
+# does NOT isolate the helper's explicit `VERDICT=... HEAD_SHA=... bash "$RRB"` forward from
+# plain inheritance: the test sets the five as the helper's own env (prefix assignments bash
+# exports), so RRB would inherit them even if the explicit forward were dropped — the forward
+# is belt-and-suspenders over inheritance, so no single-input test can distinguish the two.
+assert_eq "#414 fire: request-review-backstop.sh receives all five inputs in its environment" \
   "VERDICT=incomplete HEAD_SHA=abc PR_NUMBER=99 REPO=o/r APP_TOKEN_PRESENT=true" \
   "$(cat "$T414/rrb-env.txt" 2>/dev/null)"
 # Composed re-trigger BODY (the fired arm's actual payload — a dropped /devflow:review line or a
@@ -20920,6 +20925,25 @@ assert_eq "#414 no-fire decision -> POST genuinely not invoked (sentinel absent)
 assert_eq "#414 no-fire decision -> POST never invoked (no fired-re-trigger notice)" "no" \
   "$(printf '%s\n' "$OUT_NF" | grep -qF 'posted /devflow:review re-trigger' && echo yes || echo no)"
 assert_eq "#414 helper always exits 0 (no-fire arm)" "0" "$RC_NF"
+
+# UNPARSED decision -> fail-closed to no-fire (the headline safety property of the sed->bash-
+# builtin parse: RRB output that carries NO `decision=` line leaves DECISION empty, and an
+# empty DECISION must take the [ "$DECISION" != "fire" ] no-fire arm, never fire). Stub emits
+# garbage with no decision= line at all.
+cat > "$T414/scripts/request-review-backstop.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'reason=whatever\ngarbage line with no key\n'
+EOF
+chmod +x "$T414/scripts/request-review-backstop.sh"
+rm -f "$T414/post-invoked" "$T414/post-body.txt"
+OUT_GARBAGE=$(cd "$T414" && PR_NUMBER=99 HEAD_SHA=abc REPO=o/r VERDICT=incomplete APP_TOKEN_PRESENT=true bash "$PRBC" 2>&1); RC_GARBAGE=$?
+assert_eq "#414 unparsed decision (no decision= line) -> fail-closed no-auto-resume ::notice::" "yes" \
+  "$(printf '%s\n' "$OUT_GARBAGE" | grep -qF '::notice::review stall backstop: no auto-resume' && echo yes || echo no)"
+assert_eq "#414 unparsed decision -> NEVER fires (no fired-re-trigger notice)" "no" \
+  "$(printf '%s\n' "$OUT_GARBAGE" | grep -qF 'posted /devflow:review re-trigger' && echo yes || echo no)"
+assert_eq "#414 unparsed decision -> POST genuinely not invoked (sentinel absent)" "absent" \
+  "$([ -f "$T414/post-invoked" ] && echo present || echo absent)"
+assert_eq "#414 helper always exits 0 (unparsed-decision arm)" "0" "$RC_GARBAGE"
 
 # request-review-backstop.sh ABSENT -> decision-helper-absent ::warning::.
 T414B="$(mktemp -d)"; mkdir -p "$T414B/scripts"

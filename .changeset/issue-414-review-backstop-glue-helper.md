@@ -4,7 +4,7 @@ type: Changed
 ---
 
 - **Extract the review stall-backstop post-and-annotate glue into a shared helper.** The
-  ~40-line block that both `devflow-review.yml` and `devflow.yml` duplicated byte-for-byte —
+  ~40-line block that both `devflow-review.yml` and `devflow.yml` duplicated near-identically —
   parse the `request-review-backstop.sh` decision, compose the `/devflow:review` re-trigger
   body, POST it via `post-issue-comment.sh`, and select the `::notice::`/`::warning::`
   annotation on the POST success breadcrumb — now lives once in

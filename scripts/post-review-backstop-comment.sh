@@ -2,10 +2,14 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # post-review-backstop-comment.sh — the review stall-backstop "post-and-annotate" glue
-# (issue #414). Extracted from the byte-identical inline blocks in
-# .github/workflows/devflow-review.yml and .github/workflows/devflow.yml so the suite can
-# DRIVE the notice-vs-warning selection instead of only presence-pinning a breadcrumb
-# literal in each YAML (the scripts/describe-denial-count.sh precedent).
+# (issue #414). Extracted from the near-identical inline blocks in
+# .github/workflows/devflow-review.yml and .github/workflows/devflow.yml (the ~40-line glue
+# from the decision parse onward was byte-identical except the no-fire notice's PR reference —
+# `${PR_NUMBER:-?}` in review.yml vs `${PR_NUMBER}` in devflow.yml, unified here to the
+# `:-?` form; devflow.yml additionally derived HEAD_SHA and carried one extra comment, both
+# of which stay in that workflow) so the suite can DRIVE the notice-vs-warning selection
+# instead of only presence-pinning a breadcrumb literal in each YAML (the
+# scripts/describe-denial-count.sh precedent).
 #
 # Why a helper: the success-vs-warning selection is the load-bearing arm — a failed or
 # absent POST must NEVER be annotated as a fired re-trigger (issue #408 review). Inline
@@ -20,7 +24,10 @@
 # distinct GitHub-Actions annotation on stdout naming which condition fired, so the caller
 # degrades to the pre-existing dead-end flip rather than silently claiming a fired resume.
 #
-# Inputs (env — the same names both workflow steps already set):
+# Inputs (env — the helper reads all six from its environment; how each is populated differs
+# per call site: review.yml sets HEAD_SHA in the step env from the precheck job, while
+# devflow.yml derives HEAD_SHA at runtime and passes it as a command-prefix env — the other
+# five are step-env in both):
 #   PR_NUMBER  HEAD_SHA  REPO  VERDICT  APP_TOKEN_PRESENT  GH_TOKEN
 # Bundled-helper resolution is cwd-relative (vendored copy first), matching the workflows'
 # repo-root cwd — so a consumer's .devflow/vendor/devflow/scripts/ copy wins. (Not git-root
