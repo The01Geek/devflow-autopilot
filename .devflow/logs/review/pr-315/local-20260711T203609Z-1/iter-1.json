@@ -902,7 +902,9 @@
     "mutation checks (copy-based, never in place): claude_args-revert mutant drops consumer pin 1\u21920 hits (RED); deleted-if: mutant loses gate string from step block (RED); new behavioral guards executed live by the suite (5245/0, +14 assertions registered)",
     "F-13 deferred as already-tracked (issue #313 post-merge live-run ACs)",
     "Step 3.5 fix-delta gate (blinded, inner attempt 1): found C1 \u2014 flag-shaped-token bypass of the new guard (guard-class 4, re-derived consumer contract accepting a superset); re-fixed in-iteration (leading-dash rejection for MODEL, enum pin for EFFORT), bypass reproductions added as tests (suite 5249/0), re-gate dispatched over the cumulative span",
-    "Step 3.5 re-gate (inner attempt 2): Unicode-whitespace/backslash blacklist gap found; fixed with the gate's own suggested positive allowlist (A-Za-z0-9._/:@[]-), verified under LC_ALL=C and UTF-8 locales + suite 5252/0. Inner attempts exhausted; residual verification delegated to the early shadow + iteration 2's full engine pass per the gate's at-cap routing"
+    "Step 3.5 re-gate (inner attempt 2): Unicode-whitespace/backslash blacklist gap found; fixed with the gate's own suggested positive allowlist (A-Za-z0-9._/:@[]-), verified under LC_ALL=C and UTF-8 locales + suite 5252/0. Inner attempts exhausted; residual verification delegated to the early shadow + iteration 2's full engine pass per the gate's at-cap routing",
+    "Early shadow (engine_self_modifying): full coverage (5/5 reviewers, 41-item blinded checklist: 40 PASS / 1 FAIL); verdict REJECT; 3 new Important findings (S1 bearer-key-vs-provision exposure, S2 degraded-base-read silent reroute + misdirecting guard, S3 env-map key forge) + VC-41 checklist FAIL promoted to iteration 2 (Decide outcome 2)",
+    "over-grade calibration gate (shadow promotion): S2 and S3 flagged (shape 3, single-source silent-failure-hunter); severity-calibrated evaluations recorded in iter-2 fix_decisions affirming Important (S2: silent selection change + false error/wrong remedy \u2014 fail-open, not diagnostic-only; S3: silent env-name forge or opaque abort on a maintainer-config trigger \u2014 fail-open guard-completeness gap in code authored this PR); S1 from code-reviewer \u2014 no flag"
   ],
   "telemetry": {
     "phase_0": {
@@ -951,5 +953,246 @@
       "tokens": 0,
       "wall_clock_s": 60
     }
+  },
+  "shadow": {
+    "ran_at": "2026-07-11T22:20:00Z",
+    "trigger": "early (engine_self_modifying, post-iteration-1)",
+    "reviewed_sha": "16fb0f22fdb1276192369646c5859b14708e22eb",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "checklist_tally": {
+      "pass": 40,
+      "fail": 1,
+      "inconclusive": 0,
+      "lite": 6,
+      "agent": 35
+    },
+    "phase3_findings": [
+      {
+        "id": "S1",
+        "agent": "devflow:code-reviewer",
+        "severity": "Important",
+        "description": "bearer ANTHROPIC_AUTH_TOKEN written job-wide via $GITHUB_ENV BEFORE the runner's opt-in provision step, which executes PR-authored build code \u2014 provider+provision_env combo hands the key to PR code, sidestepping C1",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-runner.yml",
+          "line_range": [
+            662,
+            691
+          ],
+          "kind": "security"
+        }
+      },
+      {
+        "id": "S2",
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "degraded base-config read (fetch failure/malformed/missing) collapses BASE_JSON to {} and silently reroutes the provider decision to the Anthropic default; degraded-path warnings name only provision_env, and the OAuth guard then falsely asserts no provider is configured with a wrong remedy",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-runner.yml",
+          "line_range": [
+            268,
+            651
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "id": "S3",
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "env-map KEYS interpolated raw into the KEY<<DELIM heredoc header (values are newline-safe, keys are not) \u2014 a newline/'<<' key forges a var name or breaks the heredoc; no test feeds a hostile key",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-runner.yml",
+          "line_range": [
+            688,
+            696
+          ],
+          "kind": "security"
+        }
+      },
+      {
+        "id": "S4",
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "six cargs rejection tests assert exit code only and the one pinned phrase (flag-injection guard) appears in all three arms \u2014 arm attribution absent",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            20789,
+            20818
+          ],
+          "kind": "test_gap"
+        }
+      },
+      {
+        "id": "S5",
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "cargs empty-MODEL remedy text (per-section claude_model suffices) disagrees with the extract guard's global-model requirement",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-runner.yml",
+          "line_range": [
+            170,
+            174
+          ],
+          "kind": "other"
+        }
+      },
+      {
+        "id": "S6",
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "cargs EFFORT enum is a hand-mirrored copy of the schema enum with no coupling test",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-runner.yml",
+          "line_range": [
+            753,
+            758
+          ],
+          "kind": "test_gap"
+        }
+      },
+      {
+        "id": "S7",
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "providers schema contract (required/enum/default/additionalProperties) unpinned in run.sh",
+        "defect_signature": {
+          "file": ".devflow/config.schema.json",
+          "line_range": [
+            28,
+            68
+          ],
+          "kind": "test_gap"
+        }
+      },
+      {
+        "id": "S8",
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "worked doc example JSONs not driven through the resolver",
+        "defect_signature": {
+          "file": "docs/cloud-setup.md",
+          "line_range": [
+            1088,
+            1155
+          ],
+          "kind": "test_gap"
+        }
+      },
+      {
+        "id": "S9",
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "EFFORT_SUPPORTED empty/garbage cell untested (fail-closed by construction)",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-runner.yml",
+          "line_range": [
+            766,
+            768
+          ],
+          "kind": "test_gap"
+        }
+      },
+      {
+        "id": "S10",
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "runner-specific SECURITY prose ships verbatim in the shared cargs body of the two command workflows (true but potentially confusing in isolation)",
+        "defect_signature": {
+          "file": ".github/workflows/devflow.yml",
+          "line_range": [
+            736,
+            748
+          ],
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "id": "S11",
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "config.example.json carries no providers pointer (discoverability)",
+        "defect_signature": {
+          "file": ".devflow/config.example.json",
+          "line_range": null,
+          "kind": "other"
+        }
+      },
+      {
+        "id": "S12",
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "awkward comment wrap ('so' dangling) in the runner Resolve-step header",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-runner.yml",
+          "line_range": [
+            561,
+            566
+          ],
+          "kind": "style"
+        }
+      },
+      {
+        "id": "S13",
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "clarify in the two command workflows' env: blocks that the shared body's PR-head warning describes the runner",
+        "defect_signature": {
+          "file": ".github/workflows/devflow.yml",
+          "line_range": [
+            738,
+            743
+          ],
+          "kind": "style"
+        }
+      },
+      {
+        "id": "S14",
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "bare AC numbers in comments are issue-relative; qualify as #313 AC n",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-implement.yml",
+          "line_range": [
+            488,
+            494
+          ],
+          "kind": "style"
+        }
+      }
+    ],
+    "phase2_fails": [
+      {
+        "id": "VC-41",
+        "claim_signature": "test_mock_alignment:run.sh:gh-topkeys-heredoc-arm",
+        "verdict": "FAIL",
+        "evidence": "claim wording inaccurate (only 2 of 3 forge tests exercise the heredoc arm; the cargs forge test now relies on pre-emit rejection); substantive residue: gh_topkeys heredoc-swallow arm has no direct self-test and the cargs args<< emit is no longer exercised by a forge fixture"
+      }
+    ],
+    "comparison": {
+      "shadow_total": 14,
+      "overlap_with_iter_N": 0,
+      "new": 14,
+      "new_critical": 0,
+      "new_important": 3
+    },
+    "promoted_to_iter_next": true
   }
 }
