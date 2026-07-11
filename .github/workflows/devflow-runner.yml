@@ -881,8 +881,11 @@ jobs:
               # goes through the SAME guarded write path that fails closed: a header
               # write failure must NOT leave an unscrubbed/half-written file advertised
               # for upload (issue #409 item 2 gotcha).
-              CAVEAT="# DEVFLOW SCRUB CAVEAT: best-effort blocklist redacted four credential shapes (GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, basic Authorization headers). This blocklist is INCOMPLETE — other third-party credential shapes may remain. Treat this artifact as sensitive."
-              echo "::warning::transcript scrub is a best-effort blocklist covering four credential shapes (GitHub tokens/PATs, Anthropic keys, Bearer + basic Authorization headers); it is INCOMPLETE for third-party credential shapes — treat the uploaded artifact as sensitive."
+              # One source of truth for the four redacted shapes, interpolated into both
+              # the artifact caveat and the log warning so they cannot drift.
+              SHAPES="GitHub tokens/PATs, Anthropic keys, Bearer + basic Authorization headers"
+              CAVEAT="# DEVFLOW SCRUB CAVEAT: best-effort blocklist redacted four credential shapes ($SHAPES). This blocklist is INCOMPLETE — other third-party credential shapes may remain. Treat this artifact as sensitive."
+              echo "::warning::transcript scrub is a best-effort blocklist covering four credential shapes ($SHAPES); it is INCOMPLETE for third-party credential shapes — treat the uploaded artifact as sensitive."
               HDR="$OUT.hdr"
               if { printf '%s\n' "$CAVEAT" > "$HDR" && cat "$OUT" >> "$HDR" && mv "$HDR" "$OUT"; }; then
                 echo "path=$OUT" >> "$GITHUB_OUTPUT"
