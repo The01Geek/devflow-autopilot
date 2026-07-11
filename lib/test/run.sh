@@ -20781,9 +20781,10 @@ assert_eq "#408 devflow-yml: manual-path mint gated on the dead-run trigger + DE
 # Fix A consumer-side breadcrumb selection now lives in the shared helper (issue #414),
 # driven in the #414 block below for both the manual and auto-review paths.
 
-# The backstop-marker literal is a coupled contract: the helper WRITES it (the
-# count-prefix AND the emitted marker, so it appears twice) and the workflows post
-# it. Assert presence in the helper so a rename there goes RED.
+# The backstop-marker literal is a coupled contract: request-review-backstop.sh WRITES it (the
+# count-prefix AND the emitted marker, so it appears twice) and the extracted
+# post-review-backstop-comment.sh helper posts it (issue #414 moved the POST out of the two
+# workflow YAMLs into that helper). Assert presence in the writer so a rename there goes RED.
 assert_eq "#408 helper: writes the head-scoped review-backstop marker literal" "yes" \
   "$(grep -qF 'devflow:review-backstop head=' "$RRB408" && echo yes || echo no)"
 
@@ -20837,55 +20838,85 @@ assert_eq "#414 post-review-backstop-comment.sh exists and is executable" "yes" 
 
 # Scratch repo-root with stub helpers the extracted glue resolves cwd-relative
 # (.devflow/vendor/... absent -> scripts/... wins). The stubs control the two inputs the
-# selection reads: the decision (request-review-backstop.sh) and the POST success
-# breadcrumb (post-issue-comment.sh). The helper calls each via `bash <path>`, so no +x
-# is required, but chmod anyway for cleanliness.
+# selection reads (the decision and the POST success breadcrumb) AND capture what the helper
+# hands each of them — the RRB stub echoes the five forwarded env inputs (so the marshaling
+# is asserted, not stub-blind), and the POST stubs capture $2 (the composed body) plus a
+# `post-invoked` sentinel (so the fired re-trigger PAYLOAD and "POST never invoked" are real
+# assertions, not inferred from the annotation alone). $T414 is baked into each stub (absolute
+# path) so the capture files resolve regardless of the helper's cwd. The helper calls each via
+# `bash <path>`, so no +x is required, but chmod anyway for cleanliness.
 T414="$(mktemp -d)"
 mkdir -p "$T414/scripts"
-# FIRE decision stub.
-cat > "$T414/scripts/request-review-backstop.sh" <<'EOF'
+# FIRE decision stub — also records the forwarded env for the pass-through assertion.
+cat > "$T414/scripts/request-review-backstop.sh" <<EOF
 #!/usr/bin/env bash
+printf 'VERDICT=%s HEAD_SHA=%s PR_NUMBER=%s REPO=%s APP_TOKEN_PRESENT=%s\n' "\$VERDICT" "\$HEAD_SHA" "\$PR_NUMBER" "\$REPO" "\$APP_TOKEN_PRESENT" > "$T414/rrb-env.txt"
 printf 'decision=fire\nreason=guarantee-class\nattempt=1\nmarker=<!-- devflow:review-backstop head=abc attempt=1 -->\n'
 EOF
-# POST stub emitting the EXACT success breadcrumb on stderr (-> ::notice:: posted).
-cat > "$T414/scripts/post-issue-comment.sh" <<'EOF'
+# POST stub: capture the composed body ($2) + drop the post-invoked sentinel, then emit the
+# EXACT success breadcrumb on stderr (-> ::notice:: posted).
+cat > "$T414/scripts/post-issue-comment.sh" <<EOF
 #!/usr/bin/env bash
-echo "devflow: posted comment on #$1" >&2
+cp "\$2" "$T414/post-body.txt"
+: > "$T414/post-invoked"
+echo "devflow: posted comment on #\$1" >&2
 EOF
 chmod +x "$T414/scripts/"*.sh
+rm -f "$T414/post-invoked" "$T414/post-body.txt" "$T414/rrb-env.txt"
 OUT_OK=$(cd "$T414" && PR_NUMBER=99 HEAD_SHA=abc REPO=o/r VERDICT=incomplete APP_TOKEN_PRESENT=true bash "$PRBC" 2>&1); RC_OK=$?
 assert_eq "#414 fire + POST success breadcrumb -> fired-re-trigger ::notice::" "yes" \
   "$(printf '%s\n' "$OUT_OK" | grep -qF '::notice::review stall backstop: posted /devflow:review re-trigger (attempt 1) for PR #99' && echo yes || echo no)"
 assert_eq "#414 fire + POST success -> NO 'did NOT post' ::warning::" "no" \
   "$(printf '%s\n' "$OUT_OK" | grep -qF 'did NOT post' && echo yes || echo no)"
 assert_eq "#414 helper always exits 0 (success arm)" "0" "$RC_OK"
+# Env pass-through: the helper marshals all five inputs to the decision helper (stub-blindness
+# fix — a dropped/misnamed forward would take the real RRB down the wrong marker-scope/verdict arm).
+assert_eq "#414 fire: helper forwards all five inputs to request-review-backstop.sh" \
+  "VERDICT=incomplete HEAD_SHA=abc PR_NUMBER=99 REPO=o/r APP_TOKEN_PRESENT=true" \
+  "$(cat "$T414/rrb-env.txt" 2>/dev/null)"
+# Composed re-trigger BODY (the fired arm's actual payload — a dropped /devflow:review line or a
+# mis-interpolated HEAD_SHA/attempt would post a comment that re-triggers nothing while the
+# success ::notice:: still fires, since the notice keys only on the POST breadcrumb).
+assert_eq "#414 fire: composed body carries the head-scoped marker line" "yes" \
+  "$(grep -qxF '<!-- devflow:review-backstop head=abc attempt=1 -->' "$T414/post-body.txt" 2>/dev/null && echo yes || echo no)"
+assert_eq "#414 fire: composed body carries the stall-backstop header with HEAD_SHA + attempt interpolated" "yes" \
+  "$(grep -qF '**DevFlow review stall backstop** — this cloud review ended with no verdict for `abc`. Auto-resume attempt 1:' "$T414/post-body.txt" 2>/dev/null && echo yes || echo no)"
+assert_eq "#414 fire: composed body carries the literal /devflow:review re-trigger line" "yes" \
+  "$(grep -qxF '/devflow:review' "$T414/post-body.txt" 2>/dev/null && echo yes || echo no)"
 
 # SAME fire decision, but the POST stub stays SILENT (no success breadcrumb) — the
 # load-bearing fail-closed arm (AC3): a failed POST is a ::warning::, NEVER a fired notice.
-cat > "$T414/scripts/post-issue-comment.sh" <<'EOF'
+# (Still captures the body + sentinel: POST WAS invoked here, it just did not succeed.)
+cat > "$T414/scripts/post-issue-comment.sh" <<EOF
 #!/usr/bin/env bash
-echo "devflow: warning: could not post comment on #$1 (best-effort, continuing): boom" >&2
+cp "\$2" "$T414/post-body.txt"
+: > "$T414/post-invoked"
+echo "devflow: warning: could not post comment on #\$1 (best-effort, continuing): boom" >&2
 EOF
 chmod +x "$T414/scripts/post-issue-comment.sh"
+rm -f "$T414/post-invoked" "$T414/post-body.txt"
 OUT_FAIL=$(cd "$T414" && PR_NUMBER=99 HEAD_SHA=abc REPO=o/r VERDICT=incomplete APP_TOKEN_PRESENT=true bash "$PRBC" 2>&1); RC_FAIL=$?
 assert_eq "#414 fire + POST failed (no breadcrumb) -> 'did NOT post' ::warning:: (fail-closed, AC3)" "yes" \
   "$(printf '%s\n' "$OUT_FAIL" | grep -qF '::warning::review stall backstop: the /devflow:review re-trigger comment did NOT post for PR #99' && echo yes || echo no)"
 assert_eq "#414 fire + POST failed -> NEVER a fired-re-trigger ::notice:: (fail-closed, AC3)" "no" \
   "$(printf '%s\n' "$OUT_FAIL" | grep -qF '::notice::review stall backstop: posted /devflow:review re-trigger' && echo yes || echo no)"
+assert_eq "#414 fire + POST failed -> the POST helper WAS invoked (sentinel present)" "present" \
+  "$([ -f "$T414/post-invoked" ] && echo present || echo absent)"
 assert_eq "#414 helper always exits 0 (failed-POST arm)" "0" "$RC_FAIL"
 
-# NO-FIRE decision -> no-auto-resume ::notice:: naming the reason; POST never invoked.
-# (The post-issue-comment.sh stub from the prior arm is left in place: on a no-fire decision
-# the helper returns before it could call POST, so the stub's content is irrelevant here — the
-# arm asserts POST is never invoked.)
+# NO-FIRE decision -> no-auto-resume ::notice:: naming the reason; POST genuinely not invoked
+# (asserted via the post-invoked sentinel's ABSENCE, not merely the absence of the fired notice).
 cat > "$T414/scripts/request-review-backstop.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'decision=no-fire\nreason=cap-exhausted\nattempt=\nmarker=\n'
 EOF
 chmod +x "$T414/scripts/request-review-backstop.sh"
+rm -f "$T414/post-invoked" "$T414/post-body.txt"
 OUT_NF=$(cd "$T414" && PR_NUMBER=99 HEAD_SHA=abc REPO=o/r VERDICT=approve APP_TOKEN_PRESENT=true bash "$PRBC" 2>&1); RC_NF=$?
 assert_eq "#414 no-fire decision -> no-auto-resume ::notice:: naming the reason" "yes" \
   "$(printf '%s\n' "$OUT_NF" | grep -qF '::notice::review stall backstop: no auto-resume (reason: cap-exhausted)' && echo yes || echo no)"
+assert_eq "#414 no-fire decision -> POST genuinely not invoked (sentinel absent)" "absent" \
+  "$([ -f "$T414/post-invoked" ] && echo present || echo absent)"
 assert_eq "#414 no-fire decision -> POST never invoked (no fired-re-trigger notice)" "no" \
   "$(printf '%s\n' "$OUT_NF" | grep -qF 'posted /devflow:review re-trigger' && echo yes || echo no)"
 assert_eq "#414 helper always exits 0 (no-fire arm)" "0" "$RC_NF"

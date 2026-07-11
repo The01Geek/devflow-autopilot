@@ -22,8 +22,10 @@
 #
 # Inputs (env — the same names both workflow steps already set):
 #   PR_NUMBER  HEAD_SHA  REPO  VERDICT  APP_TOKEN_PRESENT  GH_TOKEN
-# Bundled-helper resolution is repo-root-relative (vendored copy first), matching the
-# workflows' cwd — so a consumer's .devflow/vendor/devflow/scripts/ copy wins.
+# Bundled-helper resolution is cwd-relative (vendored copy first), matching the workflows'
+# repo-root cwd — so a consumer's .devflow/vendor/devflow/scripts/ copy wins. (Not git-root
+# anchored: run from a subdirectory it would miss the vendored copy — the workflow steps
+# always run at the repo root, so this is correct for the two call sites.)
 set -uo pipefail
 
 PR_NUMBER="${PR_NUMBER:-}"
