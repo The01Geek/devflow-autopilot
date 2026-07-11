@@ -20875,15 +20875,14 @@ assert_eq "#414 fire + POST failed -> NEVER a fired-re-trigger ::notice:: (fail-
 assert_eq "#414 helper always exits 0 (failed-POST arm)" "0" "$RC_FAIL"
 
 # NO-FIRE decision -> no-auto-resume ::notice:: naming the reason; POST never invoked.
+# (The post-issue-comment.sh stub from the prior arm is left in place: on a no-fire decision
+# the helper returns before it could call POST, so the stub's content is irrelevant here — the
+# arm asserts POST is never invoked.)
 cat > "$T414/scripts/request-review-backstop.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'decision=no-fire\nreason=cap-exhausted\nattempt=\nmarker=\n'
 EOF
-cat > "$T414/scripts/post-issue-comment.sh" <<'EOF'
-#!/usr/bin/env bash
-echo "devflow: posted comment on #$1" >&2
-EOF
-chmod +x "$T414/scripts/"*.sh
+chmod +x "$T414/scripts/request-review-backstop.sh"
 OUT_NF=$(cd "$T414" && PR_NUMBER=99 HEAD_SHA=abc REPO=o/r VERDICT=approve APP_TOKEN_PRESENT=true bash "$PRBC" 2>&1); RC_NF=$?
 assert_eq "#414 no-fire decision -> no-auto-resume ::notice:: naming the reason" "yes" \
   "$(printf '%s\n' "$OUT_NF" | grep -qF '::notice::review stall backstop: no auto-resume (reason: cap-exhausted)' && echo yes || echo no)"
