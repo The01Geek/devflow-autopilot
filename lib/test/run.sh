@@ -2062,6 +2062,15 @@ assert_pin_red_under "#425(raf): shadow-not-scoped sentence is operative (thinni
 assert_pin_red_under "#425(rev): the N≥2 exclusion threshold is operative (relaxing to N≥1 goes RED)" \
   'on a fix-loop iteration **N ≥ 2**, drop from the Phase-3 launch list' \
   's/fix-loop iteration \*\*N ≥ 2\*\*/fix-loop iteration **N ≥ 1**/' "$ST_REV"
+# #425(rev): the engine_self_modifying-precedence invariant. On an engine_self_modifying diff,
+# Phase 0.5 forces the always-on four ON; the first-only exclusion must OVERRIDE that force so an
+# opted-in always-on agent (this repo's code-reviewer) is still dropped on iterations ≥ 2. A reword
+# that inverts the precedence (exclusion yields to the always-on force) silently re-admits the
+# positionally-worthless late dispatches this feature exists to stop, and would pass the suite green
+# without this pin. Semantic mutation overrides → yields-to re-introduces exactly that regression.
+assert_pin_red_under "#425(rev): the first-only exclusion overrides the engine_self_modifying always-on force (inverting the precedence goes RED)" \
+  'this exclusion **overrides** Phase 0.5' \
+  's/this exclusion \*\*overrides\*\* Phase 0.5/this exclusion **yields to** Phase 0.5/' "$ST_REV"
 #
 assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns its pin RED" \
   'park-calibration gate clean: no parked finding matched'

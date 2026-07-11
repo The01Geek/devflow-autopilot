@@ -140,9 +140,12 @@ late ones) with no measured loss.
 - **Deferred repricing (pre-registered follow-up).** Model repricing is deliberately deferred:
   `agent_overrides` model values apply identically to standalone `/devflow:review`, and the frozen-judge
   guardrail of the 2026-07-11 optimization methodology forbids repricing the outcome judge's roster
-  mid-window. After the current experiment window closes, a one-line follow-up PR reprices `model` from
+  mid-window. After the current experiment window closes, a follow-up PR reprices `model` from
   `claude-opus-4-8` to `claude-haiku-4-5-20251001` (the exact id, since the resolver forwards model
-  strings unvalidated). That follow-up carries its own trigger: any specialty-class escaped
+  strings unvalidated) **and drops the entry's `effort: "low"` key** — a Haiku id must not carry
+  `effort` (see the Haiku HTTP-400 callout above), so the swap is not literally one line: the entry
+  becomes `{ "model": "claude-haiku-4-5-20251001", "iterations": "first-only" }`. That follow-up
+  carries its own trigger: any specialty-class escaped
   Important-or-higher finding on a PR reviewed under the repriced config within **4 retrospective weeks**
   (extended until **30 repriced dispatches**) reverts the model to `claude-opus-4-8`. A deterministic
   auto-revert mechanism was considered and rejected — no machinery exists to edit tracked config on a

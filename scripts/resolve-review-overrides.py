@@ -96,9 +96,9 @@ KNOWN_AGENTS = (
 def resolve_overrides(raw, dispatched):
     """Pure resolution: raw config -> (override_map, warnings).
 
-    `raw` maps an agent id (or "default") to a dict that may carry "model"
-    and/or "effort". `dispatched` is the list of agent ids about to be
-    dispatched this phase. Returns the override map (only agents with an
+    `raw` maps an agent id (or "default") to a dict that may carry "model",
+    "effort", and/or "iterations". `dispatched` is the list of agent ids about
+    to be dispatched this phase. Returns the override map (only agents with an
     applicable override) and a list of human-readable warning strings.
     """
     warnings = []
@@ -206,7 +206,7 @@ def _config_get(config_get, config_file, dotted_key, warnings):
 
 
 def read_raw(dispatched, config_get, config_file):
-    """Read each dispatched agent's (+ default's) model/effort via config-get.sh.
+    """Read each dispatched agent's (+ default's) model/effort/iterations via config-get.sh.
 
     Returns (raw, warnings). Reader warnings are deduplicated so a single broken
     `config_get` path surfaces one actionable line, not one per leaf read.
@@ -241,7 +241,7 @@ def read_raw(dispatched, config_get, config_file):
         # stringifies the value: a JSON object prints the sentinel
         # "[object Object]" (the JS String({}) format coerce() preserves), a scalar/array prints its own
         # stringification, and an absent key prints nothing. So:
-        #   - sentinel       → present object, no model/effort → {} (shadows default)
+        #   - sentinel       → present object, no model/effort/iterations → {} (shadows default)
         #   - other non-empty → a non-object entry (hand-edited config bypassing
         #     schema validation, e.g. `"agent": "high"`) → warn and treat as
         #     no-entry so `default` still applies; never crash.
