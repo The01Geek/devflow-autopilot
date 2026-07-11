@@ -6369,6 +6369,14 @@ P3_FILE="$IMPL_PHASES_DIR/phase-3-review.md"
 assert_pin_red_under "#377 w3-fix-delta-sweeps-operative: Step 3 item 3b runs the implement Phase 2.3 authoring-side sweeps against the fix delta (AC1)" \
   'run the implement Phase 2.3 authoring-side sweeps against the fix delta' \
   's/run the implement Phase 2.3 authoring-side sweeps against the fix delta//'
+# AC1 (frequency): the operative pin above pins WHAT the item runs but not the FREQUENCY clause
+# "on every iteration in which Step 3 applied fixes". A mutation of that clause (e.g. to "on the
+# final iteration") would silently skip the sweeps on most fix-applying iterations while the
+# operative pin stays green — the fix-delta gap the item exists to close would reopen on every
+# iteration but the last. Pin the frequency clause independently.
+assert_pin_red_under "#377 w3-fix-delta-frequency: Step 3 item 3b runs the sweeps on EVERY fix-applying iteration, not just one (AC1)" \
+  'on every iteration in which Step 3 applied fixes' \
+  's/on every iteration in which Step 3 applied fixes//'
 # AC2: the item scopes the sweeps to the fix delta, and gates each sweep on its own Phase 2.3
 # trigger. Two operative clauses, pinned separately — removing the scope clause re-introduces an
 # unbounded sweep over pre-existing code; removing the per-trigger gating re-introduces running
@@ -6379,6 +6387,24 @@ assert_pin_red_under "#377 w3-fix-delta-scope: Step 3 item 3b scopes every sweep
 assert_pin_red_under "#377 w3-fix-delta-trigger-gating: Step 3 item 3b gates each sweep on its own Phase 2.3 trigger (AC2)" \
   'each gated by its own Phase 2.3 trigger condition' \
   's/each gated by its own Phase 2.3 trigger condition//'
+# AC2 (negative gating — the don't-OVER-run half): AC2 requires the item to state that each sweep
+# fires ONLY when its own trigger matches — "a fix adding no guard runs no operand trace", etc. The
+# trigger-gating pin above covers the umbrella phrasing but not the three per-sweep negative tails
+# nor the "runs not at all" umbrella clause, so a delete or inversion of the don't-over-run half
+# (making a sweep run unconditionally, or over pre-existing untouched code) would leave every pin
+# green. Pin the umbrella clause and each per-sweep negative tail so removing any one goes RED.
+assert_pin_red_under "#377 w3-fix-delta-gate-umbrella: item 3b states a sweep whose trigger the delta does not match runs not at all (AC2)" \
+  'a sweep whose trigger the delta does not match runs not at all' \
+  's/a sweep whose trigger the delta does not match runs not at all//'
+assert_pin_red_under "#377 w3-fix-delta-gate-tail-2.3.0c-a: item 3b states the new-guard operand trace does NOT run when the delta adds no guard (AC2)" \
+  'a fix adding no such guard runs no operand trace' \
+  's/a fix adding no such guard runs no operand trace//'
+assert_pin_red_under "#377 w3-fix-delta-gate-tail-2.3.0c-b: item 3b states the prose-policy check does NOT run when the delta touches no policy prose (AC2)" \
+  'a fix touching no agent-executed policy prose runs no prose-policy check' \
+  's/a fix touching no agent-executed policy prose runs no prose-policy check//'
+assert_pin_red_under "#377 w3-fix-delta-gate-tail-2.3.4: item 3b states the reproduction does NOT run when the delta touches no external-tool string (AC2)" \
+  'a fix touching no external-tool string runs no reproduction' \
+  's/a fix touching no external-tool string runs no reproduction//'
 # AC3: each triggered sweep's evidence obligation is honored, directed to the loop's own iteration
 # records when standalone. Removing the operative directive re-introduces the gap where the sweep
 # runs but its evidence lands nowhere on a standalone (no-issue-workpad) loop run.
