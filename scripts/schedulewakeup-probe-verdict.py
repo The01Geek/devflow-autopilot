@@ -55,7 +55,12 @@ def parse_execution_file(exec_file):
     non-empty diagnostic when the file was absent/empty/unparseable/partially
     corrupt (which forces INCONCLUSIVE)."""
     if not (exec_file and os.path.isfile(exec_file)):
-        return None, "execution file absent or empty at '%s'" % exec_file
+        # Fires when the path arg is empty/unset (absent) OR is not a regular file
+        # (missing, a directory, a special file). A present-but-empty regular file is
+        # NOT this branch — isfile() is true, so it flows to the read/parse path and
+        # surfaces "present but unparseable" instead; keep this wording accurate to the
+        # branch that emits it (PR #417 review — silent-failure-hunter).
+        return None, "execution file path absent or not a regular file at '%s'" % exec_file
     try:
         with open(exec_file, encoding="utf-8", errors="replace") as fh:
             raw = fh.read()

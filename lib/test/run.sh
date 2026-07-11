@@ -21287,6 +21287,9 @@ assert_pin_unique "#415 matcher-probe.yml routes the ScheduleWakeup verdict thro
 swv_has_row() {  # fixture expected-row-prefix -> "yes" if the verdict row starts with it
   python3 "$SWV_PY" "$1" 2>/dev/null | grep -qF "$2" && echo yes || echo no
 }
+swv_has() {  # fixture substring -> "yes" if the rendered output contains it (any line)
+  python3 "$SWV_PY" "$1" 2>/dev/null | grep -qF "$2" && echo yes || echo no
+}
 # Arm: DENIED — permission_denials names ScheduleWakeup (ships).
 SWV_F="$(probe_tmp swv.denied)"
 printf '%s' '[{"permission_denials":[{"tool":"ScheduleWakeup"}]},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}}]' > "$SWV_F"
@@ -21357,6 +21360,32 @@ else
 fi
 chmod 644 "$SWV_UNREAD" 2>/dev/null || true
 rm -f "$SWV_UNREAD"
+# PR #417 review (pr-test-analyzer, Important): the render() claude_args-DECISION text is
+# the AC4 operator-facing output ("SHIP …" / "DO NOT SHIP …" / "DO NOT ACT …"), selected by
+# an if/elif independent of the table row. Every other pin greps only the verdict row, so a
+# mis-mapped decision (e.g. AVAILABLE routed into the DO-NOT-ACT else, or SHIP/DO-NOT-SHIP
+# transposed) would misdirect the operator while staying green. Pin one decision string per
+# class. The `AC4): SHIP` prefix is distinct from `AC4): DO NOT SHIP` (grep -F is literal).
+# REMOVED fixture (both controls, no ScheduleWakeup) -> SHIP decision + presumptive [!NOTE].
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: REMOVED renders the SHIP claude_args decision (AC4)" "yes" \
+  "$(swv_has "$SWV_F" 'AC4): SHIP')"
+assert_eq "#415 swv: REMOVED renders the presumptive [!NOTE] caveat block" "yes" \
+  "$(swv_has "$SWV_F" '[!NOTE]')"
+# AVAILABLE fixture (ScheduleWakeup attempted, both controls) -> DO NOT SHIP decision.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"ScheduleWakeup","input":{"delaySeconds":60}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: AVAILABLE renders the DO NOT SHIP claude_args decision (AC4)" "yes" \
+  "$(swv_has "$SWV_F" 'AC4): DO NOT SHIP')"
+# INCONCLUSIVE (absent file) -> DO NOT ACT decision + [!WARNING] re-run block.
+assert_eq "#415 swv: INCONCLUSIVE renders the DO NOT ACT claude_args decision (AC4)" "yes" \
+  "$(swv_has "/no/such/swv-decision.json" 'AC4): DO NOT ACT')"
+assert_eq "#415 swv: INCONCLUSIVE renders the [!WARNING] re-run block" "yes" \
+  "$(swv_has "/no/such/swv-decision.json" '[!WARNING]')"
+# Precedence: ScheduleWakeup BOTH denied AND attempted must resolve DENIED (denial checked
+# before attempt in compute_verdict) — a reordering would ship AVAILABLE on a denied tool.
+printf '%s' '[{"permission_denials":[{"tool":"ScheduleWakeup"}]},{"type":"tool_use","name":"ScheduleWakeup","input":{"delaySeconds":60}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: DENIED wins over AVAILABLE when ScheduleWakeup is both denied and attempted" "yes" \
+  "$(swv_has_row "$SWV_F" '| **DENIED** | yes |')"
 rm -f "$SWV_F"
 
 # mktemp-guard breadcrumb: after #414 the `BODY_FILE="$(mktemp)"` guard lives ONCE in the
