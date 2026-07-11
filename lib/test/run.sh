@@ -24664,6 +24664,15 @@ assert_eq "#423 T3/R3b matched sibling (2 asserts) exits 0 with a VERIFIED count
 printf '%s\n' 'This header locks in 3 assertions below:' '  assert a' '  assert b' > "$SPF"
 SPR="$(spl_repo "$SPF")"
 assert_eq "#423 T3/R3 #336 count-locked header (claims 3, block has 2) exits 1" "1" "$(spl_rc "$SPR")"
+assert_eq "#423 T3/R3 #336 count-locked header STALE fixture emits a STALE R3 row" "yes" "$(spl_has "$SPR" STALE R3)"
+# Positive control (#424 review Suggestion 3): the R3 NUMERIC arm had a STALE fixture but
+# no matched-count VERIFIED sibling (R1/R2/R3b/R4 all have one). Without it, a mutant that
+# broke only the numeric VERIFIED arm (numeric header → UNRESOLVABLE, or forced STALE) would
+# ship GREEN. A header whose numeric count MATCHES its block must emit a VERIFIED R3 row.
+printf '%s\n' 'This header locks in 2 assertions below:' '  assert a' '  assert b' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T3/R3 #336 count-locked header (claims 2, block has 2) exits 0" "0" "$(spl_rc "$SPR")"
+assert_eq "#423 T3/R3 #336 numeric matched sibling emits a VERIFIED R3 row (numeric positive control)" "yes" "$(spl_has "$SPR" VERIFIED R3)"
 
 # T4 → R4 operator-token modality conflict (the PR #397 shape) + named-token GREEN boundary.
 printf '%s\n' 'The skill must never emit ANY `>` redirect anywhere.' 'An in-workspace `>` redirect of a granted head is permitted.' > "$SPF"
@@ -24774,6 +24783,31 @@ assert_eq "#423 T7 config devflow.allowed_tools grants the lint" "yes" "$(jq -e 
 assert_eq "#423 T8 engine skill defines Phase 0.6" "yes" "$(grep -q 'Phase 0.6' "$SP_REVIEW" && echo yes || echo no)"
 assert_eq "#423 T8 fix-loop skill carries no R1-R4 rule paraphrase" "0" "$(grep -cE 'range claims|legend/enumeration sum|operator-token restriction' "$SP_RAF")"
 assert_eq "#423 T8 fix-loop Step 3 invokes the same helper (references it, not a paraphrase)" "yes" "$(grep -q 'stale-prose-lint.py' "$SP_RAF" && echo yes || echo no)"
+
+# T8a → item-6a base-ref binding (#424 review, VC-12). The fix-loop pre-check fence must
+# bind the diff base to a DEFINED value: the shipped fence used the phantom `$BASE_REF`,
+# so `git diff "$BASE_REF"..HEAD` collapsed to an empty `HEAD..HEAD` diff — the helper
+# examined zero added lines, exited 0, and recorded a clean `stale_prose_check` every
+# iteration while inspecting nothing (a silent no-op that fails OPEN). Guard that the
+# item-6a fence references only a skill-defined base var, and prove the undefined-var
+# regression cannot silently return.
+assert_eq "#424 item 6a fence references no undefined \$BASE_REF (the VC-12 silent-no-op var)" "0" "$(grep -c 'BASE_REF' "$SP_RAF")"
+assert_pin_unique "#424 item 6a fence binds the base to the engine-resolved \$PR_BASE_SHA (defined, three-dot, current-branch fallback)" \
+  'git diff "${PR_BASE_SHA:-origin/main}...HEAD"' "$SP_RAF"
+assert_pin_unique "#424 item 6a skill DEFINES \$PR_BASE_SHA (names it the base the engine's Phase 0.2 resolved this iteration)" \
+  'against the base the engine'\''s Phase 0.2 resolved this iteration' "$SP_RAF"
+assert_pin_unique "#424 item 6a recomputes at the POST-fix HEAD, not the cached pre-fix diff.patch" \
+  'not** reading the pre-fix `diff.patch` Phase 0.2 cached' "$SP_RAF"
+assert_pin_red_under "#424 item 6a: reverting the base binding to an undefined var re-introduces the VC-12 silent no-op" \
+  'git diff "${PR_BASE_SHA:-origin/main}...HEAD"' \
+  's#PR_BASE_SHA:-origin/main#BASE_REF#' "$SP_RAF"
+# Producer-failure detection (#424 review Suggestion 1): a failing `git diff` must not
+# pipe empty stdout into the helper and read as a clean pass.
+assert_pin_unique "#424 item 6a fence sets pipefail so a git diff producer failure is not read as clean" \
+  'set -o pipefail' "$SP_RAF"
+assert_pin_red_under "#424 item 6a: dropping the producer-failure note re-introduces the empty-diff-reads-clean hole" \
+  'stale-prose pre-check: git diff producer failed' \
+  '/stale-prose pre-check: git diff producer failed/d' "$SP_RAF"
 
 # T10 → Phase 0.6 degradation arms (fail-safe, never fail-silent), pinned on the
 # rendered file surface (#375). All four arms present; the harness-refused remedy is
