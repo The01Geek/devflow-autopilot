@@ -16,7 +16,7 @@ name: Matcher probe
 # on-disk side-effect files. The model's own text output is NEVER the measurement.
 # A sibling `schedulewakeup-probe` job (issue #415) applies the same execution-file
 # measurement to a single `--disallowedTools ScheduleWakeup` session, deriving a
-# DENIED/AVAILABLE/REMOVED verdict that gates a claude_args change in
+# DENIED/AVAILABLE/REMOVED/INCONCLUSIVE verdict that gates a claude_args change in
 # devflow-implement.yml; it runs in its own job so the flag never perturbs the
 # matcher probe above.
 #
@@ -353,14 +353,20 @@ jobs:
   # extra claude-code-action invocation with the flag under test, isolated in its
   # own job so the flag never perturbs the 15-shape matcher probe above. The verdict
   # is derived DETERMINISTICALLY from the execution file (permission_denials /
-  # recorded tool_use NAME= / tool absence), never the model's text. A positive-
-  # control grep call proves the model does make tool calls, so an absence of any
-  # ScheduleWakeup tool_use reads as REMOVED-from-context (good), not model inaction.
+  # recorded tool_use NAME= / tool absence), never the model's text. TWO positive-
+  # control grep calls bracket the ScheduleWakeup attempt (before AND after Action 2):
+  # the AFTER control proves the model reached and passed Action 2, so an absence of
+  # any ScheduleWakeup tool_use reads as REMOVED-from-context only when both controls
+  # ran — otherwise the run is INCONCLUSIVE (an unmeasured run never collapses onto the
+  # shippable REMOVED). ScheduleWakeup is granted in --allowed-tools so the allowlist
+  # can never be the thing that removes it — a DENIED/REMOVED is attributable to
+  # --disallowedTools alone.
   # Verdict → claude_args mapping (issue #415 AC4, executed by the implementer):
   #   DENIED or REMOVED → ship `--disallowedTools ScheduleWakeup` in
   #                       devflow-implement.yml's claude step + its run.sh pin.
   #   AVAILABLE         → ship no claude_args change; record the probe run link
   #                       and this omission rationale on the PR.
+  #   INCONCLUSIVE      → measured nothing conclusive; re-run before deciding.
   schedulewakeup-probe:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -379,30 +385,45 @@ jobs:
           # claude-code-action otherwise refuses a bot-initiated run.
           allowed_bots: "*"
           prompt: |
-            You are a DISALLOWED-TOOL PROBE. Attempt the two numbered actions below,
+            You are a DISALLOWED-TOOL PROBE. Attempt the three numbered actions below,
             each EXACTLY ONCE in its OWN single tool call, in order. Do not retry a
-            denied or unavailable action and do not work around it — move on. After
-            both, STOP and reply with the single word DONE.
+            denied or unavailable action and do not work around it — move straight to
+            the next number. After all three, STOP and reply with the single word DONE.
 
             Your text output is not measured. Only the harness record of which tool
             calls the permission matcher allowed, denied, or did not expose is
             measured. Attempt Action 2 even if the tool appears unavailable — its
-            absence or denial is exactly the signal being collected.
+            absence or denial is exactly the signal being collected — and ALWAYS
+            proceed to Action 3 afterward, whatever happened at Action 2.
 
-            Action 1 (positive control) — run this Bash command once:
+            Action 1 (positive control, BEFORE) — run this Bash command once:
             grep -c . /etc/hosts
 
             Action 2 — attempt to call the ScheduleWakeup tool once: schedule a
             wakeup roughly 300 seconds from now with any short reason and prompt.
 
+            Action 3 (positive control, AFTER — proves you reached and passed
+            Action 2) — run this Bash command once:
+            grep -c . /etc/os-release
+
           # No plugin_marketplaces/plugins here (unlike the matcher probe above):
           # this probe exercises only `grep` (Bash) and the ScheduleWakeup harness
           # built-in, neither of which needs the devflow plugin — loading it would
           # add a marketplace clone + install for zero measurement value.
+          #
+          # ScheduleWakeup is GRANTED in --allowed-tools *and* removed by
+          # --disallowedTools deliberately (issue #415 review): granting it means the
+          # allowlist can never be the thing that removes/denies it, so a DENIED or
+          # REMOVED verdict is attributable to --disallowedTools alone — the flag under
+          # test — rather than confounded by an allowlist omission. If --disallowedTools
+          # wins it is removed/denied (ship); if it is ignored the tool stays AVAILABLE
+          # (do not ship). --permission-mode acceptEdits so a granted call does not
+          # prompt-deny and masquerade as a denial.
           claude_args: >-
             --model claude-haiku-4-5-20251001
             --effort low
-            --allowed-tools "Bash(grep:*)"
+            --permission-mode acceptEdits
+            --allowed-tools "Bash(grep:*),ScheduleWakeup"
             --disallowedTools ScheduleWakeup
 
       # Deterministic verdict from the execution file only — same measurement core
@@ -429,6 +450,7 @@ jobs:
                   parsed = json.loads(raw)
               except Exception:
                   parsed = []
+                  dropped = 0
                   for line in raw.splitlines():
                       s = line.strip()
                       if not s:
@@ -436,9 +458,15 @@ jobs:
                       try:
                           parsed.append(json.loads(s))
                       except Exception:
-                          pass
+                          # Count each unparseable JSONL line rather than silently
+                          # dropping it: a PARTIAL corruption (some lines parse but the
+                          # ScheduleWakeup record does not) would otherwise read as a
+                          # clean tool-absence, so any drop forces inconclusive below.
+                          dropped += 1
                   if not parsed:
                       note_top = "execution file present but unparseable"
+                  elif dropped:
+                      note_top = "%d execution-file line(s) were unparseable — verdict may be incomplete" % dropped
           else:
               note_top = "execution file absent or empty at '%s'" % exec_file
 
@@ -462,63 +490,86 @@ jobs:
           denial_text = "\n".join(denials)
           tooluse_text = "\n".join(tool_uses)
 
-          # Deterministic three-way verdict, execution-file only:
-          #   DENIED    — permission_denials names ScheduleWakeup (present, refused)
-          #   AVAILABLE — a tool_use NAME=ScheduleWakeup was recorded and NOT denied
-          #               (the flag did NOT remove the tool in this environment)
-          #   REMOVED   — neither: the tool was absent from the model's context, so it
-          #               could not be called. Trustworthy only when the positive
-          #               control ran (the model did make a measurable tool call).
+          # Deterministic four-way verdict, execution-file only:
+          #   DENIED       — permission_denials names ScheduleWakeup (present, refused).
+          #                  Since ScheduleWakeup is GRANTED in --allowed-tools, only
+          #                  --disallowedTools can deny it → attributable to the flag.
+          #   AVAILABLE    — a tool_use NAME=ScheduleWakeup was recorded and NOT denied
+          #                  (the flag did NOT remove the tool in this environment).
+          #   REMOVED      — neither, AND the model provably reached and passed Action 2
+          #                  (the AFTER control ran), so the tool was genuinely absent
+          #                  from context rather than the model skipping the attempt.
+          #   INCONCLUSIVE — nothing was measured (note_top), the BEFORE control did not
+          #                  run (model made no measurable call), or the AFTER control
+          #                  did not run (model never provably reached/passed Action 2).
+          #                  Ships nothing: an unestablished measurement is never
+          #                  collapsed onto the shippable REMOVED (CLAUDE.md: "Unknown
+          #                  is not zero").
           sw_denied = "ScheduleWakeup" in denial_text
           sw_attempted = "NAME=ScheduleWakeup" in tooluse_text
-          control_ok = "/etc/hosts" in tooluse_text
+          control_before = "/etc/hosts" in tooluse_text       # Action 1 ran
+          control_after = "/etc/os-release" in tooluse_text   # Action 3 ran → passed Action 2
 
-          if sw_denied:
+          if note_top:
+              verdict = "INCONCLUSIVE"
+          elif sw_denied:
               verdict = "DENIED"
           elif sw_attempted:
               verdict = "AVAILABLE"
-          else:
+          elif control_before and control_after:
+              # Neither denied nor attempted, and the model demonstrably progressed past
+              # Action 2 (both controls ran) — the tool was absent from its context.
               verdict = "REMOVED"
+          else:
+              # No ScheduleWakeup signal AND the model did not provably reach/pass
+              # Action 2 — cannot distinguish tool-absence from a skipped attempt.
+              verdict = "INCONCLUSIVE"
 
           ship = verdict in ("DENIED", "REMOVED")
-          inconclusive = (verdict == "REMOVED" and not control_ok) or bool(note_top)
+          inconclusive = verdict == "INCONCLUSIVE"
 
           if ship:
               decision = ("SHIP `--disallowedTools ScheduleWakeup` in "
                           "devflow-implement.yml's claude step + its lib/test/run.sh pin")
-          else:
+          elif verdict == "AVAILABLE":
               decision = ("DO NOT SHIP a claude_args change; record the probe run "
                           "link and this omission rationale on the PR")
+          else:
+              decision = ("DO NOT ACT — the probe measured nothing conclusive; "
+                          "re-run before deciding")
 
           out = []
           out.append("## ScheduleWakeup `--disallowedTools` probe (issue #415)")
           out.append("")
           out.append("Deterministic verdict from the execution file's "
                      "`permission_denials` (DENIED), recorded `tool_use` NAME= "
-                     "(AVAILABLE), or tool absence (REMOVED). The model's text is "
+                     "(AVAILABLE), tool absence with both controls run (REMOVED), or "
+                     "no conclusive measurement (INCONCLUSIVE). The model's text is "
                      "never the measurement.")
           out.append("")
-          if note_top:
+          if inconclusive:
               out.append("> [!WARNING]")
-              out.append("> %s — the verdict cannot be trusted; re-run the probe." % note_top)
-              out.append("")
-          if verdict == "REMOVED" and not control_ok:
-              out.append("> [!WARNING]")
-              out.append("> Positive control (grep) produced no tool_use — the model made "
-                         "no measurable tool calls, so REMOVED cannot be trusted. Re-run.")
+              if note_top:
+                  out.append("> %s — verdict INCONCLUSIVE; re-run the probe." % note_top)
+              else:
+                  out.append("> The controls did not both run (before=%s, after=%s), so a "
+                             "tool-absence reading cannot be distinguished from the model "
+                             "skipping Action 2 — verdict INCONCLUSIVE; re-run the probe." % (
+                                 "yes" if control_before else "no",
+                                 "yes" if control_after else "no"))
               out.append("")
           out.append("| Verdict | Ship flag? | Evidence |")
           out.append("|---------|-----------|----------|")
-          out.append("| **%s** | %s | denial=%s; tool_use(ScheduleWakeup)=%s; control(grep)=%s |" % (
+          out.append("| **%s** | %s | denial=%s; tool_use(ScheduleWakeup)=%s; control_before(grep)=%s; control_after(grep)=%s |" % (
               verdict,
               "yes" if ship else "no",
               "yes" if sw_denied else "no",
               "yes" if sw_attempted else "no",
-              "yes" if control_ok else "no",
+              "yes" if control_before else "no",
+              "yes" if control_after else "no",
           ))
           out.append("")
-          out.append("**claude_args decision (issue #415 AC4): %s%s.**" % (
-              decision, " — INCONCLUSIVE, re-run before acting" if inconclusive else ""))
+          out.append("**claude_args decision (issue #415 AC4): %s.**" % decision)
           out.append("")
           out.append("### Raw denial entries (%d)" % len(denials))
           out.append("")

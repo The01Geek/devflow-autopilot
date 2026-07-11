@@ -21132,17 +21132,22 @@ assert_pin_red_under "#408 skill: removing the ScheduleWakeup-unavailable rule f
   '/Treat .ScheduleWakeup. and any future task-notification as UNAVAILABLE/d' "$REVIEW_SKILL408"
 
 # ── #415: implement-tier port of the headless-wait discipline ────────────────
-# The implement tier hit the same headless early-quit #410 fixed for review. Two
-# coupled operative sentences must move together in one commit: the always-resident
-# cloud-headless-wait rule in skills/implement/SKILL.md, and the one-line headless
-# mirror in devflow-implement.yml's stall-backstop resume comment (so a resumed run
-# receives it even if it never re-reads the skill prose). Each is a behavioral-fix
-# pin proven RED under a mutation that removes ONLY its operative sentence.
+# The implement tier hit the same headless early-quit #410 fixed for review. The
+# skill rule carries TWO co-equal operative sentences (never-end-turn AND
+# ScheduleWakeup-unavailable) — one pin per operative sentence, mirroring the #408
+# review-tier block — plus the one-line headless mirror in devflow-implement.yml's
+# stall-backstop resume comment (so a resumed run receives it even if it never
+# re-reads the skill prose). All must move together in one commit; each is a
+# behavioral-fix pin proven RED under a mutation that removes ONLY its operative
+# sentence.
 IMPL_SKILL415="$REPO_ROOT/skills/implement/SKILL.md"
 WFI415="$REPO_ROOT/.github/workflows/devflow-implement.yml"
 assert_pin_red_under "#415 implement-skill: removing the never-end-turn-with-pending-agent rule flips its pin RED" \
   'Never end your turn while any dispatched agent' \
   '/Never end your turn while any dispatched agent/d' "$IMPL_SKILL415"
+assert_pin_red_under "#415 implement-skill: removing the ScheduleWakeup-unavailable rule flips its pin RED" \
+  'Treat `ScheduleWakeup` and any future task-notification as UNAVAILABLE' \
+  '/Treat .ScheduleWakeup. and any future task-notification as UNAVAILABLE/d' "$IMPL_SKILL415"
 assert_pin_red_under "#415 devflow-implement-yml: removing the headless resume-note line flips its pin RED" \
   'ending the turn ends the process' \
   '/ending the turn ends the process/d' "$WFI415"
