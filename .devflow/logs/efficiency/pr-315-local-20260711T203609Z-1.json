@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "slug": "pr-315",
-  "generated_at": "2026-07-11T21:30:56Z",
+  "generated_at": "2026-07-11T23:10:15Z",
   "source": "review-and-fix",
   "synthesized": false,
   "cut_candidate_min_dispatch": 3,
-  "iterations": 1,
+  "iterations": 2,
   "per_iteration": [
     {
       "iter": 1,
@@ -30,7 +30,7 @@
       "verification_posture": "mixed",
       "checklist_lite_count": 8,
       "checklist_agent_count": 39,
-      "fixes_applied": 15,
+      "fixes_applied": 17,
       "added_nothing": false,
       "agent_verdicts": [
         {
@@ -51,6 +51,38 @@
         },
         {
           "agent": "devflow:silent-failure-hunter",
+          "verdict": "unique-effective"
+        },
+        {
+          "agent": "step3.5-fix-delta-gate",
+          "verdict": "unique-effective"
+        }
+      ]
+    },
+    {
+      "iter": 2,
+      "loop_role": "promoted",
+      "synthesized": false,
+      "phase3_dispatched": [],
+      "phase3_dispatched_count": 0,
+      "phase3_dispatched_present": false,
+      "diff_profile": null,
+      "verification_posture": "none-recorded",
+      "checklist_lite_count": 0,
+      "checklist_agent_count": 0,
+      "fixes_applied": 6,
+      "added_nothing": false,
+      "agent_verdicts": [
+        {
+          "agent": "devflow:code-reviewer",
+          "verdict": "unique-effective"
+        },
+        {
+          "agent": "devflow:silent-failure-hunter",
+          "verdict": "unique-effective"
+        },
+        {
+          "agent": "shadow-phase2",
           "verdict": "unique-effective"
         }
       ]
@@ -107,6 +139,10 @@
           "wall_clock_s": 60
         }
       }
+    },
+    {
+      "iter": 2,
+      "phases": null
     }
   ]
 }
