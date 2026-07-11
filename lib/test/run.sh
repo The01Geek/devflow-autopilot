@@ -21159,6 +21159,61 @@ assert_pin_red_under "#415 devflow-implement-yml: removing the never-end-turn re
   'Never end the turn while any dispatched agent has not returned' \
   '/Never end the turn while any dispatched agent has not returned/d' "$WFI415"
 
+# ── #415 review finding #1 + #2: the schedulewakeup-probe verdict core is extracted
+# ── into scripts/schedulewakeup-probe-verdict.py so every arm — and the fail-open
+# ── name-match matrix — is DRIVEN, not left inline-in-YAML untestable (same rationale
+# ── as describe-denial-count.sh, PR #367). matcher-probe.yml routes the verdict step
+# ── through the helper (pinned below), and every four-way arm plus the two fail-open
+# ── regressions (lower-cased name, input-less name) is exercised against the real file.
+SWV_PY="$REPO_ROOT/scripts/schedulewakeup-probe-verdict.py"
+MPROBE415="$REPO_ROOT/.github/workflows/matcher-probe.yml"
+assert_pin_unique "#415 matcher-probe.yml routes the ScheduleWakeup verdict through the testable helper" \
+  'python3 scripts/schedulewakeup-probe-verdict.py "${EXECUTION_FILE}"' "$MPROBE415"
+swv_has_row() {  # fixture expected-row-prefix -> "yes" if the verdict row starts with it
+  python3 "$SWV_PY" "$1" 2>/dev/null | grep -qF "$2" && echo yes || echo no
+}
+# Arm: DENIED — permission_denials names ScheduleWakeup (ships).
+SWV_F="$(probe_tmp swv.denied)"
+printf '%s' '[{"permission_denials":[{"tool":"ScheduleWakeup"}]},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}}]' > "$SWV_F"
+assert_eq "#415 swv: DENIED when permission_denials names ScheduleWakeup (ship)" "yes" \
+  "$(swv_has_row "$SWV_F" '| **DENIED** | yes |')"
+# Arm: AVAILABLE — a ScheduleWakeup tool_use recorded, not denied (does NOT ship).
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"ScheduleWakeup","input":{"delaySeconds":60}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: AVAILABLE when ScheduleWakeup attempted and not denied (no ship)" "yes" \
+  "$(swv_has_row "$SWV_F" '| **AVAILABLE** | no |')"
+# Arm: REMOVED — no ScheduleWakeup signal AND both controls ran (presumptive, ships).
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: REMOVED when tool absent and both controls ran (ship)" "yes" \
+  "$(swv_has_row "$SWV_F" '| **REMOVED** | yes |')"
+# Arm: INCONCLUSIVE — only one control ran; tool-absence cannot be distinguished from
+# a skipped attempt. "Unknown is not zero" — must NOT collapse onto the shippable REMOVED.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}}]' > "$SWV_F"
+assert_eq "#415 swv: INCONCLUSIVE (no ship) when only the before-control ran, not REMOVED" "yes" \
+  "$(swv_has_row "$SWV_F" '| **INCONCLUSIVE** | no |')"
+# Arm: INCONCLUSIVE — execution file absent (note_top floor). Never REMOVED.
+assert_eq "#415 swv: INCONCLUSIVE (no ship) when the execution file is absent" "yes" \
+  "$(swv_has_row "/no/such/schedulewakeup-execfile.json" '| **INCONCLUSIVE** | no |')"
+# Arm: INCONCLUSIVE — partial JSONL corruption (one line parses, one drops) forces the
+# floor rather than reading the surviving lines as a clean tool-absence.
+printf '%s\n%s\n' '{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}}' '{oops-not-json' > "$SWV_F"
+assert_eq "#415 swv: INCONCLUSIVE (no ship) on partial JSONL corruption, not a false REMOVED" "yes" \
+  "$(swv_has_row "$SWV_F" '| **INCONCLUSIVE** | no |')"
+# Fail-open regression #2a (case): a ScheduleWakeup call recorded under a LOWER-CASED
+# name must read as present (AVAILABLE, no ship). Case-sensitive matching would miss it
+# and, with both controls run, ship REMOVED — a fail-open in the dangerous direction.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"schedulewakeup","input":{"delaySeconds":60}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: lower-cased tool name still reads AVAILABLE, not a fail-open REMOVED" "yes" \
+  "$(swv_has_row "$SWV_F" '| **AVAILABLE** | no |')"
+# Fail-open regression #2b (input-less): a ScheduleWakeup tool_use with no `input` key
+# must still be recorded by NAME and read AVAILABLE — dropping it would ship REMOVED.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"ScheduleWakeup"},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: input-less ScheduleWakeup tool_use still reads AVAILABLE, not REMOVED" "yes" \
+  "$(swv_has_row "$SWV_F" '| **AVAILABLE** | no |')"
+# The helper always exits 0 (best-effort, like describe-denial-count.sh).
+assert_eq "#415 swv: helper exits 0 even on an absent execution file" "0" \
+  "$(python3 "$SWV_PY" /no/such/execfile.json >/dev/null 2>&1; echo $?)"
+rm -f "$SWV_F"
+
 # mktemp-guard coupled mirror (PR #410 review gap): the `BODY_FILE="$(mktemp)"` guard
 # in the two backstop steps is byte-identical across both workflows and was unpinned,
 # so a future edit diverging or dropping one copy would stay green. Pin the mktemp

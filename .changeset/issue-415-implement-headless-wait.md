@@ -14,4 +14,9 @@ type: Added
   `devflow_implement.stall_backstop` resume attempt. A `schedulewakeup-probe` job in
   `matcher-probe.yml` deterministically measures whether `--disallowedTools ScheduleWakeup`
   removes/denies the tool in `claude-code-action`, gating a future `claude_args` denial.
+  The probe's four-way verdict derivation is extracted into the unit-tested helper
+  `scripts/schedulewakeup-probe-verdict.py` (every arm plus the fail-open name-match are
+  driven in `lib/test/run.sh`), and its ScheduleWakeup name-match is hardened to be
+  case-insensitive and to record a tool call even when it carries no `input` key, so a
+  present tool never mis-reads as absent and ships the denial flag.
   Local/interactive runs are unchanged. (#417)
