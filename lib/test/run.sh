@@ -603,6 +603,70 @@ else
   [ -d "${RGB_E2E:-}" ] && rm -rf "$RGB_E2E"
 fi
 
+# --- #412 config.json-tracking doc guard -------------------------------------
+# This repo TRACKS its .devflow/config.json (force-added past the /.devflow/*
+# ignore rule so the cloud tier reads it from the committed tree); the scaffolder's
+# .devflow/.gitignore ignores only tmp/, so adopters track it too. NO live doc may
+# assert the opposite. A repo-wide `git grep` auto-discovers every tracked surface
+# so the guard cannot drift as docs are added/renamed. Three exceptions: CHANGELOG.md
+# (append-only release history — the YAML→JSON migration entry genuinely shipped
+# with config.json gitignored at that release), .devflow/logs/ (historical review
+# records that quote a since-fixed finding), and lib/test/ (this guard's own pattern
+# lives here, so scanning it would self-match). The ERE catches config.json asserted
+# as gitignored in either order; conditional adopter guidance ("if your repo
+# gitignores it, force-add") and the scaffolder's "intentionally tracked" prose do
+# NOT match. `git -C "$root"` keeps git the only rc-bearing command: a failed
+# `cd && git grep` would short-circuit to rc 1 + empty stdout, a fail-open no-match
+# masquerade. Split-literal not needed here — lib/test/ is excluded, so run.sh
+# (which carries the pattern) is never scanned.
+CJT_PAT='config\.json[^.]{0,12}is gitignored|gitignored[^.]{0,10}(live )?.?config\.json'
+cjt_classify() {
+  local rc="$1" hits="$2"
+  if [ "$rc" -gt 1 ]; then
+    printf 'devflow: #412 config.json-tracking guard could not run (git rc=%s) — guard did not run\n' "$rc" >&2
+    printf '<cjt-guard-errored>'
+    return 0
+  fi
+  printf '%s' "$hits"
+}
+cjt_scan() {
+  local root="$1" hits rc
+  hits="$(git -C "$root" grep -lEi "$CJT_PAT" -- ':!CHANGELOG.md' ':!.devflow/logs/**' ':!lib/test/**' 2>/dev/null)"; rc=$?
+  cjt_classify "$rc" "$hits"
+}
+assert_eq "#412 no tracked doc asserts config.json is gitignored (CHANGELOG/logs/tests excepted)" \
+  "" "$(cjt_scan "$LIB/..")"
+# Fail-closed contract: the SAME scanner against a non-repo path (git -C → rc 128)
+# returns the error sentinel, not a silent empty PASS a stray no-match could mimic.
+assert_eq "#412 config.json-tracking guard fails closed on a git error (rc>1 → sentinel)" \
+  "<cjt-guard-errored>" "$(cjt_scan "$LIB/../nonexistent-cjt-probe-$$" 2>/dev/null)"
+# Threshold + rc-class pins (mirror the RGB precedent): drive cjt_classify across
+# every rc class so the `[rc -gt 1]` boundary is pinned — a `-gt 2` weakening turns
+# the rc-2 row red, an over-wide predicate turns the rc-0 row red.
+assert_eq "#412 cjt_classify rc=0 (hit) → returns the offending file list" \
+  "SECURITY.md" "$(cjt_classify 0 "SECURITY.md" 2>/dev/null)"
+assert_eq "#412 cjt_classify rc=1 (clean no-match) → empty (PASS)" \
+  "" "$(cjt_classify 1 "" 2>/dev/null)"
+assert_eq "#412 cjt_classify rc=2 (smallest error rc) → sentinel (fails closed at -gt 1)" \
+  "<cjt-guard-errored>" "$(cjt_classify 2 "" 2>/dev/null)"
+# End-to-end: a throwaway repo genuinely containing the bad claim must surface as a
+# hit (pins cjt_scan's own git invocation — the -l flag, the ERE, the pathspecs —
+# against a silent regression), and CHANGELOG.md there must stay excluded.
+if CJT_E2E="$(git_sandbox "cjt_scan e2e setup")" && git -C "$CJT_E2E" init -q; then
+  printf 'the live config.json is gitignored\n' > "$CJT_E2E/DOC.md"
+  printf 'historical: the live config.json is gitignored\n' > "$CJT_E2E/CHANGELOG.md"
+  if git -C "$CJT_E2E" add DOC.md CHANGELOG.md; then
+    assert_eq "#412 cjt_scan flags a real bad claim in a tracked doc but NOT CHANGELOG.md" \
+      "DOC.md" "$(cjt_scan "$CJT_E2E")"
+  else
+    assert_eq "#412 cjt_scan e2e setup (git add)" "ok" "setup failed — git add errored"
+  fi
+  rm -rf "$CJT_E2E"
+else
+  [ -d "${CJT_E2E:-}" ] && assert_eq "#412 cjt_scan e2e setup (git init)" "ok" "setup failed — git init errored"
+  [ -d "${CJT_E2E:-}" ] && rm -rf "$CJT_E2E"
+fi
+
 # Fix then later occ → status "regressed"
 RESULT=$(cp_run \
   '{"schema_version":2,"kind":"audit","pr":1,"merged_at":"2026-04-01T00:00:00Z","fixes_patterns":["convention-violation"]}
