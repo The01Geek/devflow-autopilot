@@ -207,6 +207,28 @@
           "description": "When true, a PR-mode /devflow:review authors a live progress comment for that run (a run-keyed <!-- devflow:review-progress run=<id>-<attempt> --> comment \u2014 one per review run, so a later run posts its own rather than overwriting an earlier run's) incrementally as it works \u2014 a blueprint of the phases up front, then per-phase updates (diff classification, checklist results, each Phase-3 agent's findings as they land, the verdict), finalizing with the run-telemetry summary and effectiveness trace. When false, /devflow:review falls back to producing its report once at the end (no incremental updates). Independent of devflow_review_and_fix.efficiency_telemetry_enabled, which separately gates the embedded telemetry/trace.",
           "default": true
         },
+        "stale_prose": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Gates the shared review engine's Phase 0.6 deterministic stale-counted-prose lint (scripts/stale-prose-lint.py, issue #423), which flags diff-added prose asserting counts/ranges/sums/deny-absolutes that the same PR's later commits outgrow or falsify. Inherited identically by standalone /devflow:review, the Phase-3 pass of /devflow:review-and-fix, and the shadow pass, since all three drive the same engine. Purely additive: absent, the phase runs with its defaults (enabled, findings at 'important').",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Master switch for Phase 0.6. true (the default) runs the lint and enters each STALE row as an engine finding; false disables the phase with a recorded config-disabled note (never a silent skip). Any value other than an explicit false resolves to enabled — the safe, feature-on-by-default direction.",
+              "default": true
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "critical",
+                "important",
+                "suggestion"
+              ],
+              "description": "The engine-finding severity assigned to each STALE row from Phase 0.6, which then participates in Phase 4.2 verdict computation exactly like any other finding at that severity. UNRESOLVABLE rows are informational notes and never gate regardless of this value. A missing/wrong-type/unknown/empty value falls back to the default 'important' with a stderr breadcrumb (never aborts a run).",
+              "default": "important"
+            }
+          }
+        },
         "require_up_to_date": {
           "type": "boolean",
           "description": "When true (the default), the devflow-review auto-trigger defers \u2014 posting a neutral 'waiting: branch behind base' Devflow Review check instead of running the engine \u2014 while the PR branch is behind its configured base_branch, so an LLM review that a forthcoming branch update would invalidate is not wasted. The review auto-re-triggers on the next reviewable event (synchronize, or other-CI completion). A neutral required check does NOT itself block merge: this precondition is a cost optimization, not a correctness gate \u2014 pair it with branch protection's 'require branches up to date' if staleness must block. When false, restores the unconditional auto-trigger for this precondition. Evaluated by scripts/derive-review-preconditions.sh; an unverifiable comparison fails closed (defer, recoverable via a later event or the check's Re-run button).",

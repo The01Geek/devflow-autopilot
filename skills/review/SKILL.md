@@ -463,6 +463,50 @@ Announce one line, e.g.:
 - `Diff classification: config_only → skipping pr-test-analyzer + type-design-analyzer (Phase 1+2 still run).`
 - `Diff classification: full engine.`
 
+### 0.6 Stale counted-prose lint (Phase 0.6 — deterministic, runs immediately after 0.5)
+
+Run the bundled `stale-prose-lint.py` over the review diff already computed in 0.2 — a deterministic pre-pass that flags **diff-added prose whose counted claims a later commit outgrows or falsifies** (a range header the block outgrew, a legend sum that no longer matches its `Expected total = N`, an exact `count-locked` header, or a deny-absolute about a shell operator token the same file also asserts permitted). This is the front-line, authoring-speed layer in front of the LLM self-contradicting-diff carve-out; the helper's own header is the authoritative spec of the four rule classes (R1–R4) and of the out-of-scope behavioral-absolute subclass (routed to `comment-analyzer`, not detected here) — this skill does **not** paraphrase them.
+
+**Config gate.** Read the `devflow_review.stale_prose` block via the same portable, skill-dir-anchored, no-`bash`-prefix `config-get.sh` invocation the verdict-threshold and live-comment reads use. `enabled` defaults `true`; only an explicit `false` disables the phase (every other shape resolves to enabled — the fail-safe, feature-on direction). `severity` defaults `important`; validate the enum inline (the resolver coerces any JSON value to a string and does not validate it) and fall back to `important` on a resolver failure or any value outside `critical|important|suggestion`, with a specific breadcrumb:
+
+```bash
+if ! SP_ENABLED=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review.stale_prose.enabled true); then
+  echo "::warning::devflow review: could not read .devflow_review.stale_prose.enabled (config-get.sh rc≠0); defaulting to enabled" >&2
+  SP_ENABLED=true
+fi
+if ! SP_SEVERITY=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review.stale_prose.severity important); then
+  echo "::warning::devflow review: could not read .devflow_review.stale_prose.severity (config-get.sh rc≠0); using default 'important'" >&2
+  SP_SEVERITY=important
+fi
+case "$SP_SEVERITY" in
+  critical | important | suggestion) ;;
+  *) echo "::warning::devflow review: .devflow_review.stale_prose.severity '$SP_SEVERITY' is not one of critical/important/suggestion; using default 'important'" >&2; SP_SEVERITY=important ;;
+esac
+```
+
+When `SP_ENABLED` is exactly `false`, **skip the phase and record it** — do not run the helper — with the note `stale-prose lint disabled by config`. This is a recorded config-disabled note, **not** a silent skip.
+
+**Run the helper** on the cached diff, resolving each claim's referent against the current head (`--rev HEAD`). It reads the unified diff on stdin and never derives the diff range itself, so the engine simply hands it the diff it already cached in 0.2:
+
+```bash
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/stale-prose-lint.py --rev HEAD < .devflow/tmp/review/<slug>/<run-id>/diff.patch
+```
+
+Each output row is `verdict<TAB>rule<TAB>file<TAB>line<TAB>detail`. Route by verdict:
+
+- **`STALE`** → enter each row as an **engine finding at `$SP_SEVERITY`**, carrying its **TSV row verbatim as the finding's evidence**. These findings participate in **Phase 4.2 verdict computation** exactly like any other finding at that severity — no new verdict rule, no new accounting rule.
+- **`UNRESOLVABLE`** → record as an **informational note** in the report; it **never gates** the verdict.
+- **`VERIFIED`** → no action (optionally summarized in the report).
+
+**Degradation arms (fail-safe, never fail-silent — the run proceeds in every arm, and the note is visible in the review report):**
+
+- **(a) Harness-refused invocation** — the command never executes (the consumer-skew state: a consumer's installed workflow `TOOLS` grants lag the vendored plugin, so the harness silently refuses the fence). Record a degraded-check note that must **name the missing grant and the tier-appropriate remedy** key: `devflow_runner.allowed_tools` for the cloud review runner (appended post-floor by `devflow-runner.yml`, so a consumer bridges a lagging installed workflow through tracked config alone), and `devflow_implement.allowed_tools` / `devflow.allowed_tools` for the implement / command tiers.
+- **(b) Helper absent** (`No such file`) — record a degraded-check note stating the vendored stale-prose-lint.py was not found at its expected path.
+- **(c) Helper internal error** (exit 2) — record a degraded-check note that the helper **reported an internal error (exit 2)** and carry its stderr.
+- **(d) Config-disabled** — the explicit config-disabled note recorded at the config gate above.
+
+No arm stalls the run and no arm silently skips the phase.
+
 ---
 
 ## Phase 1: Verification Checklist Generation
