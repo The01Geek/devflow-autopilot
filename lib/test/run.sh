@@ -20519,6 +20519,14 @@ for R313_WF in "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF"; do
   assert_eq "#313 defaults: $R313_TAG inject step is gated on provider != '' AND holds the ANTHROPIC_BASE_URL write" "yes" \
     "$(printf '%s' "$R313_INJECT" | grep -qF "steps.provider.outputs.provider != ''" \
        && printf '%s' "$R313_INJECT" | grep -qF 'genv ANTHROPIC_BASE_URL' && echo yes || echo no)"
+  # The cargs COMPUTED string must actually be CONSUMED by the action step's
+  # claude_args (the producer→consumer wiring pin): every cargs behavior above is
+  # executed, but without this pin a merge-conflict revert of claude_args to the
+  # old literal `--model …/--effort …` head would leave every #313 test green
+  # while the provider path silently regained --effort (gateway 400s) and lost
+  # the per-section model override.
+  assert_pin_unique "#313 defaults: $R313_TAG claude_args consumes the computed cargs head" \
+    '${{ steps.cargs.outputs.args }}' "$R313_WF"
 done
 # AC 8 default-path fail-loud OAuth guard (runner-only): the runner relaxed
 # CLAUDE_CODE_OAUTH_TOKEN to an optional workflow_call secret, so it must fail loud when the
@@ -20526,6 +20534,15 @@ done
 # (not covered by the 3-way body-identity check), so pin it removal-proof.
 assert_pin_red_on_removal "#313 defaults: devflow-runner.yml fails loud on the Anthropic default path when CLAUDE_CODE_OAUTH_TOKEN is empty (AC 8, removal-proof)" \
   "No model provider is configured for the devflow_runner section" "$RUNNER_WF"
+# The AC-8 guard's `if:` GATE (not just its body): the body is executed below (both
+# arms) and its message is pinned removal-proof, but neither catches a deleted or
+# inverted `if:` — a deleted gate makes a provider-routed, OAuth-less repo (the exact
+# deployment #313 enables) fail spuriously on every review; an inverted one silently
+# drops the default path's fail-loud. Same mint_blk idiom as the inject-step gate check.
+R313_OAUTH_BLK="$(mint_blk 'Require OAuth token on the Anthropic default path' "$RUNNER_WF")"
+assert_eq "#313 defaults: devflow-runner.yml OAuth guard step is gated on provider == '' AND reads the OAuth secret" "yes" \
+  "$(printf '%s' "$R313_OAUTH_BLK" | grep -qF "steps.provider.outputs.provider == ''" \
+     && printf '%s' "$R313_OAUTH_BLK" | grep -qF 'secrets.CLAUDE_CODE_OAUTH_TOKEN' && echo yes || echo no)"
 # Review C1: the runner resolves its provider decision from the TRUSTED BASE ref config
 # (steps.baseprovision), never PR-head steps.cfg — a PR-head-sourced base_url + secret would
 # exfiltrate DEVFLOW_PROVIDER_API_KEY to an attacker gateway. Pin it removal-proof so a revert
@@ -20599,6 +20616,19 @@ for line in open(sys.argv[1]):
         d=None
 ' "$1"
   }
+  # gh_topkeys self-test (anti-vacuity): the three forge assertions below rely on its
+  # plain `KEY=` arm actually REPORTING a top-level key — if that arm were broken
+  # (never yielding FORGED even from a plain line), all three forge tests would pass
+  # vacuously and keep passing after the guarded regression. Prove the arm live.
+  R313_TKPROBE="$(probe_tmp "#313 gh_topkeys self-test")" || R313_TKPROBE=""
+  if [ -n "$R313_TKPROBE" ]; then
+    printf 'FORGED=evil\n' > "$R313_TKPROBE"
+    assert_eq "#313 gh_topkeys self-test: a plain KEY= line IS reported as a top-level key" "FORGED" \
+      "$(gh_topkeys "$R313_TKPROBE")"
+    rm -f "$R313_TKPROBE"
+  else
+    echo "  SKIP  #313 gh_topkeys self-test (no writable temp)"
+  fi
 
   # Behavioral coverage of the Resolve + Inject + Build-claude_args-head run BODIES (issue #313
   # shadow gap 2 + review Important #2): the 3-way body-identity pin proves the copies AGREE but
@@ -20660,6 +20690,16 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     R313_TOPKEYS="$(gh_topkeys "$R313_GOUT0")"
     assert_eq "#313 resolve-body: an embedded-newline base_url cannot forge a top-level step output" "yes" \
       "$(printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'base_url' && ! printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'FORGED' && echo yes || echo no)"
+    : > "$R313_GOUT0"
+    # EMPTY config input: jq on empty stdin emits nothing with rc 0, so without the
+    # empty-DECISION tripwire the body would "succeed" with zero step outputs and the
+    # run would silently take the default path (or die later on a misdirected
+    # empty-model error). Assert the tripwire fails loud instead.
+    R313_RC=0
+    R313_OUT="$( export CONFIG_JSON="" SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 resolve-body: EMPTY config input fails loud (exit 1, empty-DECISION tripwire)" "1" "$R313_RC"
+    assert_eq "#313 resolve-body: EMPTY config input emits ::error:: naming the no-decision cause" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'produced no decision' && echo yes || echo no)"
     rm -f "$R313_GOUT0" "$R313_GOUT0.kv"
   else
     echo "  SKIP  #313 resolve-body behavioral checks (no writable temp / body extraction failed)"
@@ -20683,9 +20723,14 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
       "$(grep -qxF 'ANTHROPIC_BASE_URL=u' "$R313_GENV.kv" && ! grep -q 'ANTHROPIC_AUTH_TOKEN' "$R313_GENV.kv" && ! grep -q 'API_TIMEOUT_MS' "$R313_GENV.kv" && echo yes || echo no)"
     : > "$R313_GENV"
     # empty provider secret → fail loud (exit 1) before writing any endpoint (AC 6).
+    # Capture the output and pin the guard's OWN message too — an exit-code-only
+    # assertion certifies "fails loud" even if a mutation degrades the guard to a
+    # mute `exit 1` (the message is what the operator debugs from).
     R313_RC=0
-    ( export DECISION='{"env":{}}' AUTH=bearer BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY="" SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    R313_OUT="$( export DECISION='{"env":{}}' AUTH=bearer BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY="" SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" 2>&1 )" || R313_RC=$?
     assert_eq "#313 inject-body: empty provider secret fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 inject-body: empty provider secret emits ::error:: naming the secret" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'DEVFLOW_PROVIDER_API_KEY repository secret is empty' && echo yes || echo no)"
     : > "$R313_GENV"
     # Newline-injection safety (review Important #1 — the property the heredoc writes EXIST for):
     # a config value carrying an embedded newline must NOT split a KEY=VALUE line into a forged
@@ -20719,18 +20764,44 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     assert_eq "#313 cargs-body: effort_supported=true but empty EFFORT → --effort dropped (no valueless flag)" "args=--model z-ai/glm-5.2" "$(gh_kv "$R313_GOUT")"
     : > "$R313_GOUT"
     # empty MODEL → fail loud (the iter-2 guard; the two command workflows had none before).
+    # Capture the output and pin the guard's OWN message (exit-code-only would stay
+    # green if a mutation degraded the guard to a mute exit 1).
     R313_RC=0
-    ( export MODEL="" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    R313_OUT="$( export MODEL="" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
     assert_eq "#313 cargs-body: empty MODEL fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: empty MODEL emits ::error:: naming claude_model" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'claude_model is missing' && echo yes || echo no)"
     : > "$R313_GOUT"
-    # Newline-forge safety of the cargs `args<<` emit (review Suggestion #4): MODEL is
-    # config-sourced, so an embedded newline in it must NOT forge a top-level step output.
-    # `$'…'` puts a real newline in MODEL; assert a GitHub-faithful parse yields `args` but no
-    # top-level FORGED. A revert of the args emit to `echo "args=$ARGS"` goes RED.
-    ( export MODEL=$'x\nFORGED=evil' EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    # Flag-injection guard (review iter-2 security finding): MODEL/EFFORT are spliced
+    # UNQUOTED into claude_args, and the runner's MODEL bootstrap fallback can read
+    # PR-head config — a value carrying whitespace would smuggle extra CLI flags
+    # (e.g. `x --dangerously-skip-permissions`) into the privileged review invocation.
+    # The guard must fail loud on whitespace/quotes in EITHER operand, and pass a
+    # normal bracket-suffixed model id unchanged.
+    R313_RC=0
+    R313_OUT="$( export MODEL='x --dangerously-skip-permissions' EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: whitespace in MODEL fails loud (exit 1, flag-injection guard)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: whitespace in MODEL emits the flag-injection ::error::" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'flag-injection guard' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    R313_RC=0
+    ( export MODEL=z-ai/glm-5.2 EFFORT=$'high --evil' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 cargs-body: whitespace in EFFORT fails loud (exit 1, flag-injection guard)" "1" "$R313_RC"
+    : > "$R313_GOUT"
+    # Z.ai bracket-suffix model ids must pass the guard untouched (no false fire).
+    ( export MODEL='glm-5.2[1m]' EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: bracket-suffix model id passes the flag-injection guard (no false fire)" "args=--model glm-5.2[1m]" "$(gh_kv "$R313_GOUT")"
+    : > "$R313_GOUT"
+    # Newline-forge safety of the cargs emit: MODEL is config-sourced, so an embedded
+    # newline must never forge a top-level step output. A newline is whitespace, so the
+    # flag-injection guard now rejects it BEFORE any emit — assert the fail-loud exit
+    # AND that the output file carries no top-level key at all (neither args nor FORGED).
+    R313_RC=0
+    ( export MODEL=$'x\nFORGED=evil' EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
     R313_TOPKEYS="$(gh_topkeys "$R313_GOUT")"
-    assert_eq "#313 cargs-body: an embedded-newline MODEL cannot forge a top-level step output" "yes" \
-      "$(printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'args' && ! printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'FORGED' && echo yes || echo no)"
+    assert_eq "#313 cargs-body: an embedded-newline MODEL fails loud (whitespace guard)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: an embedded-newline MODEL cannot forge a top-level step output (no keys emitted)" "yes" \
+      "$([ -z "$R313_TOPKEYS" ] && echo yes || echo no)"
     rm -f "$R313_GOUT"
   else
     echo "  SKIP  #313 cargs-body behavioral checks (no writable temp / body extraction failed)"

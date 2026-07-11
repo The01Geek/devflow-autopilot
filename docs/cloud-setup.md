@@ -773,8 +773,8 @@ model-routing feature and is unrelated to that detection.
 
 ### How it wires up
 
-- **`base_url`** is exported as `ANTHROPIC_BASE_URL` into the action step, only
-  when the section is provider-routed.
+- **`base_url`** is exported as `ANTHROPIC_BASE_URL` into the job environment
+  (consumed by the action step), only when the section is provider-routed.
 - **`auth`** decides how `DEVFLOW_PROVIDER_API_KEY` is presented:
   - `bearer` (most gateways, incl. OpenRouter): the key rides **both** as the
     action's `anthropic_api_key` input **and** as `ANTHROPIC_AUTH_TOKEN` (the
@@ -788,16 +788,17 @@ model-routing feature and is unrelated to that detection.
     OpenRouter ignore the `x-api-key` copy).
   - `api_key`: the key is passed as the `anthropic_api_key` input only (`x-api-key`).
 - **`timeout_ms`** is exported as `API_TIMEOUT_MS` (raise it for slow gateway routes).
-- **`effort_supported`** (default `false`): DevFlow always passes `--effort` on the
-  Anthropic default path, but drops it for a provider unless this is `true` — many
-  gateways reject unknown params with HTTP 400.
+- **`effort_supported`** (default `false`): DevFlow passes `--effort` on the
+  Anthropic default path (for any schema-valid effort), but drops it for a provider
+  unless this is `true` — many gateways reject unknown params with HTTP 400.
 - **`env`** is a map of extra environment variables exported verbatim into the
-  action step. Set at least the small/fast-model mappings (below) for every
-  third-party provider. The keys are exported **unfiltered** — this map is read
-  only from maintainer-controlled config (base-ref for the runner, the trusted
-  default-branch checkout for the command workflows), so do not name a
-  runtime-sensitive variable here (`PATH`, `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`,
-  …); a stray such key would shadow the job's own environment.
+  job environment (consumed by the action step). Set at least the small/fast-model
+  mappings (below) for every third-party provider. The keys are exported
+  **unfiltered** — this map is read only from maintainer-controlled config
+  (base-ref for the runner, the trusted default-branch checkout for the command
+  workflows), so do not name a runtime-sensitive variable here (`PATH`,
+  `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, …); a stray such key would shadow the
+  environment of every later step in the job, not just the action step.
 - **The empty-secret guard:** if a section names a provider while
   `DEVFLOW_PROVIDER_API_KEY` is empty at run time, the job fails loud with a
   `::error::` naming the section and provider, before the action runs. (The secret
@@ -865,9 +866,11 @@ first run:
    toggles.
 2. Leave **prompt logging off**.
 3. Bind the `DEVFLOW_PROVIDER_API_KEY` key to an OpenRouter **guardrail whose
-   provider allowlist contains only Z.AI**, so your prompts can only ever be routed
-   to that one upstream — never a random cheapest-wins provider.
-4. Record **Z.AI's data policy** from OpenRouter's provider-privacy documentation.
+   provider allowlist contains only the upstream provider you selected** (Z.AI in
+   the worked example above), so your prompts can only ever be routed to that one
+   upstream — never a random cheapest-wins provider.
+4. Record **your selected upstream's data policy** (Z.AI's, in the example) from
+   OpenRouter's provider-privacy documentation.
    (The `GET openrouter.ai/api/v1/models/z-ai/glm-5.2/endpoints` API is useful for
    pricing/uptime but carries **no** data-policy fields — read the provider-privacy
    docs, not that endpoint, for the data policy.)

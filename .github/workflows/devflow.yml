@@ -606,7 +606,9 @@ jobs:
       # byte-identical across devflow.yml, devflow-implement.yml, and
       # devflow-runner.yml (lib/test/run.sh pins that identity); only the
       # `--arg section` value differs. An empty decision (no provider) reproduces
-      # today's Anthropic-OAuth wiring byte-for-byte. See docs/cloud-setup.md.
+      # today's Anthropic-OAuth wiring for a given `claude_model` (one deliberate
+      # change: an empty resolved model now fails loud instead of rendering
+      # `--model null`). See docs/cloud-setup.md.
       - name: Resolve model provider
         id: provider
         env:
@@ -640,6 +642,14 @@ jobs:
           '
           # devflow-provider-resolver END
           DECISION=$(printf '%s' "$CONFIG_JSON" | jq -c --arg section "$SECTION" "$RESOLVER")
+          # jq on EMPTY stdin emits nothing with rc 0, so an empty CONFIG_JSON would
+          # otherwise sail through as a zero-output "decision" and silently select the
+          # default path (or a misdirected empty-model error downstream). Both producers
+          # provably never emit empty today, so this is a fail-loud tripwire, not a live path.
+          if [ -z "$DECISION" ]; then
+            echo "::error::provider resolver produced no decision for section '$SECTION' (empty config input?). Refusing to run."
+            exit 1
+          fi
           if [ "$(printf '%s' "$DECISION" | jq -r '.error // ""')" != "" ]; then
             PNAME=$(printf '%s' "$DECISION" | jq -r '.provider // ""')
             DETAIL=$(printf '%s' "$DECISION" | jq -r '.detail // "provider configuration is invalid"')
@@ -709,7 +719,8 @@ jobs:
       # Compute the claude_args head so --model is always present and --effort is
       # dropped only for a provider whose effort_supported is false (AC 7). The
       # Anthropic default path resolves effort_supported=true, so effort is
-      # preserved there byte-for-byte.
+      # preserved there (for a schema-valid, non-empty effort value — the run
+      # body's flag-injection guard rejects whitespace/quote values).
       - name: Build claude_args head (model + conditional effort)
         id: cargs
         env:
@@ -722,6 +733,18 @@ jobs:
             echo "::error::claude_model is missing from .devflow/config.json (set a top-level claude_model, or a per-section claude_model). Refusing to run."
             exit 1
           fi
+          # SECURITY: MODEL and EFFORT are spliced UNQUOTED into claude_args (a folded
+          # CLI string), and the runner's MODEL bootstrap fallback can read PR-head
+          # config — so reject any value that could smuggle extra CLI flags or break
+          # the quoted --allowed-tools tail (whitespace or quote characters). Model
+          # and effort are single shell-safe tokens by contract.
+          for CARG in "$MODEL" "$EFFORT"; do
+            case "$CARG" in
+              *[[:space:]]* | *\"* | *\'*)
+                echo "::error::claude_model/effort value contains whitespace or quote characters — refusing to compose claude_args (flag-injection guard; model and effort must be single tokens)."
+                exit 1 ;;
+            esac
+          done
           ARGS="--model $MODEL"
           # --effort only when the provider supports it AND a value actually resolved. The
           # config effort defaults to "high", so the default path always has one; the -n

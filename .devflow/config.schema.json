@@ -48,13 +48,13 @@
           },
           "effort_supported": {
             "type": "boolean",
-            "description": "Whether this provider accepts the --effort flag. Default false: many gateways reject unknown params with HTTP 400, so --effort is dropped for a provider unless this is explicitly true. The Anthropic default path always keeps --effort.",
+            "description": "Whether this provider accepts the --effort flag. Default false: many gateways reject unknown params with HTTP 400, so --effort is dropped for a provider unless this is explicitly true. The Anthropic default path keeps --effort (for a schema-valid, non-empty effort value).",
             "default": false
           },
           "env": {
             "type": "object",
             "additionalProperties": { "type": "string" },
-            "description": "Extra environment variables exported verbatim into the action step (e.g. ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL so background/subagent calls resolve to a real model the endpoint serves; CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='1' to avoid anthropic-beta-header gateway 400s; CLAUDE_CODE_ATTRIBUTION_HEADER='0' to preserve gateway prompt caching — two distinct concerns, see docs/cloud-setup.md). See docs/cloud-setup.md for the worked OpenRouter/Z.ai maps."
+            "description": "Extra environment variables exported verbatim into the job environment (consumed by the action step) (e.g. ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL so background/subagent calls resolve to a real model the endpoint serves; CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='1' to avoid anthropic-beta-header gateway 400s; CLAUDE_CODE_ATTRIBUTION_HEADER='0' to preserve gateway prompt caching — two distinct concerns, see docs/cloud-setup.md). See docs/cloud-setup.md for the worked OpenRouter/Z.ai maps."
           }
         }
       }
@@ -88,7 +88,7 @@
         },
         "effort": {
           "type": "string",
-          "description": "Reasoning effort for the light /devflow:* command path (devflow.yml). Always passed explicitly via --effort (including the default 'high'), so the effort is pinned rather than relying on the model's built-in default.",
+          "description": "Reasoning effort for the light /devflow:* command path (devflow.yml). Passed explicitly via --effort on the Anthropic default path (including the default 'high'), so the effort is pinned rather than relying on the model's built-in default; a provider-routed section drops --effort unless its provider sets effort_supported: true (issue #313).",
           "enum": [
             "low",
             "medium",
