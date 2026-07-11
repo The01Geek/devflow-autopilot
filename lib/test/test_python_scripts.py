@@ -2263,6 +2263,63 @@ _res6, _ = _rro.resolve_overrides(
 )
 assert_eq("resolve: empty own entry shadows default → no override", {}, _res6)
 
+# --- iterations key (issue #425): default-off "first-only" roster scoping ---
+# The resolver only READS/passes the key through; the fix-loop-iteration≥2 exclusion
+# is enforced engine-side (skills/review/SKILL.md Phase 3.1). These cases pin the
+# resolver's pass-through + drop-with-warning contract, mirroring effort's arm.
+
+# T1: first-only passed through in the resolved map, for its agent only.
+_it_res, _it_warn = _rro.resolve_overrides(
+    {"devflow:code-reviewer": {"model": "m", "effort": "high", "iterations": "first-only"},
+     "devflow:silent-failure-hunter": {"model": "n"}},
+    ["devflow:code-reviewer", "devflow:silent-failure-hunter"],
+)
+assert_eq("resolve(#425): first-only passed through for its agent",
+          {"model": "m", "effort": "high", "iterations": "first-only"},
+          _it_res["devflow:code-reviewer"])
+assert_eq("resolve(#425): an agent without the key has no iterations in its output",
+          {"model": "n"}, _it_res["devflow:silent-failure-hunter"])
+assert_eq("resolve(#425): first-only pass-through emits no warning", [], _it_warn)
+
+# T2: invalid iterations value dropped with a warning; run never aborts.
+_iti_res, _iti_warn = _rro.resolve_overrides(
+    {"devflow:code-reviewer": {"iterations": "always"}},
+    ["devflow:code-reviewer"],
+)
+assert_eq("resolve(#425): invalid iterations value dropped → no override", {}, _iti_res)
+assert_eq("resolve(#425): invalid iterations emits exactly one warning", 1, len(_iti_warn))
+assert_eq("resolve(#425): invalid-iterations warning names the entry + the valid value",
+          True, "iterations" in _iti_warn[0] and "first-only" in _iti_warn[0])
+
+# Empty-string iterations follows the invalid-value arm (dropped + warning); model forwarded.
+_ite_res, _ite_warn = _rro.resolve_overrides(
+    {"devflow:code-reviewer": {"model": "m", "iterations": ""}},
+    ["devflow:code-reviewer"],
+)
+assert_eq("resolve(#425): empty-string iterations dropped, model still forwarded",
+          {"model": "m"}, _ite_res["devflow:code-reviewer"])
+assert_eq("resolve(#425): empty-string iterations emits exactly one warning", 1, len(_ite_warn))
+
+# An entry carrying ONLY iterations (no model/effort) still resolves.
+_ito_res, _ito_warn = _rro.resolve_overrides(
+    {"devflow:code-reviewer": {"iterations": "first-only"}},
+    ["devflow:code-reviewer"],
+)
+assert_eq("resolve(#425): entry carrying only iterations still resolves",
+          {"iterations": "first-only"}, _ito_res["devflow:code-reviewer"])
+assert_eq("resolve(#425): only-iterations entry emits no warning", [], _ito_warn)
+
+# T3: default-entry inheritance + entry-level precedence, identical to model/effort.
+_itd_res, _ = _rro.resolve_overrides(
+    {"default": {"iterations": "first-only"},
+     "devflow:code-reviewer": {"model": "m"}},
+    ["devflow:code-reviewer", "devflow:silent-failure-hunter"],
+)
+assert_eq("resolve(#425): default iterations applies to a no-entry agent",
+          {"iterations": "first-only"}, _itd_res["devflow:silent-failure-hunter"])
+assert_eq("resolve(#425): own entry does NOT inherit default iterations (entry-level precedence)",
+          {"model": "m"}, _itd_res["devflow:code-reviewer"])
+
 # read_raw integration (exercises the real config-get.sh I/O path, not just the
 # pure resolver). The empty-own-entry contract must hold END-TO-END: the leaf
 # reads alone can't tell {} from an absent key, so read_raw probes the entry
@@ -2276,28 +2333,41 @@ with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _cf:
         '{"devflow_review":{"agent_overrides":{'
         '"default":{"effort":"high"},'
         '"devflow:checklist-verifier":{},'
-        '"devflow:code-reviewer":{"model":"m","effort":"low"}}}}'
+        '"devflow:silent-failure-hunter":{"iterations":{"nested":"obj"}},'
+        '"devflow:code-reviewer":{"model":"m","effort":"low","iterations":"first-only"}}}}'
     )
     _cfg_path = _cf.name
 try:
     _rr_raw, _rr_warn = _rro.read_raw(
         ["devflow:checklist-verifier", "devflow:code-reviewer",
-         "devflow:comment-analyzer"],
+         "devflow:silent-failure-hunter", "devflow:comment-analyzer"],
         _config_get_sh, _cfg_path,
     )
     assert_eq("read_raw: present-but-empty entry is represented as {} (shadows default)",
               {}, _rr_raw.get("devflow:checklist-verifier"))
-    assert_eq("read_raw: full entry's fields are read",
-              {"model": "m", "effort": "low"},
+    # #425: the `iterations` leaf round-trips through the real config-get.sh I/O path
+    # (the pure-resolver tests never exercise read_raw's field loop for the new key).
+    assert_eq("read_raw(#425): full entry reads model+effort+iterations end-to-end",
+              {"model": "m", "effort": "low", "iterations": "first-only"},
               _rr_raw.get("devflow:code-reviewer"))
+    # #425: an OBJECT-valued iterations leaf is dropped with the sentinel warning (read_raw
+    # lines guarding _OBJECT_SENTINEL), leaving the entry empty rather than laundering the
+    # sentinel string into a bogus value.
+    assert_eq("read_raw(#425): object-valued iterations leaf is dropped (sentinel), entry empty",
+              {}, _rr_raw.get("devflow:silent-failure-hunter"))
+    assert_eq("read_raw(#425): object-valued iterations leaf surfaces a warning",
+              True, any("iterations" in _w and "object" in _w for _w in _rr_warn))
     assert_eq("read_raw: absent agent is not added to raw",
               False, "devflow:comment-analyzer" in _rr_raw)
     assert_eq("read_raw: default entry is read", {"effort": "high"},
               _rr_raw.get("default"))
-    assert_eq("read_raw: well-formed config yields no warnings", [], _rr_warn)
     # End-to-end resolution off the real config path: empty entry must NOT inherit default.
     _e2e, _ = _rro.resolve_overrides(_rr_raw, ["devflow:checklist-verifier"])
     assert_eq("read_raw+resolve: empty entry shadows default end-to-end", {}, _e2e)
+    # #425: end-to-end, the valid iterations value survives into the resolved map.
+    _e2e_it, _ = _rro.resolve_overrides(_rr_raw, ["devflow:code-reviewer"])
+    assert_eq("read_raw+resolve(#425): valid iterations survives to the resolved map",
+              "first-only", _e2e_it.get("devflow:code-reviewer", {}).get("iterations"))
 finally:
     _os.unlink(_cfg_path)
 
@@ -2517,6 +2587,45 @@ _schema_keys = set(
 )
 assert_eq("schema agent_overrides keys == KNOWN_AGENTS + 'default'",
           set(_rro.KNOWN_AGENTS) | {"default"}, _schema_keys)
+
+# T4 (issue #425): every agent_overrides entry (all nine agents + `default`) declares
+# the optional `iterations` property as a string enum whose ONLY value is "first-only",
+# and each entry stays additionalProperties:false (so a stale/typo'd entry key — and an
+# out-of-enum iterations value in a validated config — is rejected outright). This pins
+# the schema surface the resolver's VALID_ITERATIONS mirrors.
+_ao_entries = (
+    _schema["properties"]["devflow_review"]["properties"]["agent_overrides"]["properties"]
+)
+for _ent_name, _ent in _ao_entries.items():
+    _it = _ent.get("properties", {}).get("iterations")
+    assert_eq("#425 schema: agent_overrides[%s] declares iterations enum ['first-only']"
+              % _ent_name,
+              {"type": "string", "enum": ["first-only"]}, _it)
+    assert_eq("#425 schema: agent_overrides[%s] stays additionalProperties:false"
+              % _ent_name,
+              False, _ent.get("additionalProperties"))
+assert_eq("#425 schema: VALID_ITERATIONS mirrors the schema enum",
+          ("first-only",), _rro.VALID_ITERATIONS)
+
+# T6 (issue #425): the shipped tracked .devflow/config.json pins the code-reviewer
+# override to model+effort+iterations exactly, so a partial edit (dropping iterations,
+# or changing model/effort) fails the suite. config.example.json carries iterations too.
+_shipped_cfg_path = SCRIPTS.parent / '.devflow' / 'config.json'
+with open(_shipped_cfg_path) as _scf:
+    _shipped_cfg = json.load(_scf)
+_shipped_cr = (
+    _shipped_cfg["devflow_review"]["agent_overrides"]["devflow:code-reviewer"]
+)
+assert_eq("#425 config.json: code-reviewer override is model+effort+iterations exactly",
+          {"model": "claude-opus-4-8", "effort": "low", "iterations": "first-only"},
+          _shipped_cr)
+_example_cfg_path = SCRIPTS.parent / '.devflow' / 'config.example.json'
+with open(_example_cfg_path) as _ecf:
+    _example_cfg = json.load(_ecf)
+assert_eq("#425 config.example.json: code-reviewer override carries iterations first-only",
+          "first-only",
+          _example_cfg["devflow_review"]["agent_overrides"]
+          ["devflow:code-reviewer"].get("iterations"))
 
 # Migration: the documented schema-rejection of a stale externally-namespaced override key
 # (PR #143 review, Major #1 + Minor #1). CHANGELOG/migration-doc prose promise that a stale
