@@ -66,6 +66,7 @@ import argparse
 import re
 import subprocess
 import sys
+from typing import NamedTuple
 
 # Operator tokens R4 is restricted to. A backticked token outside this set is an
 # arbitrary named identifier and is deliberately never examined (the false-positive
@@ -96,6 +97,28 @@ _COUNT_RE = re.compile(
 _TWO_ITEM_RE = re.compile(r"(?i)\ba\b\s+\S.*\band\b\s+\ba\b\s+\S")
 _BOTH_RE = re.compile(r"(?i)\bboth\b")
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
+
+# Verdict tokens as module constants, referenced by every emit site AND the exit-code gate
+# (``verdict == STALE`` in ``run``). The process exit code hinges on the STALE literal
+# matching identically everywhere it is produced and compared; a bare repeated string would
+# fail OPEN on a typo (a mistyped ``"STAEL"`` at one append site silently drops that row from
+# the exit-code tally → the lint reports a clean pass on real staleness — the exact fail-open
+# a fail-safe lint must not have). A constant turns that typo into a ``NameError`` at import.
+VERIFIED = "VERIFIED"
+STALE = "STALE"
+UNRESOLVABLE = "UNRESOLVABLE"
+
+
+class Row(NamedTuple):
+    """One TSV verdict row. A NamedTuple (not a bare 5-tuple) so each field is named at the
+    ~11 construction sites and the arity is pinned structurally — a wrong-arity append is a
+    construction-time error, not a silent positional-unpack drift."""
+
+    verdict: str
+    rule: str
+    path: str
+    line: int
+    detail: str
 
 
 class InternalError(Exception):
@@ -238,15 +261,15 @@ def _emit_count(rows, rule, path, post_ln, n, c, unresolvable, stale, verified):
     VERIFIED. R2/R3/R3b all resolve to this same three-arm shape, differing only in
     their per-verdict detail strings."""
     if c == 0:
-        rows.append(("UNRESOLVABLE", rule, path, post_ln, unresolvable))
+        rows.append(Row(UNRESOLVABLE, rule, path, post_ln, unresolvable))
     elif c != n:
-        rows.append(("STALE", rule, path, post_ln, stale))
+        rows.append(Row(STALE, rule, path, post_ln, stale))
     else:
-        rows.append(("VERIFIED", rule, path, post_ln, verified))
+        rows.append(Row(VERIFIED, rule, path, post_ln, verified))
 
 
 def examine_file(path, added, lines, rows):
-    """Append (verdict, rule, path, line, detail) tuples to ``rows`` for ``path``.
+    """Append ``Row(verdict, rule, path, line, detail)`` rows to ``rows`` for ``path``.
 
     ``added`` maps post-image line numbers to added text; ``lines`` is the whole
     post-diff file (0-indexed list). A claim is examined only when it sits on an
@@ -268,14 +291,14 @@ def examine_file(path, added, lines, rows):
             a, b = int(rm.group(1)), int(rm.group(2))
             maxn = _forward_maxcase(lines, idx)
             if maxn is None:
-                rows.append(("UNRESOLVABLE", "R1", path, post_ln,
-                             f"range Cases {a}-{b}: no forward Case items found — {_excerpt(text)}"))
+                rows.append(Row(UNRESOLVABLE, "R1", path, post_ln,
+                                f"range Cases {a}-{b}: no forward Case items found — {_excerpt(text)}"))
             elif maxn > b:
-                rows.append(("STALE", "R1", path, post_ln,
-                             f"range claims Cases {a}-{b} but forward region reaches Case {maxn} — {_excerpt(text)}"))
+                rows.append(Row(STALE, "R1", path, post_ln,
+                                f"range claims Cases {a}-{b} but forward region reaches Case {maxn} — {_excerpt(text)}"))
             else:
-                rows.append(("VERIFIED", "R1", path, post_ln,
-                             f"range Cases {a}-{b} covers forward max Case {maxn} — {_excerpt(text)}"))
+                rows.append(Row(VERIFIED, "R1", path, post_ln,
+                                f"range Cases {a}-{b} covers forward max Case {maxn} — {_excerpt(text)}"))
             continue
 
         # R2 — legend/enumeration sum vs "Expected total = N"
@@ -318,11 +341,11 @@ def examine_file(path, added, lines, rows):
                     break
             if op is not None:
                 if _permitted_elsewhere(lines, idx, op):
-                    rows.append(("STALE", "R4", path, post_ln,
-                                 f"deny-absolute forbids `{op}` but the same file asserts it permitted — {_excerpt(text)}"))
+                    rows.append(Row(STALE, "R4", path, post_ln,
+                                    f"deny-absolute forbids `{op}` but the same file asserts it permitted — {_excerpt(text)}"))
                 else:
-                    rows.append(("VERIFIED", "R4", path, post_ln,
-                                 f"deny-absolute on `{op}`: no contradicting permit found — {_excerpt(text)}"))
+                    rows.append(Row(VERIFIED, "R4", path, post_ln,
+                                    f"deny-absolute on `{op}`: no contradicting permit found — {_excerpt(text)}"))
             continue
 
 
@@ -365,15 +388,15 @@ def run(rev, diff_text):
         lines = post_file_lines(rev, path)
         if lines is None:
             for post_ln in sorted(added):
-                rows.append(("UNRESOLVABLE", "-", path, post_ln,
-                             f"post-diff file not resolvable at rev — {_excerpt(added[post_ln])}"))
+                rows.append(Row(UNRESOLVABLE, "-", path, post_ln,
+                                f"post-diff file not resolvable at rev — {_excerpt(added[post_ln])}"))
             continue
         examine_file(path, added, lines, rows)
 
     stale = False
-    for verdict, rule, path, line, detail in rows:
-        sys.stdout.write(f"{verdict}\t{rule}\t{path}\t{line}\t{detail}\n")
-        if verdict == "STALE":
+    for row in rows:
+        sys.stdout.write(f"{row.verdict}\t{row.rule}\t{row.path}\t{row.line}\t{row.detail}\n")
+        if row.verdict == STALE:
             stale = True
     return 1 if stale else 0
 

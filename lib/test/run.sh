@@ -24723,6 +24723,26 @@ SPR="$(spl_repo "$SPF")"
 assert_eq "#423 T3/R3 #336 count-locked header (claims 2, block has 2) exits 0" "0" "$(spl_rc "$SPR")"
 assert_eq "#423 T3/R3 #336 numeric matched sibling emits a VERIFIED R3 row (numeric positive control)" "yes" "$(spl_has "$SPR" VERIFIED R3)"
 
+# T3c → the shared _emit_count c==0 (no adjacent block) UNRESOLVABLE arm, for R2 and R3
+# (#424 shadow pr-test-analyzer). Only R1's UNRESOLVABLE arm was asserted anywhere (T6);
+# R2/R3/R3b all funnel through _emit_count, whose c==0 arm was untested. A mutant flipping
+# `if c == 0` (→ falling through to the c!=n STALE branch) would emit a FALSE-POSITIVE STALE
+# on a legitimate count claim with no adjacent block and gate a review at `important`, yet
+# ship GREEN. These fixtures pin exit 0 + the UNRESOLVABLE row (a c==0→STALE mutant reddens
+# both: exit becomes 1 and the row is STALE, not UNRESOLVABLE).
+printf '%s\n' 'Some standalone prose here.' 'Expected total = 5.' 'More prose, not a list.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T3c/R2 count claim with NO adjacent enumeration block exits 0 (UNRESOLVABLE, non-gating)" "0" "$(spl_rc "$SPR")"
+assert_eq "#423 T3c/R2 c==0 arm emits an UNRESOLVABLE R2 row (not a false-positive STALE)" "yes" "$(spl_has "$SPR" UNRESOLVABLE R2)"
+assert_eq "#423 T3c/R2 c==0 arm emits NO STALE R2 row" "no" "$(spl_has "$SPR" STALE R2)"
+# NB: the prose below must contain neither the word "assert" nor a list-marker prefix, or
+# _adjacent_assert_count would count it and the c==0 arm would not be reached.
+printf '%s\n' 'This header locks in 3 assertions below:' 'first plain descriptive sentence' 'second plain descriptive sentence' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T3c/R3 numeric count claim with NO adjacent assertion block exits 0 (UNRESOLVABLE, non-gating)" "0" "$(spl_rc "$SPR")"
+assert_eq "#423 T3c/R3 c==0 arm emits an UNRESOLVABLE R3 row (not a false-positive STALE)" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+assert_eq "#423 T3c/R3 c==0 arm emits NO STALE R3 row" "no" "$(spl_has "$SPR" STALE R3)"
+
 # T4 → R4 operator-token modality conflict (the PR #397 shape) + named-token GREEN boundary.
 printf '%s\n' 'The skill must never emit ANY `>` redirect anywhere.' 'An in-workspace `>` redirect of a granted head is permitted.' > "$SPF"
 SPR="$(spl_repo "$SPF")"
@@ -24781,15 +24801,27 @@ assert_eq "#423 T6 UNRESOLVABLE row present but non-gating" "yes" "$(spl_has "$S
 SPF="$(probe_tmp '#423 t6b non-ascii')"
 printf '%s\n' 'Cases 5-9 are described here — note the em-dash.' > "$SPF"
 SPR="$(spl_repo "$SPF")"
-assert_eq "#423 T6b non-ASCII line under strict-ASCII stdout does NOT detonate to exit 2" "0" \
-  "$( cd "$SPR" 2>/dev/null || { echo 99; exit; }
-      git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null \
-        | env PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 LC_ALL=C LANG=C python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $? )"
-assert_eq "#423 T6b strict-ASCII stdout still emits the verdict row (pass not masked)" "yes" \
-  "$( cd "$SPR" 2>/dev/null || { echo no; exit; }
-      git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null \
-        | env PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 LC_ALL=C LANG=C python3 "$SPL" --rev HEAD 2>/dev/null \
-        | awk -F '\t' '$1=="UNRESOLVABLE" && $2=="R1"{f=1} END{exit f?0:1}' && echo yes || echo no )"
+# Guard against a vacuous pass (#424 shadow pr-test-analyzer F4): the two assertions below are
+# only meaningful when the forced env ACTUALLY downgrades stdout to ASCII. On some
+# macOS/Homebrew python builds it may not, and then the write never detonates regardless — the
+# test would pass trivially while proving nothing. Probe the reproduced encoding first; run the
+# assertions only when the strict-ASCII condition genuinely reproduced, else emit a VISIBLE note
+# (never a silent green) so a host that fails to reproduce it is observable, not hidden.
+SP_T6B_ENC="$( env PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 LC_ALL=C LANG=C python3 -c 'import sys; sys.stdout.write((sys.stdout.encoding or "").lower())' 2>/dev/null )"
+case "$SP_T6B_ENC" in
+  ascii|us-ascii|ansi_x3.4-1968|646)
+    assert_eq "#423 T6b non-ASCII line under strict-ASCII stdout does NOT detonate to exit 2" "0" \
+      "$( cd "$SPR" 2>/dev/null || { echo 99; exit; }
+          git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null \
+            | env PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 LC_ALL=C LANG=C python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $? )"
+    assert_eq "#423 T6b strict-ASCII stdout still emits the verdict row (pass not masked)" "yes" \
+      "$( cd "$SPR" 2>/dev/null || { echo no; exit; }
+          git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null \
+            | env PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 LC_ALL=C LANG=C python3 "$SPL" --rev HEAD 2>/dev/null \
+            | awk -F '\t' '$1=="UNRESOLVABLE" && $2=="R1"{f=1} END{exit f?0:1}' && echo yes || echo no )" ;;
+  *)
+    printf '  NOTE  #423 T6b skipped — forced env did not downgrade stdout to ASCII (got %s); strict-ASCII non-detonation condition not reproducible on this host\n' "${SP_T6B_ENC:-<empty>}" ;;
+esac
 
 # T9 → config surfaces + adversarial shape matrix. Schema/example/tracked-config pins.
 SP_PROP='.properties.devflow_review.properties.stale_prose'
