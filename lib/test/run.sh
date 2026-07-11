@@ -3765,6 +3765,11 @@ assert_pin_unique "429/T1: §1.4 records the behind-by-0 up-to-date case" \
 # rev-list-failure arm too so deleting its handling turns RED.
 assert_pin_unique "429/T1: §1.4 handles an underivable behind-by count as freshness-unverified (unknown is not zero)" \
   'could not derive behind-by (git rev-list failed)' "$P1_FILE"
+# The behind-by-N arm is the OPERATIVE stale-detection path (the #325 shape) — its two
+# siblings above are pinned, so pin it too: without this, silently dropping the arm that
+# actually reports a stale tree leaves the suite green.
+assert_pin_unique "429/T1: §1.4 records the behind-by-N stale arm and routes reads to origin/\$BASE" \
+  'behind origin/$BASE by $BEHIND commit(s)' "$P1_FILE"
 
 # T2 — degraded arm: a fetch failure records freshness-unverified and CONTINUES (never exit 1).
 assert_pin_red_under "429/T2: §1.4 fetch failure records freshness-unverified and continues (delete → RED)" \
@@ -3785,6 +3790,23 @@ assert_pin_red_under "429/T3: read-target rule present at §1.6 (phase-1) — re
   'never the unfetched fork point' '/never the unfetched fork point/d' "$P1_FILE"
 assert_pin_red_under "429/T3: read-target rule present at §2.1 (phase-2) — remove → RED (coupled mirror)" \
   'never the unfetched fork point' '/never the unfetched fork point/d' "$P2_FILE"
+# The read-target rule's two record-derived triggers, pinned per mirror so a silent removal of
+# either cannot stay green: (a) the freshness-UNVERIFIED trigger, and (b) the ABSENT-record
+# trigger. (b) is the fail-closed default: Phase 1.4's workpad write is best-effort, so a lost
+# write leaves NO record — and prose that fires only on a recorded behind-by count would fall
+# straight back to the pre-#429 fork-point read (fail-open) on exactly the #325 path. The
+# mutation re-introduces that fail-open by stripping the absent-record clause and flipping the
+# missing-record semantics back to "the record is authoritative".
+for _f in "$P1_FILE" "$P2_FILE"; do
+  _site="§1.6 (phase-1)"; [ "$_f" = "$P2_FILE" ] && _site="§2.1 (phase-2, coupled mirror)"
+  assert_pin_red_under "429/T8: read-target rule fires unconditionally when freshness is UNVERIFIED at $_site" \
+    'unconditionally when Phase 1.4 marked freshness unverified' \
+    's/unconditionally when Phase 1\.4 marked freshness unverified/when Phase 1.4 marked freshness unverified/' "$_f"
+  assert_pin_red_under "429/T8: an ABSENT freshness record reads as unverified (fail-closed) at $_site — restore fail-open → RED" \
+    'a missing record reads as unverified' \
+    's/, and equally when no freshness record is present at all//; s/a missing record reads as unverified/a missing record is authoritative/' "$_f"
+done
+unset _f _site
 
 # T4 — cross-pass coherence rule, BOTH coupled mirror sites. The operative verdict is
 # "checkout stale — refresh and re-verify"; a mutation deleting it restores the unconditional

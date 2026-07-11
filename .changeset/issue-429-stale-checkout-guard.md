@@ -13,7 +13,9 @@ type: Changed
   is provably checked), and on a fetch failure records a freshness-unverified reflection and
   continues rather than hard-blocking. Phase 1.6 and Phase 2.1 carry two coupled-mirror rules: a
   **read-target rule** (shipped-work verification reads target `origin/$BASE` state when the
-  branch is behind or freshness is unverified, never the unfetched fork point) and a
+  branch is behind, when freshness is unverified, or when no freshness record exists at all —
+  the workpad write is best-effort, so a missing record fails closed as unverified rather than
+  reading as behind-by-0 — never the unfetched fork point) and a
   **cross-pass coherence rule** (a "shipped/landed in PR #N" claim is REFUTED from tree reads
   only after a read-only `gh pr view` shows PR #N MERGED *and* `git merge-base --is-ancestor`
   confirms the merge commit is in the checkout — MERGED-but-absent, or any indeterminate outcome,
