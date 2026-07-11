@@ -26,7 +26,7 @@ CI (`.github/workflows/ci.yml`) runs the same suite + lint on every PR. The **re
 - `scripts/` — Python + shell CLIs (`workpad.py`, `config-get.sh`, `match-deferrals.py`, `file-deferrals.py`, `parse-acs.py`, `resolve-*-trigger.sh`, …).
 - `lib/` — retrospective-loop helpers (`*.sh`, `*.jq`), `preflight.sh`, `test/`.
 - `.github/` — optional cloud tier: workflows + composite actions (incl. `vendor-plugin`).
-- `.devflow/` — `config.example.json` + `config.schema.json` (+ tracked `learnings/`, `logs/`). The live `config.json` is gitignored.
+- `.devflow/` — `config.example.json` + `config.schema.json` (+ tracked `learnings/`, `logs/`). The live `config.json` is **tracked** here too — force-added past the `/.devflow/*` ignore rule (`git add -f`) so the cloud tier reads it from the committed tree.
 
 ## Gotchas (load-bearing — easy to get wrong)
 

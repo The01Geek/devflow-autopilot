@@ -1,5 +1,9 @@
 # Release Notes
 
+## July 10, 2026
+
+- **Fix — Automated Devflow Review now recovers on its own after a headless early-quit instead of dead-ending** — A cloud review can occasionally finish reporting success but without a verdict — a timing race in which the review engine ends its turn while a background analysis step is still pending — which left the required `Devflow Review` check stuck as "incomplete" until a human clicked Re-run. Devflow Review now instructs the engine to keep its turn alive until pending work returns, and adds a bounded automatic resume: when a review still ends with no verdict, it posts a fresh `/devflow:review` re-trigger so the review re-runs without anyone stepping in. Two new settings, `devflow_review.stall_backstop.enabled` (default enabled) and `devflow_review.stall_backstop.max_resume_attempts` (default 2 per commit), control it; when the attempts are used up, the backstop is turned off, or no GitHub App is configured, it falls back to marking the review failed as before. Configuring a GitHub App also requires adding that App's login to `devflow.allowed_bots`, the same prerequisite as the implement auto-resume. (#410)
+
 ## July 9, 2026
 
 - **Fix — Automated Devflow Review no longer stays wedged behind a superseded CI run** — When a repository re-ran or re-dispatched a CI workflow on a pull request — an approval-gated re-run, a rapid double-fire, or a cancelled duplicate — the automated review's green-CI precondition previously weighed every run on the commit, including the older non-green one, and could keep the review deferred behind its required check even after a newer run of the same workflow had passed. Devflow Review now keeps only the latest run per workflow and event before checking CI, so a superseded run no longer blocks the review. A run still waiting on manual approval now defers with a clear, distinct reason instead of being lumped in with failed CI. (#352)
