@@ -24623,6 +24623,250 @@ assert_eq "#405 AC8 devflow.yml: every wildcard-path Bash(*/ rule is the load-pr
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
+# ────────────────────────────────────────────────────────────────────────────
+echo "#431 build-experiment-records.py — the unified experiment record (join)"
+# ────────────────────────────────────────────────────────────────────────────
+# Drives the assembler over fixture stores with a DEVFLOW_GH stub (the stub
+# contract) and a per-scenario repo-root, then asserts the joined record fields.
+# The producer additions (config_fingerprint stamp, verification_evidence
+# obligation, the finalize-summary denial line, the open-state-pr staging entry)
+# carry pins — the behavioral ones through assert_pin_red_under.
+BXR="$LIB/../scripts/build-experiment-records.py"
+
+if [ ! -x "$BXR" ]; then
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #431: build-experiment-records.py missing or not executable at %s\n' "$BXR"
+else
+  EXP="$(mktemp -d)"
+  # ── DEVFLOW_GH stub: canned JSON per endpoint, sourced from env-pointed files so
+  #    each scenario varies responses without rewriting the stub. `annotations`
+  #    matched BEFORE `check-runs` (the annotations path contains both tokens).
+  cat > "$EXP/gh" <<'STUB'
+#!/usr/bin/env bash
+j="$*"
+case "$j" in
+  *"pr view"*)     [ -f "$PR_VIEW_JSON" ]  && cat "$PR_VIEW_JSON"  || echo '{}';               exit 0 ;;
+  *reviews*)       [ -f "$REVIEWS_JSON" ]  && cat "$REVIEWS_JSON"  || echo '[]';               exit 0 ;;
+  *comments*)      [ -f "$COMMENTS_JSON" ] && cat "$COMMENTS_JSON" || echo '[]';               exit 0 ;;
+  *annotations*)   [ -f "$ANNOT_JSON" ]    && cat "$ANNOT_JSON"    || echo '[]';               exit 0 ;;
+  *check-runs*)    [ -f "$CHECKRUNS_JSON" ]&& cat "$CHECKRUNS_JSON"|| echo '{"check_runs":[]}';exit 0 ;;
+  *"repo view"*)   echo "owner/repo"; exit 0 ;;
+  *)               echo '[]'; exit 0 ;;
+esac
+STUB
+  chmod +x "$EXP/gh"
+
+  # get.py: print a dotted-path field of the store line for a given PR.
+  cat > "$EXP/get.py" <<'PY'
+import json, sys
+recs = {json.loads(l)["pr"]: json.loads(l) for l in open(sys.argv[1]) if l.strip()}
+cur = recs.get(int(sys.argv[2]))
+for k in sys.argv[3].split("."):
+    if k == "":
+        continue
+    if k.lstrip("-").isdigit():
+        cur = cur[int(k)] if isinstance(cur, list) else None
+    else:
+        cur = cur.get(k) if isinstance(cur, dict) else None
+sys.stdout.write(cur if isinstance(cur, str) else json.dumps(cur))
+PY
+
+  exp_field() { python3 "$EXP/get.py" "$1" "$2" "$3"; }
+  # exp_count_lines: number of non-empty JSONL lines in the store.
+  exp_count_lines() { grep -c '[^[:space:]]' "$1" 2>/dev/null || echo 0; }
+
+  # Seed one efficiency record. $1 dir, $2 filename, $3 slug, $4 synthesized(true/false),
+  # $5 telemetry-json (the "telemetry" array), $6 fingerprint-json (or the literal null).
+  seed_eff() {
+    mkdir -p "$1"
+    cat > "$1/$2" <<EOF
+{"schema_version":1,"slug":"$3","generated_at":"2026-07-01T00:00:00Z","synthesized":$4,"iterations":1,"config_fingerprint":$6,"telemetry":$5}
+EOF
+  }
+
+  # ── T1 full join ───────────────────────────────────────────────────────────
+  R1="$EXP/r1"
+  mkdir -p "$R1/.devflow/learnings"
+  cat > "$R1/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":431,"issue":430,"merged_at":"2026-07-10T00:00:00Z","branch":"issue-431-foo","head_sha":"headsha431","merge_commit_sha":"mergesha431"}
+EOF
+  seed_eff "$R1/.devflow/logs/efficiency" "pr-431-run1.json" "pr-431" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":150,"calls":3}}}]' \
+    '{"sha256":"fp431","partial":false,"salient":{"max_iterations":5}}'
+  cat > "$EXP/reviews1.json" <<'EOF'
+[{"state":"COMMENTED","submitted_at":"2026-07-09T10:00:00Z","commit_id":"headsha431","body":"## Verdict: APPROVE with notes (ok)\n\nreport"}]
+EOF
+  cat > "$EXP/comments1.json" <<'EOF'
+[{"id":1,"created_at":"2026-07-09T10:00:00Z","body":"<!-- devflow:review-progress run=1 -->\n**Reviewed HEAD:** headsha431\n\n## Verdict: APPROVE with notes\n\n## Code Review Findings\n\n### 🔴 Critical\n1. crit\n\n### 🟠 Important / Major\n1. imp one\n2. imp two\n\n### 🟡 Suggestion / Minor\n1. nit\n"}]
+EOF
+  cat > "$EXP/checkruns1.json" <<'EOF'
+{"check_runs":[{"id":55,"name":"Devflow Review","output":{"summary":"verdict on PR\n\npermission_denials_count: unavailable"}}]}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_JSON="$EXP/reviews1.json" COMMENTS_JSON="$EXP/comments1.json" \
+    CHECKRUNS_JSON="$EXP/checkruns1.json" \
+    python3 "$BXR" --repo-root "$R1" --prs 431 >/dev/null 2>&1
+  ST1="$R1/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 T1: full-join verdict (shape-matched PR review)" "APPROVE with notes" "$(exp_field "$ST1" 431 verdict)"
+  assert_eq "#431 T1: verdict provenance is pr-review" "pr-review" "$(exp_field "$ST1" 431 provenance.verdict)"
+  assert_eq "#431 T1: Important-finding count joined via Reviewed HEAD == commit_id" "2" "$(exp_field "$ST1" 431 important_finding_count)"
+  assert_eq "#431 T1: denial count carried verbatim from the summary path" "unavailable" "$(exp_field "$ST1" 431 permission_denials_count)"
+  assert_eq "#431 T1: denial provenance is check-run-summary" "check-run-summary" "$(exp_field "$ST1" 431 provenance.permission_denials_count)"
+  assert_eq "#431 T1: efficiency provenance found" "found" "$(exp_field "$ST1" 431 provenance.efficiency)"
+  assert_eq "#431 T1: fingerprint sourced from the efficiency record" "efficiency-record" "$(exp_field "$ST1" 431 provenance.config_fingerprint)"
+  assert_eq "#431 T1: per-run cost aggregated (tokens summed)" "150" "$(exp_field "$ST1" 431 efficiency_runs.0.cost.tokens)"
+  assert_eq "#431 T1: one efficiency run listed" "1" "$(python3 -c 'import json,sys;print(len(json.loads([l for l in open(sys.argv[1])][0])["efficiency_runs"]))' "$ST1")"
+
+  # ── T2 slug aggregation — both families, two run-ids, none discarded ─────────
+  R2="$EXP/r2"
+  mkdir -p "$R2/.devflow/learnings"
+  cat > "$R2/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":500,"issue":499,"merged_at":"2026-07-10T00:00:00Z","branch":"feature-x","head_sha":"h500","merge_commit_sha":"m500"}
+EOF
+  seed_eff "$R2/.devflow/logs/efficiency" "pr-500-runA.json" "pr-500" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":10}}}]' 'null'
+  seed_eff "$R2/.devflow/logs/efficiency" "feature-x-runB.json" "feature-x" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":20}}}]' 'null'
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$R2" --prs 500 >/dev/null 2>&1
+  ST2="$R2/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 T2: both slug families aggregated (2 runs, none discarded)" "2" \
+    "$(python3 -c 'import json,sys;print(len(json.loads([l for l in open(sys.argv[1])][0])["efficiency_runs"]))' "$ST2")"
+
+  # ── T2b no efficiency record — outcome-only row ──────────────────────────────
+  R2B="$EXP/r2b"
+  mkdir -p "$R2B/.devflow/learnings"
+  cat > "$R2B/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":600,"issue":599,"merged_at":"2026-07-10T00:00:00Z","branch":"nada","merge_commit_sha":"m600"}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$R2B" --prs 600 >/dev/null 2>&1
+  ST2B="$R2B/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 T2b: no efficiency record → outcome-only row, provenance absent" "absent" "$(exp_field "$ST2B" 600 provenance.efficiency)"
+  assert_eq "#431 T2b: outcome-only row still keyed on the PR" "600" "$(exp_field "$ST2B" 600 pr)"
+
+  # ── T3 verdict arms ──────────────────────────────────────────────────────────
+  # 3b progress-comment fallback (no PR review with a ## Verdict:).
+  R3B="$EXP/r3b"
+  mkdir -p "$R3B/.devflow/learnings"
+  cat > "$R3B/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":700,"merged_at":"2026-07-10T00:00:00Z","branch":"b700","merge_commit_sha":"m700"}
+EOF
+  cat > "$EXP/comments3b.json" <<'EOF'
+[{"id":9,"created_at":"2026-07-09T10:00:00Z","body":"<!-- devflow:review-progress run=1 -->\n**Reviewed HEAD:** h700\n\n## Verdict: REJECT (blocking)\n\n## Code Review Findings\n\n### 🟠 Important / Major\n1. only important\n"}]
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_JSON="$EXP/does-not-exist" COMMENTS_JSON="$EXP/comments3b.json" \
+    python3 "$BXR" --repo-root "$R3B" --prs 700 >/dev/null 2>&1
+  ST3B="$R3B/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 T3b: verdict from progress-comment fallback" "REJECT" "$(exp_field "$ST3B" 700 verdict)"
+  assert_eq "#431 T3b: verdict provenance is progress-comment" "progress-comment" "$(exp_field "$ST3B" 700 provenance.verdict)"
+  assert_eq "#431 T3b: Important count from the fallback comment" "1" "$(exp_field "$ST3B" 700 important_finding_count)"
+
+  # 3c null-verdict (#403 shape): no review, no verdict-bearing comment.
+  R3C="$EXP/r3c"
+  mkdir -p "$R3C/.devflow/learnings"
+  cat > "$R3C/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":800,"merged_at":"2026-07-10T00:00:00Z","branch":"b800","merge_commit_sha":"m800"}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$R3C" --prs 800 >/dev/null 2>&1
+  ST3C="$R3C/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 T3c: null verdict (#403) when neither review nor comment carries one" "null" "$(exp_field "$ST3C" 800 verdict)"
+  assert_eq "#431 T3c: null-verdict provenance absent" "absent" "$(exp_field "$ST3C" 800 provenance.verdict)"
+
+  # ── T4 unknown-is-not-zero (denial verbatim; no coercion to 0) ──────────────
+  # 4b digit from the annotation fallback (no summary line).
+  R4="$EXP/r4"
+  mkdir -p "$R4/.devflow/learnings"
+  cat > "$R4/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":900,"merged_at":"2026-07-10T00:00:00Z","branch":"b900","head_sha":"h900","merge_commit_sha":"m900"}
+EOF
+  cat > "$EXP/checkruns4.json" <<'EOF'
+{"check_runs":[{"id":77,"name":"Devflow Review","output":{"summary":"an old-workflow summary with no denial line"}}]}
+EOF
+  cat > "$EXP/annot4.json" <<'EOF'
+[{"message":"DevFlow: this run recorded 3 permission denial(s) — the engine attempted commands its tool profile does not grant."}]
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    CHECKRUNS_JSON="$EXP/checkruns4.json" ANNOT_JSON="$EXP/annot4.json" \
+    python3 "$BXR" --repo-root "$R4" --prs 900 >/dev/null 2>&1
+  ST4="$R4/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 T4: digit denial count carried verbatim from the annotation path" "3" "$(exp_field "$ST4" 900 permission_denials_count)"
+  case "$(exp_field "$ST4" 900 provenance.permission_denials_count)" in
+    check-run-annotation*) assert_eq "#431 T4: annotation provenance names the positive-only bias" "yes" "yes" ;;
+    *) assert_eq "#431 T4: annotation provenance names the positive-only bias" "yes" "no" ;;
+  esac
+  # 4c unestablished (no summary line, no annotation) → null, NEVER 0.
+  R4C="$EXP/r4c"
+  mkdir -p "$R4C/.devflow/learnings"
+  cat > "$R4C/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":901,"merged_at":"2026-07-10T00:00:00Z","branch":"b901","head_sha":"h901","merge_commit_sha":"m901"}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$R4C" --prs 901 >/dev/null 2>&1
+  ST4C="$R4C/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 T4: unestablished denial is null (never coerced to 0)" "null" "$(exp_field "$ST4C" 901 permission_denials_count)"
+
+  # ── T5 telemetry_complete + idempotency ─────────────────────────────────────
+  R5="$EXP/r5"
+  mkdir -p "$R5/.devflow/learnings"
+  cat > "$R5/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":950,"merged_at":"2026-07-10T00:00:00Z","branch":"complete","merge_commit_sha":"m950"}
+{"schema_version":2,"kind":"implementation","pr":951,"merged_at":"2026-07-10T00:00:00Z","branch":"synth","merge_commit_sha":"m951"}
+{"schema_version":2,"kind":"implementation","pr":952,"merged_at":"2026-07-10T00:00:00Z","branch":"nulltok","merge_commit_sha":"m952"}
+EOF
+  seed_eff "$R5/.devflow/logs/efficiency" "pr-950-r.json" "pr-950" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":42}}}]' 'null'
+  seed_eff "$R5/.devflow/logs/efficiency" "pr-951-r.json" "pr-951" "true" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":42}}}]' 'null'
+  seed_eff "$R5/.devflow/logs/efficiency" "pr-952-r.json" "pr-952" "false" \
+    '[{"iter":1,"phases":null}]' 'null'
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$R5" --prs 950,951,952 >/dev/null 2>&1
+  ST5="$R5/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 T5: complete record → telemetry_complete true" "true" "$(exp_field "$ST5" 950 efficiency_runs.0.telemetry_complete)"
+  assert_eq "#431 T5: synthesized record → telemetry_complete false" "false" "$(exp_field "$ST5" 951 efficiency_runs.0.telemetry_complete)"
+  assert_eq "#431 T5: null-token record → telemetry_complete false" "false" "$(exp_field "$ST5" 952 efficiency_runs.0.telemetry_complete)"
+  # Idempotency: a second run is byte-identical and does not duplicate lines.
+  BEFORE5="$(cat "$ST5")"
+  N5A="$(exp_count_lines "$ST5")"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$R5" --prs 950,951,952 >/dev/null 2>&1
+  AFTER5="$(cat "$ST5")"
+  assert_eq "#431 T5: idempotent re-run is byte-identical" "yes" "$([ "$BEFORE5" = "$AFTER5" ] && echo yes || echo no)"
+  assert_eq "#431 T5: idempotent re-run keeps one line per PR (3)" "$N5A" "$(exp_count_lines "$ST5")"
+  assert_eq "#431 T5: three PRs recorded" "3" "$N5A"
+
+  rm -rf "$EXP"
+fi
+
+# ── #431 producer pins ────────────────────────────────────────────────────────
+# Behavioral pins routed through assert_pin_red_under (the mutation removes the
+# operative addition, re-introducing the "not stamped / not recorded" state).
+ET_JQ="$LIB/efficiency-trace.jq"
+ET_SH="$LIB/efficiency-trace.sh"
+RF_SKILL="$LIB/../skills/review-and-fix/SKILL.md"
+DR_YML="$LIB/../.github/workflows/devflow-review.yml"
+OSP_SH="$LIB/open-state-pr.sh"
+
+assert_pin_red_under "#431: efficiency-trace.jq record stamps config_fingerprint" \
+  'config_fingerprint: $config_fingerprint' \
+  '/config_fingerprint: \$config_fingerprint,/d' "$ET_JQ"
+assert_pin_red_under "#431: efficiency-trace.sh computes the config fingerprint for the record" \
+  'config_fingerprint="$(compute_config_fingerprint "$_DEVFLOW_CONFIG")"' \
+  '/config_fingerprint="\$\(compute_config_fingerprint/d' "$ET_SH"
+assert_pin_red_under "#431: review-and-fix records verification_evidence at the item-4 suite run" \
+  'Record the suite run as `verification_evidence` in this iteration' \
+  '/Record the suite run as .verification_evidence. in this iteration/d' "$RF_SKILL"
+assert_pin_red_under "#431: devflow-review.yml finalize appends permission_denials_count to the summary" \
+  'permission_denials_count: ${PERMISSION_DENIALS_COUNT}' \
+  '/permission_denials_count: \$\{PERMISSION_DENIALS_COUNT\}/d' "$DR_YML"
+assert_pin_red_under "#431: open-state-pr.sh stages experiment-records.jsonl" \
+  '.devflow/learnings/experiment-records.jsonl' \
+  's#\.devflow/learnings/experiment-records\.jsonl##g' "$OSP_SH"
+
+# ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 

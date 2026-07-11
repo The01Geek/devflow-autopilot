@@ -245,6 +245,33 @@ Record `cooldown_skipped` tags for the final report.
 
 ---
 
+### Step 6.5 — Build experiment records (best-effort)
+
+After Step 5 materialized this week's retrospective entries (and before the Step 7
+state PR commits the learnings files), assemble the unified experiment record —
+joining each merged PR's per-run cost to its review outcome (verdict, Important-finding
+count, denial count, config fingerprint). Anchored **here** so this week's PRs join
+against this week's freshly-materialized retrospective entries.
+
+This is a **best-effort** step and **never blocks** the retrospective: a non-zero exit is
+logged as a breadcrumb and the run continues (the state PR still ships without the store
+update; next week's incremental pass backfills the missed PRs, since they will be absent
+from the store). Carry that breadcrumb into the Step 9 status report as a blocker note so
+the failure is visible, then proceed.
+
+```bash
+python3 $LIB/../scripts/build-experiment-records.py || \
+  echo "retrospective-weekly: build-experiment-records.py failed (rc=$?) — experiment records not updated this run; next week's incremental pass will backfill" >&2
+```
+
+The assembler is idempotent (one line per merged PR, keyed by PR number) and incremental
+(it processes merged PRs absent from `.devflow/learnings/experiment-records.jsonl` plus
+any passed via `--prs`, never a full-history sweep), so re-running is safe and cheap. It
+runs on the **local/interactive retrospective tier only** — it is never invoked from a
+workflow. See `docs/efficiency-trace.md` for the store schema and the abandoned-run bias.
+
+---
+
 ### Step 7 — State PR
 
 **Open the state PR now, before Stage B**, so that the learnings files are

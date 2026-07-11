@@ -65,11 +65,14 @@ fi
 _run git checkout -B "$BRANCH" "$BASE"
 
 # ── Step 2: stage learnings files ─────────────────────────────────────────────
-# Stage only files that exist: overrides.json is optional (created by meta-issue.sh).
+# Stage only files that exist: overrides.json is optional (created by meta-issue.sh);
+# experiment-records.jsonl is optional (written by build-experiment-records.py between
+# retrospective-weekly Steps 5 and 7 — issue #431 — so the state PR commits it and
+# main's tree is clean entering Stage B).
 if [ "$DRY_RUN" -eq 1 ]; then
     printf 'DRYRUN: git add <existing learnings files>\n'
 else
-    for _f in .devflow/learnings/retrospectives.jsonl .devflow/learnings/overrides.json; do
+    for _f in .devflow/learnings/retrospectives.jsonl .devflow/learnings/overrides.json .devflow/learnings/experiment-records.jsonl; do
         if [ -f "$_f" ]; then
             git add "$_f"
         fi

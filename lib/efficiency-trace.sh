@@ -150,23 +150,72 @@ warn_on_mixed_source() {
   fi
 }
 
+# Compute the config fingerprint (issue #431): a sha256 over the canonicalized
+# devflow_review + devflow_review_and_fix config blocks, plus a small map of
+# salient key values carried VERBATIM, so a cross-run/experiment analysis can
+# attribute each record to the config variant that produced it. Emits a compact
+# JSON object `{sha256, partial, salient}` — `partial:true` when only one of the
+# two blocks exists (the hash covers what exists) — or the literal `null` when
+# python3 or the config is unavailable / neither block exists. Best-effort: it
+# NEVER aborts the wrapper (a null fingerprint just means the #431 assembler
+# falls back to `git show <merge_sha>:.devflow/config.json` and marks the source).
+# Adds NO new command head: python3 is a hard preflight prerequisite and
+# config-source.sh (already sourced above) shells to it on every config read.
+compute_config_fingerprint() {
+  local cfg="$1"
+  python3 - "$cfg" <<'PY' 2>/dev/null || printf 'null\n'
+import hashlib, json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        cfg = json.load(fh)
+    if not isinstance(cfg, dict):
+        raise ValueError("config root is not an object")
+except (OSError, ValueError):
+    print("null"); sys.exit(0)
+# Only object-typed blocks contribute; a missing/wrong-type block is dropped, and
+# `partial` records that the hash covers fewer than both blocks (never fabricated).
+blocks = {k: cfg[k] for k in ("devflow_review", "devflow_review_and_fix")
+          if isinstance(cfg.get(k), dict)}
+if not blocks:
+    print("null"); sys.exit(0)
+canonical = json.dumps(blocks, sort_keys=True, separators=(",", ":"))
+digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+# Salient verbatim values (omit an absent key — never fabricate a default).
+rv, rf = blocks.get("devflow_review", {}), blocks.get("devflow_review_and_fix", {})
+salient = {}
+for src, name in ((rv, "verdict_severity_threshold"),
+                  (rf, "fix_severity_threshold"),
+                  (rf, "max_iterations")):
+    if name in src:
+        salient[name] = src[name]
+print(json.dumps({"sha256": digest, "partial": len(blocks) < 2, "salient": salient},
+                 separators=(",", ":")))
+PY
+}
+
 # Run the jq derivation over VALID_FILES for $1 mode ("trace"|"record") and the
 # slug $2, to stdout. A fresh GENERATED_AT is stamped per call.
 emit_jq() {
-  local mode="$1" slug="$2" generated_at
+  local mode="$1" slug="$2" generated_at config_fingerprint
   generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  # Fingerprint the config that produced this run (issue #431). Guard the empty
+  # case to a JSON null so --argjson never aborts jq (and the wrapper under set -e).
+  config_fingerprint="$(compute_config_fingerprint "$_DEVFLOW_CONFIG")"
+  [ -n "$config_fingerprint" ] || config_fingerprint="null"
   # jq -s over zero files yields null, not []; feed an explicit empty array so the
   # filter (which expects an array) degrades to an empty trace / empty record.
   if [ "${#VALID_FILES[@]}" -eq 0 ]; then
     printf '[]\n' | "$DEVFLOW_JQ" --raw-output -f "$HERE/efficiency-trace.jq" \
       --arg mode "$mode" --arg slug "$slug" \
       --arg generated_at "$generated_at" \
-      --argjson cut_candidate_min_dispatch "$THRESHOLD"
+      --argjson cut_candidate_min_dispatch "$THRESHOLD" \
+      --argjson config_fingerprint "$config_fingerprint"
   else
     "$DEVFLOW_JQ" --raw-output --slurp -f "$HERE/efficiency-trace.jq" \
       --arg mode "$mode" --arg slug "$slug" \
       --arg generated_at "$generated_at" \
       --argjson cut_candidate_min_dispatch "$THRESHOLD" \
+      --argjson config_fingerprint "$config_fingerprint" \
       "${VALID_FILES[@]}"
   fi
 }
