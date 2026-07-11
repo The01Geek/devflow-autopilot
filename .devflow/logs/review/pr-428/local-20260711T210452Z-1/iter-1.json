@@ -1,0 +1,12 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "d9db21f00a94f0916352495ad140c36dc530072c",
+  "fix_files": [
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "docs/shadow-review.md",
+    "lib/efficiency-trace.sh",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}
