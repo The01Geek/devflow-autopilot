@@ -494,11 +494,15 @@ jobs:
           #   DENIED       — permission_denials names ScheduleWakeup (present, refused).
           #                  Since ScheduleWakeup is GRANTED in --allowed-tools, only
           #                  --disallowedTools can deny it → attributable to the flag.
-          #   AVAILABLE    — a tool_use NAME=ScheduleWakeup was recorded and NOT denied
+          #   AVAILABLE    — a ScheduleWakeup tool_use was recorded and NOT denied
           #                  (the flag did NOT remove the tool in this environment).
-          #   REMOVED      — neither, AND the model provably reached and passed Action 2
-          #                  (the AFTER control ran), so the tool was genuinely absent
-          #                  from context rather than the model skipping the attempt.
+          #   REMOVED      — neither, AND both controls bracketed the attempt (the model
+          #                  reached and passed Action 2), so the tool was PRESUMPTIVELY
+          #                  absent from context. Presumptive, not proven: a compliant
+          #                  model that silently skipped Action 2 while still running
+          #                  Action 3 cannot be fully excluded — the emitted table flags
+          #                  REMOVED as presumptive and asks the operator to re-run to
+          #                  corroborate before acting.
           #   INCONCLUSIVE — nothing was measured (note_top), the BEFORE control did not
           #                  run (model made no measurable call), or the AFTER control
           #                  did not run (model never provably reached/passed Action 2).
@@ -506,7 +510,16 @@ jobs:
           #                  collapsed onto the shippable REMOVED (CLAUDE.md: "Unknown
           #                  is not zero").
           sw_denied = "ScheduleWakeup" in denial_text
-          sw_attempted = "NAME=ScheduleWakeup" in tooluse_text
+          # Name-AGNOSTIC (issue #415 review): match "ScheduleWakeup" anywhere in the
+          # recorded tool_use stream, not only a literal NAME=ScheduleWakeup. If the
+          # harness records the built-in under a decorated/namespaced name, an
+          # anchored NAME= match would miss a present-and-used tool and mis-read it as
+          # REMOVED → ship (a fail-open in the dangerous direction). The broad match
+          # fails SAFE: a present tool reads AVAILABLE → do NOT ship. In this controlled
+          # 3-action probe the only source of the token is the ScheduleWakeup attempt
+          # itself (the grep controls never mention it). Raw tool_use names are dumped
+          # below so the operator can confirm the recorded name on the first live run.
+          sw_attempted = "ScheduleWakeup" in tooluse_text
           control_before = "/etc/hosts" in tooluse_text       # Action 1 ran
           control_after = "/etc/os-release" in tooluse_text   # Action 3 ran → passed Action 2
 
@@ -542,11 +555,18 @@ jobs:
           out.append("## ScheduleWakeup `--disallowedTools` probe (issue #415)")
           out.append("")
           out.append("Deterministic verdict from the execution file's "
-                     "`permission_denials` (DENIED), recorded `tool_use` NAME= "
-                     "(AVAILABLE), tool absence with both controls run (REMOVED), or "
+                     "`permission_denials` (DENIED), recorded `tool_use` (AVAILABLE), "
+                     "tool absence with both controls run (REMOVED, presumptive), or "
                      "no conclusive measurement (INCONCLUSIVE). The model's text is "
                      "never the measurement.")
           out.append("")
+          if verdict == "REMOVED":
+              out.append("> [!NOTE]")
+              out.append("> REMOVED is **presumptive**: both controls bracketed the "
+                         "ScheduleWakeup attempt, but a compliant model that silently "
+                         "skipped Action 2 cannot be fully excluded. Confirm the recorded "
+                         "tool-use names below and re-run to corroborate before shipping.")
+              out.append("")
           if inconclusive:
               out.append("> [!WARNING]")
               if note_top:
@@ -580,6 +600,21 @@ jobs:
               out.append("```")
           else:
               out.append("_No permission_denials entries found in the execution file._")
+
+          # Dump the recorded tool_use entries so the operator can confirm the harness's
+          # actual ScheduleWakeup tool name on the first live run — the name-agnostic
+          # match above trusts that the token only appears via the real attempt, and this
+          # is how that assumption is checked rather than assumed.
+          out.append("")
+          out.append("### Raw tool_use entries (%d)" % len(tool_uses))
+          out.append("")
+          if tool_uses:
+              out.append("```")
+              for t in tool_uses:
+                  out.append(t[:400])
+              out.append("```")
+          else:
+              out.append("_No tool_use entries found in the execution file._")
 
           table = "\n".join(out)
           print(table)

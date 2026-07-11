@@ -21151,6 +21151,13 @@ assert_pin_red_under "#415 implement-skill: removing the ScheduleWakeup-unavaila
 assert_pin_red_under "#415 devflow-implement-yml: removing the headless resume-note line flips its pin RED" \
   'ending the turn ends the process' \
   '/ending the turn ends the process/d' "$WFI415"
+# The resume note is a single printf line carrying the premise (pinned above) AND the
+# operative instruction; pin the operative instruction too so an in-line reword that keeps
+# the premise but drops the never-end-turn directive still turns the suite RED (the whole
+# printf is one line, so both mutations target it — the two pins guard different clauses).
+assert_pin_red_under "#415 devflow-implement-yml: removing the never-end-turn resume-note directive flips its pin RED" \
+  'Never end the turn while any dispatched agent has not returned' \
+  '/Never end the turn while any dispatched agent has not returned/d' "$WFI415"
 
 # mktemp-guard coupled mirror (PR #410 review gap): the `BODY_FILE="$(mktemp)"` guard
 # in the two backstop steps is byte-identical across both workflows and was unpinned,
