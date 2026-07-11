@@ -9,10 +9,13 @@
 # docs/efficiency-trace.md. In adopter repos the scaffolder's .devflow/.gitignore
 # ignores only tmp/, so logs/ is tracked there without this negation.
 !/.devflow/logs/
-# Committed config template + schema (shipped). The LIVE .devflow/config.json
-# is NOT listed here, so it stays ignored — each adopter creates their own
-# (it holds project/board IDs). Force-add with `git add -f` to dogfood DevFlow
-# on this very repo and have its cloud workflows read it.
+# Committed config template + schema (shipped). The LIVE .devflow/config.json is
+# NOT re-included by a negation below, so the /.devflow/* rule above would ignore a
+# fresh one — but this repo TRACKS its config.json anyway: it was force-added with
+# `git add -f` (a tracked file overrides .gitignore) to dogfood DevFlow on this very
+# repo and have its cloud workflows read it from the committed tree. Adopters don't
+# need the force-add: the scaffolder's .devflow/.gitignore ignores only tmp/, so
+# their config.json (it holds project/board IDs) is tracked there too.
 !/.devflow/config.example.json
 !/.devflow/config.schema.json
 # Shipped per-language tool/preset registry read by scripts/detect-project-tools.sh

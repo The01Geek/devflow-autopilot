@@ -292,6 +292,25 @@ as the command's leading token — never an absolute path, never repo-root
 cloud allowlist silently denies any other form, which is exactly what killed
 prior auto-resume runs on their first helper call (issue #405).
 
+The same App token **also** powers the review workflow's **no-verdict
+auto-resume backstop** (`devflow_review.stall_backstop`, issue #408 — the
+review-side sibling of the implement backstop above; see
+`docs/DEVFLOW_SYSTEM_OVERVIEW.md`). A headless cloud review can end `success`
+with no verdict (the early-quit timing race); when that happens the auto-review
+path (`devflow-review.yml`'s `finalize_check`) mints its **own fresh** App token
+just-in-time and authors a `/devflow:review` re-trigger comment so the review
+re-runs without a human. As with the implement resume, a `GITHUB_TOKEN`-authored
+comment never re-triggers the workflow, so this needs the App: with `DEVFLOW_APP_ID`
+unset the backstop degrades to the dead-end flip (a visible `❌ Review failed`
+that a human must re-trigger). And exactly like the implement resume, add the
+minting App's bot login (e.g. `your-app[bot]`) to `devflow.allowed_bots` in
+`.devflow/config.json`, or the manual-`/devflow:review` gate the re-trigger
+re-enters declines the App-authored comment. The backstop is capped at
+`devflow_review.stall_backstop.max_resume_attempts` (default `2`) per head and
+gated by `devflow_review.stall_backstop.enabled` (default `true`, disabled only
+on a real JSON `false`); when the cap is exhausted, disabled, or no App token is
+configured it reports no-fire and degrades to the dead-end flip.
+
 > **Loop-safety note.** Unlike `GITHUB_TOKEN` pushes (which GitHub suppresses from
 > re-triggering workflows), an **App-token push re-triggers workflows**. For DevFlow
 > this is mostly desirable (a push to a non-draft PR re-runs `Devflow Review` on its

@@ -74,7 +74,10 @@ auth is required to run them.
   existed, renormalize once with `git add --renormalize .` (or re-clone) — `.gitattributes`
   governs future checkout/normalization, not a tree that is already CRLF on disk.
 - **No secrets, owner-specific IDs, or product names** in committed files. Config
-  lives in `.devflow/config.json` (created from the example), which is gitignored.
+  lives in `.devflow/config.json` (created from the example). This repo **tracks**
+  its live `config.json` — force-added past the `/.devflow/*` ignore rule with
+  `git add -f` so the cloud tier reads it from the committed tree — so keep secrets
+  and owner-specific IDs out of it.
 - New `.py`/`.sh` files carry an SPDX header:
   ```
   # SPDX-FileCopyrightText: 2026 Daniel Radman

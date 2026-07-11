@@ -22,7 +22,15 @@
     "allowed_tools": [
       "Bash(lib/test/run.sh:*)",
       "Bash(lib/preflight.sh:*)",
-      "Bash(shellcheck:*)"
+      "Bash(shellcheck:*)",
+      "Bash(chmod:*)",
+      "Bash(git ls-remote:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(*/apply-labels.sh:*)",
+      "Bash(*/ensure-label.sh:*)",
+      "Bash(*/render-grounding-block.sh:*)",
+      "Bash(*/config-get.sh:*)",
+      "Bash(*/efficiency-trace.sh:*)"
     ],
     "stall_backstop": {
       "enabled": true,

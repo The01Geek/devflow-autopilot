@@ -352,8 +352,14 @@ phase boundary; Phase 4.5 finalizes it).
   (always exits 0, so it never fails the required check) and is wired into the
   **same three** non-success arms at both call sites — `devflow-review.yml`'s
   `finalize_check` job (`if: always()`, so it survives even a review-job runner
-  death) and `devflow.yml`'s comment-triggered job (an `always()` step). Reviews
-  have no auto-resume, so every non-success is a dead-end flip.
+  death) and `devflow.yml`'s comment-triggered job (an `always()` step). The
+  died-flip makes a dead review *visible* but leaves it a dead-end; the bounded
+  **no-verdict auto-resume backstop** (`devflow_review.stall_backstop`, issue
+  #408) then re-runs it without a human — when a cloud review ends with no
+  verdict for the head, `finalize_check` posts a capped App-token-authored
+  `/devflow:review` re-trigger (default `max_resume_attempts: 2` per head),
+  degrading to exactly the dead-end flip when the cap is exhausted, the backstop
+  is disabled, or no App token is configured.
 - It works under the **read-only cloud `review` profile**: the comment is
   created/edited via `gh` (a comment edit, not a tree write), and the runner's
   `review` tool profile additionally allow-lists `workpad.py`, `config-get.sh`,

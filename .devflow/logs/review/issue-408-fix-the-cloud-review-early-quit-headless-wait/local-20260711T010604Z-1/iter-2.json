@@ -1,0 +1,11 @@
+{
+  "iter": 2,
+  "fix_commit_sha": "02281d3b85eae810003dc202d33023e5bf0a20fa",
+  "fix_files": [
+    ".changeset/issue-408-review-stall-backstop.md",
+    ".devflow/config.schema.json",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}
