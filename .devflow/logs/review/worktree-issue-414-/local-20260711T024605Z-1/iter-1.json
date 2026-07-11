@@ -1,0 +1,307 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-11T02:46:05Z",
+  "fix_commit_sha": "bbc3a30bed09687f8f3c52763eaa6f887da72559",
+  "fix_files": [
+    "lib/test/run.sh",
+    "scripts/post-review-backstop-comment.sh"
+  ],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "Composed re-trigger body untested (stub ignores $2/BODY_FILE); a dropped /devflow:review line or mis-interpolated HEAD_SHA/attempt ships green.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          286,
+          296
+        ],
+        "kind": "stub-blindness"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Env pass-through to request-review-backstop.sh untested.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          281,
+          284
+        ],
+        "kind": "stub-blindness"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "'POST never invoked' assertions indirect (absence of notice, not a sentinel).",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          324,
+          346
+        ],
+        "kind": "weak-assertion"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "Helper header says 'repo-root-relative' but resolution is cwd-relative; contradicts the test comment.",
+      "defect_signature": {
+        "file": "scripts/post-review-backstop-comment.sh",
+        "line_range": [
+          19,
+          21
+        ],
+        "kind": "imprecise-comment"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "Stale #408 marker-pin comment says 'the workflows post it'; the extracted helper posts it now.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          20784,
+          20786
+        ],
+        "kind": "stale-comment"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "RRB crash vs legitimate no-fire both surface reason:unknown (pre-existing, verbatim from original inline; fail-closed).",
+      "defect_signature": {
+        "file": "scripts/post-review-backstop-comment.sh",
+        "line_range": [
+          408,
+          426
+        ],
+        "kind": "breadcrumb-convergence"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "mktemp-failure arm not behaviorally driven (source-pinned only).",
+      "defect_signature": {
+        "file": "scripts/post-review-backstop-comment.sh",
+        "line_range": [
+          436,
+          439
+        ],
+        "kind": "untested-arm"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "${PR_NUMBER:-?} no-fire form and empty-PR_NUMBER path untested (cosmetic breadcrumb).",
+      "defect_signature": {
+        "file": "scripts/post-review-backstop-comment.sh",
+        "line_range": [
+          398,
+          426
+        ],
+        "kind": "untested-branch"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "bbc3a30bed09687f8f3c52763eaa6f887da72559"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "bbc3a30bed09687f8f3c52763eaa6f887da72559"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "bbc3a30bed09687f8f3c52763eaa6f887da72559"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "bbc3a30bed09687f8f3c52763eaa6f887da72559"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "bbc3a30bed09687f8f3c52763eaa6f887da72559"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "deferred",
+      "source_file": "scripts/post-review-backstop-comment.sh",
+      "claim_text": "RRB crash vs no-fire both surface reason:unknown",
+      "skip_category": "out-of-scope",
+      "evidence": "carried verbatim from the pre-existing inline blocks (git shows identical || true + ${REASON:-unknown}); fail-closed, not introduced by this diff"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "deferred",
+      "source_file": "scripts/post-review-backstop-comment.sh",
+      "claim_text": "mktemp-failure arm not behaviorally driven",
+      "skip_category": "uncategorized",
+      "evidence": "low-value cosmetic arm; source-pinned breadcrumb suffices, driving it needs a PATH-shadowing mktemp stub"
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "deferred",
+      "source_file": "scripts/post-review-backstop-comment.sh",
+      "claim_text": "${PR_NUMBER:-?} no-fire form untested",
+      "skip_category": "uncategorized",
+      "evidence": "cosmetic breadcrumb placeholder; both workflow call sites guarantee a non-empty PR_NUMBER before the helper runs"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 5,
+    "fix_diff_lines": 60,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_3": {
+      "calls": 5,
+      "tokens": 333000,
+      "wall_clock_s": 194
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-11T02:55:00Z",
+    "reviewed_sha": "bbc3a30bed09687f8f3c52763eaa6f887da72559",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": "intentional",
+    "phase3_findings": [
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "env-passthrough assertion vacuous: prefix-assigned env inherits to RRB regardless of the explicit forward",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            290,
+            318
+          ],
+          "kind": "vacuous-assertion"
+        }
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Important",
+        "description": "'byte-identical' overclaim in helper header + changeset; blocks differed",
+        "defect_signature": {
+          "file": "scripts/post-review-backstop-comment.sh",
+          "line_range": [
+            5,
+            6
+          ],
+          "kind": "overclaim"
+        }
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "unparsed-decision fail-closed arm never driven",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            349,
+            364
+          ],
+          "kind": "untested-failclosed-path"
+        }
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "'same names both steps set' loose for HEAD_SHA",
+        "defect_signature": {
+          "file": "scripts/post-review-backstop-comment.sh",
+          "line_range": [
+            23,
+            24
+          ],
+          "kind": "imprecise-claim"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 10,
+      "overlap_with_iter_N": 6,
+      "new": 4,
+      "new_critical": 0,
+      "new_important": 2
+    },
+    "promoted_to_iter_next": true
+  }
+}
