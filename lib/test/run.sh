@@ -1159,6 +1159,12 @@ assert_pin_unique "#425(rev): the iterations exclusion is never applied to the S
 # be built from model/effort only. Pin the sentence that forbids forwarding it to dispatch.
 assert_pin_unique "#425(rev): iterations is not forwarded to the --agents dispatch block" \
   'you use only its resolved `model`/`effort` and ignore `iterations`' "$ST_REV"
+# The default-off guarantee (AC #3): iteration 1, standalone /devflow:review, and an
+# absent/unresolvable signal all exclude nothing. Pin the no-op sentence so deleting it
+# (which would drop an opted-in agent on the FIRST pass, breaking byte-identical-when-absent)
+# turns this RED. The N≥2 threshold clause itself gets a semantic behavioral pin below.
+assert_pin_unique "#425(rev): iteration-1 / standalone / absent-signal all exclude nothing (default-off)" \
+  'On fix-loop iteration 1, in standalone `/devflow:review`, and when the iteration signal is absent/unresolvable, **exclude nothing**' "$ST_REV"
 assert_pin_unique "#425(raf): the shadow keeps the full roster regardless of iterations" \
   'the shadow always dispatches the **full** expected roster above regardless of any' "$ST_RAF"
 # NOTE: the #425 shadow-not-scoped behavioral-fix pin is routed through assert_pin_red_under,
@@ -2049,6 +2055,13 @@ rm -f "$PRU_META"
 assert_pin_red_under "#425(raf): shadow-not-scoped sentence is operative (thinning the shadow goes RED)" \
   'the shadow always dispatches the **full** expected roster above regardless of any' \
   's/dispatches the \*\*full\*\* expected roster above regardless of any/dispatches a reduced roster on some/' "$ST_RAF"
+# The N≥2 iteration threshold is the operative half of the default-off invariant: relaxing it
+# to N≥1 would exclude an opted-in agent on the FIRST pass (and, since standalone review is a
+# single pass, silently thin it too). Semantic mutation N≥2 → N≥1 re-introduces exactly that
+# bug, so a framing-only pin here would be caught. $ST_REV is skills/review/SKILL.md.
+assert_pin_red_under "#425(rev): the N≥2 exclusion threshold is operative (relaxing to N≥1 goes RED)" \
+  'on a fix-loop iteration **N ≥ 2**, drop from the Phase-3 launch list' \
+  's/fix-loop iteration \*\*N ≥ 2\*\*/fix-loop iteration **N ≥ 1**/' "$ST_REV"
 #
 assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns its pin RED" \
   'park-calibration gate clean: no parked finding matched'

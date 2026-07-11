@@ -29,8 +29,9 @@ Resolution rules (mirroring the schema + docs/review-agent-overrides.md):
   - A non-blank string `model` is forwarded as given (no value validation); a
     present-but-unusable model (empty, whitespace-only, or non-string) is dropped
     with a warning, mirroring the invalid-effort path.
-  - An entry that resolves to neither a model nor a valid effort emits no
-    override for that subagent (nothing to apply).
+  - An entry that resolves to no model, no valid effort, and no valid
+    `iterations` emits no override for that subagent (nothing to apply); an
+    entry carrying only a valid `iterations` still produces an override.
   - A non-object entry (e.g. a hand-edited `"agent": "high"` or a list) is
     ignored with a warning rather than crashing — the engine never aborts on
     config shape. Whether `default` then applies is path-dependent: `read_raw`
