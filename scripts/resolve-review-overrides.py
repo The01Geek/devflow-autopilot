@@ -11,6 +11,14 @@ the subagents about to be dispatched and materializes the per-run `--agents`
 JSON override map the engine passes at dispatch.
 
 Resolution rules (mirroring the schema + docs/review-agent-overrides.md):
+  - `iterations` (issue #425): an optional per-entry key whose only valid value is
+    "first-only". A valid value is passed through in the resolved map; any other
+    value (including an empty string) is dropped with a warning, mirroring the
+    invalid-effort path — the run never aborts. Like model/effort it obeys
+    entry-level precedence (a `default: {iterations: …}` supplies it only to
+    no-entry subagents). This resolver only READS the key; the fix-loop-iteration>=2
+    roster exclusion it drives is enforced engine-side (skills/review/SKILL.md
+    Phase 3.1), and `iterations` is NOT a dispatch-time model/effort parameter.
   - Entry-level precedence: a subagent with its own entry uses ONLY that entry;
     the `default` entry does NOT backfill its missing fields. The `default`
     entry supplies model/effort only for subagents with no entry of their own.
@@ -21,8 +29,9 @@ Resolution rules (mirroring the schema + docs/review-agent-overrides.md):
   - A non-blank string `model` is forwarded as given (no value validation); a
     present-but-unusable model (empty, whitespace-only, or non-string) is dropped
     with a warning, mirroring the invalid-effort path.
-  - An entry that resolves to neither a model nor a valid effort emits no
-    override for that subagent (nothing to apply).
+  - An entry that resolves to no model, no valid effort, and no valid
+    `iterations` emits no override for that subagent (nothing to apply); an
+    entry carrying only a valid `iterations` still produces an override.
   - A non-object entry (e.g. a hand-edited `"agent": "high"` or a list) is
     ignored with a warning rather than crashing — the engine never aborts on
     config shape. Whether `default` then applies is path-dependent: `read_raw`
@@ -50,6 +59,14 @@ import subprocess
 import sys
 
 VALID_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+# The only valid `iterations` value (issue #425). An agent whose resolved override
+# carries `iterations: "first-only"` is excluded from the Phase-3 review roster on
+# fix-loop iterations >= 2 — but that exclusion is enforced ENGINE-side
+# (skills/review/SKILL.md Phase 3.1); this resolver only reads the key and passes a
+# valid value through (dropping any other value with a warning, exactly like an
+# out-of-enum effort). Default absent = today's behavior, byte-identical.
+VALID_ITERATIONS = ("first-only",)
 
 # config-get.sh stringifies a non-array config value the way JS String() does (the
 # format config-get.sh's python3 coerce() reproduces for parity); a JSON object
@@ -79,9 +96,9 @@ KNOWN_AGENTS = (
 def resolve_overrides(raw, dispatched):
     """Pure resolution: raw config -> (override_map, warnings).
 
-    `raw` maps an agent id (or "default") to a dict that may carry "model"
-    and/or "effort". `dispatched` is the list of agent ids about to be
-    dispatched this phase. Returns the override map (only agents with an
+    `raw` maps an agent id (or "default") to a dict that may carry "model",
+    "effort", and/or "iterations". `dispatched` is the list of agent ids about
+    to be dispatched this phase. Returns the override map (only agents with an
     applicable override) and a list of human-readable warning strings.
     """
     warnings = []
@@ -140,6 +157,17 @@ def resolve_overrides(raw, dispatched):
                     f"{list(VALID_EFFORTS)}; falling back to session effort{scope}."
                 )
 
+        iterations = entry.get("iterations")
+        if iterations is not None:
+            if iterations in VALID_ITERATIONS:
+                resolved["iterations"] = iterations
+            else:
+                warnings.append(
+                    f"agent_overrides[{source}].iterations={iterations!r} is not one of "
+                    f"{list(VALID_ITERATIONS)}; dropping it (agent dispatches on every "
+                    f"iteration){scope}."
+                )
+
         if resolved:
             result[agent] = resolved
     return result, warnings
@@ -178,7 +206,7 @@ def _config_get(config_get, config_file, dotted_key, warnings):
 
 
 def read_raw(dispatched, config_get, config_file):
-    """Read each dispatched agent's (+ default's) model/effort via config-get.sh.
+    """Read each dispatched agent's (+ default's) model/effort/iterations via config-get.sh.
 
     Returns (raw, warnings). Reader warnings are deduplicated so a single broken
     `config_get` path surfaces one actionable line, not one per leaf read.
@@ -188,7 +216,7 @@ def read_raw(dispatched, config_get, config_file):
     for agent in list(dispatched) + ["default"]:
         base = f".devflow_review.agent_overrides.{agent}"
         entry = {}
-        for field in ("model", "effort"):
+        for field in ("model", "effort", "iterations"):
             # Agent ids contain ':' but never '.', so they are a single
             # dot-path segment — config-get.sh splits on '.' only.
             value = _config_get(config_get, config_file, f"{base}.{field}", warnings)
@@ -213,7 +241,7 @@ def read_raw(dispatched, config_get, config_file):
         # stringifies the value: a JSON object prints the sentinel
         # "[object Object]" (the JS String({}) format coerce() preserves), a scalar/array prints its own
         # stringification, and an absent key prints nothing. So:
-        #   - sentinel       → present object, no model/effort → {} (shadows default)
+        #   - sentinel       → present object, no model/effort/iterations → {} (shadows default)
         #   - other non-empty → a non-object entry (hand-edited config bypassing
         #     schema validation, e.g. `"agent": "high"`) → warn and treat as
         #     no-entry so `default` still applies; never crash.

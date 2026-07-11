@@ -69,7 +69,8 @@
       },
       "devflow:code-reviewer": {
         "model": "claude-opus-4-8",
-        "effort": "low"
+        "effort": "low",
+        "iterations": "first-only"
       }
     }
   },

@@ -1145,6 +1145,31 @@ assert_pin_unique "sev(rev): rule 6 is threshold-driven (coupled with rule 3)" '
 # with two contradictory verdict specs (coupled-invariant rule; PR #252 review finding).
 assert_pin_unique "sev(rev): Verdict-Criteria summary REJECT line is threshold-driven (mirror of rule 3)" 'at or above the configured verdict threshold ({VERDICT_THRESHOLD}) → REJECT' "$ST_REV"
 assert_pin_unique "sev(rev): Verdict-Criteria summary APPROVE-with-notes line is threshold-driven (mirror of rule 6)" 'Only findings below the verdict threshold → APPROVE with notes' "$ST_REV"
+# #425: agent_overrides `iterations: "first-only"` roster scoping. The engine's Phase 3.1
+# exclusion (skills/review/SKILL.md) and the Step-2.6 shadow-not-scoped boundary
+# (skills/review-and-fix/SKILL.md) are prose-driven dispatch contracts, pinned per the
+# suite's SKILL.md convention. The shadow-not-scoped sentence is a behavioral-fix pin routed
+# through assert_pin_red_under: deleting the sentence must go RED (a thinned shadow is the
+# regression this exists to catch).
+assert_pin_unique "#425(rev): Phase 3.1 excludes a first-only agent on fix-loop iter≥2" \
+  'drop from the Phase-3 launch list every agent whose resolved override carries' "$ST_REV"
+assert_pin_unique "#425(rev): the iterations exclusion is never applied to the Step 2.6 shadow" \
+  'This gate is **never** applied to the Step 2.6 shadow fan-out' "$ST_REV"
+# iterations is a roster-scoping key, NOT a dispatch-time parameter: the --agents block must
+# be built from model/effort only. Pin the sentence that forbids forwarding it to dispatch.
+assert_pin_unique "#425(rev): iterations is not forwarded to the --agents dispatch block" \
+  'you use only its resolved `model`/`effort` and ignore `iterations`' "$ST_REV"
+# The default-off guarantee (AC #3): iteration 1, standalone /devflow:review, and an
+# absent/unresolvable signal all exclude nothing. Pin the no-op sentence so deleting it
+# (which would drop an opted-in agent on the FIRST pass, breaking byte-identical-when-absent)
+# turns this RED. The N≥2 threshold clause itself gets a semantic behavioral pin below.
+assert_pin_unique "#425(rev): iteration-1 / standalone / absent-signal all exclude nothing (default-off)" \
+  'On fix-loop iteration 1, in standalone `/devflow:review`, and when the iteration signal is absent/unresolvable, **exclude nothing**' "$ST_REV"
+assert_pin_unique "#425(raf): the shadow keeps the full roster regardless of iterations" \
+  'the shadow always dispatches the **full** expected roster above regardless of any' "$ST_RAF"
+# NOTE: the #425 shadow-not-scoped behavioral-fix pin is routed through assert_pin_red_under,
+# which is defined below (~line 1990) — so its call lives after that definition (search
+# "#425(raf): shadow-not-scoped"); calling it here would be a silent command-not-found.
 # Step 2.5's pre-fix verification gate was widened in lockstep with the routing threshold:
 # it now classifies the WHOLE effective fix set, not just Critical/Important. This is the
 # load-bearing safety behavior that keeps a Suggestion-level fix (admitted at
@@ -2023,6 +2048,30 @@ printf 'operative token a.c/[x] on this line\nunrelated framing line\n' > "$PRU_
 assert_eq "#375 assert_pin_red_under: a pinned literal carrying regex+sed-delimiter metachars round-trips (fixed-string match; mutation flips it PASS->FAIL)" \
   "PASS" "$(probe_assert assert_pin_red_under 'meta' 'a.c/[x]' '/a\.c/d' "$PRU_META")"
 rm -f "$PRU_META"
+# #425 shadow-not-scoped behavioral-fix pin (placed here, below the assert_pin_red_under
+# definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
+# Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
+# value. Mutation deletes the sentence's line; the pin must flip PASS->FAIL (a thinned shadow is
+# the regression). $ST_RAF (skills/review-and-fix/SKILL.md) was set far above and persists.
+assert_pin_red_under "#425(raf): shadow-not-scoped sentence is operative (thinning the shadow goes RED)" \
+  'the shadow always dispatches the **full** expected roster above regardless of any' \
+  's/dispatches the \*\*full\*\* expected roster above regardless of any/dispatches a reduced roster on some/' "$ST_RAF"
+# The N≥2 iteration threshold is the operative half of the default-off invariant: relaxing it
+# to N≥1 would exclude an opted-in agent on the FIRST pass (and, since standalone review is a
+# single pass, silently thin it too). Semantic mutation N≥2 → N≥1 re-introduces exactly that
+# bug, so a framing-only pin here would be caught. $ST_REV is skills/review/SKILL.md.
+assert_pin_red_under "#425(rev): the N≥2 exclusion threshold is operative (relaxing to N≥1 goes RED)" \
+  'on a fix-loop iteration **N ≥ 2**, drop from the Phase-3 launch list' \
+  's/fix-loop iteration \*\*N ≥ 2\*\*/fix-loop iteration **N ≥ 1**/' "$ST_REV"
+# #425(rev): the engine_self_modifying-precedence invariant. On an engine_self_modifying diff,
+# Phase 0.5 forces the always-on four ON; the first-only exclusion must OVERRIDE that force so an
+# opted-in always-on agent (this repo's code-reviewer) is still dropped on iterations ≥ 2. A reword
+# that inverts the precedence (exclusion yields to the always-on force) silently re-admits the
+# positionally-worthless late dispatches this feature exists to stop, and would pass the suite green
+# without this pin. Semantic mutation overrides → yields-to re-introduces exactly that regression.
+assert_pin_red_under "#425(rev): the first-only exclusion overrides the engine_self_modifying always-on force (inverting the precedence goes RED)" \
+  'this exclusion **overrides** Phase 0.5' \
+  's/this exclusion \*\*overrides\*\* Phase 0.5/this exclusion **yields to** Phase 0.5/' "$ST_REV"
 #
 assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns its pin RED" \
   'park-calibration gate clean: no parked finding matched'
