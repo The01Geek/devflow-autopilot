@@ -6320,8 +6320,8 @@ assert_pin_red_under "#377 w3-fix-delta-evidence: Step 3 item 3b directs sweep e
   'iteration records when the loop runs standalone with no issue workpad' \
   's/iteration records when the loop runs standalone with no issue workpad//'
 # AC9: the new item must NOT duplicate or reword item 3a's pinned heading — still exactly one.
-assert_eq "#377 w3-3a-heading-count: item 3a heading literal stays exactly-once after item 3b lands (AC9)" \
-  "1" "$(pin_count 'Mechanism-scoped self-authored-claim re-sweep' "$MAXI_SKILL")"
+assert_pin_unique "#377 w3-3a-heading-count: item 3a heading literal stays exactly-once after item 3b lands (AC9)" \
+  'Mechanism-scoped self-authored-claim re-sweep' "$MAXI_SKILL"
 
 # Edit 2 — phase-3-review.md §3.2: /simplify cleanup agents chartered quality-only, Phase 3.3 owns correctness.
 # AC5 (regression-first): the "correctness angles plus" attribution is GONE from the owning phase
@@ -6348,12 +6348,12 @@ assert_pin_red_under "#377 w3-phase33-owns-correctness: §3.2 names the Phase 3.
 # in the #193 block above (lines pinning 'skip the finding and record the AC conflict as the skip
 # rationale', 'exists only on the issue-context', 'that is Phase 2.2.6 AC-rewrite territory' against
 # $IMPL_SKILL); re-confirm here against the owning phase file that all three survive verbatim.
-assert_eq "#377 w3-triage-pins-intact: §3.2 #193 AC-triage operative sentence survives the rewrite (AC7)" \
-  "1" "$(pin_count 'skip the finding and record the AC conflict as the skip rationale' "$P3_FILE")"
-assert_eq "#377 w3-triage-scope-intact: §3.2 #193 issue-context scope pin survives the rewrite (AC7)" \
-  "1" "$(pin_count 'exists only on the issue-context' "$P3_FILE")"
-assert_eq "#377 w3-triage-carveout-intact: §3.2 #193 stale-AC carve-out pin survives the rewrite (AC7)" \
-  "1" "$(pin_count 'that is Phase 2.2.6 AC-rewrite territory' "$P3_FILE")"
+assert_pin_unique "#377 w3-triage-pins-intact: §3.2 #193 AC-triage operative sentence survives the rewrite (AC7)" \
+  'skip the finding and record the AC conflict as the skip rationale' "$P3_FILE"
+assert_pin_unique "#377 w3-triage-scope-intact: §3.2 #193 issue-context scope pin survives the rewrite (AC7)" \
+  'exists only on the issue-context' "$P3_FILE"
+assert_pin_unique "#377 w3-triage-carveout-intact: §3.2 #193 stale-AC carve-out pin survives the rewrite (AC7)" \
+  'that is Phase 2.2.6 AC-rewrite territory' "$P3_FILE"
 
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
