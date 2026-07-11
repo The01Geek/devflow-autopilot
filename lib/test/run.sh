@@ -3710,6 +3710,12 @@ assert_pin_unique "429/T1: §1.4 derives behind-by via git rev-list --count HEAD
 # behind-by-0 case still records (freshness provably CHECKED, not assumed).
 assert_pin_unique "429/T1: §1.4 records the behind-by-0 up-to-date case" \
   'behind origin/$BASE by 0 commits' "$P1_FILE"
+# Indeterminate-count arm: fetch SUCCEEDED but `git rev-list --count` failed (empty BEHIND).
+# "Unknown is not zero" — an underivable count records freshness-unverified, never silently
+# treats the tree as fresh. T2 pins only the fetch-FAILURE UNVERIFIED path; pin this distinct
+# rev-list-failure arm too so deleting its handling turns RED.
+assert_pin_unique "429/T1: §1.4 handles an underivable behind-by count as freshness-unverified (unknown is not zero)" \
+  'could not derive behind-by (git rev-list failed)' "$P1_FILE"
 
 # T2 — degraded arm: a fetch failure records freshness-unverified and CONTINUES (never exit 1).
 assert_pin_red_under "429/T2: §1.4 fetch failure records freshness-unverified and continues (delete → RED)" \
@@ -3768,28 +3774,26 @@ assert_pin_unique "429/T6: §4.0 aligned verbatim language names the parent's de
   "parent's decided criteria are the unreworded semantic source" "$P4_FILE"
 
 # T7 — no-new-grants. The new prose (Phase 1.6 fresh-tree verification + Phase 2.1 code-wins
-# pass) executes during a /devflow:implement run, so the LOAD-BEARING grant surface is the
-# implement tier, not the review engine: the cloud implement job runs under
-# devflow-implement.yml's inline --allowed-tools, and the manual comment-triggered path runs
-# under devflow.yml's hoisted TOOLS='…' line. Both already grant `git merge-base` and
-# `gh pr view`, so the coherence rule's read-only `gh pr view N --json state,mergeCommit` +
-# `git merge-base --is-ancestor` need NO new grant. Pin the two implement-tier surfaces (so a
-# future removal of either grant from the file that actually gates the implement run turns RED,
-# not a review-engine file the prose never runs under — the #363 silent-denial trap the
-# comment-analyzer flagged), plus the two implement-tier config allowed_tools arrays adding NO
-# narrow merge-base/pr-view grant. (devflow-runner.yml is the read-only REVIEW profile; it never
-# executes these implement phase files, so it is deliberately NOT the pinned surface here.)
-_DI429="$LIB/../.github/workflows/devflow-implement.yml"   # cloud implement job (executes the new prose)
-_D429="$LIB/../.github/workflows/devflow.yml"              # manual /devflow:implement comment path (hoisted TOOLS line)
+# pass) executes during a /devflow:implement run, and `devflow-implement.yml` is the SINGLE
+# workflow that runs /devflow:implement — both the automated pickup AND a manual bare
+# `/devflow:implement <#>` comment fire it (devflow.yml is the LIGHT listener for
+# /devflow:review, /devflow:review-and-fix, /devflow:pr-description ONLY; its trigger `if:`
+# negates /devflow:implement, and its header states "the heavy /devflow:implement path lives in
+# devflow-implement.yml"). So the load-bearing grant surface for the coherence rule's read-only
+# `gh pr view N --json state,mergeCommit` + `git merge-base --is-ancestor` is
+# devflow-implement.yml's inline --allowed-tools, and NOTHING else executes this prose. Both
+# commands are already granted there, so no new grant is needed; pin exactly that surface (so a
+# future removal from the file that actually gates the implement run turns RED — the #363
+# silent-denial trap), plus the two implement-tier config allowed_tools arrays adding NO narrow
+# merge-base/pr-view grant. Deliberately NOT pinned here, because the implement prose never runs
+# under them: devflow.yml (the /devflow:review family listener) and devflow-runner.yml (the
+# read-only review profile) — pinning either would give false implement-tier assurance.
+_DI429="$LIB/../.github/workflows/devflow-implement.yml"   # the ONLY workflow that runs /devflow:implement (auto + manual comment)
 _C429="$LIB/../.devflow/config.json"
-assert_eq "429/T7: devflow-implement.yml --allowed-tools already grants git merge-base (cloud implement tier; no new grant)" "1" \
+assert_eq "429/T7: devflow-implement.yml --allowed-tools already grants git merge-base (implement tier — the only tier running the prose; no new grant)" "1" \
   "$(grep -cF 'Bash(git merge-base:*)' "$_DI429" || true)"
-assert_eq "429/T7: devflow-implement.yml --allowed-tools already grants gh pr view (cloud implement tier; no new grant)" "1" \
+assert_eq "429/T7: devflow-implement.yml --allowed-tools already grants gh pr view (implement tier — the only tier running the prose; no new grant)" "1" \
   "$(grep -cF 'Bash(gh pr view:*)' "$_DI429" || true)"
-assert_eq "429/T7: devflow.yml TOOLS already grants git merge-base (manual implement command path; no new grant)" "1" \
-  "$(grep -cF 'Bash(git merge-base:*)' "$_D429" || true)"
-assert_eq "429/T7: devflow.yml TOOLS already grants gh pr view (manual implement command path; no new grant)" "1" \
-  "$(grep -cF 'Bash(gh pr view:*)' "$_D429" || true)"
 assert_eq "429/T7: devflow_implement.allowed_tools adds no merge-base/pr-view grant" "0" \
   "$(jq -r '.devflow_implement.allowed_tools[]? | select(test("merge-base|pr view"))' "$_C429" 2>/dev/null | grep -c . || true)"
 assert_eq "429/T7: devflow.allowed_tools adds no merge-base/pr-view grant" "0" \
