@@ -48,13 +48,19 @@ Exit codes:
 """
 
 import argparse
-import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+# Import the shared config-fingerprint canonicalization (issue #431) — the ONE
+# implementation the producer (lib/efficiency-trace.sh) and this reader both use,
+# so a record-sourced and a git-show-sourced fingerprint are byte-identical.
+# Insert this script's own dir so the sibling module resolves regardless of cwd.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config_fingerprint import fingerprint_from_config  # noqa: E402
 
 # The gh binary — DEVFLOW_GH (the documented override the shell helpers resolve via
 # lib/resolve-gh.sh) wins when set and non-empty, else `gh`. No probe (the test-stub
@@ -163,32 +169,6 @@ def _resolve_repo():
     return None
 
 
-# ── config fingerprint (mirror of lib/efficiency-trace.sh's compute) ─────────
-
-def _fingerprint_from_config(cfg):
-    """Compute the config fingerprint object from a parsed config dict, or None when
-    neither review block exists. Byte-identical canonicalization to the producer in
-    lib/efficiency-trace.sh (sorted keys, compact separators) so a record-sourced and
-    a git-show-sourced fingerprint agree for the same config."""
-    if not isinstance(cfg, dict):
-        return None
-    blocks = {k: cfg[k] for k in ("devflow_review", "devflow_review_and_fix")
-              if isinstance(cfg.get(k), dict)}
-    if not blocks:
-        return None
-    canonical = json.dumps(blocks, sort_keys=True, separators=(",", ":"))
-    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    rv = blocks.get("devflow_review", {})
-    rf = blocks.get("devflow_review_and_fix", {})
-    salient = {}
-    for src, name in ((rv, "verdict_severity_threshold"),
-                      (rf, "fix_severity_threshold"),
-                      (rf, "max_iterations")):
-        if name in src:
-            salient[name] = src[name]
-    return {"sha256": digest, "partial": len(blocks) < 2, "salient": salient}
-
-
 # ── store I/O ────────────────────────────────────────────────────────────────
 
 def _read_jsonl(path):
@@ -278,14 +258,16 @@ def _slug_variants(branch):
     return v
 
 
-def _collect_efficiency(eff_dir, target_slugs):
-    """Every efficiency record whose `slug` is in target_slugs, as a per-run list. Each
-    entry carries slug, run_id (from the filename), the per-run cost, synthesized flag,
-    iteration count, telemetry_complete, and the raw config_fingerprint (for the join)."""
+def _index_efficiency(eff_dir):
+    """Parse the efficiency store ONCE into `slug -> [per-run entry]`, so the per-PR
+    loop does dict lookups instead of re-globbing/re-parsing the whole dir for each
+    candidate PR (the O(N×M) cost of a per-PR scan). Each entry carries slug, run_id
+    (from the filename), per-run cost, synthesized flag, iteration count,
+    telemetry_complete, and the raw config_fingerprint (for the join)."""
+    index = {}
     d = Path(eff_dir)
-    runs = []
     if not d.is_dir():
-        return runs
+        return index
     for f in sorted(d.glob("*.json")):
         try:
             record = json.loads(f.read_text(encoding="utf-8"))
@@ -295,12 +277,12 @@ def _collect_efficiency(eff_dir, target_slugs):
         if not isinstance(record, dict):
             continue
         slug = record.get("slug")
-        if slug not in target_slugs:
+        if not isinstance(slug, str):
             continue
         # run_id = filename with the `<slug>-` prefix and `.json` suffix stripped.
         stem = f.stem
         run_id = stem[len(slug) + 1:] if stem.startswith(slug + "-") else stem
-        runs.append({
+        index.setdefault(slug, []).append({
             "slug": slug,
             "run_id": run_id,
             "source": record.get("source"),
@@ -310,6 +292,16 @@ def _collect_efficiency(eff_dir, target_slugs):
             "telemetry_complete": _telemetry_complete(record),
             "config_fingerprint": record.get("config_fingerprint"),
         })
+    return index
+
+
+def _collect_efficiency(eff_index, target_slugs):
+    """Every indexed efficiency run whose `slug` is in target_slugs, as a per-run list
+    (both slug families). Sorted by (slug, run_id) for a deterministic store."""
+    runs = []
+    for slug in target_slugs:
+        runs.extend(eff_index.get(slug, []))
+    runs.sort(key=lambda r: (r["slug"], r["run_id"]))
     return runs
 
 
@@ -456,7 +448,7 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
         text = _git_show(repo_root, f"{merge_sha}:.devflow/config.json")
         if text is not None:
             try:
-                fp = _fingerprint_from_config(json.loads(text))
+                fp = fingerprint_from_config(json.loads(text))
             except json.JSONDecodeError:
                 fp = None
             if fp:
@@ -480,7 +472,7 @@ def _gh_pr_meta(repo, pr):
 
 # ── per-PR assembly ──────────────────────────────────────────────────────────
 
-def build_record(repo, repo_root, eff_dir, pr, retro_entry):
+def build_record(repo, repo_root, eff_index, pr, retro_entry):
     provenance = {"notes": []}
 
     if retro_entry:
@@ -503,7 +495,7 @@ def build_record(repo, repo_root, eff_dir, pr, retro_entry):
 
     # Efficiency runs — both slug families.
     target_slugs = {f"pr-{pr}"} | _slug_variants(branch)
-    eff_runs = _collect_efficiency(eff_dir, target_slugs)
+    eff_runs = _collect_efficiency(eff_index, target_slugs)
     provenance["efficiency"] = "found" if eff_runs else "absent"
     if not eff_runs:
         provenance["notes"].append("no efficiency record matched (outcome-only row)")
@@ -603,20 +595,22 @@ def main(argv=None):
         tok = tok.strip()
         if tok.isdigit():
             window.add(int(tok))
-    candidates = list(window)
-    for pr in retro_order:
-        if pr not in store or pr in window:
-            if pr not in candidates:
-                candidates.append(pr)
+    candidates = list(window)   # window PRs are always reprocessed
+    for pr in retro_order:       # plus retrospective PRs not yet stored
+        if pr not in store and pr not in candidates:
+            candidates.append(pr)
 
     if not candidates:
         _warn("no candidate PRs to process (scan window empty, store up to date) — no-op")
         # Still rewrite nothing; a no-op is success.
         return 0
 
+    # Parse the efficiency store ONCE up front (not per candidate PR).
+    eff_index = _index_efficiency(eff_dir)
+
     for pr in candidates:
         try:
-            store[pr] = build_record(repo, repo_root, eff_dir, pr, retro.get(pr))
+            store[pr] = build_record(repo, repo_root, eff_index, pr, retro.get(pr))
         except Exception as e:  # noqa: BLE001 — one bad PR must never abort the batch
             _warn(f"PR #{pr}: assembly failed ({type(e).__name__}: {e}); leaving prior "
                   "store line untouched")

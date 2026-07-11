@@ -163,34 +163,12 @@ warn_on_mixed_source() {
 # config-source.sh (already sourced above) shells to it on every config read.
 compute_config_fingerprint() {
   local cfg="$1"
-  python3 - "$cfg" <<'PY' 2>/dev/null || printf 'null\n'
-import hashlib, json, sys
-try:
-    with open(sys.argv[1], encoding="utf-8") as fh:
-        cfg = json.load(fh)
-    if not isinstance(cfg, dict):
-        raise ValueError("config root is not an object")
-except (OSError, ValueError):
-    print("null"); sys.exit(0)
-# Only object-typed blocks contribute; a missing/wrong-type block is dropped, and
-# `partial` records that the hash covers fewer than both blocks (never fabricated).
-blocks = {k: cfg[k] for k in ("devflow_review", "devflow_review_and_fix")
-          if isinstance(cfg.get(k), dict)}
-if not blocks:
-    print("null"); sys.exit(0)
-canonical = json.dumps(blocks, sort_keys=True, separators=(",", ":"))
-digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-# Salient verbatim values (omit an absent key — never fabricate a default).
-rv, rf = blocks.get("devflow_review", {}), blocks.get("devflow_review_and_fix", {})
-salient = {}
-for src, name in ((rv, "verdict_severity_threshold"),
-                  (rf, "fix_severity_threshold"),
-                  (rf, "max_iterations")):
-    if name in src:
-        salient[name] = src[name]
-print(json.dumps({"sha256": digest, "partial": len(blocks) < 2, "salient": salient},
-                 separators=(",", ":")))
-PY
+  # Delegate to the shared scripts/config_fingerprint.py — the SINGLE source of
+  # truth this producer and the #431 assembler-reader both use, so their
+  # fingerprints are byte-identical by construction (not a hand-kept mirror). The
+  # script prints the JSON object or the literal `null`; a missing script / python
+  # failure degrades to `null` (best-effort — never abort the wrapper under set -e).
+  python3 "$HERE/../scripts/config_fingerprint.py" "$cfg" 2>/dev/null || printf 'null\n'
 }
 
 # Run the jq derivation over VALID_FILES for $1 mode ("trace"|"record") and the
