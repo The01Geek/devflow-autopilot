@@ -1,0 +1,79 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-11T21:49:00Z",
+  "fix_commit_sha": "b6ed1431513cc75fb8fe2519641d1f76fe585c46",
+  "fix_files": [
+    "scripts/build-experiment-records.py",
+    "lib/efficiency-trace.sh",
+    "docs/efficiency-trace.md",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:requesting-code-review", "severity": "Important",
+     "description": "verdict-stub suffix pollution — _parse_verdict leaves ' — full report in PR comment', polluting the primary outcome variable on the default cloud path",
+     "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [310, 317], "kind": "unverified-assumption"},
+     "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important",
+     "description": "denial check-runs lookup not paginated; >30 checks misses Devflow Review",
+     "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [418, 418], "kind": "single-page-api-cap"},
+     "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important",
+     "description": "provenance 'absent' conflates gh fetch-failure with genuinely-missing source",
+     "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [407, 456], "kind": "subprocess-failure-treated-as-no-data"},
+     "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important",
+     "description": "whole-batch assembly failure still exits 0",
+     "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [611, 643], "kind": "broad-except-masks-systematic-failure"},
+     "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion",
+     "description": "2>/dev/null swallows a genuine config_fingerprint.py crash",
+     "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [171, 171], "kind": "stderr-swallowed-masks-crash"},
+     "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion",
+     "description": "docs 'reflection note' names a mechanism the code does not use; 'superseded' arm has no distinct counterpart",
+     "defect_signature": {"file": "docs/efficiency-trace.md", "line_range": [507, 529], "kind": "doc-drift"},
+     "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important",
+     "description": "config_fingerprint.py has no direct test; several AC-named edge cases (git-show fallback, multiple-review, superseded, duplicate-slug, total-failure) unexercised",
+     "defect_signature": {"file": "lib/test/run.sh", "line_range": [24626, 24869], "kind": "test-coverage-gap"},
+     "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion",
+     "description": "record schema is an untyped inline dict; fingerprint field non-uniform across sources",
+     "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [514, 528], "kind": "type-design"},
+     "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-verdict-stub", "decision": "applied", "commit": "b6ed143"},
+    {"finding_id": "F-pagination", "decision": "applied", "commit": "b6ed143"},
+    {"finding_id": "F-provenance-fetchfailed", "decision": "applied", "commit": "b6ed143"},
+    {"finding_id": "F-whole-batch", "decision": "applied", "commit": "b6ed143"},
+    {"finding_id": "F-fp-swallow", "decision": "applied", "commit": "b6ed143"},
+    {"finding_id": "F-doc-drift", "decision": "applied", "commit": "b6ed143"},
+    {"finding_id": "F-test-gaps", "decision": "applied", "commit": "b6ed143"},
+    {"finding_id": "F-untyped-record", "decision": "advisory", "source_file": "scripts/build-experiment-records.py",
+     "claim_text": "record schema is an untyped inline dict with no read-side validation", "skip_category": "advisory-parked",
+     "evidence": "design-quality suggestion below the important fix threshold; a lightweight TypedDict would be a larger refactor than this fix loop's scope — surfaced for human review"}
+  ],
+  "convergence_inputs": {"fixes_applied": 7, "fix_diff_lines": 300, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_3": {"calls": 6, "tokens": 447909, "wall_clock_s": 260}
+  }
+}
