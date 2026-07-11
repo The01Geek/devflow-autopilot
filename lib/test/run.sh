@@ -11829,7 +11829,15 @@ case "$*" in
 esac
 STUB
 chmod +x "$DI_STUB/gh"
-di() { DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID="$1" CONTEXT_NUMBER="$2" \
+# Neutralize any ambient GITHUB_EVENT_PATH: when this suite runs inside a cloud
+# job the runner exports it, and dedupe-implement-run.sh self-derives the
+# stall-resume carve-out from the triggering comment's body. If that comment
+# carries the stall-backstop-audit marker (e.g. this very suite runs under a
+# stall-resumed implement job), the script would bypass dedupe and every
+# duplicate=true expectation below would spuriously read duplicate=false. The
+# carve-out tests set GITHUB_EVENT_PATH explicitly, so clearing it here (empty →
+# the script's `[ -n ... ]` guard skips the self-derive) isolates the default set.
+di() { DEVFLOW_GH="$DI_STUB/gh" GITHUB_EVENT_PATH= REPO=o/r RUN_ID="$1" CONTEXT_NUMBER="$2" \
   DEDUPE_RUNS_JSON="$3" bash "$DIR" 2>/dev/null; }
 
 # 1. An OLDER (smaller databaseId) active run for the same thread → duplicate.
@@ -11868,7 +11876,7 @@ assert_eq "di: empty run list → not duplicate" "duplicate=false" \
 
 # 9. gh query failure → fail OPEN (run proceeds), never silently swallowed.
 assert_eq "di: gh failure → fail open (not duplicate)" "duplicate=false" \
-  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_GH_RC=1 bash "$DIR" 2>/dev/null)"
+  "$(DEVFLOW_GH="$DI_STUB/gh" GITHUB_EVENT_PATH= REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_GH_RC=1 bash "$DIR" 2>/dev/null)"
 
 # 10. Missing/invalid CONTEXT_NUMBER → fail open (cannot dedupe without a thread).
 assert_eq "di: missing context number → fail open" "duplicate=false" \
@@ -11893,7 +11901,7 @@ assert_eq "di: malformed run-list JSON → fail open (not duplicate)" "duplicate
 #     spuriously suppress a legitimate /devflow:implement. Record the gh argv and
 #     assert the flag is present.
 DI_REC="$(mktemp)"
-DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_RUNS_JSON='[]' \
+DEVFLOW_GH="$DI_STUB/gh" GITHUB_EVENT_PATH= REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_RUNS_JSON='[]' \
   DI_ARGS_REC="$DI_REC" bash "$DIR" >/dev/null 2>&1
 assert_eq "di: run list is scoped to --workflow devflow-implement.yml" "1" \
   "$(grep -c -- '--workflow devflow-implement.yml' "$DI_REC")"
