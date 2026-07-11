@@ -24676,6 +24676,15 @@ printf '%s\n' 'Never use the `foobar` helper in scope A.' 'The `foobar` helper i
 SPR="$(spl_repo "$SPF")"
 assert_eq "#423 T4/R4 named-token scope mismatch stays GREEN (exit 0)" "0" "$(spl_rc "$SPR")"
 assert_eq "#423 T4/R4 named-token scope mismatch emits NO R4 row" "no" "$(spl_has "$SPR" STALE R4)"
+# Positive control (parity with T1/T2/T3): an operator deny-absolute with NO contradicting
+# permit elsewhere must emit a VERIFIED R4 row and exit 0 — this is the ONLY test that
+# exercises R4's VERIFIED arm, so without it a mutant forcing R4 to STALE on every operator
+# deny-absolute (e.g. _permitted_elsewhere hardcoded True, or the VERIFIED arm dropped) would
+# ship GREEN and emit false-positive Important findings on legit "never use `>` here" prose.
+printf '%s\n' 'The skill must never emit ANY `>` redirect anywhere.' 'Some other unrelated prose line.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T4/R4 operator deny-absolute with no permit exits 0" "0" "$(spl_rc "$SPR")"
+assert_eq "#423 T4/R4 operator deny-absolute with no permit emits a VERIFIED R4 row" "yes" "$(spl_has "$SPR" VERIFIED R4)"
 
 # T5 → caller-supplied-diff contract: a two-commit branch where commit 1 adds the
 # frozen header and commit 2 outgrows it. The full-branch (empty-tree..HEAD) diff the
