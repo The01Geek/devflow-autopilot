@@ -526,30 +526,47 @@ Each line joins, for one PR:
   the pr-review stub suffix `— full report in PR comment` the engine appends when a live progress
   comment is active, so the stored verdict is the bare token (`APPROVE` / `REJECT` / …) on every
   surface. The `provenance.verdict` field names which arm resolved it — `pr-review`,
-  `progress-comment`, `unparseable` (a `## Verdict:` marker was present but its line did not parse),
-  `fetch-failed` (the reviews/comments API call itself failed — an *unestablished* verdict, distinct
-  from a genuinely-absent one), or `absent`.
+  `progress-comment` (or `progress-comment (reviews unestablished)` when the comment supplied the
+  verdict *because* the authoritative reviews call could not be fetched, so the value is degraded
+  rather than merely second-choice), `unparseable` (a `## Verdict:` marker was present but its line
+  did not parse), `absent`, or one of the three **unestablished** tags below.
 - **`important_finding_count`** — parsed from the run-keyed progress comment joined via
   `review.commit_id` == the comment's `**Reviewed HEAD:**` line (the engine's own join — see
   `skills/review/SKILL.md`, the normative source). `null` with provenance when no progress comment
   joins to the review's commit_id (absent or superseded by a later run's comment), its findings
-  section is unparseable, or the comment fetch failed (`fetch-failed`).
+  section is unparseable, or the comment could not be established.
 - **`permission_denials_count`** — read from the `Devflow Review` check-run `output[summary]`
   `permission_denials_count:` line (issue #431) for PRs after that change; for historical PRs it falls
-  back to best-effort check-run **annotation** retrieval, whose bias is stated in provenance
-  (annotations carry only **positive** counts, so a historical zero is indistinguishable from
-  unavailable, and expired logs yield nothing). Carried **verbatim** in every path — `unavailable`
-  stays `unavailable`, and **no code path coerces an unestablished count to `0`** (the repo's
-  unknown-is-not-zero contract, end to end). When the check-runs API call itself fails, provenance is
-  `fetch-failed` (an *unestablished* count), kept distinct from `absent` (the check-run genuinely
-  carried no count) so the two are never conflated — the provenance-dimension analogue of the
-  value-level contract.
+  back to best-effort check-run **annotation** retrieval (provenance `check-run-annotation`), whose
+  bias is recorded in `provenance.notes` (annotations carry only **positive** counts, so a historical
+  zero is indistinguishable from unavailable, and expired logs yield nothing). Carried **verbatim** in
+  every path — `unavailable` stays `unavailable`, and **no code path coerces an unestablished count to
+  `0`** (the repo's unknown-is-not-zero contract, end to end).
 - **`config_fingerprint`** — from the efficiency record's `config_fingerprint` when present, else
   recomputed from `git show <merge_sha>:.devflow/config.json` (records predating the field);
   `provenance.config_fingerprint` marks the source (`efficiency-record` / `merge-commit-config` /
-  `absent`).
+  `absent`, plus the unestablished tags below). When a PR's runs carry **disagreeing** fingerprints
+  (its runs straddled a config change), the record-level value is `null` with source
+  `mixed-across-runs` rather than first-wins: this field is the experiment's *attribution key*, so
+  silently stamping such a PR with the older variant would misattribute its outcome. Nothing is lost —
+  the per-run fingerprints remain in `efficiency_runs[]`.
 - **`provenance`** — a map naming which sources joined (and a `notes` list), so a `null` field is
   always distinguishable from an unqueried one.
+
+**Unestablished is not absent.** `absent` is the strong claim *"we looked and it genuinely was not
+there"*. Three tags mean the opposite — the join could not be measured at all — and they are never
+collapsed onto `absent` (the provenance-dimension analogue of the value-level unknown-is-not-zero
+contract). They apply to every gh-sourced field above:
+
+| Tag | Meaning |
+| --- | --- |
+| `fetch-failed` | The call ran and did not yield a usable answer — a non-zero `gh` exit, or an exit-0 response whose body was unparseable. |
+| `no-repo` | The repo could not be resolved, so nothing was queryable and no call was attempted. |
+| `no-sha` | The PR metadata that supplies the query key (head / merge sha) was itself unestablished, so this join is unestablished *by cascade*. |
+
+The normative list is `PROVENANCE_UNESTABLISHED` in `scripts/build-experiment-records.py`; a record is
+rejected at construction if any field governed by one of these tags carries a non-null value, so an
+unqueryable join can never publish a measurement.
 
 **Idempotent** (one line per PR, keyed by PR number — a re-run replaces, never duplicates) and
 **incremental** (it processes merged PRs absent from the store plus any passed via `--prs`, never a

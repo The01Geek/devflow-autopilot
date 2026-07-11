@@ -55,14 +55,35 @@ def fingerprint_from_config(cfg):
 def _main(argv):
     """CLI: read a config path (argv[1]), print the fingerprint JSON object or the
     literal `null`. Best-effort — a missing/unreadable/non-object config prints
-    `null` and exits 0 so the shell producer degrades gracefully."""
+    `null` and exits 0 so the shell producer degrades gracefully.
+
+    Exit 0 is the right contract (the caller must never abort on a missing config), but
+    the three conditions behind a `null` are NOT equivalent and must not be silent alike
+    (issue #431 review): an ABSENT config is expected and says nothing; an UNREADABLE one
+    is an environment problem; a MALFORMED one is a real defect in a tracked file. Only
+    the first is routine, so the other two get a stderr breadcrumb naming the path and the
+    error. Without it, a repo with a corrupt config.json loses its config attribution on
+    every run with nothing anywhere to say why — and because the exit stays 0, the shell
+    producer's own crash breadcrumb never fires either."""
     if len(argv) < 2:
         print("null")
         return 0
     try:
         with open(argv[1], encoding="utf-8") as fh:
             cfg = json.load(fh)
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        # Expected and routine (no config → no fingerprint). Silent by design.
+        print("null")
+        return 0
+    except OSError as e:
+        sys.stderr.write(f"config_fingerprint.py: could not read {argv[1]}: {e} — "
+                         "fingerprint degraded to null\n")
+        print("null")
+        return 0
+    except ValueError as e:
+        sys.stderr.write(f"config_fingerprint.py: {argv[1]} is not valid JSON: {e} — "
+                         "fingerprint degraded to null (config attribution lost for this "
+                         "run; fix the config)\n")
         print("null")
         return 0
     fp = fingerprint_from_config(cfg)

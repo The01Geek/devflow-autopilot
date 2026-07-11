@@ -14152,6 +14152,16 @@ assert_eq "et: silent-agent verdict is JSON null, not string" "null" "$(ET_verdi
 assert_eq "et: record carries cost telemetry forward (iter1 phase_3 tokens)" "48000" \
   "$(echo "$ET_REC" | jq -r '.telemetry[] | select(.iter==1) | .phases.phase_3.tokens')"
 assert_eq "et: record schema_version=1" "1" "$(echo "$ET_REC" | jq -r '.schema_version')"
+# #431 config_fingerprint — the PRODUCER half, exercised end-to-end rather than grep-pinned.
+# The value flows through "$_DEVFLOW_CONFIG" (owned by lib/config-source.sh). If that variable
+# is ever renamed, unset, or emptied, config_fingerprint.py prints `null`, emit_jq cheerfully
+# --argjson's it, every source pin stays GREEN, and every future run stores a null fingerprint —
+# silently destroying the config-attribution axis the whole experiment record exists for. Assert
+# the emitted record actually carries a real fingerprint (issue #431 review).
+assert_eq "#431 et: --mode record stamps a REAL config_fingerprint.sha256 (not null)" "yes" \
+  "$(echo "$ET_REC" | jq -r 'if (.config_fingerprint.sha256 // "") | test("^[0-9a-f]{64}$") then "yes" else "no" end')"
+assert_eq "#431 et: the stamped fingerprint carries the salient config values verbatim" "yes" \
+  "$(echo "$ET_REC" | jq -r 'if (.config_fingerprint.salient | type) == "object" then "yes" else "no" end')"
 assert_eq "et: cut_candidate_min_dispatch carried into record (default 3)" "3" \
   "$(echo "$ET_REC" | jq -r '.cut_candidate_min_dispatch')"
 assert_eq "et: checklist split lite=2" "2" "$(echo "$ET_REC" | jq -r '.per_iteration[] | select(.iter==1) | .checklist_lite_count')"
@@ -24682,7 +24692,17 @@ PY
 
   exp_field() { python3 "$EXP/get.py" "$1" "$2" "$3"; }
   # exp_count_lines: number of non-empty JSONL lines in the store.
-  exp_count_lines() { grep -c '[^[:space:]]' "$1" 2>/dev/null || echo 0; }
+  # NOT `grep -c … || echo 0`: on an EMPTY store grep prints "0" AND exits 1, so the
+  # fallback fires too and the helper emits "0\n0" — silently breaking any zero-row
+  # assertion (which is exactly what a skipped-PR test asserts). Count in the shell.
+  exp_count_lines() {
+    local n=0 line
+    [ -f "$1" ] || { printf '0\n'; return 0; }
+    while IFS= read -r line || [ -n "$line" ]; do
+      [ -n "${line//[[:space:]]/}" ] && n=$((n + 1))
+    done < "$1"
+    printf '%s\n' "$n"
+  }
 
   # Seed one efficiency record. $1 dir, $2 filename, $3 slug, $4 synthesized(true/false),
   # $5 telemetry-json (the "telemetry" array), $6 fingerprint-json (or the literal null).
@@ -24802,10 +24822,17 @@ EOF
     python3 "$BXR" --repo-root "$R4" --prs 900 >/dev/null 2>&1
   ST4="$R4/.devflow/learnings/experiment-records.jsonl"
   assert_eq "#431 T4: digit denial count carried verbatim from the annotation path" "3" "$(exp_field "$ST4" 900 permission_denials_count)"
-  case "$(exp_field "$ST4" 900 provenance.permission_denials_count)" in
-    check-run-annotation*) assert_eq "#431 T4: annotation provenance names the positive-only bias" "yes" "yes" ;;
-    *) assert_eq "#431 T4: annotation provenance names the positive-only bias" "yes" "no" ;;
-  esac
+  # The provenance tag is a BARE, matchable token — every other inhabitant of this field
+  # is one, and the coherence checker tests membership (`source in PROVENANCE_UNESTABLISHED`),
+  # so an embedded caveat sentence would make the vocabulary a non-closed set no consumer
+  # could match on equality (this assertion needed a glob before that fix — issue #431 review).
+  assert_eq "#431 T4: annotation provenance is a bare, equality-matchable tag" "check-run-annotation" \
+    "$(exp_field "$ST4" 900 provenance.permission_denials_count)"
+  # The positive-only bias caveat is not lost — it moves to provenance.notes, where it belongs.
+  assert_eq "#431 T4: the positive-only-bias caveat is recorded in provenance.notes" "yes" \
+    "$(python3 -c 'import json,sys
+r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()][0]
+print("yes" if any("positive-count-only" in n for n in r["provenance"]["notes"]) else "no")' "$ST4")"
   # 4c unestablished (no summary line, no annotation) → null, NEVER 0.
   R4C="$EXP/r4c"
   mkdir -p "$R4C/.devflow/learnings"
@@ -25012,9 +25039,13 @@ EOF
   assert_eq "#431 T3h: unparseable progress-comment verdict → null value" "null" "$(exp_field "$ST3H" 750 verdict)"
   assert_eq "#431 T3h: unparseable fallback provenance (not progress-comment over a null)" "unparseable" "$(exp_field "$ST3H" 750 provenance.verdict)"
 
-  # ── Tmeta gh-fallback metadata fetch-failure → retrospective fetch-failed ─────
-  # No retrospective entry AND the gh pr-view call fails (rc≠0) → metadata is
-  # UNESTABLISHED: provenance.retrospective is "fetch-failed", not "absent".
+  # ── Tmeta gh-fallback metadata fetch-failure → PR skipped (fail closed) ──────
+  # No retrospective entry AND the gh pr-view call fails (rc≠0) → the merge state is
+  # UNESTABLISHED. The store is keyed on MERGED PRs, so the run must NOT write a row
+  # asserting a merge it never established: the merged-state gate skips the PR and
+  # breadcrumbs why (naming the metadata provenance, "fetch-failed"). The old behavior —
+  # writing a row with a null merged_at — is exactly the fabricated-row shape the gate
+  # closes (issue #431 review).
   RMETA="$EXP/rmeta"
   mkdir -p "$RMETA/.devflow/learnings"
   : > "$RMETA/.devflow/learnings/retrospectives.jsonl"
@@ -25029,9 +25060,33 @@ esac
 STUB2
   chmod +x "$EXP/gh-metafail"
   GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh-metafail" \
-    python3 "$BXR" --repo-root "$RMETA" --prs 940 >/dev/null 2>&1
+    python3 "$BXR" --repo-root "$RMETA" --prs 940 2>"$EXP/meta.err" >/dev/null
   STMETA="$RMETA/.devflow/learnings/experiment-records.jsonl"
-  assert_eq "#431 Tmeta: gh-fallback metadata fetch failure → retrospective fetch-failed (not absent)" "fetch-failed" "$(exp_field "$STMETA" 940 provenance.retrospective)"
+  assert_eq "#431 Tmeta: unestablished merge state → NO row written (never a fabricated merged PR)" "0" \
+    "$(exp_count_lines "$STMETA")"
+  assert_eq "#431 Tmeta: skip breadcrumb names the unestablished metadata provenance" "yes" \
+    "$(grep -q 'fetch-failed' "$EXP/meta.err" && echo yes || echo no)"
+
+  # ── Tmerged an OPEN PR named via --prs is skipped, never stored ───────────────
+  # The store is keyed on MERGED PRs — that is what makes the abandoned-run exclusion (and
+  # its documented cost-side survivorship bias) true. `--prs` is an operator handle that
+  # can name ANY PR, so without the gate `--prs <open-pr>` would write a row with a null
+  # merged_at, a still-accumulating cost list, and a verdict scraped from an in-flight
+  # review — entering the store as a shipped PR and skewing the very cost-vs-outcome
+  # comparison the store exists to make (issue #431 review).
+  ROPEN="$EXP/ropen"
+  mkdir -p "$ROPEN/.devflow/learnings"
+  : > "$ROPEN/.devflow/learnings/retrospectives.jsonl"
+  cat > "$EXP/prview-open.json" <<'EOF'
+{"mergedAt":null,"mergeCommit":null,"headRefName":"open-branch","headRefOid":"hopen","closingIssuesReferences":[],"state":"OPEN"}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" PR_VIEW_JSON="$EXP/prview-open.json" \
+    python3 "$BXR" --repo-root "$ROPEN" --prs 990 2>"$EXP/open.err" >/dev/null
+  STOPEN="$ROPEN/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 Tmerged: an OPEN PR named via --prs writes NO row (store is merged-PR-keyed)" "0" \
+    "$(exp_count_lines "$STOPEN")"
+  assert_eq "#431 Tmerged: skip breadcrumb states the merged-PR keying" "yes" \
+    "$(grep -q 'keyed on merged PRs' "$EXP/open.err" && echo yes || echo no)"
 
   # ── Tdup duplicate efficiency records, SAME slug — never newest-wins ──────────
   RDUP="$EXP/rdup"
@@ -25072,14 +25127,17 @@ EOF
   assert_eq "#431 Tann: annotation fetch failure → denial value null (never a fabricated 0)" "null" "$(exp_field "$STANN" 960 permission_denials_count)"
 
   # ── Tnosha no probeable sha → no-sha (unestablished by cascade), not absent ───
-  # When the PR metadata itself could not be established, head_sha and merge_sha are
-  # both null, so there is NOTHING to query the check-runs/config out of. The denial
-  # count and fingerprint are then unestablished BY CASCADE — "no-sha" — never the
+  # A retrospective entry establishes the PR merged (so the merged-state gate admits it)
+  # but carries NO head_sha / merge_commit_sha — the shape an older retrospective schema
+  # leaves behind. There is then NOTHING to query the check-runs/config out of, so the
+  # denial count and fingerprint are unestablished BY CASCADE — "no-sha" — never the
   # measured-and-found-nothing "absent" (issue #431 iter-3 shadow).
   RNS="$EXP/rnosha"
   mkdir -p "$RNS/.devflow/learnings"
-  : > "$RNS/.devflow/learnings/retrospectives.jsonl"
-  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh-metafail" \
+  cat > "$RNS/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":970,"merged_at":"2026-07-10T00:00:00Z","branch":"b970"}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
     python3 "$BXR" --repo-root "$RNS" --prs 970 >/dev/null 2>&1
   STNS="$RNS/.devflow/learnings/experiment-records.jsonl"
   assert_eq "#431 Tnosha: no probeable sha → denial provenance no-sha (not absent)" "no-sha" "$(exp_field "$STNS" 970 provenance.permission_denials_count)"
@@ -25088,11 +25146,14 @@ EOF
 
   # ── Tnorepo unresolvable repo → no-repo on every gh-sourced join ──────────────
   # With no repo, NOTHING is queryable: the verdict, Important count, and denial count
-  # are unestablished, and the gh metadata fallback is never even attempted. Reading
-  # any of them as "absent" would assert a measurement the run never made.
+  # are unestablished. Reading any of them as "absent" would assert a measurement the run
+  # never made. The retrospective entry still joins locally (no gh needed), so the row is
+  # written — a cost row with honestly-unestablished outcomes.
   RNR="$EXP/rnorepo"
   mkdir -p "$RNR/.devflow/learnings"
-  : > "$RNR/.devflow/learnings/retrospectives.jsonl"
+  cat > "$RNR/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":980,"merged_at":"2026-07-10T00:00:00Z","branch":"b980","head_sha":"h980","merge_commit_sha":"m980"}
+EOF
   cat > "$EXP/gh-norepo" <<'STUB3'
 #!/usr/bin/env bash
 case "$*" in
@@ -25107,7 +25168,7 @@ STUB3
   assert_eq "#431 Tnorepo: unresolvable repo → verdict provenance no-repo (not absent)" "no-repo" "$(exp_field "$STNR" 980 provenance.verdict)"
   assert_eq "#431 Tnorepo: unresolvable repo → important-count provenance no-repo" "no-repo" "$(exp_field "$STNR" 980 provenance.important_finding_count)"
   assert_eq "#431 Tnorepo: unresolvable repo → denial provenance no-repo (not absent)" "no-repo" "$(exp_field "$STNR" 980 provenance.permission_denials_count)"
-  assert_eq "#431 Tnorepo: unresolvable repo → retrospective provenance no-repo (fallback never attempted)" "no-repo" "$(exp_field "$STNR" 980 provenance.retrospective)"
+  assert_eq "#431 Tnorepo: unresolvable repo → row still written from the local retrospective join" "980" "$(exp_field "$STNR" 980 pr)"
 
   # ── Tcoh provenance-coherence invariant is ENFORCED, not merely documented ────
   # The record's type-level invariant: an UNESTABLISHED provenance
@@ -25120,21 +25181,261 @@ STUB3
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("ber", sys.argv[1])
 ber = importlib.util.module_from_spec(spec); spec.loader.exec_module(ber)
-bad = {"permission_denials_count": 0,
-       "provenance": {"permission_denials_count": "no-sha"}}
-try:
-    ber._assert_provenance_coherent(bad)
-except AssertionError:
-    pass
-else:
-    sys.exit(1)  # a value published from an unqueryable join went unnoticed
-good = {"permission_denials_count": None,
-        "provenance": {"permission_denials_count": "no-sha"}}
-ber._assert_provenance_coherent(good)   # must NOT raise
+
+def raises(record):
+    try:
+        ber._assert_provenance_coherent(record)
+    except AssertionError:
+        return True
+    return False
+
+# A scalar join publishing a value out of an unqueryable source.
+if not raises({"permission_denials_count": 0,
+               "provenance": {"permission_denials_count": "no-sha"}}):
+    sys.exit(1)
+# The one-to-MANY case: `retrospective` governs the four metadata fields, so back-filling
+# e.g. `branch` from a slug heuristic while the metadata fetch failed must also raise.
+# Today those fields are null on every unestablished path, so the invariant holds only by
+# ACCIDENT there — checking them is what makes it hold by construction (#431 review).
+if not raises({"branch": "guessed-from-slug",
+               "provenance": {"retrospective": "fetch-failed"}}):
+    sys.exit(1)
+# Positive control: the same unestablished source beside NULL values must NOT raise, so
+# the guard is discriminating rather than blanket-rejecting.
+ber._assert_provenance_coherent({"permission_denials_count": None,
+                                 "branch": None, "merged_at": None,
+                                 "merge_commit_sha": None, "issue": None,
+                                 "provenance": {"permission_denials_count": "no-sha",
+                                                "retrospective": "fetch-failed"}})
 sys.exit(0)
 PY
-  assert_eq "#431 Tcoh: unestablished provenance beside a non-null value raises (coherence enforced)" "yes" \
+  # Capture rc on the line immediately after the heredoc: a later edit inserting ANY
+  # command between the two would silently rewire `$?` to that command's status and make
+  # the assertion pass unconditionally (issue #431 review).
+  RC_COH=$?
+  assert_eq "#431 Tcoh: unestablished provenance beside a non-null value raises (coherence enforced)" "0" "$RC_COH"
+
+  # ── Tstore the DESTINATION store is read STRICTLY — never truncated silently ──
+  # main() does not append to the store, it REWRITES it from what the read returned, and
+  # lib/open-state-pr.sh commits the result. So a tolerated read error is DESTRUCTIVE, not
+  # merely lossy: one corrupt line (a half-written record from a killed prior run) would
+  # silently DELETE every historical record the read could not account for, and ship the
+  # truncation in the state PR. Fail closed instead (issue #431 review).
+  RST="$EXP/rstore"
+  mkdir -p "$RST/.devflow/learnings"
+  cat > "$RST/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1010,"merged_at":"2026-07-10T00:00:00Z","branch":"b1010","merge_commit_sha":"m1010"}
+EOF
+  # A store carrying one good record and one corrupt line.
+  printf '%s\n' '{"pr":1000,"verdict":"APPROVE"}' 'this is not json' \
+    > "$RST/.devflow/learnings/experiment-records.jsonl"
+  STORE_BEFORE="$(cat "$RST/.devflow/learnings/experiment-records.jsonl")"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RST" --prs 1010 >/dev/null 2>&1
+  RC_STORE=$?
+  assert_eq "#431 Tstore: a corrupt existing store line makes the run exit 2 (refuses to rewrite)" "2" "$RC_STORE"
+  assert_eq "#431 Tstore: the store is left BYTE-IDENTICAL — the good record was not silently dropped" "yes" \
+    "$([ "$STORE_BEFORE" = "$(cat "$RST/.devflow/learnings/experiment-records.jsonl")" ] && echo yes || echo no)"
+
+  # A well-formed JSON line with no `pr` key is the same destructive shape: the rewrite is
+  # keyed on `pr`, so such a line is not merely ignored — it is dropped from the output.
+  RST2="$EXP/rstore2"
+  mkdir -p "$RST2/.devflow/learnings"
+  : > "$RST2/.devflow/learnings/retrospectives.jsonl"
+  printf '%s\n' '{"verdict":"APPROVE","note":"no pr key"}' \
+    > "$RST2/.devflow/learnings/experiment-records.jsonl"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RST2" --prs 1011 >/dev/null 2>&1
+  assert_eq "#431 Tstore: a store line with no 'pr' key also fails closed (would be dropped by the rewrite)" "2" "$?"
+
+  # ── Tunparse rc-0 with an unparseable body is UNESTABLISHED, not absent ───────
+  # The gh call exits 0 but returns garbage (a truncated response, an HTML proxy error
+  # page). Reading that as a successful measurement laundered it into "absent" — the
+  # strong claim "we looked and it genuinely was not there" — which the coherence check
+  # cannot catch, because the value is null while the provenance claims success.
+  RUP="$EXP/runparse"
+  mkdir -p "$RUP/.devflow/learnings"
+  cat > "$RUP/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1020,"merged_at":"2026-07-10T00:00:00Z","branch":"b1020","head_sha":"h1020","merge_commit_sha":"m1020"}
+EOF
+  cat > "$EXP/gh-garbage" <<'STUB4'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "owner/repo"; exit 0 ;;
+  *reviews*)     echo "<html>502 Bad Gateway</html>"; exit 0 ;;
+  *)             echo '[]'; exit 0 ;;
+esac
+STUB4
+  chmod +x "$EXP/gh-garbage"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh-garbage" \
+    python3 "$BXR" --repo-root "$RUP" --prs 1020 >/dev/null 2>&1
+  STUP="$RUP/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 Tunparse: rc-0 unparseable body → verdict provenance fetch-failed (not absent)" "fetch-failed" "$(exp_field "$STUP" 1020 provenance.verdict)"
+  assert_eq "#431 Tunparse: rc-0 unparseable body → verdict value stays null" "null" "$(exp_field "$STUP" 1020 verdict)"
+
+  # ── Tdegraded a comment-sourced verdict recovered because the REVIEWS call failed ──
+  # is not the same fact as one recovered because the reviews genuinely had none. The
+  # authoritative surface was unreachable, so the comment verdict may predate final HEAD.
+  RDG="$EXP/rdegraded"
+  mkdir -p "$RDG/.devflow/learnings"
+  cat > "$RDG/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1030,"merged_at":"2026-07-10T00:00:00Z","branch":"b1030","head_sha":"h1030","merge_commit_sha":"m1030"}
+EOF
+  cat > "$EXP/comments1030.json" <<'EOF'
+[{"id":9,"created_at":"2026-07-09T10:00:00Z","body":"<!-- devflow:review-progress run=1 -->\n**Reviewed HEAD:** h1030\n\n## Verdict: APPROVE\n"}]
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_FAIL=1 COMMENTS_JSON="$EXP/comments1030.json" \
+    python3 "$BXR" --repo-root "$RDG" --prs 1030 >/dev/null 2>&1
+  STDG="$RDG/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 Tdegraded: comment verdict used because reviews were unestablished is marked degraded" \
+    "progress-comment (reviews unestablished)" "$(exp_field "$STDG" 1030 provenance.verdict)"
+
+  # ── Tmixed disagreeing per-run fingerprints → mixed-across-runs, never first-wins ──
+  # config_fingerprint is the experiment's ATTRIBUTION KEY. A PR whose runs straddled a
+  # config change must not be stamped with the older variant — that misattributes its
+  # outcome in exactly the config-vs-outcome comparison the store exists to support.
+  RMX="$EXP/rmixed"
+  mkdir -p "$RMX/.devflow/learnings"
+  cat > "$RMX/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1040,"merged_at":"2026-07-10T00:00:00Z","branch":"b1040","merge_commit_sha":"m1040"}
+EOF
+  seed_eff "$RMX/.devflow/logs/efficiency" "pr-1040-a.json" "pr-1040" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":10}}}]' '{"sha256":"OLDFP","partial":false,"salient":{}}'
+  seed_eff "$RMX/.devflow/logs/efficiency" "pr-1040-b.json" "pr-1040" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":20}}}]' '{"sha256":"NEWFP","partial":false,"salient":{}}'
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RMX" --prs 1040 >/dev/null 2>&1
+  STMX="$RMX/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 Tmixed: disagreeing run fingerprints → provenance mixed-across-runs (never first-wins)" \
+    "mixed-across-runs" "$(exp_field "$STMX" 1040 provenance.config_fingerprint)"
+  assert_eq "#431 Tmixed: disagreeing run fingerprints → record-level value is null" "null" \
+    "$(exp_field "$STMX" 1040 config_fingerprint)"
+  assert_eq "#431 Tmixed: per-run fingerprints are still preserved in efficiency_runs[]" "2" \
+    "$(python3 -c 'import json,sys;print(len(json.loads([l for l in open(sys.argv[1])][0])["efficiency_runs"]))' "$STMX")"
+  # Agreeing runs still publish the shared fingerprint (positive control — the guard is
+  # discriminating, not blanket-nulling).
+  RMX2="$EXP/rmixed2"
+  mkdir -p "$RMX2/.devflow/learnings"
+  cat > "$RMX2/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1041,"merged_at":"2026-07-10T00:00:00Z","branch":"b1041","merge_commit_sha":"m1041"}
+EOF
+  seed_eff "$RMX2/.devflow/logs/efficiency" "pr-1041-a.json" "pr-1041" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":10}}}]' '{"sha256":"SAMEFP","partial":false,"salient":{}}'
+  seed_eff "$RMX2/.devflow/logs/efficiency" "pr-1041-b.json" "pr-1041" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":20}}}]' '{"sha256":"SAMEFP","partial":false,"salient":{}}'
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RMX2" --prs 1041 >/dev/null 2>&1
+  assert_eq "#431 Tmixed: AGREEING run fingerprints still publish the shared value (positive control)" \
+    "efficiency-record" "$(exp_field "$RMX2/.devflow/learnings/experiment-records.jsonl" 1041 provenance.config_fingerprint)"
+
+  # ── Tfpfb the merge-commit-config fallback + the byte-identical contract ──────
+  # This arm is the whole REASON config_fingerprint.py is a shared module: the reader
+  # recomputes the fingerprint from the merge commit's config for records predating the
+  # field, and the docstring claims the result is byte-identical to the producer's. That
+  # claim was asserted nowhere. Drive the arm against a real git repo and assert the
+  # reader's sha256 EQUALS the producer CLI's for the same config — that equality IS the
+  # contract (issue #431 review).
+  RFP="$EXP/rfp"
+  mkdir -p "$RFP/.devflow/learnings"
+  git init -q "$RFP" 2>/dev/null
+  git -C "$RFP" config user.email t@t.t; git -C "$RFP" config user.name t
+  cat > "$RFP/.devflow/config.json" <<'EOF'
+{"devflow_review":{"verdict_severity_threshold":"important"},"devflow_review_and_fix":{"max_iterations":5}}
+EOF
+  git -C "$RFP" add -A >/dev/null 2>&1
+  git -C "$RFP" commit -qm seed >/dev/null 2>&1
+  FPSHA="$(git -C "$RFP" rev-parse HEAD)"
+  cat > "$RFP/.devflow/learnings/retrospectives.jsonl" <<EOF
+{"schema_version":2,"kind":"implementation","pr":1050,"merged_at":"2026-07-10T00:00:00Z","branch":"b1050","merge_commit_sha":"$FPSHA"}
+EOF
+  # An efficiency record with NO fingerprint (the pre-#431 shape) forces the fallback.
+  seed_eff "$RFP/.devflow/logs/efficiency" "pr-1050-r.json" "pr-1050" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":10}}}]' 'null'
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RFP" --prs 1050 >/dev/null 2>&1
+  STFP="$RFP/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 Tfpfb: pre-field record → fingerprint recomputed from the merge commit's config" \
+    "merge-commit-config" "$(exp_field "$STFP" 1050 provenance.config_fingerprint)"
+  # The byte-identical claim: the READER's sha256 == the PRODUCER CLI's for the same file.
+  PRODUCER_SHA="$(python3 "$LIB/../scripts/config_fingerprint.py" "$RFP/.devflow/config.json" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin)["sha256"])')"
+  assert_eq "#431 Tfpfb: reader and producer agree byte-for-byte (the shared-module contract)" \
+    "$PRODUCER_SHA" "$(exp_field "$STFP" 1050 config_fingerprint.sha256)"
+
+  # ── Timp0 the Important count ZERO case — the modal clean-PR outcome ──────────
+  # _count_important distinguishes None (no findings section → unparseable) from 0
+  # (section present, no Important group — the engine omits empty groups). Every other
+  # fixture has Important items, so the 0 path — what a clean review PR produces — was
+  # unpinned. A regression returning None there would convert every clean PR's count from
+  # a real 0 into an unparseable null, biasing the primary outcome variable toward
+  # "only noisy PRs have counts".
+  RI0="$EXP/rimp0"
+  mkdir -p "$RI0/.devflow/learnings"
+  cat > "$RI0/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1060,"merged_at":"2026-07-10T00:00:00Z","branch":"b1060","head_sha":"h1060","merge_commit_sha":"m1060"}
+EOF
+  cat > "$EXP/comments1060.json" <<'EOF'
+[{"id":11,"created_at":"2026-07-09T10:00:00Z","body":"<!-- devflow:review-progress run=1 -->\n**Reviewed HEAD:** h1060\n\n## Verdict: APPROVE\n\n## Code Review Findings\n\n### 🟡 Suggestion / Minor\n1. a nit\n"}]
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    COMMENTS_JSON="$EXP/comments1060.json" REVIEWS_JSON="$EXP/does-not-exist" \
+    python3 "$BXR" --repo-root "$RI0" --prs 1060 >/dev/null 2>&1
+  STI0="$RI0/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 Timp0: a findings section with no Important group → a REAL 0, not null" "0" \
+    "$(exp_field "$STI0" 1060 important_finding_count)"
+  assert_eq "#431 Timp0: the real 0 is sourced, not unparseable" "progress-comment" \
+    "$(exp_field "$STI0" 1060 provenance.important_finding_count)"
+
+  # ── Tslug branch-slug sanitization (`/` → `-`) actually resolves the cost rows ──
+  # _slug_variants exists to resolve branch-family slugs. Every other fixture's branch is
+  # already slug-shaped, so the sanitizing variants never did any work and a broken
+  # replace() would ship green — silently vanishing every branch-family cost row (a pure
+  # survivorship-bias corruption of the cost side).
+  RSL="$EXP/rslug"
+  mkdir -p "$RSL/.devflow/learnings"
+  cat > "$RSL/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1070,"merged_at":"2026-07-10T00:00:00Z","branch":"feature/x","merge_commit_sha":"m1070"}
+EOF
+  seed_eff "$RSL/.devflow/logs/efficiency" "feature-x-run.json" "feature-x" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":77}}}]' 'null'
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RSL" --prs 1070 >/dev/null 2>&1
+  STSL="$RSL/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 Tslug: a 'feature/x' branch resolves its sanitized 'feature-x' efficiency slug" "found" \
+    "$(exp_field "$STSL" 1070 provenance.efficiency)"
+  assert_eq "#431 Tslug: the branch-family cost row actually joined" "77" \
+    "$(exp_field "$STSL" 1070 efficiency_runs.0.cost.tokens)"
+
+  # ── Tpartial a PARTIAL assembly failure exits non-zero too ────────────────────
+  # The caller's ONLY detection channel is the exit code (retrospective-weekly Step 6.5
+  # runs `… || echo "failed" >&2` and turns that into a blocker note). An all-failed-only
+  # guard left that check INERT for the dominant shape: 9 of 10 PRs raising still exited
+  # 0, so the retrospective reported a clean run while most of the week's records were
+  # never assembled (issue #431 review — a guard whose comparand the producer never emits
+  # on the paths it now selects is a guard that fails open).
+  RPT="$EXP/rpartial"
+  mkdir -p "$RPT/.devflow/learnings"
+  : > "$RPT/.devflow/learnings/retrospectives.jsonl"
+  python3 - "$BXR" "$RPT" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ber", sys.argv[1])
+ber = importlib.util.module_from_spec(spec); spec.loader.exec_module(ber)
+real = ber.build_record
+# PR 2001 assembles; PR 2002 raises. A PARTIAL failure.
+def flaky(repo, root, idx, pr, retro):
+    if pr == 2002:
+        raise RuntimeError("boom")
+    return {"schema_version": 1, "pr": pr, "provenance": {"notes": []}}
+ber.build_record = flaky
+sys.argv = ["ber", "--repo-root", sys.argv[2], "--prs", "2001,2002"]
+rc = ber.main()
+sys.exit(0 if rc == 2 else 1)
+PY
+  assert_eq "#431 Tpartial: a partial assembly failure exits 2 (not a silent success)" "yes" \
     "$([ $? -eq 0 ] && echo yes || echo no)"
+  assert_eq "#431 Tpartial: the PR that DID assemble is still written (prior lines preserved)" "1" \
+    "$(exp_count_lines "$RPT/.devflow/learnings/experiment-records.jsonl")"
 
   # ── Tfail whole-batch assembly failure exits non-zero (review Fix D) ─────────
   # If EVERY candidate raises, the batch must NOT report success (exit 0) — a

@@ -44,7 +44,12 @@ Usage:
 
 Exit codes:
     0  Store written (or dry-run, or nothing to do — a clean no-op is success).
-    2  Bad arguments / unusable required inputs.
+    2  The run did not fully succeed and the caller must surface it: bad arguments, an
+       unreadable existing store (refused rather than rewritten from a partial read — a
+       rewrite would DELETE what it could not parse), an unwritable store, or one or more
+       candidate PRs that failed to assemble. The exit code is the caller's only failure
+       channel (retrospective-weekly Step 6.5 turns it into a blocker note), so a PARTIAL
+       failure exits 2 too, not just a total one.
 """
 
 import argparse
@@ -84,13 +89,16 @@ DENIAL_SUMMARY_RE = re.compile(r"permission_denials_count:\s*(\S+)")
 DENIAL_ANNOTATION_RE = re.compile(r"recorded\s+(\d+)\s+permission denial")
 
 # ── provenance vocabulary + coherence invariant ──────────────────────────────
-# The joined fields whose provenance the coherence check below governs. Each names a
-# record key and its provenance key (they coincide except for the two aliased joins).
+# Every provenance key, mapped to the record field(s) it governs. A provenance entry is
+# a claim about HOW a field was established, so the coherence check below needs to know
+# which values each claim covers — including the one-to-MANY case: `retrospective` is the
+# provenance of the PR-metadata join, and that single join produces four fields.
 _PROVENANCED_FIELDS = {
-    "verdict": "verdict",
-    "important_finding_count": "important_finding_count",
-    "permission_denials_count": "permission_denials_count",
-    "config_fingerprint": "config_fingerprint",
+    "verdict": ("verdict",),
+    "important_finding_count": ("important_finding_count",),
+    "permission_denials_count": ("permission_denials_count",),
+    "config_fingerprint": ("config_fingerprint",),
+    "retrospective": ("merged_at", "merge_commit_sha", "branch", "issue"),
 }
 # UNESTABLISHED provenance: the join could not be measured at all. `fetch-failed` = the
 # call ran and failed; `no-repo` = nothing was queryable (repo unresolvable); `no-sha` =
@@ -102,21 +110,32 @@ PROVENANCE_UNESTABLISHED = ("fetch-failed", "no-repo", "no-sha")
 
 def _assert_provenance_coherent(record):
     """The record's own type-level invariant, enforced at construction rather than left
-    to reviewer vigilance: a field carrying an UNESTABLISHED provenance MUST carry a null
-    value. The whole point of the unestablished vocabulary is that no analysis can read a
+    to reviewer vigilance: every field governed by an UNESTABLISHED provenance MUST be
+    null. The whole point of the unestablished vocabulary is that no analysis can read a
     real measurement out of a join that never happened, so a non-null value labeled
-    `fetch-failed`/`no-repo`/`no-sha` is incoherent by construction. Raises AssertionError
-    (a build-time bug in this script, never a data condition — every degradation path
-    yields null), so a future edit that wires a value to an unqueryable source fails at
-    the desk instead of silently publishing a fabricated measurement."""
+    `fetch-failed`/`no-repo`/`no-sha` is incoherent by construction.
+
+    The governed set is `_PROVENANCED_FIELDS` — which deliberately includes the
+    `retrospective` join's four metadata fields, not only the four scalar joins. Those
+    four happen to be null today on every unestablished path, so the invariant holds by
+    accident there; checking them makes it hold by CONSTRUCTION, so a future edit that
+    back-fills e.g. `branch` from a slug heuristic while the metadata fetch failed cannot
+    quietly publish a value under an unestablished provenance (#431 review).
+
+    Raises AssertionError — a build-time bug in this script, never a data condition
+    (every degradation path yields null) — so such an edit fails at the desk instead of
+    silently publishing a fabricated measurement."""
     prov = record.get("provenance") or {}
-    for field, prov_key in _PROVENANCED_FIELDS.items():
+    for prov_key, fields in _PROVENANCED_FIELDS.items():
         source = prov.get(prov_key)
-        if source in PROVENANCE_UNESTABLISHED and record.get(field) is not None:
-            raise AssertionError(
-                f"provenance incoherent: {field}={record.get(field)!r} is non-null but "
-                f"its source is {source!r} (unestablished) — an unqueryable join must "
-                f"never publish a value")
+        if source not in PROVENANCE_UNESTABLISHED:
+            continue
+        for field in fields:
+            if record.get(field) is not None:
+                raise AssertionError(
+                    f"provenance incoherent: {field}={record.get(field)!r} is non-null "
+                    f"but its source ({prov_key}) is {source!r} (unestablished) — an "
+                    f"unqueryable join must never publish a value")
 
 
 def _warn(msg):
@@ -147,12 +166,21 @@ def _gh_json(endpoint, paginate=False):
 
 
 def _gh_json_ex(endpoint, paginate=False):
-    """Like _gh_json but returns (value, ok). `ok` is False ONLY when the gh call
-    itself FAILED (non-zero rc: transport/auth/rate-limit/absent-binary) — the
-    "could not establish" case — and True when the call SUCCEEDED, whether the parsed
-    value is present or the artifact was genuinely empty/absent. This lets provenance
-    distinguish a fetch-failure (unestablished) from a genuinely-missing source, the
-    provenance-dimension analogue of the repo's unknown-is-not-zero contract (#431)."""
+    """Like _gh_json but returns (value, ok). `ok` is False whenever the call did not
+    yield a USABLE ANSWER — the "could not establish" case — and True only when it did.
+
+    Two ways to fail to establish, and both must set ok=False (issue #431 review):
+      * the gh call itself failed (non-zero rc: transport/auth/rate-limit/absent binary);
+      * the call exited 0 but its body is NON-EMPTY and unparseable (a truncated
+        response, an HTML proxy error page served with rc 0, a `gh` whose --paginate
+        output shape changed). Reading that as ok=True laundered it into the caller's
+        `absent` arm — the strong claim "we looked and it genuinely was not there" —
+        which is precisely the conflation the no-repo/no-sha/fetch-failed vocabulary
+        exists to prevent, and which `_assert_provenance_coherent` cannot catch because
+        the value is null while the provenance claims a successful measurement.
+
+    An EMPTY body with rc 0 stays ok=True: that is a real answer (the artifact is
+    genuinely absent), not a failure to establish one."""
     cmd = [GH, "api"]
     if paginate:
         cmd.append("--paginate")
@@ -166,8 +194,6 @@ def _gh_json_ex(endpoint, paginate=False):
     # --paginate concatenates one JSON value per page. For array endpoints that is
     # `[...][...]`; wrap-and-split so we flatten to a single list. A single object
     # (non-paginated) parses directly.
-    # The gh call SUCCEEDED (rc==0) in every path below, so ok stays True — an
-    # unparseable body is a usable-value failure (value None), not a fetch failure.
     try:
         return json.loads(out), True
     except json.JSONDecodeError:
@@ -185,8 +211,13 @@ def _gh_json_ex(endpoint, paginate=False):
         try:
             val, end = dec.raw_decode(out, idx)
         except json.JSONDecodeError:
-            _warn(f"gh api {endpoint} returned unparseable paginated output")
-            return (merged if parsed_any else None), True
+            # rc was 0 but the body does not parse. NOT ok: we did not establish an
+            # answer (see the docstring). Return whatever pages did parse alongside
+            # ok=False so the caller degrades to an unestablished provenance rather
+            # than asserting a measured absence.
+            _warn(f"gh api {endpoint} returned unparseable output (rc=0) — treating as "
+                  "unestablished, not as a genuine absence")
+            return (merged if parsed_any else None), False
         parsed_any = True
         if isinstance(val, list):
             merged.extend(val)
@@ -220,9 +251,30 @@ def _resolve_repo():
 
 # ── store I/O ────────────────────────────────────────────────────────────────
 
-def _read_jsonl(path):
-    """Read a .jsonl file into a list of dicts. Missing file → []. An unreadable file
-    or a malformed line emits a breadcrumb and is skipped (never an abort)."""
+class StoreReadError(Exception):
+    """The DESTINATION store could not be read in full. Fatal by design — see
+    `_read_jsonl`'s `strict` arm."""
+
+
+def _read_jsonl(path, strict=False):
+    """Read a .jsonl file into a list of dicts. Missing file → [].
+
+    Two modes, and the distinction is load-bearing:
+
+    * `strict=False` (the default, for the INPUT sources — the retrospective store and
+      the efficiency records): an unreadable file or a malformed line emits a breadcrumb
+      and is skipped. Missing-source tolerance is correct for an input — a source we
+      cannot read simply does not join, and the record says so in its provenance.
+
+    * `strict=True` (for the DESTINATION store): an unreadable file or a malformed line
+      raises `StoreReadError`. Tolerance here would be DESTRUCTIVE, not merely lossy:
+      `main()` does not append to the store, it REWRITES it from what this read
+      returned, and `lib/open-state-pr.sh` then commits the result. So a transient
+      `OSError` (EIO, a permissions blip, a half-synced worktree) or one corrupt line
+      left by a killed prior run would silently DELETE every historical record the read
+      could not account for — and ship the truncation in the state PR. A destination you
+      are about to overwrite is not a degradable input: fail closed and let the operator
+      look (issue #431 review)."""
     p = Path(path)
     if not p.is_file():
         return []
@@ -230,6 +282,8 @@ def _read_jsonl(path):
     try:
         text = p.read_text(encoding="utf-8")
     except OSError as e:
+        if strict:
+            raise StoreReadError(f"could not read {path}: {e}") from e
         _warn(f"could not read {path}: {e}; treating as empty")
         return []
     for i, line in enumerate(text.splitlines(), 1):
@@ -238,7 +292,9 @@ def _read_jsonl(path):
             continue
         try:
             entries.append(json.loads(line))
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            if strict:
+                raise StoreReadError(f"{path}:{i}: malformed JSON line: {e}") from e
             _warn(f"{path}:{i}: malformed JSON line skipped")
     return entries
 
@@ -366,9 +422,9 @@ def _parse_verdict(body):
     # "## Verdict: {VERDICT} — full report in PR comment"). This is the DEFAULT cloud
     # path, so without this strip the primary outcome variable stores
     # "APPROVE — full report in PR comment" instead of "APPROVE" (issue #431 review).
-    raw = re.split(r"\s*[—–-]+\s*full report in PR comment", raw, 1)[0].strip()
+    raw = re.split(r"\s*[—–-]+\s*full report in PR comment", raw, maxsplit=1)[0].strip()
     # Drop a trailing "(summary)" the contract allows: "APPROVE with notes (…)".
-    raw = re.split(r"\s*\(", raw, 1)[0].strip()
+    raw = re.split(r"\s*\(", raw, maxsplit=1)[0].strip()
     return raw or None
 
 
@@ -465,7 +521,14 @@ def _resolve_verdict_and_important(repo, pr):
             review_commit = _reviewed_head(fallback_comment.get("body"))
             if parsed is not None:
                 verdict = parsed
-                verdict_source = "progress-comment"
+                # When the PRIMARY source (the formal PR review — the canonical surface,
+                # and the one supplying commit_id for the Important-count join) could not
+                # be fetched at all, a verdict recovered from the comment is DEGRADED: it
+                # may predate the final HEAD. Mark it distinctly so an analysis can tell
+                # "the review was checked and had nothing, so we used the comment" from
+                # "the review was unreachable, so the comment is all we have" (#431 review).
+                verdict_source = ("progress-comment (reviews unestablished)"
+                                  if not reviews_ok else "progress-comment")
             else:
                 verdict_source = "unparseable"
 
@@ -555,9 +618,14 @@ def _resolve_denials(repo, shas):
             for a in (ann or []):
                 m = DENIAL_ANNOTATION_RE.search((a or {}).get("message", "") or "")
                 if m:
-                    return (m.group(1),
-                            "check-run-annotation (positive-only bias: a historical "
-                            "zero is indistinguishable from unavailable)")
+                    # A BARE tag, never prose. Every other inhabitant of this field is a
+                    # bare tag, and the coherence checker tests membership
+                    # (`source in PROVENANCE_UNESTABLISHED`), so an embedded caveat
+                    # sentence would make the vocabulary a non-closed set that no
+                    # consumer could match on equality. The positive-only-bias caveat
+                    # this tag carries is recorded in provenance["notes"] by the caller
+                    # (issue #431 review).
+                    return m.group(1), "check-run-annotation"
     return None, ("fetch-failed" if any_fetch_failed else "absent")
 
 
@@ -572,11 +640,23 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
     convergence shadow): with no merge sha there is nothing to read the config out of, so
     the fingerprint is unestablished by cascade (`no-sha`) — not measured-and-missing; and
     a `git show` that FAILS is `fetch-failed`, reserving `absent` for the case where the
-    config was actually read and simply yielded no fingerprint."""
-    for run in eff_runs:
-        fp = run.get("config_fingerprint")
-        if fp:
-            return fp, "efficiency-record"
+    config was actually read and simply yielded no fingerprint.
+
+    ACROSS RUNS the fingerprint is published only when every fingerprint-bearing run
+    AGREES. This field is the experiment's attribution key — it says which config variant
+    produced this PR's outcome — so first-wins would silently stamp a PR whose runs
+    straddle a config change with the OLDER variant, misattributing its outcome in
+    exactly the config-vs-outcome comparison the store exists to support. On disagreement
+    the record-level value is null with source `mixed-across-runs`; nothing is lost,
+    because the per-run fingerprints remain in `efficiency_runs[]`. This is the same
+    refusal-to-collapse that keeps per-run COST a list rather than newest-wins (#431
+    review)."""
+    fps = [r.get("config_fingerprint") for r in eff_runs if r.get("config_fingerprint")]
+    if fps:
+        first = json.dumps(fps[0], sort_keys=True)
+        if all(json.dumps(fp, sort_keys=True) == first for fp in fps[1:]):
+            return fps[0], "efficiency-record"
+        return None, "mixed-across-runs"
     if not merge_sha:
         return None, "no-sha"
     text = _git_show(repo_root, f"{merge_sha}:.devflow/config.json")
@@ -617,6 +697,8 @@ def _gh_pr_meta(repo, pr):
 # ── per-PR assembly ──────────────────────────────────────────────────────────
 
 def build_record(repo, repo_root, eff_index, pr, retro_entry):
+    """Assemble one PR's record, or return None when the PR is not an established merged
+    PR (the caller skips it — see the merged-state gate below)."""
     provenance = {"notes": []}
 
     if retro_entry:
@@ -656,6 +738,24 @@ def build_record(repo, repo_root, eff_index, pr, retro_entry):
             provenance["notes"].append(
                 "no retrospective entry; PR metadata via gh fallback")
 
+    # Merged-state gate. The store is keyed on MERGED PRs — that is what makes the
+    # abandoned-run exclusion (and its documented cost-side survivorship bias) true, and
+    # what keeps every row a finished experiment. The retrospective path supplies only
+    # merged PRs, but `--prs` is an operator handle that can name ANY PR, so without this
+    # gate `--prs <open-pr>` would write a row with a null merged_at, a still-accumulating
+    # cost list, and a verdict scraped from an in-flight review — entering the store as if
+    # it were a shipped PR and skewing the very cost-vs-outcome comparison the store
+    # exists to make (issue #431 review). Skip rather than fabricate.
+    #
+    # An UNESTABLISHED merge state (metadata fetch-failed / no-repo → merged_at None) is
+    # skipped by the same arm, and that is the fail-closed direction: we do not know the
+    # PR merged, so we do not publish a row claiming it did. The breadcrumb names which.
+    if not merged_at:
+        _warn(f"PR #{pr}: not an established merged PR (merged_at is null; metadata "
+              f"provenance={provenance['retrospective']}) — skipping, the experiment "
+              "store is keyed on merged PRs")
+        return None
+
     # Efficiency runs — both slug families.
     target_slugs = {f"pr-{pr}"} | _slug_variants(branch)
     eff_runs = _collect_efficiency(eff_index, target_slugs)
@@ -673,6 +773,11 @@ def build_record(repo, repo_root, eff_index, pr, retro_entry):
 
     denials, denials_source = _resolve_denials(repo, [head_sha, merge_sha])
     provenance["permission_denials_count"] = denials_source
+    if denials_source == "check-run-annotation":
+        # The tag stays a bare, matchable token; its caveat lives here (issue #431 review).
+        provenance["notes"].append(
+            "denial count recovered from a check-run annotation (positive-count-only "
+            "bias: a historical zero is indistinguishable from unavailable)")
 
     record = {
         "schema_version": STORE_SCHEMA_VERSION,
@@ -735,12 +840,28 @@ def main(argv=None):
         _warn("could not resolve owner/repo (GITHUB_REPOSITORY unset, gh repo view "
               "failed); review/denial joins will be absent for this run")
 
-    # Existing store, keyed by PR (idempotent replace).
+    # Existing store, keyed by PR (idempotent replace). Read STRICTLY: the store is the
+    # DESTINATION this run rewrites wholesale, so a tolerated read error would silently
+    # drop history rather than merely skip a source (see _read_jsonl's strict arm).
     store = {}
-    for entry in _read_jsonl(store_path):
+    try:
+        existing = _read_jsonl(store_path, strict=True)
+    except StoreReadError as e:
+        _warn(f"{e}")
+        _warn(f"refusing to rewrite {store_path} from a partial read — every record this "
+              "read could not account for would be DELETED. Fix or remove the corrupt "
+              "line and re-run; the store is left untouched.")
+        return 2
+    for i, entry in enumerate(existing, 1):
         pr = _pr_of(entry)
-        if pr is not None:
-            store[pr] = entry
+        if pr is None:
+            # Same destructive shape as an unparseable line: the rewrite is keyed on
+            # `pr`, so a well-formed-JSON line WITHOUT one is not merely ignored — it is
+            # dropped from the output. Fail closed rather than quietly shrink the store.
+            _warn(f"{store_path}:{i}: store line has no integer 'pr' key; refusing to "
+                  "rewrite the store (this line would be silently DELETED)")
+            return 2
+        store[pr] = entry
 
     # Retrospective catalog of merged PRs, keyed by PR (latest wins on duplicate).
     retro = {}
@@ -775,9 +896,16 @@ def main(argv=None):
 
     assembled = 0
     failed = 0
+    skipped = 0
     for pr in candidates:
         try:
-            store[pr] = build_record(repo, repo_root, eff_index, pr, retro.get(pr))
+            record = build_record(repo, repo_root, eff_index, pr, retro.get(pr))
+            if record is None:
+                # Not an established merged PR — build_record already breadcrumbed why.
+                # Not a failure: a clean, intentional exclusion.
+                skipped += 1
+                continue
+            store[pr] = record
             assembled += 1
         except Exception as e:  # noqa: BLE001 — one bad PR must never abort the batch
             failed += 1
@@ -802,15 +930,24 @@ def main(argv=None):
         _warn(f"could not write {store_path}: {e}")
         return 2
     sys.stderr.write(f"build-experiment-records.py: wrote {len(store)} record(s) to "
-                     f"{store_path}\n")
-    # Aggregate guard: prior store lines are preserved above, but if EVERY candidate
-    # raised (assembled 0, failed >0) that is a SYSTEMATIC failure — a code regression
-    # or a broken import affecting all PRs — not a clean no-op. Exit non-zero so a
-    # best-effort caller (e.g. retrospective-weekly's `|| …` reflection note) surfaces
-    # it loudly instead of reading a total feature failure as success (issue #431).
-    if assembled == 0 and failed > 0:
-        _warn(f"all {failed} candidate PR(s) failed to assemble — systematic error "
-              "(not a clean no-op); store left unchanged")
+                     f"{store_path} (assembled={assembled} skipped={skipped} "
+                     f"failed={failed})\n")
+    # Aggregate guard. Prior store lines are preserved above, but ANY assembly failure
+    # means the store is missing records it should carry, so exit non-zero and let the
+    # best-effort caller surface it.
+    #
+    # This fires on failed>0, not only on the all-failed case, because the caller's ONLY
+    # detection channel is the exit code: retrospective-weekly Step 6.5 runs this as
+    # `… || echo "failed" >&2` and turns that breadcrumb into a blocker note. An
+    # all-failed-only guard left that check INERT for the dominant shape — 9 of 10 PRs
+    # raising still exited 0 — so the retrospective would report a clean run while most
+    # of the week's records were never assembled, and the next incremental pass would
+    # silently retry-and-fail the same way (issue #431 review). A guard whose comparand
+    # the producer never emits on the paths it now selects is a guard that fails open.
+    if failed > 0:
+        systematic = " — SYSTEMATIC (every candidate failed)" if assembled == 0 else ""
+        _warn(f"{failed} of {len(candidates)} candidate PR(s) failed to assemble"
+              f"{systematic}; their prior store lines (if any) are unchanged")
         return 2
     return 0
 

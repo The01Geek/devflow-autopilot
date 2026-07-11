@@ -160,34 +160,34 @@ warn_on_mixed_source() {
 # NEVER aborts the wrapper (a null fingerprint just means the #431 assembler
 # falls back to `git show <merge_sha>:.devflow/config.json` and marks the source).
 # Adds NO new command head: python3 is a hard preflight prerequisite and
-# config-source.sh (already sourced above) shells to it on every config read.
+# config-source.sh (already sourced above) shells to it on every config read. This
+# claim is load-bearing, so the body below must stay free of any non-preflight PATH
+# tool (`mktemp`, `head`, `tr`, `sed`, …). An earlier revision reached for `mktemp`
+# (to capture stderr) and `head` (to truncate it), which both broke that claim AND
+# regressed the failure path: on a host without `mktemp` — e.g. the cloud runner,
+# where CLAUDE.md records that mktemp writes are blocked — it fell back to the very
+# `2>/dev/null` swallow this function exists to avoid, turning a genuine helper
+# defect into an invisible null fingerprint on exactly the tier that has it (#431).
 compute_config_fingerprint() {
-  local cfg="$1" out fp_err rc
+  local cfg="$1" out rc
   # Delegate to the shared scripts/config_fingerprint.py — the SINGLE source of
   # truth this producer and the #431 assembler-reader both use, so their
-  # fingerprints are byte-identical by construction (not a hand-kept mirror). The
-  # script prints the JSON object or the literal `null`; a missing script / python
-  # failure degrades to `null` (best-effort — never abort the wrapper under set -e).
+  # fingerprints are byte-identical by construction (not a hand-kept mirror).
+  #
   # config_fingerprint.py fails SOFT (prints `null`, exit 0) for the EXPECTED
   # degradations (no config, neither block, no python), so a non-zero exit here is a
-  # genuine helper defect (ImportError/SyntaxError/wrong interpreter). Capture stderr
-  # and surface a breadcrumb on that path instead of swallowing the signal with
-  # `2>/dev/null`, then still degrade to `null` (issue #431 review).
-  fp_err="$(mktemp 2>/dev/null || printf '')"
-  if [ -z "$fp_err" ]; then
-    # No mktemp — fall back to the swallow-and-degrade form rather than aborting.
-    python3 "$HERE/../scripts/config_fingerprint.py" "$cfg" 2>/dev/null || printf 'null\n'
-    return 0
-  fi
-  if out="$(python3 "$HERE/../scripts/config_fingerprint.py" "$cfg" 2>"$fp_err")"; then
+  # genuine helper defect (ImportError/SyntaxError/wrong interpreter). Let its stderr
+  # flow straight to OUR stderr — no temp file, no truncation, nothing to clean up —
+  # so the real reason lands in the run log, then still degrade to `null` rather than
+  # aborting the wrapper under `set -e` (best-effort contract).
+  if out="$(python3 "$HERE/../scripts/config_fingerprint.py" "$cfg")"; then
     printf '%s\n' "$out"
   else
     rc=$?
-    printf 'compute_config_fingerprint: config_fingerprint.py crashed (rc=%s): %s — degrading to null\n' \
-      "$rc" "$(head -c 200 "$fp_err" 2>/dev/null)" >&2
+    printf 'compute_config_fingerprint: config_fingerprint.py crashed (rc=%s; its stderr is above) — degrading to null\n' \
+      "$rc" >&2
     printf 'null\n'
   fi
-  rm -f "$fp_err" 2>/dev/null
 }
 
 # Run the jq derivation over VALID_FILES for $1 mode ("trace"|"record") and the
