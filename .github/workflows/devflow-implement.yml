@@ -213,7 +213,7 @@ jobs:
         if: ${{ vars.DEVFLOW_APP_ID != '' && steps.resolve.outputs.should_run == 'true' }}
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
           permission-issues: write
           permission-pull-requests: write
@@ -341,6 +341,29 @@ jobs:
       id-token: write
       actions: write # write scope so actions/cache can save the pip cache (read alone → "cache write denied: token has no writable scopes"); superset still lets Claude read CI results on PRs
     steps:
+      # Optional, opt-in: mint a GitHub App installation token at full
+      # installation scope (notably Contents: write + Workflows: write — no
+      # permission-* downscope, unlike the per-site tokens elsewhere in these
+      # workflows) so the agent's git push can edit
+      # .github/workflows/ files (which the built-in GITHUB_TOKEN is hard-blocked
+      # from). Gated on the DEVFLOW_APP_ID repository VARIABLE: unset/empty → the
+      # step is skipped and both the checkout token and github_token below fall
+      # back to GITHUB_TOKEN, leaving behavior byte-for-byte unchanged for
+      # consumers who do not opt in. NO continue-on-error: a configured-but-broken
+      # App (invalid/rotated key) fails the job here rather than silently
+      # degrading to GITHUB_TOKEN. The App permissions come from the installation,
+      # not the job's permissions: block.
+      #
+      # MUST precede the checkout below, whose `token:` it feeds — see the
+      # checkout comment. Kept in sync with the same step in devflow.yml.
+      - name: Mint workflow-capable token (optional)
+        id: app-token
+        if: ${{ vars.DEVFLOW_APP_ID != '' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
@@ -351,6 +374,24 @@ jobs:
           # dozen commits behind main); long-lived branches that drift
           # past that will error out visibly on the missing merge-base.
           fetch-depth: 50
+          # LOAD-BEARING (issue #357): the credential actions/checkout persists
+          # here is what `git push` actually authenticates with — NOT the
+          # `github_token` handed to claude-code-action below. checkout@v6 writes
+          # the auth header to an external config file wired in via
+          # `includeIf.gitdir:` (covering `.git/worktrees/*` too), NOT to
+          # `.git/config`; claude-code-action's `git config --unset-all
+          # http.<server>/.extraheader` therefore matches nothing ("No existing
+          # authentication headers to remove"), and its subsequent
+          # `git remote set-url origin https://x-access-token:<app-token>@…`
+          # loses to that surviving preemptive `Authorization:` header. Result
+          # with an unseeded checkout: every push authenticates as
+          # github-actions[bot], whose App has no `workflows` permission, so a
+          # push touching .github/workflows/ dies with "refusing to allow a
+          # GitHub App to create or update workflow … without workflows
+          # permission" while every other push succeeds. Seed the App token here
+          # and the header carries it instead. Skipped mint → GITHUB_TOKEN,
+          # identical to checkout's own default.
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
       # Materialize the plugin (committed → self → fetch) so claude-code-action
       # loads it from .devflow/vendor/devflow/ and the agent's helper scripts
@@ -369,26 +410,6 @@ jobs:
       - uses: ./.github/actions/setup-project-env
         with:
           config_json: ${{ steps.cfg.outputs.json }}
-
-      # Optional, opt-in: mint a GitHub App installation token at full
-      # installation scope (notably Contents: write + Workflows: write — no
-      # permission-* downscope, unlike the per-site tokens elsewhere in these
-      # workflows) so the agent's git push can edit
-      # .github/workflows/ files (which the built-in GITHUB_TOKEN is hard-blocked
-      # from). Gated on the DEVFLOW_APP_ID repository VARIABLE: unset/empty → the
-      # step is skipped and github_token below falls back to GITHUB_TOKEN, leaving
-      # behavior byte-for-byte unchanged for consumers who do not opt in. NO
-      # continue-on-error: a configured-but-broken App (invalid/rotated key) fails
-      # the job here rather than silently degrading to GITHUB_TOKEN. The App
-      # permissions come from the installation, not the job's permissions: block.
-      # Kept in sync with the same step in devflow.yml.
-      - name: Mint workflow-capable token (optional)
-        id: app-token
-        if: ${{ vars.DEVFLOW_APP_ID != '' }}
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ vars.DEVFLOW_APP_ID }}
-          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
 
       # ── Third-party model provider resolution (issue #313) ─────────────────
       # Resolve this section's (devflow_implement) provider decision from
@@ -528,6 +549,18 @@ jobs:
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
+        env:
+          # Surfaces the workflow-capable-token signal to the /devflow:implement
+          # agent's Phase 1.6 execution-capability pass (Pass 5, issues #346/#350).
+          # NON-EMPTY ⇒ the App token minted above (Contents + Workflows write) is
+          # seeded into actions/checkout (#357), so the agent CAN push
+          # .github/workflows/ and workflow-resident ACs are NOT deferred. EMPTY ⇒
+          # the checkout credential is the built-in GITHUB_TOKEN (github-actions[bot]),
+          # which cannot push .github/workflows/, so Pass 5 defers those ACs at plan
+          # time. Always exported (empty-valued when the variable is unset) so the
+          # pass reads a definite signal rather than an absent one. Coupled to Pass 5's
+          # keying in skills/implement/phases/phase-1-setup.md and its lib/test/run.sh pins.
+          DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}
         with:
           # Anthropic-default path only: pass the OAuth token when no provider is
           # active. A provider-routed section passes '' here (the action treats
@@ -705,6 +738,52 @@ jobs:
             Bash(cp:*),
             Bash(tee:*)${{ needs.config.outputs.allowed_tools_extra }}"
 
+      # Surface the claude-code-action run's execution diagnostics (run summary +
+      # permission-denial detail) to the job log and $GITHUB_STEP_SUMMARY so a
+      # maintainer debugging a stalled / incomplete / unexpectedly-denied cloud
+      # run sees the denial detail and run shape directly — the exact information
+      # that was irrecoverable for PR #325 (issue #331; helper + config key
+      # shipped in #329). Read-only: the helper always exits 0, this step adds no
+      # permissions grant / minted-token scope and uploads no artifact, so it
+      # never changes the job's pass/fail. always() so it runs even when the
+      # claude step errored — which is exactly when the diagnostics matter. Gated
+      # on .devflow.execution_diagnostics_enabled (default true) via the vendored
+      # config-get.sh (repo-path fallback for a self-repo checkout); only the
+      # exact string "false" disables it, and an empty read (config-get soft/hard
+      # failure) falls safe to enabled.
+      - name: Surface execution diagnostics
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          CG=.devflow/vendor/devflow/scripts/config-get.sh
+          [ -f "$CG" ] || CG=scripts/config-get.sh
+          # `|| true` so config-get's hard-fail exit (malformed config.json / missing
+          # python3) can't abort this step under GitHub's default `-e` run shell — which
+          # would fail the job and break the "never changes the job's pass/fail" contract
+          # above. The empty read then falls safe to enabled on the next line. (Mirrors the
+          # `|| echo false` assignment guard in devflow-runner.yml's engine-error step.)
+          ENABLED="$("$CG" .devflow.execution_diagnostics_enabled true || true)"
+          [ -n "$ENABLED" ] || ENABLED=true
+          if [ "$ENABLED" = "false" ]; then
+            echo "execution diagnostics: disabled via .devflow.execution_diagnostics_enabled=false; skipping."
+            exit 0
+          fi
+          SED=.devflow/vendor/devflow/scripts/surface-execution-diagnostics.sh
+          [ -f "$SED" ] || SED=scripts/surface-execution-diagnostics.sh
+          if [ -f "$SED" ]; then
+            # `|| echo ::notice::` for the same reason as the config-get guard above:
+            # the helper's always-exit-0 contract holds for the committed file, but a
+            # partial-copy / truncated vendored helper (a documented deployment hazard)
+            # could exit non-zero, which under GitHub's default `-e` run shell would
+            # abort this always() step and fail the job. Guard it so the read-only
+            # "never changes the job's pass/fail" contract holds even then.
+            bash "$SED" "${EXECUTION_FILE:-}" || echo "::notice::surface-execution-diagnostics.sh exited non-zero; execution diagnostics unavailable (best-effort)."
+          else
+            echo "::notice::surface-execution-diagnostics.sh absent; execution diagnostics not surfaced (best-effort)."
+          fi
+
       - name: Persist review-and-fix observability artifacts (backstop)
         if: ${{ always() }}
         run: |
@@ -729,7 +808,7 @@ jobs:
       # workpad read 401s, a healthy workpad is misclassified, and auto-resume
       # can never fire on exactly the long runs that need it. Mint a fresh token
       # here, just-in-time (< 1 min old), mirroring the writer mint (same
-      # app-id/private-key, full installation scope); the gate adds `always()`
+      # client-id/private-key, full installation scope); the gate adds `always()`
       # so it still mints after a failed claude job (do NOT "reconcile" it back
       # to the writer's bare `if:` — that would break the backstop on failed
       # runs). When
@@ -741,7 +820,7 @@ jobs:
         if: ${{ always() && vars.DEVFLOW_APP_ID != '' }}
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
 
       # ── Stall backstop (issue #268; primitives from #266) ──────────────────
@@ -791,6 +870,34 @@ jobs:
             echo "::warning::stall backstop: vendored scripts dir '$V' missing (claude step outcome: ${CLAUDE_OUTCOME:-unknown}); skipped — the job is already non-green"
             exit 0
           fi
+          # Dead-run Status flip (issue #356): when this backstop step takes a
+          # fail-loud exit AND the workpad Status was successfully read as a
+          # genuinely interim (🚀) value, flip it to the terminal 💥 Failed word
+          # so the workpad stops lying that a dead run is still working. Best-
+          # effort: a flip failure emits a ::warning:: and never changes which
+          # exit statement is reached (kept inside the step's `set +e`
+          # discipline). Guarded on CLASS=interim, so a terminal/unreadable/
+          # auth-failure class is never clobbered (fail closed) — this makes the
+          # fail-auth and fail-unreadable arms no-ops for the flip even though
+          # they reach the shared final exit. The guard is POSITIONAL, not
+          # temporal: the flip is called only at genuine fail-loud exits, never
+          # on the green resume path (a terminal Failed written before a resume
+          # would make the resumed run's backstop read terminal→noop and disarm
+          # it). The dropped-resume and no-App-token aborts ARE fail-loud exits
+          # despite living on the resume decision, so they flip: the resume did
+          # not actually take, so no run is disarmed.
+          # Maintenance obligation of the positional guard: a trap would cover
+          # new exits automatically, but cannot (it would fire on the resume
+          # path). So every fail-loud exit ADDED to this step must call
+          # flip_to_failed itself — omitting the call silently regresses the
+          # flip on that arm.
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          flip_to_failed() {
+            [ "${CLASS:-}" = "interim" ] || return 0
+            python3 "$V/workpad.py" update "$ISSUE_NUMBER" --status Failed \
+              --note "run died: ${1:-dead-end exit} — ${RUN_URL}" \
+              || echo "::warning::stall backstop: could not flip workpad Status to 💥 Failed (${1:-dead-end exit}); leaving it unchanged"
+          }
           # Master switch first: disabled → fully skipped (no status read, no
           # comment, no resume, no fail). Unrecognized/missing resolves to
           # enabled (only the exact string "false" disables — the decide
@@ -887,21 +994,35 @@ jobs:
           # arm that would silently drop the re-dispatch (a masked stall, the
           # exact green-but-stalled outcome this backstop exists to prevent),
           # so it always fails the job loud, whatever the decision was.
-          BODY="$(mktemp)" || { echo "::error::stall backstop: mktemp failed; cannot post the ${DECISION} comment — failing loud (a resume comment that was never posted must not read as green)"; exit 1; }
+          BODY="$(mktemp)" || { flip_to_failed "mktemp failed; cannot post the ${DECISION} comment"; echo "::error::stall backstop: mktemp failed; cannot post the ${DECISION} comment — failing loud (a resume comment that was never posted must not read as green)"; exit 1; }
           case "$DECISION" in
             resume)
               K=$((ATTEMPTS + 1))
               # The ONLY comment that may carry the trigger phrase. It must not
               # embed the workpad marker (the gate's self-trigger guard declines
-              # any comment containing it). Known accepted race: this comment is
-              # posted while the current run is still in_progress, so the new
-              # run's gate dedupe can classify it as a duplicate and skip — the
-              # audit comment remains as the visible record and a human re-post
-              # recovers; a dedupe carve-out is a deliberate follow-up, not
-              # silently assumed here.
+              # any comment containing it). This comment is posted while the
+              # current run is still in_progress; the new run's gate dedupe no
+              # longer classifies it as a duplicate, because the dedupe carve-out
+              # (issue #280 / PR #354) is now implemented: dedupe-implement-run.sh
+              # reads the triggering comment from GITHUB_EVENT_PATH and, seeing the
+              # stall-backstop-audit marker ($MARKER, above) this resume comment
+              # carries, skips deduping so the taking-over run proceeds instead of
+              # being swallowed as a duplicate of the still-finishing original.
               {
                 printf '%s\n\n' "$MARKER"
                 printf '**DevFlow stall backstop** — this cloud run ended while the workpad Status was still in-progress (`%s`). Auto-resume attempt %s of %s:\n\n' "$STATUS_OUT" "$K" "$MAX"
+                # Helper-invocation discipline travels inside the resume comment so a
+                # resumed run receives it even if it never re-reads the skill prose:
+                # bundled helpers resolve only as the repo-relative vendored literal with
+                # that path as the LEADING token — an absolute or repo-root scripts/ form
+                # is silently denied and is exactly why prior auto-resume runs died.
+                printf 'Resume note: invoke bundled helpers as `.devflow/vendor/devflow/scripts/…` (and `.devflow/vendor/devflow/lib/…`) with that path as the leading token — never an absolute path, never repo-root `scripts/…`, never behind a `VAR=` prefix or `bash <path>` wrapper (those forms are silently denied).\n\n'
+                # Headless-wait discipline travels inside the resume comment too, as a
+                # one-line mirror of skills/implement/SKILL.md's always-resident
+                # Cloud headless-wait rule (coupled sites — one commit, pinned in
+                # lib/test/run.sh), so a resumed run receives it even if it never
+                # re-reads the skill prose.
+                printf 'Headless note: this is a headless run — ending the turn ends the process, with no re-invocation. Never end the turn while any dispatched agent has not returned; poll to keep the turn alive; treat ScheduleWakeup and any future task-notification as unavailable.\n\n'
                 printf '/devflow:implement %s\n' "$ISSUE_NUMBER"
               } > "$BODY"
               ;;
@@ -930,6 +1051,7 @@ jobs:
           POST_ERR="$(bash "$V/post-issue-comment.sh" "$ISSUE_NUMBER" "$BODY" 2>&1)"
           printf '%s\n' "$POST_ERR"
           if [ "$FAIL" -eq 0 ] && ! printf '%s' "$POST_ERR" | grep -qxF "devflow: posted comment on #${ISSUE_NUMBER}"; then
+            flip_to_failed "resume re-dispatch comment did not land"
             echo "::error::stall backstop: the resume re-dispatch comment did not land (see the breadcrumb above) — failing loud so the stall stays visible for a manual retrigger"
             exit 1
           fi
@@ -939,7 +1061,15 @@ jobs:
           # exists to prevent. The comment (with the trigger phrase a human
           # can re-post) is already up; fail loud so the stall shows red.
           if [ "$FAIL" -eq 0 ] && [ "$APP_TOKEN_PRESENT" != "true" ]; then
+            flip_to_failed "resume comment posted but no App token to start a new run"
             echo "::error::stall backstop: resume comment posted, but no DEVFLOW_APP_ID App token is configured — a GITHUB_TOKEN-authored comment cannot start a new run, so auto-resume is inert; failing loud (configure DEVFLOW_APP_ID for auto-resume, or re-post the trigger comment manually)"
             exit 1
           fi
+          # The shared final exit is reached by the green resume path (FAIL=0)
+          # and every fail-loud decision (FAIL=1: fail-exhausted, fail-auth,
+          # fail-unreadable). Flip ONLY on a fail-loud exit (FAIL=1) — never on
+          # the resume green path — and flip_to_failed itself guards CLASS=interim
+          # so fail-auth/fail-unreadable (non-interim) are no-ops here; only the
+          # fail-exhausted arm (interim + cap reached) actually flips.
+          [ "$FAIL" -eq 1 ] && flip_to_failed "${DECISION}"
           exit "$FAIL"

@@ -56,6 +56,10 @@ When analyzing comments, you will:
 
 Before you submit a stale-comment finding — an outdated phrase or behavioral claim in a comment that contradicts the current code — where that same outdated wording could appear in more than one place, you MUST first search the affected file for every occurrence of the flagged comment wording, enumerate every matching line number, and include the complete location set in the finding body before submitting. Include any semantic equivalents of the wording you can identify from context, not just verbatim matches. Do not report only the first instance you happened to notice: identical stale comments that survive elsewhere in the same file force an extra review round to catch.
 
+## Documented falsehood vs. clarity nitpick — the truthfulness discriminator
+
+Draw a hard line between a comment that is *untrue against the shipped code* and one that is merely awkward. When a diff-added or diff-modified doc line, code comment, example, or command-form makes a claim that is **false against HEAD** — a documented symbol or base class the code lacks, a documented command invocation the skill/CLI does not accept, a "known limitation" this same diff already fixed, an "apply this pattern to X" claim the code does not bear out, or an absolute claim (a universal — "every", "never", "always", "cannot", "is caught by the same rule") that the same diff contradicts by adding or retaining a limitation note about the same symbol it did not actually close — verify the claim against the shipped code and file it as a **documented falsehood** in your Critical Issues bucket (`kind: documented_falsehood`), never as a clarity or cosmetic suggestion. The discriminator: false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT); true but awkwardly worded is a clarity Suggestion (demotable). Scope this to comments/docs the diff **added or modified** — a pre-existing, diff-untouched inaccurate comment is a lower-severity note, not a documented falsehood.
+
 Your analysis output should be structured as:
 
 **Summary**: Brief overview of the comment analysis scope and findings

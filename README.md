@@ -18,6 +18,13 @@
 
 ## Quick start
 
+> [!TIP]
+> **Just ask your agent.** Paste this into Claude Code and it handles steps 1 and 2 for you — the install, the setup, and the PATH dependencies `/plugin install` doesn't cover. Then ship your first PR with step 3.
+>
+> ```text
+> Read https://github.com/The01Geek/devflow-autopilot#quick-start and install DevFlow and its dependencies.
+> ```
+
 **1. Install** (two commands — run in order; works in any shell):
 
 ```bash

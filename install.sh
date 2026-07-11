@@ -338,7 +338,7 @@ cat > .claude-plugin/marketplace.json <<'JSON'
   "name": "devflow-marketplace",
   "description": "Local marketplace for the vendored DevFlow plugin (.devflow/vendor/devflow). Installed by devflow-autopilot/install.sh.",
   "owner": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
-  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
+  "allowCrossMarketplaceDependenciesOn": [],
   "plugins": [
     {
       "name": "devflow",
@@ -365,7 +365,7 @@ done
 # `[CI]`. If your CI workflow is named anything else, that re-trigger silently
 # never fires until you add its name. Prompt for it prominently here.
 if [ -f ".github/workflows/devflow-review.yml" ]; then
-  log "ACTION REQUIRED: edit '.github/workflows/devflow-review.yml' — set the 'workflow_run:' 'workflows:' list (ships as [CI]) to your repo's actual CI workflow name(s), or the auto-review's CI-completion re-trigger will not fire for deferred reviews. External non-Actions CI is covered by 'check_suite' and needs no naming. See docs/workflow-triggers.md."
+  log "ACTION REQUIRED: edit '.github/workflows/devflow-review.yml' — set the 'workflow_run:' 'workflows:' list (ships as [CI]) to your repo's actual CI workflow name(s), or the auto-review's CI-completion re-trigger will not fire for deferred reviews. External non-Actions CI is covered by 'check_suite', and legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the 'status' trigger — both need no naming. See docs/workflow-triggers.md."
 fi
 # Drop DevFlow's superseded claude*.yml on upgrade (signature-guarded so an
 # Anthropic-owned claude.yml is never touched).

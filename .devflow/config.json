@@ -8,12 +8,30 @@
     "allowed_users": "*",
     "workpad_marker": "<!-- devflow:workpad -->",
     "effort": "low",
-    "allowed_tools": []
+    "allowed_tools": [
+      "Bash(lib/test/run.sh:*)",
+      "Bash(lib/preflight.sh:*)",
+      "Bash(shellcheck:*)"
+    ],
+    "execution_diagnostics_enabled": true,
+    "execution_transcript_artifact_enabled": true
   },
   "devflow_implement": {
     "effort": "low",
     "implement_pr_state": "ready_for_review",
-    "allowed_tools": [],
+    "allowed_tools": [
+      "Bash(lib/test/run.sh:*)",
+      "Bash(lib/preflight.sh:*)",
+      "Bash(shellcheck:*)",
+      "Bash(chmod:*)",
+      "Bash(git ls-remote:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(*/apply-labels.sh:*)",
+      "Bash(*/ensure-label.sh:*)",
+      "Bash(*/render-grounding-block.sh:*)",
+      "Bash(*/config-get.sh:*)",
+      "Bash(*/efficiency-trace.sh:*)"
+    ],
     "stall_backstop": {
       "enabled": true,
       "max_resume_attempts": 2

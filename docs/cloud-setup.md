@@ -155,7 +155,7 @@ create a GitHub App, install it on the repo, and configure:
 
 | Kind | Name | Value |
 |---|---|---|
-| Repository **variable** | `DEVFLOW_APP_ID` | The App's ID (or client ID). |
+| Repository **variable** | `DEVFLOW_APP_ID` | The App's client ID. |
 | Repository **secret** | `DEVFLOW_APP_PRIVATE_KEY` | The App's PEM private key. |
 
 The App must be **installed on the repo** with **`Contents: write`**,
@@ -180,6 +180,21 @@ ignores the job's `permissions:` block):
 | Trigger reactions + notices (`devflow.yml` / `devflow-implement.yml` `gate`, `devflow.yml` `review_dedupe`) | `issues: write` and/or `pull-requests: write` | add reactions, post notice comments — nothing more |
 
 The **review agent** (`devflow-runner.yml`'s automated review, and `devflow.yml`'s manual `/devflow:review` command) is the one exception: it runs under a **separate** `DevFlow-Reviewer` App, not the primary one — see [The dedicated DevFlow-Reviewer app](#the-dedicated-devflow-reviewer-app-review-identity) below.
+
+In the two **writer** jobs the App token is minted *before* `actions/checkout` and
+passed to it as `token:`. This is load-bearing, not stylistic: the credential
+`actions/checkout` persists — not the `github_token` handed to
+`claude-code-action` — is what the agent's `git push` authenticates with.
+`checkout@v6` writes its auth header to an external config file included via
+`includeIf.gitdir:` rather than into `.git/config`, so `claude-code-action`'s
+attempt to clear that header finds nothing, and the header it leaves behind
+outranks the token that action embeds in `origin`'s URL. An unseeded checkout
+therefore pushes as `github-actions[bot]`, which holds no `workflows`
+permission — every ordinary push succeeds and only `.github/workflows/` pushes
+fail, with `refusing to allow a GitHub App to create or update workflow …
+without workflows permission`. Seeding the checkout puts the App token in that
+header instead. When the App is unset the mint is skipped and the checkout
+falls back to `GITHUB_TOKEN`, exactly as checkout would default on its own.
 
 Every primary-App mint step is gated on `vars.DEVFLOW_APP_ID != ''`, so it is skipped
 when the variable is unset and each consumer falls back to `GITHUB_TOKEN` (the two
@@ -270,7 +285,32 @@ than reusing the token minted at the job's start; a `gh`-api/transport/auth
 failure reading the workpad (e.g. an expired token) is a distinct `auth-failure`
 class that fails the job loud **without** consuming a resume attempt, so a healthy
 workpad behind a bad token is never misclassified as corrupt (see
-`docs/implement-skill.md`).
+`docs/implement-skill.md`). The resume comment carries an inline `Resume note:`
+that instructs the resumed run to invoke bundled helpers with the repo-relative
+vendored literal (`.devflow/vendor/devflow/scripts/…`, `.devflow/vendor/devflow/lib/…`)
+as the command's leading token — never an absolute path, never repo-root
+`scripts/…`, never behind a `VAR=` prefix or `bash <path>` wrapper — since the
+cloud allowlist silently denies any other form, which is exactly what killed
+prior auto-resume runs on their first helper call (issue #405).
+
+The same App token **also** powers the review workflow's **no-verdict
+auto-resume backstop** (`devflow_review.stall_backstop`, issue #408 — the
+review-side sibling of the implement backstop above; see
+`docs/DEVFLOW_SYSTEM_OVERVIEW.md`). A headless cloud review can end `success`
+with no verdict (the early-quit timing race); when that happens the auto-review
+path (`devflow-review.yml`'s `finalize_check`) mints its **own fresh** App token
+just-in-time and authors a `/devflow:review` re-trigger comment so the review
+re-runs without a human. As with the implement resume, a `GITHUB_TOKEN`-authored
+comment never re-triggers the workflow, so this needs the App: with `DEVFLOW_APP_ID`
+unset the backstop degrades to the dead-end flip (a visible `❌ Review failed`
+that a human must re-trigger). And exactly like the implement resume, add the
+minting App's bot login (e.g. `your-app[bot]`) to `devflow.allowed_bots` in
+`.devflow/config.json`, or the manual-`/devflow:review` gate the re-trigger
+re-enters declines the App-authored comment. The backstop is capped at
+`devflow_review.stall_backstop.max_resume_attempts` (default `2`) per head and
+gated by `devflow_review.stall_backstop.enabled` (default `true`, disabled only
+on a real JSON `false`); when the cap is exhausted, disabled, or no App token is
+configured it reports no-fire and degrades to the dead-end flip.
 
 > **Loop-safety note.** Unlike `GITHUB_TOKEN` pushes (which GitHub suppresses from
 > re-triggering workflows), an **App-token push re-triggers workflows**. For DevFlow
@@ -468,6 +508,44 @@ workflow YAML:
 - These come from your committed config, so treat them with the same care as
   `setup.install`: only allowlist commands you trust to run unattended.
 
+### Grant your test/lint commands so the run verifies in-env (issue #405)
+
+`/devflow:implement` verifies **in its own environment, never via CI**. A
+verification-command acceptance criterion — one whose verification is *running a
+test/lint/build command* (your test suite, a linter, a `pytest`/build
+invocation) — is ticked only on a pass the run **observes in-env**. The run
+never waits on, polls, re-checks, or cites CI for its own progress; CI remains
+the **required post-PR check that gates the human merge**, not an in-run
+verification channel.
+
+For the run to actually run those commands, they must be on the allowlist for
+the execution path — invoked by their **direct leading-token** form (the
+`bash <path>` wrapper is deny-floored and can never be granted). So:
+
+- List your project's test/lint commands under **`devflow_implement.allowed_tools`**
+  (the `/devflow:implement` path) **and** under **`devflow.allowed_tools`** (the
+  `/devflow:*` command path, including `/devflow:review-and-fix`):
+
+  ```json
+  "devflow": {
+    "allowed_tools": ["Bash(npm test:*)", "Bash(npm run lint:*)"]
+  },
+  "devflow_implement": {
+    "allowed_tools": ["Bash(npm test:*)", "Bash(npm run lint:*)"]
+  }
+  ```
+
+- **Leave them ungranted and the run does not silently defer to CI** — a
+  verification-command AC goes **`Blocked`**, and the Blocked message names
+  `devflow_implement.allowed_tools` as the exact remedy: grant the command so
+  the run can verify in-env, then re-run. There is never a silent stall, and
+  never a verdict resting on a CI result the run never saw.
+
+(This repo's own `.devflow/config.json` grants `Bash(lib/test/run.sh:*)`,
+`Bash(lib/preflight.sh:*)`, and `Bash(shellcheck:*)` under both keys for exactly
+this reason.) See [`implement-skill.md`](implement-skill.md) for the Phase 3.4
+gate behavior.
+
 ## Letting the reviewer build/test a PR
 
 By default the automated reviewer is **read-only** — it inspects the diff but
@@ -526,9 +604,13 @@ does two extra things before launching Claude:
    detected toolchain.
 
    Before appending, the runner enforces a deterministic **deny-list floor**: it
-   strips file-mutation tools (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`) and
-   any `Bash(…)` whose command-position binary is a raw shell / eval / privilege
-   tool (`bash`, `sh`, `zsh`, `dash`, `ksh`, `fish`, `eval`, `exec`, `source`,
+   strips file-mutation tools (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`) —
+   matched by tool **name** (the token before the first `(`, compared
+   case-insensitively), so a **parameterized** entry like `Write(**)`,
+   `Edit(src/**)`, or `notebookedit(x)` is stripped exactly like the bare name —
+   and any `Bash(…)` whose command-position binary is a raw shell / eval /
+   privilege tool (`bash`, `sh`, `zsh`, `dash`, `ksh`, `fish`, `eval`, `exec`,
+   `source`,
    `sudo`, `doas`, `su`) **or** an exec-wrapper that would run its argument as the
    real command (`env`, `xargs`, `nice`, `timeout`, `nohup`, `setsid`, `command`,
    `chroot`, `runuser`) — so `Bash(env bash:*)`, `Bash(/bin/bash:*)`,
@@ -537,7 +619,12 @@ does two extra things before launching Claude:
    (`Bash(docker exec:*)`, `Bash(make CC=gcc:*)`) are kept. The runner emits a
    `::warning::` for each stripped entry and continues with the safe remainder, so
    this catastrophic tier can never reach the reviewer's write-token job no matter
-   what `config.json` lists. (The floor blocks *direct* shell/privilege access; it
+   what `config.json` lists. The floor's filter code itself is executed only from
+   a **trusted source** — a copy materialized from your base branch, or the
+   vendored copy when it was freshly fetched this run at the pinned
+   `devflow_version` — never from the PR-head checkout, so a pull request cannot
+   edit the filter that governs its own review; when no trusted copy is
+   available the runner fails closed (no build tools appended). (The floor blocks *direct* shell/privilege access; it
    does **not** try to block interpreters like `node -e` / `python -c`, which are
    legitimate build tools — enabling `provision_env` already means accepting that
    the reviewer runs the PR's build code.) If the
@@ -576,6 +663,58 @@ entries. Enabling the reviewer's build environment is then just setting
 > project (renames the package dir, regenerates the lockfile) can make the
 > base-pinned install line fail — surfacing as a provisioning error, not a code
 > defect.
+
+### What the reviewer is told before it starts — the engine ground-truth block
+
+Every cloud run of `/devflow:review` — the automated `devflow-review.yml` path and the
+manual `/devflow:review` comment path alike — has a `> [!IMPORTANT]` **engine
+ground-truth** block prepended to its prompt by `scripts/render-grounding-block.sh`. The
+block states two facts the engine would otherwise spend turns rediscovering by attempting
+commands and collecting denials:
+
+1. **The CI results observed for the reviewed commit**, rendered by
+   `scripts/summarize-ci-checks.sh` from the GitHub API. These are the **observed**
+   conclusions — including a `failure` conclusion and an `in_progress` status — never a
+   green assumption. When the CI state cannot be determined the block says
+   `CI status unavailable`; an unknown state is never rendered as a passing one.
+2. **The exact `--allowed-tools` string this run resolved**, quoted verbatim from the
+   same value the runner passes to the engine, so the two cannot drift.
+
+Check-run and job names inside the block are attacker-controlled text (any pull request
+can add a workflow whose job `name:` is arbitrary), so they are sanitized, truncated, and
+rendered inside a plain ` ```text ` fence, beneath prose that declares the names untrusted
+data. The block tells the engine to quote a name, never to obey one — while treating the
+conclusions beside them as the API facts they are.
+
+**How this interacts with `require_ci_green`.** On the **auto** path the review is
+triggered by `devflow-review.yml`'s `workflow_run` `[completed]` trigger and gated by
+`scripts/derive-review-preconditions.sh`, whose `require_ci_green` precondition (default
+`true`) defers the review until every other CI signal on the head has completed without
+failing. CI completion is therefore a *precondition of the reviewer's invocation* on that
+path, and the block's CI section normally reports completed, non-failing checks.
+
+**The one path that bypasses it:** a `check_run[rerequested]` event — clicking **Re-run**
+on the `Devflow Review` check — is deliberately left ungated by the preconditions (that is
+what makes "Click Re-run … to force a review" true). A forced Re-run can therefore reach
+the engine while CI is still running or after it failed. This is exactly why the block
+reports *observed* conclusions rather than asserting green: on such a run the engine sees
+`in_progress` or `failure` and reports it, instead of being told CI passed.
+
+### Where the `review` profile grants its helpers — the path prefix matters
+
+The read-only `review` profile grants its bundled helpers under the **vendored path prefix
+`.devflow/vendor/devflow/`** — e.g. `Bash(.devflow/vendor/devflow/scripts/workpad.py:*)`,
+`Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)`,
+`Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)`. That prefix is not decoration:
+Claude Code matches a `Bash(...)` rule against the command's **leading token after
+expansion**, so a helper invoked by any other path — or through a `bash <path>` wrapper —
+matches nothing and is silently denied.
+
+The one exception is `load-prompt-extension.sh`, granted **directory-agnostically** as
+`Bash(*/load-prompt-extension.sh:*)`. The final-pass reviewer (`requesting-code-review`) is
+dispatched as an *installed skill*, so its `${CLAUDE_SKILL_DIR}` anchor resolves to the
+plugin checkout rather than the vendored tree; without the wildcard rule its prompt-extension
+load is denied and the consumer's extension silently never loads for that reviewer.
 
 ## Effectiveness telemetry on the cloud `/devflow:implement` job
 
@@ -770,7 +909,7 @@ if you want it; the haiku slot uses **`glm-4.7`** (no bracket). Set
 | `devflow.yml` | Light `/devflow:*` command listener (review, review-and-fix, pr-description) — event-driven only, no `workflow_call` | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-runner.yml` | Reusable runner (`workflow_call`) — one read-only job called by `devflow-review.yml`; lives apart from `devflow.yml` so its permission ceiling stays a subset of the caller's grant | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-implement.yml` | Runs `/devflow:implement` on a bare command in an issue comment (issues-only; PR comments never fire it) | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs (calls `devflow-runner.yml`). Its `workflow_run` re-trigger — which re-fires a review deferred behind the `devflow_review.require_up_to_date` / `require_ci_green` preconditions (issue #304) — **must name your repo's CI workflows** in its `workflows:` list (ships as `[CI]`; a GitHub platform requirement, no wildcards) — edit that list when installing. External non-Actions CI is covered by `check_suite`, no naming needed | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs (calls `devflow-runner.yml`). Its `workflow_run` re-trigger — which re-fires a review deferred behind the `devflow_review.require_up_to_date` / `require_ci_green` preconditions (issue #304) — **must name your repo's CI workflows** in its `workflows:` list (ships as `[CI]`; a GitHub platform requirement, no wildcards) — edit that list when installing. External non-Actions CI is covered by `check_suite`, and legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the `status` trigger — both need no naming | `CLAUDE_CODE_OAUTH_TOKEN` |
 
 The **Needs** column lists the default (Anthropic-OAuth) secret. Each of the three
 model-running workflows (`devflow.yml`, `devflow-runner.yml`, `devflow-implement.yml`)

@@ -1,0 +1,286 @@
+{
+  "iter": 5,
+  "started_at": "2026-07-10T00:45:00Z",
+  "fix_commit_sha": "9965330",
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist_summary": {
+    "total": 71,
+    "pass": 71,
+    "fail": 0,
+    "inconclusive": 0
+  },
+  "checklist": [
+    {
+      "id": "VC5-a",
+      "claim": "the readable-sibling precheck fails closed on directory / dangling symlink / symlink loop; an empty-but-readable sibling takes the read-failure arm; exit 0 and no temp leak on every arm",
+      "file": "scripts/flip-review-progress-failed.sh",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "evidence": "orchestrator drove all four shapes behaviorally; each took the intended arm, exit 0, /tmp delta 0",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "Two diff-added lines (scripts/flip-review-progress-failed.sh header; docs/DEVFLOW_SYSTEM_OVERVIEW.md) assert the run-keyed marker shape is 'pinned in lib/test/run.sh'. It was not — every devflow:review-progress run= occurrence in run.sh was a synthetic fixture. A diff-added claim false against HEAD = self-contradicting diff (non-demotable REJECT). The underlying coupling fails OPEN: a seed/FLIP_MARKER drift makes id return rc 2, the helper no-ops, and both flips silently never fire.",
+      "defect_signature": {
+        "file": "scripts/flip-review-progress-failed.sh",
+        "line_range": [
+          12,
+          13
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": null,
+      "description": "no findings",
+      "defect_signature": null,
+      "corroboration_count": 0
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": null,
+      "description": "no findings; every clause of the newest comment block verified true",
+      "defect_signature": null,
+      "corroboration_count": 0
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": null,
+      "description": "no findings; precheck cannot fail open (unset/empty $WORKPAD, symlink loop, TOCTOU all fail closed); no WP_ERR/TMP leak; nothing can redden the required check",
+      "defect_signature": null,
+      "corroboration_count": 0
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": null,
+      "description": "APPROVE; no new defects",
+      "defect_signature": null,
+      "corroboration_count": 0
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F5-1",
+      "decision": "applied",
+      "commit": "9965330"
+    },
+    {
+      "finding_id": "F5-1",
+      "decision": "severity-calibrated",
+      "source_file": "scripts/flip-review-progress-failed.sh",
+      "claim_text": "the run-keyed marker shape is pinned in lib/test/run.sh",
+      "original_severity": "Important",
+      "calibrated_severity": "Important",
+      "evidence": "Shape 3 flagged (single-source from pr-test-analyzer). Re-affirmed, and the over-grade gate is moot here: this is a Phase 4.2 self-contradicting-diff carve-out, which is corroboration-independent and non-demotable regardless of severity chip. The orchestrator independently verified the claim is FALSE against HEAD (no assert_pin_* or grep in run.sh references the SKILL.md seed marker or either workflow's FLIP_MARKER). Only a fix clears it; a fix was applied and mutation-verified."
+    },
+    {
+      "finding_id": "F5-2",
+      "decision": "advisory",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "the byte-identity assert has a residual vacuous corner if BOTH workflows drift the suffix identically",
+      "skip_category": "advisory-parked",
+      "evidence": "Step 3.5 gate Suggestion. Backstopped: the per-file assert_pin_unique on the full literal (A3/A4) goes RED on any such suffix change, so the suite still fails. No fix required."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "critical_important_code_fixes": 0,
+    "fix_diff_lines": 40,
+    "code_only_fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0,
+    "new_important_count": 1
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 10
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "phase_1": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_2": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 45
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 465063,
+      "wall_clock_s": 299
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 3,
+      "webfetches": 0
+    },
+    "step_3_5": {
+      "calls": 1,
+      "tokens": 85697,
+      "wall_clock_s": 428
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-10T01:05:00Z",
+    "reviewed_sha": "99653302273627d888088efd9fd9ec1d785c4344",
+    "trigger": "convergence-time",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "The implement-side flip_to_failed shell glue is statically pinned, never executed (the harness structurally cannot run workflow YAML).",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-implement.yml",
+          "line_range": [
+            748,
+            753
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "Three defensive arms of the flip helper are unexercised: the mktemp-failure no-op, the RESULT catch-all, and the populated-RUN_URL branch. All best-effort exit-0 no-ops.",
+        "defect_signature": {
+          "file": "scripts/flip-review-progress-failed.sh",
+          "line_range": [
+            133,
+            181
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "The `! grep -q \"'failed':\"` source pin is evadable by a double-quoted key; the comment does not overstate it and the authoritative semantic guard exists in test_python_scripts.py. No fix required.",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            593,
+            596
+          ],
+          "kind": "style"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Informational",
+        "description": "Empty-body treated as read-failure no-op; fail-closed and effectively unreachable. Independently matches the orchestrator's park-calibration evaluation.",
+        "defect_signature": {
+          "file": "scripts/flip-review-progress-failed.sh",
+          "line_range": [
+            122,
+            126
+          ],
+          "kind": "other"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": null,
+        "description": "no findings",
+        "defect_signature": null,
+        "corroboration_count": 0
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": null,
+        "description": "Ready to merge; no Critical/Important/Suggestion issues",
+        "defect_signature": null,
+        "corroboration_count": 0
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 4,
+      "overlap_with_iter_5": 3,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "park_calibration_gate": {
+      "result": "clean",
+      "evaluated": [
+        {
+          "finding": "body guard's 'could not read body' breadcrumb on rc==0-but-empty",
+          "shape_candidate": 2,
+          "verdict": "not a mis-grade",
+          "evidence": "Shape 2 requires 'a real input fails with a misdirected message'. _find_workpad_comment returns the first comment WHOSE BODY STARTS WITH the marker, so any comment id resolves necessarily has a non-empty body; the rc==0-and-empty branch is unreachable for a matched comment (barring a TOCTOU emptying between calls). The breadcrumb also prints rc=0, which disambiguates. The shadow's own silent-failure-hunter independently graded it Informational/unreachable. Parking stands."
+        },
+        {
+          "finding": "interim->auth-failure path does not flip",
+          "shape_candidate": 1,
+          "verdict": "not a mis-grade",
+          "evidence": "Not under-specified vs the issue's ACs: the issue explicitly requires 'No workpad Status write occurs on ... the fail-unreadable arm, or the fail-auth arm.'"
+        }
+      ]
+    },
+    "promoted_to_iter_next": false
+  }
+}

@@ -10,7 +10,7 @@ source of truth — this doc records the *why*.
 |---|---|---|
 | `devflow.yml` (light path) | `/devflow:review`, `/devflow:review-and-fix`, `/devflow:pr-description` | `issue_comment[created]`, `pull_request_review_comment[created]`, `pull_request_review[submitted]` |
 | `devflow-implement.yml` (heavy path) | `/devflow:implement` | `issue_comment[created]` |
-| `devflow-review.yml` | automated review | PR lifecycle + `check_run[rerequested]` + `workflow_run`/`check_suite` `[completed]` (CI-completion re-trigger for deferred reviews — see the preconditions note in `DEVFLOW_SYSTEM_OVERVIEW.md` §14; the `workflow_run` `workflows:` list must name the repo's CI workflows) |
+| `devflow-review.yml` | automated review | PR lifecycle + `check_run[rerequested]` + `workflow_run`/`check_suite` `[completed]` + `status` (CI-completion re-trigger for deferred reviews — `status` covers legacy commit-status-only CI, filtered to a green state; see the preconditions note in `DEVFLOW_SYSTEM_OVERVIEW.md` §14; the `workflow_run` `workflows:` list must name the repo's CI workflows) |
 
 Both command listeners run `claude-code-action` in **agent mode** with a
 synthesised prompt, so they need no `@claude` phrase. Every gate `if:` branch
@@ -45,15 +45,44 @@ PR. Its trigger policy (issue #304):
 - **Preconditions (both default-on, config-gated).** Before a review fires,
   `scripts/derive-review-preconditions.sh` evaluates two gates: `require_up_to_date`
   (the PR branch must not be **behind its base**) and `require_ci_green` (every
-  *other* CI signal on the head must have completed without failing). When a gate
+  *other* CI signal on the head must have completed without failing). For the
+  Actions-runs signal, the non-self runs are first **collapsed to the latest run
+  (highest `run_number`) per `(workflow_id, event)` group**, so a superseded run —
+  an approval-gated re-dispatch, a double-fire, a cancelled sibling — never gates
+  the review once a newer run of the same workflow+event exists (a run missing a
+  numeric `workflow_id`/`run_number` or a string `event` fails closed as
+  *unverifiable*). When a gate
   is unmet the review is **deferred**, not run: a neutral "waiting" `Devflow Review`
   check is posted so the required context is present but non-blocking (a neutral
   required check does not block merge — pair it with branch protection's "require
-  branches up to date" if staleness must hard-block).
+  branches up to date" if staleness must hard-block). A surviving run awaiting
+  manual approval (conclusion `action_required`) defers with the distinct reason
+  `ci-approval-required`, whose title is selected by
+  `scripts/describe-skip-title.sh` (invoked in the `precheck` job and consumed by
+  `create_check` via the `skip_title` output) — mapping it to the plain-language
+  neutral check **"Devflow review waiting: CI approval required"** rather than the
+  opaque "other CI not green".
 - **CI-completion re-trigger.** A review deferred behind `require_ci_green` (or
   `require_up_to_date`) auto-re-fires once the PR becomes reviewable — via the
-  `workflow_run` (Actions CI) and `check_suite` (external CI) `completed` events —
-  with no manual Re-run. `workflow_run` **requires an explicit workflow-name list**
+  `workflow_run` (Actions CI) and `check_suite` (external CI) `completed` events,
+  or a `status` event (legacy commit-status-only CI — classic Jenkins, legacy
+  CircleCI — reporting via the commit-status API, which emits neither of the
+  other two; filtered to a green `state == 'success'` before a runner spins, and
+  resolving the PR from the status head SHA since its payload carries no PR ref) —
+  with no manual Re-run. Note the `status` trigger is **unconditional**: GitHub
+  offers no context/branch scoping for it, so it fires for *any* commit status
+  from *any* app (Codecov, Vercel, external bots), not only legacy CI — an
+  Actions-CI repo that also has a status-posting app therefore spins a precheck
+  runner per green status. Once a review already exists for the head each
+  redundant spin no-ops after a couple of read calls (PR resolution + the
+  exactly-once gate, which short-circuits before the expensive precondition and
+  review work). A status arriving *before* sibling CI has completed instead
+  re-enters the preconditions — several `gh api` reads that fail closed to
+  *defer* on a rate-limited token — so a heavy status burst in that pre-review
+  window could spuriously defer an otherwise-reviewable PR (bounded to the
+  pre-review window; the exactly-once gate ends it once a review lands). This is
+  the accepted cost of an unconditional trigger. `workflow_run` **requires an
+  explicit workflow-name list**
   (a GitHub platform constraint — no wildcards): it ships as `workflows: [CI]`, so
   **a consumer repo whose CI workflow is named anything other than `CI` must add
   that name to the `workflow_run:` list in `.github/workflows/devflow-review.yml`
@@ -62,12 +91,34 @@ PR. Its trigger policy (issue #304):
   `docs/cloud-setup.md`). The precondition *evaluation* itself stays fully generic
   (no job names).
 
+### The injected block reports *observed* CI conclusions, never a green assumption
+
+Every cloud review prompt carries a `> [!IMPORTANT]` engine ground-truth block
+(`scripts/render-grounding-block.sh`) whose CI section is rendered by
+`scripts/summarize-ci-checks.sh` from the GitHub API for the reviewed head. It lists one
+line per signal with **the conclusion actually observed** — `success`, `failure`, or, for a
+job still running, its `status` (e.g. `in_progress`). It never asserts that CI passed.
+
+This is load-bearing precisely because of the trigger asymmetry documented above. On the
+auto path `require_ci_green` defers the review until CI has completed without failing, so a
+green assumption would *usually* be right. But a `check_run[rerequested]` **Re-run** is
+deliberately ungated by the preconditions, so it can reach the engine while CI is still
+running or after it failed. A block that hardcoded "CI passed" would hand that run a false
+premise; a block that reports what it observed hands it the truth.
+
+Two further properties follow from the same rule: `require_ci_green` treats `skipped` and
+`neutral` as green, so rendering per-signal conclusions (rather than one summary boolean)
+keeps a skipped test job from reading as a passing one; and when the CI state cannot be
+determined at all, the block prints the literal `CI status unavailable` rather than
+omitting the section — an absent result is never rendered as a passing one.
+
 ### Known limitation: a behind-base deferral is not re-evaluated when the base advances
 
 A `require_up_to_date` (behind-base) deferral clears only when the review is
 re-evaluated, and the re-evaluation triggers are all **head-scoped**: a new commit
 pushed to the PR branch (`synchronize`), a CI workflow completing for the head
-(`workflow_run` / `check_suite`), or a manual **Re-run**. There is **no
+(`workflow_run` / `check_suite`), a legacy commit-status transition for the head
+(`status`), or a manual **Re-run**. There is **no
 push-to-base listener** — advancing the *base* branch (which is what actually
 makes a behind-base PR fall further behind, or, after the PR rebases elsewhere,
 could clear it) does **not** by itself re-evaluate the deferral. So a PR deferred
@@ -182,18 +233,15 @@ Because anchoring operates on the resolver's `TRIGGER_TEXT` input, it is
 `TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body }}`
 wiring already routes the PR-review body in, so no new surface wiring is added.
 
-> **Follow-up (workflows-scoped push):** the `review_dedupe` job in `devflow.yml`
-> is intended to route through the **same** `detect-standalone-command.sh`
-> detector (not its own `case` substring), so a quoted/documented
-> `/devflow:review` mention neither dedupes nor posts a "manual review
-> suppressed" notice and the two matchers cannot drift. That change edits a file
-> under `.github/workflows/`, which needs a `workflows`-scoped push the DevFlow
-> bot's installation token lacks, so it lands via a human/PAT in a separate
-> follow-up rather than in the bot-authored PR that ships the resolver anchoring
-> here. Until then the resolver anchoring is the authoritative trigger gate (it
-> already covers the reported PR-review vector); `review_dedupe` keeps its
-> pre-existing coarse `case` match, which only affects the cosmetic
-> manual-review-suppressed notice, never whether a run starts.
+> **Landed (issue #321):** the `review_dedupe` job in `devflow.yml` now routes
+> through the **same** `detect-standalone-command.sh` detector (not its own
+> `case` substring), so a quoted/documented `/devflow:review` mention neither
+> dedupes nor posts a "manual review suppressed" notice and the two matchers are
+> a single source of truth that cannot drift. Because that change edits a file
+> under `.github/workflows/`, it needed a `workflows`-scoped push the DevFlow
+> bot's installation token lacks, so it landed via a human/PAT in the #321
+> follow-up rather than in the bot-authored PR that shipped the resolver
+> anchoring here.
 
 > **Out of scope (decided):** a light command posted on a plain **non-PR issue**
 > comment still resolves a number and runs; narrowing that surface is deferred to
@@ -290,6 +338,28 @@ phase boundary; Phase 4.5 finalizes it).
   verdict stub); the live comment is the human-readable narrative pointing at it.
   The final comment state reflects the actual verdict — never a green check above
   a REJECT.
+- **Dead-run backstop (issue #356).** The agent flips this comment to
+  `❌ Review failed` on its own fatal aborts, but on a non-success run it never
+  gets to — the claude step failed, the run was cancelled (so the agent was torn
+  down mid-flight), or the step reported `success` while the engine's final
+  message carried `is_error` (the agent ran but ended in error without reaching
+  its own flip). A workflow-level backstop then mirrors that flip:
+  `scripts/flip-review-progress-failed.sh`
+  locates *this run's* comment by its run-keyed marker and, only when its
+  `**Status:**` line still begins with the interim `🚀` glyph, rewrites it to
+  `❌ Review failed` with a one-line cause and run link (a terminal Status is
+  never clobbered; earlier runs' comments are never touched). It is best-effort
+  (always exits 0, so it never fails the required check) and is wired into the
+  **same three** non-success arms at both call sites — `devflow-review.yml`'s
+  `finalize_check` job (`if: always()`, so it survives even a review-job runner
+  death) and `devflow.yml`'s comment-triggered job (an `always()` step). The
+  died-flip makes a dead review *visible* but leaves it a dead-end; the bounded
+  **no-verdict auto-resume backstop** (`devflow_review.stall_backstop`, issue
+  #408) then re-runs it without a human — when a cloud review ends with no
+  verdict for the head, `finalize_check` posts a capped App-token-authored
+  `/devflow:review` re-trigger (default `max_resume_attempts: 2` per head),
+  degrading to exactly the dead-end flip when the cap is exhausted, the backstop
+  is disabled, or no App token is configured.
 - It works under the **read-only cloud `review` profile**: the comment is
   created/edited via `gh` (a comment edit, not a tree write), and the runner's
   `review` tool profile additionally allow-lists `workpad.py`, `config-get.sh`,

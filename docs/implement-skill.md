@@ -17,13 +17,14 @@ A **"Sweep selection (run first)"** preamble in the skill indexes which of these
 | 2.3.0 Changed-contract | a change that **modifies** a signature, renames/moves a symbol, tightens a validator, or alters a classifying predicate | dependent sites left on the *old* contract (other predicate branches, sibling callers, fixtures/assertions) |
 | 2.3.0a Peer-checkpoint completeness | a change that **adds** a rule/clause/guard/invariant which has *co-equal peer sites* (two or more sites that must each enforce the same rule for it to hold) | the rule stated at only *some* peers — a guard applied to one config-leaf branch but not its siblings, a read-only clause present at 2 of 4 gate checkpoints, a fallback in the selection predicate but not the parallel derivation |
 | 2.3.0b Enum-enumeration reconciliation | a change that **adds a value to an enumerated value set** (a new enum/string-union member, status, kind, verdict, or `fix_decision`) | enumerating sites left stale — a doc/comment list of the value set, or a fall-through consumer (an `else`/`default`/`// null` arm) — that the *code*-call-site sweeps (2.3.0/2.3.0a) miss, even when the runtime stays correct because the new value rides an intended fall-through |
+| 2.3.0c Operand-trace | a change that **adds a guard, predicate, validator, or coverage invariant** in code, **or** ships **agent-executed imperative prose stating a policy** (a `SKILL.md`/`phases/*.md` command block) | a guard whose comparand comes from the diff's *own* code (the blind spot 2.3.4 carves out and 2.3.0a/2.3.0b's peer/enum focus misses), and a stated policy whose operand no step produces (an inert guard). Trigger (a) demands a four-column operand table — comparand, producer (file+line), emitted on every selected path?, and the load-bearing *what OTHER inputs produce the same value?*; trigger (b) demands every policy name its observable operand, its producing step, and a route for every outcome including failure |
 | 2.3.1 Orphaned-setup | a **deletion** of code | setup lines (a dependency fetch, lookup, computed local, import) whose only consumer was the deleted code |
 | 2.3.2 Stranded-dependents | a **deletion** of a method, file, route, or page | references *outside* the diff the deletion stripped of purpose (callerless public methods, dead args, surviving inbound links) |
 | 2.3.3 Convention-compliance | any code the diff **added or modified** | `CLAUDE.md` convention violations in touched code |
-| 2.3.4 Boundary-assumption | any diff that **depends on** a fact about something it does not own | claims about a dependency version, the supported runtime, a sibling producer's output, or the real host that were asserted from memory instead of verified |
+| 2.3.4 Boundary-assumption | any diff that **depends on** a fact about something it does not own | claims about a dependency version, the supported runtime, a sibling producer's output, the real host, or an **external tool's output string/message/exit code** that were asserted from memory instead of verified — the external-output kind carries a reproduction obligation (paste the observed bytes; doc prose is not evidence) and the companion outcome-verification rule (a precondition check never stands in for verifying the consumed outcome). In-diff guards carved out here route to **2.3.0c** |
 | 2.3.4a Self-authored-claim reconciliation | any diff that **authors** a behavioral claim in prose — internal/external docs it edits, or code comments it adds/changes | a sentence or comment that asserts what the shipped code does but contradicts the actual code path (including the diff's *own* new code, which 2.3.4 carves out) — caught by tracing each authored claim to the code, following dispatch into pre-existing helpers the diff calls |
 | 2.3.5 Simplification & Efficiency | any code the diff **added or modified** | avoidable complexity (redundant/derivable state, copy-paste variation, deep nesting, dead code) and wasted work (redundant I/O or computation, needless sequential ops, hot-path/startup cost) that only show up once the change is assembled |
-| 2.3.6 Error-handling & silent-failure | any code the diff **added or modified** | silent failures — swallowed or over-broadly-caught errors, unjustified or fail-open fallbacks, mock/stub leaks, and generic/misdirected breadcrumbs — that ship clean because the happy path works and only fire on an input the tests don't exercise |
+| 2.3.6 Error-handling & silent-failure | any code the diff **added or modified** | silent failures — swallowed or over-broadly-caught errors, unjustified or fail-open fallbacks, mock/stub leaks, generic/misdirected breadcrumbs, plus two fail-open guard classes mirrored from the reviewer extension: the **existence-standing-in-for-outcome** shape (verify the outcome, not the precondition) and the **un-guaranteed-tool derivation** shape (a value that decides a selection or an emission must not be derived through a tool the project's preflight does not guarantee, cosmetic sanitization excepted when it fails closed) — all shipping clean because the happy path works and only firing on an input the tests don't exercise |
 
 2.3.1–2.3.3 trigger on *deletion* or *addition*. **2.3.0** fills the gap for *modification*: changing a
 contract is just as blast-radius-prone as deleting one, but it is harder to catch because every
@@ -65,6 +66,10 @@ recorded with a `--note`; only a *silent* stale enumeration is the defect.
 
 **2.3.6** front-loads the Phase 3.3 `silent-failure-hunter` review agent the way 2.3.5 front-loads `/simplify`. Its defect class — a swallowed error, an over-broad `except`/catch, a fallback that masks a failure (or fails *open*, defaulting an error to a success-shaped value), a mock/stub leaking into production, or a generic/misdirected breadcrumb — has no home among the other sweeps: it isn't a contract change (2.3.0), a deletion (2.3.1/2.3.2), or, in general, a documented `CLAUDE.md` rule (2.3.3), and it only sometimes doubles as a boundary claim (2.3.4) or added complexity (2.3.5). Baseline testing of the implement skill confirmed the gap: capable agents running 2.3.0–2.3.5 caught these defects only when they happened to overlap another sweep's trigger, attributed them inconsistently, and missed a pure swallow (a `gh … 2>/dev/null || true` that printed success for a comment that never posted) outright — exactly the findings `silent-failure-hunter` then raised in Phase 3.3. Making it an always-on, explicitly-named sweep gives the class a deterministic home so it is caught at implement time, not a review iteration later. It is a *correctness* sweep numbered last only to avoid renumbering its predecessors; each sweep's intro references "2.3.0–2.3.N" of the lower-numbered sweeps, so the ordering is presentational, not an execution dependency. The sweep also carries a **per-branch-breadcrumb** sub-check: for any multi-branch no-op path the diff adds (e.g. "if A, stop; else find B; if B absent, stop"), it confirms each branch emits a distinct diagnostic naming which condition fired — two failure modes converging on one shared breadcrumb is flagged, a variant of the misdirected/generic-breadcrumb kind.
 
+**2.3.0c** (operand-trace) sits with the additive 2.3.0a/2.3.0b family but targets a different blind spot: an operand nobody traced to its producer. Its code trigger owns exactly the diff's *own* guards that 2.3.4 carves out (2.3.4 verifies boundaries the diff doesn't own; 2.3.0a/2.3.0b watch peer sites and enumerated sets, not the operand a single guard reads), demanding a four-column operand table whose load-bearing fourth column asks *what OTHER inputs produce the same value?* — the "what else exits 2?" question that, unanswered, let a marker-deletion guard read `python3`/argparse/unopenable-script's shared exit-2 as "no workpad." Its prose-policy trigger fires on agent-executed `SKILL.md`/`phases/*.md` command blocks: a policy stated against an operand no step produces is an inert guard that silently no-ops on exactly the input it was written to gate, so every stated policy must name its observable operand, its producing step, and a route for every outcome including failure.
+
+**Phase 2.4** splits the "no automated test" verification by one question — *does this text enter a model's context as instruction?* Human-read prose keeps the adversarial dry-trace; prose that becomes an agent's prompt (an injected block, a composed prompt, a `SKILL.md`/`phases/*.md` command block) gets a `writing-skills` subagent RED/GREEN micro-test with a no-guidance control, because a dry-trace cannot catch a prompt-prose defect — the text reads perfectly while steering the model wrong. The trigger is what the text *becomes*, never where the file lives (a block in a script or workflow YAML that becomes a prompt still takes the micro-test).
+
 ## Changed-contract sweep (2.3.0) and the post-merge re-sweep
 
 The skill spells out the three checks (predicate variants, sibling call sites, fixtures/assertions).
@@ -80,7 +85,7 @@ follow-up.
 
 ## Boundary-assumption sweep (2.3.4)
 
-The four boundary kinds and how to verify each are in the skill (and summarized in the table above).
+The five boundary kinds and how to verify each are in the skill (and summarized in the table above).
 The *why*: these bugs ship clean and pass the author's own tests — because the tests encode the same
 wrong assumption — so a green run is not confirmation, and a test assertion *about* a boundary is
 itself an unverified claim. A boundary that genuinely cannot be verified in-environment is never
@@ -106,27 +111,39 @@ unreconciled pair. The **PR body** is reconciled the same way in Phase 4.2, wher
 (it does not exist at commit time). The sweep also carries a **clean-path-evidence** sub-check: for any
 step the diff adds that claims to enumerate, verify, or scan a set, it confirms the step logs a summary
 (count, result) even when nothing needs changing — a silent no-op step is indistinguishable from one that
-never ran, so the human reviewing the run cannot tell it executed.
+never ran, so the human reviewing the run cannot tell it executed. It also carries a **mirror-fact
+drift-proofing** clause: any comment the diff adds or changes that carries an exact count, an enumerated list
+of sites/values, or a predicate-restating scope word is rewritten or removed per the §2.3 authoring
+treatments before commit — even when it is currently accurate — because an accurate-today mirror-fact comment
+is precisely the one that silently rots once a later change updates the code and not the comment.
 
 ## Review-engine hardening: forced operative-sentence pin note + inline-review observability backstop
 
 Two guards close gaps the review surface let ship "green" and only a blinded shadow pass (or nothing) caught.
 
-**Forced operative-sentence pin note (Phase 2.3 + review-and-fix Step 3).** The behavioral-fix-pin
+**Evidence-based behavioral-fix pin (Phase 2.3 + review-and-fix Step 3).** The behavioral-fix-pin
 discipline — pin the *operative* sentence whose removal *alone* re-introduces the bug, never an adjacent
 *framing/justification* clause — was advice a fix-iteration author could quietly violate by pinning the
-nearest unique literal instead (the recurring framing-only-pin class behind PRs #173/#171/#167). It is now
-a **forced auditable artifact**: before writing any behavioral-fix pin, the author records a one-line
-workpad `--note` **naming the operative sentence and asserting the pin literal is a substring of it** —
-the same auditable-commitment idiom as the Phase 2.3 sweep-selection and test-first notes, so a
-framing-only pin becomes a visible error a reviewer or the weekly retrospective can catch instead of a
-silent slip. The requirement lives at both co-equal author sites — `phase-2-implement.md` §2.3 (the
-implement-path author) and `skills/review-and-fix/SKILL.md`'s Step 3 mutation-check step (the fix-loop
-author) — and is scoped to **behavioral-fix** pins only, never to literal-constant, token-name,
-count-based, or absence pins where no operative-vs-framing distinction exists. "Operative sentence" is a
-semantic property a grep cannot derive, so a true deterministic detector is infeasible; the recorded note
-plus the existing `assert_pin_red_on_removal` removal-proof is the strongest *viable* guard, and each new
-clause is itself pinned by a coupled `lib/test/run.sh` removal-proof assertion (#235 finding A).
+nearest unique literal instead (the recurring framing-only-pin class behind PRs #173/#171/#167). Issue
+#375 replaced the earlier *substring-attestation* note (which merely asserted "the pin literal is a
+substring of the operative sentence" — unfalsifiable self-testimony) with an **evidence** record: a
+behavioral-fix pin is expressed through **`assert_pin_red_under <name> <literal> <mutation> [file]`** (the
+mutation-taking removal-proof assertion in `lib/test/run.sh`), passing a `sed -E` mutation that
+re-introduces the named bug by deleting *only* the operative sentence, and the workpad `--note` records
+**the mutation you ran and the pin you observed go RED** under it. Unlike `assert_pin_red_on_removal`
+(whole-line deletion, which reports `PASS->FAIL` for *any* present-and-unique literal — framing or
+operative alike), `assert_pin_red_under` reports a framing-only pin **RED** when it survives the operative
+mutation, so the operative-vs-framing distinction is enforced mechanically rather than by author
+diligence. The requirement lives at three co-equal homes — `phase-2-implement.md` §2.3 (the implement-path
+author), `skills/review-and-fix/SKILL.md`'s Step 3 mutation-check step (the fix-loop author), and
+`.devflow/prompt-extensions/implement.md` (this repo's operative policy) — and is scoped to
+**behavioral-fix** pins only, never to literal-constant, token-name, count-based, or absence pins where no
+operative-vs-framing distinction exists. Two mechanical suite guards (`lib/test/pin-corpus-lint.py`,
+self-scanned by `lib/test/run.sh`) now catch the two blind spots the parents (#370/#371) had to
+rediscover in a shadow: a **pin-in-comment lint** (a pin literal that also appears in a comment of its own
+target inflates the count) and a **wrapped-literal meta-guard** (a phrase assembled from wrapped adjacent
+string literals lives on no single line, so a line-based `git grep` misses it — pin the rendered
+`--help`/stderr surface instead).
 
 **Inline-review observability backstop (Phase 3.3).** `review-and-fix`'s Loop Exit is what normally
 persists a run's effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`) and durable
@@ -189,22 +206,108 @@ behavior, not advisory prose — exactly **when** that tag is permitted: **only 
 genuinely requires a runtime environment that does not exist during the implement run** (a live deploy
 target, a real third-party endpoint, a production data path). The observable test is whether the
 verification could ever run on the orchestrator host given the right tools; if it could, it is not
-post-merge. Two cases are therefore never eligible and the gate refuses the tag for them:
+post-merge. Three cases are therefore never eligible and the gate refuses the tag for them:
 
 - **Runnable-but-blocked (local tooling/environment gap)** — a criterion verifiable on this host but
   blocked right now by a denied command, a missing build tool, an un-spawnable helper, or a failed
   restore. A tooling gap is not a runtime-environment gap; it takes the existing **`Blocked`** escalation
-  path (human handoff), never a silent post-merge pass. (A genuine permission/sandbox denial of the *test
-  suite itself* is a distinct mechanism — the auditable, workpad-recorded skip to the CI `lib + python
-  tests` gate per `CLAUDE.md`; it does not tick the AC.)
+  path (human handoff), never a silent post-merge pass. (A *verification command* that is **not granted**
+  in the run's allowlist — its direct-form invocation refused before it could run — takes that same
+  **`Blocked`** path, naming `devflow_implement.allowed_tools` (and `devflow.allowed_tools` for the command
+  path) as the exact remedy: grant the command so the run can verify in-env, then re-run. It is **never**
+  deferred to a CI result — see *In-env verification is the gate* below.)
 - **Confirmation of a self-authored claim** — a criterion whose purpose is to confirm a behavioral claim
   the PR already asserts as true. It is runnable pre-merge by construction (the claim is about the shipped
   diff), so deferring it would defer the one check that could falsify the claim; the gate refuses the tag
   regardless of stated reason.
+- **Self-reconfiguration verification** (issue #338) — a criterion whose only unmet precondition is the
+  orchestrator's own session/harness/account being in the configuration the diff just shipped (a hook the
+  diff registered now active, a flag/setting the diff added now enabled). The host *can* become a fresh or
+  child session with the change active, so it is runnable pre-merge and never `(post-merge)`: it is run and
+  evidenced — by an automated test driving the now-active code path, or by a separate/fresh session
+  observing the change live — or it takes the **`Blocked`** path. Evidence produced while prototyping is
+  captured in the workpad and PR body rather than re-deferred; the rule never mandates activating a
+  blocking hook mid-run in the orchestrator's own session.
 
 This is the gate enforcing "verified before merge" rather than trusting the run's narrative: a local
-tooling gap can no longer be laundered into a post-merge pass, and a self-claim confirmation can no
-longer be deferred past the one test that would catch it.
+tooling gap can no longer be laundered into a post-merge pass, a self-claim confirmation can no
+longer be deferred past the one test that would catch it, and a self-reconfiguration check can no longer
+ride a "cleanest in a fresh session" rationale into an unchecked post-merge deferral. To keep every mid-run
+`--rewrite-ac` retag auditable, `workpad.py` structurally rejects a `--rewrite-ac` call that appends the
+`(post-merge)` tag (a single pair or a crafted multi-pair sequence) without a non-empty `--note` rationale
+(issue #338). (The Phase 2.2.5 `--replace-acs-file` wholesale channel is a deliberate, known exception.)
+
+### In-env verification is the gate — CI is never an in-run verification channel (issue #405)
+
+A **verification-command** acceptance criterion — one whose verification is *running a test/lint/build
+command* (the project's test suite, `shellcheck`/`ruff`, a `pytest`/build invocation) — is satisfied
+**only by an in-environment observed pass**, on both the local and cloud `/devflow:implement` tiers. The
+run executes the command **in its own environment** and ticks the criterion on the pass it observes there.
+It **never waits on, polls, re-checks, or cites CI** for its own progress, and ticks nothing on a CI
+result. CI (for this repo, the `lib + python tests` job) is the **required post-PR check that gates the
+human merge** — not a channel the run reads to verify itself.
+
+The command is invoked by its **direct leading-token** form (`lib/test/run.sh`, not `bash lib/test/run.sh`
+— the `bash <path>` wrapper is deny-floored and can never be granted), which resolves because the
+suite/lint commands are granted through `devflow_implement.allowed_tools` (and `devflow.allowed_tools` for
+the `/devflow:*` command path). This repo grants the three direct forms — `Bash(lib/test/run.sh:*)`,
+`Bash(lib/preflight.sh:*)`, `Bash(shellcheck:*)` — under both keys. The three outcomes at the Phase 3.4
+gate:
+
+- **In-env pass** — the command ran and passed here; tick the criterion on that observed result.
+- **In-env failure** — the command *ran and failed*; that is a real failure, not a deferral: fix it or
+  take the **`Blocked`** path. Never `(post-merge)` it.
+- **In-env run denied** — the direct-form command is **not granted** in this run's allowlist, so it was
+  refused before it could run. Take the **`Blocked`** path naming `devflow_implement.allowed_tools` (and
+  `devflow.allowed_tools` for the command path) as the remedy, then re-run. Never launder a denied
+  verification command into a `(post-merge)` retag or a CI observation — never a silent stall, never a
+  verdict resting on a CI result the run never saw.
+
+**Consumer rule.** List your repo's test/lint commands in `devflow_implement.allowed_tools` (and
+`devflow.allowed_tools` for the command path) and the run verifies them in-env; leave them ungranted and a
+verification-command AC goes **`Blocked`**, its message naming `devflow_implement.allowed_tools` as the
+exact remedy. See [`cloud-setup.md`](cloud-setup.md#extending-the-tool-allowlist) for the config surface.
+The shared review engine, executed inline by Phase 3.3, takes its **test evidence from the orchestrator's
+own in-env suite/lint results** for the current HEAD — never a CI conclusion. (The read-only `review`
+runner is a separate, unchanged case: its wait-for-CI-then-review posture is the correct *post-PR*
+sequence.)
+
+**Documentation-AC deferral (Phase-4.1-owned, distinct from `(post-merge)`).** A criterion whose
+satisfaction is a *documentation edit that Phase 4.1's `devflow:docs` subagent owns* — a `docs/…`
+deliverable that pass authors, rather than a `skills/`/`scripts/`/`lib/`/test change this phase can make
+now — is **left unticked at the 3.4 gate, recorded in a workpad deferral note naming the AC (`3.4: doc-AC
+deferred to Phase 4.1: {AC text}`), and does not block the gate**. This is deliberately not the
+`(post-merge)` channel (reserved for genuinely-live verification the host can never run in-session): a
+doc-AC is fully dischargeable *in this run* by Phase 4.1, so it is neither retagged `(post-merge)` nor
+routed through the gate's "satisfiable with a small follow-up edit — do it now" channel, whose remediation
+explicitly excludes doc authoring owned by Phase 4.1. The deferral keeps docs Phase-4.1-authored (it does
+not weaken Phase 2's docs-ownership rule) while stopping the gate from forcing doc authoring into Phase 3
+to satisfy a criterion Phase 4.1 owns. Phase 4.1 **must** discharge each such deferred doc-AC and tick it
+(citing the deferral note) before the §4.3 terminal `--status Complete` write — see the Phase 4.1 gate
+below; an undischargeable doc-AC routes to the existing `Blocked` path, never to a silent Complete.
+
+**Pre-merge probe contract.** Passing the genuinely-live test is necessary but not sufficient: a
+criterion whose *verification* needs a runtime environment can still carry a **pre-merge-observable
+precondition that is already false**, and a `(post-merge)` tag means "the live check can't run until after
+merge **and everything observable now has been checked**" — not "the criterion is deferred unexamined."
+So before any `(post-merge)` tag or retag lands (whether at Phase 1.2 parse time or retro-tagged here),
+the run must decompose the criterion into **(a) pre-merge-observable preconditions** — remote
+configuration readable via read-only `gh api` reads (repo settings, a ruleset's required checks and
+bypass-actor list, branch protection), static properties of the shipped files (a workflow's declared
+`permissions:` / token wiring, a config key's presence) — and **(b) the genuinely-live residue** only a
+merge/deploy/live-CI run can produce; probe every (a) precondition read-only (folding in any failure mode
+the linked issue's Potential Gotchas / Implementation Notes name for that mechanism); and record each
+probed precondition, its probe command, and its observed result in the deferral `--note` (or the explicit
+finding `"no pre-merge-observable precondition"` — an empty set is legal, a *silent* deferral is the
+defect). A probe whose observed result shows the deferred live verification cannot succeed as shipped
+routes to a pre-merge fix or the `Blocked` path — **never** a deferral. A *denied* probe (classifier /
+sandbox refused it, or the API returned an auth/permission error so state was unreadable) is recorded as
+denied and the deferral proceeds; the two are told apart by whether the probe obtained a definitive answer
+about the precondition, not by raw exit status — a `gh api` **404** (object observably absent) or **200
+with falsy data** (empty required-checks array, absent bypass actor) is **observed-false**, not a denial.
+A passed probe only *narrows* the deferral to the genuinely-live residue; it never ticks the AC box. The
+contract lives in `skills/implement/phases/phase-3-review.md` and is the single source of truth for both
+the Phase 1.2 tag-time path (`skills/implement/phases/phase-1-setup.md`) and the Phase 3.4 retro-tag path.
 
 ## Phase 4.3 finalize: publish vs. draft (`implement_pr_state`)
 
@@ -239,9 +342,46 @@ The gate lives once in `skills/implement/phases/phase-4-documentation.md` (Phase
 A `/devflow:implement` run can *under-complete* Phase 4: it commits the Phase 4.1 documentation, then stops before Phase 4.2 (`/pr-description`) and Phase 4.3 (finalize). The run exits `success`, so nothing signals the shortfall — the workpad is frozen at an in-progress `Status` (`Documenting` 🚀), the draft PR stays un-described, and no terminal outcome reaction is emitted. Two agent-side guards, both in the shared skill body (so local and cloud `/devflow:implement` get them with no workflow change), close this:
 
 - **Terminal-status self-check (`skills/implement/SKILL.md`).** A cross-phase invariant near the Completion Checklist forbids the orchestrator from emitting its run-final message while the workpad `Status` is any in-progress value; it must first have reached a terminal `Status` — `Complete` (🎉) or `Blocked` (👎). The check keys on the workpad `Status`, **not** on PR draft state, so the intended `implement_pr_state=draft` path (which still reaches `Status: Complete`) is never a false positive, while a published PR whose workpad is still `Documenting` does trip it. It reuses the existing `🚀`/`🎉`/`👎` status vocabulary from `scripts/workpad.py` — no new status value.
-- **Phase 4.1 post-subagent re-anchor (`skills/implement/phases/phase-4-documentation.md`).** After the Phase 4.1 `devflow:docs` subagent returns and its docs are committed, the orchestrator re-`Read`s `phases/phase-4-documentation.md` (via the same portable `${CLAUDE_SKILL_DIR:-…}` skill-directory anchor the entry-gate uses) before §4.2, re-anchoring the remaining §4.2/§4.3 procedure that a long context-isolated subagent return may have evicted from the working set. It is scoped to the Phase 4.1 docs subagent return only — the Phase 2 and Phase 3 subagent returns carry their own phase entry-gate reads.
+- **Phase 4.1 post-subagent re-anchor (`skills/implement/phases/phase-4-documentation.md`).** After the Phase 4.1 `devflow:docs` subagent returns and its docs are committed, the orchestrator re-`Read`s `phases/phase-4-documentation.md` (via the same portable `${CLAUDE_SKILL_DIR:-…}` skill-directory anchor the entry-gate uses) before §4.2, re-anchoring the remaining §4.2/§4.3 procedure that a long context-isolated subagent return may have evicted from the working set. It is scoped to **subagent** returns — here, the Phase 4.1 docs subagent; the Phase 2 and Phase 3 subagent returns carry their own phase entry-gate reads. A **Skill-tool** return is covered by the separate generalized re-anchor below.
 
-Both are prose contracts, so their automated boundary is a coupled pin assertion in `lib/test/run.sh` (the same RED/GREEN mechanism the engine uses for skill contracts): each **operative** clause carries an `assert_pin_unique` presence pin (exactly-once) *and* an `assert_pin_red_on_removal` proof that it flips RED against the un-pinned source; the section heading is pinned presence-only. The always-loaded orchestrator also repeats the Phase 4.1 re-anchor *trigger* in its Phase 4 section (the phase file carries the operative instruction, but the trigger to re-read survives the subagent-return eviction only if it lives in the always-resident body), and the terminal-status self-check binds every termination path — not only a deliberate wrap-up — so a run that simply halts at "documentation done" without concluding is still caught.
+Both are prose contracts, so their automated boundary is a coupled pin assertion in `lib/test/run.sh` (the same RED/GREEN mechanism the engine uses for skill contracts): each **operative** clause carries an `assert_pin_unique` presence pin (exactly-once) *and* an `assert_pin_red_on_removal` proof that it flips RED against the un-pinned source; the section heading is pinned presence-only. The always-loaded orchestrator also repeats the Phase 4.1 re-anchor *trigger* in its Phase 4 section (the phase file carries the operative instruction, but the trigger to re-read survives the subagent-return eviction only if it lives in the always-resident body), and the terminal-status self-check binds every termination path — not only a deliberate wrap-up — so a run that simply halts at "documentation done" without concluding is still caught. To make that binding checkable rather than merely stated, the orchestrator must **read the live workpad `Status` line immediately before emitting any run-final message** — from the comment, not from its memory of where the run got to — and conclude only when that line reads a terminal value.
+
+### Nested-skill tail-call guard (Skill rule, completion re-anchor, and `CLAUDE.md` carve-out)
+
+The Phase 4.1 re-anchor above generalizes into a broader guard against a *nested `Skill` tail call* stopping the run early (issue #366). A nested `Skill` runs as a tail call, so an interactive skill's terminal "ask the user / apply with approval" step becomes the *run's* terminal step, stalling the run mid-phase with the workpad frozen at an in-progress `Status`; a non-interactive nested skill can instead complete cleanly but leave the phase continuation evicted from the working set. Three coupled clauses in `skills/implement/SKILL.md` (all in the always-resident orchestrator body, pinned in `lib/test/run.sh`) close both variants:
+
+- **Exhaustive, exclusionary Skill rule.** The *only* skills the orchestrator may invoke via the Skill tool are `simplify` and `review-and-fix` (code review) and `pr-description` (PR documentation). Any approval-gated or interactive skill — one whose procedure ends in an "ask the user" / "apply with approval" step (e.g. `claude-md-management:revise-claude-md`, the `superpowers` `brainstorming` skill) — must **never** be invoked from inside an autonomous phase, generalizing the existing precedent that the autonomous run does not invoke the full interactive `/devflow:create-issue` pipeline. This clause prevents the *observed* incident: an interactive skill stalling mid-procedure awaiting approval, a point no completion-anchored re-anchor can ever reach.
+- **Nested-skill completion re-anchor.** After completing any nested skill's *procedure* (anchored on completion of the nested procedure, **not** on the `Skill` tool call's immediate return — that return is merely the loaded skill body the orchestrator then executes over later turns), and before any other action, re-`Read` the current phase file and resume the interrupted step, **never re-invoking the nested skill** (the same idempotency clause the Phase 4.1 re-anchor carries). This closes the *latent* variant where a non-interactive nested skill completes but the continuation was evicted. It lives in the always-resident body for the same eviction-resistance reason.
+- **`CLAUDE.md` edit carve-out.** `CLAUDE.md`'s Conventions section mandates `revise-claude-md` / `claude-md-improver` for `CLAUDE.md` edits, but invoking either mid-run would reproduce the very stall the exclusionary rule prevents. So any `CLAUDE.md` edit an autonomous run is *required* to make — by a Phase-3 review finding **or** by the issue's own acceptance criteria — is made **directly by the orchestrator**, citing the carve-out and recording it in the workpad; interactive/human sessions still use `revise-claude-md` / `claude-md-improver`. This is one half of a coupled pair with a matching Conventions bullet in `CLAUDE.md`, kept in lockstep.
+
+### The Skill tail-call hazard, and the three cross-phase rules that contain it (issue #362)
+
+The two guards above catch a run that *under-completes* Phase 4. A distinct failure kills a run outright, anywhere in the lifecycle: **a mid-phase Skill-tool invocation is a tail call, not a subroutine call.** The nested skill's body arrives as a new instruction gradient, so when that skill's own procedure ends in a user-facing report or approval step, the implement run ends *with* it — the workpad freezes at an in-progress `Status`, no terminal reaction fires, and nothing announces the death. (Observed on issue #356: the run invoked `claude-md-management:revise-claude-md` mid-Phase-3.3 and died on that skill's final approval step. The terminal-status self-check above cannot fire, because the resident instruction gradient at that moment belongs to the nested skill, not the orchestrator.) Three always-resident cross-phase rules in `skills/implement/SKILL.md` contain it — always-resident because a Skill-return eviction can strike in any phase, and only the resident body is out of its reach:
+
+- **Subagent path for interactive skills (the Skill rule).** A mid-run edit that project conventions route through an *interactive* skill — any skill whose procedure ends in a user approval step — is performed by dispatching that skill inside a context-isolated **Agent-tool subagent** whose prompt pre-grants the approval, never by invoking it through the Skill tool mid-phase. The subagent absorbs the nested instruction gradient and hands control back. `simplify`, `review-and-fix`, and `pr-description` stay direct Skill invocations precisely because none of them ends in a user approval step. The rule is phrased repo-agnostically (the orchestrator ships to consumer repos); this repo's own instance of it lives in `CLAUDE.md`'s "Updating `CLAUDE.md`?" convention, which names `revise-claude-md` as the interactive skill to dispatch that way.
+- **Generalized mid-phase re-anchor.** After **every** Skill-tool return mid-phase — not only the Phase 4.1 docs subagent — the orchestrator re-`Read`s the current phase file and resumes at the step immediately following the invocation, never re-dispatching the skill that just returned. This is the same eviction defense as the Phase 4.1 re-anchor, generalized from one subagent return to every nested-skill return; the older rule remains, now scoped to *subagent* returns.
+- **Non-interactive self-answer rule.** On the cloud tier (`GITHUB_ACTIONS` set) there is no user to answer a nested skill's question, so asking one strands the run. The orchestrator answers such a question itself on the user's behalf — the issue description is the primary guide, the workpad `## Plan` and `## Acceptance Criteria` secondary — records each self-answered question and its answer via `--note`, and continues the nested procedure. An interactive local run still asks the user. The rule reaches **only** questions a nested skill directs at the user: it never answers the issue's own open questions, and a workpad `Blocked` pause stays a pause.
+
+### Local-tier Stop-hook backstop (`lib/implement-stop-guard.sh`)
+
+The workflow-level stall backstop below is **cloud-only** (a `Stop` hook does not exist there — `claude-code-action` discards `.claude/`), so an unattended *local-tier* run that dies mid-phase has no deterministic net. `lib/implement-stop-guard.sh` is that net. It is **repo-local by design**: it is wired in this repo's own `.claude/settings.json` and ships to no consumer repo.
+
+The guard is **marker-gated**, so an ordinary session never pays for it. Phase 1.3 writes an empty run-marker `.devflow/tmp/implement-active-<issue>` the moment the workpad exists (gitignored, anchored to the repo or worktree root); the always-resident *Outcome reaction* block — which already binds every terminal `Status` transition — removes it at each of them. On `Stop`, the guard:
+
+1. allows immediately when `GITHUB_ACTIONS` is set (the cloud tier has its own backstop);
+2. globs for a marker with pure bash and **allows immediately when none exists** — this arm spawns no interpreter and makes no network call (only the one local `git rev-parse` its repo-root resolver runs), which is the property every non-implement session relies on;
+3. allows when `python3` is unavailable (its own breadcrumb, not folded into the parse arm below), and otherwise parses `session_id` out of the hook's stdin JSON, allowing when the JSON is unparseable, the id is missing, or the id is unsafe as a filename component;
+4. allows when this session's sentinel `.devflow/tmp/stop-guard-<session_id>` already exists;
+5. allows, keeping **every** marker, when `scripts/workpad.py` itself is absent — `python3 <script>` exits 2 on an unopenable script, which is the very code `workpad.py` uses for "no workpad", so without this check a missing helper would be read as a stale marker and delete it, silently disabling the backstop;
+6. otherwise reads each marker's live workpad `Status` with `scripts/workpad.py status <n>`, which is the **source of truth** — the marker only gates *whether* to ask.
+
+`workpad.py status` routes the outcome: a `terminal` class deletes the marker and continues (self-heal, so a marker left by a killed run costs at most one query); exit 2 (no workpad) deletes the stale marker likewise; exit 1 (unreadable), exit 3 (`gh` transport/auth failure), and an unrecognized status class all keep the marker and **fail open** — the guard never blocks on a workpad it could not read. When several markers are present the first `interim` one blocks; markers after it in scan order are simply re-scanned on a later Stop event, so their self-heal is deferred, never lost. Solely on `interim`, it writes the sentinel, prints to stderr an instruction naming the issue and the interim status word, and exits **2** — the documented Stop-hook code that prevents the stop and feeds stderr back to the agent. The instruction addresses both readers: an implement run is told to return to the phase that owns the remaining work and drive `Status` to a terminal value; any other session is told to say the guard blocked the stop and simply end its turn again.
+
+The `session_id`-keyed sentinel bounds the guard to **at most one block per session**, so a run that genuinely cannot finalize is never trapped. Every non-blocking path exits 0 with a stderr breadcrumb naming *that arm* (including a failed sentinel write, which allows rather than blocking without a bound). The hook entry in `.claude/settings.json` therefore carries a short `timeout` and — load-bearing — **no `|| true`**, which would swallow the blocking exit 2 and neuter the whole mechanism; `lib/test/run.sh` pins that absence against the guard's own command string, and drives every arm as a unit test.
+
+### Resume detection of an existing PR (`phase-1-setup.md` §1.4)
+
+A re-triggered run — a manual retrigger, or the stall backstop's auto-resume — may already have a feature branch and an open draft PR from its first attempt, while the local harness hands it a *fresh* worktree on a different branch. §1.4's original Signal 1 (linked worktree) would adopt that worktree's branch, opening a second branch and a second PR and silently abandoning the committed work. A **resume pre-check now runs before Signal 1**: it reads the workpad's `**Branch:**` line and queries the issue's open PRs both by head branch and by body reference (either query alone has a blind spot). When an open PR exists, the run checks out that PR's head branch — fetching it first when absent locally — and skips branch creation entirely; with several open PRs it picks the one whose head matches the workpad `Branch` line, else the newest. If the checkout is refused because the branch is already checked out in another linked worktree, the run continues in *that* worktree rather than duplicating the branch. With no workpad `Branch` line and no open PR, §1.4 behaves exactly as it did before the pre-check existed.
 
 ### Workflow-level stall backstop (harness-side, `devflow_implement.stall_backstop`)
 
@@ -252,23 +392,29 @@ A **workflow-level backstop** closes this, governed by two config keys under `de
 - **`stall_backstop.enabled`** (boolean, default `true`) — master switch. When `false`, the backstop is skipped entirely and the job behaves exactly as before (green on a mid-lifecycle stop). An unrecognized/missing value resolves to `true` (the safe, honest-failure direction).
 - **`stall_backstop.max_resume_attempts`** (integer, default `2`, minimum `0`) — hard cap on automatic resume attempts. `0` means detect-and-fail-loud only; `N` means up to `N` auto-resumes before failing loud. A negative/non-integer value resolves to `2`.
 
-When enabled, a post-`claude` step keys on the issue workpad `Status` (via `workpad.py status`, which reports the status as a `CLASS GLYPH WORD` line reusing the same `🚀`/`🎉`/`👎` vocabulary — **never** on PR draft state, mirroring the agent-side self-check so an intended `implement_pr_state=draft` run that reached `Status: Complete` is never a false positive):
+When enabled, a post-`claude` step keys on the issue workpad `Status` (via `workpad.py status`, which reports the status as a `CLASS GLYPH WORD` line reusing the same `🚀`/`🎉`/`👎`/`💥` vocabulary — **never** on PR draft state, mirroring the agent-side self-check so an intended `implement_pr_state=draft` run that reached `Status: Complete` is never a false positive):
 
-- **Terminal `Status`** (`Complete` 🎉 / `Blocked` 👎) → no-op; the job concludes normally.
+- **Terminal `Status`** (`Complete` 🎉 / `Blocked` 👎 / `Failed` 💥) → no-op; the job concludes normally. (`Failed` is written by this backstop's own dead-run flip below, so a re-triggered run reads it as a decided end rather than a stall.)
 - **Interim `Status`** (any 🚀 phase) → auto-resume: post a distinct audit comment (attempt *k* of `max_resume_attempts`) and re-dispatch `/devflow:implement <n>` so the skill's Phase 1.3 workpad-resume continues from where it stopped, bounded by the cap.
+
+**Denial-proof helper invocation on a resumed run (issue #405).** A resumed run — and every cloud helper invocation — must invoke bundled helpers with the **repo-relative vendored literal** (`.devflow/vendor/devflow/scripts/…`, `.devflow/vendor/devflow/lib/…`) as the command's **leading token**: never an absolute path (`/home/runner/.../scripts/workpad.py`), never the repo-root `scripts/…` form, and never behind a `VAR=value` prefix or a `bash <path>` wrapper. Each of those makes the command no longer *begin with* the granted literal, so the cloud allowlist silently denies it — and a resumed run that reaches for the absolute or repo-root form is denied on its very first `workpad.py` call and dies without resuming. The stall-backstop **resume comment now carries this discipline inline** (a `Resume note:` line in the comment body), so a resumed run receives the rule inside its own triggering comment even if it never re-reads the skill prose; the same rule is stated in the skill's always-resident orchestrator body. After two denials of a given command shape, switch to a listed legal form rather than iterating a third spelling.
 - **Cap exhausted** (including `max_resume_attempts: 0`) → the job exits non-zero (red) and posts a distinct comment naming the stall for a manual retrigger.
 - **Unreadable `Status`** (workpad missing / unparseable — `workpad.py status` exits 2 or 1, where exit 2 is "no workpad" and exit 1 covers both a missing/empty `Status` line and a present `Status` line whose word isn't in the canonical vocabulary (`Reviewing`/`Complete`/`Blocked`/etc.)) → fail closed (`unreadable` class) with a distinct diagnostic comment, never a false "stalled at X" claim.
 - **Auth/API failure reading the workpad** (`workpad.py status` exits **3** — a `gh`-api/transport/auth failure such as an expired App installation token, reading either the workpad `Status` or the issue comment list that counts prior attempts) → fail closed (`auth-failure` class, distinct from `unreadable`) with an auth-specific diagnostic comment, and **without consuming a resume attempt** — the workpad may be perfectly healthy; only the read failed (issue #287).
 
+**Dead-run `Status` flip → `💥 Failed` (issue #356).** On every **fail-loud** exit of the `Stall backstop` step that is reached after successfully reading a genuinely **interim** `Status` — the `fail-exhausted` arm (cap exhausted), the `mktemp` abort, the dropped-resume-comment abort, and the resume-posted-but-no-App-token abort — the step first performs a best-effort `workpad.py update <n> --status Failed --note "run died: <cause> — <run URL>"`, then exits with today's exit code. This introduces one new canonical **terminal** workpad status word, **`Failed`**, with the glyph **💥** (added to `workpad.py`'s `_STATUS_GLYPHS`; `_status_glyph` maps `failed`→💥; `cmd_status` classes it terminal; it is deliberately left out of `_STATUS_TO_PROGRESS_PHASE`, so a `--note` accompanying the flip nests under the most-recent-ticked `## Progress` phase, exactly like `Blocked`). Without this flip a dead run leaves its workpad frozen at `🚀 Implementing`, silently lying that it is still working; the flip makes the death visible in the run's own comment. The flip is guarded on the `interim` status class (a terminal/unreadable/auth-failure `Status` is never clobbered — fail closed) and is positional, not temporal: it is called only at genuine fail-loud exits, **never** on the green resume path (writing a terminal `Failed` before a resume would make the resumed run's own backstop read `terminal → noop` and disarm it). It is best-effort — a flip whose `workpad.py update` fails emits a `::warning::` and leaves the step's exit code exactly what it is today — and stays inside the step's `set +e` discipline. **💥 is a workpad-only glyph with no triggering-comment reaction equivalent** (unlike 🚀/🎉/👎, which map to rocket/hooray/-1): the backstop emits no outcome reaction for a `Failed` flip. A `Failed` workpad resumes normally on a fresh `/devflow:implement <n>` re-trigger — the gate's early-acknowledgement refreshes the `Run` link and Phase 1.3's resume arm resets `Status` to `🚀 Setup`; `Failed` is not `Blocked`, so it never joins the Blocked pause branch. A dead implement run also stops masquerading as clean in the weekly retrospective: `lib/cheap-gate.jq`'s clean condition is `workpad_final_status == "Complete"`, so `Failed` (which `lib/fetch-pr-context.sh` now strips the 💥 from, like the other glyphs) gates non-clean with reason `workpad status not Complete`.
+
 On **every** resume — whether triggered by this backstop's auto-resume, a manual re-trigger, or an external stall-backstop retry — the `gate` job's early-acknowledgement step (`Create workpad (early acknowledgement)` in `devflow-implement.yml`) deterministically refreshes the workpad's `**Run:**` link to the *current* run before handing off. When it finds a workpad already exists (`workpad.py id` succeeds), instead of only skipping the duplicate create it first runs `workpad.py update <n> --run-link "[View run](<this run's URL>)"`, so an operator watching a stalled/retried run can click through the workpad to the currently-active job's logs rather than the original run's. This write lands at the workflow (gate) level, independent of whether the subsequent `claude` job goes on to execute Phase 1.3 — so the `Run:` link stays current even on a resume that stalls again before Phase 1.3's own workpad-resume runs. It is best-effort (mirroring the create-failure path): a failed refresh emits a `::warning::` breadcrumb noting the `claude` job will refresh it in Phase 1.3 instead, then exits 0, so a workpad-update hiccup never fails the gate job or blocks the run. (The Phase 3.1 draft-PR body carries the same `[View run]` link for the run that created the PR, omitted entirely on a local-tier run where there is no Actions run URL.)
 
-The decision itself is a pure, unit-tested helper (`scripts/stall-backstop-decide.sh`) so `lib/test/run.sh` drives every branch; the audit/fail comments go through the best-effort repo-scoped REST helper `scripts/post-issue-comment.sh` (the `ensure-label.sh`/`apply-labels.sh` always-exit-0 + stderr-breadcrumb contract), so a comment hiccup never flips a *fail* decision green; on the resume arm — where the comment *is* the action — a dropped re-dispatch comment fails the job loud (a never-posted resume must not read as green). The thin workflow-caller step (`Stall backstop`, `if: always()` after the observability-persist backstop in `devflow-implement.yml`'s `claude` job) wires these together: it reads the two config keys via the vendored `config-get.sh`, reads the workpad `Status` via `workpad.py status`, counts prior auto-resume attempts by grepping the issue's comments for the `<!-- devflow:stall-backstop-audit -->` marker each resume comment carries (the count input is CR-stripped, and a failed comment read makes the attempt count unknowable, so it fails the job loud rather than resuming unbounded past an unenforceable cap), feeds all four inputs to `stall-backstop-decide.sh`, and acts on the token. Only the resume comment carries the `/devflow:implement <n>` trigger phrase; the fail-loud comments deliberately do not (so a failed run never self-retriggers). Three boundaries govern the auto-resume in practice: a `/devflow:implement` comment authored by the built-in `GITHUB_TOKEN` does **not** re-trigger the workflow (GitHub suppresses recursive `GITHUB_TOKEN` events), so when no `DEVFLOW_APP_ID` App token is configured the step posts the resume comment and then **fails the job loud** (auto-resume is inert under `GITHUB_TOKEN`, and an inert resume must not read as green — a human re-posts the trigger, or configures the App); that App's bot login must be present in `devflow.allowed_bots` or the gate's actor authorization declines the resume comment; and the new run's `gate` dedupe must not classify the resume as a duplicate of the still-finishing original. The fail-loud + audit-comment behavior is correct regardless of all three.
+**Prevention layer (issue #415).** The backstop above is the deterministic *convergence* net; a coordinated *prevention* layer reduces how often the early-quit fires in the first place (mirroring the review tier's #408/#410 fix). **(1) Headless-wait discipline (prose).** A new always-resident cross-phase rule in `skills/implement/SKILL.md` — cloud-conditioned on `GITHUB_ACTIONS`, sitting beside the *Non-interactive self-answer rule* — tells the orchestrator this is a headless (`claude -p`) run where **ending the turn ends the process** with no re-invocation: never end the turn while any dispatched Agent-tool subagent has not returned (a Phase-2 `code-explorer`/`code-architect`, Phase-3's inline `review-and-fix` agents, the Phase-4.1 `devflow:docs` subagent), poll to keep the turn alive, and treat `ScheduleWakeup`/future task-notifications as unavailable. Its always-resident placement is load-bearing — it survives nested-skill body eviction, so it governs every dispatch point including the Phase-3 inline review pass. A one-line mirror rides inside the stall-backstop resume comment (`devflow-implement.yml`) as a second `Headless note:` line beside the #405 `Resume note:` — coupled with the skill rule in one commit and pinned in `lib/test/run.sh` — so a resumed run receives it even if it never re-reads the skill prose. It is cloud-scoped: a local/interactive run (`GITHUB_ACTIONS` unset) is untouched and `ScheduleWakeup`/task-notifications work normally. **(2) Probe-verified `ScheduleWakeup` denial.** `.github/workflows/matcher-probe.yml`'s `schedulewakeup-probe` job runs a `claude-code-action` session with `--disallowedTools ScheduleWakeup` (the tool also granted in `--allowed-tools`, so the flag under test is the only possible removal cause), has the model attempt one `ScheduleWakeup` call bracketed by two positive controls, and derives a deterministic DENIED/AVAILABLE/REMOVED/INCONCLUSIVE verdict from the execution file (never the model's text). The verdict gates whether `devflow-implement.yml`'s `claude` step ships `--disallowedTools ScheduleWakeup`: a removed/denied verdict ships the flag plus a `lib/test/run.sh` pin, a still-available verdict ships no flag and records the omission rationale on the PR — the same probe-before-grant discipline the matcher-probe corpus already uses. **Executed (issue #418):** the probe measured **AVAILABLE** across real cloud runs 29140791165 and 29138117625 (both recorded a `ScheduleWakeup` `tool_use` that was not denied; a third run, 29139012320, hit the documented compliant-model false-positive — presumptive REMOVED with both controls run — and the two positive observations are dispositive over it), so per the tool-still-available arm no flag or `--disallowedTools`-flag `lib/test/run.sh` pin shipped and the early-quit prevention rests on the headless-wait prose alone. The verdict is version-dependent — re-probe (via the `schedulewakeup-probe` job) after a `claude-code-action` upgrade before trusting it.
+
+The decision itself is a pure, unit-tested helper (`scripts/stall-backstop-decide.sh`) so `lib/test/run.sh` drives every branch; the audit/fail comments go through the best-effort repo-scoped REST helper `scripts/post-issue-comment.sh` (the `ensure-label.sh`/`apply-labels.sh` always-exit-0 + stderr-breadcrumb contract), so a comment hiccup never flips a *fail* decision green; on the resume arm — where the comment *is* the action — a dropped re-dispatch comment fails the job loud (a never-posted resume must not read as green). The thin workflow-caller step (`Stall backstop`, `if: always()` after the observability-persist backstop in `devflow-implement.yml`'s `claude` job) wires these together: it reads the two config keys via the vendored `config-get.sh`, reads the workpad `Status` via `workpad.py status`, counts prior auto-resume attempts by grepping the issue's comments for the `<!-- devflow:stall-backstop-audit -->` marker each resume comment carries (the count input is CR-stripped, and a failed comment read makes the attempt count unknowable, so it fails the job loud rather than resuming unbounded past an unenforceable cap), feeds all four inputs to `stall-backstop-decide.sh`, and acts on the token. Only the resume comment carries the `/devflow:implement <n>` trigger phrase; the fail-loud comments deliberately do not (so a failed run never self-retriggers). Three boundaries govern the auto-resume in practice: a `/devflow:implement` comment authored by the built-in `GITHUB_TOKEN` does **not** re-trigger the workflow (GitHub suppresses recursive `GITHUB_TOKEN` events), so when no `DEVFLOW_APP_ID` App token is configured the step posts the resume comment and then **fails the job loud** (auto-resume is inert under `GITHUB_TOKEN`, and an inert resume must not read as green — a human re-posts the trigger, or configures the App); that App's bot login must be present in `devflow.allowed_bots` or the gate's actor authorization declines the resume comment; and the new run's `gate` dedupe must not classify the resume as a duplicate of the still-finishing original — which it no longer does: `dedupe-implement-run.sh` reads the triggering comment body from `GITHUB_EVENT_PATH` and, when it carries the `<!-- devflow:stall-backstop-audit -->` marker every resume comment writes, skips deduping so the taking-over run proceeds instead of being swallowed (issue #280, resolving the deferred #268 finding; the detection lives in the script — reading the event payload rather than a workflow-passed env — precisely so the fix needs no `.github/workflows/` change). The fail-loud + audit-comment behavior is correct regardless of all three.
 
 ## Workpad ticking: failure-isolation contract and index-based ticking
 
 `workpad.py update` PATCHes the workpad once per call, and it distinguishes two failure classes so a batch of mutations is not lost to a single bad checkbox tick:
 
-- **Structural failures abort the whole call before any PATCH** (exit 1, clear stderr): `gh` cannot resolve the repo, the API call fails, a target section (`## Progress`/`## Plan`/`## Acceptance Criteria`) is absent, the `Last updated` line is missing (or the `Status` line when `--status` is supplied), a `--rewrite-ac` substring matches zero or multiple rows, or a `--replace-*-file`/`--set-reproduction-file` is unreadable. A `--status Complete` write with any non-post-merge `## Acceptance Criteria` row still `- [ ]` is also a structural abort — the terminal self-record gate (see Phase 4.3 above) — so a run can never record itself Complete over an unmet AC. A structural failure persists nothing — all-or-nothing, as it always was.
+- **Structural failures abort the whole call before any PATCH** (exit 1, clear stderr): `gh` cannot resolve the repo, the API call fails, a target section (`## Progress`/`## Plan`/`## Acceptance Criteria`) is absent, the `Last updated` line is missing (or the `Status` line when `--status` is supplied), a `--rewrite-ac` substring matches zero or multiple rows, a `--rewrite-ac` pair appends the `(post-merge)` tag (NEW ends with it; neither OLD nor the row it targets already does) without a non-empty `--note` rationale (issue #338 — so every mid-run `(post-merge)` retag is a recorded, auditable claim; a text tweak on an already-`(post-merge)` row creates no new deferral and needs no note), or a `--replace-*-file`/`--set-reproduction-file` is unreadable. A `--status Complete` write with any non-post-merge `## Acceptance Criteria` row still `- [ ]` is also a structural abort — the terminal self-record gate (see Phase 4.3 above) — so a run can never record itself Complete over an unmet AC. A structural failure persists nothing — all-or-nothing, as it always was.
 - **Volatile per-row tick misses are isolated, not aborted.** A `--tick-*`/`--tick-*-n` flag that does not resolve to exactly one tickable row *inside a present section* — a substring matching zero or multiple unticked rows, or a `-n` index that is out of range or lands on an already-ticked row — does **not** discard the call. Every other mutation (`--status`, `--note`, `--reflection`, and every tick that *did* resolve) is applied and PATCHed, and the call then **exits non-zero** with a stderr report naming each tick that did not land. So one bad tick in a batch no longer silently loses the accompanying status/notes.
 
 A single `_report_failed_ticks` chokepoint in `scripts/workpad.py` writes the collected misses on all three exit paths — the structural-abort path, the `gh`-PATCH-failure path, and the clean-PATCH-but-ticks-missed path — so a miss is never silently dropped, and the stderr preamble states whether a PATCH was persisted so the caller can distinguish "nothing landed, re-send the whole call" from "the body PATCHed, re-tick only the named row(s)."
@@ -325,8 +471,32 @@ of named deliverables; it does not decide whether the doc pass runs.
 
 Path extraction is **deterministic, not LLM-interpreted** (issue #185 Addendum): a bundled helper,
 `scripts/extract-doc-needed-paths.sh`, is the single extraction boundary both stages consume. It reads
-the issue body, scopes strictly to the `**Documentation Needed**` bullet under `## Implementation
-Notes`, and emits the recognizable file paths one per line — a token counts as a path only if it
+the issue body, scopes strictly to the Documentation Needed block under `## Implementation
+Notes` — recognized in **any** of the three scope-opening shapes real bodies use: the template's
+canonical `- **Documentation Needed** — …` list item (issue #185), a bare, blank-line-preceded
+`**Documentation Needed** — …` bold paragraph with no `- ` marker (the form an LLM-drafted `##
+Implementation Notes` section commonly renders, which the older `- `-required anchor matched nothing of,
+silently skipping the gate; issue #309, a sibling of the #289 miss class), **or** a `### Documentation
+Needed` level-3 heading (issue #380 — the form a body that renders its deliverables under a subheading
+uses, the real issue #363 body, which matched nothing under the two bold openers and silently skipped the
+gate). The heading opener anchors to exactly level 3 inside `## Implementation Notes`, so a deeper `####
+…` heading or a bullet that merely mentions the label does not open, and any other level-3+ heading closes
+an open heading-form scope so later-subsection paths never leak. The template canonically emits the
+bold-bullet form; the heading form is accepted so a differently-rendered body still gates. A bold-emphasis span that only begins a wrapped continuation
+line inside the bullet does not close the scope, so paths on later wrapped lines are still captured.
+Two adjacent grammar shapes are handled explicitly (issue #327), both in the leak-safe direction: (1) a
+top-level bold **deliverable** list after the bullet stays in scope — a backtick-led bold item
+(`- **`docs/a.md`**`) is a listed deliverable, not a peer section label, so it is captured instead of
+silently closing the scope to empty output (a non-backticked `- **docs/a.md**`, being indistinguishable
+from a peer label, still closes — an accepted, `run.sh`-pinned tradeoff, since real deliverable lists
+backtick their paths); (2) a trailing blank-line-preceded **plain-prose** paragraph (not blank, not a
+list item, not bold) closes the scope so its path-like tokens do not leak as deliverables — but only
+**once a deliverable has already been captured** in the scope (an `emitted` gate), so a primary prose
+declaration and any intervening prose before the deliverables stay in scope. A blank-separated plain
+sub-list stays in scope. The `emitted` gate arms only on a structural line (list item or bold line)
+bearing a token Stage B would emit, mirroring Stage B's basename+extension predicate, so plain prose can
+never arm the close — keeping the fix strictly leak-safe (it never introduces a new fail-open).
+It then emits the recognizable file paths one per line — a token counts as a path only if it
 ends in a recognized doc/source extension **or** names an in-tree tracked regular file (the
 `[ -f ] && git ls-files --error-unmatch` rescue for extensionless real files like `Makefile`/`LICENSE`).
 A bare "contains `/`" test is deliberately **not** sufficient — it wrongly emitted directory tokens
@@ -342,9 +512,13 @@ rooted-token rejection) rather than by the shadow review.
 body and treats its output as the required deliverables. If the helper emits one or more paths, the
 dispatch instruction sent to the `devflow:docs` subagent is extended with "The issue requires the
 following files to be updated; treat each as a mandatory deliverable: `<path1>`, `<path2>`, …". If the
-helper emits nothing **but** the issue body still contains a `**Documentation Needed**` bullet, the
-orchestrator records an auditable workpad note (the skipped enforcement is logged rather than silently
-disabled). When no paths are extractable the subagent receives the normal instruction unchanged.
+helper emits nothing **but** the issue body still contains a Documentation Needed section **in either
+accepted form** — the bold-bullet `**Documentation Needed**` form **or** a `### Documentation Needed`
+heading (the safety-net grep matches both, carrying the same `\*{0,2}` bold-tolerance as the extractor's
+own opener so the two heading recognizers cannot drift) — the orchestrator records an auditable workpad
+note (the skipped enforcement is logged rather than silently disabled). Matching only the bold-bullet form
+here would leave a heading-form issue's empty extraction silently unrecorded — the exact #363 gap. When no
+paths are extractable the subagent receives the normal instruction unchanged.
 
 **Stage 2 — Post-hoc diff gate (after the subagent commits).** After the subagent completes and before
 ticking `Documentation`, the orchestrator **re-runs the same helper** — the single source of truth, so
@@ -404,6 +578,19 @@ the `Documented` label that would mislead downstream docs automation.
 The two-stage gate closes a silent-miss class: prior to this change, if a docs subagent missed a
 named deliverable, Phase 4.1 ticked `Documentation` without any cross-check and the gap was only
 visible to a human reading the PR diff.
+
+**Discharging 3.4-deferred documentation ACs (before §4.3 Complete).** Any acceptance criterion the
+Phase 3.4 gate deferred as Phase-4.1-owned (a `docs/…` deliverable, recorded in a `3.4: doc-AC deferred to
+Phase 4.1: {AC text}` workpad note — see the Phase 3.4 gate above) is this phase's obligation to close.
+Once the docs pass has run and its changes are committed, for **each** such deferred doc-AC the
+orchestrator confirms the required docs actually landed in this run's diff (Stage 2 already verified the
+named deliverable paths) and ticks the criterion by its 1-based position, citing the deferral note. This
+tick **must** happen before §4.3's terminal `--status Complete` write, because `workpad.py`'s terminal
+Complete gate hard-fails a Complete write while any non-post-merge acceptance-criteria row is still
+unticked — a doc-AC left unticked would abort the finalize. A deferred doc-AC that genuinely cannot be
+discharged (the docs pass could not author it and the content cannot be derived) is *not* ticked and *not*
+finalized: it takes the existing `Blocked` path and emits the 👎 outcome reaction, never a silent Complete
+over an undischarged doc-AC.
 
 ## Scope boundary between Phase 2.3.2 and Phase 4.1
 

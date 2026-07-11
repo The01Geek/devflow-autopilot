@@ -1,0 +1,60 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-08T03:31:45Z",
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "Bare repos/*/pulls/{n} (no sub-resource) not recognized by the new arm — fail-open direction, NOT live (no helper uses bare pulls/{n}).",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [15970, 15982], "kind": "coverage_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Within-family violation identity unasserted (count-only fixture) — already a documented deferral.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [16126, 16143], "kind": "test_coverage"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "pending", "source_file": "lib/test/run.sh", "evidence": "Disclosed the bare-pulls/{n} fail-open as a header deferral matching the sibling deny-all/single-level/indentation deferrals; not-live verified (no bare pulls/{n} in scripts/ or lib/)."},
+    {"finding_id": "F-2", "decision": "deferred", "source_file": "lib/test/run.sh", "claim_text": "within-family violation identity unasserted", "skip_category": "already-tracked", "evidence": "Already documented as a deferral at run.sh header (per-family violation identity, aggregate-count-only)."}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 8,
+    "new_corroborated_critical_count": 0
+  },
+  "shadow": {
+    "ran_at": "2026-07-08T03:40:00Z",
+    "reviewed_sha": "718aea7bd3f279fc6730b3a072ce2cb176dc5c90",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 2, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  }
+}

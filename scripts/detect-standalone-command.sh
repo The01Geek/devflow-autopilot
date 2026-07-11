@@ -13,12 +13,9 @@
 # A command merely *quoted in prose* (`please run /devflow:review`), in a `>`
 # blockquote, indented as code, or inside a fenced block does NOT qualify. This
 # is the single implementation of the anchored line scan.
-# scripts/resolve-command-trigger.sh (the authoritative trigger gate) routes
-# through it today; the review_dedupe job in .github/workflows/devflow.yml is
-# INTENDED to route through it too (so the two matchers cannot drift), but that
-# workflow change is a deferred, workflows-scoped follow-up (see
-# docs/workflow-triggers.md) — until it lands, review_dedupe keeps its own
-# coarse `case`-substring match.
+# Both scripts/resolve-command-trigger.sh (the authoritative trigger gate) and
+# the review_dedupe job in .github/workflows/devflow.yml route through it (issue
+# #321), so the two matchers are a single source of truth and cannot drift.
 #
 # Detection is deliberately FAIL-CLOSED on an unbalanced fence: after an
 # unclosed opening fence every following line is treated as code and fires

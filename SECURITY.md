@@ -22,9 +22,12 @@ workflows. A few areas warrant care:
   handling: never commit it, store it as an encrypted Actions secret, and prefer
   a key scoped/guardrailed to the intended provider (see the OpenRouter
   privacy-hardening checklist in `docs/cloud-setup.md`).
-- **`config.json` is gitignored** by default precisely so adopters don't
-  accidentally commit environment-specific configuration. Treat it as
-  environment configuration.
+- **`config.json` is committed, not gitignored.** DevFlow's cloud tier reads it
+  from the committed tree, so the scaffolded `.devflow/.gitignore` ignores only
+  `tmp/` and leaves `config.json` tracked. Because it is committed, keep secrets
+  out of it — it holds only non-secret environment configuration (project/board
+  IDs, model names). Store credentials as encrypted GitHub Actions secrets, never
+  in `config.json`.
 - **Skills run shell commands.** DevFlow's skills execute `git`, `gh`, `jq`, and
   bundled Python helpers. Review the skills you install, as you would any plugin.
 - **The retrospective loop opens PRs/issues** on the configured repository. It

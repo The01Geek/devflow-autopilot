@@ -7,9 +7,20 @@
           {
             "type": "command",
             "command": "bash lib/efficiency-trace.sh --persist || true"
+          },
+          {
+            "type": "command",
+            "command": "bash lib/implement-stop-guard.sh",
+            "timeout": 15
           }
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "plugin-dev@claude-plugins-official": true
   }
 }

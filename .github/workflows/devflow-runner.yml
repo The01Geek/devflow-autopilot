@@ -71,6 +71,17 @@ on:
           absent/unparseable execution log (fail-safe; the consumer's HEAD-SHA
           verdict scoping remains the primary staleness guard).
         value: ${{ jobs.run.outputs.engine_is_error }}
+      permission_denials_count:
+        description: |
+          Number of Bash permission denials recorded in this run's execution log
+          (issue #363), or the literal `unavailable` when the count could not be
+          established — diagnostics disabled, the step skipped, or an absent or
+          unparseable execution file. A consumer MUST treat `unavailable` as
+          unknown and never render it as `0`: the whole point of the no-verdict
+          ::error:: is to name the cause, and "refused 0 commands" on a run whose
+          diagnostics never parsed is a false statement that steers the reader
+          away from permission denials.
+        value: ${{ jobs.run.outputs.permission_denials_count }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         description: |
@@ -117,12 +128,24 @@ permissions:
   id-token: write
   actions: read # Required for Claude to read CI results (paired with additional_permissions below)
   issues: read # Required to read the linked issue when reviewing against its acceptance criteria
+  # Required by scripts/summarize-ci-checks.sh's commits/{sha}/check-runs query.
+  # COUPLED with the `review` caller job's grant in devflow-review.yml: a reusable
+  # workflow requesting a permission its caller did not grant aborts the run at
+  # graph-build time (startup_failure), so these two land together or not at all.
+  checks: read
 
 jobs:
   run:
     runs-on: ubuntu-latest
     outputs:
       engine_is_error: ${{ steps.engine.outputs.is_error }}
+      # `|| 'unavailable'` is the load-bearing default: it covers EVERY path on which
+      # the diagnostics step publishes nothing (config-disabled, skipped, absent or
+      # unparseable execution file). The sentinel is deliberately NOT `0` — a
+      # consumer must be able to tell "the engine recorded no denials" from "the
+      # count could not be established", and collapsing both onto `0` makes the
+      # no-verdict ::error:: assert a denial count it never observed (issue #363).
+      permission_denials_count: ${{ steps.diagnostics.outputs.permission_denials_count || 'unavailable' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -166,6 +189,7 @@ jobs:
       # resolve at the literal workspace path. Only `ref` is PR-influenced; the
       # source repo is fixed, so a PR can at most select an official-repo commit.
       - uses: ./.github/actions/vendor-plugin
+        id: vendor
         with:
           ref: ${{ steps.extract.outputs.devflow_version }}
 
@@ -199,6 +223,15 @@ jobs:
           # devflow-bootstrap-via-PR case) all collapse to provision_env=false.
           PROVISION=false
           BASE_JSON='{}'
+          # Trusted deny-floor helper (PR-#404 REJECT fix): materialized from the
+          # base ref below, ONLY inside the successful base-ref fetch branch —
+          # FETCH_HEAD elsewhere (e.g. left by actions/checkout) can point at the
+          # PR HEAD, and reading the floor from there would hand the security
+          # filter to the PR author. Empty means "no trusted base-ref copy"; the
+          # tools step then falls back to a runtime-FETCHED vendored copy or
+          # fails closed — never to the PR-head checkout.
+          FLOOR_HELPER=''
+          FLOOR_SOURCE='absent'
           if [ -n "$BASE_REF" ]; then
             # origin is the upstream repo (fork-PR commits live under upstream
             # refs), so the base tip is the maintainer-controlled config, not the
@@ -238,11 +271,42 @@ jobs:
                 # notice so a silently-downgraded opt-in is at least observable.
                 echo "::notice::No .devflow/config.json on base ref '$BASE_REF'; provision_env=false (read-only review)."
               fi
+              # Materialize the deny-floor helper from the SAME trusted base-ref
+              # tip (FETCH_HEAD is still the base ref here — this block must stay
+              # inside this fetch-success branch). Candidate paths, in order: the
+              # committed vendor copy (self-hosting consumers), then the repo's
+              # own scripts/ copy — the latter ONLY when the base ref IS the
+              # DevFlow plugin repo (same plugin.json-name discriminator as
+              # vendor-slice.sh's self branch), so a consumer's unrelated
+              # like-named script is never executed as the floor. Written to
+              # RUNNER_TEMP: outside the PR-writable workspace, so PR content can
+              # neither pre-place nor overwrite it. Best-effort: any failure
+              # leaves FLOOR_HELPER empty and the tools step fails closed.
+              _floor_raw=''
+              if _floor_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh" 2>/dev/null); then
+                FLOOR_SOURCE='base-ref-vendored'
+              elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq '"name"[[:space:]]*:[[:space:]]*"devflow"' \
+                && _floor_raw=$(git show "FETCH_HEAD:scripts/filter-runner-tools.sh" 2>/dev/null); then
+                FLOOR_SOURCE='base-ref-repo'
+              fi
+              if [ "$FLOOR_SOURCE" != 'absent' ]; then
+                if mkdir -p "$RUNNER_TEMP/devflow-trusted-floor" 2>/dev/null \
+                  && printf '%s\n' "$_floor_raw" > "$RUNNER_TEMP/devflow-trusted-floor/filter-runner-tools.sh" 2>/dev/null; then
+                  FLOOR_HELPER="$RUNNER_TEMP/devflow-trusted-floor/filter-runner-tools.sh"
+                else
+                  echo "::warning::could not write the base-ref deny-floor helper into RUNNER_TEMP; the tools step will fall back to a runtime-fetched vendored copy or fail closed."
+                  FLOOR_SOURCE='absent'
+                fi
+              fi
             else
               echo "::warning::Could not fetch base ref '$BASE_REF'; defaulting to provision_env=false (read-only review)."
             fi
           fi
-          echo "provision_env=$PROVISION" >> "$GITHUB_OUTPUT"
+          {
+            echo "provision_env=$PROVISION"
+            echo "floor_helper=$FLOOR_HELPER"
+            echo "floor_source=$FLOOR_SOURCE"
+          } >> "$GITHUB_OUTPUT"
           # Freeform reviewer build allowlist, read from the SAME trusted base ref
           # as provision_env above (so a PR cannot grant itself tools). Emitted as
           # a comma-joined string. `map(strings)` keeps only string elements so a
@@ -282,6 +346,17 @@ jobs:
           # the review profile only when PROVISION_ENV is 'true', and only after
           # the deny-list floor below strips the catastrophic tier.
           RUNNER_TOOLS: ${{ steps.baseprovision.outputs.runner_tools }}
+          # Trusted deny-floor helper, materialized by baseprovision from the base
+          # ref into RUNNER_TEMP (empty when the base ref carries none). The floor
+          # must never execute a PR-head copy — see the trust rule in the review
+          # profile below.
+          FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}
+          FLOOR_SOURCE: ${{ steps.baseprovision.outputs.floor_source }}
+          # Which vendor-slice branch materialized .devflow/vendor/devflow this
+          # run: committed | self | fetch. Only 'fetch' (a fresh clone of the
+          # official repo at the pinned devflow_version) is a trusted source for
+          # the floor helper; committed/self copies come from the PR-head tree.
+          VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
         run: |
           set -euo pipefail
           # Profiles intentionally kept inline (single-string per profile) to
@@ -289,9 +364,17 @@ jobs:
           # profiles here as real callers require them; do not speculate.
           case "$PROFILE" in
             review)
-              # Slim profile for /devflow:review — read-only, comment/post-review
+              # Slim profile for /devflow:review — read-only tree, comment/post-review
               # only. No PHP/npm/composer (the review skill never shells out
-              # to them). No Edit/Write (review must not mutate the tree).
+              # to them). No Edit and no tree-writable Write: the ONLY Write rule is
+              # the path-scoped Write(.devflow/tmp/**) at the tail — the reviewer may
+              # author scratch files into the gitignored .devflow/tmp scratch dir
+              # (its workpad/scratch recipe uses the Write tool there, never a shell
+              # `>` redirect — matcher-probe run 29111394360 recorded `>` redirects
+              # AND Write(/tmp/**) DENIED, while Write(.devflow/tmp/**) is PERMITTED,
+              # issue #401), but the repo tree stays read-only. The reviewer's
+              # `contents: read` token still makes a push impossible, so nothing the
+              # reviewer writes to .devflow/tmp can ever reach the repo.
               # The workpad.py / config-get.sh / load-prompt-extension.sh /
               # efficiency-trace.sh entries below are read-only-safe: workpad.py
               # authors the live progress comment via `gh api` (a comment edit, not a
@@ -304,7 +387,15 @@ jobs:
               # the run's workpads and prints Markdown. The per-run record FILE write
               # (--mode record) is gated to writable runs by the skill and is not
               # attempted here, so the profile stays read-only for the tree.
-              TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)'
+              # Command heads the review skill actually invokes are pinned against this
+              # string by lib/test/run.sh (issue #363): a head the skill runs but this
+              # profile omits is silently DENIED at runtime, burning the run's budget and
+              # stalling it without a verdict. `mkdir`/`tee` back Phase 0.2's cached diff;
+              # `git cat-file` backs Phase 0.3.6's blocker-recheck precondition;
+              # `git checkout`/`mktemp`/`cmp`/`rm -f` back Phase 3.1's dirty-tree backstop.
+              # `git checkout` mutates the worktree, which is exactly what that backstop
+              # restores; the reviewer's `contents: read` token still makes a push impossible.
+              TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Write(.devflow/tmp/**)'
               # When the trusted base config opted into provisioning, the runner
               # has a built env (setup-project-env ran below), so grant the
               # freeform build/verify commands the maintainer listed in
@@ -317,112 +408,119 @@ jobs:
               # SECURITY — deny-list floor. Before appending, strip the
               # categorically-unrecoverable tier no matter what /devflow:init's
               # LLM enrichment or a later hand-edit wrote into the base config:
-              # tree-mutation tools (Edit/Write/MultiEdit/NotebookEdit) and any
-              # Bash entry that can reach a raw shell / eval / privilege binary
-              # (bash/sh/zsh/eval/exec/source/sudo). This is the AUTHORITATIVE
-              # boundary — it runs here, at consume-time, on the trusted base-ref
-              # list, because a fast-feedback guard in detect-project-tools.sh can
-              # be bypassed by a hand-edit but this filter cannot. A denied entry
-              # is dropped + warned, never fatal (a typo must not abort every
-              # review). The list is mirrored in scripts/detect-project-tools.sh
-              # (fast feedback only); keep both in sync — this copy enforces.
+              # tree-mutation tools (Edit/Write/MultiEdit/NotebookEdit — stripped by
+              # tool NAME, so bare AND parameterized forms like Write(**) /
+              # Edit(src/**) alike, issue #402) and any Bash entry that can reach a
+              # raw shell / eval / privilege binary (bash/sh/zsh/eval/exec/source/
+              # sudo). This is the AUTHORITATIVE boundary — it runs here, at
+              # consume-time, on the trusted base-ref list, because a fast-feedback
+              # guard in detect-project-tools.sh can be bypassed by a hand-edit but
+              # this filter cannot. A denied entry is dropped + warned, never fatal
+              # (a typo must not abort every review). The list is mirrored in
+              # scripts/detect-project-tools.sh (fast feedback only); keep both in
+              # sync — this path enforces.
               #
-              # A bare-name blocklist is trivially bypassable, so the Bash check
-              # inspects the COMMAND-POSITION binary (the first whitespace token of
-              # the spec, before the first ':' or ')') by its basename, and denies:
-              #   - a raw shell / eval / privilege binary (bash/sh/zsh/dash/ksh/
-              #     fish/eval/exec/source/sudo/doas/su) — incl. path forms like
-              #     /bin/bash, since we compare the basename;
-              #   - an exec-wrapper (env/xargs/nice/timeout/nohup/setsid/command/
-              #     chroot/runuser) whose first arg would BE the real command —
-              #     this is what closes Bash(env bash:*) / Bash(xargs sh -c:*)
-              #     without having to scan every arg token;
-              #   - a leading env-assignment (FOO=1 bash) — the var prefix shifts
-              #     the executable past token 0;
-              #   - any shell metacharacter anywhere in the spec (; | & $ < > ( )
-              #     backtick), which is the classic "append a second command" vector
-              #     (Bash(go;sudo:*), Bash(cat x|sh:*));
-              #   - an empty command word (bare `Bash`, Bash(:*) = "all shell").
-              # We deliberately do NOT scan non-leading arg tokens by basename — that
-              # over-strips legitimate tools whose subcommand/arg happens to be a
-              # deny word (Bash(docker exec:*), Bash(make CC=gcc:*),
-              # Bash(go run ./cmd/sh:*)). This is the AUTHORITATIVE boundary; the
-              # jq mirror in scripts/detect-project-tools.sh applies the same rules.
+              # The filter logic itself lives in scripts/filter-runner-tools.sh
+              # (extracted so lib/test/run.sh can drive the full adversarial input
+              # matrix — inline YAML cannot be unit-tested; issue #402). The helper
+              # inspects the Bash COMMAND-POSITION binary by basename and the
+              # file-tool NAME before the first '(' case-insensitively; its header
+              # documents every rule. This step only resolves + calls it, fails
+              # closed when it is absent, and re-emits its strip warnings.
               if [ "$PROVISION_ENV" = "true" ]; then
-                DENY_NAMES='Edit Write MultiEdit NotebookEdit'
-                DENY_CMDS='bash sh zsh dash ksh fish eval exec source sudo doas su env xargs nice timeout nohup setsid command chroot runuser'
-                FILTERED=''
-                STRIPPED=''
-                # Newlines/CRs in an entry are normalized to the comma delimiter so
-                # a multi-line entry can't smuggle a second tool past the per-entry
-                # check (the heredoc transport forwards newlines verbatim). Then
-                # split on comma ONCE (an entry like "Bash(go build:*)" keeps its
-                # internal space) and restore the default IFS. `set -f` disables
-                # pathname expansion for the split: every entry contains a literal
-                # `*` (e.g. Bash(npm:*)), so without noglob the unquoted expansion
-                # could glob against the checked-out working tree. All per-entry
-                # parsing below uses parameter expansion / `case` (no word-split of
-                # an unquoted var), so no further globbing occurs.
-                RUNNER_TOOLS="${RUNNER_TOOLS//$'\r'/}"
-                RUNNER_TOOLS="${RUNNER_TOOLS//$'\n'/,}"
-                OLDIFS=$IFS
-                IFS=','
-                set -f
-                set -- $RUNNER_TOOLS
-                set +f
-                IFS=$OLDIFS
-                for raw in "$@"; do
-                  # Trim surrounding whitespace from the whole entry.
-                  entry="${raw#"${raw%%[![:space:]]*}"}"
-                  entry="${entry%"${entry##*[![:space:]]}"}"
-                  [ -z "$entry" ] && continue
-                  denied=false
-                  for n in $DENY_NAMES; do
-                    if [ "$entry" = "$n" ]; then denied=true; break; fi
-                  done
-                  if [ "$denied" = false ]; then
-                    case "$entry" in
-                      Bash) denied=true ;;            # bare Bash = all shell
-                      Bash\(*)                         # prefix match: no trailing ')' required
-                        inner="${entry#Bash(}"
-                        cmd="${inner%%:*}"             # spec: before the first ':'
-                        cmd="${cmd%%)*}"               # and before the first ')'
-                        cmd="${cmd#"${cmd%%[![:space:]]*}"}"
-                        cmd="${cmd%"${cmd##*[![:space:]]}"}"
-                        binword="${cmd%%[[:space:]]*}" # command-position token (no glob)
-                        binbase="${binword##*/}"        # strip any path
-                        if [ -z "$cmd" ]; then
-                          denied=true                  # empty command word = all shell
-                        else
-                          case "$cmd" in
-                            *[';|&$<>()']*) denied=true ;;   # shell metacharacter in spec
-                            *'`'*) denied=true ;;            # backtick command-substitution
-                          esac
-                          case "$binword" in
-                            [A-Za-z_]*=*) denied=true ;;     # leading env-assignment (FOO=1 cmd)
-                          esac
-                          if [ "$denied" = false ]; then
-                            for c in $DENY_CMDS; do
-                              if [ "$binbase" = "$c" ]; then denied=true; break; fi
-                            done
-                          fi
-                        fi
-                        ;;
-                    esac
-                  fi
-                  if [ "$denied" = true ]; then
-                    STRIPPED="${STRIPPED:+$STRIPPED, }$entry"
-                  else
-                    FILTERED="${FILTERED:+$FILTERED,}$entry"
-                  fi
-                done
-                if [ -n "$STRIPPED" ]; then
-                  echo "::warning::devflow_runner.allowed_tools: stripped deny-listed entries before building the review profile: $STRIPPED. These are never permitted on the reviewer's write-token job (tree mutation / raw shell / privilege escalation); the review continues with the safe remainder."
+                # The deny-list floor is applied by scripts/filter-runner-tools.sh
+                # (issue #402) — the AUTHORITATIVE, suite-driven boundary. TRUST
+                # RULE (the PR-#404 REJECT finding): this job checks out the PR
+                # HEAD, so any copy of the helper in the checked-out tree — the
+                # committed vendor dir or the repo's own scripts/ — is
+                # PR-author-editable, and a floor whose code the PR controls is no
+                # floor at all. The helper is therefore executed ONLY from a
+                # trusted source, in rank order:
+                #   1. FLOOR_HELPER — materialized by the baseprovision step from
+                #      the TRUSTED base ref (git show FETCH_HEAD:…) into
+                #      RUNNER_TEMP, outside the PR-writable workspace;
+                #   2. the vendored copy, ONLY when the vendor-plugin step reports
+                #      vendor_source=fetch — i.e. the copy was cloned THIS RUN from
+                #      the official repo at the pinned devflow_version, never taken
+                #      from the PR-head tree (a PR can at most select an
+                #      official-repo commit — the same accepted posture as the
+                #      vendor step itself).
+                # A committed/self vendor copy is deliberately NEVER consulted
+                # here, and FAIL CLOSED when no trusted source resolves: a security
+                # filter that cannot run must append NOTHING, not the unfiltered
+                # list. Version skew: the floor is as current as the BASE REF's
+                # helper (or the pinned fetch) — a consumer must land a re-vendor
+                # on the base branch for a later tightening (e.g. #402's
+                # parameterized file-tool strip) to take effect; until then a
+                # base ref with no helper fails closed (no build tools, warning,
+                # read-only review still works). Both are stated in
+                # docs/DEVFLOW_SYSTEM_OVERVIEW.md's deny-floor paragraph.
+                # Anchor the relative vendored-copy candidate to the git repo ROOT
+                # (issue #409 item 8, #295 convention: `git rev-parse --show-toplevel`,
+                # falling back to `pwd`). A bare relative `.devflow/vendor/…` path
+                # resolves against the step's cwd, so a future `working-directory:` (or a
+                # step that `cd`s) would silently miss the vendored helper and flip every
+                # review that RELIES ON the fetch-vendored fallback to the helper-absent
+                # fail-closed arm. (Reviews that resolve the rank-1 trusted base-ref
+                # FLOOR_HELPER, an absolute RUNNER_TEMP path, never reach this branch.)
+                # Anchoring makes the candidate cwd-independent. FLOOR_HELPER is already
+                # absolute, so only the fetch-gated vendored path needs it.
+                _REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+                FILTER_HELPER=''
+                if [ -n "${FLOOR_HELPER:-}" ] && [ -f "$FLOOR_HELPER" ]; then
+                  FILTER_HELPER="$FLOOR_HELPER"
+                  echo "deny-list floor source: trusted base ref (${FLOOR_SOURCE:-base-ref})"
+                elif [ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f "$_REPO_ROOT/.devflow/vendor/devflow/scripts/filter-runner-tools.sh" ]; then
+                  FILTER_HELPER="$_REPO_ROOT/.devflow/vendor/devflow/scripts/filter-runner-tools.sh"
+                  echo "deny-list floor source: runtime-fetched vendored copy (pinned devflow_version)"
                 fi
-                if [ -n "$FILTERED" ]; then
-                  TOOLS="$TOOLS,$FILTERED"
+                if [ -z "$FILTER_HELPER" ]; then
+                  echo "::warning::devflow deny-list floor helper (filter-runner-tools.sh) not found at any TRUSTED source — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned devflow_version (vendor_source='${VENDOR_SOURCE:-unknown}'); the PR-head checkout's own copy is deliberately not consulted, because the floor must not be PR-editable. Failing closed: NO build/verify tools appended to the review profile (the reviewer keeps the read-only profile). Land the DevFlow re-vendor on the BASE branch (or use a thin install with a pinned devflow_version) so a trusted helper is available."
                 else
-                  echo "::warning::devflow_runner.provision_env is true but devflow_runner.allowed_tools is empty (or empty after deny-list stripping): build-aware review is enabled with NO build tools, so the reviewer has only the read-only profile. Populate devflow_runner.allowed_tools with your build/test/lint tools (e.g. Bash(go:*), Bash(cargo:*)) to enable build-aware review."
+                  # The helper reads the raw RUNNER_TOOLS from the environment,
+                  # prints the KEPT entries as one comma-joined line on stdout, and
+                  # one strip-warning line per stripped entry on stderr. Capture the
+                  # helper's exit status in the SAME statement (`|| HELPER_RC=$?`):
+                  # the helper's contract is `exit 0` always, so a non-zero rc is a
+                  # genuine MALFUNCTION whose interpreter invocation itself failed to
+                  # open/parse/run the helper — an unreadable, corrupt, or
+                  # partially-vendored helper, or resource exhaustion — NOT an empty
+                  # result. (A non-fatal in-script hiccup such as a too-old bash
+                  # rejecting `shopt -s nocasematch` does NOT reach this arm: the
+                  # helper has `set -u` but no `set -e` and ends with `exit 0`, so it
+                  # still exits 0 — the file-tool tier merely degrades to
+                  # case-sensitive, which only affects inert lowercase spellings.)
+                  # Distinguishing malfunction from empty below keeps a helper crash
+                  # from being misdiagnosed as "your config is empty" (the "unknown is
+                  # not a real value" breadcrumb-honesty rule); either way it fails
+                  # CLOSED (nothing appended).
+                  # Guard mktemp (issue #409 item 7): a temp-dir that is unwritable or
+                  # exhausted makes `mktemp` fail, leaving STRIP_LOG empty. The old
+                  # unguarded `STRIP_LOG="$(mktemp)"` then let the `2>"$STRIP_LOG"`
+                  # redirect target an empty path and, under GitHub's default `-e` run
+                  # shell, abort the whole `tools` step — a security filter must never
+                  # HARD-ABORT the step (that is a different failure than the intended
+                  # fail-closed). So capture mktemp best-effort and, if it did not yield
+                  # a real file, fail CLOSED (append nothing) with an actionable warning.
+                  STRIP_LOG="$(mktemp 2>/dev/null || true)"
+                  if [ -z "$STRIP_LOG" ] || [ ! -e "$STRIP_LOG" ]; then
+                    echo "::warning::devflow deny-list floor: could not create a temp file (mktemp failed — the runner's temp dir is unwritable or exhausted) to capture the helper's per-entry strip warnings — failing closed: NO build/verify tools appended to the review profile (the reviewer keeps the read-only profile). This is a runner ENVIRONMENT issue, NOT an empty devflow_runner.allowed_tools."
+                  else
+                    HELPER_RC=0
+                    FILTERED="$(RUNNER_TOOLS="$RUNNER_TOOLS" bash "$FILTER_HELPER" 2>"$STRIP_LOG")" || HELPER_RC=$?
+                    # Re-emit each per-entry strip line as a workflow `::warning::`.
+                    while IFS= read -r _line; do
+                      if [ -n "$_line" ]; then echo "::warning::$_line"; fi
+                    done < "$STRIP_LOG"
+                    rm -f "$STRIP_LOG"
+                    if [ "$HELPER_RC" -ne 0 ]; then
+                      echo "::warning::devflow deny-list floor helper ($FILTER_HELPER) exited $HELPER_RC (it is contracted to always exit 0) — failing closed: NO build/verify tools appended to the review profile. This is a helper MALFUNCTION (the helper is unreadable, corrupt, or partially vendored so 'bash' could not run it), NOT an empty devflow_runner.allowed_tools — check the helper, do not re-check your config."
+                    elif [ -n "$FILTERED" ]; then
+                      TOOLS="$TOOLS,$FILTERED"
+                    else
+                      echo "::warning::devflow_runner.provision_env is true but devflow_runner.allowed_tools is empty (or empty after deny-list stripping): build-aware review is enabled with NO build tools, so the reviewer has only the read-only profile. Populate devflow_runner.allowed_tools with your build/test/lint tools (e.g. Bash(go:*), Bash(cargo:*)) to enable build-aware review."
+                    fi
+                  fi
                 fi
               fi
               ;;
@@ -648,15 +746,63 @@ jobs:
       # provision_env: when the provision step is skipped (or every service is
       # healthy) the output resolves to empty and the prompt is forwarded
       # byte-for-byte unchanged, so the read-only happy path is unaffected.
+      #
+      # The engine is also given GROUND TRUTH about two things it otherwise burns
+      # turns rediscovering (issue #363): the exact set of commands it may run, and
+      # the CI results that already exist for the head it is reviewing. Without this
+      # the engine probes its own boundary by attempting denied commands — on PR #340
+      # seven of fourteen denials were it trying, seven ways, to run the test suite —
+      # and can consume an entire run without producing a verdict. This block is
+      # prepended on EVERY review run, independently of health_summary.
       - name: Compose review prompt
         id: compose
         env:
           BASE_PROMPT: ${{ inputs.prompt }}
           HEALTH_SUMMARY: ${{ steps.provision.outputs.health_summary }}
+          ALLOWED_TOOLS: ${{ steps.tools.outputs.tools }}
+          # The job's own GITHUB_TOKEN, whose `permissions:` block declares the
+          # `checks: read` + `actions: read` the CI queries need. The downscoped
+          # DevFlow-Reviewer token is minted LATER (it posts the review), so it is
+          # deliberately not used here.
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SELF_WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           set -euo pipefail
+          # The reviewed head is the commit `actions/checkout` put in the worktree.
+          HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
+          export HEAD_SHA
+          # summarize-ci-checks.sh always exits 0, printing `CI status unavailable`
+          # when it cannot determine the CI state — so the block is present even when
+          # the query fails, and an absent result never renders as a passing one.
+          SCC=.devflow/vendor/devflow/scripts/summarize-ci-checks.sh
+          [ -f "$SCC" ] || SCC=scripts/summarize-ci-checks.sh
+          if [ -f "$SCC" ]; then
+            CI_SUMMARY=$(bash "$SCC") || CI_SUMMARY="CI status unavailable"
+          else
+            echo "::warning::devflow: summarize-ci-checks.sh not found at either the vendored or repo path — the review prompt's CI section will report it unavailable" >&2
+            CI_SUMMARY="CI status unavailable"
+          fi
+          [ -n "$CI_SUMMARY" ] || CI_SUMMARY="CI status unavailable"
+
+          RGB=.devflow/vendor/devflow/scripts/render-grounding-block.sh
+          [ -f "$RGB" ] || RGB=scripts/render-grounding-block.sh
+          if [ -f "$RGB" ]; then
+            GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" bash "$RGB") || GROUNDING=""
+          else
+            echo "::warning::devflow: render-grounding-block.sh not found at either the vendored or repo path — the review prompt carries no engine-ground-truth block this run" >&2
+            GROUNDING=""
+          fi
+          # Verify the OUTCOME, not the file's existence: a present-but-truncated
+          # renderer that exits 0 printing nothing would silently strip the block's
+          # prompt-injection defense from the prompt with no breadcrumb.
+          [ -n "$GROUNDING" ] || echo "::warning::devflow: render-grounding-block.sh produced no output — the review prompt carries no engine-ground-truth block this run (the engine will rediscover its tool boundary by trial and denial)" >&2
+          # The grounding block is ALWAYS present. When the infra-health block is also
+          # present, both are prepended — grounding first, then health, then the base
+          # prompt — so neither displaces the other.
           if [ -n "$HEALTH_SUMMARY" ]; then
-            PROMPT="> [!IMPORTANT]
+            PROMPT="${GROUNDING}
+          > [!IMPORTANT]
           > **Infrastructure status: one or more service containers did not come up.**
           > This reviewer environment was provisioned (\`provision_env\` is on), but
           > the following services are degraded:
@@ -672,7 +818,8 @@ jobs:
 
           ${BASE_PROMPT}"
           else
-            PROMPT="$BASE_PROMPT"
+            PROMPT="${GROUNDING}
+          ${BASE_PROMPT}"
           fi
           # Heredoc transport with a unique, timestamped delimiter: the prompt is
           # full of markdown/backticks, so a fixed sentinel could collide with its
@@ -706,7 +853,7 @@ jobs:
         if: ${{ vars.DEVFLOW_REVIEWER_APP_ID != '' }}
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.DEVFLOW_REVIEWER_APP_ID }}
+          client-id: ${{ vars.DEVFLOW_REVIEWER_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_REVIEWER_PRIVATE_KEY }}
           permission-contents: read
           permission-issues: read
@@ -764,12 +911,13 @@ jobs:
             claude-md-management@claude-plugins-official
             devflow@devflow-marketplace
 
-          # --permission-mode acceptEdits auto-approves Edit/Write plus the
-          # filesystem Bash commands mkdir/touch/rm/rmdir/mv/cp/sed. The
-          # "review" profile uses none of those, so the flag is a no-op for
-          # this profile today — kept as defensive precedent-matching with
-          # prompt-mode invocations and to absorb future profiles
-          # that may need the auto-approved commands.
+          # --permission-mode acceptEdits does NOT widen an explicit --allowed-tools
+          # list: the allowlist is a separate, stricter gate, and a command absent
+          # from it is denied no matter what the permission mode auto-approves. So a
+          # command the "review" profile needs must be granted in TOOLS above —
+          # acceptEdits is never a substitute (issue #363; the observed `Write` denial
+          # under this very flag is the proof). Kept for precedent-matching with
+          # prompt-mode invocations and for future profiles.
           # claude_args head is a COMPUTED string (steps.cargs): --model always,
           # --effort conditional on effort_supported (issue #313). --model now comes
           # from the provider resolver (the dead `model` input was removed). The
@@ -821,3 +969,150 @@ jobs:
             IS_ERROR=false
           fi
           echo "is_error=$IS_ERROR" >> "$GITHUB_OUTPUT"
+
+      # Surface the claude-code-action run's execution diagnostics (run summary +
+      # permission-denial detail) to the job log and $GITHUB_STEP_SUMMARY so a
+      # maintainer debugging a stalled / incomplete / unexpectedly-denied cloud
+      # run sees the denial detail and run shape directly — the exact information
+      # that was irrecoverable for PR #325 (issue #331; helper + config key
+      # shipped in #329). Read-only: the helper always exits 0, this step adds no
+      # permissions grant / minted-token scope and uploads no artifact, so it
+      # never changes the job's pass/fail. always() (alongside the engine-error
+      # step above, same steps.claude.outputs.execution_file) so it runs even
+      # when the claude step errored — which is exactly when the diagnostics
+      # matter. Gated on .devflow.execution_diagnostics_enabled (default true)
+      # via the vendored config-get.sh (repo-path fallback for a self-repo
+      # checkout); only the exact string "false" disables it, and an empty read
+      # (config-get soft/hard failure) falls safe to enabled.
+      - name: Surface execution diagnostics
+        id: diagnostics
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          CG=.devflow/vendor/devflow/scripts/config-get.sh
+          [ -f "$CG" ] || CG=scripts/config-get.sh
+          # `|| true` so config-get's hard-fail exit (malformed config.json / missing
+          # python3) can't abort this step under GitHub's default `-e` run shell — which
+          # would fail the job and break the "never changes the job's pass/fail" contract
+          # above. The empty read then falls safe to enabled on the next line. (Mirrors the
+          # engine-error step's `|| echo false` assignment guard.)
+          ENABLED="$("$CG" .devflow.execution_diagnostics_enabled true || true)"
+          [ -n "$ENABLED" ] || ENABLED=true
+          # Exported so the transcript steps below can gate without re-reading config
+          # from a `uses:` step that cannot run shell. The transcript artifact has its
+          # OWN key with the OPPOSITE polarity: default FALSE and fail-CLOSED on any
+          # config-read failure — a transcript can carry an env dump (Bash(env:*) is
+          # granted), and a consumer must opt in to publishing that as an artifact;
+          # only the exact string "true" enables it.
+          echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+          TRANSCRIPT="$("$CG" .devflow.execution_transcript_artifact_enabled false || true)"
+          [ "$TRANSCRIPT" = "true" ] || TRANSCRIPT=false
+          echo "transcript=$TRANSCRIPT" >> "$GITHUB_OUTPUT"
+          if [ "$ENABLED" = "false" ]; then
+            echo "execution diagnostics: disabled via .devflow.execution_diagnostics_enabled=false; skipping."
+            exit 0
+          fi
+          SED=.devflow/vendor/devflow/scripts/surface-execution-diagnostics.sh
+          [ -f "$SED" ] || SED=scripts/surface-execution-diagnostics.sh
+          if [ -f "$SED" ]; then
+            # `|| echo ::notice::` for the same reason as the config-get guard above:
+            # the helper's always-exit-0 contract holds for the committed file, but a
+            # partial-copy / truncated vendored helper (a documented deployment hazard)
+            # could exit non-zero, which under GitHub's default `-e` run shell would
+            # abort this always() step and fail the job. Guard it so the read-only
+            # "never changes the job's pass/fail" contract holds even then.
+            bash "$SED" "${EXECUTION_FILE:-}" || echo "::notice::surface-execution-diagnostics.sh exited non-zero; execution diagnostics unavailable (best-effort)."
+          else
+            echo "::notice::surface-execution-diagnostics.sh absent; execution diagnostics not surfaced (best-effort)."
+          fi
+
+      # Preserve the engine's full execution transcript as a run artifact (issue #401
+      # follow-up). Three no-verdict review runs ended on a VOLUNTARY final message
+      # (subtype success, mid-phase) that nobody could ever read — the execution file
+      # dies with the runner, so every stall diagnosis so far has been inference from
+      # denial counts. Recording it turns the next stall from a guess into a read.
+      # Gated by its OWN opt-in key `devflow.execution_transcript_artifact_enabled`
+      # (default FALSE, fail-closed — resolved in the diagnostics step above), NOT the
+      # default-on diagnostics gate: a consumer repo must never start publishing
+      # transcripts merely by upgrading. The scrub pass redacts token-shaped strings
+      # (the review profile grants Bash(env:*), so a transcript can contain a dumped
+      # environment) before anything becomes an artifact; the scrub is a blocklist and
+      # inherently incomplete for third-party credential shapes — another reason the
+      # key is opt-in. Fail-closed — a scrub failure uploads nothing.
+      - name: Scrub execution transcript for upload
+        id: scrub_transcript
+        if: always() && steps.diagnostics.outputs.transcript == 'true' && steps.claude.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          OUT="$RUNNER_TEMP/claude-execution-scrubbed.json"
+          if [ ! -f "$EXECUTION_FILE" ]; then
+            echo "::notice::execution file absent; no transcript to preserve."
+            exit 0
+          fi
+          # Redact common credential shapes: GitHub App/installation/classic/fine-grained
+          # tokens, Anthropic keys, and Authorization headers (both the Bearer form and
+          # the base64 basic-auth form the checkout persists — `AUTHORIZATION: basic
+          # <base64(x-access-token:<token>)>`, issue #409 item 4). The header NAME is
+          # matched case-INSENSITIVELY via an explicit per-letter class — actions/checkout's
+          # git-auth-helper persists the extraheader as UPPERCASE `AUTHORIZATION:`, so a
+          # case-sensitive `Authorization` literal would miss the real persisted header and
+          # leak its base64 token. sed -E only (no GNU flags — `I` is GNU-only), so the class
+          # replaces the GNU case-insensitive flag portably. Scrub to $OUT first, then gate
+          # on non-emptiness and prepend the caveat.
+          if sed -E \
+            -e 's/gh[pousr]_[A-Za-z0-9_]{20,}/[REDACTED-GH-TOKEN]/g' \
+            -e 's/github_pat_[A-Za-z0-9_]{20,}/[REDACTED-GH-PAT]/g' \
+            -e 's/sk-ant-[A-Za-z0-9_-]{20,}/[REDACTED-ANTHROPIC-KEY]/g' \
+            -e 's/([Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn][":[:space:]]*)[Bb]earer [A-Za-z0-9._~+\/=-]+/\1Bearer [REDACTED]/g' \
+            -e 's/([Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn][":[:space:]]*)[Bb]asic [A-Za-z0-9+\/=]+/\1basic [REDACTED]/g' \
+            "$EXECUTION_FILE" > "$OUT"; then
+            # Item 3: advertise a path only when the scrubbed output is non-empty — an
+            # empty execution file scrubs to an empty $OUT, which is not worth uploading.
+            if [ -s "$OUT" ]; then
+              # Item 2: the scrub is a best-effort BLOCKLIST covering four credential
+              # shapes and is inherently incomplete for third-party shapes. State that
+              # on the log AND prepend it into the artifact itself. The caveat prepend
+              # goes through the SAME guarded write path that fails closed: a header
+              # write failure must NOT leave an unscrubbed/half-written file advertised
+              # for upload (issue #409 item 2 gotcha).
+              # One source of truth for the four redacted shapes, interpolated into both
+              # the artifact caveat and the log warning so they cannot drift. "Four shapes"
+              # counts the four comma-separated families below (GitHub tokens/PATs is one
+              # family spanning the two `gh[pousr]_`/`github_pat_` sed rules), so the five
+              # sed -E rules above map to these four named shapes.
+              SHAPES="GitHub tokens/PATs, Anthropic keys, Bearer Authorization headers, and basic Authorization headers"
+              # DEFERRED (#409 review, Suggestion, below the `important` fix threshold):
+              # prepending this `#`-comment caveat as line 1 makes the `.json`-named
+              # artifact non-parseable JSON. Deliberate for the CURRENT human
+              # stall-diagnosis purpose (a person reads the transcript; the caveat must
+              # be the first thing they see). Revisit ONLY if an automated `jq`/JSON
+              # consumer of this artifact is introduced — then move the caveat into an
+              # upload-step annotation or a sidecar `.txt` and keep the payload valid JSON.
+              CAVEAT="# DEVFLOW SCRUB CAVEAT: best-effort blocklist redacted four credential shapes ($SHAPES). This blocklist is INCOMPLETE — other third-party credential shapes may remain. Treat this artifact as sensitive."
+              echo "::warning::transcript scrub is a best-effort blocklist covering four credential shapes ($SHAPES); it is INCOMPLETE for third-party credential shapes — treat the uploaded artifact as sensitive."
+              HDR="$OUT.hdr"
+              if { printf '%s\n' "$CAVEAT" > "$HDR" && cat "$OUT" >> "$HDR" && mv "$HDR" "$OUT"; }; then
+                echo "path=$OUT" >> "$GITHUB_OUTPUT"
+              else
+                rm -f "$HDR"
+                echo "::warning::transcript caveat-header write failed; NOT uploading the transcript (fail-closed)."
+              fi
+            else
+              echo "::notice::scrubbed transcript is empty; nothing to preserve (no upload)."
+            fi
+          else
+            echo "::warning::transcript scrub failed; NOT uploading the unscrubbed execution file (fail-closed)."
+          fi
+
+      - name: Upload execution transcript artifact
+        if: always() && steps.scrub_transcript.outputs.path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-execution-transcript-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.scrub_transcript.outputs.path }}
+          retention-days: 7
+          if-no-files-found: ignore

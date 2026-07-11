@@ -4,6 +4,598 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.122] — 2026-07-11
+
+### Security
+- **Hardened the cloud-tier execution-transcript artifact and deny-floor helper paths.** The
+  transcript scrub step now redacts the base64 basic-auth `Authorization` header the checkout
+  persists (in addition to GitHub tokens/PATs, Anthropic keys, and Bearer headers), prepends a
+  best-effort-blocklist caveat header into the uploaded artifact and warns that the blocklist is
+  incomplete, and advertises an upload path only when the scrubbed output is non-empty. The
+  deny-floor helper-call block guards `mktemp` failure (failing closed instead of aborting the
+  `tools` step) and anchors its vendored-helper resolution to the git repo root so a future
+  `working-directory:` cannot silently flip every review to helper-absent fail-closed. The
+  `execution_transcript_artifact_enabled` gate, its fail-closed default-off polarity, the
+  file-tool deny-list lookalike/case behavior, and the schema retention/`retention-days`
+  coupling are now pinned. (#409)
+
+## [2.8.121] — 2026-07-11
+
+### Added
+- **Headless-wait discipline for the cloud implement tier.** `skills/implement/SKILL.md`'s
+  always-resident cross-phase rules now carry a cloud-conditioned (`GITHUB_ACTIONS`)
+  headless-wait rule: on the headless cloud runner, ending the turn ends the process, so the
+  orchestrator must never end its turn while a dispatched agent is still pending — it polls to
+  keep the turn alive and treats `ScheduleWakeup`/task-notifications as unavailable. A one-line
+  mirror rides inside `devflow-implement.yml`'s stall-backstop resume comment so a resumed run
+  receives it too. This is the implement-tier port of the review-tier fix (#408/#410); it
+  reduces how often a cloud implement run early-quits mid-phase and burns a
+  `devflow_implement.stall_backstop` resume attempt. A `schedulewakeup-probe` job in
+  `matcher-probe.yml` deterministically measures whether `--disallowedTools ScheduleWakeup`
+  removes/denies the tool in `claude-code-action`, gating a future `claude_args` denial.
+  The probe's four-way verdict derivation is extracted into the unit-tested helper
+  `scripts/schedulewakeup-probe-verdict.py` (every arm plus the fail-open name-match are
+  driven in `lib/test/run.sh`), and its ScheduleWakeup name-match is hardened to be
+  case-insensitive and to record a tool call even when it carries no `input` key, so a
+  present tool never mis-reads as absent and ships the denial flag.
+  Local/interactive runs are unchanged. (#417)
+
+## [2.8.120] — 2026-07-11
+
+### Changed
+- **Run the authoring-side sweeps on each fix delta, and charter Phase 3.2 cleanup agents as quality-only.** `review-and-fix` Step 3 gains item 3b: on every iteration in which Step 3 applies fixes, the fix author now runs the implement Phase 2.3 authoring-side sweeps (§2.3.0c trigger (a) new-guard operand trace, §2.3.0c trigger (b) prose-policy operand check, §2.3.4 external-output reproduction obligation) against the fix delta, each gated by its own phase-2 trigger, with evidence directed to the loop's own `iter-<N>.json` when it runs standalone — the author-side counterpart of the blinded Step 3.5 gate, which stays byte-identical. Phase 3.2 (`/simplify` self-review) is re-charted: `/simplify` is described as quality-only per its charter, the orchestrator no longer solicits a correctness/guard-class verdict from a cleanup agent nor records its "clean" as correctness evidence, and the Phase 3.3 reviewers — whose dispatch prompts carry the repo's guard classes — are named as the owners of correctness. (#377)
+
+## [2.8.119] — 2026-07-11
+
+### Changed
+- **Extract the review stall-backstop post-and-annotate glue into a shared helper.** The
+  ~40-line block that both `devflow-review.yml` and `devflow.yml` duplicated near-identically —
+  parse the `request-review-backstop.sh` decision, compose the `/devflow:review` re-trigger
+  body, POST it via `post-issue-comment.sh`, and select the `::notice::`/`::warning::`
+  annotation on the POST success breadcrumb — now lives once in
+  `scripts/post-review-backstop-comment.sh`. `lib/test/run.sh` drives the notice-vs-warning
+  selection (including the fail-closed arm where a failed/absent POST is never annotated as a
+  fired re-trigger) instead of only presence-pinning a breadcrumb literal in each workflow.
+  `request-review-backstop.sh`'s decision contract is unchanged. (#416)
+
+## [2.8.118] — 2026-07-11
+
+### Security
+- **Reviewer deny-list floor now strips parameterized tree-mutation tools.** The consume-time
+  deny-list floor that keeps `Edit`/`Write`/`MultiEdit`/`NotebookEdit` off the cloud reviewer's
+  write-token profile previously matched only bare tool names by exact string equality, so a
+  parameterized entry in `devflow_runner.allowed_tools` (`Write(**)`, `Edit(src/**)`,
+  `notebookedit(x)`) bypassed the floor and was granted to the reviewer. The floor now compares
+  the tool name before the first `(` case-insensitively, stripping bare and parameterized
+  file-tool entries alike and naming each in a per-entry strip warning. The filter logic is
+  extracted into `scripts/filter-runner-tools.sh` (suite-driven over an adversarial input
+  matrix), and the `denylisted` mirror in `scripts/detect-project-tools.sh` gains the same
+  check. Consumer repos keep the read-only-tree guarantee even when a generated or hand-edited
+  config smuggles a parameterized tree-mutation rule. (#404)
+- **The extracted floor executes only from a trusted source.** Because the review job checks
+  out the PR head, the workflow never runs the checked-out tree's copy of
+  `filter-runner-tools.sh` (a pull request could edit the filter governing its own review —
+  the trust-boundary regression the extraction would otherwise have introduced). The
+  `baseprovision` step materializes the helper from the trusted base ref into `RUNNER_TEMP`;
+  when the base ref carries none, the vendored copy is accepted only when the `vendor-plugin`
+  action reports it was freshly fetched this run at the pinned `devflow_version` (the action
+  now exposes a `vendor_source` output: `committed`/`self`/`fetch`). With no trusted source
+  the workflow fails closed — no build/verify tools are appended and a warning names the
+  rule. Self-hosting consumers must land DevFlow re-vendors on the base branch for floor
+  tightenings to take effect on reviews. (#404)
+
+## [2.8.117] — 2026-07-11
+
+### Fixed
+- Cloud review runs that end "success" with no verdict (the headless early-quit) no longer dead-end waiting for a human to re-trigger (issue #408). Two coordinated layers land together: (1) a **headless-wait discipline** — `skills/review/SKILL.md`'s cloud-conditioned section and the injected grounding block (`scripts/render-grounding-block.sh`, rendered once for both workflows) now tell the review engine that ending the turn ends the process, so it must not end its turn while a dispatched agent is still pending, must poll to keep the turn alive, and must treat `ScheduleWakeup`/future task-notifications as unavailable; and (2) a **bounded no-verdict auto-resume backstop** — a new `scripts/request-review-backstop.sh` owns the fire/no-fire decision, invoked by the auto-review path (`devflow-review.yml`'s `finalize_check`, which derives the verdict and fires on the success-with-no-verdict early-quit) and by the manual `/devflow:review` comment path (`devflow.yml`, which has no verdict derivation and so fires only on the `#356` dead-run signal — engine `is_error` / `claude` failure), posting a `/devflow:review` re-trigger comment authored by a freshly minted App token. Capped at `devflow_review.stall_backstop.max_resume_attempts` (default 2) per head and gated by `devflow_review.stall_backstop.enabled` (default true, disabled only on a real JSON `false`); it never fires when a verdict exists, beyond the cap, when disabled, or without a workflow-capable App token, degrading to the pre-existing dead-end flip with a breadcrumb. Adds the `devflow_review.stall_backstop` config object, the review-side sibling of `devflow_implement.stall_backstop`.
+
+## [2.8.116] — 2026-07-10
+
+### Added
+- **Unloseable review-loop telemetry: `iter-<N>.json` emit fused to the fix commit, plus a synthesis floor.** `/devflow:review-and-fix` now anchors the per-iteration workpad Write to Step 3 item 6's fix-commit moment (no seam between "fix landed" and "record exists"), and `lib/efficiency-trace.sh --persist` reconstructs a minimal iteration record (`iter` / `fix_commit_sha` / `fix_files` / `loop_role` / `synthesized: true`) from the branch's `fix: address review findings (iteration N)` commits when a run left zero `iter-*.json` — so a fully-dropped run still contributes effectiveness telemetry. `efficiency-trace.jq` and `--self-check` recognize the synthesized class. (#381)
+- **Workflow inline-shell extraction convention.** `CLAUDE.md` and `phase-2-implement.md` §2.3 now state that inline shell in a workflow that selects a branch or composes a user-facing message is extracted into a `scripts/*.sh` helper so the suite can drive each branch — a grep-pin on a message literal is not coverage of the selection that chooses it (reference: `scripts/describe-denial-count.sh`, #367). (#381)
+
+## [2.8.115] — 2026-07-10
+
+### Changed
+### Added
+- The cloud runner now preserves the engine's execution transcript as a
+  short-retention run artifact (`claude-execution-transcript-<run>-<attempt>`),
+  token-scrubbed and gated by the NEW opt-in (default-false, fail-closed)
+  `devflow.execution_transcript_artifact_enabled` key — a consumer must opt in; this repo's own config.json enables it. Follow-up to issue #401: three
+  no-verdict review stalls ended on a voluntary final message that was never
+  readable because the execution file died with the runner — the next stall
+  becomes a read, not an inference (evidence trail on issue #401, PR #397).
+
+## [2.8.114] — 2026-07-10
+
+### Changed
+- **Cloud `/devflow:implement` is now self-contained: in-run verification happens in the run's own environment, never via CI.** The implement run runs the project's test/lint commands in-env (granted through `devflow_implement.allowed_tools` / `devflow.allowed_tools`) and ticks every verification-command acceptance criterion — and the inline review pass's test evidence — on the pass it observes there. It no longer waits on, polls, or cites CI for its own progress; a verification command that is not granted goes **Blocked** naming `devflow_implement.allowed_tools` as the remedy instead of silently deferring to CI. CI remains the required post-PR check that gates the human merge. Auto-resume runs are now instructed — inside their own triggering comment and in the skill prose — to invoke bundled helpers with the repo-relative vendored literal (`.devflow/vendor/devflow/scripts/…`) as the leading token — the only form the cloud allowlist grants — so a resumed run actually resumes instead of dying on a silently-denied first helper call. (#406)
+
+## [2.8.113] — 2026-07-10
+
+### Added
+- **`/devflow:implement` authoring sweeps: operand-trace sweep (§2.3.0c) plus external-output, fail-open-guard, and agent-prompt-prose rules.** `skills/implement/phases/phase-2-implement.md` gains a new §2.3.0c operand-trace sweep with two triggers — a diff that adds a guard/predicate/validator/coverage-invariant (requiring a four-column operand table whose load-bearing fourth column asks *what OTHER inputs produce the same value?*), and agent-executed imperative prose that states a policy (requiring each policy to name its observable operand, its producing step, and a route for every outcome including failure). §2.3.4 now routes its in-diff carve-out to §2.3.0c and carries an external-tool-output reproduction obligation (paste the observed bytes; doc prose is not evidence) plus a companion outcome-verification rule; §2.3.6 gains the existence-vs-outcome and un-guaranteed-tool fail-open guard classes; and §2.4 splits human-read prose (adversarial dry-trace) from prose that enters a model's context as instruction (a `writing-skills` subagent RED/GREEN micro-test with a no-guidance control). The DevFlow preflight-guaranteed tool set is named in `.devflow/prompt-extensions/implement.md` as the repo instantiation of "the project's preflight." These shift four defect classes left from the blinded review loop to authoring time. (#397)
+
+### Fixed
+- **Cloud review no-verdict stalls: command-SHAPE discipline for the review engine (issue #401, B-side).** The deployed `claude-code-action` matcher denies whole command *shapes* even when the command *head* is granted by the read-only `review` profile — a leading `VAR="…"` assignment, a shell `>`/`>>` redirect to `/tmp`, a `cat`-headed heredoc write, a leading `cd`, or an interpreter head — so a cloud review can burn its budget re-trying denied variants and end with no verdict (Devflow Review run 29105381021 on PR #397: 22 denials, engine quit mid-Phase-3). Three durable guards, all keyed to the empirical matcher probe `.github/workflows/matcher-probe.yml` (evidence of record; re-runnable after any action/CLI upgrade): (1) a new `lib/test/extract-command-shapes.py` fence shape-lint (sibling of the issue-#363 head extractor, wired into `lib/test/run.sh`) that flags the four denied shape-classes in `skills/review/SKILL.md`'s ```bash fences; (2) `skills/review/SKILL.md` Phase 0.3.5 now authors the live progress-comment body with the Write tool under the run-scoped `.devflow/tmp/review/<slug>/<run-id>/` scratch dir (probe-permitted) instead of a `/tmp` `printf`-redirect + `cat`-heredoc (probe-denied), every `2>/tmp/devflow-rv-*.err` capture is retargeted into that in-workspace scratch dir, every computed `VAR="…"` assignment moves to the proven-permitted `VAR=$(printf '%s' "…")` capture form, and a new "Cloud command-shape discipline" subsection plus an anchor-preamble note state the permitted/denied shapes and the after-two-denials-then-switch rule; (3) `scripts/render-grounding-block.sh` appends the same command-shape rules to the injected engine-ground-truth block so improvised commands get the guidance at run time. (#397)
+
+## [2.8.112] — 2026-07-10
+
+### Changed
+- **`receiving-code-review`: the Verification Gate now requires fresh branch-sync evidence before reception is reported complete.** A fourth numbered evidence item makes the agent regenerate branch-sync evidence in the same turn as the completion claim — divergence versus the remote counterpart (ahead and behind), divergence versus the base branch, and working-tree cleanliness — rather than relying on the one-shot Step 0 update from earlier in the session. On detected drift the Step 0 update is re-run once and the evidence regenerated; unpushed local commits are surfaced (pushing them stays governed by the surrounding workflow). The item inherits Step 0's fail-soft arms and is scoped to direct invocations (the autonomous fix loop's own branch-sync mechanics govern there); Step 0's section now states its update is point-in-time and not citable as completion-time evidence. (#400)
+
+## [2.8.111] — 2026-07-10
+
+### Added
+- **Matcher-probe workflow for permission-shape evidence.** New
+  `.github/workflows/matcher-probe.yml` empirically measures which command *shapes*
+  the deployed `anthropics/claude-code-action@v1` permission matcher accepts under
+  the read-only `review` tool profile — the silent shape denials (leading `cd`,
+  leading `VAR=` assignments, heredoc writes, the unexpanded
+  `"${CLAUDE_SKILL_DIR:-…}"` anchor form) that burn a cloud review run to a
+  no-verdict stall (issue #401, evidence run 29105381021 on PR #397). One Haiku
+  `claude-code-action` session runs the review profile plus the candidate grants
+  under test (`Bash(cd:*)`, `Write(/tmp/**)`, `Write(.devflow/tmp/**)`) over an
+  11-shape corpus; a post-action step computes a per-shape PERMITTED/DENIED/
+  UNATTEMPTED table deterministically from the execution file's
+  `permission_denials` plus recorded `tool_use` inputs and on-disk side-effect
+  files — never the model's text output. Triggered by `workflow_dispatch` and by
+  `pull_request` scoped to the workflow's own path, same-repo only, and
+  concurrency-capped. Part of #401.
+- **Probe-gated review-profile grant.** Keyed to the probe's first run
+  (29111394360): the `review` profile in `.github/workflows/devflow-runner.yml`
+  gains `Write(.devflow/tmp/**)` (row 9 PERMITTED — the reviewer authors
+  workpad/scratch into the gitignored `.devflow/tmp` via the Write tool, never a
+  shell `>` redirect, which the probe recorded DENIED). The other two candidates
+  are DROPPED on the evidence: `Write(/tmp/**)` (row 8 DENIED — out-of-workspace)
+  and `Bash(cd:*)` (row 3 DENIED, confounded by an independently-denied `>`
+  redirect, so unproven pending a redirect-free re-probe). The repo tree stays
+  read-only — the reviewer's `contents: read` token still makes a push impossible.
+
+## [2.8.110] — 2026-07-10
+
+### Changed
+- **Extracted `devflow-review.yml`'s inline `SKIP_REASON`→deferral-title selection into
+  `scripts/describe-skip-title.sh`.** The `create_check` job's five-arm `case` that composed
+  the "Devflow review waiting: …" check-run title now lives in a dedicated helper (mirroring
+  `scripts/describe-denial-count.sh`), so the test suite drives every arm and asserts
+  arm-order — a reordered or deleted arm now turns the suite RED instead of silently
+  misattributing a deferral title. The titles are byte-identical and the honesty rule (never
+  assert a state the precheck did not observe) is carried into the helper. The precheck
+  `title` step tolerates a present-but-broken helper: the invocation is an `if/then` with a
+  `|| TITLE=""` fallback (not an `&&` list `set -e` would abort on), so a helper that exits
+  non-zero degrades to the generic fallback title instead of failing precheck and skipping
+  the deferral check entirely. (#393)
+
+## [2.8.109] — 2026-07-10
+
+### Added
+- **Verification discipline in the vendored review skills.** `receiving-code-review` now
+  carries a negative-test attribution rule (pin the rejecting guard's own distinct signal
+  when more than one guard can reject the input), a positive-control rule (a negative test
+  carries a positive control on the same fixture), a mutation-check requirement before any
+  completion claim, and a fired-on-writing-a-guard rewrite of *Share the Contract* (name the
+  protected downstream operation before writing the predicate; grep for an existing idiom
+  first). `requesting-code-review` now requires stating mutation evidence for the tests a
+  review request presents. All wording is repo-agnostic so consumer repos inherit it. The
+  DevFlow prompt extensions gain two new guard-class shapes (vacuous negative test;
+  re-derived consumer contract) and an interpreter-faithful-probe rule, each recording its
+  PR #340 reproduction. Discharges #371 R3, R4, and R7. (#398)
+
+## [2.8.108] — 2026-07-10
+
+### Added
+- **Harden the `lib/test/run.sh` pin tooling with a mutation-taking assertion and two mechanical guards.** Added `assert_pin_red_under <name> <literal> <mutation> [file]`, a pin primitive that applies a specific `sed -E` regression to a scratch copy and asserts the pin flips `PASS->FAIL` under *that* mutation — reporting a framing-only pin's vacuity, which the whole-line `assert_pin_red_on_removal` cannot distinguish. Added `lib/test/pin-corpus-lint.py` (self-scanned by the suite): a pin-in-comment lint that fails when a pin literal also appears in a comment of its own target file (the count-inflation defect), and a wrapped-literal meta-guard that fails a source-grep pin whose phrase is on no single line — distinguishing a whitespace-wrapped phrase from an absent one and flagging any pin into a multi-literal argparse `help=` with a rendered-surface requirement. The behavioral-fix-pin rule in the implement skill (Phase 2.3), the review-and-fix fix loop (Step 3), and the DevFlow prompt extension now routes new pins through `assert_pin_red_under` and records the mutation run plus the pin observed RED — evidence instead of self-attestation. `CLAUDE.md` gains a gotcha on wrapped-literal blind spots. (#375)
+
+## [2.8.107] — 2026-07-10
+
+### Fixed
+- **Recognize documentation acceptance criteria as Phase-4-owned in the Phase 3.4 gate.** An
+  acceptance criterion whose satisfaction is a `docs/…` edit that the Phase 4.1 `devflow:docs`
+  pass authors is now left unticked at the Phase 3.4 acceptance-criteria gate, recorded in a
+  workpad deferral note, and exempted from the gate's blocking check (never routed through the
+  `(post-merge)` channel); Phase 4.1 discharges and ticks it before the terminal
+  `--status Complete` write. This removes the ordering contradiction where a documentation AC
+  was structurally unsatisfiable at the gate and only passed when a reviewer happened to author
+  the docs early. (#380)
+- **Harden `/devflow:create-issue`'s mechanical-claim contract.** The issue template's Testing
+  Strategy and the create-issue skill now require a mechanical claim ("running X reports Y" /
+  "must fail RED reporting Y") to be either executed-and-cited as verified output or written as
+  an obligation, never an unverified prediction; `Relevant Classes/Files` references cite a
+  symbol or section rather than a rot-prone `file:line` anchor. (#380)
+- **Accept `### Documentation Needed` as a third Documentation-Needed shape.**
+  `scripts/extract-doc-needed-paths.sh` now opens its extraction scope on a
+  `### Documentation Needed` level-3 heading (inside `## Implementation Notes`), alongside the
+  existing bold-bullet and bare-bold-paragraph shapes, so a heading-form issue body no longer
+  silently defeats the Phase 4.1 deliverable cross-check. The create-issue template's canonical
+  bold-bullet form and the extractor's accepted shapes are pinned as a coupled pair in
+  `lib/test/run.sh`, and the Phase 4.1 Stage 1 safety-net fires on either form. (#380)
+
+## [2.8.106] — 2026-07-10
+
+### Fixed
+- **Review live-comment seeding no longer misreads an interpreter-level exit 2 as "first write."** `skills/review/SKILL.md` branched its live progress-comment seed on `workpad.py id`'s exit code, treating rc 2 as `cmd_id`'s clean-absence "first write". But `python3` also exits 2 when it cannot open the script (`[Errno 2]`/`[Errno 13]` on a partial or unreadable vendor copy) and `argparse` exits 2 on a non-numeric PR number, so an interpreter-level failure was misdiagnosed as "create" and its captured stderr discarded. Three coupled screens now keep the "first write" arm reachable only from `cmd_id`'s own silent `sys.exit(2)`: a non-numeric-PR-number guard before the `id` call, a readable-path precheck on `workpad.py` before exec (with a distinct missing/unreadable breadcrumb), and an empty-captured-stderr requirement on the rc-2 arm; the failure arm now surfaces the captured stderr instead of swallowing it. (#388)
+
+## [2.8.105] — 2026-07-10
+
+### Changed
+- **The `lib/test/run.sh` pin-helper family is now option-safe for flag-shaped literals.**
+  `pin_count`, `grep_present`, and `assert_pin_red_on_removal` all pass their caller literal to
+  `grep -F` after an explicit `--`, so a literal beginning with `-`/`--` (e.g. a `--tick-progress`
+  pin) is treated as the search pattern rather than parsed as grep options and silently
+  mis-counted as absent (0). This makes `pin_count` — and therefore `assert_pin_unique` — safe
+  for flag-shaped pins that previously required a hand-guarded raw `grep -qF --` at the call site.
+  (#374)
+- **The mutation-check discipline is now copy-based, never destructive.** At both coupled sites
+  (`skills/review-and-fix/SKILL.md` Step 3 and `skills/implement/phases/phase-2-implement.md`), a
+  guard's vacuity is proven by breaking what it pins *on a copy of the file* and confirming it
+  goes RED there — never by an in-place "break then restore" that a crash or interruption could
+  leave broken. (#374)
+
+## [2.8.104] — 2026-07-10
+
+### Changed
+### Fixed
+
+- Cloud review runs can no longer consume an entire budget and terminate without a verdict. The review engine is now given ground truth about the two things it previously discovered by trial and denial: the exact set of commands it may execute, and the CI results already observed for the commit it is reviewing. Both are prepended to the review prompt as a `> [!IMPORTANT]` block on every run, on the automated `devflow-review` path and the manual `/devflow:review` comment path alike ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- The auto-review tool profile now grants the commands the review engine actually invokes — `mkdir`, `tee`, `git cat-file`, `git checkout`, `mktemp`, `cmp`, and `rm -f` — plus `load-prompt-extension.sh` from any anchor directory. Phase 0.2's cached diff is created (so Phase 3's `{DIFF_PATH}` resolves), and Phase 0.3.6's blocker-recheck fast path and Phase 3.1's dirty-tree backstop execute in cloud for the first time ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- A review run that reaches no verdict now announces itself twice, independently: the engine stamps a terminal `❌` on its progress comment, and `finalize_check` emits an `::error::` naming the reviewed HEAD and the permission-denial count. The second survives an engine that never runs the first ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- `scripts/surface-execution-diagnostics.sh` emits a `::warning::` when a run records permission denials, so a stalled run is visible in the job log rather than buried in a Markdown block ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- An absent CI result can no longer read as a passing one. The injected block declared its CI fence "the authoritative test evidence" unconditionally, so on a commit whose CI state could not be established the engine was told an unavailability notice discharged its test evidence. The block and `skills/review/SKILL.md` now scope that claim to a fence naming a check *and* a conclusion, and state that `CI status unavailable` and `No CI signals reported for this commit` mean the test evidence is **missing** — never green ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+
+- `scripts/render-grounding-block.sh` strips backticks from the CI summary before interpolating it into the block's fenced code block. Containment previously depended entirely on `summarize-ci-checks.sh` sanitizing check names upstream, which made it a property of the caller rather than of the renderer that carries the injection defense. The strip uses bash parameter expansion, not `tr` — a sanitizer built on a non-preflight PATH tool fails open when the tool is absent ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+
+### Added
+
+- `scripts/summarize-ci-checks.sh` renders the CI signals observed for a PR head, one line per signal. It excludes DevFlow's own workflow, the duplicate `github-actions` app check-runs, and its own `Devflow Review` check. Check names are attacker-controlled text entering a `pull_request_target` prompt, so they are sanitized, truncated, and count-capped; every failure path prints `CI status unavailable` with a query-specific breadcrumb and exits 0, so an unknown CI state is never rendered as a passing one ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- `lib/test/run.sh` now pins every Bash command head in `skills/review/SKILL.md`'s `bash`-fenced blocks against **both** allowlists the skill runs under — `devflow-runner.yml`'s `review` profile and `devflow.yml`'s command allowlist — so a command the skill invokes but a profile omits turns the suite RED instead of being silently denied at runtime. The extractor deliberately does not read inline-backtick prose, so the heads the engine invokes from prose or a markdown table — including `gh pr review`, the command that emits the verdict — are covered by a second pin that *derives* them from the skill on every run (by an independent signal: backtick spans outside the fences) and feeds them to the same granting matcher. Adding a prose-invoked command the profile does not grant now turns the suite RED, rather than shipping a silent runtime denial ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+
+### Changed
+
+- `checks: read` is granted to `devflow-runner.yml` and to its caller job in `devflow-review.yml`, and to `devflow.yml`'s `command` job, for the new check-runs query. The runner and its caller are a coupled pair: a reusable workflow requesting a permission its caller did not grant aborts the run at graph-build time ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- `devflow.yml`'s inline `--allowed-tools` list is hoisted into a step output consumed by both `claude_args` and the injected block, so the block quotes the exact string the run resolved rather than a second copy that could drift. No grant was removed by the hoist ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+
+## [2.8.103] — 2026-07-10
+
+### Added
+- **Mark a dead cloud run's Status comment as died instead of leaving it frozen.** When a
+  cloud run dies — job failure, cancellation, or an exhausted implement auto-resume cap — its
+  Status-bearing comment no longer lies at its last interim value. The implement workpad gains
+  a new terminal status word **`Failed`** (glyph **💥**, a workpad-only glyph with no
+  triggering-comment reaction): every fail-loud exit of the stall backstop that is reached
+  after reading a genuinely **interim** Status flips the workpad to `💥 Failed`, best-effort
+  and never altering the step's exit code (a terminal, unreadable, or auth-failure Status is
+  never clobbered, and the green auto-resume path never flips). The review
+  engine's live progress comment is flipped to its existing `❌ Review failed` state by a new
+  best-effort helper (`scripts/flip-review-progress-failed.sh`) wired into `devflow-review.yml`'s
+  `finalize_check` and `devflow.yml`'s comment-triggered job — each covering the same three
+  non-success arms: job/step failure, cancellation, and an engine that ended `is_error` while
+  the step itself still reported success. Both flips fire only when the
+  comment's Status is still interim (🚀), so a terminal Status is never clobbered and an
+  auto-resume in flight is untouched. A `💥 Failed` workpad also gates non-clean in the weekly
+  retrospective, so dead implement runs stop masquerading as clean. (#356)
+
+## [2.8.102] — 2026-07-10
+
+### Fixed
+- **Removed the stale `claude-plugins-official` cross-marketplace dependency from the installer's consumer `marketplace.json` template.** `install.sh` now emits `"allowCrossMarketplaceDependenciesOn": []`, mirroring the repo-root manifest's #142 zero-companion-dependency shape, so fresh consumers get a manifest consistent with DevFlow's documented "no companion plugins" install story. A removal-proof `lib/test/run.sh` pin now guards the empty allowlist. (#385)
+
+## [2.8.101] — 2026-07-10
+
+### Added
+- **The review engine now attacks the absolute claims a diff publishes instead of reading them (#371 R1/R2/R6).** The verification-checklist generator gains an `absolute_claim` category for a diff-added universal ("every", "never", "cannot", "is caught by the same rule"); such items always resolve through an `agent` verifier that *constructs the falsifying input* and are never lite-grepped — reading a universal confirms nothing, only a failed attempt to falsify it does. The pre-verdict truthfulness sweep gains a **diff-scan input** (an intra-diff contradiction scan) that, independent of any finding, cross-products the diff's added absolute claims against its added-or-retained limitation notes about the same symbol and files a contradicting pair as a non-demotable `documented_falsehood` — closing the PR #340 case where a diff published an absolute claim while retaining a contradicting limitation and no agent flagged it. Severity calibration is sharpened so a fail-**open** defect is never graded mild merely because its limitation is documented or its trigger input is contrived — "documented" and "contrived" are disclosure facts, not severity facts. (#382)
+
+## [2.8.100] — 2026-07-09
+
+### Added
+- **`/devflow:implement` now survives a nested skill's return and resumes onto an existing PR.**
+  A Skill-tool invocation is a tail call, not a subroutine call: when a nested skill's procedure
+  ended in a user-facing approval step, the implement run ended with it — the workpad froze at an
+  in-progress `Status`, no terminal reaction fired, and the run died silently. Four orchestrator
+  rules close that gap. A **generalized mid-phase re-anchor** makes the orchestrator re-read the
+  current phase file after *every* Skill-tool return and resume at the step that follows it (the
+  Phase 4.1 docs-subagent re-anchor remains, now scoped to *subagent* returns). A
+  **non-interactive self-answer rule** has a cloud-tier run answer a nested skill's user-facing
+  question itself — from the issue description, recorded in the workpad — instead of stranding on
+  a question no one can answer, while an interactive run still asks the user. A **subagent-dispatch
+  rule** routes any edit that project conventions send through an *interactive* skill (one whose
+  procedure ends in a user approval step) into a context-isolated Agent-tool subagent whose prompt
+  pre-grants the approval, rather than invoking it mid-phase. And a **Phase 1.4 resume pre-check**
+  now consults the workpad `Branch` line and the issue's open PRs *before* the linked-worktree
+  signal, so a re-triggered run continues the existing branch and draft PR instead of forking a
+  duplicate and abandoning committed work. (#364)
+- **New local-tier Stop-hook backstop, `lib/implement-stop-guard.sh`.** Phase 1.3 writes a
+  gitignored run marker under `.devflow/tmp/`, and the guard — wired as a second `Stop` hook —
+  blocks a session's stop (exit 2) while that issue's workpad `Status` is still interim, naming the
+  issue and the status word so the run returns and finalizes. It is bounded to at most one block
+  per session, fails open on every ambiguous path (unreadable workpad, `gh` transport failure,
+  unparseable hook input), performs **no** network call when no marker is present, and self-heals a
+  stale marker. The marker is removed at every terminal `Status` transition. Consumer repos are
+  unaffected: the hook is repo-local, and the cloud tier keeps its existing workflow-level stall
+  backstop. (#364)
+
+## [2.8.99] — 2026-07-09
+
+### Changed
+- **Tightened the `/devflow:implement` `(post-merge)` contract.** Phase 3.4 now names a
+  third forbidden deferral case — **self-reconfiguration verification** (a criterion whose
+  only unmet precondition is the orchestrator's own session/harness/account being in the
+  configuration the diff just shipped, e.g. a hook it just registered or a flag it just
+  enabled): the host *can* become a fresh session with the change active, so it is runnable
+  pre-merge and is run-and-evidenced (or Blocked), never `(post-merge)`. A matching red flag
+  and the closing retag paragraph refuse it alongside the tooling-gap and self-claim cases,
+  and Phase 2.3.4 and Phase 1.2 bind to the same rule. `scripts/workpad.py` now structurally
+  rejects a `--rewrite-ac` that appends the `(post-merge)` tag without a non-empty `--note`
+  rationale, so every mid-run retag is a recorded, retrospective-auditable claim. The guard
+  resolves the row each pair targets with the rewriter's own lookup, so a text tweak on an
+  already-`(post-merge)` criterion creates no new deferral and needs no note — even when the
+  `OLD` substring does not itself span the tag. The multi-pair backstop snapshots each
+  criterion's `(post-merge)` state across every tick state and compares it positionally,
+  so a crafted `--rewrite-ac` sequence cannot launder a note-less retag — not onto an
+  already-ticked criterion, and not by removing the tag from one criterion while adding it
+  to another (which nets to zero under an aggregate count). A `--rewrite-ac` NEW spanning
+  more than one line is now rejected structurally — tested against the full
+  `str.splitlines()` separator set, not just `\n`/`\r` — because it would split one
+  criterion into two rows, injecting an unreviewed row and defeating both guards. The
+  `--replace-acs-file` channel remains a documented exception. (#340)
+
+## [2.8.98] — 2026-07-09
+
+### Fixed
+- **Skill prose bash blocks no longer rely on the bash-only `compgen` builtin or unguarded glob expansion, so they behave correctly under non-bash agent shells (macOS zsh, dash, POSIX sh).** The three agent-executed prose blocks that used `compgen -G` — the durable-workpad-copy block in `skills/review-and-fix/SKILL.md` and the pre-loop snapshot + no-inputs detector in `skills/implement/phases/phase-3-review.md` — are rewritten to the portable positional-parameter idiom (`set -- <glob>; [ -e "$1" ]`) behind a `[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :` guard that neutralizes zsh's default `nomatch` glob-abort. The durable-copy block now emits a specific stderr breadcrumb when it skips (dir absent or holds no `*.json`), so a silently-lost durable workpad copy can never recur; the no-inputs detector now structurally distinguishes a genuinely-empty result (`[ ! -e "$1" ]`) from a failed enumeration, eliminating the false `dropped-failed` telemetry-loss reflection (and the unnecessary LLM retrospective it forced) that fired on every non-bash-shell run. A mutation-checked `lib/test/run.sh` regression pin now keeps `compgen` out of `skills/` prose (`lib/**`/`scripts/**` bash-shebanged `.sh` files exempt), and the two existing site pins are rewritten to the portable form. (#365)
+
+## [2.8.97] — 2026-07-09
+
+### Fixed
+- **Guard `/devflow:implement` against nested-Skill tail-call early-stops.** The implement
+  orchestrator now carries a **Nested-skill completion re-anchor** (after completing any nested
+  skill's procedure, re-`Read` the current phase file and resume the interrupted step, never
+  re-invoking the nested skill) and an **exhaustive, exclusionary Skill rule** that forbids
+  invoking any approval-gated or interactive skill (e.g. `claude-md-management:revise-claude-md`,
+  the `superpowers` `brainstorming` skill) mid-run, so a nested skill's interactive terminal step can no
+  longer become the run's terminal step and freeze the workpad at an in-progress `Status`. A
+  scoped carve-out lets an autonomous run make a required `CLAUDE.md` edit directly, and the
+  Terminal-status self-check now reads the workpad `Status` immediately before any run-final
+  message. Runner-agnostic prose only — no Claude Code `Stop` hook. (#366)
+
+## [2.8.96] — 2026-07-09
+
+### Added
+- **Plain-language `Devflow Review` deferral title for a run awaiting CI approval.** `devflow-review.yml`'s `create_check` title `case` now maps the `ci-approval-required` reason (shipped in #351) to the neutral check title **"Devflow review waiting: CI approval required"** instead of the generic "precondition not met" fallback, so an operator sees the exact unblock action. The deferral `SUMMARY` prose no longer cites "a cancelled sibling run" as a permanently-stuck signal requiring a manual Re-run, since the #351 collapse now auto-resolves the superseded cancelled-sibling case. Lands the coupled workflow-side half of #351 (held out because a GitHub App token cannot push `.github/workflows/`). (#359)
+
+## [2.8.95] — 2026-07-09
+
+### Added
+- **`/devflow:implement` Phase 1 now defers workflow-resident acceptance criteria at plan time — keyed on the pushing credential's actual capability.** The Phase 1.6 issue-claim audit gains an execution-capability pass (Pass 5): an acceptance criterion that requires editing the repo's own `.github/workflows/` is deferred **only when this run's credential cannot push workflows** — a cloud-tier run (`GITHUB_ACTIONS=true`) whose `DEVFLOW_APP_ID` is empty, i.e. the built-in `GITHUB_TOKEN` fallback. A cloud run with `DEVFLOW_APP_ID` set mints a workflow-capable GitHub App token (Contents + Workflows write) seeded into `actions/checkout`, so it pushes workflow files fine and is **not** deferred; keying on the cloud tier alone would spuriously defer deliverable workflow work on the App-configured tier. When the deferral does fire, the AC is routed through the Phase 2.2.5 scope-adjustment before any code is written and filed as a follow-up issue that states landing it needs a workflows-capable push (a human/PAT, or an App-configured cloud run), instead of being discovered at push time after a full commit is built. A file coupled to a blocked workflow edit (a `lib/test/run.sh` pin that turns CI red without the workflow change) is deferred with it — the Phase 2.5 commit guard reverts coupled files alongside the workflow so the pushable subset stays CI-green — and an issue whose every in-scope criterion is workflow-resident is declined up front rather than producing an empty-handed run. To make the credential signal observable to the pass, `devflow-implement.yml` exports `DEVFLOW_APP_ID` into the agent's environment. Local/interactive-tier runs, which push workflow files routinely, are unchanged. (#350)
+
+## [2.8.94] — 2026-07-09
+
+### Fixed
+- **Stall-backstop auto-resume is no longer swallowed by the implement-run deduper.** When the
+  cloud stall backstop re-dispatches a stalled `/devflow:implement` run, the resume comment is
+  posted while the original run is still `in_progress` (it fires from that run's own trailing
+  `always()` backstop step), so the new run's gate dedupe used to classify it as a duplicate and
+  skip — leaving the audit comment visible but inert. `dedupe-implement-run.sh` now reads the
+  triggering comment from `GITHUB_EVENT_PATH` and, when it carries the
+  `<!-- devflow:stall-backstop-audit -->` marker every resume comment writes, skips deduping so
+  the taking-over run proceeds. The detection lives entirely in the script (not a workflow env),
+  so the fix needs no `.github/workflows/` change. The carve-out never wrongly bypasses dedupe
+  for an ordinary duplicate command, and a genuine payload read/parse error during marker
+  detection — including a payload that is present but unreadable (a permission/mount anomaly or a
+  partially-materialised/locked payload) — now emits a `::warning::` (instead of being silently
+  swallowed) while still falling through to ordinary dedupe. (#280)
+
+## [2.8.93] — 2026-07-09
+
+### Added
+- **Review engine now files false-against-HEAD changed docs/comments/examples as documented falsehoods and runs a pre-verdict truthfulness sweep.** The shared `defect_signature` contract gains a `documented_falsehood` kind plus a truthfulness discriminator inherited by all six Phase-3 finding producers, so a diff-added/modified doc line, code comment, example, or command-form whose claim is false against HEAD is filed as a truthfulness defect rather than a demotable clarity Suggestion. Phase 4.1.5 shape 2 now excludes such artifacts from the cosmetic-wording class, and a new Phase 4.1.6 pre-verdict truthfulness sweep runs promote-only over every finding regardless of severity chip, routing a demonstrated falsehood into the Phase 4.2 self-contradicting-diff carve-out (REJECT). `/devflow:review`, `/devflow:review-and-fix`, and `/devflow:implement` Phase 3 all inherit the change through the shared engine. (#341)
+
+## [2.8.92] — 2026-07-09
+
+### Changed
+- **`/devflow:implement` now requires a recorded pre-merge probe of observable preconditions before any `(post-merge)` acceptance-criteria deferral.** The Phase 3.4 gate's genuinely-live test was whole-criterion binary, so a criterion could be tagged `(post-merge)` while carrying a pre-merge-observable precondition that was already false (the failure behind PR #301's post-merge release-pipeline break on `main`). The gate now states a single **Pre-merge probe contract** in `skills/implement/phases/phase-3-review.md` — decompose a criterion into pre-merge-observable preconditions and genuinely-live residue, probe each precondition read-only (folding in any failure mode the linked issue's Potential Gotchas / Implementation Notes names for its mechanism), and record each probe command and observed result in the deferral `--note` (or the explicit "no pre-merge-observable precondition" finding). An observed-cannot-succeed probe routes to a pre-merge fix or the Blocked path — never a deferral — and a new red-flags STOP entry forbids that launder; a denied probe is recorded as denied and does not block, and a passed probe never ticks the AC box. The Phase 1.2 partial-live rule in `skills/implement/phases/phase-1-setup.md` references the same contract so tag-time and retag-time deferrals carry an identical obligation. (#348)
+
+### Fixed
+- **`workpad.py` and `match-deferrals.py` now fail fast with an actionable `Python 3.11+ required` error on pre-3.11 interpreters.** Both helpers annotate functions with PEP 604 unions (`str | None`), which any interpreter older than 3.10 evaluates at definition time and dies on with a raw `TypeError` traceback naming neither the cause nor the remedy. Each helper now carries a `sys.version_info < (3, 11)` gate immediately after its import block — before any annotation is evaluated — that prints one plain-ASCII stderr line naming the running version, the `Python 3.11+ required` floor, and the `scripts/provision-python3-shim.sh` / `docs/install.md` remedy, then exits 1. On Python 3.11+ (the declared floor, unchanged) behavior is identical. Also corrects the stale `config.schema.json`, `CLAUDE.md`, and `skills/init` claims that `workpad.py` needs PyYAML — it is stdlib-only; the lazy-yaml helpers are `match-deferrals.py` and `consolidate-changesets.py`. (#343)
+
+## [2.8.91] — 2026-07-09
+
+### Fixed
+- **Collapse duplicate workflow runs to the latest per `(workflow_id, event)` group in the review CI-green gate.** `scripts/derive-review-preconditions.sh` now collapses the non-self Actions runs on a PR head to the highest-`run_number` run per `(workflow_id, event)` group before gating, so a superseded non-green run — an approval-gated re-dispatch, a rapid double-fire, or a cancelled sibling — no longer wedges `Devflow Review` behind a permanently-deferred required check once a newer run of the same workflow+event has passed. A non-self run missing a numeric `workflow_id`/`run_number` or a string `event` fails closed as `unverifiable` (never a dropped signal), and a run still awaiting manual approval (conclusion `action_required`) defers with a new, distinct `ci-approval-required` reason. (The matching plain-language check title for `ci-approval-required` is a coupled `.github/workflows/` change tracked as a follow-up, since a GitHub App token cannot push workflow files; until it lands the reason still defers correctly under the generic deferral title.) (#352)
+
+## [2.8.90] — 2026-07-09
+
+### Changed
+- **The cloud tier's App-token mints now pass `client-id` instead of the deprecated `app-id`
+  input.** `actions/create-github-app-token@v3` emits `Input 'app-id' has been deprecated with
+  message: Use 'client-id' instead.` on every mint. All nine mint steps across
+  `devflow-implement.yml` (3), `devflow.yml` (4), `devflow-runner.yml` (1), and
+  `version-consolidate.yml` (1) now use `client-id:`, sourced from the unchanged
+  `vars.DEVFLOW_APP_ID` / `vars.DEVFLOW_REVIEWER_APP_ID` repository variables — the variable
+  names, the opt-in `!= ''` gates, the `permission-*` downscopes, and the fail-loud contract
+  are all untouched, so no consumer action is required. `lib/test/run.sh`'s two coupled
+  literal pins (primary + reviewer mint sites) move with them. `docs/cloud-setup.md` now names
+  the App's **client ID** as the variable's value, since `client-id` is the input it feeds.
+
+### Fixed
+- **Cloud writers now actually push under the configured GitHub App, so `/devflow:implement`
+  and `/devflow:review-and-fix` can finally land `.github/workflows/` changes.** The push
+  credential is the one `actions/checkout` persists — **not** the `github_token` handed to
+  `claude-code-action`. `actions/checkout@v6` stopped writing its auth header into
+  `.git/config` and now writes `http.<server>/.extraheader` to an external config file wired
+  in via `includeIf.gitdir:` (covering `.git/worktrees/*`), so `claude-code-action`'s
+  `git config --unset-all http.<server>/.extraheader` — which searches only `.git/config` —
+  clears nothing, and the surviving preemptive `Authorization:` header outranks the App token
+  that action embeds in `origin`'s URL. Every push in both writer jobs therefore
+  authenticated as `github-actions[bot]`, a GitHub App holding no `workflows` permission:
+  ordinary pushes succeeded and only `.github/workflows/` pushes died with `refusing to allow
+  a GitHub App to create or update workflow … without workflows permission`, which is why the
+  failure was repeatedly misread as a missing App permission. The writer mint now runs
+  **before** `actions/checkout` in `devflow-implement.yml`'s `claude` job and `devflow.yml`'s
+  `command` job, and is passed to it as
+  `token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}` — mirroring
+  `version-consolidate.yml`, the one job that already did this and the only one whose pushes
+  were correctly attributed to `devflow-autopilot[bot]`. Unset-App behavior is byte-for-byte
+  unchanged (mint skipped → `GITHUB_TOKEN`, which is also checkout's own default), and on a
+  `/devflow:review` command the writer mint stays skipped so the checkout falls back to
+  `GITHUB_TOKEN` rather than receiving the read-only `DevFlow-Reviewer` token — preserving the
+  #300 review-identity split. `lib/test/run.sh` pins both halves per pushing job (mint
+  precedes checkout; checkout consumes the app token with the `GITHUB_TOKEN` fallback; the
+  reviewer token is never a checkout credential), each mutation-checked RED against the
+  pre-fix layout. `docs/cloud-setup.md` documents why the checkout token, not `github_token`,
+  is the push credential. (#357)
+
+## [2.8.89] — 2026-07-09
+
+### Added
+- **Review engine: scoped blocker-recheck fast path.** A standalone `/devflow:review` on a
+  PR whose most recent recorded verdict is a REJECT driven *solely* by enumerated
+  self-contradicting-diff carve-out blockers (zero checklist FAIL/INCONCLUSIVE, no
+  verdict-driving agent finding at or above threshold) — and whose commits since the rejected
+  head touch only the enumerated blocker sites — now re-verifies each named blocker at HEAD
+  with a blinded verifier and posts a refreshed verdict through the existing Phase 4.4
+  machinery, instead of a full four-phase re-review. An APPROVE flows into the existing
+  `dismiss-stale-rejections.sh` housekeeping unchanged; any unmet precondition, unparseable
+  prior report, or intervening change outside the blocker sites falls through fail-closed to
+  the full pipeline, and any still-unfixed blocker re-REJECTs. The gate is off for
+  `/devflow:review-and-fix` (it passes `head_override = local`), so the fix loop never takes
+  the fast path mid-loop and the shared engine stays single-sourced. (#349)
+
+## [2.8.88] — 2026-07-08
+
+### Added
+- **Surface `claude-code-action` execution diagnostics on every cloud run.** The three
+  cloud-tier workflows (`devflow-runner.yml`, `devflow-implement.yml`, `devflow.yml`) now run a
+  post-`claude` `Surface execution diagnostics` step that passes the run's execution log to
+  `scripts/surface-execution-diagnostics.sh` (shipped in #329), printing the run summary
+  (`is_error`, `num_turns`, `duration_ms`, `total_cost_usd`, `permission_denials_count`) plus
+  per-denial detail to the job log and the step summary. The step runs under `always()`, is
+  read-only (no new token scope, no artifact upload, never changes a job's pass/fail), and is
+  gated on the `devflow.execution_diagnostics_enabled` config key (default `true`) — set it to
+  `false` for quieter runs. Maintainers debugging a stalled, incomplete, or unexpectedly-denied
+  run now get the denial detail and run shape directly, the information that was irrecoverable
+  for PR #325. (#337)
+
+## [2.8.87] — 2026-07-08
+
+### Added
+- **`/devflow:implement` now writes comments under an explicit two-point discipline.** A new
+  Phase 2.3 authoring rule tells the implementer to author only comments that state a
+  constraint the code cannot show for itself (rationale, cross-file contracts, portability
+  traps, provenance) and to keep mirror-fact comments — exact counts, enumerated site/value
+  lists, predicate-restating scope words, and narration of adjacent code — out of the diff or
+  make them drift-proof (bind to a test assertion, state a lower bound, or point at the
+  defining symbol). A new step in the always-on 2.3.4a self-authored-claim sweep drift-proofs
+  the mechanically-detectable mirror-fact comments the diff adds or changes — exact counts,
+  enumerated site/value lists, and predicate-restating scope words — before commit, even when
+  they are currently accurate, so the rot-prone class is caught whether or not the writer
+  applied the authoring rule. Every consumer repo inherits both engine halves, reducing
+  stale-comment review findings and fix-loop iterations. (#336)
+
+## [2.8.86] — 2026-07-08
+
+### Fixed
+- **`/devflow:create-issue` now writes and displays its draft copy at the main repo root, so the shown path is correct inside a worktree.** A new best-effort helper `scripts/resolve-main-root.sh` resolves the main working-tree root (falling back to the current directory with a breadcrumb when git can't answer), and `create-issue` uses it to write the draft to — and display it as — an absolute `<main-root>/.devflow/tmp/issue-draft-<slug>.md` path. Previously the draft was written to a worktree-relative path that a user whose editor is rooted at the main repo could not open. (#333)
+
+## [2.8.85] — 2026-07-08
+
+### Added
+- **`devflow-review.yml` now auto-recovers a deferred review on legacy commit-status-only CI.** A new `status` trigger lets a repo whose CI reports only via the commit-status API (classic Jenkins, legacy CircleCI) re-fire a review that was deferred behind `require_ci_green` once its CI turns green — with no manual Re-run. The precheck filters to `state == 'success'` (the cheap green-state filter, mirroring the `workflow_run` push filter) before a runner spins, so non-success states never spin the route; the CI-completion route branch gains a `status` arm that resolves the PR from the status head SHA (the payload carries no PR reference) and reuses the existing open-state/draft/stale-head/exactly-once/precondition machinery. It cannot self-trigger because the workflow posts check-runs, never commit statuses. (#335)
+
+## [2.8.84] — 2026-07-08
+
+### Changed
+- **Ten retrospective corrections from the #304 run so the review loop converges in 1–2 iterations.** Sharpen the review/implement/create-issue skills and add a deterministic workflow-permission lint: `/devflow:review-and-fix` Step 4.5 now weighs convergence by severity and surface (only applied Critical/Important *code* fixes defeat convergence; test/pin/comment/doc-only deltas satisfy it), and Step 3 item 3a names job-gating and control-flow changes as mechanism changes; `/devflow:create-issue` Step 3.5 and the issue template gain a platform-behavior premise class (WebFetch official docs before writing an AC whose mechanism depends on external platform/API semantics); `/devflow:implement` gains a Phase 2.3.4 workflow-diff addendum (endpoint↔permission map + event-path artifact-lifecycle walkthrough), a Phase 2.3 stub-blindness rule plus unused-stub-knob smell, a Phase 2.2.6 in-repo deviation breadcrumb, a Phase 2.3.6 all-output-channels honesty rule, a Phase 2.3.0b doc-enumerated-configuration-set trigger, and a Phase 3.2 `/simplify` triage against generality/consumer-facing ACs; the CLAUDE.md adversarial input-shape matrix gains a valid-falsy row and names inline workflow jq as a parser (kept in lockstep across its three mirror sites); and `lib/test/run.sh` carries a new endpoint↔permission lint that fails when a devflow workflow job invokes a `gh api` endpoint family whose token permission its `permissions:` block omits (green on the current tree — which requires the #307 `actions: read` + `statuses: read` grants to be present — with a baked mutation-proof that removes `statuses: read` and confirms the lint goes red, proving that grant load-bearing). (#320)
+
+## [2.8.83] — 2026-07-08
+
+### Added
+- **Surface claude-code-action execution diagnostics via a shared helper.** New best-effort
+  `scripts/surface-execution-diagnostics.sh` reads a claude-code-action execution log and prints
+  the run summary (`is_error`, `num_turns`, `duration_ms`, `total_cost_usd`,
+  `permission_denials_count`) plus permission-denial detail (count when available, else reported unavailable; per-denial `tool_name`
+  and truncated `tool_input` when the log carries it) to stdout, and appends the same block to
+  `$GITHUB_STEP_SUMMARY` when set. It mirrors `parse-engine-error.sh`'s slurp-based
+  array/object/JSONL traversal and `lib/resolve-jq.sh` / `DEVFLOW_JQ` seam, degrades to an explicit
+  "no diagnostics available" line on an absent/empty/unparseable file (or one carrying neither a
+  result event nor denial detail), and always exits
+  0 so it never fails the calling step. A new `devflow.execution_diagnostics_enabled` config key
+  (boolean, default `true`) is added to the schema and example config to gate the surfacing. The
+  three workflow-step call sites land in a follow-up (the DevFlow bot token lacks the
+  `workflows`-scoped push). (#329)
+
+## [2.8.82] — 2026-07-08
+
+### Fixed
+- **`extract-doc-needed-paths.sh`: handle two adjacent Documentation Needed grammar shapes.** A top-level bold deliverable list after the bullet (`- **`docs/a.md`**`) is now captured instead of the first item silently closing the scope to empty output (Shape 1, a fail-open that disabled the Phase 4.1 gate), and a blank-separated *trailing* plain-prose paragraph no longer leaks its path-like tokens as deliverables (Shape 2, over-emission) — a plain-prose paragraph closes the scope only once a deliverable has already been captured, so a primary prose declaration (a bare opener followed by a prose paragraph that names the path) and intervening prose before the deliverables are still captured rather than silently dropped (avoiding a fail-open). A non-backticked bold item (`- **docs/a.md**`) remains indistinguishable from a peer label and is a pinned, documented drop; blank-separated plain sub-lists stay in scope. Adds a `run.sh` shape-matrix over both bullet forms × the follower shapes. (#327)
+
+## [2.8.81] — 2026-07-08
+
+### Fixed
+- **`devflow-review.yml` auto-trigger hardening (workflow-resident half of #311).** The
+  `preconditions_ok` crash arms now clear a crashed helper's captured stdout (`pre=""`) on
+  both the no-retry path and the in-repo retry path, so a corrupted copy's partial output is
+  never parsed (it fails closed to `unverifiable`). `devflow_review_run_count` now emits its own breadcrumb distinguishing a
+  check-runs query failure from a non-numeric count. A repeated precondition deferral for the
+  same head+reason now reuses/PATCHes the existing neutral `Devflow Review` check instead of
+  posting a fresh completed-neutral check-run each time. The concurrency-group comment's
+  worst-case wording was corrected (a same-instant race can double-review), and the dangling
+  `docs/internal/workflows/review-rerun-checks.md` comment reference (plus the behind-base
+  deferral summary) now points at the real `docs/workflow-triggers.md`. Adds coupled
+  `lib/test/run.sh` static pins (CI-completion draft/stale-head guards, the missing-helper
+  fail-open `return 0`, `resolve_pr_for_head`'s open-PR filter, and a `cancelled`-conclusion
+  exclusion-filter fixture). The deferral-dedup reuse lookup now distinguishes a genuine
+  check-runs query failure from an empty result with its own breadcrumb (consistent with the
+  sibling helpers), and its jq projection is byte-coupled to the workflow source by a
+  `run.sh` presence pin so a swapped column order can no longer pass green; its
+  failure-arm breadcrumb and the consuming bash read-order (title column first) each
+  gained a coupling pin so the query-failure-vs-empty distinction and the column-order
+  contract's consumer half are both regression-proof. (#325)
+
+## [2.8.80] — 2026-07-08
+
+### Added
+- **`receiving-code-review`: added an update-the-branch step 0 to the Response Pattern.** The
+  fix loop now opens by updating the working branch — fetch from the remote, merge in the
+  branch's remote counterpart when it has commits the local branch lacks, then merge the base
+  branch into the working branch — before reading any feedback, so review fixes are written,
+  tested, and verified against the code that will actually merge instead of a stale snapshot.
+  The step checks each fetch's and merge's exit status and working-tree state so a failed fetch
+  or a conflicted merge is detected rather than passed over silently. Merge conflicts these
+  updates raise are resolved as part of the current work; the step is fail-soft when there is
+  nothing to update from. (#326)
+
+## [2.8.79] — 2026-07-08
+
+### Fixed
+- **`extract-doc-needed-paths.sh` now recognizes the `**Documentation Needed**`
+  bullet when it is written as a bare bold paragraph with no leading `- ` list
+  marker.** LLM-drafted `## Implementation Notes` sections commonly render the item
+  as `**Documentation Needed** — …` rather than the template's `- **Documentation
+  Needed** — …`; the extractor's scope anchor required the `- ` prefix, so it
+  matched nothing and returned empty — silently skipping the Phase 4.1 deterministic
+  deliverable cross-check on exactly that issue shape (the real issue #304 body
+  triggered it). The Stage-A scope opener and closer now treat a bold line as a
+  top-level bullet when it is either a `- **…**` list item or a bare, blank-line-
+  preceded `**…**` bold paragraph — the actual grammar of both bullet shapes. A
+  bold-emphasis span that only begins a wrapped continuation line inside the bullet
+  no longer closes the scope, so paths on later wrapped lines are still captured
+  (avoiding a fail-open that would silently drop deliverables). The unchanged token
+  scan still decides what is a path, so backticked/bare file paths in the em-dash
+  prose sentence are emitted while directory references and non-path parenthetical
+  prose are dropped as before. A sibling of the #289 miss class. (#309)
+
+## [2.8.78] — 2026-07-08
+
+### Fixed
+- **Route the `review_dedupe` cloud job through the shared standalone-command detector.** The
+  `review_dedupe` job in `devflow.yml` now materializes the vendored plugin and routes its body
+  match through the same `detect-standalone-command.sh` the trigger resolver uses, replacing its
+  coarse `case "$BODY"` substring. A `/devflow:review` merely quoted or fenced in prose no longer
+  dedupes or posts a "manual review suppressed" notice, and the trigger gate and dedupe matcher
+  can no longer drift. (#321)
+
 ## [2.8.77] — 2026-07-07
 
 ### Fixed

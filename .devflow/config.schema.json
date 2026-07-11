@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/The01Geek/devflow-autopilot/.devflow/config.schema.json",
   "title": "DevFlow project config",
-  "description": "DevFlow project configuration. The LOCAL tier (the /devflow:implement, /devflow:review, /devflow:docs skills you run inside Claude Code) works with NO config file at all — every value has a sane built-in default. You only need this file if you enable the GitHub Actions automation (the optional cloud/autopilot tier). See docs/cloud-setup.md.",
+  "description": "DevFlow project configuration. The LOCAL tier (the /devflow:implement, /devflow:review, /devflow:docs skills you run inside Claude Code) works with NO config file at all \u2014 every value has a sane built-in default. You only need this file if you enable the GitHub Actions automation (the optional cloud/autopilot tier). See docs/cloud-setup.md.",
   "type": "object",
   "additionalProperties": true,
   "properties": {
@@ -22,7 +22,7 @@
     },
     "devflow_version": {
       "type": "string",
-      "description": "Git ref (tag, branch, or commit SHA) of The01Geek/devflow-autopilot that the cloud-tier workflows fetch the plugin from at runtime (the vendor-plugin composite action's fetch branch — i.e. a thin install where the plugin tree is NOT committed). install.sh pins this to the commit it installed from (when no jq/node/python3 is available at install time it stays empty and you must set it by hand). Bump it to update. Ignored when the plugin is committed into .devflow/vendor/devflow/ (DEVFLOW_VENDOR=1) or when running in the source repo. Empty by default on purpose: the fetch branch fails loud on an empty ref rather than silently tracking mutable main, so an un-pinned thin install is caught instead of drifting.",
+      "description": "Git ref (tag, branch, or commit SHA) of The01Geek/devflow-autopilot that the cloud-tier workflows fetch the plugin from at runtime (the vendor-plugin composite action's fetch branch \u2014 i.e. a thin install where the plugin tree is NOT committed). install.sh pins this to the commit it installed from (when no jq/node/python3 is available at install time it stays empty and you must set it by hand). Bump it to update. Ignored when the plugin is committed into .devflow/vendor/devflow/ (DEVFLOW_VENDOR=1) or when running in the source repo. Empty by default on purpose: the fetch branch fails loud on an empty ref rather than silently tracking mutable main, so an un-pinned thin install is caught instead of drifting.",
       "default": ""
     },
     "providers": {
@@ -89,14 +89,32 @@
         "effort": {
           "type": "string",
           "description": "Reasoning effort for the light /devflow:* command path (devflow.yml). Always passed explicitly via --effort (including the default 'high'), so the effort is pinned rather than relying on the model's built-in default.",
-          "enum": ["low", "medium", "high", "xhigh", "max"],
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "default": "high"
         },
         "allowed_tools": {
           "type": "array",
-          "items": { "type": "string" },
-          "description": "Extra --allowed-tools entries for the light /devflow:* command path (devflow.yml), APPENDED on top of devflow's built-in base list. Use claude-code-action tool syntax, e.g. \"Bash(make:*)\", \"Bash(docker compose:*)\". Does not apply to /devflow:implement — see devflow_implement.allowed_tools. Empty/omitted → base list only.",
+          "items": {
+            "type": "string"
+          },
+          "description": "Extra --allowed-tools entries for the light /devflow:* command path (devflow.yml), APPENDED on top of devflow's built-in base list. Use claude-code-action tool syntax, e.g. \"Bash(make:*)\", \"Bash(docker compose:*)\". Does not apply to /devflow:implement \u2014 see devflow_implement.allowed_tools. Empty/omitted \u2192 base list only.",
           "default": []
+        },
+        "execution_diagnostics_enabled": {
+          "type": "boolean",
+          "description": "Gates whether the cloud-tier workflows that run claude-code-action surface the run's execution diagnostics after the claude step \u2014 the run summary (is_error, num_turns, duration_ms, total_cost_usd, permission_denials_count) and the permission-denial detail (count when available, else reported unavailable; per-denial tool_name + truncated tool_input when the execution file carries it) \u2014 to the job log and $GITHUB_STEP_SUMMARY via scripts/surface-execution-diagnostics.sh. A pure read-only diagnostic: it never changes the job's pass/fail result, adds no token scope, and uploads no artifact. true (the default) enables the surfacing; false is for quieter runs. Absent config resolves to true (enabled by default). Read by the 'Surface execution diagnostics' step in each cloud-tier workflow.",
+          "default": true
+        },
+        "execution_transcript_artifact_enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt-in: upload the engine's token-scrubbed execution transcript as a 7-day run artifact. Default false; the scrub is a blocklist, so enable only if run artifacts are acceptable exposure for this repo's access model."
         }
       }
     },
@@ -111,27 +129,41 @@
           "type": "string",
           "description": "Optional per-section model override for /devflow:implement (devflow-implement.yml), e.g. 'z-ai/glm-5.2'. Takes precedence over the global claude_model. Unset → global claude_model (issue #313)."
         },
-        "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
         "implement_pr_state": {
           "type": "string",
-          "enum": ["ready_for_review", "draft"],
-          "description": "Final state of the PR a /devflow:implement run produces. 'ready_for_review' (the default) publishes the PR in Phase 4.3 via `gh pr ready`, exactly as before. 'draft' leaves it the draft created in Phase 3.1 (the run still finalizes with Status: Complete and the outcome reaction, but does not publish, so the cloud review and CI ready_for_review listener do not auto-fire until a human publishes). Any other value — missing key, empty string, or an unrecognized string — resolves to 'ready_for_review'; default-to-publish is the safe direction. See docs/implement-skill.md for the full Phase 4.3 behavior.",
+          "enum": [
+            "ready_for_review",
+            "draft"
+          ],
+          "description": "Final state of the PR a /devflow:implement run produces. 'ready_for_review' (the default) publishes the PR in Phase 4.3 via `gh pr ready`, exactly as before. 'draft' leaves it the draft created in Phase 3.1 (the run still finalizes with Status: Complete and the outcome reaction, but does not publish, so the cloud review and CI ready_for_review listener do not auto-fire until a human publishes). Any other value \u2014 missing key, empty string, or an unrecognized string \u2014 resolves to 'ready_for_review'; default-to-publish is the safe direction. See docs/implement-skill.md for the full Phase 4.3 behavior.",
           "default": "ready_for_review"
         },
         "allowed_tools": {
           "type": "array",
-          "items": { "type": "string" },
-          "description": "Extra --allowed-tools entries for the /devflow:implement path (devflow-implement.yml), APPENDED on top of devflow's built-in base list. The implement path does NOT inherit devflow.allowed_tools, so list every extra tool you want during implementation here. Empty/omitted → base list only.",
+          "items": {
+            "type": "string"
+          },
+          "description": "Extra --allowed-tools entries for the /devflow:implement path (devflow-implement.yml), APPENDED on top of devflow's built-in base list. The implement path does NOT inherit devflow.allowed_tools, so list every extra tool you want during implementation here. Empty/omitted \u2192 base list only.",
           "default": []
         },
         "stall_backstop": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Cloud-only workflow-level backstop for /devflow:implement (devflow-implement.yml). A headless single-shot run can end mid-lifecycle (e.g. right after `gh pr create`) yet report success, because the SDK session ends the moment the model emits a tool-call-free turn. After the `claude` step, the backstop reads the issue workpad Status (never PR draft state): a terminal Status (🎉 Complete / 👎 Blocked) is a no-op, an interim Status (🚀 …) auto-resumes `/devflow:implement <n>` up to `max_resume_attempts`, and an exhausted cap or an unreadable Status fails the job loud with a distinct issue comment. Purely additive: absent/disabled, the job behaves exactly as before.",
+          "description": "Cloud-only workflow-level backstop for /devflow:implement (devflow-implement.yml). A headless single-shot run can end mid-lifecycle (e.g. right after `gh pr create`) yet report success, because the SDK session ends the moment the model emits a tool-call-free turn. After the `claude` step, the backstop reads the issue workpad Status (never PR draft state): a terminal Status (\ud83c\udf89 Complete / \ud83d\udc4e Blocked / \ud83d\udca5 Failed) is a no-op, an interim Status (\ud83d\ude80 \u2026) auto-resumes `/devflow:implement <n>` up to `max_resume_attempts`, and an exhausted cap or an unreadable Status fails the job loud with a distinct issue comment. Every fail-loud exit reached after reading a genuinely interim Status also flips the workpad Status to \ud83d\udca5 Failed (best-effort) so a dead run stops reporting itself as still working. Purely additive: absent/disabled, the job behaves exactly as before.",
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Master switch for the stall backstop. true (the default) enables the post-run status check + auto-resume/fail-loud behavior; false skips the backstop entirely (no status read, no resume, no fail, no comment) so the job stays green on a mid-lifecycle stop, exactly as before this feature. An unrecognized/missing value resolves to true — the safe, honest-failure direction.",
+              "description": "Master switch for the stall backstop. true (the default) enables the post-run status check + auto-resume/fail-loud behavior; false skips the backstop entirely (no status read, no resume, no fail, no comment) so the job stays green on a mid-lifecycle stop, exactly as before this feature. An unrecognized/missing value resolves to true \u2014 the safe, honest-failure direction.",
               "default": true
             },
             "max_resume_attempts": {
@@ -146,7 +178,7 @@
     },
     "devflow_runner": {
       "type": "object",
-      "description": "Settings for the reusable runner that backs the automated reviewer (devflow-review.yml → devflow-runner.yml).",
+      "description": "Settings for the reusable runner that backs the automated reviewer (devflow-review.yml \u2192 devflow-runner.yml).",
       "properties": {
         "provider": {
           "type": "string",
@@ -156,16 +188,27 @@
           "type": "string",
           "description": "Optional per-section model override for the automated reviewer (devflow-runner.yml). Takes precedence over the global claude_model. Unset → global claude_model (issue #313)."
         },
-        "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
         "provision_env": {
           "type": "boolean",
-          "description": "Opt the automated reviewer into provisioning a build environment. When true, devflow-runner.yml runs the setup-project-env action (Python/Node/PHP + service containers + `setup.install`) BEFORE Claude runs, and the read-only `review` tool profile gains the freeform build/verify tools you list in `devflow_runner.allowed_tools` (see that property) so the reviewer can actually build/test the PR instead of punting build-dependent claims; an empty/absent `allowed_tools` means no build tools are added (the runner warns). SECURITY: this flag, the `allowed_tools` list, AND the `setup` block are read from the TRUSTED base ref (your repo's base branch), never the PR head, so a PR cannot enable provisioning, grant itself tools, or inject install commands. The runner also strips a catastrophic-tier deny-list (file-mutation tools + raw-shell/eval/privilege Bash) from `allowed_tools` regardless of content. But the build tools still run the PR author's code (e.g. an npm package's postinstall) under devflow-review.yml's pull_request_target write token — enable only if you accept running untrusted PR build steps. Absent/false (the default) → the runner is unchanged: light, read-only, no build tools, no provisioning.",
+          "description": "Opt the automated reviewer into provisioning a build environment. When true, devflow-runner.yml runs the setup-project-env action (Python/Node/PHP + service containers + `setup.install`) BEFORE Claude runs, and the read-only `review` tool profile gains the freeform build/verify tools you list in `devflow_runner.allowed_tools` (see that property) so the reviewer can actually build/test the PR instead of punting build-dependent claims; an empty/absent `allowed_tools` means no build tools are added (the runner warns). SECURITY: this flag, the `allowed_tools` list, AND the `setup` block are read from the TRUSTED base ref (your repo's base branch), never the PR head, so a PR cannot enable provisioning, grant itself tools, or inject install commands. The runner also strips a catastrophic-tier deny-list (file-mutation tools + raw-shell/eval/privilege Bash) from `allowed_tools` regardless of content. But the build tools still run the PR author's code (e.g. an npm package's postinstall) under devflow-review.yml's pull_request_target write token \u2014 enable only if you accept running untrusted PR build steps. Absent/false (the default) \u2192 the runner is unchanged: light, read-only, no build tools, no provisioning.",
           "default": false
         },
         "allowed_tools": {
           "type": "array",
-          "items": { "type": "string" },
-          "description": "Freeform build/verify tools (claude-code-action syntax, e.g. \"Bash(go:*)\", \"Bash(cargo:*)\", \"Bash(npm:*)\") APPENDED to the automated reviewer's read-only `review` profile — but ONLY when `provision_env: true` above. Read from the TRUSTED base ref (your repo's base branch), never the PR head, so a PR cannot grant itself tools. This makes build-aware review language-agnostic: list your toolchain here, no DevFlow release needed. A deterministic deny-list floor is enforced by devflow-runner.yml when the list is consumed — file-mutation tools (Edit, Write, MultiEdit, NotebookEdit) and raw-shell/eval/privilege Bash (bash, sh, zsh, eval, exec, source, sudo) are stripped (with a warning) regardless of what is listed here, so the catastrophic tier can never reach a write-token job reviewing untrusted code. When `provision_env` is false the reviewer is byte-for-byte read-only regardless of this list. /devflow:init auto-populates this per detected language and enriches it from your repo's real build setup.",
+          "items": {
+            "type": "string"
+          },
+          "description": "Freeform build/verify tools (claude-code-action syntax, e.g. \"Bash(go:*)\", \"Bash(cargo:*)\", \"Bash(npm:*)\") APPENDED to the automated reviewer's read-only `review` profile \u2014 but ONLY when `provision_env: true` above. Read from the TRUSTED base ref (your repo's base branch), never the PR head, so a PR cannot grant itself tools. This makes build-aware review language-agnostic: list your toolchain here, no DevFlow release needed. A deterministic deny-list floor is enforced by devflow-runner.yml when the list is consumed \u2014 file-mutation tools (Edit, Write, MultiEdit, NotebookEdit) and raw-shell/eval/privilege Bash (bash, sh, zsh, eval, exec, source, sudo) are stripped (with a warning) regardless of what is listed here, so the catastrophic tier can never reach a write-token job reviewing untrusted code. When `provision_env` is false the reviewer is byte-for-byte read-only regardless of this list. /devflow:init auto-populates this per detected language and enriches it from your repo's real build setup.",
           "default": []
         }
       }
@@ -176,8 +219,12 @@
       "properties": {
         "fix_severity_threshold": {
           "type": "string",
-          "enum": ["critical", "important", "suggestion"],
-          "description": "The /devflow:review-and-fix fix loop routes to the fixer every finding whose severity is at or above this threshold (severity ordering: critical > important > suggestion); findings below it stay advisory. At the default 'important', the loop fixes Critical + Important/Major and parks Suggestion/Minor as advisory — identical to the historical hard-coded behavior. Set 'suggestion' for a more aggressive fixer (Suggestion/Minor also routed to the fixer, bounded by max_iterations and the convergence check) or 'critical' for a conservative one. Independent of devflow_review.verdict_severity_threshold, except that every REJECT-driving finding is always fixable regardless of this key. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
+          "enum": [
+            "critical",
+            "important",
+            "suggestion"
+          ],
+          "description": "The /devflow:review-and-fix fix loop routes to the fixer every finding whose severity is at or above this threshold (severity ordering: critical > important > suggestion); findings below it stay advisory. At the default 'important', the loop fixes Critical + Important/Major and parks Suggestion/Minor as advisory \u2014 identical to the historical hard-coded behavior. Set 'suggestion' for a more aggressive fixer (Suggestion/Minor also routed to the fixer, bounded by max_iterations and the convergence check) or 'critical' for a conservative one. Independent of devflow_review.verdict_severity_threshold, except that every REJECT-driving finding is always fixable regardless of this key. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
           "default": "important"
         },
         "max_iterations": {
@@ -205,40 +252,243 @@
       "properties": {
         "verdict_severity_threshold": {
           "type": "string",
-          "enum": ["critical", "important", "suggestion"],
+          "enum": [
+            "critical",
+            "important",
+            "suggestion"
+          ],
           "description": "Moves ONLY the REJECT line of the shared review engine's Phase 4.2 verdict computation: a finding at or above this severity (severity ordering: critical > important > suggestion), excluding deferral-demoted ones, drives REJECT. All other Phase 4.2 rules and verdict labels are untouched. At the default 'critical' (or when the key is absent) verdict computation is byte-identical to the historical behavior. Both standalone /devflow:review and the Phase-3 pass of /devflow:review-and-fix inherit this. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
           "default": "critical"
         },
         "live_progress_comment_enabled": {
           "type": "boolean",
-          "description": "When true, a PR-mode /devflow:review authors a live progress comment for that run (a run-keyed <!-- devflow:review-progress run=<id>-<attempt> --> comment — one per review run, so a later run posts its own rather than overwriting an earlier run's) incrementally as it works — a blueprint of the phases up front, then per-phase updates (diff classification, checklist results, each Phase-3 agent's findings as they land, the verdict), finalizing with the run-telemetry summary and effectiveness trace. When false, /devflow:review falls back to producing its report once at the end (no incremental updates). Independent of devflow_review_and_fix.efficiency_telemetry_enabled, which separately gates the embedded telemetry/trace.",
+          "description": "When true, a PR-mode /devflow:review authors a live progress comment for that run (a run-keyed <!-- devflow:review-progress run=<id>-<attempt> --> comment \u2014 one per review run, so a later run posts its own rather than overwriting an earlier run's) incrementally as it works \u2014 a blueprint of the phases up front, then per-phase updates (diff classification, checklist results, each Phase-3 agent's findings as they land, the verdict), finalizing with the run-telemetry summary and effectiveness trace. When false, /devflow:review falls back to producing its report once at the end (no incremental updates). Independent of devflow_review_and_fix.efficiency_telemetry_enabled, which separately gates the embedded telemetry/trace.",
           "default": true
         },
         "require_up_to_date": {
           "type": "boolean",
-          "description": "When true (the default), the devflow-review auto-trigger defers — posting a neutral 'waiting: branch behind base' Devflow Review check instead of running the engine — while the PR branch is behind its configured base_branch, so an LLM review that a forthcoming branch update would invalidate is not wasted. The review auto-re-triggers on the next reviewable event (synchronize, or other-CI completion). A neutral required check does NOT itself block merge: this precondition is a cost optimization, not a correctness gate — pair it with branch protection's 'require branches up to date' if staleness must block. When false, restores the unconditional auto-trigger for this precondition. Evaluated by scripts/derive-review-preconditions.sh; an unverifiable comparison fails closed (defer, recoverable via a later event or the check's Re-run button).",
+          "description": "When true (the default), the devflow-review auto-trigger defers \u2014 posting a neutral 'waiting: branch behind base' Devflow Review check instead of running the engine \u2014 while the PR branch is behind its configured base_branch, so an LLM review that a forthcoming branch update would invalidate is not wasted. The review auto-re-triggers on the next reviewable event (synchronize, or other-CI completion). A neutral required check does NOT itself block merge: this precondition is a cost optimization, not a correctness gate \u2014 pair it with branch protection's 'require branches up to date' if staleness must block. When false, restores the unconditional auto-trigger for this precondition. Evaluated by scripts/derive-review-preconditions.sh; an unverifiable comparison fails closed (defer, recoverable via a later event or the check's Re-run button).",
           "default": true
         },
         "require_ci_green": {
           "type": "boolean",
-          "description": "When true (the default), the devflow-review auto-trigger defers — posting a neutral 'waiting: other CI not green' Devflow Review check instead of running the engine — until every other signal on the PR head (GitHub Actions workflow runs excluding the Devflow Review workflow itself, legacy commit statuses, and non-Actions check runs) has completed without failing (success, skipped, and neutral conclusions all count as green, so a path-filtered or optional workflow never wedges the review), so a code-quality verdict is never produced for known-broken code. Generic: no CI job names are referenced. A head with NO other CI at all is treated as satisfied (nothing to wait on), so a CI-less repo is reviewed immediately and never wedged. The review auto-re-triggers when other CI completes (workflow_run/check_suite completed events — the workflow_run trigger's `workflows:` list must name the repo's CI workflows, a GitHub platform requirement). When false, restores the unconditional auto-trigger for this precondition. Evaluated by scripts/derive-review-preconditions.sh; an unverifiable query fails closed (defer, recoverable via a later event or the check's Re-run button).",
+          "description": "When true (the default), the devflow-review auto-trigger defers \u2014 posting a neutral 'waiting: other CI not green' Devflow Review check instead of running the engine \u2014 until every other signal on the PR head (GitHub Actions workflow runs excluding the Devflow Review workflow itself, legacy commit statuses, and non-Actions check runs) has completed without failing (success, skipped, and neutral conclusions all count as green, so a path-filtered or optional workflow never wedges the review), so a code-quality verdict is never produced for known-broken code. Generic: no CI job names are referenced. A head with NO other CI at all is treated as satisfied (nothing to wait on), so a CI-less repo is reviewed immediately and never wedged. The review auto-re-triggers when other CI completes \u2014 a workflow_run/check_suite completed event, or (since issue #310) a legacy commit-status `status` event with `state == 'success'` for repos whose CI reports only via the commit-status API (classic Jenkins, legacy CircleCI); the workflow_run trigger's `workflows:` list must name the repo's CI workflows, a GitHub platform requirement. When false, restores the unconditional auto-trigger for this precondition. Evaluated by scripts/derive-review-preconditions.sh; an unverifiable query fails closed (defer, recoverable via a later event or the check's Re-run button).",
           "default": true
+        },
+        "stall_backstop": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Cloud-only workflow-level backstop for the review engine. A headless review run can end `success` with NO verdict — the SDK session ends the moment the model emits a tool-call-free turn (e.g. after ScheduleWakeup while a Phase-3 agent is still pending), so the required `Devflow Review` check fails 'incomplete — re-run needed' and a human must manually re-trigger. On the AUTO-review path (devflow-review.yml's finalize_check), which derives the verdict for the head, the backstop fires when the run concludes incomplete with no verdict positively observed for the head — exactly this early-quit — and posts a `/devflow:review` re-trigger comment (authored by a freshly minted App token) up to `max_resume_attempts` per head, so the review re-runs without human intervention. The MANUAL /devflow:review comment path (devflow.yml) has no verdict-derivation step, so it fires the same backstop only on the #356 dead-run signal (the engine ending is_error, or the claude step ending failure — a hard death), not on a clean success-with-no-verdict; that manual-path case is covered only by the headless-wait skill/grounding prose. When the cap is exhausted, or no workflow-capable App token is configured (DEVFLOW_APP_ID unset — a GITHUB_TOKEN-authored comment never re-triggers a workflow), behavior degrades to exactly the pre-existing dead-end flip, with a breadcrumb naming why the backstop did not fire. Because the re-trigger re-enters the SAME manual /devflow:review comment gate, auto-resume additionally requires the minting App's bot login to be in `devflow.allowed_bots` (the same prerequisite the implement backstop carries); otherwise the comment posts but the gate declines it and no review re-runs. This is the review-side sibling of devflow_implement.stall_backstop. Purely additive: absent/disabled, the review behaves exactly as before.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Master switch for the review stall backstop. true (the default) enables the no-verdict auto-resume; false skips it entirely (no resume comment) so an incomplete review degrades to the dead-end flip exactly as before this feature. An unrecognized/missing value resolves to true — the safe, honest-failure direction.",
+              "default": true
+            },
+            "max_resume_attempts": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Hard cap on automatic review-resume attempts per head before the backstop stops firing and the run degrades to the dead-end flip. 0 disables auto-resume (detect-and-flip only). N means up to N auto-resumes per head, each carrying a distinct `<!-- devflow:review-backstop head=<sha> attempt=<n> -->` marker comment that the count is derived from. A negative or non-integer value resolves to the default 2.",
+              "default": 2
+            }
+          }
         },
         "agent_overrides": {
           "type": "object",
-          "description": "Per-subagent model/effort overrides for the shared /devflow:review engine. Applies to BOTH standalone /devflow:review AND the Phase-3 review pass of /devflow:review-and-fix (and thus /devflow:implement), since both drive the same engine. Keys are the nine review-engine subagent identifiers (byte-identical to the telemetry strings) plus an optional `default` fallback. Each value optionally sets `model` (free-form model id, forwarded to the dispatch as given) and/or `effort` (one of low/medium/high/xhigh/max — an out-of-enum value warns and falls back to the session effort rather than aborting). Resolution is entry-level: a subagent with its own entry uses only that entry (the `default` does NOT backfill its missing fields); `default` supplies model/effort only for subagents with no entry of their own. A subagent with neither its own entry nor a `default` is dispatched exactly as today — global claude_model + session effort — with no --agents override emitted for it. See docs/review-agent-overrides.md.",
+          "description": "Per-subagent model/effort overrides for the shared /devflow:review engine. Applies to BOTH standalone /devflow:review AND the Phase-3 review pass of /devflow:review-and-fix (and thus /devflow:implement), since both drive the same engine. Keys are the nine review-engine subagent identifiers (byte-identical to the telemetry strings) plus an optional `default` fallback. Each value optionally sets `model` (free-form model id, forwarded to the dispatch as given) and/or `effort` (one of low/medium/high/xhigh/max \u2014 an out-of-enum value warns and falls back to the session effort rather than aborting). Resolution is entry-level: a subagent with its own entry uses only that entry (the `default` does NOT backfill its missing fields); `default` supplies model/effort only for subagents with no entry of their own. A subagent with neither its own entry nor a `default` is dispatched exactly as today \u2014 global claude_model + session effort \u2014 with no --agents override emitted for it. See docs/review-agent-overrides.md.",
           "additionalProperties": false,
           "properties": {
-            "default": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
-            "devflow:checklist-generator": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
-            "devflow:checklist-deduper": { "type": "object", "additionalProperties": false, "description": "Pins Claude Sonnet 4.6 for the dedup pass with effort 'medium' (Sonnet 4.6's recommended default; effort must be set explicitly on Sonnet 4.6 to avoid unexpected latency). NOTE: Claude Haiku rejects the `effort` parameter with HTTP 400 (effort is supported only on Opus 4.5–4.8 / Sonnet 4.6), so if you re-pin a Haiku id here the entry must NOT carry an `effort` key; scaffold-config.sh strips a stale `effort` from any Haiku-pinned override on re-scaffold.", "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
-            "devflow:checklist-verifier": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
-            "devflow:code-reviewer": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
-            "devflow:silent-failure-hunter": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
-            "devflow:comment-analyzer": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
-            "devflow:type-design-analyzer": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
-            "devflow:pr-test-analyzer": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
-            "devflow:requesting-code-review": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } }
+            "default": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "devflow:checklist-generator": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "devflow:checklist-deduper": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Pins Claude Sonnet 4.6 for the dedup pass with effort 'medium' (Sonnet 4.6's recommended default; effort must be set explicitly on Sonnet 4.6 to avoid unexpected latency). NOTE: Claude Haiku rejects the `effort` parameter with HTTP 400 (effort is supported only on Opus 4.5\u20134.8 / Sonnet 4.6), so if you re-pin a Haiku id here the entry must NOT carry an `effort` key; scaffold-config.sh strips a stale `effort` from any Haiku-pinned override on re-scaffold.",
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "devflow:checklist-verifier": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "devflow:code-reviewer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "devflow:silent-failure-hunter": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "devflow:comment-analyzer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "devflow:type-design-analyzer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "devflow:pr-test-analyzer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "devflow:requesting-code-review": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              }
+            }
           }
         }
       }
@@ -249,19 +499,23 @@
       "properties": {
         "fix_severity_threshold": {
           "type": "string",
-          "enum": ["critical", "important", "suggestion"],
-          "description": "When /devflow:receiving-code-review is invoked directly and the verdict is already non-blocking, the diff is re-opened for a finding at or above this severity (severity ordering: critical > important > suggestion). At the default 'critical' this matches the historical behavior (re-open only for a Critical/blocking finding). The demonstrable-correctness-defect / documented-falsehood carve-out re-opens the diff at every threshold value — it is a correctness principle, not a severity grade. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
+          "enum": [
+            "critical",
+            "important",
+            "suggestion"
+          ],
+          "description": "When /devflow:receiving-code-review is invoked directly and the verdict is already non-blocking, the diff is re-opened for a finding at or above this severity (severity ordering: critical > important > suggestion). At the default 'critical' this matches the historical behavior (re-open only for a Critical/blocking finding). The demonstrable-correctness-defect / documented-falsehood carve-out re-opens the diff at every threshold value \u2014 it is a correctness principle, not a severity grade. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
           "default": "critical"
         }
       }
     },
     "setup": {
       "type": "object",
-      "description": "Cloud-tier runtime provisioning: how the GitHub Actions runner is prepared BEFORE Claude runs — for the /devflow:* command path, /devflow:implement, AND the automated reviewer. /devflow:init auto-populates node_version + install per detected language (deterministic presets), then the LLM enriches php_version/extensions and services by reading docker-compose/CI/composer.json. Provisioning order: Python → Node → PHP → service containers → install lines.",
+      "description": "Cloud-tier runtime provisioning: how the GitHub Actions runner is prepared BEFORE Claude runs \u2014 for the /devflow:* command path, /devflow:implement, AND the automated reviewer. /devflow:init auto-populates node_version + install per detected language (deterministic presets), then the LLM enriches php_version/extensions and services by reading docker-compose/CI/composer.json. Provisioning order: Python \u2192 Node \u2192 PHP \u2192 service containers \u2192 install lines.",
       "properties": {
         "python_version": {
           "type": "string",
-          "description": "setup-python runs ONLY if non-empty. Config (JSON) is read by a python3 resolver (config-get.sh) using the stdlib json module — no PyYAML needed for config. match-deferrals.py and workpad.py additionally need Python >= 3.11 with PyYAML to parse the YAML deferred-findings/workpad blocks in PR/issue bodies, and those run in the cloud workflows, so keep this set (e.g. '3.11')."
+          "description": "setup-python runs ONLY if non-empty. Config (JSON) is read by a python3 resolver (config-get.sh) using the stdlib json module \u2014 no PyYAML needed for config. match-deferrals.py additionally needs Python >= 3.11 with PyYAML to parse the YAML deferred-findings blocks in PR bodies, and it runs in the cloud workflows, so keep this set (e.g. '3.11'). (workpad.py is stdlib-only \u2014 it needs Python >= 3.11 but not PyYAML.)"
         },
         "node_version": {
           "type": "string",
@@ -269,7 +523,7 @@
         },
         "node_working_directory": {
           "type": "string",
-          "description": "Directory (relative to the repo root) that holds the Node project's package.json/lockfile, for repos whose JS build lives in a subdirectory (e.g. 'jsx', 'resources/js', 'frontend') rather than at the root. When set, setup-node's download caching resolves the lockfile under this directory and /devflow:init scopes the generated Node install line into it. Empty/absent (the default) → caching and detection key off the repo root, byte-for-byte identical to the root-based behavior. Note: this only affects the auto-detected Node install line and cache resolution; setup.install lines still run from the repo root."
+          "description": "Directory (relative to the repo root) that holds the Node project's package.json/lockfile, for repos whose JS build lives in a subdirectory (e.g. 'jsx', 'resources/js', 'frontend') rather than at the root. When set, setup-node's download caching resolves the lockfile under this directory and /devflow:init scopes the generated Node install line into it. Empty/absent (the default) \u2192 caching and detection key off the repo root, byte-for-byte identical to the root-based behavior. Note: this only affects the auto-detected Node install line and cache resolution; setup.install lines still run from the repo root."
         },
         "php_version": {
           "type": "string",
@@ -281,39 +535,56 @@
         },
         "php_tools": {
           "type": "string",
-          "description": "CSV list of PHP tools for setup-php (e.g. 'composer:v2, phpunit'). Optional — Composer is set up by default. Only used when php_version is set."
+          "description": "CSV list of PHP tools for setup-php (e.g. 'composer:v2, phpunit'). Optional \u2014 Composer is set up by default. Only used when php_version is set."
         },
         "services": {
           "type": "array",
           "description": "Service containers (databases, caches, queues) started via `docker run -d` BEFORE the install lines, reachable from the runner on 127.0.0.1:<host-port>. NOT GitHub Actions `services:` (which can't be defined in a composite action or driven by config). Populated by /devflow:init from docker-compose.yml / .env / existing CI. The runner needs Docker (preinstalled on ubuntu-latest) and the `docker` preset's allowlist.",
           "items": {
             "type": "object",
-            "required": ["name", "image"],
+            "required": [
+              "name",
+              "image"
+            ],
             "properties": {
-              "name": { "type": "string", "description": "Container name (also the --name)." },
-              "image": { "type": "string", "description": "Image ref, e.g. 'mysql:8.0', 'redis:7', 'postgres:16'." },
+              "name": {
+                "type": "string",
+                "description": "Container name (also the --name)."
+              },
+              "image": {
+                "type": "string",
+                "description": "Image ref, e.g. 'mysql:8.0', 'redis:7', 'postgres:16'."
+              },
               "ports": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Port mappings 'host:container', e.g. ['3306:3306']. The app's test config should connect to 127.0.0.1:<host-port>."
               },
               "env": {
                 "type": "object",
-                "additionalProperties": { "type": "string" },
+                "additionalProperties": {
+                  "type": "string"
+                },
                 "description": "Environment variables passed as -e KEY=VALUE, e.g. {\"MYSQL_ROOT_PASSWORD\": \"root\", \"MYSQL_DATABASE\": \"app_test\"}."
               },
               "options": {
                 "type": "array",
-                "items": { "type": "string" },
-                "description": "Extra `docker run` options, one complete arg per array element (NOT a single space-separated string — that would word-split a health command's spaces). Use a health check so readiness is awaited, e.g. [\"--health-cmd=mysqladmin ping -h 127.0.0.1\", \"--health-interval=5s\", \"--health-timeout=5s\", \"--health-retries=20\"]. Maintainer-controlled, read from the trusted base config."
+                "items": {
+                  "type": "string"
+                },
+                "description": "Extra `docker run` options, one complete arg per array element (NOT a single space-separated string \u2014 that would word-split a health command's spaces). Use a health check so readiness is awaited, e.g. [\"--health-cmd=mysqladmin ping -h 127.0.0.1\", \"--health-interval=5s\", \"--health-timeout=5s\", \"--health-retries=20\"]. Maintainer-controlled, read from the trusted base config."
               }
             }
           }
         },
         "install": {
           "type": "array",
-          "items": { "type": "string" },
-          "description": "Shell lines run verbatim (joined with newlines) after the language setups and service-container start. Put devflow's own deps first, then your project's (e.g. 'composer install --no-interaction'). Empty array → skipped."
+          "items": {
+            "type": "string"
+          },
+          "description": "Shell lines run verbatim (joined with newlines) after the language setups and service-container start. Put devflow's own deps first, then your project's (e.g. 'composer install --no-interaction'). Empty array \u2192 skipped."
         }
       }
     },
@@ -321,8 +592,14 @@
       "type": "object",
       "description": "Documentation paths used by the /devflow:docs suite.",
       "properties": {
-        "internal": { "type": "string", "default": "docs/internal/" },
-        "external": { "type": "string", "default": "docs/external/" },
+        "internal": {
+          "type": "string",
+          "default": "docs/internal/"
+        },
+        "external": {
+          "type": "string",
+          "default": "docs/external/"
+        },
         "internal_enabled": {
           "type": "boolean",
           "description": "When false, the /devflow:docs combined pass (and /devflow:implement's Phase 4.1 docs step) SKIPS internal-doc updates (Step 1, docs-sync-internal). Use it for repos with no internal docs tree, or to keep the implement pass from touching internal docs. Default true (run internal docs). Does not affect invoking /devflow:docs-sync-internal directly.",
@@ -356,7 +633,7 @@
       "properties": {
         "labels": {
           "type": "string",
-          "description": "Comma-separated list of labels applied to the follow-up issues /devflow:implement files for deferred work — both Phase 4.0 deferred-acceptance-criteria issues and Phase 4.0.5 deferred-review-finding issues. Each entry is trimmed and blank entries are dropped, so \"DevFlow, Deferred\" applies both DevFlow and Deferred, and a whitespace-only or all-separators value (e.g. \" , \") normalizes to none, applying no labels. (A literal empty string resolves to this default rather than meaning no-labels, matching how config defaults resolve; set a whitespace value to apply none.) Labels are ensured to exist and applied best-effort after the issue is created, so a label hiccup never blocks filing. This is separate from the hardcoded `DevFlow` provenance label that retrospective detection (lib/scan.sh, lib/classify-pr-kind.jq) matches literally — only deferred-issue labeling is configurable here.",
+          "description": "Comma-separated list of labels applied to the follow-up issues /devflow:implement files for deferred work \u2014 both Phase 4.0 deferred-acceptance-criteria issues and Phase 4.0.5 deferred-review-finding issues. Each entry is trimmed and blank entries are dropped, so \"DevFlow, Deferred\" applies both DevFlow and Deferred, and a whitespace-only or all-separators value (e.g. \" , \") normalizes to none, applying no labels. (A literal empty string resolves to this default rather than meaning no-labels, matching how config defaults resolve; set a whitespace value to apply none.) Labels are ensured to exist and applied best-effort after the issue is created, so a label hiccup never blocks filing. This is separate from the hardcoded `DevFlow` provenance label that retrospective detection (lib/scan.sh, lib/classify-pr-kind.jq) matches literally \u2014 only deferred-issue labeling is configurable here.",
           "default": "DevFlow,Deferred"
         }
       }
@@ -365,9 +642,17 @@
       "type": "object",
       "description": "DevFlow retrospective / self-improvement loop, consumed by the /devflow:retrospective-weekly orchestrator (a locally-run skill, not a GitHub Actions workflow).",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "retrospective_model": { "type": "string", "description": "Optional --model override for the retrospective subagent." },
-        "audit_model": { "type": "string", "description": "Optional --model override for the audit subagent." },
+        "enabled": {
+          "type": "boolean"
+        },
+        "retrospective_model": {
+          "type": "string",
+          "description": "Optional --model override for the retrospective subagent."
+        },
+        "audit_model": {
+          "type": "string",
+          "description": "Optional --model override for the audit subagent."
+        },
         "implementation_branch_prefix": {
           "type": "string",
           "description": "Branch prefix your implementation bot uses for its PRs. The loop processes a PR matching this prefix, or any PR carrying the DevFlow label or closing an issue.",
@@ -390,12 +675,14 @@
         },
         "diff_byte_cap": {
           "type": "integer",
-          "description": "Per-PR diff size ceiling (bytes) for the retrospective context bundle (lib/fetch-pr-context.sh). A PR whose embedded diff exceeds this — or whose diff can't be fetched — gets diff: null / diff_truncated: true and the analyst works from changed_files, reviews, and the issue instead. Generated/vendored file bodies (lockfiles, bundles, node_modules/vendor/dist/build) are elided before the cap is applied.",
+          "description": "Per-PR diff size ceiling (bytes) for the retrospective context bundle (lib/fetch-pr-context.sh). A PR whose embedded diff exceeds this \u2014 or whose diff can't be fetched \u2014 gets diff: null / diff_truncated: true and the analyst works from changed_files, reviews, and the issue instead. Generated/vendored file bodies (lockfiles, bundles, node_modules/vendor/dist/build) are elided before the cap is applied.",
           "default": 204800
         },
         "watched_authors": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Authors whose merged PRs the loop retrospects. Defaults to devflow.allowed_bots if unset."
         }
       }
@@ -404,8 +691,14 @@
       "type": "object",
       "description": "Per-workflow enable/disable toggles.",
       "properties": {
-        "devflow": { "type": "boolean", "description": "Enable the light /devflow:* command path (devflow.yml) and /devflow:implement (devflow-implement.yml)." },
-        "devflow-review": { "type": "boolean", "description": "Enable the automated reviewer (devflow-review.yml)." }
+        "devflow": {
+          "type": "boolean",
+          "description": "Enable the light /devflow:* command path (devflow.yml) and /devflow:implement (devflow-implement.yml)."
+        },
+        "devflow-review": {
+          "type": "boolean",
+          "description": "Enable the automated reviewer (devflow-review.yml)."
+        }
       }
     }
   }

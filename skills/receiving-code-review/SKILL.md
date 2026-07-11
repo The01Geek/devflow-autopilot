@@ -28,6 +28,7 @@ Code review requires technical evaluation, not emotional performance.
 ```
 WHEN receiving code review feedback:
 
+0. UPDATE BRANCH: Update the working branch first (see Update the Branch First below)
 1. READ: Complete feedback without reacting
 2. UNDERSTAND: Restate requirement in own words (or ask)
 3. VERIFY: Check against codebase reality
@@ -38,6 +39,10 @@ WHEN receiving code review feedback:
 8. VERIFY BEFORE DONE: Review diff against addressed findings + run test suite — only then claim completion
 ```
 
+## Update the Branch First (Step 0)
+
+Start every reception by updating the working branch, so steps 3 (VERIFY) and 8 (VERIFY BEFORE DONE) operate on the code that will actually merge rather than a stale snapshot. Fetch from the remote first; when the branch's remote counterpart has commits the local branch lacks, merge them in; then merge the base branch into the working branch. Check the exit status and resulting working-tree state of each fetch and merge, so a failed fetch or a conflicted merge is detected rather than passed over silently. Any merge conflicts these updates raise are resolved as part of the current work, before any review finding is implemented. When the branch cannot be updated — no remote counterpart, a failed fetch, a detached HEAD, or a read-only environment — record the limitation and proceed on the local state; the step is fail-soft and never blocks feedback work when there is nothing to update from. This update is point-in-time: the sync state it establishes is not citable as completion-time evidence, because the remote or the working tree can move afterward — the Verification Gate (step 8) regenerates its own branch-sync evidence in the turn it claims completion.
+
 ## Verification Gate (Step 8)
 
 **Iron Law: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE**
@@ -46,9 +51,12 @@ Before declaring the review findings addressed:
 1. Review the diff of your changes against the addressed findings. For each fix, verify the fix is correct for *all* inputs and conditions — not only the case the reviewer described. Fixing one problem while introducing a new inaccuracy is a common failure mode the test suite may not catch (e.g. a breadcrumb that fires on `|| VAR=""` emptiness rephrased to say "failed", implying a non-zero exit, missing the asymmetric-empty case).
 2. Verify your own diff's claims against HEAD. Treat every documentation, comment, changelog, or PR-body assertion the change adds or relies on as a claim to verify against HEAD before declaring done — especially "X remains unscoped / is still broken / is unhandled" claims, and anything another file in the same change contradicts. A documented falsehood is a correctness defect in the deliverable, not a cosmetic nit: `git log -S` / grep the symbol at HEAD, then fix the prose (or, if the code is the thing that is wrong, fix the code).
 3. Run the project's test suite. Attempt the direct/local invocation first; restrict the CI fallback to a genuine sandbox or permission denial — never when the suite runs but fails. When using the CI fallback, actively wait to observe CI go green (submitting a push is not the same as observing green); do not claim completion until CI confirms green. Record the local-skip reason as an auditable note.
-4. Only after all three pass, claim completion.
+4. Generate branch-sync evidence in the same turn as the completion claim — the Step 0 update from earlier in the session is not this evidence, because the remote or the working tree can have moved since. Run the git checks now: fetch — checking the fetch's own exit status — then measure divergence versus the branch's remote counterpart (both ahead and behind), divergence versus the base branch, and working-tree cleanliness, and cite that fresh output in the completion report. If the fetch did not succeed, treat both the remote-counterpart divergence and the base-branch divergence as unestablished — only working-tree cleanliness stays measurable without a fetch — and record that limitation rather than measuring against a stale remote-tracking ref and reporting a falsely-clean in-sync result: any comparison that reads a ref the failed fetch left stale is unknown, never zero-behind. On detected drift, re-run the Step 0 update once, regenerate this evidence on the new state, and report any further movement during that single re-sync pass as fresh divergence rather than chasing it to a moving target. Surface any unpushed local commits in the evidence; whether they are pushed is governed by the surrounding workflow, not this skill. This item is fail-soft exactly as Step 0 is: a missing remote counterpart, a failed fetch, a detached HEAD, or a read-only environment each records the limitation and never blocks the completion report.
+5. Only after all four pass, claim completion.
 
-This gate applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop. In the loop, the fix step runs tests and the review engine re-runs each iteration to re-check whether every finding is resolved — no additional step 8 invocation is needed at the APPROVE claim.
+**Mutation-check every test the change adds or alters before claiming completion.** A green suite is necessary but not sufficient for a *guard* — a drift/sync assertion, a coverage pin, a regression test pinning a literal or contract — because a vacuous guard passes too. So mutation-check every new test before completion is claimed: break the behavior it pins (delete the line or block it asserts, or flip the condition) **on a copy of the file, never the working-tree file in place**, run the project's test suite against that copy, and confirm the test fails **for the reason it pins** — not merely that something went red. Then discard the copy. A test you never saw fail proves nothing; working on a copy means an interrupted mutation can never leave the real file broken.
+
+This gate applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop. In the loop, the fix step runs tests and the review engine re-runs each iteration to re-check whether every finding is resolved — no additional step 8 invocation is needed at the APPROVE claim. The fourth evidence item — the same-turn branch-sync check — is scoped to a direct invocation of this skill: inside the autonomous fix loop the loop's own branch-sync mechanics govern, so the loop does not re-run it.
 
 ## Stop When the Verdict Is Already Non-Blocking
 
@@ -211,6 +219,8 @@ Severity must be **calibrated against the observable fail-direction and impact i
 - A **diagnostic-or-cosmetic-only** finding — the wording of a message, log line, breadcrumb, or comment, with no wrong output, no corrupted state, and no skipped guard — has no behavioral fail-direction. Real and worth fixing, but not a high-severity blast radius.
 - A defect that **fails open** (admits a wrong value, corrupts state, or skips a guard silently) is the one whose observable impact actually supports a high severity.
 
+**"Documented" and "contrived" are disclosure facts, not severity facts.** The evidence for a *mild* grade is a fail-**closed** direction — nothing else. Two arguments are routinely mistaken for that evidence and are neither: that the defect's limitation is *disclosed* in a source comment or known-limitations note, and that its trigger input is *contrived* ("far outside the natural flow", "no one would craft that"). A guard exists precisely to catch contrived inputs, so the contrivedness of a crafted or laundering input is an argument *for* the guard, never against the severity of its failing open; and "it is documented" records that someone knew about the hole, not that the hole is mild. A defect that fails **open** — admits a wrong value, corrupts state, or silently skips a guard on the crafted input — is **not mild regardless of how contrived that input is or whether a comment disclosed it**. Grade it on the fail-direction it actually takes on the input that triggers it, not on how exotic that input is or whether it was pre-disclosed.
+
 The discipline is **symmetric**: do not silently inflate a mild finding into a blocker, and do not silently *deflate* a severe one to dodge work. When you calibrate a severity — in either direction — record the observable evidence for the new grade (which fail-direction the code takes, what the suite catches, what the real blast radius is). A severity you change but cannot evidence is just a different guess; a severity you can evidence is a calibration. Never down-calibrate to avoid the fix — calibrate only to the impact you can demonstrate, and when in doubt about a genuine defect, keep the higher grade.
 
 ## Record Every Deferral
@@ -314,9 +324,23 @@ A fix is not a lower-stakes edit than the code it corrects — it is fresh code,
 
 The reason to do this *now*, before claiming done, is cost: a defect you catch in your own fix delta costs nothing, one that reaches the next review pass costs a whole iteration, and one that slips the pass ships. Don't lean on a later review — or on an automated fix-delta gate, if your loop has one — to find a defect your fix introduced. Write it right the first time.
 
+## Negative Tests: Attribute the Rejection
+
+A negative test — one asserting that a bad input is *rejected* — is meaningful only if it is rejected for the reason it names. Two failure modes make such a test pass while proving nothing:
+
+- **Rejection from an unrelated precondition.** The fixture trips an earlier guard — a missing section, an absent field, a malformed shape — and the call fails *before* it ever reaches the guard under test. The test is green; the guard it names was never exercised.
+- **Rejection from the wrong guard.** More than one guard can reject the input, and a *different* one fires first. A test that asserts only the exit code and the absence of output stays green even against a mutant that disables the very guard it was written to protect.
+
+Two rules close both holes:
+
+- **Attribute the rejection.** A negative test asserts *why* the call failed, pinning the rejecting guard's own distinct signal whenever more than one guard can reject the input — its specific message, error code, or breadcrumb, not merely that the call failed. A bare exit-code-and-no-output assertion cannot tell the guard under test from a precondition ten lines away.
+- **Carry a positive control on the same fixture.** A negative test carries a positive control on the same fixture, so a rejection from an unrelated precondition cannot masquerade as the rejection under test — a companion assertion that the fixture is otherwise valid and the call would succeed but for the one property under test. Without it, an earlier guard silently rejecting the fixture reads as a passing negative test.
+
 ## Share the Contract: Parse, Don't Validate
 
-When a fix adds a guard or validator protecting a **downstream consumer** (a parser, a `strptime`, a JSON decode, a type-narrowing op), **prefer using that consumer as the guard itself** rather than writing a separate validator that *approximates* the consumer's contract.
+**This is a rule that fires on the event of writing a guard — not standing advice to recall later.** The moment you are about to add a guard or validator protecting a **downstream consumer** (a parser, a `strptime`, a JSON decode, a type-narrowing op), the trigger fires and you do two things in order. First, **name the downstream operation the guard protects, in the code, before writing the predicate** — then write the guard *as* that operation rather than a predicate that approximates it. Second, **before writing any new predicate over a string or shape, grep the file for an existing idiom doing the same job** — the correct operation often already sits a few lines away, and re-deriving it by hand is exactly how a guard's accepted-input set drifts wider than its consumer's.
+
+Concretely: **prefer using that consumer as the guard itself** rather than writing a separate validator that *approximates* the consumer's contract.
 
 ```
 IF a fix needs to guard input before a downstream operation:

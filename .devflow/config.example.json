@@ -8,7 +8,9 @@
     "allowed_users": "*",
     "workpad_marker": "<!-- devflow:workpad -->",
     "effort": "high",
-    "allowed_tools": []
+    "allowed_tools": [],
+    "execution_diagnostics_enabled": true,
+    "execution_transcript_artifact_enabled": false
   },
   "devflow_implement": {
     "effort": "high",
@@ -35,10 +37,22 @@
     "live_progress_comment_enabled": true,
     "require_up_to_date": true,
     "require_ci_green": true,
+    "stall_backstop": {
+      "enabled": true,
+      "max_resume_attempts": 2
+    },
     "agent_overrides": {
-      "default": { "effort": "high" },
-      "devflow:checklist-deduper": { "model": "claude-sonnet-4-6", "effort": "medium" },
-      "devflow:code-reviewer": { "model": "claude-opus-4-8", "effort": "high" }
+      "default": {
+        "effort": "high"
+      },
+      "devflow:checklist-deduper": {
+        "model": "claude-sonnet-4-6",
+        "effort": "medium"
+      },
+      "devflow:code-reviewer": {
+        "model": "claude-opus-4-8",
+        "effort": "high"
+      }
     }
   },
   "receiving_review": {

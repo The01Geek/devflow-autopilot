@@ -77,7 +77,16 @@ checked with a method matched to its class: **data-source / data-model** claims 
 holds the role name") against the schema definitions or the code that reads and writes that
 data; **"parent PR or commit already did X"** claims at HEAD (read the file, `git log -p` /
 `git log -S<symbol>`), never taken from the parent issue's narrative; **data-coverage /
-population** claims ("column X is set for most users") against live data when it is available.
+population** claims ("column X is set for most users") against live data when it is available;
+and **platform-behavior** claims — any load-bearing claim about external platform or API
+semantics (webhook / event delivery, trigger syntax, token scopes, endpoint behavior) that an
+acceptance criterion's mechanism depends on — **verified against the official documentation
+(a `WebFetch` of the vendor's own docs, not memory) before the AC is written**, with the
+verified fact and its source URL recorded in the draft's `Technical Context`. This is the
+premise class the #304 run missed: it prescribed a `check_suite`/`workflow_run` mechanism
+GitHub cannot deliver (Actions-created check suites never emit `check_suite`; `workflow_run`
+requires a named workflow list), which only surfaced mid-implement — a `WebFetch` of the
+events docs at drafting time would have caught it.
 Treat an empty or inconclusive result (no matching commit, no matching column/schema, data
 unavailable) as **unverified** — never as silent confirmation. A load-bearing premise that
 cannot be verified is written as an explicitly flagged assumption for the implementer to
@@ -187,6 +196,16 @@ Describe the **one** approach the user chose — not a comparison of candidates.
     exhibiting the exact wrong behavior (the dropped last row, the off-by-one), then pass
     after the fix. "Behavior doesn't exist yet" is the wrong framing for a bug; the wrong
     behavior already exists.
+  - **A mechanical claim is verified-or-obligation, never a bare prediction.** When an
+    assertion states a mechanical outcome — "running X reports Y", "the extractor/grep/command
+    emits Z", "this must fail RED reporting W" — take exactly one of two decided forms: **(a)
+    verified** — you actually ran the extraction/grep/command while drafting the issue and cite
+    its **observed** output, or **(b) an obligation** — write it as a requirement on the
+    implementer ("the pin must cover X"), **never** a prediction of the specific result Y/Z/W
+    you did not execute. An unverified mechanical prediction reads exactly like a decided
+    requirement and sends the implementer to re-derive (or encode) a falsehood. The same
+    discipline governs **Relevant Classes/Files line anchors**: cite the symbol or section, not
+    a `file:line` number, which rots between drafting and implementation.
   - Name the **fixtures / test doubles** the failing test needs, and what must **not** be
     mocked — never mock the unit under test or the boundary the assertion is proving.
   - **Don't test the framework.** Assert observable behavior (the CSV bytes round-trip
@@ -239,7 +258,7 @@ incomplete issues.
 - [ ] Desired Behavior is stated as one decided behavior, not a menu
 - [ ] Technical Context opens with the standardized scope note, included verbatim
 - [ ] Technical context cites real file paths / class names from this project
-- [ ] Load-bearing Technical Context premises (data-source/model, coverage/population, "already-done") are verified — not just file paths — or written as flagged assumptions to confirm
+- [ ] Load-bearing Technical Context premises (data-source/model, coverage/population, "already-done", platform-behavior) are verified — not just file paths; platform-behavior claims are WebFetch-checked against official docs with the source recorded — or written as flagged assumptions to confirm
 - [ ] For a user-visible UI change, the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec (screenshot preferred, verbal verification an accepted substitute); non-UI issues omit the section entirely
 - [ ] Acceptance criteria are measurable, testable, and unconditional
 - [ ] Implementation notes describe a single chosen approach

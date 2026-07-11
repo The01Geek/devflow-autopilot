@@ -22,10 +22,23 @@ inputs:
     required: false
     default: 'The01Geek/devflow-autopilot'
 
+outputs:
+  vendor_source:
+    description: |
+      Which vendor-slice branch materialized the plugin this run:
+      `committed` (pre-existing committed copy, checked-out-tree content),
+      `self` (copied from the checkout root — the DevFlow repo itself), or
+      `fetch` (freshly cloned from the official repo at the pinned ref).
+      Security consumers key trust on this — the devflow-runner.yml deny-list
+      floor executes the vendored filter helper only on `fetch`, because the
+      committed/self copies come from the possibly-PR-head checkout.
+    value: ${{ steps.slice.outputs.vendor_source }}
+
 runs:
   using: composite
   steps:
     - name: Vendor plugin
+      id: slice
       shell: bash
       env:
         DEVFLOW_REF: ${{ inputs.ref }}

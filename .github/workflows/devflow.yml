@@ -117,6 +117,14 @@ jobs:
     outputs:
       suppress: ${{ steps.guard.outputs.suppress }}
     steps:
+      - uses: actions/checkout@v6
+      # Materialize the plugin so detect-standalone-command.sh exists at
+      # .devflow/vendor/devflow/scripts/ (committed → self → fetch). Mirrors the
+      # gate job so the dedupe body match routes through the SAME shared detector
+      # the resolver uses — the two matchers cannot drift (issue #321).
+      - uses: ./.github/actions/vendor-plugin
+        with:
+          ref: ${{ needs.config.outputs.devflow_version }}
       - id: guard
         env:
           GH_TOKEN: ${{ github.token }}
@@ -128,16 +136,40 @@ jobs:
           emit() { echo "suppress=$1" >> "$GITHUB_OUTPUT"; }
           emit false  # fail-OPEN default: manual review proceeds unless we prove auto is in-flight
 
-          # First-match-wins: review-and-fix (no automated counterpart, never
-          # dedupe) is matched BEFORE the /devflow:review substring it
-          # contains; anything else is not a review request.
-          case "$BODY" in
-            *"/devflow:review-and-fix"*)
+          # Route body detection through the SAME shared standalone-command
+          # detector the resolver uses (vendored above), so a quoted/documented
+          # /devflow:review mention neither dedupes nor posts a suppression
+          # notice, and the trigger gate and this matcher cannot drift (#321).
+          # The detector is markdown-aware and fires only on a command that is
+          # the sole content of its own line; it emits `command=<token>` on
+          # stdout. First-match-wins is preserved by the detector's
+          # most-specific-first ordering (review-and-fix outranks review).
+          DETECTOR=.devflow/vendor/devflow/scripts/detect-standalone-command.sh
+          if [ ! -x "$DETECTOR" ]; then
+            # Fail OPEN (the job's contract): a missing detector must never
+            # suppress a manual review. Surface it so a vendoring miss is
+            # distinguishable from "not a review request".
+            echo "::warning::devflow detector not found at $DETECTOR — has install.sh vendored the plugin? Fail-open (manual review proceeds)."
+            exit 0
+          fi
+          # Verify the OUTCOME, not just the -x precondition: a present-but-broken
+          # detector (corrupt/partial vendored copy, awk error) or a missing sed
+          # exits non-zero, and under `set -euo pipefail` that would abort this step
+          # and FAIL the job — which then SKIPS the downstream `command` job (it
+          # `needs: review_dedupe` with no always()), silently swallowing the manual
+          # review. That is the fail-CLOSED direction this job's contract forbids, so
+          # absorb any run failure into the same fail-OPEN exit the -x branch uses (#321).
+          if ! CMD="$(printf '%s' "$BODY" | bash "$DETECTOR" | sed -n 's/^command=//p')"; then
+            echo "::warning::devflow detector at $DETECTOR failed to run (broken vendored copy, or missing sed/bash); fail-open (manual review proceeds)."
+            exit 0
+          fi
+          case "$CMD" in
+            /devflow:review-and-fix)
               echo "::notice::/devflow:review-and-fix has no auto path; not deduping."
               exit 0 ;;
-            *"/devflow:review"*) : ;;
+            /devflow:review) : ;;
             *)
-              echo "::notice::Not a /devflow:review request; nothing to dedupe."
+              echo "::notice::Not a standalone /devflow:review request; nothing to dedupe."
               exit 0 ;;
           esac
 
@@ -230,7 +262,7 @@ jobs:
         if: ${{ vars.DEVFLOW_APP_ID != '' && steps.guard.outputs.suppress == 'true' }}
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
           permission-pull-requests: write
 
@@ -343,7 +375,7 @@ jobs:
         if: ${{ vars.DEVFLOW_APP_ID != '' && steps.resolve.outputs.should_run == 'true' }}
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
           permission-issues: write
           permission-pull-requests: write
@@ -379,7 +411,39 @@ jobs:
       issues: write
       id-token: write
       actions: write # write scope so actions/cache can save the pip cache (read alone → "cache write denied: token has no writable scopes"); superset still lets Claude read CI results on PRs
+      # Required by summarize-ci-checks.sh's commits/{sha}/check-runs query, run by
+      # the `Compose review grounding block` step (issue #363). Without it that query
+      # 403s and the block correctly degrades to `CI status unavailable` — but the
+      # engine then loses the CI ground truth the block exists to give it. The
+      # actions/runs + jobs queries ride the `actions: write` superset above.
+      checks: read
     steps:
+      # Optional, opt-in: mint a primary-App installation token at full
+      # installation scope (notably Contents: write + Workflows: write — no
+      # permission-* downscope, unlike the per-site tokens elsewhere in this
+      # workflow) so the /devflow:review-and-fix push can
+      # edit .github/workflows/ files (which the built-in GITHUB_TOKEN is
+      # hard-blocked from), and so /devflow:pr-description posts under the App.
+      # Gated on the DEVFLOW_APP_ID repository VARIABLE and skipped on a
+      # `/devflow:review` command (that path uses the DevFlow-Reviewer token
+      # below so it never shares the PR-authoring identity — issue #300):
+      # unset/empty → the step is skipped and both the checkout token and
+      # github_token below fall back to GITHUB_TOKEN, leaving behavior
+      # byte-for-byte unchanged for consumers who do not opt in. NO
+      # continue-on-error: a configured-but-broken App (invalid/rotated key)
+      # fails the job here rather than silently degrading.
+      #
+      # MUST precede the checkout below, whose `token:` it feeds — see the
+      # checkout comment. Kept in sync with the same step in
+      # devflow-implement.yml.
+      - name: Mint workflow-capable token (optional)
+        id: app-token
+        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
@@ -393,6 +457,21 @@ jobs:
           # output. Bump to `fetch-depth: 0` if that becomes a recurring
           # problem.
           fetch-depth: 50
+          # LOAD-BEARING (issue #357): the credential actions/checkout persists
+          # here is what /devflow:review-and-fix's `git push` actually
+          # authenticates with — NOT the `github_token` handed to
+          # claude-code-action below. checkout@v6 writes the auth header to an
+          # external config file wired in via `includeIf.gitdir:`, NOT to
+          # `.git/config`, so claude-code-action's `--unset-all
+          # http.<server>/.extraheader` matches nothing and its
+          # `git remote set-url origin https://x-access-token:<app-token>@…`
+          # loses to that surviving preemptive `Authorization:` header — every
+          # push then authenticates as github-actions[bot], which has no
+          # `workflows` permission. Seed the App token here instead. On a
+          # `/devflow:review` command the mint is skipped by design and this
+          # falls back to GITHUB_TOKEN — that path is read-only and never
+          # pushes, so it must NOT be given the reviewer token either.
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
       # Materialize the plugin (committed → self → fetch) so claude-code-action
       # loads it from .devflow/vendor/devflow/ and the agent's helper scripts
@@ -430,34 +509,96 @@ jobs:
         if: ${{ vars.DEVFLOW_REVIEWER_APP_ID != '' && startsWith(needs.gate.outputs.command, '/devflow:review ') }}
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.DEVFLOW_REVIEWER_APP_ID }}
+          client-id: ${{ vars.DEVFLOW_REVIEWER_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_REVIEWER_PRIVATE_KEY }}
           permission-contents: read
           permission-issues: read
           permission-pull-requests: write
           permission-actions: read
 
-      # Optional, opt-in: mint a primary-App installation token at full
-      # installation scope (notably Contents: write + Workflows: write — no
-      # permission-* downscope, unlike the per-site tokens elsewhere in this
-      # workflow) so the /devflow:review-and-fix push can
-      # edit .github/workflows/ files (which the built-in GITHUB_TOKEN is
-      # hard-blocked from), and so /devflow:pr-description posts under the App.
-      # Gated on the DEVFLOW_APP_ID repository VARIABLE and skipped on a
-      # `/devflow:review` command (that path uses the DevFlow-Reviewer token
-      # above so it never shares the PR-authoring identity — issue #300):
-      # unset/empty → the step is skipped and github_token below falls back to
-      # GITHUB_TOKEN, leaving behavior byte-for-byte unchanged for consumers who
-      # do not opt in. NO continue-on-error: a configured-but-broken App
-      # (invalid/rotated key) fails the job here rather than silently degrading.
-      # Kept in sync with the same step in devflow-implement.yml.
-      - name: Mint workflow-capable token (optional)
-        id: app-token
-        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ vars.DEVFLOW_APP_ID }}
-          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+      # Resolve the allowed-tools string ONCE, as a step output. It used to be an
+      # inline literal inside `claude_args`, which the grounding block below could
+      # not read — and a second, hand-copied list would drift from the real one the
+      # moment either changed. Hoisting it makes the block quote the exact string
+      # this run resolved, by construction (issue #363).
+      #
+      # The command heads that skills/review/SKILL.md invokes are pinned against
+      # this list by lib/test/run.sh: a head the skill runs but this list omits is
+      # silently denied at runtime.
+      - name: Resolve allowed-tools
+        id: tools
+        env:
+          EXTRA: ${{ needs.config.outputs.allowed_tools_extra }}
+        run: |
+          set -euo pipefail
+          TOOLS='Read, Write, Edit, Glob, Grep, LS, Skill, Agent, TodoWrite, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch, Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git pull:*), Bash(git fetch:*), Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git show:*), Bash(git checkout:*), Bash(git cat-file:*), Bash(git branch:*), Bash(git stash:*), Bash(git rm:*), Bash(git mv:*), Bash(git restore:*), Bash(git revert:*), Bash(git blame:*), Bash(git ls-files:*), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(gh pr create:*), Bash(gh pr edit:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr review:*), Bash(gh pr ready:*), Bash(gh pr list:*), Bash(gh pr checks:*), Bash(gh pr status:*), Bash(gh pr reopen:*), Bash(gh issue view:*), Bash(gh issue comment:*), Bash(gh issue list:*), Bash(gh issue edit:*), Bash(gh issue create:*), Bash(gh issue reopen:*), Bash(gh issue status:*), Bash(gh search:*), Bash(gh label list:*), Bash(gh repo view:*), Bash(gh run view:*), Bash(gh run list:*), Bash(gh workflow view:*), Bash(gh workflow list:*), Bash(gh api:*), Bash(jq:*), Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*), Bash(.devflow/vendor/devflow/scripts/config-get.sh:*), Bash(.devflow/vendor/devflow/scripts/workpad.py:*), Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*), Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*), Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*), Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*), Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*), Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*), Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*), Bash(pip install:*), Bash(pip:*), Bash(python:*), Bash(python3:*), Bash(python -m:*), Bash(python3 -m:*), Bash(ruff:*), Bash(ruff check:*), Bash(ruff format:*), Bash(pytest:*), Bash(mypy:*), Bash(grep:*), Bash(rg:*), Bash(find:*), Bash(wc:*), Bash(sort:*), Bash(uniq:*), Bash(cut:*), Bash(tr:*), Bash(xargs:*), Bash(awk:*), Bash(sed:*), Bash(diff:*), Bash(comm:*), Bash(cat:*), Bash(head:*), Bash(tail:*), Bash(less:*), Bash(ls:*), Bash(tree:*), Bash(file:*), Bash(stat:*), Bash(date:*), Bash(pwd:*), Bash(realpath:*), Bash(dirname:*), Bash(basename:*), Bash(which:*), Bash(type:*), Bash(env:*), Bash(echo:*), Bash(printf:*), Bash(test:*), Bash(touch:*), Bash(mkdir:*), Bash(rmdir:*), Bash(rm:*), Bash(mv:*), Bash(cp:*), Bash(mktemp:*), Bash(cmp:*), Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*), Bash(*/load-prompt-extension.sh:*), Bash(tee:*)'
+          printf 'tools=%s\n' "${TOOLS}${EXTRA}" >> "$GITHUB_OUTPUT"
+
+      # Ground the manual `/devflow:review` engine in the same two facts the
+      # automated path gets from devflow-runner.yml's `Compose review prompt`:
+      # the commands it may run, and the CI already observed for this head.
+      #
+      # Gated on the resolved command, reusing this file's existing idiom. The
+      # trailing space in `/devflow:review ` excludes `/devflow:review-and-fix`,
+      # which holds a different (write-enabled) tool set and gets no block — this
+      # is what keeps the block's instructions conditional on its own presence.
+      # Every other command falls through to the bare prompt, byte-for-byte.
+      - name: Compose review grounding block
+        id: reviewcompose
+        if: ${{ startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SELF_WORKFLOW_NAME: ${{ github.workflow }}
+          ALLOWED_TOOLS: ${{ steps.tools.outputs.tools }}
+          CMD: ${{ needs.gate.outputs.command }}
+        run: |
+          set -euo pipefail
+          # This job is comment-triggered, so `github.sha` is the default branch,
+          # not the PR head. Resolve the head from the PR the command names.
+          PR_NUM=$(printf '%s' "$CMD" | grep -oE '[0-9]+' | head -1 || true)
+          HEAD_SHA=""
+          if [ -n "$PR_NUM" ]; then
+            HEAD_SHA=$(gh pr view "$PR_NUM" --repo "$REPO" --json headRefOid -q .headRefOid 2>/dev/null || true)
+          fi
+          export HEAD_SHA
+          SCC=.devflow/vendor/devflow/scripts/summarize-ci-checks.sh
+          [ -f "$SCC" ] || SCC=scripts/summarize-ci-checks.sh
+          # Each no-op branch names the condition that fired. Two different causes
+          # converging on one breadcrumb would leave a reader unable to tell a missing
+          # helper from an unresolved head — both render the same `CI status
+          # unavailable`, which is the point: an unknown CI state must never render
+          # as a passing one.
+          if [ ! -f "$SCC" ]; then
+            echo "::warning::devflow: summarize-ci-checks.sh not found at either the vendored or repo path — the review prompt's CI section will report it unavailable" >&2
+            CI_SUMMARY="CI status unavailable"
+          elif [ -z "$HEAD_SHA" ]; then
+            echo "::warning::devflow: could not resolve a head SHA for PR '${PR_NUM:-<none parsed from the command>}' (gh pr view failed, or the command carried no PR number) — the review prompt's CI section will report it unavailable" >&2
+            CI_SUMMARY="CI status unavailable"
+          else
+            CI_SUMMARY=$(bash "$SCC") || CI_SUMMARY="CI status unavailable"
+          fi
+          [ -n "$CI_SUMMARY" ] || CI_SUMMARY="CI status unavailable"
+
+          RGB=.devflow/vendor/devflow/scripts/render-grounding-block.sh
+          [ -f "$RGB" ] || RGB=scripts/render-grounding-block.sh
+          if [ ! -f "$RGB" ]; then
+            echo "::warning::devflow: render-grounding-block.sh not found at either the vendored or repo path — falling back to the bare command prompt" >&2
+            exit 0
+          fi
+          GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" bash "$RGB") || GROUNDING=""
+          # Verify the OUTCOME, not the file's existence (see devflow-runner.yml).
+          # An empty block means the engine gets the bare command prompt back, which
+          # is the pre-#363 behavior — degraded, but never a silently-empty block.
+          if [ -z "$GROUNDING" ]; then
+            echo "::warning::devflow: render-grounding-block.sh produced no output — falling back to the bare command prompt for this review" >&2
+            exit 0
+          fi
+          PROMPT="${GROUNDING}
+
+          ${CMD}"
+          delim="PROMPT_EOF_$(date +%s%N)_$$"
+          { printf 'prompt<<%s\n' "$delim"; printf '%s\n' "$PROMPT"; printf '%s\n' "$delim"; } >> "$GITHUB_OUTPUT"
 
       # ── Third-party model provider resolution (issue #313) ─────────────────
       # Resolve this section's (devflow) provider decision from .devflow/config.json
@@ -619,7 +760,9 @@ jobs:
           # run and synthesised a clean prompt (no @claude needed; extra
           # free-text in the comment is intentionally dropped, matching the
           # implement path). The skills read PR/issue context themselves.
-          prompt: ${{ needs.gate.outputs.command }}
+          # Block-prepended for `/devflow:review`; the bare command for every other
+          # command (reviewcompose is skipped, so its output is empty).
+          prompt: ${{ steps.reviewcompose.outputs.prompt || needs.gate.outputs.command }}
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
@@ -649,134 +792,179 @@ jobs:
 
           base_branch: ${{ needs.config.outputs.base_branch }}
           # claude_args head is a COMPUTED string (steps.cargs): --model always,
-          # --effort conditional on effort_supported (issue #313). The --allowed-tools
-          # tail below is preserved verbatim — keep this literal list in sync with
-          # devflow-implement.yml's literal list (devflow-runner.yml intentionally uses a
-          # computed steps.tools.outputs.tools profile string, not a literal list).
-          # allowed_tools_extra splices inside the closing quote.
+          # --effort conditional on effort_supported (issue #313). The
+          # --allowed-tools tail is the steps.tools computed string (issue #363).
           claude_args: >-
             ${{ steps.cargs.outputs.args }}
-            --allowed-tools
-            "Read,
-            Write,
-            Edit,
-            Glob,
-            Grep,
-            LS,
-            Skill,
-            Agent,
-            TodoWrite,
-            EnterPlanMode,
-            ExitPlanMode,
-            WebFetch,
-            WebSearch,
-            Bash(git add:*),
-            Bash(git commit:*),
-            Bash(git push:*),
-            Bash(git pull:*),
-            Bash(git fetch:*),
-            Bash(git status:*),
-            Bash(git diff:*),
-            Bash(git log:*),
-            Bash(git show:*),
-            Bash(git checkout:*),
-            Bash(git branch:*),
-            Bash(git stash:*),
-            Bash(git rm:*),
-            Bash(git mv:*),
-            Bash(git restore:*),
-            Bash(git revert:*),
-            Bash(git blame:*),
-            Bash(git ls-files:*),
-            Bash(git rev-parse:*),
-            Bash(git merge-base:*),
-            Bash(gh pr create:*),
-            Bash(gh pr edit:*),
-            Bash(gh pr comment:*),
-            Bash(gh pr diff:*),
-            Bash(gh pr view:*),
-            Bash(gh pr review:*),
-            Bash(gh pr ready:*),
-            Bash(gh pr list:*),
-            Bash(gh pr checks:*),
-            Bash(gh pr status:*),
-            Bash(gh pr reopen:*),
-            Bash(gh issue view:*),
-            Bash(gh issue comment:*),
-            Bash(gh issue list:*),
-            Bash(gh issue edit:*),
-            Bash(gh issue create:*),
-            Bash(gh issue reopen:*),
-            Bash(gh issue status:*),
-            Bash(gh search:*),
-            Bash(gh label list:*),
-            Bash(gh repo view:*),
-            Bash(gh run view:*),
-            Bash(gh run list:*),
-            Bash(gh workflow view:*),
-            Bash(gh workflow list:*),
-            Bash(gh api:*),
-            Bash(jq:*),
-            Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),
-            Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),
-            Bash(.devflow/vendor/devflow/scripts/workpad.py:*),
-            Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*),
-            Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*),
-            Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),
-            Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),
-            Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),
-            Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),
-            Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),
-            Bash(pip install:*),
-            Bash(pip:*),
-            Bash(python:*),
-            Bash(python3:*),
-            Bash(python -m:*),
-            Bash(python3 -m:*),
-            Bash(ruff:*),
-            Bash(ruff check:*),
-            Bash(ruff format:*),
-            Bash(pytest:*),
-            Bash(mypy:*),
-            Bash(grep:*),
-            Bash(rg:*),
-            Bash(find:*),
-            Bash(wc:*),
-            Bash(sort:*),
-            Bash(uniq:*),
-            Bash(cut:*),
-            Bash(tr:*),
-            Bash(xargs:*),
-            Bash(awk:*),
-            Bash(sed:*),
-            Bash(diff:*),
-            Bash(comm:*),
-            Bash(cat:*),
-            Bash(head:*),
-            Bash(tail:*),
-            Bash(less:*),
-            Bash(ls:*),
-            Bash(tree:*),
-            Bash(file:*),
-            Bash(stat:*),
-            Bash(date:*),
-            Bash(pwd:*),
-            Bash(realpath:*),
-            Bash(dirname:*),
-            Bash(basename:*),
-            Bash(which:*),
-            Bash(type:*),
-            Bash(env:*),
-            Bash(echo:*),
-            Bash(printf:*),
-            Bash(test:*),
-            Bash(touch:*),
-            Bash(mkdir:*),
-            Bash(rmdir:*),
-            Bash(rm:*),
-            Bash(mv:*),
-            Bash(cp:*),
-            Bash(tee:*)${{ needs.config.outputs.allowed_tools_extra }}"
+            --allowed-tools "${{ steps.tools.outputs.tools }}"
+
+      # Surface the claude-code-action run's execution diagnostics (run summary +
+      # permission-denial detail) to the job log and $GITHUB_STEP_SUMMARY so a
+      # maintainer debugging a stalled / incomplete / unexpectedly-denied cloud
+      # run sees the denial detail and run shape directly — the exact information
+      # that was irrecoverable for PR #325 (issue #331; helper + config key
+      # shipped in #329). Read-only: the helper always exits 0, this step adds no
+      # permissions grant / minted-token scope and uploads no artifact, so it
+      # never changes the job's pass/fail. always() so it runs even when the
+      # claude step errored — which is exactly when the diagnostics matter. Gated
+      # on .devflow.execution_diagnostics_enabled (default true) via the vendored
+      # config-get.sh (repo-path fallback for a self-repo checkout); only the
+      # exact string "false" disables it, and an empty read (config-get soft/hard
+      # failure) falls safe to enabled.
+      - name: Surface execution diagnostics
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          CG=.devflow/vendor/devflow/scripts/config-get.sh
+          [ -f "$CG" ] || CG=scripts/config-get.sh
+          # `|| true` so config-get's hard-fail exit (malformed config.json / missing
+          # python3) can't abort this step under GitHub's default `-e` run shell — which
+          # would fail the job and break the "never changes the job's pass/fail" contract
+          # above. The empty read then falls safe to enabled on the next line. (Mirrors the
+          # `|| echo false` assignment guard in devflow-runner.yml's engine-error step.)
+          ENABLED="$("$CG" .devflow.execution_diagnostics_enabled true || true)"
+          [ -n "$ENABLED" ] || ENABLED=true
+          if [ "$ENABLED" = "false" ]; then
+            echo "execution diagnostics: disabled via .devflow.execution_diagnostics_enabled=false; skipping."
+            exit 0
+          fi
+          SED=.devflow/vendor/devflow/scripts/surface-execution-diagnostics.sh
+          [ -f "$SED" ] || SED=scripts/surface-execution-diagnostics.sh
+          if [ -f "$SED" ]; then
+            # `|| echo ::notice::` for the same reason as the config-get guard above:
+            # the helper's always-exit-0 contract holds for the committed file, but a
+            # partial-copy / truncated vendored helper (a documented deployment hazard)
+            # could exit non-zero, which under GitHub's default `-e` run shell would
+            # abort this always() step and fail the job. Guard it so the read-only
+            # "never changes the job's pass/fail" contract holds even then.
+            bash "$SED" "${EXECUTION_FILE:-}" || echo "::notice::surface-execution-diagnostics.sh exited non-zero; execution diagnostics unavailable (best-effort)."
+          else
+            echo "::notice::surface-execution-diagnostics.sh absent; execution diagnostics not surfaced (best-effort)."
+          fi
+
+      # Parse the engine's is_error out of claude-code-action's execution log,
+      # mirroring devflow-runner.yml's "Surface review-engine execution result"
+      # step and reusing the same unit-tested helper. This is what lets the flip
+      # below cover the third non-success arm finalize_check already covers: the
+      # claude STEP can exit success while the engine's final message carries
+      # is_error (the parse runs after the step, so the two are independent).
+      # Fail-safe: an absent/unparseable log yields false (no flip), matching the
+      # helper's own contract.
+      - name: Surface review-engine execution result
+        id: engine
+        if: ${{ always() }}
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          PEE=.devflow/vendor/devflow/scripts/parse-engine-error.sh
+          [ -f "$PEE" ] || PEE=scripts/parse-engine-error.sh
+          if [ -f "$PEE" ]; then
+            # Never 2>/dev/null the helper — a broken jq would otherwise report
+            # is_error=false forever with zero trace.
+            IS_ERROR=$(bash "$PEE" "${EXECUTION_FILE:-}" || echo false)
+            [ "$IS_ERROR" = "true" ] || IS_ERROR=false
+          else
+            echo "::notice::parse-engine-error.sh absent; treating engine is_error as false (fail-safe)."
+            IS_ERROR=false
+          fi
+          echo "is_error=$IS_ERROR" >> "$GITHUB_OUTPUT"
+
+      # Dead-run review-progress flip (issue #356). A comment-triggered
+      # /devflow:review or /devflow:review-and-fix seeds a run-keyed
+      # devflow:review-progress comment; if the run ends non-success the agent
+      # never flips it out of the interim 🚀 Reviewing state. This always() step
+      # does the workflow-level flip on the same three non-success arms
+      # devflow-review.yml's finalize_check covers — job failure, cancellation,
+      # and an engine that ended is_error while the step still reported success.
+      # `steps.claude.outcome` is the RAW outcome (success/failure/cancelled/
+      # skipped, before continue-on-error). Best-effort: the helper always exits
+      # 0, so this never changes the job's pass/fail. A /devflow:implement or
+      # /devflow:pr-description trigger seeds no such comment, so the helper's
+      # comment-absent no-op arm handles it. The run-keyed marker matches ONLY
+      # this run's comment, so an earlier run's comment is never touched.
+      - name: Flip review-progress comment on dead run
+        if: ${{ always() && (steps.claude.outcome == 'failure' || steps.claude.outcome == 'cancelled' || steps.engine.outputs.is_error == 'true') }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+          ENGINE_ERROR: ${{ steps.engine.outputs.is_error }}
+        run: |
+          set -uo pipefail
+          FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
+          FLIP_HELPER=.devflow/vendor/devflow/scripts/flip-review-progress-failed.sh
+          [ -f "$FLIP_HELPER" ] || FLIP_HELPER=scripts/flip-review-progress-failed.sh
+          if [ -z "${CONTEXT_NUMBER:-}" ]; then
+            echo "::notice::flip review-progress: no issue/PR number on this event; nothing to flip"
+            exit 0
+          fi
+          # Name the specific arm that fired, so the comment's cause line and the
+          # job log agree on why the run was treated as dead.
+          if [ "${ENGINE_ERROR:-false}" = "true" ] && [ "$CLAUDE_OUTCOME" = "success" ]; then
+            CAUSE="review engine ended with an error (is_error)"
+          else
+            CAUSE="claude step ${CLAUDE_OUTCOME}"
+          fi
+          if [ -f "$FLIP_HELPER" ]; then
+            bash "$FLIP_HELPER" "$CONTEXT_NUMBER" "$FLIP_MARKER" "$CAUSE" || true
+          else
+            echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
+          fi
+
+      # ── No-verdict auto-resume backstop for the manual /devflow:review path
+      # (issue #408). The review-side sibling of the devflow-review.yml
+      # finalize_check backstop: when a manual `/devflow:review` run died with no
+      # verdict (engine is_error, or the claude step failed — a cancelled run is
+      # superseded, not a benign stall, so it is excluded), fire a bounded
+      # `/devflow:review` re-trigger authored by a freshly minted App token. The
+      # app-token step above is SKIPPED on a /devflow:review command (that path
+      # uses the downscoped reviewer token), so mint a fresh backstop token here.
+      # Skipped when DEVFLOW_APP_ID is unset → the helper reports no-fire and the
+      # run degrades to the pre-existing dead-end flip.
+      - name: Mint review-backstop token (optional)
+        id: backstop-token
+        if: ${{ always() && startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') && vars.DEVFLOW_APP_ID != '' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+      - name: Review stall backstop
+        if: ${{ always() && startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') }}
+        env:
+          GH_TOKEN: ${{ steps.backstop-token.outputs.token || github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          # A dead manual review posted no verdict for HEAD, so the derived
+          # verdict is incomplete by construction.
+          VERDICT: incomplete
+          APP_TOKEN_PRESENT: ${{ steps.backstop-token.outputs.token != '' }}
+        run: |
+          set -uo pipefail
+          if [ -z "${PR_NUMBER:-}" ]; then
+            echo "::notice::review stall backstop: no PR number on this event; nothing to resume."
+            exit 0
+          fi
+          # The comment marker is head-scoped; resolve the PR head SHA (this manual path
+          # carries no precheck head_sha output). A failed lookup leaves HEAD_SHA empty and
+          # the helper's decision takes its unscoped no-fire arm — never an unbounded resume.
+          HEAD_SHA=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha 2>/dev/null || true)
+          # The post-and-annotate glue — resolve+call request-review-backstop.sh (its
+          # decision contract UNCHANGED), parse the decision, compose the /devflow:review
+          # re-trigger body, POST it via post-issue-comment.sh, and select the
+          # ::notice::/::warning:: annotation on the POST success breadcrumb — is the shared
+          # post-review-backstop-comment.sh helper (issue #414), unit-tested in lib/test/run.sh.
+          # Pass the runtime-derived HEAD_SHA; the helper reads PR_NUMBER/REPO/VERDICT/
+          # APP_TOKEN_PRESENT/GH_TOKEN from this step's env.
+          HELPER=.devflow/vendor/devflow/scripts/post-review-backstop-comment.sh
+          [ -f "$HELPER" ] || HELPER=scripts/post-review-backstop-comment.sh
+          if [ ! -f "$HELPER" ]; then
+            echo "::warning::review stall backstop: post-review-backstop-comment.sh absent at $HELPER; no auto-resume (degrades to the pre-existing dead-end flip)."
+            exit 0
+          fi
+          HEAD_SHA="$HEAD_SHA" bash "$HELPER"
 
       - name: Persist review-and-fix observability artifacts (backstop)
         if: ${{ always() }}
