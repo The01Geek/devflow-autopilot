@@ -208,6 +208,19 @@ def _excerpt(text):
     return " ".join(text.split())[:120]
 
 
+def _emit_count(rows, rule, path, post_ln, n, c, unresolvable, stale, verified):
+    """Append the shared count-claim verdict for a claimed count ``n`` vs an actual
+    adjacent-block count ``c``: 0 → UNRESOLVABLE (no block), ``c != n`` → STALE, else
+    VERIFIED. R2/R3/R3b all resolve to this same three-arm shape, differing only in
+    their per-verdict detail strings."""
+    if c == 0:
+        rows.append(("UNRESOLVABLE", rule, path, post_ln, unresolvable))
+    elif c != n:
+        rows.append(("STALE", rule, path, post_ln, stale))
+    else:
+        rows.append(("VERIFIED", rule, path, post_ln, verified))
+
+
 def examine_file(path, added, lines, rows):
     """Append (verdict, rule, path, line, detail) tuples to ``rows`` for ``path``.
 
@@ -246,29 +259,19 @@ def examine_file(path, added, lines, rows):
         if tm:
             n = int(tm.group(1))
             c = _adjacent_list_count(lines, idx)
-            if c == 0:
-                rows.append(("UNRESOLVABLE", "R2", path, post_ln,
-                             f"Expected total = {n}: no adjacent enumeration block — {_excerpt(text)}"))
-            elif c != n:
-                rows.append(("STALE", "R2", path, post_ln,
-                             f"Expected total = {n} but adjacent enumeration has {c} items — {_excerpt(text)}"))
-            else:
-                rows.append(("VERIFIED", "R2", path, post_ln,
-                             f"Expected total = {n} matches {c} enumerated items — {_excerpt(text)}"))
+            _emit_count(rows, "R2", path, post_ln, n, c,
+                        f"Expected total = {n}: no adjacent enumeration block — {_excerpt(text)}",
+                        f"Expected total = {n} but adjacent enumeration has {c} items — {_excerpt(text)}",
+                        f"Expected total = {n} matches {c} enumerated items — {_excerpt(text)}")
             continue
 
         # R3b — two-item "a X and a Y … both" count-locked claim (asserts 2)
         if _BOTH_RE.search(text) and _TWO_ITEM_RE.search(text):
             c = _adjacent_assert_count(lines, idx)
-            if c == 0:
-                rows.append(("UNRESOLVABLE", "R3", path, post_ln,
-                             f"count-locked: two-item claim but no adjacent assertion block — {_excerpt(text)}"))
-            elif c != 2:
-                rows.append(("STALE", "R3", path, post_ln,
-                             f"count-locked: claim asserts both (2) but adjacent block has {c} assertions — {_excerpt(text)}"))
-            else:
-                rows.append(("VERIFIED", "R3", path, post_ln,
-                             f"count-locked: two-item claim matches {c} assertions — {_excerpt(text)}"))
+            _emit_count(rows, "R3", path, post_ln, 2, c,
+                        f"count-locked: two-item claim but no adjacent assertion block — {_excerpt(text)}",
+                        f"count-locked: claim asserts both (2) but adjacent block has {c} assertions — {_excerpt(text)}",
+                        f"count-locked: two-item claim matches {c} assertions — {_excerpt(text)}")
             continue
 
         # R3 — exact numeric count claim ("N assertions") count-locked
@@ -276,15 +279,10 @@ def examine_file(path, added, lines, rows):
         if cm:
             n = int(cm.group(1))
             c = _adjacent_assert_count(lines, idx)
-            if c == 0:
-                rows.append(("UNRESOLVABLE", "R3", path, post_ln,
-                             f"count-locked: '{n} {cm.group(2)}' claim but no adjacent assertion block — {_excerpt(text)}"))
-            elif c != n:
-                rows.append(("STALE", "R3", path, post_ln,
-                             f"count-locked: claims {n} {cm.group(2)} but adjacent block has {c} — {_excerpt(text)}"))
-            else:
-                rows.append(("VERIFIED", "R3", path, post_ln,
-                             f"count-locked: {n} {cm.group(2)} matches adjacent block — {_excerpt(text)}"))
+            _emit_count(rows, "R3", path, post_ln, n, c,
+                        f"count-locked: '{n} {cm.group(2)}' claim but no adjacent assertion block — {_excerpt(text)}",
+                        f"count-locked: claims {n} {cm.group(2)} but adjacent block has {c} — {_excerpt(text)}",
+                        f"count-locked: {n} {cm.group(2)} matches adjacent block — {_excerpt(text)}")
             continue
 
         # R4 — operator-token modality conflict
