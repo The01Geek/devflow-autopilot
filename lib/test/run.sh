@@ -6411,6 +6411,14 @@ assert_pin_red_under "#377 w3-fix-delta-gate-tail-2.3.4: item 3b states the repr
 assert_pin_red_under "#377 w3-fix-delta-evidence: Step 3 item 3b directs sweep evidence to the loop iteration records when standalone (AC3)" \
   'iteration records when the loop runs standalone with no issue workpad' \
   's/iteration records when the loop runs standalone with no issue workpad//'
+# AC8 (finding disposition): item 3b's closing operative sentence — how a finding a sweep SURFACES
+# is dispositioned (folded into this same iteration, or recorded through the item 5 pushback flow) —
+# is the one operative clause in item 3b not otherwise pinned. Deleting it would leave item 3b with
+# no stated route for what happens when a sweep actually finds something, while every other pin stays
+# green. Pin it so removal goes RED (AC8: every new operative sentence pinned via assert_pin_red_under).
+assert_pin_red_under "#377 w3-fix-delta-finding-disposition: item 3b routes a sweep-surfaced finding into the same iteration or the item 5 pushback flow (AC8)" \
+  'A finding any of these sweeps surfaces folds into this same iteration' \
+  's/A finding any of these sweeps surfaces folds into this same iteration//'
 # AC1 (per-sweep references): AC1 requires item 3b to reference EACH of the three shipped Wave-2
 # sweeps by its name/number. The umbrella w3-fix-delta-sweeps-operative pin above covers the
 # heading clause but not the individual sweep bullets, so deleting a whole sweep bullet (e.g.
