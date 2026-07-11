@@ -6353,6 +6353,123 @@ assert_pin_red_under "#376 w2-phase-five-kinds: phase-2-implement.md §2.3.4 ste
   'one of the five kinds above' \
   's/one of the five kinds above/one of the four kinds above/' "$P2_FILE"
 
+# ── issue #377 (Wave 3): fix-delta authoring-side sweeps + Phase 3.2 cleanup-agents-are-quality-only ──
+# Two coupled skill edits, each new operative sentence pinned through assert_pin_red_under
+# (#375) with a mutation that removes ONLY that operative sentence — so a framing-only pin is
+# reported RED at the desk, per AC8. The default file for assert_pin_red_under is $MAXI_SKILL
+# (skills/review-and-fix/SKILL.md), so the Edit-1 (Step 3 item 3b) pins omit the file arg;
+# the Edit-2 (§3.2) pins target phase-3-review.md by path so AC5's count assertion reads the
+# owning phase file, not the merged bundle.
+P3_FILE="$IMPL_PHASES_DIR/phase-3-review.md"
+
+# Edit 1 — review-and-fix Step 3 item 3b (author-side counterpart of the blinded Step 3.5 gate).
+# AC1: the new item runs the implement Phase 2.3 authoring-side sweeps against the fix delta on
+# every fix-applying iteration; removing the operative heading clause re-introduces the gap where
+# the fix delta gets no authoring-side sweep and the Step 3.5 gate/shadow rediscovers it one at a time.
+assert_pin_red_under "#377 w3-fix-delta-sweeps-operative: Step 3 item 3b runs the implement Phase 2.3 authoring-side sweeps against the fix delta (AC1)" \
+  'run the implement Phase 2.3 authoring-side sweeps against the fix delta' \
+  's/run the implement Phase 2.3 authoring-side sweeps against the fix delta//'
+# AC1 (frequency): the operative pin above pins WHAT the item runs but not the FREQUENCY clause
+# "on every iteration in which Step 3 applied fixes". A mutation of that clause (e.g. to "on the
+# final iteration") would silently skip the sweeps on most fix-applying iterations while the
+# operative pin stays green — the fix-delta gap the item exists to close would reopen on every
+# iteration but the last. Pin the frequency clause independently.
+assert_pin_red_under "#377 w3-fix-delta-frequency: Step 3 item 3b runs the sweeps on EVERY fix-applying iteration, not just one (AC1)" \
+  'on every iteration in which Step 3 applied fixes' \
+  's/on every iteration in which Step 3 applied fixes//'
+# AC2: the item scopes the sweeps to the fix delta, and gates each sweep on its own Phase 2.3
+# trigger. Two operative clauses, pinned separately — removing the scope clause re-introduces an
+# unbounded sweep over pre-existing code; removing the per-trigger gating re-introduces running
+# every sweep unconditionally regardless of what the delta touches.
+assert_pin_red_under "#377 w3-fix-delta-scope: Step 3 item 3b scopes every sweep to the fix delta (AC2)" \
+  'Scope every sweep to the fix delta' \
+  's/Scope every sweep to the fix delta//'
+assert_pin_red_under "#377 w3-fix-delta-trigger-gating: Step 3 item 3b gates each sweep on its own Phase 2.3 trigger (AC2)" \
+  'each gated by its own Phase 2.3 trigger condition' \
+  's/each gated by its own Phase 2.3 trigger condition//'
+# AC2 (negative gating — the don't-OVER-run half): AC2 requires the item to state that each sweep
+# fires ONLY when its own trigger matches — "a fix adding no guard runs no operand trace", etc. The
+# trigger-gating pin above covers the umbrella phrasing but not the three per-sweep negative tails
+# nor the "runs not at all" umbrella clause, so a delete or inversion of the don't-over-run half
+# (making a sweep run unconditionally, or over pre-existing untouched code) would leave every pin
+# green. Pin the umbrella clause and each per-sweep negative tail so removing any one goes RED.
+assert_pin_red_under "#377 w3-fix-delta-gate-umbrella: item 3b states a sweep whose trigger the delta does not match runs not at all (AC2)" \
+  'a sweep whose trigger the delta does not match runs not at all' \
+  's/a sweep whose trigger the delta does not match runs not at all//'
+assert_pin_red_under "#377 w3-fix-delta-gate-tail-2.3.0c-a: item 3b states the new-guard operand trace does NOT run when the delta adds no guard (AC2)" \
+  'a fix adding no such guard runs no operand trace' \
+  's/a fix adding no such guard runs no operand trace//'
+assert_pin_red_under "#377 w3-fix-delta-gate-tail-2.3.0c-b: item 3b states the prose-policy check does NOT run when the delta touches no policy prose (AC2)" \
+  'a fix touching no agent-executed policy prose runs no prose-policy check' \
+  's/a fix touching no agent-executed policy prose runs no prose-policy check//'
+assert_pin_red_under "#377 w3-fix-delta-gate-tail-2.3.4: item 3b states the reproduction does NOT run when the delta touches no external-tool string (AC2)" \
+  'a fix touching no external-tool string runs no reproduction' \
+  's/a fix touching no external-tool string runs no reproduction//'
+# AC3: each triggered sweep's evidence obligation is honored, directed to the loop's own iteration
+# records when standalone. Removing the operative directive re-introduces the gap where the sweep
+# runs but its evidence lands nowhere on a standalone (no-issue-workpad) loop run.
+assert_pin_red_under "#377 w3-fix-delta-evidence: Step 3 item 3b directs sweep evidence to the loop iteration records when standalone (AC3)" \
+  'iteration records when the loop runs standalone with no issue workpad' \
+  's/iteration records when the loop runs standalone with no issue workpad//'
+# AC8 (finding disposition): item 3b's closing operative sentence — how a finding a sweep SURFACES
+# is dispositioned (folded into this same iteration, or recorded through the item 5 pushback flow) —
+# is the one operative clause in item 3b not otherwise pinned. Deleting it would leave item 3b with
+# no stated route for what happens when a sweep actually finds something, while every other pin stays
+# green. Pin it so removal goes RED (AC8: every new operative sentence pinned via assert_pin_red_under).
+assert_pin_red_under "#377 w3-fix-delta-finding-disposition: item 3b routes a sweep-surfaced finding into the same iteration or the item 5 pushback flow (AC8)" \
+  'A finding any of these sweeps surfaces folds into this same iteration' \
+  's/A finding any of these sweeps surfaces folds into this same iteration//'
+# AC1 (per-sweep references): AC1 requires item 3b to reference EACH of the three shipped Wave-2
+# sweeps by its name/number. The umbrella w3-fix-delta-sweeps-operative pin above covers the
+# heading clause but not the individual sweep bullets, so deleting a whole sweep bullet (e.g.
+# dropping the §2.3.4 external-output sweep) would leave it green. Pin each sweep identifier's own
+# bullet so removing any one goes RED. The identifiers must match the shipped phase-2 sweeps (a
+# wrong number is a documented_falsehood — see the Potential Gotchas in issue #377).
+assert_pin_red_under "#377 w3-sweep-ref-2.3.0c-a: item 3b references §2.3.0c trigger (a) new-guard operand trace (AC1)" \
+  '§2.3.0c trigger (a) — new-guard operand trace' \
+  's/§2.3.0c trigger \(a\) — new-guard operand trace//'
+assert_pin_red_under "#377 w3-sweep-ref-2.3.0c-b: item 3b references §2.3.0c trigger (b) prose-policy operand check (AC1)" \
+  '§2.3.0c trigger (b) — prose-policy operand check' \
+  's/§2.3.0c trigger \(b\) — prose-policy operand check//'
+assert_pin_red_under "#377 w3-sweep-ref-2.3.4: item 3b references §2.3.4 external-output reproduction obligation (AC1)" \
+  '§2.3.4 external-output reproduction obligation' \
+  's/§2.3.4 external-output reproduction obligation//'
+# AC9: the new item must NOT duplicate or reword item 3a's pinned heading — still exactly one.
+assert_pin_unique "#377 w3-3a-heading-count: item 3a heading literal stays exactly-once after item 3b lands (AC9)" \
+  'Mechanism-scoped self-authored-claim re-sweep' "$MAXI_SKILL"
+
+# Edit 2 — phase-3-review.md §3.2: /simplify cleanup agents chartered quality-only, Phase 3.3 owns correctness.
+# AC5 (regression-first): the "correctness angles plus" attribution is GONE from the owning phase
+# file. Run against today's pre-edit file this returns 1 (the defect), so the expected-0 assertion
+# reproduces the bug first, then passes after the edit. 'correctness angles plus' does not begin
+# with '--', so it is safe for pin_count's grep form.
+assert_eq "#377 w3-simplify-no-correctness-claim: §3.2 no longer attributes 'correctness angles' coverage to /simplify (AC5)" \
+  "0" "$(pin_count 'correctness angles plus' "$P3_FILE")"
+# AC6: the four operative rules. Each is its own physical line, pinned through assert_pin_red_under
+# with a substring mutation that removes only that operative sentence.
+assert_pin_red_under "#377 w3-simplify-quality-only: §3.2 states cleanup agents are quality-only reviewers, never correctness reviewers (AC6)" \
+  'quality-only reviewers, never correctness reviewers' \
+  's/quality-only reviewers, never correctness reviewers//' "$P3_FILE"
+assert_pin_red_under "#377 w3-no-guard-class-solicitation: §3.2 states the orchestrator never solicits a correctness/guard-class verdict from a cleanup agent (AC6)" \
+  'never solicits a correctness or guard-class verdict from a' \
+  's/never solicits a correctness or guard-class verdict from a//' "$P3_FILE"
+assert_pin_red_under "#377 w3-no-clean-as-evidence: §3.2 states a cleanup agent clean report is never recorded as correctness evidence (AC6)" \
+  'report as evidence toward any correctness class' \
+  's/report as evidence toward any correctness class//' "$P3_FILE"
+assert_pin_red_under "#377 w3-phase33-owns-correctness: §3.2 names the Phase 3.3 reviewers as the owners of correctness (AC6)" \
+  'Correctness is owned by the Phase 3.3 reviewers' \
+  's/Correctness is owned by the Phase 3.3 reviewers//' "$P3_FILE"
+# AC7: §3.2's existing #193 AC-triage pins must survive the rewrite unchanged. They are asserted
+# in the #193 block above (lines pinning 'skip the finding and record the AC conflict as the skip
+# rationale', 'exists only on the issue-context', 'that is Phase 2.2.6 AC-rewrite territory' against
+# $IMPL_SKILL); re-confirm here against the owning phase file that all three survive verbatim.
+assert_pin_unique "#377 w3-triage-pins-intact: §3.2 #193 AC-triage operative sentence survives the rewrite (AC7)" \
+  'skip the finding and record the AC conflict as the skip rationale' "$P3_FILE"
+assert_pin_unique "#377 w3-triage-scope-intact: §3.2 #193 issue-context scope pin survives the rewrite (AC7)" \
+  'exists only on the issue-context' "$P3_FILE"
+assert_pin_unique "#377 w3-triage-carveout-intact: §3.2 #193 stale-AC carve-out pin survives the rewrite (AC7)" \
+  'that is Phase 2.2.6 AC-rewrite territory' "$P3_FILE"
+
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
 # BEHAVIOR over the required input-shape matrix (bullet-with-paths, no-paths,
