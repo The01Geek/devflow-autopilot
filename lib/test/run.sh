@@ -1249,9 +1249,11 @@ assert_pin_unique "263(A5): receiving-code-review carries the shared 'contradict
 # A6 (no-new-key AC): the carve-out is unconditional, not a knob — the #263 change added
 # no config key. The pin holds the FULL devflow_review key set so any addition is a
 # deliberate, reviewed edit here: #304 later added require_up_to_date + require_ci_green
-# (the auto-trigger preconditions — unrelated to the carve-out, which remains knob-free).
+# (the auto-trigger preconditions — unrelated to the carve-out, which remains knob-free);
+# #408 added stall_backstop (the review no-verdict auto-resume backstop — also a
+# distinct feature, not the carve-out, which remains knob-free).
 assert_eq "263(A6): devflow_review schema key set is the reviewed list (carve-out adds no config key)" \
-  "agent_overrides live_progress_comment_enabled require_ci_green require_up_to_date verdict_severity_threshold" \
+  "agent_overrides live_progress_comment_enabled require_ci_green require_up_to_date stall_backstop verdict_severity_threshold" \
   "$(jq -r '.properties.devflow_review.properties | keys | join(" ")' "$ST_SCHEMA")"
 # A7 (corroboration-independence AC — AC6): the carve-out blocks a SINGLE-SOURCE
 # self-contradicting finding exactly like a corroborated one. This is a distinct enumerated
@@ -11891,7 +11893,15 @@ case "$*" in
 esac
 STUB
 chmod +x "$DI_STUB/gh"
-di() { DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID="$1" CONTEXT_NUMBER="$2" \
+# Neutralize any ambient GITHUB_EVENT_PATH: when this suite runs inside a cloud
+# job the runner exports it, and dedupe-implement-run.sh self-derives the
+# stall-resume carve-out from the triggering comment's body. If that comment
+# carries the stall-backstop-audit marker (e.g. this very suite runs under a
+# stall-resumed implement job), the script would bypass dedupe and every
+# duplicate=true expectation below would spuriously read duplicate=false. The
+# carve-out tests set GITHUB_EVENT_PATH explicitly, so clearing it here (empty →
+# the script's `[ -n ... ]` guard skips the self-derive) isolates the default set.
+di() { DEVFLOW_GH="$DI_STUB/gh" GITHUB_EVENT_PATH= REPO=o/r RUN_ID="$1" CONTEXT_NUMBER="$2" \
   DEDUPE_RUNS_JSON="$3" bash "$DIR" 2>/dev/null; }
 
 # 1. An OLDER (smaller databaseId) active run for the same thread → duplicate.
@@ -11930,7 +11940,7 @@ assert_eq "di: empty run list → not duplicate" "duplicate=false" \
 
 # 9. gh query failure → fail OPEN (run proceeds), never silently swallowed.
 assert_eq "di: gh failure → fail open (not duplicate)" "duplicate=false" \
-  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_GH_RC=1 bash "$DIR" 2>/dev/null)"
+  "$(DEVFLOW_GH="$DI_STUB/gh" GITHUB_EVENT_PATH= REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_GH_RC=1 bash "$DIR" 2>/dev/null)"
 
 # 10. Missing/invalid CONTEXT_NUMBER → fail open (cannot dedupe without a thread).
 assert_eq "di: missing context number → fail open" "duplicate=false" \
@@ -11955,7 +11965,7 @@ assert_eq "di: malformed run-list JSON → fail open (not duplicate)" "duplicate
 #     spuriously suppress a legitimate /devflow:implement. Record the gh argv and
 #     assert the flag is present.
 DI_REC="$(mktemp)"
-DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_RUNS_JSON='[]' \
+DEVFLOW_GH="$DI_STUB/gh" GITHUB_EVENT_PATH= REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_RUNS_JSON='[]' \
   DI_ARGS_REC="$DI_REC" bash "$DIR" >/dev/null 2>&1
 assert_eq "di: run list is scoped to --workflow devflow-implement.yml" "1" \
   "$(grep -c -- '--workflow devflow-implement.yml' "$DI_REC")"
@@ -12982,7 +12992,7 @@ done
 # above (a deleted mint step would otherwise only fail its own block extract).
 assert_eq "app-token: devflow-implement.yml has exactly 3 mint steps (writer + gate + stall-backstop)" "3" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-implement.yml")"
-assert_eq "app-token: devflow.yml has exactly 4 mint steps (command primary + command reviewer + gate + review_dedupe)" "4" \
+assert_eq "app-token: devflow.yml has exactly 5 mint steps (command primary + command reviewer + gate + review_dedupe + review-backstop)" "5" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow.yml")"
 assert_eq "app-token: devflow-runner.yml has exactly 1 mint step (DevFlow-Reviewer review)" "1" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-runner.yml")"
@@ -20507,6 +20517,316 @@ assert_pin_unique "#289 AC6: phase-3-review.md strips the broken [View run]() li
 # which the [View run](\$RUN_URL) presence pin above matches identically and so cannot catch.
 assert_pin_unique "#289 AC9: draft-PR heredoc is unquoted (<<EOF) so \$RUN_URL expands, not emitted literally" \
   'BODY=$(cat <<EOF' "$P3289"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#408 cloud review no-verdict auto-resume backstop"
+# ────────────────────────────────────────────────────────────────────────────
+# request-review-backstop.sh owns the whole fire/no-fire decision (config read,
+# verdict guard, per-head attempt count, App-token guard, marker construction), so
+# every arm is drivable here with a stubbed gh + config fixtures. RED pre-change
+# (the helper does not exist → `bash <missing>` prints nothing / exits 127, so each
+# assert_eq fails). The guarantee-class arm is the decisive one: an incomplete
+# verdict with no prior attempts and an App token present MUST decide `fire`, or the
+# whole backstop is a no-op on exactly the input it exists to catch.
+RRB408="$REPO_ROOT/scripts/request-review-backstop.sh"
+T408="$(mktemp -d)"
+# gh stubs — single executables (DEVFLOW_GH must be one token). Each answers the
+# issue-comments endpoint (marker count) and `repo view`.
+cat > "$T408/gh-empty.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"/comments"*) echo '[]' ;;
+  *"repo view"*) echo 'o/r' ;;
+  *) echo '[]' ;;
+esac
+EOF
+cat > "$T408/gh-2markers.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"/comments"*) echo '[{"body":"<!-- devflow:review-backstop head=abc attempt=1 -->"},{"body":"<!-- devflow:review-backstop head=abc attempt=2 -->"},{"body":"<!-- devflow:review-backstop head=zzz attempt=9 -->"}]' ;;
+  *"repo view"*) echo 'o/r' ;;
+  *) echo '[]' ;;
+esac
+EOF
+cat > "$T408/gh-foreign.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"/comments"*) echo '[{"body":"<!-- devflow:review-backstop head=zzz attempt=1 -->"}]' ;;
+  *"repo view"*) echo 'o/r' ;;
+  *) echo '[]' ;;
+esac
+EOF
+cat > "$T408/gh-fail.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"/comments"*) echo "HTTP 500" >&2; exit 1 ;;
+  *"repo view"*) echo 'o/r' ;;
+  *) echo '[]' ;;
+esac
+EOF
+chmod +x "$T408"/*.sh
+printf '%s\n' '{"devflow_review":{"stall_backstop":{"enabled":false,"max_resume_attempts":2}}}' > "$T408/cfg-disabled.json"
+printf '%s\n' '{"devflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":2}}}' > "$T408/cfg-enabled.json"
+# rrb408 <gh-stub> <verdict> <head> <pr> <repo> <app-present> [config-file] -> emits `decision=` value
+rrb408() {
+  DEVFLOW_GH="$T408/$1" VERDICT="$2" HEAD_SHA="$3" PR_NUMBER="$4" REPO="$5" APP_TOKEN_PRESENT="$6" CONFIG_FILE="${7:-}" \
+    bash "$RRB408" 2>/dev/null | sed -n 's/^decision=//p'
+}
+rrb408_reason() {
+  DEVFLOW_GH="$T408/$1" VERDICT="$2" HEAD_SHA="$3" PR_NUMBER="$4" REPO="$5" APP_TOKEN_PRESENT="$6" CONFIG_FILE="${7:-}" \
+    bash "$RRB408" 2>/dev/null | sed -n 's/^reason=//p'
+}
+# Guarantee-class: success-with-no-verdict must decide fire.
+assert_eq "#408 helper: incomplete + under cap + App token -> fire (guarantee-class success-no-verdict path)" \
+  "fire" "$(rrb408 gh-empty.sh incomplete abc 5 o/r true "$T408/cfg-enabled.json")"
+# A positively-observed verdict is a decided end — never resume (both directions).
+assert_eq "#408 helper: verdict approve -> no-fire (never resume a decided verdict)" \
+  "no-fire" "$(rrb408 gh-empty.sh approve abc 5 o/r true "$T408/cfg-enabled.json")"
+assert_eq "#408 helper: verdict approve -> reason verdict-exists" \
+  "verdict-exists" "$(rrb408_reason gh-empty.sh approve abc 5 o/r true "$T408/cfg-enabled.json")"
+assert_eq "#408 helper: verdict reject -> no-fire (never resume a decided verdict)" \
+  "no-fire" "$(rrb408 gh-empty.sh reject abc 5 o/r true "$T408/cfg-enabled.json")"
+# #312 valid-falsy row: a real JSON `false` disables the backstop (an `// true`
+# coercion that ignores explicit false would still fire → RED here).
+assert_eq "#408 helper: enabled real-JSON-false -> no-fire (the #312 valid-falsy row)" \
+  "no-fire" "$(rrb408 gh-empty.sh incomplete abc 5 o/r true "$T408/cfg-disabled.json")"
+assert_eq "#408 helper: enabled false -> reason disabled" \
+  "disabled" "$(rrb408_reason gh-empty.sh incomplete abc 5 o/r true "$T408/cfg-disabled.json")"
+# Cap enforcement: 2 same-head markers at cap 2 -> exhausted (no-fire).
+assert_eq "#408 helper: attempts at cap -> no-fire (exhausted)" \
+  "no-fire" "$(rrb408 gh-2markers.sh incomplete abc 5 o/r true "$T408/cfg-enabled.json")"
+assert_eq "#408 helper: attempts at cap -> reason exhausted" \
+  "exhausted" "$(rrb408_reason gh-2markers.sh incomplete abc 5 o/r true "$T408/cfg-enabled.json")"
+# Foreign-head markers must NOT count: only a head=zzz marker present, so head=abc
+# has 0 attempts -> fire (if foreign counted, this would read exhausted/attempt≠1).
+assert_eq "#408 helper: foreign-head marker not counted for this head -> fire" \
+  "fire" "$(rrb408 gh-foreign.sh incomplete abc 5 o/r true "$T408/cfg-enabled.json")"
+# Unreadable comment count fails CLOSED (never resume on an unknowable count).
+assert_eq "#408 helper: comments query failure -> no-fire (count-unreadable, fail closed)" \
+  "no-fire" "$(rrb408 gh-fail.sh incomplete abc 5 o/r true "$T408/cfg-enabled.json")"
+assert_eq "#408 helper: comments query failure -> reason count-unreadable" \
+  "count-unreadable" "$(rrb408_reason gh-fail.sh incomplete abc 5 o/r true "$T408/cfg-enabled.json")"
+# No App token: a GITHUB_TOKEN comment never re-triggers, so no-fire (degrade to flip).
+assert_eq "#408 helper: no App token -> no-fire (a GITHUB_TOKEN comment cannot re-trigger)" \
+  "no-fire" "$(rrb408 gh-empty.sh incomplete abc 5 o/r false "$T408/cfg-enabled.json")"
+assert_eq "#408 helper: no App token -> reason no-app-token" \
+  "no-app-token" "$(rrb408_reason gh-empty.sh incomplete abc 5 o/r false "$T408/cfg-enabled.json")"
+# Empty head SHA cannot scope the markers -> no-fire (never an unbounded resume).
+assert_eq "#408 helper: empty HEAD_SHA -> no-fire (unscoped)" \
+  "no-fire" "$(rrb408 gh-empty.sh incomplete '' 5 o/r true "$T408/cfg-enabled.json")"
+# The fire path emits the head-scoped marker with the next attempt number.
+RRB408_FIRE="$(DEVFLOW_GH="$T408/gh-empty.sh" VERDICT=incomplete HEAD_SHA=abc PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true CONFIG_FILE="$T408/cfg-enabled.json" bash "$RRB408" 2>/dev/null)"
+assert_eq "#408 helper: fire emits the head-scoped marker with the next attempt" "yes" \
+  "$(printf '%s\n' "$RRB408_FIRE" | grep -qxF 'marker=<!-- devflow:review-backstop head=abc attempt=1 -->' && echo yes || echo no)"
+# Always exits 0 (best-effort — caller reads `decision`, not the exit code).
+DEVFLOW_GH="$T408/gh-fail.sh" VERDICT=incomplete HEAD_SHA=abc PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true bash "$RRB408" >/dev/null 2>&1
+assert_eq "#408 helper: always exits 0 even on a fail-closed arm" "0" "$?"
+# MAX edge rows (the silent-coercion class, #312 discipline): max_resume_attempts=0
+# must be honored (0 >= 0 → exhausted even with zero markers — detect-and-flip only),
+# and a non-integer cap must fall back to the default 2 (so a fresh head still fires).
+printf '%s\n' '{"devflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":0}}}' > "$T408/cfg-max0.json"
+printf '%s\n' '{"devflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":"notanum"}}}' > "$T408/cfg-badmax.json"
+assert_eq "#408 helper: max_resume_attempts=0 honored -> no-fire (exhausted, detect-and-flip only)" \
+  "exhausted" "$(rrb408_reason gh-empty.sh incomplete abc 5 o/r true "$T408/cfg-max0.json")"
+assert_eq "#408 helper: non-integer max_resume_attempts falls back to default 2 -> fire" \
+  "fire" "$(rrb408 gh-empty.sh incomplete abc 5 o/r true "$T408/cfg-badmax.json")"
+# Empty REPO is derived via `gh repo view` (the standalone/unit path; the workflow
+# always passes REPO) — the stub's repo-view arm resolves o/r, so a fresh head fires.
+assert_eq "#408 helper: empty REPO derived via gh repo view -> fire" \
+  "fire" "$(rrb408 gh-empty.sh incomplete abc 5 '' true "$T408/cfg-enabled.json")"
+# Nonzero attempt-increment (PR #410 review gap): 1 prior SAME-head marker under a
+# cap of 3 must fire with attempt=2 — the NEXT=ATTEMPTS+1 path was only ever driven
+# at ATTEMPTS=0 (attempt=1), so an off-by-one that re-emitted attempt=1 (a duplicate
+# marker that never advances the cap → unbounded loop) would have passed. Pins the
+# increment AND the emitted marker's attempt number at a nonzero base.
+cat > "$T408/gh-1marker.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"/comments"*) echo '[{"body":"<!-- devflow:review-backstop head=abc attempt=1 -->"},{"body":"<!-- devflow:review-backstop head=zzz attempt=1 -->"}]' ;;
+  *"repo view"*) echo 'o/r' ;;
+  *) echo '[]' ;;
+esac
+EOF
+chmod +x "$T408/gh-1marker.sh"
+printf '%s\n' '{"devflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":3}}}' > "$T408/cfg-max3.json"
+assert_eq "#408 helper: 1 prior same-head marker under cap -> fire (attempts>0 increment path)" \
+  "fire" "$(rrb408 gh-1marker.sh incomplete abc 5 o/r true "$T408/cfg-max3.json")"
+RRB408_FIRE2="$(DEVFLOW_GH="$T408/gh-1marker.sh" VERDICT=incomplete HEAD_SHA=abc PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true CONFIG_FILE="$T408/cfg-max3.json" bash "$RRB408" 2>/dev/null)"
+assert_eq "#408 helper: nonzero-base fire emits the NEXT attempt number (attempt=2, not a re-emitted attempt=1)" "yes" \
+  "$(printf '%s\n' "$RRB408_FIRE2" | grep -qxF 'marker=<!-- devflow:review-backstop head=abc attempt=2 -->' && echo yes || echo no)"
+# Hard config-read failure (PR #410 review gap): a MALFORMED config makes
+# config-get.sh hard-fail with empty stdout, and the helper still resolves toward
+# firing — the documented honest-failure direction (a review backstop must stay
+# armed when the config can't be read, not silently disable the safety net). This
+# is defense-in-depth: the malformed->fire direction is held by BOTH the
+# `[ -n "$ENABLED" ] || ENABLED=true` fallback AND the exact-match disable guard
+# (`[ "$ENABLED" = "false" ]`, so an empty ENABLED is never "disabled"), so
+# removing either single guard alone still fires. This asserts the AGGREGATE
+# malformed->fire direction (previously untested); it deliberately does NOT isolate
+# one fallback line — a regression that instead resolves malformed->no-fire (e.g.
+# the fallback set to `false`) flips it RED. The aggregate stays bounded — a fire
+# still requires App token + scope + under-cap, all covered above.
+printf '%s\n' '{ this is not valid json' > "$T408/cfg-malformed.json"
+assert_eq "#408 helper: malformed config hard-fail -> fire (honest-failure resolves toward ENABLED, net stays armed)" \
+  "fire" "$(rrb408 gh-empty.sh incomplete abc 5 o/r true "$T408/cfg-malformed.json")"
+# MARKER_PREFIX trailing-space disambiguation (PR #410 review gap): the count key is
+# `head=<sha> ` WITH a trailing space so a short head cannot prefix-match a longer one
+# (`head=ab ` must NOT match a `head=abc ...` marker). The foreign-head fixtures above
+# use equal-length non-overlapping heads (abc vs zzz), so deleting that trailing space
+# would NOT turn them RED. Drive the collision directly: HEAD_SHA=ab against a marker
+# for head=abc must count 0 (fire attempt=1); if the trailing space were dropped,
+# `head=ab` would substring-match `head=abc` -> count 1 -> attempt=2.
+cat > "$T408/gh-prefixcollide.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"/comments"*) echo '[{"body":"<!-- devflow:review-backstop head=abc attempt=9 -->"}]' ;;
+  *"repo view"*) echo 'o/r' ;;
+  *) echo '[]' ;;
+esac
+EOF
+chmod +x "$T408/gh-prefixcollide.sh"
+RRB408_COLLIDE="$(DEVFLOW_GH="$T408/gh-prefixcollide.sh" VERDICT=incomplete HEAD_SHA=ab PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true CONFIG_FILE="$T408/cfg-enabled.json" bash "$RRB408" 2>/dev/null)"
+assert_eq "#408 helper: short head does not prefix-match a longer head's marker (trailing-space disambiguation)" "yes" \
+  "$(printf '%s\n' "$RRB408_COLLIDE" | grep -qxF 'marker=<!-- devflow:review-backstop head=ab attempt=1 -->' && echo yes || echo no)"
+# VERDICT unset -> defaults to the eligible `incomplete` (PR #410 review gap): the
+# header documents this default; drive it (no VERDICT in env) so a regression that
+# changed the default to a decided verdict (silently no-firing every headless run)
+# goes RED. All other inputs supplied so the aggregate reaches a fire decision.
+RRB408_NOVERDICT="$(DEVFLOW_GH="$T408/gh-empty.sh" HEAD_SHA=abc PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true CONFIG_FILE="$T408/cfg-enabled.json" bash "$RRB408" 2>/dev/null | sed -n 's/^decision=//p')"
+assert_eq "#408 helper: VERDICT unset defaults to eligible 'incomplete' -> fire" "fire" "$RRB408_NOVERDICT"
+rm -rf "$T408"
+
+# Config coupled peer set (2.3.0a): example ↔ schema must both carry
+# devflow_review.stall_backstop.{enabled,max_resume_attempts} with matching
+# types/defaults (mirrors the #266 implement-side coherence pin).
+CFG408="$(python3 - "$REPO_ROOT" <<'PY' 2>/dev/null || true
+import json, sys, pathlib
+root = pathlib.Path(sys.argv[1])
+ex = json.loads((root / ".devflow/config.example.json").read_text())
+sc = json.loads((root / ".devflow/config.schema.json").read_text())
+eb = ex.get("devflow_review", {}).get("stall_backstop", {})
+sp = sc["properties"]["devflow_review"]["properties"].get("stall_backstop", {})
+props = sp.get("properties", {})
+ok = (
+    eb.get("enabled") is True
+    and eb.get("max_resume_attempts") == 2
+    and sp.get("type") == "object"
+    and sp.get("additionalProperties") is False
+    and props.get("enabled", {}).get("type") == "boolean"
+    and props.get("enabled", {}).get("default") is True
+    and props.get("max_resume_attempts", {}).get("type") == "integer"
+    and props.get("max_resume_attempts", {}).get("minimum") == 0
+    and props.get("max_resume_attempts", {}).get("default") == 2
+)
+print("yes" if ok else "no")
+PY
+)"
+assert_eq "#408 config example+schema carry coupled devflow_review.stall_backstop keys (types/defaults/additionalProperties)" "yes" "$CFG408"
+
+# Workflow wiring — devflow-review.yml finalize_check. Content pins over the YAML
+# (RED pre-change: the steps did not exist).
+WFR408="$REPO_ROOT/.github/workflows/devflow-review.yml"
+assert_pin_unique "#408 review-yml: incomplete arm marks the run backstop_eligible" \
+  'echo "backstop_eligible=true" >> "$GITHUB_OUTPUT"' "$WFR408"
+assert_pin_unique "#408 review-yml: 'Review stall backstop' step present" \
+  "name: Review stall backstop" "$WFR408"
+# request-review-backstop.sh / post-issue-comment.sh each appear twice by design
+# (vendored path + repo-path fallback), so assert PRESENCE, not uniqueness.
+assert_eq "#408 review-yml: step calls the vendored/repo decision helper" "yes" \
+  "$(grep -qF "request-review-backstop.sh" "$WFR408" && echo yes || echo no)"
+assert_pin_unique "#408 review-yml: fresh backstop-token mint step present" \
+  "id: backstop-token" "$WFR408"
+assert_eq "#408 review-yml: backstop-token mint gated on always()+eligible+DEVFLOW_APP_ID" "1" \
+  "$(grep -cF "if: \${{ always() && steps.finalize.outputs.backstop_eligible == 'true' && vars.DEVFLOW_APP_ID != '' }}" "$WFR408")"
+assert_eq "#408 review-yml: re-trigger posted via the best-effort REST helper" "yes" \
+  "$(grep -qF "post-issue-comment.sh" "$WFR408" && echo yes || echo no)"
+assert_pin_unique "#408 review-yml: re-trigger body carries the review stall-backstop header" \
+  "**DevFlow review stall backstop**" "$WFR408"
+# The run-step's OWN if: gate is load-bearing: the step hardcodes VERDICT: incomplete,
+# so the helper's verdict guard cannot protect against firing on an approve/reject run
+# — the only protection is (a) backstop_eligible set ONLY in the incomplete arm (pinned
+# above) and (b) this run-step gate. Pin the run-step if: (a mint-step-only pin misses it).
+assert_eq "#408 review-yml: run-step gated on always()+backstop_eligible" "1" \
+  "$(grep -cF "if: \${{ always() && steps.finalize.outputs.backstop_eligible == 'true' }}" "$WFR408")"
+# Anchor `backstop_eligible=true` INSIDE the incomplete (`*)`) case arm — assert_pin_unique
+# only proves it appears once, not that it lives in the incomplete arm; moving it to a
+# broader arm would resume decided verdicts undetected. The incomplete arm sits between the
+# `*)  # incomplete` label and the `esac`; assert the echo appears in that window.
+assert_eq "#408 review-yml: backstop_eligible=true lives in the incomplete case arm" "yes" \
+  "$(awk '/\*\)  # incomplete/{f=1} f && /backstop_eligible=true/{print "hit"; exit} f && /^              esac/{exit}' "$WFR408" | grep -q hit && echo yes || echo no)"
+# Fix A (issue #408 review): the success ::notice:: must be gated on post-issue-comment.sh's
+# exact success breadcrumb, because that helper ALWAYS exits 0 — an exit-code check would let
+# a failed POST be annotated as a fired re-trigger. Pin the consumer-side breadcrumb grep.
+assert_pin_unique "#408 review-yml: success notice gated on the post-comment success breadcrumb" \
+  'grep -qxF "devflow: posted comment on #$PR_NUMBER"' "$WFR408"
+
+# Workflow wiring — devflow.yml manual /devflow:review dead-run arm.
+WFD408="$REPO_ROOT/.github/workflows/devflow.yml"
+assert_pin_unique "#408 devflow-yml: 'Review stall backstop' step present on the manual path" \
+  "name: Review stall backstop" "$WFD408"
+assert_eq "#408 devflow-yml: manual-path step calls the decision helper" "yes" \
+  "$(grep -qF "request-review-backstop.sh" "$WFD408" && echo yes || echo no)"
+assert_eq "#408 devflow-yml: manual-path backstop gated on a /devflow:review command" "yes" \
+  "$(grep -A1 'name: Review stall backstop' "$WFD408" | grep -qF "startsWith(needs.gate.outputs.command, '/devflow:review ')" && echo yes || echo no)"
+# The manual-path DEAD-RUN trigger clause is the sole logic distinguishing a dead review
+# from a healthy or cancelled one; broadening it (e.g. to `!= 'success'`, re-including
+# cancelled/superseded) or dropping it would fire spurious auto-resumes. Pin the exact
+# conjunction on BOTH the run step and the mint step.
+assert_eq "#408 devflow-yml: manual-path backstop gated on the dead-run trigger (is_error/failure)" "1" \
+  "$(grep -cF "(steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') }}" "$WFD408")"
+# The manual-path mint step must exist and be gated on DEVFLOW_APP_ID (else the manual path
+# would attempt a resume without a workflow-capable token — the inert-GITHUB_TOKEN no-op).
+assert_pin_unique "#408 devflow-yml: manual-path fresh backstop-token mint step present" \
+  "id: backstop-token" "$WFD408"
+assert_eq "#408 devflow-yml: manual-path mint gated on the dead-run trigger + DEVFLOW_APP_ID" "1" \
+  "$(grep -cF "(steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') && vars.DEVFLOW_APP_ID != '' }}" "$WFD408")"
+# Fix A consumer-side breadcrumb pin on the manual path too.
+assert_pin_unique "#408 devflow-yml: success notice gated on the post-comment success breadcrumb" \
+  'grep -qxF "devflow: posted comment on #$PR_NUMBER"' "$WFD408"
+
+# The backstop-marker literal is a coupled contract: the helper WRITES it (the
+# count-prefix AND the emitted marker, so it appears twice) and the workflows post
+# it. Assert presence in the helper so a rename there goes RED.
+assert_eq "#408 helper: writes the head-scoped review-backstop marker literal" "yes" \
+  "$(grep -qF 'devflow:review-backstop head=' "$RRB408" && echo yes || echo no)"
+
+# Rendered-surface pins (#375 discipline — pin the RENDERED grounding block, not the
+# source, and prove the headless sentence is behaviorally load-bearing via a mutation).
+RGB408="$REPO_ROOT/scripts/render-grounding-block.sh"
+GB408_OUT="$(HEAD_SHA=x CI_SUMMARY='c: success' ALLOWED_TOOLS='Read' bash "$RGB408")"
+assert_eq "#408 grounding block renders the headless-run semantics sentence" "yes" \
+  "$(printf '%s\n' "$GB408_OUT" | grep -qF 'This is a headless run: ending your turn ends the process' && echo yes || echo no)"
+assert_eq "#408 grounding block renders the ScheduleWakeup-unavailable rule" "yes" \
+  "$(printf '%s\n' "$GB408_OUT" | grep -qF 'ScheduleWakeup' && echo yes || echo no)"
+assert_pin_red_under "#408 grounding: deleting the headless-run sentence from the renderer flips its pin RED" \
+  'This is a headless run: ending your turn ends the process' \
+  '/This is a headless run/d' "$RGB408"
+# Parity with the headless-run sentence: the ScheduleWakeup-unavailable rule is
+# equally load-bearing and rendered from the same edit, so mutation-pin it too
+# (PR #410 review gap: it previously had only a presence grep, weaker than its sibling).
+assert_pin_red_under "#408 grounding: deleting the ScheduleWakeup-unavailable rule from the renderer flips its pin RED" \
+  'any future task-notification as' \
+  '/any future task-notification as/d' "$RGB408"
+
+# Skill-prose behavioral-fix pins — the two operative directives of the headless-wait
+# rule (one pin per operative sentence, per the behavioral-fix-pin rule). Each mutation
+# removes the operative sentence and must flip its pin RED.
+REVIEW_SKILL408="$REPO_ROOT/skills/review/SKILL.md"
+assert_pin_red_under "#408 skill: removing the never-end-turn-with-pending-agent rule flips its pin RED" \
+  'Never end your turn while any dispatched agent' \
+  '/Never end your turn while any dispatched agent/d' "$REVIEW_SKILL408"
+assert_pin_red_under "#408 skill: removing the ScheduleWakeup-unavailable rule flips its pin RED" \
+  'Treat `ScheduleWakeup` and any future task-notification as UNAVAILABLE' \
+  '/Treat .ScheduleWakeup. and any future task-notification as UNAVAILABLE/d' "$REVIEW_SKILL408"
+
+# mktemp-guard coupled mirror (PR #410 review gap): the `BODY_FILE="$(mktemp)"` guard
+# in the two backstop steps is byte-identical across both workflows and was unpinned,
+# so a future edit diverging or dropping one copy would stay green. Pin the mktemp
+# breadcrumb on both files so they must move together (the coupled-mirror discipline).
+assert_pin_unique "#408 review-yml: mktemp guard breadcrumb present" \
+  'review stall backstop: mktemp failed; cannot compose the re-trigger comment' "$WFR408"
+assert_pin_unique "#408 devflow-yml: mktemp guard breadcrumb present" \
+  'review stall backstop: mktemp failed; cannot compose the re-trigger comment' "$WFD408"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#312: workflow endpoint↔permission lint"

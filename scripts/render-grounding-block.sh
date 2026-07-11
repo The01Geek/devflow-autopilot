@@ -115,6 +115,13 @@ ${ALLOWED_TOOLS}
 > - **Hard rule: after two denials of a shape, switch to a permitted alternative above
 >   — never iterate variants of the denied shape.** Iterating denied variants is what
 >   exhausts the run and ends it with no verdict.
+>
+> **4. This is a headless run: ending your turn ends the process.** There is no
+> re-invocation here — do NOT end your turn while any dispatched agent has not
+> returned, and treat \`ScheduleWakeup\` and any future task-notification as
+> UNAVAILABLE (their "you'll be re-invoked" promise is false under \`claude -p\`);
+> keep the turn alive by polling for the pending results instead, so the run reaches
+> a verdict rather than dying success-with-no-verdict.
 
 ---
 EOF

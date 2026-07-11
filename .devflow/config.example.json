@@ -37,6 +37,10 @@
     "live_progress_comment_enabled": true,
     "require_up_to_date": true,
     "require_ci_green": true,
+    "stall_backstop": {
+      "enabled": true,
+      "max_resume_attempts": 2
+    },
     "agent_overrides": {
       "default": {
         "effort": "high"
