@@ -369,6 +369,23 @@ jobs:
   #   AVAILABLE         → ship no claude_args change; record the probe run link
   #                       and this omission rationale on the PR.
   #   INCONCLUSIVE      → measured nothing conclusive; re-run before deciding.
+  #
+  # MEASURED AVAILABLE across real cloud runs 29140791165 and 29138117625 (issue
+  # #418): both recorded a ScheduleWakeup `tool_use` that was NOT denied — i.e.
+  # `--disallowedTools ScheduleWakeup` did NOT remove or deny the tool in
+  # claude-code-action@v1's headless runner (the flag was IGNORED, the tool stayed
+  # available). A third run, 29139012320, read a *presumptive* REMOVED (no tool_use,
+  # both controls ran) — the documented false-positive where a compliant model
+  # silently skips Action 2 while still running both bracketing controls; the two
+  # positive AVAILABLE observations are dispositive over it. Per the AVAILABLE arm
+  # above, NO `--disallowedTools ScheduleWakeup` was added to devflow-implement.yml's
+  # claude step and NO lib/test/run.sh pin was added — the implement-tier
+  # ScheduleWakeup false-promise early-quit is prevented by the always-resident
+  # headless-wait prose (issue #415) ALONE, since the flag does not remove the tool
+  # here. This verdict is version-dependent: RE-PROBE (workflow_dispatch, or any PR
+  # touching this file) after a claude-code-action / Claude Code CLI upgrade before
+  # trusting it — a future version that honors the flag flips this to REMOVED/DENIED
+  # and would then ship the flag + its run.sh pin per the mapping above.
   schedulewakeup-probe:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
