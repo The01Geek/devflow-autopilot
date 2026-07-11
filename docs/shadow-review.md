@@ -485,8 +485,12 @@ each batch's slice with a shell-only `awk … | tee` pipeline over the already-c
 paths with spaces cannot break quoting), and Phase 1.2 passes the generator the slice's *path*. A
 guard-class-2 fail-closed fallback preserves coverage in every degraded environment: before
 dispatch the orchestrator checks the slice is non-empty with a bash builtin (`test -s`), and a
-missing/empty slice — a shallow checkout, a host without `awk`, a run-id directory hiccup — routes
-that batch to the full `diff.patch` path rather than a thinned review surface. The single-batch case
+missing/empty slice — a shallow checkout, a slice-extraction failure that left the batch file empty,
+a run-id directory hiccup — routes that batch to the full `diff.patch` path rather than a thinned
+review surface. (The fallback covers a *slice-authoring* failure over a populated `diff.patch`; a
+host with **no** `awk` at all degrades Phase 0.2's `diff.patch` build first — the whole review, not
+just the slice — so that is a different, upstream failure, not one this batch-level fallback masks.)
+The single-batch case
 passes `diff.patch` directly with no slice written. Because `awk`/`tee`/`test` are already granted in
 both cloud allowlists, this adds **no** allowlist entry.
 

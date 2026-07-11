@@ -446,10 +446,14 @@ synthesize_shadow_markers() {
     # (guard-class 2); a non-numeric stem is skipped, not defaulted.
     n="${iter##*/iter-}"; n="${n%.json}"
     case "$n" in ''|*[!0-9]*) continue ;; esac
-    # Never overwrite: skip any iter that already carries a `shadow` object
-    # (agent-written or previously synthesized). A parse failure is treated as
-    # "present" (skip) — fail closed, never clobber an unreadable block.
-    has_shadow="$("$DEVFLOW_JQ" -r 'if (.shadow | type) == "object" then "yes" else "no" end' "$iter" 2>/dev/null)" || continue
+    # Never overwrite: synthesize ONLY when `.shadow` is absent (jq `null`); skip
+    # any iter that already carries a non-null `shadow` value — an object
+    # (agent-written or previously synthesized) OR a malformed partial a truncated
+    # write left behind (a string/number). Keying on object-ness alone would
+    # clobber such a malformed real block; keying on `== null` fails closed on it
+    # while still synthesizing into a genuinely-absent slot. A parse failure is
+    # likewise treated as "present" (skip) — never clobber an unreadable block.
+    has_shadow="$("$DEVFLOW_JQ" -r 'if .shadow == null then "no" else "yes" end' "$iter" 2>/dev/null)" || continue
     [ "$has_shadow" = "no" ] || continue
     # Promotion evidence: the next iter exists AND is a promoted iter.
     next="$dir/iter-$((n + 1)).json"

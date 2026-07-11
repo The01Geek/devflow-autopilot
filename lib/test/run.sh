@@ -14986,6 +14986,49 @@ printf '{"iter":2,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_C/iter-2
 ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_C" --slug pr-1 ) >/dev/null 2>&1
 assert_eq "et-shadow-floor(c): no promotion evidence → no shadow block synthesized" "null" \
   "$(jq -r '.shadow' "$SHF_C/iter-1.json" 2>/dev/null)"
+# (d) non-numeric iter filename guard (lib/efficiency-trace.sh: `case "$n" in ''|*[!0-9]*)`):
+# a non-numeric stem is SKIPPED, never parsed into $((n+1)) (where bash would coerce it to 0→1
+# and read an unrelated iter-1 as the "next" iter, synthesizing a bogus marker). Assert the
+# floor runs cleanly and leaves iter-x.json untouched.
+SHF_D="$SHF_REPO/.devflow/tmp/review/pr-1/run-d"
+mkdir -p "$SHF_D"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_D/iter-1.json"
+printf '{"source":"review-and-fix","loop_role":"fix"}' > "$SHF_D/iter-x.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_D" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(d): a non-numeric iter filename is skipped (no bogus marker synthesized onto it)" "null" \
+  "$(jq -r '.shadow' "$SHF_D/iter-x.json" 2>/dev/null)"
+# (e) parse-failure fail-closed (`has_shadow=... || continue`): a malformed/unreadable iter-N.json
+# with promotion evidence is SKIPPED, never clobbered — the floor exits 0 and the malformed bytes
+# survive untouched (the adversarial-input-shape row CLAUDE.md requires for a parser).
+SHF_E="$SHF_REPO/.devflow/tmp/review/pr-1/run-e"
+mkdir -p "$SHF_E"
+printf '{bad json not parseable' > "$SHF_E/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_E/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_E" --slug pr-1 ) >/dev/null 2>&1; SHF_E_RC=$?
+assert_eq "et-shadow-floor(e): --persist exits 0 despite a malformed iter file (best-effort)" "0" "$SHF_E_RC"
+assert_eq "et-shadow-floor(e): a malformed iter-N.json with promotion evidence is left untouched (fail-closed, not clobbered)" "{bad json not parseable" \
+  "$(cat "$SHF_E/iter-1.json")"
+# (f) idempotency / no double-count: a SECOND --persist pass over an already-synthesized run is a
+# no-op — the never-overwrite guard recognizes the marker it wrote (a non-null .shadow), so the
+# marker stays exactly one, unchanged.
+SHF_F="$SHF_REPO/.devflow/tmp/review/pr-1/run-f"
+mkdir -p "$SHF_F"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_F/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_F/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_F" --slug pr-1 ) >/dev/null 2>&1
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_F" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(f): a second --persist pass leaves the synthesized marker unchanged (idempotent, no double-count)" "true" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_F/iter-1.json" 2>/dev/null)"
+# (g) non-object .shadow fails closed (the hardened guard keys on `.shadow == null`, not on
+# object-ness): a malformed present-but-non-object shadow value (a truncated partial write) is
+# NOT clobbered — the "never overwrites an existing block" contract holds for a malformed block too.
+SHF_G="$SHF_REPO/.devflow/tmp/review/pr-1/run-g"
+mkdir -p "$SHF_G"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix","shadow":"APPROVE"}' > "$SHF_G/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_G/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_G" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(g): a non-object (malformed) .shadow is left untouched, not overwritten (fail-closed)" "APPROVE" \
+  "$(jq -r '.shadow' "$SHF_G/iter-1.json" 2>/dev/null)"
 # The SKILL↔lib coupled constant: SHADOW_SYNTH_EXPECTED_FIELDS must stay a plain,
 # greppable single-line assignment in efficiency-trace.sh (its self-check reads it).
 assert_pin_unique "et-shadow-floor: efficiency-trace.sh carries the SHADOW_SYNTH_EXPECTED_FIELDS constant" \
