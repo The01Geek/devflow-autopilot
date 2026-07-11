@@ -52,7 +52,8 @@ Output: one TSV row per examined claim on stdout —
 Exit codes:
   0  no STALE row (all VERIFIED / UNRESOLVABLE, or no claims at all)
   1  at least one STALE row
-  2  internal error (unreadable ``--rev``, non-UTF-8 diff bytes, git unavailable)
+  2  internal error — an unreadable ``--rev``, an unreadable or non-UTF-8 stdin diff,
+     or any other unexpected failure (e.g. ``git`` unavailable); all fail-closed
 UNRESOLVABLE rows never affect the exit code.
 
 Usage:
@@ -118,9 +119,8 @@ def _run_git(args):
     stray replacement char cannot manufacture a false countable claim); ``main``
     likewise reconfigures the output streams to ``utf-8``/``errors="replace"`` so
     emitting that byte cannot detonate the pass at *write* time either. Together they
-    hold the contract that a reviewed file's odd bytes NEVER reach exit 2 — the only
-    exit-2 causes are an unreadable ``--rev`` (validated up front in ``run``), a
-    non-UTF-8 *diff* on stdin, and an unavailable/failed ``git`` binary."""
+    hold the contract that a reviewed file's odd bytes NEVER reach exit 2 (the full
+    exit-2 catalog is the module header's Exit codes list — not re-enumerated here)."""
     proc = subprocess.run(
         ["git", *args],
         stdout=subprocess.PIPE,
