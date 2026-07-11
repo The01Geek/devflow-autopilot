@@ -3714,6 +3714,15 @@ assert_pin_unique "429/T1: §1.4 records the behind-by-0 up-to-date case" \
 # T2 — degraded arm: a fetch failure records freshness-unverified and CONTINUES (never exit 1).
 assert_pin_red_under "429/T2: §1.4 fetch failure records freshness-unverified and continues (delete → RED)" \
   'tree freshness UNVERIFIED' '/tree freshness UNVERIFIED/d' "$P1_FILE"
+# AC2 "never hard-blocks adoption" — the fetch-failure arm must CONTINUE, not exit 1 (the
+# new-branch arm's exit-1 contract is separately pinned and unchanged). T2 above pins the
+# else-arm reflection sentence, but a regression that ADDED an `exit 1` to the adopted arm
+# would keep that sentence and still pass — so pin the *continues* half directly: assert the
+# USE_CURRENT freshness block carries no `exit` STATEMENT (a line-leading `exit`), while its
+# comments deliberately MENTION "exit 1" in prose (those start with `#`, so the anchored
+# pattern never matches them). Adding a real `exit 1` to the else arm flips this RED.
+assert_eq "429/T2: §1.4 adopted-branch freshness block never hard-blocks (no line-leading exit statement)" "0" \
+  "$(awk '/Freshness guard \(adopted-branch arm\)/,/Then jump straight to filling the workpad/' "$P1_FILE" | grep -cE '^[[:space:]]*exit ' || true)"
 
 # T3 — read-target rule, BOTH coupled mirror sites (§1.6 and §2.1). A mutation removing either
 # site's operative clause turns the desk check RED, enforcing the coupled-mirror discipline.
@@ -3758,19 +3767,28 @@ assert_pin_red_under "429/T6: §4.0 annotation names the sibling PR AND its merg
 assert_pin_unique "429/T6: §4.0 aligned verbatim language names the parent's decided criteria as the unreworded source" \
   "parent's decided criteria are the unreworded semantic source" "$P4_FILE"
 
-# T7 — no-new-grants: the read-only commands the new prose uses (git merge-base, gh pr view) are
-# ALREADY granted in both review-engine TOOLS='…' lines, so the change needs no new grant; and
-# the two implement-tier config allowed_tools arrays add NO narrow merge-base/pr-view grant.
-_R429="$LIB/../.github/workflows/devflow-runner.yml"
-_D429="$LIB/../.github/workflows/devflow.yml"
+# T7 — no-new-grants. The new prose (Phase 1.6 fresh-tree verification + Phase 2.1 code-wins
+# pass) executes during a /devflow:implement run, so the LOAD-BEARING grant surface is the
+# implement tier, not the review engine: the cloud implement job runs under
+# devflow-implement.yml's inline --allowed-tools, and the manual comment-triggered path runs
+# under devflow.yml's hoisted TOOLS='…' line. Both already grant `git merge-base` and
+# `gh pr view`, so the coherence rule's read-only `gh pr view N --json state,mergeCommit` +
+# `git merge-base --is-ancestor` need NO new grant. Pin the two implement-tier surfaces (so a
+# future removal of either grant from the file that actually gates the implement run turns RED,
+# not a review-engine file the prose never runs under — the #363 silent-denial trap the
+# comment-analyzer flagged), plus the two implement-tier config allowed_tools arrays adding NO
+# narrow merge-base/pr-view grant. (devflow-runner.yml is the read-only REVIEW profile; it never
+# executes these implement phase files, so it is deliberately NOT the pinned surface here.)
+_DI429="$LIB/../.github/workflows/devflow-implement.yml"   # cloud implement job (executes the new prose)
+_D429="$LIB/../.github/workflows/devflow.yml"              # manual /devflow:implement comment path (hoisted TOOLS line)
 _C429="$LIB/../.devflow/config.json"
-assert_eq "429/T7: devflow-runner.yml TOOLS already grants git merge-base (no new grant)" "1" \
-  "$(grep -cF 'Bash(git merge-base:*)' "$_R429" || true)"
-assert_eq "429/T7: devflow-runner.yml TOOLS already grants gh pr view (no new grant)" "1" \
-  "$(grep -cF 'Bash(gh pr view:*)' "$_R429" || true)"
-assert_eq "429/T7: devflow.yml TOOLS already grants git merge-base (no new grant)" "1" \
+assert_eq "429/T7: devflow-implement.yml --allowed-tools already grants git merge-base (cloud implement tier; no new grant)" "1" \
+  "$(grep -cF 'Bash(git merge-base:*)' "$_DI429" || true)"
+assert_eq "429/T7: devflow-implement.yml --allowed-tools already grants gh pr view (cloud implement tier; no new grant)" "1" \
+  "$(grep -cF 'Bash(gh pr view:*)' "$_DI429" || true)"
+assert_eq "429/T7: devflow.yml TOOLS already grants git merge-base (manual implement command path; no new grant)" "1" \
   "$(grep -cF 'Bash(git merge-base:*)' "$_D429" || true)"
-assert_eq "429/T7: devflow.yml TOOLS already grants gh pr view (no new grant)" "1" \
+assert_eq "429/T7: devflow.yml TOOLS already grants gh pr view (manual implement command path; no new grant)" "1" \
   "$(grep -cF 'Bash(gh pr view:*)' "$_D429" || true)"
 assert_eq "429/T7: devflow_implement.allowed_tools adds no merge-base/pr-view grant" "0" \
   "$(jq -r '.devflow_implement.allowed_tools[]? | select(test("merge-base|pr view"))' "$_C429" 2>/dev/null | grep -c . || true)"
