@@ -6287,6 +6287,74 @@ assert_pin_red_under "#376 w2-phase-five-kinds: phase-2-implement.md §2.3.4 ste
   'one of the five kinds above' \
   's/one of the five kinds above/one of the four kinds above/' "$P2_FILE"
 
+# ── issue #377 (Wave 3): fix-delta authoring-side sweeps + Phase 3.2 cleanup-agents-are-quality-only ──
+# Two coupled skill edits, each new operative sentence pinned through assert_pin_red_under
+# (#375) with a mutation that removes ONLY that operative sentence — so a framing-only pin is
+# reported RED at the desk, per AC8. The default file for assert_pin_red_under is $MAXI_SKILL
+# (skills/review-and-fix/SKILL.md), so the Edit-1 (Step 3 item 3b) pins omit the file arg;
+# the Edit-2 (§3.2) pins target phase-3-review.md by path so AC5's count assertion reads the
+# owning phase file, not the merged bundle.
+P3_FILE="$IMPL_PHASES_DIR/phase-3-review.md"
+
+# Edit 1 — review-and-fix Step 3 item 3b (author-side counterpart of the blinded Step 3.5 gate).
+# AC1: the new item runs the implement Phase 2.3 authoring-side sweeps against the fix delta on
+# every fix-applying iteration; removing the operative heading clause re-introduces the gap where
+# the fix delta gets no authoring-side sweep and the Step 3.5 gate/shadow rediscovers it one at a time.
+assert_pin_red_under "#377 w3-fix-delta-sweeps-operative: Step 3 item 3b runs the implement Phase 2.3 authoring-side sweeps against the fix delta (AC1)" \
+  'run the implement Phase 2.3 authoring-side sweeps against the fix delta' \
+  's/run the implement Phase 2.3 authoring-side sweeps against the fix delta//'
+# AC2: the item scopes the sweeps to the fix delta, and gates each sweep on its own Phase 2.3
+# trigger. Two operative clauses, pinned separately — removing the scope clause re-introduces an
+# unbounded sweep over pre-existing code; removing the per-trigger gating re-introduces running
+# every sweep unconditionally regardless of what the delta touches.
+assert_pin_red_under "#377 w3-fix-delta-scope: Step 3 item 3b scopes every sweep to the fix delta (AC2)" \
+  'Scope every sweep to the fix delta' \
+  's/Scope every sweep to the fix delta//'
+assert_pin_red_under "#377 w3-fix-delta-trigger-gating: Step 3 item 3b gates each sweep on its own Phase 2.3 trigger (AC2)" \
+  'each gated by its own Phase 2.3 trigger condition' \
+  's/each gated by its own Phase 2.3 trigger condition//'
+# AC3: each triggered sweep's evidence obligation is honored, directed to the loop's own iteration
+# records when standalone. Removing the operative directive re-introduces the gap where the sweep
+# runs but its evidence lands nowhere on a standalone (no-issue-workpad) loop run.
+assert_pin_red_under "#377 w3-fix-delta-evidence: Step 3 item 3b directs sweep evidence to the loop iteration records when standalone (AC3)" \
+  'iteration records when the loop runs standalone with no issue workpad' \
+  's/iteration records when the loop runs standalone with no issue workpad//'
+# AC9: the new item must NOT duplicate or reword item 3a's pinned heading — still exactly one.
+assert_eq "#377 w3-3a-heading-count: item 3a heading literal stays exactly-once after item 3b lands (AC9)" \
+  "1" "$(pin_count 'Mechanism-scoped self-authored-claim re-sweep' "$MAXI_SKILL")"
+
+# Edit 2 — phase-3-review.md §3.2: /simplify cleanup agents chartered quality-only, Phase 3.3 owns correctness.
+# AC5 (regression-first): the "correctness angles plus" attribution is GONE from the owning phase
+# file. Run against today's pre-edit file this returns 1 (the defect), so the expected-0 assertion
+# reproduces the bug first, then passes after the edit. 'correctness angles plus' does not begin
+# with '--', so it is safe for pin_count's grep form.
+assert_eq "#377 w3-simplify-no-correctness-claim: §3.2 no longer attributes 'correctness angles' coverage to /simplify (AC5)" \
+  "0" "$(pin_count 'correctness angles plus' "$P3_FILE")"
+# AC6: the three operative rules. Each is its own physical line, pinned through assert_pin_red_under
+# with a substring mutation that removes only that operative sentence.
+assert_pin_red_under "#377 w3-simplify-quality-only: §3.2 states cleanup agents are quality-only reviewers, never correctness reviewers (AC6)" \
+  'quality-only reviewers, never correctness reviewers' \
+  's/quality-only reviewers, never correctness reviewers//' "$P3_FILE"
+assert_pin_red_under "#377 w3-no-guard-class-solicitation: §3.2 states the orchestrator never solicits a correctness/guard-class verdict from a cleanup agent (AC6)" \
+  'never solicits a correctness or guard-class verdict from a' \
+  's/never solicits a correctness or guard-class verdict from a//' "$P3_FILE"
+assert_pin_red_under "#377 w3-no-clean-as-evidence: §3.2 states a cleanup agent clean report is never recorded as correctness evidence (AC6)" \
+  'report as evidence toward any correctness class' \
+  's/report as evidence toward any correctness class//' "$P3_FILE"
+assert_pin_red_under "#377 w3-phase33-owns-correctness: §3.2 names the Phase 3.3 reviewers as the owners of correctness (AC6)" \
+  'Correctness is owned by the Phase 3.3 reviewers' \
+  's/Correctness is owned by the Phase 3.3 reviewers//' "$P3_FILE"
+# AC7: §3.2's existing #193 AC-triage pins must survive the rewrite unchanged. They are asserted
+# in the #193 block above (lines pinning 'skip the finding and record the AC conflict as the skip
+# rationale', 'exists only on the issue-context', 'that is Phase 2.2.6 AC-rewrite territory' against
+# $IMPL_SKILL); re-confirm here against the owning phase file that all three survive verbatim.
+assert_eq "#377 w3-triage-pins-intact: §3.2 #193 AC-triage operative sentence survives the rewrite (AC7)" \
+  "1" "$(pin_count 'skip the finding and record the AC conflict as the skip rationale' "$P3_FILE")"
+assert_eq "#377 w3-triage-scope-intact: §3.2 #193 issue-context scope pin survives the rewrite (AC7)" \
+  "1" "$(pin_count 'exists only on the issue-context' "$P3_FILE")"
+assert_eq "#377 w3-triage-carveout-intact: §3.2 #193 stale-AC carve-out pin survives the rewrite (AC7)" \
+  "1" "$(pin_count 'that is Phase 2.2.6 AC-rewrite territory' "$P3_FILE")"
+
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
 # BEHAVIOR over the required input-shape matrix (bullet-with-paths, no-paths,
