@@ -188,7 +188,33 @@ if [ -n "$CUR" ] && [ "$CUR" != "$BASE" ]; then
 fi
 ```
 
-**If `USE_CURRENT` is set, skip branch creation entirely** — `$CUR` is the feature branch; jump straight to filling the workpad `Branch` line below.
+**If `USE_CURRENT` is set, skip branch creation entirely** — `$CUR` is the feature branch. But an adopted branch may have been forked days before the base moved (the #325 incident: a `worktree-issue-322` branch forked 43 hours before PR #319 merged), and every downstream verification that reads the tree — the Phase 1.6 audit, Phase 2.1's code-wins pass — silently adjudicates truth against that stale snapshot. So **freshness-check the adopted branch before proceeding** (git is a preflight prerequisite; the behind-by comparison uses bash builtins per the guard-class-2 rule): fetch the base with the same DevFlow breadcrumb the new-branch arm uses, derive how far `HEAD` is behind `origin/$BASE`, and record the result in the workpad — **including the behind-by-0 case, so freshness is provably *checked*, not assumed**. Unlike branch creation, adoption does not need the origin object to proceed, so a fetch failure here **records a freshness-unverified reflection and continues** (the tree is marked unvouched for the read-target rule in 1.6/2.1) — it is never silent and never hard-blocks adoption (the new-branch arm's `exit 1` contract is unchanged):
+
+```bash
+if [ -n "$USE_CURRENT" ]; then
+  # Freshness guard (adopted-branch arm). Mirrors the new-branch arm's breadcrumbed
+  # fetch, but records-and-continues on failure instead of exit 1 — adoption does not
+  # need the origin object, but downstream verification must know the tree is unvouched.
+  if git fetch origin "$BASE"; then
+    # behind-by via git (preflight-guaranteed); the count is compared with bash builtins,
+    # never a non-preflight PATH tool (guard-class 2). A behind-by-0 note still records —
+    # it proves freshness was checked, not assumed.
+    BEHIND=$(git rev-list --count "HEAD..origin/$BASE" 2>/dev/null) || BEHIND=""
+    if [ -z "$BEHIND" ]; then
+      workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "freshness (adopted branch '$CUR'): fetched origin/$BASE but could not derive behind-by (git rev-list failed) — tree freshness unverified; 1.6/2.1 verification reads target origin/$BASE"
+    elif [ "$BEHIND" -eq 0 ]; then
+      workpad.py update $ISSUE_NUMBER --note "freshness (adopted branch '$CUR'): behind origin/$BASE by 0 commits — tree is up to date with the base"
+    else
+      workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "freshness (adopted branch '$CUR'): behind origin/$BASE by $BEHIND commit(s) — per the read-target rule, 1.6/2.1 verification reads that adjudicate shipped-work claims target origin/$BASE state, not the fork point"
+    fi
+  else
+    # Fetch failed: record freshness-unverified and continue (never exit 1 on this arm).
+    workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "freshness (adopted branch '$CUR'): could not fetch origin/$BASE (network/auth) — tree freshness UNVERIFIED; the run continues with the tree marked unvouched, and 1.6/2.1 verification reads unconditionally target origin/$BASE"
+  fi
+fi
+```
+
+Then jump straight to filling the workpad `Branch` line below.
 
 Otherwise, create a new branch. The canonical branch name is computed by the helper (handles slugification, unicode, length truncation, and collision suffixing deterministically):
 
@@ -227,6 +253,13 @@ workpad.py update $ISSUE_NUMBER --tick-progress "branch & workpad"
 Before Phase 2 begins, operationalise the Phase 2.1 principle that "the issue body is a starting point, not the source of truth" with the targeted pre-checks below that catch wrong scope, policy, dependency, and execution-capability assumptions before any code edit. Run after the issue data from 1.1 is in hand; passes are independent (read their sources in any order or in a single batch). Record each finding immediately via `workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "issue-claim audit ({type}): {finding}"`. A claim that confirms correctly is still worth a one-line note — it proves the assumption was checked, not inherited.
 
 **Scope:** the explicitly-defined claim types below only. Do not attempt to verify every sentence in the issue body — open-ended verification creates a runaway discovery loop and produces false-positive discrepancies on subjective or aspirational claims.
+
+#### Fresh-tree verification (read-target rule + cross-pass coherence rule)
+
+Every pass below *reads the tree* to adjudicate a claim, and a stale checkout answers about the wrong snapshot while every read succeeds — the failure is invisible. Two rules govern any read here that adjudicates a claim about **already-shipped work** (a "shipped/landed in PR #N" annotation, a "this artifact already exists on the base" premise). Both rules also live at Phase 2.1 (phase-2-implement.md) — **they are coupled mirror sites: the same rule stated at both, edited and pinned together; do not paraphrase one from the other.**
+
+- **Read-target rule.** When the adopted branch is behind `origin/$BASE` (per Phase 1.4's recorded behind-by count) — **unconditionally when Phase 1.4 marked freshness unverified, and equally when no freshness record is present at all** (Phase 1.4's workpad write is best-effort, so an absent record means freshness was **never established**, not that the tree is fresh: **a missing record reads as unverified**, never as behind-by-0) — a verification read that adjudicates a shipped-work claim targets `origin/$BASE` state (`git show origin/$BASE:<path>`, and tree reads only after reconciling with the fetched base), **never the unfetched fork point**. This rule governs which ref verification *reads*; it performs **no branch surgery** (reconciling the working branch with its base stays Phase 2's territory).
+- **Cross-pass coherence rule.** Before any claim of the form "shipped/landed in PR #N" is **REFUTED** on the basis of tree reads, resolve PR #N's merge state and `merge_commit_sha` (the SHA is the response's `.mergeCommit.oid`) with a read-only `gh pr view N --json state,mergeCommit` (no tree mutation); when the PR is **MERGED** and `git merge-base --is-ancestor <merge_commit_sha> HEAD` reports the merge commit is **not** an ancestor of the current checkout, the verdict is **"checkout stale — refresh and re-verify"**, never "code wins". Every **indeterminate** outcome — a shallow history where the ancestor check errors, a failed `gh pr view` — takes the **same** stale-suspect verdict (the fail-closed shape Pass 4's dependency arms use): a refutation **requires a positively-fresh tree**. The canonical failure this prevents is the **#322→#325 false refutation** — a true "already shipped in PR #319" claim REFUTED against a 43-hours-stale adopted checkout ("PR #319 MERGED" plus "its artifact is not in my tree" logically resolves to *my checkout is stale*, but nothing forced that resolution), which re-implemented merged work into a human-resolved dirty merge.
 
 #### Pass 1 — Count or enumeration claims
 
