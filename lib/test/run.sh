@@ -21191,10 +21191,19 @@ assert_eq "#415 swv: INCONCLUSIVE (no ship) when only the before-control ran, no
 # Arm: INCONCLUSIVE — execution file absent (note_top floor). Never REMOVED.
 assert_eq "#415 swv: INCONCLUSIVE (no ship) when the execution file is absent" "yes" \
   "$(swv_has_row "/no/such/schedulewakeup-execfile.json" '| **INCONCLUSIVE** | no |')"
-# Arm: INCONCLUSIVE — partial JSONL corruption (one line parses, one drops) forces the
-# floor rather than reading the surviving lines as a clean tool-absence.
-printf '%s\n%s\n' '{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}}' '{oops-not-json' > "$SWV_F"
-assert_eq "#415 swv: INCONCLUSIVE (no ship) on partial JSONL corruption, not a false REMOVED" "yes" \
+# Arm: INCONCLUSIVE — partial JSONL corruption (both controls parse, one line drops)
+# forces the floor rather than reading the surviving lines as a clean tool-absence.
+# BOTH controls are present on purpose (PR #417 review — pr-test-analyzer): with both
+# controls run and no ScheduleWakeup signal, the ONLY thing keeping this off the
+# shippable REMOVED is the `dropped -> note_top -> INCONCLUSIVE` precedence in
+# parse_execution_file. A single-control fixture would read INCONCLUSIVE via the
+# else-branch (one control) regardless, so it would pass even if that precedence were
+# deleted — vacuous. The mutation proof below removes `if dropped:` and observes REMOVED.
+printf '%s\n%s\n%s\n' \
+  '{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}}' \
+  '{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}' \
+  '{oops-not-json' > "$SWV_F"
+assert_eq "#415 swv: INCONCLUSIVE (no ship) on partial JSONL corruption with BOTH controls, not a false REMOVED" "yes" \
   "$(swv_has_row "$SWV_F" '| **INCONCLUSIVE** | no |')"
 # Fail-open regression #2a (case): a ScheduleWakeup call recorded under a LOWER-CASED
 # name must read as present (AVAILABLE, no ship). Case-sensitive matching would miss it
