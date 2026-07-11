@@ -3,13 +3,15 @@
 # SPDX-License-Identifier: MIT
 # post-review-backstop-comment.sh — the review stall-backstop "post-and-annotate" glue
 # (issue #414). Extracted from the near-identical inline blocks in
-# .github/workflows/devflow-review.yml and .github/workflows/devflow.yml (the ~40-line glue
-# from the decision parse onward was byte-identical except the no-fire notice's PR reference —
-# `${PR_NUMBER:-?}` in review.yml vs `${PR_NUMBER}` in devflow.yml, unified here to the
-# `:-?` form; devflow.yml additionally derived HEAD_SHA and carried one extra comment, both
-# of which stay in that workflow) so the suite can DRIVE the notice-vs-warning selection
-# instead of only presence-pinning a breadcrumb literal in each YAML (the
-# scripts/describe-denial-count.sh precedent).
+# .github/workflows/devflow-review.yml and .github/workflows/devflow.yml. The ~40-line glue
+# (from the decision parse onward) matched between the two blocks except: (1) the no-fire
+# notice's PR reference — `${PR_NUMBER:-?}` in review.yml vs `${PR_NUMBER}` in devflow.yml,
+# unified here to the `:-?` form; and (2) review.yml's glue carried a "Post the marker +
+# the manual /devflow:review trigger" comment that devflow.yml's did not (now in this helper).
+# Separately, devflow.yml's step keeps its own pre-glue — the empty-PR guard and the runtime
+# HEAD_SHA derivation (with its own comment) — which stay in that workflow. Extracting the
+# glue lets the suite DRIVE the notice-vs-warning selection instead of only presence-pinning a
+# breadcrumb literal in each YAML (the scripts/describe-denial-count.sh precedent).
 #
 # Why a helper: the success-vs-warning selection is the load-bearing arm — a failed or
 # absent POST must NEVER be annotated as a fired re-trigger (issue #408 review). Inline
