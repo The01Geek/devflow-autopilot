@@ -57,7 +57,7 @@ Invoke the **Skill tool** with `skill: simplify` — this runs the **built-in Cl
 
 `/simplify` runs the code-review engine over the current diff in **quality-only** mode — the **reuse / simplification / efficiency / altitude** cleanup angles — and applies the fixes directly instead of stopping at a report (skipping any whose fix would change intended behavior). By its own charter it does not hunt for bugs; use `/code-review` for that. It remains a fast self-review that catches the quality issues the heavier `review-and-fix` engine in 3.3 would otherwise spend turns on, keeping 3.3 focused on correctness, contracts, and verification rather than quality nits.
 
-**Cleanup agents are quality-only; they never own correctness.** Three operative rules follow from that charter:
+**Cleanup agents are quality-only; they never own correctness.** These operative rules follow from that charter:
 
 - `/simplify`'s cleanup agents are quality-only reviewers, never correctness reviewers — chartered for the reuse / simplification / efficiency / altitude angles only.
 - The orchestrator never solicits a correctness or guard-class verdict from a `/simplify` cleanup agent.
