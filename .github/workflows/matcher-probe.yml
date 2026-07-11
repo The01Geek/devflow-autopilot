@@ -395,13 +395,10 @@ jobs:
             Action 2 — attempt to call the ScheduleWakeup tool once: schedule a
             wakeup roughly 300 seconds from now with any short reason and prompt.
 
-          plugin_marketplaces: |
-            https://github.com/anthropics/claude-plugins-official.git
-            ./
-
-          plugins: |
-            devflow@devflow-marketplace
-
+          # No plugin_marketplaces/plugins here (unlike the matcher probe above):
+          # this probe exercises only `grep` (Bash) and the ScheduleWakeup harness
+          # built-in, neither of which needs the devflow plugin — loading it would
+          # add a marketplace clone + install for zero measurement value.
           claude_args: >-
             --model claude-haiku-4-5-20251001
             --effort low
