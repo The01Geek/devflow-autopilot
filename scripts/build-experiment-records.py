@@ -415,9 +415,19 @@ def _resolve_verdict_and_important(repo, pr):
         vp.sort(key=lambda c: c.get("created_at") or "")
         if vp:
             fallback_comment = vp[-1]
-            verdict = _parse_verdict(fallback_comment.get("body"))
-            verdict_source = "progress-comment"
+            parsed = _parse_verdict(fallback_comment.get("body"))
+            # Keep review_commit (the Reviewed HEAD join key) even when the verdict
+            # line does not parse, so the Important-count join can still target this
+            # comment. But mirror the pr-review arm's coherence rule: do NOT claim a
+            # "progress-comment" success provenance over a null verdict — a
+            # marker-present-but-unparseable line gets "unparseable", symmetric with
+            # the important-count field (issue #431 review, shadow pass).
             review_commit = _reviewed_head(fallback_comment.get("body"))
+            if parsed is not None:
+                verdict = parsed
+                verdict_source = "progress-comment"
+            else:
+                verdict_source = "unparseable"
 
     # Important count — join the progress comment to the review's commit_id. The count
     # lives in the progress (issue) comments, so if that fetch failed we could not
@@ -446,9 +456,14 @@ def _resolve_verdict_and_important(repo, pr):
 
 def _resolve_denials(repo, shas):
     """Returns (value_verbatim, source). Forward path: the `Devflow Review` check-run
-    output[summary] `permission_denials_count:` line. Historical fallback: check-run
-    annotations (positive-count-only — a historical zero is indistinguishable from
-    unavailable, stated in provenance). Value is carried VERBATIM (`unavailable` stays
+    output[summary] `permission_denials_count:` line. Historical fallback: annotations
+    on the `Devflow Review` check-run (positive-count-only — a historical zero is
+    indistinguishable from unavailable, stated in provenance). The fallback is
+    OPPORTUNISTIC: it recovers a count only if a "recorded N permission denial(s)"
+    annotation is attached to the `Devflow Review` check-run itself — a `::warning::`
+    emitted by surface-execution-diagnostics attaches to the Actions job check-run, not
+    this one, so many historical PRs will not recover via this path (they simply read
+    `absent`, never a fabricated 0). Value is carried VERBATIM (`unavailable` stays
     `unavailable`); no path coerces an unestablished count to 0."""
     if not repo:
         return None, "absent"
@@ -517,15 +532,24 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
 # ── gh PR-metadata fallback (no retrospective entry) ─────────────────────────
 
 def _gh_pr_meta(repo, pr):
-    """Best-effort metadata for a PR with no retrospective entry. None on failure."""
+    """Best-effort metadata for a PR with no retrospective entry. Returns (meta, ok):
+    `ok` is False ONLY on a gh transport failure (rc≠0) — the "could not establish"
+    case — and True otherwise (whether meta is present or the call returned
+    empty/unparseable), so the caller can mark provenance "fetch-failed" vs "absent"
+    rather than laundering a fetch failure into a genuinely-metadata-less PR (issue
+    #431 review, shadow pass). Fetches headRefOid too so the gh-fallback path has a
+    real head sha for the denial-count check-run lookup (which runs on the PR head)."""
     rc, out, _ = _run([GH, "pr", "view", str(pr), "--json",
-                       "mergedAt,mergeCommit,headRefName,closingIssuesReferences,state"])
-    if rc != 0 or not out.strip():
-        return None
+                       "mergedAt,mergeCommit,headRefName,headRefOid,"
+                       "closingIssuesReferences,state"])
+    if rc != 0:
+        return None, False
+    if not out.strip():
+        return None, True
     try:
-        return json.loads(out)
+        return json.loads(out), True
     except json.JSONDecodeError:
-        return None
+        return None, True
 
 
 # ── per-PR assembly ──────────────────────────────────────────────────────────
@@ -541,15 +565,24 @@ def build_record(repo, repo_root, eff_index, pr, retro_entry):
         issue = retro_entry.get("issue")
         provenance["retrospective"] = "found"
     else:
-        provenance["retrospective"] = "absent"
-        provenance["notes"].append("no retrospective entry; PR metadata via gh fallback")
-        meta = _gh_pr_meta(repo, pr) if repo else None
+        meta, meta_ok = _gh_pr_meta(repo, pr) if repo else (None, True)
         merged_at = (meta or {}).get("mergedAt")
         merge_sha = ((meta or {}).get("mergeCommit") or {}).get("oid")
-        head_sha = None
+        head_sha = (meta or {}).get("headRefOid")
         branch = (meta or {}).get("headRefName")
         refs = (meta or {}).get("closingIssuesReferences") or []
         issue = refs[0].get("number") if refs and isinstance(refs[0], dict) else None
+        if not meta_ok:
+            # gh transport failure — the metadata is UNESTABLISHED, not genuinely
+            # absent. Mark it so the dependent denial/fingerprint provenance is not
+            # read as "measured, none found" (issue #431 review, shadow pass).
+            provenance["retrospective"] = "fetch-failed"
+            provenance["notes"].append(
+                "PR metadata fetch failed (gh rc≠0); metadata unestablished")
+        else:
+            provenance["retrospective"] = "absent"
+            provenance["notes"].append(
+                "no retrospective entry; PR metadata via gh fallback")
 
     # Efficiency runs — both slug families.
     target_slugs = {f"pr-{pr}"} | _slug_variants(branch)

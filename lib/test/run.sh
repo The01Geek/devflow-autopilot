@@ -24644,6 +24644,11 @@ else
   cat > "$EXP/gh" <<'STUB'
 #!/usr/bin/env bash
 j="$*"
+# Argv log (issue #431 review — pin that --paginate reaches the check-runs call):
+# when GH_ARGV_LOG is set, record each invocation's joined argv so a test can assert
+# a specific flag was actually passed (the stub ignores flags, so a dropped
+# paginate=True would otherwise stay green).
+[ -n "$GH_ARGV_LOG" ] && printf '%s\n' "$j" >> "$GH_ARGV_LOG"
 # Failure injection (issue #431 review — Fix C fetch-failed provenance): when the
 # matching *_FAIL env is set, this endpoint's gh call exits NON-ZERO (transport /
 # auth / rate-limit), which the assembler must record as "fetch-failed", NOT "absent".
@@ -24901,14 +24906,18 @@ EOF
   assert_eq "#431 T3f: first-completed review wins (earliest submitted_at)" "REJECT" "$(exp_field "$ST3F" 730 verdict)"
 
   # ── T3g superseded progress comment (latest verdict-comment wins) ────────────
-  # Two verdict-bearing progress comments; the LATER by created_at supersedes.
+  # Two verdict-bearing progress comments; the LATER by created_at supersedes. The
+  # fixture is DELIBERATELY out of created_at order (the winning APPROVE@12:00 listed
+  # FIRST, the stale REJECT@08:00 last) so the `.sort(key=created_at)` is load-bearing:
+  # without it, `vp[-1]` would pick the stale REJECT and the test would fail. (A
+  # pre-sorted fixture would pass whether or not the sort ran — a vacuous guard.)
   R3G="$EXP/r3g"
   mkdir -p "$R3G/.devflow/learnings"
   cat > "$R3G/.devflow/learnings/retrospectives.jsonl" <<'EOF'
 {"schema_version":2,"kind":"implementation","pr":740,"merged_at":"2026-07-10T00:00:00Z","branch":"b740","head_sha":"h740","merge_commit_sha":"m740"}
 EOF
   cat > "$EXP/comments3g.json" <<'EOF'
-[{"id":1,"created_at":"2026-07-09T08:00:00Z","body":"<!-- devflow:review-progress run=1 -->\n**Reviewed HEAD:** h740old\n\n## Verdict: REJECT\n"},{"id":2,"created_at":"2026-07-09T12:00:00Z","body":"<!-- devflow:review-progress run=2 -->\n**Reviewed HEAD:** h740\n\n## Verdict: APPROVE\n"}]
+[{"id":2,"created_at":"2026-07-09T12:00:00Z","body":"<!-- devflow:review-progress run=2 -->\n**Reviewed HEAD:** h740\n\n## Verdict: APPROVE\n"},{"id":1,"created_at":"2026-07-09T08:00:00Z","body":"<!-- devflow:review-progress run=1 -->\n**Reviewed HEAD:** h740old\n\n## Verdict: REJECT\n"}]
 EOF
   GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
     REVIEWS_JSON="$EXP/does-not-exist" COMMENTS_JSON="$EXP/comments3g.json" \
@@ -24966,6 +24975,64 @@ EOF
   assert_eq "#431 Tpag: denial count found when Devflow Review is on check-runs page 2" "4" "$(exp_field "$STPG" 920 permission_denials_count)"
   assert_eq "#431 Tpag: paginated denial provenance is check-run-summary" "check-run-summary" "$(exp_field "$STPG" 920 provenance.permission_denials_count)"
 
+  # ── Tpag2 --paginate actually reaches the check-runs call ────────────────────
+  # The stub ignores flags, so Tpag alone would stay green if paginate=True were
+  # dropped (real gh would then return only page 1 and miss Devflow Review). Pin
+  # that the check-runs invocation carried --paginate by logging argv.
+  RPG2="$EXP/rpg2"
+  mkdir -p "$RPG2/.devflow/learnings"
+  cat > "$RPG2/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":921,"merged_at":"2026-07-10T00:00:00Z","branch":"b921","head_sha":"h921","merge_commit_sha":"m921"}
+EOF
+  GH_ARGV_LOG="$EXP/argv.log" GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RPG2" --prs 921 >/dev/null 2>&1
+  if grep 'check-runs' "$EXP/argv.log" 2>/dev/null | grep -q -- '--paginate'; then
+    assert_eq "#431 Tpag2: check-runs call carried --paginate" "yes" "yes"
+  else
+    assert_eq "#431 Tpag2: check-runs call carried --paginate" "yes" "no"
+  fi
+
+  # ── T3h progress-comment coherence: unparseable fallback verdict (review Fix A) ─
+  # A progress comment carries the "## Verdict:" marker inline (not a `^## Verdict:`
+  # line) so it does not parse, and there is no PR review → verdict null with
+  # provenance "unparseable", NEVER "progress-comment" over a null (the shadow-pass
+  # sibling of the pr-review coherence fix).
+  R3H="$EXP/r3h"
+  mkdir -p "$R3H/.devflow/learnings"
+  cat > "$R3H/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":750,"merged_at":"2026-07-10T00:00:00Z","branch":"b750","head_sha":"h750","merge_commit_sha":"m750"}
+EOF
+  cat > "$EXP/comments3h.json" <<'EOF'
+[{"id":1,"created_at":"2026-07-09T10:00:00Z","body":"<!-- devflow:review-progress run=1 -->\n**Reviewed HEAD:** h750\n\nThis comment mentions ## Verdict: inline but has no real verdict line.\n"}]
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    REVIEWS_JSON="$EXP/does-not-exist" COMMENTS_JSON="$EXP/comments3h.json" \
+    python3 "$BXR" --repo-root "$R3H" --prs 750 >/dev/null 2>&1
+  ST3H="$R3H/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 T3h: unparseable progress-comment verdict → null value" "null" "$(exp_field "$ST3H" 750 verdict)"
+  assert_eq "#431 T3h: unparseable fallback provenance (not progress-comment over a null)" "unparseable" "$(exp_field "$ST3H" 750 provenance.verdict)"
+
+  # ── Tmeta gh-fallback metadata fetch-failure → retrospective fetch-failed ─────
+  # No retrospective entry AND the gh pr-view call fails (rc≠0) → metadata is
+  # UNESTABLISHED: provenance.retrospective is "fetch-failed", not "absent".
+  RMETA="$EXP/rmeta"
+  mkdir -p "$RMETA/.devflow/learnings"
+  : > "$RMETA/.devflow/learnings/retrospectives.jsonl"
+  # PR_VIEW_FAIL routed through the stub's generic non-zero exit for pr view.
+  cat > "$EXP/gh-metafail" <<'STUB2'
+#!/usr/bin/env bash
+case "$*" in
+  *"pr view"*)   echo "gh: api error" >&2; exit 1 ;;
+  *"repo view"*) echo "owner/repo"; exit 0 ;;
+  *)             echo '[]'; exit 0 ;;
+esac
+STUB2
+  chmod +x "$EXP/gh-metafail"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh-metafail" \
+    python3 "$BXR" --repo-root "$RMETA" --prs 940 >/dev/null 2>&1
+  STMETA="$RMETA/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 Tmeta: gh-fallback metadata fetch failure → retrospective fetch-failed (not absent)" "fetch-failed" "$(exp_field "$STMETA" 940 provenance.retrospective)"
+
   # ── Tdup duplicate efficiency records, SAME slug — never newest-wins ──────────
   RDUP="$EXP/rdup"
   mkdir -p "$RDUP/.devflow/learnings"
@@ -25019,12 +25086,15 @@ none = f({"unrelated": 1})
 # order-independent canonicalization
 a = f({"devflow_review": {"a": 1, "b": 2}, "devflow_review_and_fix": {"m": 3}})
 b = f({"devflow_review_and_fix": {"m": 3}, "devflow_review": {"b": 2, "a": 1}})
+# salient extraction lifts the named keys verbatim (the field an operator reads).
+sal = f({"devflow_review_and_fix": {"max_iterations": 5, "unrelated": 9}})
 ok = (
     both is not None and both["partial"] is False and
     one is not None and one["partial"] is True and
     none is None and
     a["sha256"] == b["sha256"] and
-    both["sha256"] != one["sha256"]
+    both["sha256"] != one["sha256"] and
+    sal["salient"] == {"max_iterations": 5}
 )
 sys.exit(0 if ok else 1)
 PY
