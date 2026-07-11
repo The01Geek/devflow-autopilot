@@ -1,9 +1,19 @@
 {
   "iter": 1,
   "started_at": "2026-07-11T21:42:52Z",
-  "fix_commit_sha": "3055f07",
+  "fix_commit_sha": "7d8b92c",
+  "fix_commits": ["3055f07", "811c7f1", "7d8b92c"],
   "fix_files": ["scripts/stale-prose-lint.py", "lib/test/run.sh"],
   "loop_role": "fix",
+  "step_3_5_fix_delta_gate": {
+    "attempts": 2,
+    "findings_caught_and_fixed": [
+      {"gate_run": 1, "severity": "Important", "kind": "documented_falsehood", "desc": "the iter-1 fix's rewritten _run_git docstring introduced a NEW closed enumeration ('the only exit-2 causes are X,Y,Z') incomplete against HEAD (omitted stdin-read return-2, narrowed catch-all). Re-fixed in 811c7f1 by removing the re-enumeration and pointing to the module header.", "over_grade_gate": "not-demoted: false-against-HEAD diff-added artifact is excluded from the over-grade cap; routed as Important."},
+      {"gate_run": 2, "severity": "Important", "kind": "documented_falsehood", "desc": "the 811c7f1 docstring's absolute 'a reviewed file's odd bytes NEVER reach exit 2' is false — an invalid-UTF-8 byte reaches exit 2 via the strict stdin-diff decode (intentional, documented). Self-verified (caf\\xe9 -> exit 2). Re-fixed in 7d8b92c by scoping to the two hardened channels and naming the stdin channel."}
+    ],
+    "final_gate_run": 3,
+    "result": "pending"
+  },
   "diff_profile": {
     "small_diff": false,
     "config_only": false,
