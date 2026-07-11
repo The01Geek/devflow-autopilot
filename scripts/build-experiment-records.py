@@ -83,6 +83,41 @@ NUMBERED_ITEM_RE = re.compile(r"^\s*\d+\.\s")
 DENIAL_SUMMARY_RE = re.compile(r"permission_denials_count:\s*(\S+)")
 DENIAL_ANNOTATION_RE = re.compile(r"recorded\s+(\d+)\s+permission denial")
 
+# ── provenance vocabulary + coherence invariant ──────────────────────────────
+# The joined fields whose provenance the coherence check below governs. Each names a
+# record key and its provenance key (they coincide except for the two aliased joins).
+_PROVENANCED_FIELDS = {
+    "verdict": "verdict",
+    "important_finding_count": "important_finding_count",
+    "permission_denials_count": "permission_denials_count",
+    "config_fingerprint": "config_fingerprint",
+}
+# UNESTABLISHED provenance: the join could not be measured at all. `fetch-failed` = the
+# call ran and failed; `no-repo` = nothing was queryable (repo unresolvable); `no-sha` =
+# the metadata that supplies the query key was itself unestablished, so this join is
+# unestablished by cascade. NONE of these is `absent`, which asserts the far stronger
+# claim "we looked and it genuinely was not there" (issue #431 review, convergence shadow).
+PROVENANCE_UNESTABLISHED = ("fetch-failed", "no-repo", "no-sha")
+
+
+def _assert_provenance_coherent(record):
+    """The record's own type-level invariant, enforced at construction rather than left
+    to reviewer vigilance: a field carrying an UNESTABLISHED provenance MUST carry a null
+    value. The whole point of the unestablished vocabulary is that no analysis can read a
+    real measurement out of a join that never happened, so a non-null value labeled
+    `fetch-failed`/`no-repo`/`no-sha` is incoherent by construction. Raises AssertionError
+    (a build-time bug in this script, never a data condition — every degradation path
+    yields null), so a future edit that wires a value to an unqueryable source fails at
+    the desk instead of silently publishing a fabricated measurement."""
+    prov = record.get("provenance") or {}
+    for field, prov_key in _PROVENANCED_FIELDS.items():
+        source = prov.get(prov_key)
+        if source in PROVENANCE_UNESTABLISHED and record.get(field) is not None:
+            raise AssertionError(
+                f"provenance incoherent: {field}={record.get(field)!r} is non-null but "
+                f"its source is {source!r} (unestablished) — an unqueryable join must "
+                f"never publish a value")
+
 
 def _warn(msg):
     sys.stderr.write(f"build-experiment-records.py: {msg}\n")
@@ -370,15 +405,20 @@ def _resolve_verdict_and_important(repo, pr):
     Verdict by artifact shape: the first completed PR review (any bot) whose body
     matches `## Verdict:`; else the latest progress comment carrying `## Verdict:`;
     else null (#403). Important count from the progress comment joined to the review's
-    commit_id via the "Reviewed HEAD:" line."""
+    commit_id via the "Reviewed HEAD:" line.
+
+    With no resolvable repo NOTHING is queryable, so both sources read `no-repo` rather
+    than the measured-and-found-nothing `absent` (issue #431 review, convergence shadow):
+    an unqueryable join is unestablished, not an observed absence of a review."""
+    if not repo:
+        return None, "no-repo", None, "no-repo", None
+
     verdict = None
     verdict_source = "absent"
     review_commit = None
 
-    reviews, reviews_ok = _gh_json_ex(f"repos/{repo}/pulls/{pr}/reviews",
-                                      paginate=True) if repo else (None, True)
-    comments, comments_ok = _gh_json_ex(f"repos/{repo}/issues/{pr}/comments",
-                                        paginate=True) if repo else (None, True)
+    reviews, reviews_ok = _gh_json_ex(f"repos/{repo}/pulls/{pr}/reviews", paginate=True)
+    comments, comments_ok = _gh_json_ex(f"repos/{repo}/issues/{pr}/comments", paginate=True)
     # If a source could not be fetched at all (rc≠0), we could not ESTABLISH the
     # verdict — distinct from a genuinely-absent review/comment (issue #431). Default
     # the source to "fetch-failed" in that case; a parsed verdict below overrides it.
@@ -464,16 +504,24 @@ def _resolve_denials(repo, shas):
     emitted by surface-execution-diagnostics attaches to the Actions job check-run, not
     this one, so many historical PRs will not recover via this path (they simply read
     `absent`, never a fabricated 0). Value is carried VERBATIM (`unavailable` stays
-    `unavailable`); no path coerces an unestablished count to 0."""
+    `unavailable`); no path coerces an unestablished count to 0.
+
+    UNQUERYABLE ≠ ABSENT. Two preconditions make the lookup impossible rather than
+    merely fruitless, and each gets its own provenance rather than the measured-and-
+    found-nothing `absent` (issue #431 review, convergence shadow): an unresolvable
+    repo (`no-repo` — nothing is queryable at all) and an empty sha set (`no-sha` —
+    the PR metadata that would supply head/merge shas was itself unestablished, so the
+    denial count is unestablished by cascade, not measured-absent)."""
     if not repo:
-        return None, "absent"
+        return None, "no-repo"
+    probeable = [s for s in shas if s]
+    if not probeable:
+        return None, "no-sha"
     # Track whether the check-runs fetch itself failed on any probed sha, so a
     # transport/auth failure is reported as "fetch-failed" rather than laundered into
     # "absent" — the unknown-is-not-zero provenance analogue (issue #431).
     any_fetch_failed = False
-    for sha in shas:
-        if not sha:
-            continue
+    for sha in probeable:
         # Paginate: /commits/{sha}/check-runs serves only the first 30 check-runs per
         # page, so on a commit with a large CI matrix the `Devflow Review` check can sit
         # on page 2+ and an unpaginated read silently returns (None, "absent"), defeating
@@ -497,7 +545,13 @@ def _resolve_denials(repo, shas):
             if m:
                 return m.group(1), "check-run-summary"
         for c in dr:
-            ann = _gh_json(f"repos/{repo}/check-runs/{c.get('id')}/annotations")
+            # _gh_json_ex, not _gh_json: an annotations fetch that FAILS (rc≠0) leaves
+            # the count unestablished, and reading it through the ok-discarding wrapper
+            # laundered that failure into a measured `absent` — the same conflation the
+            # check-runs fetch above already guards (issue #431 review, convergence shadow).
+            ann, ann_ok = _gh_json_ex(f"repos/{repo}/check-runs/{c.get('id')}/annotations")
+            if not ann_ok:
+                any_fetch_failed = True
             for a in (ann or []):
                 m = DENIAL_ANNOTATION_RE.search((a or {}).get("message", "") or "")
                 if m:
@@ -512,20 +566,28 @@ def _resolve_denials(repo, shas):
 def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
     """Prefer the fingerprint the efficiency record already stamped; else recompute
     from `git show <merge_sha>:.devflow/config.json` (records predating the field).
-    Returns (fingerprint_or_None, source)."""
+    Returns (fingerprint_or_None, source).
+
+    Like `_resolve_denials`, this separates UNQUERYABLE from ABSENT (issue #431 review,
+    convergence shadow): with no merge sha there is nothing to read the config out of, so
+    the fingerprint is unestablished by cascade (`no-sha`) — not measured-and-missing; and
+    a `git show` that FAILS is `fetch-failed`, reserving `absent` for the case where the
+    config was actually read and simply yielded no fingerprint."""
     for run in eff_runs:
         fp = run.get("config_fingerprint")
         if fp:
             return fp, "efficiency-record"
-    if merge_sha:
-        text = _git_show(repo_root, f"{merge_sha}:.devflow/config.json")
-        if text is not None:
-            try:
-                fp = fingerprint_from_config(json.loads(text))
-            except json.JSONDecodeError:
-                fp = None
-            if fp:
-                return fp, "merge-commit-config"
+    if not merge_sha:
+        return None, "no-sha"
+    text = _git_show(repo_root, f"{merge_sha}:.devflow/config.json")
+    if text is None:
+        return None, "fetch-failed"
+    try:
+        fp = fingerprint_from_config(json.loads(text))
+    except json.JSONDecodeError:
+        fp = None
+    if fp:
+        return fp, "merge-commit-config"
     return None, "absent"
 
 
@@ -565,14 +627,24 @@ def build_record(repo, repo_root, eff_index, pr, retro_entry):
         issue = retro_entry.get("issue")
         provenance["retrospective"] = "found"
     else:
-        meta, meta_ok = _gh_pr_meta(repo, pr) if repo else (None, True)
+        meta, meta_ok = _gh_pr_meta(repo, pr) if repo else (None, None)
         merged_at = (meta or {}).get("mergedAt")
         merge_sha = ((meta or {}).get("mergeCommit") or {}).get("oid")
         head_sha = (meta or {}).get("headRefOid")
         branch = (meta or {}).get("headRefName")
         refs = (meta or {}).get("closingIssuesReferences") or []
         issue = refs[0].get("number") if refs and isinstance(refs[0], dict) else None
-        if not meta_ok:
+        # Three arms, deliberately NOT two: `meta_ok is None` is the no-repo sentinel
+        # (the fallback was never even attempted because nothing is queryable), False is
+        # a real gh transport failure, True is a successful call. Folding the first into
+        # `not meta_ok` would report a fetch that never ran as a fetch that failed, and
+        # folding it into the else-arm would report it as a measured absence — both
+        # launder an unqueryable join into a measured one (issue #431 convergence shadow).
+        if meta_ok is None:
+            provenance["retrospective"] = "no-repo"
+            provenance["notes"].append(
+                "repo unresolvable; PR metadata not queryable (no gh fallback attempted)")
+        elif not meta_ok:
             # gh transport failure — the metadata is UNESTABLISHED, not genuinely
             # absent. Mark it so the dependent denial/fingerprint provenance is not
             # read as "measured, none found" (issue #431 review, shadow pass).
@@ -602,7 +674,7 @@ def build_record(repo, repo_root, eff_index, pr, retro_entry):
     denials, denials_source = _resolve_denials(repo, [head_sha, merge_sha])
     provenance["permission_denials_count"] = denials_source
 
-    return {
+    record = {
         "schema_version": STORE_SCHEMA_VERSION,
         "pr": pr,
         "issue": issue,
@@ -617,6 +689,8 @@ def build_record(repo, repo_root, eff_index, pr, retro_entry):
         "config_fingerprint": fingerprint,
         "provenance": provenance,
     }
+    _assert_provenance_coherent(record)
+    return record
 
 
 # ── driver ───────────────────────────────────────────────────────────────────

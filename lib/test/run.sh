@@ -24656,7 +24656,7 @@ j="$*"
 case "$j" in
   *"pr view"*)     [ -f "$PR_VIEW_JSON" ]  && cat "$PR_VIEW_JSON"  || echo '{}';               exit 0 ;;
   *reviews*)       [ -n "$REVIEWS_FAIL" ]   && { echo "gh: api error" >&2; exit 1; }; [ -f "$REVIEWS_JSON" ]  && cat "$REVIEWS_JSON"  || echo '[]';               exit 0 ;;
-  *annotations*)   [ -f "$ANNOT_JSON" ]    && cat "$ANNOT_JSON"    || echo '[]';               exit 0 ;;
+  *annotations*)   [ -n "$ANNOT_FAIL" ]     && { echo "gh: api error" >&2; exit 1; }; [ -f "$ANNOT_JSON" ]    && cat "$ANNOT_JSON"    || echo '[]';               exit 0 ;;
   *comments*)      [ -n "$COMMENTS_FAIL" ]  && { echo "gh: api error" >&2; exit 1; }; [ -f "$COMMENTS_JSON" ] && cat "$COMMENTS_JSON" || echo '[]';               exit 0 ;;
   *check-runs*)    [ -n "$CHECKRUNS_FAIL" ] && { echo "gh: api error" >&2; exit 1; }; [ -f "$CHECKRUNS_JSON" ]&& cat "$CHECKRUNS_JSON"|| echo '{"check_runs":[]}';exit 0 ;;
   *"repo view"*)   echo "owner/repo"; exit 0 ;;
@@ -25048,6 +25048,93 @@ EOF
   STDUP="$RDUP/.devflow/learnings/experiment-records.jsonl"
   assert_eq "#431 Tdup: two same-slug efficiency runs both listed (never newest-wins)" "2" \
     "$(python3 -c 'import json,sys;print(len(json.loads([l for l in open(sys.argv[1])][0])["efficiency_runs"]))' "$STDUP")"
+
+  # ── Tann annotation-fetch failure → fetch-failed, not absent ─────────────────
+  # The convergence-shadow class (issue #431 iter-3): the ANNOTATION sub-fetch read
+  # through the ok-discarding _gh_json wrapper, so an annotations call that FAILED
+  # (rc≠0) was laundered into a measured "absent" — asserting we looked and found no
+  # denial count when in fact we never established one. The check-run exists and
+  # carries NO summary count, so the annotation path is the only route to a value:
+  # with it failing, the count is unestablished.
+  RANN="$EXP/rann"
+  mkdir -p "$RANN/.devflow/learnings"
+  cat > "$RANN/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":960,"merged_at":"2026-07-10T00:00:00Z","branch":"b960","head_sha":"h960","merge_commit_sha":"m960"}
+EOF
+  cat > "$EXP/checkruns-ann.json" <<'EOF'
+{"check_runs":[{"id":77,"name":"Devflow Review","output":{"summary":"no count line here"}}]}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    CHECKRUNS_JSON="$EXP/checkruns-ann.json" ANNOT_FAIL=1 \
+    python3 "$BXR" --repo-root "$RANN" --prs 960 >/dev/null 2>&1
+  STANN="$RANN/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 Tann: annotation fetch failure → denial provenance fetch-failed (not absent)" "fetch-failed" "$(exp_field "$STANN" 960 provenance.permission_denials_count)"
+  assert_eq "#431 Tann: annotation fetch failure → denial value null (never a fabricated 0)" "null" "$(exp_field "$STANN" 960 permission_denials_count)"
+
+  # ── Tnosha no probeable sha → no-sha (unestablished by cascade), not absent ───
+  # When the PR metadata itself could not be established, head_sha and merge_sha are
+  # both null, so there is NOTHING to query the check-runs/config out of. The denial
+  # count and fingerprint are then unestablished BY CASCADE — "no-sha" — never the
+  # measured-and-found-nothing "absent" (issue #431 iter-3 shadow).
+  RNS="$EXP/rnosha"
+  mkdir -p "$RNS/.devflow/learnings"
+  : > "$RNS/.devflow/learnings/retrospectives.jsonl"
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh-metafail" \
+    python3 "$BXR" --repo-root "$RNS" --prs 970 >/dev/null 2>&1
+  STNS="$RNS/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 Tnosha: no probeable sha → denial provenance no-sha (not absent)" "no-sha" "$(exp_field "$STNS" 970 provenance.permission_denials_count)"
+  assert_eq "#431 Tnosha: no probeable sha → fingerprint provenance no-sha (not absent)" "no-sha" "$(exp_field "$STNS" 970 provenance.config_fingerprint)"
+  assert_eq "#431 Tnosha: unestablished denial stays null" "null" "$(exp_field "$STNS" 970 permission_denials_count)"
+
+  # ── Tnorepo unresolvable repo → no-repo on every gh-sourced join ──────────────
+  # With no repo, NOTHING is queryable: the verdict, Important count, and denial count
+  # are unestablished, and the gh metadata fallback is never even attempted. Reading
+  # any of them as "absent" would assert a measurement the run never made.
+  RNR="$EXP/rnorepo"
+  mkdir -p "$RNR/.devflow/learnings"
+  : > "$RNR/.devflow/learnings/retrospectives.jsonl"
+  cat > "$EXP/gh-norepo" <<'STUB3'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "gh: could not resolve repo" >&2; exit 1 ;;
+  *)             echo "gh: no repo" >&2; exit 1 ;;
+esac
+STUB3
+  chmod +x "$EXP/gh-norepo"
+  GITHUB_REPOSITORY="" DEVFLOW_GH="$EXP/gh-norepo" \
+    python3 "$BXR" --repo-root "$RNR" --prs 980 >/dev/null 2>&1
+  STNR="$RNR/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 Tnorepo: unresolvable repo → verdict provenance no-repo (not absent)" "no-repo" "$(exp_field "$STNR" 980 provenance.verdict)"
+  assert_eq "#431 Tnorepo: unresolvable repo → important-count provenance no-repo" "no-repo" "$(exp_field "$STNR" 980 provenance.important_finding_count)"
+  assert_eq "#431 Tnorepo: unresolvable repo → denial provenance no-repo (not absent)" "no-repo" "$(exp_field "$STNR" 980 provenance.permission_denials_count)"
+  assert_eq "#431 Tnorepo: unresolvable repo → retrospective provenance no-repo (fallback never attempted)" "no-repo" "$(exp_field "$STNR" 980 provenance.retrospective)"
+
+  # ── Tcoh provenance-coherence invariant is ENFORCED, not merely documented ────
+  # The record's type-level invariant: an UNESTABLISHED provenance
+  # (fetch-failed/no-repo/no-sha) may never sit beside a non-null value — that pairing
+  # would publish a fabricated measurement out of a join that never happened. Drive the
+  # check directly with an incoherent record and assert it RAISES; then assert a
+  # coherent record (same unestablished source, null value) passes, so the guard is not
+  # merely rejecting everything.
+  python3 - "$BXR" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ber", sys.argv[1])
+ber = importlib.util.module_from_spec(spec); spec.loader.exec_module(ber)
+bad = {"permission_denials_count": 0,
+       "provenance": {"permission_denials_count": "no-sha"}}
+try:
+    ber._assert_provenance_coherent(bad)
+except AssertionError:
+    pass
+else:
+    sys.exit(1)  # a value published from an unqueryable join went unnoticed
+good = {"permission_denials_count": None,
+        "provenance": {"permission_denials_count": "no-sha"}}
+ber._assert_provenance_coherent(good)   # must NOT raise
+sys.exit(0)
+PY
+  assert_eq "#431 Tcoh: unestablished provenance beside a non-null value raises (coherence enforced)" "yes" \
+    "$([ $? -eq 0 ] && echo yes || echo no)"
 
   # ── Tfail whole-batch assembly failure exits non-zero (review Fix D) ─────────
   # If EVERY candidate raises, the batch must NOT report success (exit 0) — a
