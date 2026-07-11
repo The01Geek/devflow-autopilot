@@ -21303,14 +21303,33 @@ assert_eq "#415 swv: AVAILABLE when ScheduleWakeup attempted and not denied (no 
 printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
 assert_eq "#415 swv: REMOVED when tool absent and both controls ran (ship)" "yes" \
   "$(swv_has_row "$SWV_F" '| **REMOVED** | yes |')"
-# Arm: INCONCLUSIVE — only one control ran; tool-absence cannot be distinguished from
-# a skipped attempt. "Unknown is not zero" — must NOT collapse onto the shippable REMOVED.
+# Arm: INCONCLUSIVE — only the BEFORE control ran; tool-absence cannot be distinguished
+# from a skipped attempt. "Unknown is not zero" — must NOT collapse onto the shippable
+# REMOVED. This fixture guards the `control_after` conjunct of the REMOVED gate.
 printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}}]' > "$SWV_F"
 assert_eq "#415 swv: INCONCLUSIVE (no ship) when only the before-control ran, not REMOVED" "yes" \
+  "$(swv_has_row "$SWV_F" '| **INCONCLUSIVE** | no |')"
+# And the else-branch [!WARNING] text is rendered with the controls interpolated in order
+# (before=yes, after=no) — guards a garbled/transposed operator diagnostic on this path.
+assert_eq "#415 swv: before-only run renders the [!WARNING] 'controls did not both run (before=yes, after=no)' text" "yes" \
+  "$(swv_has "$SWV_F" 'The controls did not both run (before=yes, after=no)')"
+# Arm: INCONCLUSIVE — only the AFTER control ran (PR #417 shadow — pr-test-analyzer). This
+# is the SYMMETRIC partner of the before-only arm and guards the OTHER conjunct of the
+# REMOVED gate (`control_before and control_after`): without this fixture, a mutation
+# dropping the `control_before` conjunct (`elif control_after:`) would leave every existing
+# pin green while shipping a false REMOVED on an after-only run — the dangerous fail-open
+# direction. Mutation-proven: `elif control_after:` flips this fixture to REMOVED/ship.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_F"
+assert_eq "#415 swv: INCONCLUSIVE (no ship) when only the after-control ran, not a fail-open REMOVED" "yes" \
   "$(swv_has_row "$SWV_F" '| **INCONCLUSIVE** | no |')"
 # Arm: INCONCLUSIVE — execution file absent (note_top floor). Never REMOVED.
 assert_eq "#415 swv: INCONCLUSIVE (no ship) when the execution file is absent" "yes" \
   "$(swv_has_row "/no/such/schedulewakeup-execfile.json" '| **INCONCLUSIVE** | no |')"
+# Arm: INCONCLUSIVE — present regular file, wholly unparseable (not JSON, not JSONL) →
+# note_top "present but unparseable" floor, never a clean tool-absence REMOVED.
+printf '%s\n' 'not json at all, not a single object' > "$SWV_F"
+assert_eq "#415 swv: INCONCLUSIVE (no ship) when a present file is wholly unparseable" "yes" \
+  "$(swv_has_row "$SWV_F" '| **INCONCLUSIVE** | no |')"
 # Arm: INCONCLUSIVE — partial JSONL corruption (both controls parse, one line drops)
 # forces the floor rather than reading the surviving lines as a clean tool-absence.
 # BOTH controls are present on purpose (PR #417 review — pr-test-analyzer): with both
@@ -21318,7 +21337,9 @@ assert_eq "#415 swv: INCONCLUSIVE (no ship) when the execution file is absent" "
 # shippable REMOVED is the `dropped -> note_top -> INCONCLUSIVE` precedence in
 # parse_execution_file. A single-control fixture would read INCONCLUSIVE via the
 # else-branch (one control) regardless, so it would pass even if that precedence were
-# deleted — vacuous. The mutation proof below removes `if dropped:` and observes REMOVED.
+# deleted — vacuous. The assert_eq below IS the guard: with both controls present it goes
+# RED if `if dropped:` is removed (the fixture then reads REMOVED/ship), so the precedence
+# is genuinely pinned (verified by removing `if dropped:` on a scratch copy → REMOVED).
 printf '%s\n%s\n%s\n' \
   '{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}}' \
   '{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}' \
