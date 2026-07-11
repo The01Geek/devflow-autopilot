@@ -1,7 +1,7 @@
 {
   "iter": 1,
   "started_at": "2026-07-11T20:36:09Z",
-  "fix_commit_sha": "d24439f7391d9d476aded0c129bf1c58ce167a95",
+  "fix_commit_sha": "16fb0f22fdb1276192369646c5859b14708e22eb",
   "fix_files": [
     ".devflow/config.schema.json",
     ".github/workflows/devflow-implement.yml",
@@ -744,6 +744,23 @@
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "applied"
+    },
+    {
+      "id": "F-18",
+      "agent": "step3.5-fix-delta-gate",
+      "severity": "Important",
+      "description": "Re-gate: bytewise [[:space:]] blacklist misses Unicode whitespace under non-UTF-8 locale (NBSP bypass on self-hosted runners); backslash token-merge Suggestion \u2014 closed by positive model-id allowlist",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-runner.yml",
+        "line_range": [
+          716,
+          740
+        ],
+        "kind": "security"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
     }
   ],
   "fix_decisions": [
@@ -862,11 +879,16 @@
       "finding_id": "F-17-S2",
       "decision": "applied",
       "commit": "d24439f"
+    },
+    {
+      "finding_id": "F-18",
+      "decision": "applied",
+      "commit": "16fb0f2"
     }
   ],
   "convergence_inputs": {
-    "fixes_applied": 16,
-    "fix_diff_lines": 280,
+    "fixes_applied": 17,
+    "fix_diff_lines": 330,
     "new_corroborated_critical_count": 0
   },
   "cap_drops": {
@@ -879,7 +901,8 @@
     "Step 3 item 3b sweeps: 2.3.0c(a) operand table done for both new guards (DECISION always assigned under set -e; whitespace-only config also yields empty jq output, covered); 2.3.0c(b) no agent-executed policy prose in delta; 2.3.4 reproduced jq empty/whitespace stdin rc=0 no-output in scratch",
     "mutation checks (copy-based, never in place): claude_args-revert mutant drops consumer pin 1\u21920 hits (RED); deleted-if: mutant loses gate string from step block (RED); new behavioral guards executed live by the suite (5245/0, +14 assertions registered)",
     "F-13 deferred as already-tracked (issue #313 post-merge live-run ACs)",
-    "Step 3.5 fix-delta gate (blinded, inner attempt 1): found C1 \u2014 flag-shaped-token bypass of the new guard (guard-class 4, re-derived consumer contract accepting a superset); re-fixed in-iteration (leading-dash rejection for MODEL, enum pin for EFFORT), bypass reproductions added as tests (suite 5249/0), re-gate dispatched over the cumulative span"
+    "Step 3.5 fix-delta gate (blinded, inner attempt 1): found C1 \u2014 flag-shaped-token bypass of the new guard (guard-class 4, re-derived consumer contract accepting a superset); re-fixed in-iteration (leading-dash rejection for MODEL, enum pin for EFFORT), bypass reproductions added as tests (suite 5249/0), re-gate dispatched over the cumulative span",
+    "Step 3.5 re-gate (inner attempt 2): Unicode-whitespace/backslash blacklist gap found; fixed with the gate's own suggested positive allowlist (A-Za-z0-9._/:@[]-), verified under LC_ALL=C and UTF-8 locales + suite 5252/0. Inner attempts exhausted; residual verification delegated to the early shadow + iteration 2's full engine pass per the gate's at-cap routing"
   ],
   "telemetry": {
     "phase_0": {
