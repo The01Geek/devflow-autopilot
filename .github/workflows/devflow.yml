@@ -833,13 +833,25 @@ jobs:
           } > "$BODY_FILE"
           POST=.devflow/vendor/devflow/scripts/post-issue-comment.sh
           [ -f "$POST" ] || POST=scripts/post-issue-comment.sh
-          if [ -f "$POST" ]; then
-            bash "$POST" "$PR_NUMBER" "$BODY_FILE" || echo "::warning::review stall backstop: failed to post the re-trigger comment for PR #$PR_NUMBER."
-          else
-            echo "::warning::review stall backstop: post-issue-comment.sh absent at $POST; re-trigger comment not posted for PR #$PR_NUMBER."
+          if [ ! -f "$POST" ]; then
+            echo "::warning::review stall backstop: post-issue-comment.sh absent at $POST; re-trigger comment not posted for PR #$PR_NUMBER (auto-resume did not fire; degrades to the dead-end flip)."
+            rm -f "$BODY_FILE"
+            exit 0
           fi
+          # post-issue-comment.sh is best-effort and ALWAYS exits 0, so its exit
+          # code is NOT a success signal — a failed POST would otherwise be
+          # annotated as a fired re-trigger, the silent no-fire this backstop
+          # exists to prevent (issue #408 review). Gate the success ::notice:: on
+          # the helper's exact success breadcrumb instead, mirroring the implement
+          # backstop's `grep -qxF "devflow: posted comment on #…"` check.
+          POST_OUT="$(bash "$POST" "$PR_NUMBER" "$BODY_FILE" 2>&1)"
+          printf '%s\n' "$POST_OUT"
           rm -f "$BODY_FILE"
-          echo "::notice::review stall backstop: posted /devflow:review re-trigger (attempt ${ATTEMPT}) for PR #$PR_NUMBER."
+          if printf '%s\n' "$POST_OUT" | grep -qxF "devflow: posted comment on #$PR_NUMBER"; then
+            echo "::notice::review stall backstop: posted /devflow:review re-trigger (attempt ${ATTEMPT}) for PR #$PR_NUMBER."
+          else
+            echo "::warning::review stall backstop: the /devflow:review re-trigger comment did NOT post for PR #$PR_NUMBER (auto-resume did not fire; degrades to the dead-end flip)."
+          fi
 
       - name: Persist review-and-fix observability artifacts (backstop)
         if: ${{ always() }}

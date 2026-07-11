@@ -20549,6 +20549,19 @@ assert_eq "#408 helper: fire emits the head-scoped marker with the next attempt"
 # Always exits 0 (best-effort — caller reads `decision`, not the exit code).
 DEVFLOW_GH="$T408/gh-fail.sh" VERDICT=incomplete HEAD_SHA=abc PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true bash "$RRB408" >/dev/null 2>&1
 assert_eq "#408 helper: always exits 0 even on a fail-closed arm" "0" "$?"
+# MAX edge rows (the silent-coercion class, #312 discipline): max_resume_attempts=0
+# must be honored (0 >= 0 → exhausted even with zero markers — detect-and-flip only),
+# and a non-integer cap must fall back to the default 2 (so a fresh head still fires).
+printf '%s\n' '{"devflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":0}}}' > "$T408/cfg-max0.json"
+printf '%s\n' '{"devflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":"notanum"}}}' > "$T408/cfg-badmax.json"
+assert_eq "#408 helper: max_resume_attempts=0 honored -> no-fire (exhausted, detect-and-flip only)" \
+  "exhausted" "$(rrb408_reason gh-empty.sh incomplete abc 5 o/r true "$T408/cfg-max0.json")"
+assert_eq "#408 helper: non-integer max_resume_attempts falls back to default 2 -> fire" \
+  "fire" "$(rrb408 gh-empty.sh incomplete abc 5 o/r true "$T408/cfg-badmax.json")"
+# Empty REPO is derived via `gh repo view` (the standalone/unit path; the workflow
+# always passes REPO) — the stub's repo-view arm resolves o/r, so a fresh head fires.
+assert_eq "#408 helper: empty REPO derived via gh repo view -> fire" \
+  "fire" "$(rrb408 gh-empty.sh incomplete abc 5 '' true "$T408/cfg-enabled.json")"
 rm -rf "$T408"
 
 # Config coupled peer set (2.3.0a): example ↔ schema must both carry
@@ -20597,6 +20610,23 @@ assert_eq "#408 review-yml: re-trigger posted via the best-effort REST helper" "
   "$(grep -qF "post-issue-comment.sh" "$WFR408" && echo yes || echo no)"
 assert_pin_unique "#408 review-yml: re-trigger body carries the review stall-backstop header" \
   "**DevFlow review stall backstop**" "$WFR408"
+# The run-step's OWN if: gate is load-bearing: the step hardcodes VERDICT: incomplete,
+# so the helper's verdict guard cannot protect against firing on an approve/reject run
+# — the only protection is (a) backstop_eligible set ONLY in the incomplete arm (pinned
+# above) and (b) this run-step gate. Pin the run-step if: (a mint-step-only pin misses it).
+assert_eq "#408 review-yml: run-step gated on always()+backstop_eligible" "1" \
+  "$(grep -cF "if: \${{ always() && steps.finalize.outputs.backstop_eligible == 'true' }}" "$WFR408")"
+# Anchor `backstop_eligible=true` INSIDE the incomplete (`*)`) case arm — assert_pin_unique
+# only proves it appears once, not that it lives in the incomplete arm; moving it to a
+# broader arm would resume decided verdicts undetected. The incomplete arm sits between the
+# `*)  # incomplete` label and the `esac`; assert the echo appears in that window.
+assert_eq "#408 review-yml: backstop_eligible=true lives in the incomplete case arm" "yes" \
+  "$(awk '/\*\)  # incomplete/{f=1} f && /backstop_eligible=true/{print "hit"; exit} f && /^              esac/{exit}' "$WFR408" | grep -q hit && echo yes || echo no)"
+# Fix A (issue #408 review): the success ::notice:: must be gated on post-issue-comment.sh's
+# exact success breadcrumb, because that helper ALWAYS exits 0 — an exit-code check would let
+# a failed POST be annotated as a fired re-trigger. Pin the consumer-side breadcrumb grep.
+assert_pin_unique "#408 review-yml: success notice gated on the post-comment success breadcrumb" \
+  'grep -qxF "devflow: posted comment on #$PR_NUMBER"' "$WFR408"
 
 # Workflow wiring — devflow.yml manual /devflow:review dead-run arm.
 WFD408="$REPO_ROOT/.github/workflows/devflow.yml"
@@ -20606,6 +20636,21 @@ assert_eq "#408 devflow-yml: manual-path step calls the decision helper" "yes" \
   "$(grep -qF "request-review-backstop.sh" "$WFD408" && echo yes || echo no)"
 assert_eq "#408 devflow-yml: manual-path backstop gated on a /devflow:review command" "yes" \
   "$(grep -A1 'name: Review stall backstop' "$WFD408" | grep -qF "startsWith(needs.gate.outputs.command, '/devflow:review ')" && echo yes || echo no)"
+# The manual-path DEAD-RUN trigger clause is the sole logic distinguishing a dead review
+# from a healthy or cancelled one; broadening it (e.g. to `!= 'success'`, re-including
+# cancelled/superseded) or dropping it would fire spurious auto-resumes. Pin the exact
+# conjunction on BOTH the run step and the mint step.
+assert_eq "#408 devflow-yml: manual-path backstop gated on the dead-run trigger (is_error/failure)" "1" \
+  "$(grep -cF "(steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') }}" "$WFD408")"
+# The manual-path mint step must exist and be gated on DEVFLOW_APP_ID (else the manual path
+# would attempt a resume without a workflow-capable token — the inert-GITHUB_TOKEN no-op).
+assert_pin_unique "#408 devflow-yml: manual-path fresh backstop-token mint step present" \
+  "id: backstop-token" "$WFD408"
+assert_eq "#408 devflow-yml: manual-path mint gated on the dead-run trigger + DEVFLOW_APP_ID" "1" \
+  "$(grep -cF "(steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') && vars.DEVFLOW_APP_ID != '' }}" "$WFD408")"
+# Fix A consumer-side breadcrumb pin on the manual path too.
+assert_pin_unique "#408 devflow-yml: success notice gated on the post-comment success breadcrumb" \
+  'grep -qxF "devflow: posted comment on #$PR_NUMBER"' "$WFD408"
 
 # The backstop-marker literal is a coupled contract: the helper WRITES it (the
 # count-prefix AND the emitted marker, so it appears twice) and the workflows post

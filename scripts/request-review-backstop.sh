@@ -40,7 +40,7 @@
 #
 # Output (stdout, four `key=value` lines, always emitted):
 #   decision=<fire|no-fire>
-#   reason=<verdict-exists|disabled|unscoped|count-unreadable|exhausted|no-app-token|resume>
+#   reason=<the arm that decided — each `emit` call below names its own reason>
 #   attempt=<next attempt number, only on a fire>
 #   marker=<the `<!-- devflow:review-backstop head=<sha> attempt=<n> -->` marker,
 #           only on a fire — the workflow embeds it in the re-trigger comment>
