@@ -15029,6 +15029,23 @@ printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_G/i
 ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_G" --slug pr-1 ) >/dev/null 2>&1
 assert_eq "et-shadow-floor(g): a non-object (malformed) .shadow is left untouched, not overwritten (fail-closed)" "APPROVE" \
   "$(jq -r '.shadow' "$SHF_G/iter-1.json" 2>/dev/null)"
+# (h) telemetry gate (lib/efficiency-trace.sh: `[ "$ENABLED" = "true" ] && synthesize_shadow_markers`
+# in persist_one): with efficiency_telemetry_enabled=false the floor does NOT run even on genuine
+# promotion evidence — a synthesized marker is a telemetry artifact, so a telemetry-disabled repo
+# gets none. Without this row the ENABLED guard is untested: persist_one proceeds past that line to
+# the un-gated durable copy either way (see the et-persist telemetry-off row), so dropping the
+# `[ "$ENABLED" = "true" ] &&` guard would let the floor fire on a disabled repo while every
+# telemetry-ON fixture (a)-(g) above still passes. This is the telemetry-off row of the
+# adversarial-input matrix CLAUDE.md requires for exactly this kind of gate.
+SHF_H="$SHF_REPO/.devflow/tmp/review/pr-1/run-h"
+mkdir -p "$SHF_H"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_H/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_H/iter-2.json"
+SHF_H_CFG="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_telemetry_enabled":false}}' > "$SHF_H_CFG"
+( cd "$SHF_REPO" && DEVFLOW_CONFIG_FILE="$SHF_H_CFG" bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_H" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(h): telemetry disabled → floor does NOT synthesize a marker despite promotion evidence" "null" \
+  "$(jq -r '.shadow' "$SHF_H/iter-1.json" 2>/dev/null)"
+rm -f "$SHF_H_CFG"
 # The SKILL↔lib coupled constant: SHADOW_SYNTH_EXPECTED_FIELDS must stay a plain,
 # greppable single-line assignment in efficiency-trace.sh (its self-check reads it).
 assert_pin_unique "et-shadow-floor: efficiency-trace.sh carries the SHADOW_SYNTH_EXPECTED_FIELDS constant" \
