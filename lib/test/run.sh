@@ -20591,16 +20591,45 @@ RRB408_FIRE2="$(DEVFLOW_GH="$T408/gh-1marker.sh" VERDICT=incomplete HEAD_SHA=abc
 assert_eq "#408 helper: nonzero-base fire emits the NEXT attempt number (attempt=2, not a re-emitted attempt=1)" "yes" \
   "$(printf '%s\n' "$RRB408_FIRE2" | grep -qxF 'marker=<!-- devflow:review-backstop head=abc attempt=2 -->' && echo yes || echo no)"
 # Hard config-read failure (PR #410 review gap): a MALFORMED config makes
-# config-get.sh hard-fail with empty stdout; the helper's `[ -n "$ENABLED" ] ||
-# ENABLED=true` (and the parallel MAX fallback) then resolve toward ENABLED — the
-# documented honest-failure direction (a review backstop must stay armed when the
-# config can't be read, not silently disable the safety net). This path was
-# asserted-but-unverified; pin it so a regression flipping it to a silent no-fire
-# (disabling the net on a config typo) goes RED. The aggregate stays bounded — a
-# fire still requires App token + scope + under-cap, all covered above.
+# config-get.sh hard-fail with empty stdout, and the helper still resolves toward
+# firing — the documented honest-failure direction (a review backstop must stay
+# armed when the config can't be read, not silently disable the safety net). This
+# is defense-in-depth: the malformed->fire direction is held by BOTH the
+# `[ -n "$ENABLED" ] || ENABLED=true` fallback AND the exact-match disable guard
+# (`[ "$ENABLED" = "false" ]`, so an empty ENABLED is never "disabled"), so
+# removing either single guard alone still fires. This asserts the AGGREGATE
+# malformed->fire direction (previously untested); it deliberately does NOT isolate
+# one fallback line — a regression that instead resolves malformed->no-fire (e.g.
+# the fallback set to `false`) flips it RED. The aggregate stays bounded — a fire
+# still requires App token + scope + under-cap, all covered above.
 printf '%s\n' '{ this is not valid json' > "$T408/cfg-malformed.json"
 assert_eq "#408 helper: malformed config hard-fail -> fire (honest-failure resolves toward ENABLED, net stays armed)" \
   "fire" "$(rrb408 gh-empty.sh incomplete abc 5 o/r true "$T408/cfg-malformed.json")"
+# MARKER_PREFIX trailing-space disambiguation (PR #410 review gap): the count key is
+# `head=<sha> ` WITH a trailing space so a short head cannot prefix-match a longer one
+# (`head=ab ` must NOT match a `head=abc ...` marker). The foreign-head fixtures above
+# use equal-length non-overlapping heads (abc vs zzz), so deleting that trailing space
+# would NOT turn them RED. Drive the collision directly: HEAD_SHA=ab against a marker
+# for head=abc must count 0 (fire attempt=1); if the trailing space were dropped,
+# `head=ab` would substring-match `head=abc` -> count 1 -> attempt=2.
+cat > "$T408/gh-prefixcollide.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"/comments"*) echo '[{"body":"<!-- devflow:review-backstop head=abc attempt=9 -->"}]' ;;
+  *"repo view"*) echo 'o/r' ;;
+  *) echo '[]' ;;
+esac
+EOF
+chmod +x "$T408/gh-prefixcollide.sh"
+RRB408_COLLIDE="$(DEVFLOW_GH="$T408/gh-prefixcollide.sh" VERDICT=incomplete HEAD_SHA=ab PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true CONFIG_FILE="$T408/cfg-enabled.json" bash "$RRB408" 2>/dev/null)"
+assert_eq "#408 helper: short head does not prefix-match a longer head's marker (trailing-space disambiguation)" "yes" \
+  "$(printf '%s\n' "$RRB408_COLLIDE" | grep -qxF 'marker=<!-- devflow:review-backstop head=ab attempt=1 -->' && echo yes || echo no)"
+# VERDICT unset -> defaults to the eligible `incomplete` (PR #410 review gap): the
+# header documents this default; drive it (no VERDICT in env) so a regression that
+# changed the default to a decided verdict (silently no-firing every headless run)
+# goes RED. All other inputs supplied so the aggregate reaches a fire decision.
+RRB408_NOVERDICT="$(DEVFLOW_GH="$T408/gh-empty.sh" HEAD_SHA=abc PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true CONFIG_FILE="$T408/cfg-enabled.json" bash "$RRB408" 2>/dev/null | sed -n 's/^decision=//p')"
+assert_eq "#408 helper: VERDICT unset defaults to eligible 'incomplete' -> fire" "fire" "$RRB408_NOVERDICT"
 rm -rf "$T408"
 
 # Config coupled peer set (2.3.0a): example ↔ schema must both carry
@@ -20708,6 +20737,12 @@ assert_eq "#408 grounding block renders the ScheduleWakeup-unavailable rule" "ye
 assert_pin_red_under "#408 grounding: deleting the headless-run sentence from the renderer flips its pin RED" \
   'This is a headless run: ending your turn ends the process' \
   '/This is a headless run/d' "$RGB408"
+# Parity with the headless-run sentence: the ScheduleWakeup-unavailable rule is
+# equally load-bearing and rendered from the same edit, so mutation-pin it too
+# (PR #410 review gap: it previously had only a presence grep, weaker than its sibling).
+assert_pin_red_under "#408 grounding: deleting the ScheduleWakeup-unavailable rule from the renderer flips its pin RED" \
+  'any future task-notification as' \
+  '/any future task-notification as/d' "$RGB408"
 
 # Skill-prose behavioral-fix pins — the two operative directives of the headless-wait
 # rule (one pin per operative sentence, per the behavioral-fix-pin rule). Each mutation
@@ -20719,6 +20754,15 @@ assert_pin_red_under "#408 skill: removing the never-end-turn-with-pending-agent
 assert_pin_red_under "#408 skill: removing the ScheduleWakeup-unavailable rule flips its pin RED" \
   'Treat `ScheduleWakeup` and any future task-notification as UNAVAILABLE' \
   '/Treat .ScheduleWakeup. and any future task-notification as UNAVAILABLE/d' "$REVIEW_SKILL408"
+
+# mktemp-guard coupled mirror (PR #410 review gap): the `BODY_FILE="$(mktemp)"` guard
+# in the two backstop steps is byte-identical across both workflows and was unpinned,
+# so a future edit diverging or dropping one copy would stay green. Pin the mktemp
+# breadcrumb on both files so they must move together (the coupled-mirror discipline).
+assert_pin_unique "#408 review-yml: mktemp guard breadcrumb present" \
+  'review stall backstop: mktemp failed; cannot compose the re-trigger comment' "$WFR408"
+assert_pin_unique "#408 devflow-yml: mktemp guard breadcrumb present" \
+  'review stall backstop: mktemp failed; cannot compose the re-trigger comment' "$WFD408"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#312: workflow endpoint↔permission lint"

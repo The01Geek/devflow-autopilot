@@ -30,9 +30,17 @@ preventive fix); covers **both** cloud allowlists (auto-review profile in
 discipline**; test-layer meta-guard included at implementer's discretion (it is
 included, driven by verified evidence only).
 
+> **Superseded (issue #408):** the "no auto-retry backstop" decision and the
+> first non-goal below were **reversed** by issue #408, which added the bounded
+> `devflow_review.stall_backstop` no-verdict auto-resume. The transcript evidence
+> gathered after this spec showed the residual failure is a benign timing race a
+> re-run wins, and the maintainer approved the reversal when scoping #408. This
+> record is kept as-is for provenance; see `docs/DEVFLOW_SYSTEM_OVERVIEW.md` for
+> the shipped behavior.
+
 ## Non-goals
 
-- No auto re-run / session-resume backstop on a no-verdict run.
+- No auto re-run / session-resume backstop on a no-verdict run. _(Superseded by #408 — see the note above.)_
 - No `python3` (or any interpreter) grant in the review profile.
 - No unscoped `Write`/`Edit` in the review profile; the reviewer's
   `contents: read` token and read-only-tree posture are unchanged.
