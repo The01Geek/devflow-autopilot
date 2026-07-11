@@ -20788,6 +20788,29 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     ( export MODEL=z-ai/glm-5.2 EFFORT=$'high --evil' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
     assert_eq "#313 cargs-body: whitespace in EFFORT fails loud (exit 1, flag-injection guard)" "1" "$R313_RC"
     : > "$R313_GOUT"
+    # Flag-SHAPED single tokens (the iter-1 gate's C1 bypass): rejecting whitespace/quotes
+    # alone is not enough — the action tokenises claude_args shell-style, so a bare
+    # `--dangerously-skip-permissions` in MODEL/EFFORT records --model/--effort as
+    # valueless and passes the injected token through as its own flag. MODEL rejects a
+    # leading dash; EFFORT is enum-pinned (so ANY non-enum junk also fails loud).
+    R313_RC=0
+    ( export MODEL='--dangerously-skip-permissions' EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 cargs-body: flag-shaped MODEL (leading dash, no whitespace) fails loud (exit 1)" "1" "$R313_RC"
+    : > "$R313_GOUT"
+    R313_RC=0
+    ( export MODEL=z-ai/glm-5.2 EFFORT='--dangerously-skip-permissions' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 cargs-body: flag-shaped EFFORT fails loud (exit 1, enum arm)" "1" "$R313_RC"
+    : > "$R313_GOUT"
+    R313_RC=0
+    ( export MODEL=z-ai/glm-5.2 EFFORT='garbage' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 cargs-body: non-enum EFFORT fails loud (exit 1, enum arm)" "1" "$R313_RC"
+    : > "$R313_GOUT"
+    # Structural pin on the newline-safe args<< heredoc emit: the whitespace guard now
+    # rejects an embedded-newline MODEL before any emit, so the forge test below can no
+    # longer catch a revert of the emit itself to `echo "args=$ARGS"` — pin the heredoc
+    # emit form directly instead (defense-in-depth for the emit idiom).
+    assert_eq "#313 cargs-body: args emitted via the newline-safe heredoc form (args<< pin)" "yes" \
+      "$(printf '%s' "$R313_CARGS_BODY" | grep -qF "printf 'args<<%s" && echo yes || echo no)"
     # Z.ai bracket-suffix model ids must pass the guard untouched (no false fire).
     ( export MODEL='glm-5.2[1m]' EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
     assert_eq "#313 cargs-body: bracket-suffix model id passes the flag-injection guard (no false fire)" "args=--model glm-5.2[1m]" "$(gh_kv "$R313_GOUT")"

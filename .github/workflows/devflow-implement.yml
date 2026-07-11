@@ -531,8 +531,9 @@ jobs:
       # Compute the claude_args head so --model is always present and --effort is
       # dropped only for a provider whose effort_supported is false (AC 7). The
       # Anthropic default path resolves effort_supported=true, so effort is
-      # preserved there (for a schema-valid, non-empty effort value — the run
-      # body's flag-injection guard rejects whitespace/quote values).
+      # preserved there (for a non-empty effort value — the run body's
+      # flag-injection guard enum-validates effort and rejects flag-shaped or
+      # whitespace/quote-carrying model values).
       - name: Build claude_args head (model + conditional effort)
         id: cargs
         env:
@@ -546,17 +547,25 @@ jobs:
             exit 1
           fi
           # SECURITY: MODEL and EFFORT are spliced UNQUOTED into claude_args (a folded
-          # CLI string), and the runner's MODEL bootstrap fallback can read PR-head
-          # config — so reject any value that could smuggle extra CLI flags or break
-          # the quoted --allowed-tools tail (whitespace or quote characters). Model
-          # and effort are single shell-safe tokens by contract.
-          for CARG in "$MODEL" "$EFFORT"; do
-            case "$CARG" in
-              *[[:space:]]* | *\"* | *\'*)
-                echo "::error::claude_model/effort value contains whitespace or quote characters — refusing to compose claude_args (flag-injection guard; model and effort must be single tokens)."
-                exit 1 ;;
-            esac
-          done
+          # CLI string), and the runner can read either from PR-head config (EFFORT
+          # always via steps.extract when the caller passes no effort input; MODEL in
+          # the bootstrap fallback) — so refuse any value that could smuggle an extra
+          # CLI flag. Rejecting whitespace/quotes alone is NOT enough: the action
+          # tokenises claude_args shell-style, so a flag-shaped single token
+          # (`--model --evil`) records --model as valueless and passes --evil through
+          # as its own flag. MODEL therefore also rejects a leading dash; EFFORT is
+          # pinned to its schema enum (or empty, which drops the flag below).
+          case "$MODEL" in
+            -* | *[[:space:]]* | *\"* | *\'*)
+              echo "::error::claude_model value is flag-shaped (leading dash) or contains whitespace/quote characters — refusing to compose claude_args (flag-injection guard; the model must be a single non-dash-leading token)."
+              exit 1 ;;
+          esac
+          case "$EFFORT" in
+            '' | low | medium | high | xhigh | max) : ;;
+            *)
+              echo "::error::effort value is not one of low/medium/high/xhigh/max — refusing to compose claude_args (flag-injection guard)."
+              exit 1 ;;
+          esac
           ARGS="--model $MODEL"
           # --effort only when the provider supports it AND a value actually resolved. The
           # config effort defaults to "high", so the default path always has one; the -n
