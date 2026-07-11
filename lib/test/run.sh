@@ -6319,6 +6319,21 @@ assert_pin_red_under "#377 w3-fix-delta-trigger-gating: Step 3 item 3b gates eac
 assert_pin_red_under "#377 w3-fix-delta-evidence: Step 3 item 3b directs sweep evidence to the loop iteration records when standalone (AC3)" \
   'iteration records when the loop runs standalone with no issue workpad' \
   's/iteration records when the loop runs standalone with no issue workpad//'
+# AC1 (per-sweep references): AC1 requires item 3b to reference EACH of the three shipped Wave-2
+# sweeps by its name/number. The umbrella w3-fix-delta-sweeps-operative pin above covers the
+# heading clause but not the individual sweep bullets, so deleting a whole sweep bullet (e.g.
+# dropping the §2.3.4 external-output sweep) would leave it green. Pin each sweep identifier's own
+# bullet so removing any one goes RED. The identifiers must match the shipped phase-2 sweeps (a
+# wrong number is a documented_falsehood — see the Potential Gotchas in issue #377).
+assert_pin_red_under "#377 w3-sweep-ref-2.3.0c-a: item 3b references §2.3.0c trigger (a) new-guard operand trace (AC1)" \
+  '§2.3.0c trigger (a) — new-guard operand trace' \
+  's/§2.3.0c trigger \(a\) — new-guard operand trace//'
+assert_pin_red_under "#377 w3-sweep-ref-2.3.0c-b: item 3b references §2.3.0c trigger (b) prose-policy operand check (AC1)" \
+  '§2.3.0c trigger (b) — prose-policy operand check' \
+  's/§2.3.0c trigger \(b\) — prose-policy operand check//'
+assert_pin_red_under "#377 w3-sweep-ref-2.3.4: item 3b references §2.3.4 external-output reproduction obligation (AC1)" \
+  '§2.3.4 external-output reproduction obligation' \
+  's/§2.3.4 external-output reproduction obligation//'
 # AC9: the new item must NOT duplicate or reword item 3a's pinned heading — still exactly one.
 assert_pin_unique "#377 w3-3a-heading-count: item 3a heading literal stays exactly-once after item 3b lands (AC9)" \
   'Mechanism-scoped self-authored-claim re-sweep' "$MAXI_SKILL"
@@ -6330,7 +6345,7 @@ assert_pin_unique "#377 w3-3a-heading-count: item 3a heading literal stays exact
 # with '--', so it is safe for pin_count's grep form.
 assert_eq "#377 w3-simplify-no-correctness-claim: §3.2 no longer attributes 'correctness angles' coverage to /simplify (AC5)" \
   "0" "$(pin_count 'correctness angles plus' "$P3_FILE")"
-# AC6: the three operative rules. Each is its own physical line, pinned through assert_pin_red_under
+# AC6: the four operative rules. Each is its own physical line, pinned through assert_pin_red_under
 # with a substring mutation that removes only that operative sentence.
 assert_pin_red_under "#377 w3-simplify-quality-only: §3.2 states cleanup agents are quality-only reviewers, never correctness reviewers (AC6)" \
   'quality-only reviewers, never correctness reviewers' \
