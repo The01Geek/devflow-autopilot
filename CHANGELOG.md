@@ -4,6 +4,19 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.119] — 2026-07-11
+
+### Changed
+- **Extract the review stall-backstop post-and-annotate glue into a shared helper.** The
+  ~40-line block that both `devflow-review.yml` and `devflow.yml` duplicated near-identically —
+  parse the `request-review-backstop.sh` decision, compose the `/devflow:review` re-trigger
+  body, POST it via `post-issue-comment.sh`, and select the `::notice::`/`::warning::`
+  annotation on the POST success breadcrumb — now lives once in
+  `scripts/post-review-backstop-comment.sh`. `lib/test/run.sh` drives the notice-vs-warning
+  selection (including the fail-closed arm where a failed/absent POST is never annotated as a
+  fired re-trigger) instead of only presence-pinning a breadcrumb literal in each workflow.
+  `request-review-backstop.sh`'s decision contract is unchanged. (#416)
+
 ## [2.8.118] — 2026-07-11
 
 ### Security
