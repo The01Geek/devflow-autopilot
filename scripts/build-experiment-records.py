@@ -644,10 +644,11 @@ def _resolve_verdict_and_important(repo, pr):
 # ── permission-denial count (verbatim) ───────────────────────────────────────
 
 def _parse_denial_summary(summary):
-    """Line-bound classify of a `Devflow Review` summary's `permission_denials_count:` label
-    (issue #435). Returns (valid_token_or_None, label_seen). A VALID token — read ONLY from the
-    label's own line, never a following line (only space/tab may separate label and token, so
-    no line terminator, `\n` or otherwise, is ever crossed) — is exactly an all-digit string or the literal
+    r"""Line-bound classify of a `Devflow Review` summary's `permission_denials_count:` label
+    (issue #435). Returns (valid_token_or_None, label_seen). A VALID token — read ONLY from
+    the label's own line, never a following line (only space/tab may separate label and
+    token, so no line terminator, `\n` or otherwise, is ever crossed; raw docstring so that
+    `\n` renders literally) — is exactly an all-digit string or the literal
     `unavailable`; that mirrors the producer contract (devflow-review.yml's `finalize_check`
     interpolates a digit-string or the literal `unavailable`), a coupled producer↔reader pair.
     `label_seen` is True whenever the label appears at all, even with a blank/malformed value,
@@ -689,11 +690,14 @@ def _resolve_denials(repo, shas):
     none was valid (blank/garbage value) → `unparseable` — never a fabricated value; (c) no
     label line seen anywhere → the annotation fallback over the cached check-runs, then
     `absent` (or `fetch-failed` when an annotations sub-fetch itself failed — the final
-    return consumes the same failure signal). Two precedence changes are INTENDED vs. the
-    pre-#435 per-sha interleave: a later
-    sha's summary now beats an earlier sha's annotation, and the positive-only-biased
-    annotation fallback is suppressed once any label was seen (a seen label proves the summary
-    is the right era for that check-run). This can lose a genuine annotation count in the
+    return consumes the same failure signal). Three precedence changes are INTENDED vs. the
+    pre-#435 per-sha interleave: a later sha's summary now beats an earlier sha's annotation;
+    the positive-only-biased annotation fallback is suppressed once any label was seen (a
+    seen label proves the summary is the right era for that check-run); and a fetch failure
+    on any probed sha now beats a recoverable annotation on a sibling sha (the interleave
+    could recover it; the failed fetch is where an unseen valid token would sit, so a
+    positive-only annotation from a partial view must not launder that unknown into a
+    possibly-wrong count). This can lose a genuine annotation count in the
     doubly-rare mixed-era shape (a malformed label on one run plus a genuine annotation on a
     sibling old-era run) — a deliberate loss in the safe direction (`None` with an
     unestablished tag, never a fabricated value).

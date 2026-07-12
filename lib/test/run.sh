@@ -22565,11 +22565,37 @@ assert_eq "#435 AC5 mktemp-fail: NO fired-re-trigger ::notice::" "no" \
 # is silently defeated (safe direction, but defeated). Pin the prefix through assert_pin_red_under
 # with a mutation that DROPS the `HEAD_SHA="$HEAD_SHA" ` prefix, so the suite goes RED the moment
 # the prefix is removed (issue #435 AC-6). The auto path (devflow-review.yml) delivers HEAD_SHA via
-# the step env: block and needs no prefix — no symmetric pin there (a false mirror).
+# the step env: block and needs no prefix — no symmetric PREFIX pin there (a false mirror); its
+# own load-bearing delivery, the step-scoped env: line, gets the scoped pin below.
 assert_pin_red_under '#435 AC6: devflow.yml manual path forwards HEAD_SHA as a command prefix (drop-prefix mutation → RED)' \
   'HEAD_SHA="$HEAD_SHA" bash "$HELPER"' \
   's/HEAD_SHA="\$HEAD_SHA" bash "\$HELPER"/bash "\$HELPER"/' \
   "$WFD408"
+
+# ── #435 shadow finding: the AUTO path's HEAD_SHA delivery to the backstop step is pinned
+# STEP-SCOPED. The literal `HEAD_SHA: ${{ needs.precheck.outputs.head_sha }}` recurs three
+# times in devflow-review.yml (create_check, finalize_check, and the backstop step), so a
+# whole-file pin (assert_pin_unique / assert_pin_red_under) would stay green when the
+# BACKSTOP step's own line is dropped — the drop that silently defeats auto-resume on the
+# primary path (the helper reads an empty HEAD_SHA and the decision helper takes its
+# unscoped no-fire arm). Extract the step's block (its `- name:` line through the
+# `bash "$HELPER"` invocation) and assert the env line inside it; the paired mutation probe
+# applies a range-scoped deletion to a COPY and asserts the scoped check goes RED — the
+# behavioral-fix-pin evidence, baked into the suite rather than run once by hand.
+bstep_headsha() {  # file -> yes|no : HEAD_SHA env line present inside the Review stall backstop step
+  awk '/- name: Review stall backstop/,/bash "\$HELPER"/' "$1" | \
+    grep -qF -- 'HEAD_SHA: ${{ needs.precheck.outputs.head_sha }}' && echo yes || echo no
+}
+assert_eq "#435 backstop auto path: HEAD_SHA env delivery present inside the Review stall backstop step" \
+  "yes" "$(bstep_headsha "$WFR408")"
+T435WF="$(probe_tmp '#435 backstop env-pin mutation setup')"
+if [ -n "$T435WF" ]; then
+  sed -E '/- name: Review stall backstop/,/bash "\$HELPER"/{/HEAD_SHA: \$\{\{ needs\.precheck\.outputs\.head_sha \}\}/d;}' \
+    "$WFR408" > "$T435WF"
+  assert_eq "#435 backstop auto path: dropping the step-scoped HEAD_SHA env line turns the scoped pin RED" \
+    "no" "$(bstep_headsha "$T435WF")"
+  rm -f "$T435WF"
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#312: workflow endpoint↔permission lint"
@@ -26520,6 +26546,40 @@ EOF
   ST435J="$R435J/.devflow/learnings/experiment-records.jsonl"
   assert_eq "#435 within-summary: a valid label line after a garbage one still recovers the digit" "4" "$(exp_field "$ST435J" 1010 permission_denials_count)"
   assert_eq "#435 within-summary: recovery provenance is check-run-summary" "check-run-summary" "$(exp_field "$ST435J" 1010 provenance.permission_denials_count)"
+
+  # ── T435-2j fetch-failed beats a RECOVERABLE annotation (no label anywhere) ───────────
+  # One probed sha's check-runs fetch FAILS; the other sha's Devflow Review run is old-era
+  # (no label line) and a genuine "recorded 5 permission denial(s)" annotation IS
+  # recoverable on it. Phase 2's `any_fetch_failed` check precedes the annotation loop, so
+  # the result is (None, "fetch-failed") and the annotations endpoint is never consulted —
+  # the failed fetch is exactly where an unseen valid token would sit, and a positive-only
+  # annotation from a partial view must not launder that unknown into a possibly-wrong
+  # count. A hoist regression — moving the annotation loop above the any_fetch_failed
+  # check — returns 5/check-run-annotation with every OTHER fixture green (T4d fails ALL
+  # fetches so the hoisted loop has nothing cached; T435-2c's surviving sha carries a
+  # label, so label_seen suppression keeps it green) — this fixture alone turns RED
+  # (PR #436 shadow pass, raised by 2/5 agents; mutation evidence recorded in the PR).
+  R435K="$EXP/r435k"
+  mkdir -p "$R435K/.devflow/learnings"
+  cat > "$R435K/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1011,"merged_at":"2026-07-10T00:00:00Z","branch":"b1011","head_sha":"h1011head","merge_commit_sha":"m1011merge"}
+EOF
+  cat > "$EXP/checkruns435k.json" <<'EOF'
+{"check_runs":[{"id":97,"name":"Devflow Review","output":{"summary":"an old-workflow summary with no denial line"}}]}
+EOF
+  cat > "$EXP/annot435k.json" <<'EOF'
+[{"message":"DevFlow: this run recorded 5 permission denial(s) — the engine attempted commands its tool profile does not grant."}]
+EOF
+  : > "$EXP/argv435k.log"
+  GH_ARGV_LOG="$EXP/argv435k.log" GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    CHECKRUNS_JSON="$EXP/checkruns435k.json" CHECKRUNS_FAIL_SHA="h1011head" \
+    ANNOT_JSON="$EXP/annot435k.json" \
+    python3 "$BXR" --repo-root "$R435K" --prs 1011 >/dev/null 2>&1
+  ST435K="$R435K/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#435 partial-fetch: a recoverable annotation never launders a fetch failure (null)" "null" "$(exp_field "$ST435K" 1011 permission_denials_count)"
+  assert_eq "#435 partial-fetch: provenance is fetch-failed, never check-run-annotation" "fetch-failed" "$(exp_field "$ST435K" 1011 provenance.permission_denials_count)"
+  assert_eq "#435 partial-fetch: the annotation fallback is never consulted on a partial view" "no" \
+    "$(grep -q 'annotations' "$EXP/argv435k.log" && echo yes || echo no)"
 
   # ── T3h progress-comment coherence: unparseable fallback verdict (review Fix A) ─
   # A progress comment carries the "## Verdict:" marker inline (not a `^## Verdict:`
