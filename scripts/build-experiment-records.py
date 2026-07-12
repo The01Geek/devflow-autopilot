@@ -705,18 +705,33 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
         per-run fingerprints remain in `efficiency_runs[]`. Same refusal-to-collapse that
         keeps per-run COST a list rather than newest-wins.
       * every identity usable and AGREEING   -> (that fingerprint, `efficiency-record`).
-      * any identity UNUSABLE (no `sha256`, a null one, a non-dict envelope) and no
-        observed disagreement -> fall through to the merge-commit recompute below, which
-        can still establish the fingerprint honestly. An unusable identity is UNESTABLISHED,
-        never a claimed disagreement.
+      * any identity UNUSABLE (a `sha256` that is missing or null, a non-dict or
+        present-but-falsy envelope) and no observed disagreement -> fall through to the
+        merge-commit recompute below, which can still establish the fingerprint honestly.
+        An unusable identity is UNESTABLISHED, never a claimed disagreement.
+
+    A run whose `config_fingerprint` is NULL is not "unusable" — it simply stamped none (the
+    pre-#431 record shape), so it is excluded from the comparison entirely and the recompute
+    handles it.
 
     The fall-through then separates UNQUERYABLE from ABSENT (the same discipline as
-    `_resolve_denials`): `unparseable` when a fingerprint was present but its identity could
-    not be read and there is no merge sha to recompute from; `no-sha` when there was nothing
-    to read and no sha either; `fetch-failed` when the `git show` failed; `merge-commit-config`
-    on a successful recompute; and `absent` reserved for the one case where the config WAS
-    read and simply yielded no fingerprint (#431 review, convergence shadow, delta review)."""
-    fps = [r.get("config_fingerprint") for r in eff_runs if r.get("config_fingerprint")]
+    `_resolve_denials`): `unparseable` when the identity could not be read and there is no
+    merge sha to recompute from, or when the merge commit's config itself does not parse;
+    `no-sha` when there was nothing to read and no sha either; `fetch-failed` when the
+    `git show` failed; `merge-commit-config` on a successful recompute; and `absent`
+    reserved for the one case where the config WAS read and simply carried neither reviewed
+    block (#431 review, convergence shadow, delta review)."""
+    # `is not None`, NOT truthiness. A NULL fingerprint means "this run stamped none" — the
+    # legitimate pre-#431 record shape — and is correctly excluded, letting the merge-commit
+    # recompute handle it. But a PRESENT-YET-FALSY envelope (`{}`, `""`, `0`) is a CORRUPT
+    # identity, and a truthiness filter dropped it here, BEFORE the usability check below
+    # ever saw it: runs [{"sha256": "X"}, {}] then collapsed to the single usable id "X" and
+    # published a confident `efficiency-record` attribution over a PR one of whose runs has
+    # no established config identity — while the evidentially IDENTICAL
+    # [{"sha256": "X"}, {"sha256": null}] correctly fell through as unusable (#431 delta
+    # review). Keep falsy-but-present envelopes in, so `ids` sees them and marks them unusable.
+    fps = [r.get("config_fingerprint") for r in eff_runs
+           if r.get("config_fingerprint") is not None]
     if fps:
         # Compare on `sha256` — the IDENTITY — not on the whole {sha256, partial, salient}
         # envelope. `salient` is a derived projection of SALIENT_KEYS, an explicitly
@@ -774,9 +789,17 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
     if text is None:
         return None, "fetch-failed"
     try:
-        fp = fingerprint_from_config(json.loads(text))
+        parsed = json.loads(text)
     except json.JSONDecodeError:
-        fp = None
+        # The config WAS retrieved and could not be read — that is `unparseable`, not
+        # `absent`. Collapsing it onto `absent` would assert "we looked and there genuinely
+        # was no config", the strong claim, about a file we failed to parse (#431 delta
+        # review). `absent` below is reserved for a config we DID read that simply carried
+        # neither reviewed block.
+        _warn(f"config at {merge_sha}:.devflow/config.json is not valid JSON — fingerprint "
+              "unestablished")
+        return None, "unparseable"
+    fp = fingerprint_from_config(parsed)
     if fp:
         return fp, "merge-commit-config"
     return None, "absent"

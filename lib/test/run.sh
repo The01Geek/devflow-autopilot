@@ -25657,6 +25657,58 @@ PY
   RC_UNP=$?
   assert_eq "#431 Tmixed: 'unparseable' is governed by the unestablished null-only invariant" "0" "$RC_UNP"
 
+  # A PRESENT-BUT-FALSY envelope ({}) is a CORRUPT identity, not an absent one. A truthiness
+  # filter dropped it before the usability check ever saw it, so [{"sha256":"X"}, {}]
+  # collapsed to the single usable "X" and published a confident attribution over a run with
+  # NO established identity — while the evidentially identical [{"sha256":"X"},
+  # {"sha256":null}] correctly fell through (#431 delta review).
+  RMX8="$EXP/rmixed8"
+  mkdir -p "$RMX8/.devflow/learnings"
+  cat > "$RMX8/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1047,"merged_at":"2026-07-10T00:00:00Z","branch":"b1047"}
+EOF
+  seed_eff "$RMX8/.devflow/logs/efficiency" "pr-1047-a.json" "pr-1047" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":10}}}]' '{"sha256":"XXX","partial":false,"salient":{}}'
+  seed_eff "$RMX8/.devflow/logs/efficiency" "pr-1047-b.json" "pr-1047" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":20}}}]' '{}'
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RMX8" --prs 1047 >/dev/null 2>&1
+  assert_eq "#431 Tmixed: a present-but-FALSY envelope is a corrupt identity, not a silent pass" "no" \
+    "$([ "$(exp_field "$RMX8/.devflow/learnings/experiment-records.jsonl" 1047 provenance.config_fingerprint)" = "efficiency-record" ] && echo yes || echo no)"
+  assert_eq "#431 Tmixed: no confident attribution over a run with no established identity" "null" \
+    "$(exp_field "$RMX8/.devflow/learnings/experiment-records.jsonl" 1047 config_fingerprint)"
+  # A NULL fingerprint, by contrast, is the legitimate pre-#431 shape — the run simply
+  # stamped none — so it must NOT be treated as corrupt (T1/T5 fixtures rely on this).
+  RMX9="$EXP/rmixed9"
+  mkdir -p "$RMX9/.devflow/learnings"
+  cat > "$RMX9/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1048,"merged_at":"2026-07-10T00:00:00Z","branch":"b1048"}
+EOF
+  seed_eff "$RMX9/.devflow/logs/efficiency" "pr-1048-a.json" "pr-1048" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":10}}}]' 'null'
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RMX9" --prs 1048 >/dev/null 2>&1
+  assert_eq "#431 Tmixed: a NULL fingerprint is 'stamped none' (pre-#431), never a corrupt identity" "no-sha" \
+    "$(exp_field "$RMX9/.devflow/learnings/experiment-records.jsonl" 1048 provenance.config_fingerprint)"
+
+  # A merge-commit config that does not PARSE was retrieved and could not be read — that is
+  # `unparseable`, never `absent` (which asserts "we looked and there genuinely was none").
+  RMXA="$EXP/rmixedA"
+  mkdir -p "$RMXA/.devflow/learnings"
+  git init -q "$RMXA" 2>/dev/null
+  git -C "$RMXA" config user.email t@t.t; git -C "$RMXA" config user.name t
+  printf '{"devflow_review": {,,, BROKEN\n' > "$RMXA/.devflow/config.json"
+  git -C "$RMXA" add -A >/dev/null 2>&1
+  git -C "$RMXA" commit -qm seed >/dev/null 2>&1
+  MXASHA="$(git -C "$RMXA" rev-parse HEAD)"
+  cat > "$RMXA/.devflow/learnings/retrospectives.jsonl" <<EOF
+{"schema_version":2,"kind":"implementation","pr":1049,"merged_at":"2026-07-10T00:00:00Z","branch":"b1049","merge_commit_sha":"$MXASHA"}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RMXA" --prs 1049 >/dev/null 2>&1
+  assert_eq "#431 Tmixed: a merge-commit config that does not parse is 'unparseable', never 'absent'" \
+    "unparseable" "$(exp_field "$RMXA/.devflow/learnings/experiment-records.jsonl" 1049 provenance.config_fingerprint)"
+
   # ── Tfpfb the merge-commit-config fallback + the byte-identical contract ──────
   # This arm is the whole REASON config_fingerprint.py is a shared module: the reader
   # recomputes the fingerprint from the merge commit's config for records predating the
