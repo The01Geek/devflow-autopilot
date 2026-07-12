@@ -174,18 +174,25 @@ compute_config_fingerprint() {
   # truth this producer and the #431 assembler-reader both use, so their
   # fingerprints are byte-identical by construction (not a hand-kept mirror).
   #
-  # config_fingerprint.py fails SOFT (prints `null`, exit 0) for the EXPECTED
-  # degradations (no config, neither block, no python), so a non-zero exit here is a
-  # genuine helper defect (ImportError/SyntaxError/wrong interpreter). Let its stderr
-  # flow straight to OUR stderr — no temp file, no truncation, nothing to clean up —
-  # so the real reason lands in the run log, then still degrade to `null` rather than
-  # aborting the wrapper under `set -e` (best-effort contract).
+  # config_fingerprint.py fails SOFT (prints `null`, exit 0) for the degradations it can
+  # actually SEE — no config file, an unreadable/malformed config, neither block present.
+  # It cannot soft-fail a MISSING INTERPRETER: with no python3 the script never executes,
+  # so it prints nothing and rc is 127. That is why the two arms below are distinguished
+  # rather than both reported as "crashed" — telling an operator whose PATH lacks python3
+  # that the *helper* crashed sends them to read a script that never ran (#431 shadow).
+  # Either way we degrade to `null` rather than aborting the wrapper under `set -e`
+  # (best-effort contract), and the helper's own stderr flows straight to ours — no temp
+  # file, no truncation, nothing to clean up — so the real reason lands in the run log.
   if out="$(python3 "$HERE/../scripts/config_fingerprint.py" "$cfg")"; then
     printf '%s\n' "$out"
   else
     rc=$?
-    printf 'compute_config_fingerprint: config_fingerprint.py crashed (rc=%s; its stderr is above) — degrading to null\n' \
-      "$rc" >&2
+    if [ "$rc" -eq 127 ]; then
+      printf 'compute_config_fingerprint: python3 not found or not runnable (rc=127) — it is a hard preflight prerequisite (see lib/preflight.sh); degrading to null\n' >&2
+    else
+      printf 'compute_config_fingerprint: config_fingerprint.py crashed (rc=%s; its stderr is above) — degrading to null\n' \
+        "$rc" >&2
+    fi
     printf 'null\n'
   fi
 }

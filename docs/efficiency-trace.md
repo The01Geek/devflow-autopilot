@@ -562,7 +562,7 @@ contract). They apply to every gh-sourced field above:
 | Tag | Meaning |
 | --- | --- |
 | `fetch-failed` | The call ran and did not yield a usable answer — a non-zero `gh` exit, or an exit-0 response whose body was unparseable. |
-| `no-repo` | The repo could not be resolved, so nothing was queryable and no call was attempted. |
+| `no-repo` | The repo could not be resolved, so no *join* call was attempted (the single `gh repo view` probe that resolves it having already failed). |
 | `no-sha` | The PR metadata that supplies the query key (head / merge sha) was itself unestablished, so this join is unestablished *by cascade*. |
 
 The normative list is `PROVENANCE_UNESTABLISHED` in `scripts/build-experiment-records.py`; a record is
@@ -571,9 +571,20 @@ unqueryable join can never publish a measurement.
 
 **Idempotent** (one line per PR, keyed by PR number — a re-run replaces, never duplicates) and
 **incremental** (it processes merged PRs absent from the store plus any passed via `--prs`, never a
-full-history sweep per invocation). **Missing-source-tolerant**: every join input is optional — an
-absent source yields null fields plus a provenance note, an unreadable store emits a stderr breadcrumb
-and skips that source; never an abort, never a fabricated value.
+full-history sweep per invocation). **Missing-source-tolerant — for the *inputs***: every join input
+is optional, so an absent source yields null fields plus a provenance tag, and an unreadable *input*
+store emits a stderr breadcrumb and simply does not join. Never a fabricated value.
+
+**But tolerance is a claim about the inputs, not about the exit status.** The *destination* store
+(`experiment-records.jsonl`) is read **strictly**, because the assembler REWRITES it rather than
+appending: tolerating a corrupt line there would silently delete every record it could not parse, and
+`lib/open-state-pr.sh` would commit the truncation. The run **exits 2** — writing nothing — in that
+case, and also when a PR's merge state could not be **established** (a `gh` outage: excluding it
+silently would lose it for good, since only stored or retrospective-listed PRs are ever re-selected)
+or when any candidate failed to assemble. Records that *did* assemble are still written on a partial
+failure, so a non-zero exit means "some PRs are missing from the store," not "nothing was written."
+A PR **observed** to be unmerged is a clean exclusion and exits 0 — observed-unmerged and
+unestablished are never conflated in either direction.
 
 **Abandoned-run exclusion and its cost-side bias.** The record is keyed on **merged** PRs, so a run
 whose slug never produced a merged PR (an abandoned branch) contributes **no cost row** — the cost side

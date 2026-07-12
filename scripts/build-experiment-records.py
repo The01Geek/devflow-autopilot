@@ -29,9 +29,15 @@ Design invariants:
   * INCREMENTAL — processes the scan window (`--prs`) plus any merged PR present in the
     retrospective store but absent from the experiment store; never a full-history
     sweep of already-stored PRs per invocation.
-  * MISSING-SOURCE-TOLERANT — every join input is optional. An absent source yields
-    null fields plus a provenance note; an unreadable store emits a stderr breadcrumb
-    and skips that source. Never an abort, never a fabricated value.
+  * MISSING-SOURCE-TOLERANT, BUT ONLY FOR THE INPUTS — every join INPUT is optional: an
+    absent source yields null fields plus a provenance tag, and an unreadable input store
+    emits a stderr breadcrumb and simply does not join. Never a fabricated value.
+    The DESTINATION store is the deliberate exception: it is read STRICTLY, because this
+    script REWRITES it rather than appending, so tolerating a corrupt line there would
+    silently delete every record it could not parse (see `_read_jsonl`'s `strict` arm).
+    A corrupt destination store, a PR whose merge state could not be established, and a
+    failed assembly all exit 2 — see Exit codes below. "Tolerant" is a claim about the
+    inputs, never about the run's exit status.
 
 Abandoned runs (a slug with no merged PR) are deliberately EXCLUDED — the record is
 keyed on merged PRs — so the cost side carries a documented survivorship bias (a run
@@ -101,11 +107,29 @@ _PROVENANCED_FIELDS = {
     "retrospective": ("merged_at", "merge_commit_sha", "branch", "issue"),
 }
 # UNESTABLISHED provenance: the join could not be measured at all. `fetch-failed` = the
-# call ran and failed; `no-repo` = nothing was queryable (repo unresolvable); `no-sha` =
-# the metadata that supplies the query key was itself unestablished, so this join is
-# unestablished by cascade. NONE of these is `absent`, which asserts the far stronger
-# claim "we looked and it genuinely was not there" (issue #431 review, convergence shadow).
+# call ran and did not yield a usable answer; `no-repo` = nothing was queryable (repo
+# unresolvable); `no-sha` = the metadata that supplies the query key was itself
+# unestablished, so this join is unestablished by cascade. NONE of these is `absent`, which
+# asserts the far stronger claim "we looked and it genuinely was not there" (issue #431
+# review, convergence shadow).
 PROVENANCE_UNESTABLISHED = ("fetch-failed", "no-repo", "no-sha")
+
+# The CLOSED provenance vocabulary — every tag any resolver may emit. This exists because
+# the coherence guard below tests MEMBERSHIP in PROVENANCE_UNESTABLISHED and would happily
+# `continue` past any value it does not recognize: a typo (`fetch_failed`) or a future
+# unestablished-meaning tag whose author forgets to add it to the tuple would silently
+# bypass the check and let the record publish a non-null measurement under an unestablished
+# source — the exact fabrication the guard is written to make impossible. That is this
+# repo's own "a guard whose comparand its producer does not guarantee fails open exactly
+# where it claims to fail closed" pattern, turned on the guard itself. Asserting every
+# emitted tag is in this set is what makes the vocabulary closed in the CODE rather than
+# only in the comments (issue #431 convergence shadow).
+PROVENANCE_SOURCES = PROVENANCE_UNESTABLISHED + (
+    "found", "absent", "unparseable",
+    "pr-review", "progress-comment", "progress-comment-degraded",
+    "check-run-summary", "check-run-annotation",
+    "efficiency-record", "merge-commit-config", "mixed-across-runs",
+)
 
 
 def _assert_provenance_coherent(record):
@@ -126,6 +150,20 @@ def _assert_provenance_coherent(record):
     (every degradation path yields null) — so such an edit fails at the desk instead of
     silently publishing a fabricated measurement."""
     prov = record.get("provenance") or {}
+    for prov_key, source in prov.items():
+        if prov_key == "notes":
+            continue
+        # Close the vocabulary IN CODE. Without this, an unrecognized tag (a typo, or a
+        # new unestablished-meaning tag not added to PROVENANCE_UNESTABLISHED) would slip
+        # past the membership test below and let the record publish a value under a source
+        # that means "never measured" — the guard failing open exactly where it claims to
+        # fail closed (issue #431 convergence shadow).
+        if source not in PROVENANCE_SOURCES:
+            raise AssertionError(
+                f"provenance incoherent: {prov_key} carries the unrecognized source "
+                f"{source!r}. Every tag must be in the closed PROVENANCE_SOURCES "
+                f"vocabulary — an unrecognized tag would bypass the unestablished check "
+                f"below and could publish a fabricated measurement")
     for prov_key, fields in _PROVENANCED_FIELDS.items():
         source = prov.get(prov_key)
         if source not in PROVENANCE_UNESTABLISHED:
@@ -159,8 +197,9 @@ def _run(cmd):
 
 
 def _gh_json_ex(endpoint, paginate=False):
-    """Like _gh_json but returns (value, ok). `ok` is False whenever the call did not
-    yield a USABLE ANSWER — the "could not establish" case — and True only when it did.
+    """GET a gh api endpoint and parse it, returning (value, ok). `ok` is False whenever
+    the call did not yield a USABLE ANSWER — the "could not establish" case — and True
+    only when it did.
 
     Two ways to fail to establish, and both must set ok=False (issue #431 review):
       * the gh call itself failed (non-zero rc: transport/auth/rate-limit/absent binary);
@@ -600,7 +639,7 @@ def _resolve_denials(repo, shas):
         # on page 2+ and an unpaginated read silently returns (None, "absent"), defeating
         # the denial-count durability guarantee (issue #431 review). With --paginate the
         # endpoint returns one `{check_runs:[…]}` object per page (concatenated), so merge
-        # the `check_runs` arrays across every page shape _gh_json can hand back.
+        # the `check_runs` arrays across every page shape the wrapper can hand back.
         crs, crs_ok = _gh_json_ex(f"repos/{repo}/commits/{sha}/check-runs", paginate=True)
         if not crs_ok:
             any_fetch_failed = True
@@ -618,10 +657,11 @@ def _resolve_denials(repo, shas):
             if m:
                 return m.group(1), "check-run-summary"
         for c in dr:
-            # _gh_json_ex, not _gh_json: an annotations fetch that FAILS (rc≠0) leaves
-            # the count unestablished, and reading it through the ok-discarding wrapper
-            # laundered that failure into a measured `absent` — the same conflation the
-            # check-runs fetch above already guards (issue #431 review, convergence shadow).
+            # The annotations sub-fetch must consume the `ok` signal like every other
+            # call: an annotations fetch that FAILS (rc≠0) leaves the count unestablished,
+            # and an earlier revision discarded `ok` here, laundering that failure into a
+            # measured `absent` — the same conflation the check-runs fetch above already
+            # guards (issue #431 review, convergence shadow).
             ann, ann_ok = _gh_json_ex(f"repos/{repo}/check-runs/{c.get('id')}/annotations")
             if not ann_ok:
                 any_fetch_failed = True
@@ -663,8 +703,16 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
     review)."""
     fps = [r.get("config_fingerprint") for r in eff_runs if r.get("config_fingerprint")]
     if fps:
-        first = json.dumps(fps[0], sort_keys=True)
-        if all(json.dumps(fp, sort_keys=True) == first for fp in fps[1:]):
+        # Compare on `sha256` — the IDENTITY — not on the whole {sha256, partial, salient}
+        # envelope. `salient` is a derived projection of SALIENT_KEYS, an explicitly
+        # growable tuple: the moment a fourth key is added, two runs of the same PR against
+        # an UNCHANGED config (one stamped before the change, one after) carry the same
+        # sha256 but different `salient`, compare unequal, and collapse the record to
+        # `mixed-across-runs` — firing the refusal-to-collapse guard on a config change that
+        # never happened and destroying the attribution axis it exists to protect (issue
+        # #431 convergence shadow).
+        ids = [fp.get("sha256") if isinstance(fp, dict) else fp for fp in fps]
+        if all(i == ids[0] for i in ids[1:]):
             return fps[0], "efficiency-record"
         return None, "mixed-across-runs"
     if not merge_sha:
@@ -685,23 +733,45 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
 
 def _gh_pr_meta(repo, pr):
     """Best-effort metadata for a PR with no retrospective entry. Returns (meta, ok):
-    `ok` is False ONLY on a gh transport failure (rc≠0) — the "could not establish"
-    case — and True otherwise (whether meta is present or the call returned
-    empty/unparseable), so the caller can mark provenance "fetch-failed" vs "absent"
-    rather than laundering a fetch failure into a genuinely-metadata-less PR (issue
-    #431 review, shadow pass). Fetches headRefOid too so the gh-fallback path has a
-    real head sha for the denial-count check-run lookup (which runs on the PR head)."""
-    rc, out, _ = _run([GH, "pr", "view", str(pr), "--json",
-                       "mergedAt,mergeCommit,headRefName,headRefOid,"
-                       "closingIssuesReferences,state"])
+    `ok` is False whenever the call did not yield a USABLE ANSWER — the same rule
+    `_gh_json_ex` follows, and for the same reason.
+
+    It matters MORE here than anywhere else in this module, because this is the only
+    wrapper whose result feeds a FLOW-CONTROL decision rather than a provenance string:
+    `build_record`'s merged-state gate reads `mergedAt` from it, so an `ok=True` over a
+    body that could not be parsed makes the gate take the *observed*-not-merged arm — the
+    run breadcrumbs "observed not-merged", counts a clean skip, and exits 0. A merged PR
+    is then dropped from the store permanently (it never enters the store, and only stored
+    or retrospective-listed PRs are re-selected as candidates), while the retrospective
+    reports a clean run. A truncated response or an HTML proxy error page served with rc 0
+    makes a PR UNESTABLISHED, never unmerged (issue #431 convergence shadow — reproduced
+    against HEAD, so ok=False on every did-not-establish arm).
+
+    `--repo` is passed explicitly: this is porcelain, which otherwise resolves the repo
+    from the CWD's git remote, while every other call in this module is scoped to the
+    RESOLVED repo. `--repo-root` deliberately decouples the data root from cwd, and
+    `_resolve_repo()` prefers `$GITHUB_REPOSITORY`, so the two can disagree — and reading
+    PR #N's merge state out of a different repository is exactly the shape that gate must
+    never see. Matches `lib/scan.sh`, which also passes `--repo`.
+
+    Fetches headRefOid too so the gh-fallback path has a real head sha for the
+    denial-count check-run lookup (which runs on the PR head)."""
+    rc, out, err = _run([GH, "pr", "view", str(pr), "--repo", repo, "--json",
+                         "mergedAt,mergeCommit,headRefName,headRefOid,"
+                         "closingIssuesReferences,state"])
     if rc != 0:
+        _warn(f"gh pr view {pr} failed (rc={rc}): {(err or '').strip()[:160]}")
         return None, False
     if not out.strip():
-        return None, True
+        _warn(f"gh pr view {pr} returned an empty body (rc=0) — treating as "
+              "unestablished, not as a genuine absence")
+        return None, False
     try:
         return json.loads(out), True
     except json.JSONDecodeError:
-        return None, True
+        _warn(f"gh pr view {pr} returned unparseable output (rc=0) — treating as "
+              "unestablished, not as a genuine absence")
+        return None, False
 
 
 # ── per-PR assembly ──────────────────────────────────────────────────────────
