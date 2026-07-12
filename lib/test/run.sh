@@ -22978,8 +22978,8 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last change: #423 Phase 0.6 stale-prose lint added its helper + config reads)" \
-  "101" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last change: #424 Phase 0.6 feeds the lint by 'cat … |' pipe instead of an input redirect)" \
+  "102" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 assert_eq "#363 the review-skill head set matches the reviewed count (29 distinct names; +stale-prose-lint.py at #423)" \
@@ -24924,6 +24924,112 @@ assert_pin_unique "#423 T10 arm(d) config-disabled note" 'stale-prose lint disab
 assert_pin_red_under "#423 T10 refused-arm remedy is operative (removal re-introduces a silent skip)" \
   'name the missing grant and the tier-appropriate remedy' \
   '/name the missing grant and the tier-appropriate remedy/d' "$SP_REVIEW"
+
+# T11 → arm(a)'s remedy must not resurrect the config-only-bridge FALSEHOOD (#424 review,
+# self-contradicting-diff carve-out). devflow-runner.yml appends devflow_runner.allowed_tools
+# to the review profile ONLY inside `if [ "$PROVISION_ENV" = "true" ]`, and provision_env
+# defaults to false — so on a default read-only reviewer the config entry is never appended
+# and "bridges a lagging installed workflow through tracked config alone" is false. Both
+# consumer-facing sites must carry the provision_env precondition. The producer pin below is
+# what makes this checkable: it asserts the gate the claim depends on still exists in the
+# workflow (per CLAUDE.md's "trace every operand back to its producer" rule) — if the append
+# ever moves OUT of the provision gate, THIS pin reddens and the prose is revisited.
+assert_eq "#424 producer: devflow-runner.yml appends devflow_runner.allowed_tools ONLY under the provision_env gate" \
+  "yes" "$(awk '/^ *if \[ "\$PROVISION_ENV" = "true" \]; then/{g=1} g && /TOOLS="\$TOOLS,\$FILTERED"/{f=1} END{print f?"yes":"no"}' "$SP_RUNNER_YML")"
+assert_pin_unique "#424 T11 engine arm(a) names provision_env as the precondition of the config bridge" \
+  'only inside `devflow-runner.yml`'"'"'s `devflow_runner.provision_env` gate, and `provision_env` defaults to `false`' "$SP_REVIEW"
+assert_pin_red_under "#424 T11: dropping the provision_env precondition re-introduces the false config-only bridge (engine skill)" \
+  'tracked config alone does **not** bridge the grant' \
+  's/tracked config alone does \*\*not\*\* bridge the grant/tracked config alone bridges the grant/' "$SP_REVIEW"
+assert_pin_red_under "#424 T11: dropping the provision_env precondition re-introduces the false config-only bridge (install.md)" \
+  'that append sits inside the `devflow_runner.provision_env` gate, and `provision_env` defaults to `false`' \
+  '/that append sits inside the `devflow_runner.provision_env` gate/d' "$LIB/../docs/install.md"
+
+# T12 → Phase 0.6 feeds the helper by PIPE, not an input redirect (#424 review Important 2):
+# the `<` input-redirect shape is not in the skill's enumerated cloud-permitted set, so the
+# cloud harness may refuse it silently — taking arm (a) on every cloud auto-review. The pipe
+# is the proven shape (Phase 0.2's `… | tee`, match-deferrals.py).
+assert_pin_unique "#424 T12 Phase 0.6 pipes the cached diff into the helper (proven cloud shape)" \
+  'cat .devflow/tmp/review/<slug>/<run-id>/diff.patch | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/stale-prose-lint.py --rev HEAD' "$SP_REVIEW"
+assert_eq "#424 T12 Phase 0.6 carries NO input-redirect invocation of the helper" "0" \
+  "$(grep -cE 'stale-prose-lint\.py --rev HEAD <' "$SP_REVIEW")"
+# T12b → producer-empty guard: an empty-but-present diff cache must not read as a clean pass.
+assert_pin_red_under "#424 T12b: dropping the producer-empty guard re-introduces the empty-cache-reads-clean fail-open" \
+  'stale-prose lint skipped: the Phase 0.2 diff cache is absent or empty' \
+  '/stale-prose lint skipped: the Phase 0.2 diff cache is absent or empty/d' "$SP_REVIEW"
+
+# T13 → InternalError's "single raise site" is a load-bearing header invariant (#424 review
+# Suggestion 2): a second raise site would silently widen the exit-2 surface the header
+# documents as closed. Anchor it.
+assert_eq "#424 T13 InternalError has exactly one raise site (the header's stated invariant)" \
+  "1" "$(grep -c 'raise InternalError' "$SPL")"
+
+# T14 → REALISTIC INCREMENTAL DIFF (#424 review Critical 1). Every T1-T10 fixture drives the
+# helper over `git diff <empty-tree> HEAD` — a single `@@ -0,0 +1,N @@` all-`+` hunk. The real
+# callers (Phase 0.6, the fix-loop pre-check) feed a `base...HEAD` diff: MANY hunks, context
+# lines, `-` deletions, and a second hunk whose post-image start is far past 1. An off-by-one
+# in parse_diff's `post_ln` bookkeeping misaligns every claim against its referent and
+# silently degrades real STALE rows to UNRESOLVABLE — shipping GREEN. Assert the ROW'S LINE
+# NUMBER, not merely that a STALE row exists: a claim examined from a wrong index still tends
+# to find the grown referent by forward scan, so a bare STALE assertion cannot discriminate a
+# correct parse from a broken one. The line number can.
+spl_rc_base() {  # repo_dir base_rev -> exit code over `git diff <base> HEAD`
+  ( cd "$1" 2>/dev/null || { echo 99; exit; }
+    git diff "$2" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD >/dev/null 2>&1
+    echo $? )
+}
+spl_field_base() {  # repo_dir base_rev verdict rule field_no -> that TSV field of the 1st match
+  ( cd "$1" 2>/dev/null || exit
+    git diff "$2" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null \
+      | awk -F '\t' -v v="$3" -v r="$4" -v f="$5" '$1==v && $2==r { print $f; exit }' )
+}
+SPD="$(git_sandbox '#424 spl multihunk')"
+git -C "$SPD" init -q >/dev/null 2>&1
+# base: 30 filler lines, no claims.
+: > "$SPD/fixture.txt"
+for _i in $(seq -w 1 30); do printf 'filler %s\n' "$_i" >> "$SPD/fixture.txt"; done
+git -C "$SPD" -c user.email=t@t -c user.name=t add fixture.txt >/dev/null 2>&1
+git -C "$SPD" -c user.email=t@t -c user.name=t commit -qm base >/dev/null 2>&1
+SP_BASE_SHA="$(git -C "$SPD" rev-parse HEAD)"
+# commit 1: insert the counted header + its first two Cases after line 4 (hunk 1 of the
+# eventual diff). The header lands on post-image line 5.
+{ head -4 "$SPD/fixture.txt"
+  printf '%s\n' '# Cases 19-32 are exercised by the block below' 'Case 19 alpha' 'Case 20 beta'
+  tail -n +5 "$SPD/fixture.txt"; } > "$SPD/next.txt"
+mv "$SPD/next.txt" "$SPD/fixture.txt"
+git -C "$SPD" -c user.email=t@t -c user.name=t commit -qam c1 >/dev/null 2>&1
+# commit 2: OUTGROW the header far below (hunk 2, post-image start >> 1) and DELETE a filler
+# line — so the diff carries context, a deletion, and a second hunk. The header itself is
+# never touched by this commit (the PR #328 shape).
+grep -v '^filler 20$' "$SPD/fixture.txt" > "$SPD/next.txt"
+mv "$SPD/next.txt" "$SPD/fixture.txt"
+{ head -30 "$SPD/fixture.txt"; printf '%s\n' 'Case 37 delta'; tail -n +31 "$SPD/fixture.txt"; } > "$SPD/next.txt"
+mv "$SPD/next.txt" "$SPD/fixture.txt"
+git -C "$SPD" -c user.email=t@t -c user.name=t commit -qam c2 >/dev/null 2>&1
+# Sanity: the fixture really is the multi-hunk/deletion shape it claims to be (a positive
+# control — a fixture that silently collapsed to one all-`+` hunk would prove nothing).
+assert_eq "#424 T14 fixture really is a multi-hunk incremental diff (3 hunks: insert, pure-deletion, insert at post-start 28)" "3" \
+  "$( ( cd "$SPD" && git diff "$SP_BASE_SHA" HEAD | grep -c '^@@' ) )"
+assert_eq "#424 T14 fixture really carries a deletion line" "1" \
+  "$( ( cd "$SPD" && git diff "$SP_BASE_SHA" HEAD | grep -c '^-filler' ) )"
+assert_eq "#424 T14 multi-hunk base...HEAD diff: outgrown header is STALE (exit 1)" "1" "$(spl_rc_base "$SPD" "$SP_BASE_SHA")"
+assert_eq "#424 T14 the STALE row lands on the header's REAL post-diff line (post_ln bookkeeping across context+deletions+hunk-2)" \
+  "5" "$(spl_field_base "$SPD" "$SP_BASE_SHA" STALE R1 4)"
+assert_eq "#424 T14 the STALE row names the real file (not a phantom path)" \
+  "fixture.txt" "$(spl_field_base "$SPD" "$SP_BASE_SHA" STALE R1 3)"
+
+# T15 → a diff-ADDED content line beginning `++ ` renders as `+++ ` (#424 review Suggestion 4).
+# A prefix-only parser reads it as the next file header and retargets every later claim onto a
+# phantom path — the real STALE is lost to an UNRESOLVABLE on a file that does not exist. The
+# hunk-budget parse consumes it as content.
+SPF="$(probe_tmp '#424 plusplus')"
+printf '%s\n' '++ this content line starts with two plus signs' \
+              '# Cases 19-32 are exercised by the block below' \
+              'Case 19 alpha' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#424 T15 a plus-plus-leading content line does not swallow the file header (STALE still found)" "1" "$(spl_rc "$SPR")"
+assert_eq "#424 T15 the STALE row still names the real file (no phantom retarget)" \
+  "fixture.txt" "$(spl_field_base "$SPR" "$SP_EMPTY_TREE" STALE R1 3)"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

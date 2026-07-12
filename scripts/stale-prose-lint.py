@@ -129,7 +129,11 @@ class InternalError(Exception):
 
 
 def _run_git(args):
-    """Run a git command, returning (rc, stdout_text). Never raises on non-zero.
+    """Run a git command, returning (rc, stdout_text, stderr_text). Never raises on non-zero.
+
+    ``stderr_text`` is returned, not discarded, so a caller that degrades on a non-zero rc
+    can carry git's own reason in its breadcrumb instead of collapsing every failure into
+    an unexplained verdict.
 
     Decode git output with an explicit ``utf-8`` codec and ``errors="replace"`` —
     NEVER the locale-default codec ``text=True`` would pick. Under a ``C``/``POSIX``
@@ -154,7 +158,7 @@ def _run_git(args):
         encoding="utf-8",
         errors="replace",
     )
-    return proc.returncode, proc.stdout
+    return proc.returncode, proc.stdout, proc.stderr
 
 
 def parse_diff(diff_text):
@@ -162,48 +166,88 @@ def parse_diff(diff_text):
 
     Only the post-image (added / context) line numbering is tracked; each ``+``
     line is recorded against its post-image line number.
+
+    Structure and content are told apart by the hunk's own **post-image budget**
+    (``@@ -a,b +c,d @@`` promises exactly ``d`` post-image lines), not by a bare
+    prefix test on each line. This is load-bearing twice over. First, a *content*
+    line whose own text begins with ``++ `` is emitted in the diff as ``+++ ``: a
+    prefix-only parser reads it as the next file header and silently retargets every
+    later claim in the diff onto a phantom path. Second, the real callers (the engine's
+    Phase 0.6 and the fix loop's pre-check) feed a ``base...HEAD`` diff — many hunks,
+    interleaved context and ``-`` deletions, post-image starts well past 1 — where the
+    ``post_ln`` bookkeeping is what aligns each claim with its referent; an off-by-one
+    there does not fail loudly, it silently degrades real STALE rows to UNRESOLVABLE.
+    A ``-`` line consumes pre-image budget only, so it never advances ``post_ln``.
     """
     files = {}
     path = None
     added = None
     post_ln = 0
+    budget = 0  # post-image lines still owed by the current hunk (0 = between hunks)
     for line in diff_text.split("\n"):
-        if line.startswith("+++ "):
-            target = line[4:].strip()
-            if target == "/dev/null":
-                path = None
-                added = None
+        # A content line always carries a ``+``/``-``/space prefix (or is empty), so an
+        # unprefixed ``@@`` or ``diff --git`` at column 0 is structure even mid-hunk: resync
+        # on it rather than letting an overstated/truncated hunk count silently swallow the
+        # next hunk (or file) header — which would drop every claim after it. Note the same
+        # argument does NOT hold for ``+++ ``/``--- ``: those ARE reachable as content (a
+        # ``++ ``-leading added line renders as ``+++ ``), which is why the budget, not a
+        # prefix test, decides those.
+        if budget > 0 and (line.startswith("@@") or line.startswith("diff --git ")):
+            budget = 0
+        if budget <= 0:
+            if line.startswith("+++ "):
+                target = line[4:].strip()
+                if target == "/dev/null":
+                    path = None
+                    added = None
+                    continue
+                # Strip a leading "b/" (git) prefix.
+                path = target[2:] if target.startswith("b/") else target
+                added = files.setdefault(path, {})
                 continue
-            # Strip a leading "b/" (git) prefix.
-            path = target[2:] if target.startswith("b/") else target
-            added = files.setdefault(path, {})
-            continue
-        if line.startswith("--- ") or line.startswith("diff ") or line.startswith("index "):
-            continue
-        if line.startswith("@@"):
-            m = re.search(r"\+(\d+)", line)
-            post_ln = int(m.group(1)) if m else 0
-            continue
+            if line.startswith("@@"):
+                m = re.search(r"\+(\d+)(?:,(\d+))?", line)
+                if m:
+                    post_ln = int(m.group(1))
+                    # An absent count means a one-line post image ("@@ -1 +1 @@").
+                    budget = int(m.group(2)) if m.group(2) is not None else 1
+                else:
+                    post_ln = 0
+                    budget = 0
+                continue
+            continue  # "--- ", "diff ", "index ", and any other between-hunk noise
         if path is None or added is None:
+            budget = 0
             continue
         if line.startswith("+"):
             added[post_ln] = line[1:]
             post_ln += 1
+            budget -= 1
         elif line.startswith("-"):
-            continue
-        elif line.startswith("\\"):  # "\ No newline at end of file"
+            continue  # pre-image only — spends no post-image budget
+        elif line.startswith("\\"):  # "\ No newline at end of file" — not a line of either image
             continue
         else:  # context line (leading space, or an empty line)
             post_ln += 1
+            budget -= 1
     return files
 
 
 def post_file_lines(rev, path):
     """Return the post-diff file's lines (1-indexed via index+1), or None when the
     file cannot be resolved at ``rev`` (e.g. deleted) — an UNRESOLVABLE case, NOT an
-    internal error (only an unreadable REV itself is exit-2, validated up front)."""
-    rc, out = _run_git(["show", f"{rev}:{path}"])
+    internal error (only an unreadable REV itself is exit-2, validated up front).
+
+    Every non-zero ``git show`` lands on the same None -> UNRESOLVABLE arm, but the
+    reasons are not the same: an expected absence (the file was deleted/renamed at
+    ``rev``) reads identically to a transient/environmental failure on a file that IS
+    present. The verdict row cannot tell them apart, so git's own reason goes to stderr
+    — the downgrade stays non-gating, but it is never unexplained."""
+    rc, out, err = _run_git(["show", f"{rev}:{path}"])
     if rc != 0:
+        reason = " ".join(err.split())[:200] or f"git show exited {rc} with no stderr"
+        sys.stderr.write(
+            f"stale-prose-lint.py: {path} not resolvable at rev (UNRESOLVABLE): {reason}\n")
         return None
     return out.split("\n")
 
@@ -375,7 +419,7 @@ def _locate(lines, text):
 def run(rev, diff_text):
     # Validate the rev up front — an unreadable rev is a caller error (exit 2), not
     # a per-file UNRESOLVABLE. `rev-parse --verify` never derives a diff range.
-    rc, _ = _run_git(["rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}"])
+    rc, _, _ = _run_git(["rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}"])
     if rc != 0:
         raise InternalError(f"--rev '{rev}' does not resolve to a commit")
 
@@ -402,46 +446,55 @@ def run(rev, diff_text):
 
 
 def main(argv):
-    # Harden the OUTPUT streams the same way `_run_git` hardens its input decode. Under a
-    # `C`/`POSIX` locale (the threat model `_run_git` cites) sys.stdout/sys.stderr default
-    # to the strict-ASCII codec, so writing a verdict row (or a diagnostic) whose text
-    # carries a non-ASCII byte — an en/em-dash, Latin-1, a UTF-8 BOM copied out of a
-    # reviewed line — would raise UnicodeEncodeError at write time and abort the ENTIRE
-    # lint to exit 2, masking every other file's verdict (the read-side hardening alone did
-    # not close this; the failure resurfaced at the stdout write). Reconfigure to
-    # utf-8/errors="replace" so an odd byte degrades that one character, never the pass.
-    # Guarded because a replaced/wrapped stream (a test harness, a pipe object) may lack
-    # reconfigure() or reject the call.
-    for _stream in (sys.stdout, sys.stderr):
+    # The ENTIRE body sits inside the exit-2 catch-all. An exception escaping `main` at all
+    # would exit with Python's default code 1 — and 1 is a CONTRACTED helper arm ("at least
+    # one STALE row"), not an error code, so the callers' exit-code routers (Phase 0.6, the
+    # fix loop's pre-check) would read a crashed run as a completed one over its empty
+    # stdout. Every failure must therefore surface as 2. Two limbs used to sit outside the
+    # guard: the stream reconfigure below (whose except-list is narrower than the set of
+    # exceptions an exotic wrapped stream can raise) and the argparse construction.
+    # `argparse`'s own usage exit is a SystemExit (a BaseException) and still passes
+    # through with its own code, as does `--help`.
+    try:
+        # Harden the OUTPUT streams the same way `_run_git` hardens its input decode. Under
+        # a `C`/`POSIX` locale (the threat model `_run_git` cites) sys.stdout/sys.stderr
+        # default to the strict-ASCII codec, so writing a verdict row (or a diagnostic)
+        # whose text carries a non-ASCII byte — an en/em-dash, Latin-1, a UTF-8 BOM copied
+        # out of a reviewed line — would raise UnicodeEncodeError at write time and abort
+        # the ENTIRE lint to exit 2, masking every other file's verdict (the read-side
+        # hardening alone did not close this; the failure resurfaced at the stdout write).
+        # Reconfigure to utf-8/errors="replace" so an odd byte degrades that one character,
+        # never the pass. Guarded because a replaced/wrapped stream (a test harness, a pipe
+        # object) may lack reconfigure() or reject the call.
+        for _stream in (sys.stdout, sys.stderr):
+            try:
+                _stream.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, ValueError):
+                pass
+        parser = argparse.ArgumentParser(
+            prog="stale-prose-lint.py",
+            description="Detect stale countable claims in diff-added prose (issue #423).",
+        )
+        parser.add_argument(
+            "--rev",
+            required=True,
+            help="the revision whose post-diff file state resolves each claim's referent "
+            "(git show <rev>:<path>); the caller supplies the diff on stdin. This helper "
+            "never derives the diff range itself.",
+        )
+        args = parser.parse_args(argv[1:])
+
         try:
-            _stream.reconfigure(encoding="utf-8", errors="replace")
-        except (AttributeError, ValueError):
-            pass
-    parser = argparse.ArgumentParser(
-        prog="stale-prose-lint.py",
-        description="Detect stale countable claims in diff-added prose (issue #423).",
-    )
-    parser.add_argument(
-        "--rev",
-        required=True,
-        help="the revision whose post-diff file state resolves each claim's referent "
-        "(git show <rev>:<path>); the caller supplies the diff on stdin. This helper "
-        "never derives the diff range itself.",
-    )
-    args = parser.parse_args(argv[1:])
+            raw = sys.stdin.buffer.read()
+        except Exception as exc:  # noqa: BLE001 — any stdin read failure is exit-2
+            sys.stderr.write(f"stale-prose-lint.py: could not read stdin ({exc})\n")
+            return 2
+        try:
+            diff_text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            sys.stderr.write(f"stale-prose-lint.py: diff is not valid UTF-8 ({exc})\n")
+            return 2
 
-    try:
-        raw = sys.stdin.buffer.read()
-    except Exception as exc:  # noqa: BLE001 — any stdin read failure is exit-2
-        sys.stderr.write(f"stale-prose-lint.py: could not read stdin ({exc})\n")
-        return 2
-    try:
-        diff_text = raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        sys.stderr.write(f"stale-prose-lint.py: diff is not valid UTF-8 ({exc})\n")
-        return 2
-
-    try:
         return run(args.rev, diff_text)
     except InternalError as exc:
         sys.stderr.write(f"stale-prose-lint.py: {exc}\n")

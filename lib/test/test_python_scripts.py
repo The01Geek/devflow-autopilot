@@ -59,6 +59,7 @@ file_deferrals = _load('file_deferrals', SCRIPTS / 'file-deferrals.py')
 match_deferrals = _load('match_deferrals', SCRIPTS / 'match-deferrals.py')
 resolve_review_overrides = _load(
     'resolve_review_overrides', SCRIPTS / 'resolve-review-overrides.py')
+stale_prose_lint = _load('stale_prose_lint', SCRIPTS / 'stale-prose-lint.py')
 
 
 PASS = 0
@@ -2947,6 +2948,118 @@ assert_eq("#338: _post_merge_flags flags ticked and unticked rows alike, skippin
               "some prose (post-merge)\n"
               "- [ ] deferred (post-merge)\n"))
 
+
+# ── stale_prose_lint.parse_diff / main (#423 helper, hardened per the #424 review) ────────
+# parse_diff is driven end-to-end by run.sh only over `git diff <empty-tree> HEAD` — a single
+# all-`+` hunk. The REAL callers feed a `base...HEAD` diff. These tests pin the post-image
+# bookkeeping directly on the shapes that diff actually has.
+_MULTI_HUNK = (
+    "diff --git a/f.md b/f.md\n"
+    "index 1111111..2222222 100644\n"
+    "--- a/f.md\n"
+    "+++ b/f.md\n"
+    "@@ -3,4 +3,5 @@ ctx\n"
+    " keep three\n"
+    "+added four\n"
+    "-gone five\n"
+    " keep six\n"
+    "+added seven\n"
+    " keep eight\n"
+    "@@ -40,3 +42,4 @@ ctx\n"
+    " keep forty\n"
+    "+added forty-three\n"
+    " keep forty-one\n"
+    " keep forty-two\n"
+)
+# Hunk 1 starts at post-image line 3: " keep three"=3, "+added four"=4, "-gone five" spends NO
+# post-image budget, " keep six"=5, "+added seven"=6, " keep eight"=7.
+# Hunk 2 starts at post-image line 42: " keep forty"=42, "+added forty-three"=43.
+assert_eq("#424: parse_diff tracks post-image line numbers across context, deletions, and a "
+          "second hunk starting past line 1",
+          {'f.md': {4: 'added four', 6: 'added seven', 43: 'added forty-three'}},
+          stale_prose_lint.parse_diff(_MULTI_HUNK))
+
+# A diff-ADDED content line whose own text begins "++ " is emitted as "+++ ". A prefix-only
+# parser reads it as the next file header and retargets every later added line onto a phantom
+# path; the hunk budget consumes it as content.
+_PLUSPLUS = (
+    "diff --git a/f.md b/f.md\n"
+    "--- a/f.md\n"
+    "+++ b/f.md\n"
+    "@@ -0,0 +1,2 @@\n"
+    "+++ leading plus-plus is content, not a header\n"
+    "+real claim line\n"
+)
+assert_eq("#424: a '++ '-leading added line is content, not a file header (no phantom path)",
+          {'f.md': {1: '++ leading plus-plus is content, not a header', 2: 'real claim line'}},
+          stale_prose_lint.parse_diff(_PLUSPLUS))
+
+# "@@ -1 +1 @@" (no comma) promises a ONE-line post image.
+assert_eq("#424: parse_diff reads a countless '@@ -1 +1 @@' hunk header as a 1-line post image",
+          {'f.md': {1: 'only line'}},
+          stale_prose_lint.parse_diff(
+              "--- a/f.md\n+++ b/f.md\n@@ -1 +1 @@\n-old line\n+only line\n"))
+
+# An OVERSTATED hunk count (a hand-rolled or truncated diff claiming more post-image lines
+# than it carries) must not let the leftover budget swallow the NEXT hunk header — that would
+# silently drop every claim after it. A bare `@@` at column 0 is unambiguously structure (a
+# content line always carries a +/-/space prefix), so the parser resyncs on it.
+assert_eq("#424: an overstated hunk count does not swallow the next hunk header",
+          {'f.md': {4: 'added four', 43: 'added forty-three'}},
+          stale_prose_lint.parse_diff(
+              "--- a/f.md\n+++ b/f.md\n"
+              "@@ -3,1 +3,9 @@\n keep three\n+added four\n"      # claims 9, carries 2
+              "@@ -40,1 +42,2 @@\n keep forty\n+added forty-three\n"))
+
+# A `+++ /dev/null` target (a deletion) contributes no added lines.
+assert_eq("#424: parse_diff attributes nothing to a /dev/null target",
+          {}, stale_prose_lint.parse_diff(
+              "--- a/f.md\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\n"))
+
+# main()'s exit-2 catch-all must cover the WHOLE body. Before the #424 fix the stream
+# reconfigure and the argparse construction sat OUTSIDE the guard, so an exception there
+# escaped and Python exited 1 — and 1 is a contracted helper arm ("at least one STALE row"),
+# so a crashed run read to the callers' routers as a completed one over its empty stdout.
+# Anything unexpected must surface as 2.
+
+
+def _main_rc_when_argparse_explodes():
+    _real = stale_prose_lint.argparse.ArgumentParser
+
+    def _boom(*_a, **_kw):
+        raise OSError("simulated: argparse construction failed")
+
+    stale_prose_lint.argparse.ArgumentParser = _boom
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            return stale_prose_lint.main(['stale-prose-lint.py', '--rev', 'HEAD'])
+    finally:
+        stale_prose_lint.argparse.ArgumentParser = _real
+
+
+assert_eq("#424: an exception outside the old guard (argparse construction) exits 2, "
+          "never Python's default 1 (which the routers read as the STALE arm)",
+          2, _main_rc_when_argparse_explodes())
+
+# The positive control: the same call path with argparse intact does NOT exit 2 — so the
+# assertion above is attributable to the raised OSError, not to a broken fixture that would
+# have failed anyway. `--rev` is a real commit here (HEAD of this repo) and stdin is an empty
+# diff, so the contract says exit 0.
+
+
+def _main_rc_on_empty_diff():
+    _real_stdin = sys.stdin
+    sys.stdin = type('S', (), {'buffer': io.BytesIO(b'')})()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return stale_prose_lint.main(['stale-prose-lint.py', '--rev', 'HEAD'])
+    finally:
+        sys.stdin = _real_stdin
+
+
+assert_eq("#424: positive control — the same fixture with argparse intact exits 0 on an empty "
+          "diff (the exit-2 above is the raised error, not an unrelated precondition)",
+          0, _main_rc_on_empty_diff())
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

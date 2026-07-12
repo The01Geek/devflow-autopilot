@@ -487,10 +487,12 @@ esac
 
 When `SP_ENABLED` is exactly `false`, **skip the phase and record it** — do not run the helper — with the note `stale-prose lint disabled by config`. This is a recorded config-disabled note, **not** a silent skip.
 
-**Run the helper** on the cached diff, resolving each claim's referent against the current head (`--rev HEAD`). It reads the unified diff on stdin and never derives the diff range itself, so the engine simply hands it the diff it already cached in 0.2:
+**Confirm the cached diff is non-empty before running the helper.** Phase 0.2 cached `diff.patch`; if that cache is **absent or empty** (an upstream truncation), the helper reads an empty diff, examines nothing, and exits `0` — a result byte-for-byte indistinguishable from "no stale claims". That is the empty-reads-clean fail-open, so do **not** run the phase against an empty cache: record the degraded-check note `stale-prose lint skipped: the Phase 0.2 diff cache is absent or empty` and route it exactly like arm **(b)**. You already know the cache's state from Phase 0.2 — it is the diff this review is built on.
+
+**Run the helper** on the cached diff, resolving each claim's referent against the current head (`--rev HEAD`). It reads the unified diff on stdin and never derives the diff range itself, so the engine simply hands it the diff it already cached in 0.2. Feed it by **pipe** — the cloud-permitted shape Phase 0.2's own `… | tee` fence and `match-deferrals.py` already use; an input redirect is not in the enumerated permitted set (per the Cloud command-shape discipline above, an unenumerated shape is refused silently, which would take arm (a) on every cloud auto-review):
 
 ```bash
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/stale-prose-lint.py --rev HEAD < .devflow/tmp/review/<slug>/<run-id>/diff.patch
+cat .devflow/tmp/review/<slug>/<run-id>/diff.patch | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/stale-prose-lint.py --rev HEAD
 ```
 
 **Observe the helper's exit code — it is the authoritative arm selector, and stdout alone is not.** The exit code is directly visible in the command result; do **not** capture it into a second shell variable (a split `SP_RC=$?` read in a later statement is stripped by some inline-bash runners — issue #284 — so it would silently read empty). Route on the exit code first, then on each row's verdict, and **never read an empty stdout as "no stale claims" without first confirming the exit code was 0 or 1** — an internal error (exit 2) *also* prints no verdict rows:
@@ -507,7 +509,7 @@ For the exit-code 0/1 path, route each output row by verdict:
 
 **Degradation arms (fail-safe, never fail-silent — the run proceeds in every arm, and the note is visible in the review report):**
 
-- **(a) Harness-refused invocation** — the command never executes (the consumer-skew state: a consumer's installed workflow `TOOLS` grants lag the vendored plugin, so the harness silently refuses the fence). Record a degraded-check note that must **name the missing grant and the tier-appropriate remedy** key: `devflow_runner.allowed_tools` for the cloud review runner (appended post-floor by `devflow-runner.yml`, so a consumer bridges a lagging installed workflow through tracked config alone), and `devflow_implement.allowed_tools` / `devflow.allowed_tools` for the implement / command tiers.
+- **(a) Harness-refused invocation** — the command never executes (the consumer-skew state: a consumer's installed workflow `TOOLS` grants lag the vendored plugin, so the harness silently refuses the fence). Record a degraded-check note that must **name the missing grant and the tier-appropriate remedy**: for the **cloud review runner**, re-syncing the installed workflow's `TOOLS='…'` line — `devflow_runner.allowed_tools` is appended to the review profile *post-floor* but **only inside `devflow-runner.yml`'s `devflow_runner.provision_env` gate, and `provision_env` defaults to `false`**, so on a default read-only reviewer tracked config alone does **not** bridge the grant (name it as a remedy only for a consumer already running `provision_env: true`); and `devflow_implement.allowed_tools` / `devflow.allowed_tools` for the implement / command tiers.
 - **(b) Helper absent** (`No such file`) — record a degraded-check note stating the vendored stale-prose-lint.py was not found at its expected path.
 - **(c) Helper internal error** (exit 2) — record a degraded-check note that the helper **reported an internal error (exit 2)** and carry its stderr.
 - **(d) Config-disabled** — the explicit config-disabled note recorded at the config gate above.
