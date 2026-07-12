@@ -3739,6 +3739,137 @@ done
 assert_eq "implement split: no SKILL.md under phases/ (no nested auto-discovered skill)" "" \
   "$(find "$IMPL_PHASES_DIR" -name SKILL.md 2>/dev/null)"
 
+# ── issue #429: stale-checkout guard for adopted branches (phase-1 §1.4/§1.6, phase-2 §2.1, phase-4 §4.0) ──
+# Four bounded prose rules keep an ADOPTED-branch run from adjudicating truth against a stale
+# checkout (the #325 false-refutation incident). The coherence-rule and read-target-rule sites
+# are COUPLED MIRRORS (phase-1-setup.md §1.6 ↔ phase-2-implement.md §2.1) — pinned per file so a
+# removal at EITHER mirror turns the desk check RED. Behavioral-fix pins go through
+# assert_pin_red_under with a mutation that RE-INTRODUCES the named bug (per the §137 rule).
+P1_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
+P2_FILE="$IMPL_PHASES_DIR/phase-2-implement.md"
+# P4_FILE already defined above (phase-4-documentation.md).
+
+# T1 — freshness guard on the USE_CURRENT (adopted-branch) arm. The operative fix is the fetch
+# itself; a mutation deleting it restores the fetch-skip that recreated the #325 stale adoption.
+assert_pin_red_under "429/T1: §1.4 USE_CURRENT arm runs the breadcrumbed base fetch (fetch-skip mutation → RED)" \
+  'if git fetch origin "$BASE"; then' '/if git fetch origin/d' "$P1_FILE"
+# behind-by derivation (guard-class 2: git produces the count, bash builtins compare it).
+assert_pin_unique "429/T1: §1.4 derives behind-by via git rev-list --count HEAD..origin/\$BASE" \
+  'git rev-list --count "HEAD..origin/$BASE"' "$P1_FILE"
+# behind-by-0 case still records (freshness provably CHECKED, not assumed).
+assert_pin_unique "429/T1: §1.4 records the behind-by-0 up-to-date case" \
+  'behind origin/$BASE by 0 commits' "$P1_FILE"
+# Indeterminate-count arm: fetch SUCCEEDED but `git rev-list --count` failed (empty BEHIND).
+# "Unknown is not zero" — an underivable count records freshness-unverified, never silently
+# treats the tree as fresh. T2 pins only the fetch-FAILURE UNVERIFIED path; pin this distinct
+# rev-list-failure arm too so deleting its handling turns RED.
+assert_pin_unique "429/T1: §1.4 handles an underivable behind-by count as freshness-unverified (unknown is not zero)" \
+  'could not derive behind-by (git rev-list failed)' "$P1_FILE"
+# The behind-by-N arm is the OPERATIVE stale-detection path (the #325 shape) — its two
+# siblings above are pinned, so pin it too: without this, silently dropping the arm that
+# actually reports a stale tree leaves the suite green.
+assert_pin_unique "429/T1: §1.4 records the behind-by-N stale arm and routes reads to origin/\$BASE" \
+  'behind origin/$BASE by $BEHIND commit(s)' "$P1_FILE"
+
+# T2 — degraded arm: a fetch failure records freshness-unverified and CONTINUES (never exit 1).
+assert_pin_red_under "429/T2: §1.4 fetch failure records freshness-unverified and continues (delete → RED)" \
+  'tree freshness UNVERIFIED' '/tree freshness UNVERIFIED/d' "$P1_FILE"
+# AC2 "never hard-blocks adoption" — the fetch-failure arm must CONTINUE, not exit 1 (the
+# new-branch arm's exit-1 contract is separately pinned and unchanged). T2 above pins the
+# else-arm reflection sentence, but a regression that ADDED an `exit 1` to the adopted arm
+# would keep that sentence and still pass — so pin the *continues* half directly: assert the
+# USE_CURRENT freshness block carries no `exit` STATEMENT (a line-leading `exit`), while its
+# comments deliberately MENTION "exit 1" in prose (those start with `#`, so the anchored
+# pattern never matches them). Adding a real `exit 1` to the else arm flips this RED.
+assert_eq "429/T2: §1.4 adopted-branch freshness block never hard-blocks (no line-leading exit statement)" "0" \
+  "$(awk '/Freshness guard \(adopted-branch arm\)/,/Then jump straight to filling the workpad/' "$P1_FILE" | grep -cE '^[[:space:]]*exit ' || true)"
+
+# T3 — read-target rule, BOTH coupled mirror sites (§1.6 and §2.1). A mutation removing either
+# site's operative clause turns the desk check RED, enforcing the coupled-mirror discipline.
+assert_pin_red_under "429/T3: read-target rule present at §1.6 (phase-1) — remove → RED" \
+  'never the unfetched fork point' '/never the unfetched fork point/d' "$P1_FILE"
+assert_pin_red_under "429/T3: read-target rule present at §2.1 (phase-2) — remove → RED (coupled mirror)" \
+  'never the unfetched fork point' '/never the unfetched fork point/d' "$P2_FILE"
+# The read-target rule's two record-derived triggers, pinned per mirror so a silent removal of
+# either cannot stay green: (a) the freshness-UNVERIFIED trigger, and (b) the ABSENT-record
+# trigger. (b) is the fail-closed default: Phase 1.4's workpad write is best-effort, so a lost
+# write leaves NO record — and prose that fires only on a recorded behind-by count would fall
+# straight back to the pre-#429 fork-point read (fail-open) on exactly the #325 path. The
+# mutation re-introduces that fail-open by stripping the absent-record clause and flipping the
+# missing-record semantics back to "the record is authoritative".
+for _f in "$P1_FILE" "$P2_FILE"; do
+  _site="§1.6 (phase-1)"; [ "$_f" = "$P2_FILE" ] && _site="§2.1 (phase-2, coupled mirror)"
+  assert_pin_red_under "429/T8: read-target rule fires unconditionally when freshness is UNVERIFIED at $_site" \
+    'unconditionally when Phase 1.4 marked freshness unverified' \
+    's/unconditionally when Phase 1\.4 marked freshness unverified/when Phase 1.4 marked freshness unverified/' "$_f"
+  assert_pin_red_under "429/T8: an ABSENT freshness record reads as unverified (fail-closed) at $_site — restore fail-open → RED" \
+    'a missing record reads as unverified' \
+    's/, and equally when no freshness record is present at all//; s/a missing record reads as unverified/a missing record is authoritative/' "$_f"
+done
+unset _f _site
+
+# T4 — cross-pass coherence rule, BOTH coupled mirror sites. The operative verdict is
+# "checkout stale — refresh and re-verify"; a mutation deleting it restores the unconditional
+# "code wins" refutation the rule forbids (the #322→#325 false refutation).
+assert_pin_red_under "429/T4: coherence verdict at §1.6 (phase-1) — restore unconditional code-wins → RED" \
+  'checkout stale — refresh and re-verify' '/checkout stale/d' "$P1_FILE"
+assert_pin_red_under "429/T4: coherence verdict at §2.1 (phase-2) — restore unconditional code-wins → RED (coupled mirror)" \
+  'checkout stale — refresh and re-verify' '/checkout stale/d' "$P2_FILE"
+# MERGED + non-ancestor arm (the read-only merge-state + ancestry check), both sites.
+assert_pin_unique "429/T4: §1.6 carries the MERGED+non-ancestor merge-base ancestry check" \
+  'git merge-base --is-ancestor <merge_commit_sha> HEAD' "$P1_FILE"
+assert_pin_unique "429/T4: §2.1 carries the MERGED+non-ancestor merge-base ancestry check (coupled mirror)" \
+  'git merge-base --is-ancestor <merge_commit_sha> HEAD' "$P2_FILE"
+# Indeterminate fail-closed arm (gh failure / shallow-history error → stale-suspect), both sites.
+assert_pin_unique "429/T4: §1.6 indeterminate arm fails closed (a refutation requires a positively-fresh tree)" \
+  'requires a positively-fresh tree' "$P1_FILE"
+assert_pin_unique "429/T4: §2.1 indeterminate arm fails closed (coupled mirror)" \
+  'requires a positively-fresh tree' "$P2_FILE"
+# Canonical example named in the prose at both sites.
+assert_pin_unique "429/T4: §1.6 names the #322→#325 false refutation as the canonical example" \
+  '#322→#325 false refutation' "$P1_FILE"
+assert_pin_unique "429/T4: §2.1 names the #322→#325 false refutation as the canonical example" \
+  '#322→#325 false refutation' "$P2_FILE"
+
+# T5 — the §2.1 code-wins paragraph carries the freshness qualifier; a sibling pin asserts the
+# pre-existing descriptive-vs-prescriptive boundary is UNCHANGED (still present, verbatim).
+assert_pin_red_under "429/T5: §2.1 code-wins gains the freshness qualifier (remove → RED)" \
+  'only when the code being read is verified fresh' '/only when the code being read is verified fresh/d' "$P2_FILE"
+assert_pin_unique "429/T5: §2.1 descriptive-vs-prescriptive boundary is unchanged" \
+  'applies to **descriptive** claims only — it never overrides Desired Behavior or Acceptance Criteria' "$P2_FILE"
+
+# T6 — Phase 4.0 sibling-PR annotation rule + the aligned 2.2.5 verbatim language.
+assert_pin_red_under "429/T6: §4.0 annotation names the sibling PR AND its merge state at filing time (remove → RED)" \
+  'name the sibling PR **and its merge state at filing time**' '/name the sibling PR/d' "$P4_FILE"
+assert_pin_unique "429/T6: §4.0 aligned verbatim language names the parent's decided criteria as the unreworded source" \
+  "parent's decided criteria are the unreworded semantic source" "$P4_FILE"
+
+# T7 — no-new-grants. The new prose (Phase 1.6 fresh-tree verification + Phase 2.1 code-wins
+# pass) executes during a /devflow:implement run, and `devflow-implement.yml` is the SINGLE
+# workflow that runs /devflow:implement — both the automated pickup AND a manual bare
+# `/devflow:implement <#>` comment fire it (devflow.yml is the LIGHT listener for
+# /devflow:review, /devflow:review-and-fix, /devflow:pr-description ONLY; its trigger `if:`
+# negates /devflow:implement, and its header states "the heavy /devflow:implement path lives in
+# devflow-implement.yml"). So the load-bearing grant surface for the coherence rule's read-only
+# `gh pr view N --json state,mergeCommit` + `git merge-base --is-ancestor` is
+# devflow-implement.yml's inline --allowed-tools, and NOTHING else executes this prose. Both
+# commands are already granted there, so no new grant is needed; pin exactly that surface (so a
+# future removal from the file that actually gates the implement run turns RED — the #363
+# silent-denial trap), plus the two implement-tier config allowed_tools arrays adding NO narrow
+# merge-base/pr-view grant. Deliberately NOT pinned here, because the implement prose never runs
+# under them: devflow.yml (the /devflow:review family listener) and devflow-runner.yml (the
+# read-only review profile) — pinning either would give false implement-tier assurance.
+_DI429="$LIB/../.github/workflows/devflow-implement.yml"   # the ONLY workflow that runs /devflow:implement (auto + manual comment)
+_C429="$LIB/../.devflow/config.json"
+assert_eq "429/T7: devflow-implement.yml --allowed-tools already grants git merge-base (implement tier — the only tier running the prose; no new grant)" "1" \
+  "$(grep -cF 'Bash(git merge-base:*)' "$_DI429" || true)"
+assert_eq "429/T7: devflow-implement.yml --allowed-tools already grants gh pr view (implement tier — the only tier running the prose; no new grant)" "1" \
+  "$(grep -cF 'Bash(gh pr view:*)' "$_DI429" || true)"
+assert_eq "429/T7: devflow_implement.allowed_tools adds no merge-base/pr-view grant" "0" \
+  "$(jq -r '.devflow_implement.allowed_tools[]? | select(test("merge-base|pr view"))' "$_C429" 2>/dev/null | grep -c . || true)"
+assert_eq "429/T7: devflow.allowed_tools adds no merge-base/pr-view grant" "0" \
+  "$(jq -r '.devflow.allowed_tools[]? | select(test("merge-base|pr view"))' "$_C429" 2>/dev/null | grep -c . || true)"
+
 # ── F1 (review): STANDING anti-vacuity proofs for the new fail-closed guards ───────────────
 # The guards above are non-vacuous by construction, but the project discipline (the
 # git_sandbox AC3 probes, "bake the half-revert into the suite — do not leave it a one-time
@@ -4366,11 +4497,15 @@ assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set
 # them unique-per-file; the phase-3 re-derivation has its own pins further below.
 assert_pin_unique "base_branch read: Phase 1.4 reads via config-get with the main default" 'config-get.sh .base_branch main' "$IMPL_PHASES_DIR/phase-1-setup.md"
 assert_pin_unique "base_branch read: Phase 1.4 guards the empty read" '[ -n "$BASE" ]' "$IMPL_PHASES_DIR/phase-1-setup.md"
-# Scoped to phase-1-setup.md (Phase 1.4's create-path fetch): issue #284 added a SECOND
+# Scoped to phase-1-setup.md (Phase 1.4's fetches): issue #284 added a SECOND
 # `git fetch origin "$BASE"` in phase-4-documentation.md's Stage-2 diff-gate retry, so a
-# bundle-wide unique pin now double-matches. The Phase 1.4 fetch this pin guards lives in
-# phase-1-setup.md, where it remains unique.
-assert_pin_unique "base_branch read: SKILL fetches origin/\$BASE (not hard-coded main)" 'git fetch origin "$BASE"' "$IMPL_PHASES_DIR/phase-1-setup.md"
+# bundle-wide unique pin double-matches — the Phase 1.4 fetches live in phase-1-setup.md.
+# Issue #429 added the adopted-branch (USE_CURRENT) arm's freshness fetch, so phase-1-setup.md
+# now carries TWO `git fetch origin "$BASE"` sites (the new-branch create arm AND the adopted
+# arm), and the pin asserts BOTH are present rather than a single unique one — both arms fetch
+# the base, so no adopted run reads a stale fork point (the #325 guard).
+assert_eq "base_branch read: SKILL fetches origin/\$BASE on both the create and adopted arms (not hard-coded main)" "2" \
+  "$(grep -cF 'git fetch origin "$BASE"' "$IMPL_PHASES_DIR/phase-1-setup.md" || true)"
 assert_pin_unique "base_branch read: SKILL checks out origin/\$BASE" 'git checkout -b "$BRANCH" "origin/$BASE"' "$IMPL_SKILL"
 assert_pin_unique "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" 'could not fetch base branch' "$IMPL_SKILL"
 assert_pin_unique "#168 create-path: SKILL guards branch-for-issue.py exit status" \
