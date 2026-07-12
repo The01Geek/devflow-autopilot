@@ -2752,11 +2752,12 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
 # sentence itself (a self-contained skill-prose requirement, not a framing clause introducing
 # one), so there is no operative-vs-framing ambiguity for assert_pin_red_under to discriminate
 # here. It is still used over plain assert_pin_unique for its NON-VACUITY proof: each mutation
-# excises the operative requirement clause from WITHIN the pinned sentence (re-introducing the
-# guarded regression), so every pin is proven to flip PASS->FAIL when that clause is removed,
-# not merely to be present. (#375's framing-vs-operative discrimination is exercised where the
-# mutation deletes a DIFFERENT line than the pinned literal; here the mutation targets a
-# fragment of the pinned sentence, so the flip is a presence-of-the-operative-clause proof.)
+# excises the operative requirement clause (the whole pinned sentence or a fragment of it),
+# re-introducing the guarded regression, so every pin is proven to flip PASS->FAIL when that
+# clause is removed, not merely to be present. (#375's framing-vs-operative discrimination is
+# exercised where the mutation deletes a DIFFERENT line than the pinned literal; here the
+# mutation targets the pinned sentence itself, so the flip is a presence-of-the-operative-clause
+# proof. The surface-presence pins that follow the mutation pins use plain assert_pin_unique.)
 CI443_SKILL="$LIB/../skills/create-issue/SKILL.md"
 CI443_EXT="$LIB/../.devflow/prompt-extensions/create-issue.md"
 # Verdict-line requirement (maps to the audit-prompt AC): removing "legal values are exactly"
@@ -2840,6 +2841,34 @@ assert_pin_red_under "#443: Step 4 presentation gate confirms this run's audit a
 # Step 2 derivation-artifact discipline so the gated file can only ever be this run's.
 assert_pin_red_under "#443: audit artifact deletes any same-slug leftover before writing" \
   'deleting any same-slug leftover first' 's/deleting any same-slug leftover first//' "$CI443_SKILL"
+# Audit-prompt template surfaces (maps to the audit-prompt AC, which requires EACH surface
+# pinned here). These are surface-PRESENCE contracts — the template must carry each named
+# element — so plain assert_pin_unique is the honest primitive (a removed/duplicated surface
+# flips count away from 1 → RED); no operative-vs-framing distinction applies to a surface pin.
+assert_pin_unique "#443: audit prompt carries the adversarial mandate (no credit for good intent)" \
+  'no credit for good intent' "$CI443_SKILL"
+assert_pin_unique "#443: audit prompt carries the pre-mortem frame (write the autopsy)" \
+  'write the autopsy' "$CI443_SKILL"
+assert_pin_unique "#443: per-finding bar requires quoting the exact draft line attacked" \
+  'quote the exact draft line it attacks' "$CI443_SKILL"
+assert_pin_unique "#443: per-finding bar reports an unverifiable claim as unverifiable" \
+  'report an unverifiable claim as unverifiable rather than asserting it' "$CI443_SKILL"
+assert_pin_unique "#443: scope exclusions judge the draft at issue altitude" \
+  'judge the draft at **issue altitude**' "$CI443_SKILL"
+assert_pin_unique "#443: scope exclusions require a concrete trigger scenario per finding" \
+  'no finding without a concrete trigger scenario' "$CI443_SKILL"
+assert_pin_unique "#443: audit prompt caps findings at five" \
+  'at most five findings' "$CI443_SKILL"
+assert_pin_unique "#443: audit prompt reserves exactly one Quiet Killer slot" \
+  '"Quiet Killer"' "$CI443_SKILL"
+assert_pin_unique "#443: the empty 'no actionable findings' output is explicitly legal" \
+  'no actionable findings' "$CI443_SKILL"
+# Audit-summary required contents (maps to the audit-summary AC — the observability contract's
+# operative fields, distinct from the never-silent rationale clause pinned above).
+assert_pin_unique "#443: audit summary states whether a consumer audit-dimensions section was appended" \
+  'whether a consumer `## Audit dimensions` section was appended' "$CI443_SKILL"
+assert_pin_unique "#443: audit summary renders the word degraded whenever the degraded arm ran" \
+  'the word "degraded"' "$CI443_SKILL"
 
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
