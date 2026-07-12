@@ -564,6 +564,7 @@ contract). They apply to every gh-sourced field above:
 | `fetch-failed` | The call ran and did not yield a usable answer — a non-zero `gh` exit, or an exit-0 response whose body was unparseable. |
 | `no-repo` | The repo could not be resolved, so no *join* call was attempted (the single `gh repo view` probe that resolves it having already failed). |
 | `no-sha` | The PR metadata that supplies the query key (head / merge sha) was itself unestablished, so this join is unestablished *by cascade*. |
+| `unparseable` | The artifact was retrieved, but the value could not be read out of it (a `## Verdict:` marker whose line does not parse; a fingerprint envelope carrying no `sha256`). |
 
 The normative list is `PROVENANCE_UNESTABLISHED` in `scripts/build-experiment-records.py`; a record is
 rejected at construction if any field governed by one of these tags carries a non-null value, so an

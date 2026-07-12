@@ -109,10 +109,18 @@ _PROVENANCED_FIELDS = {
 # UNESTABLISHED provenance: the join could not be measured at all. `fetch-failed` = the
 # call ran and did not yield a usable answer; `no-repo` = nothing was queryable (repo
 # unresolvable); `no-sha` = the metadata that supplies the query key was itself
-# unestablished, so this join is unestablished by cascade. NONE of these is `absent`, which
+# unestablished, so this join is unestablished by cascade; `unparseable` = the artifact was
+# retrieved but its value could not be read out of it. NONE of these is `absent`, which
 # asserts the far stronger claim "we looked and it genuinely was not there" (issue #431
 # review, convergence shadow).
-PROVENANCE_UNESTABLISHED = ("fetch-failed", "no-repo", "no-sha")
+#
+# `unparseable` is a MEMBER, not merely unestablished-in-spirit. It was added to the
+# vocabulary without being added here, which is verbatim the hazard the PROVENANCE_SOURCES
+# comment below describes — a tag whose meaning is "never established" that the coherence
+# guard does not govern, so the null-only invariant held on it only by accident. Every
+# field it can tag (verdict, important_finding_count, config_fingerprint) is null on that
+# path today; membership makes that hold by construction (#431 delta review).
+PROVENANCE_UNESTABLISHED = ("fetch-failed", "no-repo", "no-sha", "unparseable")
 
 # The CLOSED provenance vocabulary — every tag any resolver may emit. This exists because
 # the coherence guard below tests MEMBERSHIP in PROVENANCE_UNESTABLISHED and would happily
@@ -125,7 +133,7 @@ PROVENANCE_UNESTABLISHED = ("fetch-failed", "no-repo", "no-sha")
 # emitted tag is in this set is what makes the vocabulary closed in the CODE rather than
 # only in the comments (issue #431 convergence shadow).
 PROVENANCE_SOURCES = PROVENANCE_UNESTABLISHED + (
-    "found", "absent", "unparseable",
+    "found", "absent",
     "pr-review", "progress-comment", "progress-comment-degraded",
     "check-run-summary", "check-run-annotation",
     "efficiency-record", "merge-commit-config", "mixed-across-runs",
@@ -686,21 +694,28 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
     from `git show <merge_sha>:.devflow/config.json` (records predating the field).
     Returns (fingerprint_or_None, source).
 
-    Like `_resolve_denials`, this separates UNQUERYABLE from ABSENT (issue #431 review,
-    convergence shadow): with no merge sha there is nothing to read the config out of, so
-    the fingerprint is unestablished by cascade (`no-sha`) — not measured-and-missing; and
-    a `git show` that FAILS is `fetch-failed`, reserving `absent` for the case where the
-    config was actually read and simply yielded no fingerprint.
+    This field is the experiment's ATTRIBUTION KEY — it says which config variant produced
+    this PR's outcome — so every arm below is chosen to avoid stamping a PR with a variant
+    its runs did not all use. The outcomes, in order:
 
-    ACROSS RUNS the fingerprint is published only when every fingerprint-bearing run
-    AGREES. This field is the experiment's attribution key — it says which config variant
-    produced this PR's outcome — so first-wins would silently stamp a PR whose runs
-    straddle a config change with the OLDER variant, misattributing its outcome in
-    exactly the config-vs-outcome comparison the store exists to support. On disagreement
-    the record-level value is null with source `mixed-across-runs`; nothing is lost,
-    because the per-run fingerprints remain in `efficiency_runs[]`. This is the same
-    refusal-to-collapse that keeps per-run COST a list rather than newest-wins (#431
-    review)."""
+      * >=2 usable identities that DISAGREE  -> (None, `mixed-across-runs`). An OBSERVED
+        config change; no later evidence overrides it. First-wins here would silently stamp
+        the PR with the older variant, misattributing its outcome in exactly the
+        config-vs-outcome comparison the store exists to support. Nothing is lost — the
+        per-run fingerprints remain in `efficiency_runs[]`. Same refusal-to-collapse that
+        keeps per-run COST a list rather than newest-wins.
+      * every identity usable and AGREEING   -> (that fingerprint, `efficiency-record`).
+      * any identity UNUSABLE (no `sha256`, a null one, a non-dict envelope) and no
+        observed disagreement -> fall through to the merge-commit recompute below, which
+        can still establish the fingerprint honestly. An unusable identity is UNESTABLISHED,
+        never a claimed disagreement.
+
+    The fall-through then separates UNQUERYABLE from ABSENT (the same discipline as
+    `_resolve_denials`): `unparseable` when a fingerprint was present but its identity could
+    not be read and there is no merge sha to recompute from; `no-sha` when there was nothing
+    to read and no sha either; `fetch-failed` when the `git show` failed; `merge-commit-config`
+    on a successful recompute; and `absent` reserved for the one case where the config WAS
+    read and simply yielded no fingerprint (#431 review, convergence shadow, delta review)."""
     fps = [r.get("config_fingerprint") for r in eff_runs if r.get("config_fingerprint")]
     if fps:
         # Compare on `sha256` — the IDENTITY — not on the whole {sha256, partial, salient}
@@ -723,23 +738,33 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
         # the comparand at the boundary rather than letting its absence resolve to a value
         # that agrees with itself (issue #431 fix-delta gate).
         ids = [fp.get("sha256") if isinstance(fp, dict) else None for fp in fps]
-        if all(isinstance(i, str) and i for i in ids):
-            if all(i == ids[0] for i in ids[1:]):
-                return fps[0], "efficiency-record"
-            # Two or more USABLE identities that genuinely disagree. This — and only this —
-            # is `mixed-across-runs`: an OBSERVED config change across the PR's runs.
+        usable = [i for i in ids if isinstance(i, str) and i]
+        # Test DISAGREEMENT FIRST, over the usable subset — an unusable sibling cannot
+        # UN-OBSERVE a disagreement that is already in the data. Gating the disagreement
+        # check on `all(ids usable)` meant that ids ["X", "Y", <unusable>] — a demonstrated
+        # straddle of a config change — short-circuited to the fall-through below and
+        # published a CONFIDENT `merge-commit-config` attribution: adding a third, LESS
+        # informative run flipped the record from "refuses to attribute" to "confidently
+        # attributed", while the module held positive evidence the runs did not share one
+        # config. That is worse than the bug it replaced (#431 delta review, reproduced).
+        if len(usable) >= 2 and any(i != usable[0] for i in usable[1:]):
+            # An OBSERVED config change across the PR's runs. This — and only this — is
+            # `mixed-across-runs`. No later evidence can override it, so return now.
             return None, "mixed-across-runs"
+        if usable and len(usable) == len(ids):
+            # Every identity is usable and they all agree.
+            return fps[0], "efficiency-record"
         # At least one identity is UNUSABLE (no sha256, a null one, a non-dict envelope —
-        # the legacy / hand-edited / half-written shapes `_index_efficiency` admits raw).
-        # That is an UNESTABLISHED identity, NOT a measured disagreement: reporting it as
-        # `mixed-across-runs` would assert the runs straddled a config change — a fabricated
-        # fact, and absurd outright when there is only ONE run — collapsing unknown onto a
-        # real value in the exact field this guard exists to protect. Warn (a corrupt record
-        # otherwise costs a PR its attribution in silence) and fall THROUGH to the
-        # merge-commit recompute, which can still establish the fingerprint honestly.
+        # the legacy / hand-edited / half-written shapes `_index_efficiency` admits raw),
+        # and the usable ones (if any) do not contradict each other. That is an
+        # UNESTABLISHED identity, NOT a measured disagreement: tagging it `mixed-across-runs`
+        # would assert the runs straddled a config change — a fabricated fact, and absurd
+        # outright when there is only ONE run, which cannot disagree with itself. Warn (a
+        # corrupt record otherwise costs a PR its attribution in silence) and fall THROUGH
+        # to the merge-commit recompute, which can still establish the fingerprint honestly.
         _warn("config_fingerprint identity unusable on at least one efficiency run (no "
-              "sha256) — unestablished, NOT a measured config change; trying the "
-              "merge-commit config")
+              "sha256); the usable identities (if any) do not disagree — unestablished, "
+              "NOT a measured config change; trying the merge-commit config")
     if not merge_sha:
         # `unparseable` when we HAD a fingerprint but could not read its identity; `no-sha`
         # when there was nothing to read and no sha to recompute from. Both unestablished,
@@ -761,8 +786,13 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
 
 def _gh_pr_meta(repo, pr):
     """Best-effort metadata for a PR with no retrospective entry. Returns (meta, ok):
-    `ok` is False whenever the call did not yield a USABLE ANSWER — the same rule
-    `_gh_json_ex` follows, and for the same reason.
+    `ok` is False whenever the call did not yield a USABLE ANSWER.
+
+    This is STRICTER than `_gh_json_ex`, deliberately: that wrapper treats an EMPTY rc-0
+    body as ok=True, because for a list endpoint an empty result is a real answer ("the
+    artifact is genuinely absent"). `gh pr view --json <fields>` has no such reading — on
+    success it always prints an object — so an empty body here is a failure to establish,
+    not an answer.
 
     It matters MORE here than anywhere else in this module, because this is the only
     wrapper whose result feeds a FLOW-CONTROL decision rather than a provenance string:

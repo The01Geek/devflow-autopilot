@@ -14137,6 +14137,41 @@ cat > "$ET_DIR/iter-2.json" <<'EOF'
 }
 EOF
 
+# ── #431 compute_config_fingerprint's interpreter-vs-crash arm SELECTION ───────
+# A branch-selecting `case` is not covered by a grep-pin on one of its message literals
+# (CLAUDE.md's describe-denial-count.sh precedent): dropping `126|` from the pattern, or
+# reordering the arms, would restore the exact mis-steer the discrimination exists to
+# eliminate while the suite stayed green. Drive all three arms by shadowing `python3` on
+# PATH. 127 = not found; 126 = found but NOT EXECUTABLE (a broken WSL shim, a noexec
+# mount) — both mean the script never ran, so both must name the interpreter, never
+# "config_fingerprint.py crashed"; any other rc IS a genuine helper crash.
+CFPA_D="$(mktemp -d)"
+mkdir -p "$CFPA_D/empty" "$CFPA_D/bin126"
+# Resolve bash ABSOLUTELY before clobbering PATH — otherwise the probe shell itself is not
+# findable and the probe reports "command not found" instead of the interpreter rc it exists
+# to measure (a self-inflicted false operand; the probe must run under the artifact's own
+# shell, per the repo's interpreter-faithful-probe rule).
+CFPA_BASH="$(command -v bash)"
+# rc 127 (absent): a PATH with no python3 at all.
+CFPA_127="$(PATH="$CFPA_D/empty" "$CFPA_BASH" -c '
+  out="$(python3 --version 2>/dev/null)" || rc=$?
+  case "${rc:-0}" in 126|127) echo interpreter ;; 0) echo ok ;; *) echo crash ;; esac' 2>/dev/null)"
+assert_eq "#431 cfp-arm: an ABSENT python3 yields rc 127 (the interpreter arm's operand)" "interpreter" "$CFPA_127"
+# rc 126 (present but not executable): a python3 that exists and is chmod -x.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$CFPA_D/bin126/python3"
+chmod -x "$CFPA_D/bin126/python3"
+CFPA_126="$(PATH="$CFPA_D/bin126" "$CFPA_BASH" -c '
+  out="$(python3 /dev/null 2>/dev/null)" || rc=$?
+  case "${rc:-0}" in 126|127) echo interpreter ;; 0) echo ok ;; *) echo crash ;; esac' 2>/dev/null)"
+assert_eq "#431 cfp-arm: a NON-EXECUTABLE python3 yields rc 126 — also the interpreter arm, never 'crashed'" "interpreter" "$CFPA_126"
+# Arm-order/selection pin: the shipped `case` must route BOTH 126 and 127 to the
+# interpreter message and everything else to the crash message. Assert on the real source.
+assert_eq "#431 cfp-arm: the shipped selector routes 126 AND 127 to the interpreter arm" "yes" \
+  "$(grep -qE '^[[:space:]]*126\|127\)' "$LIB/efficiency-trace.sh" && echo yes || echo no)"
+assert_pin_red_under "#431 cfp-arm: dropping 126 from the selector re-opens the mis-steer" \
+  '126|127)' 's/126\|127\)/127)/' "$LIB/efficiency-trace.sh"
+rm -rf "$CFPA_D"
+
 ET_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record)"
 ET_verdict() { echo "$ET_REC" | jq -r --argjson i "$1" --arg a "$2" '.per_iteration[] | select(.iter==$i) | .agent_verdicts[] | select(.agent==$a) | .verdict'; }
 assert_eq "et: applied + corroboration<2 → unique-effective" "unique-effective" "$(ET_verdict 1 'devflow:code-reviewer')"
@@ -25553,6 +25588,74 @@ EOF
     python3 "$BXR" --repo-root "$RMX5" --prs 1044 >/dev/null 2>&1
   assert_eq "#431 Tmixed: a SINGLE sha256-less run is never 'mixed across runs' (it cannot disagree with itself)" "no" \
     "$([ "$(exp_field "$RMX5/.devflow/learnings/experiment-records.jsonl" 1044 provenance.config_fingerprint)" = "mixed-across-runs" ] && echo yes || echo no)"
+
+  # An OBSERVED disagreement cannot be UN-observed by an unusable sibling. Gating the
+  # disagreement check on "all identities usable" meant ids [X, Y, <unusable>] — a
+  # demonstrated straddle — fell through and published a CONFIDENT merge-commit-config
+  # attribution: adding a third, LESS informative run flipped the record from "refuses to
+  # attribute" to "confidently attributed", while the code held positive evidence the runs
+  # did not share one config (#431 delta review, reproduced). Give this fixture a REAL,
+  # resolvable merge sha so the fall-through would genuinely succeed if it were taken —
+  # otherwise the assertion could pass for the wrong reason.
+  RMX6="$EXP/rmixed6"
+  mkdir -p "$RMX6/.devflow/learnings"
+  git init -q "$RMX6" 2>/dev/null
+  git -C "$RMX6" config user.email t@t.t; git -C "$RMX6" config user.name t
+  cat > "$RMX6/.devflow/config.json" <<'EOF'
+{"devflow_review":{"verdict_severity_threshold":"important"},"devflow_review_and_fix":{"max_iterations":5}}
+EOF
+  git -C "$RMX6" add -A >/dev/null 2>&1
+  git -C "$RMX6" commit -qm seed >/dev/null 2>&1
+  MX6SHA="$(git -C "$RMX6" rev-parse HEAD)"
+  cat > "$RMX6/.devflow/learnings/retrospectives.jsonl" <<EOF
+{"schema_version":2,"kind":"implementation","pr":1045,"merged_at":"2026-07-10T00:00:00Z","branch":"b1045","merge_commit_sha":"$MX6SHA"}
+EOF
+  seed_eff "$RMX6/.devflow/logs/efficiency" "pr-1045-a.json" "pr-1045" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":10}}}]' '{"sha256":"XXX","partial":false,"salient":{}}'
+  seed_eff "$RMX6/.devflow/logs/efficiency" "pr-1045-b.json" "pr-1045" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":20}}}]' '{"sha256":"YYY","partial":false,"salient":{}}'
+  seed_eff "$RMX6/.devflow/logs/efficiency" "pr-1045-c.json" "pr-1045" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":30}}}]' '{"partial":false,"salient":{}}'
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RMX6" --prs 1045 >/dev/null 2>&1
+  ST_MX6="$RMX6/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#431 Tmixed: an unusable sibling cannot UN-observe a real disagreement" \
+    "mixed-across-runs" "$(exp_field "$ST_MX6" 1045 provenance.config_fingerprint)"
+  assert_eq "#431 Tmixed: and no confident attribution is published over an observed straddle" "null" \
+    "$(exp_field "$ST_MX6" 1045 config_fingerprint)"
+
+  # The `unparseable` arm: a fingerprint was present but its identity could not be read, AND
+  # there is no merge sha to recompute from. Both new fixtures above seed a merge sha, so
+  # this arm was unreached — a mutant returning "no-sha" (or "mixed-across-runs") there
+  # would have stayed GREEN (#431 delta review).
+  RMX7="$EXP/rmixed7"
+  mkdir -p "$RMX7/.devflow/learnings"
+  cat > "$RMX7/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1046,"merged_at":"2026-07-10T00:00:00Z","branch":"b1046"}
+EOF
+  seed_eff "$RMX7/.devflow/logs/efficiency" "pr-1046-a.json" "pr-1046" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":10}}}]' '{"partial":false,"salient":{}}'
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RMX7" --prs 1046 >/dev/null 2>&1
+  assert_eq "#431 Tmixed: an unreadable identity with no sha to recompute from is 'unparseable'" \
+    "unparseable" "$(exp_field "$RMX7/.devflow/learnings/experiment-records.jsonl" 1046 provenance.config_fingerprint)"
+  # And `unparseable` is a MEMBER of the unestablished vocabulary, so the coherence guard
+  # governs it by construction rather than by accident.
+  python3 - "$BXR" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ber", sys.argv[1])
+ber = importlib.util.module_from_spec(spec); spec.loader.exec_module(ber)
+if "unparseable" not in ber.PROVENANCE_UNESTABLISHED:
+    sys.exit(1)
+try:
+    ber._assert_provenance_coherent({"config_fingerprint": {"sha256": "x"},
+                                     "provenance": {"config_fingerprint": "unparseable"}})
+except AssertionError:
+    sys.exit(0)
+sys.exit(1)
+PY
+  RC_UNP=$?
+  assert_eq "#431 Tmixed: 'unparseable' is governed by the unestablished null-only invariant" "0" "$RC_UNP"
 
   # ── Tfpfb the merge-commit-config fallback + the byte-identical contract ──────
   # This arm is the whole REASON config_fingerprint.py is a shared module: the reader
