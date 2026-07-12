@@ -26342,6 +26342,30 @@ EOF
   assert_eq "#435 AC2c: a probed-sha fetch failure → null denial count" "null" "$(exp_field "$ST435D" 1004 permission_denials_count)"
   assert_eq "#435 AC2c: fetch-failed beats unparseable" "fetch-failed" "$(exp_field "$ST435D" 1004 provenance.permission_denials_count)"
 
+  # ── T435-2d Unicode-digit token is rejected (isascii guard) → unparseable ────────────
+  # _parse_denial_summary gates a valid token on `token.isascii() and token.isdigit()`, NOT a
+  # bare isdigit()/\d — the issue-#435 hardening that stops a crafted historical summary from
+  # smuggling a non-ASCII "digit" (e.g. `٣`, U+0663 ARABIC-INDIC DIGIT THREE) through as a
+  # verbatim count. A label line carrying such a token is seen-but-invalid, so phase 2 resolves
+  # (None, "unparseable") — never the token carried verbatim. Without this fixture a regression
+  # to a bare isdigit() would ship green and re-open the exact fabrication window #435 closes
+  # (bare isdigit()/int() accept `٣` and would carry it as a fabricated count). RED against a
+  # bare-isdigit regression; GREEN against the shipped isascii-guarded parse.
+  R435E="$EXP/r435e"
+  mkdir -p "$R435E/.devflow/learnings"
+  cat > "$R435E/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1005,"merged_at":"2026-07-10T00:00:00Z","branch":"b1005","head_sha":"h1005","merge_commit_sha":"m1005"}
+EOF
+  cat > "$EXP/checkruns435e.json" <<'EOF'
+{"check_runs":[{"id":50,"name":"Devflow Review","output":{"summary":"verdict\n\npermission_denials_count: ٣"}}]}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    CHECKRUNS_JSON="$EXP/checkruns435e.json" \
+    python3 "$BXR" --repo-root "$R435E" --prs 1005 >/dev/null 2>&1
+  ST435E="$R435E/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#435 AC2d: a Unicode-digit token is never carried verbatim (null)" "null" "$(exp_field "$ST435E" 1005 permission_denials_count)"
+  assert_eq "#435 AC2d: Unicode-digit token → unparseable (isascii guard rejects it)" "unparseable" "$(exp_field "$ST435E" 1005 provenance.permission_denials_count)"
+
   # ── T3h progress-comment coherence: unparseable fallback verdict (review Fix A) ─
   # A progress comment carries the "## Verdict:" marker inline (not a `^## Verdict:`
   # line) so it does not parse, and there is no PR review → verdict null with
