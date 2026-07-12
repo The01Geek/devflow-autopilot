@@ -464,6 +464,7 @@ scan.sh
   → actionable-patterns.sh  (uses compute-patterns.jq)
     → Stage B: retrospective-audit subagents (return {title, body} specs)
       → meta-issue.sh  (one issue per pattern + overrides.json cooldown)
+  → build-experiment-records.py  (best-effort; joins cost ↔ outcome per merged PR)
   → open-state-pr.sh
   → post-status.sh
 ```
@@ -477,7 +478,10 @@ scan.sh
 **Data (all in git, append-only ground truth):**
 - `.devflow/learnings/retrospectives.jsonl`, one JSON object per processed PR (every record carries a `pr` field).
 - `.devflow/learnings/overrides.json`, human-editable map of dismissed patterns.
+- `.devflow/learnings/experiment-records.jsonl`, one JSON object per **merged** PR joining that PR's run cost to its review outcome (written by `scripts/build-experiment-records.py`, above; unlike the two stores above it is **rewritten**, not appended — a re-run replaces a PR's line, keyed by PR number). See [`docs/efficiency-trace.md`](efficiency-trace.md) for the schema.
 - Pattern status (`open`/`regressed`/`fixed`/`dismissed`) is computed **on demand** by `lib/compute-patterns.jq`.
+
+All three files are staged by `lib/open-state-pr.sh` and land on the human-merged state PR, so `main` is clean entering Stage B.
 
 **Idempotent:** re-running processes only PRs not already recorded — `lib/scan.sh` reads `retrospectives.jsonl` from the base branch via the GitHub Contents API and subtracts the already-processed PR numbers from the candidate set. A `404` is the legitimate first-run case (the file isn't on the base branch yet) and leaves the processed set empty. Any *other* failure to decode the processed set under `HTTP 200` — an unparseable Contents-API envelope, a base64 decode miss, a `jq` parse failure, a body carrying neither inline content nor a `download_url`, a failed `download_url` fetch, or content that parses but yields zero `pr` records — **fails loud (exit 1) with a specific breadcrumb** rather than collapsing the processed set to empty. A silent collapse would re-queue the entire backlog and create duplicate retrospectives, so genuinely-corrupt state aborts the scan instead. The same guard (`_decode_existing`) covers both the inline `≤ 1 MB` content transport and the `> 1 MB` `download_url` fallback. **Never auto-merges and never auto-implements**: the maintainer merges the state PR manually and triages each filed issue manually — the loop never starts an implement run on its own filings.
 
@@ -562,6 +566,8 @@ DevFlow instruments its own review runs so teams can see which reviewers actuall
 - **Live progress comment:** in PR mode, `/devflow:review` authors a single run-keyed comment that updates incrementally, a blueprint up front, then per-phase results as they land.
 
 All telemetry is gated by config (`devflow_review_and_fix.efficiency_telemetry_enabled`, `devflow_review.live_progress_comment_enabled`, both default `true`) and is **best-effort**: a telemetry failure never aborts the loop.
+
+**The measurement substrate: the unified experiment record.** A run's *cost* (tokens, iterations, agent verdicts) lands in `.devflow/logs/efficiency/`, while its *outcome* (the first independent review's verdict and Important-finding count) lives in GitHub's review history — two stores with no per-PR join, so a before/after comparison of a config change could not be measured. `scripts/build-experiment-records.py` (invoked by `/devflow:retrospective-weekly` between Materialize and the state PR, on the local/interactive tier only) assembles the join: one tracked line per merged PR in `.devflow/learnings/experiment-records.jsonl`, joining **all** of the PR's efficiency records (both slug families, as a per-run cost list — never newest-wins) to its retrospective entry, its shape-selected review **verdict** (with a progress-comment fallback and a null-verdict arm), the **Important-finding count** (parsed from the run-keyed progress comment via the engine's own `review.commit_id` ↔ `Reviewed HEAD:` join), the **permission-denial count** (made durable and API-retrievable by including it verbatim in the `Devflow Review` check-run summary — `unavailable` stays `unavailable`, never coerced to `0` — with a positive-count-only annotation fallback for historical PRs), and a **config fingerprint** naming the config variant that produced the run. A `telemetry_complete` flag on each entry in `efficiency_runs[]` lets analyses exclude degraded runs rather than silently averaging them, and a `provenance` map keeps a `null` field distinguishable from an unqueried one. The assembler is idempotent (keyed by PR), incremental (never a full-history sweep), and missing-source-tolerant. See [`docs/efficiency-trace.md`](efficiency-trace.md) for the store schema and the abandoned-run cost-side bias.
 
 ---
 

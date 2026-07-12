@@ -24,6 +24,11 @@
 #   $generated_at: ISO-8601 UTC timestamp for the record.
 #   $cut_candidate_min_dispatch: carried into the record for the cross-run
 #          analyzer (this filter does not act on it).
+#   $config_fingerprint: the config-variant fingerprint object
+#          ({sha256, partial, salient}) or null, computed by the wrapper (issue
+#          #431). Carried verbatim into the record so an experiment analysis can
+#          attribute the run to the config that produced it; this filter does not
+#          act on it. null when the wrapper could not establish a fingerprint.
 #
 # Effectiveness taxonomy (4-way, per dispatched subagent, per iteration):
 #   unique-effective — raised a finding that led to an applied fix and that no
@@ -244,9 +249,19 @@ def iter_view:
 | if $mode == "record" then
     if ($iters | length) == 0 then empty else
     {
+      # schema_version stays 1 across the issue #431 config_fingerprint addition:
+      # the field is additive and OPTIONAL (nullable), no consumer gates on the
+      # version, and the #431 assembler handles presence/absence uniformly
+      # (falling back to `git show <merge_sha>:.devflow/config.json` when it is
+      # null/absent). A bump would imply a breaking change this is not — records
+      # predating the field remain valid. (Decision recorded in docs/efficiency-trace.md.)
       schema_version: 1,
       slug: $slug,
       generated_at: $generated_at,
+      # The config-variant fingerprint (issue #431), carried verbatim from the
+      # wrapper: {sha256, partial, salient} or null when it could not be
+      # established (the assembler then falls back to the merge-commit config).
+      config_fingerprint: $config_fingerprint,
       # Originating skill for the whole run, taken from the workpads (each iter
       # may carry `source`; default to the historical producer when absent so
       # existing review-and-fix records read unchanged). Assumes one source per
