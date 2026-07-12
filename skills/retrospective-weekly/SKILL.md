@@ -283,7 +283,7 @@ legacy archive alone; the retrospective is never blocked by a missing telemetry 
 # The reader (`_index_efficiency`) reads it by its local branch name.
 TELEMETRY_BRANCH=$($LIB/../scripts/config-get.sh .telemetry.branch devflow-telemetry)
 git fetch origin "${TELEMETRY_BRANCH}:${TELEMETRY_BRANCH}" 2>/dev/null || \
-  echo "retrospective-weekly: could not fetch telemetry branch '${TELEMETRY_BRANCH}' (absent on a fresh repo, offline, or the local ref is ahead of the remote) — the experiment-record reader unions whatever local '${TELEMETRY_BRANCH}' ref exists (if any) with any legacy tracked .devflow/logs/" >&2
+  echo "retrospective-weekly: could not fetch telemetry branch '${TELEMETRY_BRANCH}' (absent on a fresh repo, offline, or the local ref has commits the remote lacks) — the experiment-record reader unions whatever local '${TELEMETRY_BRANCH}' ref exists (if any) with any legacy tracked .devflow/logs/" >&2
 python3 $LIB/../scripts/build-experiment-records.py || \
   echo "retrospective-weekly: build-experiment-records.py exited non-zero (rc=$?) — one or more PRs are MISSING from the experiment store (see its stderr for which, and whether they failed to assemble or had an unestablished merge state); records that did assemble were still written" >&2
 ```
