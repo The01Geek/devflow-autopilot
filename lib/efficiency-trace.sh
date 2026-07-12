@@ -59,13 +59,23 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/config-source.sh
 . "$HERE/config-source.sh"
 
-# Detached telemetry-branch persistence (issue #441). Sourced beside this script;
-# a copied/vendored deployment missing lib/ degrades to a breadcrumb rather than
-# aborting under set -e — --persist then simply cannot reach the branch (the
-# best-effort contract holds: nothing is lost, the caller proceeds).
+# Detached telemetry-branch persistence (issue #441). Sourced beside this script.
+# On a copied/vendored deployment missing lib/, sourcing fails; rather than leave
+# the devflow_telemetry_* functions UNDEFINED (a later unguarded `$(devflow_telemetry_branch)`
+# would then trip `set -e` — the exact abort the best-effort contract forbids), define
+# no-op stubs so EVERY consumer degrades uniformly at the source boundary: the branch
+# reads return "absent" and the write is a no-op, telemetry is simply not persisted this
+# run, and nothing aborts. One breadcrumb here is the single "lib missing" signal.
 # shellcheck source=lib/telemetry-branch.sh
-. "$HERE/telemetry-branch.sh" \
-  || echo "devflow: telemetry-branch.sh could not be sourced beside ${BASH_SOURCE[0]} — --persist cannot reach the telemetry branch this run" >&2
+. "$HERE/telemetry-branch.sh" || {
+  echo "devflow: telemetry-branch.sh could not be sourced beside ${BASH_SOURCE[0]} — --persist cannot reach the telemetry branch this run; using no-op stubs so backstop reads degrade cleanly (best-effort exit-0 preserved)" >&2
+  devflow_telemetry_branch()       { printf 'devflow-telemetry\n'; }
+  devflow_telemetry_ref()          { printf 'refs/heads/devflow-telemetry\n'; }
+  devflow_telemetry_blob_exists()  { return 1; }
+  devflow_telemetry_list_blobs()   { return 0; }
+  devflow_telemetry_show_blob()    { return 1; }
+  devflow_telemetry_persist_tree() { return 0; }
+}
 
 WORKPAD_DIR=""
 SLUG=""
@@ -360,18 +370,18 @@ recorded_fix_shas() {
     fi
     _emit_fix_sha "$sha_out" "$f"
   done
-  # (2) telemetry-branch durable iter-*.json blobs.
-  if command -v devflow_telemetry_branch >/dev/null 2>&1; then
-    ref="refs/heads/$(devflow_telemetry_branch)"
-    while IFS= read -r blob_path; do
-      case "$blob_path" in */iter-*.json) ;; *) continue ;; esac
-      if ! sha_out="$(devflow_telemetry_show_blob "$root" "$ref" "$blob_path" | "$DEVFLOW_JQ" -r 'if (.fix_commit_sha | type) == "string" then .fix_commit_sha else empty end' 2>/dev/null)"; then
-        echo "::warning::efficiency-trace.sh --persist: could not read fix_commit_sha from ${ref}:${blob_path} (unreadable or malformed telemetry blob); its sha (if any) cannot be excluded from synthesis" >&2
-        continue
-      fi
-      _emit_fix_sha "$sha_out" "${ref}:${blob_path}"
-    done < <(devflow_telemetry_list_blobs "$root" "$ref" ".devflow/logs/review/")
-  fi
+  # (2) telemetry-branch durable iter-*.json blobs. No `command -v` guard here:
+  # the source boundary (top of file) defines no-op stubs when the lib is absent,
+  # so devflow_telemetry_* are always callable and list_blobs then yields nothing.
+  ref="$(devflow_telemetry_ref)"
+  while IFS= read -r blob_path; do
+    case "$blob_path" in */iter-*.json) ;; *) continue ;; esac
+    if ! sha_out="$(devflow_telemetry_show_blob "$root" "$ref" "$blob_path" | "$DEVFLOW_JQ" -r 'if (.fix_commit_sha | type) == "string" then .fix_commit_sha else empty end' 2>/dev/null)"; then
+      echo "::warning::efficiency-trace.sh --persist: could not read fix_commit_sha from ${ref}:${blob_path} (unreadable or malformed telemetry blob); its sha (if any) cannot be excluded from synthesis" >&2
+      continue
+    fi
+    _emit_fix_sha "$sha_out" "${ref}:${blob_path}"
+  done < <(devflow_telemetry_list_blobs "$root" "$ref" ".devflow/logs/review/")
   return 0
 }
 
@@ -616,7 +626,7 @@ do_self_check() {
   # persisted run never draws a false "not persisted" warning and a genuinely
   # dropped one still does (AC15).
   local ref
-  ref="refs/heads/$(devflow_telemetry_branch)"
+  ref="$(devflow_telemetry_ref)"
   record=".devflow/logs/efficiency/${SLUG}-${run_id}.json"
   if ! devflow_telemetry_blob_exists "$root" "$ref" "$record"; then
     echo "::warning::devflow review-and-fix self-check: effectiveness record '${record}' was NOT persisted to the telemetry branch '${ref#refs/heads/}' for run ${SLUG}/${run_id} — recover it with 'lib/efficiency-trace.sh --persist'." >&2
@@ -811,7 +821,7 @@ persist_one() {
   # (a prior --persist) is left untouched: staged for neither derivation nor write.
   if [ "$ENABLED" = "true" ]; then
     local ref rel_record
-    ref="refs/heads/$(devflow_telemetry_branch)"
+    ref="$(devflow_telemetry_ref)"
     rel_record=".devflow/logs/efficiency/${slug}-${run_id}.json"
     if ! devflow_telemetry_blob_exists "$root" "$ref" "$rel_record"; then
       record="${_TELEMETRY_STAGE}/${rel_record}"

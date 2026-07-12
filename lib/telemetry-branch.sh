@@ -58,14 +58,24 @@ _DEVFLOW_TELEMETRY_PUSH_TRIES=4
 # #312 valid-falsy trap does not apply — an empty branch name is never a valid
 # selection).
 devflow_telemetry_branch() {
-  local b
-  if command -v devflow_conf >/dev/null 2>&1; then
-    b="$(devflow_conf '.telemetry.branch' 'devflow-telemetry')"
-  else
-    b=""
+  # Memoized: the branch name is invariant for a process, and devflow_conf shells
+  # to python3 (+ an mktemp) on every call, so a discovery --persist over M run
+  # dirs would otherwise do M+ identical config reads. Resolve once, cache.
+  if [ -z "${_DEVFLOW_TELEMETRY_BRANCH_CACHE:-}" ]; then
+    local b=""
+    if command -v devflow_conf >/dev/null 2>&1; then
+      b="$(devflow_conf '.telemetry.branch' 'devflow-telemetry')"
+    fi
+    [ -n "$b" ] || b="devflow-telemetry"
+    _DEVFLOW_TELEMETRY_BRANCH_CACHE="$b"
   fi
-  [ -n "$b" ] || b="devflow-telemetry"
-  printf '%s\n' "$b"
+  printf '%s\n' "$_DEVFLOW_TELEMETRY_BRANCH_CACHE"
+}
+
+# The full ref the telemetry branch name maps to (refs/heads/<branch>). Owned by
+# the lib so no consumer re-derives `refs/heads/$(devflow_telemetry_branch)`.
+devflow_telemetry_ref() {
+  printf 'refs/heads/%s\n' "$(devflow_telemetry_branch)"
 }
 
 # Verify an EXISTING ref is a telemetry store: its tip tree must hold only
@@ -160,7 +170,7 @@ devflow_telemetry_persist_tree() {
 
   local branch ref
   branch="$(devflow_telemetry_branch)"
-  ref="refs/heads/${branch}"
+  ref="$(devflow_telemetry_ref)"
 
   # Enumerate staged files (relative to staging_root). Builtin globbing via a
   # find-free recursive walk would need bash 4 globstar; instead use `git`'s own
@@ -217,26 +227,24 @@ devflow_telemetry_persist_tree() {
     mkdir -p "${root}/.devflow/tmp" 2>/dev/null || true
 
     # Build a tree of <new blobs on top of `parent_tip`> into the temp index.
-    # Echoes the resulting tree sha, or empty on failure.
+    # Echoes the resulting tree sha, or empty (non-zero rc) on failure. The whole
+    # body runs in a nested subshell so GIT_INDEX_FILE is scoped to it and cannot
+    # leak into the next commit_on call — no manual `unset` on each exit path.
     build_tree() {
-      local parent="$1" r blob
-      : > "$idx" 2>/dev/null || true
+      local parent="$1"
       rm -f "$idx" 2>/dev/null || true
-      export GIT_INDEX_FILE="$idx"
-      if [ -n "$parent" ]; then
-        git -C "$root" read-tree "$parent" 2>/dev/null || { unset GIT_INDEX_FILE; return 1; }
-      fi
-      for r in "${staged_rel[@]}"; do
-        if ! blob="$(git -C "$root" hash-object -w "${staging_root}/${r}" 2>/dev/null)"; then
-          unset GIT_INDEX_FILE; return 1
+      (
+        export GIT_INDEX_FILE="$idx"
+        local r blob
+        if [ -n "$parent" ]; then
+          git -C "$root" read-tree "$parent" 2>/dev/null || exit 1
         fi
-        git -C "$root" update-index --add --cacheinfo "100644,${blob},${r}" 2>/dev/null \
-          || { unset GIT_INDEX_FILE; return 1; }
-      done
-      git -C "$root" write-tree 2>/dev/null
-      r=$?
-      unset GIT_INDEX_FILE
-      return $r
+        for r in "${staged_rel[@]}"; do
+          blob="$(git -C "$root" hash-object -w "${staging_root}/${r}" 2>/dev/null)" || exit 1
+          git -C "$root" update-index --add --cacheinfo "100644,${blob},${r}" 2>/dev/null || exit 1
+        done
+        git -C "$root" write-tree 2>/dev/null || exit 1
+      )
     }
 
     commit_on() {  # $1 = parent tip (may be empty → orphan root); echoes new commit sha

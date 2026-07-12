@@ -507,20 +507,32 @@ def _index_efficiency(eff_dir, repo_root=None, branch=None):
     nothing and the legacy archive is used alone, AC17)."""
     by_key = {}   # (slug, run_id) -> entry ; insertion order preserved (branch overwrites in place)
 
+    def _ingest(text, stem, label):
+        """Parse one record's JSON text, shape it, and key it into by_key by
+        (slug, run_id). Warns and skips on a parse failure (a non-object / non-slug
+        record is silently skipped, as before). Shared by both sources so the
+        parse→entry→run_id→by_key tail is written once."""
+        try:
+            record = json.loads(text)
+        except json.JSONDecodeError:
+            _warn(f"skipping unreadable efficiency record {label}")
+            return
+        entry = _efficiency_entry(record, None)
+        if entry is None:
+            return
+        entry["run_id"] = _run_id_from_stem(stem, entry["slug"])
+        by_key[(entry["slug"], entry["run_id"])] = entry
+
     # (1) working-tree legacy archive.
     d = Path(eff_dir)
     if d.is_dir():
         for f in sorted(d.glob("*.json")):
             try:
-                record = json.loads(f.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+                text = f.read_text(encoding="utf-8")
+            except OSError:
                 _warn(f"skipping unreadable efficiency record {f}")
                 continue
-            entry = _efficiency_entry(record, None)
-            if entry is None:
-                continue
-            entry["run_id"] = _run_id_from_stem(f.stem, entry["slug"])
-            by_key[(entry["slug"], entry["run_id"])] = entry
+            _ingest(text, f.stem, f)
 
     # (2) telemetry-branch blobs — branch-wins (overwrites any same-key legacy entry).
     if repo_root is not None:
@@ -535,17 +547,7 @@ def _index_efficiency(eff_dir, repo_root=None, branch=None):
                 text = _git_show(repo_root, f"{br}:{path}")
                 if text is None:
                     continue
-                try:
-                    record = json.loads(text)
-                except json.JSONDecodeError:
-                    _warn(f"skipping unreadable telemetry-branch efficiency record {br}:{path}")
-                    continue
-                entry = _efficiency_entry(record, None)
-                if entry is None:
-                    continue
-                stem = Path(path).stem
-                entry["run_id"] = _run_id_from_stem(stem, entry["slug"])
-                by_key[(entry["slug"], entry["run_id"])] = entry   # branch wins
+                _ingest(text, Path(path).stem, f"{br}:{path}")
 
     index = {}
     for entry in by_key.values():
