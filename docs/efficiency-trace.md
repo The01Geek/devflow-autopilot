@@ -231,9 +231,11 @@ Best-effort persistence has a failure mode: when `/devflow:review-and-fix` is dr
 agent can follow the engine's *substance* (review, shadow, fixes) but silently drop the Loop Exit
 *bookkeeping* — the per-iteration workpad write, the record derivation, the durable copy, and the
 `chore:` persist commit. Nothing distinguishes "correctly persisted nothing because telemetry was
-off" from "silently forgot to persist," so the gap is invisible, and the lost *full* record can never
-be reconstructed (token/wall-clock telemetry is only capturable live; the Layer-3+ synthesis floor
-below recovers a minimal effectiveness skeleton from the fix commits, never that detail). Layered
+off" from "silently forgot to persist," so the gap is invisible, and the lost *full* record is not
+reconstructed by any shipped backstop (token/wall-clock telemetry is captured live — whether the
+harness's own output could reconstruct it is under empirical test, see the cost-half note below and
+issue #437; the Layer-3+ synthesis floor below recovers a minimal effectiveness skeleton from the fix
+commits, never that detail). Layered
 backstops close this, weakest to strongest — the deterministic backstop (Layer 3) and its synthesis
 floor (Layer 3+) are the actual guarantee; the others shrink the blast radius and provide a portable
 fallback.
@@ -242,11 +244,18 @@ fallback.
 design.** The **effectiveness** data — findings-per-agent, dispatch counts, verdicts, fix decisions —
 is in the agent's context during *any* run, including a hand-run; it is lost only because the
 `iter-<N>.json` write was optional, so it is made recoverable by turning that write into a
-**non-optional obligation** (see Layer 1). The **token/wall-clock cost** half is *live-only*: it can
-only be captured while the loop runs, so it is gone the moment the loop is abandoned and **no
-backstop can reconstruct it** — there is no deterministic guarantee for the cost half, only the
-probabilistic protection of keeping the loop running live. The emit-obligation guarantees the
-effectiveness half; it does **not** promise the cost half.
+**non-optional obligation** (see Layer 1). The **token/wall-clock cost** half is captured *live* by
+the running loop; when a loop is abandoned, no backstop DevFlow currently ships reconstructs it, so
+the emit-obligation guarantees the effectiveness half but does **not** promise the cost half — keep
+the loop running live to protect it. Whether an *agent-independent* floor **could** reconstruct the
+cost half from the harness's own output — `claude-code-action`'s `execution_file` and the `Stop`-hook
+transcript — was long asserted here as settled fact ("no backstop can reconstruct it"), but that
+assertion was never measured. Issue #437 replaced the assertion with a re-runnable probe
+([`.github/workflows/matcher-probe.yml`](../.github/workflows/matcher-probe.yml)) whose **observed**
+result is recorded in [`docs/execution-file-shape.md`](execution-file-shape.md): read that shape
+record — not this sentence — before deciding whether an agent-independent cost floor is buildable.
+Until the probe is dispatched the record honestly reads `unavailable` for every field (the
+unknown-is-not-zero rule), which is a *pending measurement*, not a proof of impossibility.
 
 **Layer 1 — wording (portable, agent-executed).** The SKILL.md Loop Exit persistence steps are
 marked **mandatory on every writable run**, and a `## Common Mistakes` entry names the
@@ -527,8 +536,11 @@ a promotion with no record of the shadow that produced it. When an `iter-<N>.jso
   evidence to synthesize from, so it is unrecoverable here — the fused Step 2.6 emit (mandatory on
   both termination paths, authored with the Write tool) is the primary fix and this floor is its
   backstop, not its equal. Like the iter floor, it recovers **attribution, not cost**: the
-  `step_2_6` token/wall figures remain live-only and cannot be reconstructed after the fact. Older
-  records without the marker remain valid.
+  `step_2_6` token/wall figures are captured live and no shipped backstop reconstructs them after the
+  fact. Whether the harness's own `execution_file`/transcript could supply an agent-independent cost
+  floor is no longer asserted here as settled — it is under empirical test by the issue #437 probe,
+  with the observed result recorded in [`docs/execution-file-shape.md`](execution-file-shape.md).
+  Older records without the marker remain valid.
 
 ## The unified experiment record (`experiment-records.jsonl`)
 

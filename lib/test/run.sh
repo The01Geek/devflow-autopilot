@@ -27443,6 +27443,100 @@ assert_pin_red_under "#431: open-state-pr.sh stages experiment-records.jsonl" \
   's#\.devflow/learnings/experiment-records\.jsonl##g' "$OSP_SH"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "extract-execution-shape.sh (#437 execution-file shape probe: redaction + present/absent/unavailable + encoding)"
+# ────────────────────────────────────────────────────────────────────────────
+# Best-effort read-only shape extractor for a claude-code-action execution_file.
+# Records per-field present/absent/unavailable + the top-level encoding, and emits a
+# REDACTED structural key→type set (every string leaf is dropped to the token
+# `string`). Always exits 0. Driven over checked-in fixtures in all three encodings.
+EES="$LIB/../scripts/extract-execution-shape.sh"
+EES_FIX="$LIB/test/fixtures"
+EES_TMP="$(mktemp -d)"
+: > "$EES_TMP/empty.json"   # zero-byte file (absent-content case)
+
+# --- exec-shape(present): a full fixture marks every field observed-present (AC3) ---
+EES_FULL="$(bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null)"
+assert_eq "#437 exec-shape(present): usage present"              "yes" \
+  "$(printf '%s' "$EES_FULL" | grep -qxF 'usage: present' && echo yes || echo no)"
+assert_eq "#437 exec-shape(present): wall_clock_timing present"  "yes" \
+  "$(printf '%s' "$EES_FULL" | grep -qxF 'wall_clock_timing: present' && echo yes || echo no)"
+assert_eq "#437 exec-shape(present): tool_use present"           "yes" \
+  "$(printf '%s' "$EES_FULL" | grep -qxF 'tool_use: present' && echo yes || echo no)"
+assert_eq "#437 exec-shape(present): subagent_type present"      "yes" \
+  "$(printf '%s' "$EES_FULL" | grep -qxF 'subagent_type: present' && echo yes || echo no)"
+assert_eq "#437 exec-shape(present): permission_denials present" "yes" \
+  "$(printf '%s' "$EES_FULL" | grep -qxF 'permission_denials: present' && echo yes || echo no)"
+
+# --- exec-shape(absent-vs-unavailable): the load-bearing distinction (AC3, AC4) ---
+# A result event present but WITHOUT usage → usage:absent (the field was genuinely
+# not carried). A file with NO result event, and an unparseable file → usage:
+# unavailable (we could not establish it). These must be DISTINGUISHABLE.
+EES_NOUSAGE="$(bash "$EES" "$EES_FIX/exec-shape-result-nousage.json" 2>/dev/null)"
+assert_eq "#437 exec-shape(absent-vs-unavailable): result-but-no-usage records absent" "yes" \
+  "$(printf '%s' "$EES_NOUSAGE" | grep -qxF 'usage: absent' && echo yes || echo no)"
+EES_NORESULT="$(bash "$EES" "$EES_FIX/exec-shape-noresult.json" 2>/dev/null)"
+assert_eq "#437 exec-shape(absent-vs-unavailable): no-result-event records unavailable" "yes" \
+  "$(printf '%s' "$EES_NORESULT" | grep -qxF 'usage: unavailable' && echo yes || echo no)"
+# absent ≠ unavailable proven distinguishable on the same field.
+assert_eq "#437 exec-shape(absent-vs-unavailable): no-result never reads 'absent'" "yes" \
+  "$(printf '%s' "$EES_NORESULT" | grep -qxF 'usage: absent' && echo no || echo yes)"
+# A no-result file marks EVERY field unavailable, never 0, never absent (AC4).
+for _fld in usage wall_clock_timing tool_use subagent_type permission_denials; do
+  assert_eq "#437 exec-shape(no-result): $_fld unavailable" "yes" \
+    "$(printf '%s' "$EES_NORESULT" | grep -qxF "$_fld: unavailable" && echo yes || echo no)"
+done
+
+# --- exec-shape(empty) / exec-shape(malformed): exit 0 + breadcrumb + all unavailable (AC4) ---
+bash "$EES" "$EES_TMP/empty.json" >/dev/null 2>&1
+assert_eq "#437 exec-shape(empty): exits 0 (best-effort contract)" "0" "$?"
+EES_EMPTY_ERR="$(bash "$EES" "$EES_TMP/empty.json" 2>&1 >/dev/null)"
+assert_eq "#437 exec-shape(empty): stderr breadcrumb names the degradation" "yes" \
+  "$(printf '%s' "$EES_EMPTY_ERR" | grep -qF 'extract-execution-shape' && echo yes || echo no)"
+EES_EMPTY="$(bash "$EES" "$EES_TMP/empty.json" 2>/dev/null)"
+assert_eq "#437 exec-shape(empty): encoding unavailable" "yes" \
+  "$(printf '%s' "$EES_EMPTY" | grep -qxF 'encoding: unavailable' && echo yes || echo no)"
+bash "$EES" "$EES_FIX/exec-shape-malformed.json" >/dev/null 2>&1
+assert_eq "#437 exec-shape(malformed): exits 0 (best-effort contract)" "0" "$?"
+EES_MAL="$(bash "$EES" "$EES_FIX/exec-shape-malformed.json" 2>/dev/null)"
+assert_eq "#437 exec-shape(malformed): usage unavailable" "yes" \
+  "$(printf '%s' "$EES_MAL" | grep -qxF 'usage: unavailable' && echo yes || echo no)"
+assert_eq "#437 exec-shape(malformed): encoding unavailable" "yes" \
+  "$(printf '%s' "$EES_MAL" | grep -qxF 'encoding: unavailable' && echo yes || echo no)"
+
+# --- exec-shape(redaction): the security boundary (AC2). The full fixture seeds a
+# fake secret, a long prompt body, and a hostile/attacker-controlled check-run name
+# as STRING LEAVES. Assert on the EMITTED BYTES that NONE of them survive — a test
+# that checks the filter's internals would prove nothing. ---
+for _leak in 'SECRET_sentinel_value' 'this is a long prompt body' 'DROP TABLE' 'onerror=alert'; do
+  assert_eq "#437 exec-shape(redaction): '$_leak' stripped from output" "yes" \
+    "$(printf '%s' "$EES_FULL" | grep -qF "$_leak" && echo no || echo yes)"
+done
+# The structural section still carries the KEY→type shape (redaction keeps structure).
+assert_eq "#437 exec-shape(redaction): structural key retained as type-only" "yes" \
+  "$(printf '%s' "$EES_FULL" | grep -qxF 'subagent_type: string' && echo yes || echo no)"
+
+# --- exec-shape(encodings): same logical content in array / object / JSONL yields the
+# same field determinations, confirming the three-encoding tolerance (AC5). The
+# `encoding:` line legitimately differs (it RECORDS which encoding was seen — that is
+# the whole point), so it is excluded from the identity comparison. ---
+_fields_of() { bash "$EES" "$1" 2>/dev/null | grep -E '^(usage|wall_clock_timing|tool_use|subagent_type|permission_denials): '; }
+EES_F_ARR="$(_fields_of "$EES_FIX/exec-shape-full-array.json")"
+EES_F_OBJ="$(_fields_of "$EES_FIX/exec-shape-full-object.json")"
+EES_F_JSONL="$(_fields_of "$EES_FIX/exec-shape-full-jsonl.json")"
+assert_eq "#437 exec-shape(encodings): array == object field determinations" "yes" \
+  "$([ "$EES_F_ARR" = "$EES_F_OBJ" ] && echo yes || echo no)"
+assert_eq "#437 exec-shape(encodings): array == jsonl field determinations" "yes" \
+  "$([ "$EES_F_ARR" = "$EES_F_JSONL" ] && echo yes || echo no)"
+# --- exec-shape(encoding recorded): each encoding is reported correctly (AC5) ---
+assert_eq "#437 exec-shape(encoding): array recorded" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qxF 'encoding: array' && echo yes || echo no)"
+assert_eq "#437 exec-shape(encoding): object recorded" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-full-object.json" 2>/dev/null | grep -qxF 'encoding: object' && echo yes || echo no)"
+assert_eq "#437 exec-shape(encoding): jsonl recorded" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-full-jsonl.json" 2>/dev/null | grep -qxF 'encoding: jsonl' && echo yes || echo no)"
+rm -rf "$EES_TMP"
+
+# ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 
