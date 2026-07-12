@@ -11,8 +11,9 @@ type: Added
   — dropping every string leaf so no prompt text, repository content, or attacker-controlled
   check-run name can leave a run. Repo-internal probe jobs in `matcher-probe.yml` feed a real
   cloud run's execution file through it (and probe whether a base-branch `Stop` hook fires under
-  `claude-code-action`), recording the observation in `docs/execution-file-shape.md` and replacing
+  `claude-code-action`); their observed result — currently pending first dispatch, recorded honestly
+  as `unavailable` per field — lands in `docs/execution-file-shape.md`, replacing
   the previously-unproven
   "the token/wall-clock cost half is unreconstructable" assertion in `docs/efficiency-trace.md`
-  with evidence. No runtime behavior changes — the helper is invoked only by the probe workflow
-  and its tests. (#437)
+  with a re-runnable, evidence-backed probe (no longer an assertion asserted as settled fact). No
+  runtime behavior changes — the helper is invoked only by the probe workflow and its tests. (#437)

@@ -154,7 +154,7 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
         or (has("duration_api_ms") and (.duration_api_ms != null)))) as $timing
     | (any($objs[]; .type? == "tool_use")) as $tooluse
     | (any($objs[]; has("subagent_type") and (.subagent_type != null))) as $subagent
-    | (any($objs[]; has("permission_denials"))) as $denials
+    | (any($objs[]; has("permission_denials") and (.permission_denials != null))) as $denials
     | det($has_result; $usage)    as $u
     | det($has_result; $timing)   as $w
     | det($has_result; $tooluse)  as $t

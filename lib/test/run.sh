@@ -27500,6 +27500,27 @@ for _fld in usage wall_clock_timing tool_use subagent_type permission_denials; d
     "$(printf '%s' "$EES_NORESULT" | grep -qxF "$_fld: unavailable" && echo yes || echo no)"
 done
 
+# --- exec-shape(null-fields): the valid-falsy adversarial row (CLAUDE.md best-effort-parser
+# convention). A result event whose usage/duration/subagent_type/permission_denials are
+# explicit JSON null must record `absent`, never `present` — the `has(X) and (.X != null)`
+# guard is what enforces it, and dropping the `!= null` operand would flip these to present.
+EES_NULLF="$(bash "$EES" "$EES_FIX/exec-shape-result-nullfields.json" 2>/dev/null)"
+for _nfld in usage wall_clock_timing subagent_type permission_denials; do
+  assert_eq "#437 exec-shape(null-fields): explicit-null $_nfld records absent (valid-falsy row)" "yes" \
+    "$(printf '%s' "$EES_NULLF" | grep -qxF "$_nfld: absent" && echo yes || echo no)"
+done
+
+# --- exec-shape(scalar): a top-level JSON scalar (not an execution log) is its own parse
+# branch, distinct from unparseable and no-result — it must record encoding: unavailable and
+# all fields unavailable, never a fabricated array/object encoding (AC4/AC5). ---
+bash "$EES" "$EES_FIX/exec-shape-scalar.json" >/dev/null 2>&1
+assert_eq "#437 exec-shape(scalar): exits 0 (best-effort contract)" "0" "$?"
+EES_SCALAR="$(bash "$EES" "$EES_FIX/exec-shape-scalar.json" 2>/dev/null)"
+assert_eq "#437 exec-shape(scalar): encoding unavailable" "yes" \
+  "$(printf '%s' "$EES_SCALAR" | grep -qxF 'encoding: unavailable' && echo yes || echo no)"
+assert_eq "#437 exec-shape(scalar): usage unavailable" "yes" \
+  "$(printf '%s' "$EES_SCALAR" | grep -qxF 'usage: unavailable' && echo yes || echo no)"
+
 # --- exec-shape(empty) / exec-shape(malformed): exit 0 + breadcrumb + all unavailable (AC4) ---
 bash "$EES" "$EES_TMP/empty.json" >/dev/null 2>&1
 assert_eq "#437 exec-shape(empty): exits 0 (best-effort contract)" "0" "$?"
