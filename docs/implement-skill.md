@@ -191,9 +191,13 @@ permission/sandbox denial is **not** the local-tier permission classifier and is
 leave the instrumented loop and hand-run the engine — on the implement job `Skill`, `Agent`, `Write`,
 `efficiency-trace.sh`, `workpad.py`, and `config-get.sh` are all allowlisted, so the loop is navigable,
 not blocked. This makes only the **effectiveness** half of the telemetry (dispatch/findings/verdicts)
-recoverable on a degraded run; the **token/wall-clock cost** half is *live-only* — it cannot be
-reconstructed once the loop is abandoned, so it carries no deterministic guarantee, only the
-probabilistic protection of staying on the loop. Note the deliberate implement-vs-runner asymmetry:
+recoverable on a degraded run; the **token/wall-clock cost** half is captured *live* by the loop, and
+**no backstop DevFlow currently ships reconstructs it** once the loop is abandoned — so today it
+carries no deterministic guarantee, only the probabilistic protection of staying on the loop. (That
+is a gap in what is built, **not** a limit of the platform: issue #437 observed that both the cloud
+`execution_file` and the local `Stop` transcript *do* carry the tokens, wall-clock, and dispatch
+roster with zero agent cooperation — see [`docs/execution-file-shape.md`](execution-file-shape.md).
+An agent-independent cost floor is buildable; it simply has not been built yet.) Note the deliberate implement-vs-runner asymmetry:
 the read-only `review` runner uses `--permission-mode acceptEdits`, but `/devflow:implement` does
 **not** — friction at the seam is reduced by single-statement leading-token helper forms and the Write
 tool for scratch, never by widening the permission grant.

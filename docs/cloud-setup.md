@@ -731,9 +731,13 @@ matter for the cloud tier:
   `efficiency-trace.sh`, `workpad.py`, and `config-get.sh` are all allow-listed, so the loop is
   navigable, not blocked. This guarantees the **effectiveness** half of the telemetry
   (dispatch counts, findings, verdicts, fix decisions) is captured even on a degraded run. The
-  **token/wall-clock cost** half is *live-only* — it cannot be reconstructed once the loop is
-  abandoned, so it has **no deterministic guarantee**; keeping the loop live is its only (probabilistic)
-  protection.
+  **token/wall-clock cost** half is captured *live* by the loop, and **no backstop DevFlow currently
+  ships reconstructs it** once the loop is abandoned — so today it has **no deterministic guarantee**
+  and keeping the loop live is its only (probabilistic) protection. That is a gap in what is built,
+  **not** a limit of the platform: issue #437 observed that the cloud `execution_file` and the local
+  `Stop` transcript both carry the tokens, wall-clock, and dispatch roster with zero agent
+  cooperation (see [`docs/execution-file-shape.md`](execution-file-shape.md)), so an
+  agent-independent cost floor is buildable — it has simply not been built yet.
 - **Implement-vs-runner `--permission-mode` asymmetry.** The read-only `review` runner
   (`devflow-runner.yml`) launches Claude with `--permission-mode acceptEdits`; the
   `/devflow:implement` job (`devflow-implement.yml`) deliberately does **not**. So the implement seam
