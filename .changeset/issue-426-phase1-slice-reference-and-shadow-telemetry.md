@@ -12,9 +12,10 @@ type: Changed
   redirect rather than `| tee`, so the slice is never echoed to the orchestrator's stdout), and
   Phase 1.2 passes the `devflow:checklist-generator` the slice's *path* instead of inline content
   (the `{DIFF_PATH}` handoff Phase 3 already uses), so the slice never transits the orchestrator's
-  context. A guard-class-2 `test -s` non-empty check falls back to the full `diff.patch` path on any
-  empty/absent slice (coverage preserved, never a thinned review surface); the single-batch case
-  passes `diff.patch` directly. (2) `skills/review-and-fix/SKILL.md` Step 2.6 makes writing the
+  context. The slice is gated on the authoring command's **own exit status** plus a guard-class-2
+  `test -s` non-empty check, and any observable slice-authoring failure — a non-zero `awk`/redirect
+  exit, or a missing/empty slice — falls back to the full `diff.patch` path for that batch (coverage
+  preserved, savings forfeited); the single-batch case passes `diff.patch` directly. (2) `skills/review-and-fix/SKILL.md` Step 2.6 makes writing the
   shadow workpad block (with its `step_2_6` telemetry) a single non-optional Write-tool obligation
   fused to the pass's termination, covering **both** paths — Parse-and-compare completion and the
   honest-degradation fail-safe (an outcome-3 pass writes its `not_verified` block before taking

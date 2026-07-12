@@ -15270,6 +15270,22 @@ printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_G/i
 ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_G" --slug pr-1 ) >/dev/null 2>&1
 assert_eq "et-shadow-floor(g): a non-object (malformed) .shadow is left untouched, not overwritten (fail-closed)" "APPROVE" \
   "$(jq -r '.shadow' "$SHF_G/iter-1.json" 2>/dev/null)"
+# (g2) the VALID-FALSY row of the adversarial matrix CLAUDE.md requires for a parser: a `.shadow`
+# of `false` / `0` / `""` is PRESENT but falsy. The guard keys on `.shadow == null`, so each is
+# correctly left untouched — but an `if .shadow then …` / `// ` style rewrite (the documented
+# valid-falsy coercion bug) would treat all three as absent and CLOBBER a real block. Fixture (g)
+# covers only a truthy non-object string, which such a rewrite would still skip; only these rows
+# distinguish the two guards.
+for _fv in 'false' '0' '""'; do
+  _slug="$(printf '%s' "$_fv" | tr -d '"')"; _slug="${_slug:-emptystr}"
+  SHF_G2="$SHF_REPO/.devflow/tmp/review/pr-1/run-g2-$_slug"
+  mkdir -p "$SHF_G2"
+  printf '{"iter":1,"source":"review-and-fix","loop_role":"fix","shadow":%s}' "$_fv" > "$SHF_G2/iter-1.json"
+  printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_G2/iter-2.json"
+  ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_G2" --slug pr-1 ) >/dev/null 2>&1
+  assert_eq "et-shadow-floor(g2): a valid-falsy .shadow ($_fv) is PRESENT, so it is left untouched (never coerced to absent and clobbered)" "no" \
+    "$(jq -e '.shadow.shadow_synthesized == true' "$SHF_G2/iter-1.json" >/dev/null 2>&1 && echo yes || echo no)"
+done
 # (h) telemetry gate (lib/efficiency-trace.sh: `[ "$ENABLED" = "true" ] && synthesize_shadow_markers`
 # in persist_one): with efficiency_telemetry_enabled=false the floor does NOT run even on genuine
 # promotion evidence — a synthesized marker is a telemetry artifact, so a telemetry-disabled repo
@@ -15386,11 +15402,61 @@ assert_pin_red_under "#426 T1: Phase 1.2 slice-path handoff flips RED when the i
   'The diff you must analyze is cached on disk. Read it directly with your Read tool' \
   's/The diff you must analyze is cached on disk\. Read it directly with your Read tool/Here is the git diff for this PR inline/' \
   "$ST_REV"
-# T2 → fail-closed fallback: the mutation re-introduces the empty-review-surface
-# regression (proceed with the empty slice) the fallback exists to prevent.
-assert_pin_red_under "#426 T2: Phase 1.1 fail-closed full-diff fallback flips RED when it is dropped for an empty-slice proceed" \
-  'missing or empty, fall back to passing the full' \
-  's/missing or empty, fall back to passing the full/missing or empty, proceed with the empty slice instead of the full/' \
+# T2 → fail-closed fallback: the mutation re-introduces the thinned-review-surface
+# regression (proceed with the failed/empty slice) the fallback exists to prevent.
+assert_pin_red_under "#426 T2: Phase 1.1 fail-closed full-diff fallback flips RED when it is dropped for a failed-slice proceed" \
+  'or a missing/empty slice — fall back to passing the full' \
+  's|or a missing/empty slice — fall back to passing the full|or a missing/empty slice — proceed with the failed slice instead of the full|' \
+  "$ST_REV"
+# T2b → the slice guard must key on the AUTHORING COMMAND'S OWN EXIT STATUS, not on an
+# output-shape proxy. `test -s` alone answers "is the file non-empty?", which is a strictly
+# WIDER accepted set than "did awk write the whole slice?": a partial write (ENOSPC, quota,
+# a killed awk) leaves a NON-EMPTY but TRUNCATED slice that `test -s` waves through, and the
+# batch then reviews a thinned surface with the missing files silently unrepresented — the
+# guard failing open exactly where it claims to fail closed (CLAUDE.md's guard/consumer-
+# contract rule; the sibling synthesize_shadow_markers already gates on jq's rc, not on the
+# shape of its output). Pin the &&-chained rc gate; the mutation drops it back to the
+# proxy-only form, which is precisely the regression.
+assert_pin_red_under "#426 T2b: Phase 1.1 gates the slice on awk's OWN exit status (rc), not on the test -s output-shape proxy alone" \
+  'batch-1.patch && test -s' \
+  's/batch-1\.patch && test -s/batch-1.patch; test -s/' \
+  "$ST_REV"
+# The awk range expression is the one piece of genuinely-executable new logic in Phase 1.1,
+# and a presence-only prose pin cannot catch an off-by-one in `n>=s && n<=e` (or in the
+# s=(k-1)*10+1 / e=k*10 batch arithmetic). Execute the SKILL's own expression against a
+# synthetic 25-section patch and assert batch k=2 yields EXACTLY sections 11..20 — boundary
+# headers included, neighbours excluded. This converts reviewer-read into a regression guard.
+AWKB="$(probe_tmp '#426 awk batch-slice fixture')"
+: > "$AWKB.patch"
+for _i in $(seq 1 25); do
+  printf 'diff --git a/f%s.txt b/f%s.txt\n--- a/f%s.txt\n+++ b/f%s.txt\n+line for f%s\n' "$_i" "$_i" "$_i" "$_i" "$_i" >> "$AWKB.patch"
+done
+# Execute the SKILL's OWN awk program (extracted from the Phase 1.1 fence), not a copy of it:
+# a hardcoded duplicate here would keep passing while the shipped expression drifted. Assert the
+# extraction resolved before using it, so a fence rename can never silently degrade this into a
+# vacuous run of an empty program.
+AWK_PROG="$(sed -n "s/.*awk -v s=1 -v e=10 '\([^']*\)'.*/\1/p" "$ST_REV" | head -1)"
+assert_eq "#426 awk slice: the Phase 1.1 awk program resolves out of the SKILL fence (fixture is not vacuous)" \
+  '/^diff --git/{n++} n>=s && n<=e' "$AWK_PROG"
+awk -v s=11 -v e=20 "$AWK_PROG" "$AWKB.patch" > "$AWKB.batch2"
+assert_eq "#426 awk slice: batch k=2 yields exactly 10 diff --git sections" "10" \
+  "$(grep -c '^diff --git' "$AWKB.batch2")"
+assert_eq "#426 awk slice: batch k=2's FIRST section is f11 (lower boundary included, f10 excluded)" "diff --git a/f11.txt b/f11.txt" \
+  "$(grep -m1 '^diff --git' "$AWKB.batch2")"
+assert_eq "#426 awk slice: batch k=2's LAST section is f20 (upper boundary included, f21 excluded)" "diff --git a/f20.txt b/f20.txt" \
+  "$(grep '^diff --git' "$AWKB.batch2" | tail -1)"
+assert_eq "#426 awk slice: a neighbouring batch's file (f21) never leaks into batch k=2" "no" \
+  "$(grep -qF 'line for f21' "$AWKB.batch2" && echo yes || echo no)"
+assert_eq "#426 awk slice: each section's BODY travels with its header (f11's content is present, not just the header)" "yes" \
+  "$(grep -qF 'line for f11' "$AWKB.batch2" && echo yes || echo no)"
+rm -f "$AWKB.patch" "$AWKB.batch2" "$AWKB"
+# T2c → the single-batch branch (the other half of the batching selection): a ≤10-file run
+# writes NO slice file and hands the generator the cached full diff path directly. Unpinned,
+# a future edit could make the single-batch case author a needless slice (re-introducing an
+# awk dependency on the common path) with every other pin still green.
+assert_pin_red_under "#426 T2c: the single-batch branch passes diff.patch directly and writes NO slice file" \
+  'directly — **write no slice file.**' \
+  's/directly — \*\*write no slice file\.\*\*/directly, after authoring a batch-1 slice file./' \
   "$ST_REV"
 # T3 → blinding boundary: the mutation inverts the workpad prohibition (the leak
 # channel the contract closes).
@@ -23412,12 +23478,12 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last change: #426 Phase 1.1's awk batch-slice authoring, a >-redirect not tee)" \
-  "103" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last change: #426 Phase 1.1's awk batch-slice fence, an &&-chained rc gate: awk >-redirect + test -s + echo/echo)" \
+  "106" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
-assert_eq "#363 the review-skill head set matches the reviewed count (29 distinct names; +stale-prose-lint.py at #423)" \
-  "29" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (30 distinct names; +echo at #426, the slice fence's rc-gate result marker)" \
+  "30" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 
