@@ -27727,10 +27727,15 @@ assert_eq "#437 exec-shape(denials): valid-falsy count:0 stays 'absent' (refused
 assert_eq "#437 exec-shape(denials): a digit-STRING count ('3') reports 'present'" "yes" \
   "$(bash "$EES" "$EES_FIX/exec-shape-denials-countstring.json" 2>/dev/null | grep -qxF 'permission_denials: present' && echo yes || echo no)"
 
-# Timing has FOUR observed carriers. Keying on duration_ms/duration_api_ms alone would record
-# a definitive `absent` for a future action version that emits timing only via ttft_ms/end_time.
-assert_eq "#437 exec-shape(timing): ttft_ms/end_time-only run reports 'present', not 'absent'" "yes" \
+# Timing has FOUR observed carriers, and each is pinned by its OWN single-carrier fixture. A
+# fixture supplying two carriers at once cannot catch a regression that drops just one of them —
+# it stays green on the surviving operand. So: duration_api_ms (existing), ttft_ms, end_time each
+# alone must report `present`, or a future action emitting only that one reads as a definitive
+# `absent` about a run that carried timing.
+assert_eq "#437 exec-shape(timing): ttft_ms ALONE reports 'present', not 'absent'" "yes" \
   "$(bash "$EES" "$EES_FIX/exec-shape-timing-ttftonly.json" 2>/dev/null | grep -qxF 'wall_clock_timing: present' && echo yes || echo no)"
+assert_eq "#437 exec-shape(timing): end_time ALONE reports 'present', not 'absent'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-timing-endtimeonly.json" 2>/dev/null | grep -qxF 'wall_clock_timing: present' && echo yes || echo no)"
 
 # AC2 SECURITY BOUNDARY, key position. Values are already type-reduced, so a KEY is the only
 # remaining channel for untrusted bytes. The observed schema puts nothing untrusted in keys —
@@ -27744,6 +27749,22 @@ assert_eq "#437 exec-shape(redaction): hostile key CONTENT never reaches the emi
 # everything would be "safe" and useless.
 assert_eq "#437 exec-shape(redaction): ordinary schema keys still emitted verbatim" "yes" \
   "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key.json" 2>/dev/null | grep -qxF 'duration_ms: number' && echo yes || echo no)"
+# AC2 is an encoding-INDEPENDENT boundary: the hostile-key arm was previously proven on the array
+# encoding only, so a redaction bug reachable through the object or jsonl path would have shipped.
+for _enc in object jsonl; do
+  assert_eq "#437 exec-shape(redaction): hostile key content never escapes via the $_enc encoding" "yes" \
+    "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key-$_enc.json" 2>/dev/null | grep -qiE 'SECRET_key_sentinel|ignore previous instructions' && echo no || echo yes)"
+  assert_eq "#437 exec-shape(redaction): hostile key IS redacted via the $_enc encoding" "yes" \
+    "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key-$_enc.json" 2>/dev/null | grep -qF '<redacted-key>' && echo yes || echo no)"
+done
+
+# A count carrier that is PRESENT but UNPARSEABLE (the literal "unavailable") was never
+# established — it must NOT collapse onto `absent` ("the harness does not carry denials"). This is
+# the unknown-is-not-zero rule applied to the count itself, and it is the rule this helper exists
+# to honor; the fact that the live probe cannot produce this shape today is not a licence to break
+# it (CLAUDE.md documents that permission_denials_count publishes exactly this literal).
+assert_eq "#437 exec-shape(denials): a present-but-unparseable count is 'unavailable', NOT 'absent'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-countbad.json" 2>/dev/null | grep -qxF 'permission_denials: unavailable' && echo yes || echo no)"
 
 # STATED LIMITATION (pinned so it stays known, not surprising): a single-event JSONL file is
 # byte-identical to a single top-level object, so it records `encoding: object`. Field

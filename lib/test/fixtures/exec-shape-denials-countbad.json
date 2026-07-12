@@ -11,6 +11,7 @@
  {
   "type": "result",
   "subtype": "success",
-  "ttft_ms": 340
+  "duration_ms": 900,
+  "permission_denials_count": "unavailable"
  }
 ]

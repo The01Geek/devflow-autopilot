@@ -11,6 +11,6 @@
  {
   "type": "result",
   "subtype": "success",
-  "ttft_ms": 340
+  "end_time": 340
  }
 ]

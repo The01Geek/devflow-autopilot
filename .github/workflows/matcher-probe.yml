@@ -470,7 +470,9 @@ jobs:
   # `steps.claude.outputs.execution_file` is fed through scripts/extract-execution-shape.sh,
   # which emits a REDACTED shape record (per-field present/absent/unavailable + the
   # top-level encoding + a key→type structural set; every string VALUE leaf is dropped —
-  # object KEYS are emitted verbatim, which is safe only because they are fixed schema
+  # object KEYS are fail-closed filtered (`safekey`: emitted verbatim only when bounded-length
+  # and identifier-shaped, else `<redacted-key>`), so an unrecognized key loses its name rather
+  # than leaking its content. The observed schema keys are fixed schema
   # field names; untrusted content lives in value positions). ONLY
   # that redacted record is uploaded — the raw execution file, which can carry prompt
   # text, repo content, and attacker-controlled check-run names, NEVER leaves the run

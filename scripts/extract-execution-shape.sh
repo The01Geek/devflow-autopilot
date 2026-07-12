@@ -25,9 +25,19 @@
 # bytes), and no scalar value is ever printed. What ships to a maintainer's artifact
 # download is the SHAPE (each object's immediate keys + value types), never the content.
 # Scope note: redaction targets string *values* (the leaves that carry prompt/repo/
-# check-run content in the observed claude-code-action schema); object *keys* are the
-# fixed schema field names and are emitted verbatim — no field in the observed schema
-# places untrusted content in a key position.
+# check-run content in the observed claude-code-action schema). Object *keys* are the
+# fixed schema field names, and in the observed schema no field places untrusted content
+# in a key position — but that schema is NOT a contract, so keys are not simply trusted:
+# each key is fail-closed filtered by `safekey` (see the jq pass below) and emitted
+# verbatim ONLY if it is bounded-length (<=64) and identifier-shaped
+# (`^[A-Za-z_][A-Za-z0-9_.-]*$`); anything else becomes the constant `<redacted-key>`, so
+# an unrecognized key loses its NAME rather than leaking its CONTENT.
+# ACCEPTED RESIDUAL (deliberate, not an oversight): a future single-token secret that is
+# itself identifier-shaped and short (e.g. `sk_live_abc123`) would satisfy `safekey` and be
+# emitted. Allow-listing known schema keys instead would fail closed on every genuinely NEW
+# field — which is exactly what this probe exists to discover — so the record would go blind
+# to schema growth. The length+charset cap is the chosen trade; re-evaluate it if a future
+# action version ever places content in a key position.
 #
 # ENCODING TOLERANCE (issue #437 AC5). claude-code-action's execution_file schema is
 # not a public contract, and scripts/surface-execution-diagnostics.sh / parse-engine-error.sh
@@ -36,7 +46,12 @@
 #   - array : a single top-level JSON array of stream events
 #   - object: a single top-level JSON result object
 #   - jsonl : one JSON object per line
-#   - unavailable: the file is absent/empty/unparseable (never conflated with "absent")
+#   - unavailable: the file is absent/empty/unparseable, OR its top level is a bare scalar
+#                  (a number/string/bool/null is not an execution log, so no encoding is
+#                  invented for it) — never conflated with "absent"
+# Known ambiguity: a single-event JSONL file is byte-identical to a single top-level object
+# and records `object`. Undecidable in the input, not a detector defect; field determinations
+# are unaffected (the slurp normalizes all three), and lib/test/run.sh pins it.
 #
 # FIELD DETERMINATION (issue #437 AC3/AC4). For each field the record states one of:
 #   - present     : observed in the parsed file
@@ -192,14 +207,28 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
     # denials — the same wrong-direction misreport, one type over. Normalize both to a
     # number first; a non-digit string (the literal "unavailable") normalizes to null,
     # which is correctly NOT a presence signal.
-    | (any($objs[];
-        (has("permission_denials") and (.permission_denials != null))
-        or (((.permission_denials_count? | if type == "string" then (tonumber? // null) else numbers end) // 0) > 0))) as $denials
+    # Tri-state, not a boolean: a count carrier that is PRESENT but UNPARSEABLE (the literal
+    # "unavailable", any non-digit string) means the count was never established. Folding that
+    # onto `absent` would assert "the harness does not carry denials" about a run whose denial
+    # count we simply could not read — the unknown-is-not-zero rule, which is the rule this whole
+    # helper exists to honor. So it resolves to `unavailable` instead.
+    | (if (any($objs[]; has("permission_denials") and (.permission_denials != null)))
+       then "present"
+       else
+         ([ $objs[] | select(has("permission_denials_count")) | .permission_denials_count ]) as $counts
+         | if ($counts | length) == 0 then det($has_result; false)
+           else
+             ([ $counts[] | (if type == "string" then (tonumber? // null) else numbers end) ]
+              | map(select(. != null))) as $nums
+             | if   ($nums | length) == 0 then "unavailable"
+               elif ($nums | max) > 0     then "present"
+               else "absent" end
+           end
+       end) as $p
     | det($has_result; $usage)    as $u
     | det($has_result; $timing)   as $w
     | det($has_result; $tooluse)  as $t
     | det($has_result; $subagent) as $s
-    | det($has_result; $denials)  as $p
     # KEY REDACTION — fail closed. Values are already reduced to their `type`, so the only
     # remaining channel by which untrusted bytes could reach the artifact is a KEY position.
     # The observed schema puts nothing untrusted in keys, but that schema is explicitly NOT a
