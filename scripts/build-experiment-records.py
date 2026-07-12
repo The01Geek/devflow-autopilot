@@ -537,17 +537,30 @@ def _index_efficiency(eff_dir, repo_root=None, branch=None):
     # (2) telemetry-branch blobs — branch-wins (overwrites any same-key legacy entry).
     if repo_root is not None:
         br = branch or _telemetry_branch(repo_root)
-        rc, out, _ = _run([GIT, "-C", str(repo_root), "ls-tree", "-r", "--name-only",
-                           br, "--", ".devflow/logs/efficiency/"])
-        if rc == 0 and out.strip():
-            for path in out.splitlines():
-                path = path.strip()
-                if not path.endswith(".json"):
-                    continue
-                text = _git_show(repo_root, f"{br}:{path}")
-                if text is None:
-                    continue
-                _ingest(text, Path(path).stem, f"{br}:{path}")
+        # Does the branch exist at all? An ABSENT branch (a not-yet-upgraded repo) is
+        # the ordinary case — read the legacy archive alone, silently. Distinguish it
+        # from a PRESENT branch whose tree can't be read (corrupt/packed object store,
+        # a ref lock, a permissions blip): only the latter warns, so a failed read is
+        # never laundered into the measured-absence the downstream provenance stamps
+        # `efficiency: absent`. (A bare `rc != 0` from ls-tree cannot tell the two
+        # apart — an absent ref also exits non-zero — so gate on ref existence first.)
+        rc_v, _, _ = _run([GIT, "-C", str(repo_root), "rev-parse", "--verify", "--quiet", f"{br}^{{commit}}"])
+        if rc_v == 0:
+            rc, out, err = _run([GIT, "-C", str(repo_root), "ls-tree", "-r", "--name-only",
+                                 br, "--", ".devflow/logs/efficiency/"])
+            if rc != 0:
+                _warn(f"branch {br} exists but its .devflow/logs/efficiency/ tree could not be read "
+                      f"(ls-tree rc={rc}): {(err or '').strip()[:160]} — telemetry-branch cost rows "
+                      f"unestablished for this run")
+            elif out.strip():
+                for path in out.splitlines():
+                    path = path.strip()
+                    if not path.endswith(".json"):
+                        continue
+                    text = _git_show(repo_root, f"{br}:{path}")
+                    if text is None:
+                        continue
+                    _ingest(text, Path(path).stem, f"{br}:{path}")
 
     index = {}
     for entry in by_key.values():

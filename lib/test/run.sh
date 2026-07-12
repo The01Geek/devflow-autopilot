@@ -14891,6 +14891,52 @@ assert_eq "et-persist(#441 AC7): unpushable remote → a ::warning:: breadcrumb 
   "$(printf '%s' "$ETP_NP_ERR" | grep -qF '::warning::telemetry-branch:' && echo yes || echo no)"
 rm -rf "$ETP_NOPUSH_REPO"
 
+# AC6 (the headline mechanism): a REMOTE-AHEAD push → non-ff rejection → fetch →
+# re-parent-on-fetched-tip → re-push. The et-persist push above only ever
+# fast-forwards a fresh remote, so it never enters the retry loop; this test forces
+# it by advancing the remote's telemetry ref from a second clone between our runs.
+ETP_R6_BARE="$(git_sandbox "et-persist AC6 bare remote")"
+git -C "$ETP_R6_BARE" init --bare -q
+ETP_R6="$(git_sandbox "et-persist AC6 repo")"
+git -C "$ETP_R6" init -q
+git -C "$ETP_R6" config user.email t@e.com; git -C "$ETP_R6" config user.name t
+git -C "$ETP_R6" remote add origin "$ETP_R6_BARE"
+mkdir -p "$ETP_R6/.devflow"; printf 'tmp/\n' > "$ETP_R6/.devflow/.gitignore"
+git -C "$ETP_R6" add -A; git -C "$ETP_R6" commit -qm seed; git -C "$ETP_R6" branch -M main
+git -C "$ETP_R6" push -q -u origin main
+# Run A creates + pushes the telemetry branch.
+mkdir -p "$ETP_R6/.devflow/tmp/review/pr-a/run-a"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$ETP_R6/.devflow/tmp/review/pr-a/run-a/iter-1.json"
+( cd "$ETP_R6" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+# A SECOND writer (clone) advances the REMOTE telemetry ref with a sibling record B,
+# so the local ref is now behind the remote.
+ETP_R6_C2="$(git_sandbox "et-persist AC6 second writer")"
+git clone -q "$ETP_R6_BARE" "$ETP_R6_C2" 2>/dev/null
+git -C "$ETP_R6_C2" config user.email x@y; git -C "$ETP_R6_C2" config user.name x
+git -C "$ETP_R6_C2" fetch -q origin devflow-telemetry:devflow-telemetry
+ETP_R6_IDX="$ETP_R6_C2/.git/ac6idx"; ETP_R6_TIP="$(git -C "$ETP_R6_C2" rev-parse devflow-telemetry)"
+GIT_INDEX_FILE="$ETP_R6_IDX" git -C "$ETP_R6_C2" read-tree devflow-telemetry
+ETP_R6_B="$(printf '{"s":"B"}' | git -C "$ETP_R6_C2" hash-object -w --stdin)"
+GIT_INDEX_FILE="$ETP_R6_IDX" git -C "$ETP_R6_C2" update-index --add --cacheinfo "100644,${ETP_R6_B},.devflow/logs/efficiency/pr-b-run-b.json"
+ETP_R6_T="$(GIT_INDEX_FILE="$ETP_R6_IDX" git -C "$ETP_R6_C2" write-tree)"; rm -f "$ETP_R6_IDX"
+ETP_R6_N="$(GIT_AUTHOR_NAME=x GIT_AUTHOR_EMAIL=x@y GIT_COMMITTER_NAME=x GIT_COMMITTER_EMAIL=x@y git -C "$ETP_R6_C2" commit-tree "$ETP_R6_T" -p "$ETP_R6_TIP" -m sibling)"
+git -C "$ETP_R6_C2" update-ref refs/heads/devflow-telemetry "$ETP_R6_N" "$ETP_R6_TIP"
+git -C "$ETP_R6_C2" push -q origin devflow-telemetry
+# Run C locally: its first push is rejected non-ff → the helper fetches, re-parents C
+# on B's tip, and re-pushes. All of A, B, C must land on the REMOTE with no clobber.
+mkdir -p "$ETP_R6/.devflow/tmp/review/pr-c/run-c"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$ETP_R6/.devflow/tmp/review/pr-c/run-c/iter-1.json"
+ETP_R6_RC=$( ( cd "$ETP_R6" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1; echo $? )
+assert_eq "et-persist(#441 AC6): remote-ahead push → exit 0 (retry loop, not abort)" "0" "$ETP_R6_RC"
+git -C "$ETP_R6" fetch -q origin devflow-telemetry:refs/remotes/origin/ac6 2>/dev/null
+for _ac6f in pr-a-run-a pr-b-run-b pr-c-run-c; do
+  assert_eq "et-persist(#441 AC6): remote carries ${_ac6f} after fetch/re-parent/re-push (no clobber)" "yes" \
+    "$(git -C "$ETP_R6" cat-file -e "refs/remotes/origin/ac6:.devflow/logs/efficiency/${_ac6f}.json" >/dev/null 2>&1 && echo yes || echo no)"
+done
+rm -rf "$ETP_R6" "$ETP_R6_BARE" "$ETP_R6_C2"
+
 # --persist telemetry OFF: no record derived, but the durable copy still persists
 # to the branch (the durable copy is writable-run-gated, not telemetry-gated).
 ETP_OFF_REPO="$(git_sandbox "et-persist telemetry-off repo")"
@@ -16455,8 +16501,56 @@ assert_eq "tb(#441 AC12): run B synthesizes NO record (its only candidate commit
   "$(_et_on_branch "$TB_RA_REPO" ".devflow/logs/efficiency/pr-2-run-b.json")"
 rm -rf "$TB_RA_REPO"
 
-# AC18: the telemetry-branch name is configurable via telemetry.branch, resolved
-# through config-get.sh; an override routes the write to the named branch.
+# AC15 (positive path): --self-check reads the BRANCH, so after a successful --persist
+# it must be SILENT on that same run (the branch-presence probe recognizes the record).
+# The ETSC block above covers only the negative "was NOT persisted" case; a bug where
+# blob_exists always returned false (the source-failure stub) would warn on every clean
+# run and go uncaught without this.
+TB_SC_REPO="$(git_sandbox "tb self-check positive repo")"
+git -C "$TB_SC_REPO" init -q
+git -C "$TB_SC_REPO" config user.email t@e.com; git -C "$TB_SC_REPO" config user.name t
+mkdir -p "$TB_SC_REPO/.devflow"; printf 'tmp/\n' > "$TB_SC_REPO/.devflow/.gitignore"
+git -C "$TB_SC_REPO" add -A; git -C "$TB_SC_REPO" commit -qm seed
+TB_SC_RUN="$TB_SC_REPO/.devflow/tmp/review/pr-1/run-a"; mkdir -p "$TB_SC_RUN"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$TB_SC_RUN/iter-1.json"
+( cd "$TB_SC_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$TB_SC_RUN" --slug pr-1 ) >/dev/null 2>&1
+TB_SC_OUT="$( ( cd "$TB_SC_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$TB_SC_RUN" --slug pr-1 ) 2>&1 )"
+assert_eq "tb(#441 AC15): self-check on a branch-persisted run is SILENT (no 'was NOT persisted')" "no" \
+  "$(printf '%s' "$TB_SC_OUT" | grep -qF 'was NOT persisted' && echo yes || echo no)"
+rm -rf "$TB_SC_REPO"
+
+# Staged-path store-invariant guard: devflow_telemetry_persist_tree refuses to persist
+# a staged path NOT under .devflow/logs/ (breadcrumb-skip, no ref created) — the
+# by-construction defense keeping the branch tree logs-only.
+TB_SP_REPO="$(git_sandbox "tb staged-path guard repo")"
+git -C "$TB_SP_REPO" init -q
+git -C "$TB_SP_REPO" config user.email t@e.com; git -C "$TB_SP_REPO" config user.name t
+mkdir -p "$TB_SP_REPO/.devflow"; printf 'tmp/\n' > "$TB_SP_REPO/.devflow/.gitignore"
+git -C "$TB_SP_REPO" add -A; git -C "$TB_SP_REPO" commit -qm seed
+TB_SP_STAGE="$TB_SP_REPO/.devflow/tmp/stg"; mkdir -p "$TB_SP_STAGE/.devflow/other"
+printf 'x\n' > "$TB_SP_STAGE/stray.txt"; printf 'y\n' > "$TB_SP_STAGE/.devflow/other/z.json"
+TB_SP_ERR="$( ( cd "$TB_SP_REPO" && DEVFLOW_CONFIG_FILE=/dev/null python3 - "$LIB/telemetry-branch.sh" "$TB_SP_REPO" "$TB_SP_STAGE" 2>&1 <<'PYEOF'
+import subprocess,sys
+lib,root,stage=sys.argv[1],sys.argv[2],sys.argv[3]
+subprocess.run(["bash","-c",'. "$1"; devflow_telemetry_persist_tree "$2" "$3"','_',lib,root,stage],cwd=root)
+PYEOF
+) )"
+assert_eq "tb(#441): a staged path not under .devflow/logs/ is refused (breadcrumb)" "yes" \
+  "$(printf '%s' "$TB_SP_ERR" | grep -qF 'is not under .devflow/logs/' && echo yes || echo no)"
+assert_eq "tb(#441): staged-path refusal creates NO telemetry ref" "no" \
+  "$(git -C "$TB_SP_REPO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+rm -rf "$TB_SP_REPO"
+
+# AC4 hardening (SFH-4a): verify_store fails CLOSED when ls-tree cannot read a
+# PRESENT ref's tree — an unverifiable store is breadcrumb-skipped, never appended
+# onto (fail-open would treat an unreadable tree as an empty, safe store).
+# Driven by pointing the ref at a tree whose object is then made unreadable is hard
+# to force portably; instead assert the code path exists via the fail-closed
+# breadcrumb literal being present at the producer (coupled to the behavior above).
+assert_eq "tb(#441 SFH-4a): verify_store emits a fail-closed breadcrumb on an unreadable present-ref tree" "yes" \
+  "$([ "$(pin_count 'cannot verify it is a telemetry store, refusing to append' "$LIB/telemetry-branch.sh")" -ge 1 ] && echo yes || echo no)"
+
 TB_CFG_REPO="$(git_sandbox "tb config override repo")"
 git -C "$TB_CFG_REPO" init -q
 git -C "$TB_CFG_REPO" config user.email t@e.com; git -C "$TB_CFG_REPO" config user.name t

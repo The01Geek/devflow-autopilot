@@ -116,9 +116,10 @@ visible at a glance.
 
 ## The per-run record
 
-`lib/efficiency-trace.sh --mode record` emits one JSON object stored on the telemetry branch at
-`.devflow/logs/efficiency/<slug>-<run-id>.json` — **one file per run** (not an appended JSONL), so
-parallel writers never touch the same file. The filename is keyed by the run's `<run-id>` (the same
+`lib/efficiency-trace.sh --mode record` emits one JSON record object **to stdout**; `--persist` derives
+that same object and stores it on the telemetry branch at `.devflow/logs/efficiency/<slug>-<run-id>.json`
+— **one file per run** (not an appended JSONL), so parallel writers never touch the same file. The
+filename is keyed by the run's `<run-id>` (the same
 discriminator that scopes the workpad directory), **not** a fresh `date` timestamp: this is what lets
 `--persist` be idempotent — it tests record presence **on the branch** (`git cat-file -e
 <branch>:.devflow/logs/efficiency/<slug>-<run-id>.json`) and never re-derives an existing record, so a

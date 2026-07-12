@@ -974,10 +974,16 @@ do_persist() {
   # local ref and breadcrumbs. Then remove the staging scratch so `git status`
   # stays byte-for-byte unchanged (AC2). devflow_telemetry_persist_tree is a
   # clean no-op when nothing was staged.
-  if command -v devflow_telemetry_persist_tree >/dev/null 2>&1; then
+  # Gate on the REAL source sentinel telemetry-branch.sh sets on a successful
+  # source (_DEVFLOW_TELEMETRY_BRANCH_SOURCED) — NOT `command -v`, which always finds
+  # the no-op stubs the source-failure branch defines, making this persist-time
+  # "artifacts discarded" warning unreachable dead code. With the sentinel, a
+  # vendored deploy missing lib/ takes the else and emits a specific persist-time
+  # breadcrumb naming the discarded staging root, instead of silently no-op'ing.
+  if [ -n "${_DEVFLOW_TELEMETRY_BRANCH_SOURCED:-}" ]; then
     devflow_telemetry_persist_tree "$root" "$_TELEMETRY_STAGE"
   else
-    echo "::warning::efficiency-trace.sh --persist: telemetry-branch.sh was not sourced; cannot persist to the telemetry branch this run (staged artifacts discarded)" >&2
+    echo "::warning::efficiency-trace.sh --persist: telemetry-branch.sh was not sourced; cannot persist to the telemetry branch this run — the run's staged artifacts under ${_TELEMETRY_STAGE} are discarded" >&2
   fi
   rm -rf "$_TELEMETRY_STAGE" 2>/dev/null || true
   return 0

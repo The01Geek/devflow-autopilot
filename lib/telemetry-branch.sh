@@ -84,8 +84,21 @@ devflow_telemetry_ref() {
 # write skips rather than committing onto a same-named branch a consumer uses for
 # something else (AC4). Pure `case` matching — no grep (selection decision).
 devflow_telemetry_verify_store() {
-  local root="$1" ref="$2" path
+  local root="$1" ref="$2" path tree_out
   git -C "$root" rev-parse --verify --quiet "$ref" >/dev/null 2>&1 || return 0
+  # Capture ls-tree's OUTPUT and STATUS together. On a PRESENT ref an ls-tree
+  # failure (corrupt/unreadable tree) must NOT read as "empty tree → safe to
+  # append": that fails OPEN exactly when the store cannot be read. Fail closed —
+  # an unverifiable store is breadcrumb-skipped, not appended onto. (A genuinely
+  # empty tree — the orphan root before its first blob — succeeds with empty
+  # output and is correctly treated as a valid, appendable store.)
+  if ! tree_out="$(git -C "$root" ls-tree -r --name-only "$ref" 2>/dev/null)"; then
+    echo "::warning::telemetry-branch: could not read the tip tree of existing ref '${ref}' (git ls-tree failed — corrupt or unreadable tree); cannot verify it is a telemetry store, refusing to append this run" >&2
+    return 1
+  fi
+  # printf-pipe via process substitution (not a `| while`, which would run the
+  # loop in a subshell and swallow the `return 1`): keeps the loop — and its
+  # early return — in the current shell, with no heredoc temp file.
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     case "$path" in
@@ -94,7 +107,7 @@ devflow_telemetry_verify_store() {
         echo "::warning::telemetry-branch: existing ref '${ref}' holds a non-.devflow/logs/ path ('${path}') — it is not a DevFlow telemetry store; refusing to append (a consumer may use this branch for something else)" >&2
         return 1 ;;
     esac
-  done < <(git -C "$root" ls-tree -r --name-only "$ref" 2>/dev/null)
+  done < <(printf '%s\n' "$tree_out")
   return 0
 }
 
@@ -267,7 +280,7 @@ devflow_telemetry_persist_tree() {
     }
 
     # ── CAS advance loop ───────────────────────────────────────────────────────
-    local try old new committed=""
+    local try old new committed="" upd_err=""
     for ((try = 0; try < _DEVFLOW_TELEMETRY_CAS_TRIES; try++)); do
       old="$(git -C "$root" rev-parse --verify --quiet "$ref" 2>/dev/null || true)"
       new="$(commit_on "$old")" || { new=""; }
@@ -289,15 +302,33 @@ devflow_telemetry_persist_tree() {
         "$DEVFLOW_TELEMETRY_RACE_HOOK" "$root" "$ref" "$branch" >/dev/null 2>&1 || true
         DEVFLOW_TELEMETRY_RACE_HOOK=""
       fi
-      if git -C "$root" update-ref "$ref" "$new" "${old:-}" 2>/dev/null; then
+      # Capture update-ref's stderr (NOT 2>/dev/null): a non-zero rc here is NOT
+      # always a lost CAS race. git reports a genuine compare-and-swap mismatch as
+      # `... but expected ...`, but the same non-zero rc also covers a stale/held
+      # ref .lock, a read-only .git, or ENOSPC on the ref/reflog write — where the
+      # expected-old matched fine and the WRITE failed. Swallowing the stderr and
+      # reporting "lost N races" would steer the operator to hunt phantom
+      # concurrency while the real cause (lock/permission/disk) is discarded.
+      if upd_err="$(git -C "$root" update-ref "$ref" "$new" "${old:-}" 2>&1)"; then
         committed="$new"
         break
       fi
-      # CAS failed: a sibling worktree/process advanced the ref between our read
-      # and our write. Re-read and rebuild parented on the NEW tip, bounded.
+      # Non-race failure (a ref lock, permission, or disk error — NOT an
+      # expected-old mismatch) will not clear on retry, so stop looping and let the
+      # terminal breadcrumb below name the git error verbatim. A genuine race
+      # (`but expected`) re-reads the new tip and rebuilds, bounded.
+      case "$upd_err" in
+        *"but expected"*) : ;;   # genuine CAS mismatch — retry
+        *) break ;;              # lock/permission/disk — retrying won't help
+      esac
     done
     if [ -z "$committed" ]; then
-      echo "::warning::telemetry-branch: compare-and-swap on '${branch}' lost ${_DEVFLOW_TELEMETRY_CAS_TRIES} races (a sibling worktree/process kept advancing it); telemetry not persisted this run" >&2
+      case "$upd_err" in
+        *"but expected"*|"")
+          echo "::warning::telemetry-branch: compare-and-swap on '${branch}' lost ${_DEVFLOW_TELEMETRY_CAS_TRIES} races (a sibling worktree/process kept advancing it); telemetry not persisted this run" >&2 ;;
+        *)
+          echo "::warning::telemetry-branch: could not advance the ref for '${branch}' (git update-ref failed: ${upd_err}) — a held ref .lock, a read-only .git, or a full disk, NOT a concurrent writer; telemetry not persisted this run" >&2 ;;
+      esac
       exit 0
     fi
 
