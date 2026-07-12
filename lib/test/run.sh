@@ -25904,6 +25904,8 @@ case "$j" in
     # CHECKRUNS_JSON2_SHA is set and the endpoint path contains it, serve CHECKRUNS_JSON2
     # instead of CHECKRUNS_JSON, so the two probed shas can carry DIFFERENT check-run
     # sets. Empty/unset skips the case entirely (same guard as CHECKRUNS_FAIL_SHA above).
+    # Both sha knobs match by SUBSTRING of the endpoint path, so fixture shas must be
+    # distinct and never a substring of each other (e.g. not `h1`/`h12`).
     if [ -n "$CHECKRUNS_JSON2_SHA" ]; then
       case "$j" in
         *"$CHECKRUNS_JSON2_SHA"*)
@@ -26274,8 +26276,9 @@ EOF
   # begins with a non-space token. The pre-#435 `\s*(\S+)` regex spans the newline and captures
   # that next-line token verbatim as a fabricated count (check-run-summary provenance) — the
   # exact defect. The line-bound parse reads nothing from the label's own line, sees the label,
-  # and resolves (None, "unparseable"). RED-first: against pre-#435 code this asserts the
-  # fabricated "NEXTTOKEN"/check-run-summary; GREEN after the fix (issue #435 AC-1).
+  # and resolves (None, "unparseable"). RED-first: against pre-#435 code the OBSERVED value is
+  # the fabricated "NEXTTOKEN"/check-run-summary, turning these null/unparseable assertions
+  # RED; GREEN after the fix (issue #435 AC-1).
   R435A="$EXP/r435a"
   mkdir -p "$R435A/.devflow/learnings"
   cat > "$R435A/.devflow/learnings/retrospectives.jsonl" <<'EOF'
@@ -26446,6 +26449,77 @@ EOF
   assert_eq "#435 mixed-era: the loss lands on unparseable, never a possibly-wrong-era annotation count" "unparseable" "$(exp_field "$ST435G" 1007 provenance.permission_denials_count)"
   assert_eq "#435 mixed-era: the annotation fallback is not consulted despite a recoverable annotation" "no" \
     "$(grep -q 'annotations' "$EXP/argv435g.log" && echo yes || echo no)"
+
+  # ── T435-2g exotic line terminators: the parse is line-bound, not merely \n-bound ─────
+  # A crafted summary carries the label followed by a BARE CR (no LF) and a digit on the
+  # next visual line. The PR #436 fix-loop finding: `[^\S\n]*` excludes only `\n`, so it
+  # consumed `\r`/`\f`/`\v`/NEL/LS/PS and `(\S*)` captured the next visual line's digit —
+  # an all-ASCII-digit token that sailed through validation as a fabricated verbatim count.
+  # The `[ \t]*` parse ends the capture at ANY non-space/tab whitespace: label seen, token
+  # empty → (None, "unparseable"), never the fabricated 7. RED under a regression to the
+  # `[^\S\n]*` whitespace-class form (mutation evidence in the PR: the reverted-regex
+  # scratch copy returns 7/check-run-summary, turning both assertions RED).
+  R435H="$EXP/r435h"
+  mkdir -p "$R435H/.devflow/learnings"
+  cat > "$R435H/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1008,"merged_at":"2026-07-10T00:00:00Z","branch":"b1008","head_sha":"h1008","merge_commit_sha":"m1008"}
+EOF
+  cat > "$EXP/checkruns435h.json" <<'EOF'
+{"check_runs":[{"id":80,"name":"Devflow Review","output":{"summary":"verdict\n\npermission_denials_count:\r7 next-visual-line"}}]}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    CHECKRUNS_JSON="$EXP/checkruns435h.json" \
+    python3 "$BXR" --repo-root "$R435H" --prs 1008 >/dev/null 2>&1
+  ST435H="$R435H/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#435 line-terminators: a bare-CR next-visual-line digit is never captured (null)" "null" "$(exp_field "$ST435H" 1008 permission_denials_count)"
+  assert_eq "#435 line-terminators: the CR-separated label resolves to unparseable, not check-run-summary" "unparseable" "$(exp_field "$ST435H" 1008 provenance.permission_denials_count)"
+
+  # ── T435-2h apex precedence: a later sha's VALID token beats an earlier sha's fetch failure ─
+  # The head sha's check-runs fetch FAILS; the merge sha's summary carries a valid digit.
+  # Phase 1 finds the valid token, so phase 2 (where fetch-failed would win) never runs —
+  # the apex of the precedence lattice ("Phase 2 runs only when phase 1 found no valid
+  # token"). A plausible hardening regression — early-returning (None, "fetch-failed")
+  # inside the phase-1 loop the moment a fetch fails — keeps every other fixture green
+  # (T4d fails ALL fetches; T435-2c's surviving sha carries only garbage) while silently
+  # nulling real counts whenever the head fetch transiently fails (PR #436 review;
+  # mutation evidence in the PR: the early-return scratch copy returns null/fetch-failed,
+  # turning both assertions RED).
+  R435I="$EXP/r435i"
+  mkdir -p "$R435I/.devflow/learnings"
+  cat > "$R435I/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1009,"merged_at":"2026-07-10T00:00:00Z","branch":"b1009","head_sha":"h1009head","merge_commit_sha":"m1009merge"}
+EOF
+  cat > "$EXP/checkruns435i.json" <<'EOF'
+{"check_runs":[{"id":90,"name":"Devflow Review","output":{"summary":"verdict\n\npermission_denials_count: 6"}}]}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    CHECKRUNS_JSON="$EXP/checkruns435i.json" CHECKRUNS_FAIL_SHA="h1009head" \
+    python3 "$BXR" --repo-root "$R435I" --prs 1009 >/dev/null 2>&1
+  ST435I="$R435I/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#435 apex: a later sha's valid token wins over an earlier sha's fetch failure" "6" "$(exp_field "$ST435I" 1009 permission_denials_count)"
+  assert_eq "#435 apex: its provenance is check-run-summary (fetch-failed never reached)" "check-run-summary" "$(exp_field "$ST435I" 1009 provenance.permission_denials_count)"
+
+  # ── T435-2i within-one-summary recovery: garbage label line, then a valid one ─────────
+  # A single check-run whose SUMMARY carries two label lines — the first malformed, the
+  # second a valid digit. _parse_denial_summary's finditer loop continues past the invalid
+  # match to the later valid one in the SAME summary (T435-2b pins the across-check-runs
+  # analogue; this pins the within-summary path). RED under a finditer→first-match-only
+  # regression (mutation evidence in the PR: the single-search scratch copy returns
+  # null/unparseable, turning both assertions RED). Raised by 2/5 review agents.
+  R435J="$EXP/r435j"
+  mkdir -p "$R435J/.devflow/learnings"
+  cat > "$R435J/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1010,"merged_at":"2026-07-10T00:00:00Z","branch":"b1010","head_sha":"h1010","merge_commit_sha":"m1010"}
+EOF
+  cat > "$EXP/checkruns435j.json" <<'EOF'
+{"check_runs":[{"id":95,"name":"Devflow Review","output":{"summary":"permission_denials_count: garbage\npermission_denials_count: 4"}}]}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    CHECKRUNS_JSON="$EXP/checkruns435j.json" \
+    python3 "$BXR" --repo-root "$R435J" --prs 1010 >/dev/null 2>&1
+  ST435J="$R435J/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#435 within-summary: a valid label line after a garbage one still recovers the digit" "4" "$(exp_field "$ST435J" 1010 permission_denials_count)"
+  assert_eq "#435 within-summary: recovery provenance is check-run-summary" "check-run-summary" "$(exp_field "$ST435J" 1010 provenance.permission_denials_count)"
 
   # ── T3h progress-comment coherence: unparseable fallback verdict (review Fix A) ─
   # A progress comment carries the "## Verdict:" marker inline (not a `^## Verdict:`

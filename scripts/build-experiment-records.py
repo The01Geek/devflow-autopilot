@@ -91,12 +91,15 @@ REVIEWED_HEAD_RE = re.compile(r"^\*\*Reviewed HEAD:\*\*\s*(\S+)", re.MULTILINE)
 FINDINGS_SECTION_RE = re.compile(r"^##\s+Code Review Findings\s*$", re.MULTILINE)
 IMPORTANT_HEADING_RE = re.compile(r"^###\s+.*Important", re.MULTILINE)
 NUMBERED_ITEM_RE = re.compile(r"^\s*\d+\.\s")
-# Line-bound (issue #435): `[^\S\n]*` matches only HORIZONTAL whitespace, so the capture
-# stays on the label's own line and never spans a newline into a following line's token — the
-# pre-#435 `\s*(\S+)` fabricated a count from the next line when the label value was blank.
+# Line-bound (issue #435): `[ \t]*` admits only space/tab between the label and its token,
+# so the capture stays on the label's own line under EVERY line terminator — deliberately
+# NOT `[^\S\n]`, which excludes only `\n` and would consume a bare `\r`/`\f`/`\v`/NEL/LS/PS
+# (all regex whitespace), letting `(\S*)` fabricate a validated count from the next visual
+# line (PR #436 fix-loop finding; the pre-#435 `\s*(\S+)` fabricated across `\n` too). Any
+# other whitespace after the label ends the capture empty, failing closed to `unparseable`.
 # `(\S*)` (not `\S+`) still matches a blank-valued label so `_parse_denial_summary` can
 # distinguish "label seen but malformed" (→ unparseable) from "no label at all" (→ fallback).
-DENIAL_SUMMARY_RE = re.compile(r"permission_denials_count:[^\S\n]*(\S*)")
+DENIAL_SUMMARY_RE = re.compile(r"permission_denials_count:[ \t]*(\S*)")
 DENIAL_ANNOTATION_RE = re.compile(r"recorded\s+(\d+)\s+permission denial")
 
 # ── provenance vocabulary + coherence invariant ──────────────────────────────
@@ -643,7 +646,8 @@ def _resolve_verdict_and_important(repo, pr):
 def _parse_denial_summary(summary):
     """Line-bound classify of a `Devflow Review` summary's `permission_denials_count:` label
     (issue #435). Returns (valid_token_or_None, label_seen). A VALID token — read ONLY from the
-    label's own line, never a following line — is exactly an all-digit string or the literal
+    label's own line, never a following line (only space/tab may separate label and token, so
+    no line terminator, `\n` or otherwise, is ever crossed) — is exactly an all-digit string or the literal
     `unavailable`; that mirrors the producer contract (devflow-review.yml's `finalize_check`
     interpolates a digit-string or the literal `unavailable`), a coupled producer↔reader pair.
     `label_seen` is True whenever the label appears at all, even with a blank/malformed value,
@@ -654,9 +658,10 @@ def _parse_denial_summary(summary):
     for m in DENIAL_SUMMARY_RE.finditer(summary):
         label_seen = True
         token = m.group(1)  # `(\S*)` captures no whitespace, so no strip is needed
-        # ASCII digits only (`isascii() and isdigit()`, NOT a bare `isdigit()`/`\d`, both of
-        # which accept unicode digits like `²`/`٣` that no producer emits and `int()` may
-        # reject): a crafted historical summary must not smuggle a non-ASCII "digit" through
+        # ASCII digits only (`isascii() and isdigit()`, NOT a bare `isdigit()` — which
+        # accepts unicode digit-likes such as `²` and `٣` — nor `\d`, which accepts `٣`
+        # (category Nd) though it does reject `²`): no producer emits those, `int()` rejects
+        # `²`, and a crafted historical summary must not smuggle a non-ASCII "digit" through
         # as a valid verbatim count (issue #435).
         if token == "unavailable" or (token.isascii() and token.isdigit()):
             return token, True
@@ -683,7 +688,9 @@ def _resolve_denials(repo, shas):
     conservative claim, and it beats `unparseable`); (b) at least one label line was seen but
     none was valid (blank/garbage value) → `unparseable` — never a fabricated value; (c) no
     label line seen anywhere → the annotation fallback over the cached check-runs, then
-    `absent`. Two precedence changes are INTENDED vs. the pre-#435 per-sha interleave: a later
+    `absent` (or `fetch-failed` when an annotations sub-fetch itself failed — the final
+    return consumes the same failure signal). Two precedence changes are INTENDED vs. the
+    pre-#435 per-sha interleave: a later
     sha's summary now beats an earlier sha's annotation, and the positive-only-biased
     annotation fallback is suppressed once any label was seen (a seen label proves the summary
     is the right era for that check-run). This can lose a genuine annotation count in the
