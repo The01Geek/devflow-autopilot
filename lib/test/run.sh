@@ -22588,14 +22588,15 @@ bstep_headsha() {  # file -> yes|no : HEAD_SHA env line present inside the Revie
 }
 assert_eq "#435 backstop auto path: HEAD_SHA env delivery present inside the Review stall backstop step" \
   "yes" "$(bstep_headsha "$WFR408")"
+# No guard on the assignment: probe_tmp fails CLOSED on its own (it records a suite FAIL
+# and prints /dev/null on an mktemp failure — the PRU_FX call-site idiom), so a guard
+# testing for empty output would test a contract probe_tmp does not have.
 T435WF="$(probe_tmp '#435 backstop env-pin mutation setup')"
-if [ -n "$T435WF" ]; then
-  sed -E '/- name: Review stall backstop/,/bash "\$HELPER"/{/HEAD_SHA: \$\{\{ needs\.precheck\.outputs\.head_sha \}\}/d;}' \
-    "$WFR408" > "$T435WF"
-  assert_eq "#435 backstop auto path: dropping the step-scoped HEAD_SHA env line turns the scoped pin RED" \
-    "no" "$(bstep_headsha "$T435WF")"
-  rm -f "$T435WF"
-fi
+sed -E '/- name: Review stall backstop/,/bash "\$HELPER"/{/HEAD_SHA: \$\{\{ needs\.precheck\.outputs\.head_sha \}\}/d;}' \
+  "$WFR408" > "$T435WF"
+assert_eq "#435 backstop auto path: dropping the step-scoped HEAD_SHA env line turns the scoped pin RED" \
+  "no" "$(bstep_headsha "$T435WF")"
+rm -f "$T435WF"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#312: workflow endpoint↔permission lint"
@@ -26556,8 +26557,8 @@ EOF
   # annotation from a partial view must not launder that unknown into a possibly-wrong
   # count. A hoist regression — moving the annotation loop above the any_fetch_failed
   # check — returns 5/check-run-annotation with every OTHER fixture green (T4d fails ALL
-  # fetches so the hoisted loop has nothing cached; T435-2c's surviving sha carries a
-  # label, so label_seen suppression keeps it green) — this fixture alone turns RED
+  # fetches so the hoisted loop has nothing cached; T435-2c's fixture defines no
+  # annotation, so nothing is recoverable there) — this fixture alone turns RED
   # (PR #436 shadow pass, raised by 2/5 agents; mutation evidence recorded in the PR).
   R435K="$EXP/r435k"
   mkdir -p "$R435K/.devflow/learnings"
