@@ -711,8 +711,10 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
         An unusable identity is UNESTABLISHED, never a claimed disagreement.
 
     A run whose `config_fingerprint` is NULL is not "unusable" — it simply stamped none (the
-    pre-#431 record shape), so it is excluded from the comparison entirely and the recompute
-    handles it.
+    pre-#431 record shape), so it is excluded from the comparison entirely; when no usable
+    identity remains, the recompute handles it. (Note the contrast with a run whose envelope
+    is PRESENT but carries no readable `sha256` — `{}` or `{"sha256": null}` — which is a
+    corrupt identity and does count as unusable.)
 
     The fall-through then separates UNQUERYABLE from ABSENT (the same discipline as
     `_resolve_denials`): `unparseable` when the identity could not be read and there is no
