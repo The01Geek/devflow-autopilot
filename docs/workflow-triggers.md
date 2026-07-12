@@ -363,9 +363,10 @@ phase boundary; Phase 4.5 finalizes it).
 - It works under the **read-only cloud `review` profile**: the comment is
   created/edited via `gh` (a comment edit, not a tree write), and the runner's
   `review` tool profile additionally allow-lists `workpad.py`, `config-get.sh`,
-  and `efficiency-trace.sh` for this. The effectiveness-trace **record file**
-  under `.devflow/logs/efficiency/` is gated to writable (local/IDE) runs only —
-  see [`efficiency-trace.md`](efficiency-trace.md).
+  and `efficiency-trace.sh` for this. The effectiveness-trace **record**
+  is persisted to the dedicated `devflow-telemetry` branch (issue #441) by every
+  *writable* run; this read-only `review` runner (`contents: read`) is gated out
+  of that persist entirely — see [`efficiency-trace.md`](efficiency-trace.md).
 - Gating: `devflow_review.live_progress_comment_enabled = false` skips the live
   comment (the report is produced once at the end, as before); in non-PR /
   current-branch mode there is no comment surface and the narrative goes to chat.
