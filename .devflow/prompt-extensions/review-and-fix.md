@@ -124,3 +124,18 @@ every reviewer who repeats the mistake, finding zero defects.
   mutation evidence was decisive. Cost: real effort, three times over; defects found: zero. **PR #340
   cost this would have eliminated:** the three false vacuity alarms — duplicated investigative effort
   across the orchestrator and two reviewers with zero defects found.
+
+## Count-locked prose — a `count-locked` row on an unpinned claim triggers the pin-or-don't-write policy
+
+The shared engine's Phase 0.6 `stale-prose-lint.py` ships **detection only**: it tags an exact-count
+claim in diff-added prose as `count-locked` in its TSV output. The **policy** for what to do about a
+`count-locked` claim lives here, in this repo's layer, not in the engine. When the fix loop's Step 3
+stale-prose pre-check (or the engine's Phase 0.6) reports a `count-locked` row whose claim is **not**
+already bound to a test assertion that would fail if the count drifts (the `assert_pin_unique` /
+`assert_pin_red_under` / `pin_count` corpus), apply the repo's **pin-or-don't-write** policy: either
+bind the counted claim to a suite pin in the same change so a later drift turns the desk RED, or reword
+it drift-proof (a lower bound instead of an exact count, a pointer to the defining symbol instead of a
+copied enumeration) so there is no frozen count to go stale. Do not ship an unpinned exact-count claim
+in engine prose — an unpinned `count-locked` header is the very defect class (#328/#336) Phase 0.6
+exists to catch, so authoring a fresh one is a self-inflicted Important finding. The engine detects; this
+extension decides. (#423)

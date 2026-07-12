@@ -1276,9 +1276,10 @@ assert_pin_unique "263(A5): receiving-code-review carries the shared 'contradict
 # deliberate, reviewed edit here: #304 later added require_up_to_date + require_ci_green
 # (the auto-trigger preconditions — unrelated to the carve-out, which remains knob-free);
 # #408 added stall_backstop (the review no-verdict auto-resume backstop — also a
-# distinct feature, not the carve-out, which remains knob-free).
+# distinct feature, not the carve-out, which remains knob-free); #423 added stale_prose
+# (the Phase 0.6 deterministic stale-counted-prose lint gate — a distinct feature too).
 assert_eq "263(A6): devflow_review schema key set is the reviewed list (carve-out adds no config key)" \
-  "agent_overrides live_progress_comment_enabled require_ci_green require_up_to_date stall_backstop verdict_severity_threshold" \
+  "agent_overrides live_progress_comment_enabled require_ci_green require_up_to_date stale_prose stall_backstop verdict_severity_threshold" \
   "$(jq -r '.properties.devflow_review.properties | keys | join(" ")' "$ST_SCHEMA")"
 # A7 (corroboration-independence AC — AC6): the carve-out blocks a SINGLE-SOURCE
 # self-contradicting finding exactly like a corroborated one. This is a distinct enumerated
@@ -23112,12 +23113,12 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (95 occurrences — 95th is Phase 0.3.5's defensive mkdir, review-REJECT fix)" \
-  "95" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last change: #424 Phase 0.6 feeds the lint by 'cat … |' pipe instead of an input redirect)" \
+  "102" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
-assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (28 distinct names)" \
-  "28" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (29 distinct names; +stale-prose-lint.py at #423)" \
+  "29" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 
@@ -24755,6 +24756,576 @@ assert_eq "#405 AC8 devflow.yml: no Bash(/ absolute-path rule" "0" "$(pin_count 
 assert_eq "#405 AC8 devflow-implement.yml: no wildcard-path Bash(*/ rule" "0" "$(pin_count 'Bash(*/' "$I405_IMPL_YML")"
 assert_eq "#405 AC8 devflow.yml: every wildcard-path Bash(*/ rule is the load-prompt-extension one" \
   "$(pin_count 'Bash(*/load-prompt-extension.sh' "$I405_DEVFLOW_YML")" "$(pin_count 'Bash(*/' "$I405_DEVFLOW_YML")"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "stale-prose-lint.py (#423 deterministic stale counted-prose lint)"
+# ────────────────────────────────────────────────────────────────────────────
+# The helper (scripts/stale-prose-lint.py) flags diff-added prose whose counted
+# claims a later commit outgrows/falsifies. This block drives each rule class
+# end-to-end over a real git sandbox (T1-T6), pins the config surfaces + the
+# adversarial shape matrix (T9), the two cloud allowlists + config grants (T7),
+# the engine-sharing paraphrase-absence (T8), and the Phase 0.6 degradation arms
+# (T10, removal-proofed via assert_pin_red_under).
+SPL="$LIB/../scripts/stale-prose-lint.py"
+SP_SCHEMA="$LIB/../.devflow/config.schema.json"
+SP_EXAMPLE="$LIB/../.devflow/config.example.json"
+SP_CONFIG="$LIB/../.devflow/config.json"
+SP_REVIEW="$LIB/../skills/review/SKILL.md"
+SP_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+SP_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
+SP_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+SP_CG="$LIB/../scripts/config-get.sh"
+SP_EMPTY_TREE=4b825dc642cb6eb9a060e54bf8d69288fbee4904   # git's canonical empty tree
+
+# Packaging (AC: python3 stdlib + git, SPDX, shebang, exec bit, direct-path invoke)
+assert_eq "#423 helper exists"          "yes" "$([ -f "$SPL" ] && echo yes || echo no)"
+assert_eq "#423 helper is executable"   "yes" "$([ -x "$SPL" ] && echo yes || echo no)"
+assert_eq "#423 helper has python3 shebang" "yes" "$(head -1 "$SPL" | grep -q '^#!/usr/bin/env python3' && echo yes || echo no)"
+assert_eq "#423 helper carries SPDX license header" "yes" "$(grep -q 'SPDX-License-Identifier: MIT' "$SPL" && echo yes || echo no)"
+# Caller-supplied-diff contract (T5b): the helper never derives the diff range — no
+# merge-base plumbing in its source (shallow-clone safe).
+assert_eq "#423 T5 helper contains no merge-base invocation (shallow-safe contract)" "0" "$(grep -c 'merge-base' "$SPL")"
+
+# End-to-end sandbox harness: build a one-file repo, run the lint over the
+# empty-tree..HEAD (full-branch) diff, and read exit code / TSV rows.
+spl_repo() {  # content_file [content_file2 -> a second commit] -> prints repo dir
+  local d; d="$(git_sandbox "#423 spl repo")"
+  git -C "$d" init -q >/dev/null 2>&1
+  cp "$1" "$d/fixture.txt"
+  git -C "$d" -c user.email=t@t -c user.name=t add fixture.txt >/dev/null 2>&1
+  git -C "$d" -c user.email=t@t -c user.name=t commit -qm c1 >/dev/null 2>&1
+  if [ -n "${2:-}" ]; then
+    cp "$2" "$d/fixture.txt"
+    git -C "$d" -c user.email=t@t -c user.name=t add fixture.txt >/dev/null 2>&1
+    git -C "$d" -c user.email=t@t -c user.name=t commit -qm c2 >/dev/null 2>&1
+  fi
+  printf '%s\n' "$d"
+}
+spl_rc() {  # repo_dir -> exit code of the lint over the full-branch diff
+  ( cd "$1" 2>/dev/null || { echo 99; exit; }
+    git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD >/dev/null 2>&1
+    echo $? )
+}
+spl_has() {  # repo_dir verdict rule -> yes/no (a matching TSV row exists)
+  ( cd "$1" 2>/dev/null || { echo no; exit; }
+    git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null \
+      | awk -F '\t' -v v="$2" -v r="$3" '$1==v && $2==r{f=1} END{exit f?0:1}' \
+      && echo yes || echo no )
+}
+
+# T1 → R1 range-outgrowth (the PR #328 shape): header frozen while its block grew.
+SPF="$(probe_tmp '#423 r1 stale')"
+printf '%s\n' '# Cases 19-32 are exercised by the block below' 'Case 19 alpha' 'Case 20 beta' 'Case 33 gamma' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T1/R1 #328 range-outgrowth STALE fixture exits 1" "1" "$(spl_rc "$SPR")"
+assert_eq "#423 T1/R1 emits a STALE R1 row" "yes" "$(spl_has "$SPR" STALE R1)"
+printf '%s\n' '# Cases 19-37 are exercised by the block below' 'Case 19 alpha' 'Case 20 beta' 'Case 33 gamma' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T1/R1 clean sibling (header widened to 19-37) exits 0" "0" "$(spl_rc "$SPR")"
+assert_eq "#423 T1/R1 clean sibling emits a VERIFIED R1 row" "yes" "$(spl_has "$SPR" VERIFIED R1)"
+
+# T2 → R2 legend-sum vs "Expected total = N" (the PR #320 shape): 8 bullets vs 7.
+printf '%s\n' '- one' '- two' '- three' '- four' '- five' '- six' '- seven' '- eight' 'Expected total = 7.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T2/R2 #320 legend-sum STALE fixture exits 1" "1" "$(spl_rc "$SPR")"
+assert_eq "#423 T2/R2 emits a STALE R2 row" "yes" "$(spl_has "$SPR" STALE R2)"
+printf '%s\n' '- one' '- two' '- three' '- four' '- five' '- six' '- seven' 'Expected total = 7.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T2/R2 reconciled sibling (7 bullets) exits 0" "0" "$(spl_rc "$SPR")"
+# Positive control (parity with T1/T3): the reconciled sibling must emit a VERIFIED R2
+# row, not merely exit 0 — else a mutant that stopped detecting the enumeration block
+# (→ UNRESOLVABLE → exit 0) would leave this GREEN while silently disabling R2 detection.
+assert_eq "#423 T2/R2 reconciled sibling emits a VERIFIED R2 row" "yes" "$(spl_has "$SPR" VERIFIED R2)"
+
+# T3 → R3b, the two-item count-locked shape, plus the R3 numeric #336 header. (Worded to
+# avoid restating the pattern itself: this comment is examined by the lint, and quoting the
+# shape verbatim here would make the comment a claim about its own fixture — reworded
+# drift-proof per the count-locked policy rather than suppressed.)
+printf '%s\n' 'We assert a foo and a bar both exist:' '  assert foo' '  assert bar' '  assert baz' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T3/R3b two-item count-locked mismatch (3 asserts) exits 1" "1" "$(spl_rc "$SPR")"
+assert_eq "#423 T3/R3b emits a STALE R3 row (count-locked)" "yes" "$(spl_has "$SPR" STALE R3)"
+printf '%s\n' 'We assert a foo and a bar both exist:' '  assert foo' '  assert bar' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T3/R3b matched sibling (2 asserts) exits 0 with a VERIFIED count-locked row" "yes" "$(spl_has "$SPR" VERIFIED R3)"
+printf '%s\n' 'This header locks in 3 assertions below:' '  assert a' '  assert b' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T3/R3 #336 count-locked header (claims 3, block has 2) exits 1" "1" "$(spl_rc "$SPR")"
+assert_eq "#423 T3/R3 #336 count-locked header STALE fixture emits a STALE R3 row" "yes" "$(spl_has "$SPR" STALE R3)"
+# Positive control (#424 review Suggestion 3): the R3 NUMERIC arm had a STALE fixture but
+# no matched-count VERIFIED sibling (R1/R2/R3b/R4 all have one). Without it, a mutant that
+# broke only the numeric VERIFIED arm (numeric header → UNRESOLVABLE, or forced STALE) would
+# ship GREEN. A header whose numeric count MATCHES its block must emit a VERIFIED R3 row.
+printf '%s\n' 'This header locks in 2 assertions below:' '  assert a' '  assert b' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T3/R3 #336 count-locked header (claims 2, block has 2) exits 0" "0" "$(spl_rc "$SPR")"
+assert_eq "#423 T3/R3 #336 numeric matched sibling emits a VERIFIED R3 row (numeric positive control)" "yes" "$(spl_has "$SPR" VERIFIED R3)"
+
+# T3c → the shared _emit_count c==0 (no adjacent block) UNRESOLVABLE arm, for R2 and R3
+# (#424 shadow pr-test-analyzer). Only R1's UNRESOLVABLE arm was asserted anywhere (T6);
+# R2/R3/R3b all funnel through _emit_count, whose c==0 arm was untested. A mutant flipping
+# `if c == 0` (→ falling through to the c!=n STALE branch) would emit a FALSE-POSITIVE STALE
+# on a legitimate count claim with no adjacent block and gate a review at `important`, yet
+# ship GREEN. These fixtures pin exit 0 + the UNRESOLVABLE row (a c==0→STALE mutant reddens
+# both: exit becomes 1 and the row is STALE, not UNRESOLVABLE).
+printf '%s\n' 'Some standalone prose here.' 'Expected total = 5.' 'More prose, not a list.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T3c/R2 count claim with NO adjacent enumeration block exits 0 (UNRESOLVABLE, non-gating)" "0" "$(spl_rc "$SPR")"
+assert_eq "#423 T3c/R2 c==0 arm emits an UNRESOLVABLE R2 row (not a false-positive STALE)" "yes" "$(spl_has "$SPR" UNRESOLVABLE R2)"
+assert_eq "#423 T3c/R2 c==0 arm emits NO STALE R2 row" "no" "$(spl_has "$SPR" STALE R2)"
+# NB: the prose below must contain neither the word "assert" nor a list-marker prefix, or
+# _adjacent_assert_count would count it and the c==0 arm would not be reached.
+printf '%s\n' 'This header locks in 3 assertions below:' 'first plain descriptive sentence' 'second plain descriptive sentence' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T3c/R3 numeric count claim with NO adjacent assertion block exits 0 (UNRESOLVABLE, non-gating)" "0" "$(spl_rc "$SPR")"
+assert_eq "#423 T3c/R3 c==0 arm emits an UNRESOLVABLE R3 row (not a false-positive STALE)" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+assert_eq "#423 T3c/R3 c==0 arm emits NO STALE R3 row" "no" "$(spl_has "$SPR" STALE R3)"
+
+# T4 → R4 operator-token modality conflict (the PR #397 shape) + named-token GREEN boundary.
+printf '%s\n' 'The skill must never emit ANY `>` redirect anywhere.' 'An in-workspace `>` redirect of a granted head is permitted.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T4/R4 #397 modality-conflict STALE fixture exits 1" "1" "$(spl_rc "$SPR")"
+assert_eq "#423 T4/R4 emits a STALE R4 row" "yes" "$(spl_has "$SPR" STALE R4)"
+# Named-token scope-mismatch: `foobar` is NOT an operator token, so R4 never fires —
+# the false-positive boundary the operator-token restriction exists to exclude.
+printf '%s\n' 'Never use the `foobar` helper in scope A.' 'The `foobar` helper is permitted in scope B.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T4/R4 named-token scope mismatch stays GREEN (exit 0)" "0" "$(spl_rc "$SPR")"
+assert_eq "#423 T4/R4 named-token scope mismatch emits NO R4 row" "no" "$(spl_has "$SPR" STALE R4)"
+# Positive control (parity with T1/T2/T3): an operator deny-absolute with NO contradicting
+# permit elsewhere must emit a VERIFIED R4 row and exit 0 — this is the ONLY test that
+# exercises R4's VERIFIED arm, so without it a mutant forcing R4 to STALE on every operator
+# deny-absolute (e.g. _permitted_elsewhere hardcoded True, or the VERIFIED arm dropped) would
+# ship GREEN and emit false-positive Important findings on legit "never use `>` here" prose.
+printf '%s\n' 'The skill must never emit ANY `>` redirect anywhere.' 'Some other unrelated prose line.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T4/R4 operator deny-absolute with no permit exits 0" "0" "$(spl_rc "$SPR")"
+assert_eq "#423 T4/R4 operator deny-absolute with no permit emits a VERIFIED R4 row" "yes" "$(spl_has "$SPR" VERIFIED R4)"
+
+# T5 → caller-supplied-diff contract: a two-commit branch where commit 1 adds the
+# frozen header and commit 2 outgrows it. The full-branch (empty-tree..HEAD) diff the
+# caller supplies still carries the header among its added lines, so it is checked
+# even though the FINAL commit's delta never touches it (the PR #328 shape).
+SPF2="$(probe_tmp '#423 t5 c1')"
+SPF3="$(probe_tmp '#423 t5 c2')"
+printf '%s\n' '# Cases 19-32 covered below' 'Case 19 a' 'Case 20 b' > "$SPF2"
+printf '%s\n' '# Cases 19-32 covered below' 'Case 19 a' 'Case 20 b' 'Case 33 c' 'Case 37 d' > "$SPF3"
+SPR="$(spl_repo "$SPF2" "$SPF3")"
+assert_eq "#423 T5 two-commit: header outside the final commit's delta still STALE (exit 1)" "1" "$(spl_rc "$SPR")"
+assert_eq "#423 T5 two-commit emits a STALE R1 row" "yes" "$(spl_has "$SPR" STALE R1)"
+
+# T6 → exit-code contract: 0 clean / 1 stale / 2 internal error; UNRESOLVABLE-only → 0.
+assert_eq "#423 T6 unreadable --rev → exit 2" "2" \
+  "$(printf 'diff --git a/x b/x\n+++ b/x\n@@ -0,0 +1 @@\n+hi\n' | python3 "$SPL" --rev nonexistent_ref_zzz >/dev/null 2>&1; echo $?)"
+assert_eq "#423 T6 non-UTF-8 diff bytes → exit 2 (never a traceback masquerading as a verdict)" "2" \
+  "$(printf '\377\376bad' | python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $?)"
+assert_eq "#423 T6 empty diff → exit 0" "0" \
+  "$(printf '' | python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $?)"
+printf '%s\n' 'Cases 5-9 are described somewhere but not enumerated here.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#423 T6 UNRESOLVABLE-only content → exit 0" "0" "$(spl_rc "$SPR")"
+assert_eq "#423 T6 UNRESOLVABLE row present but non-gating" "yes" "$(spl_has "$SPR" UNRESOLVABLE R1)"
+
+# T6b → non-ASCII resilience under a strict-ASCII stdout locale (the C/POSIX threat model
+# _run_git's decode hardening names). The read decode was hardened but the stdout WRITE was
+# not: pre-fix, a reviewed line carrying a non-ASCII byte (an em-dash) raised
+# UnicodeEncodeError at sys.stdout.write and detonated the WHOLE pass to exit 2, masking
+# every other file's verdict — the exact failure the F-1 hardening claimed to eliminate.
+# main() now reconfigures stdout/stderr to utf-8/errors="replace" so an odd byte degrades one
+# character, never the pass. Forcing PYTHONCOERCECLOCALE=0/PYTHONUTF8=0/LC_ALL=C is what makes
+# sys.stdout.encoding == 'ascii' (PEP-538 coercion + UTF-8 mode off), reproducing the sandbox
+# condition; T1-T6 fixtures are all pure ASCII, so this path was previously untested. A revert
+# of the main() reconfigure re-reddens this (mutation-verified on a copy at authoring time).
+SPF="$(probe_tmp '#423 t6b non-ascii')"
+printf '%s\n' 'Cases 5-9 are described here — note the em-dash.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+# Guard against a vacuous pass (#424 shadow pr-test-analyzer F4): the two assertions below are
+# only meaningful when the forced env ACTUALLY downgrades stdout to ASCII. On some
+# macOS/Homebrew python builds it may not, and then the write never detonates regardless — the
+# test would pass trivially while proving nothing. Probe the reproduced encoding first; run the
+# assertions only when the strict-ASCII condition genuinely reproduced, else emit a VISIBLE note
+# (never a silent green) so a host that fails to reproduce it is observable, not hidden.
+SP_T6B_ENC="$( env PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 LC_ALL=C LANG=C python3 -c 'import sys; sys.stdout.write((sys.stdout.encoding or "").lower())' 2>/dev/null )"
+case "$SP_T6B_ENC" in
+  ascii|us-ascii|ansi_x3.4-1968|646)
+    assert_eq "#423 T6b non-ASCII line under strict-ASCII stdout does NOT detonate to exit 2" "0" \
+      "$( cd "$SPR" 2>/dev/null || { echo 99; exit; }
+          git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null \
+            | env PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 LC_ALL=C LANG=C python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $? )"
+    assert_eq "#423 T6b strict-ASCII stdout still emits the verdict row (pass not masked)" "yes" \
+      "$( cd "$SPR" 2>/dev/null || { echo no; exit; }
+          git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null \
+            | env PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 LC_ALL=C LANG=C python3 "$SPL" --rev HEAD 2>/dev/null \
+            | awk -F '\t' '$1=="UNRESOLVABLE" && $2=="R1"{f=1} END{exit f?0:1}' && echo yes || echo no )" ;;
+  *)
+    printf '  NOTE  #423 T6b skipped — forced env did not downgrade stdout to ASCII (got %s); strict-ASCII non-detonation condition not reproducible on this host\n' "${SP_T6B_ENC:-<empty>}" ;;
+esac
+
+# T9 → config surfaces + adversarial shape matrix. Schema/example/tracked-config pins.
+SP_PROP='.properties.devflow_review.properties.stale_prose'
+assert_eq "#423 T9 schema: stale_prose is an object" "object" "$(jq -r "$SP_PROP.type" "$SP_SCHEMA")"
+assert_eq "#423 T9 schema: enabled default true" "true" "$(jq -r "$SP_PROP.properties.enabled.default" "$SP_SCHEMA")"
+assert_eq "#423 T9 schema: severity default important" "important" "$(jq -r "$SP_PROP.properties.severity.default" "$SP_SCHEMA")"
+assert_eq "#423 T9 schema: severity enum is exactly the three values" '["critical","important","suggestion"]' "$(jq -c "$SP_PROP.properties.severity.enum" "$SP_SCHEMA")"
+assert_eq "#423 T9 example: enabled matches schema default" "true" "$(jq -r '.devflow_review.stale_prose.enabled' "$SP_EXAMPLE")"
+assert_eq "#423 T9 example: severity matches schema default" "important" "$(jq -r '.devflow_review.stale_prose.severity' "$SP_EXAMPLE")"
+assert_eq "#423 T9 tracked config carries stale_prose.enabled explicitly" "true" "$(jq -r '.devflow_review.stale_prose.enabled' "$SP_CONFIG")"
+assert_eq "#423 T9 tracked config carries stale_prose.severity explicitly" "important" "$(jq -r '.devflow_review.stale_prose.severity' "$SP_CONFIG")"
+# scaffold-config.sh scaffolds config.json FROM config.example.json (cp + deep-merge
+# backfill), so the block flows into the scaffolder's output — proven end-to-end.
+SP_SCAFFOLD_DEST="$(mktemp -d)"
+bash "$LIB/../scripts/scaffold-config.sh" "$SP_SCAFFOLD_DEST" >/dev/null 2>&1
+assert_eq "#423 T9 scaffold-config.sh output carries stale_prose.enabled" "true" "$(jq -r '.devflow_review.stale_prose.enabled' "$SP_SCAFFOLD_DEST/.devflow/config.json" 2>/dev/null)"
+assert_eq "#423 T9 scaffold-config.sh output carries stale_prose.severity" "important" "$(jq -r '.devflow_review.stale_prose.severity' "$SP_SCAFFOLD_DEST/.devflow/config.json" 2>/dev/null)"
+rm -rf "$SP_SCAFFOLD_DEST"
+
+# Inline normalize model — mirrors the Phase 0.6 read: enabled disables ONLY on an
+# explicit `false` (else fail-safe enabled); severity enum-validates inline, else the
+# default 'important'. Driven end-to-end against the REAL config-get.sh across the
+# {missing, object, array, scalar, wrong-type, valid-falsy} shapes.
+sp_enabled_norm() { case "$1" in false) printf no ;; *) printf yes ;; esac; }
+sp_sev_norm()     { case "$1" in critical|important|suggestion) printf '%s' "$1" ;; *) printf important ;; esac; }
+sp_resolve_enabled() {  # json -> yes/no via REAL config-get.sh + inline normalize
+  local cfg raw; cfg="$(probe_tmp '#423 sp.en.cfg')"; printf '%s' "$1" > "$cfg"
+  raw="$("$SP_CG" .devflow_review.stale_prose.enabled true "$cfg" 2>/dev/null)"
+  rm -f "$cfg"; sp_enabled_norm "$raw"
+}
+sp_resolve_sev() {  # json -> severity via REAL config-get.sh + inline normalize
+  local cfg raw; cfg="$(probe_tmp '#423 sp.sev.cfg')"; printf '%s' "$1" > "$cfg"
+  raw="$("$SP_CG" .devflow_review.stale_prose.severity important "$cfg" 2>/dev/null)"
+  rm -f "$cfg"; sp_sev_norm "$raw"
+}
+# enabled: the valid-falsy row (explicit false) is load-bearing — it must genuinely
+# disable and never be coerced back to the truthy default.
+assert_eq "#423 T9 enabled missing → enabled (default true)"          "yes" "$(sp_resolve_enabled '{"devflow_review":{}}')"
+assert_eq "#423 T9 enabled explicit false → DISABLED (valid-falsy)"   "no"  "$(sp_resolve_enabled '{"devflow_review":{"stale_prose":{"enabled":false}}}')"
+assert_eq "#423 T9 enabled explicit true → enabled"                   "yes" "$(sp_resolve_enabled '{"devflow_review":{"stale_prose":{"enabled":true}}}')"
+assert_eq "#423 T9 enabled object → enabled (fail-safe)"              "yes" "$(sp_resolve_enabled '{"devflow_review":{"stale_prose":{"enabled":{"x":1}}}}')"
+assert_eq "#423 T9 enabled array → enabled (fail-safe)"               "yes" "$(sp_resolve_enabled '{"devflow_review":{"stale_prose":{"enabled":[1,2]}}}')"
+assert_eq "#423 T9 enabled scalar 0 → enabled (fail-safe; not 'false')" "yes" "$(sp_resolve_enabled '{"devflow_review":{"stale_prose":{"enabled":0}}}')"
+assert_eq "#423 T9 enabled malformed JSON → enabled (default)"        "yes" "$(sp_resolve_enabled '{ not valid json')"
+# severity: enum-validate; the empty-string valid-falsy row must apply the default
+# without a crash (config-get collapses empty→default, so the SKILL never sees "").
+assert_eq "#423 T9 severity missing → default important"             "important" "$(sp_resolve_sev '{"devflow_review":{}}')"
+assert_eq "#423 T9 severity valid critical honored"                  "critical"  "$(sp_resolve_sev '{"devflow_review":{"stale_prose":{"severity":"critical"}}}')"
+assert_eq "#423 T9 severity empty-string → default important (valid-falsy, no crash)" "important" "$(sp_resolve_sev '{"devflow_review":{"stale_prose":{"severity":""}}}')"
+assert_eq "#423 T9 severity object → default important"              "important" "$(sp_resolve_sev '{"devflow_review":{"stale_prose":{"severity":{"a":1}}}}')"
+assert_eq "#423 T9 severity array → default important"               "important" "$(sp_resolve_sev '{"devflow_review":{"stale_prose":{"severity":["critical","important"]}}}')"
+assert_eq "#423 T9 severity number → default important"              "important" "$(sp_resolve_sev '{"devflow_review":{"stale_prose":{"severity":5}}}')"
+assert_eq "#423 T9 severity unknown string → default important"      "important" "$(sp_resolve_sev '{"devflow_review":{"stale_prose":{"severity":"blocker"}}}')"
+
+# T7 → both cloud allowlists grant the helper (vendored literal), plus config grants.
+assert_pin_unique "#423 T7 devflow-runner review TOOLS grants the lint (vendored literal)" 'Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)' "$SP_RUNNER_YML"
+assert_pin_unique "#423 T7 devflow.yml hoisted TOOLS grants the lint (vendored literal)" 'Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)' "$SP_DEVFLOW_YML"
+assert_eq "#423 T7 config devflow_implement.allowed_tools grants the lint" "yes" "$(jq -e '.devflow_implement.allowed_tools | index("Bash(*/stale-prose-lint.py:*)")' "$SP_CONFIG" >/dev/null && echo yes || echo no)"
+assert_eq "#423 T7 config devflow.allowed_tools grants the lint" "yes" "$(jq -e '.devflow.allowed_tools | index("Bash(*/stale-prose-lint.py:*)")' "$SP_CONFIG" >/dev/null && echo yes || echo no)"
+
+# T8 → engine-sharing invariant: Phase 0.6 lives ONLY in the engine skill; the fix-loop
+# skill invokes the same helper but adds no rule paraphrase (references the step only).
+assert_eq "#423 T8 engine skill defines Phase 0.6" "yes" "$(grep -q 'Phase 0.6' "$SP_REVIEW" && echo yes || echo no)"
+assert_eq "#423 T8 fix-loop skill carries no R1-R4 rule paraphrase" "0" "$(grep -cE 'range claims|legend/enumeration sum|operator-token restriction' "$SP_RAF")"
+assert_eq "#423 T8 fix-loop Step 3 invokes the same helper (references it, not a paraphrase)" "yes" "$(grep -q 'stale-prose-lint.py' "$SP_RAF" && echo yes || echo no)"
+
+# T8a → item-6a base-ref binding (#424 review, VC-12). The fix-loop pre-check fence must
+# bind the diff base to a DEFINED value: the shipped fence used the phantom `$BASE_REF`,
+# so `git diff "$BASE_REF"..HEAD` collapsed to an empty `HEAD..HEAD` diff — the helper
+# examined zero added lines, exited 0, and recorded a clean `stale_prose_check` every
+# iteration while inspecting nothing (a silent no-op that fails OPEN). Guard that the
+# item-6a fence references only a skill-defined base var, and prove the undefined-var
+# regression cannot silently return.
+assert_eq "#424 (item 6a) fence references no undefined \$BASE_REF (the VC-12 silent-no-op var)" "0" "$(grep -c 'BASE_REF' "$SP_RAF")"
+assert_pin_unique "#424 (item 6a) fence binds the base to the engine-resolved \$PR_BASE_SHA (defined, three-dot, current-branch fallback)" \
+  'git diff "${PR_BASE_SHA:-origin/main}...HEAD"' "$SP_RAF"
+assert_pin_unique "#424 (item 6a) skill DEFINES \$PR_BASE_SHA (names it the base the engine's Phase 0.2 resolved this iteration)" \
+  'against the base the engine'\''s Phase 0.2 resolved this iteration' "$SP_RAF"
+assert_pin_unique "#424 (item 6a) recomputes at the POST-fix HEAD, not the cached pre-fix diff.patch" \
+  'not** reading the pre-fix `diff.patch` Phase 0.2 cached' "$SP_RAF"
+assert_pin_red_under "#424 (item 6a): reverting the base binding to an undefined var re-introduces the VC-12 silent no-op" \
+  'git diff "${PR_BASE_SHA:-origin/main}...HEAD"' \
+  's#PR_BASE_SHA:-origin/main#BASE_REF#' "$SP_RAF"
+# Producer-failure detection (#424 review Suggestion 1): a failing `git diff` must not
+# pipe empty stdout into the helper and read as a clean pass.
+assert_pin_unique "#424 (item 6a) fence sets pipefail so a producer/helper failure is not read as clean" \
+  'set -o pipefail' "$SP_RAF"
+assert_pin_red_under "#424 (item 6a): dropping the producer/helper-failure note re-introduces the empty-diff-reads-clean hole" \
+  'stale-prose pre-check: producer/helper failed (rc=<code>)' \
+  '/stale-prose pre-check: producer\/helper failed/d' "$SP_RAF"
+
+# T10 → Phase 0.6 degradation arms (fail-safe, never fail-silent), pinned on the
+# rendered file surface (#375). All four arms present; the harness-refused remedy is
+# the operative sentence, removal-proofed via assert_pin_red_under.
+assert_pin_unique "#423 T10 Phase 0.6 heading present in engine skill" '### 0.6' "$SP_REVIEW"
+assert_pin_unique "#423 T10 arm(a) harness-refused names devflow_runner.allowed_tools remedy" 'devflow_runner.allowed_tools' "$SP_REVIEW"
+assert_pin_unique "#423 T10 arm(b) helper-absent note names the vendored path" 'stale-prose-lint.py was not found' "$SP_REVIEW"
+assert_pin_unique "#423 T10 arm(c) internal-error (exit 2) carries stderr" 'reported an internal error (exit 2)' "$SP_REVIEW"
+assert_pin_unique "#423 T10 arm(d) config-disabled note" 'stale-prose lint disabled by config' "$SP_REVIEW"
+assert_pin_red_under "#423 T10 refused-arm remedy is operative (removal re-introduces a silent skip)" \
+  'name the missing grant and the tier-appropriate remedy' \
+  '/name the missing grant and the tier-appropriate remedy/d' "$SP_REVIEW"
+
+# T11 → arm(a)'s remedy must not resurrect the config-only-bridge FALSEHOOD (#424 review,
+# self-contradicting-diff carve-out). devflow-runner.yml appends devflow_runner.allowed_tools
+# to the review profile ONLY inside `if [ "$PROVISION_ENV" = "true" ]`, and provision_env
+# defaults to false — so on a default read-only reviewer the config entry is never appended
+# and "bridges a lagging installed workflow through tracked config alone" is false. Both
+# consumer-facing sites must carry the provision_env precondition. The producer pin below is
+# what makes this checkable: it asserts the gate the claim depends on still exists in the
+# workflow (per CLAUDE.md's "trace every operand back to its producer" rule) — if the append
+# ever moves OUT of the provision gate, THIS pin reddens and the prose is revisited.
+assert_eq "#424 producer: devflow-runner.yml appends devflow_runner.allowed_tools ONLY under the provision_env gate" \
+  "yes" "$(awk '/^ *if \[ "\$PROVISION_ENV" = "true" \]; then/{g=1} g && /TOOLS="\$TOOLS,\$FILTERED"/{f=1} END{print f?"yes":"no"}' "$SP_RUNNER_YML")"
+assert_pin_unique "#424 T11 engine arm(a) names provision_env as the precondition of the config bridge" \
+  'only inside `devflow-runner.yml`'"'"'s `devflow_runner.provision_env` gate, and `provision_env` defaults to `false`' "$SP_REVIEW"
+assert_pin_red_under "#424 T11: dropping the provision_env precondition re-introduces the false config-only bridge (engine skill)" \
+  'tracked config alone does **not** bridge the grant' \
+  's/tracked config alone does \*\*not\*\* bridge the grant/tracked config alone bridges the grant/' "$SP_REVIEW"
+assert_pin_red_under "#424 T11: dropping the provision_env precondition re-introduces the false config-only bridge (install.md)" \
+  'that append sits inside the `devflow_runner.provision_env` gate, and `provision_env` defaults to `false`' \
+  '/that append sits inside the `devflow_runner.provision_env` gate/d' "$LIB/../docs/install.md"
+
+# T12 → Phase 0.6 feeds the helper by PIPE, not an input redirect (#424 review Important 2):
+# the `<` input-redirect shape is not in the skill's enumerated cloud-permitted set, so the
+# cloud harness may refuse it silently — taking arm (a) on every cloud auto-review. The pipe
+# is the proven shape (Phase 0.2's `… | tee`, match-deferrals.py).
+assert_pin_unique "#424 T12 Phase 0.6 pipes the cached diff into the helper (proven cloud shape)" \
+  'cat .devflow/tmp/review/<slug>/<run-id>/diff.patch | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/stale-prose-lint.py --rev HEAD' "$SP_REVIEW"
+assert_eq "#424 T12 Phase 0.6 carries NO input-redirect invocation of the helper" "0" \
+  "$(grep -cE 'stale-prose-lint\.py --rev HEAD <' "$SP_REVIEW")"
+# T12b → producer-empty guard: an empty-but-present diff cache must not read as a clean pass.
+assert_pin_red_under "#424 T12b: dropping the producer-empty guard re-introduces the empty-cache-reads-clean fail-open" \
+  'stale-prose lint skipped: the Phase 0.2 diff cache is absent or empty' \
+  '/stale-prose lint skipped: the Phase 0.2 diff cache is absent or empty/d' "$SP_REVIEW"
+
+# T2b → R2 on the #320 shape AS IT HISTORICALLY OCCURRED (#424 audit, BLOCKING). The T2 fixture
+# above uses BARE `- one` bullets — a shape the real defect never had. PR #320's legend bullets
+# are COMMENT-PREFIXED (`#   - inline_missing: …`), and `_LIST_ITEM_RE` is anchored, so before
+# the `_uncomment` referent-strip `_adjacent_list_count` returned 0 on the genuine defect: a
+# non-gating UNRESOLVABLE and exit 0. R2 therefore never caught the one historical escape that
+# was an in-loop Critical, while T2 shipped GREEN. This fixture pins the real shape.
+SPF="$(probe_tmp '#424 t2b comment legend stale')"
+printf '%s\n' '# Expected total = 9 (the cases enumerated below):' \
+              '#   - inline_missing: a' '#   - comments_missing: b' '#   - contents_missing: c' \
+              '#   - four: d' '#   - five: e' '#   - six: f' '#   - seven: g' '#   - eight: h' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#424 T2b/R2 comment-PREFIXED legend (8 items vs 'total = 9') is STALE (exit 1)" "1" "$(spl_rc "$SPR")"
+assert_eq "#424 T2b/R2 emits a STALE R2 row on the real #320 shape (not a vacuous UNRESOLVABLE)" "yes" "$(spl_has "$SPR" STALE R2)"
+assert_eq "#424 T2b/R2 the real #320 shape no longer resolves to UNRESOLVABLE" "no" "$(spl_has "$SPR" UNRESOLVABLE R2)"
+# Matched sibling (9 items) — the positive control: proves the STALE above is the COUNT
+# mismatch, not the comment prefix merely failing to parse.
+SPF="$(probe_tmp '#424 t2b comment legend clean')"
+printf '%s\n' '# Expected total = 9 (the cases enumerated below):' \
+              '#   - inline_missing: a' '#   - comments_missing: b' '#   - contents_missing: c' \
+              '#   - four: d' '#   - five: e' '#   - six: f' '#   - seven: g' '#   - eight: h' \
+              '#   - nine: i' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#424 T2b/R2 matched comment legend (9 items) exits 0" "0" "$(spl_rc "$SPR")"
+assert_eq "#424 T2b/R2 matched comment legend emits a VERIFIED R2 row (positive control)" "yes" "$(spl_has "$SPR" VERIFIED R2)"
+# A `*` bullet must NOT be treated as a comment marker — stripping it would turn a real
+# markdown `* item` enumeration into a non-item and break the count the other way.
+SPF="$(probe_tmp '#424 t2b star bullets')"
+printf '%s\n' 'Expected total = 2 (the items below):' '* one' '* two' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#424 T2b/R2 '*' stays a bullet marker, not a comment prefix (matched → exit 0)" "0" "$(spl_rc "$SPR")"
+assert_eq "#424 T2b/R2 '*' bullets resolve as an enumeration (VERIFIED, not UNRESOLVABLE)" "yes" "$(spl_has "$SPR" VERIFIED R2)"
+
+# T13 → InternalError's "single raise site" is a load-bearing header invariant (#424 review
+# Suggestion 2): a second raise site would silently widen the exit-2 surface the header
+# documents as closed. Anchor it.
+assert_eq "#424 T13 InternalError has exactly one raise site (the header's stated invariant)" \
+  "1" "$(grep -c 'raise InternalError' "$SPL")"
+
+# T14 → REALISTIC INCREMENTAL DIFF (#424 review Critical 1). Every T1-T10 fixture drives the
+# helper over `git diff <empty-tree> HEAD` — a single `@@ -0,0 +1,N @@` all-`+` hunk. The real
+# callers (Phase 0.6, the fix-loop pre-check) feed a `base...HEAD` diff: MANY hunks, context
+# lines, `-` deletions, and a second hunk whose post-image start is far past 1. An off-by-one
+# in parse_diff's `post_ln` bookkeeping misaligns every claim against its referent and
+# silently degrades real STALE rows to UNRESOLVABLE — shipping GREEN. Assert the ROW'S LINE
+# NUMBER, not merely that a STALE row exists: a claim examined from a wrong index still tends
+# to find the grown referent by forward scan, so a bare STALE assertion cannot discriminate a
+# correct parse from a broken one. The line number can.
+spl_rc_base() {  # repo_dir base_rev -> exit code over `git diff <base> HEAD`
+  ( cd "$1" 2>/dev/null || { echo 99; exit; }
+    git diff "$2" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD >/dev/null 2>&1
+    echo $? )
+}
+spl_field_base() {  # repo_dir base_rev verdict rule field_no -> that TSV field of the 1st match
+  ( cd "$1" 2>/dev/null || exit
+    git diff "$2" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null \
+      | awk -F '\t' -v v="$3" -v r="$4" -v f="$5" '$1==v && $2==r { print $f; exit }' )
+}
+SPD="$(git_sandbox '#424 spl multihunk')"
+git -C "$SPD" init -q >/dev/null 2>&1
+# base: 30 filler lines, no claims.
+: > "$SPD/fixture.txt"
+for _i in $(seq -w 1 30); do printf 'filler %s\n' "$_i" >> "$SPD/fixture.txt"; done
+git -C "$SPD" -c user.email=t@t -c user.name=t add fixture.txt >/dev/null 2>&1
+git -C "$SPD" -c user.email=t@t -c user.name=t commit -qm base >/dev/null 2>&1
+SP_BASE_SHA="$(git -C "$SPD" rev-parse HEAD)"
+# commit 1: insert the counted header + its first two Cases after line 4 (hunk 1 of the
+# eventual diff). The header lands on post-image line 5.
+{ head -4 "$SPD/fixture.txt"
+  printf '%s\n' '# Cases 19-32 are exercised by the block below' 'Case 19 alpha' 'Case 20 beta'
+  tail -n +5 "$SPD/fixture.txt"; } > "$SPD/next.txt"
+mv "$SPD/next.txt" "$SPD/fixture.txt"
+git -C "$SPD" -c user.email=t@t -c user.name=t commit -qam c1 >/dev/null 2>&1
+# commit 2: OUTGROW the header far below (hunk 2, post-image start >> 1) and DELETE a filler
+# line — so the diff carries context, a deletion, and a second hunk. The header itself is
+# never touched by this commit (the PR #328 shape).
+grep -v '^filler 20$' "$SPD/fixture.txt" > "$SPD/next.txt"
+mv "$SPD/next.txt" "$SPD/fixture.txt"
+{ head -30 "$SPD/fixture.txt"; printf '%s\n' 'Case 37 delta'; tail -n +31 "$SPD/fixture.txt"; } > "$SPD/next.txt"
+mv "$SPD/next.txt" "$SPD/fixture.txt"
+git -C "$SPD" -c user.email=t@t -c user.name=t commit -qam c2 >/dev/null 2>&1
+# Sanity: the fixture really is the multi-hunk/deletion shape it claims to be (a positive
+# control — a fixture that silently collapsed to one all-`+` hunk would prove nothing).
+assert_eq "#424 T14 fixture really is a multi-hunk incremental diff (3 hunks: insert, pure-deletion, insert at post-start 28)" "3" \
+  "$( ( cd "$SPD" && git diff "$SP_BASE_SHA" HEAD | grep -c '^@@' ) )"
+assert_eq "#424 T14 fixture really carries a deletion line" "1" \
+  "$( ( cd "$SPD" && git diff "$SP_BASE_SHA" HEAD | grep -c '^-filler' ) )"
+assert_eq "#424 T14 multi-hunk base...HEAD diff: outgrown header is STALE (exit 1)" "1" "$(spl_rc_base "$SPD" "$SP_BASE_SHA")"
+assert_eq "#424 T14 the STALE row lands on the header's REAL post-diff line (post_ln bookkeeping across context+deletions+hunk-2)" \
+  "5" "$(spl_field_base "$SPD" "$SP_BASE_SHA" STALE R1 4)"
+assert_eq "#424 T14 the STALE row names the real file (not a phantom path)" \
+  "fixture.txt" "$(spl_field_base "$SPD" "$SP_BASE_SHA" STALE R1 3)"
+
+# T15 → a diff-ADDED content line beginning `++ ` renders as `+++ ` (#424 review Suggestion 4).
+# A prefix-only parser reads it as the next file header and retargets every later claim onto a
+# phantom path — the real STALE is lost to an UNRESOLVABLE on a file that does not exist. The
+# hunk-budget parse consumes it as content.
+SPF="$(probe_tmp '#424 plusplus')"
+printf '%s\n' '++ this content line starts with two plus signs' \
+              '# Cases 19-32 are exercised by the block below' \
+              'Case 19 alpha' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#424 T15 a plus-plus-leading content line does not swallow the file header (STALE still found)" "1" "$(spl_rc "$SPR")"
+assert_eq "#424 T15 the STALE row still names the real file (no phantom retarget)" \
+  "fixture.txt" "$(spl_field_base "$SPR" "$SP_EMPTY_TREE" STALE R1 3)"
+
+# ── #434 line scoping: a claim is prose; a CODE line carrying claim-shaped text is data ──
+# Same sandbox shape as spl_repo, but the fixture's FILENAME (hence its type) is the variable
+# under test.
+spl_repo_named() {  # content_file fixture_name -> repo dir
+  local d; d="$(git_sandbox '#434 spl typed repo')"
+  git -C "$d" init -q >/dev/null 2>&1
+  cp "$1" "$d/$2"
+  git -C "$d" -c user.email=t@t -c user.name=t add "$2" >/dev/null 2>&1
+  git -C "$d" -c user.email=t@t -c user.name=t commit -qm c1 >/dev/null 2>&1
+  printf '%s\n' "$d"
+}
+
+# The false-positive class this change exists to close: a SHELL CODE line whose argument is a
+# counted claim. Positive control on the SAME fixture: the identical claim on a `#` comment
+# line of the same file still fires — so "no row" is attributable to the scoping predicate,
+# not to some unrelated precondition that would have rejected the fixture anyway.
+SPF="$(probe_tmp '#434 sh code line')"
+printf '%s\n' "printf '%s\\\\n' '# Cases 19-32 are exercised below' 'Case 37 delta'" \
+              'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.sh)"
+assert_eq "#434 a shell CODE line carrying a counted claim produces NO row (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 the code line emits no STALE R1 row" "no" "$(spl_has "$SPR" STALE R1)"
+SPF="$(probe_tmp '#434 sh comment line')"
+printf '%s\n' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.sh)"
+assert_eq "#434 POSITIVE CONTROL: the same claim on a '#' COMMENT line of a .sh still fires (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 positive control emits the STALE R1 row" "yes" "$(spl_has "$SPR" STALE R1)"
+
+# Consumer-language coverage this change ADDS: `//`-comment languages were never examined as
+# comments before (they were examined as raw lines, so a claim fired — but so did every code
+# line). A .go comment claim must still fire.
+SPF="$(probe_tmp '#434 go comment')"
+printf '%s\n' '// Cases 1-12 covered below' 'Case 14 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.go)"
+assert_eq "#434 a '//' comment claim in a .go file is examined (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 the .go comment emits a STALE R1 row" "yes" "$(spl_has "$SPR" STALE R1)"
+
+# FAIL-OPEN default (the load-bearing arm). An unrecognised extension keeps today's
+# examine-every-line behavior — a consumer in an unlisted language must never silently lose
+# coverage. Asserted on a CODE-shaped line, so a closed allowlist would show up as exit 0.
+SPF="$(probe_tmp '#434 unknown ext')"
+printf '%s\n' 'Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.zzz)"
+assert_eq "#434 an UNRECOGNISED file type fails OPEN — every added line still examined (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 fail-open emits the STALE row (coverage is never silently dropped)" "yes" "$(spl_has "$SPR" STALE R1)"
+assert_eq "#434 fail-open is DISCOVERABLE: stderr names the unrecognised extension" "yes" \
+  "$( ( cd "$SPR" && git diff "$SP_EMPTY_TREE" HEAD | python3 "$SPL" --rev HEAD 2>&1 >/dev/null | grep -q '\.zzz' && echo yes || echo no ) )"
+
+# Markdown: prose is examined, a fenced code block is NOT.
+SPF="$(probe_tmp '#434 md fenced')"
+printf '%s\n' 'Intro prose.' '```bash' '# Cases 19-32 are exercised below' '```' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.md)"
+assert_eq "#434 a claim INSIDE a fenced code block is not examined (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+SPF="$(probe_tmp '#434 md prose')"
+printf '%s\n' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.md)"
+assert_eq "#434 POSITIVE CONTROL: the same claim as .md PROSE (outside any fence) fires (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+# A 4-backtick fence wrapping 3-backtick examples (CLAUDE.md does this). A naive toggle on any
+# ``` run inverts fence state for the rest of the file — mass mis-scoping in both directions.
+SPF="$(probe_tmp '#434 md nested fence')"
+printf '%s\n' '````markdown' '```' '````' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.md)"
+assert_eq "#434 a 4-backtick fence wrapping a 3-backtick run closes correctly (claim after it IS examined)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+# An UNCLOSED fence fails OPEN — a stray backtick run must not un-examine the rest of the file.
+SPF="$(probe_tmp '#434 md unclosed fence')"
+printf '%s\n' '```' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.md)"
+assert_eq "#434 an UNCLOSED fence fails open (the tail of the file stays examined, exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+
+# Python: a real docstring is examined; a claim-shaped STRING LITERAL (fixture data) is not.
+SPF="$(probe_tmp '#434 py docstring')"
+printf '%s\n' '"""Cases 19-32 are exercised below."""' 'x = 1  # Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.py)"
+assert_eq "#434 a claim in a .py DOCSTRING is examined (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+SPF="$(probe_tmp '#434 py literal')"
+printf '%s\n' 'FIXTURE = """Cases 19-32 are exercised below."""' 'OTHER = "Case 37 delta"' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.py)"
+assert_eq "#434 a claim in a .py assigned STRING LITERAL (fixture data) is NOT a docstring (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+# A .py that does not parse degrades to '#'-comments-only WITH a breadcrumb — never a silent skip.
+SPF="$(probe_tmp '#434 py unparseable')"
+printf '%s\n' 'def broken(  :' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.py)"
+assert_eq "#434 an unparseable .py still examines its '#' comments (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 an unparseable .py says so on stderr (never a silent skip)" "yes" \
+  "$( ( cd "$SPR" && git diff "$SP_EMPTY_TREE" HEAD | python3 "$SPL" --rev HEAD 2>&1 >/dev/null | grep -q 'does not parse at --rev' && echo yes || echo no ) )"
+
+# CRLF + BOM: a consumer Windows repo must not silently lose its comments.
+SPF="$(probe_tmp '#434 crlf bom')"
+printf '\xef\xbb\xbf# Cases 19-32 are exercised below\r\nCase 37 delta\r\n' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.sh)"
+assert_eq "#434 a BOM + CRLF '#' comment is still examined (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+
+# R4's PERMIT REFERENT is scoped by the same predicate — a CODE line cannot 'permit' an
+# operator and so cannot contradict a genuine comment deny-absolute. Both directions, same file.
+SPF="$(probe_tmp '#434 r4 code permit')"
+printf '%s\n' '# The skill must never emit ANY `>` redirect anywhere.' \
+              "echo 'An in-workspace \`>\` redirect of a granted head is permitted.'" > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.sh)"
+assert_eq "#434 R4: a CODE-line 'permit' does not contradict a comment deny-absolute (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 R4: no STALE row from a code-line permit" "no" "$(spl_has "$SPR" STALE R4)"
+SPF="$(probe_tmp '#434 r4 comment permit')"
+printf '%s\n' '# The skill must never emit ANY `>` redirect anywhere.' \
+              '# An in-workspace `>` redirect of a granted head is permitted.' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.sh)"
+assert_eq "#434 R4 POSITIVE CONTROL: a COMMENT-line permit DOES contradict it (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 R4: the comment-line permit emits the STALE R4 row" "yes" "$(spl_has "$SPR" STALE R4)"
+
+# The lint is CLEAN against its OWN branch diff — the whole point of #434, and the assertion
+# that stops the fixture corpus from silently re-accumulating false positives.
+#
+# Two preconditions, because this assertion grades COMMITTED state (`--rev HEAD` over an
+# `origin/main...HEAD` diff) while the suite otherwise grades the WORKING TREE. With
+# uncommitted edits the two disagree, so a failure would be an artifact of that skew rather
+# than a real regression — a dirty tree (or an unresolvable base, e.g. a shallow checkout)
+# therefore reports a visible NOTE instead of a false FAIL. CI checks out a clean tree, so the
+# assertion is live exactly where it has to be.
+if ! git -C "$LIB/.." rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+  printf '  NOTE  #434 self-scan skipped — origin/main not resolvable in this checkout\n'
+elif [ -n "$(git -C "$LIB/.." status --porcelain 2>/dev/null)" ]; then
+  printf '  NOTE  #434 self-scan skipped — working tree dirty (this check grades committed HEAD)\n'
+else
+  assert_eq "#434 the lint is CLEAN against this repo's own branch diff (self-scan exit 0)" "0" \
+    "$( ( cd "$LIB/.." && git diff origin/main...HEAD | python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $? ) )"
+fi
+
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

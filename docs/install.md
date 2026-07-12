@@ -164,3 +164,15 @@ If you run Claude Code against a **third-party model provider** (Amazon Bedrock,
 ### Cloud tier
 
 Bump `devflow_version` in `.devflow/config.json` to a newer tag, branch, or commit SHA (the workflows fetch that ref at runtime), or just re-run the same `install.sh` — now a small diff, since it refreshes the workflows/actions without committing the plugin tree, and keeps your config. Re-running only re-stamps `devflow_version` itself when the existing value is empty or already looks like a commit SHA; a hand-set non-SHA value (a branch name, a tag) is preserved — see [`cloud-setup.md`](cloud-setup.md#install-and-update-the-cloud-tier) for the exact rule. (The plugin must be at the literal workspace path when CI runs because a marketplace install isn't reachable from the Actions sandbox; the `vendor-plugin` action satisfies this at runtime — see [`cloud-setup.md`](cloud-setup.md#why-the-plugin-lives-at-a-workspace-path-not-added-as-a-github-marketplace-in-ci).)
+
+#### Upgrade note: re-sync the workflow `TOOLS` grants for the Phase 0.6 stale-prose lint
+
+The shared review engine's **Phase 0.6** (deterministic stale counted-prose lint) runs the vendored helper `scripts/stale-prose-lint.py`. Its invocation must be granted to the review runner. When upgrading an existing install **past this version**, re-sync your installed workflow `TOOLS='…'` grants — in `.github/workflows/devflow-runner.yml` (auto-review path) and `devflow.yml` (manual `/devflow:review` comment path) — to include:
+
+```
+Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)
+```
+
+Until you do, Phase 0.6 emits the **named-remedy degradation note** (harness-refused arm — it names the missing grant and remedy key) rather than silently skipping: the review still completes, but the stale-prose check does not run.
+
+**Config bridge — only on a provisioned reviewer.** `devflow-runner.yml` does append `devflow_runner.allowed_tools` to the review profile post-floor (after the reviewer deny-list floor strips tree-mutation tools), so adding the same `Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)` entry to `devflow_runner.allowed_tools` in `.devflow/config.json` grants the helper — **but that append sits inside the `devflow_runner.provision_env` gate, and `provision_env` defaults to `false`.** On a default (read-only, unprovisioned) reviewer the config entry is therefore never appended, and Phase 0.6 keeps reporting the harness-refused degradation note. So: if you already run the reviewer with `devflow_runner.provision_env: true`, the config entry bridges a lagging installed workflow; otherwise it changes nothing and **re-syncing the workflow `TOOLS` line above is the only remedy** (it is the durable fix either way). Do not turn `provision_env` on merely to bridge this grant — it is a security-sensitive opt-in that runs untrusted PR build code under a write token.

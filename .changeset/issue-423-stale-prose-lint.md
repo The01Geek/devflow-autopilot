@@ -1,0 +1,6 @@
+---
+bump: patch
+type: Added
+---
+
+- **Deterministic stale counted-prose lint (shared-engine Phase 0.6 + fix-loop pre-check).** Added `scripts/stale-prose-lint.py`, a python3-stdlib helper that flags diff-added prose whose counted claims a later commit outgrows or falsifies — a range header its block outgrew (R1), a legend sum contradicting an `Expected total = N` (R2), an exact `count-locked` header (R3/R3b), or a deny-absolute about a shell operator token the same file also asserts permitted (R4). The shared review engine runs it as a new Phase 0.6 immediately after diff classification (each STALE row becomes an engine finding at the config-gated `devflow_review.stale_prose.severity`, default `important`; UNRESOLVABLE rows are informational and never gate), so standalone `/devflow:review`, `/devflow:review-and-fix`, and the shadow pass all inherit it identically. `/devflow:review-and-fix` additionally runs the same helper as a post-commit pre-check each fix iteration, so a fix-introduced stale claim is reconciled in-iteration rather than at standalone-review cost. Gated by `devflow_review.stale_prose` (`enabled`, default true; `severity`, default `important`) and fail-safe: a refused, absent, errored, or disabled helper degrades to a recorded note, never a stall or silent skip. (#423)

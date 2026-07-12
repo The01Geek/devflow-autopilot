@@ -11,7 +11,8 @@
     "allowed_tools": [
       "Bash(lib/test/run.sh:*)",
       "Bash(lib/preflight.sh:*)",
-      "Bash(shellcheck:*)"
+      "Bash(shellcheck:*)",
+      "Bash(*/stale-prose-lint.py:*)"
     ],
     "execution_diagnostics_enabled": true,
     "execution_transcript_artifact_enabled": true
@@ -30,7 +31,8 @@
       "Bash(*/ensure-label.sh:*)",
       "Bash(*/render-grounding-block.sh:*)",
       "Bash(*/config-get.sh:*)",
-      "Bash(*/efficiency-trace.sh:*)"
+      "Bash(*/efficiency-trace.sh:*)",
+      "Bash(*/stale-prose-lint.py:*)"
     ],
     "stall_backstop": {
       "enabled": true,
@@ -51,6 +53,10 @@
   "devflow_review": {
     "verdict_severity_threshold": "critical",
     "live_progress_comment_enabled": true,
+    "stale_prose": {
+      "enabled": true,
+      "severity": "important"
+    },
     "require_up_to_date": true,
     "require_ci_green": true,
     "agent_overrides": {
