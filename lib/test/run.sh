@@ -25361,8 +25361,11 @@ def raises(record):
 if not raises({"permission_denials_count": 0,
                "provenance": {"permission_denials_count": "fetch_failed"}}):
     sys.exit(1)
-# Every tag a resolver actually emits must BE in the closed vocabulary (a positive
-# control: this must NOT raise, or the vocabulary is missing a real tag).
+# Positive control: every LISTED tag is accepted, so the guard is discriminating rather
+# than blanket-rejecting. (Note what this does and does not prove: it loops over the
+# vocabulary itself, so it cannot show that every tag a RESOLVER emits is in the list —
+# that direction is covered by the per-arm provenance assertions elsewhere in this block,
+# each of which would raise here if its tag were missing from the vocabulary.)
 for tag in ber.PROVENANCE_SOURCES:
     ber._assert_provenance_coherent({"verdict": None, "provenance": {"verdict": tag}})
 sys.exit(0)
@@ -25509,6 +25512,27 @@ EOF
     python3 "$BXR" --repo-root "$RMX3" --prs 1042 >/dev/null 2>&1
   assert_eq "#431 Tmixed: same sha256 + a GROWN salient projection is NOT a config change" \
     "efficiency-record" "$(exp_field "$RMX3/.devflow/learnings/experiment-records.jsonl" 1042 provenance.config_fingerprint)"
+  # An UNUSABLE identity must be NON-COMPARABLE, never equal-to-itself: two envelopes that
+  # both LACK sha256 must not compare equal (None == None) and publish a confident
+  # single-config attribution over runs that straddled a config change. That false
+  # agreement is the dangerous direction — _index_efficiency copies config_fingerprint raw
+  # out of arbitrary JSON, so a legacy/hand-edited record is squarely in scope (#431
+  # fix-delta gate).
+  RMX4="$EXP/rmixed4"
+  mkdir -p "$RMX4/.devflow/learnings"
+  cat > "$RMX4/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1043,"merged_at":"2026-07-10T00:00:00Z","branch":"b1043","merge_commit_sha":"m1043"}
+EOF
+  seed_eff "$RMX4/.devflow/logs/efficiency" "pr-1043-a.json" "pr-1043" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":10}}}]' '{"partial":false,"salient":{"max_iterations":3}}'
+  seed_eff "$RMX4/.devflow/logs/efficiency" "pr-1043-b.json" "pr-1043" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":20}}}]' '{"partial":false,"salient":{"max_iterations":9}}'
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RMX4" --prs 1043 >/dev/null 2>&1
+  assert_eq "#431 Tmixed: two sha256-LESS envelopes are non-comparable, never a false agreement" \
+    "mixed-across-runs" "$(exp_field "$RMX4/.devflow/learnings/experiment-records.jsonl" 1043 provenance.config_fingerprint)"
+  assert_eq "#431 Tmixed: and no fingerprint is published from an unusable identity" "null" \
+    "$(exp_field "$RMX4/.devflow/learnings/experiment-records.jsonl" 1043 config_fingerprint)"
 
   # ── Tfpfb the merge-commit-config fallback + the byte-identical contract ──────
   # This arm is the whole REASON config_fingerprint.py is a shared module: the reader

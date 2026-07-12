@@ -711,8 +711,20 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
         # `mixed-across-runs` — firing the refusal-to-collapse guard on a config change that
         # never happened and destroying the attribution axis it exists to protect (issue
         # #431 convergence shadow).
-        ids = [fp.get("sha256") if isinstance(fp, dict) else fp for fp in fps]
-        if all(i == ids[0] for i in ids[1:]):
+        # An UNUSABLE identity must be NON-COMPARABLE, never equal-to-itself. `dict.get`
+        # returns None for an envelope with no (or a null) `sha256`, so a naive
+        # `ids[0] == ids[1]` would make two such runs compare EQUAL and publish a
+        # confident single-config attribution over runs that demonstrably straddled a
+        # config change — a FALSE AGREEMENT, the dangerous direction, and exactly the
+        # misattribution `mixed-across-runs` exists to prevent. Our own producer always
+        # emits `sha256`, but `_index_efficiency` copies `config_fingerprint` raw out of
+        # arbitrary JSON under .devflow/logs/efficiency/, so a legacy, hand-edited, or
+        # half-written record is squarely in this file's untrusted-input class: validate
+        # the comparand at the boundary rather than letting its absence resolve to a value
+        # that agrees with itself (issue #431 fix-delta gate).
+        ids = [fp.get("sha256") if isinstance(fp, dict) else None for fp in fps]
+        usable = all(isinstance(i, str) and i for i in ids)
+        if usable and all(i == ids[0] for i in ids[1:]):
             return fps[0], "efficiency-record"
         return None, "mixed-across-runs"
     if not merge_sha:
