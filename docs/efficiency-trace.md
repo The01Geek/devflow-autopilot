@@ -497,7 +497,8 @@ a promotion with no record of the shadow that produced it. When an `iter-<N>.jso
   recognized degraded class — a truncated synthesized marker still warns, exactly like a truncated
   synthesized iter record; a real (agent-written) shadow block carries no `shadow_synthesized` key
   and is never validated by this branch (it stays unvalidated, as before).
-- *Never overwrites an agent-written block.* The floor writes only when `.shadow` is absent; an
+- *Never overwrites an agent-written block.* The floor writes only when `.shadow` is `null` — the key
+  missing, or present with an explicit JSON `null` (both are "no block"); an
   existing block — agent-written or already synthesized — is left untouched. It is telemetry-gated
   (a disabled repo gets none) and runs before the durable copy, so a synthesized marker is committed
   alongside the workpads it annotates. Best-effort: any failure warns and continues, never aborting

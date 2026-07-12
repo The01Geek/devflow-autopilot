@@ -23525,14 +23525,19 @@ s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.modul
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 
 # #426 no-skew property: Phase 1.1's awk >-redirect batch-slice authoring and its
-# test -s fail-closed check reuse heads (awk, test) already granted in BOTH cloud
+# &&-chained rc gate reuse heads (awk, test, echo) already granted in BOTH cloud
 # TOOLS='…' lines; tee remains granted+used by Phase 0.2's cache-write. So the change
 # adds NO allowlist entry and cannot create the #363 consumer-workflow-version-skew
-# class. Pin each head present in both lines (tee included — Phase 0.2 still needs it);
-# a future edit that dropped one (making a slice/cache fence silently denied) turns RED.
+# class. Pin EVERY head the fence depends on — `echo` included: it is the fence's
+# slice-ok/slice-failed result marker, so a dropped `Bash(echo:*)` grant would silently
+# deny the very command that reports whether the slice is usable, and the rest of the
+# fence would still look granted. (tee too — Phase 0.2 still needs it.) The head-count
+# assertion above names `echo` as this fence's new dependency; this loop is the coupled
+# site that must enumerate it, or the "no head silently loses its grant" pin has a hole
+# exactly where the fence is newest.
 REV_TOOLS_RUNNER="$LIB/../.github/workflows/devflow-runner.yml"
 REV_TOOLS_CMD="$LIB/../.github/workflows/devflow.yml"
-for _rev_head in 'Bash(awk:*)' 'Bash(tee:*)' 'Bash(test:*)'; do
+for _rev_head in 'Bash(awk:*)' 'Bash(tee:*)' 'Bash(test:*)' 'Bash(echo:*)'; do
   assert_eq "#426 no-skew: review-runner TOOLS grants ${_rev_head} (Phase 1.1 slice fence adds no new head)" "yes" \
     "$(grep -qF "$_rev_head" "$REV_TOOLS_RUNNER" && echo yes || echo no)"
   assert_eq "#426 no-skew: devflow.yml TOOLS grants ${_rev_head} (Phase 1.1 slice fence adds no new head)" "yes" \
