@@ -255,18 +255,31 @@ assertion was never measured. Issue #437 replaced the assertion with a re-runnab
 results are recorded in [`docs/execution-file-shape.md`](execution-file-shape.md): read that shape
 record — not this sentence — before deciding whether an agent-independent cost floor is buildable.
 
-**The first measurement already refutes the strong form of the old claim.** On the **local** tier the
-`Stop`-hook transcript was observed (2026-07-12, via `scripts/stop-hook-probe.sh`) to carry **real**
-per-message token counts — 196 `usage` blocks, largest figure 342,272 — not the streaming
-placeholders it was assumed to hold. So "no backstop *can* reconstruct the cost half" is **false as
-stated**: locally the data is right there in the harness's own output, with no agent cooperation. What
-remains true is the weaker, honest form: *no backstop DevFlow currently **ships** reconstructs it* —
-which is a gap in what we built, not a law of the platform. Two things are still genuinely open, and
-neither is settled by the local row: whether `claude-code-action`'s `execution_file` carries the same
-figures on the **cloud** tier (`unavailable` pending the first `execfile-shape-probe` dispatch), and
-whether the transcript's **tail has flushed** by the time a `Stop` hook reads it (realness is not
-freshness — the docs warn the transcript lags). Until both are answered, keep the loop running live to
-protect the cost half — but stop repeating that reconstructing it is impossible.
+**The measurements refute the old claim on BOTH tiers. It was false.** The probe has now run:
+
+- **Cloud** (`execfile-shape-probe`, run `29201071531`, 2026-07-12): `claude-code-action`'s
+  `execution_file` carries per-message token `usage` (`input_tokens` / `output_tokens` /
+  `cache_read_input_tokens`), wall-clock (`duration_ms`, `duration_api_ms`, `ttft_ms`), `tool_use`
+  events, `subagent_type` on `Task` dispatches, `permission_denials` — **and cost directly**
+  (`costUSD`, `total_cost_usd`, per-model `modelUsage`).
+- **Local** (`scripts/stop-hook-probe.sh`, 2026-07-12): the `Stop`-hook transcript carries **real**
+  per-message token counts (196 `usage` blocks, largest figure 342,272) — not the streaming
+  placeholders it was assumed to hold.
+
+So *"no backstop **can** reconstruct the cost half"* is **not true**, and repeating it steered three
+issues' worth of work (#170, #381, #426) into building ever-more-elaborate floors fed by operands the
+agent had to volunteer, while the harness was emitting the same data, deterministically, the whole
+time. The honest statement is the weaker one: **no backstop DevFlow currently *ships* reconstructs
+it** — a gap in what we built, not a law of the platform. An agent-independent (class-(c)) cost floor
+is **buildable on both tiers**; see [`docs/execution-file-shape.md`](execution-file-shape.md) for the
+observed shape and the run URL, and build against that record rather than this paragraph.
+
+Two things remain genuinely open, and a floor must not assume them away: the `execution_file` schema
+is **not a public contract** (the record is a dated observation of one action version — re-dispatch the
+probe after any upgrade), and on the local tier **realness is not freshness** (the docs warn the
+transcript is written asynchronously and may lag, so a `Stop`-time read may miss the final turn's
+counts). Until a floor actually ships, keeping the loop running live is still what protects the cost
+half — but that is now a statement about our backlog, not about what is possible.
 
 **Layer 1 — wording (portable, agent-executed).** The SKILL.md Loop Exit persistence steps are
 marked **mandatory on every writable run**, and a `## Common Mistakes` entry names the
