@@ -204,6 +204,8 @@ The extension file lives in the **consumer's** repo, committed under `.devflow/p
 
 Because the injected text is appended verbatim and MCP tools are model-invoked from prose (not deterministically function-called), the extension must **tell the model to call the tool** rather than assume it runs automatically. No plugin file is edited; the customization is entirely consumer-owned and survives every plugin update.
 
+**`create-issue` audit-dimensions hook (issue #443).** The `create-issue` extension has one **structured** hook the skill reads by heading: a section headed exactly `## Audit dimensions` in `.devflow/prompt-extensions/create-issue.md` is forwarded verbatim to the Step 3.6 fresh-context audit subagent (§11), appended to its generic dimension checklist, so a consumer teaches the auditor the repo-specific premises its issues must respect. An extension without that heading changes nothing. Consumers discover the contract from the scaffolded `create-issue.md.example`, which carries an inert sample of the heading; this repo's own live `.devflow/prompt-extensions/create-issue.md` ships the DevFlow-engine audit dimensions.
+
 ---
 
 ## 7. Deep dive: `/devflow:implement` (the 4-phase orchestrator)
