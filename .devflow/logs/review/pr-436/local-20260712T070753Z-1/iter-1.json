@@ -364,40 +364,6 @@
     "by_category": {}
   },
   "stale_prose_check": "rc=0; one UNRESOLVABLE row (R3 count-locked, lib/test/run.sh:22533 — pre-existing #414-block comment, informational, never gates); no STALE rows",
-  "shadow": {
-    "ran_at": "2026-07-12T09:20:00Z",
-    "reviewed_sha": "e19d2196ad4f4fbcdec53429b46f4de996232fbe",
-    "verdict": "APPROVE with notes",
-    "coverage": "full",
-    "trigger": "early (engine_self_modifying, after iteration 1 which routed to fixes)",
-    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review", "devflow:pr-test-analyzer"],
-    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review", "devflow:pr-test-analyzer"],
-    "reason": null,
-    "checklist_skipped": null,
-    "phase3_findings": [
-      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "untested precedence arm: a partial check-runs fetch failure must beat the annotation fallback (no-label surviving sha + genuine recoverable annotation); a fallback-hoist regression ships green under every existing fixture", "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [755, 761], "kind": "test_gap"}, "corroboration_count": 2, "corroboration_note": "textual join with requesting-code-review's identical finding (their signature cites lib/test/run.sh:26477-26500; same root cause, mechanically distinct files)"},
-      {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "unpinned lattice arm: fetch-failed beating a recoverable annotation — hoist mutant verified green under every existing fixture", "defect_signature": {"file": "lib/test/run.sh", "line_range": [26477, 26500], "kind": "test_gap"}, "corroboration_count": 2},
-      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "auto path's HEAD_SHA env delivery to the backstop step (devflow-review.yml backstop step env line) is unpinned — dropping it silently defeats auto-resume on the primary path", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [1403, 1403], "kind": "test_gap"}, "corroboration_count": 1},
-      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "rejected denial tokens resolve to unparseable with no stderr breadcrumb naming the check-run/sha/token (severity-calibrated down from MEDIUM — see fix_decisions)", "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [738, 750], "kind": "other"}, "corroboration_count": 1},
-      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "pre-existing (not diff-introduced): unchecked compose-write in post-review-backstop-comment.sh can produce a false fired notice on partial write — follow-up candidate, explicitly not a blocker", "defect_signature": {"file": "scripts/post-review-backstop-comment.sh", "line_range": [82, 86], "kind": "logic_error"}, "corroboration_count": 1},
-      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "non-raw docstring renders `\\n` as a real newline in the rendered __doc__ (claim true, rendering garbled)", "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [646, 656], "kind": "style"}, "corroboration_count": 2},
-      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "docstring 'Two precedence changes are INTENDED' undercounts — a third behavioral delta vs pre-#435 exists (fetch-failed now beats a recoverable annotation); plus a mid-sentence hard-wrap artifact", "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [692, 698], "kind": "comment_drift"}, "corroboration_count": 2}
-    ],
-    "phase2_fails": [],
-    "comparison": {
-      "shadow_total": 7,
-      "overlap_with_iter_N": 0,
-      "new": 7,
-      "new_critical": 0,
-      "new_important": 3
-    },
-    "overgrade_gate": [
-      {"finding": "fetch-failed-beats-recoverable-annotation fixture gap", "flagged": false, "note": "2-source in substance (pr-test-analyzer + requesting-code-review, with an executed hoist-mutant proof) — not the uncorroborated shape 3; drives promotion at Important"},
-      {"finding": "auto-path HEAD_SHA env pin gap", "flagged": true, "evaluation": "severity-calibrated recorded in iter-2 fix_decisions: re-affirmed Important — the guarded regression silently defeats auto-resume on the primary path with the suite green, the identical class issue #435 item 3 graded Important on the manual path"},
-      {"finding": "no-breadcrumb-on-unparseable", "flagged": true, "evaluation": "severity-calibrated recorded in iter-2 fix_decisions: calibrated DOWN to Suggestion — over-grade shape 2 (diagnostic-only: sole impact is a missing log line; the record itself is correct and fail-closed; the file's own convention is provenance-only for content-level parse failures) — parked as a deferral, does not drive promotion"}
-    ],
-    "promoted_to_iter_next": true
-  },
   "telemetry": {
     "phase_0": {
       "calls": 0,
