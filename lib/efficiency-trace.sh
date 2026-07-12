@@ -438,7 +438,7 @@ synthesize_iter_workpads() {
 # promotion evidence to synthesize from; the fused Step 2.6 emit is the primary
 # fix and this floor is its backstop, not its equal.
 synthesize_shadow_markers() {
-  local dir="$1" iter n next has_shadow promoted jq_err
+  local dir="$1" iter n next has_shadow promoted jq_err mv_err
   for iter in "$dir"/iter-*.json; do
     [ -e "$iter" ] || continue
     # Parse N from the filename with bash builtins only — this DECIDES whether a
@@ -478,10 +478,13 @@ synthesize_shadow_markers() {
     # `> "$iter"` would truncate the source before jq reads it). A failed jq
     # leaves the original untouched with a breadcrumb — never a silent drop.
     if jq_err="$("$DEVFLOW_JQ" '.shadow = {shadow_synthesized: true, promoted_to_iter_next: true}' "$iter" 2>&1 > "$iter.shadowtmp")"; then
-      if mv "$iter.shadowtmp" "$iter" 2>/dev/null; then
+      if mv_err="$(mv "$iter.shadowtmp" "$iter" 2>&1)"; then
         echo "::warning::efficiency-trace.sh --persist: synthesized a minimal shadow marker on $(basename "$iter") — its shadow block was dropped but iter-$((10#$n + 1)).json is a promoted iter, so the promotion linkage is recovered (cost figures are unrecoverable after the fact — attribution only, per the floor's promoted-shadows-only limitation)" >&2
       else
-        echo "::warning::efficiency-trace.sh --persist: could not move the synthesized shadow marker into $(basename "$iter") (mv failed); leaving it without one" >&2
+        # Surface mv's own errno text (read-only mount, ENOSPC, …) rather than
+        # discarding it to /dev/null — symmetric with the jq branch's $jq_err, and
+        # the difference between a diagnosable failure and an unexplained one.
+        echo "::warning::efficiency-trace.sh --persist: could not move the synthesized shadow marker into $(basename "$iter") (mv failed: ${mv_err:-no error text}); leaving it without one" >&2
         rm -f "$iter.shadowtmp" 2>/dev/null
       fi
     else

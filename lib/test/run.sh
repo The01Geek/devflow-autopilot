@@ -15163,6 +15163,21 @@ assert_eq "et-shadow-floor(b): an agent-written shadow block is left untouched (
   "$(jq -r '.shadow.shadow_synthesized' "$SHF_B/iter-1.json" 2>/dev/null)"
 assert_eq "et-shadow-floor(b): the agent-written block's own fields survive" "full" \
   "$(jq -r '.shadow.coverage' "$SHF_B/iter-1.json" 2>/dev/null)"
+# (b) the OTHER direction of the same guard: --self-check must stay SILENT on a REAL
+# (agent-written) shadow block. The self-check's shadow branch gates on BOTH object-ness
+# and `.shadow.shadow_synthesized == true`; a regression relaxing it to object-ness alone
+# would validate every real block against SHADOW_SYNTH_EXPECTED_FIELDS and spray a
+# spurious "missing expected field" warning for each of the two synth-only fields — and
+# fixture (b) above, which only drives --persist, would stay green through it. (a)'s
+# accept-the-marker row and the truncated-marker row are the guard's positive controls:
+# together they prove this silence is the guard discriminating, not a dead branch.
+SHF_B_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_B" --slug pr-1 ) 2>&1 )"
+assert_eq "et-shadow-floor(b): --self-check is SILENT on a real agent-written shadow block (never validated against the synth minimal set)" "no" \
+  "$(printf '%s' "$SHF_B_SC" | grep -qF 'synthesized shadow marker missing expected field' && echo yes || echo no)"
+assert_pin_red_under "et-shadow-floor(b): relaxing the self-check shadow gate to object-ness alone flips RED" \
+  "and (.shadow.shadow_synthesized == true)" \
+  's/and \(\.shadow\.shadow_synthesized == true\)//' \
+  "$LIB/efficiency-trace.sh"
 # (c) no promotion evidence (iter-2 is a plain fix iter) → no marker synthesized.
 SHF_C="$SHF_REPO/.devflow/tmp/review/pr-1/run-c"
 mkdir -p "$SHF_C"
@@ -15286,6 +15301,76 @@ assert_eq "et-shadow-floor(i): a zero-padded stem emits no 'value too great for 
   "$(printf '%s' "$SHF_I_ERR" | grep -qi 'value too great for base' && echo yes || echo no)"
 assert_eq "et-shadow-floor(i): the padded stem is left untouched (base-10 successor iter-9 is absent → clean skip)" "null" \
   "$(jq -r '.shadow' "$SHF_I/iter-08.json" 2>/dev/null)"
+# (j) MULTIPLE promotable iters in one --persist pass: the floor is a `for` loop over every
+# iter-*.json, so each promotion-evidenced slot must be synthesized INDEPENDENTLY. Without a
+# multi-slot row, an early `return`/`break` (or a first-match-wins rewrite) would leave every
+# single-slot fixture (a)-(i) green while silently dropping every later iter's attribution.
+# iter-1 (fix, shadow-less, successor iter-2 is promoted) AND iter-2 (promoted, shadow-less,
+# successor iter-3 is promoted) BOTH qualify; iter-3 has no successor → correctly skipped.
+SHF_J="$SHF_REPO/.devflow/tmp/review/pr-1/run-j"
+mkdir -p "$SHF_J"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_J/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_J/iter-2.json"
+printf '{"iter":3,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_J/iter-3.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_J" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(j): the FIRST promotable iter is synthesized" "true" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_J/iter-1.json" 2>/dev/null)"
+assert_eq "et-shadow-floor(j): the SECOND promotable iter is ALSO synthesized (the loop does not stop at the first match)" "true" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_J/iter-2.json" 2>/dev/null)"
+assert_eq "et-shadow-floor(j): the last iter has no successor → no promotion evidence → no marker" "null" \
+  "$(jq -r '.shadow' "$SHF_J/iter-3.json" 2>/dev/null)"
+# (k) jq MERGE-failure branch: the marker write is `jq '.shadow = {…}' iter > iter.shadowtmp`,
+# and its failure arm must breadcrumb the jq error text, leave the source iter untouched, and
+# clean up the temp file — the file's surfacing-failures thesis, previously untested. Drive it
+# with a DEVFLOW_JQ stub that passes every OTHER jq call through to the real binary and fails
+# ONLY the merge program (so the `.shadow`/`.loop_role` reads still succeed — the positive
+# control that this fixture reaches the merge at all: the identical shape synthesizes cleanly
+# in (a) with the real jq). Attribute the rejection by pinning the stub's own error text in
+# the breadcrumb, which no other branch can emit.
+SHF_K="$SHF_REPO/.devflow/tmp/review/pr-1/run-k"
+mkdir -p "$SHF_K"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_K/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_K/iter-2.json"
+SHF_K_BIN="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in *".shadow = {shadow_synthesized"*) printf "stub jq: synthetic merge failure\\n" >&2; exit 3 ;; esac; done\nexec jq "$@"\n' > "$SHF_K_BIN/jq-stub"
+chmod +x "$SHF_K_BIN/jq-stub"
+SHF_K_ERR="$( ( cd "$SHF_REPO" && DEVFLOW_JQ="$SHF_K_BIN/jq-stub" bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_K" --slug pr-1 ) 2>&1 >/dev/null )"; SHF_K_RC=$?
+assert_eq "et-shadow-floor(k): a failed jq merge still exits 0 (best-effort floor, never aborts --persist)" "0" "$SHF_K_RC"
+assert_eq "et-shadow-floor(k): the failed jq merge breadcrumbs jq's OWN error text (never a silent drop)" "yes" \
+  "$(printf '%s' "$SHF_K_ERR" | grep -qF 'could not synthesize a shadow marker on iter-1.json (stub jq: synthetic merge failure)' && echo yes || echo no)"
+assert_eq "et-shadow-floor(k): a failed jq merge leaves the source iter untouched (no half-written marker)" "null" \
+  "$(jq -r '.shadow' "$SHF_K/iter-1.json" 2>/dev/null)"
+assert_eq "et-shadow-floor(k): a failed jq merge cleans up its temp file (no orphaned .shadowtmp)" "no" \
+  "$([ -e "$SHF_K/iter-1.json.shadowtmp" ] && echo yes || echo no)"
+rm -rf "$SHF_K_BIN"
+# (l) mv-failure branch: jq writes the temp file, then the `mv` into place fails (read-only
+# mount, ENOSPC). Drive it by PATH-shadowing `mv` with a failing shim that prints a real errno
+# text — the only `mv` on the --persist path is this one. The breadcrumb must SURFACE that
+# text (it is captured into $mv_err, symmetric with the jq branch's $jq_err — reverting to
+# `mv … 2>/dev/null` discards the errno and makes a read-only mount indistinguishable from
+# ENOSPC), the source iter must survive un-marked, and the temp file must be cleaned up.
+SHF_L="$SHF_REPO/.devflow/tmp/review/pr-1/run-l"
+mkdir -p "$SHF_L"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_L/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_L/iter-2.json"
+SHF_L_BIN="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nprintf "mv: rename failed: Read-only file system\\n" >&2\nexit 1\n' > "$SHF_L_BIN/mv"
+chmod +x "$SHF_L_BIN/mv"
+SHF_L_ERR="$( ( cd "$SHF_REPO" && PATH="$SHF_L_BIN:$PATH" bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_L" --slug pr-1 ) 2>&1 >/dev/null )"; SHF_L_RC=$?
+assert_eq "et-shadow-floor(l): a failed mv still exits 0 (best-effort floor, never aborts --persist)" "0" "$SHF_L_RC"
+assert_eq "et-shadow-floor(l): the failed mv breadcrumbs mv's OWN errno text (not a bare 'mv failed')" "yes" \
+  "$(printf '%s' "$SHF_L_ERR" | grep -qF 'could not move the synthesized shadow marker into iter-1.json (mv failed: mv: rename failed: Read-only file system)' && echo yes || echo no)"
+assert_eq "et-shadow-floor(l): a failed mv leaves the source iter un-marked (fail-closed)" "null" \
+  "$(jq -r '.shadow' "$SHF_L/iter-1.json" 2>/dev/null)"
+assert_eq "et-shadow-floor(l): a failed mv cleans up its temp file (no orphaned .shadowtmp)" "no" \
+  "$([ -e "$SHF_L/iter-1.json.shadowtmp" ] && echo yes || echo no)"
+rm -rf "$SHF_L_BIN"
+# Behavioral-fix pin: re-discarding mv's stderr to /dev/null flips this RED — the mutation
+# restores the pre-fix form, so the errno text (l) attributes the failure with disappears.
+assert_pin_red_under "et-shadow-floor(l): discarding mv's stderr again flips the errno-surfacing pin RED" \
+  'mv failed: ${mv_err:-no error text}' \
+  's/mv_err="\$\(mv (.*) 2>&1\)"/mv \1 2>\/dev\/null/; s/\(mv failed: \$\{mv_err:-no error text\}\)/(mv failed)/' \
+  "$LIB/efficiency-trace.sh"
 # The SKILL↔lib coupled constant: SHADOW_SYNTH_EXPECTED_FIELDS must stay a plain,
 # greppable single-line assignment in efficiency-trace.sh (its self-check reads it).
 assert_pin_unique "et-shadow-floor: efficiency-trace.sh carries the SHADOW_SYNTH_EXPECTED_FIELDS constant" \

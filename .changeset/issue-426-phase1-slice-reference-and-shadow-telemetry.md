@@ -23,4 +23,7 @@ type: Changed
   synthesizes a minimal `shadow_synthesized: true` + promotion-linkage marker when promotion
   evidence survives with no `shadow` block (promoted-shadows-only; attribution, not cost; never
   overwrites an agent-written block), validated by `--self-check` as a recognized degraded class.
+  Both of the floor's write arms now surface the underlying tool's error text — the failing `jq`'s
+  message and `mv`'s own errno (read-only mount, `ENOSPC`) — instead of discarding it, so a floor
+  that could not write is diagnosable rather than merely reported.
   Reuses command heads already granted in both cloud allowlists — no allowlist change. (#426)

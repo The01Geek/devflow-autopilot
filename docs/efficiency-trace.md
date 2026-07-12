@@ -502,6 +502,11 @@ a promotion with no record of the shadow that produced it. When an `iter-<N>.jso
   (a disabled repo gets none) and runs before the durable copy, so a synthesized marker is committed
   alongside the workpads it annotates. Best-effort: any failure warns and continues, never aborting
   `--persist`.
+- *Every failure arm names its own cause.* The marker is merged in via a temp file plus `mv`, and
+  both write arms surface the underlying tool's error text — the failing `jq`'s message, and `mv`'s
+  own errno (read-only mount, `ENOSPC`) — rather than discarding it, so a floor that could not write
+  is diagnosable rather than merely reported. On either failure the source `iter-<N>.json` is left
+  untouched and the temp file is removed: no half-written marker, no orphaned `.shadowtmp`.
 - *Stated limitation — promoted shadows only.* The floor recovers a dropped shadow block **only**
   when promotion evidence survives. A clean outcome-1 shadow whose block dropped leaves no promotion
   evidence to synthesize from, so it is unrecoverable here — the fused Step 2.6 emit (mandatory on
