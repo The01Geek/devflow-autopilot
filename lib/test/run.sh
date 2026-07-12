@@ -26172,6 +26172,19 @@ printf '%s\n' 'The list holds 3.2 tags overall.' > "$SPF"
 SPR="$(spl_repo "$SPF")"
 assert_eq "#439 a decimal ('3.2 tags') produces no recognition row" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
 
+# GAP-CRITICAL (shadow-surfaced): the recognition tier must NEVER preempt a downstream gating
+# rule. A line that matches BOTH the widened count shape AND a gating R4 deny-absolute+operator
+# conflict must still emit the STALE R4 row (exit 1) — the recognition tier is evaluated last,
+# so its `continue` cannot suppress R4. (Pre-fix, the tier ran before R4 and swallowed it,
+# flipping exit 1->0 — the fail-open this fixture pins closed.)
+SPF="$(probe_tmp '#439 r4 co-occurrence')"
+printf '%s\n' 'These three legacy rules must never touch `>` output.' \
+              'An in-workspace `>` redirect is permitted.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 recognition tier does NOT preempt a gating R4 conflict (STALE R4 still gates, exit 1)" "1" "$(spl_rc "$SPR")"
+assert_eq "#439 the co-occurring line emits the STALE R4 row (not swallowed by recognition)" "yes" "$(spl_has "$SPR" STALE R4)"
+assert_eq "#439 the co-occurring gating line emits NO recognition-only UNRESOLVABLE R3 row" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
 # The lint stays CLEAN (exit 0) against a fixture carrying the recognition shape — the tier is
 # non-gating end to end, so even a live recognition row never reddens a run's exit code.
 SPF="$(probe_tmp '#439 non-gating exit')"

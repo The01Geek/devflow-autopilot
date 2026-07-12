@@ -43,9 +43,13 @@ markdown. None of the four historical escape shapes lived on those surfaces.
   which is the false-positive boundary a named-token scope mismatch stays clear of.
 
 **R3 recognition-only tier (issue #439).** Layered cleanly over the R3 count-locked rule
-above without touching it. A diff-added prose/comment line that matches a *widened* claim
-shape but **not** the gating ``_COUNT_RE`` emits a single ``UNRESOLVABLE`` ``R3`` row whose
-detail begins ``count-locked: recognition-only (<n> <noun>) — pin or drift-proof this claim``.
+above without touching it, and **evaluated last — after every gating rule (R1/R2/R3/R3b/R4),
+each of which ``continue``s on a match — so it is reached only on a line no gating rule
+claimed** (an earlier placement let a line matching both the widened count shape and a gating
+R4 deny-absolute be consumed here before R4 could run, suppressing a real STALE). A diff-added
+prose/comment line that matches a *widened* claim shape but that no gating rule (including the
+gating ``_COUNT_RE``) claims emits a single ``UNRESOLVABLE`` ``R3`` row whose detail begins
+``count-locked: recognition-only (<n> <noun>) — pin or drift-proof this claim``.
 The widened shape is: a spelled-out numeral word (``two`` … ``twelve``, case-insensitive ASCII)
 or a digit run; up to two intervening modifier words (each optionally wrapped in ``**…**`` /
 ``*…*`` / backticks); and a noun from the *widened* set — the seven ``_COUNT_RE`` nouns plus
@@ -679,18 +683,6 @@ def examine_file(path, added, lines, rows):
                         f"count-locked: {n} {cm.group(2)} matches adjacent block — {_excerpt(text)}")
             continue
 
-        # R3 recognition-only tier (issue #439) — widened claim recognition, NON-GATING.
-        # Reached only when the gating _COUNT_RE above missed, so the existing surface is
-        # byte-identical. No referent resolution runs; the row is always UNRESOLVABLE and
-        # never affects the exit code — its sole purpose is the count-locked policy trigger.
-        rec = _recognize_count(text)
-        if rec is not None:
-            rec_n, rec_noun = rec
-            rec_detail = ("count-locked: recognition-only "
-                          f"({rec_n} {rec_noun}) — pin or drift-proof this claim — {_excerpt(text)}")
-            rows.append(Row(UNRESOLVABLE, "R3", path, post_ln, rec_detail))
-            continue
-
         # R4 — operator-token modality conflict
         if _DENY_RE.search(text):
             op = None
@@ -705,6 +697,23 @@ def examine_file(path, added, lines, rows):
                 else:
                     rows.append(Row(VERIFIED, "R4", path, post_ln,
                                     f"deny-absolute on `{op}`: no contradicting permit found — {_excerpt(text)}"))
+            continue
+
+        # R3 recognition-only tier (issue #439) — widened claim recognition, NON-GATING.
+        # Placed LAST, after every gating rule (R1/R2/R3/R3b/R4), each of which `continue`s
+        # on a match — so the recognition tier is reached ONLY on a line no gating rule
+        # claimed. This ordering is load-bearing for the non-gating invariant: an earlier
+        # placement let a line matching both the widened count shape AND a gating R4
+        # deny-absolute be consumed here (via the `continue` below) before R4 could run,
+        # suppressing a real STALE and flipping the exit code — the fail-open this position
+        # forecloses. No referent resolution runs; the row is always UNRESOLVABLE and never
+        # affects the exit code — its sole purpose is the count-locked policy trigger.
+        rec = _recognize_count(text)
+        if rec is not None:
+            rec_n, rec_noun = rec
+            rec_detail = ("count-locked: recognition-only "
+                          f"({rec_n} {rec_noun}) — pin or drift-proof this claim — {_excerpt(text)}")
+            rows.append(Row(UNRESOLVABLE, "R3", path, post_ln, rec_detail))
             continue
 
 
