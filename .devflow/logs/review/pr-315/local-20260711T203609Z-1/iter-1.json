@@ -460,7 +460,7 @@
       "id": "F-7",
       "agent": "devflow:comment-analyzer",
       "severity": "Critical",
-      "description": "Unscoped 'byte-for-byte identical default path' universal contradicted by this same diff's new empty-model fail-loud guard (devflow-implement.yml:420, devflow.yml:609, DEVFLOW_SYSTEM_OVERVIEW.md:509+533) \u2014 self-contradicting-diff carve-out",
+      "description": "Unscoped 'byte-for-byte identical default path' universal contradicted by this same diff's new empty-model fail-loud guard (devflow-implement.yml:420, devflow.yml:609, DEVFLOW_SYSTEM_OVERVIEW.md:509+533) — self-contradicting-diff carve-out",
       "defect_signature": {
         "file": ".github/workflows/devflow-implement.yml",
         "line_range": [
@@ -477,7 +477,7 @@
       "id": "F-11",
       "agent": "devflow:requesting-code-review",
       "severity": "Important",
-      "description": "Unvalidated head-sourced MODEL (bootstrap fallback) / EFFORT interpolated unquoted into the privileged reviewer's claude_args \u2014 whitespace injects arbitrary CLI flags (e.g. --dangerously-skip-permissions)",
+      "description": "Unvalidated head-sourced MODEL (bootstrap fallback) / EFFORT interpolated unquoted into the privileged reviewer's claude_args — whitespace injects arbitrary CLI flags (e.g. --dangerously-skip-permissions)",
       "defect_signature": {
         "file": ".github/workflows/devflow-runner.yml",
         "line_range": [
@@ -494,7 +494,7 @@
       "id": "F-12",
       "agent": "devflow:requesting-code-review",
       "severity": "Important",
-      "description": "Diff-added runner cargs comment overclaims the head-model fallback as 'safe ... cannot leak the secret' while the flag-injection vector existed \u2014 documented_falsehood tied to F-11",
+      "description": "Diff-added runner cargs comment overclaims the head-model fallback as 'safe ... cannot leak the secret' while the flag-injection vector existed — documented_falsehood tied to F-11",
       "defect_signature": {
         "file": ".github/workflows/devflow-runner.yml",
         "line_range": [
@@ -511,7 +511,7 @@
       "id": "F-3",
       "agent": "devflow:pr-test-analyzer",
       "severity": "Important",
-      "description": "claude_args \u2192 steps.cargs.outputs.args consumer splice unasserted in all three workflows (revert-to-literal regression invisible to the suite)",
+      "description": "claude_args → steps.cargs.outputs.args consumer splice unasserted in all three workflows (revert-to-literal regression invisible to the suite)",
       "defect_signature": {
         "file": "lib/test/run.sh",
         "line_range": [
@@ -528,7 +528,7 @@
       "id": "F-4",
       "agent": "devflow:pr-test-analyzer",
       "severity": "Important",
-      "description": "Runner OAuth-guard step's if: gate (provider == '') unasserted \u2014 deleted/inverted gate invisible to the suite",
+      "description": "Runner OAuth-guard step's if: gate (provider == '') unasserted — deleted/inverted gate invisible to the suite",
       "defect_signature": {
         "file": "lib/test/run.sh",
         "line_range": [
@@ -545,7 +545,7 @@
       "id": "F-1",
       "agent": "devflow:silent-failure-hunter",
       "severity": "Suggestion",
-      "description": "Resolver silently no-ops on empty CONFIG_JSON (jq empty stdin rc 0, zero outputs) \u2014 latent, currently unreachable, fails toward safe default or misdirected loud error",
+      "description": "Resolver silently no-ops on empty CONFIG_JSON (jq empty stdin rc 0, zero outputs) — latent, currently unreachable, fails toward safe default or misdirected loud error",
       "defect_signature": {
         "file": ".github/workflows/devflow-implement.yml",
         "line_range": [
@@ -562,7 +562,7 @@
       "id": "F-2",
       "agent": "devflow:silent-failure-hunter",
       "severity": "Suggestion",
-      "description": "Two fail-loud guards behaviorally tested by exit code only (inject empty-secret, cargs empty-MODEL) \u2014 message-degrading mutation stays green",
+      "description": "Two fail-loud guards behaviorally tested by exit code only (inject empty-secret, cargs empty-MODEL) — message-degrading mutation stays green",
       "defect_signature": {
         "file": "lib/test/run.sh",
         "line_range": [
@@ -630,7 +630,7 @@
       "id": "F-9",
       "agent": "devflow:comment-analyzer",
       "severity": "Suggestion",
-      "description": "'Exported into the action step' \u2014 the $GITHUB_ENV write is job-wide (schema env description + cloud-setup bullets)",
+      "description": "'Exported into the action step' — the $GITHUB_ENV write is job-wide (schema env description + cloud-setup bullets)",
       "defect_signature": {
         "file": ".devflow/config.schema.json",
         "line_range": [
@@ -698,7 +698,7 @@
       "id": "F-15",
       "agent": "devflow:comment-analyzer",
       "severity": "Critical",
-      "description": "SWEPT SIBLING (Step 3 item 3/3a re-sweep): release-notes.md:25 'behaves exactly as before' absolute \u2014 same self-contradicting family as F-7",
+      "description": "SWEPT SIBLING (Step 3 item 3/3a re-sweep): release-notes.md:25 'behaves exactly as before' absolute — same self-contradicting family as F-7",
       "defect_signature": {
         "file": "docs/external/release-notes.md",
         "line_range": [
@@ -732,7 +732,7 @@
       "id": "F-17",
       "agent": "step3.5-fix-delta-gate",
       "severity": "Critical",
-      "description": "Flag-injection guard bypassed by flag-shaped single token (MODEL/EFFORT='--dangerously-skip-permissions' passes whitespace/quote check); EFFORT head-sourced on runner even off bootstrap \u2014 empirically reproduced by the blinded gate",
+      "description": "Flag-injection guard bypassed by flag-shaped single token (MODEL/EFFORT='--dangerously-skip-permissions' passes whitespace/quote check); EFFORT head-sourced on runner even off bootstrap — empirically reproduced by the blinded gate",
       "defect_signature": {
         "file": ".github/workflows/devflow-runner.yml",
         "line_range": [
@@ -769,7 +769,7 @@
       "claim_text": "claude_args consumer splice unasserted",
       "original_severity": "Important",
       "calibrated_severity": "Important",
-      "evidence": "over-grade gate shape 3 flag (uncorroborated single-source from pr-test-analyzer): evaluated \u2014 the missing pin leaves a load-bearing producer\u2192consumer wiring invisible to the suite; a merge-conflict revert silently defeats AC 7 (gateway 400s) and the per-section model override with the suite green. Fail direction is silent behavioral regression, not diagnostic-only \u2014 Important affirmed."
+      "evidence": "over-grade gate shape 3 flag (uncorroborated single-source from pr-test-analyzer): evaluated — the missing pin leaves a load-bearing producer→consumer wiring invisible to the suite; a merge-conflict revert silently defeats AC 7 (gateway 400s) and the per-section model override with the suite green. Fail direction is silent behavioral regression, not diagnostic-only — Important affirmed."
     },
     {
       "finding_id": "F-3",
@@ -783,7 +783,7 @@
       "claim_text": "OAuth-guard if: gate unasserted",
       "original_severity": "Important",
       "calibrated_severity": "Important",
-      "evidence": "over-grade gate shape 3 flag (uncorroborated single-source from pr-test-analyzer): evaluated \u2014 a deleted gate makes a provider-routed OAuth-less repo (the deployment #313 enables) fail spuriously on every review; an inverted gate silently drops AC 8's fail-loud. Both directions are behavioral, uncaught by any other assertion \u2014 Important affirmed."
+      "evidence": "over-grade gate shape 3 flag (uncorroborated single-source from pr-test-analyzer): evaluated — a deleted gate makes a provider-routed OAuth-less repo (the deployment #313 enables) fail spuriously on every review; an inverted gate silently drops AC 8's fail-loud. Both directions are behavioral, uncaught by any other assertion — Important affirmed."
     },
     {
       "finding_id": "F-4",
@@ -874,12 +874,12 @@
     "by_category": {}
   },
   "reflections": [
-    "over-grade calibration gate: F-3 and F-4 flagged (shape 3, uncorroborated single-source from pr-test-analyzer); recorded severity-calibrated evaluations affirm Important for both \u2014 see fix_decisions",
-    "Step 3 item 3a mechanism re-sweep (comment-analyzer, scoped to cargs guard + resolver tripwire) surfaced 3 stale siblings (F-15, F-16 family) \u2014 all fixed in-iteration",
+    "over-grade calibration gate: F-3 and F-4 flagged (shape 3, uncorroborated single-source from pr-test-analyzer); recorded severity-calibrated evaluations affirm Important for both — see fix_decisions",
+    "Step 3 item 3a mechanism re-sweep (comment-analyzer, scoped to cargs guard + resolver tripwire) surfaced 3 stale siblings (F-15, F-16 family) — all fixed in-iteration",
     "Step 3 item 3b sweeps: 2.3.0c(a) operand table done for both new guards (DECISION always assigned under set -e; whitespace-only config also yields empty jq output, covered); 2.3.0c(b) no agent-executed policy prose in delta; 2.3.4 reproduced jq empty/whitespace stdin rc=0 no-output in scratch",
-    "mutation checks (copy-based, never in place): claude_args-revert mutant drops consumer pin 1\u21920 hits (RED); deleted-if: mutant loses gate string from step block (RED); new behavioral guards executed live by the suite (5245/0, +14 assertions registered)",
+    "mutation checks (copy-based, never in place): claude_args-revert mutant drops consumer pin 1→0 hits (RED); deleted-if: mutant loses gate string from step block (RED); new behavioral guards executed live by the suite (5245/0, +14 assertions registered)",
     "F-13 deferred as already-tracked (issue #313 post-merge live-run ACs)",
-    "Step 3.5 fix-delta gate (blinded, inner attempt 1): found C1 \u2014 flag-shaped-token bypass of the new guard (guard-class 4, re-derived consumer contract accepting a superset); re-fixed in-iteration (leading-dash rejection for MODEL, enum pin for EFFORT), bypass reproductions added as tests (suite 5249/0), re-gate dispatched over the cumulative span"
+    "Step 3.5 fix-delta gate (blinded, inner attempt 1): found C1 — flag-shaped-token bypass of the new guard (guard-class 4, re-derived consumer contract accepting a superset); re-fixed in-iteration (leading-dash rejection for MODEL, enum pin for EFFORT), bypass reproductions added as tests (suite 5249/0), re-gate dispatched over the cumulative span"
   ],
   "telemetry": {
     "phase_0": {
@@ -928,5 +928,9 @@
       "tokens": 0,
       "wall_clock_s": 60
     }
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
   }
 }
