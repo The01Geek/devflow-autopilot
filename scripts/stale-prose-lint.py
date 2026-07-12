@@ -42,6 +42,35 @@ markdown. None of the four historical escape shapes lived on those surfaces.
   token that is not an operator (an arbitrary named identifier) is never examined,
   which is the false-positive boundary a named-token scope mismatch stays clear of.
 
+**R3 recognition-only tier (issue #439).** Layered cleanly over the R3 count-locked rule
+above without touching it. A diff-added prose/comment line that matches a *widened* claim
+shape but **not** the gating ``_COUNT_RE`` emits a single ``UNRESOLVABLE`` ``R3`` row whose
+detail begins ``count-locked: recognition-only (<n> <noun>) — pin or drift-proof this claim``.
+The widened shape is: a spelled-out numeral word (``two`` … ``twelve``, case-insensitive ASCII)
+or a digit run; up to two intervening modifier words (each optionally wrapped in ``**…**`` /
+``*…*`` / backticks); and a noun from the *widened* set — the seven ``_COUNT_RE`` nouns plus
+the plural-only additions ``tags`` / ``members`` / ``fields`` / ``rows`` / ``columns`` /
+``arms`` / ``files`` / ``rules`` / ``sites``. This tier is **non-gating by construction**: it
+runs **no** referent resolution (no adjacency walk, no table parsing), never emits STALE, and
+never affects the exit code (``UNRESOLVABLE`` never gates). Its only job is to surface the
+``count-locked`` literal the pin-or-don't-write policy keys on, so an unpinned counted claim
+announces itself in the fix loop's Step 3 pre-check and the Phase 0.6 note.
+
+**Recognition-tier noise guards** (noise-limiting only — the tier cannot gate, so these need not
+be correctness-critical): the numeral must not be directly preceded by ``#`` / ``§`` / a digit /
+``.`` / ``-`` (so ``#402``-style references and ``§2.3`` section numbers are never read as
+numerals); and an intervening modifier token that is numeral-shaped, or one of ``of`` / ``per`` /
+``and`` / ``or`` (killing partitives like "two of these tags"), disqualifies the recognition. A
+token carrying sentence punctuation cannot even form a modifier — the modifier pattern is a bare
+word — so such a token structurally breaks the match rather than being separately rejected.
+
+**Recognition-tier out of scope (by design, decided in issue #439).** Verification / gating of the
+widened surface, markdown-table referent counting, and adjacency-walk relaxation are deliberately
+**not** built — the #423 build methodology routes such n=1 verification shapes to the review-agent
+LLM carve-out, which remains the gate for this class. Numeral words are English-only (a documented
+accepted boundary for non-English consumer repos). Hyphenated numeral compounds (``twenty-one``)
+and the word ``one`` (idiom-heavy) are excluded.
+
 **Out of scope (by design).** The *behavioral-absolute* subclass — a deny-absolute
 with no countable referent (the PR #383 "grep errors either way" shape) — is
 deterministically out of reach and stays routed to ``comment-analyzer`` via the
@@ -122,6 +151,40 @@ _COUNT_RE = re.compile(
     r"\b(\d+)\s+(assertions?|asserts?|checks?|bullets?|items?|entries?|cases?)\b",
     re.IGNORECASE,
 )
+# ── R3 recognition-only tier (issue #439), non-gating ──────────────────────────────────
+# Spelled-out numeral words two..twelve → their integer value. "one" is deliberately absent
+# (idiom-heavy) and thirteen+ is out of scope; see the module header's recognition-tier records.
+_WORD_NUM = {
+    "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+}
+# The widened noun set: the seven existing _COUNT_RE nouns (kept in their ``s?`` forms so the
+# gating surface is byte-identical) plus the nine new nouns, matched PLURAL-ONLY so a singular
+# ("tag", "rule") never trips the recognition.
+_RECOG_NOUN = (
+    r"(?:assertions?|asserts?|checks?|bullets?|items?|entries?|cases?"
+    r"|tags|members|fields|rows|columns|arms|files|rules|sites)"
+)
+# A single intervening modifier token: a bare word, optionally wrapped in ``**…**`` / ``*…*`` /
+# backticks, followed by whitespace. Because the word body is ``[A-Za-z][\w'-]*`` (no sentence
+# punctuation), a token carrying a comma/period/colon cannot form a modifier — it structurally
+# breaks the match, which is how the "sentence punctuation disqualifies" guard is realised.
+_RECOG_MOD = r"(?:[*`]{1,2}|)[A-Za-z][\w'-]*(?:[*`]{1,2}|)\s+"
+# The word alternation is DERIVED from _WORD_NUM (single source of truth) so the regex and the
+# value map can never drift — a word the regex matched but the map lacked would KeyError. Longest
+# alternatives first so a shorter numeral never shadows a longer one (belt-and-suspenders; the
+# ``\b`` anchors already prevent it).
+_WORD_ALT = "|".join(sorted(_WORD_NUM, key=len, reverse=True))
+# The numeral: a word numeral (bounded) OR a digit run, NOT directly preceded by ``#`` / ``§`` /
+# a digit / ``.`` / ``-`` (kills ``#402`` references, ``§2.3`` section numbers, decimals).
+_RECOG_NUM = r"(?<![#§\d.\-])(?:\b(?P<word>" + _WORD_ALT + r")\b|(?P<digit>\d+))"
+_RECOG_RE = re.compile(
+    _RECOG_NUM + r"\s+(?P<mods>(?:" + _RECOG_MOD + r"){0,2})(?P<noun>" + _RECOG_NOUN + r")\b",
+    re.IGNORECASE,
+)
+# Modifier words that disqualify the recognition (partitives / conjunctions).
+_RECOG_MOD_DISQUALIFY = frozenset({"of", "per", "and", "or"})
+
 # Two-item enumeration: "a X and a Y" plus a "both" summary → asserts exactly 2.
 _TWO_ITEM_RE = re.compile(r"(?i)\ba\b\s+\S.*\band\b\s+\ba\b\s+\S")
 _BOTH_RE = re.compile(r"(?i)\bboth\b")
@@ -506,6 +569,35 @@ def _adjacent_assert_count(lines, claim_idx):
     return c
 
 
+def _mods_ok(mods):
+    """True when every intervening modifier token in ``mods`` is a plain modifier word — not a
+    partitive/conjunction (of/per/and/or) and not numeral-shaped. See the recognition-tier
+    noise guards in the module header. ``mods`` may be empty (zero modifiers → always OK)."""
+    for tok in mods.split():
+        bare = tok.strip("*`").lower()
+        if not bare:
+            continue
+        if bare in _RECOG_MOD_DISQUALIFY:
+            return False
+        if bare in _WORD_NUM or bare.isdigit():
+            return False
+    return True
+
+
+def _recognize_count(text):
+    """Recognition-only tier (issue #439): return ``(n, noun)`` for a *widened* count claim that
+    today's ``_COUNT_RE`` does not match, or ``None``. NON-GATING — the caller emits an
+    ``UNRESOLVABLE`` row and never resolves a referent. ``finditer`` (not ``search``) so a first
+    match disqualified by its modifiers does not mask a later valid claim on the same line."""
+    for m in _RECOG_RE.finditer(text):
+        if not _mods_ok(m.group("mods")):
+            continue
+        word = m.group("word")
+        n = _WORD_NUM[word.lower()] if word else int(m.group("digit"))
+        return n, m.group("noun")
+    return None
+
+
 def _excerpt(text):
     return " ".join(text.split())[:120]
 
@@ -589,6 +681,18 @@ def examine_file(path, added, lines, rows):
                         f"count-locked: '{n} {cm.group(2)}' claim but no adjacent assertion block — {_excerpt(text)}",
                         f"count-locked: claims {n} {cm.group(2)} but adjacent block has {c} — {_excerpt(text)}",
                         f"count-locked: {n} {cm.group(2)} matches adjacent block — {_excerpt(text)}")
+            continue
+
+        # R3 recognition-only tier (issue #439) — widened claim recognition, NON-GATING.
+        # Reached only when the gating _COUNT_RE above missed, so the existing surface is
+        # byte-identical. No referent resolution runs; the row is always UNRESOLVABLE and
+        # never affects the exit code — its sole purpose is the count-locked policy trigger.
+        rec = _recognize_count(text)
+        if rec is not None:
+            rec_n, rec_noun = rec
+            rec_detail = ("count-locked: recognition-only "
+                          f"({rec_n} {rec_noun}) — pin or drift-proof this claim — {_excerpt(text)}")
+            rows.append(Row(UNRESOLVABLE, "R3", path, post_ln, rec_detail))
             continue
 
         # R4 — operator-token modality conflict

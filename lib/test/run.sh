@@ -26011,6 +26011,124 @@ else
     "$( ( cd "$LIB/.." && git diff origin/main...HEAD | python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $? ) )"
 fi
 
+# ── #439 R3 recognition-only tier: widened claim recognition, NON-GATING ──────────────
+# The tier surfaces the `count-locked` policy trigger on a widened claim shape (spelled-out
+# numerals, new plural-only nouns, up to two intervening modifiers) that the gating _COUNT_RE
+# does not match. It NEVER emits STALE and NEVER affects the exit code. The first three
+# fixtures are TEST-FIRST: each showed NO row on the pre-tier helper (the recognition gap is
+# the bug), then the recognition row after the tier lands.
+# spl_detail: field-5 (detail) of the first matching TSV row — used to pin the count-locked prefix.
+spl_detail() {  # repo_dir verdict rule -> detail string of the first matching row
+  ( cd "$1" 2>/dev/null || exit
+    git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null \
+      | awk -F '\t' -v v="$2" -v r="$3" '$1==v && $2==r { print $5; exit }' )
+}
+spl_detail_pref() {  # repo_dir verdict rule prefix -> yes/no (detail begins with prefix)
+  case "$(spl_detail "$1" "$2" "$3")" in "$4"*) echo yes ;; *) echo no ;; esac
+}
+
+# AC1 — word numeral + new noun. Exits 0 (non-gating) and emits an UNRESOLVABLE R3 row whose
+# detail begins with the count-locked recognition prefix (the policy coupling, AC7).
+SPF="$(probe_tmp '#439 word-numeral recog')"
+printf '%s\n' 'Three tags mean the opposite:' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 AC1 word-numeral recognition fixture exits 0 (non-gating)" "0" "$(spl_rc "$SPR")"
+assert_eq "#439 AC1 emits an UNRESOLVABLE R3 recognition row" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+assert_eq "#439 AC1/AC7 detail begins with the count-locked recognition prefix (policy coupling)" "yes" \
+  "$(spl_detail_pref "$SPR" UNRESOLVABLE R3 'count-locked: recognition-only (3 tags)')"
+assert_eq "#439 AC1 recognition tier emits NO STALE R3 row (cannot gate)" "no" "$(spl_has "$SPR" STALE R3)"
+
+# AC2 — modifier tolerance: an emphasised intervening modifier is tolerated.
+SPF="$(probe_tmp '#439 modifier recog')"
+printf '%s\n' 'the three **unestablished** tags below.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 AC2 modifier-tolerance fixture exits 0" "0" "$(spl_rc "$SPR")"
+assert_eq "#439 AC2 emits the UNRESOLVABLE R3 recognition row through a wrapped modifier" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# AC3 — digit numeral + new noun: new-surface (the noun is new), so non-gating.
+SPF="$(probe_tmp '#439 digit new-noun recog')"
+printf '%s\n' 'The set carries 4 tags today.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 AC3 digit + new-noun fixture exits 0 (non-gating new surface)" "0" "$(spl_rc "$SPR")"
+assert_eq "#439 AC3 emits the UNRESOLVABLE R3 recognition row" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+assert_eq "#439 AC3 detail begins with the count-locked recognition prefix (4 tags)" "yes" \
+  "$(spl_detail_pref "$SPR" UNRESOLVABLE R3 'count-locked: recognition-only (4 tags)')"
+
+# AC4 — existing surface is byte-identical: a digit + existing noun adjacent still gates (STALE,
+# exit 1) via the untouched _COUNT_RE path, NOT the recognition tier. (The T3 #336 block above
+# also covers this; asserted here for #439 traceability.)
+SPF="$(probe_tmp '#439 existing surface floor')"
+printf '%s\n' 'This header locks in 3 assertions below:' '  assert a' '  assert b' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 AC4 existing _COUNT_RE surface still gates (exit 1, STALE)" "1" "$(spl_rc "$SPR")"
+assert_eq "#439 AC4 existing surface emits a STALE R3 row (not recognition-only)" "yes" "$(spl_has "$SPR" STALE R3)"
+assert_eq "#439 AC4 existing-surface STALE detail is NOT the recognition prefix" "no" \
+  "$(spl_detail_pref "$SPR" STALE R3 'count-locked: recognition-only')"
+
+# AC6 — noise-guard matrix: each fixture must exit 0 with NO recognition row.
+sp439_noise() {  # label line
+  local f; f="$(probe_tmp "#439 noise $1")"
+  printf '%s\n' "$2" > "$f"
+  local r; r="$(spl_repo "$f")"
+  assert_eq "#439 AC6 noise [$1] exits 0 (no gating)" "0" "$(spl_rc "$r")"
+  assert_eq "#439 AC6 noise [$1] emits NO recognition row" "no" "$(spl_has "$r" UNRESOLVABLE R3)"
+}
+sp439_noise "hash-ref"        'The #402 name-match check is unrelated.'
+sp439_noise "section-number"  'See §2.3 rule for the details.'
+sp439_noise "partitive-of"    'Only two of these tags are set.'
+sp439_noise "plural-only"     'The two rule classes below differ.'
+sp439_noise "unlisted-noun"   'It takes 5 minutes to run.'
+sp439_noise "hyphen-compound" 'There are twenty-one tags in total.'
+sp439_noise "word-one"        'Pick one of these tags to keep.'
+# Positive control for plural-only: the PLURAL new noun DOES fire (so "no row" above is
+# attributable to the singular, not to some unrelated precondition).
+SPF="$(probe_tmp '#439 plural positive control')"
+printf '%s\n' 'These three rules mean the opposite:' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 AC6 plural-only positive control: the PLURAL noun fires (recognition row present)" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# AC5 — non-gating cap (behavioral-fix pin): flipping the recognition emit to STALE turns the
+# tier into a gate. assert_pin_red_under proves the UNRESOLVABLE token on the emit line is
+# operative — a mutation to STALE flips the pin PASS->FAIL.
+assert_pin_red_under "#439 AC5 recognition tier emits UNRESOLVABLE, never STALE (flip to STALE goes RED)" \
+  'rows.append(Row(UNRESOLVABLE, "R3", path, post_ln, rec_detail))' \
+  's/Row\(UNRESOLVABLE, "R3", path, post_ln, rec_detail\)/Row(STALE, "R3", path, post_ln, rec_detail)/' \
+  "$SPL"
+
+# AC8 — behavioral-fix pins for the three operative constructs, each proven via a mutation that
+# re-introduces the regression (word-numeral map, modifier tolerance, numeral lookbehind).
+assert_pin_red_under "#439 AC8 word-numeral map is operative (dropping 'twelve' goes RED)" \
+  '"twelve": 12' \
+  's/"eleven": 11, "twelve": 12,/"eleven": 11,/' \
+  "$SPL"
+assert_pin_red_under "#439 AC8 modifier tolerance is operative (collapsing {0,2}->{0,0} goes RED)" \
+  '){0,2})(?P<noun>' \
+  's/\{0,2\}/{0,0}/' \
+  "$SPL"
+assert_pin_red_under "#439 AC8 numeral lookbehind is operative (dropping the § guard char goes RED)" \
+  '(?<![#§\d.\-])' \
+  's/§//' \
+  "$SPL"
+
+# AC10 — module header documents the recognition tier + the decided out-of-scope items.
+assert_pin_unique "#439 AC10 header names the recognition-only tier" \
+  '**R3 recognition-only tier (issue #439).**' "$SPL"
+assert_pin_unique "#439 AC10 header records the non-gating-by-construction contract" \
+  'non-gating by construction' "$SPL"
+assert_pin_unique "#439 AC10 header records the recognition-tier out-of-scope items" \
+  '**Recognition-tier out of scope (by design, decided in issue #439).**' "$SPL"
+
+# AC11 — the engine skill's Phase 4.2 carries the deterministic-vs-carve-out clarification.
+assert_pin_unique "#439 AC11 Phase 4.2 clarifies deterministic Phase 0.6 STALE uses rule-3 severity only, never the self-contradicting-diff carve-out" \
+  'never invoke the threshold-independent self-contradicting-diff carve-out' "$SP_REVIEW"
+
+# The lint stays CLEAN (exit 0) against a fixture carrying the recognition shape — the tier is
+# non-gating end to end, so even a live recognition row never reddens a run's exit code.
+SPF="$(probe_tmp '#439 non-gating exit')"
+printf '%s\n' 'Three tags mean the opposite:' 'Twelve files below the fold.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 recognition rows never gate: multi-claim fixture still exits 0" "0" "$(spl_rc "$SPR")"
+
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
