@@ -20,10 +20,14 @@
 #
 # REDACTION IS A SECURITY BOUNDARY, NOT A NICETY (issue #437 AC2). The execution file
 # can carry prompt text, repository content, and attacker-controlled check-run names.
-# So EVERY string leaf is redacted: the structural section emits key→TYPE pairs only
-# (a string value is rendered as the type token `string`, never its bytes), and no
-# scalar value is ever printed. What ships to a maintainer's artifact download is the
-# SHAPE (key paths + value types), never the content.
+# So EVERY string leaf is redacted: the structural section emits each object's immediate
+# key→TYPE pairs only (a string VALUE is rendered as the type token `string`, never its
+# bytes), and no scalar value is ever printed. What ships to a maintainer's artifact
+# download is the SHAPE (each object's immediate keys + value types), never the content.
+# Scope note: redaction targets string *values* (the leaves that carry prompt/repo/
+# check-run content in the observed claude-code-action schema); object *keys* are the
+# fixed schema field names and are emitted verbatim — no field in the observed schema
+# places untrusted content in a key position.
 #
 # ENCODING TOLERANCE (issue #437 AC5). claude-code-action's execution_file schema is
 # not a public contract, and scripts/surface-execution-diagnostics.sh / parse-engine-error.sh

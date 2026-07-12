@@ -27,9 +27,10 @@ or Claude Code CLI upgrade and refresh the table below.
 
 The observation is machine-produced by `scripts/extract-execution-shape.sh`, which also
 **redacts** the execution file before anything is uploaded: the artifact carries the
-structural shape (key paths + value *types*) only — every string leaf is dropped, so no
-prompt text, repository content, secret, or attacker-controlled check-run name leaves the
-run (AC2).
+structural shape (each object's immediate keys + value *types*) only — every string *value*
+leaf is dropped, so no prompt text, repository content, secret, or attacker-controlled
+check-run name leaves the run (AC2). (Object keys are the fixed schema field names, emitted
+verbatim; the observed schema places untrusted content in value positions, not keys.)
 
 ---
 

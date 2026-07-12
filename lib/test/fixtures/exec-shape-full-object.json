@@ -1,6 +1,7 @@
 {
   "type": "result",
   "subtype": "success",
+  "session_id": "SECRET_sentinel_value",
   "is_error": false,
   "num_turns": 8,
   "duration_ms": 45231,

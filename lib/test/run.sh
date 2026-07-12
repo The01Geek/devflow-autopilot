@@ -27474,6 +27474,20 @@ assert_eq "#437 exec-shape(present): permission_denials present" "yes" \
 EES_NOUSAGE="$(bash "$EES" "$EES_FIX/exec-shape-result-nousage.json" 2>/dev/null)"
 assert_eq "#437 exec-shape(absent-vs-unavailable): result-but-no-usage records absent" "yes" \
   "$(printf '%s' "$EES_NOUSAGE" | grep -qxF 'usage: absent' && echo yes || echo no)"
+# The result-nousage fixture carries a result event with ONLY duration_ms, so the four
+# non-timing fields each land on the `absent` branch (a present result event, field not
+# seen) — assert all four, not just usage, so a per-field regression that reported one of
+# them `unavailable` (or `present`) instead of `absent` is caught, not just the usage field.
+for _afld in tool_use subagent_type permission_denials; do
+  assert_eq "#437 exec-shape(absent-vs-unavailable): result-but-no-$_afld records absent" "yes" \
+    "$(printf '%s' "$EES_NOUSAGE" | grep -qxF "$_afld: absent" && echo yes || echo no)"
+done
+assert_eq "#437 exec-shape(absent-vs-unavailable): result-with-duration_ms records timing present" "yes" \
+  "$(printf '%s' "$EES_NOUSAGE" | grep -qxF 'wall_clock_timing: present' && echo yes || echo no)"
+# wall-clock timing via duration_api_ms ALONE (the OR-branch's second operand) — a fixture
+# whose only timing field is duration_api_ms must still record timing present.
+assert_eq "#437 exec-shape(timing): duration_api_ms alone records timing present" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-timing-apionly.json" 2>/dev/null | grep -qxF 'wall_clock_timing: present' && echo yes || echo no)"
 EES_NORESULT="$(bash "$EES" "$EES_FIX/exec-shape-noresult.json" 2>/dev/null)"
 assert_eq "#437 exec-shape(absent-vs-unavailable): no-result-event records unavailable" "yes" \
   "$(printf '%s' "$EES_NORESULT" | grep -qxF 'usage: unavailable' && echo yes || echo no)"
@@ -27514,6 +27528,14 @@ done
 # The structural section still carries the KEY→type shape (redaction keeps structure).
 assert_eq "#437 exec-shape(redaction): structural key retained as type-only" "yes" \
   "$(printf '%s' "$EES_FULL" | grep -qxF 'subagent_type: string' && echo yes || echo no)"
+# Redaction is a security boundary (AC2), so confirm it holds on ALL THREE encodings, not
+# only the array fixture — the object and jsonl fixtures each seed SECRET_sentinel_value as
+# a string value; neither may echo it. Guards against an encoding path that fell back to
+# emitting raw content.
+assert_eq "#437 exec-shape(redaction): 'SECRET_sentinel_value' stripped from object encoding" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-full-object.json" 2>/dev/null | grep -qF 'SECRET_sentinel_value' && echo no || echo yes)"
+assert_eq "#437 exec-shape(redaction): 'SECRET_sentinel_value' stripped from jsonl encoding" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-full-jsonl.json" 2>/dev/null | grep -qF 'SECRET_sentinel_value' && echo no || echo yes)"
 
 # --- exec-shape(encodings): same logical content in array / object / JSONL yields the
 # same field determinations, confirming the three-encoding tolerance (AC5). The
