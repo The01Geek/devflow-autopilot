@@ -508,7 +508,9 @@ between Step 5 (Materialize) and Step 7 (State PR), best-effort — its failure 
 carried into the Step 9 status report as a blocker note and never blocks the retrospective;
 `lib/open-state-pr.sh` then commits the store on the state PR so `main` is clean entering Stage B).
 
-Each line joins, for one PR:
+Each line carries its own `schema_version` (currently `1`, independent of the efficiency record's)
+plus the PR's identity — `pr`, `issue`, `branch`, `merged_at`, `merge_commit_sha` — and then the
+joined fields:
 
 - **`efficiency_runs[]`** — **all** matching efficiency records for the PR as a per-run list with
   per-run `cost` (never newest-wins, since discarding earlier runs' cost corrupts a cost-vs-outcome
@@ -586,6 +588,15 @@ or when any candidate failed to assemble. Records that *did* assemble are still 
 failure, so a non-zero exit means "some PRs are missing from the store," not "nothing was written."
 A PR **observed** to be unmerged is a clean exclusion and exits 0 — observed-unmerged and
 unestablished are never conflated in either direction.
+
+**CLI surface.** Invoked bare, the assembler resolves everything from the repo root and needs no
+arguments — that is how `/devflow:retrospective-weekly` calls it. The flags exist for re-runs and
+tests: `--prs <n,n,…>` forces specific PRs into the candidate set (the re-run path after a partial
+failure, since an unestablished PR never enters the store and so is not re-selected on its own),
+`--dry-run` assembles and reports without writing the store, and `--repo-root` / `--store` /
+`--retrospectives` / `--efficiency-dir` override the four resolved paths. Exit codes are **0**
+(everything selected was assembled, or cleanly excluded as observed-unmerged) and **2** (see above);
+there is no exit 1.
 
 **Abandoned-run exclusion and its cost-side bias.** The record is keyed on **merged** PRs, so a run
 whose slug never produced a merged PR (an abandoned branch) contributes **no cost row** — the cost side

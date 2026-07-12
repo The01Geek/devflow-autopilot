@@ -17,6 +17,6 @@ type: Added
   preserved and no path coerces an unestablished count to `0`. (#431)
 - **Attribution & completeness.** `lib/efficiency-trace.sh --mode record` stamps a
   `config_fingerprint` naming the config variant that produced the run, and the assembler
-  derives a per-record `telemetry_complete` flag so analyses exclude degraded records instead
+  derives a per-run `telemetry_complete` flag so analyses exclude degraded runs instead
   of averaging them in. Per-fix `verification_evidence` (command / result / duration) is now
   recorded in the review-and-fix iteration workpad. (#431)
