@@ -7950,6 +7950,12 @@ assert_eq "scaffold-pe: no .tmp temp survives a successful scaffold (atomic mv c
 # which any mention would satisfy — so the assertion pins the new reporting line.
 assert_eq "scaffold-pe: emits a creation log line on a fresh scaffold (AC 9)" "yes" \
   "$(printf '%s\n' "$SC_PE_OUT" | grep -qF 'prompt-extension example' && echo yes || echo no)"
+# Coupled-mirror guard (#443): the create-issue example the scaffolder EMITS must be byte-identical
+# to this repo's COMMITTED .devflow/prompt-extensions/create-issue.md.example, so the inert
+# `## Audit dimensions` sample cannot drift between the generator and the committed copy readers see.
+assert_eq "scaffold-pe: emitted create-issue example matches the committed copy (#443 coupled mirror)" \
+  "$(cat "$LIB/../.devflow/prompt-extensions/create-issue.md.example")" \
+  "$(cat "$SC_PE_DIR/create-issue.md.example")"
 
 # AC 7 + AC 9 (no-op half): a second run rewrites nothing (every example
 # byte-identical) and emits NO creation log line.
