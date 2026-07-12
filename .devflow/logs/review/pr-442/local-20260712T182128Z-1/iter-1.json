@@ -1,0 +1,14 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "d10044564e8c321b96ea1e83a1539c4ceb2849f3",
+  "fix_files": [
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "docs/efficiency-trace.md",
+    "lib/efficiency-trace.sh",
+    "lib/telemetry-branch.sh",
+    "lib/test/run.sh",
+    "scripts/build-experiment-records.py"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}
