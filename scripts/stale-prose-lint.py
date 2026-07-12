@@ -8,8 +8,16 @@ standalone review: **diff-added prose asserting counts, ranges, sums, or absolut
 that the same PR's later commits outgrow or falsify**. Modeled on
 ``lib/test/pin-corpus-lint.py`` (deterministic scanner + fail-closed accounting).
 
-The four deterministic rule classes, each evaluated over **diff-added** comment /
-prose lines and resolved against the **post-diff file state**:
+The four deterministic rule classes, each evaluated over **every diff-added line** of every
+path in the supplied diff and resolved against the **post-diff file state**:
+
+**Known scope limitation (do not read the rules below as comment/prose-scoped).** There is no
+comment gate, no file-type gate, and no path filter: ``examine_file`` examines every added
+line, code included. The rules are prose-*shaped*, so code lines rarely match — but they do:
+a shell fixture line whose argument is a counted claim (``printf '%s\\n' '# Cases 19-32 …'``)
+is examined exactly like a real header. That is the helper's dominant false-positive source,
+and narrowing the examined set to genuine comment/prose lines is tracked separately. Stating
+a narrower scope here than the code implements would be the very defect this lint detects.
 
 * **R1 range-outgrowth.** A ``Cases A-B`` header whose forward region (the lines
   after it in the post-diff file) contains a ``Case N`` with ``N > B`` — the header
@@ -110,9 +118,11 @@ UNRESOLVABLE = "UNRESOLVABLE"
 
 
 class Row(NamedTuple):
-    """One TSV verdict row. A NamedTuple (not a bare 5-tuple) so each field is named at the
-    ~11 construction sites and the arity is pinned structurally — a wrong-arity append is a
-    construction-time error, not a silent positional-unpack drift."""
+    """One TSV verdict row. A NamedTuple (not a bare 5-tuple) so each field is named at every
+    construction site and the arity is pinned structurally — a wrong-arity append is a
+    construction-time error, not a silent positional-unpack drift. (Deliberately no count of
+    those sites here: an unpinned exact count is the very claim this lint exists to catch, and
+    this repo's pin-or-don't-write policy says don't write it.)"""
 
     verdict: str
     rule: str
