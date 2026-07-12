@@ -136,7 +136,12 @@ fi
 # so a seeded secret, a long prompt body, or a hostile check-run name (all string
 # leaves) cannot survive into the output (AC2, asserted on emitted bytes downstream).
 if ! BODY=$("$DEVFLOW_JQ" -rs '
-    def present($b): if $b then "present" else "absent" end;
+    # The completion-gate + present/absent decision lives in ONE place: with no
+    # result event the run is incomplete/aborted, so the field is `unavailable`
+    # (never `absent`, never `0`); otherwise present/absent by observation. Folding
+    # the gate into det() keeps the load-bearing absent-vs-unavailable distinction
+    # single-sourced across all five fields.
+    def det($hr; $b): if $hr then (if $b then "present" else "absent" end) else "unavailable" end;
     [.. | objects] as $objs
     | (any($objs[]; .type? == "result")) as $has_result
     | (any($objs[]; has("usage") and (.usage != null))) as $usage
@@ -146,11 +151,11 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
     | (any($objs[]; .type? == "tool_use")) as $tooluse
     | (any($objs[]; has("subagent_type") and (.subagent_type != null))) as $subagent
     | (any($objs[]; has("permission_denials"))) as $denials
-    | (if $has_result then present($usage)    else "unavailable" end) as $u
-    | (if $has_result then present($timing)   else "unavailable" end) as $w
-    | (if $has_result then present($tooluse)  else "unavailable" end) as $t
-    | (if $has_result then present($subagent) else "unavailable" end) as $s
-    | (if $has_result then present($denials)  else "unavailable" end) as $p
+    | det($has_result; $usage)    as $u
+    | det($has_result; $timing)   as $w
+    | det($has_result; $tooluse)  as $t
+    | det($has_result; $subagent) as $s
+    | det($has_result; $denials)  as $p
     | ( [ $objs[] | to_entries[] | "\(.key): \(.value | type)" ] | unique ) as $struct
     | [ "usage: \($u)",
         "wall_clock_timing: \($w)",
