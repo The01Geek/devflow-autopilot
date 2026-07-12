@@ -1,0 +1,95 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-12T09:25:00Z",
+  "fix_commit_sha": "3be6a57776101fe41c1dd4bd9813a42f3b8a0eef",
+  "fix_commit_note": "two commits this iteration: ab1323b (shadow-promoted fixes) + 3be6a57 (Step 3.5 gate follow-up: demonstrated-false T435-2j sibling-mechanism comment corrected — documented-falsehood carve-out class — and a dead guard dropped on the env-pin probe)",
+  "fix_files": ["lib/test/run.sh", "scripts/build-experiment-records.py"],
+  "loop_role": "promoted",
+  "fix_delta_gate": "iter-2 gate clean of behavioral defects (0 Critical, 0 Important); its two comment-precision Suggestions were fixed in-iteration by 3be6a57 (the false-mechanism comment was carve-out class, not parkable)",
+  "devflow_reflection": [
+    "fix-delta gate (iter 1): clean — two Suggestions recorded advisory (docstring \\n rendering, later fixed in iter 2 when the shadow corroborated it; pre-existing unanchored-label note out of delta scope)",
+    "fix-delta gate (iter 2): clean of behavioral defects; two comment-precision Suggestions fixed in-iteration (3be6a57) — the T435-2j mechanism claim was demonstrated false (carve-out class)",
+    "over-grade calibration gate: 2 findings flagged, both technically evaluated and recorded as severity-calibrated rows (auto-path env pin RE-AFFIRMED Important; unparseable-breadcrumb calibrated DOWN to Suggestion, deferred)",
+    "early shadow trigger fired (engine_self_modifying, iter-1 REJECT): full coverage, 5/5 reviewers, promoted 2 Important findings into iter 2"
+  ],
+  "checklist": [],
+  "checklist_note": "Phase 1+2 skipped for the shadow-promoted iteration per Step 2.6 outcome 2 (the inputs ARE a full Phase 1+2+3 shadow result: 14 checklist items, 14 PASS / 0 FAIL / 0 INCONCLUSIVE, recorded under iter-1.json's shadow block)",
+  "phase3_dispatched": [],
+  "phase3_note": "promoted iteration — findings inherited from the iter-1 early-shadow pass (see iter-1.json shadow.phase3_findings); no own Phase 3 dispatch",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "unpinned lattice arm: fetch-failed must beat a recoverable annotation (no-label surviving sha + genuine annotation); a fallback-hoist regression ships green", "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [755, 761], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "auto path's HEAD_SHA env delivery to the backstop step is unpinned", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [1403, 1403], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "non-raw docstring renders backtick \\n as a real newline", "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [646, 656], "kind": "style"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "docstring undercounts the intended precedence deltas (a third exists) + hard-wrap artifact", "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [692, 698], "kind": "comment_drift"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "no stderr breadcrumb naming the check-run/sha/token on an unparseable label", "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [738, 750], "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "pre-existing unchecked compose-write in post-review-backstop-comment.sh (false fired notice on partial write)", "defect_signature": {"file": "scripts/post-review-backstop-comment.sh", "line_range": [82, 86], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "P-1", "decision": "applied", "commit": "ab1323b3ad6729b9ed19d650379f4d1bd555c73e"},
+    {"finding_id": "P-2", "decision": "severity-calibrated", "source_file": ".github/workflows/devflow-review.yml", "claim_text": "auto-path HEAD_SHA env delivery unpinned", "original_severity": "Important", "calibrated_severity": "Important", "evidence": "over-grade shape 3 flagged (single-source from pr-test-analyzer); technical evaluation RE-AFFIRMS Important: dropping the env line silently defeats auto-resume on the primary path with the suite green — the identical class issue #435 item 3 graded Important for the manual path; the AC-6 false-mirror note declined only a symmetric PREFIX pin, not the env-line pin"},
+    {"finding_id": "P-2", "decision": "applied", "commit": "ab1323b3ad6729b9ed19d650379f4d1bd555c73e"},
+    {"finding_id": "P-3", "decision": "applied", "commit": "ab1323b3ad6729b9ed19d650379f4d1bd555c73e"},
+    {"finding_id": "P-4", "decision": "applied", "commit": "ab1323b3ad6729b9ed19d650379f4d1bd555c73e"},
+    {"finding_id": "P-5", "decision": "severity-calibrated", "source_file": "scripts/build-experiment-records.py", "claim_text": "no stderr breadcrumb on unparseable label", "original_severity": "Important (agent-graded MEDIUM)", "calibrated_severity": "Suggestion", "evidence": "over-grade shape 2: diagnostic-only — the sole observable impact is a missing log line; the record itself is correct and fail-closed (null + unparseable), no wrong output, no corrupted state, no skipped guard; the file's own convention is provenance-only for content-level parse failures (verdict/important unparseable arms also do not warn, as the raising agent itself noted)"},
+    {"finding_id": "P-5", "decision": "deferred", "source_file": "scripts/build-experiment-records.py", "claim_text": "no stderr breadcrumb naming the check-run/sha/token on an unparseable label", "skip_category": "uncategorized", "evidence": "real but minor diagnostics improvement, calibrated to Suggestion (diagnostic-only fail-direction); adding new runtime stderr behavior is not a trivial fix and is not worth a fix-loop iteration — revisit if producer-drift debugging ever hurts in practice"},
+    {"finding_id": "P-6", "decision": "deferred", "source_file": "scripts/post-review-backstop-comment.sh", "claim_text": "unchecked compose-write can produce a false fired notice on partial write (ENOSPC)", "skip_category": "out-of-scope", "evidence": "git blame: post-review-backstop-comment.sh is untouched by this PR's diff (the diff only adds tests that DRIVE it); the raising agent itself graded it 'pre-existing; adjacent to the new AC-5 coverage, not introduced by this diff — a follow-up candidate, not a blocker'"},
+    {"finding_id": "FS-1", "decision": "severity-calibrated", "source_file": "scripts/build-experiment-records.py", "claim_text": "annotations sub-fetch failure does not preempt a later sibling's recoverable annotation (asymmetry with the check-runs-level principle)", "original_severity": "Important (agent-graded MEDIUM)", "calibrated_severity": "Suggestion", "evidence": "over-grade shape 3 flagged (single-source from silent-failure-hunter, no corroboration, no Phase-2 FAIL); technical evaluation: the behavior is PRE-EXISTING (the pre-#435 interleave had the identical continue-past-failed-sub-fetch shape) and behavior-preserved by this diff; the returned count is a GENUINELY OBSERVED annotation (not fabricated), on a path already provenance-caveated as opportunistic/positive-only in provenance.notes; the diff's own prose was verified TRUE against the function tail by the final shadow's comment-analyzer (no documented falsehood); the blast radius is a possibly-partial-view count on a doubly-transient historical path — not the never-observed-value fabrication class #435 closes"},
+    {"finding_id": "FS-1", "decision": "deferred", "source_file": "scripts/build-experiment-records.py", "claim_text": "annotations sub-fetch failure vs sibling recovery asymmetry", "skip_category": "uncategorized", "evidence": "real design question worth a follow-up (either abort the fallback on a failed sub-fetch or document the asymmetry as deliberate + pin it); changing the behavior now would expand a converged loop's scope on a pre-existing arm — recorded for the human reviewer"},
+    {"finding_id": "FS-2", "decision": "deferred", "source_file": "scripts/build-experiment-records.py", "claim_text": "unanchored label + first-valid-wins admits an in-prose decoy label (e.g. a quoted permission_denials_count: 0 ahead of the genuine trailing line)", "skip_category": "uncategorized", "evidence": "raised by 2/5 agents and BOTH graded it pre-existing and follow-up-scoped (requesting-code-review: 'do it as a follow-up with its own fixture, not in this PR'; silent-failure-hunter: 'pre-existing... not diff-worsened, and the diff genuinely narrows the window'); first-valid-wins is the issue-#435-spec'd design ('the first summary yielding a valid token wins' — Desired Behavior item 1), so the last-valid-wins variant contradicts the spec; the ^-anchor hardening is spec-compatible and deferred as the follow-up both agents recommend"},
+    {"finding_id": "FS-3", "decision": "severity-calibrated", "source_file": "scripts/build-experiment-records.py", "claim_text": "cross-sha unavailable-then-digit shape unpinned (a digits-preferred rewrite would ship green)", "original_severity": "Important (agent rating 4)", "calibrated_severity": "Suggestion", "evidence": "over-grade shape 3 flagged (single-source from pr-test-analyzer, an empirical over-grader; no corroboration, no Phase-2 FAIL); technical evaluation: the raiser's own rating is 4 — below the 5/6 it assigned the two findings that WERE promoted; the guarded regression is a spec-contradicting rewrite (first-valid-wins is documented in the docstring AND pinned in four fixture comments it would have to re-touch — a loud change, not a silent drift) whose fail-direction is era-mixing of genuinely-observed values, not fabrication or unknown-collapse; calibrated to the impact demonstrated, not to dodge work"},
+    {"finding_id": "FS-3", "decision": "deferred", "source_file": "scripts/build-experiment-records.py", "claim_text": "unavailable-then-digit cross-sha fixture", "skip_category": "uncategorized", "evidence": "cheap one-fixture follow-up reusing the CHECKRUNS_JSON2_SHA knob; parked to stop the advisory treadmill (third consecutive shadow pass requesting one more lattice-corner fixture on a converged loop) — recorded for the human reviewer"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "critical_important_code_fixes": 0,
+    "fix_diff_lines": 84,
+    "fix_diff_code_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "stale_prose_check": "rc=0; one UNRESOLVABLE row (R3 count-locked, lib/test/run.sh:22533 — pre-existing #414-block comment, informational, never gates); no STALE rows",
+  "shadow": {
+    "ran_at": "2026-07-12T11:30:00Z",
+    "reviewed_sha": "3be6a57776101fe41c1dd4bd9813a42f3b8a0eef",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "trigger": "convergence-time (Step 4.5 early exit after promoted iteration 2)",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review", "devflow:pr-test-analyzer"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review", "devflow:pr-test-analyzer"],
+    "reason": null,
+    "checklist_skipped": null,
+    "checklist_note": "shadow Phase 1+2 ran fresh: 16 items (5 lite, 11 agent) — 15 PASS; VC-13 returned FAIL but was adjudicated PASS-with-note by the orchestrator applying the verifier's own grading contract to its own evidence: the verifier wrote 'most of the claim checks out ... the code is correct'; the imprecision (omitting the pre-existing no-repo/no-sha tags) lives in the shadow-generated CHECKLIST CLAIM's wording, and the diff's own docstring documents both tags (the UNQUERYABLE-not-ABSENT paragraph) — the exact 'claim wording technically inaccurate but underlying code correct → prefer PASS with an evidence note' shape the verifier prompt instructs; overrule recorded here for auditability",
+    "phase3_findings": [
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion (calibrated from MEDIUM — see fix_decisions FS-1)", "description": "annotations sub-fetch failure does not preempt a later sibling's recoverable annotation", "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [755, 776], "kind": "logic_error"}, "corroboration_count": 1},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "unanchored label + first-valid-wins admits an in-prose decoy label (pre-existing, diff-narrowed)", "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [102, 102], "kind": "security"}, "corroboration_count": 2},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "same decoy-label shape (logic_error framing) — explicitly follow-up-scoped by the raiser", "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [659, 668], "kind": "logic_error"}, "corroboration_count": 2},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion (calibrated from rating-4 Important — see fix_decisions FS-3)", "description": "cross-sha unavailable-then-digit shape unpinned", "defect_signature": {"file": "scripts/build-experiment-records.py", "line_range": [684, 748], "kind": "test_gap"}, "corroboration_count": 1},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "stub sha-knob substring constraint is comment-enforced only (rating 3); 'phase 2 re-fetches nothing' caching claim unasserted (rating 2)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [25927, 25944], "kind": "test_gap"}, "corroboration_count": 1}
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 5,
+      "overlap_with_iter_N": 0,
+      "new": 5,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "comparison_note": "new_important is 0 AFTER the Over-grade calibration gate: two findings arrived with Important-tier labels (silent-failure-hunter MEDIUM; pr-test-analyzer rating-4) and were flagged as suspected over-grades (shape 3), technically evaluated, and calibrated to Suggestion with recorded evidence (fix_decisions FS-1/FS-3); the 2-source decoy-label finding was graded Suggestion/follow-up by both raisers themselves. code-reviewer and comment-analyzer returned clean (comment-analyzer: findings []).",
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 30},
+    "step_2_6_early_shadow": {"calls": 14, "tokens": 1210000, "wall_clock_s": 1400, "note": "full blinded Phases 0-4.3 fan-out on iter-1 state: 1 generator + 8 verifier dispatches (11 items, 3 lite) + 5 reviewers; recorded here because the early shadow ran between iter 1 and this promoted iter"},
+    "phase_3":   {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_2_5":  {"calls": 0, "tokens": 0, "wall_clock_s": 5, "webfetches": 0},
+    "step_3_5":  {"calls": 1, "tokens": 102062, "wall_clock_s": 315, "note": "iter-1 fix-delta gate (the iter-2 gate runs after this write; see Devflow Reflection)"},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 20}
+  }
+}
