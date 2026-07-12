@@ -178,25 +178,44 @@ else
     # guarded path that the `[ -e ]` guard above would then treat as present and never
     # retry. On failure only the temp is removed; the guarded path is untouched.
     pe_tmp="$pe_target.tmp"
-    if printf '%s\n' \
-      '<!--' \
-      "DevFlow prompt-extension example for the $pe_skill skill." \
-      '' \
-      'This directory holds consumer-owned prompt extensions for DevFlow skills.' \
-      'Drop a file named <skill-name>.md here (no .example suffix) and its contents' \
-      'are appended VERBATIM to the end of that skill prompt every time it runs. It' \
-      'is an upgrade-safe way to add repo-specific instructions without forking the' \
-      'plugin. Marketplace updates never touch this directory. When no file exists' \
-      'for a skill, that skill behaves exactly as it does today (the no-op path).' \
-      '' \
-      "Useful extension for $pe_skill: $pe_hint" \
-      '' \
-      'To activate, copy this file to the same name without the .example suffix' \
-      '(for example create-issue.md.example becomes create-issue.md) and replace' \
-      'this comment with your own instructions. For the full convention and a' \
-      'worked example, see the "Extending skills with prompt extensions" section' \
-      'in docs/DEVFLOW_SYSTEM_OVERVIEW.md.' \
-      '-->' > "$pe_tmp" && mv "$pe_tmp" "$pe_target"; then
+    # The body is written in three grouped printf calls so the create-issue example can
+    # carry an INERT `## Audit dimensions` sample (the Step 3.6 fresh-context audit's
+    # forwarding hook) between the boilerplate and the closing `-->`. The sample stays
+    # INSIDE the comment block, so the whole body is still a single HTML comment (the
+    # scaffold-pe AC3 single-comment-block invariant holds) and a misrename injects nothing.
+    # No bash array is used (`"${arr[@]}"` on an empty array errors under macOS bash 3.2 +
+    # `set -u`); a per-skill `if` branch keeps it portable.
+    if {
+         printf '%s\n' \
+           '<!--' \
+           "DevFlow prompt-extension example for the $pe_skill skill." \
+           '' \
+           'This directory holds consumer-owned prompt extensions for DevFlow skills.' \
+           'Drop a file named <skill-name>.md here (no .example suffix) and its contents' \
+           'are appended VERBATIM to the end of that skill prompt every time it runs. It' \
+           'is an upgrade-safe way to add repo-specific instructions without forking the' \
+           'plugin. Marketplace updates never touch this directory. When no file exists' \
+           'for a skill, that skill behaves exactly as it does today (the no-op path).' \
+           '' \
+           "Useful extension for $pe_skill: $pe_hint" \
+           '' \
+           'To activate, copy this file to the same name without the .example suffix' \
+           '(for example create-issue.md.example becomes create-issue.md) and replace' \
+           'this comment with your own instructions. For the full convention and a' \
+           'worked example, see the "Extending skills with prompt extensions" section' \
+           'in docs/DEVFLOW_SYSTEM_OVERVIEW.md.'
+         if [ "$pe_skill" = "create-issue" ]; then
+           printf '%s\n' \
+             '' \
+             'Step 3.6 (the fresh-context audit) reads an optional "## Audit dimensions"' \
+             'section from this extension and forwards it to the audit subagent. Example' \
+             'section (inert until you activate this file):' \
+             '' \
+             '## Audit dimensions' \
+             '- A repo-specific invariant every issue must respect, named with what would falsify it.'
+         fi
+         printf '%s\n' '-->'
+       } > "$pe_tmp" && mv "$pe_tmp" "$pe_target"; then
       pe_created=$((pe_created + 1))
     else
       # Remove only the temp candidate — never a partial $pe_target (mv is atomic, so

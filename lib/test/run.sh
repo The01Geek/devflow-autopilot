@@ -2745,6 +2745,78 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
   'prefer using that consumer as the guard itself' "$RCR_SKILL"
 # FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
+# ── issue #443: the mandatory Step 3.6 fresh-context audit in /devflow:create-issue ──
+# The deliverable is agent-executed skill prose plus one tracked extension file; no runtime
+# code path executes in CI, so the automated boundary is the repo's skill-contract mechanism:
+# pins over the rendered SKILL surfaces. The behavioral pins go through assert_pin_red_under
+# with a sed mutation that removes the operative sentence (re-introducing the guarded
+# regression), so a framing-only pin is reported RED at the desk (#375 behavioral-fix-pin rule).
+CI443_SKILL="$LIB/../skills/create-issue/SKILL.md"
+CI443_EXT="$LIB/../.devflow/prompt-extensions/create-issue.md"
+# Verdict-line requirement (maps to the audit-prompt AC): removing "legal values are exactly"
+# guts the FILE/REVISE verdict contract.
+assert_pin_red_under "#443: Step 3.6 mandates the FILE/REVISE verdict line" \
+  'whose only two legal values are exactly' 's/legal values are exactly//' "$CI443_SKILL"
+# Presence (not uniqueness): both verdict values recur across the template, the summary example,
+# and the act-on-the-verdict prose — the verdict-line CONTRACT is pinned uniquely above. Use
+# pin_count (>=1), NOT grep_present, whose call sites are meta-pinned to exactly two.
+assert_eq "#443: Step 3.6 names the VERDICT: FILE legal value" "yes" \
+  "$([ "$(pin_count 'VERDICT: FILE' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
+assert_eq "#443: Step 3.6 names the VERDICT: REVISE legal value" "yes" \
+  "$([ "$(pin_count 'VERDICT: REVISE' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
+# Information-diet exclusion clause (maps to the information-diet AC): removing it re-anchors
+# the auditor on the drafting context — the exact regression the fresh-context mechanism prevents.
+assert_pin_red_under "#443: audit prompt omits conversation, Step 1 findings, and the derivation artifact" \
+  'omits the drafting conversation, the Step 1 findings report, and the Step 2 derivation artifact' \
+  's/omits the drafting conversation//' "$CI443_SKILL"
+assert_pin_unique '#443: audit prompt refers to "the draft", never "your draft"' 'never "your draft"' "$CI443_SKILL"
+# Out-of-bounds on-disk artifacts (maps to the information-diet AC): the void clause is what
+# stops repository read access from silently re-anchoring the auditor on the drafter's reasoning.
+assert_pin_red_under "#443: on-disk drafting artifacts are declared out of bounds (findings void)" \
+  'any finding derived from those files is void' 's/derived from those files is void//' "$CI443_SKILL"
+# Synchronous-dispatch sentence (maps to the dispatch AC): removing the blocking-wait wording
+# lets a launch acknowledgment be misread as the auditor's return.
+assert_pin_red_under "#443: Step 3.6 dispatch waits for the completed result (synchronous)" \
+  "wait for the subagent's completed result before proceeding" \
+  's/completed result before proceeding//' "$CI443_SKILL"
+# Degraded arm (maps to the degraded-arm AC): removing the enumerated-failures gate turns the
+# attempt-first dispatch into a pre-detected skip.
+assert_pin_red_under "#443: degraded arm fires only on the enumerated failures (attempt-first)" \
+  'Fall to the degraded arm **only** on the enumerated failures' \
+  's/on the enumerated failures//' "$CI443_SKILL"
+# Re-audit offer in the Step 4 revision loop (maps to the revision-loop AC).
+assert_pin_red_under "#443: Step 4 revision loop offers a fresh re-audit" \
+  'ask whether to dispatch a fresh Step 3.6 audit of the revised draft' \
+  's/dispatch a fresh Step 3.6 audit//' "$CI443_SKILL"
+# Dispatch-time fresh re-load of the extension (maps to the forwarding-freshness AC): removing
+# the fresh re-load lets a compaction-evicted turn-one load silently drop consumer dimensions.
+assert_pin_red_under "#443: consumer audit dimensions are re-loaded FRESH at dispatch time" \
+  'extract from that **fresh** output any section headed exactly' \
+  's/any section headed exactly//' "$CI443_SKILL"
+# Forwarding-contract heading, pinned as a COUPLED PAIR (maps to the forwarding-contract and
+# extension-file ACs): the skill's forwarding sentence and this repo's live extension must both
+# carry the exact `## Audit dimensions` heading; either side drifting turns its pin RED.
+assert_pin_unique "#443: skill forwarding contract keys on the exact ## Audit dimensions heading" \
+  'headed exactly `## Audit dimensions`' "$CI443_SKILL"
+assert_pin_unique "#443: live create-issue extension carries the exact ## Audit dimensions heading" \
+  '## Audit dimensions' "$CI443_EXT"
+# Generic dimension checklist is consumer-agnostic (maps to the dimension-checklist AC).
+assert_pin_unique "#443: generic dimensions name host-OS variance without GNU coreutils" \
+  'hosts without GNU coreutils' "$CI443_SKILL"
+assert_pin_unique "#443: generic dimensions name execution-tier permission-allowlist variance" \
+  'including their differing permission allowlists' "$CI443_SKILL"
+# Reconciliation absence pin (maps to the reconciliation AC): the stale literal must be GONE from
+# the skill (it legitimately remains in CHANGELOG.md's historical entry, so this pin is FILE-scoped).
+assert_eq "#443: SKILL no longer carries the stale 'no-subagent, all-inline model' literal" \
+  "0" "$(pin_count 'no-subagent, all-inline model' "$CI443_SKILL")"
+# Non-vacuity proof: re-introducing the stale literal makes the absence guard's count non-zero,
+# so the guard actually catches the regression rather than passing vacuously.
+CI443_MUT="$(probe_tmp '#443 no-subagent reintroduction mutation')"
+sed -E '1s/^/REINTRODUCED no-subagent, all-inline model\n/' "$CI443_SKILL" > "$CI443_MUT"
+assert_eq "#443: absence guard catches a re-introduction of the stale literal (non-vacuous)" \
+  "1" "$(pin_count 'no-subagent, all-inline model' "$CI443_MUT")"
+rm -f "$CI443_MUT"
+
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
 # regardless of that iteration's verdict (including REJECT), feeding new blinded
