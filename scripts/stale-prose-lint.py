@@ -96,6 +96,21 @@ _RANGE_RE = re.compile(r"\bCases?\s+(\d+)\s*[-–—]\s*(\d+)\b")
 _CASE_ITEM_RE = re.compile(r"\bCase\s+(\d+)\b")
 _TOTAL_RE = re.compile(r"\bExpected\s+total\s*[=:]\s*(\d+)\b", re.IGNORECASE)
 _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\S")
+# A leading line-comment marker, stripped from a REFERENT line before it is tested for
+# enumeration-item shape. Load-bearing: the claims these rules resolve live in comment blocks,
+# so their enumerations do too — PR #320's legend bullets are `#   - inline_missing: …`, and
+# `_LIST_ITEM_RE` is anchored, so without this strip `_adjacent_list_count` returns 0 on the
+# very defect R2 exists to catch (a non-gating UNRESOLVABLE, exit 0 — a silent false negative;
+# only a *bare*-bullet legend, which the historical defect never was, ever resolved).
+# Deliberately only `#` and `//`: `*` is EXCLUDED because it is itself a markdown bullet
+# marker, so stripping it would turn a real `* item` enumeration into a non-item and break the
+# count in the opposite direction.
+_COMMENT_PREFIX_RE = re.compile(r"^\s*(?:#+|//+)\s?")
+
+
+def _uncomment(line):
+    """A referent line with its leading line-comment marker removed (if any)."""
+    return _COMMENT_PREFIX_RE.sub("", line, count=1)
 _ASSERT_LINE_RE = re.compile(r"(?i)\bassert\w*\b")
 _COUNT_RE = re.compile(
     r"\b(\d+)\s+(assertions?|asserts?|checks?|bullets?|items?|entries?|cases?)\b",
@@ -277,11 +292,12 @@ def _adjacent_list_count(lines, claim_idx):
     claim line, tolerating blank separators. Returns 0 when no adjacent block."""
     def count_dir(step):
         i = claim_idx + step
-        # skip blank lines between the claim and the block
-        while 0 <= i < len(lines) and lines[i].strip() == "":
+        # Skip blank separators — including a bare `#` / `//` line inside a comment block,
+        # which is that block's blank line and must not terminate the enumeration.
+        while 0 <= i < len(lines) and _uncomment(lines[i]).strip() == "":
             i += step
         c = 0
-        while 0 <= i < len(lines) and _LIST_ITEM_RE.match(lines[i]):
+        while 0 <= i < len(lines) and _LIST_ITEM_RE.match(_uncomment(lines[i])):
             c += 1
             i += step
         return c
@@ -296,10 +312,11 @@ def _adjacent_assert_count(lines, claim_idx):
     """Count contiguous assertion lines below the claim, tolerating blanks. An
     assertion line contains ``assert`` or is an enumeration item."""
     i = claim_idx + 1
-    while i < len(lines) and lines[i].strip() == "":
+    while i < len(lines) and _uncomment(lines[i]).strip() == "":
         i += 1
     c = 0
-    while i < len(lines) and (_ASSERT_LINE_RE.search(lines[i]) or _LIST_ITEM_RE.match(lines[i])):
+    while i < len(lines) and (_ASSERT_LINE_RE.search(lines[i])
+                              or _LIST_ITEM_RE.match(_uncomment(lines[i]))):
         c += 1
         i += 1
     return c

@@ -24958,6 +24958,38 @@ assert_pin_red_under "#424 T12b: dropping the producer-empty guard re-introduces
   'stale-prose lint skipped: the Phase 0.2 diff cache is absent or empty' \
   '/stale-prose lint skipped: the Phase 0.2 diff cache is absent or empty/d' "$SP_REVIEW"
 
+# T2b → R2 on the #320 shape AS IT HISTORICALLY OCCURRED (#424 audit, BLOCKING). The T2 fixture
+# above uses BARE `- one` bullets — a shape the real defect never had. PR #320's legend bullets
+# are COMMENT-PREFIXED (`#   - inline_missing: …`), and `_LIST_ITEM_RE` is anchored, so before
+# the `_uncomment` referent-strip `_adjacent_list_count` returned 0 on the genuine defect: a
+# non-gating UNRESOLVABLE and exit 0. R2 therefore never caught the one historical escape that
+# was an in-loop Critical, while T2 shipped GREEN. This fixture pins the real shape.
+SPF="$(probe_tmp '#424 t2b comment legend stale')"
+printf '%s\n' '# Expected total = 9 (the cases enumerated below):' \
+              '#   - inline_missing: a' '#   - comments_missing: b' '#   - contents_missing: c' \
+              '#   - four: d' '#   - five: e' '#   - six: f' '#   - seven: g' '#   - eight: h' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#424 T2b/R2 comment-PREFIXED legend (8 items vs 'total = 9') is STALE (exit 1)" "1" "$(spl_rc "$SPR")"
+assert_eq "#424 T2b/R2 emits a STALE R2 row on the real #320 shape (not a vacuous UNRESOLVABLE)" "yes" "$(spl_has "$SPR" STALE R2)"
+assert_eq "#424 T2b/R2 the real #320 shape no longer resolves to UNRESOLVABLE" "no" "$(spl_has "$SPR" UNRESOLVABLE R2)"
+# Matched sibling (9 items) — the positive control: proves the STALE above is the COUNT
+# mismatch, not the comment prefix merely failing to parse.
+SPF="$(probe_tmp '#424 t2b comment legend clean')"
+printf '%s\n' '# Expected total = 9 (the cases enumerated below):' \
+              '#   - inline_missing: a' '#   - comments_missing: b' '#   - contents_missing: c' \
+              '#   - four: d' '#   - five: e' '#   - six: f' '#   - seven: g' '#   - eight: h' \
+              '#   - nine: i' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#424 T2b/R2 matched comment legend (9 items) exits 0" "0" "$(spl_rc "$SPR")"
+assert_eq "#424 T2b/R2 matched comment legend emits a VERIFIED R2 row (positive control)" "yes" "$(spl_has "$SPR" VERIFIED R2)"
+# A `*` bullet must NOT be treated as a comment marker — stripping it would turn a real
+# markdown `* item` enumeration into a non-item and break the count the other way.
+SPF="$(probe_tmp '#424 t2b star bullets')"
+printf '%s\n' 'Expected total = 2 (the items below):' '* one' '* two' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#424 T2b/R2 '*' stays a bullet marker, not a comment prefix (matched → exit 0)" "0" "$(spl_rc "$SPR")"
+assert_eq "#424 T2b/R2 '*' bullets resolve as an enumeration (VERIFIED, not UNRESOLVABLE)" "yes" "$(spl_has "$SPR" VERIFIED R2)"
+
 # T13 → InternalError's "single raise site" is a load-bearing header invariant (#424 review
 # Suggestion 2): a second raise site would silently widen the exit-2 surface the header
 # documents as closed. Anchor it.
