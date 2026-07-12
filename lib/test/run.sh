@@ -22517,6 +22517,60 @@ assert_eq "#414 helper: calls the (unchanged-contract) request-review-backstop.s
 assert_eq "#414 helper: posts via the best-effort post-issue-comment.sh REST helper" "yes" \
   "$(grep -qF "post-issue-comment.sh" "$PRBC" && echo yes || echo no)"
 
+# ── #435 AC-5: mktemp-failure arm behaviorally driven (PATH-shadowed failing mktemp) ─────
+# The mktemp guard (`BODY_FILE="$(mktemp)" || { ::warning::…; exit 0; }`) was previously
+# only presence-pinned (the breadcrumb literal above), so a regression that REACHES the arm
+# and then misbehaves — fires the success notice, exits non-zero, invokes the POST anyway —
+# would ship green. Drive it: with a fire decision reaching the compose step and `mktemp`
+# forced to fail, assert all four — exit 0; the mktemp-specific ::warning::; the POST sentinel
+# absent; and NO fired-re-trigger ::notice:: (issue #435 AC-5). This is coverage of an
+# existing (believed-correct) guard, not a defect fix.
+T435="$(mktemp -d)"; mkdir -p "$T435/scripts" "$T435/shadow"
+cat > "$T435/scripts/request-review-backstop.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'decision=fire\nreason=guarantee-class\nattempt=1\nmarker=<!-- devflow:review-backstop head=abc attempt=1 -->\n'
+EOF
+# POST stub: drops a `post-invoked` sentinel if EVER called — AC-5 asserts it is NOT (mktemp
+# fails first, before the POST helper is resolved or invoked).
+cat > "$T435/scripts/post-issue-comment.sh" <<EOF
+#!/usr/bin/env bash
+: > "$T435/post-invoked"
+echo "devflow: posted comment on #\$1" >&2
+EOF
+chmod +x "$T435/scripts/"*.sh
+# Failing mktemp shim — shadows ONLY mktemp (prepended to PATH for the helper's subshell
+# alone, so bash, the builtins, and the stub helpers still resolve normally; the #161
+# same-shell function-shadow would NOT propagate into the helper's child bash, making the
+# test vacuously green — a PATH shim does propagate). Prints nothing, exits 1 → the helper's
+# `BODY_FILE="$(mktemp)"` is empty and the `||` guard fires.
+cat > "$T435/shadow/mktemp" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$T435/shadow/mktemp"
+rm -f "$T435/post-invoked"
+OUT_MKT=$(cd "$T435" && PATH="$T435/shadow:$PATH" PR_NUMBER=99 HEAD_SHA=abc REPO=o/r VERDICT=incomplete APP_TOKEN_PRESENT=true bash "$PRBC" 2>&1); RC_MKT=$?
+assert_eq "#435 AC5 mktemp-fail: helper exits 0" "0" "$RC_MKT"
+assert_eq "#435 AC5 mktemp-fail: mktemp-specific ::warning:: breadcrumb emitted" "yes" \
+  "$(printf '%s\n' "$OUT_MKT" | grep -qF '::warning::review stall backstop: mktemp failed; cannot compose the re-trigger comment' && echo yes || echo no)"
+assert_eq "#435 AC5 mktemp-fail: POST helper NOT invoked (sentinel absent)" "absent" \
+  "$([ -f "$T435/post-invoked" ] && echo present || echo absent)"
+assert_eq "#435 AC5 mktemp-fail: NO fired-re-trigger ::notice::" "no" \
+  "$(printf '%s\n' "$OUT_MKT" | grep -qF '::notice::review stall backstop: posted /devflow:review re-trigger' && echo yes || echo no)"
+
+# ── #435 AC-6: devflow.yml manual-path HEAD_SHA prefix is mutation-proof-pinned ──────────
+# The manual path derives HEAD_SHA as a step-local shell var and forwards it as a command
+# PREFIX (`HEAD_SHA="$HEAD_SHA" bash "$HELPER"`); without the prefix the helper reads an empty
+# HEAD_SHA and the decision helper takes its unscoped no-fire arm — the manual-path auto-resume
+# is silently defeated (safe direction, but defeated). Pin the prefix through assert_pin_red_under
+# with a mutation that DROPS the `HEAD_SHA="$HEAD_SHA" ` prefix, so the suite goes RED the moment
+# the prefix is removed (issue #435 AC-6). The auto path (devflow-review.yml) delivers HEAD_SHA via
+# the step env: block and needs no prefix — no symmetric pin there (a false mirror).
+assert_pin_red_under '#435 AC6: devflow.yml manual path forwards HEAD_SHA as a command prefix (drop-prefix mutation → RED)' \
+  'HEAD_SHA="$HEAD_SHA" bash "$HELPER"' \
+  's/HEAD_SHA="\$HEAD_SHA" bash "\$HELPER"/bash "\$HELPER"/' \
+  "$WFD408"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "#312: workflow endpoint↔permission lint"
 # ────────────────────────────────────────────────────────────────────────────
@@ -25837,7 +25891,17 @@ case "$j" in
   *reviews*)       [ -n "$REVIEWS_FAIL" ]   && { echo "gh: api error" >&2; exit 1; }; [ -f "$REVIEWS_JSON" ]  && cat "$REVIEWS_JSON"  || echo '[]';               exit 0 ;;
   *annotations*)   [ -n "$ANNOT_FAIL" ]     && { echo "gh: api error" >&2; exit 1; }; [ -f "$ANNOT_JSON" ]    && cat "$ANNOT_JSON"    || echo '[]';               exit 0 ;;
   *comments*)      [ -n "$COMMENTS_FAIL" ]  && { echo "gh: api error" >&2; exit 1; }; [ -f "$COMMENTS_JSON" ] && cat "$COMMENTS_JSON" || echo '[]';               exit 0 ;;
-  *check-runs*)    [ -n "$CHECKRUNS_FAIL" ] && { echo "gh: api error" >&2; exit 1; }; [ -f "$CHECKRUNS_JSON" ]&& cat "$CHECKRUNS_JSON"|| echo '{"check_runs":[]}';exit 0 ;;
+  *check-runs*)
+    [ -n "$CHECKRUNS_FAIL" ] && { echo "gh: api error" >&2; exit 1; }
+    # Sha-keyed fetch failure (issue #435 AC-2c): when CHECKRUNS_FAIL_SHA is set, fail the
+    # check-runs fetch ONLY for the probed sha whose substring appears in the endpoint path,
+    # so one probed sha can fetch-fail while the other serves CHECKRUNS_JSON. Empty/unset
+    # CHECKRUNS_FAIL_SHA skips the case entirely (never `*""*`, which would match every sha).
+    if [ -n "$CHECKRUNS_FAIL_SHA" ]; then
+      case "$j" in *"$CHECKRUNS_FAIL_SHA"*) echo "gh: api error" >&2; exit 1 ;; esac
+    fi
+    [ -f "$CHECKRUNS_JSON" ] && cat "$CHECKRUNS_JSON" || echo '{"check_runs":[]}'
+    exit 0 ;;
   *"repo view"*)   echo "owner/repo"; exit 0 ;;
   *)               echo '[]'; exit 0 ;;
 esac
@@ -26193,6 +26257,90 @@ EOF
   else
     assert_eq "#431 Tpag2: check-runs call carried --paginate" "yes" "no"
   fi
+
+  # ── T435-1 same-line denial parse: blank label + next-line token → unparseable ──
+  # The summary's `permission_denials_count:` label line is BLANK-valued and the NEXT line
+  # begins with a non-space token. The pre-#435 `\s*(\S+)` regex spans the newline and captures
+  # that next-line token verbatim as a fabricated count (check-run-summary provenance) — the
+  # exact defect. The line-bound parse reads nothing from the label's own line, sees the label,
+  # and resolves (None, "unparseable"). RED-first: against pre-#435 code this asserts the
+  # fabricated "NEXTTOKEN"/check-run-summary; GREEN after the fix (issue #435 AC-1).
+  R435A="$EXP/r435a"
+  mkdir -p "$R435A/.devflow/learnings"
+  cat > "$R435A/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1001,"merged_at":"2026-07-10T00:00:00Z","branch":"b1001","head_sha":"h1001","merge_commit_sha":"m1001"}
+EOF
+  cat > "$EXP/checkruns435a.json" <<'EOF'
+{"check_runs":[{"id":1,"name":"Devflow Review","output":{"summary":"verdict on PR\n\npermission_denials_count:\nNEXTTOKEN following line"}}]}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    CHECKRUNS_JSON="$EXP/checkruns435a.json" \
+    python3 "$BXR" --repo-root "$R435A" --prs 1001 >/dev/null 2>&1
+  ST435A="$R435A/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#435 AC1: blank label value never captures the next line's token (null)" "null" "$(exp_field "$ST435A" 1001 permission_denials_count)"
+  assert_eq "#435 AC1: blank-label summary resolves to unparseable, not check-run-summary" "unparseable" "$(exp_field "$ST435A" 1001 provenance.permission_denials_count)"
+
+  # ── T435-2 garbage token → unparseable, and the annotation fallback is NOT consulted ─
+  # A label line carrying a non-digit, non-`unavailable` token, every check-runs fetch
+  # succeeding. The token is invalid, so phase 1 finds no valid token; a label WAS seen, so
+  # phase 2 returns unparseable WITHOUT consulting the annotation fallback (AC-2). Asserted two
+  # ways: the provenance, and — via GH_ARGV_LOG — that NO `check-runs/<id>/annotations` call was
+  # made for this fixture. RED-first: pre-#435 code returns the verbatim "garbage" token.
+  R435B="$EXP/r435b"
+  mkdir -p "$R435B/.devflow/learnings"
+  cat > "$R435B/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1002,"merged_at":"2026-07-10T00:00:00Z","branch":"b1002","head_sha":"h1002","merge_commit_sha":"m1002"}
+EOF
+  cat > "$EXP/checkruns435b.json" <<'EOF'
+{"check_runs":[{"id":42,"name":"Devflow Review","output":{"summary":"verdict\n\npermission_denials_count: garbage"}}]}
+EOF
+  : > "$EXP/argv435b.log"
+  GH_ARGV_LOG="$EXP/argv435b.log" GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    CHECKRUNS_JSON="$EXP/checkruns435b.json" \
+    python3 "$BXR" --repo-root "$R435B" --prs 1002 >/dev/null 2>&1
+  ST435B="$R435B/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#435 AC2: garbage token → null (never carried verbatim)" "null" "$(exp_field "$ST435B" 1002 permission_denials_count)"
+  assert_eq "#435 AC2: garbage token → unparseable provenance" "unparseable" "$(exp_field "$ST435B" 1002 provenance.permission_denials_count)"
+  assert_eq "#435 AC2: annotation fallback NOT consulted when a label line was seen" "no" \
+    "$(grep -q 'annotations' "$EXP/argv435b.log" && echo yes || echo no)"
+
+  # ── T435-2b sibling recovery across two Devflow Review check-runs on the same sha ────
+  # First check-run's summary label is malformed; the second's carries a digit token. Phase 1
+  # scans both and returns the digit verbatim with provenance check-run-summary (AC-2b).
+  R435C="$EXP/r435c"
+  mkdir -p "$R435C/.devflow/learnings"
+  cat > "$R435C/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1003,"merged_at":"2026-07-10T00:00:00Z","branch":"b1003","head_sha":"h1003","merge_commit_sha":"m1003"}
+EOF
+  cat > "$EXP/checkruns435c.json" <<'EOF'
+{"check_runs":[{"id":10,"name":"Devflow Review","output":{"summary":"verdict\n\npermission_denials_count: garbage"}},{"id":11,"name":"Devflow Review","output":{"summary":"verdict\n\npermission_denials_count: 7"}}]}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    CHECKRUNS_JSON="$EXP/checkruns435c.json" \
+    python3 "$BXR" --repo-root "$R435C" --prs 1003 >/dev/null 2>&1
+  ST435C="$R435C/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#435 AC2b: sibling recovery — digit token from the second check-run wins" "7" "$(exp_field "$ST435C" 1003 permission_denials_count)"
+  assert_eq "#435 AC2b: sibling-recovery provenance is check-run-summary" "check-run-summary" "$(exp_field "$ST435C" 1003 provenance.permission_denials_count)"
+
+  # ── T435-2c fetch-failed beats unparseable ──────────────────────────────────────────
+  # Two probed shas (head then merge). The head sha's check-runs fetch FAILS; the merge sha's
+  # label is malformed. Phase 2 precedence: any fetch failure → fetch-failed, ahead of the
+  # unparseable a seen-but-malformed label would otherwise yield (AC-2c). CHECKRUNS_FAIL_SHA
+  # fails only the head sha; CHECKRUNS_JSON (malformed label) serves the merge sha.
+  R435D="$EXP/r435d"
+  mkdir -p "$R435D/.devflow/learnings"
+  cat > "$R435D/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1004,"merged_at":"2026-07-10T00:00:00Z","branch":"b1004","head_sha":"h1004head","merge_commit_sha":"m1004merge"}
+EOF
+  cat > "$EXP/checkruns435d.json" <<'EOF'
+{"check_runs":[{"id":20,"name":"Devflow Review","output":{"summary":"verdict\n\npermission_denials_count: garbage"}}]}
+EOF
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    CHECKRUNS_JSON="$EXP/checkruns435d.json" CHECKRUNS_FAIL_SHA="h1004head" \
+    python3 "$BXR" --repo-root "$R435D" --prs 1004 >/dev/null 2>&1
+  ST435D="$R435D/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#435 AC2c: a probed-sha fetch failure → null denial count" "null" "$(exp_field "$ST435D" 1004 permission_denials_count)"
+  assert_eq "#435 AC2c: fetch-failed beats unparseable" "fetch-failed" "$(exp_field "$ST435D" 1004 provenance.permission_denials_count)"
 
   # ── T3h progress-comment coherence: unparseable fallback verdict (review Fix A) ─
   # A progress comment carries the "## Verdict:" marker inline (not a `^## Verdict:`

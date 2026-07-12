@@ -91,7 +91,12 @@ REVIEWED_HEAD_RE = re.compile(r"^\*\*Reviewed HEAD:\*\*\s*(\S+)", re.MULTILINE)
 FINDINGS_SECTION_RE = re.compile(r"^##\s+Code Review Findings\s*$", re.MULTILINE)
 IMPORTANT_HEADING_RE = re.compile(r"^###\s+.*Important", re.MULTILINE)
 NUMBERED_ITEM_RE = re.compile(r"^\s*\d+\.\s")
-DENIAL_SUMMARY_RE = re.compile(r"permission_denials_count:\s*(\S+)")
+# Line-bound (issue #435): `[^\S\n]*` matches only HORIZONTAL whitespace, so the capture
+# stays on the label's own line and never spans a newline into a following line's token — the
+# pre-#435 `\s*(\S+)` fabricated a count from the next line when the label value was blank.
+# `(\S*)` (not `\S+`) still matches a blank-valued label so `_parse_denial_summary` can
+# distinguish "label seen but malformed" (→ unparseable) from "no label at all" (→ fallback).
+DENIAL_SUMMARY_RE = re.compile(r"permission_denials_count:[^\S\n]*(\S*)")
 DENIAL_ANNOTATION_RE = re.compile(r"recorded\s+(\d+)\s+permission denial")
 
 # ── provenance vocabulary + coherence invariant ──────────────────────────────
@@ -635,17 +640,56 @@ def _resolve_verdict_and_important(repo, pr):
 
 # ── permission-denial count (verbatim) ───────────────────────────────────────
 
+def _parse_denial_summary(summary):
+    """Line-bound classify of a `Devflow Review` summary's `permission_denials_count:` label
+    (issue #435). Returns (valid_token_or_None, label_seen). A VALID token — read ONLY from the
+    label's own line, never a following line — is exactly an all-digit string or the literal
+    `unavailable`; that mirrors the producer contract (devflow-review.yml's `finalize_check`
+    interpolates a digit-string or the literal `unavailable`), a coupled producer↔reader pair.
+    `label_seen` is True whenever the label appears at all, even with a blank/malformed value,
+    so phase 2 of `_resolve_denials` routes a seen-but-invalid label to `unparseable` rather
+    than a fabricated value. A blank/garbage value yields (None, True); no label yields
+    (None, False)."""
+    label_seen = False
+    for m in DENIAL_SUMMARY_RE.finditer(summary):
+        label_seen = True
+        token = m.group(1).strip()
+        # ASCII digits only (`isascii() and isdigit()`, NOT a bare `isdigit()`/`\d`, both of
+        # which accept unicode digits like `²`/`٣` that no producer emits and `int()` may
+        # reject): a crafted historical summary must not smuggle a non-ASCII "digit" through
+        # as a valid verbatim count (issue #435).
+        if token == "unavailable" or (token.isascii() and token.isdigit()):
+            return token, True
+    return None, label_seen
+
+
 def _resolve_denials(repo, shas):
     """Returns (value_verbatim, source). Forward path: the `Devflow Review` check-run
-    output[summary] `permission_denials_count:` line. Historical fallback: annotations
-    on the `Devflow Review` check-run (positive-count-only — a historical zero is
-    indistinguishable from unavailable, stated in provenance). The fallback is
-    OPPORTUNISTIC: it recovers a count only if a "recorded N permission denial(s)"
+    output[summary] `permission_denials_count:` line, parsed line-bound (issue #435).
+    Historical fallback: annotations on the `Devflow Review` check-run (positive-count-only
+    — a historical zero is indistinguishable from unavailable, stated in provenance). The
+    fallback is OPPORTUNISTIC: it recovers a count only if a "recorded N permission denial(s)"
     annotation is attached to the `Devflow Review` check-run itself — a `::warning::`
     emitted by surface-execution-diagnostics attaches to the Actions job check-run, not
     this one, so many historical PRs will not recover via this path (they simply read
     `absent`, never a fabricated 0). Value is carried VERBATIM (`unavailable` stays
     `unavailable`); no path coerces an unestablished count to 0.
+
+    TWO PHASES (issue #435). Phase 1 scans EVERY probed sha's `Devflow Review` summaries in
+    iteration order and returns the first VALID token as `(token, "check-run-summary")`;
+    each sha's check-runs are cached so phase 2 re-fetches nothing. Phase 2 runs only when
+    phase 1 found no valid token, in strict precedence: (a) any check-runs fetch failed →
+    `fetch-failed` (the failed fetch is exactly where an unseen valid token would sit — the
+    conservative claim, and it beats `unparseable`); (b) at least one label line was seen but
+    none was valid (blank/garbage value) → `unparseable` — never a fabricated value; (c) no
+    label line seen anywhere → the annotation fallback over the cached check-runs, then
+    `absent`. Two precedence changes are INTENDED vs. the pre-#435 per-sha interleave: a later
+    sha's summary now beats an earlier sha's annotation, and the positive-only-biased
+    annotation fallback is suppressed once any label was seen (a seen label proves the summary
+    is the right era for that check-run). This can lose a genuine annotation count in the
+    doubly-rare mixed-era shape (a malformed label on one run plus a genuine annotation on a
+    sibling old-era run) — a deliberate loss in the safe direction (`None` with an
+    unestablished tag, never a fabricated value).
 
     UNQUERYABLE ≠ ABSENT. Two preconditions make the lookup impossible rather than
     merely fruitless, and each gets its own provenance rather than the measured-and-
@@ -662,6 +706,9 @@ def _resolve_denials(repo, shas):
     # transport/auth failure is reported as "fetch-failed" rather than laundered into
     # "absent" — the unknown-is-not-zero provenance analogue (issue #431).
     any_fetch_failed = False
+    label_seen = False
+    cached_dr = []  # per-sha `Devflow Review` runs, in iteration order (phase-2 fallback reuse)
+    # Phase 1: scan every probed sha's summaries; the first VALID token wins.
     for sha in probeable:
         # Paginate: /commits/{sha}/check-runs serves only the first 30 check-runs per
         # page, so on a commit with a large CI matrix the `Devflow Review` check can sit
@@ -680,11 +727,21 @@ def _resolve_denials(repo, shas):
                 if isinstance(page, dict):
                     runs.extend(page.get("check_runs") or [])
         dr = [c for c in runs if (c or {}).get("name") == "Devflow Review"]
+        cached_dr.append(dr)
         for c in dr:
             summary = ((c.get("output") or {}).get("summary")) or ""
-            m = DENIAL_SUMMARY_RE.search(summary)
-            if m:
-                return m.group(1), "check-run-summary"
+            token, seen = _parse_denial_summary(summary)
+            if seen:
+                label_seen = True
+            if token is not None:
+                return token, "check-run-summary"
+    # Phase 2 (no valid token). Precedence: fetch-failed, then unparseable (label seen but
+    # never valid), then the annotation fallback (no label anywhere), then absent.
+    if any_fetch_failed:
+        return None, "fetch-failed"
+    if label_seen:
+        return None, "unparseable"
+    for dr in cached_dr:
         for c in dr:
             # The annotations sub-fetch must consume the `ok` signal like every other
             # call: an annotations fetch that FAILS (rc≠0) leaves the count unestablished,
