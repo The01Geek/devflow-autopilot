@@ -2748,9 +2748,15 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
 # ── issue #443: the mandatory Step 3.6 fresh-context audit in /devflow:create-issue ──
 # The deliverable is agent-executed skill prose plus one tracked extension file; no runtime
 # code path executes in CI, so the automated boundary is the repo's skill-contract mechanism:
-# pins over the rendered SKILL surfaces. The behavioral pins go through assert_pin_red_under
-# with a sed mutation that removes the operative sentence (re-introducing the guarded
-# regression), so a framing-only pin is reported RED at the desk (#375 behavioral-fix-pin rule).
+# pins over the rendered SKILL surfaces. Each pinned literal below IS the operative contract
+# sentence itself (a self-contained skill-prose requirement, not a framing clause introducing
+# one), so there is no operative-vs-framing ambiguity for assert_pin_red_under to discriminate
+# here. It is still used over plain assert_pin_unique for its NON-VACUITY proof: each mutation
+# excises the operative requirement clause from WITHIN the pinned sentence (re-introducing the
+# guarded regression), so every pin is proven to flip PASS->FAIL when that clause is removed,
+# not merely to be present. (#375's framing-vs-operative discrimination is exercised where the
+# mutation deletes a DIFFERENT line than the pinned literal; here the mutation targets a
+# fragment of the pinned sentence, so the flip is a presence-of-the-operative-clause proof.)
 CI443_SKILL="$LIB/../skills/create-issue/SKILL.md"
 CI443_EXT="$LIB/../.devflow/prompt-extensions/create-issue.md"
 # Verdict-line requirement (maps to the audit-prompt AC): removing "legal values are exactly"
@@ -2816,6 +2822,24 @@ sed -E '1s/^/REINTRODUCED no-subagent, all-inline model\n/' "$CI443_SKILL" > "$C
 assert_eq "#443: absence guard catches a re-introduction of the stale literal (non-vacuous)" \
   "1" "$(pin_count 'no-subagent, all-inline model' "$CI443_MUT")"
 rm -f "$CI443_MUT"
+# Anti-deadlock guarantee (maps to the VERDICT: REVISE / re-audit AC): removing it re-opens an
+# unbounded re-audit loop that could block issue filing.
+assert_pin_red_under "#443: bounded re-audit never deadlocks filing" \
+  'the audit informs, it never deadlocks filing' 's/never deadlocks filing//' "$CI443_SKILL"
+# Mandatory never-silent audit summary line (maps to the audit-summary AC): the feature's
+# observability contract — a skipped/degraded audit must always render a summary line.
+assert_pin_red_under "#443: audit summary line is the mandatory never-silent evidence" \
+  'the summary line is the evidence it ran and which arm it took' \
+  's/the evidence it ran and which arm it took//' "$CI443_SKILL"
+# Step 4 presentation gate (maps to the artifact-gate AC): the seam that makes Step 3.6
+# mandatory rather than skippable — removing the presence check lets an un-audited draft show.
+assert_pin_red_under "#443: Step 4 presentation gate confirms this run's audit artifact exists" \
+  'confirm `.devflow/tmp/issue-audit-<slug>.md` is present' \
+  's/is present//' "$CI443_SKILL"
+# Audit-artifact write with delete-leftover-first (maps to the artifact-gate AC): mirrors the
+# Step 2 derivation-artifact discipline so the gated file can only ever be this run's.
+assert_pin_red_under "#443: audit artifact deletes any same-slug leftover before writing" \
+  'deleting any same-slug leftover first' 's/deleting any same-slug leftover first//' "$CI443_SKILL"
 
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1

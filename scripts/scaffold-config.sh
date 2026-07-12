@@ -185,6 +185,11 @@ else
     # scaffold-pe AC3 single-comment-block invariant holds) and a misrename injects nothing.
     # No bash array is used (`"${arr[@]}"` on an empty array errors under macOS bash 3.2 +
     # `set -u`); a per-skill `if` branch keeps it portable.
+    # Chain the three printf calls with `&&` so an intermediate write failure propagates
+    # as the brace group's exit status (a group's status is otherwise its LAST command —
+    # the tiny closing `-->` printf — which could clear after an earlier printf failed and
+    # promote a truncated file). This restores the pre-refactor single-printf "any write
+    # error fails closed" contract that the atomic-mv comment below relies on.
     if {
          printf '%s\n' \
            '<!--' \
@@ -203,17 +208,15 @@ else
            '(for example create-issue.md.example becomes create-issue.md) and replace' \
            'this comment with your own instructions. For the full convention and a' \
            'worked example, see the "Extending skills with prompt extensions" section' \
-           'in docs/DEVFLOW_SYSTEM_OVERVIEW.md.'
-         if [ "$pe_skill" = "create-issue" ]; then
-           printf '%s\n' \
+           'in docs/DEVFLOW_SYSTEM_OVERVIEW.md.' &&
+         { [ "$pe_skill" != "create-issue" ] || printf '%s\n' \
              '' \
              'Step 3.6 (the fresh-context audit) reads an optional "## Audit dimensions"' \
              'section from this extension and forwards it to the audit subagent. Example' \
              'section (inert until you activate this file):' \
              '' \
              '## Audit dimensions' \
-             '- A repo-specific invariant every issue must respect, named with what would falsify it.'
-         fi
+             '- A repo-specific invariant every issue must respect, named with what would falsify it.'; } &&
          printf '%s\n' '-->'
        } > "$pe_tmp" && mv "$pe_tmp" "$pe_target"; then
       pe_created=$((pe_created + 1))
