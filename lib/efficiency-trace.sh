@@ -150,23 +150,83 @@ warn_on_mixed_source() {
   fi
 }
 
+# Compute the config fingerprint (issue #431): a sha256 over the canonicalized
+# devflow_review + devflow_review_and_fix config blocks, plus a small map of
+# salient key values carried VERBATIM, so a cross-run/experiment analysis can
+# attribute each record to the config variant that produced it. Emits a compact
+# JSON object `{sha256, partial, salient}` — `partial:true` when only one of the
+# two blocks exists (the hash covers what exists) — or the literal `null` when
+# python3 or the config is unavailable / neither block exists. Best-effort: it
+# NEVER aborts the wrapper (a null fingerprint just means the #431 assembler
+# falls back to `git show <merge_sha>:.devflow/config.json` and marks the source).
+# Adds NO new command head: python3 is a hard preflight prerequisite and
+# config-source.sh (already sourced above) shells to it on every config read. This
+# claim is load-bearing, so the body below must stay free of any non-preflight PATH
+# tool (`mktemp`, `head`, `tr`, `sed`, …). An earlier revision reached for `mktemp`
+# (to capture stderr) and `head` (to truncate it), which both broke that claim AND
+# regressed the failure path: on a host without `mktemp` — e.g. the cloud runner,
+# where CLAUDE.md records that mktemp writes are blocked — it fell back to the very
+# `2>/dev/null` swallow this function exists to avoid, turning a genuine helper
+# defect into an invisible null fingerprint on exactly the tier that has it (#431).
+compute_config_fingerprint() {
+  local cfg="$1" out rc
+  # Delegate to the shared scripts/config_fingerprint.py — the SINGLE source of
+  # truth this producer and the #431 assembler-reader both use, so their
+  # fingerprints are byte-identical by construction (not a hand-kept mirror).
+  #
+  # config_fingerprint.py fails SOFT (prints `null`, exit 0) for the degradations it can
+  # actually SEE — no config file, an unreadable/malformed config, neither block present.
+  # It cannot soft-fail a MISSING INTERPRETER: with no python3 the script never executes,
+  # so it prints nothing and rc is 127. That is why the two arms below are distinguished
+  # rather than both reported as "crashed" — telling an operator whose PATH lacks python3
+  # that the *helper* crashed sends them to read a script that never ran (#431 shadow).
+  # Either way we degrade to `null` rather than aborting the wrapper under `set -e`
+  # (best-effort contract), and the helper's own stderr flows straight to ours — no temp
+  # file, no truncation, nothing to clean up — so the real reason lands in the run log.
+  if out="$(python3 "$HERE/../scripts/config_fingerprint.py" "$cfg")"; then
+    printf '%s\n' "$out"
+  else
+    rc=$?
+    # 127 = not found; 126 = found but NOT EXECUTABLE (a broken Windows/WSL shim, a
+    # `noexec` mount, a permissions blip). Both mean the script never ran, so both must
+    # take the interpreter arm — routing 126 to the "crashed" arm would send the operator
+    # to read a script that never executed, the exact mis-steer this discrimination exists
+    # to eliminate, one errno over (#431 delta review).
+    case "$rc" in
+      126|127)
+        printf 'compute_config_fingerprint: python3 not found or not executable (rc=%s) — it is a hard preflight prerequisite (see lib/preflight.sh); degrading to null\n' \
+          "$rc" >&2 ;;
+      *)
+        printf 'compute_config_fingerprint: config_fingerprint.py crashed (rc=%s; its stderr is above) — degrading to null\n' \
+          "$rc" >&2 ;;
+    esac
+    printf 'null\n'
+  fi
+}
+
 # Run the jq derivation over VALID_FILES for $1 mode ("trace"|"record") and the
 # slug $2, to stdout. A fresh GENERATED_AT is stamped per call.
 emit_jq() {
-  local mode="$1" slug="$2" generated_at
+  local mode="$1" slug="$2" generated_at config_fingerprint
   generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  # Fingerprint the config that produced this run (issue #431). Guard the empty
+  # case to a JSON null so --argjson never aborts jq (and the wrapper under set -e).
+  config_fingerprint="$(compute_config_fingerprint "$_DEVFLOW_CONFIG")"
+  [ -n "$config_fingerprint" ] || config_fingerprint="null"
   # jq -s over zero files yields null, not []; feed an explicit empty array so the
   # filter (which expects an array) degrades to an empty trace / empty record.
   if [ "${#VALID_FILES[@]}" -eq 0 ]; then
     printf '[]\n' | "$DEVFLOW_JQ" --raw-output -f "$HERE/efficiency-trace.jq" \
       --arg mode "$mode" --arg slug "$slug" \
       --arg generated_at "$generated_at" \
-      --argjson cut_candidate_min_dispatch "$THRESHOLD"
+      --argjson cut_candidate_min_dispatch "$THRESHOLD" \
+      --argjson config_fingerprint "$config_fingerprint"
   else
     "$DEVFLOW_JQ" --raw-output --slurp -f "$HERE/efficiency-trace.jq" \
       --arg mode "$mode" --arg slug "$slug" \
       --arg generated_at "$generated_at" \
       --argjson cut_candidate_min_dispatch "$THRESHOLD" \
+      --argjson config_fingerprint "$config_fingerprint" \
       "${VALID_FILES[@]}"
   fi
 }

@@ -128,6 +128,20 @@ path, so a run is never recorded twice. The record carries:
   the loop (see *Non-droppable persistence* below); an agent-written run reads `false`.
 - `cut_candidate_min_dispatch` — the config threshold (below), carried forward for the follow-up
   cross-run analyzer.
+- `config_fingerprint` — the config-variant fingerprint (issue #431): an object
+  `{sha256, partial, salient}` (or `null` when it could not be established), where `sha256` is over
+  the canonicalized `devflow_review` + `devflow_review_and_fix` blocks, `partial` is `true` when only
+  one of the two blocks exists (the hash covers what exists), and `salient` carries a few
+  interrupted-time-series-relevant key values **verbatim** (`verdict_severity_threshold`,
+  `fix_severity_threshold`, `max_iterations`). Computed by the wrapper via python3 (a hard preflight
+  prerequisite — **no new command head**), it names the config variant that produced the run, which
+  is what makes an experiment's interrupted-time-series comparison attributable.
+  **`schema_version` decision (issue #431):** the field is additive and **optional** (nullable), and
+  **no consumer gates on `schema_version`**, so the record stays at `schema_version: 1` — a bump would
+  imply a breaking change this is not. Records predating the field remain valid; the experiment-record
+  assembler (below) handles presence/absence uniformly, falling back to
+  `git show <merge_sha>:.devflow/config.json` and marking the fingerprint source when the record
+  carries none.
 - `per_iteration[]` — dispatch counts, `diff_profile` (Phase 0.5 flags — segment cut decisions by
   this), `verification_posture`, checklist lite/agent split, fixes applied, the `added_nothing` flag,
   `phase3_dispatched_present` (so the analyzer can tell a genuinely zero-dispatch iteration from one
@@ -481,10 +495,121 @@ This guarantees **persistence of whatever telemetry was captured**. It does **no
 post-hoc tool can recover them if the agent never recorded them (the incremental writes + the
 self-check warning maximize capture, but it remains irreducibly agent-dependent).
 
+## The unified experiment record (`experiment-records.jsonl`)
+
+`scripts/build-experiment-records.py` (issue #431) is the **join** that makes the operator's
+experiment program measurable: it assembles one line per merged PR into the tracked
+`.devflow/learnings/experiment-records.jsonl`, joining what a run **spent** (the efficiency records
+above) to whether its PR came out **clean** (the review outcome). It is a **reader** of every
+historical store shape — python3 stdlib plus `gh`/`git` subprocesses (the `DEVFLOW_GH` env-read
+pattern, no probe; native `git` subprocess per the #295 Windows rule) — and runs on the
+**local/interactive retrospective tier only** (invoked by `skills/retrospective-weekly/SKILL.md`
+between Step 5 (Materialize) and Step 7 (State PR), best-effort — its failure logs a stderr breadcrumb
+carried into the Step 9 status report as a blocker note and never blocks the retrospective;
+`lib/open-state-pr.sh` then commits the store on the state PR so `main` is clean entering Stage B).
+
+Each line carries its own `schema_version` (currently `1`, independent of the efficiency record's)
+plus the PR's identity — `pr`, `issue`, `branch`, `merged_at`, `merge_commit_sha` — and then the
+joined fields:
+
+- **`efficiency_runs[]`** — **all** matching efficiency records for the PR as a per-run list with
+  per-run `cost` (never newest-wins, since discarding earlier runs' cost corrupts a cost-vs-outcome
+  experiment). Both slug families are resolved: `pr-<N>` directly, and the branch slug from the
+  retrospective entry's `branch` field (with a `gh` lookup fallback). Each entry also carries
+  `synthesized`, `iterations`, `run_id`, `config_fingerprint`, and `telemetry_complete`.
+- **`telemetry_complete`** (per efficiency run) — `true` **only** when the record is not synthesized,
+  every iteration carries non-null token telemetry, and no degradation breadcrumb is present. Analyses
+  exclude degraded records **by this flag** rather than silently averaging them in.
+- **`retrospective`** — the PR's retrospective entry (the `branch`-slug join key and PR metadata).
+- **`verdict`** — selected by **artifact shape**: the first completed PR review whose body matches the
+  `## Verdict:` contract **regardless of bot identity**; when none exists, the run-keyed
+  `devflow:review-progress` comment's `## Verdict:` line is the fallback; when neither exists the
+  verdict is `null` (the #403 shape). The parser strips both the full-report `(summary)` suffix and
+  the pr-review stub suffix `— full report in PR comment` the engine appends when a live progress
+  comment is active, so the stored verdict is the bare token (`APPROVE` / `REJECT` / …) on every
+  surface. The `provenance.verdict` field names which arm resolved it — `pr-review`,
+  `progress-comment`, `progress-comment-degraded` (the comment supplied the verdict *because* the
+  authoritative reviews call could not be established, so the value may predate the final reviewed
+  HEAD — degraded, not merely second-choice; the reason is spelled out in `provenance.notes`),
+  `unparseable` (a `## Verdict:` marker was present but its line did not parse), `absent`, or one of
+  the four **unestablished** tags below.
+- **`important_finding_count`** — parsed from the run-keyed progress comment joined via
+  `review.commit_id` == the comment's `**Reviewed HEAD:**` line (the engine's own join — see
+  `skills/review/SKILL.md`, the normative source). `null` with provenance when no progress comment
+  joins to the review's commit_id (absent or superseded by a later run's comment), its findings
+  section is unparseable, or the comment could not be established.
+- **`permission_denials_count`** — read from the `Devflow Review` check-run `output[summary]`
+  `permission_denials_count:` line (issue #431) for PRs after that change; for historical PRs it falls
+  back to best-effort check-run **annotation** retrieval (provenance `check-run-annotation`), whose
+  bias is recorded in `provenance.notes` (annotations carry only **positive** counts, so a historical
+  zero is indistinguishable from unavailable, and expired logs yield nothing). Carried **verbatim** in
+  every path — `unavailable` stays `unavailable`, and **no code path coerces an unestablished count to
+  `0`** (the repo's unknown-is-not-zero contract, end to end).
+- **`config_fingerprint`** — from the efficiency record's `config_fingerprint` when present, else
+  recomputed from `git show <merge_sha>:.devflow/config.json` (records predating the field);
+  `provenance.config_fingerprint` marks the source (`efficiency-record` / `merge-commit-config` /
+  `absent`, plus the unestablished tags below). When a PR's runs carry **disagreeing** fingerprints
+  (its runs straddled a config change), the record-level value is `null` with source
+  `mixed-across-runs` rather than first-wins: this field is the experiment's *attribution key*, so
+  silently stamping such a PR with the older variant would misattribute its outcome. Nothing is lost —
+  the per-run fingerprints remain in `efficiency_runs[]`.
+- **`provenance`** — a map naming which sources joined (and a `notes` list), so a `null` field is
+  always distinguishable from an unqueried one.
+
+**Unestablished is not absent.** `absent` is the strong claim *"we looked and it genuinely was not
+there"*. Four tags mean the opposite — the join could not be measured at all — and they are never
+collapsed onto `absent` (the provenance-dimension analogue of the value-level unknown-is-not-zero
+contract). They apply to every gh-sourced field above:
+
+| Tag | Meaning |
+| --- | --- |
+| `fetch-failed` | The call ran and did not yield a usable answer — a non-zero `gh` exit, or an exit-0 response whose body was unparseable. |
+| `no-repo` | The repo could not be resolved, so no *join* call was attempted (the single `gh repo view` probe that resolves it having already failed). |
+| `no-sha` | The PR metadata that supplies the query key (head / merge sha) was itself unestablished, so this join is unestablished *by cascade*. |
+| `unparseable` | The artifact was retrieved, but the value could not be read out of it (a `## Verdict:` marker whose line does not parse; a fingerprint envelope carrying no `sha256`). |
+
+The normative list is `PROVENANCE_UNESTABLISHED` in `scripts/build-experiment-records.py`; a record is
+rejected at construction if any field governed by one of these tags carries a non-null value, so an
+unqueryable join can never publish a measurement.
+
+**Idempotent** (one line per PR, keyed by PR number — a re-run replaces, never duplicates) and
+**incremental** (it processes merged PRs absent from the store plus any passed via `--prs`, never a
+full-history sweep per invocation). **Missing-source-tolerant — for the *inputs***: every join input
+is optional, so an absent source yields null fields plus a provenance tag, and an unreadable *input*
+store emits a stderr breadcrumb and simply does not join. Never a fabricated value.
+
+**But tolerance is a claim about the inputs, not about the exit status.** The *destination* store
+(`experiment-records.jsonl`) is read **strictly**, because the assembler REWRITES it rather than
+appending: tolerating a corrupt line there would silently delete every record it could not parse, and
+`lib/open-state-pr.sh` would commit the truncation. The run **exits 2** — writing nothing — in that
+case, and also when a PR's merge state could not be **established** (a `gh` outage: excluding it
+silently would lose it for good, since only stored or retrospective-listed PRs are ever re-selected)
+or when any candidate failed to assemble. Records that *did* assemble are still written on a partial
+failure, so a non-zero exit means "some PRs are missing from the store," not "nothing was written."
+A PR **observed** to be unmerged is a clean exclusion and exits 0 — observed-unmerged and
+unestablished are never conflated in either direction.
+
+**CLI surface.** Invoked bare, the assembler resolves everything from the repo root and needs no
+arguments — that is how `/devflow:retrospective-weekly` calls it. The flags exist for re-runs and
+tests: `--prs <n,n,…>` forces specific PRs into the candidate set (the re-run path after a partial
+failure, since an unestablished PR never enters the store and so is not re-selected on its own),
+`--dry-run` assembles and reports without writing the store, and `--repo-root` / `--store` /
+`--retrospectives` / `--efficiency-dir` override the four resolved paths. Exit codes are **0**
+(everything selected was assembled, or cleanly excluded as observed-unmerged) and **2** (see above);
+there is no exit 1.
+
+**Abandoned-run exclusion and its cost-side bias.** The record is keyed on **merged** PRs, so a run
+whose slug never produced a merged PR (an abandoned branch) contributes **no cost row** — the cost side
+therefore carries a documented survivorship bias (abandoned-run cost is invisible to the join). This is
+deliberate: the experiment measures cost-vs-outcome for PRs that shipped.
+
 ## Out of scope (tracked as follow-up)
 
-The cross-run analyzer (`lib/efficiency-report.jq`), the weekly-loop recommendation section, and the
-cut-threshold consumer are deliberately out of scope.
+The cross-run analyzer (`lib/efficiency-report.jq`) and the weekly-loop recommendation section remain
+open work this issue does **not** supersede — the cut-candidate aggregation that consumes
+`cut_candidate_min_dispatch` / `phase3_dispatched_present` is still unbuilt. Issue #431 added the
+`experiment-records.jsonl` **join** (above), which is the measurement substrate those analyzers will
+read; it does not itself compute cut candidates or weekly recommendations.
 
 (Standalone `/devflow:review` was previously listed here as out of scope; it now produces its own
 per-run record and live trace — see **Standalone /devflow:review** below.)
