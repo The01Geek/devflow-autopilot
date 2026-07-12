@@ -252,10 +252,21 @@ cost half from the harness's own output — `claude-code-action`'s `execution_fi
 transcript — was long asserted here as settled fact ("no backstop can reconstruct it"), but that
 assertion was never measured. Issue #437 replaced the assertion with a re-runnable probe
 ([`.github/workflows/matcher-probe.yml`](../.github/workflows/matcher-probe.yml)) whose **observed**
-result is recorded in [`docs/execution-file-shape.md`](execution-file-shape.md): read that shape
+results are recorded in [`docs/execution-file-shape.md`](execution-file-shape.md): read that shape
 record — not this sentence — before deciding whether an agent-independent cost floor is buildable.
-Until the probe is dispatched the record honestly reads `unavailable` for every field (the
-unknown-is-not-zero rule), which is a *pending measurement*, not a proof of impossibility.
+
+**The first measurement already refutes the strong form of the old claim.** On the **local** tier the
+`Stop`-hook transcript was observed (2026-07-12, via `scripts/stop-hook-probe.sh`) to carry **real**
+per-message token counts — 196 `usage` blocks, largest figure 342,272 — not the streaming
+placeholders it was assumed to hold. So "no backstop *can* reconstruct the cost half" is **false as
+stated**: locally the data is right there in the harness's own output, with no agent cooperation. What
+remains true is the weaker, honest form: *no backstop DevFlow currently **ships** reconstructs it* —
+which is a gap in what we built, not a law of the platform. Two things are still genuinely open, and
+neither is settled by the local row: whether `claude-code-action`'s `execution_file` carries the same
+figures on the **cloud** tier (`unavailable` pending the first `execfile-shape-probe` dispatch), and
+whether the transcript's **tail has flushed** by the time a `Stop` hook reads it (realness is not
+freshness — the docs warn the transcript lags). Until both are answered, keep the loop running live to
+protect the cost half — but stop repeating that reconstructing it is impossible.
 
 **Layer 1 — wording (portable, agent-executed).** The SKILL.md Loop Exit persistence steps are
 marked **mandatory on every writable run**, and a `## Common Mistakes` entry names the

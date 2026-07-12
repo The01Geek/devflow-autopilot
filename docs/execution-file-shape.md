@@ -61,33 +61,57 @@ the evidence; the artifact's observed contents are.
 
 **Observed: `unavailable` (pending).** Whether a `Stop` hook committed to the **base**
 branch's `.claude/settings.json` fires under `claude-code-action` is established by the
-`hook-probe` job. This is an inherently **two-step landing** and is additionally
-**operator-gated**:
+`hook-probe` job. The probe hook **ships in this PR** (`scripts/stop-hook-probe.sh`,
+registered as a `Stop` hook in `.claude/settings.json`), so no operator hand-edit is
+required — but the observation is still an inherently **two-step landing**:
 
 1. `claude-code-action` removes `.claude/` and restores it from the **base** branch before
-   running, so a `Stop` hook added *in this PR* is restored away and proves nothing — the
-   hook must already be on base for a run to be meaningful. A first-run "did not fire" must
-   **not** be read as "hooks do not fire" (the reverse launder).
-2. In this change the base-branch Stop-hook breadcrumb **could not be committed by the
-   implementing agent**: the permission classifier bars an agent from writing `.claude/`
-   (a documented structural boundary — the agent cannot widen or alter its own
-   `.claude/` config). So an **operator** must add the breadcrumb hook to base's
-   `.claude/settings.json` (write a gitignored `.devflow/tmp/stop-hook-probe-fired`
-   marker on `Stop`), then re-dispatch `matcher-probe.yml` from the default branch. The
-   `hook-probe` job already checks for that marker and records fired / did-not-fire with
-   the run URL.
+   running, so the `Stop` hook added *in this PR* is restored away for any run against this
+   PR and proves nothing — the hook must already be on base for a run to be meaningful. A
+   pre-merge "did not fire" must **not** be read as "hooks do not fire" (the reverse
+   launder).
+2. Therefore the meaningful observation comes **after this PR merges**, when the hook is on
+   the default branch: re-dispatch `matcher-probe.yml` via `workflow_dispatch` from the
+   default branch. The `hook-probe` job checks for the gitignored
+   `.devflow/tmp/stop-hook-probe-fired` marker the hook writes, and records fired /
+   did-not-fire with the run URL.
+
+The marker path is a **coupled contract**: `scripts/stop-hook-probe.sh` writes it and
+`matcher-probe.yml`'s `hook-probe` job reads it. Renaming it on one side alone would not
+fail loudly — it would turn the AC6 probe into a permanent, silent "did not fire".
+`lib/test/run.sh` pins both sides to the same literal, and pins that the hook is actually
+registered in `.claude/settings.json` (an unregistered hook observes nothing at all).
 
 ### Local-tier transcript token shape (AC7)
 
-**Observed: `unavailable` (pending, local-tier).** Whether the `Stop` hook's
-`transcript_path` JSONL carries real per-message token counts or streaming placeholders is
-a **local-tier** check: it needs a real local Claude Code run whose `Stop` payload exposes
-`transcript_path`, which is outside a cloud run's sandbox (the cloud implementing agent's
-own attempt to read `~/.claude/projects/**` was refused by the sandbox — recorded as
-denied, never as observed-false). Claude Code's docs warn the transcript is written
-asynchronously and may lag, and steer `Stop` hooks toward `last_assistant_message` rather
-than parsing it — so this field is a probe **target**, not an assumption, and nothing is
-built on the transcript's tokens on the strength of this issue alone.
+**Observed: `real` — the local transcript carries GENUINE per-message token counts.**
+
+Established by running the shipped `scripts/stop-hook-probe.sh` against a real local Claude
+Code transcript (2026-07-12, Claude Code with `CLAUDE_CONFIG_DIR=~/.claude-3`):
+
+```json
+{ "fired": true, "token_shape": "real", "usage_blocks": 196,
+  "max_usage_figure": 342272, "transcript_path_present": true }
+```
+
+196 `usage` blocks were present and the largest figure was 342,272 — far outside the
+0/1 range that would mark streaming placeholders. **This contradicts the widely-reported
+claim that transcript token counts are placeholders never backfilled to real values**, and
+it is the first hard evidence against `docs/efficiency-trace.md`'s long-standing assertion
+that the token/wall-clock cost half is unreconstructable: on the local tier, it demonstrably
+is reconstructable from the harness's own output, with no agent cooperation.
+
+**Two limits on what this observation licenses, both deliberate:**
+
+1. **It is the LOCAL tier only.** Whether `claude-code-action`'s `execution_file` carries
+   the same figures is a separate question, still `unavailable` pending the first
+   `execfile-shape-probe` dispatch. Do not generalize this row to the cloud tier.
+2. **Realness is not freshness.** Claude Code's docs warn the transcript is written
+   asynchronously and may lag the in-memory conversation, steering `Stop` hooks toward
+   `last_assistant_message` instead of parsing it. This probe establishes that the counts
+   are *real*, **not** that the final turn's counts have landed by the time a `Stop` hook
+   reads them. A floor built on this must measure that lag separately — an under-count from
+   a not-yet-flushed tail is a distinct failure mode this row does not clear.
 
 ---
 

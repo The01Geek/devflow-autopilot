@@ -27580,6 +27580,95 @@ assert_eq "#437 exec-shape(encoding): jsonl recorded" "yes" \
 rm -rf "$EES_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#437 stop-hook-probe.sh (AC6 firing breadcrumb + AC7 transcript token shape)"
+# ────────────────────────────────────────────────────────────────────────────
+# The Stop hook is the ONLY channel that can answer AC6 (do .claude/ hooks execute
+# under claude-code-action?) and AC7 (are the transcript's token counts real or
+# streaming placeholders?). Both verdicts are EMITTED results, so the four-way
+# real/placeholder/absent/unavailable classification is driven here over real
+# transcripts — a grep-pin on the helper's source would not catch a mis-ordered arm.
+SHP="$REPO_ROOT/scripts/stop-hook-probe.sh"
+SHP_TMP="$(mktemp -d)"
+
+# Emit a Stop payload whose transcript_path points at $2, with cwd $1.
+_shp_payload() { printf '{"hook_event_name":"Stop","cwd":"%s","transcript_path":"%s"}' "$1" "$2"; }
+_shp_marker() { printf '%s' "$1/.devflow/tmp/stop-hook-probe-fired"; }
+
+# (1) AC6 — the breadcrumb's PRESENCE is the measurement. A real transcript with
+#     genuine token figures (>1) must classify as `real`.
+SHP_R="$SHP_TMP/real"; mkdir -p "$SHP_R"
+printf '%s\n' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":1200,"output_tokens":345}}}' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":80,"output_tokens":9}}}' \
+  > "$SHP_R/t.jsonl"
+_shp_payload "$SHP_R" "$SHP_R/t.jsonl" | bash "$SHP" >"$SHP_TMP/out-real" 2>/dev/null
+assert_eq "#437 stop-hook(AC6): breadcrumb written — presence is the firing measurement" "yes" \
+  "$([ -f "$(_shp_marker "$SHP_R")" ] && echo yes || echo no)"
+assert_eq "#437 stop-hook(AC6): hook is silent on stdout (must not disturb the session it observes)" "" \
+  "$(cat "$SHP_TMP/out-real")"
+assert_eq "#437 stop-hook(AC7): genuine token figures (>1) classify as 'real'" "real" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_R")")"
+
+# (2) AC7 — the reported streaming-placeholder shape: usage blocks exist but every
+#     figure is 0 or 1. A cost floor CANNOT ride these, so this must not read as `real`.
+SHP_P="$SHP_TMP/placeholder"; mkdir -p "$SHP_P"
+printf '%s\n' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":0,"output_tokens":1}}}' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":1,"output_tokens":0}}}' \
+  > "$SHP_P/t.jsonl"
+_shp_payload "$SHP_P" "$SHP_P/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(AC7): all-0/1 figures classify as 'placeholder', never 'real'" "placeholder" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_P")")"
+
+# (3) AC7 — `absent`: the transcript PARSED but carries no usage block at all.
+SHP_A="$SHP_TMP/absent"; mkdir -p "$SHP_A"
+printf '%s\n' '{"type":"user","message":{"content":"hi"}}' > "$SHP_A/t.jsonl"
+_shp_payload "$SHP_A" "$SHP_A/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(AC7): parsed transcript with no usage block classifies as 'absent'" "absent" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_A")")"
+
+# (4) AC7 — `unavailable` MUST be distinguishable from `absent` (unknown-is-not-zero).
+#     An unreadable transcript never establishes the shape, so it must not report the
+#     same verdict as a transcript that was read and genuinely had no usage block.
+#     Collapsing these is exactly the defect scripts/describe-denial-count.sh exists for.
+SHP_U="$SHP_TMP/unavail"; mkdir -p "$SHP_U"
+_shp_payload "$SHP_U" "$SHP_U/does-not-exist.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(AC7): unreadable transcript classifies as 'unavailable', NOT 'absent'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_U")")"
+assert_eq "#437 stop-hook(AC7): unavailable carries a null count, never 0" "null" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_U")")"
+# Still fires: an unestablished token shape must NOT cost us the AC6 firing observation.
+assert_eq "#437 stop-hook(AC6): breadcrumb still written when the transcript is unreadable" "yes" \
+  "$([ -f "$(_shp_marker "$SHP_U")" ] && echo yes || echo no)"
+
+# (5) Degenerate payloads never break the session: empty stdin, malformed JSON, and a
+#     missing transcript_path each exit 0 (a non-zero Stop hook can disrupt the run).
+SHP_E="$SHP_TMP/empty"; mkdir -p "$SHP_E"
+( cd "$SHP_E" && printf '' | bash "$SHP" >/dev/null 2>&1 )
+assert_eq "#437 stop-hook: empty stdin exits 0 (best-effort; never blocks the Stop)" "0" "$?"
+( cd "$SHP_E" && printf 'not json{{' | bash "$SHP" >/dev/null 2>&1 )
+assert_eq "#437 stop-hook: malformed payload exits 0" "0" "$?"
+
+# (6) COUPLED CONTRACT (the silent-failure trap): the marker path the helper WRITES must
+#     equal the MARKER the hook-probe job READS. A rename on either side turns the AC6
+#     probe into a permanent, silent "did not fire" — it would not fail loudly, it would
+#     just never observe a firing. Pin both sides to the same literal.
+assert_eq "#437 stop-hook: helper writes the marker path the hook-probe job reads" "yes" \
+  "$(grep -qF '.devflow/tmp/stop-hook-probe-fired' "$SHP" \
+     && grep -qF '.devflow/tmp/stop-hook-probe-fired' "$REPO_ROOT/.github/workflows/matcher-probe.yml" \
+     && echo yes || echo no)"
+# And the hook must actually be REGISTERED on base, or the probe observes nothing at all.
+assert_eq "#437 stop-hook: .claude/settings.json registers the probe as a Stop hook" "yes" \
+  "$(jq -e '[.hooks.Stop[].hooks[].command] | any(test("stop-hook-probe\\.sh"))' \
+       "$REPO_ROOT/.claude/settings.json" >/dev/null 2>&1 && echo yes || echo no)"
+# The pre-existing Stop hooks must survive the addition (an overwrite would silently
+# disable the efficiency-trace persist floor — the very telemetry this issue is about).
+assert_eq "#437 stop-hook: the existing efficiency-trace persist Stop hook is preserved" "yes" \
+  "$(jq -e '[.hooks.Stop[].hooks[].command] | any(test("efficiency-trace\\.sh --persist"))' \
+       "$REPO_ROOT/.claude/settings.json" >/dev/null 2>&1 && echo yes || echo no)"
+rm -rf "$SHP_TMP"
+
+# ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 

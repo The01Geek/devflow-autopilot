@@ -12,6 +12,11 @@
             "type": "command",
             "command": "bash lib/implement-stop-guard.sh",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/stop-hook-probe.sh || true",
+            "timeout": 15
           }
         ]
       }
