@@ -723,12 +723,28 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
         # the comparand at the boundary rather than letting its absence resolve to a value
         # that agrees with itself (issue #431 fix-delta gate).
         ids = [fp.get("sha256") if isinstance(fp, dict) else None for fp in fps]
-        usable = all(isinstance(i, str) and i for i in ids)
-        if usable and all(i == ids[0] for i in ids[1:]):
-            return fps[0], "efficiency-record"
-        return None, "mixed-across-runs"
+        if all(isinstance(i, str) and i for i in ids):
+            if all(i == ids[0] for i in ids[1:]):
+                return fps[0], "efficiency-record"
+            # Two or more USABLE identities that genuinely disagree. This — and only this —
+            # is `mixed-across-runs`: an OBSERVED config change across the PR's runs.
+            return None, "mixed-across-runs"
+        # At least one identity is UNUSABLE (no sha256, a null one, a non-dict envelope —
+        # the legacy / hand-edited / half-written shapes `_index_efficiency` admits raw).
+        # That is an UNESTABLISHED identity, NOT a measured disagreement: reporting it as
+        # `mixed-across-runs` would assert the runs straddled a config change — a fabricated
+        # fact, and absurd outright when there is only ONE run — collapsing unknown onto a
+        # real value in the exact field this guard exists to protect. Warn (a corrupt record
+        # otherwise costs a PR its attribution in silence) and fall THROUGH to the
+        # merge-commit recompute, which can still establish the fingerprint honestly.
+        _warn("config_fingerprint identity unusable on at least one efficiency run (no "
+              "sha256) — unestablished, NOT a measured config change; trying the "
+              "merge-commit config")
     if not merge_sha:
-        return None, "no-sha"
+        # `unparseable` when we HAD a fingerprint but could not read its identity; `no-sha`
+        # when there was nothing to read and no sha to recompute from. Both unestablished,
+        # and neither is a claim about disagreement.
+        return None, ("unparseable" if fps else "no-sha")
     text = _git_show(repo_root, f"{merge_sha}:.devflow/config.json")
     if text is None:
         return None, "fetch-failed"
@@ -810,21 +826,25 @@ def build_record(repo, repo_root, eff_index, pr, retro_entry):
         issue = refs[0].get("number") if refs and isinstance(refs[0], dict) else None
         # Three arms, deliberately NOT two: `meta_ok is None` is the no-repo sentinel
         # (the fallback was never even attempted because nothing is queryable), False is
-        # a real gh transport failure, True is a successful call. Folding the first into
-        # `not meta_ok` would report a fetch that never ran as a fetch that failed, and
-        # folding it into the else-arm would report it as a measured absence — both
-        # launder an unqueryable join into a measured one (issue #431 convergence shadow).
+        # a call that did not yield a usable answer, True is a successful call. Folding
+        # the first into `not meta_ok` would report a fetch that never ran as a fetch that
+        # failed, and folding it into the else-arm would report it as a measured absence —
+        # both launder an unqueryable join into a measured one (issue #431 convergence
+        # shadow).
         if meta_ok is None:
             provenance["retrospective"] = "no-repo"
             provenance["notes"].append(
                 "repo unresolvable; PR metadata not queryable (no gh fallback attempted)")
         elif not meta_ok:
-            # gh transport failure — the metadata is UNESTABLISHED, not genuinely
-            # absent. Mark it so the dependent denial/fingerprint provenance is not
-            # read as "measured, none found" (issue #431 review, shadow pass).
+            # The call did not establish the metadata — a non-zero exit, OR an exit-0 body
+            # that was empty or unparseable (an HTML proxy error page, a truncated
+            # response). Do NOT say "rc≠0" here: that is the arm this PR widened, so an
+            # operator hitting the exact case it was written to fix would be sent hunting
+            # for a transport error that never happened (#431 delta review).
             provenance["retrospective"] = "fetch-failed"
             provenance["notes"].append(
-                "PR metadata fetch failed (gh rc≠0); metadata unestablished")
+                "PR metadata could not be established (the gh call did not yield a usable "
+                "answer); metadata unestablished")
         else:
             provenance["retrospective"] = "absent"
             provenance["notes"].append(

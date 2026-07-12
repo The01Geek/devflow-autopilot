@@ -25529,10 +25529,30 @@ EOF
     '[{"iter":1,"phases":{"phase3":{"tokens":20}}}]' '{"partial":false,"salient":{"max_iterations":9}}'
   GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
     python3 "$BXR" --repo-root "$RMX4" --prs 1043 >/dev/null 2>&1
-  assert_eq "#431 Tmixed: two sha256-LESS envelopes are non-comparable, never a false agreement" \
-    "mixed-across-runs" "$(exp_field "$RMX4/.devflow/learnings/experiment-records.jsonl" 1043 provenance.config_fingerprint)"
+  ST_MX4="$RMX4/.devflow/learnings/experiment-records.jsonl"
   assert_eq "#431 Tmixed: and no fingerprint is published from an unusable identity" "null" \
-    "$(exp_field "$RMX4/.devflow/learnings/experiment-records.jsonl" 1043 config_fingerprint)"
+    "$(exp_field "$ST_MX4" 1043 config_fingerprint)"
+  # An UNUSABLE identity is UNESTABLISHED — it is NOT a measured disagreement. Tagging it
+  # `mixed-across-runs` would assert the runs straddled a config change: a fabricated fact,
+  # collapsing unknown onto a real value in the very field this guard protects. (The fake
+  # merge sha makes the fall-through recompute fail, so this lands on fetch-failed.)
+  assert_eq "#431 Tmixed: an unusable identity is unestablished, NEVER a claimed config change" "no" \
+    "$([ "$(exp_field "$ST_MX4" 1043 provenance.config_fingerprint)" = "mixed-across-runs" ] && echo yes || echo no)"
+  assert_eq "#431 Tmixed: it falls through to the merge-commit recompute (unestablished there)" "fetch-failed" \
+    "$(exp_field "$ST_MX4" 1043 provenance.config_fingerprint)"
+  # The absurd shape that makes the mislabel unmistakable: ONE run cannot disagree with
+  # itself, so a single sha256-less record must never read as "mixed across runs".
+  RMX5="$EXP/rmixed5"
+  mkdir -p "$RMX5/.devflow/learnings"
+  cat > "$RMX5/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1044,"merged_at":"2026-07-10T00:00:00Z","branch":"b1044","merge_commit_sha":"m1044"}
+EOF
+  seed_eff "$RMX5/.devflow/logs/efficiency" "pr-1044-a.json" "pr-1044" "false" \
+    '[{"iter":1,"phases":{"phase3":{"tokens":10}}}]' '{"partial":false,"salient":{"max_iterations":3}}'
+  GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    python3 "$BXR" --repo-root "$RMX5" --prs 1044 >/dev/null 2>&1
+  assert_eq "#431 Tmixed: a SINGLE sha256-less run is never 'mixed across runs' (it cannot disagree with itself)" "no" \
+    "$([ "$(exp_field "$RMX5/.devflow/learnings/experiment-records.jsonl" 1044 provenance.config_fingerprint)" = "mixed-across-runs" ] && echo yes || echo no)"
 
   # ── Tfpfb the merge-commit-config fallback + the byte-identical contract ──────
   # This arm is the whole REASON config_fingerprint.py is a shared module: the reader

@@ -187,12 +187,19 @@ compute_config_fingerprint() {
     printf '%s\n' "$out"
   else
     rc=$?
-    if [ "$rc" -eq 127 ]; then
-      printf 'compute_config_fingerprint: python3 not found or not runnable (rc=127) — it is a hard preflight prerequisite (see lib/preflight.sh); degrading to null\n' >&2
-    else
-      printf 'compute_config_fingerprint: config_fingerprint.py crashed (rc=%s; its stderr is above) — degrading to null\n' \
-        "$rc" >&2
-    fi
+    # 127 = not found; 126 = found but NOT EXECUTABLE (a broken Windows/WSL shim, a
+    # `noexec` mount, a permissions blip). Both mean the script never ran, so both must
+    # take the interpreter arm — routing 126 to the "crashed" arm would send the operator
+    # to read a script that never executed, the exact mis-steer this discrimination exists
+    # to eliminate, one errno over (#431 delta review).
+    case "$rc" in
+      126|127)
+        printf 'compute_config_fingerprint: python3 not found or not executable (rc=%s) — it is a hard preflight prerequisite (see lib/preflight.sh); degrading to null\n' \
+          "$rc" >&2 ;;
+      *)
+        printf 'compute_config_fingerprint: config_fingerprint.py crashed (rc=%s; its stderr is above) — degrading to null\n' \
+          "$rc" >&2 ;;
+    esac
     printf 'null\n'
   fi
 }
