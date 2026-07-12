@@ -26122,6 +26122,56 @@ assert_pin_unique "#439 AC10 header records the recognition-tier out-of-scope it
 assert_pin_unique "#439 AC11 Phase 4.2 clarifies deterministic Phase 0.6 STALE uses rule-3 severity only, never the self-contradicting-diff carve-out" \
   'never invoke the threshold-independent self-contradicting-diff carve-out' "$SP_REVIEW"
 
+# GAP-1 (finditer recovery): a first claim disqualified by its modifier must NOT mask a later
+# valid claim on the same line — this is why _recognize_count uses finditer, not search.
+SPF="$(probe_tmp '#439 finditer recovery')"
+printf '%s\n' 'two of these tags and three rows follow.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 finditer recovery: disqualified first claim does not mask a later valid one (row present)" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+assert_eq "#439 finditer recovery: the surviving claim is the later one (3 rows)" "yes" \
+  "$(spl_detail_pref "$SPR" UNRESOLVABLE R3 'count-locked: recognition-only (3 rows)')"
+
+# GAP-2 (numeral-shaped modifier disqualifier): a word-numeral used as an intervening modifier
+# disqualifies the recognition (the _mods_ok `bare in _WORD_NUM` branch, distinct from of/per/and/or).
+SPF="$(probe_tmp '#439 numeral modifier')"
+printf '%s\n' 'There are three two tags here.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 numeral-shaped modifier disqualifies the recognition (no row)" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# GAP-3 (word-numeral upper boundary, behavioral backstop for the source-mutation map pin): the
+# map's top value 'twelve' fires; 'thirteen' (out of scope) does not.
+SPF="$(probe_tmp '#439 twelve boundary')"
+printf '%s\n' 'Twelve files below the fold.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 word-numeral upper boundary: 'twelve' is recognized (row present)" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+assert_eq "#439 word-numeral upper boundary: the value maps to 12 (12 files)" "yes" \
+  "$(spl_detail_pref "$SPR" UNRESOLVABLE R3 'count-locked: recognition-only (12 files)')"
+SPF="$(probe_tmp '#439 thirteen out of scope')"
+printf '%s\n' 'There are thirteen files here.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 'thirteen' is out of scope (no row)" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# GAP-4 (§ lookbehind, behavioral backstop for the source-mutation pin): a numeral directly
+# preceded by § is not a numeral, so a would-be '§3 rows' claim produces no row.
+SPF="$(probe_tmp '#439 section lookbehind behavioral')"
+printf '%s\n' 'See §3 rows below.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 § lookbehind (behavioral): a §-prefixed numeral produces no recognition row" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# GAP-5 (double-emission invariant): a gating line (existing _COUNT_RE surface) must NOT also
+# emit an UNRESOLVABLE R3 recognition row — the examine_file `continue` prevents it.
+SPF="$(probe_tmp '#439 no double emission')"
+printf '%s\n' 'This header locks in 3 assertions below:' '  assert a' '  assert b' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 a gating _COUNT_RE line emits NO recognition-only UNRESOLVABLE R3 row (no double emission)" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# GAP-6 (decimal lookbehind): a decimal like '3.2 tags' is not a recognized numeral (the '.'
+# lookbehind blocks the fractional digit; the leading digit has no whitespace before the noun).
+SPF="$(probe_tmp '#439 decimal lookbehind')"
+printf '%s\n' 'The list holds 3.2 tags overall.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 a decimal ('3.2 tags') produces no recognition row" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
 # The lint stays CLEAN (exit 0) against a fixture carrying the recognition shape — the tier is
 # non-gating end to end, so even a live recognition row never reddens a run's exit code.
 SPF="$(probe_tmp '#439 non-gating exit')"
