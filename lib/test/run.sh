@@ -27752,6 +27752,39 @@ assert_eq "#437 exec-shape(encoding): single-event JSONL records 'object' (state
   "$(bash "$EES" "$EES_FIX/exec-shape-oneline-jsonl.json" 2>/dev/null | grep -qxF 'encoding: object' && echo yes || echo no)"
 assert_eq "#437 exec-shape(encoding): the JSONL/object ambiguity does NOT affect field determination" "yes" \
   "$(bash "$EES" "$EES_FIX/exec-shape-oneline-jsonl.json" 2>/dev/null | grep -qxF 'usage: present' && echo yes || echo no)"
+
+# The key cap is >64 chars, and an over-long key can still be identifier-SHAPED — so the charset
+# arm alone would pass it through. Assert the LENGTH arm independently, or a 70-char key (a
+# plausible carrier for injected content) walks the boundary while the charset test stays green.
+assert_eq "#437 exec-shape(redaction): an over-long but identifier-shaped key is still redacted" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-longkey.json" 2>/dev/null | grep -qF '<redacted-key>' && echo yes || echo no)"
+assert_eq "#437 exec-shape(redaction): the over-long key's text never reaches the emitted bytes" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-longkey.json" 2>/dev/null | grep -qF 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' && echo no || echo yes)"
+
+# The existing encodings-identity test compares three ALL-PRESENT fixtures, so a per-encoding bug
+# that mis-determined an ABSENT field would slip through it. Re-run the identity check over a
+# triple whose subagent_type and permission_denials are genuinely absent.
+EES_ABS_A="$(bash "$EES" "$EES_FIX/exec-shape-absent-array.json" 2>/dev/null | grep -E '^(usage|wall_clock_timing|tool_use|subagent_type|permission_denials):')"
+EES_ABS_J="$(bash "$EES" "$EES_FIX/exec-shape-absent-jsonl.json" 2>/dev/null | grep -E '^(usage|wall_clock_timing|tool_use|subagent_type|permission_denials):')"
+EES_ABS_O="$(bash "$EES" "$EES_FIX/exec-shape-absent-object.json" 2>/dev/null | grep -E '^(usage|wall_clock_timing|tool_use|subagent_type|permission_denials):')"
+assert_eq "#437 exec-shape(encodings): array == jsonl on a fixture with ABSENT fields" "$EES_ABS_A" "$EES_ABS_J"
+assert_eq "#437 exec-shape(encodings): array == object on a fixture with ABSENT fields" "$EES_ABS_A" "$EES_ABS_O"
+# ...and that the absent fields really are recorded `absent` (not silently `present`), so the
+# identity assertions above are comparing a meaningful negative rather than three identical bugs.
+assert_eq "#437 exec-shape(encodings): the absent-field triple really does record 'absent'" "yes" \
+  "$(printf '%s\n' "$EES_ABS_A" | grep -qxF 'subagent_type: absent' && printf '%s\n' "$EES_ABS_A" | grep -qxF 'permission_denials: absent' && echo yes || echo no)"
+
+# Degradation completeness: the empty/malformed arms must report ALL FIVE fields `unavailable`,
+# not just the two previously spot-checked — a partial degrade could leave a field reading
+# `absent` (a real negative) on a file that was never parsed at all.
+for _f in exec-shape-malformed.json exec-shape-scalar.json; do
+  _out="$(bash "$EES" "$EES_FIX/$_f" 2>/dev/null)"
+  _n=0
+  for _fld in usage wall_clock_timing tool_use subagent_type permission_denials; do
+    printf '%s\n' "$_out" | grep -qxF "${_fld}: unavailable" && _n=$((_n + 1))
+  done
+  assert_eq "#437 exec-shape(degrade): $_f reports all 5 fields 'unavailable' (never 'absent')" "5" "$_n"
+done
 rm -rf "$EES_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -27856,6 +27889,23 @@ git -C "$SHP_GIT" init -q 2>/dev/null
 printf '{"hook_event_name":"Stop"}' | ( cd "$SHP_GIT" && bash "$SHP" >/dev/null 2>&1 )
 assert_eq "#437 stop-hook: cwd-absent payload falls back to the git toplevel for the marker" "yes" \
   "$([ -f "$(_shp_marker "$SHP_GIT")" ] && echo yes || echo no)"
+
+# (4f) transcript_path_present is EMITTED, so it must be ASSERTED — an emitted field nobody
+#      checks is a field free to lie. Both polarities.
+assert_eq "#437 stop-hook: transcript_path_present is true when a transcript was supplied" "true" \
+  "$(jq -r '.transcript_path_present' "$(_shp_marker "$SHP_R")")"
+SHP_NOTP="$SHP_TMP/notp"; mkdir -p "$SHP_NOTP"
+printf '{"hook_event_name":"Stop","cwd":"%s"}' "$SHP_NOTP" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook: transcript_path_present is false when the payload carried none" "false" \
+  "$(jq -r '.transcript_path_present' "$(_shp_marker "$SHP_NOTP")")"
+
+# (4g) A payload whose `cwd` is present but NOT a directory (a stale/renamed path, a file) must
+#      fall back to the git toplevel rather than trusting the bad value and losing the breadcrumb.
+SHP_BADCWD="$SHP_TMP/badcwd"; mkdir -p "$SHP_BADCWD"
+git -C "$SHP_BADCWD" init -q 2>/dev/null
+printf '{"hook_event_name":"Stop","cwd":"%s/not-a-real-dir"}' "$SHP_BADCWD" | ( cd "$SHP_BADCWD" && bash "$SHP" >/dev/null 2>&1 )
+assert_eq "#437 stop-hook: a cwd that is not a directory falls back to the git toplevel" "yes" \
+  "$([ -f "$(_shp_marker "$SHP_BADCWD")" ] && echo yes || echo no)"
 
 # (5) Degenerate payloads never break the session: empty stdin, malformed JSON, and a
 #     missing transcript_path each exit 0 (a non-zero Stop hook can disrupt the run).

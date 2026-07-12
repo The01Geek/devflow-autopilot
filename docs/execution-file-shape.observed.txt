@@ -1,7 +1,9 @@
 # Execution-file shape record — OBSERVED ARTIFACT (committed evidence)
 #
-# Verbatim output of scripts/extract-execution-shape.sh over the real
-# claude-code-action execution_file from the execfile-shape-probe job
+# Machine-produced output of scripts/extract-execution-shape.sh over the real
+# claude-code-action execution_file from the execfile-shape-probe job, with this
+# provenance header prepended (everything below the header is the helper's own output,
+# unedited: the encoding line, the five present/absent lines, and the key->type set).
 # (run 29201071531, anthropics/claude-code-action@v1, 2026-07-12).
 #
 # Committed deliberately: GitHub artifacts expire (~90 days), after which the

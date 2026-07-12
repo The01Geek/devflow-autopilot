@@ -93,6 +93,13 @@ if [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ]; then
       # (read, and genuinely carried no tokens). Collapsing the two would report a
       # measurement that never happened as a real negative — the unknown-is-not-zero rule,
       # which is the entire distinction this helper exists to preserve.
+      # The real/placeholder boundary is `max > 1` — a deliberate cliff, not an accident.
+      # The reported placeholder shape is figures pinned at 0 or 1, so ANY figure above 1 is
+      # proof that genuine counts reached the transcript. The residual: a pathological run
+      # whose single largest figure is exactly 1 reads as `placeholder`. That is accepted —
+      # it is effectively unreachable (a real turn carries hundreds to hundreds of thousands
+      # of tokens), and the error direction is the safe one: it under-claims (says the data
+      # is unusable) rather than over-claiming a cost floor can be built on it.
       | if ($objs | length) == 0 then "unavailable unavailable unavailable"
         elif ($n | length) == 0 then "absent none none"
         else
@@ -131,8 +138,16 @@ if ! "$DEVFLOW_JQ" -n \
          transcript_path_present: ($transcript_seen == "yes")
        }' > "$MARKER" 2>/dev/null; then
   # Fall back to a minimal literal: the PRESENCE of the file is the AC6 measurement,
-  # so a failed jq must not cost us the firing observation itself.
-  echo '{"fired":true,"token_shape":"unavailable","usage_blocks":null,"max_usage_figure":null,"transcript_path_present":false}' > "$MARKER" 2>/dev/null \
+  # so a failed jq must not cost us the firing observation itself. `transcript_path_present`
+  # is still reported HONESTLY on this path — it is known from a pure-bash variable and owes
+  # nothing to the jq that just failed, so hardcoding `false` here would emit a fact we can
+  # see to be wrong (a small, gratuitous falsehood in a file whose whole job is honest
+  # measurement). Derive it with a builtin `case`, not a PATH tool.
+  case "$TRANSCRIPT" in
+    '') _tp=false ;;
+    *)  _tp=true ;;
+  esac
+  echo "{\"fired\":true,\"token_shape\":\"unavailable\",\"usage_blocks\":null,\"max_usage_figure\":null,\"transcript_path_present\":${_tp}}" > "$MARKER" 2>/dev/null \
     || echo "devflow stop-hook-probe: could not write $MARKER" >&2
 fi
 

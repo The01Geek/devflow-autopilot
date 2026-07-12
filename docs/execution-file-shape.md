@@ -55,8 +55,9 @@ Cost is carried **directly**, which the issue did not even ask for: `costUSD`,
 
 - **Probe run:** `29201071531` (the `execfile-shape-probe` job in `matcher-probe.yml`)
 - **Committed evidence:** [`docs/execution-file-shape.observed.txt`](execution-file-shape.observed.txt)
-  — the probe artifact's verbatim output, committed **because GitHub artifacts expire (~90
-  days)**. Without it the OBSERVED table above would eventually become an unfalsifiable claim
+  — the probe artifact's machine-produced output (with a short provenance header prepended;
+  everything below it is the helper's own unedited output), committed **because GitHub artifacts
+  expire (~90 days)**. Without it the OBSERVED table above would eventually become an unfalsifiable claim
   with no surviving evidence; with it, a second reviewer can re-derive this table from bytes in
   the repo at any point in the future. (It is redaction-safe by construction — see below.)
 - **Artifact:** `execution-file-shape` (uploaded by the `execfile-shape-probe` job; also the

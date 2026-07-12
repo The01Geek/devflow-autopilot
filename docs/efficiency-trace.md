@@ -461,7 +461,7 @@ no longer stops at "nothing to derive": it reconstructs **minimal** iteration re
 branch's fix commits, so even a run whose every workpad emit was dropped still contributes an
 effectiveness floor. The floor is exactly that — a floor, **never license to skip the item-6 emit**:
 it recovers only the skeleton below and none of the checklist / findings / per-phase cost detail the
-real record carries, which is unreconstructable once dropped.
+real record carries, none of which is recoverable **from the fix commits**.
 
 - *Commit-subject selector (coupled two-site invariant).* Commits are selected by the subject
   template `fix: address review findings (iteration {N})` — **written** by
