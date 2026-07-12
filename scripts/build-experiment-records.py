@@ -435,40 +435,121 @@ def _slug_variants(branch):
     return v
 
 
-def _index_efficiency(eff_dir):
+def _telemetry_branch(repo_root):
+    """The telemetry-branch name (config .telemetry.branch, default
+    devflow-telemetry — issue #441). Read in-process from repo_root/.devflow/
+    config.json rather than shelling to config-get.sh: this reader is invoked once
+    per retrospective run in a known repo root, an empty/missing key resolves to
+    the default, and an unreadable/malformed config degrades to the default with a
+    breadcrumb (best-effort — the reader must not abort on a bad config)."""
+    cfg = Path(repo_root) / ".devflow/config.json"
+    try:
+        text = cfg.read_text(encoding="utf-8")
+    except OSError:
+        # A missing/unreadable config is the ordinary "use the default" path
+        # (config-get.sh is silent here too) — not a degradation worth a breadcrumb.
+        return "devflow-telemetry"
+    try:
+        data = json.loads(text)
+        val = (data.get("telemetry") or {}).get("branch")
+        if isinstance(val, str) and val:
+            return val
+    except (json.JSONDecodeError, AttributeError):
+        # A PRESENT-but-malformed config IS a degradation — name it (a silent
+        # default here would mask a corrupt config the operator needs to fix).
+        _warn(f"could not parse .telemetry.branch from {cfg}; using default 'devflow-telemetry'")
+    return "devflow-telemetry"
+
+
+def _efficiency_entry(record, run_id):
+    """Shape one efficiency record dict into an index entry, or None when the
+    record is not a slug-bearing object. Shared by the working-tree and the
+    telemetry-branch sources so both produce identical entry shapes."""
+    if not isinstance(record, dict):
+        return None
+    slug = record.get("slug")
+    if not isinstance(slug, str):
+        return None
+    return {
+        "slug": slug,
+        "run_id": run_id,
+        "source": record.get("source"),
+        "iterations": record.get("iterations"),
+        "synthesized": bool(record.get("synthesized")),
+        "cost": _run_cost(record),
+        "telemetry_complete": _telemetry_complete(record),
+        "config_fingerprint": record.get("config_fingerprint"),
+    }
+
+
+def _run_id_from_stem(stem, slug):
+    """run_id = filename stem with the `<slug>-` prefix stripped (else the whole
+    stem)."""
+    return stem[len(slug) + 1:] if stem.startswith(slug + "-") else stem
+
+
+def _index_efficiency(eff_dir, repo_root=None, branch=None):
     """Parse the efficiency store ONCE into `slug -> [per-run entry]`, so the per-PR
     loop does dict lookups instead of re-globbing/re-parsing the whole dir for each
     candidate PR (the O(N×M) cost of a per-PR scan). Each entry carries slug, run_id
     (from the filename), per-run cost, synthesized flag, iteration count,
-    telemetry_complete, and the raw config_fingerprint (for the join)."""
-    index = {}
+    telemetry_complete, and the raw config_fingerprint (for the join).
+
+    Sources are UNIONED (issue #441), keyed by `(slug, run_id)` with BRANCH-WINS
+    precedence so a run present in both contributes exactly one cost row:
+      1. the working-tree `.devflow/logs/efficiency/*.json` glob — the legacy
+         tracked archive a consumer repo may still carry (read first);
+      2. the durable `devflow-telemetry` branch's `.devflow/logs/efficiency/*.json`
+         blobs, read via `git ls-tree`/`git show` at repo_root (read second, so it
+         OVERWRITES a same-key working-tree entry). The branch is where every run
+         now persists; the legacy glob is the read-only migration archive.
+    Tolerates the branch being absent (a not-yet-upgraded repo — the ls-tree yields
+    nothing and the legacy archive is used alone, AC17)."""
+    by_key = {}   # (slug, run_id) -> entry ; insertion order preserved (branch overwrites in place)
+
+    # (1) working-tree legacy archive.
     d = Path(eff_dir)
-    if not d.is_dir():
-        return index
-    for f in sorted(d.glob("*.json")):
-        try:
-            record = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            _warn(f"skipping unreadable efficiency record {f}")
-            continue
-        if not isinstance(record, dict):
-            continue
-        slug = record.get("slug")
-        if not isinstance(slug, str):
-            continue
-        # run_id = filename with the `<slug>-` prefix and `.json` suffix stripped.
-        stem = f.stem
-        run_id = stem[len(slug) + 1:] if stem.startswith(slug + "-") else stem
-        index.setdefault(slug, []).append({
-            "slug": slug,
-            "run_id": run_id,
-            "source": record.get("source"),
-            "iterations": record.get("iterations"),
-            "synthesized": bool(record.get("synthesized")),
-            "cost": _run_cost(record),
-            "telemetry_complete": _telemetry_complete(record),
-            "config_fingerprint": record.get("config_fingerprint"),
-        })
+    if d.is_dir():
+        for f in sorted(d.glob("*.json")):
+            try:
+                record = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                _warn(f"skipping unreadable efficiency record {f}")
+                continue
+            entry = _efficiency_entry(record, None)
+            if entry is None:
+                continue
+            entry["run_id"] = _run_id_from_stem(f.stem, entry["slug"])
+            by_key[(entry["slug"], entry["run_id"])] = entry
+
+    # (2) telemetry-branch blobs — branch-wins (overwrites any same-key legacy entry).
+    if repo_root is not None:
+        br = branch or _telemetry_branch(repo_root)
+        rc, out, _ = _run([GIT, "-C", str(repo_root), "ls-tree", "-r", "--name-only",
+                           br, "--", ".devflow/logs/efficiency/"])
+        if rc == 0 and out.strip():
+            for path in out.splitlines():
+                path = path.strip()
+                if not path.endswith(".json"):
+                    continue
+                text = _git_show(repo_root, f"{br}:{path}")
+                if text is None:
+                    continue
+                try:
+                    record = json.loads(text)
+                except json.JSONDecodeError:
+                    _warn(f"skipping unreadable telemetry-branch efficiency record {br}:{path}")
+                    continue
+                entry = _efficiency_entry(record, None)
+                if entry is None:
+                    continue
+                stem = Path(path).stem
+                entry["run_id"] = _run_id_from_stem(stem, entry["slug"])
+                by_key[(entry["slug"], entry["run_id"])] = entry   # branch wins
+
+    index = {}
+    for entry in by_key.values():
+        index.setdefault(entry["slug"], []).append(entry)
     return index
 
 
@@ -1172,7 +1253,7 @@ def main(argv=None):
         return 0
 
     # Parse the efficiency store ONCE up front (not per candidate PR).
-    eff_index = _index_efficiency(eff_dir)
+    eff_index = _index_efficiency(eff_dir, repo_root)
 
     assembled = 0
     failed = 0

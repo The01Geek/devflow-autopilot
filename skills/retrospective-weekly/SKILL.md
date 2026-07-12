@@ -266,7 +266,19 @@ updated." **An unestablished PR does not backfill by itself** — it never enter
 and only stored or retrospective-listed PRs are re-selected as candidates — so name the
 PRs from the breadcrumb and re-run with `--prs` once the cause is resolved.
 
+Before the reader runs, **fetch the telemetry branch** (issue #441) into its local ref so
+`build-experiment-records.py` can union each run's durable record off that branch with any
+legacy tracked `.devflow/logs/`. Best-effort: on a fresh repo the branch does not exist yet
+(nothing has persisted to it) and the fetch is a harmless no-op — the reader then reads the
+legacy archive alone; the retrospective is never blocked by a missing telemetry branch.
+
 ```bash
+# Force-fetch the telemetry branch into its local ref (nobody edits it locally, so it only
+# ever fast-forwards on the remote; `+` keeps a behind-or-diverged local ref from rejecting).
+# The reader (`_index_efficiency`) reads it by its local branch name.
+TELEMETRY_BRANCH=$($LIB/../scripts/config-get.sh .telemetry.branch devflow-telemetry)
+git fetch origin "+${TELEMETRY_BRANCH}:${TELEMETRY_BRANCH}" 2>/dev/null || \
+  echo "retrospective-weekly: could not fetch telemetry branch '${TELEMETRY_BRANCH}' (absent on a fresh repo, or offline) — the experiment-record reader will use any legacy tracked .devflow/logs/ alone" >&2
 python3 $LIB/../scripts/build-experiment-records.py || \
   echo "retrospective-weekly: build-experiment-records.py exited non-zero (rc=$?) — one or more PRs are MISSING from the experiment store (see its stderr for which, and whether they failed to assemble or had an unestablished merge state); records that did assemble were still written" >&2
 ```

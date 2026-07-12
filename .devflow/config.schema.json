@@ -662,6 +662,17 @@
         }
       }
     },
+    "telemetry": {
+      "type": "object",
+      "description": "Settings for the durable observability-telemetry store (issue #441). DevFlow persists every writable run's effectiveness records and durable review workpads to a dedicated long-lived orphan branch that shares no history with the base branch and is never merged into it, written via git plumbing without touching the current branch, HEAD, or the working tree, then pushed. The weekly retrospective reads that branch (unioned with any legacy tracked .devflow/logs/).",
+      "properties": {
+        "branch": {
+          "type": "string",
+          "description": "Name of the long-lived orphan branch DevFlow persists observability artifacts to. Auto-created on first use if absent; verified to be a telemetry store (its tip tree holds only .devflow/logs/-shaped paths) before appending, so DevFlow never commits onto a same-named branch a consumer uses for something else. A literal empty string resolves to this default (a string key \u2014 an empty branch name is never a valid selection). Keep every workflow `push:` trigger branch-filtered so a telemetry push runs no CI (DevFlow's own workflows filter `push:` to `main`; a consumer whose `on: push` is unfiltered should add a `branches-ignore` entry for this branch).",
+          "default": "devflow-telemetry"
+        }
+      }
+    },
     "devflow_retrospective": {
       "type": "object",
       "description": "DevFlow retrospective / self-improvement loop, consumed by the /devflow:retrospective-weekly orchestrator (a locally-run skill, not a GitHub Actions workflow).",
