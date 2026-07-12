@@ -15168,6 +15168,408 @@ assert_pin_red_under "et-synth(T7): phase-2 §2.3 workflow-shell carve-out flips
   's/is also carved OUT of this no-automated-test class/remains within this no-automated-test class/' \
   "$LIB/../skills/implement/phases/phase-2-implement.md"
 
+# ── issue #426: --persist shadow synthesis floor (synthesize_shadow_markers) ──
+# The floor recovers a dropped-but-promoted shadow block as a minimal marker
+# {shadow_synthesized:true, promoted_to_iter_next:true} on iter-<N>.json when
+# iter-<N+1>.json is a promoted iter. Three fixtures drive AC7's unit contract:
+# (a) promotion evidence + no shadow block → marker synthesized; (b) an
+# agent-written shadow block → untouched; (c) no promotion evidence → no marker.
+# Plus --self-check accepts (a)'s output as a recognized degraded class.
+SHF_REPO="$(git_sandbox "et-shadow-floor repo")"
+git -C "$SHF_REPO" init -q
+git -C "$SHF_REPO" config user.email t@e.com; git -C "$SHF_REPO" config user.name t
+git -C "$SHF_REPO" commit --allow-empty -qm base
+git -C "$SHF_REPO" branch -M main
+git -C "$SHF_REPO" checkout -q -b feat
+git -C "$SHF_REPO" commit --allow-empty -qm "feat: work"
+# (a) iter-1 has NO shadow block; iter-2 is a promoted iter → floor synthesizes.
+SHF_A="$SHF_REPO/.devflow/tmp/review/pr-1/run-a"
+mkdir -p "$SHF_A"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_A/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_A/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_A" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(a): promotion evidence + no shadow block → synthesized marker written" "true" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_A/iter-1.json" 2>/dev/null)"
+assert_eq "et-shadow-floor(a): synthesized marker carries the promotion linkage" "true" \
+  "$(jq -r '.shadow.promoted_to_iter_next' "$SHF_A/iter-1.json" 2>/dev/null)"
+# --self-check accepts the synthesized marker as a recognized degraded class (no
+# "synthesized shadow marker missing expected field" warning on the complete one).
+SHF_A_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_A" --slug pr-1 ) 2>&1 )"
+assert_eq "et-shadow-floor(a): --self-check accepts the synthesized marker (no missing-field warning)" "no" \
+  "$(printf '%s' "$SHF_A_SC" | grep -qF 'synthesized shadow marker missing expected field' && echo yes || echo no)"
+# A TRUNCATED synthesized shadow marker still warns — the flag buys no total exemption.
+mkdir -p "$SHF_REPO/.devflow/tmp/review/pr-1/run-trunc"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix","shadow":{"shadow_synthesized":true}}' \
+  > "$SHF_REPO/.devflow/tmp/review/pr-1/run-trunc/iter-1.json"
+SHF_TR_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_REPO/.devflow/tmp/review/pr-1/run-trunc" --slug pr-1 ) 2>&1 )"
+assert_eq "et-shadow-floor: a TRUNCATED synthesized shadow marker still warns on its minimal set" "yes" \
+  "$(printf '%s' "$SHF_TR_SC" | grep -qF "synthesized shadow marker missing expected field 'promoted_to_iter_next'" && echo yes || echo no)"
+# (b) an AGENT-WRITTEN shadow block (no shadow_synthesized key) is NEVER overwritten.
+SHF_B="$SHF_REPO/.devflow/tmp/review/pr-1/run-b"
+mkdir -p "$SHF_B"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix","shadow":{"coverage":"full","verdict":"APPROVE"}}' > "$SHF_B/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_B/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_B" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(b): an agent-written shadow block is left untouched (no shadow_synthesized key added)" "null" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_B/iter-1.json" 2>/dev/null)"
+assert_eq "et-shadow-floor(b): the agent-written block's own fields survive" "full" \
+  "$(jq -r '.shadow.coverage' "$SHF_B/iter-1.json" 2>/dev/null)"
+# (b) the OTHER direction of the same guard: --self-check must stay SILENT on a REAL
+# (agent-written) shadow block. The self-check's shadow branch gates on BOTH object-ness
+# and `.shadow.shadow_synthesized == true`; a regression relaxing it to object-ness alone
+# would validate every real block against SHADOW_SYNTH_EXPECTED_FIELDS and spray a
+# spurious "missing expected field" warning for each of the two synth-only fields — and
+# fixture (b) above, which only drives --persist, would stay green through it. (a)'s
+# accept-the-marker row and the truncated-marker row are the guard's positive controls:
+# together they prove this silence is the guard discriminating, not a dead branch.
+SHF_B_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_B" --slug pr-1 ) 2>&1 )"
+assert_eq "et-shadow-floor(b): --self-check is SILENT on a real agent-written shadow block (never validated against the synth minimal set)" "no" \
+  "$(printf '%s' "$SHF_B_SC" | grep -qF 'synthesized shadow marker missing expected field' && echo yes || echo no)"
+assert_pin_red_under "et-shadow-floor(b): relaxing the self-check shadow gate to object-ness alone flips RED" \
+  "and (.shadow.shadow_synthesized == true)" \
+  's/and \(\.shadow\.shadow_synthesized == true\)//' \
+  "$LIB/efficiency-trace.sh"
+# (c) no promotion evidence (iter-2 is a plain fix iter) → no marker synthesized.
+SHF_C="$SHF_REPO/.devflow/tmp/review/pr-1/run-c"
+mkdir -p "$SHF_C"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_C/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_C/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_C" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(c): no promotion evidence → no shadow block synthesized" "null" \
+  "$(jq -r '.shadow' "$SHF_C/iter-1.json" 2>/dev/null)"
+# (d) non-numeric iter filename guard (lib/efficiency-trace.sh: `case "$n" in ''|*[!0-9]*)`):
+# a non-numeric stem is SKIPPED, never parsed into $((n+1)) (where bash would coerce it to 0→1
+# and read an unrelated iter-1 as the "next" iter, synthesizing a bogus marker). Assert the
+# floor runs cleanly and leaves iter-x.json untouched.
+SHF_D="$SHF_REPO/.devflow/tmp/review/pr-1/run-d"
+mkdir -p "$SHF_D"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_D/iter-1.json"
+printf '{"source":"review-and-fix","loop_role":"fix"}' > "$SHF_D/iter-x.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_D" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(d): a non-numeric iter filename is skipped (no bogus marker synthesized onto it)" "null" \
+  "$(jq -r '.shadow' "$SHF_D/iter-x.json" 2>/dev/null)"
+# (e) parse-failure fail-closed (`has_shadow=... || continue`): a malformed/unreadable iter-N.json
+# with promotion evidence is SKIPPED, never clobbered — the floor exits 0 and the malformed bytes
+# survive untouched (the adversarial-input-shape row CLAUDE.md requires for a parser).
+SHF_E="$SHF_REPO/.devflow/tmp/review/pr-1/run-e"
+mkdir -p "$SHF_E"
+printf '{bad json not parseable' > "$SHF_E/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_E/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_E" --slug pr-1 ) >/dev/null 2>&1; SHF_E_RC=$?
+assert_eq "et-shadow-floor(e): --persist exits 0 despite a malformed iter file (best-effort)" "0" "$SHF_E_RC"
+assert_eq "et-shadow-floor(e): a malformed iter-N.json with promotion evidence is left untouched (fail-closed, not clobbered)" "{bad json not parseable" \
+  "$(cat "$SHF_E/iter-1.json")"
+# (e-breadcrumb): the malformed-iter skip is BREADCRUMBED, not silent — the file's
+# surfacing-failures convention (and the sibling recorded_fix_shas) require it, so a
+# malformed workpad that dropped a real promoted shadow leaves a signal rather than an
+# unattributed silence. Capture stderr (the run above discarded it) and assert the warning.
+SHF_E_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_E" --slug pr-1 ) 2>&1 >/dev/null )"
+assert_eq "et-shadow-floor(e): a malformed iter with promotion evidence emits a breadcrumb (never a silent drop)" "yes" \
+  "$(printf '%s' "$SHF_E_ERR" | grep -qF "could not read '.shadow' from iter-1.json" && echo yes || echo no)"
+# (e2) the SUCCESSOR-iter parse-failure branch (the `if !` guard wrapping the `promoted="$(…)"`
+# read, NOT an `|| continue` suffix — the wrapper is what emits the breadcrumb) — the parallel of (e)
+# on the OTHER jq read. iter-1 is VALID and shadow-less (so the `.shadow` read in (e) SUCCEEDS and
+# cannot be what rejects this fixture — the positive control: swap in a well-formed promoted iter-2
+# and (a) proves this exact shape DOES synthesize), while iter-2 (the successor whose `.loop_role`
+# supplies the promotion evidence) is malformed. Without the guard, `set -euo pipefail` makes the
+# failing jq inside `promoted="$(...)"` abort the whole --persist run non-zero (breaking the
+# best-effort contract); with it the iter is skipped, breadcrumbed, and left untouched. Attribute
+# the rejection: pin the successor-read breadcrumb's own '.loop_role' text, which the (e) branch
+# cannot emit. (The malformed iter-2 is ALSO iterated in its own turn, so stderr additionally
+# carries a `.shadow`-from-iter-2 breadcrumb; the attribution below discriminates the two branches
+# by FIELD NAME — rewording either breadcrumb to a shared phrase would silently un-discriminate it.)
+SHF_E2="$SHF_REPO/.devflow/tmp/review/pr-1/run-e2"
+mkdir -p "$SHF_E2"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_E2/iter-1.json"
+printf '{bad json not parseable' > "$SHF_E2/iter-2.json"
+SHF_E2_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_E2" --slug pr-1 ) 2>&1 >/dev/null )"; SHF_E2_RC=$?
+assert_eq "et-shadow-floor(e2): --persist exits 0 despite a malformed SUCCESSOR iter (best-effort, not a set -e abort)" "0" "$SHF_E2_RC"
+assert_eq "et-shadow-floor(e2): an unreadable successor's '.loop_role' emits its OWN breadcrumb (never a silent drop)" "yes" \
+  "$(printf '%s' "$SHF_E2_ERR" | grep -qF "could not read '.loop_role' from iter-2.json" && echo yes || echo no)"
+assert_eq "et-shadow-floor(e2): unconfirmable promotion evidence → no marker synthesized onto the valid iter (fail-closed)" "null" \
+  "$(jq -r '.shadow' "$SHF_E2/iter-1.json" 2>/dev/null)"
+# Behavioral-fix pin: a regression DROPPING the successor-read guard must not stay green. The
+# mutation UNWRAPS the guard — it collapses the whole `if ! promoted="$(…)"; then / echo / continue
+# / fi` block to the bare assignment, which is precisely the regression: under efficiency-trace.sh's
+# `set -euo pipefail` the failing jq then aborts the whole --persist run non-zero (verified: mutant
+# exits 1 on (e2)'s fixture shape, HEAD exits 0). The breadcrumb literal (e2) attributes the
+# rejection to vanishes with the block, so the pin flips RED — a mutation that re-introduces the
+# named bug, not one that merely strips the pinned line (which `assert_pin_red_on_removal` already
+# does and which would leave the guard itself fully intact).
+assert_pin_red_under "et-shadow-floor(e2): dropping the successor '.loop_role' read guard flips RED" \
+  "could not read '.loop_role' from" \
+  '/^ *if ! promoted=/,/^ *fi$/{s/if ! (.*); then/\1/; /could not read/d; /^[[:space:]]*continue$/d; /^[[:space:]]*fi$/d;}' \
+  "$LIB/efficiency-trace.sh"
+# (f) idempotency / no double-count: a SECOND --persist pass over an already-synthesized run is a
+# no-op — the never-overwrite guard recognizes the marker it wrote (a non-null .shadow), so the
+# marker stays exactly one, unchanged.
+SHF_F="$SHF_REPO/.devflow/tmp/review/pr-1/run-f"
+mkdir -p "$SHF_F"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_F/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_F/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_F" --slug pr-1 ) >/dev/null 2>&1
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_F" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(f): a second --persist pass leaves the synthesized marker unchanged (idempotent, no double-count)" "true" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_F/iter-1.json" 2>/dev/null)"
+# (g) non-object .shadow fails closed (the hardened guard keys on `.shadow == null`, not on
+# object-ness): a malformed present-but-non-object shadow value (a truncated partial write) is
+# NOT clobbered — the "never overwrites an existing block" contract holds for a malformed block too.
+SHF_G="$SHF_REPO/.devflow/tmp/review/pr-1/run-g"
+mkdir -p "$SHF_G"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix","shadow":"APPROVE"}' > "$SHF_G/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_G/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_G" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(g): a non-object (malformed) .shadow is left untouched, not overwritten (fail-closed)" "APPROVE" \
+  "$(jq -r '.shadow' "$SHF_G/iter-1.json" 2>/dev/null)"
+# (g2) completes the present-but-not-an-object arm of the adversarial matrix CLAUDE.md requires for
+# a parser. The load-bearing rows are the VALID-FALSY ones (`false` / `0` / `""`): each is PRESENT,
+# so the `.shadow == null` guard correctly leaves it alone — but an `if .shadow then …` / `// `-style
+# rewrite (the documented valid-falsy coercion bug) would read all three as absent and CLOBBER a real
+# block. Fixture (g)'s truthy string would survive such a rewrite, so only these rows tell the two
+# guards apart. The `[]` row covers the remaining non-object JSON type (truthy in jq, like (g)).
+for _row in 'false:false' '0:zero' '"":emptystr' '[]:array'; do
+  _fv="${_row%:*}"; _slug="${_row##*:}"
+  SHF_G2="$SHF_REPO/.devflow/tmp/review/pr-1/run-g2-$_slug"
+  mkdir -p "$SHF_G2"
+  printf '{"iter":1,"source":"review-and-fix","loop_role":"fix","shadow":%s}' "$_fv" > "$SHF_G2/iter-1.json"
+  printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_G2/iter-2.json"
+  ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_G2" --slug pr-1 ) >/dev/null 2>&1
+  assert_eq "et-shadow-floor(g2): a present-but-non-object .shadow ($_fv) is left untouched (never coerced to absent and clobbered)" "no" \
+    "$(jq -e '.shadow.shadow_synthesized == true' "$SHF_G2/iter-1.json" >/dev/null 2>&1 && echo yes || echo no)"
+done
+# (g3) the OTHER side of that boundary — an EXPLICIT JSON `null` is the exact input the guard treats
+# as absent, so it MUST synthesize. Without this row the `== null` predicate is only ever exercised
+# via a missing key, and a tightening to `has("shadow") | not` would silently stop recovering a
+# promotion whose block was written as an explicit null — the boundary of the never-overwrite
+# contract, unverified. This is the positive control for the whole (g)/(g2) skip family.
+SHF_G3="$SHF_REPO/.devflow/tmp/review/pr-1/run-g3"
+mkdir -p "$SHF_G3"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix","shadow":null}' > "$SHF_G3/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_G3/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_G3" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(g3): an EXPLICIT JSON null .shadow counts as absent → the marker IS synthesized (boundary of the never-overwrite contract)" "true" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_G3/iter-1.json" 2>/dev/null)"
+# (h) telemetry gate (lib/efficiency-trace.sh: `[ "$ENABLED" = "true" ] && synthesize_shadow_markers`
+# in persist_one): with efficiency_telemetry_enabled=false the floor does NOT run even on genuine
+# promotion evidence — a synthesized marker is a telemetry artifact, so a telemetry-disabled repo
+# gets none. Without this row the ENABLED guard is untested: persist_one proceeds past that line to
+# the un-gated durable copy either way (see the et-persist telemetry-off row), so dropping the
+# `[ "$ENABLED" = "true" ] &&` guard would let the floor fire on a disabled repo while every
+# telemetry-ON fixture (a)-(g) above still passes. This is the telemetry-off row of the
+# adversarial-input matrix CLAUDE.md requires for exactly this kind of gate.
+SHF_H="$SHF_REPO/.devflow/tmp/review/pr-1/run-h"
+mkdir -p "$SHF_H"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_H/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_H/iter-2.json"
+SHF_H_CFG="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_telemetry_enabled":false}}' > "$SHF_H_CFG"
+( cd "$SHF_REPO" && DEVFLOW_CONFIG_FILE="$SHF_H_CFG" bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_H" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(h): telemetry disabled → floor does NOT synthesize a marker despite promotion evidence" "null" \
+  "$(jq -r '.shadow' "$SHF_H/iter-1.json" 2>/dev/null)"
+rm -f "$SHF_H_CFG"
+# (i) zero-padded numeric stem: the all-digit guard `case "$n" in ''|*[!0-9]*)` ADMITS
+# `08`/`09`, which `$(( ))` would misread as invalid octal ("value too great for base").
+# The base-10 `10#$n` fix computes the successor index cleanly; iter-08's successor (iter-9)
+# is absent, so `[ -e "$next" ]` skips it — no crash, exit 0, the padded stem untouched.
+# (Without 10#$n, `$((08 + 1))` errors — this row flips RED, proving it non-vacuous.)
+SHF_I="$SHF_REPO/.devflow/tmp/review/pr-1/run-i"
+mkdir -p "$SHF_I"
+printf '{"iter":8,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_I/iter-08.json"
+SHF_I_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_I" --slug pr-1 ) 2>&1 >/dev/null )"; SHF_I_RC=$?
+assert_eq "et-shadow-floor(i): a zero-padded stem (iter-08) does not crash on octal arithmetic (exit 0)" "0" "$SHF_I_RC"
+assert_eq "et-shadow-floor(i): a zero-padded stem emits no 'value too great for base' octal error" "no" \
+  "$(printf '%s' "$SHF_I_ERR" | grep -qi 'value too great for base' && echo yes || echo no)"
+assert_eq "et-shadow-floor(i): the padded stem is left untouched (base-10 successor iter-9 is absent → clean skip)" "null" \
+  "$(jq -r '.shadow' "$SHF_I/iter-08.json" 2>/dev/null)"
+# (j) MULTIPLE promotable iters in one --persist pass: the floor is a `for` loop over every
+# iter-*.json, so each promotion-evidenced slot must be synthesized INDEPENDENTLY. Without a
+# multi-slot row, an early `return`/`break` (or a first-match-wins rewrite) would leave every
+# single-slot fixture (a)-(i) green while silently dropping every later iter's attribution.
+# iter-1 (fix, shadow-less, successor iter-2 is promoted) AND iter-2 (promoted, shadow-less,
+# successor iter-3 is promoted) BOTH qualify; iter-3 has no successor → correctly skipped.
+SHF_J="$SHF_REPO/.devflow/tmp/review/pr-1/run-j"
+mkdir -p "$SHF_J"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_J/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_J/iter-2.json"
+printf '{"iter":3,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_J/iter-3.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_J" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(j): the FIRST promotable iter is synthesized" "true" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_J/iter-1.json" 2>/dev/null)"
+assert_eq "et-shadow-floor(j): the SECOND promotable iter is ALSO synthesized (the loop does not stop at the first match)" "true" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_J/iter-2.json" 2>/dev/null)"
+assert_eq "et-shadow-floor(j): the last iter has no successor → no promotion evidence → no marker" "null" \
+  "$(jq -r '.shadow' "$SHF_J/iter-3.json" 2>/dev/null)"
+# (k) jq MERGE-failure branch: the marker write is `jq '.shadow = {…}' iter > iter.shadowtmp`,
+# and its failure arm must breadcrumb the jq error text, leave the source iter untouched, and
+# clean up the temp file — the file's surfacing-failures thesis, previously untested. Drive it
+# with a DEVFLOW_JQ stub that passes every OTHER jq call through to the real binary and fails
+# ONLY the merge program (so the `.shadow`/`.loop_role` reads still succeed — the positive
+# control that this fixture reaches the merge at all: the identical shape synthesizes cleanly
+# in (a) with the real jq). Attribute the rejection by pinning the stub's own error text in
+# the breadcrumb, which no other branch can emit.
+SHF_K="$SHF_REPO/.devflow/tmp/review/pr-1/run-k"
+mkdir -p "$SHF_K"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_K/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_K/iter-2.json"
+SHF_K_BIN="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in *".shadow = {shadow_synthesized"*) printf "stub jq: synthetic merge failure\\n" >&2; exit 3 ;; esac; done\nexec jq "$@"\n' > "$SHF_K_BIN/jq-stub"
+chmod +x "$SHF_K_BIN/jq-stub"
+SHF_K_ERR="$( ( cd "$SHF_REPO" && DEVFLOW_JQ="$SHF_K_BIN/jq-stub" bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_K" --slug pr-1 ) 2>&1 >/dev/null )"; SHF_K_RC=$?
+assert_eq "et-shadow-floor(k): a failed jq merge still exits 0 (best-effort floor, never aborts --persist)" "0" "$SHF_K_RC"
+assert_eq "et-shadow-floor(k): the failed jq merge breadcrumbs jq's OWN error text (never a silent drop)" "yes" \
+  "$(printf '%s' "$SHF_K_ERR" | grep -qF 'could not synthesize a shadow marker on iter-1.json (stub jq: synthetic merge failure)' && echo yes || echo no)"
+assert_eq "et-shadow-floor(k): a failed jq merge leaves the source iter untouched (no half-written marker)" "null" \
+  "$(jq -r '.shadow' "$SHF_K/iter-1.json" 2>/dev/null)"
+assert_eq "et-shadow-floor(k): a failed jq merge cleans up its temp file (no orphaned .shadowtmp)" "no" \
+  "$([ -e "$SHF_K/iter-1.json.shadowtmp" ] && echo yes || echo no)"
+rm -rf "$SHF_K_BIN"
+# (l) mv-failure branch: jq writes the temp file, then the `mv` into place fails (read-only
+# mount, ENOSPC). Drive it by PATH-shadowing `mv` with a failing shim that prints a real errno
+# text — the only `mv` on the --persist path is this one. The breadcrumb must SURFACE that
+# text (it is captured into $mv_err, symmetric with the jq branch's $jq_err — reverting to
+# `mv … 2>/dev/null` discards the errno and makes a read-only mount indistinguishable from
+# ENOSPC), the source iter must survive un-marked, and the temp file must be cleaned up.
+SHF_L="$SHF_REPO/.devflow/tmp/review/pr-1/run-l"
+mkdir -p "$SHF_L"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_L/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_L/iter-2.json"
+SHF_L_BIN="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nprintf "mv: rename failed: Read-only file system\\n" >&2\nexit 1\n' > "$SHF_L_BIN/mv"
+chmod +x "$SHF_L_BIN/mv"
+SHF_L_ERR="$( ( cd "$SHF_REPO" && PATH="$SHF_L_BIN:$PATH" bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_L" --slug pr-1 ) 2>&1 >/dev/null )"; SHF_L_RC=$?
+assert_eq "et-shadow-floor(l): a failed mv still exits 0 (best-effort floor, never aborts --persist)" "0" "$SHF_L_RC"
+assert_eq "et-shadow-floor(l): the failed mv breadcrumbs mv's OWN errno text (not a bare 'mv failed')" "yes" \
+  "$(printf '%s' "$SHF_L_ERR" | grep -qF 'could not move the synthesized shadow marker into iter-1.json (mv failed: mv: rename failed: Read-only file system)' && echo yes || echo no)"
+assert_eq "et-shadow-floor(l): a failed mv leaves the source iter un-marked (fail-closed)" "null" \
+  "$(jq -r '.shadow' "$SHF_L/iter-1.json" 2>/dev/null)"
+assert_eq "et-shadow-floor(l): a failed mv cleans up its temp file (no orphaned .shadowtmp)" "no" \
+  "$([ -e "$SHF_L/iter-1.json.shadowtmp" ] && echo yes || echo no)"
+rm -rf "$SHF_L_BIN"
+# Behavioral-fix pin: re-discarding mv's stderr to /dev/null flips this RED — the mutation
+# restores the pre-fix form, so the errno text (l) attributes the failure with disappears.
+assert_pin_red_under "et-shadow-floor(l): discarding mv's stderr again flips the errno-surfacing pin RED" \
+  'mv failed: ${mv_err:-no error text}' \
+  's/mv_err="\$\(mv (.*) 2>&1\)"/mv \1 2>\/dev\/null/; s/\(mv failed: \$\{mv_err:-no error text\}\)/(mv failed)/' \
+  "$LIB/efficiency-trace.sh"
+# The SKILL↔lib coupled constant: SHADOW_SYNTH_EXPECTED_FIELDS must stay a plain,
+# greppable single-line assignment in efficiency-trace.sh (its self-check reads it).
+assert_pin_unique "et-shadow-floor: efficiency-trace.sh carries the SHADOW_SYNTH_EXPECTED_FIELDS constant" \
+  'SHADOW_SYNTH_EXPECTED_FIELDS="shadow_synthesized promoted_to_iter_next"' "$LIB/efficiency-trace.sh"
+rm -rf "$SHF_REPO"
+
+# ── issue #426 prose pins: Phase 1 slice handoff + shadow telemetry (T1–T4) ──
+# T1 → slice pipeline: pin Phase 1.1's awk-from-cached-diff slice fence and Phase
+# 1.2's slice-path prompt line; a mutation restoring inline-slice wording flips RED.
+assert_pin_unique "#426 T1: Phase 1.1 authors the batch slice by awk-extracting ^diff --git sections from the cached diff" \
+  "awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e'" "$ST_REV"
+assert_pin_red_under "#426 T1: Phase 1.2 slice-path handoff flips RED when the inline-diff paste is restored" \
+  'The diff you must analyze is cached on disk. Read it directly with your Read tool' \
+  's/The diff you must analyze is cached on disk\. Read it directly with your Read tool/Here is the git diff for this PR inline/' \
+  "$ST_REV"
+# T2 → fail-closed fallback: the mutation re-introduces the thinned-review-surface
+# regression (proceed with the failed/empty slice) the fallback exists to prevent.
+assert_pin_red_under "#426 T2: Phase 1.1 fail-closed full-diff fallback flips RED when it is dropped for a failed-slice proceed" \
+  'or a missing/empty slice — fall back to passing the full' \
+  's|or a missing/empty slice — fall back to passing the full|or a missing/empty slice — proceed with the failed slice instead of the full|' \
+  "$ST_REV"
+# T2b → the slice guard must key on the AUTHORING COMMAND'S OWN EXIT STATUS, not on an
+# output-shape proxy. `test -s` alone answers "is the file non-empty?", which is a strictly
+# WIDER accepted set than "did awk write the whole slice?": a partial write (ENOSPC, quota,
+# a killed awk) leaves a NON-EMPTY but TRUNCATED slice that `test -s` waves through, and the
+# batch then reviews a thinned surface with the missing files silently unrepresented — the
+# guard failing open exactly where it claims to fail closed (CLAUDE.md's guard/consumer-
+# contract rule; the sibling synthesize_shadow_markers already gates on jq's rc, not on the
+# shape of its output). Pin the &&-chained rc gate; the mutation drops it back to the
+# proxy-only form, which is precisely the regression.
+assert_pin_red_under "#426 T2b: Phase 1.1 gates the slice on awk's OWN exit status (rc), not on the test -s output-shape proxy alone" \
+  'batch-1.patch && test -s' \
+  's/batch-1\.patch && test -s/batch-1.patch; test -s/' \
+  "$ST_REV"
+# The awk range expression is the one piece of genuinely-executable new logic in Phase 1.1,
+# and a presence-only prose pin cannot catch an off-by-one in `n>=s && n<=e` (or in the
+# s=(k-1)*10+1 / e=k*10 batch arithmetic). Execute the SKILL's own expression against a
+# synthetic 25-section patch and assert batch k=2 yields EXACTLY sections 11..20 — boundary
+# headers included, neighbours excluded. This converts reviewer-read into a regression guard.
+AWKB="$(probe_tmp '#426 awk batch-slice fixture')"
+: > "$AWKB.patch"
+for _i in $(seq 1 25); do
+  printf 'diff --git a/f%s.txt b/f%s.txt\n--- a/f%s.txt\n+++ b/f%s.txt\n+line for f%s\n' "$_i" "$_i" "$_i" "$_i" "$_i" >> "$AWKB.patch"
+done
+# Execute the SKILL's OWN awk program (extracted from the Phase 1.1 fence), not a copy of it:
+# a hardcoded duplicate here would keep passing while the shipped expression drifted. Assert the
+# extraction resolved before using it, so a fence rename can never silently degrade this into a
+# vacuous run of an empty program.
+AWK_PROG="$(sed -n "s/.*awk -v s=1 -v e=10 '\([^']*\)'.*/\1/p" "$ST_REV" | head -1)"
+assert_eq "#426 awk slice: the Phase 1.1 awk program resolves out of the SKILL fence (fixture is not vacuous)" \
+  '/^diff --git/{n++} n>=s && n<=e' "$AWK_PROG"
+# The batch-index ARITHMETIC is the other half of the slice contract, and it lives only in the
+# SKILL's prose — so pin the formula literally AND execute it. Hard-coding s=11/e=20 here would
+# leave an off-by-one edit to the formula itself (e.g. `s=(k-1)*10`, which double-includes a
+# boundary file in two adjacent batches) green under every other pin.
+assert_pin_unique "#426 T2d: Phase 1.1 pins the batch-index arithmetic s=(k-1)*10+1 / e=k*10" \
+  'with `s=(k-1)*10+1` and `e=k*10`' "$ST_REV"
+# Derive s/e from k with the pinned formula and sweep every batch of the 25-section fixture:
+# batches must PARTITION the sections — each file in exactly one batch, no gaps, no overlaps.
+# An off-by-one in either bound breaks the partition (a duplicated or dropped file), which the
+# per-file occurrence count below catches regardless of which bound drifted.
+: > "$AWKB.seen"
+for _k in 1 2 3; do
+  _s=$(( (_k - 1) * 10 + 1 )); _e=$(( _k * 10 ))
+  awk -v s="$_s" -v e="$_e" "$AWK_PROG" "$AWKB.patch" > "$AWKB.batch$_k"
+  grep '^diff --git' "$AWKB.batch$_k" >> "$AWKB.seen"
+done
+assert_eq "#426 awk slice: the derived batches PARTITION the diff — all 25 sections appear, none dropped" "25" \
+  "$(grep -c '^diff --git' "$AWKB.seen")"
+# Overlap is a DISTINCT failure mode from a drop, so compare the EMITTED total against the
+# DISTINCT total — never distinct-vs-25, which a boundary double-include (26 emitted, 25 distinct)
+# sails straight through. Verified: under an `s=(k-1)*10` mutation this row goes RED on 26 vs 25.
+assert_eq "#426 awk slice: the derived batches PARTITION the diff — no section appears in two batches (emitted == distinct)" \
+  "$(grep -c '^diff --git' "$AWKB.seen")" "$(sort -u "$AWKB.seen" | grep -c '^diff --git')"
+assert_eq "#426 awk slice: the derived batch k=3 is the SHORT tail batch (sections 21..25 only)" "5" \
+  "$(grep -c '^diff --git' "$AWKB.batch3")"
+# The per-boundary rows below re-read batch k=2 — the middle batch the loop just derived.
+assert_eq "#426 awk slice: batch k=2 yields exactly 10 diff --git sections" "10" \
+  "$(grep -c '^diff --git' "$AWKB.batch2")"
+assert_eq "#426 awk slice: batch k=2's FIRST section is f11 (lower boundary included, f10 excluded)" "diff --git a/f11.txt b/f11.txt" \
+  "$(grep -m1 '^diff --git' "$AWKB.batch2")"
+assert_eq "#426 awk slice: batch k=2's LAST section is f20 (upper boundary included, f21 excluded)" "diff --git a/f20.txt b/f20.txt" \
+  "$(grep '^diff --git' "$AWKB.batch2" | tail -1)"
+assert_eq "#426 awk slice: a neighbouring batch's file (f21) never leaks into batch k=2" "no" \
+  "$(grep -qF 'line for f21' "$AWKB.batch2" && echo yes || echo no)"
+assert_eq "#426 awk slice: each section's BODY travels with its header (f11's content is present, not just the header)" "yes" \
+  "$(grep -qF 'line for f11' "$AWKB.batch2" && echo yes || echo no)"
+rm -f "$AWKB.patch" "$AWKB.batch1" "$AWKB.batch2" "$AWKB.batch3" "$AWKB.seen" "$AWKB"
+# T2c → the single-batch branch (the other half of the batching selection): a ≤10-file run
+# writes NO slice file and hands the generator the cached full diff path directly. Unpinned,
+# a future edit could make the single-batch case author a needless slice (re-introducing an
+# awk dependency on the common path) with every other pin still green.
+assert_pin_red_under "#426 T2c: the single-batch branch passes diff.patch directly and writes NO slice file" \
+  'directly — **write no slice file.**' \
+  's/directly — \*\*write no slice file\.\*\*/directly, after authoring a batch-1 slice file./' \
+  "$ST_REV"
+# T3 → blinding boundary: the mutation inverts the workpad prohibition (the leak
+# channel the contract closes).
+assert_pin_red_under "#426 T3: shadow blinding-boundary workpad prohibition flips RED when inverted to permit workpad content" \
+  'it never carries a workpad path or workpad content' \
+  's/it never carries a workpad path or workpad content/it may carry a workpad path or workpad content/' \
+  "$MAXI_SKILL"
+# T4 → both-paths fused emit: the mutation removes the DEGRADATION-path arm
+# specifically (recreating the issue-304 silent-drop shape on outcome 3), leaving
+# only the full-fan-out arm — a framing-only pin would survive and be reported RED.
+assert_pin_red_under "#426 T4: both-paths fused-emit obligation flips RED when the honest-degradation arm is removed" \
+  '**the Parse-and-compare completion for a full fan-out, and the honest-degradation fail-safe for an outcome-3 pass that dies mid-fan-out**' \
+  's/for a full fan-out, and the honest-degradation fail-safe for an outcome-3 pass that dies mid-fan-out/for a full fan-out/' \
+  "$MAXI_SKILL"
+# T7 → coupled-mirror guard: docs/shadow-review.md must describe the Phase 1.1 slice as a
+# >-redirect, NOT a `| tee` pipeline (a tee would echo the slice to the orchestrator's
+# stdout — the exact per-pass transit this change removes). This is the coupled-mirror site
+# an earlier tee->redirect fix first left stale here (updating the SKILL/changeset/overview
+# but missing this doc); pin it so a revert to the tee wording flips RED at the desk rather
+# than surviving to a shadow pass. The mutation re-introduces the tee-pipeline description.
+assert_pin_red_under "#426 T7: docs/shadow-review.md pins the slice as a >-redirect (flips RED if reverted to a tee pipeline)" \
+  'redirect over the already-cached' \
+  's/redirect over the already-cached/tee pipeline over the already-cached/' \
+  "$LIB/../docs/shadow-review.md"
+
 # ── issue #381 review fixes: sha-exclusion double-count guard + outcome honesty ──
 
 # Mixed-sibling shape: a slug with a REAL workpad run (run-aaa, recording commit A)
@@ -23164,14 +23566,34 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last change: #424 Phase 0.6 feeds the lint by 'cat … |' pipe instead of an input redirect)" \
-  "102" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last change: #426 Phase 1.1's awk batch-slice fence, an &&-chained rc gate: awk >-redirect + test -s + echo/echo)" \
+  "106" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
-assert_eq "#363 the review-skill head set matches the reviewed count (29 distinct names; +stale-prose-lint.py at #423)" \
-  "29" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (30 distinct names; +echo at #426, the slice fence's rc-gate result marker)" \
+  "30" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
+
+# #426 no-skew property: Phase 1.1's awk >-redirect batch-slice authoring and its
+# &&-chained rc gate reuse heads (awk, test, echo) already granted in BOTH cloud
+# TOOLS='…' lines; tee remains granted+used by Phase 0.2's cache-write. So the change
+# adds NO allowlist entry and cannot create the #363 consumer-workflow-version-skew
+# class. Pin EVERY head the fence depends on — `echo` included: it is the fence's
+# slice-ok/slice-failed result marker, so a dropped `Bash(echo:*)` grant would silently
+# deny the very command that reports whether the slice is usable, and the rest of the
+# fence would still look granted. (tee too — Phase 0.2 still needs it.) The head-count
+# assertion above names `echo` as this fence's new dependency; this loop is the coupled
+# site that must enumerate it, or the "no head silently loses its grant" pin has a hole
+# exactly where the fence is newest.
+REV_TOOLS_RUNNER="$LIB/../.github/workflows/devflow-runner.yml"
+REV_TOOLS_CMD="$LIB/../.github/workflows/devflow.yml"
+for _rev_head in 'Bash(awk:*)' 'Bash(tee:*)' 'Bash(test:*)' 'Bash(echo:*)'; do
+  assert_eq "#426 no-skew: review-runner TOOLS grants ${_rev_head} (Phase 1.1 slice fence adds no new head)" "yes" \
+    "$(grep -qF "$_rev_head" "$REV_TOOLS_RUNNER" && echo yes || echo no)"
+  assert_eq "#426 no-skew: devflow.yml TOOLS grants ${_rev_head} (Phase 1.1 slice fence adds no new head)" "yes" \
+    "$(grep -qF "$_rev_head" "$REV_TOOLS_CMD" && echo yes || echo no)"
+done
 
 # ══ #401 fence SHAPE-lint: proven-denied command SHAPES in skills/review/SKILL.md ══════
 # extract-command-heads.py (above) validates command HEADS. But the deployed cloud matcher

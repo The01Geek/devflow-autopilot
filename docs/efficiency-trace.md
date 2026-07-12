@@ -495,6 +495,41 @@ This guarantees **persistence of whatever telemetry was captured**. It does **no
 post-hoc tool can recover them if the agent never recorded them (the incremental writes + the
 self-check warning maximize capture, but it remains irreducibly agent-dependent).
 
+### Shadow synthesis floor (issue #426)
+
+`--persist` carries a second, narrower synthesis floor for the **shadow** block, sibling to the
+iter floor above. The shadow pass (`/devflow:review-and-fix` Step 2.6) appends a `shadow` block to
+the triggering iter's workpad, but that block can drop entirely (the issue-304 drop shape), leaving
+a promotion with no record of the shadow that produced it. When an `iter-<N>.json` carries **no
+`shadow` block** but the run holds **promotion evidence** — an `iter-<N+1>.json` with
+`loop_role: "promoted"`, meaning iteration N's shadow promoted new findings into iteration N+1 —
+`synthesize_shadow_markers` writes a minimal marker into `iter-<N>.json`'s `shadow` field:
+
+- *Synthesized shadow-marker shape.* Exactly `shadow_synthesized: true` and
+  `promoted_to_iter_next: true` (the promotion linkage). `--self-check` validates a
+  `shadow_synthesized: true` block against this minimal set (`SHADOW_SYNTH_EXPECTED_FIELDS`) as a
+  recognized degraded class — a truncated synthesized marker still warns, exactly like a truncated
+  synthesized iter record; a real (agent-written) shadow block carries no `shadow_synthesized` key
+  and is never validated by this branch (it stays unvalidated, as before).
+- *Never overwrites an agent-written block.* The floor writes only when `.shadow` is `null` — the key
+  missing, or present with an explicit JSON `null` (both are "no block"); an
+  existing block — agent-written or already synthesized — is left untouched. It is telemetry-gated
+  (a disabled repo gets none) and runs before the durable copy, so a synthesized marker is committed
+  alongside the workpads it annotates. Best-effort: any failure warns and continues, never aborting
+  `--persist`.
+- *Every failure arm names its own cause.* The marker is merged in via a temp file plus `mv`, and
+  both write arms surface the underlying tool's error text — the failing `jq`'s message, and `mv`'s
+  own errno (read-only mount, `ENOSPC`) — rather than discarding it, so a floor that could not write
+  is diagnosable rather than merely reported. On either failure the source `iter-<N>.json` is left
+  untouched and the temp file is removed: no half-written marker, no orphaned `.shadowtmp`.
+- *Stated limitation — promoted shadows only.* The floor recovers a dropped shadow block **only**
+  when promotion evidence survives. A clean outcome-1 shadow whose block dropped leaves no promotion
+  evidence to synthesize from, so it is unrecoverable here — the fused Step 2.6 emit (mandatory on
+  both termination paths, authored with the Write tool) is the primary fix and this floor is its
+  backstop, not its equal. Like the iter floor, it recovers **attribution, not cost**: the
+  `step_2_6` token/wall figures remain live-only and cannot be reconstructed after the fact. Older
+  records without the marker remain valid.
+
 ## The unified experiment record (`experiment-records.jsonl`)
 
 `scripts/build-experiment-records.py` (issue #431) is the **join** that makes the operator's

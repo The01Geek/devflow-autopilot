@@ -299,7 +299,7 @@ gh pr view $ARGUMENTS --json headRefName,baseRefOid,headRefOid --jq '.'
 ```
 If either command fails (non-zero exit code), stop immediately and report: "Failed to retrieve diff. Verify the PR number exists and you have required permissions."
 
-Use the PR diff output for Phase 1. Store the head branch name, `baseRefOid` as `$PR_BASE_SHA`, and `headRefOid` as `$PR_HEAD_SHA` — Phase 1's per-file slicing needs them (see Phase 1.1).
+Use the PR diff output for Phase 1. Store the head branch name, `baseRefOid` as `$PR_BASE_SHA`, and `headRefOid` as `$PR_HEAD_SHA` — the head-override diff (below), Phase 0.3.6's blocker-recheck fast path, and Phase 4's `Reviewed HEAD` line all need them. (Phase 1.1 no longer per-file-slices via `git diff` — it slices the already-cached `diff.patch` with `awk` — so it is not among the consumers of these SHAs.)
 
 **Caller head-override (fix-loop reuse).** A wrapping skill (currently `/devflow:review-and-fix`) may pass `head_override = local`. When set, take the PR's head from the local working tree instead of the API: set `$PR_HEAD_SHA=$(git rev-parse HEAD)` and fetch the diff with `git diff "$PR_BASE_SHA...HEAD"` instead of `gh pr diff $ARGUMENTS`. This lets a fix loop review commits it has made locally but not yet pushed — the remote `headRefOid` would otherwise lag behind and the loop would re-review pre-fix code. It requires the PR's head branch to be the checked-out branch; the caller guarantees this (review-and-fix does so in its Step 0.5). When `head_override` is absent — standalone `/devflow:review`, the default — use the API head exactly as above; do **not** diff against local `HEAD`, since a standalone review must reflect the pushed PR state, not a dirty or stale local checkout.
 
@@ -308,7 +308,7 @@ Use the PR diff output for Phase 1. Store the head branch name, `baseRefOid` as 
 - A wrapping skill (currently `/devflow:review-and-fix`) may pass `run_id = <value>` — its own loop-start `RUN_ID`. When provided, use it verbatim so the engine's `diff.patch` lands in the *same* run directory as the wrapper's `iter-*.json` / `deferrals.json`.
 - When absent (standalone `/devflow:review`), compute it with the **same derivation the progress-comment marker uses** — `${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1}` — and reuse that held literal everywhere (never recompute; on a local run the timestamp would otherwise drift between phases and scatter one run's scratch across directories).
 
-**Note on `gh pr diff` path filtering.** `gh pr diff <N>` does NOT support path arguments — `gh pr diff <N> -- <file>` errors with `accepts at most 1 arg(s)` (cli/cli#5398, unresolved). When you need per-file slicing in Phase 1.1, use `git diff "$PR_BASE_SHA...$PR_HEAD_SHA" -- <paths>` instead, or pipe the full `gh pr diff` through `filterdiff -i '<pattern>'` if `patchutils` is installed.
+**Note on `gh pr diff` path filtering.** `gh pr diff <N>` does NOT support path arguments — `gh pr diff <N> -- <file>` errors with `accepts at most 1 arg(s)` (cli/cli#5398, unresolved). Phase 1.1 sidesteps this entirely: it never re-fetches a per-file diff — it slices the already-cached `diff.patch` with an `awk` section-range over its `^diff --git` headers (see Phase 1.1). This note is retained as a caution for any future consumer tempted to re-introduce per-file `gh pr diff` slicing.
 
 **If no argument (review current branch):**
 ```bash
@@ -347,7 +347,7 @@ This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 
 
 ### 0.3 Get changed file list
 
-Extract the list of changed files **by parsing the filtered `diff.patch` cached in 0.2** (read its `diff --git a/<path> b/<path>` headers), **not** from an independent `git diff --name-only` / `gh pr diff --name-only`. This matters: `.devflow/logs/**` paths were stripped from `diff.patch` in 0.2, so deriving the file list from it excludes them by construction — which is what keeps Phase 1.1's per-file batch slicing (`git diff … -- <file>`) and Phase 3's per-file slicing from ever re-fetching a `.devflow/logs/` hunk and feeding it to an agent (an independent `--name-only` would re-introduce those paths and defeat the 0.2 filter on the `>10`-file batching path). Store this list — it's needed for Phase 1 and Phase 3.
+Extract the list of changed files **by parsing the filtered `diff.patch` cached in 0.2** (read its `diff --git a/<path> b/<path>` headers), **not** from an independent `git diff --name-only` / `gh pr diff --name-only`. This matters: `.devflow/logs/**` paths were stripped from `diff.patch` in 0.2, so deriving the file list from it excludes them by construction — and Phase 1.1's batch slicing reads the **same** filtered `diff.patch` (an `awk` section-range over its `^diff --git` headers), so a `.devflow/logs/` hunk can never re-enter a batch slice, and Phase 3's agents Read the same cached diff. An independent `--name-only` would re-introduce those paths and desynchronize the file list from the sliced batches. Store this list — it's needed for Phase 1 and Phase 3.
 
 ### 0.3.5 Seed the live progress comment (PR mode)
 
@@ -526,13 +526,24 @@ Output: `Phase 1/4: Generating verification checklist...`
 
 ### 1.1 Determine batching
 
-Count the changed files. If 10 or fewer, launch one checklist-generator agent. If more than 10, split into batches of 10 and launch one agent per batch. **Slice the diff to only the batch's files** before passing it. To slice:
+Count the changed files. If 10 or fewer, launch one checklist-generator agent. If more than 10, split into batches of 10 (in the Phase 0.3 document order) and launch one agent per batch.
 
-- **PR mode (PR number provided):** use `git diff "$PR_BASE_SHA...$PR_HEAD_SHA" -- <file1> <file2> ...`. Do NOT use `gh pr diff $ARGUMENTS -- <file>` — that form errors with `accepts at most 1 arg(s)` (cli/cli#5398, unresolved). Alternatively, pipe the cached full diff through `filterdiff -i '<glob>'` if `patchutils` is installed.
-- **Current-branch mode:** use `git diff origin/main...HEAD -- <file1> <file2> ...`.
-- **Fallback:** grep the cached full diff by `^diff --git` headers.
+**Hand off each batch's slice by file reference, not inline content — the `{DIFF_PATH}` pattern Phase 3 already uses, extended to Phase 1.** The slice content must never transit the orchestrator's context (that inline transit is the cost this removes — it was re-paid on every engine pass, including every shadow). So author each batch's slice as a **file on disk** and pass the generator its *path*:
 
-Passing the full diff to every batch is wasteful and increases dup rate. Tell each batch which other files are being handled by sibling batches so it does not generate items for them.
+- **Single batch (≤10 files):** pass the cached full diff path `.devflow/tmp/review/<slug>/<run-id>/diff.patch` (from Phase 0.2) directly — **write no slice file.** There is only one batch, so its slice *is* the full diff.
+- **Multiple batches (>10 files):** author each batch's slice from the **already-cached `diff.patch`** (never a fresh `git`/`gh` fetch — no `git` object access, so a shallow consumer checkout is unaffected). Because Phase 0.3 derived the file list by reading `diff.patch`'s `^diff --git` headers **in document order**, batch _k_ (1-based) is exactly the _k_-th run of 10 `diff --git` sections — a numeric range, so the extraction takes **no per-file filename arguments** — its only operand is the fixed run-scoped `diff.patch` path, so no changed-file path is ever passed and paths with spaces cannot break quoting. For batch _k_, with `s=(k-1)*10+1` and `e=k*10`, extract sections _s_ through _e_ with `awk`, **redirecting** its stdout into a run-scoped slice file beside the cached diff — shell-only, and because the extraction is `>`-redirected to the file rather than piped through `tee`, the slice content never enters the orchestrator's context:
+
+  ```bash
+  awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .devflow/tmp/review/<slug>/<run-id>/diff.patch > .devflow/tmp/review/<slug>/<run-id>/batch-1.patch && test -s .devflow/tmp/review/<slug>/<run-id>/batch-1.patch && echo "slice-ok: batch-1" || echo "slice-failed: batch-1 — dispatch the full diff.patch path for this batch"
+  ```
+
+  (`awk` is a granted head and an **in-workspace `>` redirect of a granted head** is a permitted shape — Phase 4.5's `> .devflow/tmp/…/iter-1.json` is the precedent — so it adds **no** allowlist entry. This deliberately does **not** reuse Phase 0.2's `| tee` form: Phase 0.2 needs the diff on stdout for Phase 1 consumption, whereas here the generator Reads the slice by *path*, so a `tee` would only echo the slice to stdout — which the Bash tool returns into the orchestrator's context, the exact per-pass transit this change removes.)
+
+**Fail-closed fallback (guard-class 2).** `awk` is not a preflight-guaranteed tool, so a batch's slice is usable only when the authoring command **both** exited 0 **and** left a non-empty file — which is why the fence above is an `&&`-chain: the slice is gated on `awk`'s **own exit status** first, and the `test -s` non-empty check (a **bash builtin** — never another PATH tool) second. Gate on the exit status, never on the output shape alone: `test -s` answers "is the file non-empty?", which admits strictly more than "did `awk` write the whole slice?" — a partial write (`ENOSPC`, quota, a killed `awk`) leaves a **non-empty but truncated** slice that a size-only check waves through, and the batch would then review a thinned surface with the missing files silently unrepresented. **On `slice-failed` — a non-zero `awk`/redirect exit, or a missing/empty slice — fall back to passing the full `diff.patch` path for that batch** (coverage preserved, savings forfeited), and record the fallback in the run's telemetry notes (`step_2_6`/`phase_1` in `/devflow:review-and-fix`; chat in standalone). A fallback batch relies on the generator's retained scope instruction (generate items only for this batch's listed files) so the full diff cannot inflate cross-batch duplicates.
+
+The residual window this leaves is narrow and named: a write error that `awk` itself neither reports nor exits non-zero on would still yield a truncated slice. The claim the mechanism supports is therefore *"a slice-authoring failure the shell can observe routes to the full diff"* — not an unqualified "never a thinned review surface."
+
+Tell each batch which other files are being handled by sibling batches so it does not generate items for them.
 
 Merge the resulting checklists by concatenating all items. If batching ran (>1 batch), proceed to **Phase 1.5: Dedup** before renumbering. If only one batch ran, renumber IDs sequentially (`VC-1`, `VC-2`, ...) and skip Phase 1.5.
 
@@ -573,19 +584,19 @@ where `M` is the total dropped count (`N - 100`) and the per-category counts sum
 
 Use the **Agent tool** with `subagent_type: "devflow:checklist-generator"`. First resolve overrides for the agents about to be dispatched (`devflow:checklist-generator`) per **Per-Subagent Model/Effort Overrides** above, and dispatch through the materialized `--agents` block when one applies.
 
-Pass the following prompt:
+Pass the following prompt — carrying the slice's **file path** (from Phase 1.1), never the inline diff content:
 ```
-Here is the git diff for this PR:
+The diff you must analyze is cached on disk. Read it directly with your Read tool — it is NOT inlined here.
 
-<diff>
-{paste the full diff output here}
-</diff>
+Diff path: {SLICE_PATH}
+  (In a >1-batch run this is your batch's slice — only your batch's files. On the fail-closed fallback, or in a single-batch run, it is the full cached diff `.devflow/tmp/review/<slug>/<run-id>/diff.patch`.)
 
 Changed files to analyze:
 {paste the file list here}
 
-Generate the verification checklist. Return the JSON array in a ```json code fence.
+Generate the verification checklist ONLY for the changed files listed above — even if the diff at that path contains other files (a fallback slice is the full diff). Return the JSON array in a ```json code fence.
 ```
+Substitute `{SLICE_PATH}` with the batch's slice path (`.devflow/tmp/review/<slug>/<run-id>/batch-<k>.patch`), or the full `diff.patch` path on a single-batch run or the Phase 1.1 fail-closed fallback. In a >1-batch run, also name the sibling batches' files (per Phase 1.1) so this batch does not generate items for them.
 
 **If `issue_context` is not empty**, append this to the prompt:
 
