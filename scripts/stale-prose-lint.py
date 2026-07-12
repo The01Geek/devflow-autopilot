@@ -147,10 +147,10 @@ def _uncomment(line):
     """A referent line with its leading line-comment marker removed (if any)."""
     return _COMMENT_PREFIX_RE.sub("", line, count=1)
 _ASSERT_LINE_RE = re.compile(r"(?i)\bassert\w*\b")
-_COUNT_RE = re.compile(
-    r"\b(\d+)\s+(assertions?|asserts?|checks?|bullets?|items?|entries?|cases?)\b",
-    re.IGNORECASE,
-)
+# The gating R3 noun set — shared as one constant so the recognition tier's _RECOG_NOUN
+# below cannot silently drift from the gating _COUNT_RE (a new noun added here reaches both).
+_COUNT_NOUNS = r"assertions?|asserts?|checks?|bullets?|items?|entries?|cases?"
+_COUNT_RE = re.compile(rf"\b(\d+)\s+({_COUNT_NOUNS})\b", re.IGNORECASE)
 # ── R3 recognition-only tier (issue #439), non-gating ──────────────────────────────────
 # Spelled-out numeral words two..twelve → their integer value. "one" is deliberately absent
 # (idiom-heavy) and thirteen+ is out of scope; see the module header's recognition-tier records.
@@ -158,23 +158,21 @@ _WORD_NUM = {
     "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
     "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
 }
-# The widened noun set: the seven existing _COUNT_RE nouns (kept in their ``s?`` forms so the
-# gating surface is byte-identical) plus the nine new nouns, matched PLURAL-ONLY so a singular
-# ("tag", "rule") never trips the recognition.
+# The widened noun set: the gating _COUNT_NOUNS (in their ``s?`` forms, interpolated so the
+# gating surface stays byte-identical and cannot drift) plus the nine new nouns, matched
+# PLURAL-ONLY so a singular ("tag", "rule") never trips the recognition.
 _RECOG_NOUN = (
-    r"(?:assertions?|asserts?|checks?|bullets?|items?|entries?|cases?"
-    r"|tags|members|fields|rows|columns|arms|files|rules|sites)"
+    r"(?:" + _COUNT_NOUNS + r"|tags|members|fields|rows|columns|arms|files|rules|sites)"
 )
 # A single intervening modifier token: a bare word, optionally wrapped in ``**…**`` / ``*…*`` /
 # backticks, followed by whitespace. Because the word body is ``[A-Za-z][\w'-]*`` (no sentence
 # punctuation), a token carrying a comma/period/colon cannot form a modifier — it structurally
 # breaks the match, which is how the "sentence punctuation disqualifies" guard is realised.
-_RECOG_MOD = r"(?:[*`]{1,2}|)[A-Za-z][\w'-]*(?:[*`]{1,2}|)\s+"
+_RECOG_MOD = r"[*`]{0,2}[A-Za-z][\w'-]*[*`]{0,2}\s+"
 # The word alternation is DERIVED from _WORD_NUM (single source of truth) so the regex and the
-# value map can never drift — a word the regex matched but the map lacked would KeyError. Longest
-# alternatives first so a shorter numeral never shadows a longer one (belt-and-suspenders; the
-# ``\b`` anchors already prevent it).
-_WORD_ALT = "|".join(sorted(_WORD_NUM, key=len, reverse=True))
+# value map can never drift — a word the regex matched but the map lacked would KeyError. The
+# ``\b`` anchors on the alternation below make alternative order irrelevant.
+_WORD_ALT = "|".join(_WORD_NUM)
 # The numeral: a word numeral (bounded) OR a digit run, NOT directly preceded by ``#`` / ``§`` /
 # a digit / ``.`` / ``-`` (kills ``#402`` references, ``§2.3`` section numbers, decimals).
 _RECOG_NUM = r"(?<![#§\d.\-])(?:\b(?P<word>" + _WORD_ALT + r")\b|(?P<digit>\d+))"
@@ -575,8 +573,6 @@ def _mods_ok(mods):
     noise guards in the module header. ``mods`` may be empty (zero modifiers → always OK)."""
     for tok in mods.split():
         bare = tok.strip("*`").lower()
-        if not bare:
-            continue
         if bare in _RECOG_MOD_DISQUALIFY:
             return False
         if bare in _WORD_NUM or bare.isdigit():
