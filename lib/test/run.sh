@@ -25977,31 +25977,48 @@ import importlib.util, sys
 spec = importlib.util.spec_from_file_location("ber", sys.argv[1])
 ber = importlib.util.module_from_spec(spec); spec.loader.exec_module(ber)
 
-def raises(record):
+# A COMPLETE record — every field _PROVENANCED_FIELDS governs, all null; fixtures override
+# only the field under test. Completeness is load-bearing: the guard fails CLOSED on a
+# missing governed key, so a partial dict would be rejected for THAT reason and a negative
+# test would go green without ever exercising the coherence check it names (#431 review).
+def full(prov, **over):
+    rec = {f: None for fs in ber._PROVENANCED_FIELDS.values() for f in fs}
+    rec.update(over)
+    rec["provenance"] = prov
+    return rec
+
+# Attribute the rejection: more than one guard here can raise AssertionError, so a bare
+# type check cannot tell the coherence check from the stale-map presence check. Pin the
+# rejecting guard's own message.
+def raises_with(record, needle):
     try:
         ber._assert_provenance_coherent(record)
-    except AssertionError:
-        return True
+    except AssertionError as e:
+        return needle in str(e)
     return False
 
 # A scalar join publishing a value out of an unqueryable source.
-if not raises({"permission_denials_count": 0,
-               "provenance": {"permission_denials_count": "no-sha"}}):
+if not raises_with(full({"permission_denials_count": "no-sha"}, permission_denials_count=0),
+                   "unqueryable join must never publish a value"):
     sys.exit(1)
 # The one-to-MANY case: `retrospective` governs the four metadata fields, so back-filling
 # e.g. `branch` from a slug heuristic while the metadata fetch failed must also raise.
 # Today those fields are null on every unestablished path, so the invariant holds only by
 # ACCIDENT there — checking them is what makes it hold by construction (#431 review).
-if not raises({"branch": "guessed-from-slug",
-               "provenance": {"retrospective": "fetch-failed"}}):
+if not raises_with(full({"retrospective": "fetch-failed"}, branch="guessed-from-slug"),
+                   "unqueryable join must never publish a value"):
     sys.exit(1)
-# Positive control: the same unestablished source beside NULL values must NOT raise, so
+# Stale-map drift fails CLOSED: rename a governed field out of the record (i.e. forget to
+# update _PROVENANCED_FIELDS) and the guard must RAISE, not silently stop governing it —
+# the `.get()`-based check failed OPEN exactly here (#431 review Suggestion 2).
+_stale = full({"verdict": "found"})
+del _stale["verdict"]
+if not raises_with(_stale, "_PROVENANCED_FIELDS is stale"):
+    sys.exit(1)
+# Positive control: the same unestablished sources beside NULL values must NOT raise, so
 # the guard is discriminating rather than blanket-rejecting.
-ber._assert_provenance_coherent({"permission_denials_count": None,
-                                 "branch": None, "merged_at": None,
-                                 "merge_commit_sha": None, "issue": None,
-                                 "provenance": {"permission_denials_count": "no-sha",
-                                                "retrospective": "fetch-failed"}})
+ber._assert_provenance_coherent(full({"permission_denials_count": "no-sha",
+                                      "retrospective": "fetch-failed"}))
 sys.exit(0)
 PY
   # Capture rc on the line immediately after the heredoc: a later edit inserting ANY
@@ -26091,16 +26108,26 @@ import importlib.util, sys
 spec = importlib.util.spec_from_file_location("ber", sys.argv[1])
 ber = importlib.util.module_from_spec(spec); spec.loader.exec_module(ber)
 
-def raises(record):
+# A COMPLETE record (see Tcoh): the guard fails closed on a missing governed key, so a
+# partial dict would be rejected by THAT check and this test would never reach the
+# vocabulary check it names.
+def full(prov, **over):
+    rec = {f: None for fs in ber._PROVENANCED_FIELDS.values() for f in fs}
+    rec.update(over)
+    rec["provenance"] = prov
+    return rec
+
+# Attribute the rejection to the vocabulary check, not to some other AssertionError.
+def raises_with(record, needle):
     try:
         ber._assert_provenance_coherent(record)
-    except AssertionError:
-        return True
+    except AssertionError as e:
+        return needle in str(e)
     return False
 
 # A TYPO'd unestablished tag must not slip through beside a published value.
-if not raises({"permission_denials_count": 0,
-               "provenance": {"permission_denials_count": "fetch_failed"}}):
+if not raises_with(full({"permission_denials_count": "fetch_failed"}, permission_denials_count=0),
+                   "unrecognized source"):
     sys.exit(1)
 # Positive control: every LISTED tag is accepted, so the guard is discriminating rather
 # than blanket-rejecting. (Note what this does and does not prove: it loops over the
@@ -26108,7 +26135,7 @@ if not raises({"permission_denials_count": 0,
 # that direction is covered by the per-arm provenance assertions elsewhere in this block,
 # each of which would raise here if its tag were missing from the vocabulary.)
 for tag in ber.PROVENANCE_SOURCES:
-    ber._assert_provenance_coherent({"verdict": None, "provenance": {"verdict": tag}})
+    ber._assert_provenance_coherent(full({"verdict": tag}))
 sys.exit(0)
 PY
   RC_VOC=$?

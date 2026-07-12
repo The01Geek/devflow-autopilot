@@ -173,13 +173,27 @@ def _assert_provenance_coherent(record):
                 f"vocabulary — an unrecognized tag would bypass the unestablished check "
                 f"below and could publish a fabricated measurement")
     for prov_key, fields in _PROVENANCED_FIELDS.items():
+        # Presence, before the unestablished filter. A `.get()`-only check fails OPEN on
+        # drift: rename a governed field in build_record and forget _PROVENANCED_FIELDS,
+        # and `.get()` returns None for the stale name — indistinguishable from a legitimately
+        # null field — so the unestablished guard below silently stops governing it. Every
+        # governed field is set unconditionally in build_record's dict literal, so absence
+        # can only mean the map is stale. Checked for EVERY source, not just unestablished
+        # ones: a field whose source happens to be established today would otherwise carry
+        # the stale name past this guard and only fail open later, on the run that matters.
+        for field in fields:
+            if field not in record:
+                raise AssertionError(
+                    f"provenance incoherent: governed field {field!r} (under {prov_key!r}) "
+                    f"is absent from the record — _PROVENANCED_FIELDS is stale, so the "
+                    f"unestablished check below no longer governs it")
         source = prov.get(prov_key)
         if source not in PROVENANCE_UNESTABLISHED:
             continue
         for field in fields:
-            if record.get(field) is not None:
+            if record[field] is not None:
                 raise AssertionError(
-                    f"provenance incoherent: {field}={record.get(field)!r} is non-null "
+                    f"provenance incoherent: {field}={record[field]!r} is non-null "
                     f"but its source ({prov_key}) is {source!r} (unestablished) — an "
                     f"unqueryable join must never publish a value")
 
@@ -489,16 +503,23 @@ def _count_important(body):
     has no Important group — the engine omits empty groups) or None when the comment
     carries no findings section at all (unparseable for this purpose)."""
     body = body or ""
-    if not FINDINGS_SECTION_RE.search(body):
+    section = FINDINGS_SECTION_RE.search(body)
+    if not section:
         return None
-    imp = IMPORTANT_HEADING_RE.search(body)
+    # Scope the Important-heading search to the findings section. Searching the WHOLE body
+    # would let an "### … Important …" heading elsewhere in the comment supply the count —
+    # latent today (the engine emits that heading only here), but this is the record's key
+    # outcome variable, so it should not depend on the rest of the template staying quiet.
+    tail = body[section.end():]
+    imp = IMPORTANT_HEADING_RE.search(tail)
     if not imp:
         return 0
-    # Walk lines from just after the Important heading until the next "### "/"## " heading.
-    tail = body[imp.end():]
+    # Walk lines from just after the Important heading until the next heading of any depth
+    # (`##`+). `^###?\s` would not stop at a `####` sub-heading, so a future nested heading
+    # inside the section would let items below it be counted as Important.
     count = 0
-    for line in tail.splitlines():
-        if re.match(r"^###?\s", line):  # next sub-heading or section — stop
+    for line in tail[imp.end():].splitlines():
+        if re.match(r"^#{2,}\s", line):  # next sub-heading or section — stop
             break
         if NUMBERED_ITEM_RE.match(line):
             count += 1

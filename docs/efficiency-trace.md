@@ -532,7 +532,7 @@ joined fields:
   authoritative reviews call could not be established, so the value may predate the final reviewed
   HEAD — degraded, not merely second-choice; the reason is spelled out in `provenance.notes`),
   `unparseable` (a `## Verdict:` marker was present but its line did not parse), `absent`, or one of
-  the three **unestablished** tags below.
+  the four **unestablished** tags below.
 - **`important_finding_count`** — parsed from the run-keyed progress comment joined via
   `review.commit_id` == the comment's `**Reviewed HEAD:**` line (the engine's own join — see
   `skills/review/SKILL.md`, the normative source). `null` with provenance when no progress comment
@@ -557,7 +557,7 @@ joined fields:
   always distinguishable from an unqueried one.
 
 **Unestablished is not absent.** `absent` is the strong claim *"we looked and it genuinely was not
-there"*. Three tags mean the opposite — the join could not be measured at all — and they are never
+there"*. Four tags mean the opposite — the join could not be measured at all — and they are never
 collapsed onto `absent` (the provenance-dimension analogue of the value-level unknown-is-not-zero
 contract). They apply to every gh-sourced field above:
 
