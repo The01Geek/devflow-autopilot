@@ -4,6 +4,16 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.125] — 2026-07-12
+
+### Added
+- **Deterministic stale counted-prose lint (shared-engine Phase 0.6 + fix-loop pre-check).** Added `scripts/stale-prose-lint.py`, a python3-stdlib helper that flags diff-added prose whose counted claims a later commit outgrows or falsifies — a range header its block outgrew (R1), a legend sum contradicting an `Expected total = N` (R2), an exact `count-locked` header (R3/R3b), or a deny-absolute about a shell operator token the same file also asserts permitted (R4). The shared review engine runs it as a new Phase 0.6 immediately after diff classification (each STALE row becomes an engine finding at the config-gated `devflow_review.stale_prose.severity`, default `important`; UNRESOLVABLE rows are informational and never gate), so standalone `/devflow:review`, `/devflow:review-and-fix`, and the shadow pass all inherit it identically. `/devflow:review-and-fix` additionally runs the same helper as a post-commit pre-check each fix iteration, so a fix-introduced stale claim is reconciled in-iteration rather than at standalone-review cost. Gated by `devflow_review.stale_prose` (`enabled`, default true; `severity`, default `important`) and fail-safe: a refused, absent, errored, or disabled helper degrades to a recorded note, never a stall or silent skip. (#423)
+
+### Changed
+### Fixed
+
+- **The stale counted-prose lint now examines only comment/prose lines.** `scripts/stale-prose-lint.py` was grading *every* diff-added line of every path, so a line of code that merely contained claim-shaped text — a shell fixture string, an assertion name — was graded exactly like a real header. That made the lint fire on its own test corpus (14 STALE rows against DevFlow's own branch diff, all of them fixtures), which would have cost a spurious Important finding per row on any PR touching them, and grew with every fixture added. A claim is prose: the helper now decides per file type which lines can carry one (markdown-family prose outside fenced blocks; `#` comments; `//` comments and `/* … */` interiors; Python `#` comments plus genuine docstrings, resolved with `ast` so claim-shaped string literals in tests are not mistaken for prose), and the same predicate scopes **R4's permit referent**, so a code line can neither raise a claim nor contradict one. **An unrecognised file type fails open** — every added line is examined exactly as before, with a stderr breadcrumb — so a consumer repo in a language DevFlow has not listed degrades to the status quo, never to silent no-checking. This restores the scope issue #423 specified. (#434)
+
 ## [2.8.124] — 2026-07-11
 
 ### Changed
