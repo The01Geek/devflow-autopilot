@@ -154,7 +154,23 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
         or (has("duration_api_ms") and (.duration_api_ms != null)))) as $timing
     | (any($objs[]; .type? == "tool_use")) as $tooluse
     | (any($objs[]; has("subagent_type") and (.subagent_type != null))) as $subagent
-    | (any($objs[]; has("permission_denials") and (.permission_denials != null))) as $denials
+    # permission_denials has TWO carriers, and reading only the array misreports the
+    # other one. scripts/surface-execution-diagnostics.sh documents (issue #329) that
+    # denial detail frequently degrades to COUNT-ONLY: `permission_denials_count` is
+    # emitted while the array is absent. Keying presence on the array alone would then
+    # record `absent` — a definitive "the harness does not carry this" — for a run that
+    # demonstrably HAD denials, steering the shape record to the opposite of the truth in
+    # the one field this probe exists to establish. So accept either carrier.
+    #
+    # The count arm is guarded `> 0` deliberately: a real `permission_denials_count: 0` is
+    # a VALID-FALSY value meaning "the harness refused nothing", which is genuinely
+    # `absent` — not evidence of the field being carried. Collapsing that onto `present`
+    # would be the mirror-image error (the valid-falsy rule in CLAUDE.md).
+    # NOTE: no ASCII apostrophes in this comment — it sits inside a bash single-quoted
+    # jq program, where one would terminate the string (SC1011/SC1073).
+    | (any($objs[];
+        (has("permission_denials") and (.permission_denials != null))
+        or ((.permission_denials_count? | numbers) // 0) > 0)) as $denials
     | det($has_result; $usage)    as $u
     | det($has_result; $timing)   as $w
     | det($has_result; $tooluse)  as $t

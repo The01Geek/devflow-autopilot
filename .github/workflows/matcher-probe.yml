@@ -469,7 +469,9 @@ jobs:
   # ungranted command (so `permission_denials` has something to carry). The resulting
   # `steps.claude.outputs.execution_file` is fed through scripts/extract-execution-shape.sh,
   # which emits a REDACTED shape record (per-field present/absent/unavailable + the
-  # top-level encoding + a key→type structural set; every string leaf is dropped). ONLY
+  # top-level encoding + a key→type structural set; every string VALUE leaf is dropped —
+  # object KEYS are emitted verbatim, which is safe only because they are fixed schema
+  # field names; untrusted content lives in value positions). ONLY
   # that redacted record is uploaded — the raw execution file, which can carry prompt
   # text, repo content, and attacker-controlled check-run names, NEVER leaves the run
   # (issue #437 AC2). Re-run on demand after a claude-code-action upgrade to refresh
@@ -561,11 +563,13 @@ jobs:
   # branch before running, so a Stop hook added *in the probe PR* is restored away and
   # proves nothing — the hook must already be on base for a run to be meaningful. A
   # first-run "did not fire" therefore must NOT be read as "hooks do not fire under the
-  # action" (the reverse launder the issue warns against). The base-branch Stop hook is
-  # OPERATOR-ADDED, not shipped by this PR: the permission classifier bars an agent from
-  # writing .claude/, so an operator must add a Stop hook to base's .claude/settings.json
-  # that writes the gitignored breadcrumb .devflow/tmp/stop-hook-probe-fired (see
-  # docs/execution-file-shape.md). This job checks for that breadcrumb after the action.
+  # action" (the reverse launder the issue warns against). The Stop hook itself SHIPS in this
+  # PR — scripts/stop-hook-probe.sh, registered in .claude/settings.json — so no operator
+  # hand-edit is needed; what remains is only the ordering: it must be on the BASE branch
+  # (i.e. this PR merged) before a dispatch can observe it fire. It writes the gitignored
+  # breadcrumb .devflow/tmp/stop-hook-probe-fired (a COUPLED contract: renaming it on either
+  # side alone would silently read as "did not fire" forever — lib/test/run.sh pins both).
+  # This job checks for that breadcrumb after the action. See docs/execution-file-shape.md.
   hook-probe:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest

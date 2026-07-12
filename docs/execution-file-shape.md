@@ -56,7 +56,7 @@ Cost is carried **directly**, which the issue did not even ask for: `costUSD`,
 - **Probe run URL:** https://github.com/The01Geek/devflow-autopilot/actions/runs/29201071531
 - **Artifact:** `execution-file-shape` (uploaded by the `execfile-shape-probe` job)
 - **Observed on:** `anthropics/claude-code-action@v1`, 2026-07-12
-- **Redaction held:** every string leaf in the artifact is rendered as its *type* only
+- **Redaction held:** every string *value* leaf in the artifact is rendered as its *type* only
   (`prompt: string`, `text: string`, `command: string`) — no prompt text, repository
   content, or check-run name left the run.
 
@@ -118,9 +118,11 @@ is reconstructable from the harness's own output, with no agent cooperation.
 
 **Two limits on what this observation licenses, both deliberate:**
 
-1. **It is the LOCAL tier only.** Whether `claude-code-action`'s `execution_file` carries
-   the same figures is a separate question, still `unavailable` pending the first
-   `execfile-shape-probe` dispatch. Do not generalize this row to the cloud tier.
+1. **It is the LOCAL tier only.** Whether `claude-code-action`'s `execution_file` carries the
+   same figures is a *separate* question, answered separately — and it **is** answered: see
+   the cloud row above, which the `execfile-shape-probe` observed as `present` for every
+   field (run `29201071531`). This local row is evidence about the **transcript**, not about
+   the execution file; do not cite one for the other.
 2. **Realness is not freshness.** Claude Code's docs warn the transcript is written
    asynchronously and may lag the in-memory conversation, steering `Stop` hooks toward
    `last_assistant_message` instead of parsing it. This probe establishes that the counts
@@ -135,6 +137,10 @@ is reconstructable from the harness's own output, with no agent cooperation.
 - **A denied probe is not an observed-false result.** If the artifact upload, the hook
   probe, or a sandbox read is refused, that is recorded as denied/`unavailable` — it never
   becomes "the field is absent" or "hooks do not fire".
-- **Re-runnability (AC9).** All three probe jobs are `workflow_dispatch`-runnable so this
-  record can be refreshed after a `claude-code-action` upgrade, matching the existing
-  matcher-probe contract.
+- **Re-runnability (AC9).** Both #437 probe jobs — `execfile-shape-probe` and `hook-probe` —
+  are `workflow_dispatch`-runnable, so this record can be refreshed after a
+  `claude-code-action` upgrade, matching the existing matcher-probe contract. (The AC7
+  transcript check is **not** a workflow job: it needs a real local Claude Code `Stop`, so it
+  is refreshed by re-running `scripts/stop-hook-probe.sh` locally, not by a dispatch. The
+  other jobs in `matcher-probe.yml` — `probe`, `schedulewakeup-probe` — predate #437 and
+  belong to other issues.)

@@ -27577,6 +27577,19 @@ assert_eq "#437 exec-shape(encoding): object recorded" "yes" \
   "$(bash "$EES" "$EES_FIX/exec-shape-full-object.json" 2>/dev/null | grep -qxF 'encoding: object' && echo yes || echo no)"
 assert_eq "#437 exec-shape(encoding): jsonl recorded" "yes" \
   "$(bash "$EES" "$EES_FIX/exec-shape-full-jsonl.json" 2>/dev/null | grep -qxF 'encoding: jsonl' && echo yes || echo no)"
+# permission_denials has TWO carriers (issue #329): the detail ARRAY, and — when detail
+# degrades — a bare `permission_denials_count`. Reading only the array records `absent`
+# (a definitive "the harness does not carry this") for a run that demonstrably HAD
+# denials, i.e. the exact opposite of the truth, in the one field this probe exists to
+# establish. Both arms are driven here; neither is a grep-pin, because the misreport is a
+# wrong VALUE, not a missing line.
+assert_eq "#437 exec-shape(denials): count-only shape reports 'present', not 'absent'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-countonly.json" 2>/dev/null | grep -qxF 'permission_denials: present' && echo yes || echo no)"
+# Valid-falsy mirror image: a real `permission_denials_count: 0` means the harness refused
+# NOTHING — genuinely `absent`. Collapsing that onto `present` would be the same class of
+# error in the other direction, so pin it explicitly.
+assert_eq "#437 exec-shape(denials): valid-falsy count:0 stays 'absent' (refused nothing)" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-countzero.json" 2>/dev/null | grep -qxF 'permission_denials: absent' && echo yes || echo no)"
 rm -rf "$EES_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
