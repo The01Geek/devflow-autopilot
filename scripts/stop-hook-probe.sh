@@ -85,11 +85,19 @@ if [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ]; then
   # a single figure > 1 is sufficient to prove real counts are present, which is exactly
   # the question a harness-side cost floor turns on.
   _shape="$("$DEVFLOW_JQ" -s -r '
-      [ .. | objects | select(has("usage")) | .usage | .. | numbers ] as $n
-      | if ($n | length) == 0 then "absent none none"
+      [ .. | objects ] as $objs
+      | [ $objs[] | select(has("usage")) | .usage | .. | numbers ] as $n
+      # A transcript with NO message objects at all was not meaningfully read — the file is
+      # empty, or the async write has not flushed yet (the docs warn the transcript lags the
+      # in-memory conversation). That is `unavailable` (never established), NOT `absent`
+      # (read, and genuinely carried no tokens). Collapsing the two would report a
+      # measurement that never happened as a real negative — the unknown-is-not-zero rule,
+      # which is the entire distinction this helper exists to preserve.
+      | if ($objs | length) == 0 then "unavailable unavailable unavailable"
+        elif ($n | length) == 0 then "absent none none"
         else
           ( if ($n | max) > 1 then "real" else "placeholder" end )
-          + " " + ([ .. | objects | select(has("usage")) ] | length | tostring)
+          + " " + ([ $objs[] | select(has("usage")) ] | length | tostring)
           + " " + ($n | max | tostring)
         end
     ' "$TRANSCRIPT" 2>/dev/null || true)"

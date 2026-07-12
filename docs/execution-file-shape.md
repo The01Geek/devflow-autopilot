@@ -53,12 +53,22 @@ reviewer, given the run URL, reaches the same verdict by downloading the same ar
 Cost is carried **directly**, which the issue did not even ask for: `costUSD`,
 `total_cost_usd`, and a per-model `modelUsage` breakdown.
 
-- **Probe run URL:** https://github.com/The01Geek/devflow-autopilot/actions/runs/29201071531
-- **Artifact:** `execution-file-shape` (uploaded by the `execfile-shape-probe` job)
+- **Probe run:** `29201071531` (the `execfile-shape-probe` job in `matcher-probe.yml`)
+- **Committed evidence:** [`docs/execution-file-shape.observed.txt`](execution-file-shape.observed.txt)
+  — the probe artifact's verbatim output, committed **because GitHub artifacts expire (~90
+  days)**. Without it the OBSERVED table above would eventually become an unfalsifiable claim
+  with no surviving evidence; with it, a second reviewer can re-derive this table from bytes in
+  the repo at any point in the future. (It is redaction-safe by construction — see below.)
+- **Artifact:** `execution-file-shape` (uploaded by the `execfile-shape-probe` job; also the
+  source of the committed file above)
 - **Observed on:** `anthropics/claude-code-action@v1`, 2026-07-12
 - **Redaction held:** every string *value* leaf in the artifact is rendered as its *type* only
   (`prompt: string`, `text: string`, `command: string`) — no prompt text, repository
-  content, or check-run name left the run.
+  content, or check-run name left the run. Object **keys** are additionally filtered
+  **fail-closed**: a key is emitted only if it looks like a schema identifier (≤64 chars,
+  `^[A-Za-z_][A-Za-z0-9_.-]*$`); anything else becomes `<redacted-key>`. The observed schema
+  puts nothing untrusted in key positions, but that schema is *not a contract*, so the boundary
+  does not rely on it holding.
 
 **What this settles.** The cloud harness already emits, with **zero agent cooperation**,
 every variable DevFlow's telemetry currently depends on the agent to volunteer: per-phase
@@ -71,6 +81,15 @@ is a *dated observation of one action version*, not a specification — re-dispa
 `claude-code-action` upgrade rather than hard-coding these key names into a brittle parser.
 And presence of a field is not proof that its values are complete or correctly attributed
 per phase; a floor that consumes them must verify attribution separately.
+
+**Stated limitation — single-event JSONL reads as `encoding: object`.** A JSONL file holding
+exactly one event is byte-for-byte identical to a file holding one top-level object, so the two
+are genuinely indistinguishable and both record `object`. This is an ambiguity in the *input*,
+not a detector defect, and it is deliberately not papered over by guessing from a trailing
+newline (both shapes may carry one). It is harmless to every conclusion here: the helper slurps
+array / object / JSONL into the same array, so all five **field** determinations are identical
+either way — only the `encoding:` label differs, and only for a degenerate one-event run no real
+probe produces. `lib/test/run.sh` pins this behavior so it stays a known, asserted limitation.
 
 ### Stop-hook execution under `claude-code-action` (AC6)
 

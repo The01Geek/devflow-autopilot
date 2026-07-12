@@ -120,6 +120,16 @@ if [ "$_n" -gt 1 ]; then
 else
   case "$_first" in
     '"array"')  ENCODING=array ;;
+    # STATED LIMITATION (issue #437 review): a single-event JSONL file is byte-for-byte
+    # a single top-level object, so the two are genuinely INDISTINGUISHABLE here and both
+    # record `encoding: object`. This is a real ambiguity in the input, not a defect in
+    # the detector — and it is deliberately not papered over by guessing from a trailing
+    # newline (which both shapes may carry). It is also harmless: the `-s` slurp below
+    # normalizes array / object / JSONL into the same array, so every FIELD determination
+    # is identical either way; only the recorded `encoding:` label is affected, and only
+    # for a degenerate one-event run that no real probe produces. Documented in
+    # docs/execution-file-shape.md and pinned by lib/test/run.sh so it stays a known,
+    # asserted limitation rather than a surprise.
     '"object"') ENCODING=object ;;
     # A single top-level scalar (number/string/bool/null) is not a valid execution
     # file — treat it as unavailable rather than inventing an encoding for it.
@@ -149,9 +159,16 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
     [.. | objects] as $objs
     | (any($objs[]; .type? == "result")) as $has_result
     | (any($objs[]; has("usage") and (.usage != null))) as $usage
+    # Timing has FOUR observed carriers, not two. The shape record names duration_ms,
+    # duration_api_ms, ttft_ms and end_time as evidence, so keying presence on the first
+    # two alone would let a future action version that emits timing only via ttft_ms or
+    # end_time be recorded as `wall_clock_timing: absent` — a definitive "not carried"
+    # about a run that carried it. Accept any of the four (issue #437 review).
     | (any($objs[];
         (has("duration_ms") and (.duration_ms != null))
-        or (has("duration_api_ms") and (.duration_api_ms != null)))) as $timing
+        or (has("duration_api_ms") and (.duration_api_ms != null))
+        or (has("ttft_ms") and (.ttft_ms != null))
+        or (has("end_time") and (.end_time != null)))) as $timing
     | (any($objs[]; .type? == "tool_use")) as $tooluse
     | (any($objs[]; has("subagent_type") and (.subagent_type != null))) as $subagent
     # permission_denials has TWO carriers, and reading only the array misreports the
@@ -168,15 +185,33 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
     # would be the mirror-image error (the valid-falsy rule in CLAUDE.md).
     # NOTE: no ASCII apostrophes in this comment — it sits inside a bash single-quoted
     # jq program, where one would terminate the string (SC1011/SC1073).
+    #
+    # The count may arrive as a NUMBER or as a digit STRING. CLAUDE.md records that
+    # permission_denials_count "publishes a digit string", so filtering on `numbers`
+    # alone would drop the string carrier and record `absent` for a run that had
+    # denials — the same wrong-direction misreport, one type over. Normalize both to a
+    # number first; a non-digit string (the literal "unavailable") normalizes to null,
+    # which is correctly NOT a presence signal.
     | (any($objs[];
         (has("permission_denials") and (.permission_denials != null))
-        or ((.permission_denials_count? | numbers) // 0) > 0)) as $denials
+        or (((.permission_denials_count? | if type == "string" then (tonumber? // null) else numbers end) // 0) > 0))) as $denials
     | det($has_result; $usage)    as $u
     | det($has_result; $timing)   as $w
     | det($has_result; $tooluse)  as $t
     | det($has_result; $subagent) as $s
     | det($has_result; $denials)  as $p
-    | ( [ $objs[] | to_entries[] | "\(.key): \(.value | type)" ] | unique ) as $struct
+    # KEY REDACTION — fail closed. Values are already reduced to their `type`, so the only
+    # remaining channel by which untrusted bytes could reach the artifact is a KEY position.
+    # The observed schema puts nothing untrusted in keys, but that schema is explicitly NOT a
+    # public contract, so trusting it is the assumption this whole issue exists to stop making:
+    # a future action version placing a tool result, a check-run name, or user content in a key
+    # would walk straight through the AC2 redaction boundary. So a key is emitted verbatim ONLY
+    # when it looks like a schema identifier — a bounded-length, conservative charset — and any
+    # other key is replaced by the constant <redacted-key>. Fail-closed: an unrecognized key
+    # loses its NAME (a shape record is slightly poorer) rather than leaking its CONTENT.
+    | def safekey: if (type == "string") and (length <= 64) and test("^[A-Za-z_][A-Za-z0-9_.-]*$")
+                   then . else "<redacted-key>" end;
+      ( [ $objs[] | to_entries[] | "\(.key | safekey): \(.value | type)" ] | unique ) as $struct
     | [ "usage: \($u)",
         "wall_clock_timing: \($w)",
         "tool_use: \($t)",

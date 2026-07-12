@@ -27590,6 +27590,37 @@ assert_eq "#437 exec-shape(denials): count-only shape reports 'present', not 'ab
 # error in the other direction, so pin it explicitly.
 assert_eq "#437 exec-shape(denials): valid-falsy count:0 stays 'absent' (refused nothing)" "yes" \
   "$(bash "$EES" "$EES_FIX/exec-shape-denials-countzero.json" 2>/dev/null | grep -qxF 'permission_denials: absent' && echo yes || echo no)"
+# CLAUDE.md records that permission_denials_count "publishes a DIGIT STRING". Filtering the
+# count on jq `numbers` alone would drop that carrier and report `absent` for a run that HAD
+# denials — the same wrong-direction misreport as the array-only read, one type over.
+assert_eq "#437 exec-shape(denials): a digit-STRING count ('3') reports 'present'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-countstring.json" 2>/dev/null | grep -qxF 'permission_denials: present' && echo yes || echo no)"
+
+# Timing has FOUR observed carriers. Keying on duration_ms/duration_api_ms alone would record
+# a definitive `absent` for a future action version that emits timing only via ttft_ms/end_time.
+assert_eq "#437 exec-shape(timing): ttft_ms/end_time-only run reports 'present', not 'absent'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-timing-ttftonly.json" 2>/dev/null | grep -qxF 'wall_clock_timing: present' && echo yes || echo no)"
+
+# AC2 SECURITY BOUNDARY, key position. Values are already type-reduced, so a KEY is the only
+# remaining channel for untrusted bytes. The observed schema puts nothing untrusted in keys —
+# but that schema is explicitly not a contract, so the boundary must not depend on it. Assert on
+# the EMITTED BYTES: the hostile key's content must not appear anywhere in the output.
+assert_eq "#437 exec-shape(redaction): a hostile KEY is replaced by <redacted-key>" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key.json" 2>/dev/null | grep -qF '<redacted-key>' && echo yes || echo no)"
+assert_eq "#437 exec-shape(redaction): hostile key CONTENT never reaches the emitted bytes" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key.json" 2>/dev/null | grep -qiE 'SECRET_key_sentinel|ignore previous instructions' && echo no || echo yes)"
+# Schema-identifier keys must still survive verbatim — a fail-closed filter that redacted
+# everything would be "safe" and useless.
+assert_eq "#437 exec-shape(redaction): ordinary schema keys still emitted verbatim" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key.json" 2>/dev/null | grep -qxF 'duration_ms: number' && echo yes || echo no)"
+
+# STATED LIMITATION (pinned so it stays known, not surprising): a single-event JSONL file is
+# byte-identical to a single top-level object, so it records `encoding: object`. Field
+# determinations are unaffected (the slurp normalizes all three encodings) — assert both halves.
+assert_eq "#437 exec-shape(encoding): single-event JSONL records 'object' (stated limitation)" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-oneline-jsonl.json" 2>/dev/null | grep -qxF 'encoding: object' && echo yes || echo no)"
+assert_eq "#437 exec-shape(encoding): the JSONL/object ambiguity does NOT affect field determination" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-oneline-jsonl.json" 2>/dev/null | grep -qxF 'usage: present' && echo yes || echo no)"
 rm -rf "$EES_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -27653,6 +27684,47 @@ assert_eq "#437 stop-hook(AC7): unavailable carries a null count, never 0" "null
 # Still fires: an unestablished token shape must NOT cost us the AC6 firing observation.
 assert_eq "#437 stop-hook(AC6): breadcrumb still written when the transcript is unreadable" "yes" \
   "$([ -f "$(_shp_marker "$SHP_U")" ] && echo yes || echo no)"
+
+# (4b) The numeric payload fields must carry the real figures, not just the verdict — a floor
+#      built on this reads THESE, so a correct token_shape beside a wrong count is still wrong.
+assert_eq "#437 stop-hook(AC7): 'real' carries the true usage_blocks count" "2" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_R")")"
+assert_eq "#437 stop-hook(AC7): 'real' carries the true max_usage_figure" "1200" \
+  "$(jq -r '.max_usage_figure' "$(_shp_marker "$SHP_R")")"
+assert_eq "#437 stop-hook(AC7): 'placeholder' still carries its (0/1-bounded) max figure" "1" \
+  "$(jq -r '.max_usage_figure' "$(_shp_marker "$SHP_P")")"
+assert_eq "#437 stop-hook(AC7): 'absent' carries 0 blocks (read, and genuinely none)" "0" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_A")")"
+
+# (4c) An EMPTY (or not-yet-flushed) transcript is 'unavailable', NOT 'absent'. The docs warn
+#      the transcript is written asynchronously and may lag, so a Stop-time read can legitimately
+#      see nothing — that is a measurement that never happened, not a real negative. Collapsing it
+#      onto 'absent' would assert "this run genuinely had no tokens" about a file we never read.
+SHP_EMPTY="$SHP_TMP/emptytrans"; mkdir -p "$SHP_EMPTY"
+: > "$SHP_EMPTY/t.jsonl"
+_shp_payload "$SHP_EMPTY" "$SHP_EMPTY/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(AC7): empty/unflushed transcript is 'unavailable', NOT 'absent'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_EMPTY")")"
+assert_eq "#437 stop-hook(AC7): empty transcript carries null blocks, never 0" "null" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_EMPTY")")"
+
+# (4d) Readable-but-UNPARSEABLE transcript: the jq pass fails, so nothing was established.
+SHP_BAD="$SHP_TMP/badtrans"; mkdir -p "$SHP_BAD"
+printf 'not json {{{\n' > "$SHP_BAD/t.jsonl"
+_shp_payload "$SHP_BAD" "$SHP_BAD/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(AC7): readable-but-unparseable transcript is 'unavailable'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_BAD")")"
+assert_eq "#437 stop-hook(AC6): breadcrumb still written when the transcript is unparseable" "yes" \
+  "$([ -f "$(_shp_marker "$SHP_BAD")" ] && echo yes || echo no)"
+
+# (4e) Root resolution when the payload carries NO cwd: fall back to the git toplevel (else pwd),
+#      so the breadcrumb still lands where the hook-probe job looks for it. Driven from inside a
+#      real git repo whose toplevel is the temp dir.
+SHP_GIT="$SHP_TMP/gitroot"; mkdir -p "$SHP_GIT"
+git -C "$SHP_GIT" init -q 2>/dev/null
+printf '{"hook_event_name":"Stop"}' | ( cd "$SHP_GIT" && bash "$SHP" >/dev/null 2>&1 )
+assert_eq "#437 stop-hook: cwd-absent payload falls back to the git toplevel for the marker" "yes" \
+  "$([ -f "$(_shp_marker "$SHP_GIT")" ] && echo yes || echo no)"
 
 # (5) Degenerate payloads never break the session: empty stdin, malformed JSON, and a
 #     missing transcript_path each exit 0 (a non-zero Stop hook can disrupt the run).
