@@ -653,7 +653,7 @@ def _parse_denial_summary(summary):
     label_seen = False
     for m in DENIAL_SUMMARY_RE.finditer(summary):
         label_seen = True
-        token = m.group(1).strip()
+        token = m.group(1)  # `(\S*)` captures no whitespace, so no strip is needed
         # ASCII digits only (`isascii() and isdigit()`, NOT a bare `isdigit()`/`\d`, both of
         # which accept unicode digits like `²`/`٣` that no producer emits and `int()` may
         # reject): a crafted historical summary must not smuggle a non-ASCII "digit" through
