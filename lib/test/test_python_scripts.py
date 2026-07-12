@@ -3061,6 +3061,58 @@ assert_eq("#424: positive control — the same fixture with argparse intact exit
           "diff (the exit-2 above is the raised error, not an unrelated precondition)",
           0, _main_rc_on_empty_diff())
 
+# ── stale_prose_lint.prose_mask (#434 line scoping) ───────────────────────────────────────
+# The predicate is FILE-STATEFUL: fence / docstring / block-comment membership cannot be
+# decided from an added line's own text (a hunk can begin *inside* a fence, so the opening
+# delimiter is often not in the diff at all). These drive it over whole post-file content,
+# which is what the helper actually feeds it.
+assert_eq("#434: an unrecognised extension returns None — FAIL OPEN, examine every line",
+          None, stale_prose_lint.prose_mask('x.zzz', ['# Cases 1-2', 'code']))
+assert_eq("#434: a .sh mask is True only for '#' comment lines",
+          [True, False, True],
+          stale_prose_lint.prose_mask('x.sh', ['# a comment', "printf '# Cases 1-2'", '  # indented']))
+assert_eq("#434: a .go mask covers '//' comments and /* … */ interiors",
+          [True, False, True, True, True, False],
+          stale_prose_lint.prose_mask(
+              'x.go', ['// line comment', 'x := 1', '/* block', '   still block', '   end */', 'y := 2']))
+assert_eq("#434: markdown prose is True, fenced-block interior is False",
+          [True, False, False, False, True],
+          stale_prose_lint.prose_mask('x.md', ['prose', '```bash', '# Cases 1-2', '```', 'more prose']))
+# A 4-backtick fence wrapping a 3-backtick run: a naive "toggle on any ```" would invert fence
+# state for the rest of the file — mis-scoping every later line in BOTH directions.
+assert_eq("#434: a 4-backtick fence wrapping a 3-backtick run closes on the 4-run, not the 3",
+          [False, False, False, True],
+          stale_prose_lint.prose_mask('x.md', ['````md', '```', '````', 'prose after']))
+# An unclosed fence fails OPEN: a stray backtick run must not un-examine the file's tail.
+assert_eq("#434: an UNCLOSED fence fails open (its region stays prose, not code)",
+          [True, True], stale_prose_lint.prose_mask('x.md', ['```', 'still examined']))
+# Python: a real docstring is prose; a claim-shaped assigned string literal is fixture DATA.
+assert_eq("#434: a .py module docstring is prose; an assigned triple-quoted literal is not",
+          [True, False, False],
+          stale_prose_lint.prose_mask(
+              'x.py', ['"""Cases 1-2 below."""', 'FIXTURE = """Cases 1-2 below."""', 'x = 1']))
+assert_eq("#434: a .py '#' comment is prose",
+          [True, False], stale_prose_lint.prose_mask('x.py', ['# Cases 1-2', 'x = 1']))
+# CRLF and a UTF-8 BOM must not hide a comment marker (consumer Windows repos).
+assert_eq("#434: a CRLF '#' comment is still prose (trailing \\r stripped)",
+          [True], stale_prose_lint.prose_mask('x.sh', ['# Cases 1-2\r']))
+assert_eq("#434: a BOM before '#' does not hide the comment marker",
+          [True], stale_prose_lint.prose_mask('x.sh', ['﻿# Cases 1-2']))
+assert_eq("#434: an uppercase extension is matched case-insensitively (.MD is markdown prose)",
+          [True, True], stale_prose_lint.prose_mask('X.MD', ['prose', 'more prose']))
+# Extensionless / dotfile paths fall open (None), never to "examine nothing".
+assert_eq("#434: an extensionless path falls OPEN (None), never to no-checking",
+          None, stale_prose_lint.prose_mask('CHANGELOG', ['Cases 1-2']))
+assert_eq("#434: Makefile/Dockerfile are recognised '#'-comment basenames",
+          [True, False], stale_prose_lint.prose_mask('Makefile', ['# Cases 1-2', 'all:']))
+
+# git C-quotes a non-ASCII path; left encoded it would fail `git show` AND land on the
+# unrecognised arm for a reason unrelated to its type.
+assert_eq("#434: a C-quoted non-ASCII path is decoded back to real text",
+          {'café.md': {1: 'prose'}},
+          stale_prose_lint.parse_diff(
+              '--- a/x\n+++ "b/caf\\303\\251.md"\n@@ -0,0 +1,1 @@\n+prose\n'))
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)

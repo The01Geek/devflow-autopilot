@@ -8,16 +8,21 @@ standalone review: **diff-added prose asserting counts, ranges, sums, or absolut
 that the same PR's later commits outgrow or falsify**. Modeled on
 ``lib/test/pin-corpus-lint.py`` (deterministic scanner + fail-closed accounting).
 
-The four deterministic rule classes, each evaluated over **every diff-added line** of every
-path in the supplied diff and resolved against the **post-diff file state**:
+The four deterministic rule classes, each evaluated over **diff-added comment / prose lines**
+and resolved against the **post-diff file state**:
 
-**Known scope limitation (do not read the rules below as comment/prose-scoped).** There is no
-comment gate, no file-type gate, and no path filter: ``examine_file`` examines every added
-line, code included. The rules are prose-*shaped*, so code lines rarely match — but they do:
-a shell fixture line whose argument is a counted claim (``printf '%s\\n' '# Cases 19-32 …'``)
-is examined exactly like a real header. That is the helper's dominant false-positive source,
-and narrowing the examined set to genuine comment/prose lines is tracked separately. Stating
-a narrower scope here than the code implements would be the very defect this lint detects.
+**Scoping (issue #434).** A claim is prose. A line of *code* that merely contains claim-shaped
+text — a shell fixture string, an assertion name — is data, not an assertion about the file,
+so it is not examined; ``prose_mask`` decides this per file type (markdown-family prose outside
+fenced blocks; ``#`` comments; ``//`` comments and ``/* … */`` interiors; Python ``#`` comments
+plus real docstrings, resolved with ``ast``). The same predicate scopes R4's *permit referent*,
+so a code line can neither raise a claim nor contradict one. **An unrecognised file type fails
+OPEN — every added line is examined, exactly as before — with a stderr breadcrumb.** Never the
+reverse: a closed allowlist would silently reduce a consumer repo in an unlisted language to a
+permanent no-op (empty output, exit 0, forever) while this header still advertised the check.
+Deliberately NOT examined (accepted, not accidental): ``.sh`` heredoc prose, YAML block-scalar
+prose, trailing comments after code, and ``#`` comments inside ```` ```bash ```` fences in
+markdown. None of the four historical escape shapes lived on those surfaces.
 
 * **R1 range-outgrowth.** A ``Cases A-B`` header whose forward region (the lines
   after it in the post-diff file) contains a ``Case N`` with ``N > B`` — the header
@@ -71,6 +76,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import subprocess
 import sys
@@ -153,6 +159,167 @@ class InternalError(Exception):
     ``FileNotFoundError``, caught by ``main``'s catch-all. This is the single raise site."""
 
 
+# ── Line scoping (issue #434) ─────────────────────────────────────────────────────────
+# A claim is prose. A line of CODE that merely *contains* claim-shaped text — a shell
+# fixture string, an assertion name — is data, not an assertion about the file, and grading
+# it is the helper's dominant false-positive source. These tables decide which lines can
+# carry a claim, per file type.
+#
+# The `None` (unrecognised) arm is the load-bearing one: it FAILS OPEN to "examine every
+# line" — today's behavior — never to "examine nothing". A closed allowlist would silently
+# reduce a consumer repo in an unlisted language to a permanent no-op (empty TSV, exit 0,
+# forever) while the docs still advertised the check. A file type we forgot must degrade to
+# the status quo, not to no checking.
+_PROSE_EXTS = frozenset({".md", ".markdown", ".mdx", ".rst", ".adoc", ".txt"})
+_HASH_EXTS = frozenset({".sh", ".bash", ".zsh", ".yml", ".yaml", ".jq", ".toml",
+                        ".rb", ".tf", ".ini", ".cfg"})
+_HASH_BASENAMES = frozenset({"makefile", "dockerfile"})
+_SLASH_EXTS = frozenset({".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java", ".c", ".h",
+                         ".cpp", ".cc", ".hpp", ".cs", ".swift", ".kt", ".scala", ".php"})
+# A fence opener/closer: >=3 backticks or >=3 tildes. The RUN LENGTH is captured because a
+# fence closes only on a run of the SAME character that is at least as long as its opener —
+# which is what lets a 4-backtick fence wrap 3-backtick examples (CLAUDE.md does exactly
+# this). A naive "toggle on any ```" inverts state for the rest of the file: mass mis-scoping
+# in BOTH directions at once.
+_FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+
+_unrecognised_exts = set()  # reported once, at the end of the run (see `run`)
+
+
+def _norm_line(line):
+    """A line with its trailing CR and a leading UTF-8 BOM removed.
+
+    A CRLF file (routine in a consumer Windows repo) otherwise leaves ``\\r`` on every line,
+    so a fence marker reads as ``` + CR`` and never matches — the whole file's code blocks
+    would be scoped as prose. A BOM is not whitespace to ``str.strip()``, so it hides a
+    leading ``#`` and silently un-examines the first comment of the file."""
+    return line.lstrip("﻿").rstrip("\r")
+
+
+def _path_kind(path):
+    """'prose' | 'hash' | 'slash' | 'py' | None (unrecognised -> examine every line)."""
+    base = path.rsplit("/", 1)[-1].lower()
+    if base in _HASH_BASENAMES:
+        return "hash"
+    dot = base.rfind(".")
+    if dot <= 0:  # no extension (or a dotfile like `.gitignore`)
+        _unrecognised_exts.add(base if dot < 0 else base[dot:])
+        return None
+    ext = base[dot:]
+    if ext == ".py":
+        return "py"
+    if ext in _PROSE_EXTS:
+        return "prose"
+    if ext in _HASH_EXTS:
+        return "hash"
+    if ext in _SLASH_EXTS:
+        return "slash"
+    _unrecognised_exts.add(ext)
+    return None
+
+
+def _fenced_mask(lines):
+    """True for each line that sits INSIDE a fenced code block (the fence markers included).
+
+    An UNCLOSED fence fails OPEN: its opener is not treated as a fence at all, so the rest of
+    the file stays prose. The alternative — treating everything after a stray backtick run as
+    code — would silently un-examine the tail of a file, a false negative created by a typo.
+    """
+    inside = [False] * len(lines)
+    open_at = None
+    marker = ""
+    for i, raw in enumerate(lines):
+        m = _FENCE_RE.match(_norm_line(raw))
+        if not m:
+            continue
+        run = m.group(1)
+        if open_at is None:
+            open_at, marker = i, run
+        elif run[0] == marker[0] and len(run) >= len(marker):
+            for j in range(open_at, i + 1):
+                inside[j] = True
+            open_at, marker = None, ""
+    return inside  # an unclosed opener leaves its region False — fail open
+
+
+def _py_docstring_mask(lines, path):
+    """True for each line inside a module/class/function docstring.
+
+    The helper's own counted claims live in docstrings, so `#`-comments-only scoping would
+    lose them. Resolved with the stdlib ``ast`` over the post-diff file rather than by
+    counting triple quotes: a naive quote-toggle classifies ANY triple-quoted string as a
+    docstring, so fixture data in a test file (claim-shaped text inside a string literal)
+    would be examined — re-creating in Python the exact false-positive class this change
+    removes from shell. On a file that does not parse at ``--rev`` the mask is empty
+    (`#`-comments only) and a breadcrumb says so — never a silent skip."""
+    mask = [False] * len(lines)
+    try:
+        tree = ast.parse("\n".join(lines))
+    except (SyntaxError, ValueError) as exc:
+        sys.stderr.write(
+            f"stale-prose-lint.py: {path} does not parse at --rev ({type(exc).__name__}); "
+            f"scoping it to '#' comments only (docstring claims in this file are not "
+            f"examined)\n")
+        return mask
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+            continue
+        body = getattr(node, "body", None)
+        if not body:
+            continue
+        first = body[0]
+        if not (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)):
+            continue
+        start = getattr(first, "lineno", 0) - 1
+        end = getattr(first, "end_lineno", start + 1) - 1
+        for j in range(max(start, 0), min(end + 1, len(mask))):
+            mask[j] = True
+    return mask
+
+
+def prose_mask(path, lines):
+    """Per-line 'may carry a claim' mask for ``path``, or None to examine every line.
+
+    None (the unrecognised-type arm) means FAIL OPEN — see the table above."""
+    kind = _path_kind(path)
+    if kind is None:
+        return None
+    if kind == "prose":
+        return [not inside for inside in _fenced_mask(lines)]
+    if kind == "hash":
+        return [_norm_line(ln).lstrip().startswith("#") for ln in lines]
+    if kind == "py":
+        doc = _py_docstring_mask(lines, path)
+        return [doc[i] or _norm_line(ln).lstrip().startswith("#")
+                for i, ln in enumerate(lines)]
+    # slash: `//` line comments plus `/* … */` block-comment interiors.
+    mask = []
+    in_block = False
+    for ln in lines:
+        text = _norm_line(ln).lstrip()
+        if in_block:
+            mask.append(True)
+            if "*/" in text:
+                in_block = False
+            continue
+        if text.startswith("/*"):
+            mask.append(True)
+            if "*/" not in text[2:]:
+                in_block = True
+            continue
+        mask.append(text.startswith("//"))
+    return mask
+
+
+def _may_carry_claim(mask, idx):
+    """True when line index ``idx`` may carry a claim. A None mask examines everything."""
+    if mask is None:
+        return True
+    return 0 <= idx < len(mask) and mask[idx]
+
+
 def _run_git(args):
     """Run a git command, returning (rc, stdout_text, stderr_text). Never raises on non-zero.
 
@@ -184,6 +351,22 @@ def _run_git(args):
         errors="replace",
     )
     return proc.returncode, proc.stdout, proc.stderr
+
+
+def _unquote_path(target):
+    """Decode git's C-quoted path form (``"b/caf\\303\\251.md"``) back to real text.
+
+    With the default ``core.quotepath``, a non-ASCII path is emitted quoted and
+    octal-escaped. Left as-is, the quotes and escapes reach ``git show`` (which then fails)
+    and the extension test (which sees a trailing ``"`` and no known suffix) — so the file
+    would land on the unrecognised arm for a reason that has nothing to do with its type."""
+    if not (len(target) >= 2 and target.startswith('"') and target.endswith('"')):
+        return target
+    try:
+        raw = target[1:-1].encode("latin-1").decode("unicode_escape").encode("latin-1")
+        return raw.decode("utf-8", errors="replace")
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        return target[1:-1]
 
 
 def parse_diff(diff_text):
@@ -226,6 +409,7 @@ def parse_diff(diff_text):
                     path = None
                     added = None
                     continue
+                target = _unquote_path(target)
                 # Strip a leading "b/" (git) prefix.
                 path = target[2:] if target.startswith("b/") else target
                 added = files.setdefault(path, {})
@@ -344,8 +528,10 @@ def examine_file(path, added, lines, rows):
 
     ``added`` maps post-image line numbers to added text; ``lines`` is the whole
     post-diff file (0-indexed list). A claim is examined only when it sits on an
-    added line.
+    added line **that may carry a claim** — a comment or prose line, per ``prose_mask``.
+    A code line that merely contains claim-shaped text is data, not an assertion.
     """
+    mask = prose_mask(path, lines)
     for post_ln in sorted(added):
         text = added[post_ln]
         idx = post_ln - 1  # 0-based index into `lines`
@@ -355,6 +541,8 @@ def examine_file(path, added, lines, rows):
             idx = _locate(lines, text)
             if idx is None:
                 continue
+        if not _may_carry_claim(mask, idx):
+            continue
 
         # R1 — range outgrowth
         rm = _RANGE_RE.search(text)
@@ -411,7 +599,7 @@ def examine_file(path, added, lines, rows):
                     op = m.group(1)
                     break
             if op is not None:
-                if _permitted_elsewhere(lines, idx, op):
+                if _permitted_elsewhere(lines, idx, op, mask):
                     rows.append(Row(STALE, "R4", path, post_ln,
                                     f"deny-absolute forbids `{op}` but the same file asserts it permitted — {_excerpt(text)}"))
                 else:
@@ -420,10 +608,19 @@ def examine_file(path, added, lines, rows):
             continue
 
 
-def _permitted_elsewhere(lines, claim_idx, op):
-    """True when a line OTHER than the claim asserts operator ``op`` is permitted."""
+def _permitted_elsewhere(lines, claim_idx, op, mask=None):
+    """True when a COMMENT/PROSE line other than the claim asserts operator ``op`` is permitted.
+
+    The permit referent is scoped by the same predicate as the claim (issue #434). A code line
+    is not an assertion about the file, so it cannot contradict one: before this, a shell
+    fixture string like ``'An in-workspace `>` redirect … is permitted.'`` acted as a real
+    "permit" and flipped a genuine comment deny-absolute to STALE. That is an independent
+    false-positive source from the claim side, and scoping only the claim would leave it
+    minting fresh false positives forever."""
     for i, line in enumerate(lines):
         if i == claim_idx:
+            continue
+        if not _may_carry_claim(mask, i):
             continue
         if not _PERMIT_RE.search(line):
             continue
@@ -463,6 +660,16 @@ def run(rev, diff_text):
                                 f"post-diff file not resolvable at rev — {_excerpt(added[post_ln])}"))
             continue
         examine_file(path, added, lines, rows)
+
+    # The fail-open arm must be DISCOVERABLE, not silent: a consumer whose language is not in
+    # the scoping tables keeps today's examine-every-line behavior (no coverage is lost), but
+    # they get the false positives that behavior implies — and with no breadcrumb they would
+    # have no way to learn why, or that adding their type is the fix.
+    if _unrecognised_exts:
+        sys.stderr.write(
+            "stale-prose-lint.py: no comment/prose scoping rule for "
+            f"{', '.join(sorted(_unrecognised_exts))} — every added line in those files was "
+            "examined (fail-open: coverage is never silently dropped for an unlisted type)\n")
 
     stale = False
     for row in rows:

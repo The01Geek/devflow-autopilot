@@ -24702,7 +24702,10 @@ assert_eq "#423 T2/R2 reconciled sibling (7 bullets) exits 0" "0" "$(spl_rc "$SP
 # (→ UNRESOLVABLE → exit 0) would leave this GREEN while silently disabling R2 detection.
 assert_eq "#423 T2/R2 reconciled sibling emits a VERIFIED R2 row" "yes" "$(spl_has "$SPR" VERIFIED R2)"
 
-# T3 → R3b two-item count-locked ("a X and a Y … both") and R3 numeric #336 header.
+# T3 → R3b, the two-item count-locked shape, plus the R3 numeric #336 header. (Worded to
+# avoid restating the pattern itself: this comment is examined by the lint, and quoting the
+# shape verbatim here would make the comment a claim about its own fixture — reworded
+# drift-proof per the count-locked policy rather than suppressed.)
 printf '%s\n' 'We assert a foo and a bar both exist:' '  assert foo' '  assert bar' '  assert baz' > "$SPF"
 SPR="$(spl_repo "$SPF")"
 assert_eq "#423 T3/R3b two-item count-locked mismatch (3 asserts) exits 1" "1" "$(spl_rc "$SPR")"
@@ -25062,6 +25065,132 @@ SPR="$(spl_repo "$SPF")"
 assert_eq "#424 T15 a plus-plus-leading content line does not swallow the file header (STALE still found)" "1" "$(spl_rc "$SPR")"
 assert_eq "#424 T15 the STALE row still names the real file (no phantom retarget)" \
   "fixture.txt" "$(spl_field_base "$SPR" "$SP_EMPTY_TREE" STALE R1 3)"
+
+# ── #434 line scoping: a claim is prose; a CODE line carrying claim-shaped text is data ──
+# Same sandbox shape as spl_repo, but the fixture's FILENAME (hence its type) is the variable
+# under test.
+spl_repo_named() {  # content_file fixture_name -> repo dir
+  local d; d="$(git_sandbox '#434 spl typed repo')"
+  git -C "$d" init -q >/dev/null 2>&1
+  cp "$1" "$d/$2"
+  git -C "$d" -c user.email=t@t -c user.name=t add "$2" >/dev/null 2>&1
+  git -C "$d" -c user.email=t@t -c user.name=t commit -qm c1 >/dev/null 2>&1
+  printf '%s\n' "$d"
+}
+
+# The false-positive class this change exists to close: a SHELL CODE line whose argument is a
+# counted claim. Positive control on the SAME fixture: the identical claim on a `#` comment
+# line of the same file still fires — so "no row" is attributable to the scoping predicate,
+# not to some unrelated precondition that would have rejected the fixture anyway.
+SPF="$(probe_tmp '#434 sh code line')"
+printf '%s\n' "printf '%s\\\\n' '# Cases 19-32 are exercised below' 'Case 37 delta'" \
+              'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.sh)"
+assert_eq "#434 a shell CODE line carrying a counted claim produces NO row (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 the code line emits no STALE R1 row" "no" "$(spl_has "$SPR" STALE R1)"
+SPF="$(probe_tmp '#434 sh comment line')"
+printf '%s\n' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.sh)"
+assert_eq "#434 POSITIVE CONTROL: the same claim on a '#' COMMENT line of a .sh still fires (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 positive control emits the STALE R1 row" "yes" "$(spl_has "$SPR" STALE R1)"
+
+# Consumer-language coverage this change ADDS: `//`-comment languages were never examined as
+# comments before (they were examined as raw lines, so a claim fired — but so did every code
+# line). A .go comment claim must still fire.
+SPF="$(probe_tmp '#434 go comment')"
+printf '%s\n' '// Cases 1-12 covered below' 'Case 14 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.go)"
+assert_eq "#434 a '//' comment claim in a .go file is examined (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 the .go comment emits a STALE R1 row" "yes" "$(spl_has "$SPR" STALE R1)"
+
+# FAIL-OPEN default (the load-bearing arm). An unrecognised extension keeps today's
+# examine-every-line behavior — a consumer in an unlisted language must never silently lose
+# coverage. Asserted on a CODE-shaped line, so a closed allowlist would show up as exit 0.
+SPF="$(probe_tmp '#434 unknown ext')"
+printf '%s\n' 'Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.zzz)"
+assert_eq "#434 an UNRECOGNISED file type fails OPEN — every added line still examined (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 fail-open emits the STALE row (coverage is never silently dropped)" "yes" "$(spl_has "$SPR" STALE R1)"
+assert_eq "#434 fail-open is DISCOVERABLE: stderr names the unrecognised extension" "yes" \
+  "$( ( cd "$SPR" && git diff "$SP_EMPTY_TREE" HEAD | python3 "$SPL" --rev HEAD 2>&1 >/dev/null | grep -q '\.zzz' && echo yes || echo no ) )"
+
+# Markdown: prose is examined, a fenced code block is NOT.
+SPF="$(probe_tmp '#434 md fenced')"
+printf '%s\n' 'Intro prose.' '```bash' '# Cases 19-32 are exercised below' '```' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.md)"
+assert_eq "#434 a claim INSIDE a fenced code block is not examined (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+SPF="$(probe_tmp '#434 md prose')"
+printf '%s\n' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.md)"
+assert_eq "#434 POSITIVE CONTROL: the same claim as .md PROSE (outside any fence) fires (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+# A 4-backtick fence wrapping 3-backtick examples (CLAUDE.md does this). A naive toggle on any
+# ``` run inverts fence state for the rest of the file — mass mis-scoping in both directions.
+SPF="$(probe_tmp '#434 md nested fence')"
+printf '%s\n' '````markdown' '```' '````' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.md)"
+assert_eq "#434 a 4-backtick fence wrapping a 3-backtick run closes correctly (claim after it IS examined)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+# An UNCLOSED fence fails OPEN — a stray backtick run must not un-examine the rest of the file.
+SPF="$(probe_tmp '#434 md unclosed fence')"
+printf '%s\n' '```' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.md)"
+assert_eq "#434 an UNCLOSED fence fails open (the tail of the file stays examined, exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+
+# Python: a real docstring is examined; a claim-shaped STRING LITERAL (fixture data) is not.
+SPF="$(probe_tmp '#434 py docstring')"
+printf '%s\n' '"""Cases 19-32 are exercised below."""' 'x = 1  # Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.py)"
+assert_eq "#434 a claim in a .py DOCSTRING is examined (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+SPF="$(probe_tmp '#434 py literal')"
+printf '%s\n' 'FIXTURE = """Cases 19-32 are exercised below."""' 'OTHER = "Case 37 delta"' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.py)"
+assert_eq "#434 a claim in a .py assigned STRING LITERAL (fixture data) is NOT a docstring (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+# A .py that does not parse degrades to '#'-comments-only WITH a breadcrumb — never a silent skip.
+SPF="$(probe_tmp '#434 py unparseable')"
+printf '%s\n' 'def broken(  :' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.py)"
+assert_eq "#434 an unparseable .py still examines its '#' comments (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 an unparseable .py says so on stderr (never a silent skip)" "yes" \
+  "$( ( cd "$SPR" && git diff "$SP_EMPTY_TREE" HEAD | python3 "$SPL" --rev HEAD 2>&1 >/dev/null | grep -q 'does not parse at --rev' && echo yes || echo no ) )"
+
+# CRLF + BOM: a consumer Windows repo must not silently lose its comments.
+SPF="$(probe_tmp '#434 crlf bom')"
+printf '\xef\xbb\xbf# Cases 19-32 are exercised below\r\nCase 37 delta\r\n' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.sh)"
+assert_eq "#434 a BOM + CRLF '#' comment is still examined (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+
+# R4's PERMIT REFERENT is scoped by the same predicate — a CODE line cannot 'permit' an
+# operator and so cannot contradict a genuine comment deny-absolute. Both directions, same file.
+SPF="$(probe_tmp '#434 r4 code permit')"
+printf '%s\n' '# The skill must never emit ANY `>` redirect anywhere.' \
+              "echo 'An in-workspace \`>\` redirect of a granted head is permitted.'" > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.sh)"
+assert_eq "#434 R4: a CODE-line 'permit' does not contradict a comment deny-absolute (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 R4: no STALE row from a code-line permit" "no" "$(spl_has "$SPR" STALE R4)"
+SPF="$(probe_tmp '#434 r4 comment permit')"
+printf '%s\n' '# The skill must never emit ANY `>` redirect anywhere.' \
+              '# An in-workspace `>` redirect of a granted head is permitted.' > "$SPF"
+SPR="$(spl_repo_named "$SPF" fixture.sh)"
+assert_eq "#434 R4 POSITIVE CONTROL: a COMMENT-line permit DOES contradict it (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#434 R4: the comment-line permit emits the STALE R4 row" "yes" "$(spl_has "$SPR" STALE R4)"
+
+# The lint is CLEAN against its OWN branch diff — the whole point of #434, and the assertion
+# that stops the fixture corpus from silently re-accumulating false positives.
+#
+# Two preconditions, because this assertion grades COMMITTED state (`--rev HEAD` over an
+# `origin/main...HEAD` diff) while the suite otherwise grades the WORKING TREE. With
+# uncommitted edits the two disagree, so a failure would be an artifact of that skew rather
+# than a real regression — a dirty tree (or an unresolvable base, e.g. a shallow checkout)
+# therefore reports a visible NOTE instead of a false FAIL. CI checks out a clean tree, so the
+# assertion is live exactly where it has to be.
+if ! git -C "$LIB/.." rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+  printf '  NOTE  #434 self-scan skipped — origin/main not resolvable in this checkout\n'
+elif [ -n "$(git -C "$LIB/.." status --porcelain 2>/dev/null)" ]; then
+  printf '  NOTE  #434 self-scan skipped — working tree dirty (this check grades committed HEAD)\n'
+else
+  assert_eq "#434 the lint is CLEAN against this repo's own branch diff (self-scan exit 0)" "0" \
+    "$( ( cd "$LIB/.." && git diff origin/main...HEAD | python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $? ) )"
+fi
+
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
