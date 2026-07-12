@@ -2746,6 +2746,131 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
   'prefer using that consumer as the guard itself' "$RCR_SKILL"
 # FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
+# ── issue #443: the mandatory Step 3.6 fresh-context audit in /devflow:create-issue ──
+# The deliverable is agent-executed skill prose plus one tracked extension file; no runtime
+# code path executes in CI, so the automated boundary is the repo's skill-contract mechanism:
+# pins over the rendered SKILL surfaces. Each pinned literal below IS the operative contract
+# sentence itself (a self-contained skill-prose requirement, not a framing clause introducing
+# one), so there is no operative-vs-framing ambiguity for assert_pin_red_under to discriminate
+# here. It is still used over plain assert_pin_unique for its NON-VACUITY proof: each mutation
+# excises the operative requirement clause (the whole pinned sentence or a fragment of it),
+# re-introducing the guarded regression, so every pin is proven to flip PASS->FAIL when that
+# clause is removed, not merely to be present. (#375's framing-vs-operative discrimination is
+# exercised where the mutation deletes a DIFFERENT line than the pinned literal; here the
+# mutation targets the pinned sentence itself, so the flip is a presence-of-the-operative-clause
+# proof. The surface-presence pins that follow the mutation pins use plain assert_pin_unique.)
+CI443_SKILL="$LIB/../skills/create-issue/SKILL.md"
+CI443_EXT="$LIB/../.devflow/prompt-extensions/create-issue.md"
+# Verdict-line requirement (maps to the audit-prompt AC): removing "legal values are exactly"
+# guts the FILE/REVISE verdict contract.
+assert_pin_red_under "#443: Step 3.6 mandates the FILE/REVISE verdict line" \
+  'whose only two legal values are exactly' 's/legal values are exactly//' "$CI443_SKILL"
+# Presence (not uniqueness): both verdict values recur across the template, the summary example,
+# and the act-on-the-verdict prose — the verdict-line CONTRACT is pinned uniquely above. Use
+# pin_count (>=1), NOT grep_present, whose call sites are meta-pinned to exactly two.
+assert_eq "#443: Step 3.6 names the VERDICT: FILE legal value" "yes" \
+  "$([ "$(pin_count 'VERDICT: FILE' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
+assert_eq "#443: Step 3.6 names the VERDICT: REVISE legal value" "yes" \
+  "$([ "$(pin_count 'VERDICT: REVISE' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
+# Information-diet exclusion clause (maps to the information-diet AC): removing it re-anchors
+# the auditor on the drafting context — the exact regression the fresh-context mechanism prevents.
+assert_pin_red_under "#443: audit prompt omits conversation, Step 1 findings, and the derivation artifact" \
+  'omits the drafting conversation, the Step 1 findings report, and the Step 2 derivation artifact' \
+  's/omits the drafting conversation//' "$CI443_SKILL"
+assert_pin_unique '#443: audit prompt refers to "the draft", never "your draft"' 'never "your draft"' "$CI443_SKILL"
+# Out-of-bounds on-disk artifacts (maps to the information-diet AC): the void clause is what
+# stops repository read access from silently re-anchoring the auditor on the drafter's reasoning.
+assert_pin_red_under "#443: on-disk drafting artifacts are declared out of bounds (findings void)" \
+  'any finding derived from those files is void' 's/derived from those files is void//' "$CI443_SKILL"
+# Synchronous-dispatch sentence (maps to the dispatch AC): removing the blocking-wait wording
+# lets a launch acknowledgment be misread as the auditor's return.
+assert_pin_red_under "#443: Step 3.6 dispatch waits for the completed result (synchronous)" \
+  "wait for the subagent's completed result before proceeding" \
+  's/completed result before proceeding//' "$CI443_SKILL"
+# Degraded arm (maps to the degraded-arm AC): removing the enumerated-failures gate turns the
+# attempt-first dispatch into a pre-detected skip.
+assert_pin_red_under "#443: degraded arm fires only on the enumerated failures (attempt-first)" \
+  'Fall to the degraded arm **only** on the enumerated failures' \
+  's/on the enumerated failures//' "$CI443_SKILL"
+# Re-audit offer in the Step 4 revision loop (maps to the revision-loop AC).
+assert_pin_red_under "#443: Step 4 revision loop offers a fresh re-audit" \
+  'ask whether to dispatch a fresh Step 3.6 audit of the revised draft' \
+  's/dispatch a fresh Step 3.6 audit//' "$CI443_SKILL"
+# Dispatch-time fresh re-load of the extension (maps to the forwarding-freshness AC): removing
+# the fresh re-load lets a compaction-evicted turn-one load silently drop consumer dimensions.
+assert_pin_red_under "#443: consumer audit dimensions are re-loaded FRESH at dispatch time" \
+  'extract from that **fresh** output any section headed exactly' \
+  's/any section headed exactly//' "$CI443_SKILL"
+# Forwarding-contract heading, pinned as a COUPLED PAIR (maps to the forwarding-contract and
+# extension-file ACs): the skill's forwarding sentence and this repo's live extension must both
+# carry the exact `## Audit dimensions` heading; either side drifting turns its pin RED.
+assert_pin_unique "#443: skill forwarding contract keys on the exact ## Audit dimensions heading" \
+  'headed exactly `## Audit dimensions`' "$CI443_SKILL"
+assert_pin_unique "#443: live create-issue extension carries the exact ## Audit dimensions heading" \
+  '## Audit dimensions' "$CI443_EXT"
+# Generic dimension checklist is consumer-agnostic (maps to the dimension-checklist AC).
+assert_pin_unique "#443: generic dimensions name host-OS variance without GNU coreutils" \
+  'hosts without GNU coreutils' "$CI443_SKILL"
+assert_pin_unique "#443: generic dimensions name execution-tier permission-allowlist variance" \
+  'including their differing permission allowlists' "$CI443_SKILL"
+# Reconciliation absence pin (maps to the reconciliation AC): the stale literal must be GONE from
+# the skill (it legitimately remains in CHANGELOG.md's historical entry, so this pin is FILE-scoped).
+assert_eq "#443: SKILL no longer carries the stale 'no-subagent, all-inline model' literal" \
+  "0" "$(pin_count 'no-subagent, all-inline model' "$CI443_SKILL")"
+# Non-vacuity proof: re-introducing the stale literal makes the absence guard's count non-zero,
+# so the guard actually catches the regression rather than passing vacuously.
+CI443_MUT="$(probe_tmp '#443 no-subagent reintroduction mutation')"
+sed -E '1s/^/REINTRODUCED no-subagent, all-inline model\n/' "$CI443_SKILL" > "$CI443_MUT"
+assert_eq "#443: absence guard catches a re-introduction of the stale literal (non-vacuous)" \
+  "1" "$(pin_count 'no-subagent, all-inline model' "$CI443_MUT")"
+rm -f "$CI443_MUT"
+# Anti-deadlock guarantee (maps to the VERDICT: REVISE / re-audit AC): removing it re-opens an
+# unbounded re-audit loop that could block issue filing.
+assert_pin_red_under "#443: bounded re-audit never deadlocks filing" \
+  'the audit informs, it never deadlocks filing' 's/never deadlocks filing//' "$CI443_SKILL"
+# Mandatory never-silent audit summary line (maps to the audit-summary AC): the feature's
+# observability contract — a skipped/degraded audit must always render a summary line.
+assert_pin_red_under "#443: audit summary line is the mandatory never-silent evidence" \
+  'the summary line is the evidence it ran and which arm it took' \
+  's/the evidence it ran and which arm it took//' "$CI443_SKILL"
+# Step 4 presentation gate (maps to the artifact-gate AC): the seam that makes Step 3.6
+# mandatory rather than skippable — removing the presence check lets an un-audited draft show.
+assert_pin_red_under "#443: Step 4 presentation gate confirms this run's audit artifact exists" \
+  'confirm `.devflow/tmp/issue-audit-<slug>.md` is present' \
+  's/is present//' "$CI443_SKILL"
+# Audit-artifact write with delete-leftover-first (maps to the artifact-gate AC): mirrors the
+# Step 2 derivation-artifact discipline so the gated file can only ever be this run's.
+assert_pin_red_under "#443: audit artifact deletes any same-slug leftover before writing" \
+  'deleting any same-slug leftover first' 's/deleting any same-slug leftover first//' "$CI443_SKILL"
+# Audit-prompt template surfaces (maps to the audit-prompt AC, which requires EACH surface
+# pinned here). These are surface-PRESENCE contracts — the template must carry each named
+# element — so plain assert_pin_unique is the honest primitive (a removed/duplicated surface
+# flips count away from 1 → RED); no operative-vs-framing distinction applies to a surface pin.
+assert_pin_unique "#443: audit prompt carries the adversarial mandate (no credit for good intent)" \
+  'no credit for good intent' "$CI443_SKILL"
+assert_pin_unique "#443: audit prompt carries the pre-mortem frame (write the autopsy)" \
+  'write the autopsy' "$CI443_SKILL"
+assert_pin_unique "#443: per-finding bar requires quoting the exact draft line attacked" \
+  'quote the exact draft line it attacks' "$CI443_SKILL"
+assert_pin_unique "#443: per-finding bar reports an unverifiable claim as unverifiable" \
+  'report an unverifiable claim as unverifiable rather than asserting it' "$CI443_SKILL"
+assert_pin_unique "#443: scope exclusions judge the draft at issue altitude" \
+  'judge the draft at **issue altitude**' "$CI443_SKILL"
+assert_pin_unique "#443: scope exclusions require a concrete trigger scenario per finding" \
+  'no finding without a concrete trigger scenario' "$CI443_SKILL"
+assert_pin_unique "#443: audit prompt caps findings at five" \
+  'at most five findings' "$CI443_SKILL"
+assert_pin_unique "#443: audit prompt reserves exactly one Quiet Killer slot" \
+  '"Quiet Killer"' "$CI443_SKILL"
+assert_pin_unique "#443: the empty 'no actionable findings' output is explicitly legal" \
+  'no actionable findings' "$CI443_SKILL"
+# Audit-summary required contents (maps to the audit-summary AC — the observability contract's
+# operative fields, distinct from the never-silent rationale clause pinned above).
+assert_pin_unique "#443: audit summary states whether a consumer audit-dimensions section was appended" \
+  'whether a consumer `## Audit dimensions` section was appended' "$CI443_SKILL"
+assert_pin_unique "#443: audit summary renders the word degraded whenever the degraded arm ran" \
+  'the word "degraded"' "$CI443_SKILL"
+
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
 # regardless of that iteration's verdict (including REJECT), feeding new blinded
@@ -7874,6 +7999,12 @@ assert_eq "scaffold-pe: no .tmp temp survives a successful scaffold (atomic mv c
 # which any mention would satisfy — so the assertion pins the new reporting line.
 assert_eq "scaffold-pe: emits a creation log line on a fresh scaffold (AC 9)" "yes" \
   "$(printf '%s\n' "$SC_PE_OUT" | grep -qF 'prompt-extension example' && echo yes || echo no)"
+# Coupled-mirror guard (#443): the create-issue example the scaffolder EMITS must be byte-identical
+# to this repo's COMMITTED .devflow/prompt-extensions/create-issue.md.example, so the inert
+# `## Audit dimensions` sample cannot drift between the generator and the committed copy readers see.
+assert_eq "scaffold-pe: emitted create-issue example matches the committed copy (#443 coupled mirror)" \
+  "$(cat "$LIB/../.devflow/prompt-extensions/create-issue.md.example")" \
+  "$(cat "$SC_PE_DIR/create-issue.md.example")"
 
 # AC 7 + AC 9 (no-op half): a second run rewrites nothing (every example
 # byte-identical) and emits NO creation log line.
