@@ -481,18 +481,22 @@ checklist-generator prompts carried their batch-sliced diff **inline** through t
 context on every engine pass — a cost the shadow re-paid on top of every main-pass iteration. That
 handoff is now **by file reference** (see the blinding-boundary contract above): Phase 1.1 authors
 each batch's slice with a shell-only `awk … >`-redirect over the already-cached `diff.patch`
-(reading no `git` objects, so a shallow checkout is unaffected, and taking no filename arguments, so
-paths with spaces cannot break quoting; a `>`-redirect rather than `| tee`, so the slice is never
-echoed to the orchestrator's stdout), and Phase 1.2 passes the generator the slice's *path*. A
-guard-class-2 fail-closed fallback preserves coverage in every degraded environment: before
-dispatch the orchestrator checks the slice is non-empty with a bash builtin (`test -s`), and a
-missing/empty slice — a shallow checkout, a slice-extraction failure that left the batch file empty,
-a run-id directory hiccup — routes that batch to the full `diff.patch` path rather than a thinned
-review surface. (The fallback covers a *slice-authoring* failure over a populated `diff.patch`; a
-host with **no** `awk` at all degrades Phase 0.2's `diff.patch` build first — the whole review, not
-just the slice — so that is a different, upstream failure, not one this batch-level fallback masks.)
-The single-batch case
-passes `diff.patch` directly with no slice written. Because `awk`/`test` are already granted in
+(reading no `git` objects, so a shallow checkout is unaffected, and taking no *per-file* filename
+arguments — its only operand is the fixed run-scoped `diff.patch` path, so no changed-file path is
+ever passed and paths with spaces cannot break quoting; a `>`-redirect rather than `| tee`, so the
+slice is never echoed to the orchestrator's stdout), and Phase 1.2 passes the generator the slice's
+*path*. A guard-class-2 fail-closed fallback preserves coverage in every degraded environment: the
+slice is gated on the authoring command's **own exit status** first and a bash-builtin `test -s`
+non-empty check second (an `&&`-chain — a size check alone would wave through a non-empty but
+**truncated** slice from a partial write, and the batch would review a thinned surface with the
+missing files silently unrepresented), and any observable slice-authoring failure — a non-zero
+`awk`/redirect exit, or a missing/empty slice from a shallow checkout or a run-id directory hiccup —
+routes that batch to the full `diff.patch` path. The residual window is named, not papered over: a
+write error `awk` itself neither reports nor exits non-zero on would still yield a truncated slice.
+(The fallback covers a *slice-authoring* failure over a populated `diff.patch`; a host with **no**
+`awk` at all degrades Phase 0.2's `diff.patch` build first — the whole review, not just the slice —
+so that is a different, upstream failure, not one this batch-level fallback masks.) The single-batch
+case passes `diff.patch` directly with no slice written. Because `awk`/`test` are already granted in
 both cloud allowlists, this adds **no** allowlist entry.
 
 ### Non-droppable shadow telemetry, and a promoted-shadow floor

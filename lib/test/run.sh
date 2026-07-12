@@ -15270,22 +15270,34 @@ printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_G/i
 ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_G" --slug pr-1 ) >/dev/null 2>&1
 assert_eq "et-shadow-floor(g): a non-object (malformed) .shadow is left untouched, not overwritten (fail-closed)" "APPROVE" \
   "$(jq -r '.shadow' "$SHF_G/iter-1.json" 2>/dev/null)"
-# (g2) the VALID-FALSY row of the adversarial matrix CLAUDE.md requires for a parser: a `.shadow`
-# of `false` / `0` / `""` is PRESENT but falsy. The guard keys on `.shadow == null`, so each is
-# correctly left untouched — but an `if .shadow then …` / `// ` style rewrite (the documented
-# valid-falsy coercion bug) would treat all three as absent and CLOBBER a real block. Fixture (g)
-# covers only a truthy non-object string, which such a rewrite would still skip; only these rows
-# distinguish the two guards.
-for _fv in 'false' '0' '""'; do
-  _slug="$(printf '%s' "$_fv" | tr -d '"')"; _slug="${_slug:-emptystr}"
+# (g2) completes the present-but-not-an-object arm of the adversarial matrix CLAUDE.md requires for
+# a parser. The load-bearing rows are the VALID-FALSY ones (`false` / `0` / `""`): each is PRESENT,
+# so the `.shadow == null` guard correctly leaves it alone — but an `if .shadow then …` / `// `-style
+# rewrite (the documented valid-falsy coercion bug) would read all three as absent and CLOBBER a real
+# block. Fixture (g)'s truthy string would survive such a rewrite, so only these rows tell the two
+# guards apart. The `[]` row covers the remaining non-object JSON type (truthy in jq, like (g)).
+for _row in 'false:false' '0:zero' '"":emptystr' '[]:array'; do
+  _fv="${_row%:*}"; _slug="${_row##*:}"
   SHF_G2="$SHF_REPO/.devflow/tmp/review/pr-1/run-g2-$_slug"
   mkdir -p "$SHF_G2"
   printf '{"iter":1,"source":"review-and-fix","loop_role":"fix","shadow":%s}' "$_fv" > "$SHF_G2/iter-1.json"
   printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_G2/iter-2.json"
   ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_G2" --slug pr-1 ) >/dev/null 2>&1
-  assert_eq "et-shadow-floor(g2): a valid-falsy .shadow ($_fv) is PRESENT, so it is left untouched (never coerced to absent and clobbered)" "no" \
+  assert_eq "et-shadow-floor(g2): a present-but-non-object .shadow ($_fv) is left untouched (never coerced to absent and clobbered)" "no" \
     "$(jq -e '.shadow.shadow_synthesized == true' "$SHF_G2/iter-1.json" >/dev/null 2>&1 && echo yes || echo no)"
 done
+# (g3) the OTHER side of that boundary — an EXPLICIT JSON `null` is the exact input the guard treats
+# as absent, so it MUST synthesize. Without this row the `== null` predicate is only ever exercised
+# via a missing key, and a tightening to `has("shadow") | not` would silently stop recovering a
+# promotion whose block was written as an explicit null — the boundary of the never-overwrite
+# contract, unverified. This is the positive control for the whole (g)/(g2) skip family.
+SHF_G3="$SHF_REPO/.devflow/tmp/review/pr-1/run-g3"
+mkdir -p "$SHF_G3"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix","shadow":null}' > "$SHF_G3/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_G3/iter-2.json"
+( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_G3" --slug pr-1 ) >/dev/null 2>&1
+assert_eq "et-shadow-floor(g3): an EXPLICIT JSON null .shadow counts as absent → the marker IS synthesized (boundary of the never-overwrite contract)" "true" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_G3/iter-1.json" 2>/dev/null)"
 # (h) telemetry gate (lib/efficiency-trace.sh: `[ "$ENABLED" = "true" ] && synthesize_shadow_markers`
 # in persist_one): with efficiency_telemetry_enabled=false the floor does NOT run even on genuine
 # promotion evidence — a synthesized marker is a telemetry artifact, so a telemetry-disabled repo
@@ -15438,7 +15450,32 @@ done
 AWK_PROG="$(sed -n "s/.*awk -v s=1 -v e=10 '\([^']*\)'.*/\1/p" "$ST_REV" | head -1)"
 assert_eq "#426 awk slice: the Phase 1.1 awk program resolves out of the SKILL fence (fixture is not vacuous)" \
   '/^diff --git/{n++} n>=s && n<=e' "$AWK_PROG"
-awk -v s=11 -v e=20 "$AWK_PROG" "$AWKB.patch" > "$AWKB.batch2"
+# The batch-index ARITHMETIC is the other half of the slice contract, and it lives only in the
+# SKILL's prose — so pin the formula literally AND execute it. Hard-coding s=11/e=20 here would
+# leave an off-by-one edit to the formula itself (e.g. `s=(k-1)*10`, which double-includes a
+# boundary file in two adjacent batches) green under every other pin.
+assert_pin_unique "#426 T2d: Phase 1.1 pins the batch-index arithmetic s=(k-1)*10+1 / e=k*10" \
+  'with `s=(k-1)*10+1` and `e=k*10`' "$ST_REV"
+# Derive s/e from k with the pinned formula and sweep every batch of the 25-section fixture:
+# batches must PARTITION the sections — each file in exactly one batch, no gaps, no overlaps.
+# An off-by-one in either bound breaks the partition (a duplicated or dropped file), which the
+# per-file occurrence count below catches regardless of which bound drifted.
+: > "$AWKB.seen"
+for _k in 1 2 3; do
+  _s=$(( (_k - 1) * 10 + 1 )); _e=$(( _k * 10 ))
+  awk -v s="$_s" -v e="$_e" "$AWK_PROG" "$AWKB.patch" > "$AWKB.batch$_k"
+  grep '^diff --git' "$AWKB.batch$_k" >> "$AWKB.seen"
+done
+assert_eq "#426 awk slice: the derived batches PARTITION the diff — all 25 sections appear, none dropped" "25" \
+  "$(grep -c '^diff --git' "$AWKB.seen")"
+# Overlap is a DISTINCT failure mode from a drop, so compare the EMITTED total against the
+# DISTINCT total — never distinct-vs-25, which a boundary double-include (26 emitted, 25 distinct)
+# sails straight through. Verified: under an `s=(k-1)*10` mutation this row goes RED on 26 vs 25.
+assert_eq "#426 awk slice: the derived batches PARTITION the diff — no section appears in two batches (emitted == distinct)" \
+  "$(grep -c '^diff --git' "$AWKB.seen")" "$(sort -u "$AWKB.seen" | grep -c '^diff --git')"
+assert_eq "#426 awk slice: the derived batch k=3 is the SHORT tail batch (sections 21..25 only)" "5" \
+  "$(grep -c '^diff --git' "$AWKB.batch3")"
+# The per-boundary rows below re-read batch k=2 — the middle batch the loop just derived.
 assert_eq "#426 awk slice: batch k=2 yields exactly 10 diff --git sections" "10" \
   "$(grep -c '^diff --git' "$AWKB.batch2")"
 assert_eq "#426 awk slice: batch k=2's FIRST section is f11 (lower boundary included, f10 excluded)" "diff --git a/f11.txt b/f11.txt" \
@@ -15449,7 +15486,7 @@ assert_eq "#426 awk slice: a neighbouring batch's file (f21) never leaks into ba
   "$(grep -qF 'line for f21' "$AWKB.batch2" && echo yes || echo no)"
 assert_eq "#426 awk slice: each section's BODY travels with its header (f11's content is present, not just the header)" "yes" \
   "$(grep -qF 'line for f11' "$AWKB.batch2" && echo yes || echo no)"
-rm -f "$AWKB.patch" "$AWKB.batch2" "$AWKB"
+rm -f "$AWKB.patch" "$AWKB.batch1" "$AWKB.batch2" "$AWKB.batch3" "$AWKB.seen" "$AWKB"
 # T2c → the single-batch branch (the other half of the batching selection): a ≤10-file run
 # writes NO slice file and hands the generator the cached full diff path directly. Unpinned,
 # a future edit could make the single-batch case author a needless slice (re-introducing an
