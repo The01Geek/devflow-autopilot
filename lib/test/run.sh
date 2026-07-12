@@ -25900,6 +25900,17 @@ case "$j" in
     if [ -n "$CHECKRUNS_FAIL_SHA" ]; then
       case "$j" in *"$CHECKRUNS_FAIL_SHA"*) echo "gh: api error" >&2; exit 1 ;; esac
     fi
+    # Sha-keyed response (PR #436 review — the cross-sha precedence fixture): when
+    # CHECKRUNS_JSON2_SHA is set and the endpoint path contains it, serve CHECKRUNS_JSON2
+    # instead of CHECKRUNS_JSON, so the two probed shas can carry DIFFERENT check-run
+    # sets. Empty/unset skips the case entirely (same guard as CHECKRUNS_FAIL_SHA above).
+    if [ -n "$CHECKRUNS_JSON2_SHA" ]; then
+      case "$j" in
+        *"$CHECKRUNS_JSON2_SHA"*)
+          [ -f "$CHECKRUNS_JSON2" ] && cat "$CHECKRUNS_JSON2" || echo '{"check_runs":[]}'
+          exit 0 ;;
+      esac
+    fi
     [ -f "$CHECKRUNS_JSON" ] && cat "$CHECKRUNS_JSON" || echo '{"check_runs":[]}'
     exit 0 ;;
   *"repo view"*)   echo "owner/repo"; exit 0 ;;
@@ -26365,6 +26376,76 @@ EOF
   ST435E="$R435E/.devflow/learnings/experiment-records.jsonl"
   assert_eq "#435 AC2d: a Unicode-digit token is never carried verbatim (null)" "null" "$(exp_field "$ST435E" 1005 permission_denials_count)"
   assert_eq "#435 AC2d: Unicode-digit token → unparseable (isascii guard rejects it)" "unparseable" "$(exp_field "$ST435E" 1005 provenance.permission_denials_count)"
+
+  # ── T435-2e cross-sha precedence: a LATER sha's valid summary beats an EARLIER sha's
+  # annotation. Two probed shas (head then merge): the head sha's Devflow Review run is
+  # old-era (no label line) and carries a genuine "recorded 5 permission denial(s)"
+  # annotation; the merge sha's run carries a valid digit summary token. Phase 1 scans
+  # EVERY probed sha's summaries before any annotation fallback, so the merge sha's 9 wins
+  # with check-run-summary provenance and the annotations endpoint is never consulted. A
+  # revert to the pre-#435 per-sha interleave (summaries then annotations, one sha at a
+  # time) would instead return the head sha's annotation — 5, check-run-annotation — and
+  # turn all three assertions RED (the intended precedence change _resolve_denials
+  # documents; PR #436 review, mutation evidence recorded in the PR).
+  R435F="$EXP/r435f"
+  mkdir -p "$R435F/.devflow/learnings"
+  cat > "$R435F/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1006,"merged_at":"2026-07-10T00:00:00Z","branch":"b1006","head_sha":"h1006head","merge_commit_sha":"m1006merge"}
+EOF
+  cat > "$EXP/checkruns435f-head.json" <<'EOF'
+{"check_runs":[{"id":60,"name":"Devflow Review","output":{"summary":"an old-workflow summary with no denial line"}}]}
+EOF
+  cat > "$EXP/checkruns435f-merge.json" <<'EOF'
+{"check_runs":[{"id":61,"name":"Devflow Review","output":{"summary":"verdict\n\npermission_denials_count: 9"}}]}
+EOF
+  cat > "$EXP/annot435f.json" <<'EOF'
+[{"message":"DevFlow: this run recorded 5 permission denial(s) — the engine attempted commands its tool profile does not grant."}]
+EOF
+  : > "$EXP/argv435f.log"
+  GH_ARGV_LOG="$EXP/argv435f.log" GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    CHECKRUNS_JSON="$EXP/checkruns435f-head.json" \
+    CHECKRUNS_JSON2_SHA="m1006merge" CHECKRUNS_JSON2="$EXP/checkruns435f-merge.json" \
+    ANNOT_JSON="$EXP/annot435f.json" \
+    python3 "$BXR" --repo-root "$R435F" --prs 1006 >/dev/null 2>&1
+  ST435F="$R435F/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#435 cross-sha: the later sha's valid summary token wins verbatim" "9" "$(exp_field "$ST435F" 1006 permission_denials_count)"
+  assert_eq "#435 cross-sha: provenance is check-run-summary (never the earlier sha's annotation)" "check-run-summary" "$(exp_field "$ST435F" 1006 provenance.permission_denials_count)"
+  assert_eq "#435 cross-sha: the annotation fallback is never consulted mid-scan" "no" \
+    "$(grep -q 'annotations' "$EXP/argv435f.log" && echo yes || echo no)"
+
+  # ── T435-2f mixed-era suppression: malformed label + GENUINE sibling annotation ──────
+  # The doubly-rare mixed-era shape _resolve_denials documents as a deliberate loss in the
+  # safe direction (issue #435 gotcha): one Devflow Review run's label is malformed
+  # (garbage) while a sibling old-era run (no label line) carries a genuine "recorded 3
+  # permission denial(s)" annotation. A label WAS seen, so phase 2 resolves
+  # (None, "unparseable") WITHOUT consulting the annotation fallback — the annotation's 3
+  # is deliberately lost, never recovered into a possibly-wrong-era count. Differs from
+  # T435-2 above, whose fixture has NO annotation anywhere: here a genuine annotation IS
+  # present and WOULD be found were the fallback consulted (T4 proves that recovery path
+  # live on this exact message shape), so this fixture pins the suppression as intended
+  # behavior — a regression dropping the label_seen short-circuit returns
+  # 3/check-run-annotation and turns all three assertions RED (PR #436 review, mutation
+  # evidence recorded in the PR).
+  R435G="$EXP/r435g"
+  mkdir -p "$R435G/.devflow/learnings"
+  cat > "$R435G/.devflow/learnings/retrospectives.jsonl" <<'EOF'
+{"schema_version":2,"kind":"implementation","pr":1007,"merged_at":"2026-07-10T00:00:00Z","branch":"b1007","head_sha":"h1007","merge_commit_sha":"m1007"}
+EOF
+  cat > "$EXP/checkruns435g.json" <<'EOF'
+{"check_runs":[{"id":70,"name":"Devflow Review","output":{"summary":"verdict\n\npermission_denials_count: garbage"}},{"id":71,"name":"Devflow Review","output":{"summary":"an old-workflow summary with no denial line"}}]}
+EOF
+  cat > "$EXP/annot435g.json" <<'EOF'
+[{"message":"DevFlow: this run recorded 3 permission denial(s) — the engine attempted commands its tool profile does not grant."}]
+EOF
+  : > "$EXP/argv435g.log"
+  GH_ARGV_LOG="$EXP/argv435g.log" GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
+    CHECKRUNS_JSON="$EXP/checkruns435g.json" ANNOT_JSON="$EXP/annot435g.json" \
+    python3 "$BXR" --repo-root "$R435G" --prs 1007 >/dev/null 2>&1
+  ST435G="$R435G/.devflow/learnings/experiment-records.jsonl"
+  assert_eq "#435 mixed-era: a genuine sibling annotation is suppressed once a label was seen (null)" "null" "$(exp_field "$ST435G" 1007 permission_denials_count)"
+  assert_eq "#435 mixed-era: the loss lands on unparseable, never a possibly-wrong-era annotation count" "unparseable" "$(exp_field "$ST435G" 1007 provenance.permission_denials_count)"
+  assert_eq "#435 mixed-era: the annotation fallback is not consulted despite a recoverable annotation" "no" \
+    "$(grep -q 'annotations' "$EXP/argv435g.log" && echo yes || echo no)"
 
   # ── T3h progress-comment coherence: unparseable fallback verdict (review Fix A) ─
   # A progress comment carries the "## Verdict:" marker inline (not a `^## Verdict:`
