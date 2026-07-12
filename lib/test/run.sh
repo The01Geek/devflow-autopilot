@@ -14937,6 +14937,84 @@ for _ac6f in pr-a-run-a pr-b-run-b pr-c-run-c; do
 done
 rm -rf "$ETP_R6" "$ETP_R6_BARE" "$ETP_R6_C2"
 
+# Offline-accumulated-record survival (cloud-review Important-1, the highest-value
+# regression): a record persisted while the remote was UNREACHABLE lives only on the
+# local ref. When a later run reconnects and the remote has since diverged, the push
+# re-parent must UNION the local tip with the fetched remote tip — NOT re-apply only
+# the current run's staged files, which would orphan the offline-accumulated record.
+ETP_OA_BARE="$(git_sandbox "et-persist offline-accum bare")"
+git -C "$ETP_OA_BARE" init --bare -q
+ETP_OA="$(git_sandbox "et-persist offline-accum repo")"
+git -C "$ETP_OA" init -q
+git -C "$ETP_OA" config user.email t@e.com; git -C "$ETP_OA" config user.name t
+git -C "$ETP_OA" remote add origin "$ETP_OA_BARE"
+mkdir -p "$ETP_OA/.devflow"; printf 'tmp/\n' > "$ETP_OA/.devflow/.gitignore"
+git -C "$ETP_OA" add -A; git -C "$ETP_OA" commit -qm seed; git -C "$ETP_OA" branch -M main
+git -C "$ETP_OA" push -q -u origin main
+# Run A persists while the remote is UNREACHABLE (move the bare repo aside) → the
+# record lands on the local ref only; the push fails best-effort.
+mv "$ETP_OA_BARE" "${ETP_OA_BARE}.down"
+mkdir -p "$ETP_OA/.devflow/tmp/review/pr-a/run-a"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$ETP_OA/.devflow/tmp/review/pr-a/run-a/iter-1.json"
+( cd "$ETP_OA" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "et-persist(#441 offline-accum): run A record is on the LOCAL ref while the remote is down" "yes" \
+  "$(_et_on_branch "$ETP_OA" ".devflow/logs/efficiency/pr-a-run-a.json")"
+mv "${ETP_OA_BARE}.down" "$ETP_OA_BARE"
+# A second writer CREATES the remote telemetry branch with an unrelated record X.
+ETP_OA_C2="$(git_sandbox "et-persist offline-accum writer2")"
+git clone -q "$ETP_OA_BARE" "$ETP_OA_C2" 2>/dev/null
+ETP_OA_IDX="$ETP_OA_C2/.git/oaidx"
+ETP_OA_XB="$(printf '{"s":"X"}' | git -C "$ETP_OA_C2" hash-object -w --stdin)"
+GIT_INDEX_FILE="$ETP_OA_IDX" git -C "$ETP_OA_C2" update-index --add --cacheinfo "100644,${ETP_OA_XB},.devflow/logs/efficiency/pr-x-run-x.json"
+ETP_OA_XT="$(GIT_INDEX_FILE="$ETP_OA_IDX" git -C "$ETP_OA_C2" write-tree)"; rm -f "$ETP_OA_IDX"
+ETP_OA_XN="$(GIT_AUTHOR_NAME=x GIT_AUTHOR_EMAIL=x@y GIT_COMMITTER_NAME=x GIT_COMMITTER_EMAIL=x@y git -C "$ETP_OA_C2" commit-tree "$ETP_OA_XT" -m x)"
+git -C "$ETP_OA_C2" update-ref refs/heads/devflow-telemetry "$ETP_OA_XN"
+git -C "$ETP_OA_C2" push -q origin devflow-telemetry
+# Run B reconnects: its push is rejected (remote diverged), so it fetches, re-parents
+# the UNION of the local tip (offline A + this run B) and the remote tip (X), and pushes.
+mkdir -p "$ETP_OA/.devflow/tmp/review/pr-b/run-b"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$ETP_OA/.devflow/tmp/review/pr-b/run-b/iter-1.json"
+( cd "$ETP_OA" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+git -C "$ETP_OA" fetch -q origin devflow-telemetry:refs/remotes/origin/oa 2>/dev/null
+for _oaf in pr-a-run-a pr-b-run-b pr-x-run-x; do
+  assert_eq "et-persist(#441 offline-accum): remote carries ${_oaf} after reconnect re-parent (no orphaned offline record)" "yes" \
+    "$(git -C "$ETP_OA" cat-file -e "refs/remotes/origin/oa:.devflow/logs/efficiency/${_oaf}.json" >/dev/null 2>&1 && echo yes || echo no)"
+done
+rm -rf "$ETP_OA" "$ETP_OA_BARE" "$ETP_OA_C2"
+
+# (cloud-review Suggestion-3b/3c — the push-retry NOOP-re-parent arm and the
+# rejection-then-follow-up-fetch-fails arm — are accepted-untested: both require a
+# mid-retry race (a remote that rejects a push and then becomes unreadable, or a
+# remote whose tip already carries exactly our re-parented content) that cannot be
+# forced deterministically without git-hook interposition, disproportionate for a
+# Suggestion-level defensive arm. Both arms are code-verified and best-effort exit-0;
+# the AC6 + offline-accum tests exercise the primary re-parent path.)
+
+# Source-failure no-op-stub degrade (cloud-review Suggestion-3a): a vendored deploy
+# whose lib/ is missing telemetry-branch.sh must exit 0 on --persist and breadcrumb
+# that the staged artifacts were discarded (validating the SFH-3 sentinel gate — the
+# warning is REACHABLE, not shadowed by an always-defined stub).
+ETP_NS_LIB="$(git_sandbox "et-persist no-telemetry-lib")"
+cp -p "$LIB"/*.sh "$LIB"/*.jq "$ETP_NS_LIB"/ 2>/dev/null
+rm -f "$ETP_NS_LIB/telemetry-branch.sh"   # the vendored-deploy-missing-lib scenario
+ETP_NS_REPO="$(git_sandbox "et-persist no-lib repo")"
+git -C "$ETP_NS_REPO" init -q
+git -C "$ETP_NS_REPO" config user.email t@e.com; git -C "$ETP_NS_REPO" config user.name t
+mkdir -p "$ETP_NS_REPO/.devflow"; printf 'tmp/\n' > "$ETP_NS_REPO/.devflow/.gitignore"
+git -C "$ETP_NS_REPO" add -A; git -C "$ETP_NS_REPO" commit -qm seed
+mkdir -p "$ETP_NS_REPO/.devflow/tmp/review/pr-1/run-a"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$ETP_NS_REPO/.devflow/tmp/review/pr-1/run-a/iter-1.json"
+ETP_NS_ERR="$( ( cd "$ETP_NS_REPO" && bash "$ETP_NS_LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; ETP_NS_RC=$?
+assert_eq "et-persist(#441 Sug-3a): lib missing telemetry-branch.sh → --persist exits 0" "0" "$ETP_NS_RC"
+assert_eq "et-persist(#441 Sug-3a): the persist-time 'staged artifacts discarded' warning IS reachable" "yes" \
+  "$(printf '%s' "$ETP_NS_ERR" | grep -qF 'staged artifacts under' && echo yes || echo no)"
+assert_eq "et-persist(#441 Sug-3a): lib-missing → no telemetry ref created" "no" \
+  "$(git -C "$ETP_NS_REPO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+rm -rf "$ETP_NS_LIB" "$ETP_NS_REPO"
+
 # --persist telemetry OFF: no record derived, but the durable copy still persists
 # to the branch (the durable copy is writable-run-gated, not telemetry-gated).
 ETP_OFF_REPO="$(git_sandbox "et-persist telemetry-off repo")"
@@ -16602,6 +16680,33 @@ print(sorted((e["run_id"],e["iterations"]) for v in idx.values() for e in v))' "
 assert_eq "tb(#441 AC16): reader unions legacy+branch, branch-wins by (slug,run-id), no double-count" \
   "[('runA', 1), ('runB', 7), ('runX', 5)]" "$TB_RD_UNION"
 rm -rf "$TB_RD_REPO"
+
+# Malformed telemetry-branch blob (cloud-review Suggestion-3e): a non-JSON blob on
+# the branch must be SKIPPED with a breadcrumb, not crash the reader — the branch
+# read path gets the same tolerance the legacy working-tree path already has.
+TB_MB_REPO="$(git_sandbox "tb malformed branch blob repo")"
+git -C "$TB_MB_REPO" init -q
+git -C "$TB_MB_REPO" config user.email t@e.com; git -C "$TB_MB_REPO" config user.name t
+mkdir -p "$TB_MB_REPO/.devflow"; printf 'tmp/\n' > "$TB_MB_REPO/.devflow/.gitignore"
+git -C "$TB_MB_REPO" add -A; git -C "$TB_MB_REPO" commit -qm seed
+# Stage one good record + one malformed (non-JSON) blob and persist both to the branch.
+TB_MB_STAGE="$TB_MB_REPO/.devflow/tmp/st"; mkdir -p "$TB_MB_STAGE/.devflow/logs/efficiency"
+printf '{"slug":"pr-1","run_id":"good","iterations":3}' > "$TB_MB_STAGE/.devflow/logs/efficiency/pr-1-good.json"
+printf 'not json at all {' > "$TB_MB_STAGE/.devflow/logs/efficiency/pr-1-bad.json"
+( cd "$TB_MB_REPO" && DEVFLOW_CONFIG_FILE=/dev/null python3 - "$LIB/telemetry-branch.sh" "$TB_MB_REPO" "$TB_MB_STAGE" >/dev/null 2>&1 <<'PYEOF'
+import subprocess,sys
+lib,root,stage=sys.argv[1],sys.argv[2],sys.argv[3]
+subprocess.run(["bash","-c",'. "$1"; devflow_telemetry_persist_tree "$2" "$3"','_',lib,root,stage],cwd=root)
+PYEOF
+)
+TB_MB_OUT="$(python3 -c 'import importlib.util,sys
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+idx=m._index_efficiency(sys.argv[2]+"/.devflow/logs/efficiency", sys.argv[2])
+print(sorted((e["run_id"],e["iterations"]) for v in idx.values() for e in v))' "$LIB/../scripts/build-experiment-records.py" "$TB_MB_REPO" 2>/dev/null)"
+TB_MB_RC=$?
+assert_eq "tb(#441 Sug-3e): reader does NOT crash on a malformed telemetry-branch blob" "0" "$TB_MB_RC"
+assert_eq "tb(#441 Sug-3e): reader skips the malformed branch blob, keeps the good one" "[('good', 3)]" "$TB_MB_OUT"
+rm -rf "$TB_MB_REPO"
 
 # Grep pins (AC1/AC19/AC22): the SKILL mirrors + workflows + docs carry the new
 # telemetry-branch contract; a revert turns the suite RED.

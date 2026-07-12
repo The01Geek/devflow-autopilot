@@ -928,8 +928,11 @@ Persist this run's observability artifacts — the effectiveness record (`.devfl
 # be pushed (offline, no remote, a read-only fork-PR token) the local telemetry ref
 # still advances and a ::warning:: is emitted — the loop is never aborted. Invoke the
 # helper directly (no `bash` prefix) so the resolved-path allow-list entry matches on
-# a headless run.
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --persist --workpad-dir ".devflow/tmp/review/<slug>/<run-id>" --slug "<slug>" || true
+# a headless run. (No `|| true`: --persist is exit-0 by contract, and a trailing
+# `|| true` would introduce an ungranted `true` command head — silently refused on
+# the cloud command path per the #363/#401 head-grant rule — the same reason review
+# Phase 4.5's persist fence drops it.)
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --persist --workpad-dir ".devflow/tmp/review/<slug>/<run-id>" --slug "<slug>"
 ```
 
 Run this on every writable run; **skip it under the read-only cloud `review` profile** (`contents: read`), where the tree — and now the telemetry-branch push — is not writable and the run's surface is the PR comment. The helper is a clean no-op when nothing new needs persisting (an idempotent re-run derives no new record and the branch's tree is unchanged, so no new branch commit is made). Because persistence targets a dedicated branch that shares no history with `main` and is never merged into it, the current branch's history and the reviewed diff are unaffected — there is no `chore:` commit to drop from the feature branch anymore.

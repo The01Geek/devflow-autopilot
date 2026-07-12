@@ -210,16 +210,22 @@ devflow_telemetry_persist_tree() {
 
   # Guard: every staged path must be under .devflow/logs/ so a caller bug can
   # never write a stray path onto the store (keeps verify_store's invariant true
-  # by construction). A non-conforming path aborts the write with a breadcrumb.
-  local rel
+  # by construction). A non-conforming path is FILTERED OUT with a per-path
+  # breadcrumb — NOT aborting the whole batch — so one stray path from one run's
+  # staging never drops every OTHER run's conforming records (the batched write
+  # can carry many runs' records). If filtering leaves nothing, it's a clean no-op.
+  local rel conforming=()
   for rel in "${staged_rel[@]}"; do
     case "$rel" in
-      .devflow/logs/*) ;;
+      .devflow/logs/*) conforming+=("$rel") ;;
       *)
-        echo "::warning::telemetry-branch: staged path '${rel}' is not under .devflow/logs/ — refusing to persist (caller staged an unexpected path)" >&2
-        return 0 ;;
+        echo "::warning::telemetry-branch: staged path '${rel}' is not under .devflow/logs/ — skipping just this path (caller staged an unexpected path); other conforming records still persist" >&2 ;;
     esac
   done
+  staged_rel=("${conforming[@]}")
+  if [ "${#staged_rel[@]}" -eq 0 ]; then
+    return 0   # every staged path was non-conforming — nothing left to persist
+  fi
 
   # Verify an existing store before appending.
   devflow_telemetry_verify_store "$root" "$ref" || return 0
@@ -277,6 +283,40 @@ devflow_telemetry_persist_tree() {
       GIT_AUTHOR_NAME="$_DEVFLOW_TELEMETRY_IDENT_NAME" GIT_AUTHOR_EMAIL="$_DEVFLOW_TELEMETRY_IDENT_EMAIL" \
       GIT_COMMITTER_NAME="$_DEVFLOW_TELEMETRY_IDENT_NAME" GIT_COMMITTER_EMAIL="$_DEVFLOW_TELEMETRY_IDENT_EMAIL" \
         git -C "$root" commit-tree "$tree" "${parent_arg[@]}" -m "$_DEVFLOW_TELEMETRY_COMMIT_MSG" 2>/dev/null
+    }
+
+    # Re-parent for the PUSH retry: build a tree that is the UNION of the fetched
+    # remote tip's tree and the LOCAL tip's whole tree (issue #441 review — offline
+    # data-loss fix). The plain `commit_on "$remote_tip"` re-applied only THIS run's
+    # staged files, which would DROP any offline-accumulated local record present on
+    # the local ref but absent from the fetched remote tip — real data loss on the
+    # exact reconnect path the retry loop exists to protect. Per-run filenames are
+    # unique, so overlaying every blob from the local tip onto the remote-tip base is
+    # a pure union (this run's staged files are already committed into the local tip,
+    # so they come along too). Echoes the new commit sha, `NOOP` when the union tree
+    # equals the remote tip's tree (our content already there), or empty on failure.
+    commit_union_on() {  # $1 = remote tip (parent), $2 = local tip to overlay
+      local base="$1" overlay="$2" tree ptree meta path mode sha
+      rm -f "$idx" 2>/dev/null || true
+      tree="$(
+        export GIT_INDEX_FILE="$idx"
+        git -C "$root" read-tree "$base" 2>/dev/null || exit 1
+        # `ls-tree -r` here assembles tree CONTENT (a union), not a selection
+        # decision, so a loop over its output is appropriate. Format is
+        # `<mode> <type> <sha>\t<path>`; split the tab, then take first/last fields.
+        while IFS="$(printf '\t')" read -r meta path; do
+          [ -n "$path" ] || continue
+          mode="${meta%% *}"; sha="${meta##* }"
+          git -C "$root" update-index --add --cacheinfo "${mode},${sha},${path}" 2>/dev/null || exit 1
+        done < <(git -C "$root" ls-tree -r "$overlay" 2>/dev/null)
+        git -C "$root" write-tree 2>/dev/null || exit 1
+      )" || return 1
+      [ -n "$tree" ] || return 1
+      ptree="$(git -C "$root" rev-parse --verify --quiet "${base}^{tree}" 2>/dev/null)"
+      [ "$tree" = "$ptree" ] && { printf 'NOOP\n'; return 0; }
+      GIT_AUTHOR_NAME="$_DEVFLOW_TELEMETRY_IDENT_NAME" GIT_AUTHOR_EMAIL="$_DEVFLOW_TELEMETRY_IDENT_EMAIL" \
+      GIT_COMMITTER_NAME="$_DEVFLOW_TELEMETRY_IDENT_NAME" GIT_COMMITTER_EMAIL="$_DEVFLOW_TELEMETRY_IDENT_EMAIL" \
+        git -C "$root" commit-tree "$tree" -p "$base" -m "$_DEVFLOW_TELEMETRY_COMMIT_MSG" 2>/dev/null
     }
 
     # ── CAS advance loop ───────────────────────────────────────────────────────
@@ -348,8 +388,10 @@ devflow_telemetry_persist_tree() {
       case "$push_err" in
         *"fetch first"*|*"non-fast-forward"*|*"[rejected]"*|*"Updates were rejected"*)
           # The remote advanced (another writer, or the branch was created
-          # remotely first). Fetch its tip, re-parent OUR staged files on it,
-          # CAS-advance the local ref, and retry (AC5/AC6).
+          # remotely first). Fetch its tip, re-parent the UNION of the remote tip
+          # and our whole local tip on it (preserving offline-accumulated local
+          # records — see commit_union_on), CAS-advance the local ref, and retry
+          # (AC5/AC6).
           if ! git -C "$root" fetch -q origin "${ref}:refs/remotes/origin/${branch}" 2>/dev/null; then
             echo "::warning::telemetry-branch: push to '${branch}' was rejected and the follow-up fetch failed (no network/auth?); '${branch}' advanced locally but not pushed — telemetry retained on the local ref" >&2
             exit 0
@@ -357,18 +399,27 @@ devflow_telemetry_persist_tree() {
           remote_tip="$(git -C "$root" rev-parse --verify --quiet "refs/remotes/origin/${branch}" 2>/dev/null || true)"
           [ -n "$remote_tip" ] || { echo "::warning::telemetry-branch: could not resolve the fetched tip of '${branch}'; telemetry retained on the local ref only" >&2; exit 0; }
           local_cur="$(git -C "$root" rev-parse --verify --quiet "$ref" 2>/dev/null || true)"
-          new="$(commit_on "$remote_tip")" || new=""
+          new="$(commit_union_on "$remote_tip" "$local_cur")" || new=""
           if [ -z "$new" ]; then
             echo "::warning::telemetry-branch: could not re-parent the telemetry commit onto the fetched tip of '${branch}'; telemetry retained on the local ref only" >&2
             exit 0
           fi
+          # Capture the re-parent update-ref's stderr (NOT 2>/dev/null): a failure
+          # here (ref lock, permission, disk) must not be swallowed and then
+          # misattributed to "a persistently racing remote writer" by the terminal
+          # give-up breadcrumb below — name the real git error and stop.
           if [ "$new" = "NOOP" ]; then
             # Our content already lives on the remote tip — fast-forward the local
             # ref to it so a later push is a clean no-op, and stop.
-            git -C "$root" update-ref "$ref" "$remote_tip" "${local_cur:-}" 2>/dev/null || true
+            if ! upd_err="$(git -C "$root" update-ref "$ref" "$remote_tip" "${local_cur:-}" 2>&1)"; then
+              echo "::warning::telemetry-branch: could not fast-forward the local ref for '${branch}' to the fetched tip (git update-ref failed: ${upd_err}); telemetry retained on the local ref only" >&2
+            fi
             exit 0
           fi
-          git -C "$root" update-ref "$ref" "$new" "${local_cur:-}" 2>/dev/null || true
+          if ! upd_err="$(git -C "$root" update-ref "$ref" "$new" "${local_cur:-}" 2>&1)"; then
+            echo "::warning::telemetry-branch: could not advance the local ref for '${branch}' onto the re-parented commit (git update-ref failed: ${upd_err}) — a held ref .lock, a read-only .git, or a full disk; '${branch}' not pushed this run, telemetry retained on the local ref" >&2
+            exit 0
+          fi
           ;;
         *)
           # Non-rejection failure: no remote reachable, auth denied, read-only
