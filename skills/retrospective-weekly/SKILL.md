@@ -273,12 +273,17 @@ legacy tracked `.devflow/logs/`. Best-effort: on a fresh repo the branch does no
 legacy archive alone; the retrospective is never blocked by a missing telemetry branch.
 
 ```bash
-# Force-fetch the telemetry branch into its local ref (nobody edits it locally, so it only
-# ever fast-forwards on the remote; `+` keeps a behind-or-diverged local ref from rejecting).
+# Fetch the telemetry branch into its local ref — deliberately NO force `+` refspec: the
+# local ref can be AHEAD of the remote (offline-accumulated `--persist` commits not yet
+# reconciled by a writer's union re-parent), and a forced fetch would rewind it and
+# permanently orphan those records. A plain fetch fast-forwards the common case and rejects
+# exactly the local-ahead/diverged case, leaving the local ref — and its records — intact
+# for the reader; reconciling with the remote belongs to the next writing run's
+# fetch → re-parent → push loop, never to this read-side fetch.
 # The reader (`_index_efficiency`) reads it by its local branch name.
 TELEMETRY_BRANCH=$($LIB/../scripts/config-get.sh .telemetry.branch devflow-telemetry)
-git fetch origin "+${TELEMETRY_BRANCH}:${TELEMETRY_BRANCH}" 2>/dev/null || \
-  echo "retrospective-weekly: could not fetch telemetry branch '${TELEMETRY_BRANCH}' (absent on a fresh repo, or offline) — the experiment-record reader will use any legacy tracked .devflow/logs/ alone" >&2
+git fetch origin "${TELEMETRY_BRANCH}:${TELEMETRY_BRANCH}" 2>/dev/null || \
+  echo "retrospective-weekly: could not fetch telemetry branch '${TELEMETRY_BRANCH}' (absent on a fresh repo, offline, or the local ref is ahead of the remote) — the experiment-record reader unions whatever local '${TELEMETRY_BRANCH}' ref exists (if any) with any legacy tracked .devflow/logs/" >&2
 python3 $LIB/../scripts/build-experiment-records.py || \
   echo "retrospective-weekly: build-experiment-records.py exited non-zero (rc=$?) — one or more PRs are MISSING from the experiment store (see its stderr for which, and whether they failed to assemble or had an unestablished merge state); records that did assemble were still written" >&2
 ```

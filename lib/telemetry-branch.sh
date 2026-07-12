@@ -85,6 +85,11 @@ devflow_telemetry_ref() {
 # something else (AC4). Pure `case` matching — no grep (selection decision).
 devflow_telemetry_verify_store() {
   local root="$1" ref="$2" path tree_out
+  # Deferred (review Suggestion, PR #442): this rev-parse treats ANY non-zero rc
+  # as "ref absent → fresh store OK", conflating a genuinely-missing branch with
+  # a broken refs read (corrupt packed-refs, held lock). Downstream the CAS
+  # update-ref still fails closed on those, so no corruption — only that one
+  # diagnostic is generic. Revisit if a refs-layer failure ever needs triage here.
   git -C "$root" rev-parse --verify --quiet "$ref" >/dev/null 2>&1 || return 0
   # Capture ls-tree's OUTPUT and STATUS together. On a PRESENT ref an ls-tree
   # failure (corrupt/unreadable tree) must NOT read as "empty tree → safe to
@@ -92,6 +97,10 @@ devflow_telemetry_verify_store() {
   # an unverifiable store is breadcrumb-skipped, not appended onto. (A genuinely
   # empty tree — the orphan root before its first blob — succeeds with empty
   # output and is correctly treated as a valid, appendable store.)
+  # Deferred (review Suggestion, PR #442): `-r` walks the whole accumulated tree
+  # on every persist — O(N) in stored run files. Scoping to top-level entries
+  # would suffice (the staged-path guard keeps the invariant), but one small JSON
+  # per run keeps N modest for years; revisit if persist latency ever matters.
   if ! tree_out="$(git -C "$root" ls-tree -r --name-only "$ref" 2>/dev/null)"; then
     echo "::warning::telemetry-branch: could not read the tip tree of existing ref '${ref}' (git ls-tree failed — corrupt or unreadable tree); cannot verify it is a telemetry store, refusing to append this run" >&2
     return 1
@@ -169,10 +178,14 @@ devflow_telemetry_show_blob() {
 #      else commit-tree (explicit identity, parent = tip when present) and
 #      `git update-ref <ref> <new> <expected-old>` (compare-and-swap). On CAS
 #      failure re-read the tip and retry, bounded.
-#   5. push fetch → re-parent-on-fetched-tip → push retry loop, triggered on ANY
-#      push rejection (non-ff or the branch-first-created "fetch first" case);
-#      give up best-effort after the cap with a ::warning::. No remote → keep the
-#      local ref, breadcrumb, return 0.
+#   5. push fetch → re-parent-on-fetched-tip → push retry loop, triggered on any
+#      non-fast-forward / branch-first-created "fetch first" rejection (a
+#      hook-declined or auth-refused push is NOT retried — retrying cannot fix
+#      it; it takes the best-effort keep-the-local-ref arm instead). The fetched
+#      tip is re-verified as a telemetry store before the union re-parent, so
+#      the AC4 never-commit-onto-a-consumer-branch guarantee holds on the push
+#      path too. Give up best-effort after the cap with a ::warning::. No remote
+#      → keep the local ref, breadcrumb, return 0.
 # Always returns 0. The temp index is uniquely named with bash builtins (not
 # mktemp, which the cloud sandbox blocks — AC9) and removed on every exit path
 # via the subshell's EXIT trap.
@@ -249,6 +262,12 @@ devflow_telemetry_persist_tree() {
     # Echoes the resulting tree sha, or empty (non-zero rc) on failure. The whole
     # body runs in a nested subshell so GIT_INDEX_FILE is scoped to it and cannot
     # leak into the next commit_on call — no manual `unset` on each exit path.
+    # Deferred (review Suggestion, PR #442): the plumbing here (and in
+    # commit_union_on) routes stderr to /dev/null, so a real object-store failure
+    # (ENOSPC, permissions) surfaces only the generic "object-store write failed"
+    # breadcrumb — fails safe (exit 0) but loses the specific git error. Capturing
+    # stderr through these nested command substitutions is a larger refactor;
+    # revisit if an object-store failure ever needs field triage.
     build_tree() {
       local parent="$1"
       rm -f "$idx" 2>/dev/null || true
@@ -398,6 +417,17 @@ devflow_telemetry_persist_tree() {
           fi
           remote_tip="$(git -C "$root" rev-parse --verify --quiet "refs/remotes/origin/${branch}" 2>/dev/null || true)"
           [ -n "$remote_tip" ] || { echo "::warning::telemetry-branch: could not resolve the fetched tip of '${branch}'; telemetry retained on the local ref only" >&2; exit 0; }
+          # Re-verify the FETCHED tip is a telemetry store before re-parenting onto
+          # it (AC4's guarantee on the push path): when the local ref was absent the
+          # pre-write verify_store vacuously passed, so a consumer's pre-existing
+          # REMOTE same-named branch (non-telemetry content) would first surface
+          # HERE — as the rejection that fetched it. Without this check the union
+          # re-parent would commit onto (and push over) a branch the consumer uses
+          # for something else. verify_store fails closed on an unreadable tree.
+          if ! devflow_telemetry_verify_store "$root" "refs/remotes/origin/${branch}"; then
+            echo "::warning::telemetry-branch: the remote '${branch}' is not a DevFlow telemetry store — refusing to re-parent onto or push over it; telemetry retained on the local ref only (rename it or set telemetry.branch to a different name)" >&2
+            exit 0
+          fi
           local_cur="$(git -C "$root" rev-parse --verify --quiet "$ref" 2>/dev/null || true)"
           new="$(commit_union_on "$remote_tip" "$local_cur")" || new=""
           if [ -z "$new" ]; then

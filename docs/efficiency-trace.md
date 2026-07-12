@@ -122,7 +122,8 @@ that same object and stores it on the telemetry branch at `.devflow/logs/efficie
 filename is keyed by the run's `<run-id>` (the same
 discriminator that scopes the workpad directory), **not** a fresh `date` timestamp: this is what lets
 `--persist` be idempotent — it tests record presence **on the branch** (`git cat-file -e
-<branch>:.devflow/logs/efficiency/<slug>-<run-id>.json`) and never re-derives an existing record, so a
+refs/heads/<branch>:.devflow/logs/efficiency/<slug>-<run-id>.json` — the fully-qualified ref the
+code actually probes, not a bare-name lookup) and never re-derives an existing record, so a
 re-run is a clean no-op (no new branch commit, `generated_at` unchanged) and a run is never recorded
 twice. The record carries:
 
@@ -187,8 +188,11 @@ best-effort and exit-0: when the branch cannot be pushed (offline, no remote, a 
 token, a missing permission, or the read-only cloud `review` profile) the local ref still
 advances, a `::warning::` is emitted, and the run is never aborted. Before appending to an
 existing `devflow-telemetry` ref the write verifies it is a telemetry store (its tip tree holds
-only `.devflow/logs/`-shaped paths) and breadcrumb-skips on mismatch, so it never commits onto a
-same-named branch a consumer uses for something else. The ref advance is a compare-and-swap that
+only `.devflow/logs/`-shaped paths) and breadcrumb-skips on mismatch — and the push-rejection
+re-parent re-runs the same verification against the freshly-fetched **remote** tip before building
+the union commit (the case where a consumer's same-named branch exists only on the remote and first
+surfaces as the push rejection) — so it never commits onto a same-named branch a consumer uses for
+something else, on either the local-append or the push-reconcile path. The ref advance is a compare-and-swap that
 re-reads the tip and rebuilds on it when a sibling worktree/process advanced it first, so two
 parallel local worktrees sharing `.git/refs` both survive with no lost commit. The read-only
 cloud `review` profile (`devflow-runner.yml`, `contents: read`) never runs `--persist`, so it is
@@ -296,7 +300,7 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
 - *Self-check.* `lib/efficiency-trace.sh --self-check --workpad-dir DIR --slug SLUG` is run at Loop
   Exit on a converged writable run. If the run wrote **zero** `iter-*.json` workpads, or persisted no
   effectiveness record for `<slug>-<run-id>` to the telemetry branch (`git cat-file -e
-  <branch>:.devflow/logs/efficiency/<slug>-<run-id>.json`), it emits a loud
+  refs/heads/<branch>:.devflow/logs/efficiency/<slug>-<run-id>.json`), it emits a loud
   `::warning::` naming exactly what was not persisted (and points at `--persist` as the recovery).
   It **additionally validates each `iter-<N>.json`'s field set**: for every iter workpad missing a
   field in the single-source `ITER_EXPECTED_FIELDS` set (the iter schema's top-level fields minus

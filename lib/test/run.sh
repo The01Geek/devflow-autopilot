@@ -14984,6 +14984,53 @@ for _oaf in pr-a-run-a pr-b-run-b pr-x-run-x; do
 done
 rm -rf "$ETP_OA" "$ETP_OA_BARE" "$ETP_OA_C2"
 
+# Remote-first non-telemetry same-named branch (cloud-review Important-1, PR #442 —
+# the AC4 guarantee on the PUSH path): a consumer's REMOTE `devflow-telemetry` holds
+# non-telemetry content and was never fetched locally, so the pre-write verify_store
+# passes vacuously (no local ref), a local orphan is built, and the push is rejected
+# non-ff. The rejection arm fetches the consumer's tip — which must be RE-VERIFIED as
+# a telemetry store before the union re-parent, so DevFlow never commits onto (or
+# pushes over) that branch. Positive control: the offline-accum test above is the
+# same fixture shape with a TELEMETRY-shaped remote tip, where the rejection arm
+# correctly re-parents and pushes — so the refusal below is attributable to the
+# store re-verification, not to the rejection path being broken.
+ETP_RN_BARE="$(git_sandbox "et-persist remote non-telemetry bare")"
+git -C "$ETP_RN_BARE" init --bare -q
+ETP_RN="$(git_sandbox "et-persist remote non-telemetry repo")"
+git -C "$ETP_RN" init -q
+git -C "$ETP_RN" config user.email t@e.com; git -C "$ETP_RN" config user.name t
+git -C "$ETP_RN" remote add origin "$ETP_RN_BARE"
+mkdir -p "$ETP_RN/.devflow"; printf 'tmp/\n' > "$ETP_RN/.devflow/.gitignore"
+git -C "$ETP_RN" add -A; git -C "$ETP_RN" commit -qm seed; git -C "$ETP_RN" branch -M main
+git -C "$ETP_RN" push -q -u origin main
+# The consumer's remote-only same-named branch: main's tree (non-.devflow/logs/ paths).
+git -C "$ETP_RN" push -q origin main:refs/heads/devflow-telemetry
+ETP_RN_TIP="$(git -C "$ETP_RN_BARE" rev-parse refs/heads/devflow-telemetry)"
+mkdir -p "$ETP_RN/.devflow/tmp/review/pr-a/run-a"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$ETP_RN/.devflow/tmp/review/pr-a/run-a/iter-1.json"
+ETP_RN_ERR="$( ( cd "$ETP_RN" && bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; ETP_RN_RC=$?
+assert_eq "et-persist(#442 push-path AC4): remote non-telemetry same-named branch → exit 0 (best-effort)" "0" "$ETP_RN_RC"
+assert_eq "et-persist(#442 push-path AC4): consumer's remote branch is left UNTOUCHED (no push over it)" \
+  "$ETP_RN_TIP" "$(git -C "$ETP_RN_BARE" rev-parse refs/heads/devflow-telemetry)"
+assert_eq "et-persist(#442 push-path AC4): the refusal is the rejection-arm store re-verification (attributed breadcrumb)" "yes" \
+  "$(printf '%s' "$ETP_RN_ERR" | grep -qF 'refusing to re-parent onto or push over it' && echo yes || echo no)"
+assert_eq "et-persist(#442 push-path AC4): the run's record is retained on the LOCAL ref" "yes" \
+  "$(_et_on_branch "$ETP_RN" ".devflow/logs/efficiency/pr-a-run-a.json")"
+rm -rf "$ETP_RN" "$ETP_RN_BARE"
+
+# (cloud-review PR #442 Suggestion-round deferrals, recorded per receiving-code-review:
+# (a) the committer-identity fallback (AC8: GIT_AUTHOR_*/GIT_COMMITTER_* on a checkout
+# with no user.email) is accepted-untested — every fixture sets user.email because
+# git_sandbox seeds need commits of their own; a no-identity fixture would need its
+# seed commits made with one-shot env identities throughout, disproportionate for a
+# deterministic constant-env code path that AC6/offline-accum already execute.
+# (b) the temp-index EXIT-trap cleanup on ABNORMAL exit (killing the persist subshell
+# mid-flight) is accepted-untested — a deterministic mid-plumbing kill needs signal
+# interposition inside the subshell; the trap itself is exercised on every normal-exit
+# path by all telemetry tests. (c) fixture teardown matches the repo-wide mktemp -d
+# isolation convention. Revisit any of these if the respective path regresses in the field.)
+
 # (cloud-review Suggestion-3b/3c — the push-retry NOOP-re-parent arm and the
 # rejection-then-follow-up-fetch-fails arm — are accepted-untested: both require a
 # mid-retry race (a remote that rejects a push and then becomes unreadable, or a
@@ -16715,6 +16762,22 @@ assert_eq "tb(#441 AC1): review-and-fix Loop-Exit persists via --persist (single
   "$([ "$(pin_count '/../../lib/efficiency-trace.sh --persist --workpad-dir ".devflow/tmp/review/<slug>/<run-id>" --slug "<slug>"' "$TB_RAF")" -ge 1 ] && echo yes || echo no)"
 assert_eq "tb(#441 AC1): review Phase 4.5 persists via --persist (unified store)" "yes" \
   "$([ "$(pin_count '/../../lib/efficiency-trace.sh --persist --workpad-dir "$WORKPAD_DIR" --slug "<slug>"' "$TB_REV")" -ge 1 ] && echo yes || echo no)"
+# PR #442 Important-2: the retrospective's telemetry fetch must NOT use a force `+`
+# refspec — a forced fetch rewinds a local-ahead ref (offline-accumulated --persist
+# commits not yet reconciled by a writer's union re-parent) and permanently orphans
+# those records. The mutation reintroduces the `+`; the pin must go RED under it.
+assert_pin_red_under "tb(#442 Imp-2): retrospective telemetry fetch uses a NON-force refspec" \
+  'git fetch origin "${TELEMETRY_BRANCH}:${TELEMETRY_BRANCH}"' \
+  's|git fetch origin "\$\{TELEMETRY_BRANCH\}:|git fetch origin "+${TELEMETRY_BRANCH}:|' \
+  "$LIB/../skills/retrospective-weekly/SKILL.md"
+# PR #442 Important-1 (the AC4 push-path guarantee): the rejection arm re-verifies the
+# fetched remote tip before the union re-parent. The mutation deletes the re-verify
+# guard line; the pin must go RED under it (the behavioral twin lives in the
+# et-persist block: "remote non-telemetry same-named branch").
+assert_pin_red_under "tb(#442 Imp-1): push-rejection arm re-verifies the fetched tip is a telemetry store" \
+  'if ! devflow_telemetry_verify_store "$root" "refs/remotes/origin/${branch}"; then' \
+  's|if ! devflow_telemetry_verify_store "\$root" "refs/remotes/origin/\$\{branch\}"; then|if false; then|' \
+  "$LIB/telemetry-branch.sh"
 # AC19: both cloud backstop steps invoke `--persist` and no longer HEAD-gate / bare-push.
 for wf in devflow.yml devflow-implement.yml; do
   assert_eq "tb(#441 AC19): $wf backstop invokes the helper --persist" "yes" \
