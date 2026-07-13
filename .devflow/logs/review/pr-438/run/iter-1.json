@@ -1,0 +1,47 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-12T00:00:00Z",
+  "fix_commit_sha": "2cd993a",
+  "fix_files": ["scripts/extract-execution-shape.sh", "docs/execution-file-shape.md", "lib/test/run.sh", "lib/test/fixtures/exec-shape-full-object.json", "lib/test/fixtures/exec-shape-full-jsonl.json", "lib/test/fixtures/exec-shape-timing-apionly.json"],
+  "loop_role": "fix",
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "absent asserted for only 1 of 5 fields; extend loop to assert absent for the other non-timing fields", "defect_signature": {"file": "lib/test/run.sh", "line_range": [452, 464], "kind": "test-coverage-gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "redaction asserted only against array encoding; seed secret into object/jsonl fixtures", "defect_signature": {"file": "lib/test/run.sh", "line_range": [487, 490], "kind": "test-coverage-gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "duration_api_ms-only timing branch untested", "defect_signature": {"file": "scripts/extract-execution-shape.sh", "line_range": [1, 1], "kind": "test-coverage-gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "'key paths' overstates granularity (immediate keys, not dotted paths)", "defect_signature": {"file": "scripts/extract-execution-shape.sh", "line_range": [545, 551], "kind": "comment-accuracy"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "object keys emitted verbatim; clarify redaction covers string values not keys (not exploitable in observed schema)", "defect_signature": {"file": "scripts/extract-execution-shape.sh", "line_range": [683, 683], "kind": "doc-clarity"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "field enumeration mirrored across 5 surfaces (rot risk)", "defect_signature": {"file": "docs/execution-file-shape.md", "line_range": [1, 1], "kind": "mirror-fact-rot"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "2cd993a"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "2cd993a"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "2cd993a"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "2cd993a"},
+    {"finding_id": "F-5", "decision": "applied", "commit": "2cd993a"},
+    {"finding_id": "F-6", "decision": "advisory", "source_file": "docs/execution-file-shape.md", "claim_text": "field enumeration mirrored across surfaces", "skip_category": "uncategorized", "evidence": "code drift pinned by run.sh field-name test loop; doc list is short and acceptable; not worth a fix-loop iteration"}
+  ],
+  "convergence_inputs": {"fixes_applied": 5, "fix_diff_lines": 35, "new_corroborated_critical_count": 0},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 60},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": "2026-07-12T00:20:00Z",
+    "reviewed_sha": "2cd993a",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "changeset over-claimed 'with evidence'"},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "valid-falsy null-fields row untested"},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "scalar top-level branch uncovered"},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "permission_denials missing !=null guard"}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 4, "overlap_with_iter_N": 0, "new": 4, "new_critical": 0, "new_important": 3},
+    "promoted_to_iter_next": true
+  }
+}

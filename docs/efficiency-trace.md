@@ -231,9 +231,12 @@ Best-effort persistence has a failure mode: when `/devflow:review-and-fix` is dr
 agent can follow the engine's *substance* (review, shadow, fixes) but silently drop the Loop Exit
 *bookkeeping* — the per-iteration workpad write, the record derivation, the durable copy, and the
 `chore:` persist commit. Nothing distinguishes "correctly persisted nothing because telemetry was
-off" from "silently forgot to persist," so the gap is invisible, and the lost *full* record can never
-be reconstructed (token/wall-clock telemetry is only capturable live; the Layer-3+ synthesis floor
-below recovers a minimal effectiveness skeleton from the fix commits, never that detail). Layered
+off" from "silently forgot to persist," so the gap is invisible, and the lost *full* record is not
+reconstructed by any shipped backstop. Token/wall-clock telemetry is captured live — whether the
+harness's own output *could* reconstruct it has been **measured by the #437 probe** (result in
+[`docs/execution-file-shape.md`](execution-file-shape.md); see the cost-half note below). The Layer-3+
+synthesis floor below recovers a minimal effectiveness skeleton from the fix
+commits, never that detail. Layered
 backstops close this, weakest to strongest — the deterministic backstop (Layer 3) and its synthesis
 floor (Layer 3+) are the actual guarantee; the others shrink the blast radius and provide a portable
 fallback.
@@ -242,11 +245,50 @@ fallback.
 design.** The **effectiveness** data — findings-per-agent, dispatch counts, verdicts, fix decisions —
 is in the agent's context during *any* run, including a hand-run; it is lost only because the
 `iter-<N>.json` write was optional, so it is made recoverable by turning that write into a
-**non-optional obligation** (see Layer 1). The **token/wall-clock cost** half is *live-only*: it can
-only be captured while the loop runs, so it is gone the moment the loop is abandoned and **no
-backstop can reconstruct it** — there is no deterministic guarantee for the cost half, only the
-probabilistic protection of keeping the loop running live. The emit-obligation guarantees the
-effectiveness half; it does **not** promise the cost half.
+**non-optional obligation** (see Layer 1). The **token/wall-clock cost** half is captured *live* by
+the running loop; when a loop is abandoned, no backstop DevFlow currently ships reconstructs it, so
+the emit-obligation guarantees the effectiveness half but does **not** promise the cost half — keep
+the loop running live to protect it. Whether an *agent-independent* floor **could** reconstruct the
+cost half from the harness's own output — `claude-code-action`'s `execution_file` and the `Stop`-hook
+transcript — was long asserted here as settled fact ("no backstop can reconstruct it"), but that
+assertion was never measured. Issue #437 replaced the assertion with a re-runnable probe
+([`.github/workflows/matcher-probe.yml`](../.github/workflows/matcher-probe.yml)) whose **observed**
+results are recorded in [`docs/execution-file-shape.md`](execution-file-shape.md): read that shape
+record — not this sentence — before deciding whether an agent-independent cost floor is buildable.
+
+**The measurements refute the old claim. It was false.** Each tier refutes it — but they were
+measured to *different depths*, and the difference matters (do not read the two rows below as
+parity; the cloud row is a full field sweep, the local row is a token-realness check):
+
+- **Cloud** (`execfile-shape-probe`, run `29201071531`, 2026-07-12): `claude-code-action`'s
+  `execution_file` carries per-message token `usage` (`input_tokens` / `output_tokens` /
+  `cache_read_input_tokens`), wall-clock (`duration_ms`, `duration_api_ms`, `ttft_ms`), `tool_use`
+  events, `subagent_type` on `Task` dispatches, `permission_denials` — **and cost directly**
+  (`costUSD`, `total_cost_usd`, per-model `modelUsage`).
+- **Local** (`scripts/stop-hook-probe.sh`, 2026-07-12): the `Stop`-hook transcript carries **real**
+  per-message token counts (196 `usage` blocks, largest figure 342,272) — not the streaming
+  placeholders it was assumed to hold. **That is the whole local measurement**: token *realness*.
+  Wall-clock and the subagent dispatch roster were **not** measured on this tier — they may well be
+  derivable from the transcript, but nothing here establishes that, so do not cite the cloud row's
+  field sweep as if it applied locally.
+
+So *"no backstop **can** reconstruct the cost half"* is **not true**, and repeating it steered three
+issues' worth of work (#170, #381, #426) into building ever-more-elaborate floors fed by operands the
+agent had to volunteer, while the harness was emitting the same data, deterministically, the whole
+time. The honest statement is the weaker one: **no backstop DevFlow currently *ships* reconstructs
+it** — a gap in what we built, not a law of the platform. An agent-independent (class-(c)) cost floor
+is **buildable on both tiers** — on the cloud tier from the full observed field set above, on the
+local tier from the transcript's real token counts (wall-clock and the dispatch roster were *not*
+measured there, so a local floor's phase attribution is an open question, not an observed fact); see
+[`docs/execution-file-shape.md`](execution-file-shape.md) for the observed shape and the run URL, and
+build against that record rather than this paragraph.
+
+Two things remain genuinely open, and a floor must not assume them away: the `execution_file` schema
+is **not a public contract** (the record is a dated observation of one action version — re-dispatch the
+probe after any upgrade), and on the local tier **realness is not freshness** (the docs warn the
+transcript is written asynchronously and may lag, so a `Stop`-time read may miss the final turn's
+counts). Until a floor actually ships, keeping the loop running live is still what protects the cost
+half — but that is now a statement about our backlog, not about what is possible.
 
 **Layer 1 — wording (portable, agent-executed).** The SKILL.md Loop Exit persistence steps are
 marked **mandatory on every writable run**, and a `## Common Mistakes` entry names the
@@ -428,7 +470,7 @@ no longer stops at "nothing to derive": it reconstructs **minimal** iteration re
 branch's fix commits, so even a run whose every workpad emit was dropped still contributes an
 effectiveness floor. The floor is exactly that — a floor, **never license to skip the item-6 emit**:
 it recovers only the skeleton below and none of the checklist / findings / per-phase cost detail the
-real record carries, which is unreconstructable once dropped.
+real record carries, none of which is recoverable **from the fix commits**.
 
 - *Commit-subject selector (coupled two-site invariant).* Commits are selected by the subject
   template `fix: address review findings (iteration {N})` — **written** by
@@ -527,8 +569,11 @@ a promotion with no record of the shadow that produced it. When an `iter-<N>.jso
   evidence to synthesize from, so it is unrecoverable here — the fused Step 2.6 emit (mandatory on
   both termination paths, authored with the Write tool) is the primary fix and this floor is its
   backstop, not its equal. Like the iter floor, it recovers **attribution, not cost**: the
-  `step_2_6` token/wall figures remain live-only and cannot be reconstructed after the fact. Older
-  records without the marker remain valid.
+  `step_2_6` token/wall figures are captured live and no shipped backstop reconstructs them after the
+  fact. Whether the harness's own `execution_file`/transcript could supply an agent-independent cost
+  floor is no longer asserted here as settled — it was **measured by the #437 probe**, with the
+  observed result recorded in [`docs/execution-file-shape.md`](execution-file-shape.md).
+  Older records without the marker remain valid.
 
 ## The unified experiment record (`experiment-records.jsonl`)
 
@@ -567,7 +612,7 @@ joined fields:
   authoritative reviews call could not be established, so the value may predate the final reviewed
   HEAD — degraded, not merely second-choice; the reason is spelled out in `provenance.notes`),
   `unparseable` (a `## Verdict:` marker was present but its line did not parse), `absent`, or one of
-  the four **unestablished** tags below.
+  the **unestablished** tags enumerated below.
 - **`important_finding_count`** — parsed from the run-keyed progress comment joined via
   `review.commit_id` == the comment's `**Reviewed HEAD:**` line (the engine's own join — see
   `skills/review/SKILL.md`, the normative source). `null` with provenance when no progress comment
@@ -592,7 +637,7 @@ joined fields:
   always distinguishable from an unqueried one.
 
 **Unestablished is not absent.** `absent` is the strong claim *"we looked and it genuinely was not
-there"*. Four tags mean the opposite — the join could not be measured at all — and they are never
+there"*. The **unestablished** tags below mean the opposite — the join could not be measured at all — and they are never
 collapsed onto `absent` (the provenance-dimension analogue of the value-level unknown-is-not-zero
 contract). They apply to every gh-sourced field above:
 
