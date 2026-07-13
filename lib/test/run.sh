@@ -16818,7 +16818,9 @@ assert_eq "#404 trust: old PR-head resolution loop is gone" "0" \
   "$(grep -cF '.devflow/vendor/devflow/scripts/filter-runner-tools.sh scripts/filter-runner-tools.sh' "$RUNNER" || true)"
 assert_eq "#404 trust: FLOOR_HELPER wired to baseprovision floor_helper output" "1" \
   "$(grep -cF 'FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}' "$RUNNER" || true)"
-assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output" "1" \
+# Two sites wire VENDOR_SOURCE to the same fresh-fetch gate: the tools step's
+# deny-floor (#404) and the #458 harden-stop-hooks step (same trusted-source rank).
+assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden step)" "2" \
   "$(grep -cF 'VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}' "$RUNNER" || true)"
 assert_eq "#404 trust: baseprovision materializes the floor from FETCH_HEAD" "1" \
   "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh' "$RUNNER" || true)"
@@ -16942,6 +16944,719 @@ assert_pin_red_under "#402 helper file-tool match is NAME-based (matching \$ftna
 # The step must append NOTHING and emit a `::warning::` naming the missing helper.
 # (This block runs only when the emit_tools harness is available — pyyaml present;
 # TOOLS_STEP is extracted there.) Guarded below inside that harness.
+
+# ── #458: Stop-hook trusted-source floor — scripts/harden-stop-hooks.sh ───────
+# SIBLING of the #402 deny-floor, applied to the base-branch .claude/settings.json
+# Stop-hook channel. The review job checks out the PR HEAD, and the three Stop-hook
+# COMMANDS exec lib/ + scripts/ targets (not under .claude/, so PR-author-editable),
+# so before claude-code-action runs each target is overwritten with the TRUSTED base
+# copy or a fail-closed no-op stub — NEVER the PR-head copy (the #404 lesson). Drive
+# the installer directly over its adversarial matrix (the unit surface the extraction
+# exists to expose), then pin the workflow's trusted-source wiring + fail-closed arm.
+HSH="$LIB/../scripts/harden-stop-hooks.sh"
+assert_eq "#458 helper: harden-stop-hooks.sh exists" "yes" \
+  "$([ -f "$HSH" ] && echo yes || echo no)"
+# HOOK_TARGETS is the authoritative single-line mirror of the FULL transitive
+# source/exec closure of the three .claude/settings.json Stop hooks — COUPLED (a
+# file dropped here silently leaves that PR-head script executable, or the workflow
+# never materializes its trusted copy). Pin the exact closure literal.
+HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'
+assert_eq "#458 helper: HOOK_TARGETS is the full transitive source/exec closure" "1" \
+  "$(grep -cF "HOOK_TARGETS='$HSH_CLOSURE_LIT'" "$HSH" || true)"
+# The three per-class sub-lists (entries / sourced libs / exec'd deps) drive the
+# stub-vs-trusted-copy decision; pin each exact literal.
+assert_eq "#458 helper: HOOK_ENTRY_TARGETS are the three settings.json hooks" "1" \
+  "$(grep -cF "HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh'" "$HSH" || true)"
+assert_eq "#458 helper: HOOK_SOURCED_TARGETS are the inline-sourced libs (mid-source-break class)" "1" \
+  "$(grep -cF "HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh'" "$HSH" || true)"
+assert_eq "#458 helper: HOOK_EXEC_TARGETS are the subprocess-exec'd deps" "1" \
+  "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'" "$HSH" || true)"
+SETTINGS="$LIB/../.claude/settings.json"
+assert_eq "#458 coupling: settings.json wires lib/efficiency-trace.sh Stop hook" "1" \
+  "$(grep -c 'lib/efficiency-trace.sh --persist' "$SETTINGS" || true)"
+assert_eq "#458 coupling: settings.json wires lib/implement-stop-guard.sh Stop hook" "1" \
+  "$(grep -c 'lib/implement-stop-guard.sh' "$SETTINGS" || true)"
+assert_eq "#458 coupling: settings.json wires scripts/stop-hook-probe.sh Stop hook" "1" \
+  "$(grep -c 'scripts/stop-hook-probe.sh' "$SETTINGS" || true)"
+# BIDIRECTIONAL coupling: the settings.json Stop-hook COUNT equals the ENTRY-target
+# count (3) — a new Stop hook added to settings.json but NOT to HOOK_ENTRY_TARGETS
+# would execute from the PR-head checkout untouched.
+assert_eq "#458 coupling: settings.json has exactly 3 Stop-hook commands (== HOOK_ENTRY_TARGETS)" "3" \
+  "$(jq '[.hooks.Stop[].hooks[]] | length' "$SETTINGS" 2>/dev/null || echo BAD)"
+assert_eq "#458 coupling: HOOK_ENTRY_TARGETS has exactly 3 entries (== settings.json Stop-hook count)" "3" \
+  "$(grep -oE "HOOK_ENTRY_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -c '\.sh' || true)"
+# The full closure hardened here is the entry hooks plus their transitive source/exec/python3
+# deps; its exact membership and size are pinned by the assertion below and the drift-guard,
+# not asserted in prose (the count-locked stale-prose lint owns numeric claims).
+assert_eq "#458 coupling: HOOK_TARGETS has exactly 9 closure entries (.sh + .py)" "9" \
+  "$(grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -cE '\.(sh|py)' || true)"
+# SET-EQUALITY invariant (issue #460 SHADOW, FP-S3): the three per-class lists must
+# partition HOOK_TARGETS exactly — entries ∪ sourced ∪ exec == HOOK_TARGETS. A future
+# member added to HOOK_TARGETS but miscategorized (e.g. a sourced lib omitted from
+# HOOK_SOURCED_TARGETS) would be treated as an exec dep, so on a missing trusted copy the
+# entries would not be neutralized and a mid-`source` stub could break a legitimate hook.
+# Source the helper's list definitions and compare the sorted union to HOOK_TARGETS.
+HSH_UNION="$( { grep -oE "HOOK_ENTRY_TARGETS='[^']*'|HOOK_SOURCED_TARGETS='[^']*'|HOOK_EXEC_TARGETS='[^']*'" "$HSH" | sed -E "s/^[^']*'//; s/'$//"; } | tr ' ' '\n' | grep -E '\.(sh|py)$' | sort -u | tr '\n' ' ' )"
+HSH_ALL="$( grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | sed -E "s/^[^']*'//; s/'$//" | tr ' ' '\n' | grep -E '\.(sh|py)$' | sort -u | tr '\n' ' ' )"
+assert_eq "#460 coupling: HOOK_ENTRY ∪ SOURCED ∪ EXEC == HOOK_TARGETS (per-class lists partition the closure)" "$HSH_ALL" "$HSH_UNION"
+# ENFORCE the walker's one disclosed conservative gap (issue #460 SHADOW, final-pass): the
+# drift-guard is shell-syntax-only, so a `subprocess.run(["bash","scripts/new.sh"])` added
+# to a trusted .py closure member (workpad.py / config_fingerprint.py) would spawn a
+# PR-head-supplied repo script the walker cannot see. Today they spawn only git/gh; pin
+# that they spawn NO repo .sh/.py so a future such edit turns the desk RED instead of
+# silently re-opening the one-hop-deeper hole through the Python layer.
+# NOTE (issue #460 SHADOW, CT2 PT3): this pin matches only a LITERAL scripts/lib path in a
+# subprocess/os spawn — a variable-held path (`subprocess.run([interp, some_var])`) would
+# escape it, so the guarantee is "no LITERAL-path repo-script spawn", narrower than a full
+# Python-spawn audit (which the walker's docstring discloses is out of the static walker's
+# reach). It is a best-effort backstop for the common literal-path shape, not a proof.
+HSH_PY_SPAWN="$( grep -hnE '(subprocess\.(run|call|check_output|check_call|Popen)|os\.(system|popen|exec[lv]?[ep]*))' "$LIB/../scripts/workpad.py" "$LIB/../scripts/config_fingerprint.py" 2>/dev/null | grep -cE '(scripts|lib)/[A-Za-z0-9_.-]+\.(sh|py)' || true )"
+assert_eq "#460 walker gap backstop: no .py closure member spawns a LITERAL-path repo .sh/.py via subprocess/os" "0" "$HSH_PY_SPAWN"
+# IMPORTANT-1: the workflow's inline TARGETS= (used both to materialize trusted
+# copies AND to stub inline on the fail-closed arm) must equal the helper's full
+# HOOK_TARGETS — a later-added closure member left out of the inline list would go
+# stale-and-green, un-materialized and (on the fail-closed arm) un-stubbed.
+assert_eq "#458 coupling: devflow-runner.yml inline TARGETS == helper HOOK_TARGETS (full closure)" "1" \
+  "$(grep -cF "TARGETS=\"$HSH_CLOSURE_LIT\"" "$RUNNER" || true)"
+
+# DRIFT-GUARD (issue #458 REJECT): statically walk every source/`.`/exec/`python3 <path>`
+# edge in each closure file and assert every referenced repo .sh/.py is itself in the
+# hardened closure — so a future added `source`/exec of a NEW helper turns this RED
+# instead of silently re-opening the one-hop-deeper hole. Comment mentions are excluded
+# (only real edge syntax matches); the jq PROGRAM edge (`-f *.jq`) is out of scope (jq
+# is sandboxed — not a shell/RCE vector). The walker is the shared helper
+# scripts/detect-hook-closure-edges.py (issue #460 extraction — a single copy so this
+# guard and its positive-control test below exercise the SAME regex set; a regex
+# regression turns one or the other RED rather than diverging silently between two
+# hand-copied programs). The source prefix set anchors on both the shell metacharacters
+# that can precede a `.`/`source` — line start, `;`, `&`, `|`, `(`, and `!`/`{` — AND
+# (issue #460 review, PT3) the reserved words that open a command position — `then`,
+# `do`, `else`, `elif` — so a negation-guarded (`if ! . "$dep"`), brace-grouped
+# (`{ . "$dep"; }`), or keyword-position (`then . "$dep"`) source edge is detected, not a
+# blind spot (the #460 REJECT: the old `[;&|(]` class missed `if ! . …`, the exact idiom
+# lib/implement-stop-guard.sh uses; the review caught the sibling keyword-position miss).
+HSH_EDGES="$LIB/../scripts/detect-hook-closure-edges.py"
+assert_eq "#458 drift-guard: closure-edge walker helper exists" "yes" \
+  "$([ -f "$HSH_EDGES" ] && echo yes || echo no)"
+HSH_DRIFT="$(REPO_ROOT="$LIB/.." CLOSURE="$HSH_CLOSURE_LIT" python3 "$HSH_EDGES")"
+assert_eq "#458 drift-guard: every source/exec edge in the closure resolves to a hardened target" "" "$HSH_DRIFT"
+
+# POSITIVE CONTROL (issue #460): prove the walker actually REPORTS an edge in EACH
+# form it claims to detect — a regex regression that stops matching any one form drops
+# that violation and turns this RED (the guarantee the prose claims — made true and
+# tested here). The forms, in the synthetic fixture below:
+#   SOURCE edges (src_re + slashsh_re): line-start, negation-guarded (`if ! . …`),
+#     continuation (`&& . …`), brace-grouped (`{ . …; }`), and (issue #460 review, PT3)
+#     the KEYWORD-position forms `then . `/`do . `/`else . ` — legal command positions
+#     the old metacharacter-only prefix set silently missed, the same class as the
+#     `if ! . ` miss this PR's #460 fix already closed.
+#   EXEC edges: `python3 <path>` (pyexec_re), `bash <path>.sh` (shexec_re),
+#     `exec <path>` (execb_re), and a `VAR=…scripts/…` assignment (assign_re). These
+#     three-of-nine real closure edges (config_fingerprint.py, workpad.py via python3,
+#     the assignment-form edges) had NO positive control before — a silent under-match
+#     of any exec regex left the drift-guard green (issue #460 review, PT1/T6).
+#   IN-STRING `#`: an edge AFTER a `#` inside a quoted string must survive the
+#     quote-aware comment strip (issue #460 review, FP4) — a naive `#.*$` strip drops it.
+# Build a synthetic closure file carrying one edge in each form to deps NOT in CLOSURE,
+# then run the SAME helper over it.
+HSH_PC_DIR="$(mktemp -d)"
+mkdir -p "$HSH_PC_DIR/lib"
+cat > "$HSH_PC_DIR/lib/synthetic-entry.sh" <<'SYNEOF'
+#!/usr/bin/env bash
+. "$d/dep-a.sh"
+if ! . "$d/dep-b.sh"; then :; fi
+foo=bar && . "$d/dep-c.sh"
+{ . "$d/dep-d.sh"; }
+if true; then . "$d/dep-then.sh"; fi
+for x in 1; do . "$d/dep-do.sh"; done
+if false; then :; else . "$d/dep-else.sh"; fi
+if false; then :; elif . "$d/dep-elif.sh"; then :; fi
+( . "$d/dep-subshell.sh" )
+: | . "$d/dep-pipe.sh"
+: ; . "$d/dep-semi.sh"
+echo 'a #b'; . "$d/dep-squote.sh"
+source "$d/dep-src.sh"
+python3 scripts/dep-py.py
+bash scripts/dep-bash.sh
+sh scripts/dep-shexec.sh
+exec scripts/dep-exec.sh
+exec scripts/dep-execpy.py
+DEP=scripts/dep-assign.py
+LIBP=lib/dep-assign-lib.sh
+HEREDEP="$HERE/dep-heredep.sh"
+echo "issue #1 tracked here"; . "$d/dep-instr.sh"
+# . "$d/dep-commented.sh"
+SYNEOF
+HSH_PC_OUT="$(REPO_ROOT="$HSH_PC_DIR" CLOSURE="lib/synthetic-entry.sh" python3 "$HSH_EDGES")"
+assert_eq "#460 positive control: line-start source edge (dep-a.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-a\.sh' || true)"
+assert_eq "#460 positive control: negation-guarded source edge (\`if ! . …\`, dep-b.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-b\.sh' || true)"
+assert_eq "#460 positive control: continuation source edge (\`&& . …\`, dep-c.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-c\.sh' || true)"
+assert_eq "#460 positive control: brace-grouped source edge (\`{ . …; }\`, dep-d.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-d\.sh' || true)"
+# Metacharacter-prefix source edges that had no control (issue #460 SHADOW, CT2 PT1) —
+# `(` (subshell) and `|` (pipe) are in src_re's prefix class but were never exercised.
+assert_eq "#460 positive control: subshell source edge (\`( . … )\`, dep-subshell.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-subshell\.sh' || true)"
+assert_eq "#460 positive control: pipe source edge (\`| . …\`, dep-pipe.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-pipe\.sh' || true)"
+assert_eq "#460 positive control: semicolon source edge (\`; . …\`, dep-semi.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-semi\.sh' || true)"
+# Single-quote in-string '#' (issue #460 SHADOW, CT3 PT2): the earlier in-string control
+# used DOUBLE quotes; _strip_comment tracks single-quote state separately, so a `#` inside
+# single quotes must also not swallow a later same-line source edge.
+assert_eq "#460 positive control: edge after a '#' inside SINGLE quotes (dep-squote.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-squote\.sh' || true)"
+# NEGATIVE control (issue #460 SHADOW, CT2 PT4): a genuinely commented-out source edge
+# (whole-line `# . dep`) must NOT be reported — proves the comment strip excludes it,
+# independent of the real closure files' incidental content.
+assert_eq "#460 negative control: a commented-out source edge (\`# . …\`, dep-commented.sh) is NOT reported" "0" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-commented\.sh' || true)"
+# Keyword-position source edges (issue #460 review, PT3) — the walker's new prefix words.
+assert_eq "#460 positive control: keyword-position source edge (\`then . …\`, dep-then.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-then\.sh' || true)"
+assert_eq "#460 positive control: keyword-position source edge (\`do . …\`, dep-do.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-do\.sh' || true)"
+assert_eq "#460 positive control: keyword-position source edge (\`else . …\`, dep-else.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-else\.sh' || true)"
+# Exec-edge forms (issue #460 review, PT1/T6) — previously uncontrolled: a silent
+# under-match of any of these left the drift-guard vacuously green.
+assert_eq "#460 positive control: python3 exec edge (pyexec_re, dep-py.py) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-py\.py' || true)"
+assert_eq "#460 positive control: bash exec edge (shexec_re, dep-bash.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-bash\.sh' || true)"
+assert_eq "#460 positive control: exec edge (execb_re, dep-exec.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-exec\.sh' || true)"
+assert_eq "#460 positive control: assignment edge (assign_re, scripts/ .py, dep-assign.py) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-assign\.py' || true)"
+# Previously-uncontrolled alternations (issue #460 SHADOW, PT4/SF1): a regression dropping
+# any of these would leave the walker advertising a form it never proves it detects.
+assert_eq "#460 positive control: keyword-position source edge (\`elif … then . …\`, dep-elif.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-elif\.sh' || true)"
+assert_eq "#460 positive control: the \`source\` keyword (vs \`.\`, dep-src.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-src\.sh' || true)"
+assert_eq "#460 positive control: \`sh <path>\` exec edge (shexec_re, dep-shexec.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-shexec\.sh' || true)"
+assert_eq "#460 positive control: \`exec <path>.py\` edge (execb_re .py arm, dep-execpy.py) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-execpy\.py' || true)"
+assert_eq "#460 positive control: assignment edge (assign_re, lib/ .sh, dep-assign-lib.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-assign-lib\.sh' || true)"
+# Variable-indirected assignment (issue #460 SHADOW, SF-A): assign_var_re surfaces the
+# common `VAR="$DIR/name.sh"` shape a plain scripts/lib literal would miss.
+assert_eq "#460 positive control: \$DIR-indirected assignment (assign_var_re, dep-heredep.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-heredep\.sh' || true)"
+# In-string '#' must not swallow a later edge (issue #460 review, FP4).
+assert_eq "#460 positive control: edge after an in-string '#' (quote-aware strip, dep-instr.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-instr\.sh' || true)"
+rm -rf "$HSH_PC_DIR"
+
+# FAIL-CLOSED READ (issue #460 review, SF1/F1): a closure member the walker cannot
+# read (missing / permission / directory) must be REPORTED as a violation, never
+# swallowed to an empty "clean" set. Point CLOSURE at a member that does not exist and
+# assert the UNREADABLE violation line is emitted (so the drift-guard turns the desk RED
+# on an un-auditable member instead of green).
+HSH_UR_DIR="$(mktemp -d)"
+HSH_UR_OUT="$(REPO_ROOT="$HSH_UR_DIR" CLOSURE="lib/does-not-exist.sh" python3 "$HSH_EDGES")"
+assert_eq "#460 drift-guard: an unreadable/missing closure member is reported UNREADABLE (not swallowed)" "1" \
+  "$(printf '%s\n' "$HSH_UR_OUT" | grep -c 'lib/does-not-exist.sh -> UNREADABLE' || true)"
+# DIRECTORY member variant (issue #460 SHADOW, PT5): a closure member that is a directory
+# takes the same OSError→UNREADABLE fail-closed path (IsADirectoryError), not a silent
+# clean set. Make the CLOSURE member a directory and assert it is reported.
+HSH_UR_DIR2="$(mktemp -d)"; mkdir -p "$HSH_UR_DIR2/lib/is-a-dir.sh"
+HSH_UR_OUT2="$(REPO_ROOT="$HSH_UR_DIR2" CLOSURE="lib/is-a-dir.sh" python3 "$HSH_EDGES")"
+assert_eq "#460 drift-guard: a directory closure member is reported UNREADABLE (IsADirectoryError, not swallowed)" "1" \
+  "$(printf '%s\n' "$HSH_UR_OUT2" | grep -c 'lib/is-a-dir.sh -> UNREADABLE' || true)"
+rm -rf "$HSH_UR_DIR" "$HSH_UR_DIR2"
+
+# ── Adversarial drive over the full closure. Helper builders. ──────────────────
+HSH_TMP="$(mktemp -d)"
+hsh_mk_ws() {  # $1 = ws root; every closure target carries a MALICIOUS marker
+  local wsroot="$1" t
+  for t in $HSH_CLOSURE_LIT; do
+    mkdir -p "$wsroot/${t%/*}"
+    printf 'MALICIOUS-%s\n' "$(basename "$t")" > "$wsroot/$t"
+  done
+}
+hsh_mk_trusted() {  # $1 = trusted dir; $2.. = targets to supply a trusted base body for
+  local trdir="$1" t; shift
+  for t in "$@"; do
+    mkdir -p "$trdir/${t%/*}"
+    printf 'TRUSTED-BODY-%s\n' "$(basename "$t")" > "$trdir/$t"
+  done
+}
+
+# Scenario A — a FULL trusted dir: every closure target gets its trusted base body,
+# no entry neutralization, exit 0.
+hsh_mk_ws "$HSH_TMP/a/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/a/tr" $HSH_CLOSURE_LIT
+WORKSPACE_ROOT="$HSH_TMP/a/ws" TRUSTED_DIR="$HSH_TMP/a/tr" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: full closure — an ENTRY gets its trusted base body (PR-head displaced)" "TRUSTED-BODY-efficiency-trace.sh" \
+  "$(cat "$HSH_TMP/a/ws/lib/efficiency-trace.sh")"
+assert_eq "#458 helper: full closure — a SOURCED lib gets its trusted base body" "TRUSTED-BODY-resolve-jq.sh" \
+  "$(cat "$HSH_TMP/a/ws/lib/resolve-jq.sh")"
+assert_eq "#458 helper: full closure — an EXEC'd dep gets its trusted base body" "TRUSTED-BODY-workpad.py" \
+  "$(cat "$HSH_TMP/a/ws/scripts/workpad.py")"
+WORKSPACE_ROOT="$HSH_TMP/a/ws" TRUSTED_DIR="$HSH_TMP/a/tr" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: full closure — exits 0 (every target displaced)" "0" "$?"
+
+# Scenario B — a SOURCED lib (config-source.sh) has NO trusted copy: it is stubbed to
+# displace the PR-head copy AND every entry is NEUTRALIZED to a stub (so the missing
+# lib is never sourced mid-run), EVEN THOUGH the entries themselves have trusted copies.
+hsh_mk_ws "$HSH_TMP/b/ws"
+hsh_mk_trusted "$HSH_TMP/b/tr" \
+  lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
+  lib/resolve-jq.sh lib/resolve-bin.sh \
+  scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
+WORKSPACE_ROOT="$HSH_TMP/b/ws" TRUSTED_DIR="$HSH_TMP/b/tr" bash "$HSH" >/dev/null 2>&1
+hsh_b_rc=$?
+assert_eq "#458 helper: sourced-lib missing — the entry is NEUTRALIZED to a stub (not its trusted copy)" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/b/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#458 helper: sourced-lib missing — the entry does NOT get its trusted body" "0" \
+  "$(grep -c 'TRUSTED-BODY' "$HSH_TMP/b/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#458 helper: sourced-lib missing — the missing lib is stubbed, PR-head displaced" "0" \
+  "$(grep -c 'MALICIOUS' "$HSH_TMP/b/ws/lib/config-source.sh" || true)"
+assert_eq "#458 helper: sourced-lib missing — neutralization is a successful fail-closed outcome (exit 0)" "0" "$hsh_b_rc"
+
+# Scenario C — an EXEC'd dep (workpad.py) has NO trusted copy: it is stubbed, but the
+# entries are NOT neutralized (a subprocess exec degrades gracefully) — they keep their
+# trusted base bodies.
+hsh_mk_ws "$HSH_TMP/c/ws"
+hsh_mk_trusted "$HSH_TMP/c/tr" \
+  lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
+  lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh \
+  scripts/config-get.sh scripts/config_fingerprint.py
+WORKSPACE_ROOT="$HSH_TMP/c/ws" TRUSTED_DIR="$HSH_TMP/c/tr" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: exec-dep missing — the entry KEEPS its trusted body (no neutralization)" "TRUSTED-BODY-implement-stop-guard.sh" \
+  "$(cat "$HSH_TMP/c/ws/lib/implement-stop-guard.sh")"
+assert_eq "#458 helper: exec-dep missing — the dep is stubbed, PR-head displaced" "0" \
+  "$(grep -c 'MALICIOUS' "$HSH_TMP/c/ws/scripts/workpad.py" || true)"
+assert_eq "#458 helper: exec-dep missing — the dep becomes a no-op exit-0 stub" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/c/ws/scripts/workpad.py" || true)"
+
+# Scenario D — EMPTY TRUSTED_DIR: every closure target stubbed, none left PR-head, exit 0.
+hsh_mk_ws "$HSH_TMP/d/ws"
+WORKSPACE_ROOT="$HSH_TMP/d/ws" TRUSTED_DIR="" bash "$HSH" >/dev/null 2>&1
+hsh_d_rc=$?
+hsh_d_left=0
+for t in $HSH_CLOSURE_LIT; do
+  grep -q 'MALICIOUS' "$HSH_TMP/d/ws/$t" 2>/dev/null && hsh_d_left=1
+done
+assert_eq "#458 helper: empty TRUSTED_DIR stubs EVERY closure target (none left PR-head)" "0" "$hsh_d_left"
+assert_eq "#458 helper: empty TRUSTED_DIR — an entry is a no-op stub" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/d/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#458 helper: empty TRUSTED_DIR — exit 0 (all stubbed, displacement succeeded)" "0" "$hsh_d_rc"
+
+# Scenario (unset TRUSTED_DIR) — also fails closed, not open.
+hsh_mk_ws "$HSH_TMP/u/ws"
+WORKSPACE_ROOT="$HSH_TMP/u/ws" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: unset TRUSTED_DIR stubs the entry (fail closed)" "0" \
+  "$(grep -c 'MALICIOUS' "$HSH_TMP/u/ws/scripts/stop-hook-probe.sh" || true)"
+
+# Scenario (dir-dest, issue #460 review, FP6): a target path that is a DIRECTORY must
+# NOT read as a successful trusted-copy install (`cp file dir/` exits 0 without
+# displacing the path). try_install_trusted must decline it and fall through to the
+# fail-closed arm, so the helper exits NON-ZERO (the workflow inline stub arm then runs)
+# rather than breadcrumbing a phantom success. Give every OTHER target a trusted copy so
+# the only failing target is the directory one.
+hsh_mk_ws "$HSH_TMP/dd/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/dd/tr" $HSH_CLOSURE_LIT
+rm -f "$HSH_TMP/dd/ws/scripts/workpad.py"
+mkdir -p "$HSH_TMP/dd/ws/scripts/workpad.py"   # dest is now a DIRECTORY
+WORKSPACE_ROOT="$HSH_TMP/dd/ws" TRUSTED_DIR="$HSH_TMP/dd/tr" bash "$HSH" >/dev/null 2>&1
+hsh_dd_rc=$?
+assert_eq "#460 helper: a directory dest is declined (not a phantom trusted-copy success) — exits NON-ZERO" "yes" \
+  "$([ "$hsh_dd_rc" -ne 0 ] && echo yes || echo no)"
+assert_eq "#460 helper: the directory dest is NOT displaced by a copied file (still a directory)" "yes" \
+  "$([ -d "$HSH_TMP/dd/ws/scripts/workpad.py" ] && echo yes || echo no)"
+
+# Scenario (symlink dest, issue #460 SHADOW, SF-C): a closure target that is a SYMLINK
+# must be UNLINKED and displaced by a real file, never written THROUGH the link into its
+# resolved target (which would leave the PR-head symlink in place — "displace the target
+# path" untrue — and, for an absolute link, write script bytes outside the workspace).
+# Point an entry at a symlink to an outside file; the helper must replace the LINK with a
+# real stub/copy and must NOT modify the link's original target.
+hsh_mk_ws "$HSH_TMP/sl/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/sl/tr" $HSH_CLOSURE_LIT
+HSH_SL_OUTSIDE="$HSH_TMP/sl/outside-target.txt"
+printf 'ORIGINAL-OUTSIDE-CONTENT\n' > "$HSH_SL_OUTSIDE"
+rm -f "$HSH_TMP/sl/ws/scripts/stop-hook-probe.sh"
+ln -s "$HSH_SL_OUTSIDE" "$HSH_TMP/sl/ws/scripts/stop-hook-probe.sh"
+WORKSPACE_ROOT="$HSH_TMP/sl/ws" TRUSTED_DIR="$HSH_TMP/sl/tr" bash "$HSH" >/dev/null 2>&1
+assert_eq "#460 helper: a symlink dest is replaced by a REAL file (not left a symlink)" "no" \
+  "$([ -L "$HSH_TMP/sl/ws/scripts/stop-hook-probe.sh" ] && echo yes || echo no)"
+assert_eq "#460 helper: a symlink dest gets its trusted base body (link displaced)" "TRUSTED-BODY-stop-hook-probe.sh" \
+  "$(cat "$HSH_TMP/sl/ws/scripts/stop-hook-probe.sh")"
+assert_eq "#460 helper: the symlink's ORIGINAL outside target is NOT written through" "ORIGINAL-OUTSIDE-CONTENT" \
+  "$(cat "$HSH_SL_OUTSIDE")"
+
+# Scenario (symlink dest, NO trusted copy → write_stub path, issue #460 SHADOW, CT3 PT1):
+# the prior symlink scenario supplies a full trusted dir, so it exercises
+# try_install_trusted's `[ -L ] && rm -f`. write_stub carries an IDENTICAL guard reached
+# only when a symlink dest has no trusted copy (EMPTY TRUSTED_DIR). Drive it: symlink an
+# entry to an outside file with empty TRUSTED_DIR; the path must become a real no-op stub
+# (not a symlink) and the outside target must be untouched.
+hsh_mk_ws "$HSH_TMP/slw/ws"
+HSH_SLW_OUTSIDE="$HSH_TMP/slw/outside.txt"
+printf 'ORIGINAL-SLW\n' > "$HSH_SLW_OUTSIDE"
+rm -f "$HSH_TMP/slw/ws/lib/efficiency-trace.sh"
+ln -s "$HSH_SLW_OUTSIDE" "$HSH_TMP/slw/ws/lib/efficiency-trace.sh"
+WORKSPACE_ROOT="$HSH_TMP/slw/ws" TRUSTED_DIR="" bash "$HSH" >/dev/null 2>&1
+assert_eq "#460 helper: write_stub unlinks a symlink dest (no trusted copy) — path is a real file, not a symlink" "no" \
+  "$([ -L "$HSH_TMP/slw/ws/lib/efficiency-trace.sh" ] && echo yes || echo no)"
+assert_eq "#460 helper: write_stub symlink path becomes a no-op exit-0 stub" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/slw/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#460 helper: write_stub does NOT write through the symlink to its outside target" "ORIGINAL-SLW" \
+  "$(cat "$HSH_SLW_OUTSIDE")"
+
+# Scenario (Pass-2 non-neutralized entry stub, issue #460 SHADOW, PT1): a lone ENTRY with
+# no trusted copy while ALL sourced libs ARE present (neutralize_entries=0) — the entry is
+# stubbed via the plain Pass-2 write_stub arm (not the neutralize arm). Give every target a
+# trusted copy EXCEPT one entry; that entry must become a no-op stub (never its PR-head copy).
+hsh_mk_ws "$HSH_TMP/p2/ws"
+hsh_mk_trusted "$HSH_TMP/p2/tr" \
+  lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
+  lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh \
+  scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
+WORKSPACE_ROOT="$HSH_TMP/p2/ws" TRUSTED_DIR="$HSH_TMP/p2/tr" bash "$HSH" >/dev/null 2>&1
+hsh_p2_rc=$?
+assert_eq "#460 helper: a lone entry with no trusted copy (libs present, non-neutralized arm) is stubbed" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/p2/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#460 helper: that entry's PR-head copy is displaced (no MALICIOUS)" "0" \
+  "$(grep -c 'MALICIOUS' "$HSH_TMP/p2/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#460 helper: other entries (with trusted copies) are NOT neutralized" "TRUSTED-BODY-implement-stop-guard.sh" \
+  "$(cat "$HSH_TMP/p2/ws/lib/implement-stop-guard.sh")"
+assert_eq "#460 helper: Pass-2 lone-entry stub is a successful displacement (exit 0)" "0" "$hsh_p2_rc"
+
+# --wired-check MODE (issue #460 SHADOW, PT2): the relevance-gate decision as the single
+# testable source of truth the workflow calls. Drive both arms + edge shapes behaviorally
+# (the workflow's inline `case` is only a fallback when no trusted helper resolves).
+assert_eq "#460 helper --wired-check: settings wiring an entry hook -> wired (exit 0)" "0" \
+  "$(printf 'bash lib/efficiency-trace.sh --persist\n' | bash "$HSH" --wired-check; echo $?)"
+assert_eq "#460 helper --wired-check: settings wiring a DIFFERENT entry -> wired (exit 0)" "0" \
+  "$(printf 'bash scripts/stop-hook-probe.sh\n' | bash "$HSH" --wired-check; echo $?)"
+assert_eq "#460 helper --wired-check: settings with NO entry hook -> not wired (exit 1)" "1" \
+  "$(printf 'no devflow hooks here\n' | bash "$HSH" --wired-check; echo $?)"
+assert_eq "#460 helper --wired-check: empty settings -> not wired (exit 1)" "1" \
+  "$(printf '' | bash "$HSH" --wired-check; echo $?)"
+HSH_WC_F="$(mktemp)"; printf 'bash lib/implement-stop-guard.sh\n' > "$HSH_WC_F"
+assert_eq "#460 helper --wired-check: file arg wiring a hook -> wired (exit 0)" "0" \
+  "$(bash "$HSH" --wired-check "$HSH_WC_F"; echo $?)"
+assert_eq "#460 helper --wired-check: absent/unreadable file arg -> not wired (exit 1, fail-safe)" "1" \
+  "$(bash "$HSH" --wired-check /nonexistent-devflow-settings-xyz; echo $?)"
+# Negative: a settings blob mentioning a NON-entry closure path (a sourced lib) must read
+# NOT wired — --wired-check keys only on HOOK_ENTRY_TARGETS, not the whole closure (issue
+# #460 SHADOW, CT3 PT4).
+assert_eq "#460 helper --wired-check: a non-entry closure path (lib/resolve-jq.sh) alone -> not wired (exit 1)" "1" \
+  "$(printf 'see lib/resolve-jq.sh for details\n' | bash "$HSH" --wired-check; echo $?)"
+rm -f "$HSH_WC_F"
+
+# EMPTY-READ DISAMBIGUATION — behavioral git-fixture test (issue #460 SHADOW, CT2 PT2).
+# The workflow gate's empty-SETTINGS_JSON arm is git/FETCH_HEAD-specific and cannot be a
+# pure helper, so drive its DECISION LOGIC (present-but-empty -> harden; absent -> skip;
+# non-empty -> wiring scan) end-to-end over a real throwaway git repo. The workflow's own
+# inline copy of this logic is separately mutation-pinned (the `git cat-file -e` guard and
+# the HOOKS_WIRED skip); this proves the git-blob-existence decision itself is correct.
+if command -v git >/dev/null 2>&1; then
+  # decide <ref> <path> -> echoes wired|skip, mirroring the workflow's empty-read arm.
+  hsh_decide() {
+    local ref="$1" path="$2" sj w=0
+    sj="$(git show "$ref:$path" 2>/dev/null || true)"
+    if [ -z "$sj" ]; then
+      git cat-file -e "$ref:$path" 2>/dev/null && w=1   # present-but-empty -> harden (fail-closed)
+    else
+      case "$sj" in *"lib/efficiency-trace.sh"*) w=1 ;; esac
+    fi
+    [ "$w" -eq 1 ] && echo wired || echo skip
+  }
+  HSH_GIT="$(mktemp -d)"
+  (
+    cd "$HSH_GIT" || exit 1
+    git init -q; git config user.email t@t; git config user.name t
+    mkdir -p .claude
+    # commit 1: settings.json present and wiring a hook
+    printf 'bash lib/efficiency-trace.sh --persist\n' > .claude/settings.json
+    git add -A; git commit -qm wired
+    # commit 2: settings.json present but EMPTY
+    : > .claude/settings.json; git add -A; git commit -qm empty
+    # commit 3: settings.json ABSENT
+    git rm -q .claude/settings.json; git commit -qm absent
+  )
+  assert_eq "#460 empty-read decision: settings.json present + wiring a hook -> wired" "wired" \
+    "$(cd "$HSH_GIT" && hsh_decide 'HEAD~2' '.claude/settings.json')"
+  assert_eq "#460 empty-read decision: settings.json present but EMPTY -> wired (fail-closed harden, not skip)" "wired" \
+    "$(cd "$HSH_GIT" && hsh_decide 'HEAD~1' '.claude/settings.json')"
+  assert_eq "#460 empty-read decision: settings.json ABSENT -> skip (genuine consumer)" "skip" \
+    "$(cd "$HSH_GIT" && hsh_decide 'HEAD' '.claude/settings.json')"
+  unset -f hsh_decide
+  rm -rf "$HSH_GIT"
+else
+  echo "  SKIP  #460 empty-read decision git-fixture (git not on PATH)"
+fi
+
+# Breadcrumbs name the source used for each target (trusted vs stub).
+HSH_ERR="$(WORKSPACE_ROOT="$HSH_TMP/a/ws" TRUSTED_DIR="$HSH_TMP/a/tr" bash "$HSH" 2>&1 1>/dev/null)"
+assert_eq "#458 helper: breadcrumbs the trusted-copy install" "yes" \
+  "$(printf '%s' "$HSH_ERR" | grep -q 'trusted base copy' && echo yes || echo no)"
+HSH_ERR2="$(WORKSPACE_ROOT="$HSH_TMP/d/ws" TRUSTED_DIR="" bash "$HSH" 2>&1 1>/dev/null)"
+assert_eq "#458 helper: breadcrumbs the fail-closed stub" "yes" \
+  "$(printf '%s' "$HSH_ERR2" | grep -q 'fail-closed no-op stub' && echo yes || echo no)"
+
+# S1 (present-but-UNREADABLE trusted src → stub): a trusted copy that cannot be read
+# (cp fails) must still displace the PR-head copy with a stub, never leave it. Uses a
+# chmod-000 trusted src; skipped under a uid that ignores the mode bit (root).
+hsh_mk_ws "$HSH_TMP/s1/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/s1/tr" $HSH_CLOSURE_LIT
+chmod 000 "$HSH_TMP/s1/tr/scripts/workpad.py" 2>/dev/null || true
+if [ "$(id -u)" -ne 0 ] && [ ! -r "$HSH_TMP/s1/tr/scripts/workpad.py" ]; then
+  WORKSPACE_ROOT="$HSH_TMP/s1/ws" TRUSTED_DIR="$HSH_TMP/s1/tr" bash "$HSH" >/dev/null 2>&1
+  assert_eq "#458 helper: unreadable trusted src — PR-head copy is displaced (not left)" "0" \
+    "$(grep -c 'MALICIOUS' "$HSH_TMP/s1/ws/scripts/workpad.py" || true)"
+  assert_eq "#458 helper: unreadable trusted src — target becomes a no-op stub" "1" \
+    "$(grep -c '^exit 0$' "$HSH_TMP/s1/ws/scripts/workpad.py" || true)"
+else
+  echo "  SKIP  #458 helper: unreadable-trusted-src arm (this uid ignores the mode bit; chmod 000 stayed readable)"
+fi
+chmod 700 "$HSH_TMP/s1/tr/scripts/workpad.py" 2>/dev/null || true
+
+# S4 (wholly-unwritable dest → exit NON-ZERO): when a target can be neither
+# trusted-copied NOR stubbed (its PR-head copy MAY REMAIN), the helper exits non-zero
+# so the workflow's inline fail-closed stub arm runs — never a silent partial
+# displacement. Make one target's dest file + its parent dir unwritable. Skipped under
+# a uid that ignores the mode bits (root).
+hsh_mk_ws "$HSH_TMP/s4/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/s4/tr" $HSH_CLOSURE_LIT
+chmod 000 "$HSH_TMP/s4/ws/scripts/workpad.py" 2>/dev/null || true
+chmod 500 "$HSH_TMP/s4/ws/scripts" 2>/dev/null || true
+if [ "$(id -u)" -ne 0 ] && [ ! -w "$HSH_TMP/s4/ws/scripts/workpad.py" ] && [ ! -w "$HSH_TMP/s4/ws/scripts" ]; then
+  WORKSPACE_ROOT="$HSH_TMP/s4/ws" TRUSTED_DIR="$HSH_TMP/s4/tr" bash "$HSH" >/dev/null 2>&1
+  hsh_s4_rc=$?
+  assert_eq "#458 helper: wholly-unwritable target — exits NON-ZERO (workflow fail-closed arm runs)" "yes" \
+    "$([ "$hsh_s4_rc" -ne 0 ] && echo yes || echo no)"
+else
+  echo "  SKIP  #458 helper: wholly-unwritable exit-non-zero arm (this uid ignores the mode bits)"
+fi
+chmod 700 "$HSH_TMP/s4/ws/scripts" 2>/dev/null || true
+chmod 700 "$HSH_TMP/s4/ws/scripts/workpad.py" 2>/dev/null || true
+
+# S5 (issue #460 Fix 3 — neutralization is independent of the sourced-lib stub-write
+# outcome): a SOURCED lib (config-source.sh) has NO trusted copy AND its own stub write
+# FAILS (unwritable dest). The entries must STILL be neutralized — otherwise Pass 2 would
+# install a trusted ENTRY that then sources the surviving PR-head library. So the entry
+# must NOT receive its trusted body (it must be a no-op stub), and the helper exits
+# non-zero (the failed stub sets displacement_failed → the workflow fail-closed arm).
+# Skipped under a uid that ignores the mode bits (root).
+hsh_mk_ws "$HSH_TMP/s5/ws"
+hsh_mk_trusted "$HSH_TMP/s5/tr" \
+  lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
+  lib/resolve-jq.sh lib/resolve-bin.sh \
+  scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
+chmod 000 "$HSH_TMP/s5/ws/lib/config-source.sh" 2>/dev/null || true
+chmod 500 "$HSH_TMP/s5/ws/lib" 2>/dev/null || true
+if [ "$(id -u)" -ne 0 ] && [ ! -w "$HSH_TMP/s5/ws/lib/config-source.sh" ]; then
+  WORKSPACE_ROOT="$HSH_TMP/s5/ws" TRUSTED_DIR="$HSH_TMP/s5/tr" bash "$HSH" >/dev/null 2>&1
+  hsh_s5_rc=$?
+  # Re-open lib/ so the entry files (also under lib/) can be read back for assertions.
+  chmod 700 "$HSH_TMP/s5/ws/lib" 2>/dev/null || true
+  assert_eq "#460 helper: sourced-lib stub-write FAILS but the entry is STILL neutralized (not its trusted body)" "0" \
+    "$(grep -c 'TRUSTED-BODY' "$HSH_TMP/s5/ws/lib/efficiency-trace.sh" || true)"
+  assert_eq "#460 helper: sourced-lib stub-write FAILS — the entry is a no-op stub (neutralized)" "1" \
+    "$(grep -c '^exit 0$' "$HSH_TMP/s5/ws/lib/efficiency-trace.sh" || true)"
+  assert_eq "#460 helper: sourced-lib stub-write FAILS — exits NON-ZERO (workflow fail-closed arm runs)" "yes" \
+    "$([ "$hsh_s5_rc" -ne 0 ] && echo yes || echo no)"
+else
+  echo "  SKIP  #460 helper: sourced-lib-unwritable neutralization arm (this uid ignores the mode bits)"
+fi
+chmod 700 "$HSH_TMP/s5/ws/lib" 2>/dev/null || true
+chmod 700 "$HSH_TMP/s5/ws/lib/config-source.sh" 2>/dev/null || true
+rm -rf "$HSH_TMP"
+
+# Behavioral-fix pin: the fail-closed branch must WRITE THE STUB over $dest — the
+# guarded regression is the PR-head copy SURVIVING (the security hole), so the mutation
+# reproduces exactly that: replace the stub write with a no-op that leaves the PR-head
+# $dest in place (issue #460 — the old `true > "$dest"` emptied the file instead, a
+# different, less faithful failure). assert_pin_red_under proves the operative stub-write
+# flips PASS->FAIL when mutated to keep the PR-head file.
+assert_pin_red_under "#458 helper fail-closed branch writes a no-op stub over the PR-head copy — mutating it to LEAVE the PR-head file in place re-opens the hole" \
+  "printf '%s\n' \"\$STUB\" > \"\$dest\"" \
+  "s/printf '%s\\\\n' \"\\\$STUB\" > \"\\\$dest\"/: leave PR-head copy in place/" \
+  "$HSH"
+
+# ── #458: workflow wiring — devflow-runner.yml runs the floor from a TRUSTED source
+# The harden step exists and precedes the claude-code-action step (it must run
+# BEFORE the engine, or the Stop hooks fire against the PR-head copies).
+HARDEN_LN=$(grep -n 'Harden Stop-hook script sources' "$RUNNER" | head -1 | cut -d: -f1)
+CLAUDE_LN=$(grep -n 'name: Run Claude Code' "$RUNNER" | head -1 | cut -d: -f1)
+assert_eq "#458 workflow: harden step precedes Run Claude Code" "yes" \
+  "$([ -n "$HARDEN_LN" ] && [ -n "$CLAUDE_LN" ] && [ "$HARDEN_LN" -lt "$CLAUDE_LN" ] && echo yes || echo no)"
+# The helper is materialized + run from the TRUSTED base ref (FETCH_HEAD), mirroring
+# the #404 floor-helper discipline — never the PR-head checkout.
+assert_eq "#458 workflow: helper materialized from FETCH_HEAD (trusted base ref)" "1" \
+  "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/harden-stop-hooks.sh' "$RUNNER" || true)"
+assert_eq "#458 workflow: trusted hook copies materialized from FETCH_HEAD" "1" \
+  "$(grep -cF 'git show "FETCH_HEAD:$t"' "$RUNNER" || true)"
+# The vendored helper fallback is accepted ONLY on a fresh fetch — dropping that
+# gate re-opens PR-head tampering (same operative gate the #404 floor pins).
+assert_pin_red_under "#458 workflow: vendored harden-helper fallback is gated on vendor_source=fetch — dropping the gate re-opens PR-head tampering" \
+  '[ "${VENDOR_SOURCE:-}" = "fetch" ] \' \
+  's/\[ "\$\{VENDOR_SOURCE:-\}" = "fetch" \] \\/true \\/' \
+  "$RUNNER"
+# Fail-closed arm: when no trusted helper resolves, the step stubs every target
+# inline (never the PR-head copy) and warns.
+assert_eq "#458 workflow: fail-closed inline stub arm present (no trusted helper)" "1" \
+  "$(grep -c 'no TRUSTED helper resolved' "$RUNNER" || true)"
+assert_eq "#458 workflow: fail-closed inline stub writes exit-0 stubs" "1" \
+  "$(grep -cF "printf '#!/usr/bin/env bash\\nexit 0\\n' > \"\$d\"" "$RUNNER" || true)"
+# The inline stub arm unlinks a symlink dest first (issue #460 SHADOW, mirrors the helper's
+# write_stub) so the `> "$d"` never writes THROUGH the link into its resolved target.
+assert_eq "#460 workflow: inline stub arm unlinks a symlink dest before writing (no write-through)" "1" \
+  "$(grep -cF '[ -L "$d" ] && rm -f "$d"' "$RUNNER" || true)"
+# LAST-RESORT arm must be genuinely fail-CLOSED (issue #460): if the inline stub WRITE
+# itself fails (a wholly-unwritable dest), the PR-head hook script REMAINS — warning and
+# exiting 0 would let `Run Claude Code` proceed with a PR-controlled hook intact in this
+# secrets-bearing job (fail-OPEN). On any un-stubbable target the step must FAIL (exit 1)
+# after the loop so the job aborts BEFORE the engine runs.
+assert_eq "#460 workflow: inline stub-write failure sets a failure flag (not a bare warn-and-proceed)" "1" \
+  "$(grep -cF 'stub_failed=1' "$RUNNER" || true)"
+assert_eq "#460 workflow: un-stubbable target fails the step with a fail-closed ::error::" "1" \
+  "$(grep -c 'Failing the job BEFORE Run Claude Code so no PR-controlled Stop hook fires' "$RUNNER" || true)"
+# Behavioral-fix pin: the operative construct is the post-loop `exit 1` under the
+# stub_failed guard — mutating the guard so the step never aborts re-opens the fail-OPEN
+# (Run Claude Code proceeds with the surviving PR-head hook).
+assert_pin_red_under "#460 workflow: un-stubbable inline arm aborts the step (exit 1) — removing the guard re-opens the fail-OPEN" \
+  'if [ "$stub_failed" -eq 1 ]; then' \
+  's/if \[ "\$stub_failed" -eq 1 \]; then/if false; then/' \
+  "$RUNNER"
+# The step passes WORKSPACE_ROOT + TRUSTED_DIR into the helper.
+assert_eq "#458 workflow: helper invoked with WORKSPACE_ROOT + TRUSTED_DIR" "1" \
+  "$(grep -cF 'WORKSPACE_ROOT="$ROOT" TRUSTED_DIR="$TRUSTED_DIR" bash "$HELPER"' "$RUNNER" || true)"
+# A RESOLVED helper that fails to EXECUTE (truncated/corrupt copy, noexec RUNNER_TEMP)
+# must NOT merely warn-and-proceed — that would leave every PR-head Stop-hook script
+# executable (fail-OPEN, review finding). The rc is captured in the `if bash "$HELPER"`
+# statement and a non-zero result falls through to the same inline-stub fallback as an
+# unresolved helper (HARDENED stays 0). Behavioral-fix pin: the operative construct is
+# the `if [ "$HARDENED" -eq 0 ]` fallback guard — mutating it so the fallback never runs
+# re-opens the fail-open. (assert_pin_red_under proves it flips PASS->FAIL under that
+# mutation.)
+assert_eq "#458 workflow: helper rc captured in-statement (if bash \"\$HELPER\")" "1" \
+  "$(grep -cF 'if WORKSPACE_ROOT="$ROOT" TRUSTED_DIR="$TRUSTED_DIR" bash "$HELPER"; then' "$RUNNER" || true)"
+assert_pin_red_under "#458 workflow: a failed/unrun helper falls through to inline stubs (HARDENED-guard) — removing the guard re-opens the fail-OPEN" \
+  'if [ "$HARDENED" -eq 0 ]; then' \
+  's/if \[ "\$HARDENED" -eq 0 \]; then/if false; then/' \
+  "$RUNNER"
+# Rank-1 self-copy of the harden helper from the base ref is gated on the base ref
+# actually being the DevFlow plugin repo (plugin.json name), so a consumer's unrelated
+# like-named scripts/harden-stop-hooks.sh is never executed as the trusted helper.
+assert_eq "#458 workflow: harden self-copy line present" "1" \
+  "$(grep -cF 'git show "FETCH_HEAD:scripts/harden-stop-hooks.sh"' "$RUNNER" || true)"
+# NON-VACUOUS gating pin (issue #460 review, CA4/PT2): the presence check above stays
+# green even if the `grep -Eq …"devflow"` discriminator gate is deleted (the self-copy
+# `git show` line survives). The discriminator literal is NOT file-unique (baseprovision
+# uses the same grep), so pin the harden self-copy's gating by ADJACENCY: the line
+# immediately preceding the self-copy `git show` must be the plugin.json-name
+# discriminator. A mutation deleting the gate changes that preceding line → RED.
+assert_eq "#460 workflow: harden self-copy is gated by the plugin.json-name discriminator on the preceding line" "1" \
+  "$(grep -B1 -F 'raw=$(git show "FETCH_HEAD:scripts/harden-stop-hooks.sh"' "$RUNNER" | grep -c 'grep -Eq .*"devflow"' || true)"
+
+# ── #460 review (FP1): consumer relevance gate — harden ONLY when the TRUSTED base
+# .claude/settings.json wires these Stop hooks. devflow-runner.yml ships to consumers,
+# but DevFlow's own Stop hooks do not; without this gate a consumer review stubs/creates
+# the nine DevFlow-layout paths over same-named files (a wrong verdict).
+assert_eq "#460 workflow: relevance gate reads the TRUSTED base .claude/settings.json" "1" \
+  "$(grep -cF 'git show "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
+assert_eq "#460 workflow: relevance gate keys on the three entry hooks" "1" \
+  "$(grep -cF 'ENTRY_TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh"' "$RUNNER" || true)"
+assert_eq "#460 workflow: gate skips hardening when base settings.json does not wire the hooks" "1" \
+  "$(grep -c 'does not wire the DevFlow Stop hooks' "$RUNNER" || true)"
+# CROSS-PIN (issue #460 SHADOW, FP-S2): the workflow's inline ENTRY_TARGETS (the gate's
+# fallback list) must equal the helper's HOOK_ENTRY_TARGETS — a fourth Stop hook added to
+# the helper + settings.json but forgotten here would leave the fallback gate checking a
+# stale three. Compare the two literals' path sets.
+HSH_WF_ENTRY="$( grep -oE 'ENTRY_TARGETS="[^"]*"' "$RUNNER" | head -1 | sed -E 's/^[^"]*"//; s/"$//' | tr ' ' '\n' | grep -E '\.sh$' | sort -u | tr '\n' ' ' )"
+HSH_HELPER_ENTRY="$( grep -oE "HOOK_ENTRY_TARGETS='[^']*'" "$HSH" | sed -E "s/^[^']*'//; s/'$//" | tr ' ' '\n' | grep -E '\.sh$' | sort -u | tr '\n' ' ' )"
+assert_eq "#460 coupling: workflow inline ENTRY_TARGETS == helper HOOK_ENTRY_TARGETS" "$HSH_HELPER_ENTRY" "$HSH_WF_ENTRY"
+# GATE VIA THE TRUSTED HELPER (issue #460 SHADOW, PT2): the gate decides via the helper's
+# tested --wired-check mode (single source of truth), so the branch selection is driven by
+# the behavioral --wired-check tests above rather than only grep-pinned inline. The inline
+# `case` remains only as the no-trusted-helper fallback.
+assert_eq "#460 workflow: relevance gate decides via the trusted helper's --wired-check mode" "1" \
+  "$(grep -cF 'bash "$HELPER" --wired-check' "$RUNNER" || true)"
+# Behavioral-fix pin: the operative construct is the `HOOKS_WIRED -eq 0` skip decision —
+# mutating it so the skip never fires re-opens FP1 (harden a consumer that has no hooks,
+# clobbering same-named files). assert_pin_red_under proves PASS->FAIL under that mutation.
+assert_pin_red_under "#460 workflow: relevance gate skips when the base does not wire the hooks — dropping the skip re-opens consumer clobbering" \
+  'if [ "$HOOKS_WIRED" -eq 0 ]; then' \
+  's/if \[ "\$HOOKS_WIRED" -eq 0 \]; then/if false; then/' \
+  "$RUNNER"
+# The gate skip must fire BEFORE the helper / inline-stub arms run (an early exit), or the
+# stubbing would still happen. Pin the SKIP_HARDEN early-out and its guard.
+assert_eq "#460 workflow: SKIP_HARDEN early-out precedes the helper/inline arms" "1" \
+  "$(grep -c 'if \[ "\$SKIP_HARDEN" -eq 1 \]; then' "$RUNNER" || true)"
+# A FETCH FAILURE must NOT set SKIP_HARDEN — it stays on the fail-closed path so DevFlow's
+# own protection is never dropped on a transient base-ref fetch error. The gate is set
+# only inside the fetch-success branch, so `SKIP_HARDEN=1` appears exactly once.
+assert_eq "#460 workflow: SKIP_HARDEN is set on exactly one (fetch-success, unwired) path" "1" \
+  "$(grep -c 'SKIP_HARDEN=1' "$RUNNER" || true)"
+
+# ── #460 review (SF4): the trusted-copy materialization write is CHECKED — a
+# partial/empty file from a failed write is removed, not later installed as a "trusted
+# base copy" with a success breadcrumb. The old form was `printf … 2>/dev/null || true`.
+assert_eq "#460 workflow: trusted-copy materialization write is checked (rm residue on failure)" "1" \
+  "$(grep -c 'failed to materialize the trusted base copy' "$RUNNER" || true)"
+assert_eq "#460 workflow: the swallowed 'printf … || true' materialization write is gone" "0" \
+  "$(grep -cF 'printf '\''%s\n'\'' "$raw" > "$TRUSTED_DIR/$t" 2>/dev/null || true' "$RUNNER" || true)"
+
+# ── #460 SHADOW (fail-open, SF): an EMPTY settings read must NOT be inferred as "not
+# wired" and skipped — that would drop DevFlow's OWN floor when settings.json exists at
+# base but `git show` read back empty despite a successful fetch. The gate distinguishes
+# absent (skip) from present-but-unreadable (fail-closed harden) via `git cat-file -e`.
+assert_eq "#460 workflow: empty settings read is disambiguated with git cat-file -e" "1" \
+  "$(grep -cF 'git cat-file -e "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
+assert_eq "#460 workflow: a present-but-unreadable base settings.json fails closed (hardens, warns)" "1" \
+  "$(grep -c 'read back empty after a successful fetch' "$RUNNER" || true)"
+# SETTINGS.LOCAL.JSON scope (issue #460 SHADOW): the gate must ALSO read
+# .claude/settings.local.json — claude-code-action restores all of .claude/, so a hook
+# wired there is just as live; reading only settings.json would be a fail-OPEN. Pin both
+# the wiring read and the empty-read existence probe of the local file.
+assert_eq "#460 workflow: gate ALSO reads base .claude/settings.local.json (both the show and the cat-file probe)" "2" \
+  "$(grep -cF 'FETCH_HEAD:.claude/settings.local.json' "$RUNNER" || true)"
+# Behavioral-fix pin: the operative construct is the `_settings_present` guard that
+# hardens on a present-but-empty settings*.json. Mutating it to always-false makes a
+# present-but-empty read fall through to "not wired" → skip → the floor drops.
+assert_pin_red_under "#460 workflow: present-but-unreadable base settings*.json hardens (fail-closed) — dropping the _settings_present guard re-opens the floor-drop fail-open" \
+  'if [ "$_settings_present" -eq 1 ]; then' \
+  's/if \[ "\$_settings_present" -eq 1 \]; then/if false; then/' \
+  "$RUNNER"
+# INLINE FALLBACK selection guard (issue #460 SHADOW, PT2): the SINGLE inline `case`
+# fallback (reached when no trusted helper resolved OR the helper errored) is a mirror of
+# --wired-check. Its list is cross-pinned equal above; pin its glob SELECTION too so a glob
+# typo that never matches (misrouting the consumer gate) turns RED, not just a missing
+# literal.
+assert_pin_red_under "#460 workflow: inline --wired-check fallback matches an entry via a substring glob — breaking the glob misroutes the gate" \
+  'case "$SETTINGS_JSON" in *"$e"*) HOOKS_WIRED=1 ;; esac' \
+  's/case "\$SETTINGS_JSON" in \*"\$e"\*\) HOOKS_WIRED=1 ;; esac/case "$SETTINGS_JSON" in "no-such-match") HOOKS_WIRED=1 ;; esac/' \
+  "$RUNNER"
+# Obs A fail-open fix (issue #460 SHADOW, CT2): the --wired-check helper's rc is
+# THREE-valued to the caller — rc 0 wired, rc 1 clean not-wired, rc>=2 ERROR. An error must
+# NOT be read as "not wired" (that would skip → drop the floor); it falls back to the inline
+# scan. Pin the rc!=1 discriminator and the fallback warning.
+assert_eq "#460 workflow: a --wired-check helper ERROR (rc>=2) is distinguished from a clean not-wired (rc 1)" "1" \
+  "$(grep -c 'if \[ "\$_wc_rc" -ne 1 \]; then' "$RUNNER" || true)"
+assert_eq "#460 workflow: a --wired-check helper error falls back to the inline scan (not skip)" "1" \
+  "$(grep -c 'helper errored (rc=\$_wc_rc' "$RUNNER" || true)"
+# Behavioral-fix pin: the operative construct is the `_wc_rc -ne 1` discriminator —
+# mutating it so an error is treated as a clean verdict (never falls back) re-opens the
+# skip-on-error fail-open. assert_pin_red_under proves PASS->FAIL under that mutation.
+assert_pin_red_under "#460 workflow: helper-error rc!=1 discriminator falls back to inline (not skip) — dropping it re-opens the skip-on-error fail-open" \
+  'if [ "$_wc_rc" -ne 1 ]; then' \
+  's/if \[ "\$_wc_rc" -ne 1 \]; then/if false; then/' \
+  "$RUNNER"
 
 # The setup-project-env step is gated on the base-ref provision flag.
 assert_eq "provision: setup-project-env step present" "1" \
@@ -17419,9 +18134,11 @@ assert_eq "provision: malformed/non-object base config warns + read-only" "1" \
 # Trust boundary: the flag and setup block come from the base ref. BASE_REF is
 # sourced from the trusted event payload, fetched from origin, and read out of
 # FETCH_HEAD — never the checked-out PR head.
-assert_eq "provision: base ref from trusted event payload" "1" \
+# Two sites read the trusted BASE_REF from the event payload and fetch it: the
+# baseprovision step and the #458 harden-stop-hooks step (same trusted-source rule).
+assert_eq "provision: base ref from trusted event payload (baseprovision + #458 harden step)" "2" \
   "$(grep -c 'github.event.pull_request.base.ref || github.event.repository.default_branch' "$RUNNER" || true)"
-assert_eq "provision: base config fetched from origin BASE_REF" "1" \
+assert_eq "provision: base config fetched from origin BASE_REF (baseprovision + #458 harden step)" "2" \
   "$(grep -c 'git fetch --depth=1 origin "\$BASE_REF"' "$RUNNER" || true)"
 assert_eq "provision: provision_env read from FETCH_HEAD base config" "1" \
   "$(grep -c 'FETCH_HEAD:.devflow/config.json' "$RUNNER" || true)"
