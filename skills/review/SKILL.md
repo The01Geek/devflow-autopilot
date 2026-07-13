@@ -1142,6 +1142,7 @@ FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they re
 - Any FAIL in verification checklist → REJECT
 - Any INCONCLUSIVE in verification checklist → REJECT (manual check needed)
 - Any finding that a doc/release-note line, comment, or test **the diff added or modified** is untrue → REJECT at every threshold value and regardless of severity chip (self-contradicting-diff carve-out — a claim that is stale, contradicts HEAD, or contradicts another part of this change; non-demotable, corroboration-independent)
+- A deterministic Phase 0.6 stale-prose `STALE` finding participates **only** through the config-gated severity rule above (as a `$SP_SEVERITY` engine finding, per Phase 0.6) and can **never invoke the threshold-independent self-contradicting-diff carve-out**, which is scoped to review-agent findings — so under a `critical` threshold with `stale_prose.severity` below it, a deterministic STALE never flips this verdict.
 - Any finding from review agents at or above the configured verdict threshold ({VERDICT_THRESHOLD}) → REJECT (excluding findings demoted to Informational via Phase 4.0's deferral match; when the threshold admits Important, an admitted finding does not REJECT if it is genuinely pre-existing behavior the diff does not touch — the carve-out above overrides this)
 - Checklist generation failed → max APPROVE WITH CAVEAT
 - 2+ review agents failed → partial review coverage
