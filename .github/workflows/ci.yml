@@ -33,7 +33,9 @@ jobs:
       # in the checkout — actions/checkout fetches a single commit by default, under which
       # origin/main does NOT exist, so the #434 stale-prose self-scan in lib/test/run.sh
       # silently self-skipped on every CI run (issue #456). With full history the gate runs
-      # live here, which is the only place it grades a clean committed tree.
+      # live here, which is the only place it grades a clean committed tree. Deliberate
+      # trade-off: history is fetched unconditionally — negligible cost at this repo's size,
+      # and a conditional fetch would reintroduce the silent self-skip on the runs it skips.
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
