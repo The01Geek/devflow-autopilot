@@ -73,13 +73,16 @@ permissions:
   # The `implement-probe` job (issue #450) composes --allowed-tools from the
   # devflow-implement profile, whose granted label helpers
   # (apply-labels.sh -> POST issues/{n}/labels, ensure-label.sh -> POST
-  # repos/{owner}/{repo}/labels) touch the issues API family. The
-  # endpoint-permission lint (issue #312) requires the family be declared even
-  # though the probe judges by matcher verdict alone and never relies on the API
-  # effect. `read` is the safe floor: it satisfies the family-presence lint while
-  # making every mutating label call fail closed at the API - the probe must never
-  # be able to create or apply a label. (The probe targets dummy issue
-  # numbers/label names regardless.)
+  # repos/{owner}/{repo}/labels) touch the issues API family. UNLIKE the
+  # pull-requests case above, the label endpoints are NOT among the #312 lint's
+  # six recognized families (the only issues-API endpoint it recognizes is
+  # issues/*/comments, mapped to its `comments` requirement, which the
+  # pull-requests grant already satisfies), so the lint does NOT require this
+  # grant - it stays clean whether or not `issues:` is declared. `read` is
+  # therefore a defense-in-depth safe floor, not a lint-satisfying grant: it
+  # makes every mutating label call fail closed at the API so the probe stays
+  # matcher-only and can never create or apply a label. (The probe targets dummy
+  # issue numbers/label names regardless.)
   issues: read
 
 jobs:
