@@ -735,52 +735,60 @@ jobs:
           # success branch is FETCH_HEAD the base ref (checkout may leave it at the
           # PR head elsewhere) — mirrors baseprovision's FLOOR_HELPER discipline.
           if [ -n "${BASE_REF:-}" ] && git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
-            # RELEVANCE GATE (issue #460 review, FP1): install.sh ships devflow-runner.yml
-            # to consumer repos, but DevFlow's own .claude/settings.json Stop hooks do NOT
-            # ship. In a consumer whose TRUSTED base .claude/settings.json does not wire
-            # these hooks there is nothing to harden — and stubbing/creating the nine
-            # DevFlow-layout paths would clobber a same-named consumer file under review
-            # (a wrong verdict). So harden ONLY when the trusted base settings.json wires
-            # at least one entry hook. Keyed on the BASE ref, never the PR head — a PR
-            # could otherwise strip the wiring from its own settings.json to dodge the
-            # floor while claude-code-action still restores the base hooks that fire.
+            # Read the TRUSTED base .claude/settings.json (for the relevance gate below),
+            # then resolve the trusted helper: committed vendor copy first, then the
+            # repo's own scripts/ copy ONLY when the base ref IS the DevFlow plugin repo
+            # (same plugin.json-name discriminator baseprovision uses), so a consumer's
+            # unrelated like-named script is never executed. Resolved BEFORE the gate so
+            # the gate can decide via the helper's tested --wired-check mode.
             SETTINGS_JSON="$(git show "FETCH_HEAD:.claude/settings.json" 2>/dev/null || true)"
-            HOOKS_WIRED=0
-            for e in $ENTRY_TARGETS; do
-              case "$SETTINGS_JSON" in *"$e"*) HOOKS_WIRED=1 ;; esac
-            done
-            if [ "$HOOKS_WIRED" -eq 0 ]; then
-              SKIP_HARDEN=1
-              echo "::notice::harden-stop-hooks: the trusted base .claude/settings.json does not wire the DevFlow Stop hooks — nothing to harden; skipping (this repo does not use the base-hook channel this floor protects)."
-            else
-            TRUSTED_DIR="$RUNNER_TEMP/devflow-trusted-hooks"
-            for t in $TARGETS; do
-              if raw=$(git show "FETCH_HEAD:$t" 2>/dev/null); then
-                if mkdir -p "$TRUSTED_DIR/${t%/*}" 2>/dev/null; then
-                  # Checked write (issue #460 review, SF4): a partial/empty file left by a
-                  # failed write must NOT later be installed as a "trusted base copy" — remove
-                  # the residue so the helper stubs (fail-closed) instead of copying a corrupt
-                  # hook with a success breadcrumb.
-                  if ! printf '%s\n' "$raw" > "$TRUSTED_DIR/$t" 2>/dev/null; then
-                    rm -f "$TRUSTED_DIR/$t" 2>/dev/null || true
-                    echo "::warning::harden-stop-hooks: failed to materialize the trusted base copy of '$t'; it will be stubbed (fail-closed) rather than installed corrupt."
-                  fi
-                fi
-              fi
-            done
-            # Trusted helper: committed vendor copy first, then the repo's own
-            # scripts/ copy ONLY when the base ref IS the DevFlow plugin repo (same
-            # plugin.json-name discriminator baseprovision uses), so a consumer's
-            # unrelated like-named script is never executed.
             if raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/harden-stop-hooks.sh" 2>/dev/null); then
               printf '%s\n' "$raw" > "$RUNNER_TEMP/harden-stop-hooks.sh" 2>/dev/null && HELPER="$RUNNER_TEMP/harden-stop-hooks.sh"
             elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq '"name"[[:space:]]*:[[:space:]]*"devflow"' \
               && raw=$(git show "FETCH_HEAD:scripts/harden-stop-hooks.sh" 2>/dev/null); then
               printf '%s\n' "$raw" > "$RUNNER_TEMP/harden-stop-hooks.sh" 2>/dev/null && HELPER="$RUNNER_TEMP/harden-stop-hooks.sh"
             fi
-            fi   # close the HOOKS_WIRED else-branch (issue #460 review, FP1)
+            # RELEVANCE GATE (issue #460 review, FP1 + PT2): install.sh ships
+            # devflow-runner.yml to consumer repos, but DevFlow's own .claude/settings.json
+            # Stop hooks do NOT ship. In a consumer whose TRUSTED base settings.json does
+            # not wire these hooks there is nothing to harden — and stubbing/creating the
+            # nine DevFlow-layout paths would clobber a same-named consumer file (a wrong
+            # verdict). So harden ONLY when the trusted base settings.json wires an entry
+            # hook. DECIDE VIA THE TRUSTED HELPER'S --wired-check MODE — the single,
+            # lib/test/run.sh-driven source of truth for this selection — falling back to
+            # an inline substring scan only when no trusted helper resolved. Keyed on the
+            # BASE ref, never the PR head: a PR cannot strip its own settings.json wiring
+            # to dodge the floor while claude-code-action still restores the base hooks.
+            HOOKS_WIRED=0
+            if [ -n "$HELPER" ]; then
+              printf '%s' "$SETTINGS_JSON" | bash "$HELPER" --wired-check && HOOKS_WIRED=1
+            else
+              for e in $ENTRY_TARGETS; do
+                case "$SETTINGS_JSON" in *"$e"*) HOOKS_WIRED=1 ;; esac
+              done
+            fi
+            if [ "$HOOKS_WIRED" -eq 0 ]; then
+              SKIP_HARDEN=1
+              echo "::notice::harden-stop-hooks: the trusted base .claude/settings.json does not wire the DevFlow Stop hooks — nothing to harden; skipping (this repo does not use the base-hook channel this floor protects)."
+            else
+              TRUSTED_DIR="$RUNNER_TEMP/devflow-trusted-hooks"
+              for t in $TARGETS; do
+                if raw=$(git show "FETCH_HEAD:$t" 2>/dev/null); then
+                  if mkdir -p "$TRUSTED_DIR/${t%/*}" 2>/dev/null; then
+                    # Checked write (issue #460 review, SF4): a partial/empty file left by a
+                    # failed write must NOT later be installed as a "trusted base copy" — remove
+                    # the residue so the helper stubs (fail-closed) instead of copying a corrupt
+                    # hook with a success breadcrumb.
+                    if ! printf '%s\n' "$raw" > "$TRUSTED_DIR/$t" 2>/dev/null; then
+                      rm -f "$TRUSTED_DIR/$t" 2>/dev/null || true
+                      echo "::warning::harden-stop-hooks: failed to materialize the trusted base copy of '$t'; it will be stubbed (fail-closed) rather than installed corrupt."
+                    fi
+                  fi
+                fi
+              done
+            fi
           else
-            echo "::warning::harden-stop-hooks: could not fetch base ref '${BASE_REF:-}' to materialize trusted Stop-hook copies; failing closed (no-op stubs for every hook target)."
+            echo "::warning::harden-stop-hooks: could not fetch base ref '${BASE_REF:-}' to materialize trusted Stop-hook copies; failing closed (no-op stubs for every hook target). NOTE (issue #460 review, FP-S1): in a CONSUMER repo a base-ref fetch failure means the relevance gate cannot run, so the nine DevFlow-layout paths are stubbed/created over any same-named consumer files during this (read-only) review — a deliberate fail-closed-over-consumer-fidelity trade, disclosed in docs/DEVFLOW_SYSTEM_OVERVIEW.md."
           fi
           # RELEVANCE GATE early-out (issue #460 review, FP1): the trusted base ref
           # demonstrably does not wire these Stop hooks, so there is nothing to harden

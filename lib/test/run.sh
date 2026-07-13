@@ -16905,6 +16905,15 @@ assert_eq "#458 coupling: HOOK_ENTRY_TARGETS has exactly 3 entries (== settings.
 # not asserted in prose (the count-locked stale-prose lint owns numeric claims).
 assert_eq "#458 coupling: HOOK_TARGETS has exactly 9 closure entries (.sh + .py)" "9" \
   "$(grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -cE '\.(sh|py)' || true)"
+# SET-EQUALITY invariant (issue #460 SHADOW, FP-S3): the three per-class lists must
+# partition HOOK_TARGETS exactly — entries ∪ sourced ∪ exec == HOOK_TARGETS. A future
+# member added to HOOK_TARGETS but miscategorized (e.g. a sourced lib omitted from
+# HOOK_SOURCED_TARGETS) would be treated as an exec dep, so on a missing trusted copy the
+# entries would not be neutralized and a mid-`source` stub could break a legitimate hook.
+# Source the helper's list definitions and compare the sorted union to HOOK_TARGETS.
+HSH_UNION="$( { grep -oE "HOOK_ENTRY_TARGETS='[^']*'|HOOK_SOURCED_TARGETS='[^']*'|HOOK_EXEC_TARGETS='[^']*'" "$HSH" | sed -E "s/^[^']*'//; s/'$//"; } | tr ' ' '\n' | grep -E '\.(sh|py)$' | sort -u | tr '\n' ' ' )"
+HSH_ALL="$( grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | sed -E "s/^[^']*'//; s/'$//" | tr ' ' '\n' | grep -E '\.(sh|py)$' | sort -u | tr '\n' ' ' )"
+assert_eq "#460 coupling: HOOK_ENTRY ∪ SOURCED ∪ EXEC == HOOK_TARGETS (per-class lists partition the closure)" "$HSH_ALL" "$HSH_UNION"
 # IMPORTANT-1: the workflow's inline TARGETS= (used both to materialize trusted
 # copies AND to stub inline on the fail-closed arm) must equal the helper's full
 # HOOK_TARGETS — a later-added closure member left out of the inline list would go
@@ -16963,10 +16972,16 @@ foo=bar && . "$d/dep-c.sh"
 if true; then . "$d/dep-then.sh"; fi
 for x in 1; do . "$d/dep-do.sh"; done
 if false; then :; else . "$d/dep-else.sh"; fi
+if false; then :; elif true; then . "$d/dep-elif.sh"; fi
+source "$d/dep-src.sh"
 python3 scripts/dep-py.py
 bash scripts/dep-bash.sh
+sh scripts/dep-shexec.sh
 exec scripts/dep-exec.sh
+exec scripts/dep-execpy.py
 DEP=scripts/dep-assign.py
+LIBP=lib/dep-assign-lib.sh
+HEREDEP="$HERE/dep-heredep.sh"
 echo "issue #1 tracked here"; . "$d/dep-instr.sh"
 SYNEOF
 HSH_PC_OUT="$(REPO_ROOT="$HSH_PC_DIR" CLOSURE="lib/synthetic-entry.sh" python3 "$HSH_EDGES")"
@@ -16993,8 +17008,24 @@ assert_eq "#460 positive control: bash exec edge (shexec_re, dep-bash.sh) is rep
   "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-bash\.sh' || true)"
 assert_eq "#460 positive control: exec edge (execb_re, dep-exec.sh) is reported" "1" \
   "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-exec\.sh' || true)"
-assert_eq "#460 positive control: assignment edge (assign_re, dep-assign.py) is reported" "1" \
+assert_eq "#460 positive control: assignment edge (assign_re, scripts/ .py, dep-assign.py) is reported" "1" \
   "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-assign\.py' || true)"
+# Previously-uncontrolled alternations (issue #460 SHADOW, PT4/SF1): a regression dropping
+# any of these would leave the walker advertising a form it never proves it detects.
+assert_eq "#460 positive control: keyword-position source edge (\`elif … then . …\`, dep-elif.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-elif\.sh' || true)"
+assert_eq "#460 positive control: the \`source\` keyword (vs \`.\`, dep-src.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-src\.sh' || true)"
+assert_eq "#460 positive control: \`sh <path>\` exec edge (shexec_re, dep-shexec.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-shexec\.sh' || true)"
+assert_eq "#460 positive control: \`exec <path>.py\` edge (execb_re .py arm, dep-execpy.py) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-execpy\.py' || true)"
+assert_eq "#460 positive control: assignment edge (assign_re, lib/ .sh, dep-assign-lib.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-assign-lib\.sh' || true)"
+# Variable-indirected assignment (issue #460 SHADOW, SF-A): assign_var_re surfaces the
+# common `VAR="$DIR/name.sh"` shape a plain scripts/lib literal would miss.
+assert_eq "#460 positive control: \$DIR-indirected assignment (assign_var_re, dep-heredep.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-heredep\.sh' || true)"
 # In-string '#' must not swallow a later edge (issue #460 review, FP4).
 assert_eq "#460 positive control: edge after an in-string '#' (quote-aware strip, dep-instr.sh) is reported" "1" \
   "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-instr\.sh' || true)"
@@ -17009,7 +17040,14 @@ HSH_UR_DIR="$(mktemp -d)"
 HSH_UR_OUT="$(REPO_ROOT="$HSH_UR_DIR" CLOSURE="lib/does-not-exist.sh" python3 "$HSH_EDGES")"
 assert_eq "#460 drift-guard: an unreadable/missing closure member is reported UNREADABLE (not swallowed)" "1" \
   "$(printf '%s\n' "$HSH_UR_OUT" | grep -c 'lib/does-not-exist.sh -> UNREADABLE' || true)"
-rm -rf "$HSH_UR_DIR"
+# DIRECTORY member variant (issue #460 SHADOW, PT5): a closure member that is a directory
+# takes the same OSError→UNREADABLE fail-closed path (IsADirectoryError), not a silent
+# clean set. Make the CLOSURE member a directory and assert it is reported.
+HSH_UR_DIR2="$(mktemp -d)"; mkdir -p "$HSH_UR_DIR2/lib/is-a-dir.sh"
+HSH_UR_OUT2="$(REPO_ROOT="$HSH_UR_DIR2" CLOSURE="lib/is-a-dir.sh" python3 "$HSH_EDGES")"
+assert_eq "#460 drift-guard: a directory closure member is reported UNREADABLE (IsADirectoryError, not swallowed)" "1" \
+  "$(printf '%s\n' "$HSH_UR_OUT2" | grep -c 'lib/is-a-dir.sh -> UNREADABLE' || true)"
+rm -rf "$HSH_UR_DIR" "$HSH_UR_DIR2"
 
 # ── Adversarial drive over the full closure. Helper builders. ──────────────────
 HSH_TMP="$(mktemp -d)"
@@ -17113,6 +17151,64 @@ assert_eq "#460 helper: a directory dest is declined (not a phantom trusted-copy
   "$([ "$hsh_dd_rc" -ne 0 ] && echo yes || echo no)"
 assert_eq "#460 helper: the directory dest is NOT displaced by a copied file (still a directory)" "yes" \
   "$([ -d "$HSH_TMP/dd/ws/scripts/workpad.py" ] && echo yes || echo no)"
+
+# Scenario (symlink dest, issue #460 SHADOW, SF-C): a closure target that is a SYMLINK
+# must be UNLINKED and displaced by a real file, never written THROUGH the link into its
+# resolved target (which would leave the PR-head symlink in place — "displace the target
+# path" untrue — and, for an absolute link, write script bytes outside the workspace).
+# Point an entry at a symlink to an outside file; the helper must replace the LINK with a
+# real stub/copy and must NOT modify the link's original target.
+hsh_mk_ws "$HSH_TMP/sl/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/sl/tr" $HSH_CLOSURE_LIT
+HSH_SL_OUTSIDE="$HSH_TMP/sl/outside-target.txt"
+printf 'ORIGINAL-OUTSIDE-CONTENT\n' > "$HSH_SL_OUTSIDE"
+rm -f "$HSH_TMP/sl/ws/scripts/stop-hook-probe.sh"
+ln -s "$HSH_SL_OUTSIDE" "$HSH_TMP/sl/ws/scripts/stop-hook-probe.sh"
+WORKSPACE_ROOT="$HSH_TMP/sl/ws" TRUSTED_DIR="$HSH_TMP/sl/tr" bash "$HSH" >/dev/null 2>&1
+assert_eq "#460 helper: a symlink dest is replaced by a REAL file (not left a symlink)" "no" \
+  "$([ -L "$HSH_TMP/sl/ws/scripts/stop-hook-probe.sh" ] && echo yes || echo no)"
+assert_eq "#460 helper: a symlink dest gets its trusted base body (link displaced)" "TRUSTED-BODY-stop-hook-probe.sh" \
+  "$(cat "$HSH_TMP/sl/ws/scripts/stop-hook-probe.sh")"
+assert_eq "#460 helper: the symlink's ORIGINAL outside target is NOT written through" "ORIGINAL-OUTSIDE-CONTENT" \
+  "$(cat "$HSH_SL_OUTSIDE")"
+
+# Scenario (Pass-2 non-neutralized entry stub, issue #460 SHADOW, PT1): a lone ENTRY with
+# no trusted copy while ALL sourced libs ARE present (neutralize_entries=0) — the entry is
+# stubbed via the plain Pass-2 write_stub arm (not the neutralize arm). Give every target a
+# trusted copy EXCEPT one entry; that entry must become a no-op stub (never its PR-head copy).
+hsh_mk_ws "$HSH_TMP/p2/ws"
+hsh_mk_trusted "$HSH_TMP/p2/tr" \
+  lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
+  lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh \
+  scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
+WORKSPACE_ROOT="$HSH_TMP/p2/ws" TRUSTED_DIR="$HSH_TMP/p2/tr" bash "$HSH" >/dev/null 2>&1
+hsh_p2_rc=$?
+assert_eq "#460 helper: a lone entry with no trusted copy (libs present, non-neutralized arm) is stubbed" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/p2/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#460 helper: that entry's PR-head copy is displaced (no MALICIOUS)" "0" \
+  "$(grep -c 'MALICIOUS' "$HSH_TMP/p2/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#460 helper: other entries (with trusted copies) are NOT neutralized" "TRUSTED-BODY-implement-stop-guard.sh" \
+  "$(cat "$HSH_TMP/p2/ws/lib/implement-stop-guard.sh")"
+assert_eq "#460 helper: Pass-2 lone-entry stub is a successful displacement (exit 0)" "0" "$hsh_p2_rc"
+
+# --wired-check MODE (issue #460 SHADOW, PT2): the relevance-gate decision as the single
+# testable source of truth the workflow calls. Drive both arms + edge shapes behaviorally
+# (the workflow's inline `case` is only a fallback when no trusted helper resolves).
+assert_eq "#460 helper --wired-check: settings wiring an entry hook -> wired (exit 0)" "0" \
+  "$(printf 'bash lib/efficiency-trace.sh --persist\n' | bash "$HSH" --wired-check; echo $?)"
+assert_eq "#460 helper --wired-check: settings wiring a DIFFERENT entry -> wired (exit 0)" "0" \
+  "$(printf 'bash scripts/stop-hook-probe.sh\n' | bash "$HSH" --wired-check; echo $?)"
+assert_eq "#460 helper --wired-check: settings with NO entry hook -> not wired (exit 1)" "1" \
+  "$(printf 'no devflow hooks here\n' | bash "$HSH" --wired-check; echo $?)"
+assert_eq "#460 helper --wired-check: empty settings -> not wired (exit 1)" "1" \
+  "$(printf '' | bash "$HSH" --wired-check; echo $?)"
+HSH_WC_F="$(mktemp)"; printf 'bash lib/implement-stop-guard.sh\n' > "$HSH_WC_F"
+assert_eq "#460 helper --wired-check: file arg wiring a hook -> wired (exit 0)" "0" \
+  "$(bash "$HSH" --wired-check "$HSH_WC_F"; echo $?)"
+assert_eq "#460 helper --wired-check: absent/unreadable file arg -> not wired (exit 1, fail-safe)" "1" \
+  "$(bash "$HSH" --wired-check /nonexistent-devflow-settings-xyz; echo $?)"
+rm -f "$HSH_WC_F"
 
 # Breadcrumbs name the source used for each target (trusted vs stub).
 HSH_ERR="$(WORKSPACE_ROOT="$HSH_TMP/a/ws" TRUSTED_DIR="$HSH_TMP/a/tr" bash "$HSH" 2>&1 1>/dev/null)"
@@ -17286,6 +17382,19 @@ assert_eq "#460 workflow: relevance gate keys on the three entry hooks" "1" \
   "$(grep -cF 'ENTRY_TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh"' "$RUNNER" || true)"
 assert_eq "#460 workflow: gate skips hardening when base settings.json does not wire the hooks" "1" \
   "$(grep -c 'does not wire the DevFlow Stop hooks' "$RUNNER" || true)"
+# CROSS-PIN (issue #460 SHADOW, FP-S2): the workflow's inline ENTRY_TARGETS (the gate's
+# fallback list) must equal the helper's HOOK_ENTRY_TARGETS — a fourth Stop hook added to
+# the helper + settings.json but forgotten here would leave the fallback gate checking a
+# stale three. Compare the two literals' path sets.
+HSH_WF_ENTRY="$( grep -oE 'ENTRY_TARGETS="[^"]*"' "$RUNNER" | head -1 | sed -E 's/^[^"]*"//; s/"$//' | tr ' ' '\n' | grep -E '\.sh$' | sort -u | tr '\n' ' ' )"
+HSH_HELPER_ENTRY="$( grep -oE "HOOK_ENTRY_TARGETS='[^']*'" "$HSH" | sed -E "s/^[^']*'//; s/'$//" | tr ' ' '\n' | grep -E '\.sh$' | sort -u | tr '\n' ' ' )"
+assert_eq "#460 coupling: workflow inline ENTRY_TARGETS == helper HOOK_ENTRY_TARGETS" "$HSH_HELPER_ENTRY" "$HSH_WF_ENTRY"
+# GATE VIA THE TRUSTED HELPER (issue #460 SHADOW, PT2): the gate decides via the helper's
+# tested --wired-check mode (single source of truth), so the branch selection is driven by
+# the behavioral --wired-check tests above rather than only grep-pinned inline. The inline
+# `case` remains only as the no-trusted-helper fallback.
+assert_eq "#460 workflow: relevance gate decides via the trusted helper's --wired-check mode" "1" \
+  "$(grep -cF 'bash "$HELPER" --wired-check' "$RUNNER" || true)"
 # Behavioral-fix pin: the operative construct is the `HOOKS_WIRED -eq 0` skip decision —
 # mutating it so the skip never fires re-opens FP1 (harden a consumer that has no hooks,
 # clobbering same-named files). assert_pin_red_under proves PASS->FAIL under that mutation.

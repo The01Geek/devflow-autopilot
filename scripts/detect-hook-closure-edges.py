@@ -37,14 +37,26 @@ position (`then . "$dep"`) source edge is detected, not a blind spot. Trailing s
 comments are stripped quote-aware (a `#` inside a quoted string — e.g. an `issue #$n`
 breadcrumb — is NOT a comment, so a real edge later on the same line is not lost).
 
-Known granularity limits (documented, not silently assumed): closure membership is
-compared by BASENAME only — the sources reference their deps by `$DIR/…`-relative
-paths that are not statically resolvable here, so a same-basename file at a different
-path reads as in-closure; and `slashsh_re` requires a `/` before the `.sh`, so a
-slash-less same-directory `. foo.sh` source is not captured. Neither shape occurs in
-the current closure; both are conservative gaps a maintainer widening the closure
-should keep in mind. The jq PROGRAM edge (`-f *.jq`) is out of scope (jq is sandboxed
-— not a shell/RCE vector).
+Known granularity limits (documented, not silently assumed — none occur in the current
+closure; all are conservative gaps a maintainer widening the closure should keep in
+mind):
+  - **Basename-only membership.** Closure membership is compared by BASENAME only — the
+    sources reference their deps by `$DIR/…`-relative paths not statically resolvable
+    here — so a same-basename file at a different path reads as in-closure.
+  - **Slash-less source.** `slashsh_re` requires a `/` before the `.sh`, so a slash-less
+    same-directory `. foo.sh` source is not captured.
+  - **Variable-indirected source (issue #460 review).** A source whose path is held
+    entirely in a variable set elsewhere (`DEP="$HERE/newdep.sh"; . "$DEP"`) is only
+    caught via `assign_re`/`assign_var_re` on the *assignment* line; if the path is
+    assembled dynamically (e.g. built from `$1`, a loop, or command output) the edge
+    escapes. `assign_var_re` widens the common `VAR="$DIR/name.sh"` shape into scope,
+    but a fully-dynamic indirection is not statically resolvable.
+  - **Python-internal spawns.** The regexes are shell-syntax-only, so a `.py` closure
+    member's `subprocess.run(["bash", "scripts/new.sh"])` (or `os.system`) spawn of a
+    repo script is NOT matched — a `.py` member is audited only for the shell-form edge
+    syntaxes above, not for Python-mediated subprocess spawns.
+The jq PROGRAM edge (`-f *.jq`) is out of scope (jq is sandboxed — not a shell/RCE
+vector).
 """
 
 import os
@@ -57,6 +69,13 @@ shexec_re = re.compile(r'\b(?:bash|sh)\s+"?([^\s"]*\.sh)\b')
 execb_re = re.compile(r'\bexec\s+"?([^\s"]*\.(?:sh|py))\b')
 assign_re = re.compile(
     r'\b[A-Za-z_][A-Za-z0-9_]*=[^\s#]*?((?:scripts|lib)/[A-Za-z0-9_.-]+\.(?:sh|py))'
+)
+# A `$DIR/name.sh`-style assignment (issue #460 review): catches the common variable-
+# indirected source shape `DEP="$HERE/newdep.sh"; . "$DEP"` at the assignment line, where
+# the sourced path carries no literal `scripts/`/`lib/` prefix. Captures the basename.
+assign_var_re = re.compile(
+    r'\b[A-Za-z_][A-Za-z0-9_]*=\s*"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?'
+    r'(?:/[A-Za-z0-9_.-]+)*/([A-Za-z0-9_.-]+\.(?:sh|py))\b'
 )
 
 
@@ -99,8 +118,9 @@ def refs_in(path):
             for rx in (pyexec_re, shexec_re, execb_re):
                 for m in rx.finditer(line):
                     out.add(os.path.basename(m.group(1)))
-            for m in assign_re.finditer(line):
-                out.add(os.path.basename(m.group(1)))
+            for rx in (assign_re, assign_var_re):
+                for m in rx.finditer(line):
+                    out.add(os.path.basename(m.group(1)))
     return out
 
 

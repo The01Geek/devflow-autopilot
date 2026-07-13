@@ -36,11 +36,14 @@
 #   scripts/config_fingerprint.py -> (leaf: stdlib only)
 #   scripts/workpad.py          -> (leaf: git/gh subprocesses only, no repo files)
 # lib/test/run.sh's drift-guard (the shared walker scripts/detect-hook-closure-edges.py)
-# walks these edges transitively and turns RED if a future added source/exec pulls in a
-# repo file that is NOT in HOOK_TARGETS — including a COMMAND-POSITION source edge such as
-# a negation-guarded `if ! . "$dep"` or a brace-grouped `{ . "$dep"; }` (a positive-control
-# test asserts each such form is reported) — so the closure can never silently fall behind
-# the code. Residual (NOT hardened, by design): the jq
+# verifies the closure is transitively closed — it checks each HOOK_TARGETS member's
+# DIRECT source/exec edges and turns RED if any references a repo file NOT in HOOK_TARGETS
+# (the guarantee holds inductively: a genuinely new closure member must itself be added to
+# HOOK_TARGETS, after which its own direct edges are checked on the next run — the walker
+# does not recurse into non-closure files). It reports a COMMAND-POSITION source edge —
+# a negation-guarded `if ! . "$dep"`, a brace-grouped `{ . "$dep"; }`, or a keyword-position
+# `then . "$dep"` (a positive-control test asserts each such form is reported) — so the
+# closure can never silently fall behind the code. Residual (NOT hardened, by design): the jq
 # PROGRAM lib/efficiency-trace.jq, fed to jq via `-f`. jq is sandboxed — it cannot
 # spawn a shell, exec, or write outside its stdout — so a PR-head `.jq` is not a
 # shell/RCE vector (and the review job is read-only, so it cannot push tampered
@@ -142,6 +145,36 @@ HOOK_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-h
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-.}"
 TRUSTED_DIR="${TRUSTED_DIR:-}"
 
+# ── --wired-check MODE (issue #460 review): the relevance-gate decision, as a
+# TESTABLE single source of truth (the devflow-runner.yml harden step calls THIS from
+# the trusted-materialized helper instead of a hand-copied inline `case`, so the branch
+# selection is driven by lib/test/run.sh — the repo's "extract branch-selecting inline
+# workflow shell into a helper" convention). Given the TRUSTED base .claude/settings.json
+# on stdin or as $2, decide whether it wires any of the three entry Stop hooks.
+#   usage : harden-stop-hooks.sh --wired-check [<settings-file>]   (stdin if no file)
+#   exit  : 0 = wired (at least one entry hook referenced) — HARDEN
+#           1 = NOT wired (or the file is unreadable/absent) — nothing to harden
+# Fail direction: an unreadable/absent settings file reads as NOT wired (exit 1) so a
+# consumer without the hooks is never hardened; the workflow keeps a transient base-ref
+# FETCH FAILURE on its own fail-closed path (it never reaches this check), so DevFlow's
+# own protection is not dropped on a fetch error. A substring match (not a JSON parse) is
+# deliberate: the entry paths appear verbatim in the hook command strings, and a
+# non-preflight JSON tool must not decide this SELECTION (guard-class 2).
+if [ "${1:-}" = "--wired-check" ]; then
+  _wc_settings=""
+  if [ -n "${2:-}" ]; then
+    [ -r "$2" ] && _wc_settings="$(cat "$2" 2>/dev/null)"
+  else
+    _wc_settings="$(cat 2>/dev/null)"
+  fi
+  for _wc_e in $HOOK_ENTRY_TARGETS; do
+    case "$_wc_settings" in
+      *"$_wc_e"*) exit 0 ;;
+    esac
+  done
+  exit 1
+fi
+
 # Fail-closed no-op stub: a Stop hook that does nothing rather than the PR-head copy.
 STUB=$'#!/usr/bin/env bash\n# Installed by scripts/harden-stop-hooks.sh (#458): no trusted base copy of this\n# Stop-hook target was available, so it is neutralized rather than run from the\n# PR-head checkout. Fail-closed: run no hook, never a PR-controlled one.\nexit 0'
 
@@ -166,6 +199,12 @@ try_install_trusted() {
     printf 'devflow: harden-stop-hooks: %s — dest is a directory, not a file; cannot displace it — falling through to the fail-closed arm\n' "$t" >&2
     return 1
   fi
+  # A SYMLINK dest must be REMOVED, not followed (issue #460 review): `cp`/`> ` write
+  # through the link into its resolved target, leaving the PR-head symlink in place (so
+  # "displace the target path" would be untrue) and — for an absolute link target —
+  # writing script bytes to an arbitrary path outside the workspace. Unlink it first so a
+  # real file is written AT the path.
+  [ -L "$dest" ] && rm -f "$dest" 2>/dev/null
   if [ -n "$TRUSTED_DIR" ] && [ -f "$src" ]; then
     if mkdir -p "$destdir" 2>/dev/null && cp "$src" "$dest" 2>/dev/null; then
       chmod +x "$dest" 2>/dev/null || true
@@ -184,6 +223,9 @@ write_stub() {
   local t="$1" dest destdir label="${2:-fail-closed no-op stub (no trusted base copy)}"
   dest="$WORKSPACE_ROOT/$t"
   destdir="${dest%/*}"
+  # Unlink a symlink dest first (issue #460 review) so the stub is written AT the path,
+  # not through the link into its resolved target.
+  [ -L "$dest" ] && rm -f "$dest" 2>/dev/null
   if mkdir -p "$destdir" 2>/dev/null && printf '%s\n' "$STUB" > "$dest" 2>/dev/null; then
     chmod +x "$dest" 2>/dev/null || true
     printf 'devflow: harden-stop-hooks: %s <- %s\n' "$t" "$label" >&2
