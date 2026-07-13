@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.136] — 2026-07-13
+
+### Added
+- **Add an `implement-probe` job to `matcher-probe.yml` (Stage A of the cloud-implement label-apply fix).** The new job measures which command SHAPES and grant FORMS the deployed `claude-code-action` permission matcher accepts under the read-write `devflow-implement` tool profile — a separate allowlist from the read-only review profile the existing `probe` job measures, so shapes/forms proven on one tier are unproven on the other. It composes `--allowed-tools` from `devflow-implement.yml`'s baked TOOLS literal (a verbatim-sync copy) plus the config extras, reshaped into a per-form attribution split (explicit vendored literal for `apply-labels.sh`, `*/basename` glob for `ensure-label.sh`) so every label verdict attributes to exactly one grant form. It probes the unexpanded-anchor leading token (the phase-4 emission suspected of being silently denied), `for` / piped `while read` / `VAR="$(…)"` wrappers, and a positive control, judging each by matcher verdict only (never observed API effect) under an `issues: read` floor with dummy arguments. Its human-dispatched observed table is the implement-tier evidence of record that the Stage B grant + call-site rework is gated on. (#450)
+
 ## [2.8.135] — 2026-07-13
 
 ### Security
