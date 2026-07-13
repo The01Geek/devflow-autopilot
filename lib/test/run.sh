@@ -27832,6 +27832,12 @@ for _fsf in falsyscalar falsystring falsyempty falsyfalse; do
 done
 assert_eq "#438 exec-shape(denials): a TRUTHY unknown-shape denials carrier is 'present'" "yes" \
   "$(bash "$EES" "$EES_FIX/exec-shape-denials-truthyscalar.json" 2>/dev/null | grep -qxF 'permission_denials: present' && echo yes || echo no)"
+# The normalized-TRUTHY direction ("3" -> 3 -> present) is pinned separately: a plausible
+# "simplification" of the falsy test to a type check would keep every falsy fixture green
+# while flipping a real digit-string denials carrier to 'absent' — the wrong-direction
+# misreport this series exists to prevent.
+assert_eq "#438 exec-shape(denials): a TRUTHY digit-string denials carrier ('3') is 'present'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-truthystring.json" 2>/dev/null | grep -qxF 'permission_denials: present' && echo yes || echo no)"
 
 # STATED LIMITATION (pinned so it stays known, not surprising): a single-event JSONL file is
 # byte-identical to a single top-level object, so it records `encoding: object`. Field
