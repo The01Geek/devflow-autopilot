@@ -2876,6 +2876,54 @@ assert_pin_unique "#443: audit summary states whether a consumer audit-dimension
 assert_pin_unique "#443: audit summary renders the word degraded whenever the degraded arm ran" \
   'the word "degraded"' "$CI443_SKILL"
 
+# ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
+#    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
+#    IS the operative contract sentence itself, so assert_pin_unique is the honest primitive
+#    (the #312 item-2 coupled-pair pattern). The template↔Step-3.5 coupled pair for the
+#    unstated-reliance class is pinned on BOTH sides so a one-sided edit goes RED.
+# Rule 1 — value-comparison type-semantics, template AC guidance + its checklist mirror.
+assert_pin_unique "#462 rule1: template AC guidance states value-comparison in observed-output terms" \
+  "A value-comparison AC states its comparison in the producing surface's observed-output" "$CI312_TMPL"
+assert_pin_unique "#462 rule1: verified arm requires the probe exercise the distinguishing boundary fixture" \
+  'and a probe **silent on the distinguishing axis' "$CI312_TMPL"
+assert_pin_unique "#462 rule1: obligation arm carries the execution-tier constraint (governs rule 3 too)" \
+  'implement-tier verification commands (this governs this value-comparison AC and the Step 3.5' "$CI312_TMPL"
+assert_pin_unique "#462 rule1: quality-checklist mirror line for the value-comparison rule" \
+  "Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms" "$CI312_TMPL"
+# Rule 1 also verified in the Step 3.5 steelman (the check that flags a non-conforming AC).
+assert_pin_unique "#462 rule1: Step 3.5 checks value-comparison ACs for observed-output grounding" \
+  'Value-comparison ACs are checked for observed-output grounding' "$CI312_SKILL"
+# Rule 2 — convention-matrix reconciliation + the `governing conventions consulted:` discharge
+# literal pinned in BOTH the Testing Strategy guidance AND its quality-checklist mirror.
+assert_pin_unique "#462 rule2: template Testing Strategy carries the convention-matrix reconciliation rule" \
+  'Reconcile an enumerated case matrix against governing conventions' "$CI312_TMPL"
+assert_pin_unique "#462 rule2: discharge literal in the Testing Strategy guidance" \
+  'governing conventions consulted: <sources cited by path' "$CI312_TMPL"
+assert_pin_unique "#462 rule2: discharge literal mirrored in the quality checklist" \
+  'a `governing conventions consulted:` discharge line bounded to' "$CI312_TMPL"
+# Rule 3 — unstated-mechanism-dependency, coupled template↔Step-3.5 pair + summary/zero arm.
+assert_pin_unique "#462 rule3 (coupled/template): template names the unstated-reliance premise class" \
+  'Unstated mechanism dependencies are a premise class too' "$CI312_TMPL"
+assert_pin_unique "#462 rule3 (coupled/SKILL): Step 3.5 gains the mandatory mechanism-dependency hunt" \
+  "Sweep the draft's own unstated mechanism dependencies (mandatory)" "$CI312_SKILL"
+assert_pin_unique "#462 rule3: Step 3.5 summary reports both new sweeps" \
+  'The summary additionally reports both new sweeps' "$CI312_SKILL"
+assert_pin_unique "#462 rule3: zero arm states the falsifiable no-dependencies claim, not a count" \
+  'the mechanism invokes no in-repo helpers, resolvers, or gates' "$CI312_SKILL"
+# Rule 3's template quality-checklist mirror pinned too (symmetry with rule 1's checklist pin) —
+# closes the coupled-mirror drift gap the pr-test-analyzer flagged: the checklist line can no
+# longer silently drift out of agreement with the premise-class prose it mirrors.
+assert_pin_unique "#462 rule3: quality-checklist mirror line for the unstated-mechanism-dependency rule" \
+  'are each resolved with a cited probe or an implementer-obligation AC' "$CI312_TMPL"
+# Step 3.6 — one consolidated generic dimension + the growth policy.
+assert_pin_unique "#462 dim: Step 3.6 generic checklist carries the consolidated authoring-discipline dimension" \
+  'Authoring-discipline defects** — three related shapes' "$CI312_SKILL"
+assert_pin_unique "#462 dim: Step 3.6 audit-prompt area states the finding-cap growth policy" \
+  'execution-blocking defect classes outrank authoring-discipline classes for the finding-cap slots' "$CI312_SKILL"
+# Extension — one consolidated DevFlow-specific sharpening.
+assert_pin_unique "#462 ext: live create-issue extension carries the consolidated DevFlow sharpening" \
+  'Authoring-discipline defects (DevFlow specifics, issue #462)' "$CI443_EXT"
+
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
 # regardless of that iteration's verdict (including REJECT), feeding new blinded
