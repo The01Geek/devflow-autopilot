@@ -67,6 +67,7 @@ Output (JSON to stdout, always exit 0 when the helper itself ran):
                 "trusted_comments": .., "payloads_honored": ..,
                 "payloads_malformed": .., "payloads_outside_sentinels": ..,
                 "payloads_untrusted": .., "sentinel_tampered_comments": ..,
+                "comments_malformed": .., "rows_malformed": ..,
                 "demoted": .., "collisions": ..}
     }
 
@@ -222,8 +223,10 @@ def _force_utf8_streams():
 
 
 def _row_key(tsv: str):
-    """Return the (rule, path, detail) match key for a TSV line, or None if the
-    line is column-deficient (< 5 fields). detail is the field(s) after `line`;
+    """Return the 4-tuple (verdict, rule, path, detail) for a TSV line, or None if the
+    line is column-deficient (< 5 fields). The (rule, path, detail) slice is the match
+    key; `verdict` is returned too so the caller can keep only STALE rows. detail is the
+    field(s) after `line`;
     stale-prose-lint's detail is whitespace-collapsed (no embedded tab), so a
     well-formed row splits into exactly 5, but joining any tail is defensive and
     keeps rows and payloads parsed by the identical rule (byte-identity relies on
@@ -244,10 +247,19 @@ def _collect_payload_keys(comments, allowed_bots, stats):
     payload_key_to_runkey: dict[tuple, str] = {}
     for c in comments:
         if not isinstance(c, dict):
+            stats["comments_malformed"] += 1
             continue
-        body = c.get("body") or ""
-        author = c.get("author") or ""
-        author_type = c.get("author_type") or ""
+        body = c.get("body")
+        if not isinstance(body, str):
+            # A truthy non-string body (a JSON list/dict/number a partial-shape input could
+            # leak) would raise on RUN_MARKER_RE.search below — skip-and-count it like every
+            # other malformed input this helper tolerates (an undecodable payload, a non-dict
+            # comment), rather than aborting the WHOLE join with an uncaught TypeError and
+            # losing every valid adjudication in the other comments of the run.
+            stats["comments_malformed"] += 1
+            continue
+        author = c.get("author") if isinstance(c.get("author"), str) else ""
+        author_type = c.get("author_type") if isinstance(c.get("author_type"), str) else ""
         m = RUN_MARKER_RE.search(body)
         # run_key is annotation-only: it becomes the demoted row's "(run <key>)" label,
         # never a comparand in the demotion decision. So first-occurrence is safe here —
@@ -374,6 +386,8 @@ def main(argv=None):
         "payloads_outside_sentinels": 0,
         "payloads_untrusted": 0,
         "sentinel_tampered_comments": 0,
+        "comments_malformed": 0,
+        "rows_malformed": 0,
         "demoted": 0,
         "collisions": 0,
     }
@@ -383,6 +397,9 @@ def main(argv=None):
     stale_by_key: dict[tuple, list[int]] = {}
     for i, row in enumerate(rows):
         if not isinstance(row, str):
+            # Skip-and-count a non-string row element (a partial-shape leak) rather than
+            # letting _row_key(row) raise — keeps the "every drop is accounted for" property.
+            stats["rows_malformed"] += 1
             continue
         parsed = _row_key(row)
         if parsed is None:

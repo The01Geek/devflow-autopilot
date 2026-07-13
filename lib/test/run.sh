@@ -29073,6 +29073,32 @@ _, out_m, _ = run([ROW_B, ROW], [{"author": "devflow-reviewer[bot]", "author_typ
 chk("mla-multi-demote both rows demoted", "2", len(out_m["demoted"]))
 chk("mla-multi-demote output sorted by row_index", "[0, 1]", str([d["row_index"] for d in out_m["demoted"]]))
 
+# mla-shape valid-falsy / missing allowed_bots — the SECURITY direction (shadow: the empty/
+# missing shapes previously asserted only that a Bot still demotes, which is allowlist-
+# INDEPENDENT, so the load-bearing valid-falsy row was inert). Assert an allowlist-only User
+# is NOT trusted when allowed_bots is empty/absent — proving the comma-split derivation empties.
+cfg_emptystr = write_cfg({"allowed_bots": ""})
+_, out, _ = run_cfg([ROW], [adj_comment("trusted-human", "User", ROW)], cfg_emptystr)
+chk("mla-shape allowed_bots empty-string: allowlist-User NOT trusted (fail-closed)", "0", len(out["demoted"]))
+cfg_absent = write_cfg({})
+_, out, _ = run_cfg([ROW], [adj_comment("trusted-human", "User", ROW)], cfg_absent)
+chk("mla-shape allowed_bots missing-key: allowlist-User NOT trusted (fail-closed)", "0", len(out["demoted"]))
+
+# mla-element-malformed — a well-typed rows/comments LIST carrying a malformed ELEMENT (a
+# partial-shape leak) is skip-and-counted, never an uncaught exception; helper still exits 0
+# and valid siblings still process. (shadow: a non-string body previously raised TypeError
+# and aborted the whole run outside the 0/2 exit contract.)
+_, out, _ = run([42, ROW], [CBOT])  # 42 = non-string row element
+chk("mla-element-malformed-row still demotes valid sibling", "1", len(out["demoted"]))
+chk("mla-element-malformed-row counted", "1", out["stats"]["rows_malformed"])
+rc_c, out_c, _ = run_raw(json.dumps({"rows": [ROW], "comments": [["x"], CBOT]}))  # non-dict comment
+chk("mla-element-malformed-comment exit0", "0", rc_c)
+chk("mla-element-malformed-comment counted", "1", out_c["stats"]["comments_malformed"])
+rc_b, out_b, _ = run_raw(json.dumps({"rows": [ROW], "comments": [
+    {"author": "devflow-reviewer[bot]", "author_type": "Bot", "body": ["a"]}]}))  # non-string body
+chk("mla-nonstring-body exit0 (skip-and-count, no abort)", "0", rc_b)
+chk("mla-nonstring-body counted", "1", out_b["stats"]["comments_malformed"])
+
 # Clean up every temp config the shape/degraded scenarios created (no /tmp accretion across runs).
 for _c in _tmp_cfgs + [NOCFG]:
     try:
@@ -29095,7 +29121,7 @@ MLA_HELPER="$MLA_HELPER_PATH" MLA_CFG="$MLA_CFG_FILE" python3 "$MLA_DRIVER" > "$
 MLA_DRV_RC=$?
 assert_eq "#466 mla driver ran to completion (exit 0 — a crash would silently drop every mla-* check)" "0" "$MLA_DRV_RC"
 [ "$MLA_DRV_RC" -eq 0 ] || printf '    mla driver stderr:\n%s\n' "$(sed 's/^/      /' "$MLA_DRV_ERR")"
-assert_eq "#466 mla driver emitted all 55 named checks (guards against a silent partial run)" "55" \
+assert_eq "#466 mla driver emitted all 63 named checks (guards against a silent partial run)" "63" \
   "$(grep -c . "$MLA_RESULTS")"
 while IFS="$(printf '\t')" read -r _mla_name _mla_exp _mla_act; do
   [ -n "$_mla_name" ] && assert_eq "$_mla_name" "$_mla_exp" "$_mla_act"
@@ -29160,6 +29186,8 @@ assert_pin_unique "#466 mla-marker-pin: Phase 4.1.7 render protocol carries the 
 # pin both so a rename desyncs the helper from the skill at the desk.
 assert_pin_unique "#466: review skill Live Progress Comment carries the adjudications-section START sentinel" \
   '<!-- devflow:lint-adjudications-start -->' "$REVIEW_SKILL"
+assert_pin_unique "#466: review skill Live Progress Comment carries the adjudications-section END sentinel" \
+  '<!-- devflow:lint-adjudications-end -->' "$REVIEW_SKILL"
 
 # mla-grants (Allowlists): both review-tier TOOLS= lines grant the new helper by vendored literal.
 MLA_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
