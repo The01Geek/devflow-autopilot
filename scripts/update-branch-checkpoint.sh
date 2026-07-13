@@ -35,8 +35,9 @@
 #   DISABLED           exit 0  off-switch; tree untouched
 #   CONFLICT           exit 2  base merge left in progress (MERGE_HEAD present);
 #                              conflicted paths + resolution contract on stderr
-#   UNVERIFIED         exit 3  fetch or behind-by derivation failed, or dirty tree;
-#                              nothing merged — never a blind merge
+#   UNVERIFIED         exit 3  base_branch read, fetch, or behind-by derivation failed;
+#                              dirty tree; detached HEAD / no branch; or no reachable
+#                              merge base — nothing merged, never a blind merge
 #   PUSH_REJECTED      exit 4  push refused twice (or a conflicted integrate); local
 #                              branch restored to its pre-checkpoint SHA; breadcrumb
 #   MERGE_IN_PROGRESS  exit 5  MERGE_HEAD existed at invocation; nothing touched
@@ -57,8 +58,14 @@ case "$_self" in
 esac
 CONFIG_GET="$_self_dir/config-get.sh"
 
-# (1) Off-switch. Only an explicit JSON `false` disables (issue #312 valid-falsy):
-# a missing file/key, empty string, or wrong-typed value leaves it enabled.
+# (1) Off-switch. Disabled exactly when config-get.sh serializes the value to the
+# string `false`: an explicit JSON `false`, or a value that serializes identically —
+# the JSON string "false", or [false] (config-get comma-joins arrays). A missing
+# file/key, empty string, or any other value leaves it enabled (issue #312
+# valid-falsy: the documented off-switch genuinely disables, and near-false shapes
+# fail toward "off" — the pre-feature status quo — never toward a surprise merge).
+# The `|| true` is deliberate here: if the resolver hard-fails, the base_branch read
+# below fails the same way and stops the run (UNVERIFIED) before any fetch or merge.
 enabled="$("$CONFIG_GET" .devflow_implement.update_branch_checkpoints "" 2>/dev/null || true)"
 if [ "$enabled" = "false" ]; then
   emit "DISABLED"
@@ -80,9 +87,18 @@ if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; th
   exit 3
 fi
 
-# (3) Derive the base branch (fail-closed empty-read fallback to main — the Phase 3.1
-# pattern).
-BASE="$("$CONFIG_GET" .base_branch main 2>/dev/null || true)"
+# (3) Derive the base branch. A read that FAILS (config-get.sh rc≠0 — corrupt
+# .devflow/config.json, missing python3) is UNVERIFIED, never a silent fallback:
+# falling back to main on a hard failure would merge-and-push the WRONG base on any
+# repo whose real base_branch is not main — a fail-open direction the file's other
+# guards rule out. config-get's own stderr passes through (fd 1 is already rebound),
+# so the breadcrumb below can point at the real cause. A read that SUCCEEDS but
+# returns empty falls back to main (the Phase 3.1 fail-closed empty-read pattern).
+if ! BASE="$("$CONFIG_GET" .base_branch main)"; then
+  echo "update-branch-checkpoint: could not read base_branch (config-get.sh failed; see its error above) — nothing merged" >&2
+  emit "UNVERIFIED"
+  exit 3
+fi
 [ -n "$BASE" ] || BASE=main
 
 # Record the pre-checkpoint SHA and the current branch for the recovery/restore arms.
@@ -94,8 +110,14 @@ if [ -z "$PRE_SHA" ] || [ -z "$BRANCH" ] || [ "$BRANCH" = "HEAD" ]; then
   exit 3
 fi
 
-# (4) Fetch the base.
-if ! git fetch origin "$BASE"; then
+# (4) Fetch the base with an explicit destination refspec, so refs/remotes/origin/$BASE
+# is created/updated regardless of the checkout's CONFIGURED fetch refspec: a bare
+# `git fetch origin $BASE` only updates the remote-tracking ref opportunistically via
+# that configured refspec, and on a checkout whose refspec is genuinely scoped to the
+# feature ref, origin/$BASE would never materialize and every checkpoint would degrade
+# to UNVERIFIED. The leading `+` permits a forced update of the tracking ref
+# (defense-in-depth; identical behavior on an ordinary wildcard-refspec clone).
+if ! git fetch origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"; then
   echo "update-branch-checkpoint: could not fetch origin/$BASE (network/auth or wrong base_branch) — nothing merged" >&2
   emit "UNVERIFIED"
   exit 3
@@ -150,7 +172,10 @@ _push_or_recover() {
   # (preserving the base-merge commit) and retry the push exactly once — a non-race refusal
   # simply fails the retry too and terminates in the honest PUSH_REJECTED/restore arm.
   echo "update-branch-checkpoint: push refused; integrating origin/$BRANCH (in case the remote ref advanced) and retrying the push once" >&2
-  git fetch origin "$BRANCH" || _reject_restore "update-branch-checkpoint: could not fetch origin/$BRANCH to integrate; branch restored to pre-checkpoint SHA"
+  # Same explicit destination refspec as the step-4 base fetch, for the same reason:
+  # the origin/$BRANCH ref the merge below reads must not depend on the checkout's
+  # configured fetch refspec covering this branch.
+  git fetch origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" || _reject_restore "update-branch-checkpoint: could not fetch origin/$BRANCH to integrate; branch restored to pre-checkpoint SHA"
   if ! git merge --no-edit "origin/$BRANCH"; then
     # A conflicted integrate is aborted and the branch restored — this is remote
     # divergence, never the base-merge CONFLICT contract.
@@ -192,17 +217,19 @@ _merge_and_dispatch
 
 # (8) Shallow-history arm: no merge base was reachable (the merge above returned without a
 # MERGE_HEAD). Unshallow exactly once and retry the merge once; an unrecoverable history is
-# a clean UNVERIFIED with the tree untouched. Target "$BASE" explicitly: the cloud checkout
-# uses fetch-depth:50, which actions/checkout performs as a single-branch fetch (the origin
-# refspec is scoped to the feature ref), so a bare `git fetch --unshallow origin` would not
-# deepen refs/remotes/origin/$BASE and the merge base could still lie beyond its boundary.
+# a clean UNVERIFIED with the tree untouched. Target the base with the same explicit
+# destination refspec as step 4: the cloud checkout uses fetch-depth:50 and DOWNLOADS only
+# the feature ref's history, so a bare `git fetch --unshallow origin` need not deepen the
+# base ref and the merge base could still lie beyond the shallow boundary — the explicit
+# refspec both deepens the right ref and keeps origin/$BASE resolution independent of the
+# checkout's configured fetch refspec.
 # git's stderr is NOT suppressed (symmetric with the primary fetch at step 4): a real
 # transient failure here (network drop, expired token, 5xx) would otherwise collapse into
 # the cause-neutral "no reachable merge base" breadcrumb below, and that breadcrumb's own
 # "see the git error above" promise would point at a suppressed error. On a genuinely
 # complete (non-shallow) repo git prints "--unshallow on a complete repository does not make
 # sense" and exits non-zero — expected noise on the no-merge-base path, not a real failure.
-if git fetch --unshallow origin "$BASE" >/dev/null; then
+if git fetch --unshallow origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" >/dev/null; then
   # Re-derive behind-by now that base history is complete — a shallow view undercounts it,
   # so the pre-unshallow BEHIND would publish a confidently-low UPDATED count. Keep the old
   # value if re-derivation fails (guard-class 2 — bash `case` builtin, never wc/cut).
@@ -216,6 +243,6 @@ fi
 # unextendable shallow history. git's own `fatal:` line already printed to stderr above
 # (fd 1 is rebound to stderr), so this breadcrumb stays cause-neutral rather than asserting
 # "shallow history" as the sole cause of a failure that may be unrelated-histories.
-echo "update-branch-checkpoint: could not complete a base merge with origin/$BASE — no reachable merge base (unrelated histories, or a shallow history that could not be extended; see the git error above) — nothing merged" >&2
+echo "update-branch-checkpoint: could not complete a base merge with origin/$BASE — the merge could not start or found no merge base (unrelated histories, a shallow history that could not be extended, or untracked files the merge would overwrite; see the git error above) — nothing merged" >&2
 emit "UNVERIFIED"
 exit 3

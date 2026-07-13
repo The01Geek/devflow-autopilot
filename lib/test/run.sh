@@ -28195,6 +28195,53 @@ for UBC_ROW in \
   assert_eq "#448 ubc-disabled-matrix: '$UBC_ROW_NAME' proceeds past the gate (UP_TO_DATE, not DISABLED)" \
     "UP_TO_DATE" "$UBC_OUT"
 done
+# Shapes config-get.sh serializes to the string "false" — the JSON string "false" and the
+# single-element array [false] (arrays comma-join) — also DISABLE, exactly as the documented
+# contract now states ("disabled exactly when the value serializes to the string false").
+# Base IS advanced here so a row that wrongly proceeded would print UPDATED, not DISABLED.
+for UBC_FROW in \
+  'string-false:{"devflow_implement": {"update_branch_checkpoints": "false"}}' \
+  'array-false:{"devflow_implement": {"update_branch_checkpoints": [false]}}'; do
+  UBC_FROW_NAME="${UBC_FROW%%:*}"; UBC_FROW_JSON="${UBC_FROW#*:}"
+  DF="$(git_sandbox "ubc-disabled-matrix $UBC_FROW_NAME")"
+  ubc_make "$DF"
+  ubc_advance_base "$DF" "f-$UBC_FROW_NAME"
+  mkdir -p "$DF/work/.devflow"
+  printf '%s\n' "$UBC_FROW_JSON" > "$DF/work/.devflow/config.json"
+  UBC_HEAD_BEFORE="$(git -C "$DF/work" rev-parse HEAD 2>/dev/null)"
+  ubc_run "$DF"
+  assert_eq "#448 ubc-disabled-matrix: '$UBC_FROW_NAME' serializes to 'false' → DISABLED" "DISABLED" "$UBC_OUT"
+  assert_eq "#448 ubc-disabled-matrix: '$UBC_FROW_NAME' leaves HEAD untouched" \
+    "$UBC_HEAD_BEFORE" "$(git -C "$DF/work" rev-parse HEAD 2>/dev/null)"
+done
+
+# ── ubc-config-read-failure → a base_branch read that FAILS (config-get.sh rc≠0 on a corrupt
+# .devflow/config.json) is UNVERIFIED with nothing fetched or merged — never a silent fallback
+# to main that would merge-and-push the wrong base (the fail-open direction this guard closes).
+# Attribution: the rejection must come from the base_branch-read guard (its own breadcrumb),
+# not an earlier precondition. Positive control on the same fixture: removing the corrupt
+# config makes the identical run proceed and merge (UPDATED 1), so the negative result above
+# is attributable to the config failure alone. ───────────────────────────────────────────────
+D="$(git_sandbox 'ubc-config-read-failure')"
+ubc_make "$D"
+ubc_advance_base "$D" cfg
+mkdir -p "$D/work/.devflow"
+printf '%s\n' '{ corrupt' > "$D/work/.devflow/config.json"
+UBC_HEAD_BEFORE="$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+UBC_ORIGMAIN_BEFORE="$(git -C "$D/work" rev-parse origin/main 2>/dev/null)"
+ubc_run "$D"
+assert_eq "#448 ubc-config-read-failure: token is UNVERIFIED" "UNVERIFIED" "$UBC_OUT"
+assert_eq "#448 ubc-config-read-failure: exit 3" "3" "$UBC_RC"
+assert_eq "#448 ubc-config-read-failure: rejection attributed to the base_branch read guard" "yes" \
+  "$(printf '%s' "$UBC_ERR" | grep -qF 'could not read base_branch' && echo yes || echo no)"
+assert_eq "#448 ubc-config-read-failure: no fetch performed (work origin/main ref unchanged)" \
+  "$UBC_ORIGMAIN_BEFORE" "$(git -C "$D/work" rev-parse origin/main 2>/dev/null)"
+assert_eq "#448 ubc-config-read-failure: HEAD untouched (nothing merged)" \
+  "$UBC_HEAD_BEFORE" "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+# positive control: the same sandbox minus the corrupt config proceeds and merges.
+rm -f "$D/work/.devflow/config.json"
+ubc_run "$D"
+assert_eq "#448 ubc-config-read-failure: positive control (config removed) → UPDATED 1" "UPDATED 1" "$UBC_OUT"
 
 # ── ubc-conflict → Outcome + Conflict contract: a conflicting base edit → CONFLICT, exit 2,
 # MERGE_HEAD present, the conflicted path named on stderr. ────────────────────────────────
