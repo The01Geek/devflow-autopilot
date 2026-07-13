@@ -43,7 +43,7 @@ markdown. None of the four historical escape shapes lived on those surfaces.
   which is the false-positive boundary a named-token scope mismatch stays clear of.
 
 **R3 recognition-only tier (issue #439).** Layered cleanly over the R3 count-locked rule
-above without touching it, and **evaluated last — after every gating rule (R1/R2/R3/R3b/R4),
+above without touching it, and **evaluated last — after every gating rule (R1/R2/R3b/R3/R4),
 each of which ``continue``s on a match — so it is reached only on a line no gating rule
 claimed** (an earlier placement let a line matching both the widened count shape and a gating
 R4 deny-absolute be consumed here before R4 could run, suppressing a real STALE). A diff-added
@@ -700,7 +700,7 @@ def examine_file(path, added, lines, rows):
             continue
 
         # R3 recognition-only tier (issue #439) — widened claim recognition, NON-GATING.
-        # Placed LAST, after every gating rule (R1/R2/R3/R3b/R4), each of which `continue`s
+        # Placed LAST, after every gating rule (R1/R2/R3b/R3/R4), each of which `continue`s
         # on a match — so the recognition tier is reached ONLY on a line no gating rule
         # claimed. This ordering is load-bearing for the non-gating invariant: an earlier
         # placement let a line matching both the widened count shape AND a gating R4

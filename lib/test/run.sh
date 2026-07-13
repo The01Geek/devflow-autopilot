@@ -26185,6 +26185,43 @@ assert_eq "#439 recognition tier does NOT preempt a gating R4 conflict (STALE R4
 assert_eq "#439 the co-occurring line emits the STALE R4 row (not swallowed by recognition)" "yes" "$(spl_has "$SPR" STALE R4)"
 assert_eq "#439 the co-occurring gating line emits NO recognition-only UNRESOLVABLE R3 row" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
 
+# GAP-7 (modifier cap, both boundaries — PR #445 review): the intervening-modifier bound is
+# pinned behaviorally on each side. At the cap the recognition fires; one modifier past the
+# cap it does not — so a regression widening the bound (e.g. to an unbounded repeat) turns
+# the over-cap fixture RED instead of passing every existing assertion.
+SPF="$(probe_tmp '#439 modifier cap at bound')"
+printf '%s\n' 'The three big red tags differ.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 modifier cap: a claim at the modifier bound fires (row present)" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+assert_eq "#439 modifier cap: the at-bound claim resolves to (3 tags)" "yes" \
+  "$(spl_detail_pref "$SPR" UNRESOLVABLE R3 'count-locked: recognition-only (3 tags)')"
+SPF="$(probe_tmp '#439 modifier cap exceeded')"
+printf '%s\n' 'The three big red shiny tags differ.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 modifier cap: one modifier past the bound produces NO recognition row" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# GAP-8 (noun-alternation coverage — PR #445 review): every previously-unexercised new noun
+# fires behaviorally, so a single-alternand typo in _RECOG_NOUN is no longer invisible.
+sp439_noun() {  # label line
+  local f; f="$(probe_tmp "#439 noun $1")"
+  printf '%s\n' "$2" > "$f"
+  local r; r="$(spl_repo "$f")"
+  assert_eq "#439 noun alternand [$1] fires (recognition row present)" "yes" "$(spl_has "$r" UNRESOLVABLE R3)"
+}
+sp439_noun "members" 'The four members below drift.'
+sp439_noun "fields"  'These five fields mean the opposite.'
+sp439_noun "columns" 'Six columns are frozen here.'
+sp439_noun "arms"    'The seven arms below diverge.'
+sp439_noun "sites"   'Eight sites carry the mirror.'
+
+# Second singular exclusion (PR #445 review): the plural-only rule is uniform, not a one-noun
+# accident — a second noun's singular form also produces no row (companion positive control:
+# the "fields" plural fixture above fires on the same alternand family).
+SPF="$(probe_tmp '#439 second singular exclusion')"
+printf '%s\n' 'The three field layout is fixed.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 plural-only: a second noun's singular form produces NO recognition row" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
 # The lint stays CLEAN (exit 0) against a fixture carrying the recognition shape — the tier is
 # non-gating end to end, so even a live recognition row never reddens a run's exit code.
 SPF="$(probe_tmp '#439 non-gating exit')"
