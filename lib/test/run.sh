@@ -16509,7 +16509,9 @@ assert_eq "#404 trust: old PR-head resolution loop is gone" "0" \
   "$(grep -cF '.devflow/vendor/devflow/scripts/filter-runner-tools.sh scripts/filter-runner-tools.sh' "$RUNNER" || true)"
 assert_eq "#404 trust: FLOOR_HELPER wired to baseprovision floor_helper output" "1" \
   "$(grep -cF 'FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}' "$RUNNER" || true)"
-assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output" "1" \
+# Two sites wire VENDOR_SOURCE to the same fresh-fetch gate: the tools step's
+# deny-floor (#404) and the #458 harden-stop-hooks step (same trusted-source rank).
+assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden step)" "2" \
   "$(grep -cF 'VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}' "$RUNNER" || true)"
 assert_eq "#404 trust: baseprovision materializes the floor from FETCH_HEAD" "1" \
   "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh' "$RUNNER" || true)"
@@ -16633,6 +16635,110 @@ assert_pin_red_under "#402 helper file-tool match is NAME-based (matching \$ftna
 # The step must append NOTHING and emit a `::warning::` naming the missing helper.
 # (This block runs only when the emit_tools harness is available — pyyaml present;
 # TOOLS_STEP is extracted there.) Guarded below inside that harness.
+
+# ── #458: Stop-hook trusted-source floor — scripts/harden-stop-hooks.sh ───────
+# SIBLING of the #402 deny-floor, applied to the base-branch .claude/settings.json
+# Stop-hook channel. The review job checks out the PR HEAD, and the three Stop-hook
+# COMMANDS exec lib/ + scripts/ targets (not under .claude/, so PR-author-editable),
+# so before claude-code-action runs each target is overwritten with the TRUSTED base
+# copy or a fail-closed no-op stub — NEVER the PR-head copy (the #404 lesson). Drive
+# the installer directly over its adversarial matrix (the unit surface the extraction
+# exists to expose), then pin the workflow's trusted-source wiring + fail-closed arm.
+HSH="$LIB/../scripts/harden-stop-hooks.sh"
+assert_eq "#458 helper: harden-stop-hooks.sh exists" "yes" \
+  "$([ -f "$HSH" ] && echo yes || echo no)"
+# The three targets are the authoritative mirror of .claude/settings.json's Stop
+# hooks — COUPLED. Pin the exact target list (a target dropped here silently leaves
+# that PR-head script executable).
+assert_eq "#458 helper: HOOK_TARGETS mirrors the three .claude/settings.json Stop-hook scripts" "1" \
+  "$(grep -cF "HOOK_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh'" "$HSH" || true)"
+SETTINGS="$LIB/../.claude/settings.json"
+assert_eq "#458 coupling: settings.json wires lib/efficiency-trace.sh Stop hook" "1" \
+  "$(grep -c 'lib/efficiency-trace.sh --persist' "$SETTINGS" || true)"
+assert_eq "#458 coupling: settings.json wires lib/implement-stop-guard.sh Stop hook" "1" \
+  "$(grep -c 'lib/implement-stop-guard.sh' "$SETTINGS" || true)"
+assert_eq "#458 coupling: settings.json wires scripts/stop-hook-probe.sh Stop hook" "1" \
+  "$(grep -c 'scripts/stop-hook-probe.sh' "$SETTINGS" || true)"
+
+# Adversarial drive: a scratch PR-head workspace whose hook targets carry a
+# MALICIOUS marker, and a trusted dir supplying a base copy for ONLY ONE target.
+HSH_TMP="$(mktemp -d)"
+mkdir -p "$HSH_TMP/ws/lib" "$HSH_TMP/ws/scripts" "$HSH_TMP/trusted/lib"
+printf 'MALICIOUS-GUARD\n'  > "$HSH_TMP/ws/lib/implement-stop-guard.sh"
+printf 'MALICIOUS-EFF\n'    > "$HSH_TMP/ws/lib/efficiency-trace.sh"
+printf 'MALICIOUS-PROBE\n'  > "$HSH_TMP/ws/scripts/stop-hook-probe.sh"
+printf 'TRUSTED-GUARD-BODY\n' > "$HSH_TMP/trusted/lib/implement-stop-guard.sh"
+WORKSPACE_ROOT="$HSH_TMP/ws" TRUSTED_DIR="$HSH_TMP/trusted" bash "$HSH" >/dev/null 2>&1
+# Happy path: the target WITH a trusted copy gets the trusted body, PR-head gone.
+assert_eq "#458 helper: target with a trusted base copy is installed (PR-head displaced)" "TRUSTED-GUARD-BODY" \
+  "$(cat "$HSH_TMP/ws/lib/implement-stop-guard.sh")"
+# Fail-closed: targets WITHOUT a trusted copy are stubbed, never left PR-head.
+assert_eq "#458 helper: target with no trusted copy is NOT left as the PR-head copy (efficiency)" "0" \
+  "$(grep -c 'MALICIOUS-EFF' "$HSH_TMP/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#458 helper: target with no trusted copy is NOT left as the PR-head copy (probe)" "0" \
+  "$(grep -c 'MALICIOUS-PROBE' "$HSH_TMP/ws/scripts/stop-hook-probe.sh" || true)"
+assert_eq "#458 helper: no-trusted-copy target becomes a no-op exit-0 stub (efficiency)" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/ws/lib/efficiency-trace.sh" || true)"
+# Fail-closed with an EMPTY TRUSTED_DIR: EVERY target stubbed, none left PR-head.
+printf 'MALICIOUS-AGAIN\n' > "$HSH_TMP/ws/lib/implement-stop-guard.sh"
+WORKSPACE_ROOT="$HSH_TMP/ws" TRUSTED_DIR="" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: empty TRUSTED_DIR stubs every target (guard no longer PR-head)" "0" \
+  "$(grep -c 'MALICIOUS-AGAIN' "$HSH_TMP/ws/lib/implement-stop-guard.sh" || true)"
+assert_eq "#458 helper: empty TRUSTED_DIR -> guard is a no-op stub" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/ws/lib/implement-stop-guard.sh" || true)"
+# Absent TRUSTED_DIR var entirely (unset) also fails closed, not open.
+printf 'MALICIOUS-UNSET\n' > "$HSH_TMP/ws/scripts/stop-hook-probe.sh"
+WORKSPACE_ROOT="$HSH_TMP/ws" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: unset TRUSTED_DIR stubs the target (fail closed)" "0" \
+  "$(grep -c 'MALICIOUS-UNSET' "$HSH_TMP/ws/scripts/stop-hook-probe.sh" || true)"
+# Contract: always exit 0 (best-effort — never abort the review).
+WORKSPACE_ROOT="$HSH_TMP/ws" TRUSTED_DIR="$HSH_TMP/trusted" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: always exits 0 (best-effort)" "0" "$?"
+# A breadcrumb names the source used for each target (trusted vs stub).
+HSH_ERR="$(WORKSPACE_ROOT="$HSH_TMP/ws" TRUSTED_DIR="$HSH_TMP/trusted" bash "$HSH" 2>&1 1>/dev/null)"
+assert_eq "#458 helper: breadcrumbs the trusted-copy install" "yes" \
+  "$(printf '%s' "$HSH_ERR" | grep -q 'trusted base copy' && echo yes || echo no)"
+assert_eq "#458 helper: breadcrumbs the fail-closed stub" "yes" \
+  "$(printf '%s' "$HSH_ERR" | grep -q 'fail-closed no-op stub' && echo yes || echo no)"
+rm -rf "$HSH_TMP"
+
+# Behavioral-fix pin: the fail-closed branch must write the STUB, never the src.
+# The bug re-introduces itself if the else-branch were made to copy the PR-head
+# file. assert_pin_red_under proves the operative stub-write flips PASS->FAIL when
+# mutated to install the workspace copy instead of the stub.
+assert_pin_red_under "#458 helper fail-closed branch writes a no-op stub (not the PR-head copy) — mutating it to keep the PR-head file re-opens the hole" \
+  "printf '%s\n' \"\$STUB\" > \"\$dest\"" \
+  "s/printf '%s\\\\n' \"\\\$STUB\" > \"\\\$dest\"/true > \"\$dest\"/" \
+  "$HSH"
+
+# ── #458: workflow wiring — devflow-runner.yml runs the floor from a TRUSTED source
+# The harden step exists and precedes the claude-code-action step (it must run
+# BEFORE the engine, or the Stop hooks fire against the PR-head copies).
+HARDEN_LN=$(grep -n 'Harden Stop-hook script sources' "$RUNNER" | head -1 | cut -d: -f1)
+CLAUDE_LN=$(grep -n 'name: Run Claude Code' "$RUNNER" | head -1 | cut -d: -f1)
+assert_eq "#458 workflow: harden step precedes Run Claude Code" "yes" \
+  "$([ -n "$HARDEN_LN" ] && [ -n "$CLAUDE_LN" ] && [ "$HARDEN_LN" -lt "$CLAUDE_LN" ] && echo yes || echo no)"
+# The helper is materialized + run from the TRUSTED base ref (FETCH_HEAD), mirroring
+# the #404 floor-helper discipline — never the PR-head checkout.
+assert_eq "#458 workflow: helper materialized from FETCH_HEAD (trusted base ref)" "1" \
+  "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/harden-stop-hooks.sh' "$RUNNER" || true)"
+assert_eq "#458 workflow: trusted hook copies materialized from FETCH_HEAD" "1" \
+  "$(grep -cF 'git show "FETCH_HEAD:$t"' "$RUNNER" || true)"
+# The vendored helper fallback is accepted ONLY on a fresh fetch — dropping that
+# gate re-opens PR-head tampering (same operative gate the #404 floor pins).
+assert_pin_red_under "#458 workflow: vendored harden-helper fallback is gated on vendor_source=fetch — dropping the gate re-opens PR-head tampering" \
+  '[ "${VENDOR_SOURCE:-}" = "fetch" ] \' \
+  's/\[ "\$\{VENDOR_SOURCE:-\}" = "fetch" \] \\/true \\/' \
+  "$RUNNER"
+# Fail-closed arm: when no trusted helper resolves, the step stubs every target
+# inline (never the PR-head copy) and warns.
+assert_eq "#458 workflow: fail-closed inline stub arm present (no trusted helper)" "1" \
+  "$(grep -c 'no TRUSTED helper resolved' "$RUNNER" || true)"
+assert_eq "#458 workflow: fail-closed inline stub writes exit-0 stubs" "1" \
+  "$(grep -cF "printf '#!/usr/bin/env bash\\nexit 0\\n' > \"\$d\"" "$RUNNER" || true)"
+# The step passes WORKSPACE_ROOT + TRUSTED_DIR into the helper.
+assert_eq "#458 workflow: helper invoked with WORKSPACE_ROOT + TRUSTED_DIR" "1" \
+  "$(grep -cF 'WORKSPACE_ROOT="$ROOT" TRUSTED_DIR="$TRUSTED_DIR" bash "$HELPER"' "$RUNNER" || true)"
 
 # The setup-project-env step is gated on the base-ref provision flag.
 assert_eq "provision: setup-project-env step present" "1" \
@@ -17110,9 +17216,11 @@ assert_eq "provision: malformed/non-object base config warns + read-only" "1" \
 # Trust boundary: the flag and setup block come from the base ref. BASE_REF is
 # sourced from the trusted event payload, fetched from origin, and read out of
 # FETCH_HEAD — never the checked-out PR head.
-assert_eq "provision: base ref from trusted event payload" "1" \
+# Two sites read the trusted BASE_REF from the event payload and fetch it: the
+# baseprovision step and the #458 harden-stop-hooks step (same trusted-source rule).
+assert_eq "provision: base ref from trusted event payload (baseprovision + #458 harden step)" "2" \
   "$(grep -c 'github.event.pull_request.base.ref || github.event.repository.default_branch' "$RUNNER" || true)"
-assert_eq "provision: base config fetched from origin BASE_REF" "1" \
+assert_eq "provision: base config fetched from origin BASE_REF (baseprovision + #458 harden step)" "2" \
   "$(grep -c 'git fetch --depth=1 origin "\$BASE_REF"' "$RUNNER" || true)"
 assert_eq "provision: provision_env read from FETCH_HEAD base config" "1" \
   "$(grep -c 'FETCH_HEAD:.devflow/config.json' "$RUNNER" || true)"

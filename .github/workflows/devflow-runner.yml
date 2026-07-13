@@ -681,6 +681,95 @@ jobs:
           permission-pull-requests: write
           permission-actions: read
 
+      # SECURITY — harden the base-branch `.claude/settings.json` Stop-hook script
+      # sources (issue #458). claude-code-action restores `.claude/` (the hook
+      # CONFIG) from the base branch, but the three Stop-hook COMMANDS exec script
+      # files under lib/ and scripts/ — NOT under .claude/ — so this job's PR-HEAD
+      # checkout (ref: inputs.ref) supplies them. A PR that edits any of
+      # lib/efficiency-trace.sh, lib/implement-stop-guard.sh, or
+      # scripts/stop-hook-probe.sh would otherwise obtain unmediated shell at
+      # session end inside this secrets-bearing job, bypassing the #402 deny-floor
+      # entirely (the #404 REJECT class: a floor the PR controls is no floor).
+      #
+      # Same trusted-source pattern as the deny-floor: BEFORE claude-code-action
+      # runs, overwrite each hook target in the PR-head workspace with the TRUSTED
+      # base-ref copy (materialized here via `git show FETCH_HEAD:…`), and where no
+      # base copy exists overwrite it with a fail-closed no-op stub — NEVER left as
+      # the PR-head copy. The installer logic is the suite-driven, unit-tested
+      # helper scripts/harden-stop-hooks.sh, executed ONLY from a TRUSTED source
+      # (rank 1: base-ref materialized copy; rank 2: the vendored copy gated on
+      # vendor_source=fetch — never the PR-head checkout, which the PR can edit).
+      # When no trusted helper resolves the step fails closed INLINE (trusted
+      # workflow shell), stubbing every target. The implement job needs no such
+      # step: it checks out the DEFAULT branch (never a PR head), so its hook
+      # scripts are already trusted. See docs/DEVFLOW_SYSTEM_OVERVIEW.md.
+      - name: Harden Stop-hook script sources (trusted base copy or fail-closed stub)
+        id: harden_hooks
+        env:
+          # Same TRUSTED base ref the baseprovision step reads (the PR's target
+          # branch, or the repo default) — never a PR-controlled input.
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          # Only 'fetch' (a fresh official-repo clone at the pinned devflow_version)
+          # is a trusted source for the helper; committed/self copies are PR-head.
+          VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
+        run: |
+          set -uo pipefail
+          # COUPLED mirror of scripts/harden-stop-hooks.sh's HOOK_TARGETS and of the
+          # .claude/settings.json Stop-hook script paths (pinned in lib/test/run.sh).
+          TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh"
+          ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+          TRUSTED_DIR=""
+          HELPER=""
+          # Rank 1: materialize the trusted hook copies AND the trusted helper from
+          # the base ref. `origin` is the upstream repo, so the base tip is the
+          # maintainer-controlled tree, not the PR head. Only inside this fetch-
+          # success branch is FETCH_HEAD the base ref (checkout may leave it at the
+          # PR head elsewhere) — mirrors baseprovision's FLOOR_HELPER discipline.
+          if [ -n "${BASE_REF:-}" ] && git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
+            TRUSTED_DIR="$RUNNER_TEMP/devflow-trusted-hooks"
+            for t in $TARGETS; do
+              if raw=$(git show "FETCH_HEAD:$t" 2>/dev/null); then
+                if mkdir -p "$TRUSTED_DIR/${t%/*}" 2>/dev/null; then
+                  printf '%s\n' "$raw" > "$TRUSTED_DIR/$t" 2>/dev/null || true
+                fi
+              fi
+            done
+            # Trusted helper: committed vendor copy first, then the repo's own
+            # scripts/ copy ONLY when the base ref IS the DevFlow plugin repo (same
+            # plugin.json-name discriminator baseprovision uses), so a consumer's
+            # unrelated like-named script is never executed.
+            if raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/harden-stop-hooks.sh" 2>/dev/null); then
+              printf '%s\n' "$raw" > "$RUNNER_TEMP/harden-stop-hooks.sh" 2>/dev/null && HELPER="$RUNNER_TEMP/harden-stop-hooks.sh"
+            elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq '"name"[[:space:]]*:[[:space:]]*"devflow"' \
+              && raw=$(git show "FETCH_HEAD:scripts/harden-stop-hooks.sh" 2>/dev/null); then
+              printf '%s\n' "$raw" > "$RUNNER_TEMP/harden-stop-hooks.sh" 2>/dev/null && HELPER="$RUNNER_TEMP/harden-stop-hooks.sh"
+            fi
+          else
+            echo "::warning::harden-stop-hooks: could not fetch base ref '${BASE_REF:-}' to materialize trusted Stop-hook copies; failing closed (no-op stubs for every hook target)."
+          fi
+          # Rank 2: the vendored helper, ONLY on a fresh fetch this run (never the
+          # PR-head committed/self copy — anchored to the repo ROOT like the floor).
+          if [ -z "$HELPER" ] && [ "${VENDOR_SOURCE:-}" = "fetch" ] \
+            && [ -f "$ROOT/.devflow/vendor/devflow/scripts/harden-stop-hooks.sh" ]; then
+            HELPER="$ROOT/.devflow/vendor/devflow/scripts/harden-stop-hooks.sh"
+          fi
+          if [ -n "$HELPER" ]; then
+            WORKSPACE_ROOT="$ROOT" TRUSTED_DIR="$TRUSTED_DIR" bash "$HELPER" \
+              || echo "::warning::harden-stop-hooks helper exited non-zero (it is contracted to exit 0); some hook targets may be unhardened — inspect the runner."
+          else
+            # FAIL CLOSED with NO trusted helper: stub every target inline (this is
+            # trusted workflow shell, read from the base/default branch under
+            # pull_request_target), so a PR-head hook script is never executed even
+            # when the helper itself cannot be resolved from a trusted source.
+            echo "::warning::harden-stop-hooks: no TRUSTED helper resolved (base-ref / vendored-fetch); failing closed by stubbing every Stop-hook target inline (never the PR-head copy)."
+            for t in $TARGETS; do
+              d="$ROOT/$t"
+              mkdir -p "${d%/*}" 2>/dev/null || true
+              printf '#!/usr/bin/env bash\nexit 0\n' > "$d" 2>/dev/null \
+                && chmod +x "$d" 2>/dev/null || echo "::warning::harden-stop-hooks: could not stub '$t' (unwritable); inspect the runner."
+            done
+          fi
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
