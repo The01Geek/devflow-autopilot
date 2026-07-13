@@ -16914,6 +16914,14 @@ assert_eq "#458 coupling: HOOK_TARGETS has exactly 9 closure entries (.sh + .py)
 HSH_UNION="$( { grep -oE "HOOK_ENTRY_TARGETS='[^']*'|HOOK_SOURCED_TARGETS='[^']*'|HOOK_EXEC_TARGETS='[^']*'" "$HSH" | sed -E "s/^[^']*'//; s/'$//"; } | tr ' ' '\n' | grep -E '\.(sh|py)$' | sort -u | tr '\n' ' ' )"
 HSH_ALL="$( grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | sed -E "s/^[^']*'//; s/'$//" | tr ' ' '\n' | grep -E '\.(sh|py)$' | sort -u | tr '\n' ' ' )"
 assert_eq "#460 coupling: HOOK_ENTRY ∪ SOURCED ∪ EXEC == HOOK_TARGETS (per-class lists partition the closure)" "$HSH_ALL" "$HSH_UNION"
+# ENFORCE the walker's one disclosed conservative gap (issue #460 SHADOW, final-pass): the
+# drift-guard is shell-syntax-only, so a `subprocess.run(["bash","scripts/new.sh"])` added
+# to a trusted .py closure member (workpad.py / config_fingerprint.py) would spawn a
+# PR-head-supplied repo script the walker cannot see. Today they spawn only git/gh; pin
+# that they spawn NO repo .sh/.py so a future such edit turns the desk RED instead of
+# silently re-opening the one-hop-deeper hole through the Python layer.
+HSH_PY_SPAWN="$( grep -hnE '(subprocess\.(run|call|check_output|check_call|Popen)|os\.(system|popen|exec[lv]?[ep]*))' "$LIB/../scripts/workpad.py" "$LIB/../scripts/config_fingerprint.py" 2>/dev/null | grep -cE '(scripts|lib)/[A-Za-z0-9_.-]+\.(sh|py)' || true )"
+assert_eq "#460 walker gap ENFORCED: no .py closure member spawns a repo .sh/.py via subprocess/os (Python-layer edge)" "0" "$HSH_PY_SPAWN"
 # IMPORTANT-1: the workflow's inline TARGETS= (used both to materialize trusted
 # copies AND to stub inline on the fail-closed arm) must equal the helper's full
 # HOOK_TARGETS — a later-added closure member left out of the inline list would go
@@ -16972,7 +16980,7 @@ foo=bar && . "$d/dep-c.sh"
 if true; then . "$d/dep-then.sh"; fi
 for x in 1; do . "$d/dep-do.sh"; done
 if false; then :; else . "$d/dep-else.sh"; fi
-if false; then :; elif true; then . "$d/dep-elif.sh"; fi
+if false; then :; elif . "$d/dep-elif.sh"; then :; fi
 source "$d/dep-src.sh"
 python3 scripts/dep-py.py
 bash scripts/dep-bash.sh
@@ -17419,6 +17427,32 @@ assert_eq "#460 workflow: trusted-copy materialization write is checked (rm resi
   "$(grep -c 'failed to materialize the trusted base copy' "$RUNNER" || true)"
 assert_eq "#460 workflow: the swallowed 'printf … || true' materialization write is gone" "0" \
   "$(grep -cF 'printf '\''%s\n'\'' "$raw" > "$TRUSTED_DIR/$t" 2>/dev/null || true' "$RUNNER" || true)"
+
+# ── #460 SHADOW (fail-open, SF): an EMPTY settings read must NOT be inferred as "not
+# wired" and skipped — that would drop DevFlow's OWN floor when settings.json exists at
+# base but `git show` read back empty despite a successful fetch. The gate distinguishes
+# absent (skip) from present-but-unreadable (fail-closed harden) via `git cat-file -e`.
+assert_eq "#460 workflow: empty settings read is disambiguated with git cat-file -e" "1" \
+  "$(grep -cF 'git cat-file -e "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
+assert_eq "#460 workflow: a present-but-unreadable base settings.json fails closed (hardens, warns)" "1" \
+  "$(grep -c 'read back empty after a successful fetch' "$RUNNER" || true)"
+# Behavioral-fix pin: the operative construct is the `[ -z "$SETTINGS_JSON" ]` +
+# cat-file-exists branch that sets HOOKS_WIRED=1 (harden) on an unreadable-but-present
+# settings.json. Mutating the cat-file guard to always-false makes a present-but-empty
+# read fall through to "not wired" → skip → the floor drops. assert_pin_red_under proves
+# PASS->FAIL under that mutation.
+assert_pin_red_under "#460 workflow: present-but-unreadable base settings.json hardens (fail-closed) — dropping the cat-file guard re-opens the floor-drop fail-open" \
+  'if git cat-file -e "FETCH_HEAD:.claude/settings.json" 2>/dev/null; then' \
+  's/if git cat-file -e "FETCH_HEAD:\.claude\/settings\.json" 2>\/dev\/null; then/if false; then/' \
+  "$RUNNER"
+# INLINE FALLBACK selection guard (issue #460 SHADOW, PT2): the inline `case` fallback
+# (reached only when no trusted helper resolved) is a mirror of --wired-check. Its list is
+# cross-pinned equal above; pin its glob SELECTION too so a glob typo that never matches
+# (misrouting the consumer gate) turns RED, not just a missing literal.
+assert_pin_red_under "#460 workflow: inline --wired-check fallback matches an entry via a substring glob — breaking the glob misroutes the gate" \
+  'case "$SETTINGS_JSON" in *"$e"*) HOOKS_WIRED=1 ;; esac' \
+  's/case "\$SETTINGS_JSON" in \*"\$e"\*\) HOOKS_WIRED=1 ;; esac/case "$SETTINGS_JSON" in "no-such-match") HOOKS_WIRED=1 ;; esac/' \
+  "$RUNNER"
 
 # The setup-project-env step is gated on the base-ref provision flag.
 assert_eq "provision: setup-project-env step present" "1" \

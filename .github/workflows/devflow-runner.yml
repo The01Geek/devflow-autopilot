@@ -759,8 +759,28 @@ jobs:
             # an inline substring scan only when no trusted helper resolved. Keyed on the
             # BASE ref, never the PR head: a PR cannot strip its own settings.json wiring
             # to dodge the floor while claude-code-action still restores the base hooks.
+            # SCOPE: this gate reads .claude/settings.json only. claude-code-action restores
+            # all of .claude/, so a hook wired via a base-tracked .claude/settings.local.json
+            # would be missed here (fail-SAFE toward not-hardening); DevFlow wires via
+            # settings.json (pinned to exactly 3 hooks), so this is correct for DevFlow — a
+            # future settings split must extend this read.
             HOOKS_WIRED=0
-            if [ -n "$HELPER" ]; then
+            # FAIL-CLOSED READ (issue #460 SHADOW, SF-fail-open): an EMPTY SETTINGS_JSON is
+            # ambiguous — it means EITHER the base ref has no .claude/settings.json (a
+            # consumer without these hooks → correctly skip) OR the file EXISTS at base but
+            # `git show` read back empty despite a successful fetch (a transient/corrupt
+            # read). --wired-check / the inline scan would read BOTH as "not wired" and skip
+            # — dropping DevFlow's OWN floor on the second case (a PR editing a closure
+            # script would then run unmediated shell in this secrets-bearing job). So when
+            # SETTINGS_JSON is empty, distinguish the two with `git cat-file -e`: blob EXISTS
+            # → inconclusive read → harden anyway (fail closed); blob ABSENT → genuinely no
+            # hooks → skip. Only a READABLE, non-empty settings.json is decided by wiring.
+            if [ -z "$SETTINGS_JSON" ]; then
+              if git cat-file -e "FETCH_HEAD:.claude/settings.json" 2>/dev/null; then
+                HOOKS_WIRED=1
+                echo "::warning::harden-stop-hooks: base .claude/settings.json exists at the base ref but read back empty after a successful fetch — hardening anyway (fail-closed) rather than inferring 'not wired' and dropping the floor."
+              fi
+            elif [ -n "$HELPER" ]; then
               printf '%s' "$SETTINGS_JSON" | bash "$HELPER" --wired-check && HOOKS_WIRED=1
             else
               for e in $ENTRY_TARGETS; do

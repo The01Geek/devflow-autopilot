@@ -154,10 +154,14 @@ TRUSTED_DIR="${TRUSTED_DIR:-}"
 #   usage : harden-stop-hooks.sh --wired-check [<settings-file>]   (stdin if no file)
 #   exit  : 0 = wired (at least one entry hook referenced) — HARDEN
 #           1 = NOT wired (or the file is unreadable/absent) — nothing to harden
-# Fail direction: an unreadable/absent settings file reads as NOT wired (exit 1) so a
-# consumer without the hooks is never hardened; the workflow keeps a transient base-ref
-# FETCH FAILURE on its own fail-closed path (it never reaches this check), so DevFlow's
-# own protection is not dropped on a fetch error. A substring match (not a JSON parse) is
+# Fail direction: an unreadable/absent settings file reads as NOT wired (exit 1). This
+# is a pure predicate over the text it is GIVEN — it deliberately does NOT distinguish
+# "empty because the file is absent" from "empty because a read failed"; that ambiguity
+# is resolved by the CALLER (issue #460 SHADOW): devflow-runner.yml only invokes this
+# with a NON-EMPTY settings blob (it handles an empty read separately via `git cat-file
+# -e` — a present-but-unreadable settings.json fails CLOSED toward hardening so DevFlow's
+# own floor is never dropped, an absent one skips), and it keeps a transient base-ref
+# FETCH FAILURE on its own fail-closed path. A substring match (not a JSON parse) is
 # deliberate: the entry paths appear verbatim in the hook command strings, and a
 # non-preflight JSON tool must not decide this SELECTION (guard-class 2).
 if [ "${1:-}" = "--wired-check" ]; then
