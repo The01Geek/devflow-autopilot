@@ -7,9 +7,13 @@
 # The whole mechanical sequence lives here — off-switch read, pre-state guards,
 # fetch, behind-by derivation, base merge, push, and the push-race recovery arm —
 # so a cloud-tier call site invokes ONE granted leading-token command instead of a
-# chain of individually-granted git verbs (the cloud allowlists grant neither
-# `git rev-list` nor an inline `git merge`; issue #363). Every recovery arm stays
-# deterministic and suite-driveable instead of agent-improvised.
+# chain of individually-granted git verbs (the cloud allowlists grant no inline
+# `git rev-list`, so the behind-by derivation and the base merge must both run inside
+# this helper's own subprocess rather than at a call site; issue #363). Every recovery
+# arm stays deterministic and suite-driveable instead of agent-improvised. (The cloud
+# allowlists DO grant `Bash(git merge:*)` — but only for the agent-level `git merge
+# --abort` the conflict-resolution contract prescribes at a call site, not for the
+# checkpoint's own base merge, which runs here inside the helper.)
 #
 # Operates on the CURRENT checkout (HEAD's branch). Reads base_branch and the
 # off-switch through config-get.sh; calls neither `gh` nor `jq`, so it sources
@@ -117,8 +121,17 @@ fi
 # --- restore the branch to its pre-checkpoint SHA and terminate PUSH_REJECTED with the
 # given breadcrumb (shared by every push-race reject arm). ---
 _reject_restore() {  # message
-  git reset --hard "$PRE_SHA" >/dev/null 2>&1 || true
-  echo "$1" >&2
+  # Surface the restore's own failure rather than asserting a restore that did not
+  # happen: a swallowed `git reset --hard` failure (a locked index, an invalid PRE_SHA)
+  # would otherwise leave the breadcrumb claiming "branch restored" while the tree still
+  # carries the base-merge commit — the exact silent divergence PUSH_REJECTED exists to
+  # rule out. The token stays PUSH_REJECTED (the push WAS rejected), but the breadcrumb
+  # is honest about the tree's actual state.
+  if git reset --hard "$PRE_SHA" >/dev/null 2>&1; then
+    echo "$1" >&2
+  else
+    echo "update-branch-checkpoint: WARNING push rejected AND the restore to pre-checkpoint SHA $PRE_SHA failed — the tree may still carry the base-merge commit; resolve manually before the next push. ($1)" >&2
+  fi
   emit "PUSH_REJECTED"
   exit 4
 }
@@ -180,6 +193,11 @@ if git fetch --unshallow origin >/dev/null 2>&1; then
   _merge_and_dispatch
 fi
 
-echo "update-branch-checkpoint: no merge base reachable for origin/$BASE (shallow history could not be extended) — nothing merged" >&2
+# `_merge_and_dispatch` returns here on ANY base-merge failure that left no MERGE_HEAD —
+# no reachable merge base, unrelated histories, or (after the unshallow retry) a still-
+# unextendable shallow history. git's own `fatal:` line already printed to stderr above
+# (fd 1 is rebound to stderr), so this breadcrumb stays cause-neutral rather than asserting
+# "shallow history" as the sole cause of a failure that may be unrelated-histories.
+echo "update-branch-checkpoint: could not complete a base merge with origin/$BASE — no reachable merge base (unrelated histories, or a shallow history that could not be extended; see the git error above) — nothing merged" >&2
 emit "UNVERIFIED"
 exit 3

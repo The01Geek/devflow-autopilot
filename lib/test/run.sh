@@ -27753,7 +27753,68 @@ assert_eq "#448 ubc-dirty-tree: no fetch performed (work origin/main ref unchang
 assert_eq "#448 ubc-dirty-tree: HEAD unchanged (no merge)" \
   "$UBC_HEAD_BEFORE" "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
 assert_eq "#448 ubc-dirty-tree: the uncommitted edit is intact" "dirty" \
-  "$(git -C "$D/work" show :feat.txt 2>/dev/null >/dev/null; tail -n 1 "$D/work/feat.txt")"
+  "$(tail -n 1 "$D/work/feat.txt")"
+
+# ── ubc-dirty-tree-staged → Pre-state guards: a STAGED-but-uncommitted tracked change
+# exercises the `--cached` arm of the dirty guard (the working-tree arm above does not) →
+# UNVERIFIED, exit 3, no fetch, the staged edit intact. ──────────────────────────────────
+D="$(git_sandbox 'ubc-dirty-tree-staged')"
+ubc_make "$D"
+ubc_advance_base "$D" ts
+UBC_ORIGIN_MAIN_BEFORE="$(git -C "$D/work" rev-parse origin/main 2>/dev/null)"
+printf 'staged\n' >> "$D/work/feat.txt"
+git -C "$D/work" add feat.txt   # staged but NOT committed → worktree clean, index dirty
+ubc_run "$D"
+assert_eq "#448 ubc-dirty-tree-staged: token is UNVERIFIED (index-dirty --cached arm)" "UNVERIFIED" "$UBC_OUT"
+assert_eq "#448 ubc-dirty-tree-staged: exit 3" "3" "$UBC_RC"
+assert_eq "#448 ubc-dirty-tree-staged: no fetch performed (origin/main ref unchanged)" \
+  "$UBC_ORIGIN_MAIN_BEFORE" "$(git -C "$D/work" rev-parse origin/main 2>/dev/null)"
+
+# ── ubc-base-branch → Config: a non-default `base_branch` is honored — the helper fetches
+# and merges origin/<that branch>, not a hard-coded `main`. Also exercises the config
+# `.base_branch` read + fallback path that every other test leaves at the default. ────────
+D="$(git_sandbox 'ubc-base-branch')"
+git init -q --bare "$D/bare.git"
+git init -q -b trunk "$D/work"
+git -C "$D/work" config user.email t@t
+git -C "$D/work" config user.name t
+printf 'base\n' > "$D/work/f.txt"
+git -C "$D/work" add f.txt
+git -C "$D/work" commit -qm init
+git -C "$D/work" remote add origin "$D/bare.git"
+git -C "$D/work" push -q -u origin trunk
+git -C "$D/work" checkout -q -b feat
+printf 'feat\n' > "$D/work/feat.txt"
+git -C "$D/work" add feat.txt
+git -C "$D/work" commit -qm feat
+git -C "$D/work" push -q -u origin feat
+# advance origin/trunk by one commit
+git clone -q "$D/bare.git" "$D/tc"
+git -C "$D/tc" config user.email t@t
+git -C "$D/tc" config user.name t
+git -C "$D/tc" checkout -q trunk
+printf 'x\n' > "$D/tc/b.txt"
+git -C "$D/tc" add b.txt
+git -C "$D/tc" commit -qm adv
+git -C "$D/tc" push -q origin trunk
+mkdir -p "$D/work/.devflow"
+printf '%s\n' '{"base_branch": "trunk"}' > "$D/work/.devflow/config.json"
+ubc_run "$D"
+assert_eq "#448 ubc-base-branch: non-default base_branch merged → 'UPDATED 1'" "UPDATED 1" "$UBC_OUT"
+assert_eq "#448 ubc-base-branch: exit 0" "0" "$UBC_RC"
+assert_eq "#448 ubc-base-branch: origin/trunk is now an ancestor of feat HEAD" "yes" \
+  "$(git -C "$D/work" merge-base --is-ancestor origin/trunk HEAD 2>/dev/null && echo yes || echo no)"
+
+# ── ubc-updated-multi → Outcome contract: the <behind_by> count is interpolated, not fixed
+# at 1 — base advanced by three commits → 'UPDATED 3'. ─────────────────────────────────────
+D="$(git_sandbox 'ubc-updated-multi')"
+ubc_make "$D"
+ubc_advance_base "$D" u1
+ubc_advance_base "$D" u2
+ubc_advance_base "$D" u3
+ubc_run "$D"
+assert_eq "#448 ubc-updated-multi: behind-by is interpolated → 'UPDATED 3'" "UPDATED 3" "$UBC_OUT"
+assert_eq "#448 ubc-updated-multi: exit 0" "0" "$UBC_RC"
 
 # ── ubc-merge-in-progress → Pre-state guards: MERGE_HEAD at invocation → MERGE_IN_PROGRESS,
 # exit 5, no fetch/merge/push, the in-progress state intact. ──────────────────────────────
