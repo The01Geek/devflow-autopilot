@@ -2773,6 +2773,15 @@ assert_eq "#449: retired 'only present for bug-labelled issues' Reproduction-sec
   "0" "$(printf '%s' "$IMPL_NORM_449" | grep -oF -- 'only present for `bug`-labelled issues' | grep -c .)"
 assert_eq "#449: retired 'not labelled \`bug\`' Reproduction-omit phrasing is gone (ws-normalized)" \
   "0" "$(printf '%s' "$IMPL_NORM_449" | grep -oF -- 'not labelled `bug`' | grep -c .)"
+# The workpad.py --no-reproduction help= text spans adjacent string literals (#375 hazard),
+# so a source grep cannot see the concatenation — pin the RENDERED `new-body --help` surface.
+# Assert the retired 'label-agnostic gate job' phrasing is gone and the classification wording
+# is present. --help needs no gh (argparse prints and exits before any API call).
+NOREPRO_HELP_449="$(python3 "$LIB/../scripts/workpad.py" new-body --help 2>&1 | tr -s '[:space:]' ' ')"
+assert_eq "#449: --no-reproduction help drops the retired 'label-agnostic gate job' phrasing (rendered)" \
+  "0" "$(printf '%s' "$NOREPRO_HELP_449" | grep -oF -- 'label-agnostic gate job' | grep -c .)"
+assert_eq "#449: --no-reproduction help states the recorded content classification (rendered)" \
+  "1" "$(printf '%s' "$NOREPRO_HELP_449" | grep -oF -- 'recorded content classification is non-bug' | grep -c .)"
 
 # ── issue #443: the mandatory Step 3.6 fresh-context audit in /devflow:create-issue ──
 # The deliverable is agent-executed skill prose plus one tracked extension file; no runtime

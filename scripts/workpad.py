@@ -501,11 +501,14 @@ def cmd_new_body(args):
     seed_ts = now_dt.strftime('%H:%M:%S')
     branch = f'`{args.branch}`' if args.branch else '_(creating…)_'
     run = args.run_link or '_(local run)_'
-    # The reproduction sub-item is bug-only. It renders by default because the
-    # `gate` job creates the workpad without knowing the issue's labels, so the
-    # default must not drop it; the local fresh-issue path (Phase 1.3) passes
-    # --no-reproduction for non-bug issues to keep the Progress list free of a
-    # permanently-unticked row.
+    # The reproduction sub-item is bug-only. It renders by default so a
+    # deterministic producer that cannot judge content (the `gate` job pre-renders
+    # from the `bug` label) never drops it on a lookup failure; the local
+    # fresh-issue path (Phase 1.3) passes --no-reproduction when the recorded
+    # content classification is non-bug. Either way, Phase 1.3's
+    # --reconcile-reproduction is the authoritative correction (issue #449) that
+    # reconciles this row to the classification, so the default here is only a
+    # starting point, not the final word.
     repro = (
         ''
         if getattr(args, 'no_reproduction', False)
@@ -1870,8 +1873,10 @@ def main():
                    help='Branch name. Defaults to a "_(creating…)_" placeholder.')
     s.add_argument('--no-reproduction', action='store_true',
                    help='Omit the bug-only "reproduction captured" sub-item. '
-                        'Pass for non-bug issues; the line renders by default so '
-                        'the label-agnostic gate job keeps it.')
+                        'Pass when the recorded content classification is '
+                        'non-bug; the line renders by default so a deterministic '
+                        'label-based pre-render never drops it, and Phase 1.3 '
+                        'reconciles it to the classification (issue #449).')
     s.add_argument('--marker', default=None, help=_marker_help)
     s.set_defaults(func=cmd_new_body)
 
