@@ -733,7 +733,7 @@ jobs:
           # materialize the trusted base copies AND, on the fail-closed arm, to stub
           # every target inline. A file dropped here silently leaves that PR-head script
           # executable (or un-materialized, so the helper stubs it).
-          TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py"
+          TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py"
           ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
           TRUSTED_DIR=""
           HELPER=""

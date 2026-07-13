@@ -18168,7 +18168,7 @@ assert_eq "#458 helper: harden-stop-hooks.sh exists" "yes" \
 # source/exec closure of the three .claude/settings.json Stop hooks — COUPLED (a
 # file dropped here silently leaves that PR-head script executable, or the workflow
 # never materializes its trusted copy). Pin the exact closure literal.
-HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'
+HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'
 assert_eq "#458 helper: HOOK_TARGETS is the full transitive source/exec closure" "1" \
   "$(grep -cF "HOOK_TARGETS='$HSH_CLOSURE_LIT'" "$HSH" || true)"
 # The three per-class sub-lists (entries / sourced libs / exec'd deps) drive the
@@ -18176,7 +18176,7 @@ assert_eq "#458 helper: HOOK_TARGETS is the full transitive source/exec closure"
 assert_eq "#458 helper: HOOK_ENTRY_TARGETS are the three settings.json hooks" "1" \
   "$(grep -cF "HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh'" "$HSH" || true)"
 assert_eq "#458 helper: HOOK_SOURCED_TARGETS are the inline-sourced libs (mid-source-break class)" "1" \
-  "$(grep -cF "HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh'" "$HSH" || true)"
+  "$(grep -cF "HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh'" "$HSH" || true)"
 assert_eq "#458 helper: HOOK_EXEC_TARGETS are the subprocess-exec'd deps" "1" \
   "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'" "$HSH" || true)"
 SETTINGS="$LIB/../.claude/settings.json"
@@ -18196,7 +18196,7 @@ assert_eq "#458 coupling: HOOK_ENTRY_TARGETS has exactly 3 entries (== settings.
 # The full closure hardened here is the entry hooks plus their transitive source/exec/python3
 # deps; its exact membership and size are pinned by the assertion below and the drift-guard,
 # not asserted in prose (the count-locked stale-prose lint owns numeric claims).
-assert_eq "#458 coupling: HOOK_TARGETS has exactly 9 closure entries (.sh + .py)" "9" \
+assert_eq "#458 coupling: HOOK_TARGETS has exactly 10 closure entries (.sh + .py)" "10" \
   "$(grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -cE '\.(sh|py)' || true)"
 # SET-EQUALITY invariant (issue #460 SHADOW, FP-S3): the three per-class lists must
 # partition HOOK_TARGETS exactly — entries ∪ sourced ∪ exec == HOOK_TARGETS. A future
@@ -18416,7 +18416,7 @@ assert_eq "#458 helper: full closure — exits 0 (every target displaced)" "0" "
 hsh_mk_ws "$HSH_TMP/b/ws"
 hsh_mk_trusted "$HSH_TMP/b/tr" \
   lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
-  lib/resolve-jq.sh lib/resolve-bin.sh \
+  lib/resolve-jq.sh lib/resolve-bin.sh lib/telemetry-branch.sh \
   scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
 WORKSPACE_ROOT="$HSH_TMP/b/ws" TRUSTED_DIR="$HSH_TMP/b/tr" bash "$HSH" >/dev/null 2>&1
 hsh_b_rc=$?
@@ -18434,7 +18434,7 @@ assert_eq "#458 helper: sourced-lib missing — neutralization is a successful f
 hsh_mk_ws "$HSH_TMP/c/ws"
 hsh_mk_trusted "$HSH_TMP/c/tr" \
   lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
-  lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh \
+  lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh \
   scripts/config-get.sh scripts/config_fingerprint.py
 WORKSPACE_ROOT="$HSH_TMP/c/ws" TRUSTED_DIR="$HSH_TMP/c/tr" bash "$HSH" >/dev/null 2>&1
 assert_eq "#458 helper: exec-dep missing — the entry KEEPS its trusted body (no neutralization)" "TRUSTED-BODY-implement-stop-guard.sh" \
@@ -18528,7 +18528,7 @@ assert_eq "#460 helper: write_stub does NOT write through the symlink to its out
 hsh_mk_ws "$HSH_TMP/p2/ws"
 hsh_mk_trusted "$HSH_TMP/p2/tr" \
   lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
-  lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh \
+  lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh \
   scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
 WORKSPACE_ROOT="$HSH_TMP/p2/ws" TRUSTED_DIR="$HSH_TMP/p2/tr" bash "$HSH" >/dev/null 2>&1
 hsh_p2_rc=$?
@@ -18663,7 +18663,7 @@ chmod 700 "$HSH_TMP/s4/ws/scripts/workpad.py" 2>/dev/null || true
 hsh_mk_ws "$HSH_TMP/s5/ws"
 hsh_mk_trusted "$HSH_TMP/s5/tr" \
   lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
-  lib/resolve-jq.sh lib/resolve-bin.sh \
+  lib/resolve-jq.sh lib/resolve-bin.sh lib/telemetry-branch.sh \
   scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
 chmod 000 "$HSH_TMP/s5/ws/lib/config-source.sh" 2>/dev/null || true
 chmod 500 "$HSH_TMP/s5/ws/lib" 2>/dev/null || true
