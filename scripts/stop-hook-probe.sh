@@ -67,7 +67,8 @@ fi
 # Repo root (the #295 repo-root-anchoring contract): resolve the git TOPLEVEL from the
 # payload's `cwd` (so a hook fired from a repo subdirectory still writes the breadcrumb
 # at the root, where the hook-probe job and the tests look for it), falling back to the
-# cwd itself when it is not inside a git repo, then to the toplevel of $PWD, then $PWD.
+# cwd itself when it is not inside a git repo, then to the toplevel of $PWD, then $PWD
+# (a cwd that is set but not an existing directory takes the $PWD arms).
 # (PR #438 review: the earlier form trusted the payload cwd verbatim, so a subdirectory
 # session wrote the marker off-root — a firing that read as a permanent 'did not fire'.)
 #

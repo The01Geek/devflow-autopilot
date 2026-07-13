@@ -238,12 +238,15 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
     # review): an EMPTY permission_denials array is the natural shape of a completed
     # zero-denial run, so it is genuinely `absent` (refused nothing) — reading it as
     # `present` would have the two carriers disagree on the same real-world event
-    # (count 0 => absent, [] => present). Only a NON-EMPTY array (or a non-array,
-    # non-null value — an unknown future carrier shape, kept as a presence signal
-    # rather than silently dropped) asserts presence.
+    # (count 0 => absent, [] => present) — and the same rule covers a FALSY SCALAR
+    # carrier (0, an empty string, false), likewise a refused-nothing value. Only a
+    # NON-EMPTY array (or a TRUTHY non-array, non-null value — an unknown future
+    # carrier shape, kept as a presence signal rather than silently dropped)
+    # asserts presence.
     | (if ($has_result | not) then "unavailable"
        elif (any($objs[]; has("permission_denials") and (.permission_denials != null)
-                 and (if (.permission_denials | type) == "array" then (.permission_denials | length) > 0 else true end)))
+                 and (if (.permission_denials | type) == "array" then (.permission_denials | length) > 0
+                      else (.permission_denials != 0 and .permission_denials != "" and .permission_denials != false) end)))
        then "present"
        else
          ([ $objs[] | select(has("permission_denials_count")) | .permission_denials_count ]) as $counts

@@ -27682,7 +27682,11 @@ assert_eq "#437 exec-shape(malformed): encoding unavailable" "yes" \
 # section was silently dropped" — the same unknown-vs-zero collapse the field lines avoid — and
 # the placeholder is emitted bytes, so it must be asserted rather than assumed.
 assert_eq "#437 exec-shape(degrade): the structural section carries the '_(none — ...)_' placeholder" "yes" \
-  "$(printf '%s' "$EES_MAL" | grep -qF '_(none — ' && echo yes || echo no)"
+  "$(printf '%s' "$EES_MAL" | grep -qF '_(none — could not be parsed as JSON' && echo yes || echo no)"
+# The file-ABSENT arm's placeholder must keep its own file attribution (the de-prefixed
+# template moved attribution into each reason, so pin the file-side arm too):
+assert_eq "#438 exec-shape(degrade): the absent-file placeholder still names the execution file" "yes" \
+  "$(printf '%s' "$EES_EMPTY" | grep -qF '_(none — execution file absent or empty' && echo yes || echo no)"
 # ...and the placeholder's reason is interpolated BARE (no 'execution file' prefix baked
 # into the template), so a jq-side degradation is not grammatically blamed on the file in
 # the emitted record (PR #438 review) — the jq-unrunnable arm's placeholder names jq:
@@ -27816,6 +27820,13 @@ assert_eq "#438 exec-shape(denials): an explicit-null count is 'unavailable', NO
 # the two carriers agree on the same real-world event (count 0 => absent, [] => absent).
 assert_eq "#438 exec-shape(denials): an EMPTY denials array is 'absent', not 'present' (carrier agreement)" "yes" \
   "$(bash "$EES" "$EES_FIX/exec-shape-denials-emptyarray.json" 2>/dev/null | grep -qxF 'permission_denials: absent' && echo yes || echo no)"
+# ...and the same valid-falsy rule one type over: a FALSY SCALAR carrier (0/""/false) is a
+# refused-nothing value like [] and count 0; a TRUTHY unknown-shape carrier stays a
+# presence signal (the deliberate fail-toward-signal arm, now pinned rather than untested).
+assert_eq "#438 exec-shape(denials): a FALSY scalar denials carrier (0) is 'absent', not 'present'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-falsyscalar.json" 2>/dev/null | grep -qxF 'permission_denials: absent' && echo yes || echo no)"
+assert_eq "#438 exec-shape(denials): a TRUTHY unknown-shape denials carrier is 'present'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-truthyscalar.json" 2>/dev/null | grep -qxF 'permission_denials: present' && echo yes || echo no)"
 
 # STATED LIMITATION (pinned so it stays known, not surprising): a single-event JSONL file is
 # byte-identical to a single top-level object, so it records `encoding: object`. Field
