@@ -42,6 +42,16 @@ tests (`lib/test/test_python_scripts.py`). CI runs the same suite on every PR
 (`.github/workflows/ci.yml`). Tests use `gh` **stubs** — no network or GitHub
 auth is required to run them.
 
+The suite reports passed, failed, and *skipped* tallies (issue
+#456) — so `0 failed` is never mistaken for "everything ran." A check can
+**self-skip** when the environment cannot run it or express its condition; with
+nothing skipped the summary is byte-identical to before (`N passed, M failed`),
+and with skips it reads `N passed, M failed, K skipped` followed by one line per
+skipped check naming the check, its **kind** (`blocking-gate` for a real gate
+that should have run here but could not, `host-capability` for a condition the
+host cannot express), and the reason. The exit code is unchanged — a skip never
+fails the suite. The summary renderer lives in `lib/test/summary.sh`.
+
 ## Conventions
 
 - **Skills reference bundled files via the portable single-statement anchor
