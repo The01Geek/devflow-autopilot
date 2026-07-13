@@ -714,9 +714,14 @@ jobs:
           VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
         run: |
           set -uo pipefail
-          # COUPLED mirror of scripts/harden-stop-hooks.sh's HOOK_TARGETS and of the
-          # .claude/settings.json Stop-hook script paths (pinned in lib/test/run.sh).
-          TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh"
+          # COUPLED mirror of scripts/harden-stop-hooks.sh's HOOK_TARGETS — the FULL
+          # transitive source/exec closure of the three .claude/settings.json Stop-hook
+          # scripts, not just the entry points (issue #458 REJECT). Byte-identical to the
+          # helper's HOOK_TARGETS and pinned equal in lib/test/run.sh. Used both to
+          # materialize the trusted base copies AND, on the fail-closed arm, to stub
+          # every target inline. A file dropped here silently leaves that PR-head script
+          # executable (or un-materialized, so the helper stubs it).
+          TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py"
           ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
           TRUSTED_DIR=""
           HELPER=""

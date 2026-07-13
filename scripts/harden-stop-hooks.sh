@@ -11,19 +11,66 @@
 # (trusted), but the SCRIPT FILES those commands exec live under lib/ and scripts/,
 # NOT under .claude/, so in the review job (.github/workflows/devflow-runner.yml
 # checks out ref = the PR HEAD) they are supplied by the PR-author-editable checkout.
-# A PR that edits any of those three targets would otherwise obtain unmediated shell
+# A PR that edits any of those targets would otherwise obtain unmediated shell
 # execution at session end inside a secrets-bearing CI job — bypassing the #363 head
 # extractor, the #401 shape rules, and the #402 tree-mutation deny-floor entirely
 # (the #404 REJECT class: "the review job checks out the PR head, so a checked-out
 # copy is PR-author-editable, and a floor the PR controls is no floor").
 #
-# This helper closes that channel the SAME way the deny-floor closes the tool channel:
-# before claude-code-action runs, each Stop-hook target in the PR-head workspace is
-# OVERWRITTEN with a TRUSTED copy (the base-ref content the workflow materialized into
-# TRUSTED_DIR), and when no trusted copy exists for a target it is overwritten with a
-# fail-closed no-op stub — NEVER left as the PR-head copy. So the executed script is
-# either the base-branch version or a stub that does nothing; the PR-head version never
-# runs. (An unedited PR yields byte-identical base copies, so no working-tree delta.)
+# ── TRANSITIVE CLOSURE, not just the three entry points (issue #458 REJECT) ──────
+# Hardening only the three entry scripts is INCOMPLETE: each `source`s / `exec`s /
+# `python3`-runs further PR-head-editable files under lib/ + scripts/, and `source`
+# resolves relative to ${BASH_SOURCE[0]} IN THE PR-HEAD WORKSPACE, so a hardened
+# base-copy entry would still pull in the PR-HEAD copy of its dependency — the hole
+# is one `source`/`exec` hop deeper. So this floor hardens the FULL transitive
+# source/exec/python3 closure of the three entries. The verified edges (each an
+# actual source/exec/interpreter reference, comment mentions excluded) are:
+#   lib/efficiency-trace.sh     -> lib/resolve-jq.sh, lib/config-source.sh,
+#                                  scripts/config_fingerprint.py
+#   lib/implement-stop-guard.sh -> lib/config-source.sh, scripts/workpad.py
+#   scripts/stop-hook-probe.sh  -> lib/resolve-jq.sh
+#   lib/resolve-jq.sh           -> lib/resolve-bin.sh
+#   lib/config-source.sh        -> scripts/config-get.sh
+#   lib/resolve-bin.sh          -> (leaf: only external tool probes)
+#   scripts/config-get.sh       -> (leaf: inline python3 -c, git, no repo files)
+#   scripts/config_fingerprint.py -> (leaf: stdlib only)
+#   scripts/workpad.py          -> (leaf: git/gh subprocesses only, no repo files)
+# lib/test/run.sh walks these edges transitively and turns RED if a future added
+# source/exec pulls in a repo file that is NOT in HOOK_TARGETS — so the closure can
+# never silently fall behind the code. Residual (NOT hardened, by design): the jq
+# PROGRAM lib/efficiency-trace.jq, fed to jq via `-f`. jq is sandboxed — it cannot
+# spawn a shell, exec, or write outside its stdout — so a PR-head `.jq` is not a
+# shell/RCE vector (and the review job is read-only, so it cannot push tampered
+# output either); it is outside the source/./exec/python3 edge set this floor closes.
+#
+# ── STUB vs TRUSTED-COPY per file class (issue #458 REJECT caveat) ───────────────
+# A no-op `exit 0` stub is correct for an ENTRY (skipping the hook is safe). But a
+# SOURCED library (resolve-jq.sh, config-source.sh, resolve-bin.sh) runs INLINE in
+# the sourcing script, so an `exit 0` stub would exit the SOURCING ENTRY mid-run and
+# BREAK the legitimate base hook. So the fail-closed treatment differs by class:
+#   * ENTRY (HOOK_ENTRY_TARGETS)   — trusted base copy, else `exit 0` stub. Safe:
+#                                    running no hook is always safe.
+#   * SOURCED LIB (HOOK_SOURCED_TARGETS) — trusted base copy (the NORMAL case: every
+#                                    closure file is repo-tracked and materialized
+#                                    from the base ref, so a trusted copy normally
+#                                    exists). If a trusted copy is MISSING (a broken
+#                                    /partial deployment), it is stubbed to displace
+#                                    the PR-head copy AND every ENTRY is neutralized
+#                                    to `exit 0` — so no entry ever reaches the line
+#                                    that would source the stub. This is BOTH
+#                                    fail-closed (PR-head code never runs) AND
+#                                    non-breaking when trusted copies exist.
+#   * EXEC'd dep (the rest: config-get.sh, config_fingerprint.py, workpad.py) —
+#                                    trusted base copy, else `exit 0` stub. Safe: an
+#                                    exec runs in a SUBPROCESS, so a stub (or a bash
+#                                    stub reached via `python3`, which errors) makes
+#                                    the subprocess a no-op and the entry degrades
+#                                    through its own best-effort path — it does not
+#                                    exit the entry mid-run, so no entry neutralization
+#                                    is needed for a missing exec dep.
+# So the executed script is either the base-branch version or a stub that does
+# nothing; the PR-head version never runs. (An unedited PR yields byte-identical base
+# copies, so no working-tree delta.)
 #
 # TRUST NOTE (mirrors filter-runner-tools.sh): a hand-edit to THIS file changes nothing
 # about how the editing PR's own review is hardened — devflow-runner.yml executes this
@@ -32,36 +79,58 @@
 # only after it lands on the base branch.
 #
 # Why a helper rather than an inline loop in the workflow YAML: the installer IS a
-# security boundary, so a regression (a target dropped from the list, the fail-closed
-# arm installing the PR-head copy instead of a stub) must fail the suite. Inline shell
-# in YAML cannot be unit-tested; here lib/test/run.sh drives the full adversarial matrix
-# directly. The workflow fails closed (inline no-op stubs for every target) when it
-# cannot resolve a trusted copy of this helper.
+# security boundary, so a regression (a target dropped from the closure, the fail-closed
+# arm installing the PR-head copy instead of a stub, an entry left un-neutralized when a
+# sourced dep is missing) must fail the suite. Inline shell in YAML cannot be unit-tested;
+# here lib/test/run.sh drives the full adversarial matrix directly. The workflow fails
+# closed (inline no-op stubs for every target) when it cannot resolve a trusted copy of
+# this helper OR when this helper exits non-zero (see the exit contract below).
 #
 # I/O contract:
 #   input  : env WORKSPACE_ROOT (repo root of the PR-head checkout to harden; default '.')
 #            env TRUSTED_DIR     (dir holding base-ref copies at the same relative subpaths,
 #                                 e.g. $TRUSTED_DIR/lib/implement-stop-guard.sh; may be empty
 #                                 or absent — then EVERY target is stubbed, fail-closed).
-#   effect : each hook target under WORKSPACE_ROOT is replaced by its trusted copy when
-#            present in TRUSTED_DIR, else by a no-op `exit 0` stub (chmod +x best-effort).
-#   stderr : one breadcrumb line per target naming the source used (trusted | stub).
-#   exit   : always 0 (best-effort — a single unwritable target must not abort the review).
-#            Displacement of the PR-head copy is always ATTEMPTED (trusted copy, else stub)
-#            and every failure is breadcrumbed loudly, never silently skipped. In the one
-#            unexpected case where BOTH the trusted copy AND the stub write fail (a wholly
-#            unwritable path), the PR-head copy may remain — the final breadcrumb flags that
-#            target for runner inspection. The workflow's own inline fail-closed stub arm
-#            and the base-ref materialization make that case unreachable in practice, but
-#            this helper does not pretend to guarantee displacement on an unwritable host.
+#   effect : each closure target under WORKSPACE_ROOT is replaced by its trusted copy when
+#            present in TRUSTED_DIR, else by a no-op `exit 0` stub (chmod +x best-effort);
+#            when a SOURCED library has no trusted copy, every ENTRY is additionally
+#            neutralized to a stub so the missing library is never sourced.
+#   stderr : one breadcrumb line per target naming the source used (trusted | stub |
+#            neutralized entry).
+#   exit   : 0 when EVERY target was displaced (trusted copy or stub) — best-effort: a
+#            missing trusted copy is a stub, not a failure, and the review is never
+#            aborted. NON-ZERO (1) only when a target could be neither trusted-copied
+#            NOR stubbed (a wholly unwritable path, so the PR-head copy MAY REMAIN) —
+#            this is the one fail-OPEN outcome, so a non-zero exit signals the workflow
+#            to run its inline fail-closed stub arm (never a silent partial displacement).
+#            The workflow's inline stub arm and the base-ref materialization make the
+#            wholly-unwritable case unreachable in practice.
 #
-# HOOK_TARGETS is the authoritative mirror of the three .claude/settings.json Stop-hook
-# script paths (COUPLED — a target added there must be added here, pinned in lib/test/run.sh).
+# HOOK_TARGETS is the authoritative single-line mirror of the full transitive closure
+# (COUPLED — mirror in devflow-runner.yml's inline TARGETS= and pinned both ways in
+# lib/test/run.sh; the run.sh drift-guard also asserts it covers every source/exec edge).
 
 set -u
 
-# The three Stop-hook script targets from .claude/settings.json (repo-relative).
-HOOK_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh'
+# ── The full transitive source/exec closure (repo-relative). ─────────────────────
+# Entry hooks — the three .claude/settings.json Stop-hook script paths. A stub here
+# is SAFE (skipping the hook is safe).
+HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh'
+# Libraries SOURCED INLINE (`.`/`source`) into an entry, directly or transitively. A
+# stub here would exit the SOURCING entry mid-run, so a MISSING trusted copy of one of
+# these neutralizes every entry instead of installing a mid-source-breaking stub.
+HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh'
+# Dependencies EXEC'd as a subprocess (command-substitution / `python3 <path>`). A stub
+# here just makes the subprocess a no-op and the entry degrades gracefully, so a missing
+# trusted copy needs no entry neutralization. This is the documentary/pinned mirror of
+# the exec-dep class (the logic derives "exec dep" as any closure member that is neither
+# an entry nor a sourced lib), so it is not read by the code below.
+# shellcheck disable=SC2034
+HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'
+# Authoritative single-line closure literal (COUPLED mirror of devflow-runner.yml's
+# inline TARGETS= — pinned in lib/test/run.sh). Order: entries, then sourced libs, then
+# exec deps.
+HOOK_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'
 
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-.}"
 TRUSTED_DIR="${TRUSTED_DIR:-}"
@@ -69,28 +138,81 @@ TRUSTED_DIR="${TRUSTED_DIR:-}"
 # Fail-closed no-op stub: a Stop hook that does nothing rather than the PR-head copy.
 STUB=$'#!/usr/bin/env bash\n# Installed by scripts/harden-stop-hooks.sh (#458): no trusted base copy of this\n# Stop-hook target was available, so it is neutralized rather than run from the\n# PR-head checkout. Fail-closed: run no hook, never a PR-controlled one.\nexit 0'
 
-for t in $HOOK_TARGETS; do
+# Membership tests — pure bash (a SELECTION-deciding value must not route through a
+# non-preflight PATH tool: the repo's guard-class 2).
+_is_entry_target()   { case " $HOOK_ENTRY_TARGETS "   in *" $1 "*) return 0 ;; esac; return 1; }
+_is_sourced_target() { case " $HOOK_SOURCED_TARGETS " in *" $1 "*) return 0 ;; esac; return 1; }
+
+# Try to install the trusted base copy of $1 into the workspace.
+#   returns 0 — trusted copy installed (PR-head displaced)
+#   returns 1 — no trusted copy available, or the copy failed (caller must stub)
+try_install_trusted() {
+  local t="$1" dest destdir src
   dest="$WORKSPACE_ROOT/$t"
   destdir="${dest%/*}"
   src="$TRUSTED_DIR/$t"
-
   if [ -n "$TRUSTED_DIR" ] && [ -f "$src" ]; then
     if mkdir -p "$destdir" 2>/dev/null && cp "$src" "$dest" 2>/dev/null; then
       chmod +x "$dest" 2>/dev/null || true
       printf 'devflow: harden-stop-hooks: %s <- trusted base copy\n' "$t" >&2
-      continue
+      return 0
     fi
     printf 'devflow: harden-stop-hooks: %s — trusted copy exists but could not be installed; installing fail-closed stub instead\n' "$t" >&2
   fi
+  return 1
+}
 
-  # No trusted copy (or its install failed): fail closed to a no-op stub. NEVER leave
-  # the PR-head copy in place — that is the whole exposure this helper removes.
+# Overwrite $1 with the fail-closed no-op stub (displacing any PR-head copy).
+#   returns 0 — stub written (PR-head copy displaced)
+#   returns 1 — could NOT write (wholly unwritable path; PR-head copy MAY REMAIN)
+write_stub() {
+  local t="$1" dest destdir label="${2:-fail-closed no-op stub (no trusted base copy)}"
+  dest="$WORKSPACE_ROOT/$t"
+  destdir="${dest%/*}"
   if mkdir -p "$destdir" 2>/dev/null && printf '%s\n' "$STUB" > "$dest" 2>/dev/null; then
     chmod +x "$dest" 2>/dev/null || true
-    printf 'devflow: harden-stop-hooks: %s <- fail-closed no-op stub (no trusted base copy)\n' "$t" >&2
+    printf 'devflow: harden-stop-hooks: %s <- %s\n' "$t" "$label" >&2
+    return 0
+  fi
+  printf 'devflow: harden-stop-hooks: %s — could NOT write a stub (unwritable path); the PR-head copy may remain — inspect the runner\n' "$t" >&2
+  return 1
+}
+
+neutralize_entries=0    # set when a SOURCED library lacked a trusted copy
+displacement_failed=0   # set when any target could be neither trusted-copied nor stubbed
+
+# ── Pass 1: non-entry dependencies (sourced libs + exec'd deps). ─────────────────
+# Done first so `neutralize_entries` is fully decided before the entries are processed.
+for t in $HOOK_TARGETS; do
+  _is_entry_target "$t" && continue   # entries handled in Pass 2
+  if try_install_trusted "$t"; then
+    continue
+  fi
+  if write_stub "$t"; then
+    # A sourced library with no trusted copy must not be left as a bare `exit 0` that a
+    # base entry would source mid-run: neutralize the entries so it is never sourced.
+    _is_sourced_target "$t" && neutralize_entries=1
   else
-    printf 'devflow: harden-stop-hooks: %s — could NOT write a stub (unwritable path); the PR-head copy may remain — inspect the runner\n' "$t" >&2
+    displacement_failed=1
   fi
 done
+
+# ── Pass 2: entry hooks. ─────────────────────────────────────────────────────────
+for t in $HOOK_TARGETS; do
+  _is_entry_target "$t" || continue   # deps handled in Pass 1
+  if [ "$neutralize_entries" = 1 ]; then
+    # A sourced dependency could not be trusted-restored, so run NO hook rather than a
+    # base entry that would source a stubbed (or absent) library mid-run.
+    write_stub "$t" "fail-closed no-op stub (a sourced dependency had no trusted base copy — neutralizing the entry)" || displacement_failed=1
+    continue
+  fi
+  try_install_trusted "$t" && continue
+  write_stub "$t" || displacement_failed=1
+done
+
+if [ "$displacement_failed" = 1 ]; then
+  printf 'devflow: harden-stop-hooks: one or more Stop-hook targets could be neither trusted-copied NOR stubbed (a wholly unwritable path); the PR-head copy MAY REMAIN — exiting non-zero so the workflow fail-closed inline stub arm runs\n' >&2
+  exit 1
+fi
 
 exit 0

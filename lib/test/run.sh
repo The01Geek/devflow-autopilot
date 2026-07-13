@@ -16647,11 +16647,21 @@ assert_pin_red_under "#402 helper file-tool match is NAME-based (matching \$ftna
 HSH="$LIB/../scripts/harden-stop-hooks.sh"
 assert_eq "#458 helper: harden-stop-hooks.sh exists" "yes" \
   "$([ -f "$HSH" ] && echo yes || echo no)"
-# The three targets are the authoritative mirror of .claude/settings.json's Stop
-# hooks — COUPLED. Pin the exact target list (a target dropped here silently leaves
-# that PR-head script executable).
-assert_eq "#458 helper: HOOK_TARGETS mirrors the three .claude/settings.json Stop-hook scripts" "1" \
-  "$(grep -cF "HOOK_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh'" "$HSH" || true)"
+# HOOK_TARGETS is the authoritative single-line mirror of the FULL transitive
+# source/exec closure of the three .claude/settings.json Stop hooks — COUPLED (a
+# file dropped here silently leaves that PR-head script executable, or the workflow
+# never materializes its trusted copy). Pin the exact closure literal.
+HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'
+assert_eq "#458 helper: HOOK_TARGETS is the full transitive source/exec closure" "1" \
+  "$(grep -cF "HOOK_TARGETS='$HSH_CLOSURE_LIT'" "$HSH" || true)"
+# The three per-class sub-lists (entries / sourced libs / exec'd deps) drive the
+# stub-vs-trusted-copy decision; pin each exact literal.
+assert_eq "#458 helper: HOOK_ENTRY_TARGETS are the three settings.json hooks" "1" \
+  "$(grep -cF "HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh'" "$HSH" || true)"
+assert_eq "#458 helper: HOOK_SOURCED_TARGETS are the inline-sourced libs (mid-source-break class)" "1" \
+  "$(grep -cF "HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh'" "$HSH" || true)"
+assert_eq "#458 helper: HOOK_EXEC_TARGETS are the subprocess-exec'd deps" "1" \
+  "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'" "$HSH" || true)"
 SETTINGS="$LIB/../.claude/settings.json"
 assert_eq "#458 coupling: settings.json wires lib/efficiency-trace.sh Stop hook" "1" \
   "$(grep -c 'lib/efficiency-trace.sh --persist' "$SETTINGS" || true)"
@@ -16659,56 +16669,206 @@ assert_eq "#458 coupling: settings.json wires lib/implement-stop-guard.sh Stop h
   "$(grep -c 'lib/implement-stop-guard.sh' "$SETTINGS" || true)"
 assert_eq "#458 coupling: settings.json wires scripts/stop-hook-probe.sh Stop hook" "1" \
   "$(grep -c 'scripts/stop-hook-probe.sh' "$SETTINGS" || true)"
-# BIDIRECTIONAL coupling (the drift direction the three per-path pins above miss):
-# a NEW Stop hook added to settings.json but NOT to HOOK_TARGETS would execute from
-# the PR-head checkout untouched — the exact exposure this helper closes. Pin the
-# COUNT of Stop-hook commands == 3 (== HOOK_TARGETS's three entries), so adding a
-# fourth hook without extending HOOK_TARGETS turns this RED.
-assert_eq "#458 coupling: settings.json has exactly 3 Stop-hook commands (== HOOK_TARGETS entries)" "3" \
+# BIDIRECTIONAL coupling: the settings.json Stop-hook COUNT equals the ENTRY-target
+# count (3) — a new Stop hook added to settings.json but NOT to HOOK_ENTRY_TARGETS
+# would execute from the PR-head checkout untouched.
+assert_eq "#458 coupling: settings.json has exactly 3 Stop-hook commands (== HOOK_ENTRY_TARGETS)" "3" \
   "$(jq '[.hooks.Stop[].hooks[]] | length' "$SETTINGS" 2>/dev/null || echo BAD)"
-assert_eq "#458 coupling: HOOK_TARGETS has exactly 3 entries (== settings.json Stop-hook count)" "3" \
-  "$(grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -c '\.sh' || true)"
+assert_eq "#458 coupling: HOOK_ENTRY_TARGETS has exactly 3 entries (== settings.json Stop-hook count)" "3" \
+  "$(grep -oE "HOOK_ENTRY_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -c '\.sh' || true)"
+# The full closure hardened here is the entry hooks plus their transitive source/exec/python3
+# deps; its exact membership and size are pinned by the assertion below and the drift-guard,
+# not asserted in prose (the count-locked stale-prose lint owns numeric claims).
+assert_eq "#458 coupling: HOOK_TARGETS has exactly 9 closure entries (.sh + .py)" "9" \
+  "$(grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -cE '\.(sh|py)' || true)"
+# IMPORTANT-1: the workflow's inline TARGETS= (used both to materialize trusted
+# copies AND to stub inline on the fail-closed arm) must equal the helper's full
+# HOOK_TARGETS — a later-added closure member left out of the inline list would go
+# stale-and-green, un-materialized and (on the fail-closed arm) un-stubbed.
+assert_eq "#458 coupling: devflow-runner.yml inline TARGETS == helper HOOK_TARGETS (full closure)" "1" \
+  "$(grep -cF "TARGETS=\"$HSH_CLOSURE_LIT\"" "$RUNNER" || true)"
 
-# Adversarial drive: a scratch PR-head workspace whose hook targets carry a
-# MALICIOUS marker, and a trusted dir supplying a base copy for ONLY ONE target.
+# DRIFT-GUARD (issue #458 REJECT): statically walk every source/`.`/exec/`python3 <path>`
+# edge in each closure file and assert every referenced repo .sh/.py is itself in the
+# hardened closure — so a future added `source`/exec of a NEW helper turns this RED
+# instead of silently re-opening the one-hop-deeper hole. Comment mentions are excluded
+# (only real edge syntax matches); the jq PROGRAM edge (`-f *.jq`) is out of scope (jq
+# is sandboxed — not a shell/RCE vector).
+HSH_DRIFT="$(REPO_ROOT="$LIB/.." CLOSURE="$HSH_CLOSURE_LIT" python3 - <<'PYEOF'
+import os, re
+root = os.environ["REPO_ROOT"]
+closure = os.environ["CLOSURE"].split()
+closure_base = {os.path.basename(p) for p in closure}
+src_re    = re.compile(r'(?:^|[;&|(])\s*(?:\.|source)\s')
+slashsh_re= re.compile(r'/([A-Za-z0-9_.-]+\.sh)\b')
+pyexec_re = re.compile(r'\bpython3\s+"?([^\s"]*\.py)\b')
+shexec_re = re.compile(r'\b(?:bash|sh)\s+"?([^\s"]*\.sh)\b')
+execb_re  = re.compile(r'\bexec\s+"?([^\s"]*\.(?:sh|py))\b')
+assign_re = re.compile(r'\b[A-Za-z_][A-Za-z0-9_]*=[^\s#]*?((?:scripts|lib)/[A-Za-z0-9_.-]+\.(?:sh|py))')
+def refs_in(path):
+    out = set()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for raw in fh:
+                line = re.sub(r'#.*$', '', raw)   # drop # comments; real edge lines carry no '#'
+                if not line.strip():
+                    continue
+                if src_re.search(line):
+                    for m in slashsh_re.finditer(line):
+                        out.add(m.group(1))
+                for rx in (pyexec_re, shexec_re, execb_re):
+                    for m in rx.finditer(line):
+                        out.add(os.path.basename(m.group(1)))
+                for m in assign_re.finditer(line):
+                    out.add(os.path.basename(m.group(1)))
+    except OSError:
+        pass
+    return out
+violations = []
+for rel in closure:
+    for ref in refs_in(os.path.join(root, rel)):
+        base = os.path.basename(ref)
+        if base == os.path.basename(rel):
+            continue
+        if base not in closure_base:
+            violations.append(f"{rel} -> {ref} (not in HOOK_TARGETS)")
+for v in sorted(set(violations)):
+    print(v)
+PYEOF
+)"
+assert_eq "#458 drift-guard: every source/exec edge in the closure resolves to a hardened target" "" "$HSH_DRIFT"
+
+# ── Adversarial drive over the full closure. Helper builders. ──────────────────
 HSH_TMP="$(mktemp -d)"
-mkdir -p "$HSH_TMP/ws/lib" "$HSH_TMP/ws/scripts" "$HSH_TMP/trusted/lib"
-printf 'MALICIOUS-GUARD\n'  > "$HSH_TMP/ws/lib/implement-stop-guard.sh"
-printf 'MALICIOUS-EFF\n'    > "$HSH_TMP/ws/lib/efficiency-trace.sh"
-printf 'MALICIOUS-PROBE\n'  > "$HSH_TMP/ws/scripts/stop-hook-probe.sh"
-printf 'TRUSTED-GUARD-BODY\n' > "$HSH_TMP/trusted/lib/implement-stop-guard.sh"
-WORKSPACE_ROOT="$HSH_TMP/ws" TRUSTED_DIR="$HSH_TMP/trusted" bash "$HSH" >/dev/null 2>&1
-# Happy path: the target WITH a trusted copy gets the trusted body, PR-head gone.
-assert_eq "#458 helper: target with a trusted base copy is installed (PR-head displaced)" "TRUSTED-GUARD-BODY" \
-  "$(cat "$HSH_TMP/ws/lib/implement-stop-guard.sh")"
-# Fail-closed: targets WITHOUT a trusted copy are stubbed, never left PR-head.
-assert_eq "#458 helper: target with no trusted copy is NOT left as the PR-head copy (efficiency)" "0" \
-  "$(grep -c 'MALICIOUS-EFF' "$HSH_TMP/ws/lib/efficiency-trace.sh" || true)"
-assert_eq "#458 helper: target with no trusted copy is NOT left as the PR-head copy (probe)" "0" \
-  "$(grep -c 'MALICIOUS-PROBE' "$HSH_TMP/ws/scripts/stop-hook-probe.sh" || true)"
-assert_eq "#458 helper: no-trusted-copy target becomes a no-op exit-0 stub (efficiency)" "1" \
-  "$(grep -c '^exit 0$' "$HSH_TMP/ws/lib/efficiency-trace.sh" || true)"
-# Fail-closed with an EMPTY TRUSTED_DIR: EVERY target stubbed, none left PR-head.
-printf 'MALICIOUS-AGAIN\n' > "$HSH_TMP/ws/lib/implement-stop-guard.sh"
-WORKSPACE_ROOT="$HSH_TMP/ws" TRUSTED_DIR="" bash "$HSH" >/dev/null 2>&1
-assert_eq "#458 helper: empty TRUSTED_DIR stubs every target (guard no longer PR-head)" "0" \
-  "$(grep -c 'MALICIOUS-AGAIN' "$HSH_TMP/ws/lib/implement-stop-guard.sh" || true)"
-assert_eq "#458 helper: empty TRUSTED_DIR -> guard is a no-op stub" "1" \
-  "$(grep -c '^exit 0$' "$HSH_TMP/ws/lib/implement-stop-guard.sh" || true)"
-# Absent TRUSTED_DIR var entirely (unset) also fails closed, not open.
-printf 'MALICIOUS-UNSET\n' > "$HSH_TMP/ws/scripts/stop-hook-probe.sh"
-WORKSPACE_ROOT="$HSH_TMP/ws" bash "$HSH" >/dev/null 2>&1
-assert_eq "#458 helper: unset TRUSTED_DIR stubs the target (fail closed)" "0" \
-  "$(grep -c 'MALICIOUS-UNSET' "$HSH_TMP/ws/scripts/stop-hook-probe.sh" || true)"
-# Contract: always exit 0 (best-effort — never abort the review).
-WORKSPACE_ROOT="$HSH_TMP/ws" TRUSTED_DIR="$HSH_TMP/trusted" bash "$HSH" >/dev/null 2>&1
-assert_eq "#458 helper: always exits 0 (best-effort)" "0" "$?"
-# A breadcrumb names the source used for each target (trusted vs stub).
-HSH_ERR="$(WORKSPACE_ROOT="$HSH_TMP/ws" TRUSTED_DIR="$HSH_TMP/trusted" bash "$HSH" 2>&1 1>/dev/null)"
+hsh_mk_ws() {  # $1 = ws root; every closure target carries a MALICIOUS marker
+  local wsroot="$1" t
+  for t in $HSH_CLOSURE_LIT; do
+    mkdir -p "$wsroot/${t%/*}"
+    printf 'MALICIOUS-%s\n' "$(basename "$t")" > "$wsroot/$t"
+  done
+}
+hsh_mk_trusted() {  # $1 = trusted dir; $2.. = targets to supply a trusted base body for
+  local trdir="$1" t; shift
+  for t in "$@"; do
+    mkdir -p "$trdir/${t%/*}"
+    printf 'TRUSTED-BODY-%s\n' "$(basename "$t")" > "$trdir/$t"
+  done
+}
+
+# Scenario A — a FULL trusted dir: every closure target gets its trusted base body,
+# no entry neutralization, exit 0.
+hsh_mk_ws "$HSH_TMP/a/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/a/tr" $HSH_CLOSURE_LIT
+WORKSPACE_ROOT="$HSH_TMP/a/ws" TRUSTED_DIR="$HSH_TMP/a/tr" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: full closure — an ENTRY gets its trusted base body (PR-head displaced)" "TRUSTED-BODY-efficiency-trace.sh" \
+  "$(cat "$HSH_TMP/a/ws/lib/efficiency-trace.sh")"
+assert_eq "#458 helper: full closure — a SOURCED lib gets its trusted base body" "TRUSTED-BODY-resolve-jq.sh" \
+  "$(cat "$HSH_TMP/a/ws/lib/resolve-jq.sh")"
+assert_eq "#458 helper: full closure — an EXEC'd dep gets its trusted base body" "TRUSTED-BODY-workpad.py" \
+  "$(cat "$HSH_TMP/a/ws/scripts/workpad.py")"
+WORKSPACE_ROOT="$HSH_TMP/a/ws" TRUSTED_DIR="$HSH_TMP/a/tr" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: full closure — exits 0 (every target displaced)" "0" "$?"
+
+# Scenario B — a SOURCED lib (config-source.sh) has NO trusted copy: it is stubbed to
+# displace the PR-head copy AND every entry is NEUTRALIZED to a stub (so the missing
+# lib is never sourced mid-run), EVEN THOUGH the entries themselves have trusted copies.
+hsh_mk_ws "$HSH_TMP/b/ws"
+hsh_mk_trusted "$HSH_TMP/b/tr" \
+  lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
+  lib/resolve-jq.sh lib/resolve-bin.sh \
+  scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
+WORKSPACE_ROOT="$HSH_TMP/b/ws" TRUSTED_DIR="$HSH_TMP/b/tr" bash "$HSH" >/dev/null 2>&1
+hsh_b_rc=$?
+assert_eq "#458 helper: sourced-lib missing — the entry is NEUTRALIZED to a stub (not its trusted copy)" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/b/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#458 helper: sourced-lib missing — the entry does NOT get its trusted body" "0" \
+  "$(grep -c 'TRUSTED-BODY' "$HSH_TMP/b/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#458 helper: sourced-lib missing — the missing lib is stubbed, PR-head displaced" "0" \
+  "$(grep -c 'MALICIOUS' "$HSH_TMP/b/ws/lib/config-source.sh" || true)"
+assert_eq "#458 helper: sourced-lib missing — neutralization is a successful fail-closed outcome (exit 0)" "0" "$hsh_b_rc"
+
+# Scenario C — an EXEC'd dep (workpad.py) has NO trusted copy: it is stubbed, but the
+# entries are NOT neutralized (a subprocess exec degrades gracefully) — they keep their
+# trusted base bodies.
+hsh_mk_ws "$HSH_TMP/c/ws"
+hsh_mk_trusted "$HSH_TMP/c/tr" \
+  lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
+  lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh \
+  scripts/config-get.sh scripts/config_fingerprint.py
+WORKSPACE_ROOT="$HSH_TMP/c/ws" TRUSTED_DIR="$HSH_TMP/c/tr" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: exec-dep missing — the entry KEEPS its trusted body (no neutralization)" "TRUSTED-BODY-implement-stop-guard.sh" \
+  "$(cat "$HSH_TMP/c/ws/lib/implement-stop-guard.sh")"
+assert_eq "#458 helper: exec-dep missing — the dep is stubbed, PR-head displaced" "0" \
+  "$(grep -c 'MALICIOUS' "$HSH_TMP/c/ws/scripts/workpad.py" || true)"
+assert_eq "#458 helper: exec-dep missing — the dep becomes a no-op exit-0 stub" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/c/ws/scripts/workpad.py" || true)"
+
+# Scenario D — EMPTY TRUSTED_DIR: every closure target stubbed, none left PR-head, exit 0.
+hsh_mk_ws "$HSH_TMP/d/ws"
+WORKSPACE_ROOT="$HSH_TMP/d/ws" TRUSTED_DIR="" bash "$HSH" >/dev/null 2>&1
+hsh_d_rc=$?
+hsh_d_left=0
+for t in $HSH_CLOSURE_LIT; do
+  grep -q 'MALICIOUS' "$HSH_TMP/d/ws/$t" 2>/dev/null && hsh_d_left=1
+done
+assert_eq "#458 helper: empty TRUSTED_DIR stubs EVERY closure target (none left PR-head)" "0" "$hsh_d_left"
+assert_eq "#458 helper: empty TRUSTED_DIR — an entry is a no-op stub" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/d/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#458 helper: empty TRUSTED_DIR — exit 0 (all stubbed, displacement succeeded)" "0" "$hsh_d_rc"
+
+# Scenario (unset TRUSTED_DIR) — also fails closed, not open.
+hsh_mk_ws "$HSH_TMP/u/ws"
+WORKSPACE_ROOT="$HSH_TMP/u/ws" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: unset TRUSTED_DIR stubs the entry (fail closed)" "0" \
+  "$(grep -c 'MALICIOUS' "$HSH_TMP/u/ws/scripts/stop-hook-probe.sh" || true)"
+
+# Breadcrumbs name the source used for each target (trusted vs stub).
+HSH_ERR="$(WORKSPACE_ROOT="$HSH_TMP/a/ws" TRUSTED_DIR="$HSH_TMP/a/tr" bash "$HSH" 2>&1 1>/dev/null)"
 assert_eq "#458 helper: breadcrumbs the trusted-copy install" "yes" \
   "$(printf '%s' "$HSH_ERR" | grep -q 'trusted base copy' && echo yes || echo no)"
+HSH_ERR2="$(WORKSPACE_ROOT="$HSH_TMP/d/ws" TRUSTED_DIR="" bash "$HSH" 2>&1 1>/dev/null)"
 assert_eq "#458 helper: breadcrumbs the fail-closed stub" "yes" \
-  "$(printf '%s' "$HSH_ERR" | grep -q 'fail-closed no-op stub' && echo yes || echo no)"
+  "$(printf '%s' "$HSH_ERR2" | grep -q 'fail-closed no-op stub' && echo yes || echo no)"
+
+# S1 (present-but-UNREADABLE trusted src → stub): a trusted copy that cannot be read
+# (cp fails) must still displace the PR-head copy with a stub, never leave it. Uses a
+# chmod-000 trusted src; skipped under a uid that ignores the mode bit (root).
+hsh_mk_ws "$HSH_TMP/s1/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/s1/tr" $HSH_CLOSURE_LIT
+chmod 000 "$HSH_TMP/s1/tr/scripts/workpad.py" 2>/dev/null || true
+if [ "$(id -u)" -ne 0 ] && [ ! -r "$HSH_TMP/s1/tr/scripts/workpad.py" ]; then
+  WORKSPACE_ROOT="$HSH_TMP/s1/ws" TRUSTED_DIR="$HSH_TMP/s1/tr" bash "$HSH" >/dev/null 2>&1
+  assert_eq "#458 helper: unreadable trusted src — PR-head copy is displaced (not left)" "0" \
+    "$(grep -c 'MALICIOUS' "$HSH_TMP/s1/ws/scripts/workpad.py" || true)"
+  assert_eq "#458 helper: unreadable trusted src — target becomes a no-op stub" "1" \
+    "$(grep -c '^exit 0$' "$HSH_TMP/s1/ws/scripts/workpad.py" || true)"
+else
+  echo "  SKIP  #458 helper: unreadable-trusted-src arm (this uid ignores the mode bit; chmod 000 stayed readable)"
+fi
+chmod 700 "$HSH_TMP/s1/tr/scripts/workpad.py" 2>/dev/null || true
+
+# S4 (wholly-unwritable dest → exit NON-ZERO): when a target can be neither
+# trusted-copied NOR stubbed (its PR-head copy MAY REMAIN), the helper exits non-zero
+# so the workflow's inline fail-closed stub arm runs — never a silent partial
+# displacement. Make one target's dest file + its parent dir unwritable. Skipped under
+# a uid that ignores the mode bits (root).
+hsh_mk_ws "$HSH_TMP/s4/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/s4/tr" $HSH_CLOSURE_LIT
+chmod 000 "$HSH_TMP/s4/ws/scripts/workpad.py" 2>/dev/null || true
+chmod 500 "$HSH_TMP/s4/ws/scripts" 2>/dev/null || true
+if [ "$(id -u)" -ne 0 ] && [ ! -w "$HSH_TMP/s4/ws/scripts/workpad.py" ] && [ ! -w "$HSH_TMP/s4/ws/scripts" ]; then
+  WORKSPACE_ROOT="$HSH_TMP/s4/ws" TRUSTED_DIR="$HSH_TMP/s4/tr" bash "$HSH" >/dev/null 2>&1
+  hsh_s4_rc=$?
+  assert_eq "#458 helper: wholly-unwritable target — exits NON-ZERO (workflow fail-closed arm runs)" "yes" \
+    "$([ "$hsh_s4_rc" -ne 0 ] && echo yes || echo no)"
+else
+  echo "  SKIP  #458 helper: wholly-unwritable exit-non-zero arm (this uid ignores the mode bits)"
+fi
+chmod 700 "$HSH_TMP/s4/ws/scripts" 2>/dev/null || true
+chmod 700 "$HSH_TMP/s4/ws/scripts/workpad.py" 2>/dev/null || true
 rm -rf "$HSH_TMP"
 
 # Behavioral-fix pin: the fail-closed branch must write the STUB, never the src.
