@@ -21,9 +21,10 @@ RESULTS_FILE="$(mktemp)"
 # SKIPS_FILE is the skip tally's backing file (issue #456), the SKIP sibling of
 # RESULTS_FILE: the skip() helper appends one `kind<TAB>name<TAB>reason` line per
 # self-skipping check, and SKIP is derived from it with `grep -c` — the same counter
-# mechanism PASS/FAIL already use (no new PATH-tool dependency; `grep` is not in guard-class
-# 2's banned tr/sed/wc/cut/head set) — so a gate that self-skips is visible in the summary
-# and can never be mistaken for a clean pass. The renderer lives in lib/test/summary.sh.
+# mechanism PASS/FAIL already use (guard-class 2 bars a NEW non-preflight PATH tool from
+# deciding an emitted result; the PASS/FAIL selection already hard-depends on `grep`, so
+# SKIP introduces no new tool into the selection) — so a gate that self-skips is visible in
+# the summary and can never be mistaken for a clean pass. The renderer is lib/test/summary.sh.
 SKIPS_FILE="$(mktemp)"
 trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE"' EXIT   # protect RESULTS_FILE/SKIPS_FILE immediately; widened below once the bundle temp exists
 # shellcheck source=lib/test/summary.sh disable=SC1091
@@ -40,8 +41,9 @@ trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE"' EXIT   # protect RESULTS_FILE/SKIPS_F
 #   neither PASS nor FAIL — a skip is not a pass and not a failure.
 skip() {  # name kind reason
   # Stored KIND-first (kind<TAB>name<TAB>reason) — the order devflow_render_test_summary reads
-  # back — even though the call signature is name-first; the two sides are pinned by the #456
-  # renderer tests.
+  # back — even though the call signature is name-first; the coupling is pinned END-TO-END by
+  # the #456 test that drives a log produced by THIS function through the renderer and asserts
+  # the name and kind land in their rendered slots.
   printf '%s\t%s\t%s\n' "$2" "$1" "$3" >> "$SKIPS_FILE"
   printf '  NOTE  %s skipped [%s] — %s\n' "$1" "$2" "$3"
 }
@@ -28895,21 +28897,47 @@ printf 'blocking-gate\t#434 shortfall\treason\n' > "$S456_SHORT"
 assert_eq "#456 summary: K announced greater than itemizable lines surfaces a shortfall breadcrumb" "yes" \
   "$(devflow_render_test_summary 10 0 2 "$S456_SHORT" | grep -qF 'could not be itemized' && echo yes || echo no)"
 rm -f "$S456_SHORT"
+# Renderer honesty (fail-closed on an unestablished tally): a skip argument that is not a
+# plain count — empty (a caller whose grep derivation errored, rc >= 2, prints nothing) or
+# non-numeric — renders a LOUD "tally unavailable" line, never a silent coercion to the
+# clean 0-skips format (unknown is not zero).
+assert_eq "#456 summary: an EMPTY skip tally renders the 'skip tally unavailable' breadcrumb, not a clean 0-skips line" "yes" \
+  "$(devflow_render_test_summary 10 0 "" "" | grep -qF 'skip tally unavailable' && echo yes || echo no)"
+assert_eq "#456 summary: the unestablished-tally arm keeps the pass/fail header as its first line" \
+  "10 passed, 0 failed" "$(devflow_render_test_summary 10 0 "" "" | head -1)"
+devflow_render_test_summary 10 0 "" "" >/dev/null; assert_eq "#456 summary: renderer returns 0 on the unestablished-tally arm" "0" "$?"
 # The suite's exit predicate is unchanged (AC: exits zero when FAIL==0 regardless of K). The
 # search literal is ASSEMBLED (so this assertion's own source lines never carry the contiguous
 # predicate) and must appear exactly once — the real predicate line, no copy in prose.
 S456_EXIT_PRED="$(printf '[ "$%s" -eq 0 ]' 'FAIL')"
 assert_eq "#456 the suite exit predicate (FAIL==0) is present exactly once, unchanged by the SKIP tally" \
   "1" "$(grep -cF "$S456_EXIT_PRED" "$SELF_SRC")"
+# The tail's SKIP derivation guard fails closed when the tally cannot be derived (a grep
+# error prints nothing; an empty value must never be reported as 0 skipped). The literal is
+# ASSEMBLED so this assertion's own source lines do not inflate the count (#370 self-match).
+S456_UNDERIV="$(printf 'SKIP tally %s' 'underivable')"
+assert_eq "#456 the tail SKIP derivation guard is present exactly once (an unestablished tally fails closed, never reads as 0)" \
+  "1" "$(grep -cF "$S456_UNDERIV" "$SELF_SRC")"
 #
 # skip() records a SKIP and moves NEITHER counter — with a positive control on the same
 # results fixture proving a normal assertion DOES still record a PASS (so the zero below is a
 # real "a skip doesn't count", not "nothing was ever counted").
 S456_SK="$(probe_tmp '#456 skip() skip-log fixture')"; : > "$S456_SK"
 S456_RES="$(probe_tmp '#456 skip() results fixture')"; : > "$S456_RES"
-SKIPS_FILE="$S456_SK" RESULTS_FILE="$S456_RES" skip "#456 probe-check" host-capability "probe reason" >/dev/null
+S456_NOTE_OUT="$(SKIPS_FILE="$S456_SK" RESULTS_FILE="$S456_RES" skip "#456 probe-check" host-capability "probe reason")"
 assert_eq "#456 skip() appends exactly one line to the skip log (SKIP increments)" "1" "$(grep -c . "$S456_SK")"
 assert_eq "#456 skip() records NO PASS/FAIL line (neither counter moves)" "0" "$(grep -c . "$S456_RES")"
+# The inline NOTE emit is NAME-first (unlike the kind-first STORED line) — assert the exact
+# emitted format so a transposition of the two orderings cannot ship unnoticed.
+assert_eq "#456 skip() inline NOTE emit is name-first: 'NOTE  <name> skipped [<kind>] — <reason>'" \
+  '  NOTE  #456 probe-check skipped [host-capability] — probe reason' "$S456_NOTE_OUT"
+# End-to-end order pin: drive the log the skip() call ABOVE produced through the renderer and
+# assert the name and kind land in their rendered slots. The K>0 renderer tests earlier use
+# hand-written fixtures, so only THIS test couples skip()'s kind-first storage order to the
+# renderer's read order — a skip() regression storing name-first would transpose every
+# rendered skip's name/kind while those fixture tests stay green.
+assert_eq "#456 e2e: a skip()-produced log renders with name and kind in the correct slots" "1" \
+  "$(devflow_render_test_summary 1 0 1 "$S456_SK" | grep -cxF '  SKIP  #456 probe-check [host-capability] — probe reason')"
 # Positive control: a normal assertion routed to the SAME isolated results file DOES record a PASS.
 RESULTS_FILE="$S456_RES" assert_eq "#456 positive control (recorded to the isolated fixture)" "x" "x" >/dev/null
 assert_eq "#456 positive control: a normal assertion still records a PASS to the fixture (the zero above is real)" \
@@ -28997,6 +29025,15 @@ FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # authoritative K the renderer prints; SKIPS_FILE is read by the renderer only to list each
 # skipped check.
 SKIP=$(grep -c . "$SKIPS_FILE" || true)
+# The `|| true` absorbs ONLY the benign empty-log case (grep -c still prints "0", rc 1). A
+# real grep error (rc >= 2) prints NOTHING, leaving SKIP empty — and an empty value coerced
+# downstream to 0 would launder an unestablished tally into "nothing skipped" (unknown is
+# not zero). Fail CLOSED: refuse to render a summary over a tally that could not be derived.
+case "$SKIP" in
+  ''|*[!0-9]*)
+    printf 'ERROR: SKIP tally underivable from %s (grep error, not an empty log) — refusing to report it as 0 skipped\n' "$SKIPS_FILE"
+    exit 1 ;;
+esac
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"

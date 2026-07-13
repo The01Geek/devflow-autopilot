@@ -20,20 +20,33 @@
 # devflow_render_test_summary PASS FAIL SKIP SKIPS_FILE
 #
 # Print the suite's terminal summary to stdout. SKIP is the skip tally run.sh maintains
-# (derived with `grep -c` over SKIPS_FILE — the SAME counter mechanism PASS/FAIL already use,
-# so the emitted summary gains no NEW PATH-tool dependency, and `grep` is not in CLAUDE.md
-# guard-class 2's banned tr/sed/wc/cut/head set). SKIPS_FILE
+# (derived with `grep -c` over SKIPS_FILE — the SAME counter mechanism PASS/FAIL already use.
+# CLAUDE.md guard-class 2 bars a NEW non-preflight PATH tool from deciding an emitted result;
+# the suite's PASS/FAIL selection already hard-depends on `grep`, so SKIP introduces no new
+# tool into the selection). SKIPS_FILE
 # is the tab-separated skip log run.sh's skip() helper appends to — one
 # `kind<TAB>name<TAB>reason` line per skip — read here only to list each skipped check.
 #
-#   K == 0 → "N passed, M failed"  (byte-identical to the pre-#456 output)
-#   K  > 0 → "N passed, M failed, K skipped"
-#            followed by one "  SKIP  <name> [<kind>] — <reason>" line per skipped check.
+#   K == 0     → "N passed, M failed"  (byte-identical to the pre-#456 output)
+#   K  > 0     → "N passed, M failed, K skipped"
+#                followed by one "  SKIP  <name> [<kind>] — <reason>" line per skipped check.
+#   K not a count (empty/non-numeric — an unestablished tally) → the pass/fail line plus a
+#                loud "skip tally unavailable" line; never a silent coercion to the K == 0 arm.
 #
 # This function never sets the exit code: run.sh's `[ "$FAIL" -eq 0 ]` predicate is
 # unchanged, so a skip never fails the suite.
 devflow_render_test_summary() {
-  local pass="$1" fail="$2" skip="${3:-0}" skips_file="${4:-}" tab kind name reason
+  local pass="$1" fail="$2" skip="${3-}" skips_file="${4:-}" tab kind name reason
+  # A skip tally that is not a plain count — empty (a caller whose derivation errored) or
+  # non-numeric — is UNESTABLISHED, and unknown is never zero: silently coercing it to 0
+  # would render a clean "N passed, M failed" line and launder a derivation failure into
+  # "nothing skipped", the exact laundering this renderer exists to prevent. Say so instead.
+  case "$skip" in
+    ''|*[!0-9]*)
+      printf '%s passed, %s failed\n' "$pass" "$fail"
+      printf '  SKIP  (skip tally unavailable — got "%s", not a count; the skip population of this run is unverified)\n' "$skip"
+      return 0 ;;
+  esac
   if [ "$skip" -eq 0 ]; then
     printf '%s passed, %s failed\n' "$pass" "$fail"
     return 0
