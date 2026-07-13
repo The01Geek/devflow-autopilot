@@ -28507,8 +28507,8 @@ assert_eq "#457 describe-hook-probe: did-not-fire arm drops the stale 'expected 
   "$(printf '%s' "$DHP_ABSENT" | grep -qiF 'expected on a probe PR' && echo no || echo yes)"
 assert_eq "#457 describe-hook-probe: did-not-fire arm drops the stale 'only effective once merged' framing" "yes" \
   "$(printf '%s' "$DHP_ABSENT" | grep -qiF 'only effective once merged' && echo no || echo yes)"
-assert_eq "#457 describe-hook-probe: did-not-fire arm frames an absent marker as an anomaly" "yes" \
-  "$(printf '%s' "$DHP_ABSENT" | grep -qF 'anomaly' && echo yes || echo no)"
+# (The anomaly framing itself is pinned more strongly by the assert_pin_red_under
+# behavioral pin below, so a bare 'anomaly' presence check would be redundant.)
 assert_eq "#457 describe-hook-probe: did-not-fire arm points at the job-log stderr breadcrumb" "yes" \
   "$(printf '%s' "$DHP_ABSENT" | grep -qF 'stderr breadcrumb' && echo yes || echo no)"
 # Behavioral-fix pin (#457, #375 rule): the anomaly framing must survive; a regression that
