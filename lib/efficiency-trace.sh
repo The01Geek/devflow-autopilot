@@ -22,12 +22,16 @@
 #                       converged writable run left no iter-*.json workpad or no
 #                       persisted effectiveness record. Run-id is the basename of
 #                       --workpad-dir. Silent when telemetry is disabled.
-#   --persist           Layer 3 backstop: derive the per-run record AND commit it
-#                       + the durable workpad copy from whatever iter-*.json
-#                       workpads exist on disk, in one scoped `chore:` commit.
-#                       Idempotent: a no-op (no empty commit) once the record is
-#                       already persisted. With --workpad-dir/--slug it persists
-#                       just that run; without them it DISCOVERS every run under
+#   --persist           Layer 3 backstop: derive the per-run record + the durable
+#                       workpad copy from whatever iter-*.json workpads exist on
+#                       disk, and persist them to the dedicated telemetry branch
+#                       (`telemetry.branch`, default devflow-telemetry) via git
+#                       plumbing — it does NOT commit to the current branch and
+#                       never touches HEAD or the tracked working tree (#441).
+#                       Idempotent: once a run's record is already on the branch,
+#                       the tree is unchanged and no new branch commit is made.
+#                       With --workpad-dir/--slug it persists just that run;
+#                       without them it DISCOVERS every run under
 #                       .devflow/tmp/review/<slug>/<run-id>/ and persists each.
 #
 # Gating: when devflow_review_and_fix.efficiency_telemetry_enabled is false,
@@ -65,7 +69,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # would then trip `set -e` — the exact abort the best-effort contract forbids), define
 # no-op stubs so EVERY consumer degrades uniformly at the source boundary: the branch
 # reads return "absent" and the write is a no-op, telemetry is simply not persisted this
-# run, and nothing aborts. One breadcrumb here is the single "lib missing" signal.
+# run, and nothing aborts. This is the SOURCE-time signal; do_persist emits a second,
+# PERSIST-time breadcrumb (gated on the _DEVFLOW_TELEMETRY_BRANCH_SOURCED sentinel) that
+# names the staging root whose artifacts are discarded — the two are complementary, not
+# duplicates, and the persist-time one is what tells the operator what was lost.
 # shellcheck source=lib/telemetry-branch.sh
 . "$HERE/telemetry-branch.sh" || {
   echo "devflow: telemetry-branch.sh could not be sourced beside ${BASH_SOURCE[0]} — --persist cannot reach the telemetry branch this run; using no-op stubs so backstop reads degrade cleanly (best-effort exit-0 preserved)" >&2
@@ -693,7 +700,7 @@ do_self_check() {
   return 0
 }
 
-# ── --persist (Layer 3): derive + durable-copy + one scoped chore: commit ────
+# ── --persist (Layer 3): derive + durable-copy → telemetry-branch write ──────
 
 # Persist one run dir's artifacts (best-effort). Returns 0 always.
 persist_one() {

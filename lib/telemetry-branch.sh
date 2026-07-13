@@ -23,12 +23,13 @@
 # non-preflight PATH tool (`grep`/`sed`/`tr`/…) whose absence would silently
 # empty the value and corrupt the decision (CLAUDE.md guard-class 2).
 
-# Guard against double-source (idempotent when a caller sources both this and
-# config-source.sh).
+# Guard against double-source: idempotent when a caller sources this file more
+# than once (e.g. efficiency-trace.sh sources it, and a test sources it directly).
+# The `_DEVFLOW_TELEMETRY_BRANCH_SOURCED` sentinel it reads is set at the very END
+# of this file, deliberately — see the note there.
 if [ -n "${_DEVFLOW_TELEMETRY_BRANCH_SOURCED:-}" ]; then
   return 0 2>/dev/null || true
 fi
-_DEVFLOW_TELEMETRY_BRANCH_SOURCED=1
 
 # devflow_conf comes from config-source.sh. Source it if the caller has not
 # already (efficiency-trace.sh sources it first, so this is a no-op there; a
@@ -67,6 +68,20 @@ devflow_telemetry_branch() {
       b="$(devflow_conf '.telemetry.branch' 'devflow-telemetry')"
     fi
     [ -n "$b" ] || b="devflow-telemetry"
+    # Validate the CONFIGURED name is actually usable as a branch ref before it is
+    # interpolated into refs/heads/<b>, a push refspec, and refs/remotes/origin/<b>.
+    # The schema says `"type": "string"`, but a schema is not a runtime guard: a
+    # hand-edited config can carry a space, a `..`, or a wrong-typed value the
+    # resolver stringifies. git then refuses the update-ref with `refusing to update
+    # ref with bad name`, which is neither a CAS race nor a disk fault — so without
+    # this check it lands in the terminal arm whose breadcrumb names ONLY lock /
+    # read-only / disk causes, and the operator is never pointed at the config key
+    # that actually caused it — on every run (PR #442 review). Fail back to the
+    # default so telemetry still persists, and say exactly which key to fix.
+    if ! git check-ref-format --branch "$b" >/dev/null 2>&1; then
+      echo "::warning::telemetry-branch: config key 'telemetry.branch' resolved to '${b}', which git rejects as a branch name (git check-ref-format); falling back to 'devflow-telemetry' — fix .devflow/config.json to persist to your intended branch" >&2
+      b="devflow-telemetry"
+    fi
     _DEVFLOW_TELEMETRY_BRANCH_CACHE="$b"
   fi
   printf '%s\n' "$_DEVFLOW_TELEMETRY_BRANCH_CACHE"
@@ -138,10 +153,25 @@ devflow_telemetry_branch_checked_out() {
 # prefix, e.g. `.devflow/logs/efficiency/`) on ref $2, one per line. Empty output
 # when the ref or prefix is absent — the reader/backstop then degrades to its
 # other sources (legacy tracked tree, tmp scratch). Best-effort, always rc 0.
+#
+# An ABSENT ref is a genuine "no records" and is silent. A PRESENT ref whose tree
+# cannot be READ is NOT: it must never be laundered into the same empty output
+# (CLAUDE.md — "unknown is not zero"). This is the same fail-open verify_store is
+# explicitly hardened against, and it bites harder here, because this function's
+# consumer is `recorded_fix_shas` — the fix-commit EXCLUSION set that stops
+# synthesis from re-attributing a commit another run already recorded. An
+# unreadable store silently emptying that set means synthesis re-attributes
+# already-recorded fix commits: double-counted effectiveness records, with no
+# signal at all (PR #442 review). Breadcrumb the unreadable case and say what it
+# costs, so a corrupted store is diagnosable instead of merely quiet.
 devflow_telemetry_list_blobs() {
-  local root="$1" ref="$2" prefix="$3"
+  local root="$1" ref="$2" prefix="$3" out
   git -C "$root" rev-parse --verify --quiet "$ref" >/dev/null 2>&1 || return 0
-  git -C "$root" ls-tree -r --name-only "$ref" -- "$prefix" 2>/dev/null || true
+  if ! out="$(git -C "$root" ls-tree -r --name-only "$ref" -- "$prefix" 2>/dev/null)"; then
+    echo "::warning::telemetry-branch: ref '${ref}' exists but its '${prefix}' tree could not be read (git ls-tree failed — corrupt or unreadable tree); its records cannot be listed this run, so the fix-commit exclusion set is INCOMPLETE and synthesis may re-attribute an already-recorded commit" >&2
+    return 0
+  fi
+  [ -z "$out" ] || printf '%s\n' "$out"
   return 0
 }
 
@@ -192,18 +222,36 @@ devflow_telemetry_show_blob() {
 devflow_telemetry_persist_tree() {
   local root="$1" staging_root="$2"
   [ -n "$root" ] && [ -n "$staging_root" ] || return 0
-  [ -d "$staging_root" ] || return 0
+  # An ABSENT staging root is not the same as an EMPTY one: the caller creates it
+  # with `mkdir -p … || true`, so "it does not exist" means that mkdir was DENIED
+  # (read-only fs, permissions, cloud sandbox) — the run's artifacts were never
+  # staged at all. Returning 0 silently here conflated that with the legitimate
+  # "nothing staged — clean no-op", which is the unknown-collapsed-onto-a-real-value
+  # pattern this repo forbids (PR #442 review). Breadcrumb it; still exit 0
+  # (best-effort contract).
+  if [ ! -d "$staging_root" ]; then
+    echo "::warning::telemetry-branch: staging root '${staging_root}' does not exist — the caller could not create it (read-only filesystem, permissions, or a sandbox write denial), so nothing was staged; telemetry not persisted this run" >&2
+    return 0
+  fi
 
   local branch ref
   branch="$(devflow_telemetry_branch)"
   ref="$(devflow_telemetry_ref)"
 
-  # Enumerate staged files (relative to staging_root). Builtin globbing via a
-  # find-free recursive walk would need bash 4 globstar; instead use `git`'s own
-  # object hashing per file discovered with a portable `find`-free approach. We
-  # DO need to walk a directory tree — use a small recursive bash walker so no
-  # dependency on `find` (not preflight-guaranteed) and no selection value routed
-  # through a non-guaranteed tool.
+  # Enumerate staged files (relative to staging_root). `globstar` would need bash 4
+  # (these helpers must run on stock macOS bash 3.2) and `find` is not a preflight-
+  # guaranteed tool, so walk the tree with a small recursive bash function — no
+  # selection value is ever routed through a non-guaranteed PATH tool.
+  #
+  # bash 3.2 (stock macOS) aborts under `set -u` on "${arr[@]}" when arr is EMPTY
+  # (`arr[@]: unbound variable`) — bash >= 4.4 does not. `lib/efficiency-trace.sh`
+  # runs `set -euo pipefail`, so EVERY array expansion in this file uses the
+  # `${arr[@]+"${arr[@]}"}` guarded form (the same idiom lib/implement-stop-guard.sh
+  # already carries for MARKERS). This is not defensive noise: a bare expansion on
+  # the empty `parent_arg` below made the ORPHAN-ROOT commit — i.e. the branch's
+  # very first write — fatal on bash 3.2, so the telemetry branch could never be
+  # created on the primary local tier, silently and with a misattributed breadcrumb
+  # (PR #442 review Critical-1). `${#arr[@]}` is safe on 3.2 and needs no guard.
   local staged_rel=()
   _devflow_telemetry_walk() {
     local d="$1" e
@@ -228,14 +276,14 @@ devflow_telemetry_persist_tree() {
   # staging never drops every OTHER run's conforming records (the batched write
   # can carry many runs' records). If filtering leaves nothing, it's a clean no-op.
   local rel conforming=()
-  for rel in "${staged_rel[@]}"; do
+  for rel in ${staged_rel[@]+"${staged_rel[@]}"}; do
     case "$rel" in
       .devflow/logs/*) conforming+=("$rel") ;;
       *)
         echo "::warning::telemetry-branch: staged path '${rel}' is not under .devflow/logs/ — skipping just this path (caller staged an unexpected path); other conforming records still persist" >&2 ;;
     esac
   done
-  staged_rel=("${conforming[@]}")
+  staged_rel=(${conforming[@]+"${conforming[@]}"})
   if [ "${#staged_rel[@]}" -eq 0 ]; then
     return 0   # every staged path was non-conforming — nothing left to persist
   fi
@@ -256,7 +304,15 @@ devflow_telemetry_persist_tree() {
   (
     idx="${root}/.devflow/tmp/telemetry-index-$$-${RANDOM}-${SECONDS}-${RANDOM}"
     trap 'rm -f "$idx" 2>/dev/null' EXIT
-    mkdir -p "${root}/.devflow/tmp" 2>/dev/null || true
+    # Check this mkdir's rc. Discarding it (`|| true`) meant a DENIED .devflow/tmp
+    # write — the cloud sandbox denial this very file cites elsewhere, a read-only
+    # fs, or a permissions fault — surfaced only as the downstream generic
+    # "object-store write failed" breadcrumb, sending the operator to inspect
+    # .git/objects, which is perfectly healthy. Name the real cause (PR #442 review).
+    if ! mkdir -p "${root}/.devflow/tmp" 2>/dev/null; then
+      echo "::warning::telemetry-branch: could not create '${root}/.devflow/tmp' for the temp index (read-only filesystem, permissions, or the cloud sandbox's write denial into .devflow/tmp) — this is NOT an object-store failure; telemetry not persisted this run" >&2
+      exit 0
+    fi
 
     # Build a tree of <new blobs on top of `parent_tip`> into the temp index.
     # Echoes the resulting tree sha, or empty (non-zero rc) on failure. The whole
@@ -277,7 +333,7 @@ devflow_telemetry_persist_tree() {
         if [ -n "$parent" ]; then
           git -C "$root" read-tree "$parent" 2>/dev/null || exit 1
         fi
-        for r in "${staged_rel[@]}"; do
+        for r in ${staged_rel[@]+"${staged_rel[@]}"}; do
           blob="$(git -C "$root" hash-object -w "${staging_root}/${r}" 2>/dev/null)" || exit 1
           git -C "$root" update-index --add --cacheinfo "100644,${blob},${r}" 2>/dev/null || exit 1
         done
@@ -297,11 +353,16 @@ devflow_telemetry_persist_tree() {
         ptree="$(git -C "$root" rev-parse --verify --quiet "${parent}^{tree}" 2>/dev/null)"
         [ "$tree" = "$ptree" ] && { printf 'NOOP\n'; return 0; }
       fi
+      # `parent_arg` is EMPTY on the orphan-root commit (the branch's first write).
+      # The guarded expansion is load-bearing there, not defensive: a bare
+      # "${parent_arg[@]}" aborts bash 3.2 under `set -u`, which made branch
+      # CREATION impossible on stock macOS bash — and therefore every subsequent
+      # run too (PR #442 review Critical-1). See the array-expansion note above.
       local parent_arg=()
       [ -n "$parent" ] && parent_arg=(-p "$parent")
       GIT_AUTHOR_NAME="$_DEVFLOW_TELEMETRY_IDENT_NAME" GIT_AUTHOR_EMAIL="$_DEVFLOW_TELEMETRY_IDENT_EMAIL" \
       GIT_COMMITTER_NAME="$_DEVFLOW_TELEMETRY_IDENT_NAME" GIT_COMMITTER_EMAIL="$_DEVFLOW_TELEMETRY_IDENT_EMAIL" \
-        git -C "$root" commit-tree "$tree" "${parent_arg[@]}" -m "$_DEVFLOW_TELEMETRY_COMMIT_MSG" 2>/dev/null
+        git -C "$root" commit-tree "$tree" ${parent_arg[@]+"${parent_arg[@]}"} -m "$_DEVFLOW_TELEMETRY_COMMIT_MSG" 2>/dev/null
     }
 
     # Re-parent for the PUSH retry: build a tree that is the UNION of the fetched
@@ -348,7 +409,7 @@ devflow_telemetry_persist_tree() {
     # (a consumer may have created a same-named branch), which is exactly why the push
     # path DOES re-verify the fetched tip before re-parenting. If a second local writer
     # class is ever added, re-verify here too.
-    local try old new committed="" upd_err=""
+    local try old new committed="" upd_err="" now="" raced=0
     for ((try = 0; try < _DEVFLOW_TELEMETRY_CAS_TRIES; try++)); do
       old="$(git -C "$root" rev-parse --verify --quiet "$ref" 2>/dev/null || true)"
       new="$(commit_on "$old")" || { new=""; }
@@ -371,46 +432,81 @@ devflow_telemetry_persist_tree() {
         DEVFLOW_TELEMETRY_RACE_HOOK=""
       fi
       # Capture update-ref's stderr (NOT 2>/dev/null): a non-zero rc here is NOT
-      # always a lost CAS race. git reports a genuine compare-and-swap mismatch as
-      # `... but expected ...`, but the same non-zero rc also covers a stale/held
-      # ref .lock, a read-only .git, or ENOSPC on the ref/reflog write — where the
-      # expected-old matched fine and the WRITE failed. Swallowing the stderr and
-      # reporting "lost N races" would steer the operator to hunt phantom
-      # concurrency while the real cause (lock/permission/disk) is discarded.
-      if upd_err="$(git -C "$root" update-ref "$ref" "$new" "${old:-}" 2>&1)"; then
+      # always a lost CAS race. It also covers a stale/held ref .lock, a read-only
+      # .git, or ENOSPC on the ref/reflog write — where the expected-old matched
+      # fine and the WRITE failed. Swallowing the stderr and reporting "lost N
+      # races" would steer the operator to hunt phantom concurrency while the real
+      # cause (lock/permission/disk) is discarded. `LC_ALL=C` so the captured
+      # message we surface verbatim is stable regardless of the host's locale.
+      if upd_err="$(LC_ALL=C git -C "$root" update-ref "$ref" "$new" "${old:-}" 2>&1)"; then
         committed="$new"
         break
       fi
-      # Non-race failure (a ref lock, permission, or disk error — NOT an
-      # expected-old mismatch) will not clear on retry, so stop looping and let the
-      # terminal breadcrumb below name the git error verbatim. A genuine race
-      # (`but expected`) re-reads the new tip and rebuilds, bounded.
-      case "$upd_err" in
-        *"but expected"*) : ;;   # genuine CAS mismatch — retry
-        *) break ;;              # lock/permission/disk — retrying won't help
-      esac
+      # Classify the failure by ASKING THE REF, never by parsing git's prose
+      # (PR #442 review — the CAS-race discriminator).
+      #
+      # The previous form matched `*"but expected"*` on stderr. That was wrong in
+      # two independent ways, and both fail in the SAME direction — a real race is
+      # misread as a hardware fault, the bounded retry that would have succeeded is
+      # skipped, the run's telemetry is dropped, and the terminal breadcrumb then
+      # tells the operator the cause was "NOT a concurrent writer":
+      #   1. It only ever matched ONE of git's three CAS-failure shapes. A sibling
+      #      that CREATES the branch between our `old` read (empty) and our write
+      #      is rejected with `reference already exists` — no `but expected` — and
+      #      that is precisely the first-use race two parallel worktrees are most
+      #      likely to hit, on the very branch this feature exists to create. A
+      #      sibling that DELETES the ref yields `unable to resolve reference`.
+      #   2. Those strings are gettext-translated (git wraps them in `_()`), so on
+      #      a non-English host even the value-mismatch shape stopped matching.
+      # A compare-and-swap race is DEFINED by "the ref is no longer what I expected"
+      # — a structural fact git will state exactly, in any locale. So re-read it:
+      # if the ref moved, it is a race (rebuild on the new tip and retry, bounded);
+      # if it did not move, our expected-old was fine and the WRITE itself failed,
+      # which retrying cannot fix.
+      now="$(git -C "$root" rev-parse --verify --quiet "$ref" 2>/dev/null || true)"
+      if [ "$now" != "${old:-}" ]; then
+        raced=1        # genuine race (value mismatch, sibling-created, or deleted)
+        continue
+      fi
+      raced=0          # ref unchanged ⇒ lock / read-only / disk — retrying won't help
+      break
     done
     if [ -z "$committed" ]; then
-      case "$upd_err" in
-        *"but expected"*|"")
-          echo "::warning::telemetry-branch: compare-and-swap on '${branch}' lost ${_DEVFLOW_TELEMETRY_CAS_TRIES} races (a sibling worktree/process kept advancing it); telemetry not persisted this run" >&2 ;;
-        *)
-          echo "::warning::telemetry-branch: could not advance the ref for '${branch}' (git update-ref failed: ${upd_err}) — a held ref .lock, a read-only .git, or a full disk, NOT a concurrent writer; telemetry not persisted this run" >&2 ;;
-      esac
+      if [ "${raced:-0}" -eq 1 ]; then
+        echo "::warning::telemetry-branch: compare-and-swap on '${branch}' lost ${_DEVFLOW_TELEMETRY_CAS_TRIES} races (a sibling worktree/process kept advancing it); telemetry not persisted this run" >&2
+      else
+        echo "::warning::telemetry-branch: could not advance the ref for '${branch}' (git update-ref failed: ${upd_err}) — the ref did not move, so this is a held ref .lock, a read-only .git, or a full disk, NOT a concurrent writer; telemetry not persisted this run" >&2
+      fi
       exit 0
     fi
 
     # ── Push loop (best-effort) ────────────────────────────────────────────────
-    # No remote configured → nothing to push; the local ref carries the run
-    # (AC7). This is the offline/local-only case.
-    if [ -z "$(git -C "$root" remote 2>/dev/null)" ]; then
-      echo "::warning::telemetry-branch: no git remote configured — '${branch}' advanced locally but not pushed; telemetry is retained on the local ref only" >&2
+    # Nothing actually changed (the CAS took the NOOP arm — this run's record was
+    # already on the branch): the local ref equals what it was, so there is nothing
+    # to push. Skip the push entirely rather than making a network round-trip that
+    # can only print "Everything up-to-date" (PR #442 review). This matters because
+    # `--persist` is wired to the local `Stop` hook, so without this gate EVERY
+    # agent turn ended in a blocking push — and a rejected one could cost up to
+    # _DEVFLOW_TELEMETRY_PUSH_TRIES fetch/re-parent/push cycles.
+    if [ "$committed" = "${old:-}" ]; then
+      exit 0
+    fi
+
+    # No `origin` remote → nothing to push; the local ref carries the run (AC7).
+    # This is the offline/local-only case. Test `origin` SPECIFICALLY, not "any
+    # remote": the push below targets the literal `origin`, so a repo whose only
+    # remote is (say) `upstream` would pass a bare `git remote` check and then fail
+    # the push into the generic "likely no network" arm — a misattributed cause.
+    if ! git -C "$root" remote get-url origin >/dev/null 2>&1; then
+      echo "::warning::telemetry-branch: no 'origin' git remote configured — '${branch}' advanced locally but not pushed; telemetry is retained on the local ref only" >&2
       exit 0
     fi
 
     local ptry push_err remote_tip local_cur
     for ((ptry = 0; ptry < _DEVFLOW_TELEMETRY_PUSH_TRIES; ptry++)); do
-      if push_err="$(git -C "$root" push origin "${ref}:${ref}" 2>&1)"; then
+      # LC_ALL=C: the rejection classification below reads git's message, so pin
+      # the locale (a translated "fetch first" would skip the retry loop entirely).
+      if push_err="$(LC_ALL=C git -C "$root" push origin "${ref}:${ref}" 2>&1)"; then
         exit 0   # pushed
       fi
       case "$push_err" in
@@ -420,7 +516,15 @@ devflow_telemetry_persist_tree() {
           # and our whole local tip on it (preserving offline-accumulated local
           # records — see commit_union_on), CAS-advance the local ref, and retry
           # (AC5/AC6).
-          if ! git -C "$root" fetch -q origin "${ref}:refs/remotes/origin/${branch}" 2>/dev/null; then
+          # FORCED refspec (`+`) into the REMOTE-TRACKING ref. Forcing is correct
+          # and standard here — nothing local lives at refs/remotes/origin/*, it is
+          # a cache of the remote. Without `+`, a remote that was ever re-rooted
+          # makes this fetch fail non-fast-forward and we would then report "the
+          # follow-up fetch failed (no network/auth?)" — a misleading diagnosis for
+          # a divergence. (Contrast the retrospective reader's fetch, which targets
+          # a LOCAL branch ref holding offline-accumulated commits and therefore
+          # must NOT force — opposite case, deliberately.)
+          if ! git -C "$root" fetch -q origin "+${ref}:refs/remotes/origin/${branch}" 2>/dev/null; then
             echo "::warning::telemetry-branch: push to '${branch}' was rejected and the follow-up fetch failed (no network/auth?); '${branch}' advanced locally but not pushed — telemetry retained on the local ref" >&2
             exit 0
           fi
@@ -474,3 +578,18 @@ devflow_telemetry_persist_tree() {
   )
   return 0
 }
+
+# ── Source-success sentinel (MUST be the last statement in this file) ──────────
+# lib/efficiency-trace.sh gates its persist step on this variable to tell a REAL
+# source of this file apart from its own no-op stub fallback (installed when the
+# source fails). For that gate to mean what it claims, the sentinel must witness
+# "the source SUCCEEDED", not merely "the source BEGAN" — so it is set here, after
+# every function above is defined, never at the top of the file (PR #442 review).
+#
+# Setting it at the top happened to work only because nothing above could fail;
+# the shape was a latent fail-open. Any future statement above that DID fail would
+# leave the sentinel truthy while the stubs were installed, making the persist-time
+# "staged artifacts under … are discarded" warning — the one breadcrumb that names
+# what was lost — unreachable dead code, i.e. exactly the outcome the gate exists
+# to prevent. Keep this assignment last.
+_DEVFLOW_TELEMETRY_BRANCH_SOURCED=1

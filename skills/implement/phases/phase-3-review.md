@@ -182,8 +182,9 @@ cat "$PERSIST_ERR" >&2   # surface every --persist breadcrumb to the run log, sa
 # had nothing to derive from and this run's effectiveness telemetry is genuinely lost — surface
 # it, do not swallow. (A persist that DID find inputs but failed to write still leaves
 # efficiency-trace.sh's own ::warning:: on the run log, surfaced above.) The detector counts NEW
-# iter-*.json regardless of --persist's source=="review" skip (standalone /devflow:review runs
-# have their own record path); that is correct here because at THIS seam the review-and-fix
+# iter-*.json unconditionally — issue #441 removed --persist's old source=="review" skip and
+# routed standalone /devflow:review onto this SAME --persist path, so there is no longer a skip
+# to be "regardless of". That is correct here anyway, because at THIS seam the review-and-fix
 # loop just driven inline is what writes this tree, so a foreign review-sourced dir being the
 # sole new occupant is not a reachable in-flow shape.
 BEFORE="$ROOT/.devflow/tmp/.phase33-iters-before"
@@ -227,10 +228,14 @@ fi
 # (disk/permission); not persisted for ..." — so match BOTH literals, or a mutated/renamed
 # breadcrumb on just the disk-write path would silently escape this detector exactly as the
 # single-literal form did (#236 review, Step 3.5 fix-delta gate). This intentionally scopes to
-# record derivation/write failures only, not the separate git-staging/commit failure surface
-# (efficiency-trace.sh's "not persisted this run" / "artifacts left staged" breadcrumbs) —
-# there the record IS written to disk, just not yet committed, a materially different and
-# lower-priority gap deferred on the issue #235 workpad. KNOWN LIMITATION (also deferred,
+# record derivation/write failures only, not the separate TELEMETRY-BRANCH write/push failure
+# surface (telemetry-branch.sh's "::warning::telemetry-branch: ..." breadcrumbs — a lost CAS, a
+# non-conforming store, an unwritable .devflow/tmp). Post-#441 that surface is NOT the milder gap
+# this comment used to claim ("the record IS written to disk, just not yet committed"): the record
+# is staged under gitignored .devflow/tmp/ and that staging root is rm -rf'd once the branch write
+# returns, so a failed branch write loses the run's record ENTIRELY. It is a record-LOSING gap, not
+# a lower-priority one — still uncovered by this detector, and surfaced only by the helper's own
+# stderr breadcrumb (which this step captures but does not grep). KNOWN LIMITATION (also deferred,
 # #236 review shadow pass): unlike the this-run-scoped no-inputs detector above, this grep
 # runs against the combined capture (the targeted call's stderr plus the whole-tree
 # discovery call's), so a

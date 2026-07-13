@@ -431,10 +431,12 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   it scans the exact `.devflow/tmp/review/` tree `--persist` scans and never fires a false "telemetry
   lost" reflection from a cwd-relative divergence (if the pre-loop snapshot is itself missing, the
   detector degrades to whole-tree presence and emits a distinct `::warning::` naming that degrade,
-  since it can then mask a real loss behind a leftover file). The detector counts NEW `iter-*.json`
-  regardless of `--persist`'s `source == "review"` skip: at this inline seam the review-and-fix loop
-  just driven is what writes the tree, so a foreign review-sourced dir being the sole new occupant is
-  not a reachable in-flow shape. The no-new-inputs case above only catches a dropped *Loop Exit*
+  since it can then mask a real loss behind a leftover file). The detector counts every NEW
+  `iter-*.json` unconditionally — there is no longer a `source == "review"` skip for it to be
+  "regardless of" (issue #441 removed it, unifying standalone `/devflow:review` onto this same
+  `--persist` path) — and in any case, at this inline seam the review-and-fix loop just driven is
+  what writes the tree, so a foreign review-sourced dir being the sole new occupant is not a
+  reachable in-flow shape. The no-new-inputs case above only catches a dropped *Loop Exit*
   (the loop wrote nothing at all); it does not by itself catch the sibling failure mode where the
   loop *did* write `iter-*.json` but `--persist`'s own record derivation/write step then failed —
   its jq-derivation and mkdir failure paths both leave a `record not written` breadcrumb on stderr,
@@ -444,9 +446,14 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   both breadcrumb shapes (a single-literal grep here would silently miss the disk/permission path),
   recording a second, independent `dropped-failed` reflection when either fires, so a record
   derivation/write failure is surfaced even when inputs existed — this is deliberately narrower than
-  every conceivable `--persist` failure surface; a record written to disk but not yet git-committed
-  (a separate staging/commit failure path) is a distinct, lower-priority gap tracked on the issue's
-  workpad rather than covered here. And because the `APPROVE WITH UNRESOLVED
+  every conceivable `--persist` failure surface. **The uncovered surface is the telemetry-branch
+  write/push itself** (`::warning::telemetry-branch: …` — a non-conforming store, a lost CAS, an
+  unwritable `.devflow/tmp`), which the detector's two literals do not match. Note what that costs:
+  post-#441 the record is staged under gitignored `.devflow/tmp/` and that staging root is
+  `rm -rf`'d after the branch write returns, so a failed branch write loses the run's record
+  **entirely** — it is *not* "written to disk, just not yet committed", and this is therefore a
+  record-*losing* gap, not a lower-priority one. It is surfaced only by the helper's own stderr
+  breadcrumb, which Phase 3.3 captures but does not currently grep for. And because the `APPROVE WITH UNRESOLVED
   SHADOW FINDINGS` path can drive a **second**, separate inline `review-and-fix` invocation (the
   bounded re-review), Phase 3.3 re-runs the whole snapshot-then-backstop procedure — a fresh
   this-run baseline before, the persistence check after — around that second invocation too, so it

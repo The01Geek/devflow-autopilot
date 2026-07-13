@@ -441,8 +441,17 @@ def _telemetry_branch(repo_root):
     config.json rather than shelling to config-get.sh: this reader is invoked once
     per retrospective run in a known repo root, an empty/missing key resolves to
     the default, and an unreadable/malformed config degrades to the default with a
-    breadcrumb (best-effort — the reader must not abort on a bad config)."""
-    cfg = Path(repo_root) / ".devflow/config.json"
+    breadcrumb (best-effort — the reader must not abort on a bad config).
+
+    Honors DEVFLOW_CONFIG_FILE, because the WRITER does: lib/telemetry-branch.sh
+    resolves the branch through devflow_conf → lib/config-source.sh, which reads
+    that override. A reader that ignored it would, under an override, union the
+    default `devflow-telemetry` while the writer stored to the overridden branch —
+    a silent store miss where every cost row simply goes missing and nothing says
+    so (PR #442 review). Reader and writer must resolve the same key from the same
+    file."""
+    override = os.environ.get("DEVFLOW_CONFIG_FILE")
+    cfg = Path(override) if override else Path(repo_root) / ".devflow/config.json"
     try:
         text = cfg.read_text(encoding="utf-8")
     except OSError:
@@ -579,6 +588,20 @@ def _index_efficiency(eff_dir, repo_root=None, branch=None):
                         continue
                     text = _git_show(repo_root, f"{br}:{path}")
                     if text is None:
+                        # `ls-tree` above ALREADY established this path is in the
+                        # tree, so a failed read of it is never "the blob is absent"
+                        # — it is a blob we know exists and could not establish the
+                        # content of (a corrupt/unreadable object, a git failure).
+                        # Skipping it silently would launder that unestablished read
+                        # into a measured absence and let the downstream provenance
+                        # stamp `efficiency: absent` on a run whose telemetry merely
+                        # could not be read — the exact fail-open the rev-parse and
+                        # ls-tree arms above are written to prevent. `_git_show`
+                        # already warns, but generically; name the CONSEQUENCE here
+                        # so the row's loss is attributable (PR #442 review).
+                        _warn(f"telemetry blob {br}:{path} is present in the tree but could not be "
+                              f"read — this run's cost row is UNESTABLISHED (not absent) and is "
+                              f"omitted from the index")
                         continue
                     _ingest(text, Path(path).stem, f"{br}:{path}")
 
