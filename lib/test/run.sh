@@ -10066,6 +10066,18 @@ assert_pin_unique "#446 AC4: phase-4 Phase 4.0 documents the parent-ordering red
   'making the same parent-ordering fact scannable as its own section' "$CI446_P4"
 assert_pin_unique "#446 AC4: phase-4 Phase 4.0 heredoc renders the parent Blocked-by line" \
   'Blocked by #$ARGUMENTS — the parent issue' "$CI446_P4"
+# AC4 — the "intentionally omitted" list is reconciled: it now names the Technical-Context
+# Dependencies *bullet* as omitted while the top-level ## Dependencies section IS rendered, so a
+# regression re-adding the section to the omitted set (contradicting the render bullet) goes RED.
+assert_pin_unique "#446 AC4: phase-4 intentionally-omitted list keeps the top-level ## Dependencies section rendered" \
+  'distinct from the top-level `## Dependencies` section, which *is* rendered' "$CI446_P4"
+# AC6 — the ladder terminal arm is decided two ways, and the Blocked-section inclusion rule is
+# reconciled to admit the ladder-produced vendor-behavior question (no longer "solely when the
+# user disengaged"). Pin both so a revert of either terminal-arm reconciliation goes RED.
+assert_pin_unique "#446 AC6: issue-template decides the ladder terminal arm two ways" \
+  'Ladder terminal arm — decided two ways' "$CI446_TMPL"
+assert_pin_unique "#446 AC6: issue-template Blocked-inclusion rule admits the ladder-produced class" \
+  'ladder-produced vendor-behavior question is the one Blocked entry class not arising from user' "$CI446_TMPL"
 # AC(Step 2) — Definition of Ready gains the known-prerequisites item (no question when none).
 assert_pin_unique "#446: create-issue Step 2 DoR gains the known-prerequisites item" \
   'Known prerequisites (cross-issue ordering)' "$CI446_SKILL"
@@ -10086,8 +10098,21 @@ assert_pin_unique "#446: offer gate compares to literal true with bash builtins 
 # these shapes, so without these pins a SKILL-side drift from that copy would be uncaught.
 assert_pin_unique "#446: SKILL documents the python3 fallback read of workflows.devflow" \
   "str(d.get('workflows',{}).get('devflow',False)).lower()" "$CI446_SKILL"
-assert_pin_unique "#446: SKILL documents the jq fallback read of workflows.devflow" \
-  "jq -r '.workflows.devflow // false' .devflow/config.json" "$CI446_SKILL"
+assert_pin_unique "#446: SKILL documents the jq fallback read of workflows.devflow (repo-root anchored)" \
+  "jq -r '.workflows.devflow // false' \"\$ROOT/.devflow/config.json\"" "$CI446_SKILL"
+# The fallbacks anchor the config path to the git repo root (#295 SHARED REPO-ROOT CONFIG
+# CONTRACT), matching config-get.sh — so a subdir run reads the same root config, not a
+# nonexistent cwd-relative one. Pin the anchoring clause so a revert to a cwd-relative read
+# turns RED.
+assert_pin_unique "#446: SKILL fallbacks anchor the config path to the git repo root (#295 contract)" \
+  'anchoring the config path to the git repo root the same way `config-get.sh` does' "$CI446_SKILL"
+# Reason-selection guards (Finding: config-unreadable vs tier-disabled conflation on the fallback
+# path). Pin the operative clauses so a regression that (a) reads a crashed rung's empty stdout as
+# the value false, or (b) buckets a merely-absent config as "unreadable", turns RED.
+assert_pin_unique "#446: reason-selection observes exit status, never empty stdout as the value false" \
+  'inspect each rung'"'"'s **exit status**' "$CI446_SKILL"
+assert_pin_unique "#446: an absent/unconfigured config is tier-disabled on every rung, never 'unreadable'" \
+  'unconfigured on every rung**, never "unreadable"' "$CI446_SKILL"
 assert_pin_unique "#446: offer gate prints a one-line withheld-offer reason (never silent)" \
   'When the gate withholds the prompt, print a one-line reason naming the exact failed condition' "$CI446_SKILL"
 assert_pin_unique "#446: withheld-offer config-unreadable reason is kept distinct from tier-disabled" \
@@ -10117,7 +10142,9 @@ assert_pin_unique "#446: overview §11 describes the four authoring-pipeline har
 # drafting — explicit false → not-true (offer withheld), absent key → the false default (withheld),
 # explicit true → true (offered). config-get preserves valid-falsy and applies the caller default
 # only on absence (the #312 valid-falsy discipline), so the explicit-`true` gate is fail-closed on
-# absent/false/unreadable alike.
+# absent/false alike (the block drives explicit-false / absent-key / explicit-true; the
+# malformed/unreadable arm is a gate-design property — the *config unreadable* reason — not a
+# shape this block exercises).
 CG446="$LIB/../scripts/config-get.sh"
 CG446_FALSE="$(probe_tmp "#446 cfg explicit-false")";  printf '%s' '{"workflows":{"devflow":false}}' > "$CG446_FALSE"
 CG446_ABSENT="$(probe_tmp "#446 cfg absent-key")";     printf '%s' '{}' > "$CG446_ABSENT"
@@ -10135,8 +10162,9 @@ assert_eq "#446 offer-gate: explicit true reads true (offer presented)" "true" \
 # would silently produce a different offer decision on exactly the local tier where the
 # fallback is the only read path) turns RED here. The python form mirrors the SKILL's
 # `str(d.get('workflows',{}).get('devflow',False)).lower()`; the jq form mirrors
-# `.workflows.devflow // false`. Both are fed the fixture path in place of the hardcoded
-# `.devflow/config.json` the SKILL one-liners open.
+# `.workflows.devflow // false`. Both are fed the fixture path in place of the
+# repo-root-anchored `"$ROOT/.devflow/config.json"` the SKILL one-liners read (the SKILL
+# python3 form reads its path from sys.argv[1], so the fixture-path substitution mirrors it).
 for cg446_case in "false:$CG446_FALSE" "false:$CG446_ABSENT" "true:$CG446_TRUE"; do
   cg446_want="${cg446_case%%:*}"; cg446_file="${cg446_case#*:}"
   assert_eq "#446 offer-gate: python3 fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
