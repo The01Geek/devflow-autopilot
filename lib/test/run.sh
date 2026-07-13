@@ -10120,6 +10120,22 @@ assert_eq "#446 offer-gate: absent key reads the false default (offer withheld)"
   "$(bash "$CG446" .workflows.devflow false "$CG446_ABSENT")"
 assert_eq "#446 offer-gate: explicit true reads true (offer presented)" "true" \
   "$(bash "$CG446" .workflows.devflow false "$CG446_TRUE")"
+# Fallback-agreement (obligation, pr-test-analyzer hardening): the SKILL documents a python3
+# and a jq fallback read for when config-get.sh is classifier-denied. Drive BOTH documented
+# fallback shapes over the same three fixtures and assert each agrees with config-get's
+# true/false verdict — so a nesting/typo divergence between a fallback and the resolver (which
+# would silently produce a different offer decision on exactly the local tier where the
+# fallback is the only read path) turns RED here. The python form mirrors the SKILL's
+# `str(d.get('workflows',{}).get('devflow',False)).lower()`; the jq form mirrors
+# `.workflows.devflow // false`. Both are fed the fixture path in place of the hardcoded
+# `.devflow/config.json` the SKILL one-liners open.
+for cg446_case in "false:$CG446_FALSE" "false:$CG446_ABSENT" "true:$CG446_TRUE"; do
+  cg446_want="${cg446_case%%:*}"; cg446_file="${cg446_case#*:}"
+  assert_eq "#446 offer-gate: python3 fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
+    "$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(str(d.get('workflows',{}).get('devflow',False)).lower())" "$cg446_file")"
+  assert_eq "#446 offer-gate: jq fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
+    "$(jq -r '.workflows.devflow // false' "$cg446_file")"
+done
 rm -f "$CG446_FALSE" "$CG446_ABSENT" "$CG446_TRUE"
 
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
