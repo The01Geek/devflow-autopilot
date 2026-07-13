@@ -18,7 +18,52 @@ LIB="$(cd "$(dirname "$0")/.." && pwd)"
 # render-report.sh blocks, sourced in subshells to contain their `set -e` — are
 # counted in the final tally too. Counting in-memory would silently drop them.
 RESULTS_FILE="$(mktemp)"
-trap 'rm -f "$RESULTS_FILE"' EXIT   # protect RESULTS_FILE immediately; widened below once the bundle temp exists
+# SKIPS_FILE is the skip tally's backing file (issue #456), the SKIP sibling of
+# RESULTS_FILE: the skip() helper appends one `kind<TAB>name<TAB>reason` line per
+# self-skipping check, and SKIP is derived from it with `grep -c` — the same counter
+# mechanism PASS/FAIL already use (guard-class 2 bars a NEW non-preflight PATH tool from
+# deciding an emitted result; the PASS/FAIL selection already hard-depends on `grep`, so
+# SKIP introduces no new tool into the selection) — so a gate that self-skips is visible in
+# the summary and can never be mistaken for a clean pass. The renderer is lib/test/summary.sh.
+SKIPS_FILE="$(mktemp)"
+trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE"' EXIT   # protect RESULTS_FILE/SKIPS_FILE immediately; widened below once the bundle temp exists
+# shellcheck source=lib/test/summary.sh disable=SC1091
+. "$LIB/test/summary.sh"
+
+# SKIP_HELPER_REGION_BEGIN — the SOLE `printf '  NOTE ` skip-emit lives inside skip();
+# the #456 meta-assertion below asserts no other NOTE emit appears in this file outside
+# this region. The matching BEGIN/END marker VARIABLES are split-built at the meta-assertion
+# so their definitions do not add a second occurrence of these delimiters.
+# skip <name> <kind> <reason>: record a self-skipping check and print its NOTE.
+#   <kind> is `blocking-gate` (a real check that should have run here but could not) or
+#   `host-capability` (the host cannot express the condition). Records to SKIPS_FILE (so the
+#   terminal summary re-lists it) and prints the NOTE inline at the skip site. Increments
+#   neither PASS nor FAIL — a skip is not a pass and not a failure.
+skip() {  # name kind reason
+  # Fields are DELIMITER-SANITIZED here, at the sole producer, so the skip log's tab-separated
+  # one-line-per-skip shape holds by construction: an embedded TAB in a name/kind would
+  # mis-split the renderer's per-line field split (rendering a skip's fields
+  # transposed), an embedded NEWLINE would forge an extra log line (inflating the tally the
+  # renderer reconciles against), and an embedded CARRIAGE RETURN would ride into the rendered
+  # summary line (a terminal treats it as return-to-column-0, letting a crafted field visually
+  # overwrite the line). All three are replaced with a space using bash parameter expansion
+  # — a builtin, never `tr`/`sed`: this value decides an EMITTED result, and a missing
+  # non-preflight PATH tool would empty it silently (CLAUDE.md guard-class 2).
+  local name="${1//[$'\t'$'\n'$'\r']/ }" kind="${2//[$'\t'$'\n'$'\r']/ }" reason="${3//[$'\t'$'\n'$'\r']/ }"
+  # An EMPTY name is normalized here too (the fail-closed cosmetic-sanitization idiom: an
+  # emptied name becomes "(unnamed check)", never an empty field): the tally counts the log
+  # line either way (`grep -c .` counts any non-empty line), so an unnamed skip must still be
+  # itemizable by name — the renderer carries the matching placeholder as defense-in-depth for
+  # logs this producer did not write.
+  [ -n "$name" ] || name="(unnamed check)"
+  # Stored KIND-first (kind<TAB>name<TAB>reason) — the order devflow_render_test_summary reads
+  # back — even though the call signature is name-first; the coupling is pinned END-TO-END by
+  # the #456 test that drives a log produced by THIS function through the renderer and asserts
+  # the name and kind land in their rendered slots.
+  printf '%s\t%s\t%s\n' "$kind" "$name" "$reason" >> "$SKIPS_FILE"
+  printf '  NOTE  %s skipped [%s] — %s\n' "$name" "$kind" "$reason"
+}
+# SKIP_HELPER_REGION_END
 
 # issue #218: the /devflow:implement skill is split into a thin orchestrator
 # (skills/implement/SKILL.md) plus the four phases/<stem>.md reference files named in
@@ -2920,6 +2965,54 @@ assert_pin_unique "#443: audit summary states whether a consumer audit-dimension
 assert_pin_unique "#443: audit summary renders the word degraded whenever the degraded arm ran" \
   'the word "degraded"' "$CI443_SKILL"
 
+# ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
+#    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
+#    IS the operative contract sentence itself, so assert_pin_unique is the honest primitive
+#    (the #312 item-2 coupled-pair pattern). The template↔Step-3.5 coupled pair for the
+#    unstated-reliance class is pinned on BOTH sides so a one-sided edit goes RED.
+# Rule 1 — value-comparison type-semantics, template AC guidance + its checklist mirror.
+assert_pin_unique "#462 rule1: template AC guidance states value-comparison in observed-output terms" \
+  "A value-comparison AC states its comparison in the producing surface's observed-output" "$CI312_TMPL"
+assert_pin_unique "#462 rule1: verified arm requires the probe exercise the distinguishing boundary fixture" \
+  'and a probe **silent on the distinguishing axis' "$CI312_TMPL"
+assert_pin_unique "#462 rule1: obligation arm carries the execution-tier constraint (governs rule 3 too)" \
+  'implement-tier verification commands (this governs this value-comparison AC and the Step 3.5' "$CI312_TMPL"
+assert_pin_unique "#462 rule1: quality-checklist mirror line for the value-comparison rule" \
+  "Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms" "$CI312_TMPL"
+# Rule 1 also verified in the Step 3.5 steelman (the check that flags a non-conforming AC).
+assert_pin_unique "#462 rule1: Step 3.5 checks value-comparison ACs for observed-output grounding" \
+  'Value-comparison ACs are checked for observed-output grounding' "$CI312_SKILL"
+# Rule 2 — convention-matrix reconciliation + the `governing conventions consulted:` discharge
+# literal pinned in BOTH the Testing Strategy guidance AND its quality-checklist mirror.
+assert_pin_unique "#462 rule2: template Testing Strategy carries the convention-matrix reconciliation rule" \
+  'Reconcile an enumerated case matrix against governing conventions' "$CI312_TMPL"
+assert_pin_unique "#462 rule2: discharge literal in the Testing Strategy guidance" \
+  'governing conventions consulted: <sources cited by path' "$CI312_TMPL"
+assert_pin_unique "#462 rule2: discharge literal mirrored in the quality checklist" \
+  'a `governing conventions consulted:` discharge line bounded to' "$CI312_TMPL"
+# Rule 3 — unstated-mechanism-dependency, coupled template↔Step-3.5 pair + summary/zero arm.
+assert_pin_unique "#462 rule3 (coupled/template): template names the unstated-reliance premise class" \
+  'Unstated mechanism dependencies are a premise class too' "$CI312_TMPL"
+assert_pin_unique "#462 rule3 (coupled/SKILL): Step 3.5 gains the mandatory mechanism-dependency hunt" \
+  "Sweep the draft's own unstated mechanism dependencies (mandatory)" "$CI312_SKILL"
+assert_pin_unique "#462 rule3: Step 3.5 summary reports both new sweeps" \
+  'The summary additionally reports both new sweeps' "$CI312_SKILL"
+assert_pin_unique "#462 rule3: zero arm states the falsifiable no-dependencies claim, not a count" \
+  'the mechanism invokes no in-repo helpers, resolvers, or gates' "$CI312_SKILL"
+# Rule 3's template quality-checklist mirror pinned too (symmetry with rule 1's checklist pin) —
+# closes the coupled-mirror drift gap the pr-test-analyzer flagged: the checklist line can no
+# longer silently drift out of agreement with the premise-class prose it mirrors.
+assert_pin_unique "#462 rule3: quality-checklist mirror line for the unstated-mechanism-dependency rule" \
+  'are each resolved with a cited probe or an implementer-obligation AC' "$CI312_TMPL"
+# Step 3.6 — one consolidated generic dimension + the growth policy.
+assert_pin_unique "#462 dim: Step 3.6 generic checklist carries the consolidated authoring-discipline dimension" \
+  'Authoring-discipline defects** — three related shapes' "$CI312_SKILL"
+assert_pin_unique "#462 dim: Step 3.6 audit-prompt area states the finding-cap growth policy" \
+  'execution-blocking defect classes outrank authoring-discipline classes for the finding-cap slots' "$CI312_SKILL"
+# Extension — one consolidated DevFlow-specific sharpening.
+assert_pin_unique "#462 ext: live create-issue extension carries the consolidated DevFlow sharpening" \
+  'Authoring-discipline defects (DevFlow specifics, issue #462)' "$CI443_EXT"
+
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
 # regardless of that iteration's verdict (including REJECT), feeding new blinded
@@ -5621,6 +5714,29 @@ assert_eq "#356: fetch-pr-context.sh strips 💥 from the workpad Status glyph s
 IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
 REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+
+# #450 coupled-mirror pin: matcher-probe.yml's implement-probe job hand-copies
+# devflow-implement.yml's baked --allowed-tools TOOLS literal into its IMPLEMENT='…'
+# compose var (a deliberate second copy so the probe measures the REAL implement
+# profile, like the review probe's REVIEW literal). A drift between the two would make
+# the probe silently measure a stale profile, so assert comma-split token-list identity
+# (order + content) here — the repo's coupled-mirror discipline applied to the new mirror
+# site. The two literals are NOT byte-identical (the baked one is newline+indent-wrapped,
+# the probe copy single-line); the extractor flattens
+# both literals to comma-split tokens and compares order + content; it prints DRIFT (fail)
+# on any divergence and EXTRACT-FAIL if either literal can't be located.
+MPROBE_YML="$LIB/../.github/workflows/matcher-probe.yml"
+assert_eq "#450 pin: matcher-probe IMPLEMENT literal is token-synced with devflow-implement.yml TOOLS" "SYNCED" \
+  "$(python3 -c '
+import re,sys
+b=re.search(r"--allowed-tools\s*\n\s*\"(.*?)Bash\(tee:\*\)\$\{\{", open(sys.argv[1]).read(), re.S)
+p=re.search(r"IMPLEMENT=\x27(.*?)\x27", open(sys.argv[2]).read(), re.S)
+if not b or not p:
+    print("EXTRACT-FAIL"); sys.exit(0)
+bt=[t.strip() for t in (b.group(1)+"Bash(tee:*)").split(",") if t.strip()]
+pt=[t.strip() for t in p.group(1).split(",") if t.strip()]
+print("SYNCED" if bt==pt else "DRIFT")
+' "$IMPL_YML" "$MPROBE_YML")"
 
 # Implement flip: the function + each of its fail-loud call sites (at least the four
 # pinned below), guarded on interim. Each pin quotes that site's unique cause string,
@@ -16777,7 +16893,9 @@ assert_eq "#404 trust: old PR-head resolution loop is gone" "0" \
   "$(grep -cF '.devflow/vendor/devflow/scripts/filter-runner-tools.sh scripts/filter-runner-tools.sh' "$RUNNER" || true)"
 assert_eq "#404 trust: FLOOR_HELPER wired to baseprovision floor_helper output" "1" \
   "$(grep -cF 'FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}' "$RUNNER" || true)"
-assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output" "1" \
+# Two sites wire VENDOR_SOURCE to the same fresh-fetch gate: the tools step's
+# deny-floor (#404) and the #458 harden-stop-hooks step (same trusted-source rank).
+assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden step)" "2" \
   "$(grep -cF 'VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}' "$RUNNER" || true)"
 assert_eq "#404 trust: baseprovision materializes the floor from FETCH_HEAD" "1" \
   "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh' "$RUNNER" || true)"
@@ -16901,6 +17019,789 @@ assert_pin_red_under "#402 helper file-tool match is NAME-based (matching \$ftna
 # The step must append NOTHING and emit a `::warning::` naming the missing helper.
 # (This block runs only when the emit_tools harness is available — pyyaml present;
 # TOOLS_STEP is extracted there.) Guarded below inside that harness.
+
+# ── #458: Stop-hook trusted-source floor — scripts/harden-stop-hooks.sh ───────
+# SIBLING of the #402 deny-floor, applied to the base-branch .claude/settings.json
+# Stop-hook channel. The review job checks out the PR HEAD, and the three Stop-hook
+# COMMANDS exec lib/ + scripts/ targets (not under .claude/, so PR-author-editable),
+# so before claude-code-action runs each target is overwritten with the TRUSTED base
+# copy or a fail-closed no-op stub — NEVER the PR-head copy (the #404 lesson). Drive
+# the installer directly over its adversarial matrix (the unit surface the extraction
+# exists to expose), then pin the workflow's trusted-source wiring + fail-closed arm.
+HSH="$LIB/../scripts/harden-stop-hooks.sh"
+assert_eq "#458 helper: harden-stop-hooks.sh exists" "yes" \
+  "$([ -f "$HSH" ] && echo yes || echo no)"
+# HOOK_TARGETS is the authoritative single-line mirror of the FULL transitive
+# source/exec closure of the three .claude/settings.json Stop hooks — COUPLED (a
+# file dropped here silently leaves that PR-head script executable, or the workflow
+# never materializes its trusted copy). Pin the exact closure literal.
+HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'
+assert_eq "#458 helper: HOOK_TARGETS is the full transitive source/exec closure" "1" \
+  "$(grep -cF "HOOK_TARGETS='$HSH_CLOSURE_LIT'" "$HSH" || true)"
+# The three per-class sub-lists (entries / sourced libs / exec'd deps) drive the
+# stub-vs-trusted-copy decision; pin each exact literal.
+assert_eq "#458 helper: HOOK_ENTRY_TARGETS are the three settings.json hooks" "1" \
+  "$(grep -cF "HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh'" "$HSH" || true)"
+assert_eq "#458 helper: HOOK_SOURCED_TARGETS are the inline-sourced libs (mid-source-break class)" "1" \
+  "$(grep -cF "HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh'" "$HSH" || true)"
+assert_eq "#458 helper: HOOK_EXEC_TARGETS are the subprocess-exec'd deps" "1" \
+  "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'" "$HSH" || true)"
+SETTINGS="$LIB/../.claude/settings.json"
+assert_eq "#458 coupling: settings.json wires lib/efficiency-trace.sh Stop hook" "1" \
+  "$(grep -c 'lib/efficiency-trace.sh --persist' "$SETTINGS" || true)"
+assert_eq "#458 coupling: settings.json wires lib/implement-stop-guard.sh Stop hook" "1" \
+  "$(grep -c 'lib/implement-stop-guard.sh' "$SETTINGS" || true)"
+assert_eq "#458 coupling: settings.json wires scripts/stop-hook-probe.sh Stop hook" "1" \
+  "$(grep -c 'scripts/stop-hook-probe.sh' "$SETTINGS" || true)"
+# BIDIRECTIONAL coupling: the settings.json Stop-hook COUNT equals the ENTRY-target
+# count (3) — a new Stop hook added to settings.json but NOT to HOOK_ENTRY_TARGETS
+# would execute from the PR-head checkout untouched.
+assert_eq "#458 coupling: settings.json has exactly 3 Stop-hook commands (== HOOK_ENTRY_TARGETS)" "3" \
+  "$(jq '[.hooks.Stop[].hooks[]] | length' "$SETTINGS" 2>/dev/null || echo BAD)"
+assert_eq "#458 coupling: HOOK_ENTRY_TARGETS has exactly 3 entries (== settings.json Stop-hook count)" "3" \
+  "$(grep -oE "HOOK_ENTRY_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -c '\.sh' || true)"
+# The full closure hardened here is the entry hooks plus their transitive source/exec/python3
+# deps; its exact membership and size are pinned by the assertion below and the drift-guard,
+# not asserted in prose (the count-locked stale-prose lint owns numeric claims).
+assert_eq "#458 coupling: HOOK_TARGETS has exactly 9 closure entries (.sh + .py)" "9" \
+  "$(grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -cE '\.(sh|py)' || true)"
+# SET-EQUALITY invariant (issue #460 SHADOW, FP-S3): the three per-class lists must
+# partition HOOK_TARGETS exactly — entries ∪ sourced ∪ exec == HOOK_TARGETS. A future
+# member added to HOOK_TARGETS but miscategorized (e.g. a sourced lib omitted from
+# HOOK_SOURCED_TARGETS) would be treated as an exec dep, so on a missing trusted copy the
+# entries would not be neutralized and a mid-`source` stub could break a legitimate hook.
+# Source the helper's list definitions and compare the sorted union to HOOK_TARGETS.
+HSH_UNION="$( { grep -oE "HOOK_ENTRY_TARGETS='[^']*'|HOOK_SOURCED_TARGETS='[^']*'|HOOK_EXEC_TARGETS='[^']*'" "$HSH" | sed -E "s/^[^']*'//; s/'$//"; } | tr ' ' '\n' | grep -E '\.(sh|py)$' | sort -u | tr '\n' ' ' )"
+HSH_ALL="$( grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | sed -E "s/^[^']*'//; s/'$//" | tr ' ' '\n' | grep -E '\.(sh|py)$' | sort -u | tr '\n' ' ' )"
+assert_eq "#460 coupling: HOOK_ENTRY ∪ SOURCED ∪ EXEC == HOOK_TARGETS (per-class lists partition the closure)" "$HSH_ALL" "$HSH_UNION"
+# ENFORCE the walker's one disclosed conservative gap (issue #460 SHADOW, final-pass): the
+# drift-guard is shell-syntax-only, so a `subprocess.run(["bash","scripts/new.sh"])` added
+# to a trusted .py closure member (workpad.py / config_fingerprint.py) would spawn a
+# PR-head-supplied repo script the walker cannot see. Today they spawn only git/gh; pin
+# that they spawn NO repo .sh/.py so a future such edit turns the desk RED instead of
+# silently re-opening the one-hop-deeper hole through the Python layer.
+# NOTE (issue #460 SHADOW, CT2 PT3): this pin matches only a LITERAL scripts/lib path in a
+# subprocess/os spawn — a variable-held path (`subprocess.run([interp, some_var])`) would
+# escape it, so the guarantee is "no LITERAL-path repo-script spawn", narrower than a full
+# Python-spawn audit (which the walker's docstring discloses is out of the static walker's
+# reach). It is a best-effort backstop for the common literal-path shape, not a proof.
+HSH_PY_SPAWN="$( grep -hnE '(subprocess\.(run|call|check_output|check_call|Popen)|os\.(system|popen|exec[lv]?[ep]*))' "$LIB/../scripts/workpad.py" "$LIB/../scripts/config_fingerprint.py" 2>/dev/null | grep -cE '(scripts|lib)/[A-Za-z0-9_.-]+\.(sh|py)' || true )"
+assert_eq "#460 walker gap backstop: no .py closure member spawns a LITERAL-path repo .sh/.py via subprocess/os" "0" "$HSH_PY_SPAWN"
+# IMPORTANT-1: the workflow's inline TARGETS= (used both to materialize trusted
+# copies AND to stub inline on the fail-closed arm) must equal the helper's full
+# HOOK_TARGETS — a later-added closure member left out of the inline list would go
+# stale-and-green, un-materialized and (on the fail-closed arm) un-stubbed.
+assert_eq "#458 coupling: devflow-runner.yml inline TARGETS == helper HOOK_TARGETS (full closure)" "1" \
+  "$(grep -cF "TARGETS=\"$HSH_CLOSURE_LIT\"" "$RUNNER" || true)"
+
+# DRIFT-GUARD (issue #458 REJECT): statically walk every source/`.`/exec/`python3 <path>`
+# edge in each closure file and assert every referenced repo .sh/.py is itself in the
+# hardened closure — so a future added `source`/exec of a NEW helper turns this RED
+# instead of silently re-opening the one-hop-deeper hole. Comment mentions are excluded
+# (only real edge syntax matches); the jq PROGRAM edge (`-f *.jq`) is out of scope (jq
+# is sandboxed — not a shell/RCE vector). The walker is the shared helper
+# scripts/detect-hook-closure-edges.py (issue #460 extraction — a single copy so this
+# guard and its positive-control test below exercise the SAME regex set; a regex
+# regression turns one or the other RED rather than diverging silently between two
+# hand-copied programs). The source prefix set anchors on both the shell metacharacters
+# that can precede a `.`/`source` — line start, `;`, `&`, `|`, `(`, and `!`/`{` — AND
+# (issue #460 review, PT3) the reserved words that open a command position — `then`,
+# `do`, `else`, `elif` — so a negation-guarded (`if ! . "$dep"`), brace-grouped
+# (`{ . "$dep"; }`), or keyword-position (`then . "$dep"`) source edge is detected, not a
+# blind spot (the #460 REJECT: the old `[;&|(]` class missed `if ! . …`, the exact idiom
+# lib/implement-stop-guard.sh uses; the review caught the sibling keyword-position miss).
+HSH_EDGES="$LIB/../scripts/detect-hook-closure-edges.py"
+assert_eq "#458 drift-guard: closure-edge walker helper exists" "yes" \
+  "$([ -f "$HSH_EDGES" ] && echo yes || echo no)"
+HSH_DRIFT="$(REPO_ROOT="$LIB/.." CLOSURE="$HSH_CLOSURE_LIT" python3 "$HSH_EDGES")"
+assert_eq "#458 drift-guard: every source/exec edge in the closure resolves to a hardened target" "" "$HSH_DRIFT"
+
+# POSITIVE CONTROL (issue #460): prove the walker actually REPORTS an edge in EACH
+# form it claims to detect — a regex regression that stops matching any one form drops
+# that violation and turns this RED (the guarantee the prose claims — made true and
+# tested here). The forms, in the synthetic fixture below:
+#   SOURCE edges (src_re + slashsh_re): line-start, negation-guarded (`if ! . …`),
+#     continuation (`&& . …`), brace-grouped (`{ . …; }`), and (issue #460 review, PT3)
+#     the KEYWORD-position forms `then . `/`do . `/`else . ` — legal command positions
+#     the old metacharacter-only prefix set silently missed, the same class as the
+#     `if ! . ` miss this PR's #460 fix already closed.
+#   EXEC edges: `python3 <path>` (pyexec_re), `bash <path>.sh` (shexec_re),
+#     `exec <path>` (execb_re), and a `VAR=…scripts/…` assignment (assign_re). These
+#     three-of-nine real closure edges (config_fingerprint.py, workpad.py via python3,
+#     the assignment-form edges) had NO positive control before — a silent under-match
+#     of any exec regex left the drift-guard green (issue #460 review, PT1/T6).
+#   IN-STRING `#`: an edge AFTER a `#` inside a quoted string must survive the
+#     quote-aware comment strip (issue #460 review, FP4) — a naive `#.*$` strip drops it.
+# Build a synthetic closure file carrying one edge in each form to deps NOT in CLOSURE,
+# then run the SAME helper over it.
+HSH_PC_DIR="$(mktemp -d)"
+mkdir -p "$HSH_PC_DIR/lib"
+cat > "$HSH_PC_DIR/lib/synthetic-entry.sh" <<'SYNEOF'
+#!/usr/bin/env bash
+. "$d/dep-a.sh"
+if ! . "$d/dep-b.sh"; then :; fi
+foo=bar && . "$d/dep-c.sh"
+{ . "$d/dep-d.sh"; }
+if true; then . "$d/dep-then.sh"; fi
+for x in 1; do . "$d/dep-do.sh"; done
+if false; then :; else . "$d/dep-else.sh"; fi
+if false; then :; elif . "$d/dep-elif.sh"; then :; fi
+( . "$d/dep-subshell.sh" )
+: | . "$d/dep-pipe.sh"
+: ; . "$d/dep-semi.sh"
+echo 'a #b'; . "$d/dep-squote.sh"
+source "$d/dep-src.sh"
+python3 scripts/dep-py.py
+bash scripts/dep-bash.sh
+sh scripts/dep-shexec.sh
+exec scripts/dep-exec.sh
+exec scripts/dep-execpy.py
+DEP=scripts/dep-assign.py
+LIBP=lib/dep-assign-lib.sh
+HEREDEP="$HERE/dep-heredep.sh"
+echo "issue #1 tracked here"; . "$d/dep-instr.sh"
+# . "$d/dep-commented.sh"
+SYNEOF
+HSH_PC_OUT="$(REPO_ROOT="$HSH_PC_DIR" CLOSURE="lib/synthetic-entry.sh" python3 "$HSH_EDGES")"
+assert_eq "#460 positive control: line-start source edge (dep-a.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-a\.sh' || true)"
+assert_eq "#460 positive control: negation-guarded source edge (\`if ! . …\`, dep-b.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-b\.sh' || true)"
+assert_eq "#460 positive control: continuation source edge (\`&& . …\`, dep-c.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-c\.sh' || true)"
+assert_eq "#460 positive control: brace-grouped source edge (\`{ . …; }\`, dep-d.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-d\.sh' || true)"
+# Metacharacter-prefix source edges that had no control (issue #460 SHADOW, CT2 PT1) —
+# `(` (subshell) and `|` (pipe) are in src_re's prefix class but were never exercised.
+assert_eq "#460 positive control: subshell source edge (\`( . … )\`, dep-subshell.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-subshell\.sh' || true)"
+assert_eq "#460 positive control: pipe source edge (\`| . …\`, dep-pipe.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-pipe\.sh' || true)"
+assert_eq "#460 positive control: semicolon source edge (\`; . …\`, dep-semi.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-semi\.sh' || true)"
+# Single-quote in-string '#' (issue #460 SHADOW, CT3 PT2): the earlier in-string control
+# used DOUBLE quotes; _strip_comment tracks single-quote state separately, so a `#` inside
+# single quotes must also not swallow a later same-line source edge.
+assert_eq "#460 positive control: edge after a '#' inside SINGLE quotes (dep-squote.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-squote\.sh' || true)"
+# NEGATIVE control (issue #460 SHADOW, CT2 PT4): a genuinely commented-out source edge
+# (whole-line `# . dep`) must NOT be reported — proves the comment strip excludes it,
+# independent of the real closure files' incidental content.
+assert_eq "#460 negative control: a commented-out source edge (\`# . …\`, dep-commented.sh) is NOT reported" "0" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-commented\.sh' || true)"
+# Keyword-position source edges (issue #460 review, PT3) — the walker's new prefix words.
+assert_eq "#460 positive control: keyword-position source edge (\`then . …\`, dep-then.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-then\.sh' || true)"
+assert_eq "#460 positive control: keyword-position source edge (\`do . …\`, dep-do.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-do\.sh' || true)"
+assert_eq "#460 positive control: keyword-position source edge (\`else . …\`, dep-else.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-else\.sh' || true)"
+# Exec-edge forms (issue #460 review, PT1/T6) — previously uncontrolled: a silent
+# under-match of any of these left the drift-guard vacuously green.
+assert_eq "#460 positive control: python3 exec edge (pyexec_re, dep-py.py) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-py\.py' || true)"
+assert_eq "#460 positive control: bash exec edge (shexec_re, dep-bash.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-bash\.sh' || true)"
+assert_eq "#460 positive control: exec edge (execb_re, dep-exec.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-exec\.sh' || true)"
+assert_eq "#460 positive control: assignment edge (assign_re, scripts/ .py, dep-assign.py) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-assign\.py' || true)"
+# Previously-uncontrolled alternations (issue #460 SHADOW, PT4/SF1): a regression dropping
+# any of these would leave the walker advertising a form it never proves it detects.
+assert_eq "#460 positive control: keyword-position source edge (\`elif … then . …\`, dep-elif.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-elif\.sh' || true)"
+assert_eq "#460 positive control: the \`source\` keyword (vs \`.\`, dep-src.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-src\.sh' || true)"
+assert_eq "#460 positive control: \`sh <path>\` exec edge (shexec_re, dep-shexec.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-shexec\.sh' || true)"
+assert_eq "#460 positive control: \`exec <path>.py\` edge (execb_re .py arm, dep-execpy.py) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-execpy\.py' || true)"
+assert_eq "#460 positive control: assignment edge (assign_re, lib/ .sh, dep-assign-lib.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-assign-lib\.sh' || true)"
+# Variable-indirected assignment (issue #460 SHADOW, SF-A): assign_var_re surfaces the
+# common `VAR="$DIR/name.sh"` shape a plain scripts/lib literal would miss.
+assert_eq "#460 positive control: \$DIR-indirected assignment (assign_var_re, dep-heredep.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-heredep\.sh' || true)"
+# In-string '#' must not swallow a later edge (issue #460 review, FP4).
+assert_eq "#460 positive control: edge after an in-string '#' (quote-aware strip, dep-instr.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-instr\.sh' || true)"
+rm -rf "$HSH_PC_DIR"
+
+# FAIL-CLOSED READ (issue #460 review, SF1/F1): a closure member the walker cannot
+# read (missing / permission / directory) must be REPORTED as a violation, never
+# swallowed to an empty "clean" set. Point CLOSURE at a member that does not exist and
+# assert the UNREADABLE violation line is emitted (so the drift-guard turns the desk RED
+# on an un-auditable member instead of green).
+HSH_UR_DIR="$(mktemp -d)"
+HSH_UR_OUT="$(REPO_ROOT="$HSH_UR_DIR" CLOSURE="lib/does-not-exist.sh" python3 "$HSH_EDGES")"
+assert_eq "#460 drift-guard: an unreadable/missing closure member is reported UNREADABLE (not swallowed)" "1" \
+  "$(printf '%s\n' "$HSH_UR_OUT" | grep -c 'lib/does-not-exist.sh -> UNREADABLE' || true)"
+# DIRECTORY member variant (issue #460 SHADOW, PT5): a closure member that is a directory
+# takes the same OSError→UNREADABLE fail-closed path (IsADirectoryError), not a silent
+# clean set. Make the CLOSURE member a directory and assert it is reported.
+HSH_UR_DIR2="$(mktemp -d)"; mkdir -p "$HSH_UR_DIR2/lib/is-a-dir.sh"
+HSH_UR_OUT2="$(REPO_ROOT="$HSH_UR_DIR2" CLOSURE="lib/is-a-dir.sh" python3 "$HSH_EDGES")"
+assert_eq "#460 drift-guard: a directory closure member is reported UNREADABLE (IsADirectoryError, not swallowed)" "1" \
+  "$(printf '%s\n' "$HSH_UR_OUT2" | grep -c 'lib/is-a-dir.sh -> UNREADABLE' || true)"
+rm -rf "$HSH_UR_DIR" "$HSH_UR_DIR2"
+
+# ── Adversarial drive over the full closure. Helper builders. ──────────────────
+HSH_TMP="$(mktemp -d)"
+hsh_mk_ws() {  # $1 = ws root; every closure target carries a MALICIOUS marker
+  local wsroot="$1" t
+  for t in $HSH_CLOSURE_LIT; do
+    mkdir -p "$wsroot/${t%/*}"
+    printf 'MALICIOUS-%s\n' "$(basename "$t")" > "$wsroot/$t"
+  done
+}
+hsh_mk_trusted() {  # $1 = trusted dir; $2.. = targets to supply a trusted base body for
+  local trdir="$1" t; shift
+  for t in "$@"; do
+    mkdir -p "$trdir/${t%/*}"
+    printf 'TRUSTED-BODY-%s\n' "$(basename "$t")" > "$trdir/$t"
+  done
+}
+
+# Scenario A — a FULL trusted dir: every closure target gets its trusted base body,
+# no entry neutralization, exit 0.
+hsh_mk_ws "$HSH_TMP/a/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/a/tr" $HSH_CLOSURE_LIT
+WORKSPACE_ROOT="$HSH_TMP/a/ws" TRUSTED_DIR="$HSH_TMP/a/tr" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: full closure — an ENTRY gets its trusted base body (PR-head displaced)" "TRUSTED-BODY-efficiency-trace.sh" \
+  "$(cat "$HSH_TMP/a/ws/lib/efficiency-trace.sh")"
+assert_eq "#458 helper: full closure — a SOURCED lib gets its trusted base body" "TRUSTED-BODY-resolve-jq.sh" \
+  "$(cat "$HSH_TMP/a/ws/lib/resolve-jq.sh")"
+assert_eq "#458 helper: full closure — an EXEC'd dep gets its trusted base body" "TRUSTED-BODY-workpad.py" \
+  "$(cat "$HSH_TMP/a/ws/scripts/workpad.py")"
+WORKSPACE_ROOT="$HSH_TMP/a/ws" TRUSTED_DIR="$HSH_TMP/a/tr" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: full closure — exits 0 (every target displaced)" "0" "$?"
+
+# Scenario B — a SOURCED lib (config-source.sh) has NO trusted copy: it is stubbed to
+# displace the PR-head copy AND every entry is NEUTRALIZED to a stub (so the missing
+# lib is never sourced mid-run), EVEN THOUGH the entries themselves have trusted copies.
+hsh_mk_ws "$HSH_TMP/b/ws"
+hsh_mk_trusted "$HSH_TMP/b/tr" \
+  lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
+  lib/resolve-jq.sh lib/resolve-bin.sh \
+  scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
+WORKSPACE_ROOT="$HSH_TMP/b/ws" TRUSTED_DIR="$HSH_TMP/b/tr" bash "$HSH" >/dev/null 2>&1
+hsh_b_rc=$?
+assert_eq "#458 helper: sourced-lib missing — the entry is NEUTRALIZED to a stub (not its trusted copy)" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/b/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#458 helper: sourced-lib missing — the entry does NOT get its trusted body" "0" \
+  "$(grep -c 'TRUSTED-BODY' "$HSH_TMP/b/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#458 helper: sourced-lib missing — the missing lib is stubbed, PR-head displaced" "0" \
+  "$(grep -c 'MALICIOUS' "$HSH_TMP/b/ws/lib/config-source.sh" || true)"
+assert_eq "#458 helper: sourced-lib missing — neutralization is a successful fail-closed outcome (exit 0)" "0" "$hsh_b_rc"
+
+# Scenario C — an EXEC'd dep (workpad.py) has NO trusted copy: it is stubbed, but the
+# entries are NOT neutralized (a subprocess exec degrades gracefully) — they keep their
+# trusted base bodies.
+hsh_mk_ws "$HSH_TMP/c/ws"
+hsh_mk_trusted "$HSH_TMP/c/tr" \
+  lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
+  lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh \
+  scripts/config-get.sh scripts/config_fingerprint.py
+WORKSPACE_ROOT="$HSH_TMP/c/ws" TRUSTED_DIR="$HSH_TMP/c/tr" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: exec-dep missing — the entry KEEPS its trusted body (no neutralization)" "TRUSTED-BODY-implement-stop-guard.sh" \
+  "$(cat "$HSH_TMP/c/ws/lib/implement-stop-guard.sh")"
+assert_eq "#458 helper: exec-dep missing — the dep is stubbed, PR-head displaced" "0" \
+  "$(grep -c 'MALICIOUS' "$HSH_TMP/c/ws/scripts/workpad.py" || true)"
+assert_eq "#458 helper: exec-dep missing — the dep becomes a no-op exit-0 stub" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/c/ws/scripts/workpad.py" || true)"
+
+# Scenario D — EMPTY TRUSTED_DIR: every closure target stubbed, none left PR-head, exit 0.
+hsh_mk_ws "$HSH_TMP/d/ws"
+WORKSPACE_ROOT="$HSH_TMP/d/ws" TRUSTED_DIR="" bash "$HSH" >/dev/null 2>&1
+hsh_d_rc=$?
+hsh_d_left=0
+for t in $HSH_CLOSURE_LIT; do
+  grep -q 'MALICIOUS' "$HSH_TMP/d/ws/$t" 2>/dev/null && hsh_d_left=1
+done
+assert_eq "#458 helper: empty TRUSTED_DIR stubs EVERY closure target (none left PR-head)" "0" "$hsh_d_left"
+assert_eq "#458 helper: empty TRUSTED_DIR — an entry is a no-op stub" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/d/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#458 helper: empty TRUSTED_DIR — exit 0 (all stubbed, displacement succeeded)" "0" "$hsh_d_rc"
+
+# Scenario (unset TRUSTED_DIR) — also fails closed, not open.
+hsh_mk_ws "$HSH_TMP/u/ws"
+WORKSPACE_ROOT="$HSH_TMP/u/ws" bash "$HSH" >/dev/null 2>&1
+assert_eq "#458 helper: unset TRUSTED_DIR stubs the entry (fail closed)" "0" \
+  "$(grep -c 'MALICIOUS' "$HSH_TMP/u/ws/scripts/stop-hook-probe.sh" || true)"
+
+# Scenario (dir-dest, issue #460 review, FP6): a target path that is a DIRECTORY must
+# NOT read as a successful trusted-copy install (`cp file dir/` exits 0 without
+# displacing the path). try_install_trusted must decline it and fall through to the
+# fail-closed arm, so the helper exits NON-ZERO (the workflow inline stub arm then runs)
+# rather than breadcrumbing a phantom success. Give every OTHER target a trusted copy so
+# the only failing target is the directory one.
+hsh_mk_ws "$HSH_TMP/dd/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/dd/tr" $HSH_CLOSURE_LIT
+rm -f "$HSH_TMP/dd/ws/scripts/workpad.py"
+mkdir -p "$HSH_TMP/dd/ws/scripts/workpad.py"   # dest is now a DIRECTORY
+WORKSPACE_ROOT="$HSH_TMP/dd/ws" TRUSTED_DIR="$HSH_TMP/dd/tr" bash "$HSH" >/dev/null 2>&1
+hsh_dd_rc=$?
+assert_eq "#460 helper: a directory dest is declined (not a phantom trusted-copy success) — exits NON-ZERO" "yes" \
+  "$([ "$hsh_dd_rc" -ne 0 ] && echo yes || echo no)"
+assert_eq "#460 helper: the directory dest is NOT displaced by a copied file (still a directory)" "yes" \
+  "$([ -d "$HSH_TMP/dd/ws/scripts/workpad.py" ] && echo yes || echo no)"
+
+# Scenario (symlink dest, issue #460 SHADOW, SF-C): a closure target that is a SYMLINK
+# must be UNLINKED and displaced by a real file, never written THROUGH the link into its
+# resolved target (which would leave the PR-head symlink in place — "displace the target
+# path" untrue — and, for an absolute link, write script bytes outside the workspace).
+# Point an entry at a symlink to an outside file; the helper must replace the LINK with a
+# real stub/copy and must NOT modify the link's original target.
+hsh_mk_ws "$HSH_TMP/sl/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/sl/tr" $HSH_CLOSURE_LIT
+HSH_SL_OUTSIDE="$HSH_TMP/sl/outside-target.txt"
+printf 'ORIGINAL-OUTSIDE-CONTENT\n' > "$HSH_SL_OUTSIDE"
+rm -f "$HSH_TMP/sl/ws/scripts/stop-hook-probe.sh"
+ln -s "$HSH_SL_OUTSIDE" "$HSH_TMP/sl/ws/scripts/stop-hook-probe.sh"
+WORKSPACE_ROOT="$HSH_TMP/sl/ws" TRUSTED_DIR="$HSH_TMP/sl/tr" bash "$HSH" >/dev/null 2>&1
+assert_eq "#460 helper: a symlink dest is replaced by a REAL file (not left a symlink)" "no" \
+  "$([ -L "$HSH_TMP/sl/ws/scripts/stop-hook-probe.sh" ] && echo yes || echo no)"
+assert_eq "#460 helper: a symlink dest gets its trusted base body (link displaced)" "TRUSTED-BODY-stop-hook-probe.sh" \
+  "$(cat "$HSH_TMP/sl/ws/scripts/stop-hook-probe.sh")"
+assert_eq "#460 helper: the symlink's ORIGINAL outside target is NOT written through" "ORIGINAL-OUTSIDE-CONTENT" \
+  "$(cat "$HSH_SL_OUTSIDE")"
+
+# Scenario (symlink dest, NO trusted copy → write_stub path, issue #460 SHADOW, CT3 PT1):
+# the prior symlink scenario supplies a full trusted dir, so it exercises
+# try_install_trusted's `[ -L ] && rm -f`. write_stub carries an IDENTICAL guard reached
+# only when a symlink dest has no trusted copy (EMPTY TRUSTED_DIR). Drive it: symlink an
+# entry to an outside file with empty TRUSTED_DIR; the path must become a real no-op stub
+# (not a symlink) and the outside target must be untouched.
+hsh_mk_ws "$HSH_TMP/slw/ws"
+HSH_SLW_OUTSIDE="$HSH_TMP/slw/outside.txt"
+printf 'ORIGINAL-SLW\n' > "$HSH_SLW_OUTSIDE"
+rm -f "$HSH_TMP/slw/ws/lib/efficiency-trace.sh"
+ln -s "$HSH_SLW_OUTSIDE" "$HSH_TMP/slw/ws/lib/efficiency-trace.sh"
+WORKSPACE_ROOT="$HSH_TMP/slw/ws" TRUSTED_DIR="" bash "$HSH" >/dev/null 2>&1
+assert_eq "#460 helper: write_stub unlinks a symlink dest (no trusted copy) — path is a real file, not a symlink" "no" \
+  "$([ -L "$HSH_TMP/slw/ws/lib/efficiency-trace.sh" ] && echo yes || echo no)"
+assert_eq "#460 helper: write_stub symlink path becomes a no-op exit-0 stub" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/slw/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#460 helper: write_stub does NOT write through the symlink to its outside target" "ORIGINAL-SLW" \
+  "$(cat "$HSH_SLW_OUTSIDE")"
+
+# Scenario (Pass-2 non-neutralized entry stub, issue #460 SHADOW, PT1): a lone ENTRY with
+# no trusted copy while ALL sourced libs ARE present (neutralize_entries=0) — the entry is
+# stubbed via the plain Pass-2 write_stub arm (not the neutralize arm). Give every target a
+# trusted copy EXCEPT one entry; that entry must become a no-op stub (never its PR-head copy).
+hsh_mk_ws "$HSH_TMP/p2/ws"
+hsh_mk_trusted "$HSH_TMP/p2/tr" \
+  lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
+  lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh \
+  scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
+WORKSPACE_ROOT="$HSH_TMP/p2/ws" TRUSTED_DIR="$HSH_TMP/p2/tr" bash "$HSH" >/dev/null 2>&1
+hsh_p2_rc=$?
+assert_eq "#460 helper: a lone entry with no trusted copy (libs present, non-neutralized arm) is stubbed" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/p2/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#460 helper: that entry's PR-head copy is displaced (no MALICIOUS)" "0" \
+  "$(grep -c 'MALICIOUS' "$HSH_TMP/p2/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#460 helper: other entries (with trusted copies) are NOT neutralized" "TRUSTED-BODY-implement-stop-guard.sh" \
+  "$(cat "$HSH_TMP/p2/ws/lib/implement-stop-guard.sh")"
+assert_eq "#460 helper: Pass-2 lone-entry stub is a successful displacement (exit 0)" "0" "$hsh_p2_rc"
+
+# --wired-check MODE (issue #460 SHADOW, PT2): the relevance-gate decision as the single
+# testable source of truth the workflow calls. Drive both arms + edge shapes behaviorally
+# (the workflow's inline `case` is only a fallback when no trusted helper resolves).
+assert_eq "#460 helper --wired-check: settings wiring an entry hook -> wired (exit 0)" "0" \
+  "$(printf 'bash lib/efficiency-trace.sh --persist\n' | bash "$HSH" --wired-check; echo $?)"
+assert_eq "#460 helper --wired-check: settings wiring a DIFFERENT entry -> wired (exit 0)" "0" \
+  "$(printf 'bash scripts/stop-hook-probe.sh\n' | bash "$HSH" --wired-check; echo $?)"
+assert_eq "#460 helper --wired-check: settings with NO entry hook -> not wired (exit 1)" "1" \
+  "$(printf 'no devflow hooks here\n' | bash "$HSH" --wired-check; echo $?)"
+assert_eq "#460 helper --wired-check: empty settings -> not wired (exit 1)" "1" \
+  "$(printf '' | bash "$HSH" --wired-check; echo $?)"
+HSH_WC_F="$(mktemp)"; printf 'bash lib/implement-stop-guard.sh\n' > "$HSH_WC_F"
+assert_eq "#460 helper --wired-check: file arg wiring a hook -> wired (exit 0)" "0" \
+  "$(bash "$HSH" --wired-check "$HSH_WC_F"; echo $?)"
+assert_eq "#460 helper --wired-check: absent/unreadable file arg -> not wired (exit 1, fail-safe)" "1" \
+  "$(bash "$HSH" --wired-check /nonexistent-devflow-settings-xyz; echo $?)"
+# Negative: a settings blob mentioning a NON-entry closure path (a sourced lib) must read
+# NOT wired — --wired-check keys only on HOOK_ENTRY_TARGETS, not the whole closure (issue
+# #460 SHADOW, CT3 PT4).
+assert_eq "#460 helper --wired-check: a non-entry closure path (lib/resolve-jq.sh) alone -> not wired (exit 1)" "1" \
+  "$(printf 'see lib/resolve-jq.sh for details\n' | bash "$HSH" --wired-check; echo $?)"
+rm -f "$HSH_WC_F"
+
+# EMPTY-READ DISAMBIGUATION — behavioral git-fixture test (issue #460 SHADOW, CT2 PT2).
+# The workflow gate's empty-SETTINGS_JSON arm is git/FETCH_HEAD-specific and cannot be a
+# pure helper, so drive its DECISION LOGIC (present-but-empty -> harden; absent -> skip;
+# non-empty -> wiring scan) end-to-end over a real throwaway git repo. The workflow's own
+# inline copy of this logic is separately mutation-pinned (the `git cat-file -e` guard and
+# the HOOKS_WIRED skip); this proves the git-blob-existence decision itself is correct.
+if command -v git >/dev/null 2>&1; then
+  # decide <ref> <path> -> echoes wired|skip, mirroring the workflow's empty-read arm.
+  hsh_decide() {
+    local ref="$1" path="$2" sj w=0
+    sj="$(git show "$ref:$path" 2>/dev/null || true)"
+    if [ -z "$sj" ]; then
+      git cat-file -e "$ref:$path" 2>/dev/null && w=1   # present-but-empty -> harden (fail-closed)
+    else
+      case "$sj" in *"lib/efficiency-trace.sh"*) w=1 ;; esac
+    fi
+    [ "$w" -eq 1 ] && echo wired || echo skip
+  }
+  HSH_GIT="$(mktemp -d)"
+  (
+    cd "$HSH_GIT" || exit 1
+    git init -q; git config user.email t@t; git config user.name t
+    mkdir -p .claude
+    # commit 1: settings.json present and wiring a hook
+    printf 'bash lib/efficiency-trace.sh --persist\n' > .claude/settings.json
+    git add -A; git commit -qm wired
+    # commit 2: settings.json present but EMPTY
+    : > .claude/settings.json; git add -A; git commit -qm empty
+    # commit 3: settings.json ABSENT
+    git rm -q .claude/settings.json; git commit -qm absent
+  )
+  assert_eq "#460 empty-read decision: settings.json present + wiring a hook -> wired" "wired" \
+    "$(cd "$HSH_GIT" && hsh_decide 'HEAD~2' '.claude/settings.json')"
+  assert_eq "#460 empty-read decision: settings.json present but EMPTY -> wired (fail-closed harden, not skip)" "wired" \
+    "$(cd "$HSH_GIT" && hsh_decide 'HEAD~1' '.claude/settings.json')"
+  assert_eq "#460 empty-read decision: settings.json ABSENT -> skip (genuine consumer)" "skip" \
+    "$(cd "$HSH_GIT" && hsh_decide 'HEAD' '.claude/settings.json')"
+  unset -f hsh_decide
+  rm -rf "$HSH_GIT"
+else
+  echo "  SKIP  #460 empty-read decision git-fixture (git not on PATH)"
+fi
+
+# Breadcrumbs name the source used for each target (trusted vs stub).
+HSH_ERR="$(WORKSPACE_ROOT="$HSH_TMP/a/ws" TRUSTED_DIR="$HSH_TMP/a/tr" bash "$HSH" 2>&1 1>/dev/null)"
+assert_eq "#458 helper: breadcrumbs the trusted-copy install" "yes" \
+  "$(printf '%s' "$HSH_ERR" | grep -q 'trusted base copy' && echo yes || echo no)"
+HSH_ERR2="$(WORKSPACE_ROOT="$HSH_TMP/d/ws" TRUSTED_DIR="" bash "$HSH" 2>&1 1>/dev/null)"
+assert_eq "#458 helper: breadcrumbs the fail-closed stub" "yes" \
+  "$(printf '%s' "$HSH_ERR2" | grep -q 'fail-closed no-op stub' && echo yes || echo no)"
+
+# S1 (present-but-UNREADABLE trusted src → stub): a trusted copy that cannot be read
+# (cp fails) must still displace the PR-head copy with a stub, never leave it. Uses a
+# chmod-000 trusted src; skipped under a uid that ignores the mode bit (root).
+hsh_mk_ws "$HSH_TMP/s1/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/s1/tr" $HSH_CLOSURE_LIT
+chmod 000 "$HSH_TMP/s1/tr/scripts/workpad.py" 2>/dev/null || true
+if [ "$(id -u)" -ne 0 ] && [ ! -r "$HSH_TMP/s1/tr/scripts/workpad.py" ]; then
+  WORKSPACE_ROOT="$HSH_TMP/s1/ws" TRUSTED_DIR="$HSH_TMP/s1/tr" bash "$HSH" >/dev/null 2>&1
+  assert_eq "#458 helper: unreadable trusted src — PR-head copy is displaced (not left)" "0" \
+    "$(grep -c 'MALICIOUS' "$HSH_TMP/s1/ws/scripts/workpad.py" || true)"
+  assert_eq "#458 helper: unreadable trusted src — target becomes a no-op stub" "1" \
+    "$(grep -c '^exit 0$' "$HSH_TMP/s1/ws/scripts/workpad.py" || true)"
+else
+  echo "  SKIP  #458 helper: unreadable-trusted-src arm (this uid ignores the mode bit; chmod 000 stayed readable)"
+fi
+chmod 700 "$HSH_TMP/s1/tr/scripts/workpad.py" 2>/dev/null || true
+
+# S4 (wholly-unwritable dest → exit NON-ZERO): when a target can be neither
+# trusted-copied NOR stubbed (its PR-head copy MAY REMAIN), the helper exits non-zero
+# so the workflow's inline fail-closed stub arm runs — never a silent partial
+# displacement. Make one target's dest file + its parent dir unwritable. Skipped under
+# a uid that ignores the mode bits (root).
+hsh_mk_ws "$HSH_TMP/s4/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/s4/tr" $HSH_CLOSURE_LIT
+chmod 000 "$HSH_TMP/s4/ws/scripts/workpad.py" 2>/dev/null || true
+chmod 500 "$HSH_TMP/s4/ws/scripts" 2>/dev/null || true
+if [ "$(id -u)" -ne 0 ] && [ ! -w "$HSH_TMP/s4/ws/scripts/workpad.py" ] && [ ! -w "$HSH_TMP/s4/ws/scripts" ]; then
+  WORKSPACE_ROOT="$HSH_TMP/s4/ws" TRUSTED_DIR="$HSH_TMP/s4/tr" bash "$HSH" >/dev/null 2>&1
+  hsh_s4_rc=$?
+  assert_eq "#458 helper: wholly-unwritable target — exits NON-ZERO (workflow fail-closed arm runs)" "yes" \
+    "$([ "$hsh_s4_rc" -ne 0 ] && echo yes || echo no)"
+else
+  echo "  SKIP  #458 helper: wholly-unwritable exit-non-zero arm (this uid ignores the mode bits)"
+fi
+chmod 700 "$HSH_TMP/s4/ws/scripts" 2>/dev/null || true
+chmod 700 "$HSH_TMP/s4/ws/scripts/workpad.py" 2>/dev/null || true
+
+# S5 (issue #460 Fix 3 — neutralization is independent of the sourced-lib stub-write
+# outcome): a SOURCED lib (config-source.sh) has NO trusted copy AND its own stub write
+# FAILS (unwritable dest). The entries must STILL be neutralized — otherwise Pass 2 would
+# install a trusted ENTRY that then sources the surviving PR-head library. So the entry
+# must NOT receive its trusted body (it must be a no-op stub), and the helper exits
+# non-zero (the failed stub sets displacement_failed → the workflow fail-closed arm).
+# Skipped under a uid that ignores the mode bits (root).
+hsh_mk_ws "$HSH_TMP/s5/ws"
+hsh_mk_trusted "$HSH_TMP/s5/tr" \
+  lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh \
+  lib/resolve-jq.sh lib/resolve-bin.sh \
+  scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py
+chmod 000 "$HSH_TMP/s5/ws/lib/config-source.sh" 2>/dev/null || true
+chmod 500 "$HSH_TMP/s5/ws/lib" 2>/dev/null || true
+if [ "$(id -u)" -ne 0 ] && [ ! -w "$HSH_TMP/s5/ws/lib/config-source.sh" ]; then
+  WORKSPACE_ROOT="$HSH_TMP/s5/ws" TRUSTED_DIR="$HSH_TMP/s5/tr" bash "$HSH" >/dev/null 2>&1
+  hsh_s5_rc=$?
+  # Re-open lib/ so the entry files (also under lib/) can be read back for assertions.
+  chmod 700 "$HSH_TMP/s5/ws/lib" 2>/dev/null || true
+  assert_eq "#460 helper: sourced-lib stub-write FAILS but the entry is STILL neutralized (not its trusted body)" "0" \
+    "$(grep -c 'TRUSTED-BODY' "$HSH_TMP/s5/ws/lib/efficiency-trace.sh" || true)"
+  assert_eq "#460 helper: sourced-lib stub-write FAILS — the entry is a no-op stub (neutralized)" "1" \
+    "$(grep -c '^exit 0$' "$HSH_TMP/s5/ws/lib/efficiency-trace.sh" || true)"
+  assert_eq "#460 helper: sourced-lib stub-write FAILS — exits NON-ZERO (workflow fail-closed arm runs)" "yes" \
+    "$([ "$hsh_s5_rc" -ne 0 ] && echo yes || echo no)"
+else
+  echo "  SKIP  #460 helper: sourced-lib-unwritable neutralization arm (this uid ignores the mode bits)"
+fi
+chmod 700 "$HSH_TMP/s5/ws/lib" 2>/dev/null || true
+chmod 700 "$HSH_TMP/s5/ws/lib/config-source.sh" 2>/dev/null || true
+rm -rf "$HSH_TMP"
+
+# Behavioral-fix pin: the fail-closed branch must WRITE THE STUB over $dest — the
+# guarded regression is the PR-head copy SURVIVING (the security hole), so the mutation
+# reproduces exactly that: replace the stub write with a no-op that leaves the PR-head
+# $dest in place (issue #460 — the old `true > "$dest"` emptied the file instead, a
+# different, less faithful failure). assert_pin_red_under proves the operative stub-write
+# flips PASS->FAIL when mutated to keep the PR-head file.
+assert_pin_red_under "#458 helper fail-closed branch writes a no-op stub over the PR-head copy — mutating it to LEAVE the PR-head file in place re-opens the hole" \
+  "printf '%s\n' \"\$STUB\" > \"\$dest\"" \
+  "s/printf '%s\\\\n' \"\\\$STUB\" > \"\\\$dest\"/: leave PR-head copy in place/" \
+  "$HSH"
+
+# ── #458: workflow wiring — devflow-runner.yml runs the floor from a TRUSTED source
+# The harden step exists and precedes the claude-code-action step (it must run
+# BEFORE the engine, or the Stop hooks fire against the PR-head copies).
+HARDEN_LN=$(grep -n 'Harden Stop-hook script sources' "$RUNNER" | head -1 | cut -d: -f1)
+CLAUDE_LN=$(grep -n 'name: Run Claude Code' "$RUNNER" | head -1 | cut -d: -f1)
+assert_eq "#458 workflow: harden step precedes Run Claude Code" "yes" \
+  "$([ -n "$HARDEN_LN" ] && [ -n "$CLAUDE_LN" ] && [ "$HARDEN_LN" -lt "$CLAUDE_LN" ] && echo yes || echo no)"
+# The helper is materialized + run from the TRUSTED base ref (FETCH_HEAD), mirroring
+# the #404 floor-helper discipline — never the PR-head checkout.
+assert_eq "#458 workflow: helper materialized from FETCH_HEAD (trusted base ref)" "1" \
+  "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/harden-stop-hooks.sh' "$RUNNER" || true)"
+assert_eq "#458 workflow: trusted hook copies materialized from FETCH_HEAD" "1" \
+  "$(grep -cF 'git show "FETCH_HEAD:$t"' "$RUNNER" || true)"
+# The vendored helper fallback is accepted ONLY on a fresh fetch — dropping that
+# gate re-opens PR-head tampering (same operative gate the #404 floor pins).
+assert_pin_red_under "#458 workflow: vendored harden-helper fallback is gated on vendor_source=fetch — dropping the gate re-opens PR-head tampering" \
+  '[ "${VENDOR_SOURCE:-}" = "fetch" ] \' \
+  's/\[ "\$\{VENDOR_SOURCE:-\}" = "fetch" \] \\/true \\/' \
+  "$RUNNER"
+# Fail-closed arm: when no trusted helper resolves, the step stubs every target
+# inline (never the PR-head copy) and warns.
+assert_eq "#458 workflow: fail-closed inline stub arm present (no trusted helper)" "1" \
+  "$(grep -c 'no TRUSTED helper resolved' "$RUNNER" || true)"
+assert_eq "#458 workflow: fail-closed inline stub writes exit-0 stubs" "1" \
+  "$(grep -cF "printf '#!/usr/bin/env bash\\nexit 0\\n' > \"\$d\"" "$RUNNER" || true)"
+# The inline stub arm unlinks a symlink dest first (issue #460 SHADOW, mirrors the helper's
+# write_stub) so the `> "$d"` never writes THROUGH the link into its resolved target.
+assert_eq "#460 workflow: inline stub arm unlinks a symlink dest before writing (no write-through)" "1" \
+  "$(grep -cF '[ -L "$d" ] && rm -f "$d"' "$RUNNER" || true)"
+# LAST-RESORT arm must be genuinely fail-CLOSED (issue #460): if the inline stub WRITE
+# itself fails (a wholly-unwritable dest), the PR-head hook script REMAINS — warning and
+# exiting 0 would let `Run Claude Code` proceed with a PR-controlled hook intact in this
+# secrets-bearing job (fail-OPEN). On any un-stubbable target the step must FAIL (exit 1)
+# after the loop so the job aborts BEFORE the engine runs.
+assert_eq "#460 workflow: inline stub-write failure sets a failure flag (not a bare warn-and-proceed)" "1" \
+  "$(grep -cF 'stub_failed=1' "$RUNNER" || true)"
+assert_eq "#460 workflow: un-stubbable target fails the step with a fail-closed ::error::" "1" \
+  "$(grep -c 'Failing the job BEFORE Run Claude Code so no PR-controlled Stop hook fires' "$RUNNER" || true)"
+# Behavioral-fix pin: the operative construct is the post-loop `exit 1` under the
+# stub_failed guard — mutating the guard so the step never aborts re-opens the fail-OPEN
+# (Run Claude Code proceeds with the surviving PR-head hook).
+assert_pin_red_under "#460 workflow: un-stubbable inline arm aborts the step (exit 1) — removing the guard re-opens the fail-OPEN" \
+  'if [ "$stub_failed" -eq 1 ]; then' \
+  's/if \[ "\$stub_failed" -eq 1 \]; then/if false; then/' \
+  "$RUNNER"
+# The step passes WORKSPACE_ROOT + TRUSTED_DIR into the helper.
+assert_eq "#458 workflow: helper invoked with WORKSPACE_ROOT + TRUSTED_DIR" "1" \
+  "$(grep -cF 'WORKSPACE_ROOT="$ROOT" TRUSTED_DIR="$TRUSTED_DIR" bash "$HELPER"' "$RUNNER" || true)"
+# A RESOLVED helper that fails to EXECUTE (truncated/corrupt copy, noexec RUNNER_TEMP)
+# must NOT merely warn-and-proceed — that would leave every PR-head Stop-hook script
+# executable (fail-OPEN, review finding). The rc is captured in the `if bash "$HELPER"`
+# statement and a non-zero result falls through to the same inline-stub fallback as an
+# unresolved helper (HARDENED stays 0). Behavioral-fix pin: the operative construct is
+# the `if [ "$HARDENED" -eq 0 ]` fallback guard — mutating it so the fallback never runs
+# re-opens the fail-open. (assert_pin_red_under proves it flips PASS->FAIL under that
+# mutation.)
+assert_eq "#458 workflow: helper rc captured in-statement (if bash \"\$HELPER\")" "1" \
+  "$(grep -cF 'if WORKSPACE_ROOT="$ROOT" TRUSTED_DIR="$TRUSTED_DIR" bash "$HELPER"; then' "$RUNNER" || true)"
+assert_pin_red_under "#458 workflow: a failed/unrun helper falls through to inline stubs (HARDENED-guard) — removing the guard re-opens the fail-OPEN" \
+  'if [ "$HARDENED" -eq 0 ]; then' \
+  's/if \[ "\$HARDENED" -eq 0 \]; then/if false; then/' \
+  "$RUNNER"
+# Rank-1 self-copy of the harden helper from the base ref is gated on the base ref
+# actually being the DevFlow plugin repo (plugin.json name), so a consumer's unrelated
+# like-named scripts/harden-stop-hooks.sh is never executed as the trusted helper.
+assert_eq "#458 workflow: harden self-copy line present" "1" \
+  "$(grep -cF 'git show "FETCH_HEAD:scripts/harden-stop-hooks.sh"' "$RUNNER" || true)"
+# NON-VACUOUS gating pin (issue #460 review, CA4/PT2): the presence check above stays
+# green even if the `grep -Eq …"devflow"` discriminator gate is deleted (the self-copy
+# `git show` line survives). The discriminator literal is NOT file-unique (baseprovision
+# uses the same grep), so pin the harden self-copy's gating by ADJACENCY: the line
+# immediately preceding the self-copy `git show` must be the plugin.json-name
+# discriminator. A mutation deleting the gate changes that preceding line → RED.
+assert_eq "#460 workflow: harden self-copy is gated by the plugin.json-name discriminator on the preceding line" "1" \
+  "$(grep -B1 -F 'raw=$(git show "FETCH_HEAD:scripts/harden-stop-hooks.sh"' "$RUNNER" | grep -c 'grep -Eq .*"devflow"' || true)"
+
+# ── #460 review (FP1): consumer relevance gate — harden ONLY when the TRUSTED base
+# .claude/settings.json wires these Stop hooks. devflow-runner.yml ships to consumers,
+# but DevFlow's own Stop hooks do not; without this gate a consumer review stubs/creates
+# the nine DevFlow-layout paths over same-named files (a wrong verdict).
+assert_eq "#460 workflow: relevance gate reads the TRUSTED base .claude/settings.json" "1" \
+  "$(grep -cF 'git show "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
+assert_eq "#460 workflow: relevance gate keys on the three entry hooks" "1" \
+  "$(grep -cF 'ENTRY_TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh"' "$RUNNER" || true)"
+assert_eq "#460 workflow: gate skips hardening when base settings.json does not wire the hooks" "1" \
+  "$(grep -c 'does not wire the DevFlow Stop hooks' "$RUNNER" || true)"
+# CROSS-PIN (issue #460 SHADOW, FP-S2): the workflow's inline ENTRY_TARGETS (the gate's
+# fallback list) must equal the helper's HOOK_ENTRY_TARGETS — a fourth Stop hook added to
+# the helper + settings.json but forgotten here would leave the fallback gate checking a
+# stale three. Compare the two literals' path sets.
+HSH_WF_ENTRY="$( grep -oE 'ENTRY_TARGETS="[^"]*"' "$RUNNER" | head -1 | sed -E 's/^[^"]*"//; s/"$//' | tr ' ' '\n' | grep -E '\.sh$' | sort -u | tr '\n' ' ' )"
+HSH_HELPER_ENTRY="$( grep -oE "HOOK_ENTRY_TARGETS='[^']*'" "$HSH" | sed -E "s/^[^']*'//; s/'$//" | tr ' ' '\n' | grep -E '\.sh$' | sort -u | tr '\n' ' ' )"
+assert_eq "#460 coupling: workflow inline ENTRY_TARGETS == helper HOOK_ENTRY_TARGETS" "$HSH_HELPER_ENTRY" "$HSH_WF_ENTRY"
+# GATE VIA THE TRUSTED HELPER (issue #460 SHADOW, PT2): the gate decides via the helper's
+# tested --wired-check mode (single source of truth), so the branch selection is driven by
+# the behavioral --wired-check tests above rather than only grep-pinned inline. The inline
+# `case` remains only as the no-trusted-helper fallback.
+assert_eq "#460 workflow: relevance gate decides via the trusted helper's --wired-check mode" "1" \
+  "$(grep -cF 'bash "$HELPER" --wired-check' "$RUNNER" || true)"
+# Behavioral-fix pin: the operative construct is the `HOOKS_WIRED -eq 0` skip decision —
+# mutating it so the skip never fires re-opens FP1 (harden a consumer that has no hooks,
+# clobbering same-named files). assert_pin_red_under proves PASS->FAIL under that mutation.
+assert_pin_red_under "#460 workflow: relevance gate skips when the base does not wire the hooks — dropping the skip re-opens consumer clobbering" \
+  'if [ "$HOOKS_WIRED" -eq 0 ]; then' \
+  's/if \[ "\$HOOKS_WIRED" -eq 0 \]; then/if false; then/' \
+  "$RUNNER"
+# The gate skip must fire BEFORE the helper / inline-stub arms run (an early exit), or the
+# stubbing would still happen. Pin the SKIP_HARDEN early-out and its guard.
+assert_eq "#460 workflow: SKIP_HARDEN early-out precedes the helper/inline arms" "1" \
+  "$(grep -c 'if \[ "\$SKIP_HARDEN" -eq 1 \]; then' "$RUNNER" || true)"
+# A FETCH FAILURE must NOT set SKIP_HARDEN — it stays on the fail-closed path so DevFlow's
+# own protection is never dropped on a transient base-ref fetch error. The gate is set
+# only inside the fetch-success branch, so `SKIP_HARDEN=1` appears exactly once.
+assert_eq "#460 workflow: SKIP_HARDEN is set on exactly one (fetch-success, unwired) path" "1" \
+  "$(grep -c 'SKIP_HARDEN=1' "$RUNNER" || true)"
+
+# ── #460 review (SF4): the trusted-copy materialization write is CHECKED — a
+# partial/empty file from a failed write is removed, not later installed as a "trusted
+# base copy" with a success breadcrumb. The old form was `printf … 2>/dev/null || true`.
+assert_eq "#460 workflow: trusted-copy materialization write is checked (rm residue on failure)" "1" \
+  "$(grep -c 'failed to materialize the trusted base copy' "$RUNNER" || true)"
+assert_eq "#460 workflow: the swallowed 'printf … || true' materialization write is gone" "0" \
+  "$(grep -cF 'printf '\''%s\n'\'' "$raw" > "$TRUSTED_DIR/$t" 2>/dev/null || true' "$RUNNER" || true)"
+
+# ── #460 SHADOW (fail-open, SF): an EMPTY settings read must NOT be inferred as "not
+# wired" and skipped — that would drop DevFlow's OWN floor when settings.json exists at
+# base but `git show` read back empty despite a successful fetch. The gate distinguishes
+# absent (skip) from present-but-unreadable (fail-closed harden) via `git cat-file -e`.
+assert_eq "#460 workflow: empty settings read is disambiguated with git cat-file -e" "1" \
+  "$(grep -cF 'git cat-file -e "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
+assert_eq "#460 workflow: a present-but-unreadable base settings.json fails closed (hardens, warns)" "1" \
+  "$(grep -c 'read back empty after a successful fetch' "$RUNNER" || true)"
+# SETTINGS.LOCAL.JSON scope (issue #460 SHADOW): the gate must ALSO read
+# .claude/settings.local.json — claude-code-action restores all of .claude/, so a hook
+# wired there is just as live; reading only settings.json would be a fail-OPEN. Pin both
+# the wiring read and the empty-read existence probe of the local file.
+assert_eq "#460 workflow: gate ALSO reads base .claude/settings.local.json (both the show and the cat-file probe)" "2" \
+  "$(grep -cF 'FETCH_HEAD:.claude/settings.local.json' "$RUNNER" || true)"
+# Behavioral-fix pin: the operative construct is the `_settings_present` guard that
+# hardens on a present-but-empty settings*.json. Mutating it to always-false makes a
+# present-but-empty read fall through to "not wired" → skip → the floor drops.
+assert_pin_red_under "#460 workflow: present-but-unreadable base settings*.json hardens (fail-closed) — dropping the _settings_present guard re-opens the floor-drop fail-open" \
+  'if [ "$_settings_present" -eq 1 ]; then' \
+  's/if \[ "\$_settings_present" -eq 1 \]; then/if false; then/' \
+  "$RUNNER"
+# INLINE FALLBACK selection guard (issue #460 SHADOW, PT2): the SINGLE inline `case`
+# fallback (reached when no trusted helper resolved OR the helper errored) is a mirror of
+# --wired-check. Its list is cross-pinned equal above; pin its glob SELECTION too so a glob
+# typo that never matches (misrouting the consumer gate) turns RED, not just a missing
+# literal.
+assert_pin_red_under "#460 workflow: inline --wired-check fallback matches an entry via a substring glob — breaking the glob misroutes the gate" \
+  'case "$SETTINGS_JSON" in *"$e"*) HOOKS_WIRED=1 ;; esac' \
+  's/case "\$SETTINGS_JSON" in \*"\$e"\*\) HOOKS_WIRED=1 ;; esac/case "$SETTINGS_JSON" in "no-such-match") HOOKS_WIRED=1 ;; esac/' \
+  "$RUNNER"
+# Obs A fail-open fix (issue #460 SHADOW, CT2): the --wired-check helper's rc is
+# THREE-valued to the caller — rc 0 wired, rc 1 clean not-wired, rc>=2 ERROR. An error must
+# NOT be read as "not wired" (that would skip → drop the floor); it falls back to the inline
+# scan. Pin the rc!=1 discriminator and the fallback warning.
+assert_eq "#460 workflow: a --wired-check helper ERROR (rc>=2) is distinguished from a clean not-wired (rc 1)" "1" \
+  "$(grep -c 'if \[ "\$_wc_rc" -ne 1 \]; then' "$RUNNER" || true)"
+assert_eq "#460 workflow: a --wired-check helper error falls back to the inline scan (not skip)" "1" \
+  "$(grep -c 'helper errored (rc=\$_wc_rc' "$RUNNER" || true)"
+# Behavioral-fix pin: the operative construct is the `_wc_rc -ne 1` discriminator —
+# mutating it so an error is treated as a clean verdict (never falls back) re-opens the
+# skip-on-error fail-open. assert_pin_red_under proves PASS->FAIL under that mutation.
+assert_pin_red_under "#460 workflow: helper-error rc!=1 discriminator falls back to inline (not skip) — dropping it re-opens the skip-on-error fail-open" \
+  'if [ "$_wc_rc" -ne 1 ]; then' \
+  's/if \[ "\$_wc_rc" -ne 1 \]; then/if false; then/' \
+  "$RUNNER"
+
+# ── #460 errexit (PR #461): EXECUTE the harden step under GitHub's DEFAULT shell ──
+# Every #458/#460 assertion above is a static pin or a pin-mutation — none RUNS the
+# step, which is how this bug shipped: the step declares `set -uo pipefail` (errexit
+# deliberately OFF; every failure path is an explicit rc-handled arm), but GitHub's
+# default `run:` shell is `bash -e {0}`, so errexit arrives ON anyway. Under it the
+# first legal non-zero — the compound `git show` read of a .claude/settings.local.json
+# ABSENT at the base ref (this repo's permanent state) — killed the whole step with
+# git's rc 128 BEFORE any fail-closed arm ran (live failure: Actions run 29285485078;
+# every post-#460 review execution died there, so no auto-review verdict could post).
+# So: extract the step's run: block via PyYAML (the `tools`-step harness idiom below)
+# and drive it END-TO-END under the exact default-shell contract (`bash -e`) in a
+# fixture clone whose base tracks settings.json but NOT settings.local.json — the
+# precise live-repro shape.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  HH_SCRIPT="$(probe_tmp '#460 errexit harden-step script')"
+  python3 - "$RUNNER" >"$HH_SCRIPT" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for job in doc["jobs"].values():
+    for s in job.get("steps", []):
+        if s.get("id") == "harden_hooks" and "run" in s:
+            sys.stdout.write(s["run"])
+            raise SystemExit
+raise SystemExit("harden_hooks step not found")
+PY
+  HH_FIX="$(git_sandbox '#460 errexit fixture')"
+  # The trusted "origin": base tracks the REAL .claude/settings.json (wires the three
+  # Stop hooks), the vendored helper, and all nine closure targets — the same shapes
+  # main carries — and deliberately does NOT track .claude/settings.local.json.
+  mkdir -p "$HH_FIX/origin/.claude" "$HH_FIX/origin/.devflow/vendor/devflow/scripts"
+  cp "$LIB/../.claude/settings.json" "$HH_FIX/origin/.claude/settings.json" 2>/dev/null
+  cp "$HSH" "$HH_FIX/origin/.devflow/vendor/devflow/scripts/harden-stop-hooks.sh" 2>/dev/null
+  for hh_t in $HSH_CLOSURE_LIT; do
+    mkdir -p "$HH_FIX/origin/${hh_t%/*}"
+    cp "$LIB/../$hh_t" "$HH_FIX/origin/$hh_t" 2>/dev/null
+  done
+  git -C "$HH_FIX/origin" init -q 2>/dev/null
+  git -C "$HH_FIX/origin" add -A 2>/dev/null
+  git -C "$HH_FIX/origin" -c user.email=t@t -c user.name=t commit -qm base 2>/dev/null
+  git -C "$HH_FIX/origin" branch -q -M main 2>/dev/null
+  git clone -q "$HH_FIX/origin" "$HH_FIX/ws" 2>/dev/null
+  # Simulate the PR-head edit this floor exists to displace.
+  printf 'MALICIOUS\n' > "$HH_FIX/ws/lib/efficiency-trace.sh"
+  HH_RT="$(git_sandbox '#460 errexit RUNNER_TEMP')"
+  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" \
+      bash -e "$HH_SCRIPT" ) >"$HH_FIX/out.log" 2>&1
+  assert_eq "#460 errexit: the harden step survives GitHub's default \`bash -e {0}\` shell with settings.local.json absent at base (the live-repro shape)" \
+    "0" "$?"
+  # Positive controls: the run must have taken the REAL harden path — the wired gate
+  # (no skip notice) and a displaced PR-head entry — not an early exit that would let
+  # the exit-code check above pass vacuously.
+  assert_eq "#460 errexit: positive control — the relevance gate saw the wired base settings.json (no 'nothing to harden' skip)" "0" \
+    "$(grep -c 'nothing to harden' "$HH_FIX/out.log" || true)"
+  assert_eq "#460 errexit: positive control — the PR-head-edited entry hook was displaced (MALICIOUS gone)" "0" \
+    "$(grep -c 'MALICIOUS' "$HH_FIX/ws/lib/efficiency-trace.sh" || true)"
+  # MUTATION control: strip the errexit-off line from a COPY and re-run — the inherited
+  # `-e` must kill it with git's 128 again, proving this test pins the exact regression
+  # (a future edit dropping the line), not merely its own green path. It doubles as a
+  # fixture-validity check: a fixture that never reached the settings.local.json read
+  # (e.g. a failed base fetch taking the fail-closed arm) would complete rc 0 here and
+  # turn this RED instead of leaving the suite vacuously green.
+  HH_MUT="$(probe_tmp '#460 errexit mutant script')"
+  grep -v '^set +e$' "$HH_SCRIPT" > "$HH_MUT"
+  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" \
+      bash -e "$HH_MUT" ) >/dev/null 2>&1
+  assert_eq "#460 errexit MUTATION: without the errexit-off line the inherited -e kills the step at the settings.local.json read (rc 128)" \
+    "128" "$?"
+  rm -rf "$HH_FIX" "$HH_RT"; rm -f "$HH_SCRIPT" "$HH_MUT"
+fi
 
 # The setup-project-env step is gated on the base-ref provision flag.
 assert_eq "provision: setup-project-env step present" "1" \
@@ -17378,9 +18279,11 @@ assert_eq "provision: malformed/non-object base config warns + read-only" "1" \
 # Trust boundary: the flag and setup block come from the base ref. BASE_REF is
 # sourced from the trusted event payload, fetched from origin, and read out of
 # FETCH_HEAD — never the checked-out PR head.
-assert_eq "provision: base ref from trusted event payload" "1" \
+# Two sites read the trusted BASE_REF from the event payload and fetch it: the
+# baseprovision step and the #458 harden-stop-hooks step (same trusted-source rule).
+assert_eq "provision: base ref from trusted event payload (baseprovision + #458 harden step)" "2" \
   "$(grep -c 'github.event.pull_request.base.ref || github.event.repository.default_branch' "$RUNNER" || true)"
-assert_eq "provision: base config fetched from origin BASE_REF" "1" \
+assert_eq "provision: base config fetched from origin BASE_REF (baseprovision + #458 harden step)" "2" \
   "$(grep -c 'git fetch --depth=1 origin "\$BASE_REF"' "$RUNNER" || true)"
 assert_eq "provision: provision_env read from FETCH_HEAD base config" "1" \
   "$(grep -c 'FETCH_HEAD:.devflow/config.json' "$RUNNER" || true)"
@@ -22709,7 +23612,7 @@ assert_eq "#415 swv: helper exits 0 even on an absent execution file" "0" \
 # (PermissionError, or a TOCTOU disappearance after the os.path.isfile() check) must
 # route to the INCONCLUSIVE floor and still exit 0 — honoring the module's documented
 # "Always exits 0" contract — instead of raising an uncaught traceback through
-# render()/main() (which under matcher-probe.yml's `set -uo pipefail` verdict step
+# render()/main() (which under matcher-probe.yml's `set -euo pipefail` verdict step
 # yields a red step with NO verdict table, on exactly the degraded run the probe exists
 # to handle). Skipped only where chmod 000 does not actually deny reads (running as
 # root, or a filesystem ignoring the mode) so the suite stays green everywhere.
@@ -25911,7 +26814,7 @@ case "$SP_T6B_ENC" in
             | env PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 LC_ALL=C LANG=C python3 "$SPL" --rev HEAD 2>/dev/null \
             | awk -F '\t' '$1=="UNRESOLVABLE" && $2=="R1"{f=1} END{exit f?0:1}' && echo yes || echo no )" ;;
   *)
-    printf '  NOTE  #423 T6b skipped — forced env did not downgrade stdout to ASCII (got %s); strict-ASCII non-detonation condition not reproducible on this host\n' "${SP_T6B_ENC:-<empty>}" ;;
+    skip "#423 T6b non-ASCII stdout self-scan" host-capability "forced env did not downgrade stdout to ASCII (got ${SP_T6B_ENC:-<empty>}); strict-ASCII non-detonation condition not reproducible on this host" ;;
 esac
 
 # T9 → config surfaces + adversarial shape matrix. Schema/example/tracked-config pins.
@@ -26268,12 +27171,15 @@ assert_eq "#434 R4: the comment-line permit emits the STALE R4 row" "yes" "$(spl
 # `origin/main...HEAD` diff) while the suite otherwise grades the WORKING TREE. With
 # uncommitted edits the two disagree, so a failure would be an artifact of that skew rather
 # than a real regression — a dirty tree (or an unresolvable base, e.g. a shallow checkout)
-# therefore reports a visible NOTE instead of a false FAIL. CI checks out a clean tree, so the
-# assertion is live exactly where it has to be.
+# therefore records a visible SKIP (kind `blocking-gate`) instead of a false FAIL, and the
+# terminal summary re-lists it so the skip is never mistaken for a clean pass. CI's checkout
+# is clean, and (since #456) `.github/workflows/ci.yml`'s test job sets `fetch-depth: 0` so
+# `origin/main` resolves — so BOTH skip arms are inert in CI and the assertion runs live
+# there. Before that fetch-depth change the origin/main arm skipped this gate on every CI run.
 if ! git -C "$LIB/.." rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
-  printf '  NOTE  #434 self-scan skipped — origin/main not resolvable in this checkout\n'
+  skip "#434 stale-prose self-scan" blocking-gate "origin/main not resolvable in this checkout"
 elif [ -n "$(git -C "$LIB/.." status --porcelain 2>/dev/null)" ]; then
-  printf '  NOTE  #434 self-scan skipped — working tree dirty (this check grades committed HEAD)\n'
+  skip "#434 stale-prose self-scan" blocking-gate "working tree dirty (this check grades committed HEAD)"
 else
   assert_eq "#434 the lint is CLEAN against this repo's own branch diff (self-scan exit 0)" "0" \
     "$( ( cd "$LIB/.." && git diff origin/main...HEAD | python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $? ) )"
@@ -28820,9 +29726,372 @@ assert_eq "#457 matcher-probe: hook-probe comment drops the stale 'SHIPS in this
   "$(grep -qF 'SHIPS in this' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo no || echo yes)"
 rm -rf "$DHP_TMP"
 
+# ── #456 skip tally, summary renderer, and the NOTE-emit meta-assertion ───────────────
+# The suite reports passed/failed/skipped. A self-skipping check records a SKIP (never a
+# PASS or FAIL) through the single skip() helper, and lib/test/summary.sh renders the
+# terminal summary. These assertions cover: the renderer's two arms (K==0 byte-identical,
+# K>0 with per-skip lines), that skip() moves SKIP and neither PASS/FAIL (with a positive
+# control), the untouched exit predicate, and the comment-aware NOTE-emit meta-scan
+# (mutation-checked). summary.sh is already sourced at the top of this file.
+#
+# Renderer arm K==0: byte-identical to the pre-#456 "N passed, M failed" format.
+assert_eq "#456 summary: K==0 arm is byte-identical to the historical 'N passed, M failed' format" \
+  "12 passed, 3 failed" "$(devflow_render_test_summary 12 3 0 "")"
+# Renderer arm K>0: header names K, then one line per skipped check (name, kind, reason).
+S456_SKIPS="$(probe_tmp '#456 renderer K>0 skips fixture')"
+printf 'blocking-gate\t#434 stale-prose self-scan\torigin/main not resolvable in this checkout\n' > "$S456_SKIPS"
+printf 'host-capability\t#423 T6b non-ASCII stdout self-scan\tstrict-ASCII condition not reproducible on this host\n' >> "$S456_SKIPS"
+S456_K="$(grep -c . "$S456_SKIPS")"
+assert_eq "#456 summary: K>0 arm header reads 'N passed, M failed, K skipped'" \
+  "10 passed, 0 failed, 2 skipped" "$(devflow_render_test_summary 10 0 "$S456_K" "$S456_SKIPS" | head -1)"
+assert_eq "#456 summary: K>0 arm lists the blocking-gate skip with its name, kind, and reason" "yes" \
+  "$(devflow_render_test_summary 10 0 "$S456_K" "$S456_SKIPS" \
+       | grep -qF 'SKIP  #434 stale-prose self-scan [blocking-gate] — origin/main not resolvable in this checkout' \
+     && echo yes || echo no)"
+assert_eq "#456 summary: K>0 arm lists the host-capability skip with its name, kind, and reason" "yes" \
+  "$(devflow_render_test_summary 10 0 "$S456_K" "$S456_SKIPS" \
+       | grep -qF 'SKIP  #423 T6b non-ASCII stdout self-scan [host-capability] — strict-ASCII condition not reproducible on this host' \
+     && echo yes || echo no)"
+# The renderer never sets the exit code — it returns 0 on BOTH arms (a skip never fails the
+# suite; the suite's own FAIL==0 exit predicate is what decides the exit).
+devflow_render_test_summary 12 3 0 "" >/dev/null; assert_eq "#456 summary: renderer returns 0 on the K==0 arm" "0" "$?"
+devflow_render_test_summary 10 0 "$S456_K" "$S456_SKIPS" >/dev/null; assert_eq "#456 summary: renderer returns 0 on the K>0 arm" "0" "$?"
+rm -f "$S456_SKIPS"
+# Renderer honesty: an announced K>0 with an absent/unreadable skip log emits a LOUD
+# breadcrumb, never a silent header-with-no-detail (the laundering #456 exists to prevent).
+assert_eq "#456 summary: K>0 with an absent skip log emits a 'detail unavailable' breadcrumb, not silence" "yes" \
+  "$(devflow_render_test_summary 10 0 2 "$LIB/test/.devflow-nonexistent-skip-log-zzz" | grep -qF 'SKIP  (detail unavailable' && echo yes || echo no)"
+# ...and a partially-itemizable log (fewer lines than announced) surfaces the shortfall —
+# WITHOUT swallowing the skips it can itemize: the breadcrumb accounts for the missing one,
+# and the genuine skip is still listed, so a shortfall never costs the reader the skips the
+# log does carry.
+S456_SHORT="$(probe_tmp '#456 renderer shortfall fixture')"
+printf 'blocking-gate\t#434 shortfall\treason\n' > "$S456_SHORT"
+assert_eq "#456 summary: K announced greater than itemizable lines surfaces a shortfall breadcrumb" "yes" \
+  "$(devflow_render_test_summary 10 0 2 "$S456_SHORT" | grep -qF '1 of 2 announced skip(s) could not be itemized' && echo yes || echo no)"
+assert_eq "#456 summary: the shortfall arm STILL itemizes the skip the log does carry (the breadcrumb adds to the detail, never replaces it)" "1" \
+  "$(devflow_render_test_summary 10 0 2 "$S456_SHORT" | grep -cxF '  SKIP  #434 shortfall [blocking-gate] — reason')"
+# The OVER-count direction is reconciled too: a log carrying MORE itemizable skips than the
+# announced K means the tally the reader trusts under-reports the run's real skip population —
+# every skip is listed, but the header is wrong, which is the same laundering in the other
+# direction. Surface it; never print a "1 skipped" header over a 2-skip log in silence.
+S456_SKIPS_OVER="$(probe_tmp '#456 renderer over-count fixture')"
+printf 'blocking-gate\t#434 over-count A\treason A\n' > "$S456_SKIPS_OVER"
+printf 'host-capability\t#423 over-count B\treason B\n' >> "$S456_SKIPS_OVER"
+assert_eq "#456 summary: K announced LESS than the itemized lines surfaces a tally/log disagreement breadcrumb" "yes" \
+  "$(devflow_render_test_summary 10 0 1 "$S456_SKIPS_OVER" | grep -qF 'itemizes 1 more skip(s) than the announced tally of 1' && echo yes || echo no)"
+assert_eq "#456 summary: the over-count arm still itemizes EVERY skip in the log (both, not just the announced one)" "2" \
+  "$(devflow_render_test_summary 10 0 1 "$S456_SKIPS_OVER" | grep -c '^  SKIP  #4')"
+# ...and an EXACT agreement emits neither reconciliation breadcrumb (the positive control that
+# keeps the two arms above non-vacuous — they fire on disagreement, not on every K > 0 run).
+assert_eq "#456 summary: an agreeing tally and log emit NO reconciliation breadcrumb (positive control)" "0" \
+  "$(devflow_render_test_summary 10 0 2 "$S456_SKIPS_OVER" | grep -cE 'could not be itemized|tally and log disagree')"
+rm -f "$S456_SHORT" "$S456_SKIPS_OVER"
+# A final UNTERMINATED line (no trailing newline) is still itemized — `grep -c .` counts it,
+# so a renderer that dropped it (the bare `while read` behavior) would fire a shortfall
+# breadcrumb over a log whose only defect is a missing final newline.
+S456_UNTERM="$(probe_tmp '#456 renderer unterminated-line fixture')"
+printf 'blocking-gate\t#434 unterminated\treason' > "$S456_UNTERM"
+assert_eq "#456 summary: a final unterminated log line is still itemized (the tally counts it, so the renderer must too)" "1" \
+  "$(devflow_render_test_summary 10 0 1 "$S456_UNTERM" | grep -cxF '  SKIP  #434 unterminated [blocking-gate] — reason')"
+assert_eq "#456 summary: the unterminated-line log reconciles with its tally (no breadcrumb)" "0" \
+  "$(devflow_render_test_summary 10 0 1 "$S456_UNTERM" | grep -cE 'could not be itemized|tally and log disagree')"
+rm -f "$S456_UNTERM"
+# A present-but-UNREADABLE skip log takes the loud "absent or unreadable" arm — the arm whose
+# wording claims it. Positive control on the SAME fixture first: while readable it itemizes
+# normally, so the breadcrumb below is attributable to the unreadability and not to some
+# unrelated defect in the fixture. Where the host cannot express unreadability (running as
+# root, which reads a chmod-000 file anyway), this self-skips as host-capability rather than
+# asserting vacuously.
+S456_UNREAD="$(probe_tmp '#456 renderer unreadable-log fixture')"
+printf 'blocking-gate\t#434 unreadable\treason\n' > "$S456_UNREAD"
+assert_eq "#456 summary: positive control — the unreadable-log fixture itemizes normally WHILE readable" "1" \
+  "$(devflow_render_test_summary 10 0 1 "$S456_UNREAD" | grep -cxF '  SKIP  #434 unreadable [blocking-gate] — reason')"
+chmod 000 "$S456_UNREAD" 2>/dev/null || true
+if [ -r "$S456_UNREAD" ]; then
+  skip "#456 renderer present-but-unreadable skip log" host-capability \
+    "this host reads a chmod-000 file anyway (running as root?) — the unreadable condition is not reproducible here"
+else
+  assert_eq "#456 summary: a present-but-UNREADABLE skip log takes the 'absent or unreadable' arm (not the shortfall arm, which would name the wrong cause)" "yes" \
+    "$(devflow_render_test_summary 10 0 1 "$S456_UNREAD" | grep -qF 'SKIP  (detail unavailable — skip log absent or unreadable)' && echo yes || echo no)"
+fi
+chmod 600 "$S456_UNREAD" 2>/dev/null || true
+rm -f "$S456_UNREAD"
+# Renderer honesty (fail-closed on an unestablished tally): a skip argument that is not a
+# plain count — empty (a caller whose grep derivation errored, rc >= 2, prints nothing) or
+# non-numeric — renders a LOUD "tally unavailable" line, never a silent coercion to the
+# clean 0-skips format (unknown is not zero).
+assert_eq "#456 summary: an EMPTY skip tally renders the 'skip tally unavailable' breadcrumb, not a clean 0-skips line" "yes" \
+  "$(devflow_render_test_summary 10 0 "" "" | grep -qF 'skip tally unavailable' && echo yes || echo no)"
+assert_eq "#456 summary: a NON-NUMERIC skip tally ('abc') renders the same loud 'skip tally unavailable' line" "yes" \
+  "$(devflow_render_test_summary 10 0 "abc" "" | grep -qF 'skip tally unavailable' && echo yes || echo no)"
+assert_eq "#456 summary: the unestablished-tally arm keeps the pass/fail header as its first line" \
+  "10 passed, 0 failed" "$(devflow_render_test_summary 10 0 "" "" | head -1)"
+devflow_render_test_summary 10 0 "" "" >/dev/null; assert_eq "#456 summary: renderer returns 0 on the unestablished-tally arm" "0" "$?"
+# The suite's exit predicate is unchanged (AC: exits zero when FAIL==0 regardless of K). The
+# search literal is ASSEMBLED (so this assertion's own source lines never carry the contiguous
+# predicate) and must appear exactly once — the real predicate line, no copy in prose.
+S456_EXIT_PRED="$(printf '[ "$%s" -eq 0 ]' 'FAIL')"
+assert_eq "#456 the suite exit predicate (FAIL==0) is present exactly once, unchanged by the SKIP tally" \
+  "1" "$(grep -cF "$S456_EXIT_PRED" "$SELF_SRC")"
+# The tail's SKIP derivation guard fails closed when the tally cannot be derived (a grep
+# error prints nothing; an empty value must never be reported as 0 skipped). The literal is
+# ASSEMBLED so this assertion's own source lines do not inflate the count (#370 self-match).
+S456_UNDERIV="$(printf 'SKIP tally %s' 'underivable')"
+assert_eq "#456 the tail SKIP derivation guard is present exactly once (an unestablished tally fails closed, never reads as 0)" \
+  "1" "$(grep -cF "$S456_UNDERIV" "$SELF_SRC")"
+# ...and the guard's DECISION is driven, not merely grepped. The tail's `case` glob used to be
+# a second copy of the renderer's, pinned by source presence only — so a mistyped glob or a
+# deleted arm could survive as long as the message literal above still matched. Both callers
+# now share ONE predicate (devflow_tally_is_derivable, lib/test/summary.sh), exercised here
+# over every arm it decides: a real count is derivable; an empty value (the grep-error shape
+# the guard exists for), a non-numeric one, a negative/spaced one, and NO argument at all are
+# not. A predicate that answered "derivable" to any of the latter is exactly the fail-OPEN the
+# tail guard claims to prevent.
+s456_deriv() { devflow_tally_is_derivable "$@" && echo derivable || echo underivable; }
+assert_eq "#456 tally predicate: a plain count is derivable" "derivable" "$(s456_deriv 0)"
+assert_eq "#456 tally predicate: a multi-digit count is derivable" "derivable" "$(s456_deriv 42)"
+assert_eq "#456 tally predicate: an EMPTY value (the grep-error shape) is underivable" "underivable" "$(s456_deriv "")"
+assert_eq "#456 tally predicate: a non-numeric value is underivable" "underivable" "$(s456_deriv "grep: no such file")"
+assert_eq "#456 tally predicate: a negative value is underivable" "underivable" "$(s456_deriv "-1")"
+assert_eq "#456 tally predicate: a digits-with-whitespace value is underivable" "underivable" "$(s456_deriv "1 2")"
+assert_eq "#456 tally predicate: NO argument at all is underivable (never an unbound-variable abort)" \
+  "underivable" "$(s456_deriv)"
+# Wiring: the tail actually ROUTES through that predicate and fails closed on false. Pinned
+# with an ASSEMBLED literal (so this line carries no contiguous copy) and MUTATION-PROVEN —
+# dropping the `!` inverts the guard, letting an underivable tally sail through to the
+# renderer, and the pin must go RED on exactly that regression, not merely on its own removal.
+S456_TAIL_CALL="$(printf 'if ! devflow_tally_is_derivable "$%s"; then' 'SKIP')"
+assert_eq "#456 the tail routes its SKIP tally through the shared derivability predicate" "1" \
+  "$(grep -cF "$S456_TAIL_CALL" "$SELF_SRC")"
+assert_pin_red_under "#456 MUTATION: inverting the tail guard (dropping its \`!\`) trips the wiring pin" \
+  "$S456_TAIL_CALL" 's/if ! devflow_tally_is_derivable "\$SKIP"/if devflow_tally_is_derivable "$SKIP"/' "$SELF_SRC"
+# The tail's TERMINAL summary emit routes through the renderer — a regression reverting it to
+# a bare `echo "$PASS passed, $FAIL failed"` would keep every renderer test above green while
+# the real run never reports a skip again. Assembled literal (so this block carries no
+# contiguous copy of the call) + MUTATION-PROVEN: replacing the call with the bare echo (the
+# exact pre-#456 tail) trips the pin.
+S456_RENDER_CALL="$(printf 'devflow_render_test_summary "$%s" "$%s" "$%s" "$%s"' 'PASS' 'FAIL' 'SKIP' 'SKIPS_FILE')"
+assert_eq "#456 the tail emits the terminal summary through devflow_render_test_summary (never a bare echo)" "1" \
+  "$(grep -cF "$S456_RENDER_CALL" "$SELF_SRC")"
+assert_pin_red_under "#456 MUTATION: reverting the tail render call to a bare pass/fail echo trips the wiring pin" \
+  "$S456_RENDER_CALL" 's/^devflow_render_test_summary "\$PASS".*/echo "$PASS passed, $FAIL failed"/' "$SELF_SRC"
+# PASS and FAIL route through the same guard (round 3): all three tallies share one derivation
+# mechanism and one failure shape, so all three take the derivability guard — an emptied PASS
+# would otherwise be laundered to a number by the python-tally arithmetic, and an emptied FAIL
+# would abort as a bare test error instead of a named refusal. Same assembled-literal +
+# mutation-proven pattern as the SKIP guard above.
+S456_PASS_GUARD="$(printf 'if ! devflow_tally_is_derivable "$%s"; then' 'PASS')"
+S456_FAIL_GUARD="$(printf 'if ! devflow_tally_is_derivable "$%s"; then' 'FAIL')"
+assert_eq "#456 the tail routes its PASS tally through the shared derivability predicate" "1" \
+  "$(grep -cF "$S456_PASS_GUARD" "$SELF_SRC")"
+assert_eq "#456 the tail routes its FAIL tally through the shared derivability predicate" "1" \
+  "$(grep -cF "$S456_FAIL_GUARD" "$SELF_SRC")"
+assert_pin_red_under "#456 MUTATION: inverting the PASS tail guard (dropping its \`!\`) trips the wiring pin" \
+  "$S456_PASS_GUARD" 's/if ! devflow_tally_is_derivable "\$PASS"/if devflow_tally_is_derivable "$PASS"/' "$SELF_SRC"
+assert_pin_red_under "#456 MUTATION: inverting the FAIL tail guard (dropping its \`!\`) trips the wiring pin" \
+  "$S456_FAIL_GUARD" 's/if ! devflow_tally_is_derivable "\$FAIL"/if devflow_tally_is_derivable "$FAIL"/' "$SELF_SRC"
+#
+# skip() records a SKIP and moves NEITHER counter — with a positive control on the same
+# results fixture proving a normal assertion DOES still record a PASS (so the zero below is a
+# real "a skip doesn't count", not "nothing was ever counted").
+S456_SK="$(probe_tmp '#456 skip() skip-log fixture')"; : > "$S456_SK"
+S456_RES="$(probe_tmp '#456 skip() results fixture')"; : > "$S456_RES"
+S456_NOTE_OUT="$(SKIPS_FILE="$S456_SK" RESULTS_FILE="$S456_RES" skip "#456 probe-check" host-capability "probe reason")"
+assert_eq "#456 skip() appends exactly one line to the skip log (SKIP increments)" "1" "$(grep -c . "$S456_SK")"
+assert_eq "#456 skip() records NO PASS/FAIL line (neither counter moves)" "0" "$(grep -c . "$S456_RES")"
+# The inline NOTE emit is NAME-first (unlike the kind-first STORED line) — assert the exact
+# emitted format so a transposition of the two orderings cannot ship unnoticed.
+assert_eq "#456 skip() inline NOTE emit is name-first: 'NOTE  <name> skipped [<kind>] — <reason>'" \
+  '  NOTE  #456 probe-check skipped [host-capability] — probe reason' "$S456_NOTE_OUT"
+# End-to-end order pin: drive the log the skip() call ABOVE produced through the renderer and
+# assert the name and kind land in their rendered slots. The K>0 renderer tests earlier use
+# hand-written fixtures, so only THIS test couples skip()'s kind-first storage order to the
+# renderer's read order — a skip() regression storing name-first would transpose every
+# rendered skip's name/kind while those fixture tests stay green.
+assert_eq "#456 e2e: a skip()-produced log renders with name and kind in the correct slots" "1" \
+  "$(devflow_render_test_summary 1 0 1 "$S456_SK" | grep -cxF '  SKIP  #456 probe-check [host-capability] — probe reason')"
+# Positive control: a normal assertion routed to the SAME isolated results file DOES record a PASS.
+RESULTS_FILE="$S456_RES" assert_eq "#456 positive control (recorded to the isolated fixture)" "x" "x" >/dev/null
+assert_eq "#456 positive control: a normal assertion still records a PASS to the fixture (the zero above is real)" \
+  "1" "$(grep -c '^PASS$' "$S456_RES")"
+rm -f "$S456_SK" "$S456_RES"
+#
+# Adversarial field shapes: skip() SANITIZES the log's own delimiters at the sole producer, so
+# the renderer's per-line tab-field split cannot be defeated by a field's content.
+# An embedded TAB in a name would otherwise split into an extra field and transpose every slot
+# to its right (name → the tail of the name, reason → the real name's remainder); an embedded
+# NEWLINE would forge a whole extra log line and inflate the tally. Both are driven end-to-end
+# through skip() → renderer, since the store and the read are the pair that must survive them.
+S456_ADV="$(probe_tmp '#456 skip() delimiter-sanitization skip log')"; : > "$S456_ADV"
+S456_ADV_RES="$(probe_tmp '#456 skip() delimiter-sanitization results')"; : > "$S456_ADV_RES"
+SKIPS_FILE="$S456_ADV" RESULTS_FILE="$S456_ADV_RES" \
+  skip "$(printf 'na\tme')" host-capability "$(printf 'rea\tson')" >/dev/null
+assert_eq "#456 skip(): an embedded TAB in a field is sanitized — the stored line keeps exactly 3 fields" "3" \
+  "$(awk -F'\t' 'NR==1 { print NF }' "$S456_ADV")"
+assert_eq "#456 skip(): a TAB-carrying name still renders in the NAME slot (no field transposition)" "1" \
+  "$(devflow_render_test_summary 1 0 1 "$S456_ADV" | grep -cxF '  SKIP  na me [host-capability] — rea son')"
+: > "$S456_ADV"
+SKIPS_FILE="$S456_ADV" RESULTS_FILE="$S456_ADV_RES" \
+  skip "#456 newline probe" host-capability "$(printf 'two\nlines')" >/dev/null
+assert_eq "#456 skip(): an embedded NEWLINE in a field is sanitized — one skip appends exactly ONE log line (no forged tally)" \
+  "1" "$(grep -c . "$S456_ADV")"
+assert_eq "#456 skip(): the NEWLINE-carrying reason renders on the skip's single line" "1" \
+  "$(devflow_render_test_summary 1 0 1 "$S456_ADV" | grep -cxF '  SKIP  #456 newline probe [host-capability] — two lines')"
+# CARRIAGE RETURN joins the sanitized class (round 3): a CR is not a log delimiter, but it
+# rides verbatim into the rendered summary line, where a terminal treats it as
+# return-to-column-0 — a crafted field could visually overwrite the line. Same producer,
+# same parameter-expansion class as TAB/NEWLINE, driven end-to-end skip() → renderer.
+: > "$S456_ADV"
+SKIPS_FILE="$S456_ADV" RESULTS_FILE="$S456_ADV_RES" \
+  skip "$(printf 'cr\rname')" host-capability "$(printf 'rea\rson')" >/dev/null
+assert_eq "#456 skip(): an embedded CARRIAGE RETURN in a field is sanitized out of the stored line" "0" \
+  "$(grep -c "$(printf '\r')" "$S456_ADV")"
+assert_eq "#456 skip(): the CR-carrying fields render with spaces in their slots (no control char reaches the summary)" "1" \
+  "$(devflow_render_test_summary 1 0 1 "$S456_ADV" | grep -cxF '  SKIP  cr name [host-capability] — rea son')"
+# An EMPTY name is normalized at the producer (fail-closed placeholder): the tally counts the
+# log line either way (`grep -c .` counts any non-empty line), so an unnamed skip must still
+# be itemized — the tally and the itemization use ONE definition of "a skip line", and a
+# dropped detail line would trip a reconciliation breadcrumb naming the wrong cause.
+: > "$S456_ADV"
+SKIPS_FILE="$S456_ADV" RESULTS_FILE="$S456_ADV_RES" \
+  skip "" host-capability "no name supplied" >/dev/null
+assert_eq "#456 skip(): an EMPTY name is stored as the '(unnamed check)' placeholder (never an empty field)" "1" \
+  "$(grep -cF "$(printf '\t(unnamed check)\t')" "$S456_ADV")"
+assert_eq "#456 e2e: the skip(\"\")-produced line renders with '(unnamed check)' in the NAME slot" "1" \
+  "$(devflow_render_test_summary 1 0 1 "$S456_ADV" | grep -cxF '  SKIP  (unnamed check) [host-capability] — no name supplied')"
+assert_eq "#456 e2e: a skip(\"\")-produced log RECONCILES (tally == itemized lines, no breadcrumb)" "0" \
+  "$(devflow_render_test_summary 1 0 "$(grep -c . "$S456_ADV")" "$S456_ADV" | grep -cE 'could not be itemized|tally and log disagree')"
+# Renderer defense-in-depth for a log skip() did NOT write (hand-corrupted): a NAME-empty line
+# is still itemized under the placeholder — the itemization counts exactly what the tally
+# counts (non-empty lines), so the two cannot disagree over a missing field, and the
+# reconciliation breadcrumbs stay reserved for a tally and a log that have really come apart.
+: > "$S456_ADV"
+printf 'blocking-gate\t\tname field empty by hand\n' > "$S456_ADV"
+printf 'host-capability\tnamed sibling\treason\n' >> "$S456_ADV"
+assert_eq "#456 summary: a hand-corrupted NAME-EMPTY log line is itemized under '(unnamed check)' (itemization matches the tally's definition)" "1" \
+  "$(devflow_render_test_summary 1 0 2 "$S456_ADV" | grep -cxF '  SKIP  (unnamed check) [blocking-gate] — name field empty by hand')"
+assert_eq "#456 summary: the name-empty line trips NO reconciliation breadcrumb (the tally and the itemization agree definitionally)" "0" \
+  "$(devflow_render_test_summary 1 0 2 "$S456_ADV" | grep -cE 'could not be itemized|tally and log disagree')"
+assert_eq "#456 summary: positive control — the named sibling in the same log still renders normally" "1" \
+  "$(devflow_render_test_summary 1 0 2 "$S456_ADV" | grep -cxF '  SKIP  named sibling [host-capability] — reason')"
+rm -f "$S456_ADV" "$S456_ADV_RES"
+#
+# NOTE-emit meta-assertion. The SOLE `printf '  NOTE ` emit lives inside skip(), delimited by
+# the split-built markers below (split so these definition lines add no second occurrence).
+SKIP_HELPER_BMARK="SKIP_HELPER_REGION_""BEGIN"
+SKIP_HELPER_EMARK="SKIP_HELPER_REGION_""END"
+# Fail-closed marker controls (a missing marker would make the scan below fail OPEN):
+assert_eq "#456 meta: skip-helper region BEGIN marker present exactly once" "1" "$(pin_count "$SKIP_HELPER_BMARK" "$SELF_SRC")"
+assert_eq "#456 meta: skip-helper region END marker present exactly once" "1" "$(pin_count "$SKIP_HELPER_EMARK" "$SELF_SRC")"
+# Count `printf '  NOTE ` emit-shapes that are NOT inside the skip-helper region and NOT on a
+# comment line. Keyed on the EMIT SHAPE (a printf line carrying the quote+two-space `  NOTE `
+# format prefix), not the bare token NOTE (which occurs ~32 times in comments/assertion names),
+# and comment-aware (leading `#` lines are skipped) so prose cannot inflate it. Scope is the
+# CONTIGUOUS source shape — the accidental un-routed skip a maintainer would actually write;
+# an emit assembled from a variable/pieces (as these very tests do to avoid self-tripping)
+# bypasses it by construction, and defending against determined evasion is a non-goal.
+count_note_emits_outside_skip_region() {  # file -> count of out-of-region, non-comment NOTE emits
+  awk -v b="$SKIP_HELPER_BMARK" -v e="$SKIP_HELPER_EMARK" -v sq="'" '
+    index($0,b){inreg=1; next}
+    index($0,e){inreg=0; next}
+    {
+      line=$0; sub(/^[[:space:]]+/,"",line)
+      if (line ~ /^#/) next            # comment-aware: a NOTE in prose cannot trip it
+      if (inreg) next                  # the sole legit emit lives in the skip() region
+      if (index($0,"printf")>0 && index($0, sq "  NOTE ")>0) c++
+    }
+    END{ print c+0 }' "$1"
+}
+assert_eq "#456 meta: no printf NOTE emit appears outside the skip() helper region (comment-aware)" \
+  "0" "$(count_note_emits_outside_skip_region "$SELF_SRC")"
+# Mutation proof (RED direction): an injected out-of-region NOTE emit trips the scan. The
+# emit-shape token is built from a variable (like the AC3(b) injection proofs) so THIS test's
+# own source lines never carry the literal `<quote>  NOTE ` shape — otherwise they would
+# themselves trip the "expect 0" scan on run.sh above. The single-quote is assembled the same
+# way so no source line here contains the contiguous emit prefix.
+S456_NOTE_SHAPE="$(printf '%s  NOTE  injected out-of-region emit' "'")"
+S456_META="$(probe_tmp '#456 meta injection copy')"
+cp "$SELF_SRC" "$S456_META"
+printf '  printf %s\\n\n' "$S456_NOTE_SHAPE" >> "$S456_META"
+assert_eq "#456 meta MUTATION: an injected out-of-region NOTE emit trips the scan (1, RED)" \
+  "1" "$(count_note_emits_outside_skip_region "$S456_META")"
+# Control: the SAME emit shape inside a COMMENT does not trip the scan (comment-awareness).
+cp "$SELF_SRC" "$S456_META"
+printf '# a comment: printf %s must not count\n' "$S456_NOTE_SHAPE" >> "$S456_META"
+assert_eq "#456 meta CONTROL: a NOTE emit inside a comment does not trip the scan (stays 0)" \
+  "0" "$(count_note_emits_outside_skip_region "$S456_META")"
+rm -f "$S456_META"
+#
+# The three real self-skip sites route through skip() with the correct kind. Both search
+# literals are ASSEMBLED from adjacent pieces so these assertion source lines do not
+# themselves carry the contiguous `skip "..." <kind>` string (else the count would inflate by
+# this test's own line — the #370 self-match trap).
+S456_T6B_CALL="$(printf 'skip "#423 T6b non-ASCII stdout self-scan" %s' 'host-capability')"
+S456_434_CALL="$(printf 'skip "#434 stale-prose self-scan" %s' 'blocking-gate')"
+assert_eq "#456 the #423 T6b site is a host-capability skip through skip()" "1" \
+  "$(grep -cF "$S456_T6B_CALL" "$SELF_SRC")"
+assert_eq "#456 both #434 self-scan arms are blocking-gate skips through skip()" "2" \
+  "$(grep -cF "$S456_434_CALL" "$SELF_SRC")"
+#
+# ci.yml: the lib+python test job's checkout sets fetch-depth: 0 so origin/main resolves.
+assert_eq "#456 ci.yml: the 'lib + python tests' job checkout sets fetch-depth: 0" "yes" \
+  "$(awk '/^    name: lib \+ python tests/{intest=1; next} /^  [a-z]/{intest=0} intest && /fetch-depth: 0/{f=1} END{print (f?"yes":"no")}' "$LIB/../.github/workflows/ci.yml")"
+assert_eq "#456 ci.yml: lib/test/summary.sh is added to the shellcheck lint scope" "yes" \
+  "$(grep -qF 'shellcheck --severity=warning -e SC1091 lib/test/summary.sh' "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
+#
+# review-and-fix: verification_evidence gains a skipped_checks list, and the not-a-clean-pass
+# clause stays repo-agnostic (names no lib/test/run.sh / lib + python tests / --flag).
+RAF456="$LIB/../skills/review-and-fix/SKILL.md"
+assert_eq "#456 review-and-fix: verification_evidence documents a skipped_checks list" "yes" \
+  "$(grep -qF 'skipped_checks' "$RAF456" && echo yes || echo no)"
+assert_eq "#456 review-and-fix: the not-a-clean-pass clause is present and repo-agnostic" "yes" \
+  "$(grep -qF 'not reported by the loop as a clean pass' "$RAF456" \
+       && ! grep -F 'not reported by the loop as a clean pass' "$RAF456" | grep -qE 'run\.sh|lib/test|lib \+ python' \
+     && echo yes || echo no)"
+# ...and the clause names a CONCRETE (but still runner-agnostic) extraction mechanism — the
+# runner's own reported output — so an implementer is never left inferring skips from the
+# exit code, which a skipped check deliberately does not change (round 3).
+assert_eq "#456 review-and-fix: the skip-detection clause names its extraction mechanism (the runner's own reported output) and stays repo-agnostic" "yes" \
+  "$(grep -qF "the runner's own reported output" "$RAF456" \
+       && ! grep -F "the runner's own reported output" "$RAF456" | grep -qE 'run\.sh|lib/test|lib \+ python' \
+     && echo yes || echo no)"
+
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
+# SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
+# PASS/FAIL above — a self-skipping check appended one line to it via skip(). This is the
+# authoritative K the renderer prints; SKIPS_FILE is read by the renderer only to list each
+# skipped check.
+SKIP=$(grep -c . "$SKIPS_FILE" || true)
+# The `|| true` absorbs ONLY the benign empty-log case (grep -c still prints "0", rc 1). A
+# real grep error (rc >= 2) prints NOTHING, leaving SKIP empty — and an empty value coerced
+# downstream to 0 would launder an unestablished tally into "nothing skipped" (unknown is
+# not zero). Fail CLOSED: refuse to render a summary over a tally that could not be derived.
+# The derivability test itself is devflow_tally_is_derivable (lib/test/summary.sh) — the SAME
+# predicate the renderer's unavailable-tally arm uses, so the two cannot drift apart and the
+# suite drives it directly instead of grepping a `case` glob. The two fail-closed RESPONSES
+# stay distinct and are deliberate defense-in-depth: this one aborts the run, the renderer's
+# prints a loud unavailable line for any other caller.
+if ! devflow_tally_is_derivable "$SKIP"; then
+  printf 'ERROR: SKIP tally underivable from %s (grep error, not an empty log) — refusing to report it as 0 skipped\n' "$SKIPS_FILE"
+  exit 1
+fi
+# PASS and FAIL take the SAME fail-closed guard (#456 round 3): each is a `grep -c` derivation
+# with the same rc>=2 empty-value failure shape. Without the guard an emptied PASS is silently
+# laundered back into a number by the python-tally arithmetic below (`$((PASS + PY_PASS))`
+# evaluates an empty variable as 0), rendering a confident under-count; an emptied FAIL on the
+# python-green path aborts at the exit predicate with a bare `[: -eq` error that names nothing.
+# Unknown is not zero for ANY of the three tallies — refuse loudly, up front.
+if ! devflow_tally_is_derivable "$PASS"; then
+  printf 'ERROR: PASS tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
+  exit 1
+fi
+if ! devflow_tally_is_derivable "$FAIL"; then
+  printf 'ERROR: FAIL tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
+  exit 1
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"
@@ -28842,5 +30111,8 @@ fi
 
 # ────────────────────────────────────────────────────────────────────────────
 echo
-echo "$PASS passed, $FAIL failed"
+# Renders "N passed, M failed" when nothing skipped (byte-identical to pre-#456), or
+# "N passed, M failed, K skipped" + one line per skipped check otherwise. The exit
+# predicate below is unchanged — a skip never fails the suite.
+devflow_render_test_summary "$PASS" "$FAIL" "$SKIP" "$SKIPS_FILE"
 [ "$FAIL" -eq 0 ]

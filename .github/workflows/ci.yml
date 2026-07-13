@@ -29,7 +29,16 @@ jobs:
     name: lib + python tests
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 (all history for all branches) so refs/remotes/origin/main resolves
+      # in the checkout — actions/checkout fetches a single commit by default, under which
+      # origin/main does NOT exist, so the #434 stale-prose self-scan in lib/test/run.sh
+      # silently self-skipped on every CI run (issue #456). With full history the gate runs
+      # live here, which is the only place it grades a clean committed tree. Deliberate
+      # trade-off: history is fetched unconditionally — negligible cost at this repo's size,
+      # and a conditional fetch would reintroduce the silent self-skip on the runs it skips.
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -62,6 +71,10 @@ jobs:
         run: |
           git ls-files '*.sh' | grep -v '^lib/test/' \
             | xargs -r shellcheck --severity=warning -e SC1091
+          # lib/test/ is excluded above (the gh-stub fixtures are not shipped code), but
+          # lib/test/summary.sh IS a real renderer sourced by the suite (issue #456), so it
+          # is added to the lint's scope explicitly rather than shipping unlinted.
+          shellcheck --severity=warning -e SC1091 lib/test/summary.sh
 
       # actionlint validates workflow syntax and runs shellcheck over run: blocks.
       # SHELLCHECK_OPTS mirrors the severity policy; SC2034 is excluded because
