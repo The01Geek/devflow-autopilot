@@ -168,8 +168,13 @@ but `--persist`'s own record derivation/write step then failed silently (rc 0 by
 captures the invocation's stderr and greps it for `--persist`'s own `record not written`
 breadcrumb (jq/mkdir failures) **and** its differently-worded disk/permission write-failure
 breadcrumb — a single-literal grep would silently miss the latter — recording a second
-`dropped-failed` reflection when either fires (a record written-but-not-yet-committed is a
-separate, lower-priority gap not covered here). If the stderr capture itself can't be allocated
+`dropped-failed` reflection when either fires. The surface it does **not** cover is the
+telemetry-branch write/push itself (`::warning::telemetry-branch: …`), and post-#441 that is a
+record-**losing** gap, not the milder "written to disk, just not yet committed" one this line
+used to describe: the record is staged under gitignored `.devflow/tmp/` and that staging root is
+`rm -rf`'d once the branch write returns, so a failed branch write loses the run's record
+entirely (coupled with `skills/implement/phases/phase-3-review.md` and `docs/efficiency-trace.md`,
+which say the same). If the stderr capture itself can't be allocated
 (`mktemp` fails), the backstop degrades to discarding `--persist`'s stderr entirely rather than
 aborting — this disables the record-write-failure check for that run (the no-inputs case still
 runs) and emits its own distinct `::warning::`, the same degrade-and-warn discipline as the

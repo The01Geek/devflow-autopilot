@@ -506,7 +506,12 @@ def _telemetry_branch(repo_root):
               f"this reader follows it — fix the config to a quoted string")
     if not branch:
         return "devflow-telemetry"
-    # Same gate, same fallback as the writer. Exit codes, verified against real git (2.50):
+    # Same gate and same fallback as the writer for every CONFIG shape. There is exactly one
+    # deliberate divergence, and it is in the git-unrunnable direction, not the config
+    # direction: the writer falls back on ANY non-zero rc, while this reader keeps the name
+    # unvalidated on rc 127 (see below) — "could not ask" is not "git said no". That arm cannot
+    # split the store, because if git cannot run here it could not have run for the writer
+    # either, so nothing was persisted anywhere. Exit codes verified against real git (2.50):
     # 0 = the name is usable; 128 = git REJECTS it ("my branch", "a..b", "x.lock", "-lead",
     # "[object Object]"). It is NOT 1 — an `rc == 1` check would never fire and the split
     # would survive. `_run` additionally synthesizes 127 from an OSError (git absent, a broken

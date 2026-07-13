@@ -319,24 +319,6 @@ synth_base_ref() {
   return 1
 }
 
-# Emit every fix_commit_sha already recorded by ANY other run's iter-*.json —
-# both the live tmp tree and the committed durable copies — so synthesis never
-# re-attributes a commit some other run (real or previously-synthesized) already
-# recorded. $2 is the target run dir's TMP path, excluded from the scan (its own
-# workpads are what synthesis is about to write; its durable mirror under
-# .devflow/logs/review/, if one survives a wiped tmp, is deliberately NOT
-# excluded — a run whose workpads were already persisted reads as already-
-# recorded, which is correct: its record exists and must not be re-attributed).
-# Best-effort with a CONTAINED, breadcrumbed per-file failure: an unreadable/
-# malformed workpad is skipped — its sha (if any) is lost from the exclusion
-# set, a fail-open-for-that-file window the breadcrumb makes loud — while the
-# `if !` guard keeps the failure from truncating the REST of the scan (this
-# loop runs in an errexit-inheriting process-substitution subshell, where a
-# bare failing jq would kill it mid-list and silently drop every later sha —
-# the wider fail-open the #62/#98 operand-contract check exists to catch).
-# Residual windows: a run whose EVERY workpad copy was deleted after its record
-# was derived (the durable-copy layer exists to prevent it), and the
-# single-unreadable-sibling sha just described (breadcrumbed, never silent).
 # Validate + emit a fix_commit_sha token (lowercase-hex charset — length
 # deliberately unchecked, which is sufficient here: the check exists to keep a
 # corrupt string value ("aaa bbb <realsha>", an embedded newline) from smuggling
@@ -458,9 +440,9 @@ select_fix_commits() {
 # Synthesize minimal iter-<N>.json workpads into $1 from the branch's fix
 # commits (issue #381). Each record carries only iter / fix_commit_sha /
 # fix_files / loop_role:"fix" / synthesized:true — a distinct recognized degraded
-# class the jq filter and --self-check both ride. Three-way outcome so the
-# caller's breadcrumb never collapses an unestablished measurement onto "found
-# none" (the repo's unknown-is-not-zero gotcha): returns 0 iff ≥1 record was
+# class the jq filter and --self-check both ride. The rc is a FOUR-way outcome (0/2/3/4,
+# enumerated below) so the caller's breadcrumb never collapses an unestablished measurement
+# onto "found none" (the repo's unknown-is-not-zero gotcha): returns 0 iff ≥1 record was
 # written; 2 when selection RAN and found no unrecorded matching commit; 3 when
 # the search could not run at all (an uncreatable target dir, no base ref
 # resolvable, OR the git log enumeration itself failed — either way, whether

@@ -664,7 +664,7 @@
     },
     "telemetry": {
       "type": "object",
-      "description": "Settings for the durable observability-telemetry store (issue #441). DevFlow persists every writable run's effectiveness records and durable review workpads to a dedicated long-lived orphan branch that shares no history with the base branch and is never merged into it, written via git plumbing without touching the current branch, HEAD, or the working tree, then pushed. The weekly retrospective reads that branch (unioned with any legacy tracked .devflow/logs/).",
+      "description": "Settings for the durable observability-telemetry store (issue #441). DevFlow persists every writable run's effectiveness records and durable review workpads to a dedicated long-lived orphan branch that shares no history with the base branch and is never merged into it, written via git plumbing without touching the current branch, HEAD, or the tracked working tree (it stages under gitignored .devflow/tmp/, which it removes afterwards), then pushed. The weekly retrospective reads that branch (unioned with any legacy tracked .devflow/logs/).",
       "properties": {
         "branch": {
           "type": "string",

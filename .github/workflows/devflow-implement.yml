@@ -646,7 +646,7 @@ jobs:
           # --persist derives each run's record + durable workpad copy and writes them to
           # the dedicated telemetry branch via git plumbing, then pushes with a fetch/
           # re-parent retry loop — all inside the helper, which sets its own committer
-          # identity. It never touches HEAD or the working tree, so the former before/after-
+          # identity. It never touches HEAD or the TRACKED working tree, so the former before/after-
           # HEAD gate and the bare `git push` are gone (issue #441): the helper owns the
           # targeted, retry-looped push to the telemetry branch. Best-effort/exit-0.
           bash "$HELPER" --persist

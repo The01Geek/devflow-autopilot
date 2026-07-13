@@ -17362,6 +17362,183 @@ false
 EOF
 rm -rf "$TB_WT_REPO"
 
+# PR #442 shadow review, Critical: an UNREADABLE local tip must never be read as "our content is
+# already on the remote". commit_union_on streamed `ls-tree "$overlay"` straight into its build
+# loop with the rc discarded, so a failed listing produced an empty stream → write-tree returned
+# the BASE tree unchanged → tree == ptree → NOOP → and the caller then FAST-FORWARDED the local
+# ref onto the remote tip, orphaning this run's commit AND every offline-accumulated record the
+# union exists to preserve. Silently, exit 0. Assert it now fails CLOSED (keeps the local ref).
+TB_UO_REMOTE="$(git_sandbox "tb union unreadable-overlay remote")"
+git -C "$TB_UO_REMOTE" init -q --bare
+TB_UO_REPO="$(git_sandbox "tb union unreadable-overlay repo")"
+git -C "$TB_UO_REPO" init -q
+git -C "$TB_UO_REPO" config user.email t@e.com; git -C "$TB_UO_REPO" config user.name t
+mkdir -p "$TB_UO_REPO/.devflow"; printf 'tmp/\n' > "$TB_UO_REPO/.devflow/.gitignore"
+git -C "$TB_UO_REPO" add -A; git -C "$TB_UO_REPO" commit -qm seed
+git -C "$TB_UO_REPO" remote add origin "$TB_UO_REMOTE"
+# A FOREIGN writer publishes a telemetry branch remotely, so our push is rejected and the
+# fetch → union re-parent path is the one that runs.
+TB_UO_FOREIGN="$(git_sandbox "tb union foreign repo")"
+git -C "$TB_UO_FOREIGN" init -q
+git -C "$TB_UO_FOREIGN" config user.email f@e.com; git -C "$TB_UO_FOREIGN" config user.name f
+mkdir -p "$TB_UO_FOREIGN/.devflow"; printf 'tmp/\n' > "$TB_UO_FOREIGN/.devflow/.gitignore"
+git -C "$TB_UO_FOREIGN" add -A; git -C "$TB_UO_FOREIGN" commit -qm seed
+TB_UO_FSTAGE="$TB_UO_FOREIGN/.devflow/tmp/stage"
+mkdir -p "$TB_UO_FSTAGE/.devflow/logs/efficiency"
+printf '{"slug":"pr-foreign"}\n' > "$TB_UO_FSTAGE/.devflow/logs/efficiency/pr-foreign-run-1.json"
+( cd "$TB_UO_FOREIGN" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_persist_tree "$2" "$3"' _ \
+    "$LIB/telemetry-branch.sh" "$TB_UO_FOREIGN" "$TB_UO_FSTAGE" ) >/dev/null 2>&1
+git -C "$TB_UO_FOREIGN" remote add origin "$TB_UO_REMOTE"
+git -C "$TB_UO_FOREIGN" push -q origin refs/heads/devflow-telemetry:refs/heads/devflow-telemetry
+# Our run: persist locally (creates our local tip), then CORRUPT that tip's tree object so the
+# overlay listing fails, then drive the push path (which re-parents onto the fetched remote tip).
+TB_UO_STAGE="$TB_UO_REPO/.devflow/tmp/stage"
+mkdir -p "$TB_UO_STAGE/.devflow/logs/efficiency"
+printf '{"slug":"pr-mine"}\n' > "$TB_UO_STAGE/.devflow/logs/efficiency/pr-mine-run-1.json"
+( cd "$TB_UO_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_persist_tree "$2" "$3"' _ \
+    "$LIB/telemetry-branch.sh" "$TB_UO_REPO" "$TB_UO_STAGE" ) >/dev/null 2>&1
+# POSITIVE CONTROL for the union path: with a READABLE local tip the union re-parent runs and
+# BOTH writers' records survive on the remote. This is what makes the pin below attributable —
+# it proves the fixture actually reaches commit_union_on rather than being turned away earlier.
+( cd "$TB_UO_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_persist_tree "$2" "$3"' _ \
+    "$LIB/telemetry-branch.sh" "$TB_UO_REPO" "$TB_UO_STAGE" ) >/dev/null 2>&1
+assert_eq "tb(#442 shadow-C1 control): the union re-parent runs — the FOREIGN record survives the push" "yes" \
+  "$(git -C "$TB_UO_REMOTE" cat-file -e "refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-foreign-run-1.json" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "tb(#442 shadow-C1 control): ...and OUR record survives it too (no data loss on reconcile)" "yes" \
+  "$(git -C "$TB_UO_REMOTE" cat-file -e "refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-mine-run-1.json" >/dev/null 2>&1 && echo yes || echo no)"
+rm -rf "$TB_UO_REPO" "$TB_UO_REMOTE" "$TB_UO_FOREIGN"
+# The FAIL-CLOSED half (an unreadable overlay must never read as "already on the remote") cannot
+# be driven by a fixture: the only way to make the overlay unreadable from outside is to corrupt
+# the local tip's tree object, and verify_store then rejects the run EARLIER, so the fixture never
+# reaches commit_union_on — a negative test that passes for the wrong reason, which is precisely
+# the vacuity class this suite hunts. Rather than ship that, pin the operative guard through the
+# mutation-taking assertion: the pin is proven RED by a `sed` mutation that re-introduces the
+# exact fail-open (streaming the listing with its rc discarded), so it catches the regression, not
+# merely its own line vanishing. Reaching it behaviorally needs a test seam; recorded, not faked.
+assert_pin_red_under \
+  "tb(#442 shadow-C1): commit_union_on captures the overlay listing's rc (an unreadable tip is not 'already on the remote')" \
+  'if ! overlay_out="$(git -c core.quotePath=false -C "$root" ls-tree -r "$overlay" 2>/dev/null)"; then' \
+  's|if ! overlay_out="\$\(git -c core.quotePath=false -C "\$root" ls-tree -r "\$overlay" 2>/dev/null\)"; then|if false; then|' \
+  "$LIB/telemetry-branch.sh"
+
+# PR #442 shadow review, Important: list_blobs' REF probe is three-way, like its ls-tree arm and
+# like the Python reader. An unreadable refs layer (rc 128) must not fold onto "absent" and
+# silently empty the fix-commit exclusion set.
+TB_LBR_REPO="$(git_sandbox "tb list_blobs unestablished-ref repo")"
+mkdir -p "$TB_LBR_REPO"   # NOT a git repo → rev-parse exits 128, not 1
+TB_LBR_ERR="$( ( cd "$TB_LBR_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_list_blobs "$2" refs/heads/devflow-telemetry ".devflow/logs/review/"' _ \
+    "$LIB/telemetry-branch.sh" "$TB_LBR_REPO" ) 2>&1 1>/dev/null )"
+assert_eq "tb(#442 shadow-I2): an UNESTABLISHED ref probe breadcrumbs (never a silent 'no records')" "yes" \
+  "$(printf '%s' "$TB_LBR_ERR" | grep -qF 'could not establish whether ref' && echo yes || echo no)"
+rm -rf "$TB_LBR_REPO"
+
+# PR #442 shadow review (pr-test-analyzer): four guards this PR ADDED in response to review were
+# never driven RED — all diagnostic/attribution arms, where the author fixed the message and moved
+# on. A guard you never saw fail may assert nothing. Drive each, and assert the MISATTRIBUTION it
+# was added to prevent is ABSENT (the absence assertion is what makes each RED under a revert).
+
+# (a) CAS race EXHAUSTION. Previously unreachable: the race seam self-cleared after one firing, so
+# no fixture could exhaust _DEVFLOW_TELEMETRY_CAS_TRIES=5 and the "lost N races" arm was
+# dead-code-provable — a 3-arm selector with 1 arm driven. DEVFLOW_TELEMETRY_RACE_HOOK_TIMES=6
+# now drives it.
+TB_EX_REPO="$(git_sandbox "tb cas exhaustion repo")"
+git -C "$TB_EX_REPO" init -q
+git -C "$TB_EX_REPO" config user.email t@e.com; git -C "$TB_EX_REPO" config user.name t
+mkdir -p "$TB_EX_REPO/.devflow"; printf 'tmp/\n' > "$TB_EX_REPO/.devflow/.gitignore"
+git -C "$TB_EX_REPO" add -A; git -C "$TB_EX_REPO" commit -qm seed
+cat > "$TB_EX_REPO/racehook.sh" <<'EOF'
+#!/usr/bin/env bash
+# A sibling that keeps advancing the ref on EVERY firing — the loop can never win.
+root="$1"; ref="$2"
+b=$(printf 'sib-%s\n' "$RANDOM$$" | git -C "$root" hash-object -w --stdin)
+idx="$root/.devflow/tmp/exidx-$$"; rm -f "$idx"
+old=$(git -C "$root" rev-parse --verify --quiet "$ref" 2>/dev/null || true)
+[ -n "$old" ] && GIT_INDEX_FILE="$idx" git -C "$root" read-tree "$old" 2>/dev/null
+GIT_INDEX_FILE="$idx" git -C "$root" update-index --add --cacheinfo "100644,${b},.devflow/logs/review/sib/run-$RANDOM$$/iter-1.json"
+tree=$(GIT_INDEX_FILE="$idx" git -C "$root" write-tree)
+if [ -n "$old" ]; then
+  c=$(GIT_AUTHOR_NAME=s GIT_AUTHOR_EMAIL=s@s GIT_COMMITTER_NAME=s GIT_COMMITTER_EMAIL=s@s git -C "$root" commit-tree "$tree" -p "$old" -m sib)
+else
+  c=$(GIT_AUTHOR_NAME=s GIT_AUTHOR_EMAIL=s@s GIT_COMMITTER_NAME=s GIT_COMMITTER_EMAIL=s@s git -C "$root" commit-tree "$tree" -m sib)
+fi
+git -C "$root" update-ref "$ref" "$c" "${old:-}"
+rm -f "$idx"
+EOF
+chmod +x "$TB_EX_REPO/racehook.sh"
+TB_EX_STAGE="$TB_EX_REPO/.devflow/tmp/stage"
+mkdir -p "$TB_EX_STAGE/.devflow/logs/efficiency"
+printf '{"slug":"pr-ex"}\n' > "$TB_EX_STAGE/.devflow/logs/efficiency/pr-ex-run-1.json"
+TB_EX_ERR="$( ( cd "$TB_EX_REPO" && DEVFLOW_CONFIG_FILE=/dev/null \
+  DEVFLOW_TELEMETRY_RACE_HOOK="$TB_EX_REPO/racehook.sh" DEVFLOW_TELEMETRY_RACE_HOOK_TIMES=6 \
+  bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_persist_tree "$2" "$3"' _ \
+    "$LIB/telemetry-branch.sh" "$TB_EX_REPO" "$TB_EX_STAGE" ) 2>&1 1>/dev/null )"; TB_EX_RC=$?
+assert_eq "tb(#442 shadow-T1): CAS exhaustion → exit 0 (best-effort)" "0" "$TB_EX_RC"
+assert_eq "tb(#442 shadow-T1): CAS exhaustion FIRES the 'lost N races' arm (previously unreachable)" "yes" \
+  "$(printf '%s' "$TB_EX_ERR" | grep -qF "lost 5 races" && echo yes || echo no)"
+assert_eq "tb(#442 shadow-T1): ...and does NOT misattribute a racing sibling to a lock/disk fault" "no" \
+  "$(printf '%s' "$TB_EX_ERR" | grep -qF 'a held ref .lock (another git process)' && echo yes || echo no)"
+rm -rf "$TB_EX_REPO"
+
+# (b) An ABSENT staging root (the caller's mkdir was denied) must not read as "nothing staged".
+TB_AS_REPO="$(git_sandbox "tb absent staging-root repo")"
+git -C "$TB_AS_REPO" init -q
+git -C "$TB_AS_REPO" config user.email t@e.com; git -C "$TB_AS_REPO" config user.name t
+mkdir -p "$TB_AS_REPO/.devflow"; printf 'tmp/\n' > "$TB_AS_REPO/.devflow/.gitignore"
+git -C "$TB_AS_REPO" add -A; git -C "$TB_AS_REPO" commit -qm seed
+TB_AS_ERR="$( ( cd "$TB_AS_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_persist_tree "$2" "$3"' _ \
+    "$LIB/telemetry-branch.sh" "$TB_AS_REPO" "$TB_AS_REPO/.devflow/tmp/never-created" ) 2>&1 1>/dev/null )"; TB_AS_RC=$?
+assert_eq "tb(#442 shadow-T2): an ABSENT staging root → exit 0 (best-effort)" "0" "$TB_AS_RC"
+assert_eq "tb(#442 shadow-T2): ...breadcrumbs instead of reading as a clean 'nothing staged' no-op" "yes" \
+  "$(printf '%s' "$TB_AS_ERR" | grep -qF 'does not exist — the caller could not create it' && echo yes || echo no)"
+# Positive control: the SAME fixture with a real (empty) staging root IS a legitimate silent no-op.
+mkdir -p "$TB_AS_REPO/.devflow/tmp/empty-stage"
+TB_AS_ERR2="$( ( cd "$TB_AS_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_persist_tree "$2" "$3"' _ \
+    "$LIB/telemetry-branch.sh" "$TB_AS_REPO" "$TB_AS_REPO/.devflow/tmp/empty-stage" ) 2>&1 1>/dev/null )"
+assert_eq "tb(#442 shadow-T2 control): an EMPTY-but-present staging root stays a silent clean no-op" "no" \
+  "$(printf '%s' "$TB_AS_ERR2" | grep -qF 'does not exist' && echo yes || echo no)"
+rm -rf "$TB_AS_REPO"
+
+# (c) An UNWRITABLE .devflow/tmp (the cloud-sandbox denial) must name ITS cause, not the object
+# store. Make .devflow/tmp a regular FILE so mkdir -p deterministically fails (portable; no chmod).
+TB_UW_REPO="$(git_sandbox "tb unwritable devflow-tmp repo")"
+git -C "$TB_UW_REPO" init -q
+git -C "$TB_UW_REPO" config user.email t@e.com; git -C "$TB_UW_REPO" config user.name t
+mkdir -p "$TB_UW_REPO/.devflow"; printf 'tmp/\n' > "$TB_UW_REPO/.devflow/.gitignore"
+git -C "$TB_UW_REPO" add -A; git -C "$TB_UW_REPO" commit -qm seed
+TB_UW_STAGE="$TB_UW_REPO/stage-elsewhere"
+mkdir -p "$TB_UW_STAGE/.devflow/logs/efficiency"
+printf '{"slug":"pr-uw"}\n' > "$TB_UW_STAGE/.devflow/logs/efficiency/pr-uw-run-1.json"
+printf 'not-a-directory\n' > "$TB_UW_REPO/.devflow/tmp"   # mkdir -p .devflow/tmp now fails
+TB_UW_ERR="$( ( cd "$TB_UW_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_persist_tree "$2" "$3"' _ \
+    "$LIB/telemetry-branch.sh" "$TB_UW_REPO" "$TB_UW_STAGE" ) 2>&1 1>/dev/null )"; TB_UW_RC=$?
+assert_eq "tb(#442 shadow-T3): an unwritable .devflow/tmp → exit 0 (best-effort)" "0" "$TB_UW_RC"
+assert_eq "tb(#442 shadow-T3): ...names the DENIED .devflow/tmp write as the cause" "yes" \
+  "$(printf '%s' "$TB_UW_ERR" | grep -qF "for the temp index" && echo yes || echo no)"
+assert_eq "tb(#442 shadow-T3): ...and does NOT misattribute it to 'object-store write failed'" "no" \
+  "$(printf '%s' "$TB_UW_ERR" | grep -qF 'object-store write failed' && echo yes || echo no)"
+rm -rf "$TB_UW_REPO"
+
+# (d) The remote probe tests `origin` SPECIFICALLY. Its own comment names the bug a bare
+# `git remote` check would cause; drive a repo whose ONLY remote is `upstream` and prove it.
+TB_UP_REPO="$(git_sandbox "tb non-origin remote repo")"
+git -C "$TB_UP_REPO" init -q
+git -C "$TB_UP_REPO" config user.email t@e.com; git -C "$TB_UP_REPO" config user.name t
+mkdir -p "$TB_UP_REPO/.devflow"; printf 'tmp/\n' > "$TB_UP_REPO/.devflow/.gitignore"
+git -C "$TB_UP_REPO" add -A; git -C "$TB_UP_REPO" commit -qm seed
+git -C "$TB_UP_REPO" remote add upstream /nonexistent/upstream.git   # NOT origin
+TB_UP_STAGE="$TB_UP_REPO/.devflow/tmp/stage"
+mkdir -p "$TB_UP_STAGE/.devflow/logs/efficiency"
+printf '{"slug":"pr-up"}\n' > "$TB_UP_STAGE/.devflow/logs/efficiency/pr-up-run-1.json"
+TB_UP_ERR="$( ( cd "$TB_UP_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_persist_tree "$2" "$3"' _ \
+    "$LIB/telemetry-branch.sh" "$TB_UP_REPO" "$TB_UP_STAGE" ) 2>&1 1>/dev/null )"
+assert_eq "tb(#442 shadow-T4): a repo whose only remote is 'upstream' → names the missing ORIGIN" "yes" \
+  "$(printf '%s' "$TB_UP_ERR" | grep -qF "no 'origin' git remote configured" && echo yes || echo no)"
+assert_eq "tb(#442 shadow-T4): ...and does NOT misattribute it to 'likely no network'" "no" \
+  "$(printf '%s' "$TB_UP_ERR" | grep -qF 'likely no network' && echo yes || echo no)"
+assert_eq "tb(#442 shadow-T4): ...and the record still persists to the LOCAL ref" "yes" \
+  "$(_et_on_branch "$TB_UP_REPO" ".devflow/logs/efficiency/pr-up-run-1.json")"
+rm -rf "$TB_UP_REPO"
+
 # AC18: config schema + example document telemetry.branch.
 assert_eq "tb(#441 AC18): config.schema.json documents telemetry.branch (default devflow-telemetry)" "yes" \
   "$(python3 -c 'import json;d=json.load(open("'"$LIB"'/../.devflow/config.schema.json"));print("yes" if d["properties"].get("telemetry",{}).get("properties",{}).get("branch",{}).get("default")=="devflow-telemetry" else "no")')"
