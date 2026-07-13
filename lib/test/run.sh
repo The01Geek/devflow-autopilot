@@ -16921,24 +16921,37 @@ assert_eq "#458 coupling: devflow-runner.yml inline TARGETS == helper HOOK_TARGE
 # scripts/detect-hook-closure-edges.py (issue #460 extraction — a single copy so this
 # guard and its positive-control test below exercise the SAME regex set; a regex
 # regression turns one or the other RED rather than diverging silently between two
-# hand-copied programs). The source prefix set anchors on the shell metacharacters that
-# can precede a `.`/`source` — line start, `;`, `&`, `|`, `(`, and `!`/`{` — so a
-# negation-guarded (`if ! . "$dep"`) or brace-grouped (`{ . "$dep"; }`) source edge is
-# detected, not a blind spot (the #460 REJECT: the old `[;&|(]` class missed `if ! . …`,
-# the exact idiom lib/implement-stop-guard.sh uses).
+# hand-copied programs). The source prefix set anchors on both the shell metacharacters
+# that can precede a `.`/`source` — line start, `;`, `&`, `|`, `(`, and `!`/`{` — AND
+# (issue #460 review, PT3) the reserved words that open a command position — `then`,
+# `do`, `else`, `elif` — so a negation-guarded (`if ! . "$dep"`), brace-grouped
+# (`{ . "$dep"; }`), or keyword-position (`then . "$dep"`) source edge is detected, not a
+# blind spot (the #460 REJECT: the old `[;&|(]` class missed `if ! . …`, the exact idiom
+# lib/implement-stop-guard.sh uses; the review caught the sibling keyword-position miss).
 HSH_EDGES="$LIB/../scripts/detect-hook-closure-edges.py"
 assert_eq "#458 drift-guard: closure-edge walker helper exists" "yes" \
   "$([ -f "$HSH_EDGES" ] && echo yes || echo no)"
 HSH_DRIFT="$(REPO_ROOT="$LIB/.." CLOSURE="$HSH_CLOSURE_LIT" python3 "$HSH_EDGES")"
 assert_eq "#458 drift-guard: every source/exec edge in the closure resolves to a hardened target" "" "$HSH_DRIFT"
 
-# POSITIVE CONTROL (issue #460): prove the walker actually REPORTS a source edge in
-# EACH command-position form — line-start, negation-guarded (`if ! . …`), continuation
-# (`&& . …`), and brace-grouped (`{ . …; }`) — to a helper NOT in the passed closure.
-# A future regex regression that stops matching any one form drops that violation and
-# turns this RED (the guarantee the prose claims — made true and tested here). Build a
-# synthetic closure file carrying one edge in each form to deps NOT in CLOSURE, then run
-# the SAME helper over it.
+# POSITIVE CONTROL (issue #460): prove the walker actually REPORTS an edge in EACH
+# form it claims to detect — a regex regression that stops matching any one form drops
+# that violation and turns this RED (the guarantee the prose claims — made true and
+# tested here). The forms, in the synthetic fixture below:
+#   SOURCE edges (src_re + slashsh_re): line-start, negation-guarded (`if ! . …`),
+#     continuation (`&& . …`), brace-grouped (`{ . …; }`), and (issue #460 review, PT3)
+#     the KEYWORD-position forms `then . `/`do . `/`else . ` — legal command positions
+#     the old metacharacter-only prefix set silently missed, the same class as the
+#     `if ! . ` miss this PR's #460 fix already closed.
+#   EXEC edges: `python3 <path>` (pyexec_re), `bash <path>.sh` (shexec_re),
+#     `exec <path>` (execb_re), and a `VAR=…scripts/…` assignment (assign_re). These
+#     three-of-nine real closure edges (config_fingerprint.py, workpad.py via python3,
+#     the assignment-form edges) had NO positive control before — a silent under-match
+#     of any exec regex left the drift-guard green (issue #460 review, PT1/T6).
+#   IN-STRING `#`: an edge AFTER a `#` inside a quoted string must survive the
+#     quote-aware comment strip (issue #460 review, FP4) — a naive `#.*$` strip drops it.
+# Build a synthetic closure file carrying one edge in each form to deps NOT in CLOSURE,
+# then run the SAME helper over it.
 HSH_PC_DIR="$(mktemp -d)"
 mkdir -p "$HSH_PC_DIR/lib"
 cat > "$HSH_PC_DIR/lib/synthetic-entry.sh" <<'SYNEOF'
@@ -16947,6 +16960,14 @@ cat > "$HSH_PC_DIR/lib/synthetic-entry.sh" <<'SYNEOF'
 if ! . "$d/dep-b.sh"; then :; fi
 foo=bar && . "$d/dep-c.sh"
 { . "$d/dep-d.sh"; }
+if true; then . "$d/dep-then.sh"; fi
+for x in 1; do . "$d/dep-do.sh"; done
+if false; then :; else . "$d/dep-else.sh"; fi
+python3 scripts/dep-py.py
+bash scripts/dep-bash.sh
+exec scripts/dep-exec.sh
+DEP=scripts/dep-assign.py
+echo "issue #1 tracked here"; . "$d/dep-instr.sh"
 SYNEOF
 HSH_PC_OUT="$(REPO_ROOT="$HSH_PC_DIR" CLOSURE="lib/synthetic-entry.sh" python3 "$HSH_EDGES")"
 assert_eq "#460 positive control: line-start source edge (dep-a.sh) is reported" "1" \
@@ -16957,7 +16978,38 @@ assert_eq "#460 positive control: continuation source edge (\`&& . …\`, dep-c.
   "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-c\.sh' || true)"
 assert_eq "#460 positive control: brace-grouped source edge (\`{ . …; }\`, dep-d.sh) is reported" "1" \
   "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-d\.sh' || true)"
+# Keyword-position source edges (issue #460 review, PT3) — the walker's new prefix words.
+assert_eq "#460 positive control: keyword-position source edge (\`then . …\`, dep-then.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-then\.sh' || true)"
+assert_eq "#460 positive control: keyword-position source edge (\`do . …\`, dep-do.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-do\.sh' || true)"
+assert_eq "#460 positive control: keyword-position source edge (\`else . …\`, dep-else.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-else\.sh' || true)"
+# Exec-edge forms (issue #460 review, PT1/T6) — previously uncontrolled: a silent
+# under-match of any of these left the drift-guard vacuously green.
+assert_eq "#460 positive control: python3 exec edge (pyexec_re, dep-py.py) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-py\.py' || true)"
+assert_eq "#460 positive control: bash exec edge (shexec_re, dep-bash.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-bash\.sh' || true)"
+assert_eq "#460 positive control: exec edge (execb_re, dep-exec.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-exec\.sh' || true)"
+assert_eq "#460 positive control: assignment edge (assign_re, dep-assign.py) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-assign\.py' || true)"
+# In-string '#' must not swallow a later edge (issue #460 review, FP4).
+assert_eq "#460 positive control: edge after an in-string '#' (quote-aware strip, dep-instr.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-instr\.sh' || true)"
 rm -rf "$HSH_PC_DIR"
+
+# FAIL-CLOSED READ (issue #460 review, SF1/F1): a closure member the walker cannot
+# read (missing / permission / directory) must be REPORTED as a violation, never
+# swallowed to an empty "clean" set. Point CLOSURE at a member that does not exist and
+# assert the UNREADABLE violation line is emitted (so the drift-guard turns the desk RED
+# on an un-auditable member instead of green).
+HSH_UR_DIR="$(mktemp -d)"
+HSH_UR_OUT="$(REPO_ROOT="$HSH_UR_DIR" CLOSURE="lib/does-not-exist.sh" python3 "$HSH_EDGES")"
+assert_eq "#460 drift-guard: an unreadable/missing closure member is reported UNREADABLE (not swallowed)" "1" \
+  "$(printf '%s\n' "$HSH_UR_OUT" | grep -c 'lib/does-not-exist.sh -> UNREADABLE' || true)"
+rm -rf "$HSH_UR_DIR"
 
 # ── Adversarial drive over the full closure. Helper builders. ──────────────────
 HSH_TMP="$(mktemp -d)"
@@ -17043,6 +17095,24 @@ hsh_mk_ws "$HSH_TMP/u/ws"
 WORKSPACE_ROOT="$HSH_TMP/u/ws" bash "$HSH" >/dev/null 2>&1
 assert_eq "#458 helper: unset TRUSTED_DIR stubs the entry (fail closed)" "0" \
   "$(grep -c 'MALICIOUS' "$HSH_TMP/u/ws/scripts/stop-hook-probe.sh" || true)"
+
+# Scenario (dir-dest, issue #460 review, FP6): a target path that is a DIRECTORY must
+# NOT read as a successful trusted-copy install (`cp file dir/` exits 0 without
+# displacing the path). try_install_trusted must decline it and fall through to the
+# fail-closed arm, so the helper exits NON-ZERO (the workflow inline stub arm then runs)
+# rather than breadcrumbing a phantom success. Give every OTHER target a trusted copy so
+# the only failing target is the directory one.
+hsh_mk_ws "$HSH_TMP/dd/ws"
+# shellcheck disable=SC2086
+hsh_mk_trusted "$HSH_TMP/dd/tr" $HSH_CLOSURE_LIT
+rm -f "$HSH_TMP/dd/ws/scripts/workpad.py"
+mkdir -p "$HSH_TMP/dd/ws/scripts/workpad.py"   # dest is now a DIRECTORY
+WORKSPACE_ROOT="$HSH_TMP/dd/ws" TRUSTED_DIR="$HSH_TMP/dd/tr" bash "$HSH" >/dev/null 2>&1
+hsh_dd_rc=$?
+assert_eq "#460 helper: a directory dest is declined (not a phantom trusted-copy success) — exits NON-ZERO" "yes" \
+  "$([ "$hsh_dd_rc" -ne 0 ] && echo yes || echo no)"
+assert_eq "#460 helper: the directory dest is NOT displaced by a copied file (still a directory)" "yes" \
+  "$([ -d "$HSH_TMP/dd/ws/scripts/workpad.py" ] && echo yes || echo no)"
 
 # Breadcrumbs name the source used for each target (trusted vs stub).
 HSH_ERR="$(WORKSPACE_ROOT="$HSH_TMP/a/ws" TRUSTED_DIR="$HSH_TMP/a/tr" bash "$HSH" 2>&1 1>/dev/null)"
@@ -17195,8 +17265,51 @@ assert_pin_red_under "#458 workflow: a failed/unrun helper falls through to inli
 # Rank-1 self-copy of the harden helper from the base ref is gated on the base ref
 # actually being the DevFlow plugin repo (plugin.json name), so a consumer's unrelated
 # like-named scripts/harden-stop-hooks.sh is never executed as the trusted helper.
-assert_eq "#458 workflow: harden self-copy gated on plugin.json name discriminator" "1" \
+assert_eq "#458 workflow: harden self-copy line present" "1" \
   "$(grep -cF 'git show "FETCH_HEAD:scripts/harden-stop-hooks.sh"' "$RUNNER" || true)"
+# NON-VACUOUS gating pin (issue #460 review, CA4/PT2): the presence check above stays
+# green even if the `grep -Eq …"devflow"` discriminator gate is deleted (the self-copy
+# `git show` line survives). The discriminator literal is NOT file-unique (baseprovision
+# uses the same grep), so pin the harden self-copy's gating by ADJACENCY: the line
+# immediately preceding the self-copy `git show` must be the plugin.json-name
+# discriminator. A mutation deleting the gate changes that preceding line → RED.
+assert_eq "#460 workflow: harden self-copy is gated by the plugin.json-name discriminator on the preceding line" "1" \
+  "$(grep -B1 -F 'raw=$(git show "FETCH_HEAD:scripts/harden-stop-hooks.sh"' "$RUNNER" | grep -c 'grep -Eq .*"devflow"' || true)"
+
+# ── #460 review (FP1): consumer relevance gate — harden ONLY when the TRUSTED base
+# .claude/settings.json wires these Stop hooks. devflow-runner.yml ships to consumers,
+# but DevFlow's own Stop hooks do not; without this gate a consumer review stubs/creates
+# the nine DevFlow-layout paths over same-named files (a wrong verdict).
+assert_eq "#460 workflow: relevance gate reads the TRUSTED base .claude/settings.json" "1" \
+  "$(grep -cF 'git show "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
+assert_eq "#460 workflow: relevance gate keys on the three entry hooks" "1" \
+  "$(grep -cF 'ENTRY_TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh"' "$RUNNER" || true)"
+assert_eq "#460 workflow: gate skips hardening when base settings.json does not wire the hooks" "1" \
+  "$(grep -c 'does not wire the DevFlow Stop hooks' "$RUNNER" || true)"
+# Behavioral-fix pin: the operative construct is the `HOOKS_WIRED -eq 0` skip decision —
+# mutating it so the skip never fires re-opens FP1 (harden a consumer that has no hooks,
+# clobbering same-named files). assert_pin_red_under proves PASS->FAIL under that mutation.
+assert_pin_red_under "#460 workflow: relevance gate skips when the base does not wire the hooks — dropping the skip re-opens consumer clobbering" \
+  'if [ "$HOOKS_WIRED" -eq 0 ]; then' \
+  's/if \[ "\$HOOKS_WIRED" -eq 0 \]; then/if false; then/' \
+  "$RUNNER"
+# The gate skip must fire BEFORE the helper / inline-stub arms run (an early exit), or the
+# stubbing would still happen. Pin the SKIP_HARDEN early-out and its guard.
+assert_eq "#460 workflow: SKIP_HARDEN early-out precedes the helper/inline arms" "1" \
+  "$(grep -c 'if \[ "\$SKIP_HARDEN" -eq 1 \]; then' "$RUNNER" || true)"
+# A FETCH FAILURE must NOT set SKIP_HARDEN — it stays on the fail-closed path so DevFlow's
+# own protection is never dropped on a transient base-ref fetch error. The gate is set
+# only inside the fetch-success branch, so `SKIP_HARDEN=1` appears exactly once.
+assert_eq "#460 workflow: SKIP_HARDEN is set on exactly one (fetch-success, unwired) path" "1" \
+  "$(grep -c 'SKIP_HARDEN=1' "$RUNNER" || true)"
+
+# ── #460 review (SF4): the trusted-copy materialization write is CHECKED — a
+# partial/empty file from a failed write is removed, not later installed as a "trusted
+# base copy" with a success breadcrumb. The old form was `printf … 2>/dev/null || true`.
+assert_eq "#460 workflow: trusted-copy materialization write is checked (rm residue on failure)" "1" \
+  "$(grep -c 'failed to materialize the trusted base copy' "$RUNNER" || true)"
+assert_eq "#460 workflow: the swallowed 'printf … || true' materialization write is gone" "0" \
+  "$(grep -cF 'printf '\''%s\n'\'' "$raw" > "$TRUSTED_DIR/$t" 2>/dev/null || true' "$RUNNER" || true)"
 
 # The setup-project-env step is gated on the base-ref provision flag.
 assert_eq "provision: setup-project-env step present" "1" \

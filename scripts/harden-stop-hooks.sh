@@ -73,7 +73,11 @@
 #                                    is needed for a missing exec dep.
 # So the executed script is either the base-branch version or a stub that does
 # nothing; the PR-head version never runs. (An unedited PR yields byte-identical base
-# copies, so no working-tree delta.)
+# copy CONTENTS; the unconditional `chmod +x` may still surface a mode-only delta on a
+# target tracked non-executable — lib/resolve-jq.sh and lib/resolve-bin.sh are 100644 —
+# under core.fileMode=true. That delta is inert: the review job is read-only, so it is
+# never committed, and the exec bit is not load-bearing anyway — entries run as
+# `bash <path>`, libs are `source`d, Python deps run as `python3 <path>`.)
 #
 # TRUST NOTE (mirrors filter-runner-tools.sh): a hand-edit to THIS file changes nothing
 # about how the editing PR's own review is hardened — devflow-runner.yml executes this
@@ -154,6 +158,14 @@ try_install_trusted() {
   dest="$WORKSPACE_ROOT/$t"
   destdir="${dest%/*}"
   src="$TRUSTED_DIR/$t"
+  # A dest that is a DIRECTORY must not be treated as installable: `cp file dir/`
+  # copies INTO it and exits 0, so the target path is NOT displaced yet the copy
+  # reports success. Return 1 so the caller falls through to write_stub, whose
+  # `printf > "$dest"` fails on a directory → displacement_failed → fail-closed exit.
+  if [ -d "$dest" ]; then
+    printf 'devflow: harden-stop-hooks: %s — dest is a directory, not a file; cannot displace it — falling through to the fail-closed arm\n' "$t" >&2
+    return 1
+  fi
   if [ -n "$TRUSTED_DIR" ] && [ -f "$src" ]; then
     if mkdir -p "$destdir" 2>/dev/null && cp "$src" "$dest" 2>/dev/null; then
       chmod +x "$dest" 2>/dev/null || true

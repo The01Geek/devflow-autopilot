@@ -725,17 +725,46 @@ jobs:
           ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
           TRUSTED_DIR=""
           HELPER=""
+          SKIP_HARDEN=0
+          # The three ENTRY hooks whose presence in the TRUSTED base .claude/settings.json
+          # is what makes this hardening relevant at all (issue #460 review, FP1).
+          ENTRY_TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh"
           # Rank 1: materialize the trusted hook copies AND the trusted helper from
           # the base ref. `origin` is the upstream repo, so the base tip is the
           # maintainer-controlled tree, not the PR head. Only inside this fetch-
           # success branch is FETCH_HEAD the base ref (checkout may leave it at the
           # PR head elsewhere) — mirrors baseprovision's FLOOR_HELPER discipline.
           if [ -n "${BASE_REF:-}" ] && git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
+            # RELEVANCE GATE (issue #460 review, FP1): install.sh ships devflow-runner.yml
+            # to consumer repos, but DevFlow's own .claude/settings.json Stop hooks do NOT
+            # ship. In a consumer whose TRUSTED base .claude/settings.json does not wire
+            # these hooks there is nothing to harden — and stubbing/creating the nine
+            # DevFlow-layout paths would clobber a same-named consumer file under review
+            # (a wrong verdict). So harden ONLY when the trusted base settings.json wires
+            # at least one entry hook. Keyed on the BASE ref, never the PR head — a PR
+            # could otherwise strip the wiring from its own settings.json to dodge the
+            # floor while claude-code-action still restores the base hooks that fire.
+            SETTINGS_JSON="$(git show "FETCH_HEAD:.claude/settings.json" 2>/dev/null || true)"
+            HOOKS_WIRED=0
+            for e in $ENTRY_TARGETS; do
+              case "$SETTINGS_JSON" in *"$e"*) HOOKS_WIRED=1 ;; esac
+            done
+            if [ "$HOOKS_WIRED" -eq 0 ]; then
+              SKIP_HARDEN=1
+              echo "::notice::harden-stop-hooks: the trusted base .claude/settings.json does not wire the DevFlow Stop hooks — nothing to harden; skipping (this repo does not use the base-hook channel this floor protects)."
+            else
             TRUSTED_DIR="$RUNNER_TEMP/devflow-trusted-hooks"
             for t in $TARGETS; do
               if raw=$(git show "FETCH_HEAD:$t" 2>/dev/null); then
                 if mkdir -p "$TRUSTED_DIR/${t%/*}" 2>/dev/null; then
-                  printf '%s\n' "$raw" > "$TRUSTED_DIR/$t" 2>/dev/null || true
+                  # Checked write (issue #460 review, SF4): a partial/empty file left by a
+                  # failed write must NOT later be installed as a "trusted base copy" — remove
+                  # the residue so the helper stubs (fail-closed) instead of copying a corrupt
+                  # hook with a success breadcrumb.
+                  if ! printf '%s\n' "$raw" > "$TRUSTED_DIR/$t" 2>/dev/null; then
+                    rm -f "$TRUSTED_DIR/$t" 2>/dev/null || true
+                    echo "::warning::harden-stop-hooks: failed to materialize the trusted base copy of '$t'; it will be stubbed (fail-closed) rather than installed corrupt."
+                  fi
                 fi
               fi
             done
@@ -749,8 +778,18 @@ jobs:
               && raw=$(git show "FETCH_HEAD:scripts/harden-stop-hooks.sh" 2>/dev/null); then
               printf '%s\n' "$raw" > "$RUNNER_TEMP/harden-stop-hooks.sh" 2>/dev/null && HELPER="$RUNNER_TEMP/harden-stop-hooks.sh"
             fi
+            fi   # close the HOOKS_WIRED else-branch (issue #460 review, FP1)
           else
             echo "::warning::harden-stop-hooks: could not fetch base ref '${BASE_REF:-}' to materialize trusted Stop-hook copies; failing closed (no-op stubs for every hook target)."
+          fi
+          # RELEVANCE GATE early-out (issue #460 review, FP1): the trusted base ref
+          # demonstrably does not wire these Stop hooks, so there is nothing to harden
+          # and stubbing would clobber consumer files — exit cleanly before the helper
+          # / inline-stub arms run. (A fetch FAILURE does NOT set this — it stays on the
+          # fail-closed path so DevFlow's own protection is never dropped on a transient
+          # base-ref fetch error.)
+          if [ "$SKIP_HARDEN" -eq 1 ]; then
+            exit 0
           fi
           # Rank 2: the vendored helper, ONLY on a fresh fetch this run (never the
           # PR-head committed/self copy — anchored to the repo ROOT like the floor).
@@ -760,15 +799,15 @@ jobs:
           fi
           # Fail CLOSED to inline stubs whenever a trusted helper did NOT run to
           # completion — either it never resolved (HELPER empty), OR it resolved but
-          # `bash "$HELPER"` exited non-zero. A resolved helper that cannot execute at
-          # all (a truncated/corrupt materialized copy, a noexec RUNNER_TEMP, disk
-          # pressure) hardens ZERO targets and is contracted to exit 0, so a non-zero
-          # exit means hardening did not happen — merely warning and proceeding would
-          # leave every PR-head Stop-hook script executable in this secrets-bearing
-          # job, the exact fail-OPEN this floor exists to prevent. So a helper failure
-          # takes the SAME inline-stub fallback as an unresolved helper (mirroring the
-          # #402 deny-floor, which fails closed on its helper's non-zero rc). Capture
-          # the rc in the SAME statement (`if bash …`), never a later `$?` read.
+          # `bash "$HELPER"` returned non-zero. The helper's contract is exit 0 ONLY
+          # when every target was displaced (trusted copy or stub); any non-zero rc —
+          # a wholly-unwritable target, or a truncated/unreadable copy that failed
+          # mid-run — means hardening may be partial or absent, so proceeding would risk
+          # leaving a PR-head Stop-hook script executable in this secrets-bearing job,
+          # the exact fail-OPEN this floor exists to prevent. So a non-zero rc takes the
+          # SAME inline-stub fallback as an unresolved helper (mirroring the #402 deny-
+          # floor, which fails closed on its helper's non-zero rc). Capture the rc in the
+          # SAME statement (`if bash …`), never a later `$?` read.
           HARDENED=0
           if [ -n "$HELPER" ]; then
             if WORKSPACE_ROOT="$ROOT" TRUSTED_DIR="$TRUSTED_DIR" bash "$HELPER"; then
