@@ -26,9 +26,10 @@ Never leave it as prose in the body.
 
 ## Issue structure
 
-Every issue includes these sections, in this order. (A **Visual Specification** section
-appears only for user-visible UI changes, and `## 🚫 Blocked` appears only if unresolved
-items exist — see below.)
+Every issue includes these sections, in this order. (A **`## Dependencies`** section
+appears as the very first body section only when a prerequisite is still open at drafting
+time, a **Visual Specification** section appears only for user-visible UI changes, and
+`## 🚫 Blocked` appears only if unresolved items exist — see below.)
 
 ### Title
 Clear, descriptive, action-oriented, and scoped to **one** feature/fix (e.g., "Add PDF
@@ -39,6 +40,37 @@ Exception: if the scope-split decision is itself unresolved because the user dis
 (it is the first item in `## 🚫 Blocked`), a neutral multi-feature title is acceptable —
 it honestly reflects the unresolved scope. Do not silently pick one feature to satisfy the
 title rule; that would be inventing a default the skill forbids.
+
+### Dependencies (include only when a prerequisite is still open at drafting time)
+Rendered as the **first body section, above `## Problem Statement`** — and included **only**
+when at least one prerequisite issue is **still open at drafting time**. Each entry is one
+line naming the blocking issue and why it must land first:
+
+```markdown
+## Dependencies
+Blocked by #N — <one-line reason it must land first>
+```
+
+Both the `## Dependencies` heading and the `Blocked by #N` phrasing are exactly the forms
+`/devflow:implement` Phase 1 Pass 4 recognizes as a declared sequencing dependency, so the
+existing implement gate consumes this section with **no recognizer change** — it blocks an
+implement run while any listed prerequisite is still open (and fails closed on an
+unresolvable reference). Omit the section entirely when no prerequisite is open — exactly as
+the Visual Specification and Blocked sections are omitted when empty; never write
+"Dependencies: none".
+
+Keep this section distinct from the two other "dependency"-flavored surfaces, or drafters
+will file entries in the wrong one:
+
+- **`## Dependencies` (this section)** — cross-issue **ordering**: another issue/PR that must
+  land before this work can start. This is the only surface Pass 4 reads.
+- **`## 🚫 Blocked`** — unresolved **decisions**, not ordering (see below).
+- **`Technical Context` → `Dependencies` bullet** — the **service/module/library** this
+  depends on, not another issue.
+
+A prerequisite that is **already closed at drafting time** is not listed here — record it as
+provenance in `Technical Context` instead (e.g. "builds on #M, merged"), never in this
+section, so producer and Pass-4 consumer agree on the open-at-drafting-time inclusion rule.
 
 ### Problem Statement
 Why is this needed? Which user hits what pain.
@@ -78,26 +110,46 @@ holds the role name") against the schema definitions or the code that reads and 
 data; **"parent PR or commit already did X"** claims at HEAD (read the file, `git log -p` /
 `git log -S<symbol>`), never taken from the parent issue's narrative; **data-coverage /
 population** claims ("column X is set for most users") against live data when it is available;
-and **platform-behavior** claims — any load-bearing claim about external platform or API
-semantics (webhook / event delivery, trigger syntax, token scopes, endpoint behavior) that an
-acceptance criterion's mechanism depends on — **verified against the official documentation
-(a `WebFetch` of the vendor's own docs, not memory) before the AC is written**, with the
-verified fact and its source URL recorded in the draft's `Technical Context`. This is the
-premise class the #304 run missed: it prescribed a `check_suite`/`workflow_run` mechanism
-GitHub cannot deliver (Actions-created check suites never emit `check_suite`; `workflow_run`
-requires a named workflow list), which only surfaced mid-implement — a `WebFetch` of the
-events docs at drafting time would have caught it.
+and **relied-on third-party behavior** — every behavior of an external platform, API, or
+service the issue **relies on** (load-bearing for the Desired Behavior, an acceptance
+criterion, **or** the Implementation Notes Approach — not only an AC's mechanism): webhook /
+event delivery, trigger syntax, token scopes, endpoint behavior, response shapes, rate
+limits, and the like. Relied-on behavior is **never assumed**. Verify it with this **decided
+fallback ladder**, in order, stopping at the first rung that resolves it: **(1)** the vendor's
+**official documentation via `WebFetch`** (not memory); **(2)** when the official docs are not
+reachable, **`WebSearch`**; **(3)** when search is unavailable or fails, **ask the user to
+provide the documentation**. Record the verified fact and its source URL in the draft's
+`Technical Context` before the relied-on claim is written. This is the premise class the #304
+run missed: it prescribed a `check_suite`/`workflow_run` mechanism GitHub cannot deliver
+(Actions-created check suites never emit `check_suite`; `workflow_run` requires a named
+workflow list), which only surfaced mid-implement — a `WebFetch` of the events docs at
+drafting time would have caught it.
+
+**Ladder terminal arm — decided two ways.** When the ladder yields **no documentation** and
+**no working example in this codebase already proves** the relied-on behavior, the item
+becomes a `## 🚫 Blocked` entry phrased as a **direct question** — the exact vendor-behavior
+fact to confirm plus one line on why it blocks the work — because an unverifiable load-bearing
+external premise blocks implementation exactly as an undecided decision does. When a **working
+in-codebase example does prove** the behavior but documentation remains unavailable, write the
+claim inline as an explicitly flagged `— assumption, confirm before implementing` line
+**citing that in-repo example** (not a Blocked entry).
+
 Treat an empty or inconclusive result (no matching commit, no matching column/schema, data
 unavailable) as **unverified** — never as silent confirmation. A load-bearing premise that
 cannot be verified is written as an explicitly flagged assumption for the implementer to
 confirm — stated inline as a declarative fact tagged `— assumption, confirm before
 implementing` (a factual premise-to-confirm, so the no-options gate's hedge/deferral ban does
-not apply to it and it is not a `## 🚫 Blocked` item, which is for undecided *decisions*), and
-never baked into a prescriptive `Approach`.
+not apply to it, and it is not a `## 🚫 Blocked` item — **with the one exception of the
+ladder terminal arm above**, where a relied-on third-party behavior that is neither
+documentation-verified nor proven by an in-repo example becomes a Blocked vendor-behavior
+question), and never baked into a prescriptive `Approach`.
 
 Verification is **proportional**: cheap in-repo reads for most claims, live-data only for
-population claims. It is scoped to **load-bearing** premises, so incidental context bullets
-stay light and drafting is never blocked in a data-less authoring context.
+population claims, and the docs ladder only for **relied-on** third-party behavior. It is
+scoped to **load-bearing** premises, so incidental context bullets — and an **incidental
+third-party mention** (named in passing, not load-bearing for the Desired Behavior, an AC, or
+the Approach) — stay light and trigger no verification, so drafting is never blocked in a
+data-less authoring context.
 
 This same discipline runs **twice**: here at drafting time, and again in the calling
 skill's Step 3.5 self-steelman, which re-applies it to the *assembled* draft (fresh
@@ -230,9 +282,12 @@ Describe the **one** approach the user chose — not a comparison of candidates.
   unresolved choices).
 
 ### 🚫 Blocked — resolve before implementation (include only if non-empty)
-The **only** place unresolved decisions may appear. Include this section solely when the
-user disengaged in Step 2 leaving Definition-of-Ready items open. Each item is a direct
-question plus one line on why it blocks work:
+The **only** place unresolved decisions may appear. Include this section when the user
+disengaged in Step 2 leaving Definition-of-Ready items open — **or** when the relied-on
+third-party-behavior ladder (see *Technical Context* above) terminates with a load-bearing
+external premise that is neither documentation-verified nor proven by an in-repo example: that
+ladder-produced vendor-behavior question is the one Blocked entry class not arising from user
+disengagement. Each item is a direct question plus one line on why it blocks work:
 
 ```markdown
 ## 🚫 Blocked — resolve before implementation
@@ -258,7 +313,8 @@ incomplete issues.
 - [ ] Desired Behavior is stated as one decided behavior, not a menu
 - [ ] Technical Context opens with the standardized scope note, included verbatim
 - [ ] Technical context cites real file paths / class names from this project
-- [ ] Load-bearing Technical Context premises (data-source/model, coverage/population, "already-done", platform-behavior) are verified — not just file paths; platform-behavior claims are WebFetch-checked against official docs with the source recorded — or written as flagged assumptions to confirm
+- [ ] Open cross-issue prerequisites are listed in `## Dependencies` as `Blocked by #N — <reason>` lines (rendered above Problem Statement, only when a prerequisite is still open at drafting time; already-closed prerequisites recorded as Technical Context provenance instead)
+- [ ] Load-bearing Technical Context premises (data-source/model, coverage/population, "already-done", relied-on third-party behavior) are verified — not just file paths; relied-on third-party behavior is checked against official docs via the WebFetch → WebSearch → ask-the-user ladder with the source recorded — or, when unverifiable, becomes a `## 🚫 Blocked` vendor-behavior question (or a flagged assumption citing an in-repo example)
 - [ ] For a user-visible UI change, the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec (screenshot preferred, verbal verification an accepted substitute); non-UI issues omit the section entirely
 - [ ] Acceptance criteria are measurable, testable, and unconditional
 - [ ] Implementation notes describe a single chosen approach
@@ -289,6 +345,11 @@ Step 4 is for the user's eyes only — never the posting source):
 
 ```bash
 gh issue create --title "Action-oriented title here" --body-file - <<'BODY'
+## Dependencies
+Blocked by #N — <reason>
+(include this section, above Problem Statement, ONLY when a prerequisite is still open at
+drafting time; omit it entirely otherwise)
+
 ## Problem Statement
 ...
 
