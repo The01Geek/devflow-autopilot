@@ -246,7 +246,8 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
     | (if ($has_result | not) then "unavailable"
        elif (any($objs[]; has("permission_denials") and (.permission_denials != null)
                  and (if (.permission_denials | type) == "array" then (.permission_denials | length) > 0
-                      else (.permission_denials != 0 and .permission_denials != "" and .permission_denials != false) end)))
+                      else ((.permission_denials | if type == "string" then (tonumber? // .) else . end) as $pdv
+                            | ($pdv != 0 and $pdv != "" and $pdv != false)) end)))
        then "present"
        else
          ([ $objs[] | select(has("permission_denials_count")) | .permission_denials_count ]) as $counts

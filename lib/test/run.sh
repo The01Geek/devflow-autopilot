@@ -27823,8 +27823,13 @@ assert_eq "#438 exec-shape(denials): an EMPTY denials array is 'absent', not 'pr
 # ...and the same valid-falsy rule one type over: a FALSY SCALAR carrier (0/""/false) is a
 # refused-nothing value like [] and count 0; a TRUTHY unknown-shape carrier stays a
 # presence signal (the deliberate fail-toward-signal arm, now pinned rather than untested).
-assert_eq "#438 exec-shape(denials): a FALSY scalar denials carrier (0) is 'absent', not 'present'" "yes" \
-  "$(bash "$EES" "$EES_FIX/exec-shape-denials-falsyscalar.json" 2>/dev/null | grep -qxF 'permission_denials: absent' && echo yes || echo no)"
+# Each falsy comparand is individually load-bearing (0, digit-string "0" — normalized like
+# the count carrier — empty string, false): dropping any one arm from the predicate turns
+# its own fixture RED rather than hiding behind a sibling.
+for _fsf in falsyscalar falsystring falsyempty falsyfalse; do
+  assert_eq "#438 exec-shape(denials): FALSY denials carrier ($_fsf) is 'absent', not 'present'" "yes" \
+    "$(bash "$EES" "$EES_FIX/exec-shape-denials-$_fsf.json" 2>/dev/null | grep -qxF 'permission_denials: absent' && echo yes || echo no)"
+done
 assert_eq "#438 exec-shape(denials): a TRUTHY unknown-shape denials carrier is 'present'" "yes" \
   "$(bash "$EES" "$EES_FIX/exec-shape-denials-truthyscalar.json" 2>/dev/null | grep -qxF 'permission_denials: present' && echo yes || echo no)"
 
