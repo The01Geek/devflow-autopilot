@@ -20,6 +20,19 @@ name: Matcher probe
 # devflow-implement.yml; it runs in its own job so the flag never perturbs the
 # matcher probe above.
 #
+# A second sibling `implement-probe` job (issue #450) applies the same
+# execution-file measurement to the SEPARATE read-write `devflow-implement` tool
+# profile — a distinct allowlist from the review profile, so shapes/forms proven on
+# one tier are unproven on the other. It establishes which grant FORM (explicit
+# vendored literal vs. `*/basename` glob) and which command SHAPES (`for` / piped
+# `while read` / `VAR="$(…)"` wrappers, the unexpanded-anchor leading token) the
+# matcher accepts for the label helpers (`ensure-label.sh` / `apply-labels.sh`),
+# whose silently-denied applies are the defect issue #450 fixes. Its grant sets are
+# attribution-split (explicit-for-apply-labels, glob-for-ensure-label) so every
+# label verdict attributes to exactly one form. Human-dispatch only: its observed
+# table is the implement-tier evidence of record that Stage B's grant + call-site
+# rework is gated on.
+#
 # Triggers: workflow_dispatch (available post-merge, from the default branch) plus
 # pull_request scoped to this file's own path (so a change to the probe re-runs it
 # pre-merge from its branch). Same-repo only — a fork PR gets no secrets and the
@@ -52,6 +65,17 @@ permissions:
   # review, review dismissal) fail closed at the API — the probe must never be
   # able to mutate a PR.
   pull-requests: read
+  # The `implement-probe` job (issue #450) composes --allowed-tools from the
+  # devflow-implement profile, whose granted label helpers
+  # (apply-labels.sh -> POST issues/{n}/labels, ensure-label.sh -> POST
+  # repos/{owner}/{repo}/labels) touch the issues API family. The
+  # endpoint-permission lint (issue #312) requires the family be declared even
+  # though the probe judges by matcher verdict alone and never relies on the API
+  # effect. `read` is the safe floor: it satisfies the family-presence lint while
+  # making every mutating label call fail closed at the API - the probe must never
+  # be able to create or apply a label. (The probe targets dummy issue
+  # numbers/label names regardless.)
+  issues: read
 
 jobs:
   probe:
@@ -326,6 +350,274 @@ jobs:
               else:
                   ev.append("side-effect=n/a (judge by denial vs execution)")
               out.append("| %d | %s | **%s** | %s |" % (num, desc, verdict, "; ".join(ev)))
+
+          out.append("")
+          out.append("### Raw denial entries (%d)" % len(denials))
+          out.append("")
+          if denials:
+              out.append("```")
+              for d in denials:
+                  out.append(d[:400])
+              out.append("```")
+          else:
+              out.append("_No permission_denials entries found in the execution file._")
+
+          table = "\n".join(out)
+          print(table)
+          summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write(table + "\n")
+          PY
+
+  # issue #450 — probe which command SHAPES and grant FORMS the deployed matcher
+  # accepts under the read-write `devflow-implement` tool profile. The review-tier
+  # `probe` job above measures the read-only review profile; this job measures the
+  # SEPARATE implement profile, because the two are distinct allowlists with
+  # distinct evidence (a shape/form proven on one tier is unproven on the other).
+  # The motivating defect: cloud implement runs silently lose their best-effort
+  # label applies (`ensure-label.sh` / `apply-labels.sh`) — the phase-4 fences emit
+  # the UNEXPANDED portable anchor as the leading token, a denied shape class on the
+  # cloud matcher (issue #401), so the helpers never run and their best-effort stderr
+  # breadcrumbs never fire. This job establishes the implement-tier evidence table
+  # that Stage B's grant form and call-site rework are gated on.
+  #
+  # Human-dispatch only (issue #450 AC): in-band dispatch-and-await is infeasible
+  # for an autonomous run (the constraint recorded at commit 5ac0237), so a human
+  # runs this via workflow_dispatch (or a PR touching this file) on the REAL cloud
+  # action and records the observed table as the implement-tier evidence of record.
+  # Verdicts are matcher-only (permission_denials + recorded tool_use), never the
+  # observed API effect — every label helper targets a DUMMY issue number / label
+  # name and runs under the `issues: read` floor above, so a mutating label call
+  # fails closed at the API regardless.
+  implement-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # Compose --allowed-tools = the devflow-implement profile. IMPLEMENT is the
+      # baked TOOLS literal from .github/workflows/devflow-implement.yml's `claude`
+      # step kept verbatim-in-sync here (a deliberate second copy, exactly like the
+      # `probe` job's REVIEW literal above — so the probe measures the REAL profile,
+      # not a paraphrase; if devflow-implement.yml's literal changes, update this
+      # copy in the same change).
+      #
+      # EXTRAS reproduces the consumer config extras
+      # (.devflow_implement.allowed_tools in .devflow/config.json, appended at
+      # runtime by devflow-implement.yml as `allowed_tools_extra`) — but the two
+      # LABEL-helper entries are deliberately reshaped into a per-form ATTRIBUTION
+      # SPLIT so every label verdict is attributable to exactly ONE grant form:
+      #   * apply-labels.sh: the config's `Bash(*/apply-labels.sh:*)` glob is
+      #     DROPPED here and the explicit vendored-literal candidate
+      #     `Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*)` is added
+      #     instead, so apply-labels.sh is covered by NO glob and ONLY the explicit
+      #     grant — a PERMITTED verdict on it (shape I2) attributes to the explicit
+      #     vendored-literal FORM (the form Stage B expects to ship).
+      #   * ensure-label.sh: the config's `Bash(*/ensure-label.sh:*)` glob is kept
+      #     and NO explicit ensure-label candidate is added, so ensure-label.sh is
+      #     covered ONLY by the `*/basename` glob — a PERMITTED verdict on it
+      #     (shape I3) attributes to the GLOB form (resolving whether a `*/basename`
+      #     glob matches a vendored-literal leading token on the implement tier,
+      #     which review shape 15 left open for the different `scripts/*.sh` form).
+      # Every OTHER config-extras entry is verbatim. The config itself still ships
+      # BOTH label helpers as `*/` globs (unchanged by this probe); the split lives
+      # only here, purely for attribution.
+      - name: Resolve allowed-tools (implement profile + attribution-split label grants)
+        id: tools
+        run: |
+          set -euo pipefail
+          IMPLEMENT='Read,Write,Edit,Glob,Grep,LS,Skill,Agent,TodoWrite,EnterPlanMode,ExitPlanMode,WebFetch,WebSearch,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git pull:*),Bash(git fetch:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git checkout:*),Bash(git branch:*),Bash(git stash:*),Bash(git rm:*),Bash(git mv:*),Bash(git restore:*),Bash(git revert:*),Bash(git blame:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr ready:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh pr status:*),Bash(gh pr reopen:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue create:*),Bash(gh issue reopen:*),Bash(gh issue status:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh workflow view:*),Bash(gh workflow list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*),Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*),Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Bash(pip install:*),Bash(pip:*),Bash(python:*),Bash(python3:*),Bash(python -m:*),Bash(python3 -m:*),Bash(ruff:*),Bash(ruff check:*),Bash(ruff format:*),Bash(pytest:*),Bash(mypy:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(less:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(touch:*),Bash(mkdir:*),Bash(rmdir:*),Bash(rm:*),Bash(mv:*),Bash(cp:*),Bash(tee:*)'
+          # Config extras, verbatim EXCEPT the two label lines (attribution split above):
+          #   dropped:  Bash(*/apply-labels.sh:*)   (replaced by the explicit candidate)
+          #   kept:     Bash(*/ensure-label.sh:*)   (glob-isolation row I3)
+          EXTRAS='Bash(lib/test/run.sh:*),Bash(lib/preflight.sh:*),Bash(shellcheck:*),Bash(chmod:*),Bash(git ls-remote:*),Bash(git check-ignore:*),Bash(*/ensure-label.sh:*),Bash(*/render-grounding-block.sh:*),Bash(*/config-get.sh:*),Bash(*/efficiency-trace.sh:*),Bash(*/stale-prose-lint.py:*)'
+          # Explicit vendored-literal candidate for apply-labels.sh (isolates the
+          # explicit FORM — the exact grant string Stage B is expected to ship).
+          CANDIDATE='Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*)'
+          TOOLS="$IMPLEMENT,$EXTRAS,$CANDIDATE"
+          delim="TOOLS_EOF_$(date +%s%N)_$$"
+          {
+            printf 'tools<<%s\n' "$delim"
+            printf '%s\n' "$TOOLS"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code (implement matcher probe)
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Same bot-initiation allowance as the probe job above: same-repo only
+          # (the job `if:` refuses fork PRs), read-only, but claude-code-action
+          # otherwise refuses a bot-initiated run.
+          allowed_bots: "*"
+          prompt: |
+            You are a PERMISSION-MATCHER PROBE. Your ONLY task is to attempt each of
+            the 7 numbered command shapes below EXACTLY ONCE, each in its OWN single
+            tool call, VERBATIM — do not modify, wrap, quote-escape, split, or combine
+            them, and do not add any command that is not listed. Attempt them in order
+            1 through 7. If a shape is DENIED or errors, do NOT retry it and do NOT try
+            a different formulation — move straight to the next number. After
+            attempting all 7, STOP and reply with the single word DONE.
+
+            Your text output is not measured. Only the harness record of which tool
+            calls the permission matcher allowed versus denied is measured. Attempt
+            every shape even if you expect it to fail — a denial is exactly the signal
+            being collected. Every command targets a DUMMY issue number and DUMMY
+            label name; a real API effect is neither expected nor measured.
+
+            Shape 1 — UNEXPANDED CLAUDE_SKILL_DIR anchor as the leading token (Bash).
+            This is the phase-4 emission form issue #450 suspects the matcher DENIES;
+            it is expected to error (the shell does not expand the anchor to a real
+            path here), but permission granted vs denied is what matters:
+            "${CLAUDE_SKILL_DIR:-.devflow/vendor/devflow/skills/implement}"/../../scripts/ensure-label.sh iprobe01anchor
+
+            Shape 2 — vendored-literal leading token, EXPLICIT candidate grant
+            (Bash). apply-labels.sh is covered ONLY by the explicit vendored-literal
+            grant (no `*/apply-labels.sh` glob in this profile), so a PERMITTED here
+            attributes to the explicit FORM. Dummy issue 9999, dummy label:
+            .devflow/vendor/devflow/scripts/apply-labels.sh 9999 iprobe02explicit
+
+            Shape 3 — GLOB-ISOLATION row (Bash). ensure-label.sh is covered ONLY by
+            the `Bash(*/ensure-label.sh:*)` glob (no explicit candidate), so a
+            PERMITTED here attributes to the GLOB form. Dummy label:
+            .devflow/vendor/devflow/scripts/ensure-label.sh iprobe03glob
+
+            Shape 4 — `for …; do …; done` compound wrapping a granted helper (Bash,
+            one call, all lines). Head is the glob-granted ensure-label.sh:
+            for L in iprobe04for-a iprobe04for-b; do .devflow/vendor/devflow/scripts/ensure-label.sh "$L"; done
+
+            Shape 5 — piped `while read` loop wrapping a granted helper (Bash, one
+            call). Head is the glob-granted ensure-label.sh:
+            printf 'iprobe05while-a\niprobe05while-b\n' | while read -r L; do .devflow/vendor/devflow/scripts/ensure-label.sh "$L"; done
+
+            Shape 6 — `VAR="$(…)"` capture of a granted helper (Bash). This is the
+            exact capture form the phase-4 label loops use (LBL_ERR="$(…)"), with the
+            explicit-granted apply-labels.sh. Dummy issue 9999, dummy label:
+            LBL_ERR="$(.devflow/vendor/devflow/scripts/apply-labels.sh 9999 iprobe06capture 2>&1)"
+
+            Shape 7 — plainly granted single command, positive control (Bash):
+            grep -c . /etc/hosts
+
+          plugin_marketplaces: |
+            https://github.com/anthropics/claude-plugins-official.git
+            ./
+
+          plugins: |
+            devflow@devflow-marketplace
+
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --permission-mode acceptEdits
+            --allowed-tools "${{ steps.tools.outputs.tools }}"
+
+      # Deterministic verdict — same execution-file measurement core as the `probe`
+      # job above (permission_denials = DENIED, recorded tool_use inputs =
+      # PERMITTED). The model's prose is never read; matching is against the recorded
+      # tool INPUTS (which carry the verbatim command + its unique dummy marker).
+      # always() so the table is produced even if the engine ended in error.
+      - name: Compute per-shape verdict (implement profile)
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          python3 - <<'PY'
+          import json, os
+
+          exec_file = os.environ.get("EXECUTION_FILE", "") or ""
+          denials = []      # json-encoded permission_denials entries
+          tool_uses = []    # json-encoded tool_use inputs (+ tool name)
+          parsed = None
+          note_top = ""
+
+          if exec_file and os.path.isfile(exec_file):
+              raw = open(exec_file, encoding="utf-8", errors="replace").read()
+              try:
+                  parsed = json.loads(raw)
+              except Exception:
+                  parsed = []
+                  for line in raw.splitlines():
+                      s = line.strip()
+                      if not s:
+                          continue
+                      try:
+                          parsed.append(json.loads(s))
+                      except Exception:
+                          pass
+                  if not parsed:
+                      note_top = "execution file present but unparseable"
+          else:
+              note_top = "execution file absent or empty at '%s'" % exec_file
+
+          def walk(o):
+              if isinstance(o, dict):
+                  if o.get("type") == "tool_use" and "input" in o:
+                      tool_uses.append(json.dumps(o.get("input")) + " NAME=" + str(o.get("name", "")))
+                  pd = o.get("permission_denials")
+                  if isinstance(pd, list):
+                      for d in pd:
+                          denials.append(json.dumps(d))
+                  for v in o.values():
+                      walk(v)
+              elif isinstance(o, list):
+                  for it in o:
+                      walk(it)
+
+          if parsed is not None:
+              walk(parsed)
+
+          denial_text = "\n".join(denials)
+          tooluse_text = "\n".join(tool_uses)
+
+          # (num, description, marker) — verdict judged by marker presence in the
+          # denial vs tool_use streams. No on-disk side-effect check: label helpers
+          # are best-effort exit-0 and the run is matcher-only by design (issue #450).
+          rows = [
+              (1, "unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor leading token (ensure-label.sh)", "iprobe01anchor"),
+              (2, "vendored-literal leading token, EXPLICIT candidate (apply-labels.sh)",        "iprobe02explicit"),
+              (3, "glob-isolation `Bash(*/ensure-label.sh:*)` (ensure-label.sh)",                "iprobe03glob"),
+              (4, "`for …; do helper; done` compound wrapping a granted helper",                 "iprobe04for"),
+              (5, "piped `while read` loop wrapping a granted helper",                           "iprobe05while"),
+              (6, "`VAR=\"$(helper …)\"` capture of a granted helper (apply-labels.sh)",          "iprobe06capture"),
+              (7, "plainly granted single command (positive control)",                           "/etc/hosts"),
+          ]
+
+          out = []
+          out.append("## Implement-profile matcher-probe results")
+          out.append("")
+          out.append("Deterministic verdict computed from the execution file's "
+                     "`permission_denials` (DENIED) and recorded `tool_use` inputs "
+                     "(PERMITTED). The model's text output is never the measurement. "
+                     "Grant sets are attribution-split (see the compose step): shape 2 "
+                     "attributes to the explicit vendored-literal form, shape 3 to the "
+                     "`*/basename` glob form.")
+          out.append("")
+          if note_top:
+              out.append("> [!WARNING]")
+              out.append("> %s — every row will read UNATTEMPTED; re-run the probe." % note_top)
+              out.append("")
+          out.append("| # | Shape | Verdict | Evidence |")
+          out.append("|---|-------|---------|----------|")
+
+          for num, desc, marker in rows:
+              denied = marker in denial_text
+              attempted = marker in tooluse_text
+              if denied:
+                  verdict = "DENIED"
+              elif attempted:
+                  verdict = "PERMITTED"
+              else:
+                  verdict = "UNATTEMPTED"
+              ev = "denial=%s; tool_use=%s" % (
+                  "yes" if denied else "no",
+                  "yes" if attempted else "no",
+              )
+              out.append("| %d | %s | **%s** | %s |" % (num, desc, verdict, ev))
 
           out.append("")
           out.append("### Raw denial entries (%d)" % len(denials))
