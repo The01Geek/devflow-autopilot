@@ -17716,7 +17716,7 @@ PY
     "0" "$?"
   # Positive controls: the run must have taken the REAL harden path — the wired gate
   # (no skip notice) and a displaced PR-head entry — not an early exit that would let
-  # the rc-0 assertion above pass vacuously.
+  # the exit-code check above pass vacuously.
   assert_eq "#460 errexit: positive control — the relevance gate saw the wired base settings.json (no 'nothing to harden' skip)" "0" \
     "$(grep -c 'nothing to harden' "$HH_FIX/out.log" || true)"
   assert_eq "#460 errexit: positive control — the PR-head-edited entry hook was displaced (MALICIOUS gone)" "0" \
