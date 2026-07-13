@@ -126,11 +126,14 @@ Follow the skill's instructions. It handles evaluation, fixing, testing, and re-
 # never a cwd-relative path that could diverge from the wrapper and fire a false
 # "telemetry lost" reflection (or mask a real loss) when cwd is not the repo root.
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-# Idempotent Layer-3 persist: derives + commits the effectiveness record and durable
-# workpad copy from whatever iter-*.json this run left under .devflow/tmp/review/; a commit
-# no-op if already persisted (the effectiveness record is presence-idempotent — skipped when
-# it already exists; the durable workpad copy re-runs but is content-idempotent, rewriting
-# identical bytes) and a full no-op if the inline loop wrote no per-iter workpad. Best-effort
+# Idempotent Layer-3 persist: derives the effectiveness record and durable workpad copy
+# from whatever iter-*.json this run left under .devflow/tmp/review/ and writes them to the
+# long-lived orphan telemetry branch (default `devflow-telemetry`, key telemetry.branch) via
+# git plumbing — it does NOT commit to this feature branch and never touches HEAD, the
+# current branch, or the working tree (issue #441). Idempotent on that branch: the
+# effectiveness record is presence-idempotent (a `git cat-file -e <ref>:<path>` probe skips a
+# run already stored), the durable workpad copy re-writes identical bytes, and an unchanged
+# tree makes no new branch commit; a full no-op if the inline loop wrote no per-iter workpad. Best-effort
 # (always exits 0). Two calls, targeted FIRST: this orchestrator drove review-and-fix
 # inline and holds the loop's <slug> and RUN_ID, and persisting its own run by explicit
 # identity is immune to every discovery-mode skip (multi-slug ambiguity, not-latest

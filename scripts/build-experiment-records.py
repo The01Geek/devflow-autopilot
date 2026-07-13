@@ -509,9 +509,12 @@ def _index_efficiency(eff_dir, repo_root=None, branch=None):
 
     def _ingest(text, stem, label):
         """Parse one record's JSON text, shape it, and key it into by_key by
-        (slug, run_id). Warns and skips on a parse failure (a non-object / non-slug
-        record is silently skipped, as before). Shared by both sources so the
-        parse→entry→run_id→by_key tail is written once."""
+        (slug, run_id). Warns and skips on a parse failure AND on a record that
+        parses but is not a slug-bearing object (PR #442 review Suggestion-1: on the
+        now-authoritative branch store a silently-dropped record is a LOST
+        measurement, so producer-schema drift must be visible — not swallowed).
+        Shared by both sources so the parse→entry→run_id→by_key tail is written
+        once."""
         try:
             record = json.loads(text)
         except json.JSONDecodeError:
@@ -519,6 +522,8 @@ def _index_efficiency(eff_dir, repo_root=None, branch=None):
             return
         entry = _efficiency_entry(record, None)
         if entry is None:
+            _warn(f"skipping malformed efficiency record {label} "
+                  f"(not a JSON object with a string `slug` — producer-schema drift?)")
             return
         entry["run_id"] = _run_id_from_stem(stem, entry["slug"])
         by_key[(entry["slug"], entry["run_id"])] = entry
@@ -544,7 +549,22 @@ def _index_efficiency(eff_dir, repo_root=None, branch=None):
         # never laundered into the measured-absence the downstream provenance stamps
         # `efficiency: absent`. (A bare `rc != 0` from ls-tree cannot tell the two
         # apart — an absent ref also exits non-zero — so gate on ref existence first.)
-        rc_v, _, _ = _run([GIT, "-C", str(repo_root), "rev-parse", "--verify", "--quiet", f"{br}^{{commit}}"])
+        #
+        # The probe itself has THREE outcomes, not two (PR #442 review Important-1):
+        # `rev-parse --verify --quiet` exits 0 (ref present) or exactly 1 (ref absent),
+        # while ANY OTHER rc means the probe never established the answer — repo_root
+        # is not a git repo (128), or `git` itself could not be executed at all (127,
+        # which `_run` also synthesizes from an OSError: absent binary, a
+        # non-executable DEVFLOW_GIT override, a broken shim). Folding those onto the
+        # absent arm would launder an UNREADABLE store into a MEASURED absence and let
+        # the downstream provenance stamp `efficiency: absent` on a run whose telemetry
+        # was merely unreadable — the exact fail-open the ls-tree arm below is written
+        # to prevent. Warn instead, exactly as the unreadable-tree case does.
+        rc_v, _, err_v = _run([GIT, "-C", str(repo_root), "rev-parse", "--verify", "--quiet", f"{br}^{{commit}}"])
+        if rc_v not in (0, 1):
+            _warn(f"could not establish whether telemetry branch {br} exists "
+                  f"(git rev-parse rc={rc_v}): {(err_v or '').strip()[:160]} — telemetry-branch "
+                  f"cost rows unestablished for this run")
         if rc_v == 0:
             rc, out, err = _run([GIT, "-C", str(repo_root), "ls-tree", "-r", "--name-only",
                                  br, "--", ".devflow/logs/efficiency/"])

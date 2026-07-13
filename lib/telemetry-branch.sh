@@ -339,6 +339,15 @@ devflow_telemetry_persist_tree() {
     }
 
     # ── CAS advance loop ───────────────────────────────────────────────────────
+    # Assumption (PR #442 review Suggestion-6): verify_store ran ONCE above and is
+    # NOT re-run inside this loop, even though a retry re-reads a sibling's new tip.
+    # That is sound only because the LOCAL ref has exactly one writer class — this
+    # helper — and every write it makes is a `.devflow/logs/`-shaped tree (the staged-
+    # path guard above enforces that by construction), so a tip that appears mid-loop
+    # is necessarily another DevFlow persist's. The REMOTE tip has no such guarantee
+    # (a consumer may have created a same-named branch), which is exactly why the push
+    # path DOES re-verify the fetched tip before re-parenting. If a second local writer
+    # class is ever added, re-verify here too.
     local try old new committed="" upd_err=""
     for ((try = 0; try < _DEVFLOW_TELEMETRY_CAS_TRIES; try++)); do
       old="$(git -C "$root" rev-parse --verify --quiet "$ref" 2>/dev/null || true)"

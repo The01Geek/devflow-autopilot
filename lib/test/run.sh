@@ -16801,11 +16801,102 @@ rm -rf "$TB_SP_REPO"
 # AC4 hardening (SFH-4a): verify_store fails CLOSED when ls-tree cannot read a
 # PRESENT ref's tree — an unverifiable store is breadcrumb-skipped, never appended
 # onto (fail-open would treat an unreadable tree as an empty, safe store).
-# Driven by pointing the ref at a tree whose object is then made unreadable is hard
-# to force portably; instead assert the code path exists via the fail-closed
-# breadcrumb literal being present at the producer (coupled to the behavior above).
-assert_eq "tb(#441 SFH-4a): verify_store emits a fail-closed breadcrumb on an unreadable present-ref tree" "yes" \
-  "$([ "$(pin_count 'cannot verify it is a telemetry store, refusing to append' "$LIB/telemetry-branch.sh")" -ge 1 ] && echo yes || echo no)"
+# BEHAVIORAL (PR #442 review Suggestion-2 — this replaces the former string-presence
+# pin, which a regression flipping the arm to `return 0` would have survived): persist
+# once so the ref exists with loose objects, then DELETE the tip's tree object from the
+# object store. The commit object still resolves (so `rev-parse --verify` passes and the
+# ref reads as PRESENT), but `ls-tree` cannot read the tree → the guard must refuse to
+# append. Positive control below: the same fixture persists a SECOND run fine while the
+# tree object is intact, so the refusal is attributable to the unreadable tree and not to
+# some unrelated precondition of the fixture.
+TB_UT_REPO="$(git_sandbox "tb unreadable-tree repo")"
+git -C "$TB_UT_REPO" init -q
+git -C "$TB_UT_REPO" config user.email t@e.com; git -C "$TB_UT_REPO" config user.name t
+mkdir -p "$TB_UT_REPO/.devflow"; printf 'tmp/\n' > "$TB_UT_REPO/.devflow/.gitignore"
+git -C "$TB_UT_REPO" add -A; git -C "$TB_UT_REPO" commit -qm seed
+mkdir -p "$TB_UT_REPO/.devflow/tmp/review/pr-1/run-a"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$TB_UT_REPO/.devflow/tmp/review/pr-1/run-a/iter-1.json"
+( cd "$TB_UT_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+# Positive control: with the store readable, a SECOND run appends normally.
+mkdir -p "$TB_UT_REPO/.devflow/tmp/review/pr-1/run-b"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$TB_UT_REPO/.devflow/tmp/review/pr-1/run-b/iter-1.json"
+( cd "$TB_UT_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "tb(#441 SFH-4a): positive control — a readable store DOES accept the append" "yes" \
+  "$(git -C "$TB_UT_REPO" cat-file -e refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-1-run-b.json >/dev/null 2>&1 && echo yes || echo no)"
+# Now break the tip TREE object (the commit stays readable → ref still PRESENT).
+TB_UT_TREE="$(git -C "$TB_UT_REPO" rev-parse refs/heads/devflow-telemetry^{tree})"
+TB_UT_TIP="$(git -C "$TB_UT_REPO" rev-parse refs/heads/devflow-telemetry)"
+rm -f "$TB_UT_REPO/.git/objects/${TB_UT_TREE:0:2}/${TB_UT_TREE:2}"
+mkdir -p "$TB_UT_REPO/.devflow/tmp/review/pr-1/run-c"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$TB_UT_REPO/.devflow/tmp/review/pr-1/run-c/iter-1.json"
+TB_UT_ERR="$( ( cd "$TB_UT_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; TB_UT_RC=$?
+assert_eq "tb(#441 SFH-4a): unreadable present-ref tree → exit 0 (best-effort)" "0" "$TB_UT_RC"
+assert_eq "tb(#441 SFH-4a): verify_store FAILS CLOSED on an unreadable present-ref tree (breadcrumb names the refusal)" "yes" \
+  "$(printf '%s' "$TB_UT_ERR" | grep -qF 'cannot verify it is a telemetry store, refusing to append' && echo yes || echo no)"
+assert_eq "tb(#441 SFH-4a): the ref is NOT advanced when the store cannot be verified" "$TB_UT_TIP" \
+  "$(git -C "$TB_UT_REPO" rev-parse refs/heads/devflow-telemetry)"
+# Attribution: the refusal must be TERMINAL — the write never even reaches the object
+# store. This is what distinguishes fail-CLOSED from fail-OPEN: a mutation flipping the
+# guard's `return 1` to `return 0` (breadcrumb intact) still ends with no ref advance,
+# because the unreadable tree then breaks `read-tree` — but it gets there by ATTEMPTING
+# the write, which surfaces the "object-store write failed" breadcrumb. Asserting that
+# breadcrumb's ABSENCE is what makes this test go RED under the fail-open mutation.
+assert_eq "tb(#441 SFH-4a): the refusal is terminal — persist never attempts the object-store write" "no" \
+  "$(printf '%s' "$TB_UT_ERR" | grep -qF 'object-store write failed' && echo yes || echo no)"
+rm -rf "$TB_UT_REPO"
+
+# PR #442 review Suggestion-3: the CAS **non-race** failure arm (a held ref `.lock`, a
+# read-only `.git`, ENOSPC) deliberately emits a DIFFERENT terminal breadcrumb than the
+# "lost N races" one, so an operator is not sent hunting phantom concurrency. Only the
+# race arm was exercised (TB_CAS above); drive the non-race arm by pre-creating the ref's
+# `.lock` file so `git update-ref` fails with a lock error whose stderr carries no
+# `but expected` (the race discriminator).
+TB_LK_REPO="$(git_sandbox "tb ref-lock repo")"
+git -C "$TB_LK_REPO" init -q
+git -C "$TB_LK_REPO" config user.email t@e.com; git -C "$TB_LK_REPO" config user.name t
+mkdir -p "$TB_LK_REPO/.devflow"; printf 'tmp/\n' > "$TB_LK_REPO/.devflow/.gitignore"
+git -C "$TB_LK_REPO" add -A; git -C "$TB_LK_REPO" commit -qm seed
+mkdir -p "$TB_LK_REPO/.devflow/tmp/review/pr-1/run-a"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$TB_LK_REPO/.devflow/tmp/review/pr-1/run-a/iter-1.json"
+mkdir -p "$TB_LK_REPO/.git/refs/heads"
+: > "$TB_LK_REPO/.git/refs/heads/devflow-telemetry.lock"   # a stale/held ref lock
+TB_LK_ERR="$( ( cd "$TB_LK_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; TB_LK_RC=$?
+assert_eq "tb(#442 Sug-3): held ref .lock → exit 0 (best-effort)" "0" "$TB_LK_RC"
+assert_eq "tb(#442 Sug-3): held ref .lock takes the NON-race arm (names the lock/permission/disk cause)" "yes" \
+  "$(printf '%s' "$TB_LK_ERR" | grep -qF 'NOT a concurrent writer' && echo yes || echo no)"
+assert_eq "tb(#442 Sug-3): held ref .lock is NOT misdiagnosed as a lost CAS race" "no" \
+  "$(printf '%s' "$TB_LK_ERR" | grep -qF 'lost 5 races' && echo yes || echo no)"
+assert_eq "tb(#442 Sug-3): held ref .lock → no telemetry ref created" "no" \
+  "$(git -C "$TB_LK_REPO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+rm -rf "$TB_LK_REPO"
+
+# AC8 (PR #442 review Suggestion-4 — was deferred, now covered): a persist on a checkout
+# with NO configured committer identity still writes, because the helper exports its own
+# GIT_AUTHOR/COMMITTER identity into commit-tree. Fixture is made deterministically
+# identity-less with `user.useConfigOnly` (git then refuses to auto-detect an identity
+# from the host), and the positive control proves the fixture really is identity-less —
+# so a passing persist attributes to the exported identity, not to an ambient fallback.
+TB_ID_REPO="$(git_sandbox "tb no-identity repo")"
+git -C "$TB_ID_REPO" init -q
+git -C "$TB_ID_REPO" config user.useConfigOnly true   # no user.name / user.email at all
+mkdir -p "$TB_ID_REPO/.devflow"; printf 'tmp/\n' > "$TB_ID_REPO/.devflow/.gitignore"
+git -C "$TB_ID_REPO" add -A
+git -C "$TB_ID_REPO" -c user.email=seed@e.com -c user.name=seed commit -qm seed
+assert_eq "tb(#441 AC8): positive control — the fixture repo really has NO usable identity" "no" \
+  "$(git -C "$TB_ID_REPO" commit -q --allow-empty -m probe >/dev/null 2>&1 && echo yes || echo no)"
+mkdir -p "$TB_ID_REPO/.devflow/tmp/review/pr-1/run-a"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$TB_ID_REPO/.devflow/tmp/review/pr-1/run-a/iter-1.json"
+( cd "$TB_ID_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "tb(#441 AC8): persist SUCCEEDS on an identity-less checkout (record is on the branch)" "yes" \
+  "$(git -C "$TB_ID_REPO" cat-file -e refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-1-run-a.json >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "tb(#441 AC8): the telemetry commit carries the helper's explicit committer identity" "github-actions[bot]" \
+  "$(git -C "$TB_ID_REPO" log -1 --format='%cn' refs/heads/devflow-telemetry 2>/dev/null)"
+rm -rf "$TB_ID_REPO"
 
 TB_CFG_REPO="$(git_sandbox "tb config override repo")"
 git -C "$TB_CFG_REPO" init -q
@@ -16884,6 +16975,56 @@ print(sorted((e["run_id"],e["iterations"]) for v in idx.values() for e in v))' "
 TB_MB_RC=$?
 assert_eq "tb(#441 Sug-3e): reader does NOT crash on a malformed telemetry-branch blob" "0" "$TB_MB_RC"
 assert_eq "tb(#441 Sug-3e): reader skips the malformed branch blob, keeps the good one" "[('good', 3)]" "$TB_MB_OUT"
+
+# PR #442 review Suggestion-1: a record that PARSES but is not a slug-bearing object
+# (a list, a scalar, an object with a non-string `slug`) was dropped SILENTLY. On the
+# now-authoritative branch store a dropped record is a LOST measurement, so producer-schema
+# drift must be breadcrumbed like an unparseable one. Positive control: the well-formed
+# sibling in the same directory still indexes, so the warning attributes to the drifted
+# record and not to a broken fixture.
+TB_DR_DIR="$(mktemp -d)"
+printf '{"slug":"pr-9","iterations":2}' > "$TB_DR_DIR/pr-9-good.json"
+printf '[1, 2, 3]'                      > "$TB_DR_DIR/pr-9-drift.json"
+TB_DR_ERR="$(python3 -c 'import importlib.util,sys
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+idx=m._index_efficiency(sys.argv[2])
+print(sorted((e["run_id"],e["iterations"]) for v in idx.values() for e in v))' \
+  "$LIB/../scripts/build-experiment-records.py" "$TB_DR_DIR" 2>&1 >/dev/null)"
+TB_DR_OUT="$(python3 -c 'import importlib.util,sys
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+idx=m._index_efficiency(sys.argv[2])
+print(sorted((e["run_id"],e["iterations"]) for v in idx.values() for e in v))' \
+  "$LIB/../scripts/build-experiment-records.py" "$TB_DR_DIR" 2>/dev/null)"
+assert_eq "tb(#442 Sug-1): a parseable-but-schema-drifted record is WARNED, not silently dropped" "yes" \
+  "$(printf '%s' "$TB_DR_ERR" | grep -qF 'skipping malformed efficiency record' && echo yes || echo no)"
+assert_eq "tb(#442 Sug-1): positive control — the well-formed sibling still indexes" "[('good', 2)]" "$TB_DR_OUT"
+rm -rf "$TB_DR_DIR"
+
+# PR #442 review Important-1: the branch-presence probe must not launder an UNESTABLISHED
+# answer into a measured absence. `git rev-parse --verify --quiet` exits 0 (present) or 1
+# (absent); any other rc — 128 (not a repo) or 127 (git unresolvable: absent binary, a
+# broken DEVFLOW_GIT override, a non-executable shim, which the reader's _run synthesizes
+# from an OSError) — means the store could not be READ, and folding it onto the absent arm
+# would let the downstream provenance stamp `efficiency: absent` on a run whose telemetry
+# merely could not be read. Drive it with an unresolvable DEVFLOW_GIT: the reader must WARN
+# and still return the legacy archive (best-effort), never a silent "branch absent".
+TB_GX_REPO="$(git_sandbox "tb git-unresolvable reader repo")"
+mkdir -p "$TB_GX_REPO/.devflow/logs/efficiency"
+printf '{"slug":"pr-9","iterations":4}' > "$TB_GX_REPO/.devflow/logs/efficiency/pr-9-legacy.json"
+TB_GX_ERR="$(DEVFLOW_GIT="$TB_GX_REPO/no-such-git" python3 -c 'import importlib.util,sys
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+idx=m._index_efficiency(sys.argv[2]+"/.devflow/logs/efficiency", sys.argv[2])
+print(sorted((e["run_id"],e["iterations"]) for v in idx.values() for e in v))' \
+  "$LIB/../scripts/build-experiment-records.py" "$TB_GX_REPO" 2>&1 >/dev/null)"
+TB_GX_OUT="$(DEVFLOW_GIT="$TB_GX_REPO/no-such-git" python3 -c 'import importlib.util,sys
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+idx=m._index_efficiency(sys.argv[2]+"/.devflow/logs/efficiency", sys.argv[2])
+print(sorted((e["run_id"],e["iterations"]) for v in idx.values() for e in v))' \
+  "$LIB/../scripts/build-experiment-records.py" "$TB_GX_REPO" 2>/dev/null)"
+assert_eq "tb(#442 Imp-1): an unresolvable git makes the branch presence UNESTABLISHED (warned, never silent absence)" "yes" \
+  "$(printf '%s' "$TB_GX_ERR" | grep -qF 'could not establish whether telemetry branch' && echo yes || echo no)"
+assert_eq "tb(#442 Imp-1): the reader still degrades to the legacy archive (best-effort, no crash)" "[('legacy', 4)]" "$TB_GX_OUT"
+rm -rf "$TB_GX_REPO"
 rm -rf "$TB_MB_REPO"
 
 # Grep pins (AC1/AC19/AC22): the SKILL mirrors + workflows + docs carry the new
@@ -16916,9 +17057,39 @@ for wf in devflow.yml devflow-implement.yml; do
   assert_eq "tb(#441 AC19): $wf backstop no longer carries the before/after-HEAD gate" "0" \
     "$(pin_count 'before=$(git rev-parse HEAD' "$LIB/../.github/workflows/$wf")"
 done
-# AC19: no workflow gains a push: trigger matching devflow-telemetry (every push: stays main-filtered).
-assert_eq "tb(#441 AC19): no workflow push: trigger references devflow-telemetry" "0" \
-  "$(grep -rl 'devflow-telemetry' "$LIB/../.github/workflows/" 2>/dev/null | xargs -r grep -lE 'branches:.*devflow-telemetry' 2>/dev/null | wc -l | tr -d ' ')"
+# AC19: NO workflow push: trigger can fire on the telemetry branch (a telemetry push must
+# run no CI). PR #442 review Suggestion-7: the former grep-based check only looked at files
+# that TEXTUALLY mention `devflow-telemetry`, so it was structurally blind to the shape that
+# actually breaks AC19 — a workflow with an UNFILTERED `on: push` (no `branches:` key at all)
+# or a glob (`'*'`, `'devflow-*'`) that matches the branch without naming it. Audit the real
+# population instead: parse EVERY workflow, take every one with a push trigger, and require
+# it to carry a branches filter none of whose patterns match the telemetry branch. (YAML 1.1
+# parses the bare key `on` as the boolean True — look both up.)
+assert_eq "tb(#441 AC19): every workflow push: trigger is filtered so it cannot fire on devflow-telemetry" "OK" \
+  "$(python3 - "$LIB/../.github/workflows" <<'PYEOF'
+import fnmatch, pathlib, sys
+import yaml
+bad = []
+for wf in sorted(pathlib.Path(sys.argv[1]).glob("*.yml")):
+    doc = yaml.safe_load(wf.read_text(encoding="utf-8")) or {}
+    on = doc.get("on", doc.get(True))
+    if isinstance(on, str):
+        on = {on: None}
+    elif isinstance(on, list):
+        on = {k: None for k in on}
+    if not isinstance(on, dict) or "push" not in on:
+        continue
+    push = on["push"]
+    branches = push.get("branches") if isinstance(push, dict) else None
+    if not isinstance(branches, list) or not branches:
+        bad.append(f"{wf.name}: push: trigger has no branches filter")
+        continue
+    for pat in branches:
+        if fnmatch.fnmatch("devflow-telemetry", str(pat)):
+            bad.append(f"{wf.name}: push: branches pattern {pat!r} matches devflow-telemetry")
+print("OK" if not bad else "; ".join(bad))
+PYEOF
+)"
 # AC18: config schema + example document telemetry.branch.
 assert_eq "tb(#441 AC18): config.schema.json documents telemetry.branch (default devflow-telemetry)" "yes" \
   "$(python3 -c 'import json;d=json.load(open("'"$LIB"'/../.devflow/config.schema.json"));print("yes" if d["properties"].get("telemetry",{}).get("properties",{}).get("branch",{}).get("default")=="devflow-telemetry" else "no")')"
