@@ -29117,6 +29117,39 @@ assert_eq "#448 ubc-dirty-tree-staged: exit 3" "3" "$UBC_RC"
 assert_eq "#448 ubc-dirty-tree-staged: no fetch performed (origin/main ref unchanged)" \
   "$UBC_ORIGIN_MAIN_BEFORE" "$(git -C "$D/work" rev-parse origin/main 2>/dev/null)"
 
+# ── ubc-untracked-collision → Pins the behavioral claim the step-2 dirty guard's comment
+# LEANS ON: untracked files are deliberately NOT pre-checked, because git itself refuses the
+# merge before touching anything when an untracked path collides with an incoming base path.
+# The guard-comment's whole justification for not re-deriving git's overwrite semantics is
+# that this failure is FAIL-CLOSED — so pin the fail-direction rather than trusting the
+# prose. A future refactor (a different merge strategy/flag, an added -f) that made this
+# collision clobber the untracked file, or leave a MERGE_HEAD behind, would otherwise pass
+# the whole suite silently. Asserts: UNVERIFIED/exit 3, NO MERGE_HEAD, HEAD unmoved, the
+# untracked file's own bytes intact, and git's precise untracked-overwrite error on stderr
+# (attributing the rejection to the collision, not to some earlier guard). ────────────────
+D="$(git_sandbox 'ubc-untracked-collision')"
+ubc_make "$D"
+# Base advances by adding `collide.txt`; the feature checkout already has an UNTRACKED file
+# at that same path, so the incoming merge would have to overwrite it.
+ubc_advance_base "$D" uc collide.txt incoming
+printf 'untracked-local\n' > "$D/work/collide.txt"
+UBC_HEAD_BEFORE="$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+ubc_run "$D"
+assert_eq "#448 ubc-untracked-collision: token is UNVERIFIED (fails closed, never a clobber)" \
+  "UNVERIFIED" "$UBC_OUT"
+assert_eq "#448 ubc-untracked-collision: exit 3" "3" "$UBC_RC"
+assert_eq "#448 ubc-untracked-collision: no MERGE_HEAD left behind" "absent" \
+  "$(git -C "$D/work" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && echo present || echo absent)"
+assert_eq "#448 ubc-untracked-collision: HEAD unmoved (nothing merged)" \
+  "$UBC_HEAD_BEFORE" "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+assert_eq "#448 ubc-untracked-collision: the untracked file's own bytes survive untouched" \
+  "untracked-local" "$(cat "$D/work/collide.txt" 2>/dev/null)"
+# Attribute the rejection to the untracked-overwrite refusal itself — a bare token+exit
+# assertion would stay green even if some earlier guard (dirty tree, base read) rejected the
+# fixture for an unrelated reason.
+assert_eq "#448 ubc-untracked-collision: git's untracked-overwrite refusal reaches stderr" "yes" \
+  "$(printf '%s' "$UBC_ERR" | grep -qF 'untracked working tree files would be overwritten' && echo yes || echo no)"
+
 # ── ubc-detached-head → Pre-state guards: a detached HEAD (no branch name) → UNVERIFIED,
 # exit 3, no fetch performed (origin/main ref unchanged), the tree untouched, and the cause
 # named on stderr — a base merge is never attempted when the checkout is on no branch (the

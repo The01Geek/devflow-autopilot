@@ -38,8 +38,17 @@
 #   UNVERIFIED         exit 3  base_branch read, fetch, or behind-by derivation failed;
 #                              dirty tree; detached HEAD / no branch; or no reachable
 #                              merge base — nothing merged, never a blind merge
-#   PUSH_REJECTED      exit 4  push refused twice (or a conflicted integrate); local
-#                              branch restored to its pre-checkpoint SHA; breadcrumb
+#   PUSH_REJECTED      exit 4  push refused twice (or a conflicted integrate); the local
+#                              branch is restored to its pre-checkpoint SHA and a breadcrumb
+#                              names the cause. The restore is attempted, NOT guaranteed: if
+#                              `git reset --hard` itself fails (locked index, invalid SHA),
+#                              the token is still PUSH_REJECTED but the breadcrumb is a
+#                              `WARNING …the restore to pre-checkpoint SHA … failed — the
+#                              tree may still carry the base-merge commit`. A caller that
+#                              routes PUSH_REJECTED to "record and continue" MUST read that
+#                              WARNING and hard-stop instead: `git status` is clean on that
+#                              path (the divergence is in COMMITTED history), so no
+#                              clean-tree backstop downstream can see it.
 #   MERGE_IN_PROGRESS  exit 5  MERGE_HEAD existed at invocation; nothing touched
 
 set -u
