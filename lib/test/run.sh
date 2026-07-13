@@ -2704,11 +2704,17 @@ assert_pin_unique "#312 item 1: Step 4.5 weighs convergence by severity and surf
 # item 9 — Step 3 item 3a names job-gating / control-flow changes as mechanism changes
 assert_pin_unique "#312 item 9: Step 3 item 3a trigger names a rerouted step / job gating" \
   'a rerouted step, a relocated where-a-decision-concludes' "$MAXI_SKILL"
-# item 2 — platform-behavior premise class in BOTH the template and Step 3.5
-assert_pin_unique "#312 item 2: issue-template names the platform-behavior premise class (WebFetch official docs)" \
-  'verified fact and its source URL recorded' "$CI312_TMPL"
-assert_pin_unique "#312 item 2: create-issue Step 3.5 re-applies the platform-behavior class" \
-  'platform-behavior** class: any load-bearing claim about external platform' "$CI312_SKILL"
+# item 2 (broadened by #446) — the premise class widened from "an AC's mechanism" to every
+# relied-on third-party behavior, with the WebFetch → WebSearch → ask-the-user ladder, in BOTH
+# the template and Step 3.5. The pins cover the relied-on breadth AND the ladder's ask-user arm.
+assert_pin_unique "#312 item 2 (broadened #446): issue-template names the relied-on third-party premise class" \
+  'relied-on third-party behavior** — every behavior of an external platform' "$CI312_TMPL"
+assert_pin_unique "#312 item 2 (broadened #446): issue-template ladder reaches the ask-the-user arm" \
+  '**(3)** when search is unavailable or fails, **ask the user to' "$CI312_TMPL"
+assert_pin_unique "#312 item 2 (broadened #446): create-issue Step 3.5 re-applies the relied-on class" \
+  'relied-on-third-party-behavior** class: every behavior of an external platform' "$CI312_SKILL"
+assert_pin_unique "#312 item 2 (broadened #446): Step 3.5 ladder reaches the ask-the-user arm" \
+  'when search is unavailable or fails, by **asking the user to provide the documentation**' "$CI312_SKILL"
 # item 3 — Phase 2.3.4 workflow-diff addendum (both named checks)
 assert_pin_unique "#312 item 3: Phase 2.3.4 carries the workflow-diff addendum" \
   'Workflow-diff addendum (mandatory whenever the diff touches' "$IMPL_SKILL_BUNDLE"
@@ -10066,6 +10072,224 @@ assert_pin_unique "#272 AC9: unresolved UI-placement detail flows to the existin
 # AC10 (coupled trio): SYSTEM_OVERVIEW §11 mirrors the new visual-specification behavior.
 assert_pin_unique "#272 AC10: overview §11 mirrors the visual-specification behavior" \
   'infers an issue involves user-visible UI changes' "$CI_OVERVIEW_272"
+
+# ── #446: Dependencies section wired to the implement gate, relied-on third-party docs
+#    ladder, gated implement-comment offer, and Step 1 completion wait. The deliverable is
+#    skill/template/doc prose; the automatable boundary is this pin layer. Removal-proof
+#    presence pins (assert_pin_unique), plus an assert_pin_red_under behavioral pin proving
+#    the offer gate guards against the restored-unconditional-offer regression, plus a
+#    verified-config multi-shape block driving config-get.sh's fail-closed arm selection.
+CI446_TMPL="$LIB/../skills/create-issue/references/issue-template.md"
+CI446_SKILL="$LIB/../skills/create-issue/SKILL.md"
+CI446_P4="$LIB/../skills/implement/phases/phase-4-documentation.md"
+CI446_P1="$LIB/../skills/implement/phases/phase-1-setup.md"
+CI446_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# AC1/AC2 — the optional ## Dependencies section in BOTH the template's structure guidance
+# and its bottom skeleton (coupled mirror sites: a one-sided edit turns one of these RED).
+assert_pin_unique "#446 AC1: issue-template carries the Dependencies structure guidance (conditional section)" \
+  '### Dependencies (include only when a prerequisite is still open at drafting time)' "$CI446_TMPL"
+assert_pin_unique "#446 AC1: issue-template Dependencies entry form is the Blocked-by line" \
+  'Blocked by #N — <one-line reason it must land first>' "$CI446_TMPL"
+assert_pin_unique "#446 AC2: issue-template bottom skeleton mirrors the Dependencies section (above Problem Statement)" \
+  '(include this section, above Problem Statement, ONLY when a prerequisite is still open at' "$CI446_TMPL"
+# Coupled producer↔consumer contract: the template's dependency vocabulary and phase-1 Pass 4's
+# recognized forms are pinned together — RED if either side's heading or phrasing drifts.
+assert_eq "#446: template Dependencies vocabulary matches phase-1 Pass 4's recognized forms (producer/consumer coupled)" "yes" \
+  "$(grep -qF '## Dependencies' "$CI446_TMPL" && grep -qF 'Blocked by #N' "$CI446_TMPL" && grep -qF '## Dependencies' "$CI446_P1" && grep -qiF 'blocked by #N' "$CI446_P1" && echo yes || echo no)"  # raw-guard-ok: compound coupled producer/consumer vocabulary check across template + Pass 4
+# AC4 — phase-4 Phase 4.0 renders ## Dependencies above Problem Statement (Sections-in-order
+# list + the render bullet + the heredoc line).
+assert_pin_unique "#446 AC4: phase-4 Phase 4.0 Sections-in-order list leads with ## Dependencies" \
+  '**Sections, in this order:** `## Dependencies`, `## Problem Statement`' "$CI446_P4"
+assert_pin_unique "#446 AC4: phase-4 Phase 4.0 documents the parent-ordering redundancy bullet" \
+  'making the same parent-ordering fact scannable as its own section' "$CI446_P4"
+assert_pin_unique "#446 AC4: phase-4 Phase 4.0 heredoc renders the parent Blocked-by line" \
+  'Blocked by #$ARGUMENTS — the parent issue' "$CI446_P4"
+# AC4 — the "intentionally omitted" list is reconciled: it now names the Technical-Context
+# Dependencies *bullet* as omitted while the top-level ## Dependencies section IS rendered, so a
+# regression re-adding the section to the omitted set (contradicting the render bullet) goes RED.
+assert_pin_unique "#446 AC4: phase-4 intentionally-omitted list keeps the top-level ## Dependencies section rendered" \
+  'distinct from the top-level `## Dependencies` section, which *is* rendered' "$CI446_P4"
+# AC6 — the ladder terminal arm is decided two ways, and the Blocked-section inclusion rule is
+# reconciled to admit the ladder-produced vendor-behavior question (no longer "solely when the
+# user disengaged"). Pin both so a revert of either terminal-arm reconciliation goes RED.
+assert_pin_unique "#446 AC6: issue-template decides the ladder terminal arm two ways" \
+  'Ladder terminal arm — decided two ways' "$CI446_TMPL"
+assert_pin_unique "#446 AC6: issue-template Blocked-inclusion rule admits the ladder-produced class" \
+  'ladder-produced vendor-behavior question is the one Blocked entry class not arising from user' "$CI446_TMPL"
+# AC6 — the flagged-assumption paragraph's "not a Blocked item" sentence carries the ladder-terminal
+# exception, so a revert reintroducing the (flagged-assumption-never-Blocked) vs (terminal-arm-is-
+# Blocked) contradiction goes RED.
+assert_pin_unique "#446 AC6: flagged-assumption paragraph carries the ladder-terminal-arm exception" \
+  'it is not a `## 🚫 Blocked` item — **with the one exception of the' "$CI446_TMPL"
+# AC1/AC6 — the quality-checklist mirrors: the Dependencies checklist line and the broadened
+# relied-on-third-party checklist line are reconciled in the same change.
+assert_pin_unique "#446 AC1: quality-checklist lists open prerequisites in ## Dependencies" \
+  'Open cross-issue prerequisites are listed in `## Dependencies`' "$CI446_TMPL"
+# AC(Step 2) — Definition of Ready gains the known-prerequisites item (no question when none).
+assert_pin_unique "#446: create-issue Step 2 DoR gains the known-prerequisites item" \
+  'Known prerequisites (cross-issue ordering)' "$CI446_SKILL"
+# AC(Step 1) — docs-verify completion-wait discipline mirroring Step 3.6.
+assert_pin_unique "#446: create-issue Step 1 carries the docs-verify completion-wait discipline" \
+  'Completion-wait discipline (mandatory, mirroring Step 3.6' "$CI446_SKILL"
+assert_pin_unique "#446: Step 1 wait forbids treating a launch acknowledgment as the report" \
+  'launch acknowledgment is never treated as the findings report' "$CI446_SKILL"
+# AC(offer gate) — the two-condition gate: body-level condition + tier condition via config-get.sh
+# leading-token then python3/jq fallback, bash-builtin compare; and the never-silent withheld reason.
+assert_pin_unique "#446: offer gate reads workflows.devflow via config-get.sh as the leading token" \
+  'scripts/config-get.sh .workflows.devflow false' "$CI446_SKILL"
+assert_pin_unique "#446: offer gate compares to literal true with bash builtins only (no tr/sed)" \
+  'never `tr`/`sed` lowering, which fails **open**' "$CI446_SKILL"
+# Pin the SKILL's DOCUMENTED python3/jq fallback one-liners themselves, so a typo introduced
+# into the SKILL fallback text (the ONLY read path on the local tier when config-get.sh is
+# classifier-denied) turns RED — the fallback-agreement block below drives a hand-copy of
+# these shapes, so without these pins a SKILL-side drift from that copy would be uncaught.
+assert_pin_unique "#446: SKILL documents the type-tolerant python3 fallback read of workflows.devflow (lowercases only booleans, top-level-tolerant, mirrors config-get)" \
+  "w=d.get('workflows') if isinstance(d,dict) else None; v=w['devflow'] if (isinstance(w,dict) and 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$CI446_SKILL"
+assert_pin_unique "#446: SKILL documents the type-tolerant jq fallback read of workflows.devflow (repo-root anchored, string-truthy, top-level-tolerant)" \
+  "jq -r 'if (type==\"object\") and ((.workflows|type)==\"object\") then (.workflows.devflow // false) else false end' \"\$ROOT/.devflow/config.json\"" "$CI446_SKILL"
+# A boolean-only fallback (== true / is True) would diverge from config-get.sh AND the cloud gate
+# on a string "true" value (both accept it as enabled). Pin the clause forbidding the narrowing so
+# a revert to a boolean-only test turns RED.
+assert_pin_unique "#446: SKILL forbids a boolean-only fallback (string 'true' must read as enabled, matching the gate)" \
+  'Do **not** narrow the fallback to a boolean-only `== true` test' "$CI446_SKILL"
+# The fallbacks anchor the config path to the git repo root (#295 SHARED REPO-ROOT CONFIG
+# CONTRACT), matching config-get.sh — so a subdir run reads the same root config, not a
+# nonexistent cwd-relative one. Pin the anchoring clause so a revert to a cwd-relative read
+# turns RED.
+assert_pin_unique "#446: SKILL fallbacks anchor the config path to the git repo root (#295 contract)" \
+  'anchoring the config path to the git repo root the same way `config-get.sh` does' "$CI446_SKILL"
+# File-absent is detected by a bash `test -f`, NOT by letting an interpreter crash on the missing
+# path (which would mislabel an absent config "unreadable"). Pin the [ -f ] guard clause so a
+# revert to a raw crash-on-absent one-liner turns RED.
+assert_pin_unique "#446: SKILL fallback detects file-absent with [ -f ], not an interpreter crash" \
+  'Check file existence first with a bash builtin `test`' "$CI446_SKILL"
+# Reason-selection guards (Finding: config-unreadable vs tier-disabled conflation on the fallback
+# path). Pin the operative clauses so a regression that (a) reads a crashed rung's empty stdout as
+# the value false, or (b) buckets a merely-absent config as "unreadable", turns RED.
+assert_pin_unique "#446: reason-selection observes exit status, never empty stdout as the value false" \
+  'inspect each rung'"'"'s **exit status**' "$CI446_SKILL"
+assert_pin_unique "#446: an absent/unconfigured config is tier-disabled on every rung, never 'unreadable'" \
+  'unconfigured on every rung**, never "unreadable"' "$CI446_SKILL"
+assert_pin_unique "#446: offer gate prints a one-line withheld-offer reason (never silent)" \
+  'When the gate withholds the prompt, print a one-line reason naming the exact failed condition' "$CI446_SKILL"
+assert_pin_unique "#446: withheld-offer config-unreadable reason is kept distinct from tier-disabled" \
+  'use the distinct *config unreadable* reason' "$CI446_SKILL"
+# The unconditional-offer source literal is GONE (absence pin — the exact bytes the issue named).
+# (grep_present is deliberately scoped to 2 known compound MISSING-FILE sites by a meta-guard,
+# so a general absence pin uses the hand-rolled negated grep with a raw-guard-ok marker, matching
+# the sibling #228 absence pin.)
+assert_eq "#446: create-issue removed the unconditional-offer source literal" "yes" \
+  "$(! grep -qF '**always** present a yes/no prompt' "$CI446_SKILL" && echo yes || echo no)"  # raw-guard-ok: absence pin — the unconditional-offer literal is GONE (negated grep, not a presence pin)
+# Behavioral-fix pin (assert_pin_red_under): a mutation removing the gate's operative qualifier
+# — restoring the unconditional offer — must turn the pin RED, proving it guards the gate itself,
+# not merely its own line vanishing. Mutation removes ` **only when both conditions hold**`.
+assert_pin_red_under "#446: offer-gate pin guards against the restored-unconditional-offer mutation" \
+  'present the yes/no implement prompt **only when both conditions hold**' \
+  's/ \*\*only when both conditions hold\*\*//' \
+  "$CI446_SKILL"
+# AC(completion checklist) — gated-offer framing + todo 7 completable on both outcomes.
+assert_pin_unique "#446: create-issue Completion-checklist framing is the gated-offer form" \
+  'a *gated* offer to start implementation' "$CI446_SKILL"
+assert_pin_unique "#446: create-issue todo 7 is the gated implement-offer step (completable both ways)" \
+  'run the gated implement-offer step — present the offer, or print the withheld-offer reason' "$CI446_SKILL"
+# AC(docs) — overview §11 describes all four new behaviors.
+assert_pin_unique "#446: overview §11 describes the four authoring-pipeline hardenings" \
+  'Four authoring-pipeline hardenings (issue #446)' "$CI446_OVERVIEW"
+# Verified-config cases (obligation): drive config-get.sh over eight shapes — explicit false →
+# not-true (offer withheld), absent key → the false default (withheld), explicit true → true
+# (offered), wrong-type container → false (tier-disabled), top-level array and top-level scalar →
+# false (tier-disabled, not a crash), a string "true" → true (enabled,
+# matching the cloud gate), and a capitalized "True" → verbatim "True" (NOT enabled — case-sensitive).
+# config-get preserves valid-falsy and applies the caller default
+# only on absence (the #312 valid-falsy discipline), so the explicit-`true` gate is fail-closed on
+# absent/false/wrong-type/capitalized-string alike while a lowercase string "true" reads enabled (the
+# block drives explicit-false / absent-key / explicit-true / wrong-type / top-level-array /
+# top-level-scalar / string-true / string-True; the genuinely-unreadable arm — malformed JSON →
+# config-get exits non-zero with no value on stdout, the executable property the *config unreadable*
+# reason-selection rests on — is asserted below; file-absent is
+# handled by the SKILL's [ -f ] guard, pinned above).
+CG446="$LIB/../scripts/config-get.sh"
+CG446_FALSE="$(probe_tmp "#446 cfg explicit-false")";  printf '%s' '{"workflows":{"devflow":false}}' > "$CG446_FALSE"
+CG446_ABSENT="$(probe_tmp "#446 cfg absent-key")";     printf '%s' '{}' > "$CG446_ABSENT"
+CG446_TRUE="$(probe_tmp "#446 cfg explicit-true")";    printf '%s' '{"workflows":{"devflow":true}}' > "$CG446_TRUE"
+# Wrong-type `workflows` (an array, not an object): config-get.sh walks the path, hits a non-dict
+# at `devflow`, and returns the `false` default exit 0 — i.e. a wrong-type shape reads as
+# tier-disabled/unconfigured, NOT unreadable. The type-tolerant fallbacks must agree (Finding 2:
+# a raw fallback one-liner crashes here and would mislabel it *config unreadable*).
+CG446_WRONGTYPE="$(probe_tmp "#446 cfg wrong-type")";  printf '%s' '{"workflows":[]}' > "$CG446_WRONGTYPE"
+# Top-level NON-OBJECT config (hand-corrupted `[]` / bare scalar): config-get.sh walks the path,
+# finds no dict, and returns the false default at exit 0 — tier-disabled/unconfigured, NOT
+# unreadable. The fallbacks must agree: an unguarded `d.get(...)` / `.workflows` crashes here
+# (AttributeError / jq "Cannot index"), which would misroute the shape to *config unreadable*
+# on exactly the local tier where the fallback is the only read path (Important finding 2).
+CG446_TOPARR="$(probe_tmp "#446 cfg top-level-array")";   printf '%s' '[]' > "$CG446_TOPARR"
+CG446_TOPSCAL="$(probe_tmp "#446 cfg top-level-scalar")"; printf '%s' '"oops"' > "$CG446_TOPSCAL"
+# String-valued devflow: "true" — schema-invalid but human-corruptible. config-get.sh stringifies
+# the value ("true") and the authoritative cloud gate reads `.workflows.devflow // false` then
+# string-compares to "true", so BOTH treat a string "true" as ENABLED. The fallbacks must agree
+# (a boolean-only fallback would diverge — withhold + mislabel "tier disabled" — on exactly the
+# local tier where the fallback is the only read path).
+CG446_STRTRUE="$(probe_tmp "#446 cfg string-true")";   printf '%s' '{"workflows":{"devflow":"true"}}' > "$CG446_STRTRUE"
+# Capitalized string "True": config-get.sh and the cloud gate are CASE-SENSITIVE against literal
+# "true", so "True" reads NOT enabled — the fallbacks must agree (a `.lower()` on the whole value
+# would case-fold "True"->"true" and fire an offer the resolver + gate treat as disabled).
+CG446_STRCAP="$(probe_tmp "#446 cfg string-True-cap")"; printf '%s' '{"workflows":{"devflow":"True"}}' > "$CG446_STRCAP"
+assert_eq "#446 offer-gate: explicit false reads not-true (offer withheld)" "false" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_FALSE")"
+assert_eq "#446 offer-gate: absent key reads the false default (offer withheld)" "false" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_ABSENT")"
+assert_eq "#446 offer-gate: explicit true reads true (offer presented)" "true" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_TRUE")"
+assert_eq "#446 offer-gate: wrong-type workflows reads the false default (tier-disabled, not unreadable)" "false" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_WRONGTYPE")"
+assert_eq "#446 offer-gate: top-level array config reads the false default (tier-disabled, not unreadable)" "false" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_TOPARR")"
+assert_eq "#446 offer-gate: top-level scalar config reads the false default (tier-disabled, not unreadable)" "false" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_TOPSCAL")"
+# The genuinely-unreadable arm (Suggestion 1): the *config unreadable* reason-selection rests on one
+# executable property — config-get.sh EXITS NON-ZERO on malformed JSON and never fail-open-prints
+# the caller default. Assert both halves on a malformed fixture (stderr carries the parse message;
+# stdout must carry no value at all).
+CG446_BAD="$(probe_tmp "#446 cfg malformed-json")"; printf '%s' '{not json' > "$CG446_BAD"
+cg446_bad_out="$(bash "$CG446" .workflows.devflow false "$CG446_BAD" 2>/dev/null)" && cg446_bad_rc=0 || cg446_bad_rc=$?
+assert_eq "#446 offer-gate: config-get exits non-zero on malformed JSON (unreadable, never fail-open default)" "yes" \
+  "$([ "$cg446_bad_rc" -ne 0 ] && [ -z "$cg446_bad_out" ] && echo yes || echo no)"
+assert_eq "#446 offer-gate: string 'true' reads true (enabled, matching the cloud gate)" "true" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_STRTRUE")"
+assert_eq "#446 offer-gate: capitalized 'True' reads verbatim (NOT enabled — case-sensitive, matching config-get/gate)" "True" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_STRCAP")"
+# Fallback-agreement (obligation, pr-test-analyzer + fix-delta-gate hardening): the SKILL documents
+# a type-tolerant python3 and jq fallback read for when config-get.sh is classifier-denied. Drive
+# BOTH documented fallback shapes over the fixtures — INCLUDING the wrong-type and top-level
+# non-object shapes, where a raw (non-type-tolerant) fallback crashes and diverges from the
+# resolver — and assert each agrees with
+# config-get's true/false verdict, so a nesting/typo/type-intolerance divergence between a fallback
+# and the resolver (which would silently produce a different offer decision, or a different withheld
+# reason, on exactly the local tier where the fallback is the only read path) turns RED here. The
+# forms are STRING-TRUTHY, mirroring config-get.sh and the cloud gate (never boolean-only — see the
+# pin at the top of this block): the python form mirrors the SKILL's
+# `w=d.get('workflows') if isinstance(d,dict) else None; v=w['devflow'] if (isinstance(w,dict) and
+# 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))`; the jq form
+# mirrors `if (type=="object") and ((.workflows|type)=="object") then (.workflows.devflow // false)
+# else false end` — which is why the string "true" fixture must read enabled below. Both are
+# fed the fixture path in place of the repo-root-anchored `"$ROOT/.devflow/config.json"` the SKILL
+# one-liners read (both SKILL forms read the path as their last argument, so the substitution
+# mirrors them). File-absent is NOT driven here — the SKILL detects it with a `[ -f ]` guard BEFORE
+# the interpreter runs, pinned separately above; these one-liners assume an existing file.
+# Each `want` is a hand-copied literal that the assert_eq block above verifies is config-get's own
+# output for the same fixture, so agreement here is byte-for-byte with the resolver by transitivity
+# (not just agreement on the true/false decision): capitalized "True" stays "True" on
+# every rung (case-sensitive → withheld), pinning that a `.lower()`-the-whole-value regression
+# (which would emit "true" and fire) turns RED.
+for cg446_case in "false:$CG446_FALSE" "false:$CG446_ABSENT" "true:$CG446_TRUE" "false:$CG446_WRONGTYPE" "false:$CG446_TOPARR" "false:$CG446_TOPSCAL" "true:$CG446_STRTRUE" "True:$CG446_STRCAP"; do
+  cg446_want="${cg446_case%%:*}"; cg446_file="${cg446_case#*:}"
+  assert_eq "#446 offer-gate: python3 fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
+    "$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); w=d.get('workflows') if isinstance(d,dict) else None; v=w['devflow'] if (isinstance(w,dict) and 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$cg446_file")"
+  assert_eq "#446 offer-gate: jq fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
+    "$(jq -r 'if (type=="object") and ((.workflows|type)=="object") then (.workflows.devflow // false) else false end' "$cg446_file")"
+done
+rm -f "$CG446_FALSE" "$CG446_ABSENT" "$CG446_TRUE" "$CG446_WRONGTYPE" "$CG446_TOPARR" "$CG446_TOPSCAL" "$CG446_STRTRUE" "$CG446_STRCAP" "$CG446_BAD"
+
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
 assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" "yes" \
