@@ -138,16 +138,43 @@ if ! "$DEVFLOW_JQ" -n \
          transcript_path_present: ($transcript_seen == "yes")
        }' > "$MARKER" 2>/dev/null; then
   # Fall back to a minimal literal: the PRESENCE of the file is the AC6 measurement,
-  # so a failed jq must not cost us the firing observation itself. `transcript_path_present`
-  # is still reported HONESTLY on this path — it is known from a pure-bash variable and owes
-  # nothing to the jq that just failed, so hardcoding `false` here would emit a fact we can
-  # see to be wrong (a small, gratuitous falsehood in a file whose whole job is honest
-  # measurement). Derive it with a builtin `case`, not a PATH tool.
+  # so a failed jq must not cost us the firing observation itself. Everything already
+  # ESTABLISHED is reported HONESTLY on this path rather than thrown away — the token
+  # shape was classified by the jq pass ABOVE (a different, already-successful call), and
+  # `transcript_path_present` is known from a pure-bash variable; neither owes anything to
+  # the breadcrumb `jq -n` that just failed. Hardcoding `unavailable`/`null` here would
+  # emit facts we can see to be wrong (a gratuitous falsehood in a file whose whole job is
+  # honest measurement) and would collapse a real measurement onto the unknown sentinel —
+  # the inverse of the unknown-is-not-zero rule, and just as wrong.
+  #
+  # Every value is re-validated with builtin `case` before interpolation — never a PATH
+  # tool (guard-class 2), and fail-closed: an unrecognized shape word degrades to
+  # `unavailable` and a non-digit count degrades to `null`, so the literal is always
+  # valid JSON no matter what reached these variables.
   case "$TRANSCRIPT" in
     '') _tp=false ;;
     *)  _tp=true ;;
   esac
-  echo "{\"fired\":true,\"token_shape\":\"unavailable\",\"usage_blocks\":null,\"max_usage_figure\":null,\"transcript_path_present\":${_tp}}" > "$MARKER" 2>/dev/null \
+  case "$TOKEN_SHAPE" in
+    real|placeholder|absent|unavailable) _ts="$TOKEN_SHAPE" ;;
+    *) _ts=unavailable ;;
+  esac
+  case "$USAGE_BLOCKS" in
+    ''|*[!0-9]*) _ub=null ;;
+    *) _ub="$USAGE_BLOCKS" ;;
+  esac
+  # max_usage_figure accepts a DECIMAL as well as an integer, so the two write paths agree:
+  # the primary path builds this value with jq `tonumber`, which happily accepts `1.5`. An
+  # integers-only guard here would emit `null` on a float that the primary path emits as a
+  # number — a silent divergence between the two paths for the same input. The arms below
+  # admit `<digits>` and `<digits>.<digits>` only, so a leading/trailing/duplicate dot (none
+  # of which is valid JSON) still fails closed to `null`. (usage_blocks stays integers-only:
+  # it is a jq `length`, which cannot be fractional.)
+  case "$MAX_SEEN" in
+    ''|*[!0-9.]*|*.*.*|.*|*.) _mx=null ;;
+    *) _mx="$MAX_SEEN" ;;
+  esac
+  echo "{\"fired\":true,\"token_shape\":\"${_ts}\",\"usage_blocks\":${_ub},\"max_usage_figure\":${_mx},\"transcript_path_present\":${_tp}}" > "$MARKER" 2>/dev/null \
     || echo "devflow stop-hook-probe: could not write $MARKER" >&2
 fi
 

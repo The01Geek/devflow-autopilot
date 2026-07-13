@@ -194,9 +194,11 @@ not blocked. This makes only the **effectiveness** half of the telemetry (dispat
 recoverable on a degraded run; the **token/wall-clock cost** half is captured *live* by the loop, and
 **no backstop DevFlow currently ships reconstructs it** once the loop is abandoned — so today it
 carries no deterministic guarantee, only the probabilistic protection of staying on the loop. (That
-is a gap in what is built, **not** a limit of the platform: issue #437 observed that both the cloud
-`execution_file` and the local `Stop` transcript *do* carry the tokens, wall-clock, and dispatch
-roster with zero agent cooperation — see [`docs/execution-file-shape.md`](execution-file-shape.md).
+is a gap in what is built, **not** a limit of the platform: issue #437 observed that the cloud
+`execution_file` *does* carry the tokens, wall-clock, the dispatch roster, and cost with zero agent
+cooperation, and that on the local tier the `Stop` transcript's per-message token counts are **real**
+figures, not streaming placeholders — wall-clock and the dispatch roster were *not* measured locally;
+see [`docs/execution-file-shape.md`](execution-file-shape.md).
 An agent-independent cost floor is buildable; it simply has not been built yet.) Note the deliberate implement-vs-runner asymmetry:
 the read-only `review` runner uses `--permission-mode acceptEdits`, but `/devflow:implement` does
 **not** — friction at the seam is reduced by single-statement leading-token helper forms and the Write

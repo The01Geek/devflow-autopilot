@@ -233,8 +233,9 @@ agent can follow the engine's *substance* (review, shadow, fixes) but silently d
 `chore:` persist commit. Nothing distinguishes "correctly persisted nothing because telemetry was
 off" from "silently forgot to persist," so the gap is invisible, and the lost *full* record is not
 reconstructed by any shipped backstop (token/wall-clock telemetry is captured live — whether the
-harness's own output could reconstruct it is under empirical test, see the cost-half note below and
-issue #437; the Layer-3+ synthesis floor below recovers a minimal effectiveness skeleton from the fix
+harness's own output *could* reconstruct it has been **measured by the #437 probe**, result in
+[`docs/execution-file-shape.md`](execution-file-shape.md); see the cost-half note below. The Layer-3+
+synthesis floor below recovers a minimal effectiveness skeleton from the fix
 commits, never that detail). Layered
 backstops close this, weakest to strongest — the deterministic backstop (Layer 3) and its synthesis
 floor (Layer 3+) are the actual guarantee; the others shrink the blast radius and provide a portable
@@ -255,7 +256,9 @@ assertion was never measured. Issue #437 replaced the assertion with a re-runnab
 results are recorded in [`docs/execution-file-shape.md`](execution-file-shape.md): read that shape
 record — not this sentence — before deciding whether an agent-independent cost floor is buildable.
 
-**The measurements refute the old claim on BOTH tiers. It was false.** The probe has now run:
+**The measurements refute the old claim. It was false.** Each tier refutes it — but they were
+measured to *different depths*, and the difference matters (do not read the two rows below as
+parity; the cloud row is a full field sweep, the local row is a token-realness check):
 
 - **Cloud** (`execfile-shape-probe`, run `29201071531`, 2026-07-12): `claude-code-action`'s
   `execution_file` carries per-message token `usage` (`input_tokens` / `output_tokens` /
@@ -264,15 +267,21 @@ record — not this sentence — before deciding whether an agent-independent co
   (`costUSD`, `total_cost_usd`, per-model `modelUsage`).
 - **Local** (`scripts/stop-hook-probe.sh`, 2026-07-12): the `Stop`-hook transcript carries **real**
   per-message token counts (196 `usage` blocks, largest figure 342,272) — not the streaming
-  placeholders it was assumed to hold.
+  placeholders it was assumed to hold. **That is the whole local measurement**: token *realness*.
+  Wall-clock and the subagent dispatch roster were **not** measured on this tier — they may well be
+  derivable from the transcript, but nothing here establishes that, so do not cite the cloud row's
+  field sweep as if it applied locally.
 
 So *"no backstop **can** reconstruct the cost half"* is **not true**, and repeating it steered three
 issues' worth of work (#170, #381, #426) into building ever-more-elaborate floors fed by operands the
 agent had to volunteer, while the harness was emitting the same data, deterministically, the whole
 time. The honest statement is the weaker one: **no backstop DevFlow currently *ships* reconstructs
 it** — a gap in what we built, not a law of the platform. An agent-independent (class-(c)) cost floor
-is **buildable on both tiers**; see [`docs/execution-file-shape.md`](execution-file-shape.md) for the
-observed shape and the run URL, and build against that record rather than this paragraph.
+is **buildable on both tiers** — on the cloud tier from the full observed field set above, on the
+local tier from the transcript's real token counts (wall-clock and the dispatch roster were *not*
+measured there, so a local floor's phase attribution is an open question, not an observed fact); see
+[`docs/execution-file-shape.md`](execution-file-shape.md) for the observed shape and the run URL, and
+build against that record rather than this paragraph.
 
 Two things remain genuinely open, and a floor must not assume them away: the `execution_file` schema
 is **not a public contract** (the record is a dated observation of one action version — re-dispatch the
@@ -562,8 +571,8 @@ a promotion with no record of the shadow that produced it. When an `iter-<N>.jso
   backstop, not its equal. Like the iter floor, it recovers **attribution, not cost**: the
   `step_2_6` token/wall figures are captured live and no shipped backstop reconstructs them after the
   fact. Whether the harness's own `execution_file`/transcript could supply an agent-independent cost
-  floor is no longer asserted here as settled — it is under empirical test by the issue #437 probe,
-  with the observed result recorded in [`docs/execution-file-shape.md`](execution-file-shape.md).
+  floor is no longer asserted here as settled — it was **measured by the #437 probe**, with the
+  observed result recorded in [`docs/execution-file-shape.md`](execution-file-shape.md).
   Older records without the marker remain valid.
 
 ## The unified experiment record (`experiment-records.jsonl`)

@@ -27668,6 +27668,21 @@ assert_eq "#437 exec-shape(malformed): usage unavailable" "yes" \
   "$(printf '%s' "$EES_MAL" | grep -qxF 'usage: unavailable' && echo yes || echo no)"
 assert_eq "#437 exec-shape(malformed): encoding unavailable" "yes" \
   "$(printf '%s' "$EES_MAL" | grep -qxF 'encoding: unavailable' && echo yes || echo no)"
+# `_emit_unavailable` emits a STRUCTURAL PLACEHOLDER line under the key-paths heading, not an
+# empty section. Without it a reader cannot tell "the file carried no key-paths" from "the
+# section was silently dropped" — the same unknown-vs-zero collapse the field lines avoid — and
+# the placeholder is emitted bytes, so it must be asserted rather than assumed.
+assert_eq "#437 exec-shape(degrade): the structural section carries the '_(none — ...)_' placeholder" "yes" \
+  "$(printf '%s' "$EES_MAL" | grep -qF '_(none — execution file' && echo yes || echo no)"
+
+# The always-exit-0 best-effort contract is asserted on the empty/malformed/scalar arms, but was
+# unasserted on the three fixtures that degrade WITHOUT being unparseable. The helper runs inside
+# the probe job (and its sibling runs as a Stop hook), so a non-zero exit on any of these would
+# break the caller while every content assertion above stayed green.
+for _f in exec-shape-noresult.json exec-shape-result-nullfields.json exec-shape-denials-countbad.json; do
+  bash "$EES" "$EES_FIX/$_f" >/dev/null 2>&1
+  assert_eq "#437 exec-shape(best-effort): $_f exits 0" "0" "$?"
+done
 
 # --- exec-shape(redaction): the security boundary (AC2). The full fixture seeds a
 # fake secret, a long prompt body, and a hostile/attacker-controlled check-run name
@@ -27751,11 +27766,23 @@ assert_eq "#437 exec-shape(redaction): ordinary schema keys still emitted verbat
   "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key.json" 2>/dev/null | grep -qxF 'duration_ms: number' && echo yes || echo no)"
 # AC2 is an encoding-INDEPENDENT boundary: the hostile-key arm was previously proven on the array
 # encoding only, so a redaction bug reachable through the object or jsonl path would have shipped.
+# Each hostile key carries TWO distinct sentinels — a secret-shaped token and an injected
+# instruction — and each is swept SEPARATELY per encoding. A single combined regex would go green
+# on a leak of one sentinel as long as the other was stripped, and the injected-instruction half is
+# the one a prompt-injection boundary exists to stop.
 for _enc in object jsonl; do
-  assert_eq "#437 exec-shape(redaction): hostile key content never escapes via the $_enc encoding" "yes" \
-    "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key-$_enc.json" 2>/dev/null | grep -qiE 'SECRET_key_sentinel|ignore previous instructions' && echo no || echo yes)"
+  _hk_out="$(bash "$EES" "$EES_FIX/exec-shape-hostile-key-$_enc.json" 2>/dev/null)"
+  for _sent in 'SECRET_key_sentinel' 'ignore previous instructions'; do
+    assert_eq "#437 exec-shape(redaction): '$_sent' never escapes via the $_enc encoding" "yes" \
+      "$(printf '%s' "$_hk_out" | grep -qiF "$_sent" && echo no || echo yes)"
+  done
   assert_eq "#437 exec-shape(redaction): hostile key IS redacted via the $_enc encoding" "yes" \
-    "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key-$_enc.json" 2>/dev/null | grep -qF '<redacted-key>' && echo yes || echo no)"
+    "$(printf '%s' "$_hk_out" | grep -qF '<redacted-key>' && echo yes || echo no)"
+done
+# Same two-sentinel discipline on the array encoding (the arm above uses one combined regex).
+for _sent in 'SECRET_key_sentinel' 'ignore previous instructions'; do
+  assert_eq "#437 exec-shape(redaction): '$_sent' never escapes via the array encoding" "yes" \
+    "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key.json" 2>/dev/null | grep -qiF "$_sent" && echo no || echo yes)"
 done
 
 # A count carrier that is PRESENT but UNPARSEABLE (the literal "unavailable") was never
@@ -27927,6 +27954,56 @@ git -C "$SHP_BADCWD" init -q 2>/dev/null
 printf '{"hook_event_name":"Stop","cwd":"%s/not-a-real-dir"}' "$SHP_BADCWD" | ( cd "$SHP_BADCWD" && bash "$SHP" >/dev/null 2>&1 )
 assert_eq "#437 stop-hook: a cwd that is not a directory falls back to the git toplevel" "yes" \
   "$([ -f "$(_shp_marker "$SHP_BADCWD")" ] && echo yes || echo no)"
+
+# (4h) The breadcrumb-build FALLBACK path (the `jq -n` write failed) must not throw away what was
+#      already ESTABLISHED. The token shape is classified by an EARLIER, separate jq pass, so a
+#      failed breadcrumb build says nothing about it — hardcoding `unavailable`/`null` there would
+#      collapse a real measurement onto the unknown sentinel (the inverse of unknown-is-not-zero).
+#      Force the path with a jq stub that fails ONLY on `jq -n`, leaving the payload/transcript
+#      passes intact, and assert the fallback literal is valid JSON carrying the real figures.
+SHP_STUB="$SHP_TMP/stubbin"; mkdir -p "$SHP_STUB"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'for _a in "$@"; do [ "$_a" = "-n" ] && exit 1; done' \
+  'exec jq "$@"' \
+  > "$SHP_STUB/jq-no-dash-n"
+chmod +x "$SHP_STUB/jq-no-dash-n"
+SHP_FB="$SHP_TMP/fallback"; mkdir -p "$SHP_FB"
+printf '%s\n' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":1200,"output_tokens":345}}}' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":80,"output_tokens":9}}}' \
+  > "$SHP_FB/t.jsonl"
+_shp_payload "$SHP_FB" "$SHP_FB/t.jsonl" | DEVFLOW_JQ="$SHP_STUB/jq-no-dash-n" bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(fallback): the hand-built breadcrumb is still valid JSON" "yes" \
+  "$(jq -e . "$(_shp_marker "$SHP_FB")" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "#437 stop-hook(fallback): the already-classified token_shape is REUSED, not discarded" "real" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_FB")")"
+assert_eq "#437 stop-hook(fallback): the already-counted usage_blocks is REUSED, not nulled" "2" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_FB")")"
+assert_eq "#437 stop-hook(fallback): the already-measured max_usage_figure is REUSED, not nulled" "1200" \
+  "$(jq -r '.max_usage_figure' "$(_shp_marker "$SHP_FB")")"
+assert_eq "#437 stop-hook(fallback): transcript_path_present stays honest on the fallback path" "true" \
+  "$(jq -r '.transcript_path_present' "$(_shp_marker "$SHP_FB")")"
+# Fail-CLOSED on the same path: when the shape was genuinely never established, the fallback must
+# still emit `unavailable`/null — reuse must not become fabrication.
+SHP_FBU="$SHP_TMP/fallback-unavail"; mkdir -p "$SHP_FBU"
+_shp_payload "$SHP_FBU" "$SHP_FBU/missing.jsonl" | DEVFLOW_JQ="$SHP_STUB/jq-no-dash-n" bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(fallback): an unestablished shape still reports 'unavailable'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_FBU")")"
+assert_eq "#437 stop-hook(fallback): an unestablished count is null, never 0" "null" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_FBU")")"
+# The two write paths must agree on the SAME input. The primary path builds max_usage_figure with
+# jq `tonumber`, which accepts a decimal; an integers-only guard on the fallback would emit `null`
+# for a float the primary path emits as a number — a silent per-path divergence. Drive a transcript
+# whose largest usage figure is fractional and assert the fallback carries it through.
+SHP_FLT="$SHP_TMP/fallback-float"; mkdir -p "$SHP_FLT"
+printf '%s\n' '{"type":"assistant","message":{"usage":{"input_tokens":2.5,"output_tokens":1}}}' \
+  > "$SHP_FLT/t.jsonl"
+_shp_payload "$SHP_FLT" "$SHP_FLT/t.jsonl" | DEVFLOW_JQ="$SHP_STUB/jq-no-dash-n" bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(fallback): a DECIMAL max figure survives (paths must not diverge)" "2.5" \
+  "$(jq -r '.max_usage_figure' "$(_shp_marker "$SHP_FLT")")"
+assert_eq "#437 stop-hook(fallback): the decimal-carrying breadcrumb is still valid JSON" "yes" \
+  "$(jq -e . "$(_shp_marker "$SHP_FLT")" >/dev/null 2>&1 && echo yes || echo no)"
 
 # (5) Degenerate payloads never break the session: empty stdin, malformed JSON, and a
 #     missing transcript_path each exit 0 (a non-zero Stop hook can disrupt the run).

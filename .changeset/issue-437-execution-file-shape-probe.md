@@ -26,8 +26,12 @@ type: Added
   (196 `usage` blocks, largest figure 342,272) — not the streaming placeholders it was assumed to
   hold.
 - **Consequence: the "cost half is unreconstructable" claim in `docs/efficiency-trace.md` was false,
-  and is corrected.** Both tiers demonstrably carry the tokens, wall-clock, and subagent dispatch
-  roster with **zero agent cooperation**, so an agent-independent telemetry floor is buildable. The
+  and is corrected.** The cloud `execution_file` demonstrably carries the tokens, wall-clock, the
+  subagent dispatch roster, and cost with **zero agent cooperation**; on the local tier the
+  transcript's per-message token counts were observed to be **real** figures, not streaming
+  placeholders (wall-clock and the dispatch roster were not measured there). Either way the claim
+  that the cost half is unreconstructable does not survive, so an agent-independent telemetry floor
+  is buildable. The
   honest form — now the shipped wording — is that no backstop DevFlow *ships* reconstructs it: a gap
   in what was built, not a limit of the platform. Two things stay open and are stated as such: the
   `execution_file` schema is not a public contract (the record is a dated observation of one action

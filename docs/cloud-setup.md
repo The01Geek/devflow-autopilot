@@ -734,10 +734,12 @@ matter for the cloud tier:
   **token/wall-clock cost** half is captured *live* by the loop, and **no backstop DevFlow currently
   ships reconstructs it** once the loop is abandoned — so today it has **no deterministic guarantee**
   and keeping the loop live is its only (probabilistic) protection. That is a gap in what is built,
-  **not** a limit of the platform: issue #437 observed that the cloud `execution_file` and the local
-  `Stop` transcript both carry the tokens, wall-clock, and dispatch roster with zero agent
-  cooperation (see [`docs/execution-file-shape.md`](execution-file-shape.md)), so an
-  agent-independent cost floor is buildable — it has simply not been built yet.
+  **not** a limit of the platform: issue #437 observed that the cloud `execution_file` carries the
+  tokens, wall-clock, the dispatch roster, and cost with zero agent cooperation, and that the local
+  `Stop` transcript's per-message token counts are **real** figures rather than streaming
+  placeholders (wall-clock and the dispatch roster were *not* measured on the local tier — see
+  [`docs/execution-file-shape.md`](execution-file-shape.md)), so an agent-independent cost floor is
+  buildable — it has simply not been built yet.
 - **Implement-vs-runner `--permission-mode` asymmetry.** The read-only `review` runner
   (`devflow-runner.yml`) launches Claude with `--permission-mode acceptEdits`; the
   `/devflow:implement` job (`devflow-implement.yml`) deliberately does **not**. So the implement seam
