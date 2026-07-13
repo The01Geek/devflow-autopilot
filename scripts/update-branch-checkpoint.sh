@@ -143,9 +143,13 @@ _push_or_recover() {
     emit "UPDATED $BEHIND"
     exit 0
   fi
-  # Non-fast-forward: the remote feature ref advanced during the run. Integrate it
-  # (preserving the base-merge commit) and retry the push once.
-  echo "update-branch-checkpoint: push refused (remote $BRANCH advanced); integrating origin/$BRANCH and retrying once" >&2
+  # Push refused. The common cause is a non-fast-forward race (the remote feature ref
+  # advanced during the run), which the integrate-and-retry below recovers; but a
+  # network/auth/hook/protected-branch refusal reaches here too, so the breadcrumb stays
+  # cause-neutral rather than asserting "remote advanced" as fact. Integrate origin/$BRANCH
+  # (preserving the base-merge commit) and retry the push exactly once — a non-race refusal
+  # simply fails the retry too and terminates in the honest PUSH_REJECTED/restore arm.
+  echo "update-branch-checkpoint: push refused; integrating origin/$BRANCH (in case the remote ref advanced) and retrying the push once" >&2
   git fetch origin "$BRANCH" || _reject_restore "update-branch-checkpoint: could not fetch origin/$BRANCH to integrate; branch restored to pre-checkpoint SHA"
   if ! git merge --no-edit "origin/$BRANCH"; then
     # A conflicted integrate is aborted and the branch restored — this is remote
@@ -188,8 +192,16 @@ _merge_and_dispatch
 
 # (8) Shallow-history arm: no merge base was reachable (the merge above returned without a
 # MERGE_HEAD). Unshallow exactly once and retry the merge once; an unrecoverable history is
-# a clean UNVERIFIED with the tree untouched.
-if git fetch --unshallow origin >/dev/null 2>&1; then
+# a clean UNVERIFIED with the tree untouched. Target "$BASE" explicitly: the cloud checkout
+# uses fetch-depth:50, which actions/checkout performs as a single-branch fetch (the origin
+# refspec is scoped to the feature ref), so a bare `git fetch --unshallow origin` would not
+# deepen refs/remotes/origin/$BASE and the merge base could still lie beyond its boundary.
+if git fetch --unshallow origin "$BASE" >/dev/null 2>&1; then
+  # Re-derive behind-by now that base history is complete — a shallow view undercounts it,
+  # so the pre-unshallow BEHIND would publish a confidently-low UPDATED count. Keep the old
+  # value if re-derivation fails (guard-class 2 — bash `case` builtin, never wc/cut).
+  BEHIND_FULL="$(git rev-list --count "HEAD..origin/$BASE" 2>/dev/null || true)"
+  case "$BEHIND_FULL" in '' | *[!0-9]*) : ;; *) BEHIND="$BEHIND_FULL" ;; esac
   _merge_and_dispatch
 fi
 
