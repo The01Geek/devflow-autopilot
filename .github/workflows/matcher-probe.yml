@@ -25,7 +25,7 @@ name: Matcher probe
 # claude-code-action. A pull_request edit to this file therefore launches a
 # paid Claude session per probe job, not just the original two.
 #
-# A second sibling `implement-probe` job (issue #450) applies the same
+# An additional `implement-probe` job (issue #450) applies the same
 # execution-file measurement to the SEPARATE read-write `devflow-implement` tool
 # profile — a distinct allowlist from the review profile, so shapes/forms proven on
 # one tier are unproven on the other. It establishes which grant FORM (explicit
@@ -79,10 +79,13 @@ permissions:
   # issues/*/comments, mapped to its `comments` requirement, which the
   # pull-requests grant already satisfies), so the lint does NOT require this
   # grant - it stays clean whether or not `issues:` is declared. `read` is
-  # therefore a defense-in-depth safe floor, not a lint-satisfying grant: it
-  # makes every mutating label call fail closed at the API so the probe stays
-  # matcher-only and can never create or apply a label. (The probe targets dummy
-  # issue numbers/label names regardless.)
+  # therefore not a lint-satisfying grant but a deliberate, conservative
+  # declaration of the family the implement profile exercises: it caps issues at
+  # read so every mutating label call fails closed at the API and the probe stays
+  # matcher-only, never creating or applying a label. (Omitting `issues:` would
+  # default it to `none` under this block - tighter still for reads; `read` is
+  # chosen to document the touched family, not because reads are needed. The
+  # probe targets dummy issue numbers/label names regardless.)
   issues: read
 
 jobs:
@@ -385,10 +388,14 @@ jobs:
   # distinct evidence (a shape/form proven on one tier is unproven on the other).
   # The motivating defect: cloud implement runs silently lose their best-effort
   # label applies (`ensure-label.sh` / `apply-labels.sh`) — the phase-4 fences emit
-  # the UNEXPANDED portable anchor as the leading token, a denied shape class on the
-  # cloud matcher (issue #401), so the helpers never run and their best-effort stderr
-  # breadcrumbs never fire. This job establishes the implement-tier evidence table
-  # that Stage B's grant form and call-site rework are gated on.
+  # the UNEXPANDED portable anchor as the leading token, a shape class the cloud
+  # matcher denies in the read-only REVIEW runner (issue #401) and is SUSPECTED to
+  # deny here too, so the helpers are believed never to run and their best-effort
+  # stderr breadcrumbs never to fire. Whether that denial actually holds on the
+  # SEPARATE implement profile is exactly what this job measures — it must not be
+  # assumed (a shape proven on one tier is unproven on the other). This job
+  # establishes the implement-tier evidence table that Stage B's grant form and
+  # call-site rework are gated on.
   #
   # Human-dispatch only (issue #450 AC): in-band dispatch-and-await is infeasible
   # for an autonomous run (the constraint recorded at commit 5ac0237), so a human

@@ -5630,12 +5630,14 @@ DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 # devflow-implement.yml's baked --allowed-tools TOOLS literal into its IMPLEMENT='…'
 # compose var (a deliberate second copy so the probe measures the REAL implement
 # profile, like the review probe's REVIEW literal). A drift between the two would make
-# the probe silently measure a stale profile, so assert byte-token identity here — the
-# repo's coupled-mirror discipline applied to the new mirror site. The extractor flattens
+# the probe silently measure a stale profile, so assert comma-split token-list identity
+# (order + content) here — the repo's coupled-mirror discipline applied to the new mirror
+# site. The two literals are NOT byte-identical (the baked one is newline+indent-wrapped,
+# the probe copy single-line); the extractor flattens
 # both literals to comma-split tokens and compares order + content; it prints DRIFT (fail)
 # on any divergence and EXTRACT-FAIL if either literal can't be located.
 MPROBE_YML="$LIB/../.github/workflows/matcher-probe.yml"
-assert_eq "#450 pin: matcher-probe IMPLEMENT literal is byte-synced with devflow-implement.yml TOOLS" "SYNCED" \
+assert_eq "#450 pin: matcher-probe IMPLEMENT literal is token-synced with devflow-implement.yml TOOLS" "SYNCED" \
   "$(python3 -c '
 import re,sys
 b=re.search(r"--allowed-tools\s*\n\s*\"(.*?)Bash\(tee:\*\)\$\{\{", open(sys.argv[1]).read(), re.S)
