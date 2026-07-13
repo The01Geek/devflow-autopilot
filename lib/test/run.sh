@@ -28243,6 +28243,23 @@ rm -f "$D/work/.devflow/config.json"
 ubc_run "$D"
 assert_eq "#448 ubc-config-read-failure: positive control (config removed) → UPDATED 1" "UPDATED 1" "$UBC_OUT"
 
+# ── ubc-empty-base-branch → an explicit-empty base_branch ("") is the valid-falsy row of
+# the BASE derivation: the read SUCCEEDS but is empty, so the run falls back to main and
+# still merges (config-get.sh's own caller-default supplies main on an empty value; the
+# helper's `[ -n "$BASE" ] || BASE=main` backstops it). Base advanced → a correct fallback
+# merges and pushes (UPDATED 1); a broken fallback would surface as UNVERIFIED. ───────────
+D="$(git_sandbox 'ubc-empty-base-branch')"
+ubc_make "$D"
+ubc_advance_base "$D" eb
+mkdir -p "$D/work/.devflow"
+printf '%s\n' '{"base_branch": ""}' > "$D/work/.devflow/config.json"
+ubc_run "$D"
+assert_eq "#448 ubc-empty-base-branch: explicit empty base_branch falls back to main → UPDATED 1" \
+  "UPDATED 1" "$UBC_OUT"
+assert_eq "#448 ubc-empty-base-branch: exit 0" "0" "$UBC_RC"
+assert_eq "#448 ubc-empty-base-branch: base commit merged (origin/main ancestor of HEAD)" "yes" \
+  "$(git -C "$D/work" merge-base --is-ancestor origin/main HEAD 2>/dev/null && echo yes || echo no)"
+
 # ── ubc-conflict → Outcome + Conflict contract: a conflicting base edit → CONFLICT, exit 2,
 # MERGE_HEAD present, the conflicted path named on stderr. ────────────────────────────────
 D="$(git_sandbox 'ubc-conflict')"
