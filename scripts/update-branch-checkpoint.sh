@@ -182,28 +182,41 @@ _reject_restore() {  # message
   exit 4
 }
 
-# --- push the merged branch, setting an upstream when the branch has none. ---
+# --- push the merged branch to an EXPLICITLY RESOLVED destination ref. ---
 #
-# A bare `git push` REQUIRES an upstream (push.default=simple refuses without one), and the
-# checkpoint runs on branches that legitimately have none: Phase 1.4's resume/adopt checkpoint
-# fires on the adopted-branch arm — including the linked-worktree signal, a branch a local run
-# created and has NOT pushed — and Phase 1.5's `git push -u origin HEAD` runs *after* it. On
-# such a branch a bare `git push` fails, the recovery arm below then fails to fetch a remote
-# ref that does not exist, and _reject_restore rolls the base merge back: the checkpoint would
-# report a false PUSH_REJECTED and SILENTLY DISCARD the merge it just made — a no-op on the
-# exact path the feature exists for. So branch on whether an upstream exists (git's own exit
-# code — guard-class 2) and set one when it does not.
+# Never a bare `git push` here. Two distinct shapes break it, and both are shapes the
+# checkpoint genuinely runs on:
 #
-# The has-upstream arm keeps the bare `git push` deliberately: it honors an upstream whose
-# remote ref is named differently from the local branch (a worktree checked out as
-# `worktree-pr-N` tracking `issue-N-…`), which `git push -u origin "$BRANCH"` would instead
-# fork into a new same-named remote branch.
+#   (1) NO upstream. Phase 1.4's resume/adopt checkpoint fires on the adopted-branch arm —
+#       including the linked-worktree signal, a branch a local run created and has NOT pushed
+#       — and Phase 1.5's `git push -u origin HEAD` runs *after* it. `push.default=simple`
+#       refuses without an upstream, the recovery arm then cannot fetch a remote ref that does
+#       not exist, and _reject_restore rolls the base merge back: a false PUSH_REJECTED that
+#       SILENTLY DISCARDS the merge — a no-op on the exact path the feature exists for.
+#   (2) An upstream whose REMOTE ref is named differently from the local branch. Under
+#       `push.default=simple` a bare `git push` does not "honor" it — it FAILS:
+#       `fatal: The upstream branch of your current branch does not match the name of your
+#       current branch.` (verified). So the same false-PUSH_REJECTED-and-discard follows.
+#
+# Resolve the destination explicitly instead. `HEAD:refs/heads/<ref>` also removes the
+# same-named-tag src-refspec ambiguity a bare `"$BRANCH"` src would carry. Parsing uses bash
+# parameter expansion only (guard-class 2 — never cut/sed).
+#
+# KNOWN LIMITATION (deliberate, and the reason the breadcrumb below names the ref it pushed
+# to): with NO upstream the helper cannot know the intended remote ref, so it assumes
+# `local branch name == remote ref name` — the DevFlow convention, and byte-for-byte what
+# Phase 1.5's own `git push -u origin HEAD` does. A checkout whose local name deliberately
+# differs from its PR head ref (a shepherd worktree checked out as `worktree-pr-N` against a
+# PR head `issue-N-…`) MUST set an upstream before the checkpoint runs; otherwise this arm
+# pushes to `origin/<local name>` — a ref nothing is watching — and reports UPDATED. Setting
+# the upstream routes it correctly via arm (1) above.
 _do_push() {
-  if git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1; then
-    git push
+  # `@{upstream}` short form is `<remote>/<ref>` (e.g. `origin/issue-448-foo`).
+  if _up=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) && [ -n "$_up" ]; then
+    git push "${_up%%/*}" "HEAD:refs/heads/${_up#*/}"
   else
-    echo "update-branch-checkpoint: branch $BRANCH has no upstream (an adopted branch not yet pushed) — pushing with -u to set one" >&2
-    git push -u origin "$BRANCH"
+    echo "update-branch-checkpoint: branch $BRANCH has no upstream (an adopted branch not yet pushed) — pushing to origin/$BRANCH and setting it as the upstream. If this branch's PR target ref is NOT named '$BRANCH', set the correct upstream and re-run: this push would otherwise land on a ref nothing is watching." >&2
+    git push -u origin "HEAD:refs/heads/$BRANCH"
   fi
 }
 

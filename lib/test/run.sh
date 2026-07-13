@@ -29291,6 +29291,39 @@ assert_eq "#448 ubc-no-upstream: the branch was pushed and the origin ref now ex
 assert_eq "#448 ubc-no-upstream: an upstream is now set (pushed with -u)" "some" \
   "$(git -C "$D/work" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1 && echo some || echo none)"
 
+# ── ubc-mismatched-upstream → The other shape a bare `git push` breaks on: an upstream whose
+# REMOTE ref is named differently from the local branch (a shepherd worktree checked out as
+# `worktree-pr-N` tracking a PR head `issue-N-…`). Under push.default=simple a bare push does
+# NOT honor such an upstream — it fails `fatal: The upstream branch of your current branch
+# does not match the name of your current branch` — after which the recovery arm cannot fetch
+# `origin/<local name>` (no such ref) and _reject_restore rolls the base merge back: a false
+# PUSH_REJECTED that discards the merge. The helper must push HEAD to the upstream's own ref.
+# Asserts the merge lands on the UPSTREAM's ref and that no stray same-named ref is created. ─
+D="$(git_sandbox 'ubc-mismatched-upstream')"
+ubc_make "$D"
+# Local branch name deliberately != the remote ref it tracks.
+git -C "$D/work" checkout -q -b worktree-pr-9
+git -C "$D/work" branch --set-upstream-to=origin/feat worktree-pr-9 >/dev/null 2>&1
+printf 'wt\n' > "$D/work/wt.txt"
+git -C "$D/work" add wt.txt
+git -C "$D/work" commit -qm wt
+ubc_advance_base "$D" mu
+# Positive control: the fixture really carries the property under test.
+assert_eq "#448 ubc-mismatched-upstream: fixture's upstream ref name differs from the local branch" "differs" \
+  "$([ "$(git -C "$D/work" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)" != "origin/worktree-pr-9" ] && echo differs || echo same)"
+ubc_run "$D"
+assert_eq "#448 ubc-mismatched-upstream: updates via the upstream's own ref → 'UPDATED 1'" \
+  "UPDATED 1" "$UBC_OUT"
+assert_eq "#448 ubc-mismatched-upstream: exit 0 (never a false PUSH_REJECTED)" "0" "$UBC_RC"
+assert_eq "#448 ubc-mismatched-upstream: the base merge survives" "yes" \
+  "$(git -C "$D/work" merge-base --is-ancestor origin/main HEAD 2>/dev/null && echo yes || echo no)"
+# The load-bearing assertion: the push landed on the UPSTREAM's ref (feat), not on a stray
+# ref named after the local branch.
+assert_eq "#448 ubc-mismatched-upstream: HEAD landed on the upstream's ref (origin/feat)" \
+  "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)" "$(git -C "$D/bare.git" rev-parse feat 2>/dev/null)"
+assert_eq "#448 ubc-mismatched-upstream: no stray origin ref named after the local branch" "absent" \
+  "$(git -C "$D/bare.git" rev-parse -q --verify worktree-pr-9 >/dev/null 2>&1 && echo present || echo absent)"
+
 # ── ubc-untracked-collision → Pins the behavioral claim the step-2 dirty guard's comment
 # LEANS ON: untracked files are deliberately NOT pre-checked, because git itself refuses the
 # merge before touching anything when an untracked path collides with an incoming base path.
