@@ -18,7 +18,30 @@ LIB="$(cd "$(dirname "$0")/.." && pwd)"
 # render-report.sh blocks, sourced in subshells to contain their `set -e` — are
 # counted in the final tally too. Counting in-memory would silently drop them.
 RESULTS_FILE="$(mktemp)"
-trap 'rm -f "$RESULTS_FILE"' EXIT   # protect RESULTS_FILE immediately; widened below once the bundle temp exists
+# SKIPS_FILE is the skip tally's backing file (issue #456), the SKIP sibling of
+# RESULTS_FILE: the skip() helper appends one `kind<TAB>name<TAB>reason` line per
+# self-skipping check, and SKIP is derived from it with `grep -c` — the same mechanism
+# the PASS/FAIL counters use — so a gate that self-skips is visible in the summary and can
+# never be mistaken for a clean pass. The renderer lives in lib/test/summary.sh.
+SKIPS_FILE="$(mktemp)"
+trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE"' EXIT   # protect RESULTS_FILE/SKIPS_FILE immediately; widened below once the bundle temp exists
+# shellcheck source=lib/test/summary.sh disable=SC1091
+. "$LIB/test/summary.sh"
+
+# SKIP_HELPER_REGION_BEGIN — the SOLE `printf '  NOTE ` skip-emit lives inside skip();
+# the #456 meta-assertion below asserts no other NOTE emit appears in this file outside
+# this region. The matching BEGIN/END marker VARIABLES are split-built at the meta-assertion
+# so their definitions do not add a second occurrence of these delimiters.
+# skip <name> <kind> <reason>: record a self-skipping check and print its NOTE.
+#   <kind> is `blocking-gate` (a real check that should have run here but could not) or
+#   `host-capability` (the host cannot express the condition). Records to SKIPS_FILE (so the
+#   terminal summary re-lists it) and prints the NOTE inline at the skip site. Increments
+#   neither PASS nor FAIL — a skip is not a pass and not a failure.
+skip() {  # name kind reason
+  printf '%s\t%s\t%s\n' "$2" "$1" "$3" >> "$SKIPS_FILE"
+  printf '  NOTE  %s skipped [%s] — %s\n' "$1" "$2" "$3"
+}
+# SKIP_HELPER_REGION_END
 
 # issue #218: the /devflow:implement skill is split into a thin orchestrator
 # (skills/implement/SKILL.md) plus the four phases/<stem>.md reference files named in
@@ -25643,7 +25666,7 @@ case "$SP_T6B_ENC" in
             | env PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 LC_ALL=C LANG=C python3 "$SPL" --rev HEAD 2>/dev/null \
             | awk -F '\t' '$1=="UNRESOLVABLE" && $2=="R1"{f=1} END{exit f?0:1}' && echo yes || echo no )" ;;
   *)
-    printf '  NOTE  #423 T6b skipped — forced env did not downgrade stdout to ASCII (got %s); strict-ASCII non-detonation condition not reproducible on this host\n' "${SP_T6B_ENC:-<empty>}" ;;
+    skip "#423 T6b non-ASCII stdout self-scan" host-capability "forced env did not downgrade stdout to ASCII (got ${SP_T6B_ENC:-<empty>}); strict-ASCII non-detonation condition not reproducible on this host" ;;
 esac
 
 # T9 → config surfaces + adversarial shape matrix. Schema/example/tracked-config pins.
@@ -26000,12 +26023,15 @@ assert_eq "#434 R4: the comment-line permit emits the STALE R4 row" "yes" "$(spl
 # `origin/main...HEAD` diff) while the suite otherwise grades the WORKING TREE. With
 # uncommitted edits the two disagree, so a failure would be an artifact of that skew rather
 # than a real regression — a dirty tree (or an unresolvable base, e.g. a shallow checkout)
-# therefore reports a visible NOTE instead of a false FAIL. CI checks out a clean tree, so the
-# assertion is live exactly where it has to be.
+# therefore records a visible SKIP (kind `blocking-gate`) instead of a false FAIL, and the
+# terminal summary re-lists it so the skip is never mistaken for a clean pass. CI's checkout
+# is clean, and (since #456) `.github/workflows/ci.yml`'s test job sets `fetch-depth: 0` so
+# `origin/main` resolves — so BOTH skip arms are inert in CI and the assertion runs live
+# there. Before that fetch-depth change the origin/main arm skipped this gate on every CI run.
 if ! git -C "$LIB/.." rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
-  printf '  NOTE  #434 self-scan skipped — origin/main not resolvable in this checkout\n'
+  skip "#434 stale-prose self-scan" blocking-gate "origin/main not resolvable in this checkout"
 elif [ -n "$(git -C "$LIB/.." status --porcelain 2>/dev/null)" ]; then
-  printf '  NOTE  #434 self-scan skipped — working tree dirty (this check grades committed HEAD)\n'
+  skip "#434 stale-prose self-scan" blocking-gate "working tree dirty (this check grades committed HEAD)"
 else
   assert_eq "#434 the lint is CLEAN against this repo's own branch diff (self-scan exit 0)" "0" \
     "$( ( cd "$LIB/.." && git diff origin/main...HEAD | python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $? ) )"
@@ -28552,9 +28578,136 @@ assert_eq "#457 matcher-probe: hook-probe comment drops the stale 'SHIPS in this
   "$(grep -qF 'SHIPS in this' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo no || echo yes)"
 rm -rf "$DHP_TMP"
 
+# ── #456 skip tally, summary renderer, and the NOTE-emit meta-assertion ───────────────
+# The suite reports passed/failed/skipped. A self-skipping check records a SKIP (never a
+# PASS or FAIL) through the single skip() helper, and lib/test/summary.sh renders the
+# terminal summary. These assertions cover: the renderer's two arms (K==0 byte-identical,
+# K>0 with per-skip lines), that skip() moves SKIP and neither PASS/FAIL (with a positive
+# control), the untouched exit predicate, and the comment-aware NOTE-emit meta-scan
+# (mutation-checked). summary.sh is already sourced at the top of this file.
+#
+# Renderer arm K==0: byte-identical to the pre-#456 "N passed, M failed" format.
+assert_eq "#456 summary: K==0 arm is byte-identical to the historical 'N passed, M failed' format" \
+  "12 passed, 3 failed" "$(devflow_render_test_summary 12 3 0 "")"
+# Renderer arm K>0: header names K, then one line per skipped check (name, kind, reason).
+S456_SKIPS="$(probe_tmp '#456 renderer K>0 skips fixture')"
+printf 'blocking-gate\t#434 stale-prose self-scan\torigin/main not resolvable in this checkout\n' > "$S456_SKIPS"
+printf 'host-capability\t#423 T6b non-ASCII stdout self-scan\tstrict-ASCII condition not reproducible on this host\n' >> "$S456_SKIPS"
+S456_K="$(grep -c . "$S456_SKIPS")"
+assert_eq "#456 summary: K>0 arm header reads 'N passed, M failed, K skipped'" \
+  "10 passed, 0 failed, 2 skipped" "$(devflow_render_test_summary 10 0 "$S456_K" "$S456_SKIPS" | head -1)"
+assert_eq "#456 summary: K>0 arm lists the blocking-gate skip with its name, kind, and reason" "yes" \
+  "$(devflow_render_test_summary 10 0 "$S456_K" "$S456_SKIPS" \
+       | grep -qF 'SKIP  #434 stale-prose self-scan [blocking-gate] — origin/main not resolvable in this checkout' \
+     && echo yes || echo no)"
+assert_eq "#456 summary: K>0 arm lists the host-capability skip with its name, kind, and reason" "yes" \
+  "$(devflow_render_test_summary 10 0 "$S456_K" "$S456_SKIPS" \
+       | grep -qF 'SKIP  #423 T6b non-ASCII stdout self-scan [host-capability] — strict-ASCII condition not reproducible on this host' \
+     && echo yes || echo no)"
+# The renderer never sets the exit code — it returns 0 on BOTH arms (a skip never fails the
+# suite; the suite's own FAIL==0 exit predicate is what decides the exit).
+devflow_render_test_summary 12 3 0 "" >/dev/null; assert_eq "#456 summary: renderer returns 0 on the K==0 arm" "0" "$?"
+devflow_render_test_summary 10 0 "$S456_K" "$S456_SKIPS" >/dev/null; assert_eq "#456 summary: renderer returns 0 on the K>0 arm" "0" "$?"
+rm -f "$S456_SKIPS"
+# The suite's exit predicate is unchanged (AC: exits zero when FAIL==0 regardless of K). The
+# search literal is ASSEMBLED (so this assertion's own source lines never carry the contiguous
+# predicate) and must appear exactly once — the real predicate line, no copy in prose.
+S456_EXIT_PRED="$(printf '[ "$%s" -eq 0 ]' 'FAIL')"
+assert_eq "#456 the suite exit predicate (FAIL==0) is present exactly once, unchanged by the SKIP tally" \
+  "1" "$(grep -cF "$S456_EXIT_PRED" "$SELF_SRC")"
+#
+# skip() records a SKIP and moves NEITHER counter — with a positive control on the same
+# results fixture proving a normal assertion DOES still record a PASS (so the zero below is a
+# real "a skip doesn't count", not "nothing was ever counted").
+S456_SK="$(probe_tmp '#456 skip() skip-log fixture')"; : > "$S456_SK"
+S456_RES="$(probe_tmp '#456 skip() results fixture')"; : > "$S456_RES"
+SKIPS_FILE="$S456_SK" RESULTS_FILE="$S456_RES" skip "#456 probe-check" host-capability "probe reason" >/dev/null
+assert_eq "#456 skip() appends exactly one line to the skip log (SKIP increments)" "1" "$(grep -c . "$S456_SK")"
+assert_eq "#456 skip() records NO PASS/FAIL line (neither counter moves)" "0" "$(grep -c . "$S456_RES")"
+# Positive control: a normal assertion routed to the SAME isolated results file DOES record a PASS.
+RESULTS_FILE="$S456_RES" assert_eq "#456 positive control (recorded to the isolated fixture)" "x" "x" >/dev/null
+assert_eq "#456 positive control: a normal assertion still records a PASS to the fixture (the zero above is real)" \
+  "1" "$(grep -c '^PASS$' "$S456_RES")"
+rm -f "$S456_SK" "$S456_RES"
+#
+# NOTE-emit meta-assertion. The SOLE `printf '  NOTE ` emit lives inside skip(), delimited by
+# the split-built markers below (split so these definition lines add no second occurrence).
+SKIP_HELPER_BMARK="SKIP_HELPER_REGION_""BEGIN"
+SKIP_HELPER_EMARK="SKIP_HELPER_REGION_""END"
+# Fail-closed marker controls (a missing marker would make the scan below fail OPEN):
+assert_eq "#456 meta: skip-helper region BEGIN marker present exactly once" "1" "$(pin_count "$SKIP_HELPER_BMARK" "$SELF_SRC")"
+assert_eq "#456 meta: skip-helper region END marker present exactly once" "1" "$(pin_count "$SKIP_HELPER_EMARK" "$SELF_SRC")"
+# Count `printf '  NOTE ` emit-shapes that are NOT inside the skip-helper region and NOT on a
+# comment line. Keyed on the EMIT SHAPE (a printf line carrying the quote+two-space `  NOTE `
+# format prefix), not the bare token NOTE (which occurs ~32 times in comments/assertion names),
+# and comment-aware (leading `#` lines are skipped) so prose cannot inflate it.
+count_note_emits_outside_skip_region() {  # file -> count of out-of-region, non-comment NOTE emits
+  awk -v b="$SKIP_HELPER_BMARK" -v e="$SKIP_HELPER_EMARK" -v sq="'" '
+    index($0,b){inreg=1; next}
+    index($0,e){inreg=0; next}
+    {
+      line=$0; sub(/^[[:space:]]+/,"",line)
+      if (line ~ /^#/) next            # comment-aware: a NOTE in prose cannot trip it
+      if (inreg) next                  # the sole legit emit lives in the skip() region
+      if (index($0,"printf")>0 && index($0, sq "  NOTE ")>0) c++
+    }
+    END{ print c+0 }' "$1"
+}
+assert_eq "#456 meta: no printf NOTE emit appears outside the skip() helper region (comment-aware)" \
+  "0" "$(count_note_emits_outside_skip_region "$SELF_SRC")"
+# Mutation proof (RED direction): an injected out-of-region NOTE emit trips the scan. The
+# emit-shape token is built from a variable (like the AC3(b) injection proofs) so THIS test's
+# own source lines never carry the literal `<quote>  NOTE ` shape — otherwise they would
+# themselves trip the "expect 0" scan on run.sh above. The single-quote is assembled the same
+# way so no source line here contains the contiguous emit prefix.
+S456_NOTE_SHAPE="$(printf '%s  NOTE  injected out-of-region emit' "'")"
+S456_META="$(probe_tmp '#456 meta injection copy')"
+cp "$SELF_SRC" "$S456_META"
+printf '  printf %s\\n\n' "$S456_NOTE_SHAPE" >> "$S456_META"
+assert_eq "#456 meta MUTATION: an injected out-of-region NOTE emit trips the scan (1, RED)" \
+  "1" "$(count_note_emits_outside_skip_region "$S456_META")"
+# Control: the SAME emit shape inside a COMMENT does not trip the scan (comment-awareness).
+cp "$SELF_SRC" "$S456_META"
+printf '# a comment: printf %s must not count\n' "$S456_NOTE_SHAPE" >> "$S456_META"
+assert_eq "#456 meta CONTROL: a NOTE emit inside a comment does not trip the scan (stays 0)" \
+  "0" "$(count_note_emits_outside_skip_region "$S456_META")"
+rm -f "$S456_META"
+#
+# The three real self-skip sites route through skip() with the correct kind. Both search
+# literals are ASSEMBLED from adjacent pieces so these assertion source lines do not
+# themselves carry the contiguous `skip "..." <kind>` string (else the count would inflate by
+# this test's own line — the #370 self-match trap).
+S456_T6B_CALL="$(printf 'skip "#423 T6b non-ASCII stdout self-scan" %s' 'host-capability')"
+S456_434_CALL="$(printf 'skip "#434 stale-prose self-scan" %s' 'blocking-gate')"
+assert_eq "#456 the #423 T6b site is a host-capability skip through skip()" "1" \
+  "$(grep -cF "$S456_T6B_CALL" "$SELF_SRC")"
+assert_eq "#456 both #434 self-scan arms are blocking-gate skips through skip()" "2" \
+  "$(grep -cF "$S456_434_CALL" "$SELF_SRC")"
+#
+# ci.yml: the lib+python test job's checkout sets fetch-depth: 0 so origin/main resolves.
+assert_eq "#456 ci.yml: the 'lib + python tests' job checkout sets fetch-depth: 0" "yes" \
+  "$(awk '/^    name: lib \+ python tests/{intest=1; next} /^  [a-z]/{intest=0} intest && /fetch-depth: 0/{f=1} END{print (f?"yes":"no")}' "$LIB/../.github/workflows/ci.yml")"
+assert_eq "#456 ci.yml: lib/test/summary.sh is added to the shellcheck lint scope" "yes" \
+  "$(grep -qF 'shellcheck --severity=warning -e SC1091 lib/test/summary.sh' "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
+#
+# review-and-fix: verification_evidence gains a skipped_checks list, and the not-a-clean-pass
+# clause stays repo-agnostic (names no lib/test/run.sh / lib + python tests / --flag).
+RAF456="$LIB/../skills/review-and-fix/SKILL.md"
+assert_eq "#456 review-and-fix: verification_evidence documents a skipped_checks list" "yes" \
+  "$(grep -qF 'skipped_checks' "$RAF456" && echo yes || echo no)"
+assert_eq "#456 review-and-fix: the not-a-clean-pass clause is present and repo-agnostic" "yes" \
+  "$(grep -qF 'not reported by the loop as a clean pass' "$RAF456" \
+       && ! grep -F 'not reported by the loop as a clean pass' "$RAF456" | grep -qE 'run\.sh|lib/test|lib \+ python' \
+     && echo yes || echo no)"
+
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
+# SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
+# PASS/FAIL above — a self-skipping check appended one line to it via skip(). This is the
+# authoritative K the renderer prints; SKIPS_FILE is read by the renderer only to list each
+# skipped check.
+SKIP=$(grep -c . "$SKIPS_FILE" || true)
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"
@@ -28574,5 +28727,8 @@ fi
 
 # ────────────────────────────────────────────────────────────────────────────
 echo
-echo "$PASS passed, $FAIL failed"
+# Renders "N passed, M failed" when nothing skipped (byte-identical to pre-#456), or
+# "N passed, M failed, K skipped" + one line per skipped check otherwise. The exit
+# predicate below is unchanged — a skip never fails the suite.
+devflow_render_test_summary "$PASS" "$FAIL" "$SKIP" "$SKIPS_FILE"
 [ "$FAIL" -eq 0 ]
