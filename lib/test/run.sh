@@ -29324,6 +29324,34 @@ assert_eq "#448 ubc-mismatched-upstream: HEAD landed on the upstream's ref (orig
 assert_eq "#448 ubc-mismatched-upstream: no stray origin ref named after the local branch" "absent" \
   "$(git -C "$D/bare.git" rev-parse -q --verify worktree-pr-9 >/dev/null 2>&1 && echo present || echo absent)"
 
+# ── ubc-push-race-mismatched-upstream → The CROSS the first fix missed: a push race on a
+# name-mismatched checkout. _do_push was fixed to resolve the destination ref, but the
+# push-race RECOVERY arm still fetched `origin/<local branch>` — a ref that does not exist on
+# such a checkout — so the fetch failed, _reject_restore fired, and the base merge was
+# discarded: the identical defect, one arm over. A finding names one site; the shape recurs.
+# Drive the cross: local `worktree-pr-9` tracks `origin/feat`, base advances AND origin/feat
+# advances, so the first push is genuinely refused and the recovery arm must integrate the
+# UPSTREAM's ref (not a reconstructed same-named one) and succeed. ─────────────────────────
+D="$(git_sandbox 'ubc-push-race-mismatched-upstream')"
+ubc_make "$D"
+git -C "$D/work" checkout -q -b worktree-pr-9
+git -C "$D/work" branch --set-upstream-to=origin/feat worktree-pr-9 >/dev/null 2>&1
+printf 'wt\n' > "$D/work/wt.txt"
+git -C "$D/work" add wt.txt
+git -C "$D/work" commit -qm wt
+ubc_advance_base "$D" pm                                  # base moves → the helper will merge
+ubc_advance_feat "$D" pm race.txt remote-side             # origin/feat moves → first push refused
+ubc_run "$D"
+assert_eq "#448 ubc-push-race-mismatched-upstream: recovery integrates the UPSTREAM ref → 'UPDATED 1'" \
+  "UPDATED 1" "$UBC_OUT"
+assert_eq "#448 ubc-push-race-mismatched-upstream: exit 0 (never a false PUSH_REJECTED)" "0" "$UBC_RC"
+assert_eq "#448 ubc-push-race-mismatched-upstream: the base merge survives the race" "yes" \
+  "$(git -C "$D/work" merge-base --is-ancestor origin/main HEAD 2>/dev/null && echo yes || echo no)"
+assert_eq "#448 ubc-push-race-mismatched-upstream: the remote-side racing commit is preserved" "yes" \
+  "$(git -C "$D/work" cat-file -e HEAD:race.txt 2>/dev/null && echo yes || echo no)"
+assert_eq "#448 ubc-push-race-mismatched-upstream: HEAD landed on the upstream's ref (origin/feat)" \
+  "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)" "$(git -C "$D/bare.git" rev-parse feat 2>/dev/null)"
+
 # ── ubc-untracked-collision → Pins the behavioral claim the step-2 dirty guard's comment
 # LEANS ON: untracked files are deliberately NOT pre-checked, because git itself refuses the
 # merge before touching anything when an untracked path collides with an incoming base path.

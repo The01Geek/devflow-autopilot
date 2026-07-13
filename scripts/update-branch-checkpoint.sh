@@ -198,25 +198,52 @@ _reject_restore() {  # message
 #       `fatal: The upstream branch of your current branch does not match the name of your
 #       current branch.` (verified). So the same false-PUSH_REJECTED-and-discard follows.
 #
-# Resolve the destination explicitly instead. `HEAD:refs/heads/<ref>` also removes the
-# same-named-tag src-refspec ambiguity a bare `"$BRANCH"` src would carry. Parsing uses bash
-# parameter expansion only (guard-class 2 — never cut/sed).
+# Resolve the destination ONCE, from git CONFIG — not from the `@{upstream}` tracking ref —
+# and use that single resolved (remote, ref) pair in EVERY arm: the push, the push-race
+# recovery fetch, and the retry. Resolving it in one place is the point: an earlier revision
+# fixed only the push and left the recovery arm keyed on the local `$BRANCH`, so a push race
+# on a name-mismatched checkout still fetched a ref that does not exist and discarded the
+# merge — the same defect, one arm over.
 #
-# KNOWN LIMITATION (deliberate, and the reason the breadcrumb below names the ref it pushed
-# to): with NO upstream the helper cannot know the intended remote ref, so it assumes
+# Config, not `@{upstream}`, because `git rev-parse --abbrev-ref @{upstream}` is lossy and
+# lies in three verified ways:
+#   * it FAILS (rc 128) when the upstream is configured but its remote-tracking ref has been
+#     pruned — so the branch would be misreported as having "no upstream" and pushed to a
+#     stray same-named ref while reporting UPDATED;
+#   * its `<remote>/<ref>` short form cannot be split safely: a remote may itself contain a
+#     slash (`git remote add my/fork` is accepted), so a `%%/`-split mis-parses it;
+#   * a LOCAL upstream (`branch.<name>.remote = .`) abbreviates with no remote prefix at all.
+# `branch.<name>.remote` gives the exact remote (slashes and all) and `branch.<name>.merge`
+# is already a full `refs/heads/…`, so neither needs parsing. Both reads are pure git +
+# bash builtins (guard-class 2 — never cut/sed).
+#
+# KNOWN LIMITATION (deliberate — hence the breadcrumb below names the ref it pushed to): with
+# no usable upstream the helper cannot know the intended remote ref, so it assumes
 # `local branch name == remote ref name` — the DevFlow convention, and byte-for-byte what
 # Phase 1.5's own `git push -u origin HEAD` does. A checkout whose local name deliberately
-# differs from its PR head ref (a shepherd worktree checked out as `worktree-pr-N` against a
-# PR head `issue-N-…`) MUST set an upstream before the checkpoint runs; otherwise this arm
-# pushes to `origin/<local name>` — a ref nothing is watching — and reports UPDATED. Setting
-# the upstream routes it correctly via arm (1) above.
+# differs from its PR target ref (a shepherd worktree checked out as `worktree-pr-N` against
+# `issue-N-…`) MUST set an upstream before the checkpoint runs; otherwise this arm pushes to
+# `origin/<local name>` — a ref nothing is watching — and reports UPDATED.
+PUSH_REMOTE="$(git config --get "branch.$BRANCH.remote" 2>/dev/null || true)"
+PUSH_REF="$(git config --get "branch.$BRANCH.merge" 2>/dev/null || true)"
+# A local upstream (`.`) has no remote to push to; treat it as "no usable upstream".
+case "$PUSH_REMOTE" in .) PUSH_REMOTE="" ;; esac
+if [ -n "$PUSH_REMOTE" ] && [ -n "$PUSH_REF" ]; then
+  PUSH_SET_UPSTREAM=0
+else
+  PUSH_REMOTE=origin
+  PUSH_REF="refs/heads/$BRANCH"
+  PUSH_SET_UPSTREAM=1
+  echo "update-branch-checkpoint: branch $BRANCH has no usable upstream (an adopted branch not yet pushed) — pushing to $PUSH_REMOTE/$BRANCH and setting it as the upstream. If this branch's PR target ref is NOT named '$BRANCH', set the correct upstream and re-run: this push would otherwise land on a ref nothing is watching." >&2
+fi
+
+# --- push HEAD to the resolved destination. `HEAD:<full ref>` also removes the
+# same-named-tag src-refspec ambiguity a bare `"$BRANCH"` src would carry. ---
 _do_push() {
-  # `@{upstream}` short form is `<remote>/<ref>` (e.g. `origin/issue-448-foo`).
-  if _up=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) && [ -n "$_up" ]; then
-    git push "${_up%%/*}" "HEAD:refs/heads/${_up#*/}"
+  if [ "$PUSH_SET_UPSTREAM" -eq 1 ]; then
+    git push -u "$PUSH_REMOTE" "HEAD:$PUSH_REF"
   else
-    echo "update-branch-checkpoint: branch $BRANCH has no upstream (an adopted branch not yet pushed) — pushing to origin/$BRANCH and setting it as the upstream. If this branch's PR target ref is NOT named '$BRANCH', set the correct upstream and re-run: this push would otherwise land on a ref nothing is watching." >&2
-    git push -u origin "HEAD:refs/heads/$BRANCH"
+    git push "$PUSH_REMOTE" "HEAD:$PUSH_REF"
   fi
 }
 
@@ -227,22 +254,24 @@ _push_or_recover() {
     emit "UPDATED $BEHIND"
     exit 0
   fi
-  # Push refused. The common cause is a non-fast-forward race (the remote feature ref
-  # advanced during the run), which the integrate-and-retry below recovers; but a
-  # network/auth/hook/protected-branch refusal reaches here too, so the breadcrumb stays
-  # cause-neutral rather than asserting "remote advanced" as fact. Integrate origin/$BRANCH
-  # (preserving the base-merge commit) and retry the push exactly once — a non-race refusal
-  # simply fails the retry too and terminates in the honest PUSH_REJECTED/restore arm.
-  echo "update-branch-checkpoint: push refused; integrating origin/$BRANCH (in case the remote ref advanced) and retrying the push once" >&2
-  # Same explicit destination refspec as the step-4 base fetch, for the same reason:
-  # the origin/$BRANCH ref the merge below reads must not depend on the checkout's
-  # configured fetch refspec covering this branch.
-  git fetch origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" || _reject_restore "update-branch-checkpoint: could not fetch origin/$BRANCH to integrate; branch restored to pre-checkpoint SHA"
-  if ! git merge --no-edit "origin/$BRANCH"; then
+  # Push refused. The common cause is a non-fast-forward race (the remote ref advanced during
+  # the run), which the integrate-and-retry below recovers; but a network/auth/hook/protected-
+  # branch refusal reaches here too, so the breadcrumb stays cause-neutral rather than
+  # asserting "remote advanced" as fact. Integrate the SAME resolved destination ref the push
+  # targets (preserving the base-merge commit) and retry the push exactly once — a non-race
+  # refusal simply fails the retry too and terminates in the honest PUSH_REJECTED/restore arm.
+  echo "update-branch-checkpoint: push refused; integrating $PUSH_REMOTE/$PUSH_REF (in case the remote ref advanced) and retrying the push once" >&2
+  # Fetch the destination ref by its full name and merge FETCH_HEAD — never a reconstructed
+  # `origin/<local branch>` remote-tracking name, which is exactly what broke on a
+  # name-mismatched checkout. FETCH_HEAD is the ref we just fetched, so the merge cannot
+  # target a different one, and this needs no assumption about the checkout's configured
+  # fetch refspec covering the branch.
+  git fetch "$PUSH_REMOTE" "$PUSH_REF" || _reject_restore "update-branch-checkpoint: could not fetch $PUSH_REMOTE/$PUSH_REF to integrate; branch restored to pre-checkpoint SHA"
+  if ! git merge --no-edit FETCH_HEAD; then
     # A conflicted integrate is aborted and the branch restored — this is remote
     # divergence, never the base-merge CONFLICT contract.
     git merge --abort >/dev/null 2>&1 || true
-    _reject_restore "update-branch-checkpoint: integrating origin/$BRANCH conflicted (remote divergence); merge aborted and branch restored to pre-checkpoint SHA"
+    _reject_restore "update-branch-checkpoint: integrating $PUSH_REMOTE/$PUSH_REF conflicted (remote divergence); merge aborted and branch restored to pre-checkpoint SHA"
   fi
   if _do_push; then
     emit "UPDATED $BEHIND"
