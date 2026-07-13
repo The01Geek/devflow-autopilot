@@ -20,9 +20,10 @@ LIB="$(cd "$(dirname "$0")/.." && pwd)"
 RESULTS_FILE="$(mktemp)"
 # SKIPS_FILE is the skip tally's backing file (issue #456), the SKIP sibling of
 # RESULTS_FILE: the skip() helper appends one `kind<TAB>name<TAB>reason` line per
-# self-skipping check, and SKIP is derived from it with `grep -c` — the same mechanism
-# the PASS/FAIL counters use — so a gate that self-skips is visible in the summary and can
-# never be mistaken for a clean pass. The renderer lives in lib/test/summary.sh.
+# self-skipping check, and SKIP is derived from it with `grep -c` — the same counter
+# mechanism PASS/FAIL already use (no new PATH-tool dependency; `grep` is not in guard-class
+# 2's banned tr/sed/wc/cut/head set) — so a gate that self-skips is visible in the summary
+# and can never be mistaken for a clean pass. The renderer lives in lib/test/summary.sh.
 SKIPS_FILE="$(mktemp)"
 trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE"' EXIT   # protect RESULTS_FILE/SKIPS_FILE immediately; widened below once the bundle temp exists
 # shellcheck source=lib/test/summary.sh disable=SC1091
@@ -28612,6 +28613,16 @@ assert_eq "#456 summary: K>0 arm lists the host-capability skip with its name, k
 devflow_render_test_summary 12 3 0 "" >/dev/null; assert_eq "#456 summary: renderer returns 0 on the K==0 arm" "0" "$?"
 devflow_render_test_summary 10 0 "$S456_K" "$S456_SKIPS" >/dev/null; assert_eq "#456 summary: renderer returns 0 on the K>0 arm" "0" "$?"
 rm -f "$S456_SKIPS"
+# Renderer honesty: an announced K>0 with an absent/unreadable skip log emits a LOUD
+# breadcrumb, never a silent header-with-no-detail (the laundering #456 exists to prevent).
+assert_eq "#456 summary: K>0 with an absent skip log emits a 'detail unavailable' breadcrumb, not silence" "yes" \
+  "$(devflow_render_test_summary 10 0 2 "$LIB/test/.devflow-nonexistent-skip-log-zzz" | grep -qF 'SKIP  (detail unavailable' && echo yes || echo no)"
+# ...and a partially-itemizable log (fewer lines than announced) surfaces the shortfall.
+S456_SHORT="$(probe_tmp '#456 renderer shortfall fixture')"
+printf 'blocking-gate\t#434 shortfall\treason\n' > "$S456_SHORT"
+assert_eq "#456 summary: K announced greater than itemizable lines surfaces a shortfall breadcrumb" "yes" \
+  "$(devflow_render_test_summary 10 0 2 "$S456_SHORT" | grep -qF 'could not be itemized' && echo yes || echo no)"
+rm -f "$S456_SHORT"
 # The suite's exit predicate is unchanged (AC: exits zero when FAIL==0 regardless of K). The
 # search literal is ASSEMBLED (so this assertion's own source lines never carry the contiguous
 # predicate) and must appear exactly once — the real predicate line, no copy in prose.
@@ -28643,7 +28654,10 @@ assert_eq "#456 meta: skip-helper region END marker present exactly once" "1" "$
 # Count `printf '  NOTE ` emit-shapes that are NOT inside the skip-helper region and NOT on a
 # comment line. Keyed on the EMIT SHAPE (a printf line carrying the quote+two-space `  NOTE `
 # format prefix), not the bare token NOTE (which occurs ~32 times in comments/assertion names),
-# and comment-aware (leading `#` lines are skipped) so prose cannot inflate it.
+# and comment-aware (leading `#` lines are skipped) so prose cannot inflate it. Scope is the
+# CONTIGUOUS source shape — the accidental un-routed skip a maintainer would actually write;
+# an emit assembled from a variable/pieces (as these very tests do to avoid self-tripping)
+# bypasses it by construction, and defending against determined evasion is a non-goal.
 count_note_emits_outside_skip_region() {  # file -> count of out-of-region, non-comment NOTE emits
   awk -v b="$SKIP_HELPER_BMARK" -v e="$SKIP_HELPER_EMARK" -v sq="'" '
     index($0,b){inreg=1; next}

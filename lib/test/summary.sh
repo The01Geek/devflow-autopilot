@@ -20,8 +20,9 @@
 # devflow_render_test_summary PASS FAIL SKIP SKIPS_FILE
 #
 # Print the suite's terminal summary to stdout. SKIP is the skip tally run.sh maintains
-# (derived with `grep -c` over SKIPS_FILE, the SAME mechanism as PASS/FAIL, so no
-# non-preflight PATH tool decides the emitted summary — CLAUDE.md guard-class 2). SKIPS_FILE
+# (derived with `grep -c` over SKIPS_FILE — the SAME counter mechanism PASS/FAIL already use,
+# so the emitted summary gains no NEW PATH-tool dependency, and `grep` is not in CLAUDE.md
+# guard-class 2's banned tr/sed/wc/cut/head set). SKIPS_FILE
 # is the tab-separated skip log run.sh's skip() helper appends to — one
 # `kind<TAB>name<TAB>reason` line per skip — read here only to list each skipped check.
 #
@@ -38,11 +39,25 @@ devflow_render_test_summary() {
     return 0
   fi
   printf '%s passed, %s failed, %s skipped\n' "$pass" "$fail" "$skip"
-  # One line per skipped check, naming the check, its kind, and its reason.
-  [ -n "$skips_file" ] && [ -f "$skips_file" ] || return 0
+  # One line per skipped check, naming the check, its kind, and its reason. If the skip log
+  # is absent/unreadable while the announced count is non-zero, emit a LOUD breadcrumb rather
+  # than returning silently — a header that says "K skipped" with zero detail lines would
+  # re-create the very laundering #456 exists to prevent, so the renderer stays honest
+  # independent of caller discipline.
+  if [ -z "$skips_file" ] || [ ! -f "$skips_file" ]; then
+    printf '  SKIP  (detail unavailable — skip log absent or unreadable)\n'
+    return 0
+  fi
+  local emitted=0
   tab="$(printf '\t')"
   while IFS="$tab" read -r kind name reason; do
     [ -n "$name" ] || continue
     printf '  SKIP  %s [%s] — %s\n' "$name" "$kind" "$reason"
+    emitted=$((emitted + 1))
   done < "$skips_file"
+  # The announced count and the itemized lines must agree; surface any shortfall rather than
+  # leaving it silent (the honesty property above, applied to a partially-readable log).
+  [ "$emitted" -ge "$skip" ] || \
+    printf '  SKIP  (%s of %s announced skip(s) could not be itemized from the skip log)\n' \
+      "$((skip - emitted))" "$skip"
 }
