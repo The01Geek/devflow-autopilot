@@ -14,25 +14,125 @@
     "scripts/harden-stop-hooks.sh"
   ],
   "shadow_findings_addressed": [
-    {"id": "ObsA", "agent": "devflow:silent-failure-hunter + devflow:code-reviewer", "severity": "Important (via park-calibration; graded LOW/~30 by reviewers)", "description": "relevance gate treated any non-zero --wired-check rc as 'not wired' -> a helper EXECUTION error (rc>=2) would skip and drop DevFlow's floor (fail-open direction, not attacker-reachable)", "corroboration_count": 2, "fix_decision": "applied", "note": "gate now reads rc three-valued; rc>=2 -> inline scan (fail-closed), single shared inline arm via _need_inline_scan"},
-    {"id": "ObsB", "agent": "devflow:silent-failure-hunter", "severity": "Suggestion (MEDIUM defense-in-depth)", "description": "re-trigger BASE_REF falls back to default_branch; gate base could diverge from claude-code-action's restore base if hooks were wired on a non-default branch", "corroboration_count": 1, "fix_decision": "applied", "note": "disclosed as an assumption (Stop-hook wiring lives on the default branch) in DEVFLOW_SYSTEM_OVERVIEW.md; not reachable for DevFlow/default-branch consumers"},
-    {"id": "CT2-PT1", "agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "( subshell and | pipe source-prefix forms claimed but no positive control", "fix_decision": "applied"},
-    {"id": "CT2-PT2", "agent": "devflow:pr-test-analyzer", "severity": "Suggestion (rated 5; calibrated)", "description": "empty-read cat-file disambiguation inline arm not behaviorally driven", "fix_decision": "applied", "note": "added a git-fixture behavioral test of the decision logic (present-wired/present-empty->harden/absent->skip); the workflow's inline copy is separately mutation-pinned. Over-grade: the arm fails CLOSED and the cat-file guard is assert_pin_red_under-pinned"},
-    {"id": "CT2-PT3", "agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Python-spawn pin only catches literal-path spawns; name overstated", "fix_decision": "applied", "note": "narrowed the assertion name to LITERAL-path + inline note on the variable-path limit"},
-    {"id": "CT2-PT4", "agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "no explicit negative control that a commented-out edge is excluded", "fix_decision": "applied", "note": "added `# . dep-commented.sh` asserted absent from output"},
-    {"id": "CT2-FP", "agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "line-continuation source/exec edges silently missed and undisclosed", "fix_decision": "applied", "note": "disclosed in walker Known granularity limits"}
+    {
+      "id": "ObsA",
+      "agent": "devflow:silent-failure-hunter + devflow:code-reviewer",
+      "severity": "Important (via park-calibration; graded LOW/~30 by reviewers)",
+      "description": "relevance gate treated any non-zero --wired-check rc as 'not wired' -> a helper EXECUTION error (rc>=2) would skip and drop DevFlow's floor (fail-open direction, not attacker-reachable)",
+      "corroboration_count": 2,
+      "fix_decision": "applied",
+      "note": "gate now reads rc three-valued; rc>=2 -> inline scan (fail-closed), single shared inline arm via _need_inline_scan"
+    },
+    {
+      "id": "ObsB",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion (MEDIUM defense-in-depth)",
+      "description": "re-trigger BASE_REF falls back to default_branch; gate base could diverge from claude-code-action's restore base if hooks were wired on a non-default branch",
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "note": "disclosed as an assumption (Stop-hook wiring lives on the default branch) in DEVFLOW_SYSTEM_OVERVIEW.md; not reachable for DevFlow/default-branch consumers"
+    },
+    {
+      "id": "CT2-PT1",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "( subshell and | pipe source-prefix forms claimed but no positive control",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "CT2-PT2",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion (rated 5; calibrated)",
+      "description": "empty-read cat-file disambiguation inline arm not behaviorally driven",
+      "fix_decision": "applied",
+      "note": "added a git-fixture behavioral test of the decision logic (present-wired/present-empty->harden/absent->skip); the workflow's inline copy is separately mutation-pinned. Over-grade: the arm fails CLOSED and the cat-file guard is assert_pin_red_under-pinned"
+    },
+    {
+      "id": "CT2-PT3",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Python-spawn pin only catches literal-path spawns; name overstated",
+      "fix_decision": "applied",
+      "note": "narrowed the assertion name to LITERAL-path + inline note on the variable-path limit"
+    },
+    {
+      "id": "CT2-PT4",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "no explicit negative control that a commented-out edge is excluded",
+      "fix_decision": "applied",
+      "note": "added `# . dep-commented.sh` asserted absent from output"
+    },
+    {
+      "id": "CT2-FP",
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "line-continuation source/exec edges silently missed and undisclosed",
+      "fix_decision": "applied",
+      "note": "disclosed in walker Known granularity limits"
+    }
   ],
   "over_grade_calibration": "Obs A: reviewers graded LOW/~30 (not attacker-reachable — requires trusted-helper corruption), but it is a fail-open DIRECTION in this PR's own gate, so park-calibration shape-1 elevated it to Important -> fixed (not parked). CT2-PT2 (rated 5) calibrated to Suggestion: the empty-read arm fails CLOSED and its guard is mutation-pinned; added a git-fixture behavioral test regardless.",
   "fix_decisions": [
-    {"finding_id": "ObsA", "decision": "applied", "commit": "f4d7b44"},
-    {"finding_id": "ObsB", "decision": "applied", "commit": "f4d7b44"},
-    {"finding_id": "CT2-PT1", "decision": "applied", "commit": "f4d7b44"},
-    {"finding_id": "CT2-PT2", "decision": "applied", "commit": "f4d7b44"},
-    {"finding_id": "CT2-PT3", "decision": "applied", "commit": "f4d7b44"},
-    {"finding_id": "CT2-PT4", "decision": "applied", "commit": "f4d7b44"},
-    {"finding_id": "CT2-FP", "decision": "applied", "commit": "f4d7b44"}
+    {
+      "finding_id": "ObsA",
+      "decision": "applied",
+      "commit": "f4d7b44"
+    },
+    {
+      "finding_id": "ObsB",
+      "decision": "applied",
+      "commit": "f4d7b44"
+    },
+    {
+      "finding_id": "CT2-PT1",
+      "decision": "applied",
+      "commit": "f4d7b44"
+    },
+    {
+      "finding_id": "CT2-PT2",
+      "decision": "applied",
+      "commit": "f4d7b44"
+    },
+    {
+      "finding_id": "CT2-PT3",
+      "decision": "applied",
+      "commit": "f4d7b44"
+    },
+    {
+      "finding_id": "CT2-PT4",
+      "decision": "applied",
+      "commit": "f4d7b44"
+    },
+    {
+      "finding_id": "CT2-FP",
+      "decision": "applied",
+      "commit": "f4d7b44"
+    }
   ],
-  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 220, "detail": "6029 passed, 0 failed; shellcheck + ruff clean; YAML valid; harden-step bash -n + shellcheck clean; no Python SyntaxWarning; git-fixture empty-read + subshell/pipe/negative controls + rc-discrimination pins all PASS"},
-  "convergence_inputs": {"fixes_applied": 7, "critical_important_code_fixes": 1, "fix_diff_lines_code_only": 20, "new_corroborated_critical_count": 0},
-  "telemetry": {"step_2_6": {"calls": 6, "note": "CT2 convergence-time shadow ran on iter-3 state"}, "step_3_5": {"calls": 1}}
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 220,
+    "detail": "6029 passed, 0 failed; shellcheck + ruff clean; YAML valid; harden-step bash -n + shellcheck clean; no Python SyntaxWarning; git-fixture empty-read + subshell/pipe/negative controls + rc-discrimination pins all PASS"
+  },
+  "convergence_inputs": {
+    "fixes_applied": 7,
+    "critical_important_code_fixes": 1,
+    "fix_diff_lines_code_only": 20,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": {
+    "step_2_6": {
+      "calls": 6,
+      "note": "CT2 convergence-time shadow ran on iter-3 state"
+    },
+    "step_3_5": {
+      "calls": 1
+    }
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
 }
