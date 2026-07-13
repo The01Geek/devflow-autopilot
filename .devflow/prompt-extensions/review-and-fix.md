@@ -139,3 +139,21 @@ copied enumeration) so there is no frozen count to go stale. Do not ship an unpi
 in engine prose — an unpinned `count-locked` header is the very defect class (#328/#336) Phase 0.6
 exists to catch, so authoring a fresh one is a self-inflicted Important finding. The engine detects; this
 extension decides. (#423)
+
+## Config-derivation fixes sweep the full six-shape adversarial matrix, not just the reviewer-cited row
+
+When a fix touches **how a config value is read, derived, or defaulted** — a `config-get.sh` read, an
+inline `jq` extraction over `.devflow/config.json`, an `// default` / `// true`-style fallback, an enum
+validation, or any other code that turns a raw config value into a decision — the **same fix** sweeps the
+full CLAUDE.md six-shape adversarial matrix over that value: `{object, array, scalar, valid-falsy (explicit false / 0 / empty string), missing, wrong-type}`.
+Each shape is **tested in `lib/test/run.sh` in the same change** (exit-0 + a specific, not generic,
+breadcrumb per shape; the **valid-falsy** row is load-bearing — a real `false` / `0` / `""` an
+`// true` / `// default` extraction silently coerces to its truthy default is the documented
+off-switch-that-never-worked defect, #312/#304). A shape that genuinely does not apply to this value is
+recorded with a **written reason** instead of a test — never silently skipped. A fix that covers **only**
+the reviewer-cited shape row is **incomplete by policy**: the sibling rows are exactly the next run's
+predictable test-gap findings (PR #451 round 2 fixed and tested one config-read arm; round 3 existed
+almost solely to add the untested sibling arm), so shipping the whole matrix at once is what stops the
+per-fix extra review iteration. This is DevFlow-repo policy; the governing convention is CLAUDE.md's
+best-effort-parser adversarial-matrix gotcha, and this section is its coupled mirror in
+`.devflow/prompt-extensions/receiving-code-review.md` — edit both in the same change. (#466)

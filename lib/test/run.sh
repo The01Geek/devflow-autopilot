@@ -2692,6 +2692,13 @@ assert_pin_unique "#312 item 4: CLAUDE.md matrix gotcha carries the six-shape se
   "$SIXSHAPE_SET" "$LIB/../CLAUDE.md"
 assert_pin_unique "#312 item 4: implement Phase 2.4 carries the six-shape set (valid-falsy row)" \
   "$SIXSHAPE_SET" "$IMPL_SKILL_BUNDLE"
+# Lockstep (#466): mechanism 2's config-derivation shape-matrix rule adds two more carriers of the
+# SAME six-shape set — the receiving-code-review and review-and-fix prompt extensions — so the set
+# now has FIVE lockstep mirror sites, all pinned to the one $SIXSHAPE_SET literal (never re-typed).
+assert_pin_unique "#466: receiving-code-review extension carries the six-shape set (valid-falsy row)" \
+  "$SIXSHAPE_SET" "$LIB/../.devflow/prompt-extensions/receiving-code-review.md"
+assert_pin_unique "#466: review-and-fix extension carries the six-shape set (valid-falsy row)" \
+  "$SIXSHAPE_SET" "$LIB/../.devflow/prompt-extensions/review-and-fix.md"
 
 # ── #312 remaining-item prose pins (the sharpenings this issue lands; each fails if its
 #    rule is reworded away). File vars: $MAXI_SKILL (review-and-fix), $IMPL_SKILL (implement
@@ -24050,12 +24057,12 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last change: #426 Phase 1.1's awk batch-slice fence, an &&-chained rc gate: awk >-redirect + test -s + echo/echo)" \
-  "106" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last change: #466 Phase 0.6 adjudication-join fence adds match-lint-adjudications.py + run-jq.sh + gh api --paginate + a tee)" \
+  "110" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
-assert_eq "#363 the review-skill head set matches the reviewed count (30 distinct names; +echo at #426, the slice fence's rc-gate result marker)" \
-  "30" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (33 distinct names; +match-lint-adjudications.py, +run-jq.sh, +gh api --paginate at #466)" \
+  "33" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 
@@ -28823,6 +28830,187 @@ assert_eq "#457 execution-file-shape: AC6 links the security corollary issue #45
 assert_eq "#457 matcher-probe: hook-probe comment drops the stale 'SHIPS in this PR' framing" "yes" \
   "$(grep -qF 'SHIPS in this' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo no || echo yes)"
 rm -rf "$DHP_TMP"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#466 match-lint-adjudications.py — stale-prose FP adjudication carry-forward"
+# ────────────────────────────────────────────────────────────────────────────
+# Drive the real CLI (stdin JSON {rows, comments} -> demotion-map JSON) over the
+# mla-* named scenarios with inline JSON fixtures. The driver builds inputs, runs
+# the helper via subprocess, and emits one TAB-separated `name<TAB>expected<TAB>actual`
+# line per named check; run.sh feeds each to assert_eq so every mla-* assertion lands
+# in the suite tally. TSV/base64 fixtures live in the driver (python) so tab and
+# base64 handling stay byte-exact.
+MLA_HELPER_PATH="$LIB/../scripts/match-lint-adjudications.py"
+MLA_CFG_FILE="$(mktemp)"
+# allowed_bots carries a User-type login ("trusted-human") to exercise the
+# additional-author-allowance arm; a Bot-type author is trusted regardless.
+printf '{"devflow":{"allowed_bots":"claude,devflow-autopilot,trusted-human"}}' > "$MLA_CFG_FILE"
+MLA_DRIVER="$(mktemp)"
+cat > "$MLA_DRIVER" <<'PYEOF'
+import base64, json, os, subprocess, sys
+
+HELPER = os.environ["MLA_HELPER"]
+CFG = os.environ["MLA_CFG"]
+MARKER = "<!-- devflow:review-progress run=999-1 -->"
+S = "<!-- devflow:lint-adjudications-start -->"
+E = "<!-- devflow:lint-adjudications-end -->"
+
+def tsv(verdict, rule, path, line, detail):
+    return f"{verdict}\t{rule}\t{path}\t{line}\t{detail}"
+
+def payload(row_tsv):
+    return "<!-- devflow:lint-fp-adjudicated " + base64.b64encode(row_tsv.encode()).decode() + " -->"
+
+def adj_comment(author, atype, row_tsv, marker=MARKER, with_section=True):
+    inner = payload(row_tsv)
+    if with_section:
+        body = f"{marker}\n# report\n{S}\n{inner}\n{E}\n"
+    else:  # marker present but no sentinel section — payload sits loose in the body
+        body = f"{marker}\n# report\n> evidence quote: {inner}\n"
+    return {"author": author, "author_type": atype, "body": body}
+
+def run(rows, comments):
+    proc = subprocess.run(
+        [sys.executable, HELPER, "--config", CFG],
+        input=json.dumps({"rows": rows, "comments": comments}),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    out = json.loads(proc.stdout) if proc.stdout.strip() else {}
+    return proc.returncode, out, proc.stderr
+
+checks = []
+def chk(name, expected, actual):
+    checks.append((name, str(expected), str(actual)))
+
+ROW = tsv("STALE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills")
+CBOT = adj_comment("devflow-reviewer[bot]", "Bot", ROW)
+
+# mla-match: exact (rule,path,detail) payload, Bot author -> demoted, run_key surfaced
+rc, out, _ = run([ROW], [CBOT])
+chk("mla-match rc0", "0", rc)
+chk("mla-match demoted len 1", "1", len(out["demoted"]))
+chk("mla-match row_index 0", "0", out["demoted"][0]["row_index"])
+chk("mla-match run_key surfaced", "999-1", out["demoted"][0]["run_key"])
+
+# mla-detail-drift: one-char detail change -> not demoted
+_, out, _ = run([tsv("STALE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 6 skills")], [CBOT])
+chk("mla-detail-drift not demoted", "0", len(out["demoted"]))
+
+# mla-key-scope: diff rule (no), diff path (no), line-only diff (yes -> line excluded from key)
+rows = [
+    tsv("STALE", "other-rule", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills"),
+    tsv("STALE", "count-locked", "OTHER.md", 42, "claims 5 skills"),
+    tsv("STALE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 7777, "claims 5 skills"),
+]
+_, out, _ = run(rows, [CBOT])
+chk("mla-key-scope only line-diff demoted (len 1)", "1", len(out["demoted"]))
+chk("mla-key-scope line-diff row_index 2", "2", out["demoted"][0]["row_index"])
+
+# mla-verdict-scope: VERIFIED + UNRESOLVABLE rows byte-identical payload -> never demoted
+rows = [
+    tsv("VERIFIED", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills"),
+    tsv("UNRESOLVABLE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills"),
+]
+_, out, _ = run(rows, [CBOT])
+chk("mla-verdict-scope non-STALE never demoted", "0", len(out["demoted"]))
+
+# mla-trust: User-not-in-allowed (no, counted); Bot (yes); User-in-allowed (yes)
+_, out, _ = run([ROW], [adj_comment("random-user", "User", ROW)])
+chk("mla-trust untrusted-user not demoted", "0", len(out["demoted"]))
+chk("mla-trust untrusted-user counted", "1", out["stats"]["payloads_untrusted"])
+_, out, _ = run([ROW], [CBOT])
+chk("mla-trust bot-author demoted", "1", len(out["demoted"]))
+_, out, _ = run([ROW], [adj_comment("trusted-human", "User", ROW)])
+chk("mla-trust allowlisted-user demoted", "1", len(out["demoted"]))
+
+# mla-malformed: non-base64 payload + 2-column payload -> skipped, breadcrumb, exit 0, no demote
+bad = "<!-- devflow:lint-fp-adjudicated not!base64!! -->"
+twocol = payload("STALE\tonlytwo")
+body = f"{MARKER}\n{S}\n{bad}\n{twocol}\n{E}\n"
+rc, out, err = run([ROW], [{"author": "devflow-reviewer[bot]", "author_type": "Bot", "body": body}])
+chk("mla-malformed rc0", "0", rc)
+chk("mla-malformed no demote", "0", len(out["demoted"]))
+chk("mla-malformed both counted", "2", out["stats"]["payloads_malformed"])
+chk("mla-malformed breadcrumb on stderr", "yes", "yes" if "match-lint-adjudications.py" in err else "no")
+
+# mla-collision: two current STALE rows byte-identical key, one payload -> neither demoted, counted
+_, out, _ = run([ROW, ROW], [CBOT])
+chk("mla-collision no demote", "0", len(out["demoted"]))
+chk("mla-collision counted", "1", out["stats"]["collisions"])
+
+# mla-marker-required: Bot comment WITHOUT the run marker -> not demoted, counted
+body = f"# no run marker here\n{S}\n{payload(ROW)}\n{E}\n"
+_, out, _ = run([ROW], [{"author": "devflow-reviewer[bot]", "author_type": "Bot", "body": body}])
+chk("mla-marker-required not demoted", "0", len(out["demoted"]))
+chk("mla-marker-required counted", "1", out["stats"]["payloads_untrusted"])
+
+# mla-quoted-marker: payload OUTSIDE the sentinels in a trusted comment -> not demoted, counted
+_, out, _ = run([ROW], [adj_comment("devflow-reviewer[bot]", "Bot", ROW, with_section=False)])
+chk("mla-quoted-marker not demoted", "0", len(out["demoted"]))
+chk("mla-quoted-marker counted", "1", out["stats"]["payloads_outside_sentinels"])
+
+# mla-empty: empty comments -> demoted [], exit 0
+rc, out, _ = run([ROW], [])
+chk("mla-empty rc0", "0", rc)
+chk("mla-empty demoted empty", "0", len(out["demoted"]))
+
+# mla-badargs: non-JSON stdin -> exit 2
+proc = subprocess.run([sys.executable, HELPER, "--config", CFG], input="not json",
+                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+chk("mla-badargs exit 2", "2", proc.returncode)
+
+for name, expected, actual in checks:
+    sys.stdout.write(f"{name}\t{expected}\t{actual}\n")
+PYEOF
+# Capture the driver's output to a file and gate on BOTH its exit status and the
+# emitted check count BEFORE looping — otherwise a driver that crashes (a helper
+# import error, a fixture bug) yields empty output, the while-loop runs zero times,
+# and every mla-* assertion silently vanishes while the suite stays green (the exact
+# existence-standing-in-for-outcome silent-failure class this repo guards against).
+MLA_RESULTS="$(mktemp)"
+MLA_HELPER="$MLA_HELPER_PATH" MLA_CFG="$MLA_CFG_FILE" python3 "$MLA_DRIVER" > "$MLA_RESULTS" 2>/dev/null
+MLA_DRV_RC=$?
+assert_eq "#466 mla driver ran to completion (exit 0 — a crash would silently drop every mla-* check)" "0" "$MLA_DRV_RC"
+assert_eq "#466 mla driver emitted all 25 named checks (guards against a silent partial run)" "25" \
+  "$(grep -c . "$MLA_RESULTS")"
+while IFS="$(printf '\t')" read -r _mla_name _mla_exp _mla_act; do
+  [ -n "$_mla_name" ] && assert_eq "$_mla_name" "$_mla_exp" "$_mla_act"
+done < "$MLA_RESULTS"
+rm -f "$MLA_DRIVER" "$MLA_CFG_FILE" "$MLA_RESULTS"
+
+# mla-fp-direction (Degradation is loud): the consumer contract's degraded arm is
+# asserted via the pinned degraded-check note prose in the review skill, not the
+# helper's own code (a guarantee-class, skipped-step path — the helper is absent).
+assert_pin_unique "#466 mla-fp-direction: Phase 0.6 degraded arm leaves STALE rows at configured severity + records a degraded-check note" \
+  'Leave **every** STALE row at its configured `$SP_SEVERITY`' "$REVIEW_SKILL"
+
+# mla-marker-pin (Producer contract): the payload marker literal is present, once,
+# in the review skill's Phase 4.1.7 render protocol.
+assert_pin_unique "#466 mla-marker-pin: Phase 4.1.7 render protocol carries the lint-fp-adjudicated payload marker" \
+  '<!-- devflow:lint-fp-adjudicated <base64 of the row'"'"'s TSV> -->' "$REVIEW_SKILL"
+# The sentinel-section literals are the other half of the producer/consumer contract —
+# pin both so a rename desyncs the helper from the skill at the desk.
+assert_pin_unique "#466: review skill Live Progress Comment carries the adjudications-section START sentinel" \
+  '<!-- devflow:lint-adjudications-start -->' "$REVIEW_SKILL"
+
+# mla-grants (Allowlists): both review-tier TOOLS= lines grant the new helper by vendored literal.
+MLA_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
+MLA_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+assert_eq "#466 mla-grants: devflow-runner.yml review profile grants match-lint-adjudications.py" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*)' "$MLA_RUNNER_YML")"
+assert_eq "#466 mla-grants: devflow.yml hoisted TOOLS grants match-lint-adjudications.py" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*)' "$MLA_DEVFLOW_YML")"
+# devflow-implement.yml deliberately grants neither stale-prose-lint.py nor this helper (AC scoping).
+assert_eq "#466 mla-grants: devflow-implement.yml does NOT grant match-lint-adjudications.py (inert-tier scoping)" "0" \
+  "$(grep -cF 'match-lint-adjudications.py' "$LIB/../.github/workflows/devflow-implement.yml")"
+
+# mla-extension-pins (Extension rule): the six-shape phrase is present in both extension files.
+# (The $SIXSHAPE_SET lockstep block above already assert_pin_unique's the exact literal in both;
+# these two pins name the mechanism-2 obligation explicitly per the mla-extension-pins assertion.)
+assert_eq "#466 mla-extension-pins: receiving-code-review carries the config-derivation six-shape rule" "yes" \
+  "$(grep -qF 'CLAUDE.md six-shape adversarial matrix' "$LIB/../.devflow/prompt-extensions/receiving-code-review.md" && echo yes || echo no)"
+assert_eq "#466 mla-extension-pins: review-and-fix carries the config-derivation six-shape rule" "yes" \
+  "$(grep -qF 'CLAUDE.md six-shape adversarial matrix' "$LIB/../.devflow/prompt-extensions/review-and-fix.md" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
