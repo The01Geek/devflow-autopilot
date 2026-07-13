@@ -29120,16 +29120,22 @@ p = subprocess.run([sys.executable, helper], input='{"rows":[],"comments":[]}',
 if p.returncode != 0:
     print(f"GUARD-BROKEN: helper exit {p.returncode}: {p.stderr.strip()[:120]}"); sys.exit()
 try:
-    stats = json.loads(p.stdout).get("stats")
+    parsed = json.loads(p.stdout)
 except json.JSONDecodeError as e:
     print(f"GUARD-BROKEN: helper stdout not JSON: {e}"); sys.exit()
+# isinstance BEFORE .get: valid-but-non-object JSON (a list/scalar) must not raise an
+# uncaught AttributeError that empties stdout and passes the guard vacuously.
+stats = parsed.get("stats") if isinstance(parsed, dict) else None
 if not isinstance(stats, dict) or not stats:
-    print("GUARD-BROKEN: helper emitted no stats"); sys.exit()
+    print("GUARD-BROKEN: helper emitted no stats object"); sys.exit()
 src = open(helper, encoding="utf-8").read()
 m = re.search(r"Output \(JSON to stdout.*?Exit codes:", src, re.S)  # the Output enumeration block only
 if not m:
     print("GUARD-BROKEN: docstring Output block not found"); sys.exit()
-print(" ".join(sorted(k for k in stats if k not in m.group(0))))
+outblock = m.group(0)
+# Match each key as a QUOTED token ("key"), not substring-anywhere, so a key that is a
+# substring of unrelated prose can never read as "documented".
+print(" ".join(sorted(k for k in stats if f'"{k}"' not in outblock)))
 PYEOF
 )"
 assert_eq "#466 every emitted stats key is documented in the helper docstring Output block (non-vacuous)" "" "$MLA_UNDOC"

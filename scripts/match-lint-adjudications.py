@@ -76,10 +76,11 @@ Known limitation (bounded — a forged single pair in a sectionless trusted comm
     cannot, from the comment bytes alone, tell a genuine single section from a single
     forged pair in a comment that has NO real section — the case of a pre-feature
     `devflow:review-progress` comment authored before this feature seeded the section
-    into the template. The root defense is producer-side (the Phase 4 report renderer
-    neutralizes any `devflow:lint-adjudications*` / `devflow:lint-fp-adjudicated` literal
-    it quotes from attacker-controlled diff prose, so a POST-feature comment can never
-    carry a forged sentinel verbatim). The residual is therefore scoped to progress
+    into the template. The root defense is producer-side (the report renderer neutralizes
+    any `devflow:lint-adjudications*` / `devflow:lint-fp-adjudicated` literal it quotes from
+    attacker-controlled diff prose at every write point — Phase 3 onward, not only the
+    Phase 4 report write — so a POST-feature comment can never carry a forged sentinel
+    verbatim). The residual is therefore scoped to progress
     comments authored BEFORE that neutralization shipped, and its blast radius is bounded:
     the worst outcome is demoting one config-gated stale-prose lint row to Informational —
     which per the engine's Phase 4.2 rules is excluded from the verdict at every severity
