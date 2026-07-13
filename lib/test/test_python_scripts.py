@@ -1858,6 +1858,114 @@ assert_eq("record+reconcile in one call: repro row added", True,
 assert_eq("record+reconcile in one call: exactly one classification note", 1,
           _combo.count('classification: '))
 
+# The inverse production shape — the mislabelled-feature-request correction: record
+# non-bug AND remove the repro row from a bug skeleton in one `update` call.
+_combo_nb = apply_mut(_WP_BUG, make_args(
+    record_classification=['non-bug', 'reads as a feature request'],
+    reconcile_reproduction='non-bug'))
+assert_eq("record+reconcile non-bug in one call: classification note lands", True,
+          'classification: non-bug — reads as a feature request' in _combo_nb)
+assert_eq("record+reconcile non-bug in one call: unticked repro row removed", False,
+          _REPRO_SUBSTR in _combo_nb)
+assert_eq("record+reconcile non-bug in one call: code + sweeps kept", True,
+          '- [ ] code + sweeps' in _combo_nb)
+assert_eq("record+reconcile non-bug in one call: exactly one classification note", 1,
+          _combo_nb.count('classification: '))
+
+# supersede against an ALREADY-CORRUPTED workpad carrying TWO classification notes:
+# the exactly-one invariant must hold even when the input violates it (a regex
+# regression matching only the first bullet would pass every build-it-via-the-tool
+# test while leaving the second stale note behind).
+_WP_TWO_NOTES = _WP_NONBUG.replace(
+    "  - 00:00:00 — /devflow:implement run started",
+    "  - 00:00:00 — /devflow:implement run started\n"
+    "  - 00:00:01 — classification: non-bug — first stale note\n"
+    "  - 00:00:02 — classification: bug-report — second stale note",
+)
+_c3 = apply_mut(_WP_TWO_NOTES, make_args(
+    record_classification=['bug-report', 'quoted stack trace']))
+assert_eq("record-classification: BOTH pre-existing corrupted notes superseded", 1,
+          _c3.count('classification: '))
+assert_eq("record-classification: the fresh note is the survivor", True,
+          'classification: bug-report — quoted stack trace' in _c3)
+# ...and a NON-classification Progress note is untouched by the supersede sweep: a
+# broadened _CLASSIFICATION_NOTE_RE deleting real progress history must fail here.
+assert_eq("record-classification: non-classification progress note survives supersede",
+          True, '/devflow:implement run started' in _c3)
+assert_eq("record-classification: non-classification note also survives plain record",
+          True, '/devflow:implement run started' in _c2)
+
+# bug-report insert against a resume-shaped layout: intervening non-checkbox
+# sub-bullets under **Implement** (a resume note logged before code + sweeps). The
+# anchor is the **Implement** line itself, so the row lands as its FIRST sub-item.
+_WP_RESUME = _WP_NONBUG.replace(
+    "- [ ] **Implement**\n  - [ ] code + sweeps",
+    "- [ ] **Implement**\n  - 00:05:00 — resumed from Implementing\n  - [ ] code + sweeps",
+)
+_add_resume = apply_mut(_WP_RESUME, make_args(reconcile_reproduction='bug-report'))
+assert_eq("reconcile: resume layout — repro row inserted (exactly one)", 1,
+          _add_resume.count(_REPRO_SUBSTR))
+assert_eq("reconcile: resume layout — row lands directly under **Implement**, above "
+          "the intervening resume note", True,
+          _add_resume.index('**Implement**') < _add_resume.index(_REPRO_SUBSTR)
+          < _add_resume.index('resumed from Implementing'))
+
+# DUPLICATE pre-existing repro rows (a hand-corrupted skeleton): non-bug removes
+# every unticked copy; bug-report no-ops without inserting a third.
+_WP_BUG_DUP = _WP_BUG.replace(
+    "  - [ ] reproduction captured (bug issues only)",
+    "  - [ ] reproduction captured (bug issues only)\n"
+    "  - [ ] reproduction captured (bug issues only)",
+)
+_rm_dup = apply_mut(_WP_BUG_DUP, make_args(reconcile_reproduction='non-bug'))
+assert_eq("reconcile: non-bug removes ALL duplicate unticked repro rows", False,
+          _REPRO_SUBSTR in _rm_dup)
+_noop_dup = apply_mut(_WP_BUG_DUP, make_args(reconcile_reproduction='bug-report'))
+assert_eq("reconcile: bug-report no-ops on duplicate rows (no third insert)", 2,
+          _noop_dup.count(_REPRO_SUBSTR))
+# Mixed tick states among duplicates: only the unticked copy drops.
+_WP_BUG_DUP_MIXED = _WP_BUG.replace(
+    "  - [ ] reproduction captured (bug issues only)",
+    "  - [x] reproduction captured (bug issues only)\n"
+    "  - [ ] reproduction captured (bug issues only)",
+)
+_rm_mixed = apply_mut(_WP_BUG_DUP_MIXED, make_args(reconcile_reproduction='non-bug'))
+assert_eq("reconcile: mixed duplicates — ticked copy preserved", True,
+          '- [x] ' + _REPRO_SUBSTR in _rm_mixed)
+assert_eq("reconcile: mixed duplicates — unticked copy removed (one row left)", 1,
+          _rm_mixed.count(_REPRO_SUBSTR))
+
+# Missing `## Progress` SECTION (distinct from the missing **Implement** anchor
+# above) fails closed for BOTH new mutations — attributed to the section guard's
+# own message, so a rejection from some other guard cannot masquerade as this one.
+# Positive control: the identical fixture WITH ## Progress succeeds in the tests
+# above (_c1/_add), so the rejection here is attributable to the removed section.
+_WP_NO_PROGRESS = _WP_NONBUG.replace(
+    "## Progress\n"
+    "- [ ] **Setup** — branch & workpad\n"
+    "  - 00:00:00 — /devflow:implement run started\n"
+    "- [ ] **Implement**\n"
+    "  - [ ] code + sweeps\n"
+    "- [ ] **Review**\n"
+    "- [ ] **Documentation**\n"
+    "- [ ] **PR marked ready**\n"
+    "\n",
+    "",
+)
+assert_eq("no-progress fixture: section really removed (fixture self-check)", False,
+          '## Progress' in _WP_NO_PROGRESS)
+for _label, _np_args in (
+    ("record-classification", make_args(record_classification=['non-bug', 'r'])),
+    ("reconcile-reproduction", make_args(reconcile_reproduction='bug-report')),
+):
+    try:
+        apply_mut(_WP_NO_PROGRESS, _np_args)
+        assert_eq(f"{_label}: missing ## Progress raises", "_UpdateError raised",
+                  "no exception")
+    except workpad._UpdateError as _e:
+        assert_eq(f"{_label}: missing ## Progress fails closed naming the section",
+                  True, "'## Progress' not found" in str(_e))
+
 
 print("parse_acs._is_post_merge")
 

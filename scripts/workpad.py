@@ -980,11 +980,16 @@ def _reconcile_reproduction_row(content: str, classification: str) -> str:
     """Idempotently add or remove the bug-only reproduction-captured Progress
     sub-row so the skeleton matches the recorded content classification (#449).
 
-    - `bug-report` → ensure the row is present: insert `_REPRODUCTION_ROW` directly
-      under the `**Implement**` phase row (above `code + sweeps`) when absent; no-op
-      when a row is already present in ANY tick state.
+    - `bug-report` → ensure the row is present: when absent, insert
+      `_REPRODUCTION_ROW` as the first sub-item of the `**Implement**` phase row
+      (the anchor is the `**Implement**` line itself, not any sibling sub-row);
+      no-op when a row is already present in ANY tick state. A skeleton with no
+      `**Implement**` anchor fails loud (`_UpdateError`) — see below.
     - `non-bug` → remove the row only when present AND unticked; a *ticked* row is
-      historical evidence and is preserved; an absent row is a no-op.
+      historical evidence and is preserved; an absent row is a no-op. This arm
+      deliberately never fails loud: it needs no anchor (there is nothing to
+      insert), so a missing row or missing `**Implement**` line is the desired
+      end state, not an error — the asymmetry with bug-report is intentional.
 
     Never removes a ticked row and never inserts a duplicate — so running it on
     every Phase 1.3 entry is safe. Operates on the ## Progress section content."""
