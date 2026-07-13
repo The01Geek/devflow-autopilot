@@ -27574,6 +27574,367 @@ assert_pin_red_under "#431: open-state-pr.sh stages experiment-records.jsonl" \
   's#\.devflow/learnings/experiment-records\.jsonl##g' "$OSP_SH"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "update-branch-checkpoint.sh (#448 base-branch update checkpoints)"
+# ────────────────────────────────────────────────────────────────────────────
+# The helper is a shell CLI over a git repo — driven end-to-end in scratch repos with a
+# LOCAL BARE origin (no network, gh-stubbed convention). Every arm of the outcome contract
+# (UP_TO_DATE / UPDATED / DISABLED / CONFLICT / UNVERIFIED / PUSH_REJECTED /
+# MERGE_IN_PROGRESS), the valid-falsy config matrix (#312), the push-race recovery arms, the
+# shallow-history arm, and idempotency are exercised. Isolated temp dirs come from
+# git_sandbox (fail-closed on mktemp -d failure); all setup uses `git -C` and each helper
+# call runs in a single `( cd … && … )` subshell.
+UBC="$LIB/../scripts/update-branch-checkpoint.sh"
+
+# Build a bare origin + a work clone on feature branch `feat` (pushed). Idempotent per root.
+ubc_make() {  # root
+  local root="$1"
+  git init -q --bare "$root/bare.git"
+  git init -q -b main "$root/work"
+  git -C "$root/work" config user.email t@t
+  git -C "$root/work" config user.name t
+  printf 'base\n' > "$root/work/f.txt"
+  git -C "$root/work" add f.txt
+  git -C "$root/work" commit -qm init
+  git -C "$root/work" remote add origin "$root/bare.git"
+  git -C "$root/work" push -q -u origin main
+  git -C "$root/work" checkout -q -b feat
+  printf 'feat\n' > "$root/work/feat.txt"
+  git -C "$root/work" add feat.txt
+  git -C "$root/work" commit -qm feat
+  git -C "$root/work" push -q -u origin feat
+}
+
+# Advance origin/main by one commit (via a throwaway clone) — optionally writing FILE=CONTENT
+# so a conflicting base edit can be staged.
+ubc_advance_base() {  # root tag [file content]
+  local root="$1" tag="$2" file="${3:-base-$2.txt}" content="${4:-x}"
+  git clone -q "$root/bare.git" "$root/mc-$tag"
+  git -C "$root/mc-$tag" config user.email t@t
+  git -C "$root/mc-$tag" config user.name t
+  git -C "$root/mc-$tag" checkout -q main
+  printf '%s\n' "$content" > "$root/mc-$tag/$file"
+  git -C "$root/mc-$tag" add "$file"
+  git -C "$root/mc-$tag" commit -qm "adv $tag"
+  git -C "$root/mc-$tag" push -q origin main
+}
+
+# Advance origin/feat by one commit (a remote push-race), writing FILE=CONTENT.
+ubc_advance_feat() {  # root tag file content
+  local root="$1" tag="$2" file="$3" content="$4"
+  git clone -q "$root/bare.git" "$root/fc-$tag"
+  git -C "$root/fc-$tag" config user.email t@t
+  git -C "$root/fc-$tag" config user.name t
+  git -C "$root/fc-$tag" checkout -q feat
+  printf '%s\n' "$content" > "$root/fc-$tag/$file"
+  git -C "$root/fc-$tag" add "$file"
+  git -C "$root/fc-$tag" commit -qm "feat-remote $tag"
+  git -C "$root/fc-$tag" push -q origin feat
+}
+
+# Run the helper in $root/work; set UBC_OUT (stdout token), UBC_RC (exit), UBC_ERR (stderr).
+ubc_run() {  # root
+  local root="$1"
+  UBC_OUT="$( cd "$root/work" && "$UBC" 2>"$root/ubc-err" )"; UBC_RC=$?
+  UBC_ERR="$(cat "$root/ubc-err" 2>/dev/null)"
+}
+
+# ── ubc-updated → Outcome contract: base advanced by one → UPDATED 1, exit 0, base
+# commit is an ancestor of feat, the origin feature ref moved. ──────────────────────────
+D="$(git_sandbox 'ubc-updated')"
+ubc_make "$D"
+ubc_advance_base "$D" a
+ubc_run "$D"
+assert_eq "#448 ubc-updated: token is 'UPDATED 1'" "UPDATED 1" "$UBC_OUT"
+assert_eq "#448 ubc-updated: exit 0" "0" "$UBC_RC"
+assert_eq "#448 ubc-updated: fetched base is an ancestor of feat HEAD" "yes" \
+  "$(git -C "$D/work" merge-base --is-ancestor origin/main HEAD 2>/dev/null && echo yes || echo no)"
+assert_eq "#448 ubc-updated: origin feature ref advanced to the pushed HEAD" \
+  "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)" "$(git -C "$D/bare.git" rev-parse feat 2>/dev/null)"
+
+# ── ubc-idempotent → Outcome contract: immediate re-run after UPDATED → UP_TO_DATE, no new
+# commit (idempotency dimension). ────────────────────────────────────────────────────────
+UBC_HEAD_AFTER_UPDATE="$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+ubc_run "$D"
+assert_eq "#448 ubc-idempotent: re-run is UP_TO_DATE" "UP_TO_DATE" "$UBC_OUT"
+assert_eq "#448 ubc-idempotent: exit 0" "0" "$UBC_RC"
+assert_eq "#448 ubc-idempotent: HEAD unchanged (no new commit)" \
+  "$UBC_HEAD_AFTER_UPDATE" "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+
+# ── ubc-up-to-date → Outcome contract: base not advanced → UP_TO_DATE, tree untouched. ──
+D="$(git_sandbox 'ubc-up-to-date')"
+ubc_make "$D"
+UBC_HEAD_BEFORE="$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+ubc_run "$D"
+assert_eq "#448 ubc-up-to-date: token is UP_TO_DATE" "UP_TO_DATE" "$UBC_OUT"
+assert_eq "#448 ubc-up-to-date: exit 0" "0" "$UBC_RC"
+assert_eq "#448 ubc-up-to-date: HEAD untouched" \
+  "$UBC_HEAD_BEFORE" "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+
+# ── ubc-disabled-matrix → Config: explicit false → DISABLED (tree untouched); every other
+# shape (missing file, missing key, empty string, wrong-typed number/object) proceeds past
+# the gate (issue #312 valid-falsy matrix). For the proceed rows, base is NOT advanced so a
+# proceeding run yields UP_TO_DATE. ──────────────────────────────────────────────────────
+# explicit false → DISABLED, and the still-behind tree is untouched.
+D="$(git_sandbox 'ubc-disabled')"
+ubc_make "$D"
+ubc_advance_base "$D" d
+mkdir -p "$D/work/.devflow"
+printf '%s\n' '{"devflow_implement": {"update_branch_checkpoints": false}}' > "$D/work/.devflow/config.json"
+UBC_HEAD_BEFORE="$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+ubc_run "$D"
+assert_eq "#448 ubc-disabled-matrix: explicit false → DISABLED" "DISABLED" "$UBC_OUT"
+assert_eq "#448 ubc-disabled-matrix: DISABLED exit 0" "0" "$UBC_RC"
+assert_eq "#448 ubc-disabled-matrix: DISABLED leaves HEAD untouched" \
+  "$UBC_HEAD_BEFORE" "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+# valid-falsy proceed rows: each must NOT resolve to DISABLED (base is not advanced → each
+# proceeds to UP_TO_DATE). A row that wrongly disabled would print DISABLED here.
+for UBC_ROW in \
+  "missing-file::" \
+  "missing-key:{\"devflow_implement\": {}}:" \
+  "empty-string:{\"devflow_implement\": {\"update_branch_checkpoints\": \"\"}}:" \
+  "number-zero:{\"devflow_implement\": {\"update_branch_checkpoints\": 0}}:" \
+  "wrong-type-object:{\"devflow_implement\": {\"update_branch_checkpoints\": {}}}:"; do
+  UBC_ROW_NAME="${UBC_ROW%%:*}"; UBC_ROW_REST="${UBC_ROW#*:}"; UBC_ROW_JSON="${UBC_ROW_REST%:*}"
+  DR="$(git_sandbox "ubc-disabled-matrix $UBC_ROW_NAME")"
+  ubc_make "$DR"
+  if [ -n "$UBC_ROW_JSON" ]; then
+    mkdir -p "$DR/work/.devflow"
+    printf '%s\n' "$UBC_ROW_JSON" > "$DR/work/.devflow/config.json"
+  fi
+  ubc_run "$DR"
+  assert_eq "#448 ubc-disabled-matrix: '$UBC_ROW_NAME' proceeds past the gate (UP_TO_DATE, not DISABLED)" \
+    "UP_TO_DATE" "$UBC_OUT"
+done
+
+# ── ubc-conflict → Outcome + Conflict contract: a conflicting base edit → CONFLICT, exit 2,
+# MERGE_HEAD present, the conflicted path named on stderr. ────────────────────────────────
+D="$(git_sandbox 'ubc-conflict')"
+ubc_make "$D"
+# feat edits shared.txt one way, base edits it another → merge conflict.
+printf 'feat-line\n' > "$D/work/shared.txt"
+git -C "$D/work" add shared.txt
+git -C "$D/work" commit -qm "feat shared"
+git -C "$D/work" push -q origin feat
+ubc_advance_base "$D" c shared.txt main-line
+ubc_run "$D"
+assert_eq "#448 ubc-conflict: token is CONFLICT" "CONFLICT" "$UBC_OUT"
+assert_eq "#448 ubc-conflict: exit 2" "2" "$UBC_RC"
+assert_eq "#448 ubc-conflict: MERGE_HEAD present (merge left in progress)" "yes" \
+  "$(git -C "$D/work" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "#448 ubc-conflict: conflicted path named on stderr" "yes" \
+  "$(printf '%s' "$UBC_ERR" | grep -qF 'shared.txt' && echo yes || echo no)"
+git -C "$D/work" merge --abort 2>/dev/null || true
+
+# ── ubc-unverified → Outcome contract: unreachable origin → UNVERIFIED, exit 3, tree
+# untouched (fetch-failure error path). ───────────────────────────────────────────────────
+D="$(git_sandbox 'ubc-unverified')"
+ubc_make "$D"
+git -C "$D/work" remote set-url origin "$D/does-not-exist.git"
+UBC_HEAD_BEFORE="$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+ubc_run "$D"
+assert_eq "#448 ubc-unverified: token is UNVERIFIED" "UNVERIFIED" "$UBC_OUT"
+assert_eq "#448 ubc-unverified: exit 3" "3" "$UBC_RC"
+assert_eq "#448 ubc-unverified: HEAD untouched" \
+  "$UBC_HEAD_BEFORE" "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+
+# ── ubc-dirty-tree → Pre-state guards: an uncommitted tracked edit → UNVERIFIED, exit 3, NO
+# fetch performed (origin/main ref unchanged), NO merge, the edit intact. ─────────────────
+D="$(git_sandbox 'ubc-dirty-tree')"
+ubc_make "$D"
+ubc_advance_base "$D" t
+UBC_ORIGIN_MAIN_BEFORE="$(git -C "$D/work" rev-parse origin/main 2>/dev/null)"
+UBC_HEAD_BEFORE="$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+printf 'dirty\n' >> "$D/work/feat.txt"
+ubc_run "$D"
+assert_eq "#448 ubc-dirty-tree: token is UNVERIFIED" "UNVERIFIED" "$UBC_OUT"
+assert_eq "#448 ubc-dirty-tree: exit 3" "3" "$UBC_RC"
+assert_eq "#448 ubc-dirty-tree: no fetch performed (work origin/main ref unchanged)" \
+  "$UBC_ORIGIN_MAIN_BEFORE" "$(git -C "$D/work" rev-parse origin/main 2>/dev/null)"
+assert_eq "#448 ubc-dirty-tree: HEAD unchanged (no merge)" \
+  "$UBC_HEAD_BEFORE" "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+assert_eq "#448 ubc-dirty-tree: the uncommitted edit is intact" "dirty" \
+  "$(git -C "$D/work" show :feat.txt 2>/dev/null >/dev/null; tail -n 1 "$D/work/feat.txt")"
+
+# ── ubc-merge-in-progress → Pre-state guards: MERGE_HEAD at invocation → MERGE_IN_PROGRESS,
+# exit 5, no fetch/merge/push, the in-progress state intact. ──────────────────────────────
+D="$(git_sandbox 'ubc-merge-in-progress')"
+ubc_make "$D"
+ubc_advance_base "$D" m
+git -C "$D/work" rev-parse HEAD > "$D/work/.git/MERGE_HEAD"
+UBC_ORIGIN_MAIN_BEFORE="$(git -C "$D/work" rev-parse origin/main 2>/dev/null)"
+ubc_run "$D"
+assert_eq "#448 ubc-merge-in-progress: token is MERGE_IN_PROGRESS" "MERGE_IN_PROGRESS" "$UBC_OUT"
+assert_eq "#448 ubc-merge-in-progress: exit 5" "5" "$UBC_RC"
+assert_eq "#448 ubc-merge-in-progress: no fetch (work origin/main ref unchanged)" \
+  "$UBC_ORIGIN_MAIN_BEFORE" "$(git -C "$D/work" rev-parse origin/main 2>/dev/null)"
+assert_eq "#448 ubc-merge-in-progress: MERGE_HEAD still present (in-progress state intact)" "yes" \
+  "$(git -C "$D/work" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && echo yes || echo no)"
+rm -f "$D/work/.git/MERGE_HEAD"
+
+# ── ubc-push-race → Push-race recovery: origin's feat ref advanced (non-conflicting) after
+# the local clone → the helper integrates the remote ref and the retried push succeeds →
+# UPDATED, exit 0, origin holds both the remote's commit and the base merge. ──────────────
+D="$(git_sandbox 'ubc-push-race')"
+ubc_make "$D"
+ubc_advance_base "$D" pr
+ubc_advance_feat "$D" pr remote-only.txt remote-content
+UBC_REMOTE_FEAT_COMMIT="$(git -C "$D/bare.git" rev-parse feat 2>/dev/null)"
+ubc_run "$D"
+assert_eq "#448 ubc-push-race: token is 'UPDATED 1'" "UPDATED 1" "$UBC_OUT"
+assert_eq "#448 ubc-push-race: exit 0" "0" "$UBC_RC"
+assert_eq "#448 ubc-push-race: origin feat holds the pre-existing remote commit" "yes" \
+  "$(git -C "$D/work" merge-base --is-ancestor "$UBC_REMOTE_FEAT_COMMIT" HEAD 2>/dev/null && echo yes || echo no)"
+assert_eq "#448 ubc-push-race: origin feat holds the base merge (origin/main is an ancestor)" "yes" \
+  "$(git -C "$D/work" merge-base --is-ancestor origin/main HEAD 2>/dev/null && echo yes || echo no)"
+assert_eq "#448 ubc-push-race: origin feat ref equals the pushed local HEAD" \
+  "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)" "$(git -C "$D/bare.git" rev-parse feat 2>/dev/null)"
+
+# ── ubc-push-race-conflict → Push-race recovery: origin's feat advanced with a commit that
+# conflicts with the local base merge → the helper aborts the conflicted integrate, exit 4,
+# PUSH_REJECTED, no MERGE_HEAD, HEAD == pre-checkpoint SHA. ───────────────────────────────
+D="$(git_sandbox 'ubc-push-race-conflict')"
+ubc_make "$D"
+# base adds shared.txt=base (feat has none → base merge is a clean add); origin/feat adds
+# shared.txt=remote → the integrate merge is an add/add conflict.
+ubc_advance_base "$D" prc shared.txt base
+ubc_advance_feat "$D" prc shared.txt remote
+UBC_PRE_SHA="$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+ubc_run "$D"
+assert_eq "#448 ubc-push-race-conflict: token is PUSH_REJECTED" "PUSH_REJECTED" "$UBC_OUT"
+assert_eq "#448 ubc-push-race-conflict: exit 4" "4" "$UBC_RC"
+assert_eq "#448 ubc-push-race-conflict: no MERGE_HEAD left behind" "no" \
+  "$(git -C "$D/work" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "#448 ubc-push-race-conflict: HEAD restored to the pre-checkpoint SHA" \
+  "$UBC_PRE_SHA" "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+
+# ── ubc-push-rejected → Push-race recovery + Outcome contract: a deny-all pre-receive hook
+# on the bare origin → exit 4, PUSH_REJECTED, HEAD == pre-checkpoint SHA (tree restored). ──
+D="$(git_sandbox 'ubc-push-rejected')"
+ubc_make "$D"
+ubc_advance_base "$D" pj
+# Install the deny-all hook AFTER all setup pushes, so only the helper's push is refused.
+printf '#!/bin/sh\nexit 1\n' > "$D/bare.git/hooks/pre-receive"
+chmod +x "$D/bare.git/hooks/pre-receive"
+UBC_PRE_SHA="$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+ubc_run "$D"
+assert_eq "#448 ubc-push-rejected: token is PUSH_REJECTED" "PUSH_REJECTED" "$UBC_OUT"
+assert_eq "#448 ubc-push-rejected: exit 4" "4" "$UBC_RC"
+assert_eq "#448 ubc-push-rejected: HEAD restored to the pre-checkpoint SHA (no local divergence)" \
+  "$UBC_PRE_SHA" "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+
+# ── ubc-shallow → Shallow-history arm. Two sub-cases:
+# (a) unshallow succeeds and the merge lands → UPDATED (feat branched at the root, so the
+#     merge base lies outside a --depth 1 view; one `git fetch --unshallow` extends history).
+# (b) the unshallow retry cannot establish history → UNVERIFIED, tree untouched (modelled
+#     with genuinely unrelated histories on a COMPLETE repo, where `git fetch --unshallow`
+#     fails deterministically — the same no-merge-base failure the arm degrades on). ────────
+# (a) shallow success.
+D="$(git_sandbox 'ubc-shallow-success')"
+git init -q --bare "$D/bare.git"
+git init -q -b main "$D/seed"
+git -C "$D/seed" config user.email t@t
+git -C "$D/seed" config user.name t
+printf 'root\n' > "$D/seed/root.txt"
+git -C "$D/seed" add root.txt
+git -C "$D/seed" commit -qm c1
+git -C "$D/seed" remote add origin "$D/bare.git"
+# feat branches at the ROOT commit (c1), then diverges.
+git -C "$D/seed" checkout -q -b feat
+printf 'feat\n' > "$D/seed/feat.txt"
+git -C "$D/seed" add feat.txt
+git -C "$D/seed" commit -qm f1
+git -C "$D/seed" push -q -u origin feat
+# main advances well past the root so the merge base (c1) is deep.
+git -C "$D/seed" checkout -q main
+for UBC_I in 2 3 4 5; do
+  printf 'm%s\n' "$UBC_I" > "$D/seed/m$UBC_I.txt"
+  git -C "$D/seed" add "m$UBC_I.txt"
+  git -C "$D/seed" commit -qm "c$UBC_I"
+done
+git -C "$D/seed" push -q -u origin main
+# Shallow work checkout of feat (depth 1). --no-single-branch so `git fetch --unshallow`
+# deepens EVERY branch (a plain --branch clone sets a feat-only refspec, so unshallow would
+# never extend main and the arm could not recover). The behind-by count in a shallow view is
+# unreliable, so the token is prefix-matched (UPDATED*) rather than pinned to an exact count.
+git clone -q --depth 1 --no-single-branch --branch feat "$D/bare.git" "$D/work"
+git -C "$D/work" config user.email t@t
+git -C "$D/work" config user.name t
+ubc_run "$D"
+assert_eq "#448 ubc-shallow (success): unshallow retry lands the merge → UPDATED" "yes" \
+  "$(case "$UBC_OUT" in UPDATED*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#448 ubc-shallow (success): exit 0" "0" "$UBC_RC"
+assert_eq "#448 ubc-shallow (success): base is now an ancestor of feat HEAD" "yes" \
+  "$(git -C "$D/work" merge-base --is-ancestor origin/main HEAD 2>/dev/null && echo yes || echo no)"
+# (b) unshallow cannot help: unrelated histories on a complete repo → UNVERIFIED, untouched.
+D="$(git_sandbox 'ubc-shallow-blocked')"
+git init -q --bare "$D/bare.git"
+git init -q -b main "$D/seed"
+git -C "$D/seed" config user.email t@t
+git -C "$D/seed" config user.name t
+printf 'main\n' > "$D/seed/m.txt"
+git -C "$D/seed" add m.txt
+git -C "$D/seed" commit -qm main-root
+git -C "$D/seed" remote add origin "$D/bare.git"
+git -C "$D/seed" push -q -u origin main
+# work is an independent history (its own root) tracking the same origin.
+git init -q -b feat "$D/work"
+git -C "$D/work" config user.email t@t
+git -C "$D/work" config user.name t
+printf 'feat\n' > "$D/work/feat.txt"
+git -C "$D/work" add feat.txt
+git -C "$D/work" commit -qm feat-root
+git -C "$D/work" remote add origin "$D/bare.git"
+git -C "$D/work" push -q -u origin feat
+UBC_HEAD_BEFORE="$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+ubc_run "$D"
+assert_eq "#448 ubc-shallow (blocked): unrecoverable history → UNVERIFIED" "UNVERIFIED" "$UBC_OUT"
+assert_eq "#448 ubc-shallow (blocked): exit 3" "3" "$UBC_RC"
+assert_eq "#448 ubc-shallow (blocked): HEAD untouched" \
+  "$UBC_HEAD_BEFORE" "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+
+# ── ubc-guard-class-2 → Guard-class 2: no tr/sed/wc/cut/head invocation appears in the
+# helper's non-comment lines (every selection value derives from git/config-get/builtins). ─
+UBC_NONCOMMENT="$(grep -vE '^[[:space:]]*#' "$UBC" 2>/dev/null || true)"
+UBC_FORBIDDEN="$(printf '%s\n' "$UBC_NONCOMMENT" | grep -cE '(^|[^A-Za-z0-9_/.-])(tr|sed|wc|cut|head)([^A-Za-z0-9_]|$)' 2>/dev/null || true)"
+assert_eq "#448 ubc-guard-class-2: no tr/sed/wc/cut/head in any selection path" "0" "${UBC_FORBIDDEN:-0}"
+
+# ── ubc-grants → Allowlists: both writable-tier TOOLS lines grant the vendored helper
+# literal and Bash(git merge:*) — each appears exactly once per file (assert_pin_unique). ─
+UBC_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+UBC_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+assert_pin_unique "#448 ubc-grants: devflow-implement.yml grants the vendored update-branch-checkpoint.sh literal" \
+  'Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*)' "$UBC_IMPL_YML"
+assert_pin_unique "#448 ubc-grants: devflow-implement.yml grants Bash(git merge:*)" \
+  'Bash(git merge:*)' "$UBC_IMPL_YML"
+assert_pin_unique "#448 ubc-grants: devflow.yml grants the vendored update-branch-checkpoint.sh literal" \
+  'Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*)' "$UBC_DEVFLOW_YML"
+assert_pin_unique "#448 ubc-grants: devflow.yml grants Bash(git merge:*)" \
+  'Bash(git merge:*)' "$UBC_DEVFLOW_YML"
+
+# ── ubc-call-sites → Checkpoints 1–4 + loop exit + the rewritten read-target mirror
+# sentences. The vendored-anchor invocation literal `/../../scripts/update-branch-checkpoint.sh`
+# targets an ACTUAL invocation (a prose mention of `scripts/update-branch-checkpoint.sh` lacks
+# the `/../../` anchor), so it pins the checkpoint call sites specifically. ────────────────
+UBC_P1="$LIB/../skills/implement/phases/phase-1-setup.md"
+UBC_P2="$LIB/../skills/implement/phases/phase-2-implement.md"
+UBC_P3="$LIB/../skills/implement/phases/phase-3-review.md"
+UBC_P4="$LIB/../skills/implement/phases/phase-4-documentation.md"
+UBC_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+UBC_INVOKE='/../../scripts/update-branch-checkpoint.sh'
+assert_pin_unique "#448 ubc-call-sites: checkpoint 1 invokes the helper in phase-1-setup.md" "$UBC_INVOKE" "$UBC_P1"
+assert_pin_unique "#448 ubc-call-sites: checkpoint 2 invokes the helper in phase-3-review.md" "$UBC_INVOKE" "$UBC_P3"
+assert_pin_unique "#448 ubc-call-sites: checkpoint 4 invokes the helper in phase-4-documentation.md" "$UBC_INVOKE" "$UBC_P4"
+# review-and-fix carries checkpoint 3 (each fix iteration) AND the loop-exit invocation → ≥2.
+assert_eq "#448 ubc-call-sites: review-and-fix invokes the helper at ≥2 sites (fix iteration + loop exit)" "yes" \
+  "$([ "$(pin_count "$UBC_INVOKE" "$UBC_RAF")" -ge 2 ] && echo yes || echo no)"
+# The two coupled read-target mirror sentences now name the checkpoint as the sanctioned
+# reconciliation point (issue #448) rather than reading record-only — one occurrence per file.
+assert_pin_unique "#448 ubc-call-sites: phase-1-setup.md read-target sentence names the reconciliation checkpoint" \
+  'reconciled at the Phase 1.4 update-branch checkpoint' "$UBC_P1"
+assert_pin_unique "#448 ubc-call-sites: phase-2-implement.md read-target sentence names the reconciliation checkpoint" \
+  'reconciled at the Phase 1.4 update-branch checkpoint' "$UBC_P2"
+
+# ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 

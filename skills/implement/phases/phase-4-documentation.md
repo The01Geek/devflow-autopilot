@@ -427,6 +427,17 @@ git status --porcelain
 
 If it is non-empty, **do not** finalize yet. The run began from a clean base-branch checkout (`origin/` + the configured `base_branch`), so anything dirty here is this run's own work an earlier phase failed to commit. Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record which phase under-committed via `--reflection-kind note --reflection "…"` (a corrected under-commit is informational, not a standing failure) — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit.
 
+**Base-branch update checkpoint 4 (pre-ready) — after the clean-tree backstop, before the publish decision.** So the terminal *published* state carries current base (the review-tier deferral's head-scoped re-evaluation cannot see base advances — issue #448), bring the branch up to date one last time:
+
+```bash
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/update-branch-checkpoint.sh
+```
+
+Handle the printed token **per the implement-driven outcome-handling contract in phase-1-setup.md §1.4.1** (workpad recording; `Blocked` on `MERGE_IN_PROGRESS` or a failed conflict resolution; resolve a `CONFLICT`, run the suite, and re-run the Phase 2.3.0 sweep; record-and-continue on `UNVERIFIED`/`PUSH_REJECTED`), with one **checkpoint-4-specific** addition that gates the publish below:
+
+- On **`UPDATED`** (a real merge landed) the pushed state was **not** seen by any review pass, so **re-run the project test suite** before publishing. A **pass** proceeds to the publish decision. A **fail** routes to the **Blocked path** (`workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "checkpoint 4: post-merge suite failed — not publishing"`, emit the 👎 reaction, stop) **instead of** publishing. A suite that is **absent, ungranted, or otherwise unrunnable on this tier** publishes anyway with `--reflection-kind note --reflection "checkpoint 4: merged origin/base at pre-ready but the suite was not locally re-runnable — merge not locally re-verified; CI is the validating gate"` (CI validates on push).
+- On **`UP_TO_DATE` / `DISABLED`** nothing changed, so no suite re-run is needed — proceed to the publish decision unchanged.
+
 **Publish decision — `implement_pr_state`.** Whether the run publishes the PR or leaves it the draft created in Phase 3.1 is a per-consumer config choice. Read it (default `ready_for_review`), then publish **only** when it is not the exact literal `draft` — default-to-publish is the safe direction, so a missing key, empty string, or any unrecognized value publishes, and a hard read failure (malformed config) falls back to publishing. **Capture whether `gh pr ready` actually succeeded** so the finalize wording reflects the *real* end state — a bare `gh pr ready` whose failure (the `else` arm catches *any* non-zero exit — e.g. auth scope, GitHub 5xx, rate limit, a race that already merged/closed the PR) fell through would otherwise leave the workpad falsely claiming the PR was published when it is still a draft:
 
 ```bash

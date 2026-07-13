@@ -106,6 +106,11 @@
           "description": "Extra --allowed-tools entries for the /devflow:implement path (devflow-implement.yml), APPENDED on top of devflow's built-in base list. The implement path does NOT inherit devflow.allowed_tools, so list every extra tool you want during implementation here. Empty/omitted \u2192 base list only.",
           "default": []
         },
+        "update_branch_checkpoints": {
+          "type": "boolean",
+          "description": "Master switch for the base-branch update checkpoints (issue #448). true (the default) brings the feature branch up to date with base_branch at four checkpoints of a /devflow:implement run \u2014 resume/adopt (Phase 1.4), pre-draft-PR (Phase 3.1), each fix iteration + loop exit of the review-and-fix loop under --push-each-iteration (Checkpoint 3), and pre-ready (Phase 4.3) \u2014 via scripts/update-branch-checkpoint.sh, so every state the merge gate or an auto-review consumes is current, including the terminal pushed state. This same key also governs the checkpoint inside a standalone /devflow:review-and-fix --push-each-iteration run. Only an explicit false disables it (issue #312 valid-falsy discipline \u2014 a missing key, empty string, or wrong-typed value leaves the checkpoints enabled). A consumer repo without an up-to-date branch-protection rule keeps working unchanged apart from ordinary base merges on feature branches. See docs/implement-skill.md.",
+          "default": true
+        },
         "stall_backstop": {
           "type": "object",
           "additionalProperties": false,
