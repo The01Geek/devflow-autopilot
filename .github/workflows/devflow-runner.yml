@@ -781,8 +781,31 @@ jobs:
                 echo "::warning::harden-stop-hooks: base .claude/settings.json exists at the base ref but read back empty after a successful fetch — hardening anyway (fail-closed) rather than inferring 'not wired' and dropping the floor."
               fi
             elif [ -n "$HELPER" ]; then
-              printf '%s' "$SETTINGS_JSON" | bash "$HELPER" --wired-check && HOOKS_WIRED=1
+              # Distinguish the helper's THREE outcomes (issue #460 SHADOW, Obs A): rc 0 =
+              # wired (harden); rc 1 = a CLEAN "not wired" verdict (trust it); rc >= 2 = the
+              # helper ERRORED (a corrupt/unparseable trusted-materialized copy, etc.) — NOT
+              # a verdict. Treating an error as "not wired" would skip and drop DevFlow's own
+              # floor (fail OPEN), so on any non-1 error request the inline substring scan
+              # (below) rather than skipping. Read the rc in the `else` of the `if <pipeline>`
+              # (the sanctioned else-RC idiom), never a later $?.
+              if printf '%s' "$SETTINGS_JSON" | bash "$HELPER" --wired-check; then
+                HOOKS_WIRED=1
+              else
+                _wc_rc=$?
+                if [ "$_wc_rc" -ne 1 ]; then
+                  echo "::warning::harden-stop-hooks: --wired-check helper errored (rc=$_wc_rc, not a clean 0/1 verdict) — falling back to the inline settings scan (fail-closed) rather than inferring 'not wired'."
+                  _need_inline_scan=1
+                fi
+              fi
             else
+              _need_inline_scan=1
+            fi
+            # SINGLE inline substring scan (issue #460 SHADOW), reached when no trusted
+            # helper resolved OR the helper errored (rc>=2) — kept in ONE place so the
+            # selection has exactly one pinned copy. It only reads a NON-EMPTY SETTINGS_JSON
+            # (the empty-read arm set HOOKS_WIRED / SKIP directly above and never sets the
+            # flag), so it cannot mis-fire on an empty blob.
+            if [ "${_need_inline_scan:-0}" -eq 1 ]; then
               for e in $ENTRY_TARGETS; do
                 case "$SETTINGS_JSON" in *"$e"*) HOOKS_WIRED=1 ;; esac
               done

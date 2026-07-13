@@ -153,7 +153,10 @@ TRUSTED_DIR="${TRUSTED_DIR:-}"
 # on stdin or as $2, decide whether it wires any of the three entry Stop hooks.
 #   usage : harden-stop-hooks.sh --wired-check [<settings-file>]   (stdin if no file)
 #   exit  : 0 = wired (at least one entry hook referenced) — HARDEN
-#           1 = NOT wired (or the file is unreadable/absent) — nothing to harden
+#           1 = a CLEAN "not wired" verdict (or the file is unreadable/absent) — nothing
+#               to harden. The caller treats ONLY rc 0/1 as verdicts; any rc >= 2 (a helper
+#               execution error) is NOT read as "not wired" — the caller falls back to its
+#               inline scan (fail-closed) rather than skipping and dropping the floor.
 # Fail direction: an unreadable/absent settings file reads as NOT wired (exit 1). This
 # is a pure predicate over the text it is GIVEN — it deliberately does NOT distinguish
 # "empty because the file is absent" from "empty because a read failed"; that ambiguity

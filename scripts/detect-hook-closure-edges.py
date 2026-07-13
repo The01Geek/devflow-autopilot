@@ -55,6 +55,10 @@ mind):
     member's `subprocess.run(["bash", "scripts/new.sh"])` (or `os.system`) spawn of a
     repo script is NOT matched — a `.py` member is audited only for the shell-form edge
     syntaxes above, not for Python-mediated subprocess spawns.
+  - **Line-continuation source/exec.** Matching is line-based: `src_re`/`slashsh_re` and
+    the exec regexes require the keyword and the path on the SAME line, so a
+    backslash-continued source (a `.`/`source` whose path sits on the next physical line
+    after a trailing backslash) is not captured.
 The jq PROGRAM edge (`-f *.jq`) is out of scope (jq is sandboxed — not a shell/RCE
 vector).
 """

@@ -16920,8 +16920,13 @@ assert_eq "#460 coupling: HOOK_ENTRY ∪ SOURCED ∪ EXEC == HOOK_TARGETS (per-c
 # PR-head-supplied repo script the walker cannot see. Today they spawn only git/gh; pin
 # that they spawn NO repo .sh/.py so a future such edit turns the desk RED instead of
 # silently re-opening the one-hop-deeper hole through the Python layer.
+# NOTE (issue #460 SHADOW, CT2 PT3): this pin matches only a LITERAL scripts/lib path in a
+# subprocess/os spawn — a variable-held path (`subprocess.run([interp, some_var])`) would
+# escape it, so the guarantee is "no LITERAL-path repo-script spawn", narrower than a full
+# Python-spawn audit (which the walker's docstring discloses is out of the static walker's
+# reach). It is a best-effort backstop for the common literal-path shape, not a proof.
 HSH_PY_SPAWN="$( grep -hnE '(subprocess\.(run|call|check_output|check_call|Popen)|os\.(system|popen|exec[lv]?[ep]*))' "$LIB/../scripts/workpad.py" "$LIB/../scripts/config_fingerprint.py" 2>/dev/null | grep -cE '(scripts|lib)/[A-Za-z0-9_.-]+\.(sh|py)' || true )"
-assert_eq "#460 walker gap ENFORCED: no .py closure member spawns a repo .sh/.py via subprocess/os (Python-layer edge)" "0" "$HSH_PY_SPAWN"
+assert_eq "#460 walker gap backstop: no .py closure member spawns a LITERAL-path repo .sh/.py via subprocess/os" "0" "$HSH_PY_SPAWN"
 # IMPORTANT-1: the workflow's inline TARGETS= (used both to materialize trusted
 # copies AND to stub inline on the fail-closed arm) must equal the helper's full
 # HOOK_TARGETS — a later-added closure member left out of the inline list would go
@@ -16981,6 +16986,8 @@ if true; then . "$d/dep-then.sh"; fi
 for x in 1; do . "$d/dep-do.sh"; done
 if false; then :; else . "$d/dep-else.sh"; fi
 if false; then :; elif . "$d/dep-elif.sh"; then :; fi
+( . "$d/dep-subshell.sh" )
+: | . "$d/dep-pipe.sh"
 source "$d/dep-src.sh"
 python3 scripts/dep-py.py
 bash scripts/dep-bash.sh
@@ -16991,6 +16998,7 @@ DEP=scripts/dep-assign.py
 LIBP=lib/dep-assign-lib.sh
 HEREDEP="$HERE/dep-heredep.sh"
 echo "issue #1 tracked here"; . "$d/dep-instr.sh"
+# . "$d/dep-commented.sh"
 SYNEOF
 HSH_PC_OUT="$(REPO_ROOT="$HSH_PC_DIR" CLOSURE="lib/synthetic-entry.sh" python3 "$HSH_EDGES")"
 assert_eq "#460 positive control: line-start source edge (dep-a.sh) is reported" "1" \
@@ -17001,6 +17009,17 @@ assert_eq "#460 positive control: continuation source edge (\`&& . …\`, dep-c.
   "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-c\.sh' || true)"
 assert_eq "#460 positive control: brace-grouped source edge (\`{ . …; }\`, dep-d.sh) is reported" "1" \
   "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-d\.sh' || true)"
+# Metacharacter-prefix source edges that had no control (issue #460 SHADOW, CT2 PT1) —
+# `(` (subshell) and `|` (pipe) are in src_re's prefix class but were never exercised.
+assert_eq "#460 positive control: subshell source edge (\`( . … )\`, dep-subshell.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-subshell\.sh' || true)"
+assert_eq "#460 positive control: pipe source edge (\`| . …\`, dep-pipe.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-pipe\.sh' || true)"
+# NEGATIVE control (issue #460 SHADOW, CT2 PT4): a genuinely commented-out source edge
+# (whole-line `# . dep`) must NOT be reported — proves the comment strip excludes it,
+# independent of the real closure files' incidental content.
+assert_eq "#460 negative control: a commented-out source edge (\`# . …\`, dep-commented.sh) is NOT reported" "0" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-commented\.sh' || true)"
 # Keyword-position source edges (issue #460 review, PT3) — the walker's new prefix words.
 assert_eq "#460 positive control: keyword-position source edge (\`then . …\`, dep-then.sh) is reported" "1" \
   "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-then\.sh' || true)"
@@ -17217,6 +17236,49 @@ assert_eq "#460 helper --wired-check: file arg wiring a hook -> wired (exit 0)" 
 assert_eq "#460 helper --wired-check: absent/unreadable file arg -> not wired (exit 1, fail-safe)" "1" \
   "$(bash "$HSH" --wired-check /nonexistent-devflow-settings-xyz; echo $?)"
 rm -f "$HSH_WC_F"
+
+# EMPTY-READ DISAMBIGUATION — behavioral git-fixture test (issue #460 SHADOW, CT2 PT2).
+# The workflow gate's empty-SETTINGS_JSON arm is git/FETCH_HEAD-specific and cannot be a
+# pure helper, so drive its DECISION LOGIC (present-but-empty -> harden; absent -> skip;
+# non-empty -> wiring scan) end-to-end over a real throwaway git repo. The workflow's own
+# inline copy of this logic is separately mutation-pinned (the `git cat-file -e` guard and
+# the HOOKS_WIRED skip); this proves the git-blob-existence decision itself is correct.
+if command -v git >/dev/null 2>&1; then
+  # decide <ref> <path> -> echoes wired|skip, mirroring the workflow's empty-read arm.
+  hsh_decide() {
+    local ref="$1" path="$2" sj w=0
+    sj="$(git show "$ref:$path" 2>/dev/null || true)"
+    if [ -z "$sj" ]; then
+      git cat-file -e "$ref:$path" 2>/dev/null && w=1   # present-but-empty -> harden (fail-closed)
+    else
+      case "$sj" in *"lib/efficiency-trace.sh"*) w=1 ;; esac
+    fi
+    [ "$w" -eq 1 ] && echo wired || echo skip
+  }
+  HSH_GIT="$(mktemp -d)"
+  (
+    cd "$HSH_GIT" || exit 1
+    git init -q; git config user.email t@t; git config user.name t
+    mkdir -p .claude
+    # commit 1: settings.json present and wiring a hook
+    printf 'bash lib/efficiency-trace.sh --persist\n' > .claude/settings.json
+    git add -A; git commit -qm wired
+    # commit 2: settings.json present but EMPTY
+    : > .claude/settings.json; git add -A; git commit -qm empty
+    # commit 3: settings.json ABSENT
+    git rm -q .claude/settings.json; git commit -qm absent
+  )
+  assert_eq "#460 empty-read decision: settings.json present + wiring a hook -> wired" "wired" \
+    "$(cd "$HSH_GIT" && hsh_decide 'HEAD~2' '.claude/settings.json')"
+  assert_eq "#460 empty-read decision: settings.json present but EMPTY -> wired (fail-closed harden, not skip)" "wired" \
+    "$(cd "$HSH_GIT" && hsh_decide 'HEAD~1' '.claude/settings.json')"
+  assert_eq "#460 empty-read decision: settings.json ABSENT -> skip (genuine consumer)" "skip" \
+    "$(cd "$HSH_GIT" && hsh_decide 'HEAD' '.claude/settings.json')"
+  unset -f hsh_decide
+  rm -rf "$HSH_GIT"
+else
+  echo "  SKIP  #460 empty-read decision git-fixture (git not on PATH)"
+fi
 
 # Breadcrumbs name the source used for each target (trusted vs stub).
 HSH_ERR="$(WORKSPACE_ROOT="$HSH_TMP/a/ws" TRUSTED_DIR="$HSH_TMP/a/tr" bash "$HSH" 2>&1 1>/dev/null)"
@@ -17445,13 +17507,29 @@ assert_pin_red_under "#460 workflow: present-but-unreadable base settings.json h
   'if git cat-file -e "FETCH_HEAD:.claude/settings.json" 2>/dev/null; then' \
   's/if git cat-file -e "FETCH_HEAD:\.claude\/settings\.json" 2>\/dev\/null; then/if false; then/' \
   "$RUNNER"
-# INLINE FALLBACK selection guard (issue #460 SHADOW, PT2): the inline `case` fallback
-# (reached only when no trusted helper resolved) is a mirror of --wired-check. Its list is
-# cross-pinned equal above; pin its glob SELECTION too so a glob typo that never matches
-# (misrouting the consumer gate) turns RED, not just a missing literal.
+# INLINE FALLBACK selection guard (issue #460 SHADOW, PT2): the SINGLE inline `case`
+# fallback (reached when no trusted helper resolved OR the helper errored) is a mirror of
+# --wired-check. Its list is cross-pinned equal above; pin its glob SELECTION too so a glob
+# typo that never matches (misrouting the consumer gate) turns RED, not just a missing
+# literal.
 assert_pin_red_under "#460 workflow: inline --wired-check fallback matches an entry via a substring glob — breaking the glob misroutes the gate" \
   'case "$SETTINGS_JSON" in *"$e"*) HOOKS_WIRED=1 ;; esac' \
   's/case "\$SETTINGS_JSON" in \*"\$e"\*\) HOOKS_WIRED=1 ;; esac/case "$SETTINGS_JSON" in "no-such-match") HOOKS_WIRED=1 ;; esac/' \
+  "$RUNNER"
+# Obs A fail-open fix (issue #460 SHADOW, CT2): the --wired-check helper's rc is
+# THREE-valued to the caller — rc 0 wired, rc 1 clean not-wired, rc>=2 ERROR. An error must
+# NOT be read as "not wired" (that would skip → drop the floor); it falls back to the inline
+# scan. Pin the rc!=1 discriminator and the fallback warning.
+assert_eq "#460 workflow: a --wired-check helper ERROR (rc>=2) is distinguished from a clean not-wired (rc 1)" "1" \
+  "$(grep -c 'if \[ "\$_wc_rc" -ne 1 \]; then' "$RUNNER" || true)"
+assert_eq "#460 workflow: a --wired-check helper error falls back to the inline scan (not skip)" "1" \
+  "$(grep -c 'helper errored (rc=\$_wc_rc' "$RUNNER" || true)"
+# Behavioral-fix pin: the operative construct is the `_wc_rc -ne 1` discriminator —
+# mutating it so an error is treated as a clean verdict (never falls back) re-opens the
+# skip-on-error fail-open. assert_pin_red_under proves PASS->FAIL under that mutation.
+assert_pin_red_under "#460 workflow: helper-error rc!=1 discriminator falls back to inline (not skip) — dropping it re-opens the skip-on-error fail-open" \
+  'if [ "$_wc_rc" -ne 1 ]; then' \
+  's/if \[ "\$_wc_rc" -ne 1 \]; then/if false; then/' \
   "$RUNNER"
 
 # The setup-project-env step is gated on the base-ref provision flag.
