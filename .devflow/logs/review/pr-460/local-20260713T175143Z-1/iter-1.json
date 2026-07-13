@@ -1,0 +1,12 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "ea963462b52189ecbf2f90b44a02faa47cb55cb0",
+  "fix_files": [
+    ".github/workflows/devflow-runner.yml",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/run.sh",
+    "scripts/harden-stop-hooks.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}
