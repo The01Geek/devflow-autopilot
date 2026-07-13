@@ -28229,8 +28229,11 @@ bash "$DHP" >/dev/null 2>&1
 assert_eq "#438 describe-hook-probe: no-argument invocation exits 0 (best-effort renderer)" "0" "$?"
 # The workflow must actually route through the helper (the extraction is only coverage if
 # the inline selector is gone), and the coupled marker literal stays a workflow CODE line.
-assert_eq "#438 describe-hook-probe: matcher-probe.yml routes the observation through the helper" "yes" \
-  "$(grep -qF 'describe-hook-probe.sh' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo yes || echo no)"
+# Pin the INVOCATION code line, not the helper's bare name — the workflow also names the
+# helper in a comment, so a bare-name grep would stay green if the code line were deleted
+# and the selector re-inlined (the #370 pin-in-comment class, flagged by the iter-2 gate).
+assert_eq "#438 describe-hook-probe: matcher-probe.yml routes the observation through the helper (invocation line)" "yes" \
+  "$(grep -qF 'bash scripts/describe-hook-probe.sh "$MARKER"' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo yes || echo no)"
 rm -rf "$DHP_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
