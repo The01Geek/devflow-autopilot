@@ -105,6 +105,28 @@
     "duration_s": 110
   },
   "telemetry": {
-    "phase_3": {"calls": 5, "tokens": 420673, "wall_clock_s": 292}
+    "phase_3": {"calls": 5, "tokens": 420673, "wall_clock_s": 292},
+    "step_2_6": {"calls": 5, "tokens": 476901, "wall_clock_s": 625}
+  },
+  "shadow": {
+    "ran_at": "2026-07-13T21:40:00Z",
+    "reviewed_sha": "76a20d50c9fcfeb83dfaed5647f345c552a38df2",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": "intentional",
+    "phase3_findings": [
+      {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "sibling-job ordinal inaccurate: DEVFLOW_SYSTEM_OVERVIEW.md 'A third sibling job' vs implement-skill.md/matcher-probe.yml 'A second sibling'; matcher-probe.yml has 5 jobs. Loop elevates to blocking (contradicts HEAD + internal contradiction across 3 PR-added sites)."},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "cross-doc ordinal inconsistency for implement-probe (three PR-added sites, two ordinals, neither matches the 5-job count) + job-intro states #401 anchor-denial as settled implement-tier fact vs 'suspected' in changeset/Shape-1 + run.sh 'byte-token identity' imprecise."},
+      {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "issues:read 'safe floor' framing undersells that omitting it (defaulting to none) is strictly tighter for reads; writes fail closed either way."},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "EXTRAS unpinned mirror (known)."},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "verdict python untested locally (precedent-consistent, known)."},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "EXTRAS unpinned mirror + DENIED marker-only detection (both known/inherited)."}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 8, "overlap_with_iter_N": 5, "new": 2, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": true
   }
 }
