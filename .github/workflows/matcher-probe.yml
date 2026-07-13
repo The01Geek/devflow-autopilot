@@ -471,8 +471,10 @@ jobs:
 
             Shape 1 — UNEXPANDED CLAUDE_SKILL_DIR anchor as the leading token (Bash).
             This is the phase-4 emission form issue #450 suspects the matcher DENIES;
-            it is expected to error (the shell does not expand the anchor to a real
-            path here), but permission granted vs denied is what matters:
+            it is expected to exit non-zero (the anchor's `:-` default resolves to a
+            path that does not exist in this checkout), but permission granted vs
+            denied is what matters, not the exit code — run it VERBATIM, do not
+            expand the anchor yourself:
             "${CLAUDE_SKILL_DIR:-.devflow/vendor/devflow/skills/implement}"/../../scripts/ensure-label.sh iprobe01anchor
 
             Shape 2 — vendored-literal leading token, EXPLICIT candidate grant
@@ -578,17 +580,29 @@ jobs:
           denial_text = "\n".join(denials)
           tooluse_text = "\n".join(tool_uses)
 
-          # (num, description, marker) — verdict judged by marker presence in the
-          # denial vs tool_use streams. No on-disk side-effect check: label helpers
-          # are best-effort exit-0 and the run is matcher-only by design (issue #450).
+          # (num, description, marker, shape_discriminator) — the marker (a unique
+          # dummy arg) identifies WHICH row a recorded call belongs to; the
+          # shape_discriminator is a substring the intended VERBATIM command carries
+          # that a model REFORMULATION would drop, so a PERMITTED verdict attests the
+          # intended *shape/form* actually ran — not merely that some command carrying
+          # the marker ran. Without it, a model that (despite the "verbatim" prompt)
+          # expands shape 1's unexpanded anchor to the glob-granted expanded path, or
+          # unrolls shapes 4/5/6's wrappers into plain per-label calls, would carry the
+          # same marker and read as a false PERMITTED for a form/shape never exercised —
+          # corrupting the very evidence table Stage B is gated on (issue #450 review).
+          # Discriminators avoid a literal `"` because the recorded tool_use input is
+          # JSON-encoded (a `"` in the command becomes `\"`); `$(`, `${`, `for L in`,
+          # `while read`, and the vendored paths are unescaped and match verbatim. The
+          # control row (7) needs no shape check. No on-disk side-effect check: label
+          # helpers are best-effort exit-0 and the run is matcher-only by design.
           rows = [
-              (1, "unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor leading token (ensure-label.sh)", "iprobe01anchor"),
-              (2, "vendored-literal leading token, EXPLICIT candidate (apply-labels.sh)",        "iprobe02explicit"),
-              (3, "glob-isolation `Bash(*/ensure-label.sh:*)` (ensure-label.sh)",                "iprobe03glob"),
-              (4, "`for …; do helper; done` compound wrapping a granted helper",                 "iprobe04for"),
-              (5, "piped `while read` loop wrapping a granted helper",                           "iprobe05while"),
-              (6, "`VAR=\"$(helper …)\"` capture of a granted helper (apply-labels.sh)",          "iprobe06capture"),
-              (7, "plainly granted single command (positive control)",                           "/etc/hosts"),
+              (1, "unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor leading token (ensure-label.sh)", "iprobe01anchor",  "${CLAUDE_SKILL_DIR"),
+              (2, "vendored-literal leading token, EXPLICIT candidate (apply-labels.sh)",        "iprobe02explicit", ".devflow/vendor/devflow/scripts/apply-labels.sh"),
+              (3, "glob-isolation `Bash(*/ensure-label.sh:*)` (ensure-label.sh)",                "iprobe03glob",     ".devflow/vendor/devflow/scripts/ensure-label.sh"),
+              (4, "`for …; do helper; done` compound wrapping a granted helper",                 "iprobe04for",      "for L in"),
+              (5, "piped `while read` loop wrapping a granted helper",                           "iprobe05while",    "while read"),
+              (6, "`VAR=\"$(helper …)\"` capture of a granted helper (apply-labels.sh)",          "iprobe06capture",  "$("),
+              (7, "plainly granted single command (positive control)",                           "/etc/hosts",       None),
           ]
 
           out = []
@@ -599,7 +613,10 @@ jobs:
                      "(PERMITTED). The model's text output is never the measurement. "
                      "Grant sets are attribution-split (see the compose step): shape 2 "
                      "attributes to the explicit vendored-literal form, shape 3 to the "
-                     "`*/basename` glob form.")
+                     "`*/basename` glob form. **REFORMULATED** means a call carrying the "
+                     "row's marker ran but NOT in the intended shape/form (the model "
+                     "did not emit it verbatim) — treat it like UNATTEMPTED and re-run, "
+                     "never as evidence the intended form is PERMITTED.")
           out.append("")
           if note_top:
               out.append("> [!WARNING]")
@@ -608,18 +625,26 @@ jobs:
           out.append("| # | Shape | Verdict | Evidence |")
           out.append("|---|-------|---------|----------|")
 
-          for num, desc, marker in rows:
+          for num, desc, marker, discrim in rows:
               denied = marker in denial_text
-              attempted = marker in tooluse_text
+              # Entries in the tool_use stream that carry THIS row's marker; the shape
+              # discriminator must appear in the SAME entry (not merely somewhere in
+              # the joined stream) for the intended shape to count as confirmed.
+              marker_entries = [t for t in tool_uses if marker in t]
+              attempted = bool(marker_entries)
+              shape_ok = (discrim is None) or any(discrim in t for t in marker_entries)
               if denied:
                   verdict = "DENIED"
-              elif attempted:
+              elif attempted and shape_ok:
                   verdict = "PERMITTED"
+              elif attempted:
+                  verdict = "REFORMULATED"
               else:
                   verdict = "UNATTEMPTED"
-              ev = "denial=%s; tool_use=%s" % (
+              ev = "denial=%s; tool_use=%s; shape=%s" % (
                   "yes" if denied else "no",
                   "yes" if attempted else "no",
+                  "n/a" if discrim is None else ("ok" if shape_ok else "MISMATCH"),
               )
               out.append("| %d | %s | **%s** | %s |" % (num, desc, verdict, ev))
 

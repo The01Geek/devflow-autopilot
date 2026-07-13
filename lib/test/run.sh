@@ -5572,6 +5572,27 @@ IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
 REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 
+# #450 coupled-mirror pin: matcher-probe.yml's implement-probe job hand-copies
+# devflow-implement.yml's baked --allowed-tools TOOLS literal into its IMPLEMENT='…'
+# compose var (a deliberate second copy so the probe measures the REAL implement
+# profile, like the review probe's REVIEW literal). A drift between the two would make
+# the probe silently measure a stale profile, so assert byte-token identity here — the
+# repo's coupled-mirror discipline applied to the new mirror site. The extractor flattens
+# both literals to comma-split tokens and compares order + content; it prints DRIFT (fail)
+# on any divergence and EXTRACT-FAIL if either literal can't be located.
+MPROBE_YML="$LIB/../.github/workflows/matcher-probe.yml"
+assert_eq "#450 pin: matcher-probe IMPLEMENT literal is byte-synced with devflow-implement.yml TOOLS" "SYNCED" \
+  "$(python3 -c '
+import re,sys
+b=re.search(r"--allowed-tools\s*\n\s*\"(.*?)Bash\(tee:\*\)\$\{\{", open(sys.argv[1]).read(), re.S)
+p=re.search(r"IMPLEMENT=\x27(.*?)\x27", open(sys.argv[2]).read(), re.S)
+if not b or not p:
+    print("EXTRACT-FAIL"); sys.exit(0)
+bt=[t.strip() for t in (b.group(1)+"Bash(tee:*)").split(",") if t.strip()]
+pt=[t.strip() for t in p.group(1).split(",") if t.strip()]
+print("SYNCED" if bt==pt else "DRIFT")
+' "$IMPL_YML" "$MPROBE_YML")"
+
 # Implement flip: the function + each of its fail-loud call sites (at least the four
 # pinned below), guarded on interim. Each pin quotes that site's unique cause string,
 # so deleting the call goes RED; a fifth site added later never falsifies this prose.
