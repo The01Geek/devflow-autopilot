@@ -29410,6 +29410,27 @@ assert_pin_unique "#448 ubc-call-sites: phase-1-setup.md read-target sentence na
   'reconciled at the Phase 1.4 update-branch checkpoint' "$UBC_P1"
 assert_pin_unique "#448 ubc-call-sites: phase-2-implement.md read-target sentence names the reconciliation checkpoint" \
   'reconciled at the Phase 1.4 update-branch checkpoint' "$UBC_P2"
+
+# ── ubc-failed-restore-coupling → The PUSH_REJECTED hard-stop guard's COMPARAND is a free-text
+# stderr literal, so it is a coupled invariant across one producer and three consumers. The
+# helper's restore (`git reset --hard "$PRE_SHA"`) is ATTEMPTED, not guaranteed; when it fails
+# the token is still PUSH_REJECTED but the breadcrumb becomes a WARNING, and every call site is
+# required to read that WARNING and hard-stop instead of taking the "record and continue" arm
+# (the divergence is in COMMITTED history, so no clean-tree backstop downstream can see it).
+# Reword the producer's echo and the guard silently loses its comparand and fails OPEN — the
+# exact unverified-assumption class CLAUDE.md names. Pin the producer literal and each
+# consumer's obligation to key on it, so a one-sided reword turns the suite RED at the desk.
+UBC_WARN='WARNING push rejected AND the restore to pre-checkpoint SHA'
+assert_pin_unique "#448 ubc-failed-restore: the helper emits the failed-restore WARNING breadcrumb (the guard's producer)" \
+  "$UBC_WARN" "$UBC"
+assert_pin_red_under "#448 ubc-failed-restore: the WARNING breadcrumb is what the hard-stop guard keys on (removing it defeats the guard)" \
+  "$UBC_WARN" 's#WARNING push rejected AND the restore to pre-checkpoint SHA#push rejected; restore outcome unstated for#g' "$UBC"
+# Consumers: each must name the failed-restore WARNING as the signal that flips the
+# record-and-continue arm into a hard stop.
+assert_pin_unique "#448 ubc-failed-restore: phase-1-setup.md §1.4.1 carries the PUSH_REJECTED failed-restore caveat" \
+  'the restore is attempted, not guaranteed' "$UBC_P1"
+assert_pin_unique "#448 ubc-failed-restore: review-and-fix keys the PUSH_REJECTED hard stop on the failed-restore WARNING" \
+  'failed-restore `WARNING`' "$UBC_RAF"
 # ────────────────────────────────────────────────────────────────────────────
 echo "extract-execution-shape.sh (#437 execution-file shape probe: redaction + present/absent/unavailable + encoding)"
 # ────────────────────────────────────────────────────────────────────────────
