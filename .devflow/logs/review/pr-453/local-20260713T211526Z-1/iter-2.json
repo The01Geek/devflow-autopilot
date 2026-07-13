@@ -71,6 +71,24 @@
     "duration_s": 110
   },
   "telemetry": {
-    "phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0}
+    "phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_2_6": {"calls": 5, "tokens": 348955, "wall_clock_s": 372}
+  },
+  "shadow": {
+    "ran_at": "2026-07-13T21:55:00Z",
+    "reviewed_sha": "fd453515805c5ef5417b3d76323e1fac068d764b",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "mode": "post-shadow-edit-delta-review",
+    "delta_range": "76a20d50c9fcfeb83dfaed5647f345c552a38df2..fd453515805c5ef5417b3d76323e1fac068d764b",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": "intentional",
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false,
+    "note": "Blinded delta-review over the iteration-2 prose delta (the iter-1 full shadow reviewed 76a20d5; iteration 2 committed prose corrections on top). All 5 expected reviewers dispatched and returned cleanly; every corrected claim verified accurate against HEAD; pr-test-analyzer mutation-verified the #450 pin still fails RED on drift. No new findings -> genuine convergence (outcome 1)."
   }
 }
