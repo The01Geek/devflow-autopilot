@@ -10080,6 +10080,14 @@ assert_pin_unique "#446: offer gate reads workflows.devflow via config-get.sh as
   'scripts/config-get.sh .workflows.devflow false' "$CI446_SKILL"
 assert_pin_unique "#446: offer gate compares to literal true with bash builtins only (no tr/sed)" \
   'never `tr`/`sed` lowering, which fails **open**' "$CI446_SKILL"
+# Pin the SKILL's DOCUMENTED python3/jq fallback one-liners themselves, so a typo introduced
+# into the SKILL fallback text (the ONLY read path on the local tier when config-get.sh is
+# classifier-denied) turns RED — the fallback-agreement block below drives a hand-copy of
+# these shapes, so without these pins a SKILL-side drift from that copy would be uncaught.
+assert_pin_unique "#446: SKILL documents the python3 fallback read of workflows.devflow" \
+  "str(d.get('workflows',{}).get('devflow',False)).lower()" "$CI446_SKILL"
+assert_pin_unique "#446: SKILL documents the jq fallback read of workflows.devflow" \
+  "jq -r '.workflows.devflow // false' .devflow/config.json" "$CI446_SKILL"
 assert_pin_unique "#446: offer gate prints a one-line withheld-offer reason (never silent)" \
   'When the gate withholds the prompt, print a one-line reason naming the exact failed condition' "$CI446_SKILL"
 assert_pin_unique "#446: withheld-offer config-unreadable reason is kept distinct from tier-disabled" \
