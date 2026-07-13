@@ -114,6 +114,15 @@ if [ "$BEHIND" -eq 0 ]; then
   exit 0
 fi
 
+# --- restore the branch to its pre-checkpoint SHA and terminate PUSH_REJECTED with the
+# given breadcrumb (shared by every push-race reject arm). ---
+_reject_restore() {  # message
+  git reset --hard "$PRE_SHA" >/dev/null 2>&1 || true
+  echo "$1" >&2
+  emit "PUSH_REJECTED"
+  exit 4
+}
+
 # --- push helper: push the merged branch; on a non-fast-forward refusal, run the
 # push-race recovery arm exactly once. Emits the final token and exits. ---
 _push_or_recover() {
@@ -124,29 +133,18 @@ _push_or_recover() {
   # Non-fast-forward: the remote feature ref advanced during the run. Integrate it
   # (preserving the base-merge commit) and retry the push once.
   echo "update-branch-checkpoint: push refused (remote $BRANCH advanced); integrating origin/$BRANCH and retrying once" >&2
-  if ! git fetch origin "$BRANCH"; then
-    git reset --hard "$PRE_SHA" >/dev/null 2>&1 || true
-    echo "update-branch-checkpoint: could not fetch origin/$BRANCH to integrate; branch restored to pre-checkpoint SHA" >&2
-    emit "PUSH_REJECTED"
-    exit 4
-  fi
+  git fetch origin "$BRANCH" || _reject_restore "update-branch-checkpoint: could not fetch origin/$BRANCH to integrate; branch restored to pre-checkpoint SHA"
   if ! git merge --no-edit "origin/$BRANCH"; then
     # A conflicted integrate is aborted and the branch restored — this is remote
     # divergence, never the base-merge CONFLICT contract.
     git merge --abort >/dev/null 2>&1 || true
-    git reset --hard "$PRE_SHA" >/dev/null 2>&1 || true
-    echo "update-branch-checkpoint: integrating origin/$BRANCH conflicted (remote divergence); merge aborted and branch restored to pre-checkpoint SHA" >&2
-    emit "PUSH_REJECTED"
-    exit 4
+    _reject_restore "update-branch-checkpoint: integrating origin/$BRANCH conflicted (remote divergence); merge aborted and branch restored to pre-checkpoint SHA"
   fi
   if git push; then
     emit "UPDATED $BEHIND"
     exit 0
   fi
-  git reset --hard "$PRE_SHA" >/dev/null 2>&1 || true
-  echo "update-branch-checkpoint: push refused twice; branch restored to pre-checkpoint SHA so no unpushed divergence remains" >&2
-  emit "PUSH_REJECTED"
-  exit 4
+  _reject_restore "update-branch-checkpoint: push refused twice; branch restored to pre-checkpoint SHA so no unpushed divergence remains"
 }
 
 # --- base-merge conflict emitter (shared by the direct and post-unshallow arms). ---
@@ -160,27 +158,26 @@ _emit_conflict() {
   exit 2
 }
 
-# (7) Merge the base.
-if git merge --no-edit "origin/$BASE"; then
-  _push_or_recover
-fi
-
-# Merge did not succeed. Distinguish a conflict (MERGE_HEAD present) from a
-# no-merge-base failure (MERGE_HEAD absent → shallow-history arm).
-if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
-  _emit_conflict
-fi
-
-# (8) Shallow-history arm: no merge base was reachable. Unshallow exactly once and
-# retry the merge once. `git merge` on failure left the tree untouched (no
-# MERGE_HEAD), so an unrecoverable history is a clean UNVERIFIED.
-if git fetch --unshallow origin >/dev/null 2>&1; then
+# --- merge origin/$BASE and dispatch: a clean merge pushes (or recovers) and exits; a
+# conflict emits CONFLICT and exits. It RETURNS to the caller only when the merge failed
+# WITHOUT creating a MERGE_HEAD — the no-merge-base case the shallow-history arm handles. ---
+_merge_and_dispatch() {
   if git merge --no-edit "origin/$BASE"; then
     _push_or_recover
   fi
   if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
     _emit_conflict
   fi
+}
+
+# (7) Merge the base.
+_merge_and_dispatch
+
+# (8) Shallow-history arm: no merge base was reachable (the merge above returned without a
+# MERGE_HEAD). Unshallow exactly once and retry the merge once; an unrecoverable history is
+# a clean UNVERIFIED with the tree untouched.
+if git fetch --unshallow origin >/dev/null 2>&1; then
+  _merge_and_dispatch
 fi
 
 echo "update-branch-checkpoint: no merge base reachable for origin/$BASE (shallow history could not be extended) — nothing merged" >&2
