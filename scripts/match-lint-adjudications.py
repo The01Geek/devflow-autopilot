@@ -66,8 +66,25 @@ Output (JSON to stdout, always exit 0 when the helper itself ran):
       "stats": {"rows_in": .., "stale_rows": .., "comments_in": ..,
                 "trusted_comments": .., "payloads_honored": ..,
                 "payloads_malformed": .., "payloads_outside_sentinels": ..,
-                "payloads_untrusted": .., "demoted": .., "collisions": ..}
+                "payloads_untrusted": .., "sentinel_tampered_comments": ..,
+                "demoted": .., "collisions": ..}
     }
+
+Known limitation (bounded — a forged single pair in a sectionless trusted comment):
+    the sentinel-tamper guard fails closed when a trusted comment carries MORE than one
+    START/END sentinel (a forgery quoted alongside the engine's real seeded section). It
+    cannot, from the comment bytes alone, tell a genuine single section from a single
+    forged pair in a comment that has NO real section — the case of a pre-feature
+    `devflow:review-progress` comment authored before this feature seeded the section
+    into the template. The root defense is producer-side (the Phase 4 report renderer
+    neutralizes any `devflow:lint-adjudications*` / `devflow:lint-fp-adjudicated` literal
+    it quotes from attacker-controlled diff prose, so a POST-feature comment can never
+    carry a forged sentinel verbatim). The residual is therefore scoped to progress
+    comments authored BEFORE that neutralization shipped, and its blast radius is bounded:
+    the worst outcome is demoting one config-gated stale-prose lint row to Informational —
+    which per the engine's Phase 4.2 rules is excluded from the verdict at every severity
+    and can never invoke the self-contradicting-diff carve-out, so it can never turn a
+    genuine code-defect REJECT into an APPROVE.
 
 Exit codes:
     0  Helper ran successfully (regardless of match results).

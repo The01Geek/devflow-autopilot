@@ -28998,6 +28998,68 @@ _, out, _ = run([ROW], [c1, c2])
 chk("mla-first-trusted-wins demoted once", "1", len(out["demoted"]))
 chk("mla-first-trusted-wins run_key is first", "111-1", out["demoted"][0]["run_key"] if out["demoted"] else "")
 
+import tempfile
+def run_cfg(rows, comments, cfg):
+    p = subprocess.run([sys.executable, HELPER, "--config", cfg],
+                       input=json.dumps({"rows": rows, "comments": comments}),
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    out = json.loads(p.stdout) if p.stdout.strip() else {}
+    return p.returncode, out, p.stderr
+def write_cfg(devflow_obj):
+    f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+    json.dump({"devflow": devflow_obj}, f); f.close()
+    return f.name
+
+# mla-tamper-end-only: exactly one START but TWO END sentinels -> the guard's END arm
+# (short-circuited in mla-forged-section, which trips on START) trips independently.
+end2 = f"{MARKER}\n{S}\n{payload(ROW)}\n{E}\n> quoted: {E}\n"
+_, out, _ = run([ROW], [{"author": "devflow-reviewer[bot]", "author_type": "Bot", "body": end2}])
+chk("mla-tamper-end-only not demoted", "0", len(out["demoted"]))
+chk("mla-tamper-end-only counted", "1", out["stats"]["sentinel_tampered_comments"])
+
+# mla-zero-match: a trusted, honored payload whose (rule,path,detail) is absent from the
+# current STALE rows (the common real case — the FP was fixed so the lint no longer emits
+# it) -> silent no-op: not demoted, not a collision.
+other_row = tsv("STALE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 9, "claims 99 skills")
+_, out, _ = run([other_row], [CBOT])
+chk("mla-zero-match not demoted", "0", len(out["demoted"]))
+chk("mla-zero-match no collision", "0", out["stats"]["collisions"])
+
+# mla-shape-allowed-bots: dogfood THIS PR's own six-shape config-derivation rule over the
+# helper's own `.devflow.allowed_bots` read. Every shape must (a) not crash (exit 0) and
+# (b) fail toward the SAFE arm — a Bot-type author still demotes (trust independent of
+# allowed_bots), so a corrupt allowed_bots can never OPEN trust it should have closed.
+SHAPES = [("object", {"k": "v"}), ("array", ["a", "b"]), ("scalar-number", 5),
+          ("valid-falsy-emptystr", ""), ("wrong-type-bool", False)]
+for name, val in SHAPES:
+    cfg = write_cfg({"allowed_bots": val})
+    _, out, _ = run_cfg([ROW], [CBOT], cfg)
+    chk(f"mla-shape allowed_bots {name}: bot-author still demotes (fail-safe)", "1", len(out["demoted"]))
+# missing key shape (no allowed_bots at all)
+cfg_missing = write_cfg({})
+_, out, _ = run_cfg([ROW], [CBOT], cfg_missing)
+chk("mla-shape allowed_bots missing: bot-author still demotes (fail-safe)", "1", len(out["demoted"]))
+# fail-CLOSED proof: under a malformed (object) allowed_bots, an allowlist-only User author
+# is NOT trusted (the corrupt shape yields no usable login) -> not demoted.
+cfg_obj = write_cfg({"allowed_bots": {"k": "v"}})
+_, out, _ = run_cfg([ROW], [adj_comment("trusted-human", "User", ROW)], cfg_obj)
+chk("mla-shape allowed_bots object: allowlist-User NOT trusted (fail-closed)", "0", len(out["demoted"]))
+
+# mla-degraded-config: --config points at a MALFORMED config (config-get.sh's HARD-failure
+# path, rc!=0 — a nonexistent path is its SOFT path, exit 0, and would not fire the breadcrumb).
+# allowed_bots empties but the helper still RUNS (exit 0): a Bot author still demotes, an
+# allowlist-only User does not, and the widened rc!=0 breadcrumb names config-get.sh.
+_badf = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+_badf.write("{ this is not valid json ")
+_badf.close()
+NOCFG = _badf.name
+rc_d, out_d, err_d = run_cfg([ROW], [CBOT], NOCFG)
+chk("mla-degraded-config exit0", "0", rc_d)
+chk("mla-degraded-config bot still demotes", "1", len(out_d.get("demoted", [])))
+chk("mla-degraded-config breadcrumb names config-get.sh", "yes", "yes" if "config-get.sh exited" in err_d else "no")
+_, out_du, _ = run_cfg([ROW], [adj_comment("trusted-human", "User", ROW)], NOCFG)
+chk("mla-degraded-config allowlist-User NOT trusted (fail-closed)", "0", len(out_du["demoted"]))
+
 for name, expected, actual in checks:
     sys.stdout.write(f"{name}\t{expected}\t{actual}\n")
 PYEOF
@@ -29013,12 +29075,32 @@ MLA_HELPER="$MLA_HELPER_PATH" MLA_CFG="$MLA_CFG_FILE" python3 "$MLA_DRIVER" > "$
 MLA_DRV_RC=$?
 assert_eq "#466 mla driver ran to completion (exit 0 — a crash would silently drop every mla-* check)" "0" "$MLA_DRV_RC"
 [ "$MLA_DRV_RC" -eq 0 ] || printf '    mla driver stderr:\n%s\n' "$(sed 's/^/      /' "$MLA_DRV_ERR")"
-assert_eq "#466 mla driver emitted all 38 named checks (guards against a silent partial run)" "38" \
+assert_eq "#466 mla driver emitted all 53 named checks (guards against a silent partial run)" "53" \
   "$(grep -c . "$MLA_RESULTS")"
 while IFS="$(printf '\t')" read -r _mla_name _mla_exp _mla_act; do
   [ -n "$_mla_name" ] && assert_eq "$_mla_name" "$_mla_exp" "$_mla_act"
 done < "$MLA_RESULTS"
 rm -f "$MLA_DRIVER" "$MLA_CFG_FILE" "$MLA_RESULTS" "$MLA_DRV_ERR"
+
+# #466 drift-proof: every stats key the helper actually EMITS must be documented in its
+# docstring Output enumeration (the recurrence-proofing for the sentinel_tampered_comments
+# omission that shipped in iter-1 and cost an iter-2 corroborated finding). Mechanized so a
+# future new stat key added without a docstring update turns the desk RED.
+MLA_UNDOC="$(printf '{"rows":[],"comments":[]}' | python3 "$LIB/../scripts/match-lint-adjudications.py" 2>/dev/null | python3 -c '
+import json,sys,re
+emitted=set(json.load(sys.stdin)["stats"].keys())
+doc=open(sys.argv[1],encoding="utf-8").read()
+# the docstring Output block is the module docstring text up to the first def/if at col 0
+doc_head=doc.split("\nimport ",1)[0]
+missing=sorted(k for k in emitted if k not in doc_head)
+print(" ".join(missing))' "$LIB/../scripts/match-lint-adjudications.py")"
+assert_eq "#466 every emitted stats key is documented in the helper docstring Output block" "" "$MLA_UNDOC"
+
+# #466 mla-neutralization (finding A root fix): the Phase 4.1.7 producer contract carries the
+# sentinel-channel neutralization rule so a forged sentinel quoted from diff prose can never
+# render verbatim in a post-feature comment.
+assert_pin_unique "#466 mla-neutralization: review skill Phase 4.1.7 carries the producer sentinel-neutralization rule" \
+  'Sentinel-channel integrity (producer neutralization' "$REVIEW_SKILL"
 
 # mla-fp-direction (Degradation is loud): the consumer contract's degraded arm is
 # asserted via the pinned degraded-check note prose in the review skill, not the
