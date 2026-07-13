@@ -118,8 +118,14 @@ expected state — but a "did not fire" still must **not** be read as "hooks do 
 
 **Security corollary — FIRED is not a consequence-free telemetry fact.** That base-registered
 `Stop` hooks execute checked-out-tree scripts inside `claude-code-action` has a threat-model
-implication tracked separately in **issue #458** (base-branch `.claude/settings.json` `Stop`
-hooks execute PR-head scripts, bypassing the #402 deny-floor). This record states the
+implication addressed by **issue #458** (base-branch `.claude/settings.json` `Stop` hooks
+exec PR-head scripts under `lib/`/`scripts/`, bypassing the #402 deny-floor). The hardening
+now ships: `devflow-runner.yml`'s review job overwrites each Stop-hook target script with a
+trusted base-ref copy (or a fail-closed no-op stub) via `scripts/harden-stop-hooks.sh` —
+run only from a trusted source — **before** `claude-code-action` starts, so the PR-head copy
+is never executed (the implement job is unaffected: it checks out the default branch, never a
+PR head). See the "Stop-hook trusted-source floor" bullet in
+[`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md). This record states the
 observation; #458 owns the hardening.
 
 The marker path is a **coupled contract**: `scripts/stop-hook-probe.sh` writes it and
