@@ -81,6 +81,21 @@ if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
   exit 5
 fi
 # Uncommitted tracked changes → never layer a base merge over dirty work.
+#
+# UNTRACKED files are deliberately NOT pre-checked here (PR #451 review, deferred with
+# reason). A blanket "any untracked file → refuse" guard would reject nearly every real run
+# (build artifacts, .devflow/tmp/ markers, editor scratch), and a *targeted* collision
+# predicate would have to re-derive git's own merge-overwrite semantics — the guard-drift
+# class this repo bans (CLAUDE.md "Adding a guard…"; the accepted-input set of a hand-rolled
+# predicate is never an exact match for the consumer's). git already owns that contract: an
+# untracked path colliding with an incoming base path makes `git merge` refuse BEFORE
+# touching anything, leaving no MERGE_HEAD, so the merge-failure arm at the foot of this file
+# emits UNVERIFIED with the tree, HEAD, and the untracked file all untouched — and git's own
+# precise "The following untracked working tree files would be overwritten by merge: <paths>"
+# reaches stderr un-suppressed (fd 1 is rebound), with that arm's breadcrumb naming
+# untracked-overwrite among the candidate causes. The gap is therefore diagnostic precision
+# (no dedicated token/message), never a fail-open. Revisit if a call site ever needs to
+# BRANCH on untracked-collision as a distinct outcome rather than record UNVERIFIED.
 if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
   echo "update-branch-checkpoint: working tree has uncommitted tracked changes — refusing to fetch or merge over a dirty tree; commit or stash first" >&2
   emit "UNVERIFIED"

@@ -28160,6 +28160,82 @@ assert_eq "#448 ubc-up-to-date: exit 0" "0" "$UBC_RC"
 assert_eq "#448 ubc-up-to-date: HEAD untouched" \
   "$UBC_HEAD_BEFORE" "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
 
+# ── ubc-single-branch → Refspec: the cloud checkout's ACTUAL shape is a feature-scoped clone
+# (`git clone --single-branch --branch feat`), whose CONFIGURED fetch refspec covers only the
+# feature ref. Step 4's explicit destination refspec is the sole reason refs/remotes/origin/$BASE
+# materializes there at all: a regression to a bare `git fetch origin "$BASE"` would leave
+# origin/main absent, the behind-by derivation would fail, and EVERY real cloud checkpoint would
+# degrade to UNVERIFIED — while every row above (built by ubc_make, whose clone-less `remote add`
+# carries the default WILDCARD refspec) stayed green. Driven end-to-end on a real single-branch
+# clone, with a positive control on the fixture and a behavioral mutation proof below.
+D="$(git_sandbox 'ubc-single-branch')"
+ubc_make "$D"
+ubc_advance_base "$D" sb
+git clone -q --single-branch --branch feat "$D/bare.git" "$D/sb"
+git -C "$D/sb" config user.email t@t
+git -C "$D/sb" config user.name t
+# Positive control on the fixture: it really carries the property under test — the refspec is
+# feature-scoped, and origin/main is genuinely absent beforehand — so the UPDATED below cannot be
+# a wildcard refspec having pre-created the ref.
+assert_eq "#448 ubc-single-branch: fixture's configured fetch refspec is feature-scoped" \
+  "+refs/heads/feat:refs/remotes/origin/feat" \
+  "$(git -C "$D/sb" config --get remote.origin.fetch 2>/dev/null)"
+assert_eq "#448 ubc-single-branch: origin/main absent before the run (outside that refspec)" \
+  "absent" \
+  "$(git -C "$D/sb" rev-parse -q --verify refs/remotes/origin/main >/dev/null 2>&1 && echo present || echo absent)"
+UBC_SB_OUT="$( cd "$D/sb" && "$UBC" 2>/dev/null )"; UBC_SB_RC=$?
+assert_eq "#448 ubc-single-branch: feature-scoped clone still updates → 'UPDATED 1'" \
+  "UPDATED 1" "$UBC_SB_OUT"
+assert_eq "#448 ubc-single-branch: exit 0" "0" "$UBC_SB_RC"
+assert_eq "#448 ubc-single-branch: the explicit refspec materialized origin/main" "present" \
+  "$(git -C "$D/sb" rev-parse -q --verify refs/remotes/origin/main >/dev/null 2>&1 && echo present || echo absent)"
+assert_eq "#448 ubc-single-branch: fetched base is an ancestor of feat HEAD" "yes" \
+  "$(git -C "$D/sb" merge-base --is-ancestor origin/main HEAD 2>/dev/null && echo yes || echo no)"
+
+# ── ubc-single-branch-mutation → BEHAVIORAL mutation proof that the row above is not vacuous:
+# downgrade step 4 to the bare `git fetch origin "$BASE"` a regression would write — on a COPY of
+# the helper, never the working-tree file — and assert the same feature-scoped fixture degrades to
+# UNVERIFIED. The copy is staged in a directory that ALSO holds a config-get.sh sibling, because
+# the helper resolves that sibling from its own BASH_SOURCE dir: a copy without it would fail the
+# base_branch read and emit UNVERIFIED from an unrelated precondition — a green mutation row
+# proving nothing. The unmutated CONTROL copy, run from that same staged directory on an identical
+# fixture, is what attributes the mutant's UNVERIFIED to the refspec regression rather than to the
+# staging.
+UBC_MUT_DIR="$D/mut-scripts"
+mkdir -p "$UBC_MUT_DIR"
+cp "$LIB/../scripts/config-get.sh" "$UBC_MUT_DIR/config-get.sh"
+cp "$UBC" "$UBC_MUT_DIR/control.sh"
+sed -E 's#git fetch origin "\+refs/heads/\$BASE:refs/remotes/origin/\$BASE"#git fetch origin "$BASE"#' \
+  "$UBC" > "$UBC_MUT_DIR/mutant.sh" 2>/dev/null
+chmod +x "$UBC_MUT_DIR/control.sh" "$UBC_MUT_DIR/mutant.sh"
+# A mutation that changed nothing (a reworded step-4 fetch the sed no longer matches) is never a
+# vacuous pass — report it instead of asserting a regression that was never introduced.
+assert_eq "#448 ubc-single-branch-mutation: the regression mutation applied (not a no-op)" \
+  "changed" \
+  "$(cmp -s "$UBC" "$UBC_MUT_DIR/mutant.sh" && echo unchanged || echo changed)"
+# Control: the UNMUTATED copy, staged identically, still updates → the staging is sound.
+DM="$(git_sandbox 'ubc-single-branch-mutation control')"
+ubc_make "$DM"
+ubc_advance_base "$DM" sbc
+git clone -q --single-branch --branch feat "$DM/bare.git" "$DM/sb"
+UBC_SBC_OUT="$( cd "$DM/sb" && "$UBC_MUT_DIR/control.sh" 2>/dev/null )"
+assert_eq "#448 ubc-single-branch-mutation: staged CONTROL copy updates the same fixture (positive control — the staging itself does not reject)" \
+  "UPDATED 1" "$UBC_SBC_OUT"
+# Mutant: the bare-fetch regression cannot resolve origin/$BASE on a feature-scoped clone.
+DM="$(git_sandbox 'ubc-single-branch-mutation mutant')"
+ubc_make "$DM"
+ubc_advance_base "$DM" sbm
+git clone -q --single-branch --branch feat "$DM/bare.git" "$DM/sb"
+UBC_SBM_OUT="$( cd "$DM/sb" && "$UBC_MUT_DIR/mutant.sh" 2>"$DM/mut-err" )"; UBC_SBM_RC=$?
+assert_eq "#448 ubc-single-branch-mutation: bare-fetch regression degrades to UNVERIFIED" \
+  "UNVERIFIED" "$UBC_SBM_OUT"
+assert_eq "#448 ubc-single-branch-mutation: UNVERIFIED exit 3" "3" "$UBC_SBM_RC"
+# Attribute the rejection: it must come from the behind-by derivation (origin/$BASE unresolvable),
+# not from an earlier guard (dirty tree, base_branch read failure) that would reject any fixture.
+assert_eq "#448 ubc-single-branch-mutation: rejection is attributed to the behind-by derivation, not an earlier guard" \
+  "yes" \
+  "$(grep -qF 'could not derive behind-by count' "$DM/mut-err" 2>/dev/null && echo yes || echo no)"
+
 # ── ubc-disabled-matrix → Config: explicit false → DISABLED (tree untouched); every other
 # shape (missing file, missing key, empty string, wrong-typed number/object) proceeds past
 # the gate (issue #312 valid-falsy matrix). For the proceed rows, base is NOT advanced so a
