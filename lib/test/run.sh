@@ -2704,11 +2704,17 @@ assert_pin_unique "#312 item 1: Step 4.5 weighs convergence by severity and surf
 # item 9 — Step 3 item 3a names job-gating / control-flow changes as mechanism changes
 assert_pin_unique "#312 item 9: Step 3 item 3a trigger names a rerouted step / job gating" \
   'a rerouted step, a relocated where-a-decision-concludes' "$MAXI_SKILL"
-# item 2 — platform-behavior premise class in BOTH the template and Step 3.5
-assert_pin_unique "#312 item 2: issue-template names the platform-behavior premise class (WebFetch official docs)" \
-  'verified fact and its source URL recorded' "$CI312_TMPL"
-assert_pin_unique "#312 item 2: create-issue Step 3.5 re-applies the platform-behavior class" \
-  'platform-behavior** class: any load-bearing claim about external platform' "$CI312_SKILL"
+# item 2 (broadened by #446) — the premise class widened from "an AC's mechanism" to every
+# relied-on third-party behavior, with the WebFetch → WebSearch → ask-the-user ladder, in BOTH
+# the template and Step 3.5. The pins cover the relied-on breadth AND the ladder's ask-user arm.
+assert_pin_unique "#312 item 2 (broadened #446): issue-template names the relied-on third-party premise class" \
+  'relied-on third-party behavior** — every behavior of an external platform' "$CI312_TMPL"
+assert_pin_unique "#312 item 2 (broadened #446): issue-template ladder reaches the ask-the-user arm" \
+  '**(3)** when search is unavailable or fails, **ask the user to' "$CI312_TMPL"
+assert_pin_unique "#312 item 2 (broadened #446): create-issue Step 3.5 re-applies the relied-on class" \
+  'relied-on-third-party-behavior** class: every behavior of an external platform' "$CI312_SKILL"
+assert_pin_unique "#312 item 2 (broadened #446): Step 3.5 ladder reaches the ask-the-user arm" \
+  'when search is unavailable or fails, by **asking the user to provide the documentation**' "$CI312_SKILL"
 # item 3 — Phase 2.3.4 workflow-diff addendum (both named checks)
 assert_pin_unique "#312 item 3: Phase 2.3.4 carries the workflow-diff addendum" \
   'Workflow-diff addendum (mandatory whenever the diff touches' "$IMPL_SKILL_BUNDLE"
@@ -10028,6 +10034,91 @@ assert_pin_unique "#272 AC9: unresolved UI-placement detail flows to the existin
 # AC10 (coupled trio): SYSTEM_OVERVIEW §11 mirrors the new visual-specification behavior.
 assert_pin_unique "#272 AC10: overview §11 mirrors the visual-specification behavior" \
   'infers an issue involves user-visible UI changes' "$CI_OVERVIEW_272"
+
+# ── #446: Dependencies section wired to the implement gate, relied-on third-party docs
+#    ladder, gated implement-comment offer, and Step 1 completion wait. The deliverable is
+#    skill/template/doc prose; the automatable boundary is this pin layer. Removal-proof
+#    presence pins (assert_pin_unique), plus an assert_pin_red_under behavioral pin proving
+#    the offer gate guards against the restored-unconditional-offer regression, plus a
+#    verified-config three-shape block driving config-get.sh's fail-closed arm selection.
+CI446_TMPL="$LIB/../skills/create-issue/references/issue-template.md"
+CI446_SKILL="$LIB/../skills/create-issue/SKILL.md"
+CI446_P4="$LIB/../skills/implement/phases/phase-4-documentation.md"
+CI446_P1="$LIB/../skills/implement/phases/phase-1-setup.md"
+CI446_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# AC1/AC2 — the optional ## Dependencies section in BOTH the template's structure guidance
+# and its bottom skeleton (coupled mirror sites: a one-sided edit turns one of these RED).
+assert_pin_unique "#446 AC1: issue-template carries the Dependencies structure guidance (conditional section)" \
+  '### Dependencies (include only when a prerequisite is still open at drafting time)' "$CI446_TMPL"
+assert_pin_unique "#446 AC1: issue-template Dependencies entry form is the Blocked-by line" \
+  'Blocked by #N — <one-line reason it must land first>' "$CI446_TMPL"
+assert_pin_unique "#446 AC2: issue-template bottom skeleton mirrors the Dependencies section (above Problem Statement)" \
+  '(include this section, above Problem Statement, ONLY when a prerequisite is still open at' "$CI446_TMPL"
+# Coupled producer↔consumer contract: the template's dependency vocabulary and phase-1 Pass 4's
+# recognized forms are pinned together — RED if either side's heading or phrasing drifts.
+assert_eq "#446: template Dependencies vocabulary matches phase-1 Pass 4's recognized forms (producer/consumer coupled)" "yes" \
+  "$(grep -qF '## Dependencies' "$CI446_TMPL" && grep -qF 'Blocked by #N' "$CI446_TMPL" && grep -qF '## Dependencies' "$CI446_P1" && grep -qiF 'blocked by #N' "$CI446_P1" && echo yes || echo no)"  # raw-guard-ok: compound coupled producer/consumer vocabulary check across template + Pass 4
+# AC4 — phase-4 Phase 4.0 renders ## Dependencies above Problem Statement (Sections-in-order
+# list + the render bullet + the heredoc line).
+assert_pin_unique "#446 AC4: phase-4 Phase 4.0 Sections-in-order list leads with ## Dependencies" \
+  '**Sections, in this order:** `## Dependencies`, `## Problem Statement`' "$CI446_P4"
+assert_pin_unique "#446 AC4: phase-4 Phase 4.0 documents the parent-ordering redundancy bullet" \
+  'making the same parent-ordering fact scannable as its own section' "$CI446_P4"
+assert_pin_unique "#446 AC4: phase-4 Phase 4.0 heredoc renders the parent Blocked-by line" \
+  'Blocked by #$ARGUMENTS — the parent issue' "$CI446_P4"
+# AC(Step 2) — Definition of Ready gains the known-prerequisites item (no question when none).
+assert_pin_unique "#446: create-issue Step 2 DoR gains the known-prerequisites item" \
+  'Known prerequisites (cross-issue ordering)' "$CI446_SKILL"
+# AC(Step 1) — docs-verify completion-wait discipline mirroring Step 3.6.
+assert_pin_unique "#446: create-issue Step 1 carries the docs-verify completion-wait discipline" \
+  'Completion-wait discipline (mandatory, mirroring Step 3.6' "$CI446_SKILL"
+assert_pin_unique "#446: Step 1 wait forbids treating a launch acknowledgment as the report" \
+  'launch acknowledgment is never treated as the findings report' "$CI446_SKILL"
+# AC(offer gate) — the two-condition gate: body-level condition + tier condition via config-get.sh
+# leading-token then python3/jq fallback, bash-builtin compare; and the never-silent withheld reason.
+assert_pin_unique "#446: offer gate reads workflows.devflow via config-get.sh as the leading token" \
+  'scripts/config-get.sh .workflows.devflow false' "$CI446_SKILL"
+assert_pin_unique "#446: offer gate compares to literal true with bash builtins only (no tr/sed)" \
+  'never `tr`/`sed` lowering, which fails **open**' "$CI446_SKILL"
+assert_pin_unique "#446: offer gate prints a one-line withheld-offer reason (never silent)" \
+  'When the gate withholds the prompt, print a one-line reason naming the exact failed condition' "$CI446_SKILL"
+assert_pin_unique "#446: withheld-offer config-unreadable reason is kept distinct from tier-disabled" \
+  'use the distinct *config unreadable* reason' "$CI446_SKILL"
+# The unconditional-offer source literal is GONE (absence pin — the exact bytes the issue named).
+assert_eq "#446: create-issue removed the unconditional-offer source literal" "yes" \
+  "$(! grep -qF '**always** present a yes/no prompt' "$CI446_SKILL" && echo yes || echo no)"  # raw-guard-ok: absence pin — the unconditional-offer literal is GONE (negated grep, not a presence pin)
+# Behavioral-fix pin (assert_pin_red_under): a mutation removing the gate's operative qualifier
+# — restoring the unconditional offer — must turn the pin RED, proving it guards the gate itself,
+# not merely its own line vanishing. Mutation removes ` **only when both conditions hold**`.
+assert_pin_red_under "#446: offer-gate pin guards against the restored-unconditional-offer mutation" \
+  'present the yes/no implement prompt **only when both conditions hold**' \
+  's/ \*\*only when both conditions hold\*\*//' \
+  "$CI446_SKILL"
+# AC(completion checklist) — gated-offer framing + todo 7 completable on both outcomes.
+assert_pin_unique "#446: create-issue Completion-checklist framing is the gated-offer form" \
+  'a *gated* offer to start implementation' "$CI446_SKILL"
+assert_pin_unique "#446: create-issue todo 7 is the gated implement-offer step (completable both ways)" \
+  'run the gated implement-offer step — present the offer, or print the withheld-offer reason' "$CI446_SKILL"
+# AC(docs) — overview §11 describes all four new behaviors.
+assert_pin_unique "#446: overview §11 describes the four authoring-pipeline hardenings" \
+  'Four authoring-pipeline hardenings (issue #446)' "$CI446_OVERVIEW"
+# Verified-config cases (obligation): drive config-get.sh over the three shapes observed while
+# drafting — explicit false → not-true (offer withheld), absent key → the false default (withheld),
+# explicit true → true (offered). config-get preserves valid-falsy and applies the caller default
+# only on absence (the #312 valid-falsy discipline), so the explicit-`true` gate is fail-closed on
+# absent/false/unreadable alike.
+CG446="$LIB/../scripts/config-get.sh"
+CG446_FALSE="$(probe_tmp "#446 cfg explicit-false")";  printf '%s' '{"workflows":{"devflow":false}}' > "$CG446_FALSE"
+CG446_ABSENT="$(probe_tmp "#446 cfg absent-key")";     printf '%s' '{}' > "$CG446_ABSENT"
+CG446_TRUE="$(probe_tmp "#446 cfg explicit-true")";    printf '%s' '{"workflows":{"devflow":true}}' > "$CG446_TRUE"
+assert_eq "#446 offer-gate: explicit false reads not-true (offer withheld)" "false" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_FALSE")"
+assert_eq "#446 offer-gate: absent key reads the false default (offer withheld)" "false" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_ABSENT")"
+assert_eq "#446 offer-gate: explicit true reads true (offer presented)" "true" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_TRUE")"
+rm -f "$CG446_FALSE" "$CG446_ABSENT" "$CG446_TRUE"
+
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
 assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" "yes" \
