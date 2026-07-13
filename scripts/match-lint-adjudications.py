@@ -230,6 +230,12 @@ def _collect_payload_keys(comments, allowed_bots, stats):
         author_type = c.get("author_type") or ""
         m = RUN_MARKER_RE.search(body)
         run_key = m.group(1) if m else None
+        # Author trust is intentionally BROADER than sibling match-deferrals.py (which
+        # trusts only allowed_bots membership): here a Bot-type account is trusted too,
+        # because trust is a CONJUNCTION with the run-keyed progress-comment marker below —
+        # requiring the marker closes the bot-echo hole a bare account-type check would
+        # leave open, so admitting any Bot-type author is safe here where it would not be
+        # for match-deferrals' PR-author check.
         author_ok = (author_type == "Bot") or (author in allowed_bots)
         trusted = (run_key is not None) and author_ok
 
