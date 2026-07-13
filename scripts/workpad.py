@@ -1751,7 +1751,11 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
                 f"--record-classification: unknown class {cls!r}; expected one of "
                 f"{', '.join(_CLASSIFICATION_VALUES)}"
             )
-        if not rationale.strip():
+        # Empty-check the STRIPPED value (a whitespace-only rationale is empty), but
+        # single-line-check the RAW value so a trailing newline is still rejected
+        # rather than silently trimmed into acceptance.
+        stripped_rationale = rationale.strip()
+        if not stripped_rationale:
             raise _UpdateError(
                 "--record-classification: a non-empty rationale is required (the "
                 "note form is 'classification: <class> — <rationale>')"
@@ -1768,7 +1772,7 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
             raise _UpdateError("section '## Progress' not found")
         heading, content = sections[idx]
         content = _remove_classification_notes(content)
-        note_text = f'{_CLASSIFICATION_NOTE_PREFIX}{cls} — {rationale.strip()}'
+        note_text = f'{_CLASSIFICATION_NOTE_PREFIX}{cls} — {stripped_rationale}'
         phase_label = _progress_phase_for_status(content, current_phase)
         content = _append_progress_note(content, note_text, now_time, phase_label)
         sections[idx] = (heading, content)
