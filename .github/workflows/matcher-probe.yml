@@ -556,8 +556,12 @@ jobs:
 
           def walk(o):
               if isinstance(o, dict):
+                  # Only the recorded tool INPUT is needed here — the implement
+                  # verdict is pure marker-substring matching, with no tool-name
+                  # column (unlike a hypothetical NAME= consumer), so the tool name
+                  # is deliberately not captured.
                   if o.get("type") == "tool_use" and "input" in o:
-                      tool_uses.append(json.dumps(o.get("input")) + " NAME=" + str(o.get("name", "")))
+                      tool_uses.append(json.dumps(o.get("input")))
                   pd = o.get("permission_denials")
                   if isinstance(pd, list):
                       for d in pd:
