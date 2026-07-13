@@ -182,10 +182,35 @@ _reject_restore() {  # message
   exit 4
 }
 
+# --- push the merged branch, setting an upstream when the branch has none. ---
+#
+# A bare `git push` REQUIRES an upstream (push.default=simple refuses without one), and the
+# checkpoint runs on branches that legitimately have none: Phase 1.4's resume/adopt checkpoint
+# fires on the adopted-branch arm — including the linked-worktree signal, a branch a local run
+# created and has NOT pushed — and Phase 1.5's `git push -u origin HEAD` runs *after* it. On
+# such a branch a bare `git push` fails, the recovery arm below then fails to fetch a remote
+# ref that does not exist, and _reject_restore rolls the base merge back: the checkpoint would
+# report a false PUSH_REJECTED and SILENTLY DISCARD the merge it just made — a no-op on the
+# exact path the feature exists for. So branch on whether an upstream exists (git's own exit
+# code — guard-class 2) and set one when it does not.
+#
+# The has-upstream arm keeps the bare `git push` deliberately: it honors an upstream whose
+# remote ref is named differently from the local branch (a worktree checked out as
+# `worktree-pr-N` tracking `issue-N-…`), which `git push -u origin "$BRANCH"` would instead
+# fork into a new same-named remote branch.
+_do_push() {
+  if git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1; then
+    git push
+  else
+    echo "update-branch-checkpoint: branch $BRANCH has no upstream (an adopted branch not yet pushed) — pushing with -u to set one" >&2
+    git push -u origin "$BRANCH"
+  fi
+}
+
 # --- push helper: push the merged branch; on a non-fast-forward refusal, run the
 # push-race recovery arm exactly once. Emits the final token and exits. ---
 _push_or_recover() {
-  if git push; then
+  if _do_push; then
     emit "UPDATED $BEHIND"
     exit 0
   fi
@@ -206,7 +231,7 @@ _push_or_recover() {
     git merge --abort >/dev/null 2>&1 || true
     _reject_restore "update-branch-checkpoint: integrating origin/$BRANCH conflicted (remote divergence); merge aborted and branch restored to pre-checkpoint SHA"
   fi
-  if git push; then
+  if _do_push; then
     emit "UPDATED $BEHIND"
     exit 0
   fi

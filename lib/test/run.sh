@@ -29117,6 +29117,39 @@ assert_eq "#448 ubc-dirty-tree-staged: exit 3" "3" "$UBC_RC"
 assert_eq "#448 ubc-dirty-tree-staged: no fetch performed (origin/main ref unchanged)" \
   "$UBC_ORIGIN_MAIN_BEFORE" "$(git -C "$D/work" rev-parse origin/main 2>/dev/null)"
 
+# ── ubc-no-upstream → The ADOPTED-BRANCH shape Checkpoint 1 actually runs on: a branch the
+# run created locally and has NOT pushed, so it has NO upstream. Phase 1.5's `git push -u`
+# runs AFTER §1.4.1's checkpoint, so this is the ordinary case there — not an exotic one.
+# Every other ubc_* fixture pushes `feat` with `-u` before the helper runs, which is exactly
+# why a bare `git push` inside the helper looked correct: with no upstream it fails, the
+# recovery arm then cannot fetch a remote ref that does not exist, and _reject_restore rolls
+# the base merge BACK — the checkpoint reports a false PUSH_REJECTED and silently discards
+# the merge, a no-op on the exact path the feature exists for. Drive the real shape. ────────
+D="$(git_sandbox 'ubc-no-upstream')"
+ubc_make "$D"
+# A local-only adopted branch: created, committed to, never pushed → no upstream.
+git -C "$D/work" checkout -q -b worktree-issue-1
+printf 'adopted\n' > "$D/work/adopted.txt"
+git -C "$D/work" add adopted.txt
+git -C "$D/work" commit -qm adopted
+ubc_advance_base "$D" nu
+# Positive control on the fixture: it really carries the property under test (no upstream),
+# so an UPDATED below cannot come from a tracking ref that was quietly already there.
+assert_eq "#448 ubc-no-upstream: fixture branch genuinely has NO upstream" "none" \
+  "$(git -C "$D/work" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1 && echo some || echo none)"
+ubc_run "$D"
+assert_eq "#448 ubc-no-upstream: an upstream-less adopted branch still updates → 'UPDATED 1'" \
+  "UPDATED 1" "$UBC_OUT"
+assert_eq "#448 ubc-no-upstream: exit 0 (never a false PUSH_REJECTED)" "0" "$UBC_RC"
+# The load-bearing assertion: the base merge SURVIVES. The pre-fix helper restored it away.
+assert_eq "#448 ubc-no-upstream: the base merge survives (not rolled back by a false reject)" "yes" \
+  "$(git -C "$D/work" merge-base --is-ancestor origin/main HEAD 2>/dev/null && echo yes || echo no)"
+assert_eq "#448 ubc-no-upstream: the branch was pushed and the origin ref now exists" \
+  "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)" \
+  "$(git -C "$D/bare.git" rev-parse worktree-issue-1 2>/dev/null)"
+assert_eq "#448 ubc-no-upstream: an upstream is now set (pushed with -u)" "some" \
+  "$(git -C "$D/work" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1 && echo some || echo none)"
+
 # ── ubc-untracked-collision → Pins the behavioral claim the step-2 dirty guard's comment
 # LEANS ON: untracked files are deliberately NOT pre-checked, because git itself refuses the
 # merge before touching anything when an untracked path collides with an incoming base path.
