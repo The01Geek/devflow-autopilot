@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.133] — 2026-07-13
+
+### Changed
+- **`/devflow:create-issue`: cross-issue `## Dependencies` section, relied-on third-party docs ladder, gated implement offer, and a Step 1 completion wait.** The issue template gains an optional top-level `## Dependencies` section (rendered above `## Problem Statement`, included only when a prerequisite is still open at drafting time; entries are `Blocked by #N — <reason>` lines) whose heading and phrasing are exactly the forms `/devflow:implement` Phase 1 Pass 4 already recognizes — giving the existing implement sequencing gate a deliberate authoring producer; Step 2's Definition of Ready infers and confirms known prerequisites, and Phase 4.0's deferred follow-ups render the same section alongside the existing `Follow-up to #N` opener. The never-assume premise class broadens from "an acceptance criterion's mechanism" to every third-party behavior the issue *relies on*, with a decided `WebFetch` → `WebSearch` → ask-the-user documentation ladder terminating in a `## 🚫 Blocked` vendor-behavior question or a flagged in-repo-example assumption. The post-creation implement-comment offer is now gated on the issue having no open dependencies and no blocked decisions **and** `workflows.devflow` resolving to exactly `true`, printing a one-line withheld-offer reason otherwise instead of posting a comment that fires nothing. Step 1's `/devflow:docs-verify` gains an explicit completion-wait rule so clarification never precedes its findings. (#447)
+
 ## [2.8.132] — 2026-07-13
 
 ### Fixed
