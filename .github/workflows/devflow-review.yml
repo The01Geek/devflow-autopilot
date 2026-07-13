@@ -1407,7 +1407,7 @@ jobs:
           VERDICT: incomplete
           APP_TOKEN_PRESENT: ${{ steps.backstop-token.outputs.token != '' }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           # The post-and-annotate glue — resolve+call request-review-backstop.sh (its
           # decision contract UNCHANGED), parse the decision, compose the /devflow:review
           # re-trigger body, POST it via post-issue-comment.sh, and select the

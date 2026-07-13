@@ -17658,6 +17658,76 @@ assert_pin_red_under "#460 workflow: helper-error rc!=1 discriminator falls back
   's/if \[ "\$_wc_rc" -ne 1 \]; then/if false; then/' \
   "$RUNNER"
 
+# ── #460 errexit (PR #461): EXECUTE the harden step under GitHub's DEFAULT shell ──
+# Every #458/#460 assertion above is a static pin or a pin-mutation — none RUNS the
+# step, which is how this bug shipped: the step declares `set -uo pipefail` (errexit
+# deliberately OFF; every failure path is an explicit rc-handled arm), but GitHub's
+# default `run:` shell is `bash -e {0}`, so errexit arrives ON anyway. Under it the
+# first legal non-zero — the compound `git show` read of a .claude/settings.local.json
+# ABSENT at the base ref (this repo's permanent state) — killed the whole step with
+# git's rc 128 BEFORE any fail-closed arm ran (live failure: Actions run 29285485078;
+# every post-#460 review execution died there, so no auto-review verdict could post).
+# So: extract the step's run: block via PyYAML (the `tools`-step harness idiom below)
+# and drive it END-TO-END under the exact default-shell contract (`bash -e`) in a
+# fixture clone whose base tracks settings.json but NOT settings.local.json — the
+# precise live-repro shape.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  HH_SCRIPT="$(probe_tmp '#460 errexit harden-step script')"
+  python3 - "$RUNNER" >"$HH_SCRIPT" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for job in doc["jobs"].values():
+    for s in job.get("steps", []):
+        if s.get("id") == "harden_hooks" and "run" in s:
+            sys.stdout.write(s["run"])
+            raise SystemExit
+raise SystemExit("harden_hooks step not found")
+PY
+  HH_FIX="$(git_sandbox '#460 errexit fixture')"
+  # The trusted "origin": base tracks the REAL .claude/settings.json (wires the three
+  # Stop hooks), the vendored helper, and all nine closure targets — the same shapes
+  # main carries — and deliberately does NOT track .claude/settings.local.json.
+  mkdir -p "$HH_FIX/origin/.claude" "$HH_FIX/origin/.devflow/vendor/devflow/scripts"
+  cp "$LIB/../.claude/settings.json" "$HH_FIX/origin/.claude/settings.json" 2>/dev/null
+  cp "$HSH" "$HH_FIX/origin/.devflow/vendor/devflow/scripts/harden-stop-hooks.sh" 2>/dev/null
+  for hh_t in $HSH_CLOSURE_LIT; do
+    mkdir -p "$HH_FIX/origin/${hh_t%/*}"
+    cp "$LIB/../$hh_t" "$HH_FIX/origin/$hh_t" 2>/dev/null
+  done
+  git -C "$HH_FIX/origin" init -q 2>/dev/null
+  git -C "$HH_FIX/origin" add -A 2>/dev/null
+  git -C "$HH_FIX/origin" -c user.email=t@t -c user.name=t commit -qm base 2>/dev/null
+  git -C "$HH_FIX/origin" branch -q -M main 2>/dev/null
+  git clone -q "$HH_FIX/origin" "$HH_FIX/ws" 2>/dev/null
+  # Simulate the PR-head edit this floor exists to displace.
+  printf 'MALICIOUS\n' > "$HH_FIX/ws/lib/efficiency-trace.sh"
+  HH_RT="$(git_sandbox '#460 errexit RUNNER_TEMP')"
+  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" \
+      bash -e "$HH_SCRIPT" ) >"$HH_FIX/out.log" 2>&1
+  assert_eq "#460 errexit: the harden step survives GitHub's default \`bash -e {0}\` shell with settings.local.json absent at base (the live-repro shape)" \
+    "0" "$?"
+  # Positive controls: the run must have taken the REAL harden path — the wired gate
+  # (no skip notice) and a displaced PR-head entry — not an early exit that would let
+  # the rc-0 assertion above pass vacuously.
+  assert_eq "#460 errexit: positive control — the relevance gate saw the wired base settings.json (no 'nothing to harden' skip)" "0" \
+    "$(grep -c 'nothing to harden' "$HH_FIX/out.log" || true)"
+  assert_eq "#460 errexit: positive control — the PR-head-edited entry hook was displaced (MALICIOUS gone)" "0" \
+    "$(grep -c 'MALICIOUS' "$HH_FIX/ws/lib/efficiency-trace.sh" || true)"
+  # MUTATION control: strip the errexit-off line from a COPY and re-run — the inherited
+  # `-e` must kill it with git's 128 again, proving this test pins the exact regression
+  # (a future edit dropping the line), not merely its own green path. It doubles as a
+  # fixture-validity check: a fixture that never reached the settings.local.json read
+  # (e.g. a failed base fetch taking the fail-closed arm) would complete rc 0 here and
+  # turn this RED instead of leaving the suite vacuously green.
+  HH_MUT="$(probe_tmp '#460 errexit mutant script')"
+  grep -v '^set +e$' "$HH_SCRIPT" > "$HH_MUT"
+  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" \
+      bash -e "$HH_MUT" ) >/dev/null 2>&1
+  assert_eq "#460 errexit MUTATION: without the errexit-off line the inherited -e kills the step at the settings.local.json read (rc 128)" \
+    "128" "$?"
+  rm -rf "$HH_FIX" "$HH_RT"; rm -f "$HH_SCRIPT" "$HH_MUT"
+fi
+
 # The setup-project-env step is gated on the base-ref provision flag.
 assert_eq "provision: setup-project-env step present" "1" \
   "$(grep -c 'uses: ./.github/actions/setup-project-env' "$RUNNER" || true)"
@@ -23467,7 +23537,7 @@ assert_eq "#415 swv: helper exits 0 even on an absent execution file" "0" \
 # (PermissionError, or a TOCTOU disappearance after the os.path.isfile() check) must
 # route to the INCONCLUSIVE floor and still exit 0 — honoring the module's documented
 # "Always exits 0" contract — instead of raising an uncaught traceback through
-# render()/main() (which under matcher-probe.yml's `set -uo pipefail` verdict step
+# render()/main() (which under matcher-probe.yml's `set -euo pipefail` verdict step
 # yields a red step with NO verdict table, on exactly the degraded run the probe exists
 # to handle). Skipped only where chmod 000 does not actually deny reads (running as
 # root, or a filesystem ignoring the mode) so the suite stays green everywhere.
