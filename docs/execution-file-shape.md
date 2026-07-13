@@ -44,7 +44,7 @@ reviewer, given the run URL, reaches the same verdict by downloading the same ar
 | Field | Observed | Evidence |
 |---|---|---|
 | top-level encoding (array / object / jsonl) | **`array`** | `encoding: array` |
-| per-message token `usage` | **`present`** | `usage: object`; leaves `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `total_tokens` |
+| per-message token `usage` | **`present`** | `usage: object`; keys observed in the structural set: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `total_tokens` (the flattened artifact does not itself prove their parent — see the committed evidence) |
 | wall-clock timing | **`present`** | `duration_ms`, `duration_api_ms`, `ttft_ms`, `end_time` |
 | `tool_use` events | **`present`** | `tool_name`, `tool_input`, `tool_use_id`, `tool_uses` |
 | `subagent_type` on `Task` dispatches | **`present`** | `subagent_type: string` (plus `task_id`, `task_type`, `agents`) |
@@ -72,10 +72,13 @@ Cost is carried **directly**, which the issue did not even ask for: `costUSD`,
   does not rely on it holding.
 
 **What this settles.** The cloud harness already emits, with **zero agent cooperation**,
-every variable DevFlow's telemetry currently depends on the agent to volunteer: per-phase
-tokens, wall-clock, the subagent dispatch roster, and denials. An agent-independent
-(class-(c)) cost floor is therefore **buildable on the cloud tier** — the constraint was
-never the platform, it was that nobody had looked.
+every variable DevFlow's telemetry currently depends on the agent to volunteer: per-message
+tokens, wall-clock, the subagent dispatch roster, and denials. (Per-*phase* attribution is a
+downstream derivation this record does **not** establish — see "What it does NOT settle"
+below.) An agent-independent (class-(c)) cost floor is therefore **buildable on the cloud
+tier** — the constraint was never the platform, it was that nobody had looked. (The **local**
+tier is established separately, from the transcript's real per-message token counts — the AC7
+observation below; `docs/efficiency-trace.md` states the combined both-tiers conclusion.)
 
 **What it does NOT settle.** The `execution_file` schema is not a public contract, so this
 is a *dated observation of one action version*, not a specification — re-dispatch after any

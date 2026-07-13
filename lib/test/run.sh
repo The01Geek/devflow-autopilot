@@ -27833,6 +27833,60 @@ for _f in exec-shape-malformed.json exec-shape-scalar.json; do
   done
   assert_eq "#437 exec-shape(degrade): $_f reports all 5 fields 'unavailable' (never 'absent')" "5" "$_n"
 done
+
+# COMPLETION GATE on the denials tri-branch (#438 review, Important #2): a run with NO result
+# event that nevertheless streamed a denials array (and a positive count) is an aborted run —
+# EVERY field must read `unavailable`, including permission_denials. Before the gate, the
+# array/count arms returned `present` here, diverging from the helper's own contract while all
+# sibling fields read `unavailable`. Both carriers are in the fixture, so this drives the gate
+# in front of both arms.
+assert_eq "#438 exec-shape(denials): no-result + denials array records 'unavailable', not 'present'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-noresult-denials.json" 2>/dev/null | grep -qxF 'permission_denials: unavailable' && echo yes || echo no)"
+
+# UNRUNNABLE JQ is attributed to jq, not to the file (#438 review, Suggestion 2): both fail the
+# parse, but a "file unparseable" breadcrumb about a fine file steers a debugger at the wrong
+# artifact. The emitted record is all-unavailable either way; only the stderr attribution differs.
+EES_NOJQ_ERR="$(DEVFLOW_JQ="$EES_TMP/definitely-not-a-jq" bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>&1 >/dev/null)"
+assert_eq "#438 exec-shape(jq-unrunnable): exits 0 (best-effort contract)" "0" "$?"
+assert_eq "#438 exec-shape(jq-unrunnable): breadcrumb names jq, not the file" "yes" \
+  "$(printf '%s' "$EES_NOJQ_ERR" | grep -qF 'is not runnable' && echo yes || echo no)"
+assert_eq "#438 exec-shape(jq-unrunnable): breadcrumb does NOT misattribute 'unparseable'" "yes" \
+  "$(printf '%s' "$EES_NOJQ_ERR" | grep -qF 'unparseable' && echo no || echo yes)"
+assert_eq "#438 exec-shape(jq-unrunnable): record degrades to all-unavailable" "yes" \
+  "$(DEVFLOW_JQ="$EES_TMP/definitely-not-a-jq" bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qxF 'usage: unavailable' && echo yes || echo no)"
+
+# SLURP-FAIL degradation branch (#438 review, Suggestion 4): a jq that passes the --version
+# probe and the encoding pass but fails the -rs slurp pass must land on the fail-closed
+# "jq slurp pass failed" arm — previously unreachable by any test. The stub fails ONLY when
+# -rs is among its args, leaving every other invocation intact.
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'for _a in "$@"; do [ "$_a" = "-rs" ] && exit 1; done' \
+  'exec jq "$@"' \
+  > "$EES_TMP/jq-no-slurp"
+chmod +x "$EES_TMP/jq-no-slurp"
+EES_SLURP_ERR="$(DEVFLOW_JQ="$EES_TMP/jq-no-slurp" bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>&1 >/dev/null)"
+assert_eq "#438 exec-shape(slurp-fail): exits 0 (best-effort contract)" "0" "$?"
+assert_eq "#438 exec-shape(slurp-fail): breadcrumb names the slurp pass" "yes" \
+  "$(printf '%s' "$EES_SLURP_ERR" | grep -qF 'jq slurp pass failed' && echo yes || echo no)"
+assert_eq "#438 exec-shape(slurp-fail): record degrades to all-unavailable, never partial" "yes" \
+  "$(DEVFLOW_JQ="$EES_TMP/jq-no-slurp" bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qxF 'usage: unavailable' && echo yes || echo no)"
+
+# RESOLVE-JQ SOURCE-FAILURE degradation (#438 review, Suggestion 5): a partial deployment
+# carrying the helper without its lib/resolve-jq.sh sibling must degrade to bare `jq` with a
+# breadcrumb — never leave DEVFLOW_JQ unbound and abort under `set -u`. Copy the script into a
+# tree with no ../lib and drive it; it must still produce a correct record via PATH jq. An
+# EMPTY (not merely unset) DEVFLOW_JQ must degrade identically (the empty-string trap).
+EES_ORPHAN="$EES_TMP/orphan/scripts"; mkdir -p "$EES_ORPHAN"
+cp "$EES" "$EES_ORPHAN/extract-execution-shape.sh"
+EES_ORPH_ERR="$(env -u DEVFLOW_JQ bash "$EES_ORPHAN/extract-execution-shape.sh" "$EES_FIX/exec-shape-full-array.json" 2>&1 >/dev/null)"
+assert_eq "#438 exec-shape(no-sibling): exits 0 (never a set -u abort)" "0" "$?"
+assert_eq "#438 exec-shape(no-sibling): breadcrumb names the missing resolver" "yes" \
+  "$(printf '%s' "$EES_ORPH_ERR" | grep -qF 'resolve-jq.sh could not be sourced' && echo yes || echo no)"
+assert_eq "#438 exec-shape(no-sibling): still produces a correct record via bare jq" "yes" \
+  "$(env -u DEVFLOW_JQ bash "$EES_ORPHAN/extract-execution-shape.sh" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qxF 'usage: present' && echo yes || echo no)"
+assert_eq "#438 exec-shape(no-sibling): an EMPTY DEVFLOW_JQ degrades to bare jq, not an empty exec" "yes" \
+  "$(DEVFLOW_JQ= bash "$EES_ORPHAN/extract-execution-shape.sh" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qxF 'usage: present' && echo yes || echo no)"
 rm -rf "$EES_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -28030,6 +28084,39 @@ assert_eq "#437 stop-hook: .claude/settings.json registers the probe as a Stop h
 assert_eq "#437 stop-hook: the existing efficiency-trace persist Stop hook is preserved" "yes" \
   "$(jq -e '[.hooks.Stop[].hooks[].command] | any(test("efficiency-trace\\.sh --persist"))' \
        "$REPO_ROOT/.claude/settings.json" >/dev/null 2>&1 && echo yes || echo no)"
+
+# (7) MARKER-DIR CREATE FAILURE (#438 review, Suggestion 6): an unwritable marker parent (here:
+#     `.devflow` is a regular FILE, so mkdir -p fails) must exit 0 with a breadcrumb — a Stop hook
+#     that fails non-zero can disrupt the session it observes, and the breadcrumb is what stops the
+#     resulting "did not fire" from being silently misread.
+SHP_NODIR="$SHP_TMP/nodir"; mkdir -p "$SHP_NODIR"
+: > "$SHP_NODIR/.devflow"
+SHP_NODIR_ERR="$(_shp_payload "$SHP_NODIR" "$SHP_NODIR/t.jsonl" | bash "$SHP" 2>&1 >/dev/null)"
+assert_eq "#438 stop-hook(mkdir-fail): exits 0 (never blocks the Stop)" "0" "$?"
+assert_eq "#438 stop-hook(mkdir-fail): stderr breadcrumb names the uncreatable dir" "yes" \
+  "$(printf '%s' "$SHP_NODIR_ERR" | grep -qF 'could not create' && echo yes || echo no)"
+assert_eq "#438 stop-hook(mkdir-fail): no marker is written (a half-firing must not fabricate one)" "yes" \
+  "$([ -e "$(_shp_marker "$SHP_NODIR")" ] && echo no || echo yes)"
+
+# (8) RESOLVE-JQ SOURCE-FAILURE degradation (#438 review, Suggestion 5): the probe copied
+#     without its lib/resolve-jq.sh sibling must degrade to bare `jq` with a breadcrumb — never a
+#     `set -u` abort — and still write a correct breadcrumb. An EMPTY DEVFLOW_JQ degrades the same.
+SHP_ORPHAN="$SHP_TMP/orphan/scripts"; mkdir -p "$SHP_ORPHAN"
+cp "$SHP" "$SHP_ORPHAN/stop-hook-probe.sh"
+SHP_ORPH="$SHP_TMP/orphanrun"; mkdir -p "$SHP_ORPH"
+printf '%s\n' '{"type":"assistant","message":{"usage":{"input_tokens":1200,"output_tokens":345}}}' \
+  > "$SHP_ORPH/t.jsonl"
+SHP_ORPH_ERR="$(_shp_payload "$SHP_ORPH" "$SHP_ORPH/t.jsonl" | env -u DEVFLOW_JQ bash "$SHP_ORPHAN/stop-hook-probe.sh" 2>&1 >/dev/null)"
+assert_eq "#438 stop-hook(no-sibling): exits 0 (never a set -u abort)" "0" "$?"
+assert_eq "#438 stop-hook(no-sibling): breadcrumb names the missing resolver" "yes" \
+  "$(printf '%s' "$SHP_ORPH_ERR" | grep -qF 'resolve-jq.sh could not be sourced' && echo yes || echo no)"
+assert_eq "#438 stop-hook(no-sibling): breadcrumb still written and correct via bare jq" "real" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_ORPH")" 2>/dev/null)"
+SHP_ORPH2="$SHP_TMP/orphanrun2"; mkdir -p "$SHP_ORPH2"
+cp "$SHP_ORPH/t.jsonl" "$SHP_ORPH2/t.jsonl"
+_shp_payload "$SHP_ORPH2" "$SHP_ORPH2/t.jsonl" | DEVFLOW_JQ= bash "$SHP_ORPHAN/stop-hook-probe.sh" >/dev/null 2>&1
+assert_eq "#438 stop-hook(no-sibling): an EMPTY DEVFLOW_JQ degrades to bare jq, not an empty exec" "real" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_ORPH2")" 2>/dev/null)"
 rm -rf "$SHP_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────

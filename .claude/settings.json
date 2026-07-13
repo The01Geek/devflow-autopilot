@@ -15,7 +15,7 @@
           },
           {
             "type": "command",
-            "command": "bash scripts/stop-hook-probe.sh || true",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}\"/scripts/stop-hook-probe.sh || true",
             "timeout": 15
           }
         ]

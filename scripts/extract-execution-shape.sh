@@ -118,9 +118,17 @@ fi
 # (the guard-class-2 rule). `jq -c type` prints one type token per top-level JSON
 # value: a single array/object → one line; JSONL → one line per object. Count the
 # lines and read the first token with a builtin read loop, never `wc`/`head`.
+# An unrunnable jq must be attributed to JQ, not to the file (issue #438 review): both
+# fail the parse below, and a "file unparseable" breadcrumb about a fine file steers a
+# debugger at the wrong artifact. Probe runnability first (network/auth-free), so each
+# degradation names its actual cause. The emitted record is all-unavailable either way
+# (fail-closed) — only the stderr attribution differs.
+if ! "$DEVFLOW_JQ" --version >/dev/null 2>&1; then
+  _emit_unavailable "jq ('$DEVFLOW_JQ') is not runnable (set DEVFLOW_JQ to override)"
+fi
 ENC_TYPES="$("$DEVFLOW_JQ" -c 'type' "$FILE" 2>/dev/null)" || ENC_TYPES=""
 if [ -z "$ENC_TYPES" ]; then
-  # jq could not parse the file as any stream of JSON values → genuinely unparseable.
+  # jq runs (probed above), so an empty parse is genuinely an unparseable FILE.
   _emit_unavailable "present but unparseable ('$FILE')"
 fi
 _n=0
@@ -212,11 +220,19 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
     # onto `absent` would assert "the harness does not carry denials" about a run whose denial
     # count we simply could not read — the unknown-is-not-zero rule, which is the rule this whole
     # helper exists to honor. So it resolves to `unavailable` instead.
-    | (if (any($objs[]; has("permission_denials") and (.permission_denials != null)))
+    #
+    # COMPLETION GATE FIRST (issue #438 review): the whole tri-branch below sits behind the
+    # same $has_result gate every other field passes through. Without it, an aborted run
+    # (no result event) that had streamed a denials array — or a positive count — would
+    # report `present` while every sibling field reports `unavailable`, a divergence from
+    # the helper contract stated above (no result event => EVERY field is unavailable).
+    | (if ($has_result | not) then "unavailable"
+       elif (any($objs[]; has("permission_denials") and (.permission_denials != null)))
        then "present"
        else
          ([ $objs[] | select(has("permission_denials_count")) | .permission_denials_count ]) as $counts
-         | if ($counts | length) == 0 then det($has_result; false)
+         # $has_result is true on this branch, so a no-carrier file is genuinely `absent`.
+         | if ($counts | length) == 0 then "absent"
            else
              ([ $counts[] | (if type == "string" then (tonumber? // null) else numbers end) ]
               | map(select(. != null))) as $nums
