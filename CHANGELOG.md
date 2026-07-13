@@ -4,6 +4,78 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.132] — 2026-07-13
+
+### Fixed
+- **Correct the stale AC6 Stop-hook record and its three now-false pre-merge prose sites.**
+  `docs/execution-file-shape.md`'s AC6 section now records the observed result — **FIRED**,
+  a base-branch `.claude/settings.json` `Stop` hook does execute under `claude-code-action`
+  (run `29224205805`, 2026-07-13) — as a dated one-action-version observation with the
+  pre-merge two-step narrative removed and the security corollary (#458) linked. The
+  now-false "expected on a probe PR / only effective once merged" framing in
+  `scripts/describe-hook-probe.sh`'s did-not-fire arm and the "SHIPS in this PR / must be
+  merged" comment in `.github/workflows/matcher-probe.yml` are rewritten to say that, the
+  hook being on base, an absent marker is an anomaly (pointing at the job-log stderr
+  breadcrumbs); the no-launder warning is preserved verbatim. (#457)
+
+## [2.8.131] — 2026-07-13
+
+### Added
+- **Pinned what the harness actually reports about its execution file — and the answer overturns a
+  long-standing assumption.** Added `scripts/extract-execution-shape.sh`, a best-effort read-only
+  helper that reads a `claude-code-action` execution file and emits a **redacted** shape record —
+  per-field `present`/`absent`/`unavailable` for token `usage`, wall-clock timing, `tool_use`,
+  `subagent_type`, and `permission_denials`, plus the top-level encoding (array/object/jsonl, or `unavailable` when it could not be established) —
+  dropping every string *value* leaf so no prompt text, repository content, or attacker-controlled
+  check-run name can leave a run. Two repo-internal probe jobs in `matcher-probe.yml`
+  (`execfile-shape-probe`, `hook-probe`) feed a real cloud run's execution file through it and probe
+  whether a base-branch `Stop` hook fires under `claude-code-action`.
+- **Observed result (cloud tier): every field is present.** The `execfile-shape-probe` ran and its
+  artifact records `encoding: array` with per-message token `usage`, wall-clock
+  (`duration_ms` / `duration_api_ms` / `ttft_ms`), `tool_use` events, `subagent_type` on `Task`
+  dispatches, and `permission_denials` all **present** — plus cost directly (`costUSD`,
+  `total_cost_usd`, per-model `modelUsage`). Recorded in the new `docs/execution-file-shape.md`.
+- **Observed result (local tier): the transcript's token counts are real.** Added
+  `scripts/stop-hook-probe.sh`, registered as a `Stop` hook in this repo's `.claude/settings.json`,
+  which writes a gitignored breadcrumb recording (a) that the hook fired — the measurement the
+  `hook-probe` job reads to settle whether `.claude/` hooks execute under `claude-code-action` at
+  all — and (b) a four-way `real`/`placeholder`/`absent`/`unavailable` verdict on whether the `Stop`
+  payload's `transcript_path` JSONL carries genuine per-message token counts. Observed: **`real`**
+  (196 `usage` blocks, largest figure 342,272) — not the streaming placeholders it was assumed to
+  hold.
+- **Consequence: the "cost half is unreconstructable" claim in `docs/efficiency-trace.md` was false,
+  and is corrected.** The cloud `execution_file` demonstrably carries the tokens, wall-clock, the
+  subagent dispatch roster, and cost with **zero agent cooperation**; on the local tier the
+  transcript's per-message token counts were observed to be **real** figures, not streaming
+  placeholders (wall-clock and the dispatch roster were not measured there). Either way the claim
+  that the cost half is unreconstructable does not survive, so an agent-independent telemetry floor
+  is buildable. The
+  honest form — now the shipped wording — is that no backstop DevFlow *ships* reconstructs it: a gap
+  in what was built, not a limit of the platform. Two things stay open and are stated as such: the
+  `execution_file` schema is not a public contract (the record is a dated observation of one action
+  version — re-dispatch after upgrades), and realness is not freshness (the transcript may lag, so a
+  `Stop`-time read can miss the final turn).
+- **Scope of runtime change.** No consumer-facing, engine, review-loop, or merge-gate surface is
+  touched, and `extract-execution-shape.sh` is invoked only by the probe workflow and its tests. The
+  one behavior change is repo-internal: this repo's own `.claude/settings.json` gains a third,
+  best-effort `Stop` hook (always exit 0, silent on stdout, writes only under `.devflow/tmp/`), and
+  `.claude/` is not shipped to consumers. (#437)
+
+## [2.8.130] — 2026-07-13
+
+### Added
+- **`stale-prose-lint.py` gains a non-gating R3 recognition-only tier.** A diff-added prose or
+  comment line matching a widened counted-claim shape — a spelled-out numeral word (`two`…`twelve`),
+  up to two intervening modifier words, and a widened noun set (the existing nouns plus plural-only
+  additions like `tags`/`members`/`rows`/`rules`) — that the gating `_COUNT_RE` does not match now
+  emits a single `UNRESOLVABLE` `R3` row whose detail carries the `count-locked` literal the
+  pin-or-don't-write policy keys on. The tier resolves no referent, never emits `STALE`, and never
+  affects the exit code, so it adds no gating surface: it only makes unpinned counted-prose claims
+  self-announce in the fix loop's pre-check and the Phase 0.6 note. The engine skill's Phase 4.2
+  verdict criteria gain a one-sentence clarification that a deterministic Phase 0.6 `STALE` finding
+  participates via its configured severity only and never invokes the self-contradicting-diff
+  carve-out. (#439)
+
 ## [2.8.129] — 2026-07-12
 
 ### Added
