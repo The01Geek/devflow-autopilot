@@ -35,5 +35,28 @@
   ],
   "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 225, "detail": "6037 passed, 0 failed; shellcheck + ruff clean; YAML valid; harden-step bash -n + shellcheck clean; settings.local.json scan + write_stub-symlink + ;/single-quote controls + non-entry wired-check + inline symlink-unlink pins all PASS"},
   "convergence_inputs": {"fixes_applied": 7, "critical_important_code_fixes": 1, "fix_diff_lines_code_only": 18, "new_corroborated_critical_count": 0},
-  "telemetry": {"step_2_6": {"calls": 6, "note": "CT3 convergence-time shadow ran on iter-4 state"}, "step_3_5": {"calls": 1}}
+  "telemetry": {"step_2_6": {"calls": 6, "note": "CT3 convergence-time shadow ran on iter-4 state"}, "step_3_5": {"calls": 1}},
+  "shadow": {
+    "ran_at": "2026-07-13T21:20:00Z",
+    "reviewed_sha": "009407067dc367747884ff5486674cc92a5530ec",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "trigger": "convergence-time (CT4) over the iteration-5 cap state",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "join_1to1": "satisfied — all 5 dispatched reviewers returned an assessment",
+    "comparison": {"shadow_total_new_critical": 0, "shadow_total_new_important": 0, "new_suggestions_minor": 9},
+    "outcome": "Decide outcome 1 — genuine convergence. Full coverage, no new Critical/Important; final-pass APPROVE ready-to-merge, code-reviewer clean, comment-analyzer no documented falsehood, pr-test-analyzer 'Important Improvements: None', silent-failure-hunter no new reachable fail-open. Only Minor/Suggestion/cosmetic + previously-disclosed residuals.",
+    "park_calibration_gate": "clean: no parked finding matched shape 1/2/3 (all parked items are fail-closed-direction or coverage-completeness, none a fail-open guard).",
+    "post_shadow_edit_gate": "HEAD == reviewed_sha (009407067) — shadow reviewed exactly what ships.",
+    "advisory_suggestions_surfaced_not_applied": [
+      "CT4 comment-analyzer: residual-3 uses 'Phase 3.1' where the restore is Phase 3.2 (label inconsistency, substantive claim true); 'base-tracked' descriptor imprecise for the conventionally-gitignored settings.local.json (code handles the untracked case).",
+      "CT4 pr-test-analyzer (Minor 2-3): quoted-path exec-regex control; commented-out EXEC-edge negative control; settings.local.json branch of the git-fixture empty-read decision.",
+      "CT4 silent-failure-hunter (N1): add a breadcrumb symmetric with the failed-printf arm when mkdir fails during trusted-copy materialization (fail-closed, currently silent).",
+      "CT4 final-pass: note slashsh_re within-line over-capture (fail-closed spurious desk-RED) in the walker's Known granularity limits."
+    ],
+    "promoted_to_iter_next": false
+  }
 }
