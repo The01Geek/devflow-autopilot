@@ -29005,9 +29005,11 @@ def run_cfg(rows, comments, cfg):
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     out = json.loads(p.stdout) if p.stdout.strip() else {}
     return p.returncode, out, p.stderr
+_tmp_cfgs = []  # track every temp config so the driver unlinks them (no /tmp accretion)
 def write_cfg(devflow_obj):
     f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
     json.dump({"devflow": devflow_obj}, f); f.close()
+    _tmp_cfgs.append(f.name)
     return f.name
 
 # mla-tamper-end-only: exactly one START but TWO END sentinels -> the guard's END arm
@@ -29060,6 +29062,24 @@ chk("mla-degraded-config breadcrumb names config-get.sh", "yes", "yes" if "confi
 _, out_du, _ = run_cfg([ROW], [adj_comment("trusted-human", "User", ROW)], NOCFG)
 chk("mla-degraded-config allowlist-User NOT trusted (fail-closed)", "0", len(out_du["demoted"]))
 
+# mla-multi-demote (R9 collection-cardinality): TWO distinct honored payloads matching TWO
+# distinct STALE rows in one run -> demoted carries both, sorted by row_index. The comment
+# lists payload(ROW) [input index 1] BEFORE payload(ROW_B) [input index 0], so the pre-sort
+# append order is [1, 0]; asserting [0, 1] proves demoted.sort() actually runs (the multi-
+# entry output path + sort were entirely unexercised by the len-in-{0,1} scenarios above).
+ROW_B = tsv("STALE", "legend-sum", "docs/OTHER.md", 3, "Expected total = 7")
+body_multi = f"{MARKER}\n{S}\n{payload(ROW)}\n{payload(ROW_B)}\n{E}\n"
+_, out_m, _ = run([ROW_B, ROW], [{"author": "devflow-reviewer[bot]", "author_type": "Bot", "body": body_multi}])
+chk("mla-multi-demote both rows demoted", "2", len(out_m["demoted"]))
+chk("mla-multi-demote output sorted by row_index", "[0, 1]", str([d["row_index"] for d in out_m["demoted"]]))
+
+# Clean up every temp config the shape/degraded scenarios created (no /tmp accretion across runs).
+for _c in _tmp_cfgs + [NOCFG]:
+    try:
+        os.unlink(_c)
+    except OSError:
+        pass
+
 for name, expected, actual in checks:
     sys.stdout.write(f"{name}\t{expected}\t{actual}\n")
 PYEOF
@@ -29075,7 +29095,7 @@ MLA_HELPER="$MLA_HELPER_PATH" MLA_CFG="$MLA_CFG_FILE" python3 "$MLA_DRIVER" > "$
 MLA_DRV_RC=$?
 assert_eq "#466 mla driver ran to completion (exit 0 — a crash would silently drop every mla-* check)" "0" "$MLA_DRV_RC"
 [ "$MLA_DRV_RC" -eq 0 ] || printf '    mla driver stderr:\n%s\n' "$(sed 's/^/      /' "$MLA_DRV_ERR")"
-assert_eq "#466 mla driver emitted all 53 named checks (guards against a silent partial run)" "53" \
+assert_eq "#466 mla driver emitted all 55 named checks (guards against a silent partial run)" "55" \
   "$(grep -c . "$MLA_RESULTS")"
 while IFS="$(printf '\t')" read -r _mla_name _mla_exp _mla_act; do
   [ -n "$_mla_name" ] && assert_eq "$_mla_name" "$_mla_exp" "$_mla_act"
@@ -29084,17 +29104,35 @@ rm -f "$MLA_DRIVER" "$MLA_CFG_FILE" "$MLA_RESULTS" "$MLA_DRV_ERR"
 
 # #466 drift-proof: every stats key the helper actually EMITS must be documented in its
 # docstring Output enumeration (the recurrence-proofing for the sentinel_tampered_comments
-# omission that shipped in iter-1 and cost an iter-2 corroborated finding). Mechanized so a
-# future new stat key added without a docstring update turns the desk RED.
-MLA_UNDOC="$(printf '{"rows":[],"comments":[]}' | python3 "$LIB/../scripts/match-lint-adjudications.py" 2>/dev/null | python3 -c '
-import json,sys,re
-emitted=set(json.load(sys.stdin)["stats"].keys())
-doc=open(sys.argv[1],encoding="utf-8").read()
-# the docstring Output block is the module docstring text up to the first def/if at col 0
-doc_head=doc.split("\nimport ",1)[0]
-missing=sorted(k for k in emitted if k not in doc_head)
-print(" ".join(missing))' "$LIB/../scripts/match-lint-adjudications.py")"
-assert_eq "#466 every emitted stats key is documented in the helper docstring Output block" "" "$MLA_UNDOC"
+# omission that shipped in iter-1). NON-VACUITY (this guard derives its comparand through a
+# pipeline, so it MUST assert the input arrived before comparing — else a crashed helper
+# yields empty output and the check passes green while never running; the exact silent-fail
+# class the driver guard above defends against): the single Python below runs the helper,
+# and emits a non-empty `GUARD-BROKEN: …` sentinel (which fails the assert_eq below) if the
+# helper did not exit 0, its stdout is unparseable, its stats are empty, or the docstring's
+# **Output block** (bounded precisely, not substring-anywhere-in-docstring) is absent — so
+# the guard can only pass when it actually ran end to end.
+MLA_UNDOC="$(python3 - "$LIB/../scripts/match-lint-adjudications.py" <<'PYEOF'
+import json, re, subprocess, sys
+helper = sys.argv[1]
+p = subprocess.run([sys.executable, helper], input='{"rows":[],"comments":[]}',
+                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+if p.returncode != 0:
+    print(f"GUARD-BROKEN: helper exit {p.returncode}: {p.stderr.strip()[:120]}"); sys.exit()
+try:
+    stats = json.loads(p.stdout).get("stats")
+except json.JSONDecodeError as e:
+    print(f"GUARD-BROKEN: helper stdout not JSON: {e}"); sys.exit()
+if not isinstance(stats, dict) or not stats:
+    print("GUARD-BROKEN: helper emitted no stats"); sys.exit()
+src = open(helper, encoding="utf-8").read()
+m = re.search(r"Output \(JSON to stdout.*?Exit codes:", src, re.S)  # the Output enumeration block only
+if not m:
+    print("GUARD-BROKEN: docstring Output block not found"); sys.exit()
+print(" ".join(sorted(k for k in stats if k not in m.group(0))))
+PYEOF
+)"
+assert_eq "#466 every emitted stats key is documented in the helper docstring Output block (non-vacuous)" "" "$MLA_UNDOC"
 
 # #466 mla-neutralization (finding A root fix): the Phase 4.1.7 producer contract carries the
 # sentinel-channel neutralization rule so a forged sentinel quoted from diff prose can never
