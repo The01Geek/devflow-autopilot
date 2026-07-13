@@ -10085,6 +10085,9 @@ assert_pin_unique "#446: offer gate prints a one-line withheld-offer reason (nev
 assert_pin_unique "#446: withheld-offer config-unreadable reason is kept distinct from tier-disabled" \
   'use the distinct *config unreadable* reason' "$CI446_SKILL"
 # The unconditional-offer source literal is GONE (absence pin — the exact bytes the issue named).
+# (grep_present is deliberately scoped to 2 known compound MISSING-FILE sites by a meta-guard,
+# so a general absence pin uses the hand-rolled negated grep with a raw-guard-ok marker, matching
+# the sibling #228 absence pin.)
 assert_eq "#446: create-issue removed the unconditional-offer source literal" "yes" \
   "$(! grep -qF '**always** present a yes/no prompt' "$CI446_SKILL" && echo yes || echo no)"  # raw-guard-ok: absence pin — the unconditional-offer literal is GONE (negated grep, not a presence pin)
 # Behavioral-fix pin (assert_pin_red_under): a mutation removing the gate's operative qualifier
