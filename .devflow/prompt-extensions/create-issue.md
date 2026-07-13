@@ -34,3 +34,18 @@ subagent. Judge the draft against each of these, in addition to the generic dime
 - **Shallow-clone safety.** A mechanism that reads git history (ancestor checks, merge-base,
   behind-by counts, `git show <ref>:<path>`) can error or mislead on a shallow clone. Flag any
   draft step whose correctness depends on full history without a fail-closed degraded path.
+- **Authoring-discipline defects (DevFlow specifics, issue #462).** Sharpening the generic
+  authoring-discipline dimension for this repo: (1) a **value-comparison** AC/assertion ungrounded
+  on the type axis — check the cited probe actually exercises the **type-boundary fixture** (a JSON
+  string `"true"` vs. a boolean `true`, the exact #446 shape), not merely that the resolver prints
+  strings; (2) a Testing-Strategy **case matrix** for a best-effort parser / config consumer that
+  narrows below **CLAUDE.md's six-shape adversarial matrix** (`{object, array, scalar, valid-falsy,
+  missing, wrong-type}`) without an explicit named-and-justified narrowing — independently re-run
+  the bounded search behind any `governing conventions consulted:` line and flag a governing matrix
+  at a path the line omits; (3) an **unstated mechanism dependency** resting on a
+  **preflight-guaranteed helper contract** (only `git`/`gh`/`jq`/`python3`/PyYAML are guaranteed; a
+  resolver's output shape, a gate's exit-code semantics) that the body never asserts as a claim; and
+  (4) an **execution-shaped obligation AC** whose discharge runs an in-repo command — confirm it
+  names a command already granted in **`devflow_implement.allowed_tools`** (or is a code-reading
+  obligation citing the producer), never one that would send a consumer's cloud implement run
+  Blocked on an ungranted helper.
