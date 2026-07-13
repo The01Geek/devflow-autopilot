@@ -33,7 +33,6 @@
 # unchanged, so a skip never fails the suite.
 devflow_render_test_summary() {
   local pass="$1" fail="$2" skip="${3:-0}" skips_file="${4:-}" tab kind name reason
-  skip="${skip:-0}"
   if [ "$skip" -eq 0 ]; then
     printf '%s passed, %s failed\n' "$pass" "$fail"
     return 0

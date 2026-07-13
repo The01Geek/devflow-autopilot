@@ -38,6 +38,9 @@ trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE"' EXIT   # protect RESULTS_FILE/SKIPS_F
 #   terminal summary re-lists it) and prints the NOTE inline at the skip site. Increments
 #   neither PASS nor FAIL — a skip is not a pass and not a failure.
 skip() {  # name kind reason
+  # Stored KIND-first (kind<TAB>name<TAB>reason) — the order devflow_render_test_summary reads
+  # back — even though the call signature is name-first; the two sides are pinned by the #456
+  # renderer tests.
   printf '%s\t%s\t%s\n' "$2" "$1" "$3" >> "$SKIPS_FILE"
   printf '  NOTE  %s skipped [%s] — %s\n' "$1" "$2" "$3"
 }
