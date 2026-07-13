@@ -35,9 +35,12 @@
 #   scripts/config-get.sh       -> (leaf: inline python3 -c, git, no repo files)
 #   scripts/config_fingerprint.py -> (leaf: stdlib only)
 #   scripts/workpad.py          -> (leaf: git/gh subprocesses only, no repo files)
-# lib/test/run.sh walks these edges transitively and turns RED if a future added
-# source/exec pulls in a repo file that is NOT in HOOK_TARGETS — so the closure can
-# never silently fall behind the code. Residual (NOT hardened, by design): the jq
+# lib/test/run.sh's drift-guard (the shared walker scripts/detect-hook-closure-edges.py)
+# walks these edges transitively and turns RED if a future added source/exec pulls in a
+# repo file that is NOT in HOOK_TARGETS — including a COMMAND-POSITION source edge such as
+# a negation-guarded `if ! . "$dep"` or a brace-grouped `{ . "$dep"; }` (a positive-control
+# test asserts each such form is reported) — so the closure can never silently fall behind
+# the code. Residual (NOT hardened, by design): the jq
 # PROGRAM lib/efficiency-trace.jq, fed to jq via `-f`. jq is sandboxed — it cannot
 # spawn a shell, exec, or write outside its stdout — so a PR-head `.jq` is not a
 # shell/RCE vector (and the review job is read-only, so it cannot push tampered
@@ -188,13 +191,16 @@ for t in $HOOK_TARGETS; do
   if try_install_trusted "$t"; then
     continue
   fi
-  if write_stub "$t"; then
-    # A sourced library with no trusted copy must not be left as a bare `exit 0` that a
-    # base entry would source mid-run: neutralize the entries so it is never sourced.
-    _is_sourced_target "$t" && neutralize_entries=1
-  else
-    displacement_failed=1
-  fi
+  # No trusted copy of this dependency is available. If it is a SOURCED library, a base
+  # ENTRY that sources it mid-run must be neutralized — and that decision is made HERE,
+  # BEFORE the stub write is attempted, INDEPENDENT of whether the stub write then
+  # succeeds. Otherwise a sourced-lib whose own stub write FAILS (unwritable dest, so the
+  # PR-head copy MAY REMAIN) would leave `neutralize_entries` unset, and Pass 2 could
+  # install a trusted ENTRY that then sources the surviving PR-head library. (Nets out
+  # safe today because a failed stub also sets `displacement_failed` → exit 1 → the
+  # workflow's fail-closed arm, but the helper itself must be correct in isolation.)
+  _is_sourced_target "$t" && neutralize_entries=1
+  write_stub "$t" || displacement_failed=1
 done
 
 # ── Pass 2: entry hooks. ─────────────────────────────────────────────────────────

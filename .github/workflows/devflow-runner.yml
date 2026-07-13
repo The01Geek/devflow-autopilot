@@ -784,12 +784,29 @@ jobs:
             # trusted workflow shell, read from the base/default branch under
             # pull_request_target), so a PR-head hook script is never executed even
             # when the helper cannot be resolved OR cannot execute.
+            #
+            # This is the LAST-RESORT arm of a security floor: if the stub WRITE itself
+            # fails (a wholly-unwritable dest — the case the helper's non-zero exit
+            # escalates here), the PR-head hook script REMAINS. Merely warning and
+            # exiting 0 would let `Run Claude Code` proceed with that PR-controlled hook
+            # INTACT in this secrets-bearing job — the exact fail-OPEN this floor exists
+            # to prevent. So on ANY target we could not stub, FAIL THE STEP after the
+            # loop: a failed job never reaches `Run Claude Code`, so no hook fires.
+            stub_failed=0
             for t in $TARGETS; do
               d="$ROOT/$t"
               mkdir -p "${d%/*}" 2>/dev/null || true
-              printf '#!/usr/bin/env bash\nexit 0\n' > "$d" 2>/dev/null \
-                && chmod +x "$d" 2>/dev/null || echo "::warning::harden-stop-hooks: could not stub '$t' (unwritable); inspect the runner."
+              if printf '#!/usr/bin/env bash\nexit 0\n' > "$d" 2>/dev/null; then
+                chmod +x "$d" 2>/dev/null || true
+              else
+                stub_failed=1
+                echo "::warning::harden-stop-hooks: could not stub '$t' (wholly unwritable); the PR-head copy MAY REMAIN — the step will fail closed below."
+              fi
             done
+            if [ "$stub_failed" -eq 1 ]; then
+              echo "::error::harden-stop-hooks: one or more Stop-hook targets could NOT be stubbed (wholly unwritable path); the PR-head copy MAY REMAIN. Failing the job BEFORE Run Claude Code so no PR-controlled Stop hook fires in this secrets-bearing review — inspect the runner."
+              exit 1
+            fi
           fi
 
       - name: Run Claude Code
