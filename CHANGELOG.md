@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.134] — 2026-07-13
+
+### Added
+- **`/devflow:create-issue`: three authoring-discipline rules that prevent defect classes at drafting time instead of at review time.** (1) A value-comparison AC or Testing-Strategy assertion must state its comparison in the producing surface's observed-output terms, grounded by a boundary-covering drafting-time probe or a named implementer obligation — adjective-only ("explicit/exactly `true`") or probe-silent-on-the-type-axis language is non-conforming. (2) A Testing Strategy that enumerates an input-shape/case matrix for a convention-governed surface must carry the full convention matrix (or an explicit named-and-justified narrowing) plus a bounded `governing conventions consulted:` discharge record the Step 3.6 auditor independently re-runs. (3) Step 3.5's steelman gains a mandatory sweep of the draft's own unstated in-repo mechanism dependencies (helper exit codes, resolver output shapes, gate semantics), each resolved with a cited probe or an implementer-obligation AC, with a content-bearing zero arm. Obligation arms for rules 1 and 3 carry an execution-tier constraint so they can never send a consumer's cloud implement run Blocked; the three classes consolidate into one generic Step 3.6 audit dimension and one DevFlow-specific prompt-extension sharpening, under a stated finding-cap growth policy. (#462)
+
 ## [2.8.133] — 2026-07-13
 
 ### Changed
