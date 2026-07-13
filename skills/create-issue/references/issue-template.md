@@ -151,6 +151,20 @@ third-party mention** (named in passing, not load-bearing for the Desired Behavi
 the Approach) — stay light and trigger no verification, so drafting is never blocked in a
 data-less authoring context.
 
+**Unstated mechanism dependencies are a premise class too.** The verification above attaches
+to premises the issue **states as fact**. But a designed mechanism can *rely on* an in-repo
+behavior — a helper's exit code, a resolver's output shape, a gate's semantics — that the body
+never asserts as a claim, so the claim-driven loop has nothing to verify (issue #446's
+config-unreadable arm rested on `config-get.sh`'s malformed-input non-zero exit without ever
+asserting it as a claim). Enumerate the draft's **own mechanism dependencies** — the in-repo
+behaviors the designed mechanism relies on but never states — and resolve each with a **cited
+probe** (a "Verified:" bullet citing observed output) or an **implementer-obligation AC** (subject
+to the obligation-arm execution-tier constraint in the Acceptance Criteria guidance above: a
+command already granted in `devflow_implement.allowed_tools`, or a code-reading obligation citing
+the producer — never an ungranted-helper run). This is the **in-repo sibling of the
+relied-on-third-party-behavior class** above — same discipline, extended to unstated in-repo
+reliances; it adds no duplicate premise class.
+
 This same discipline runs **twice**: here at drafting time, and again in the calling
 skill's Step 3.5 self-steelman, which re-applies it to the *assembled* draft (fresh
 targeted reads/greps against the code, never ambient context) before the user sees it.
@@ -185,6 +199,30 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   discipline at draft time — a polished, comprehensive-looking list earns the same scrutiny a
   terse story gets.
 - Specific and implementable — a developer knows exactly when it's met.
+- **A value-comparison AC states its comparison in the producing surface's observed-output
+  terms — in the AC's own language.** When an AC (or a Testing-Strategy assertion) compares a
+  produced value against a literal, phrase the comparison in the terms the producing surface
+  actually emits, grounded one of two decided ways. **(a) The verified arm** — a drafting-time
+  probe cited in the issue; the cited probe must exercise the **boundary fixtures the
+  comparison distinguishes** (for a type-sensitive comparison, the type-boundary fixture — a
+  JSON string `"true"` vs. a boolean `true`), and a probe **silent on the distinguishing axis
+  does not ground the verified arm**. **(b) The obligation arm** — a named implementer
+  obligation stating the **decided semantics** or the **exact fixture-and-observed-output
+  command** the implementer runs, never a bare "establish the semantics." Before taking the
+  obligation arm for a *probeable* fact, a drafter whose direct helper probe is classifier-denied
+  first attempts the documented local-tier fallback probe forms (`python3 <path>` / `jq`); only
+  when those are also unavailable is the obligation arm legal for that fact. When the axis is a
+  specification *choice* rather than a probeable fact, it is **not** an obligation — it is a Step
+  2 decision fork resolved with the user (Blocked on disengagement). **Adjective-only comparison
+  language** ("explicit `true`", "reads as exactly `true`") without that grounding is
+  **non-conforming** — including the shape where a probe is present in the issue but **silent on
+  the axis** the AC's language gestures at (the named #446 defect). **Obligation arms are
+  implement-tier verification commands (this governs this value-comparison AC and the Step 3.5
+  unstated-mechanism-dependency hunt alike):** an obligation whose discharge requires *executing* an in-repo command must name a
+  command already granted on the consuming tier (the repo's declared test/lint commands in
+  `devflow_implement.allowed_tools`) or be phrased as a **code-reading obligation citing the
+  producer code** — never a run-this-ungranted-helper AC that would send a consumer repo's cloud
+  `/devflow:implement` run Blocked for a probe the drafter could have run locally.
 - No conditionals tied to an undecided fork ("if links are public…"). A conditional AC
   means the fork is unresolved — it belongs in Blocked, not here.
 - Edge cases and error-handling scenarios, stated as concrete expected behavior.
@@ -236,6 +274,28 @@ Describe the **one** approach the user chose — not a comparison of candidates.
     query count), not a brittle wall-clock number.
   - **Security / authorization** — ownership and tenant isolation, and that secrets or other
     tenants' data are never exposed, whenever the change touches an access boundary.
+
+  **Move 2a — Reconcile an enumerated case matrix against governing conventions.** *This
+  applies only when the Testing Strategy enumerates an input-shape or case matrix* for a
+  surface (a parser, a config consumer, a best-effort input handler) — a matrix-free Testing
+  Strategy imposes nothing here, so a convention-free repo's issues carry at most one bounded-search
+  line and only when they enumerate a matrix. When it *does* enumerate one, and a repo-published
+  convention already governs that surface's matrix, the issue either enumerates the **full
+  convention matrix** or states the **narrowing explicitly with its justification** — a silently
+  narrower list must never override the convention. Such a Testing Strategy (only this class of
+  issue) carries a one-line **discharge record**:
+
+  > `governing conventions consulted: <sources cited by path, or "none found; searched <the bounded list>">`
+
+  The search is **bounded to a named list** — `CLAUDE.md`, `CONTRIBUTING.md`, and testing
+  guidance under the repo's configured internal-docs path — with the **consumer prompt extension**
+  as the override point naming where that repo's conventions actually live; cite sources by path
+  when found. The record is a **claim to verify, not an attestation to accept**: the Step 3.6
+  auditor independently re-runs the bounded search and its flag condition is **defined** — it
+  fires when the auditor finds a governing matrix at a path the line omits, never on a judgment
+  disagreement about what counts as governing. (On a runner where Step 3.6 takes its degraded
+  inline arm, the verify-not-attest property does not hold — the record is attestation-only there,
+  which the mandatory "degraded" audit-summary marker already signals.)
 
   **Move 3 — Commit to named assertions.**
   - **Every AC maps to at least one named assertion, and every assertion maps back to an
@@ -317,6 +377,9 @@ incomplete issues.
 - [ ] Load-bearing Technical Context premises (data-source/model, coverage/population, "already-done", relied-on third-party behavior) are verified — not just file paths; relied-on third-party behavior is checked against official docs via the WebFetch → WebSearch → ask-the-user ladder with the source recorded — or, when unverifiable, becomes a `## 🚫 Blocked` vendor-behavior question (or a flagged assumption citing an in-repo example)
 - [ ] For a user-visible UI change, the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec (screenshot preferred, verbal verification an accepted substitute); non-UI issues omit the section entirely
 - [ ] Acceptance criteria are measurable, testable, and unconditional
+- [ ] Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms, grounded by a boundary-covering probe (exercising the type-boundary fixture the comparison distinguishes) or a named implementer obligation carrying its execution-tier constraint — adjective-only or probe-silent-on-the-axis comparison language is non-conforming
+- [ ] A Testing Strategy that enumerates an input-shape/case matrix for a convention-governed surface carries the full convention matrix (or an explicit named-and-justified narrowing) and a `governing conventions consulted:` discharge line bounded to `CLAUDE.md`, `CONTRIBUTING.md`, and the configured internal-docs path
+- [ ] The draft's own unstated mechanism dependencies (relied-on in-repo helper/resolver/gate behaviors it never asserts as claims) are each resolved with a cited probe or an implementer-obligation AC
 - [ ] Implementation notes describe a single chosen approach
 - [ ] Testing Strategy classifies the boundary + level, walks the coverage dimensions (boundary/error/adversarial/state/scale/security as they apply), and gives test-first assertions with every AC mapped to ≥1 assertion and no orphan assertions — bug fixes reproduce the defect first; guarantee-class changes test the skipped-step path; or it names a reproducible stand-in verification when no automated test applies
 - [ ] **No-options gate passed**: no choice/hedge/deferral language outside `## 🚫 Blocked`
