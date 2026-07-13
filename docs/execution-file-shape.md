@@ -125,7 +125,7 @@ registered in `.claude/settings.json` (an unregistered hook observes nothing at 
 **Observed: `real` — the local transcript carries GENUINE per-message token counts.**
 
 Established by running the shipped `scripts/stop-hook-probe.sh` against a real local Claude
-Code transcript (2026-07-12, Claude Code with `CLAUDE_CONFIG_DIR=~/.claude-3`):
+Code transcript (2026-07-12, a real local Claude Code session):
 
 ```json
 { "fired": true, "token_shape": "real", "usage_blocks": 196,

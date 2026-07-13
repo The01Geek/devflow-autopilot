@@ -64,16 +64,28 @@ else
   echo "devflow stop-hook-probe: jq ('$DEVFLOW_JQ') is not runnable (set DEVFLOW_JQ to override) — the payload and transcript cannot be read; token_shape will be recorded 'unavailable'" >&2
 fi
 
-# Repo root: prefer the payload's `cwd`, else the git toplevel, else $PWD — matching
-# the repo-root-anchoring contract so a hook fired from a subdirectory still writes the
-# breadcrumb where the workflow job looks for it.
+# Repo root (the #295 repo-root-anchoring contract): resolve the git TOPLEVEL from the
+# payload's `cwd` (so a hook fired from a repo subdirectory still writes the breadcrumb
+# at the root, where the hook-probe job and the tests look for it), falling back to the
+# cwd itself when it is not inside a git repo, then to the toplevel of $PWD, then $PWD.
+# (PR #438 review: the earlier form trusted the payload cwd verbatim, so a subdirectory
+# session wrote the marker off-root — a firing that read as a permanent 'did not fire'.)
+#
+# stdin is read with `cat` — a non-preflight PATH tool, permitted here because its
+# failure is fail-CLOSED to unknown: a missing/broken `cat` yields an empty PAYLOAD,
+# every payload-derived value degrades to 'unavailable' (never a wrong selection), and
+# the marker still lands at the git toplevel of $PWD.
 PAYLOAD="$(cat 2>/dev/null || true)"
 
-_root=""
+_cwd=""
 if [ -n "$PAYLOAD" ]; then
-  _root="$("$DEVFLOW_JQ" -r 'if (.cwd | type) == "string" and (.cwd | length) > 0 then .cwd else empty end' <<<"$PAYLOAD" 2>/dev/null || true)"
+  _cwd="$("$DEVFLOW_JQ" -r 'if (.cwd | type) == "string" and (.cwd | length) > 0 then .cwd else empty end' <<<"$PAYLOAD" 2>/dev/null || true)"
 fi
-[ -n "$_root" ] && [ -d "$_root" ] || _root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -n "$_cwd" ] && [ -d "$_cwd" ]; then
+  _root="$(git -C "$_cwd" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$_cwd")"
+else
+  _root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+fi
 
 MARKER_DIR="$_root/.devflow/tmp"
 MARKER="$MARKER_DIR/stop-hook-probe-fired"

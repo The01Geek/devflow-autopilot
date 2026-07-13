@@ -103,13 +103,17 @@ _emit_unavailable() {
   printf 'subagent_type: unavailable\n'
   printf 'permission_denials: unavailable\n'
   printf '\n## Structural key-paths (redacted; string leaves shown as type only)\n'
-  printf '_(none — execution file %s)_\n' "$1"
+  # The reason is interpolated bare — never behind an "execution file ..." prefix — so a
+  # jq-side degradation is not grammatically blamed on the file in the emitted RECORD
+  # (the artifact a future reader consults), matching the stderr attribution (PR #438
+  # review); file-side reasons name the file themselves.
+  printf '_(none — %s)_\n' "$1"
   exit 0
 }
 
 FILE="${1:-}"
 if [ -z "$FILE" ] || [ ! -f "$FILE" ] || [ ! -s "$FILE" ]; then
-  _emit_unavailable "absent or empty ('$FILE')"
+  _emit_unavailable "execution file absent or empty ('$FILE')"
 fi
 
 # --- Encoding detection (AC5). Derive with the preflight-guaranteed jq + bash
@@ -230,8 +234,16 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
     # (no result event) that had streamed a denials array — or a positive count — would
     # report `present` while every sibling field reports `unavailable`, a divergence from
     # the helper contract stated above (no result event => EVERY field is unavailable).
+    # The array carrier honors the valid-falsy rule like the count carrier (PR #438
+    # review): an EMPTY permission_denials array is the natural shape of a completed
+    # zero-denial run, so it is genuinely `absent` (refused nothing) — reading it as
+    # `present` would have the two carriers disagree on the same real-world event
+    # (count 0 => absent, [] => present). Only a NON-EMPTY array (or a non-array,
+    # non-null value — an unknown future carrier shape, kept as a presence signal
+    # rather than silently dropped) asserts presence.
     | (if ($has_result | not) then "unavailable"
-       elif (any($objs[]; has("permission_denials") and (.permission_denials != null)))
+       elif (any($objs[]; has("permission_denials") and (.permission_denials != null)
+                 and (if (.permission_denials | type) == "array" then (.permission_denials | length) > 0 else true end)))
        then "present"
        else
          ([ $objs[] | select(has("permission_denials_count")) | .permission_denials_count ]) as $counts

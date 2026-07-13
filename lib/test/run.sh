@@ -27682,7 +27682,12 @@ assert_eq "#437 exec-shape(malformed): encoding unavailable" "yes" \
 # section was silently dropped" — the same unknown-vs-zero collapse the field lines avoid — and
 # the placeholder is emitted bytes, so it must be asserted rather than assumed.
 assert_eq "#437 exec-shape(degrade): the structural section carries the '_(none — ...)_' placeholder" "yes" \
-  "$(printf '%s' "$EES_MAL" | grep -qF '_(none — execution file' && echo yes || echo no)"
+  "$(printf '%s' "$EES_MAL" | grep -qF '_(none — ' && echo yes || echo no)"
+# ...and the placeholder's reason is interpolated BARE (no 'execution file' prefix baked
+# into the template), so a jq-side degradation is not grammatically blamed on the file in
+# the emitted record (PR #438 review) — the jq-unrunnable arm's placeholder names jq:
+assert_eq "#438 exec-shape(degrade): the jq-unrunnable placeholder attributes jq, not the file" "yes" \
+  "$(DEVFLOW_JQ="$EES_TMP/definitely-not-a-jq" bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qF '_(none — jq (' && echo yes || echo no)"
 
 # The always-exit-0 best-effort contract is asserted on the empty/malformed/scalar arms, but was
 # unasserted on the three fixtures that degrade WITHOUT being unparseable. The helper runs inside
@@ -27806,6 +27811,11 @@ assert_eq "#437 exec-shape(denials): a present-but-unparseable count is 'unavail
 # 'unavailable' — pinned so a refactor cannot silently flip it to 'absent' or 'present'.
 assert_eq "#438 exec-shape(denials): an explicit-null count is 'unavailable', NOT 'absent'" "yes" \
   "$(bash "$EES" "$EES_FIX/exec-shape-denials-countnull.json" 2>/dev/null | grep -qxF 'permission_denials: unavailable' && echo yes || echo no)"
+# Valid-falsy on the ARRAY carrier (#438 review): an EMPTY permission_denials array is the
+# natural shape of a completed zero-denial run — genuinely 'absent' (refused nothing), so
+# the two carriers agree on the same real-world event (count 0 => absent, [] => absent).
+assert_eq "#438 exec-shape(denials): an EMPTY denials array is 'absent', not 'present' (carrier agreement)" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-emptyarray.json" 2>/dev/null | grep -qxF 'permission_denials: absent' && echo yes || echo no)"
 
 # STATED LIMITATION (pinned so it stays known, not surprising): a single-event JSONL file is
 # byte-identical to a single top-level object, so it records `encoding: object`. Field
@@ -28201,6 +28211,31 @@ assert_eq "#438 stop-hook: empty-string transcript_path classifies 'unavailable'
   "$(jq -r '.token_shape' "$(_shp_marker "$SHP_ETP")")"
 assert_eq "#438 stop-hook: empty-string transcript_path reports transcript_path_present=false" "false" \
   "$(jq -r '.transcript_path_present' "$(_shp_marker "$SHP_ETP")")"
+
+# (14) SUBDIRECTORY cwd resolves to the git TOPLEVEL (#438 review — the #295 repo-root
+#      contract): a session launched from a repo subdirectory delivers cwd=<subdir>; the
+#      marker must land at the repo ROOT (where the hook-probe job and this suite look),
+#      never at <subdir>/.devflow/tmp — the off-root write that read as a permanent
+#      'did not fire'.
+SHP_SUB="$SHP_TMP/subcwd"; mkdir -p "$SHP_SUB/inner/deeper"
+git -C "$SHP_SUB" init -q 2>/dev/null
+printf '%s\n' '{"type":"assistant","message":{"usage":{"input_tokens":1200,"output_tokens":345}}}' > "$SHP_SUB/t.jsonl"
+_shp_payload "$SHP_SUB/inner/deeper" "$SHP_SUB/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#438 stop-hook(subdir-cwd): marker lands at the git toplevel, not the subdirectory" "yes" \
+  "$([ -f "$(_shp_marker "$SHP_SUB")" ] && echo yes || echo no)"
+assert_eq "#438 stop-hook(subdir-cwd): no off-root marker is written under the subdirectory" "yes" \
+  "$([ -e "$SHP_SUB/inner/deeper/.devflow" ] && echo no || echo yes)"
+# ...and the toplevel-anchored marker still carries the real classification (the
+# transcript was read normally; only the marker LOCATION was at stake).
+assert_eq "#438 stop-hook(subdir-cwd): the toplevel marker carries the classified shape" "real" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_SUB")")"
+
+# (15) transcript_path pointing at a DIRECTORY: [ -r ] passes, the jq parse fails, and the
+#      verdict must degrade to 'unavailable' (previously reached only by accident).
+SHP_DIR="$SHP_TMP/dirtrans"; mkdir -p "$SHP_DIR/t.jsonl"
+_shp_payload "$SHP_DIR" "$SHP_DIR/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#438 stop-hook: a directory-valued transcript_path classifies 'unavailable'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_DIR")")"
 rm -rf "$SHP_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -28227,6 +28262,18 @@ assert_eq "#438 describe-hook-probe: did-not-fire arm never claims FIRED" "yes" 
   "$(printf '%s' "$DHP_ABSENT" | grep -qF '**FIRED**' && echo no || echo yes)"
 bash "$DHP" >/dev/null 2>&1
 assert_eq "#438 describe-hook-probe: no-argument invocation exits 0 (best-effort renderer)" "0" "$?"
+# The no-arg contract is 'breadcrumbs to stderr and renders NOTHING' — assert both halves,
+# or a regression that rendered the did-not-fire arm on a missing argument would pass.
+assert_eq "#438 describe-hook-probe: no-argument invocation renders nothing on stdout" "" \
+  "$(bash "$DHP" 2>/dev/null)"
+assert_eq "#438 describe-hook-probe: no-argument invocation leaves the stderr breadcrumb" "yes" \
+  "$(bash "$DHP" 2>&1 >/dev/null | grep -qF 'no marker path argument' && echo yes || echo no)"
+# The committed evidence record's 'unedited helper output' claim stays coupled to the
+# emitter: the structural-section heading literal must match on both sides (#438 review).
+assert_eq "#438 exec-shape: observed.txt carries the emitter's structural-section heading verbatim" "yes" \
+  "$(grep -qxF '## Structural key-paths (redacted; string leaves shown as type only)' "$REPO_ROOT/docs/execution-file-shape.observed.txt" \
+     && grep -qF '## Structural key-paths (redacted; string leaves shown as type only)' "$REPO_ROOT/scripts/extract-execution-shape.sh" \
+     && echo yes || echo no)"
 # The workflow must actually route through the helper (the extraction is only coverage if
 # the inline selector is gone), and the coupled marker literal stays a workflow CODE line.
 # Pin the INVOCATION code line, not the helper's bare name — the workflow also names the

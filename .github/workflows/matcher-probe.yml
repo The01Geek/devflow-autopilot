@@ -612,6 +612,10 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
+          # cwd assumption, explicit (PR #438 review): this reads the marker at the
+          # WORKSPACE ROOT. The hook resolves the git toplevel from the Stop payload cwd,
+          # and this job runs Claude from the checkout root, so the two coincide; a future
+          # action variant running Claude from a different tree must revisit this read.
           MARKER=".devflow/tmp/stop-hook-probe-fired"
           # Branch selection + user-facing wording live in the suite-drivable helper
           # (scripts/describe-hook-probe.sh) per the repo's extract-branch-selecting-

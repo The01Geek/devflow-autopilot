@@ -15,7 +15,7 @@
           },
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}\"/scripts/stop-hook-probe.sh || echo \"devflow stop-hook-probe: launch failed (CLAUDE_PROJECT_DIR='${CLAUDE_PROJECT_DIR:-}')\" >&2",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}\"/scripts/stop-hook-probe.sh || echo \"devflow stop-hook-probe: exited rc=$? (the script promises exit 0, so this is a launch/path or hard-crash problem; CLAUDE_PROJECT_DIR='${CLAUDE_PROJECT_DIR:-}')\" >&2",
             "timeout": 15
           }
         ]
