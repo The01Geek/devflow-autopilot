@@ -260,7 +260,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           python3 - <<'PY'
           import json, os
 
@@ -791,7 +791,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           # Verdict derivation is extracted into a unit-tested helper (issue #415
           # review, finding #1) so lib/test/run.sh can drive every arm + the
           # fail-open matrix; see scripts/schedulewakeup-probe-verdict.py.
@@ -876,7 +876,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           mkdir -p artifact
           # scripts/extract-execution-shape.sh is a repo-root helper; this is a plain
           # workflow run step (NOT a claude-code-action allowlisted context), so a
@@ -941,7 +941,7 @@ jobs:
       - name: Record Stop-hook firing observation
         if: always()
         run: |
-          set -uo pipefail
+          set -euo pipefail
           # cwd assumption, explicit (PR #438 review): this reads the marker at the
           # WORKSPACE ROOT. The hook resolves the git toplevel from the Stop payload cwd,
           # and this job runs Claude from the checkout root, so the two coincide; a future

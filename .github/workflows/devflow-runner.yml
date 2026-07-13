@@ -713,6 +713,18 @@ jobs:
           # is a trusted source for the helper; committed/self copies are PR-head.
           VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
         run: |
+          # errexit OFF, EXPLICITLY (PR #461; live failure: Actions run 29285485078).
+          # GitHub's default `run:` shell is `bash -e {0}`, so errexit arrives ON even
+          # though this step declares only `set -uo pipefail`. The step is authored for
+          # explicit rc handling — every failure path is an rc-checked arm ending in a
+          # fail-closed stub, a warning, or `exit 1` — and expected-non-zero commands
+          # run OUTSIDE condition position (e.g. the compound `git show` read below of a
+          # .claude/settings.local.json that is absent at the base ref, git rc 128).
+          # Under inherited errexit the first such command aborts the whole step BEFORE
+          # any fail-closed arm can run. `set +e` makes the declared option set the real
+          # one; the #460-errexit suite block executes this step under `bash -e` and
+          # goes RED if this line is dropped.
+          set +e
           set -uo pipefail
           # COUPLED mirror of scripts/harden-stop-hooks.sh's HOOK_TARGETS — the FULL
           # transitive source/exec closure of the three .claude/settings.json Stop-hook
@@ -984,7 +996,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           # Parse is_error from claude-code-action's execution log via the
           # extracted, unit-tested helper (lib/test/run.sh) rather than an inline
           # jq, so the array/object/fail-safe branches are actually verified.
@@ -1032,7 +1044,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           CG=.devflow/vendor/devflow/scripts/config-get.sh
           [ -f "$CG" ] || CG=scripts/config-get.sh
           # `|| true` so config-get's hard-fail exit (malformed config.json / missing
@@ -1089,7 +1101,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           OUT="$RUNNER_TEMP/claude-execution-scrubbed.json"
           if [ ! -f "$EXECUTION_FILE" ]; then
             echo "::notice::execution file absent; no transcript to preserve."
