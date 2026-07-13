@@ -98,7 +98,7 @@ rm -f "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/implemen
 
 ### Workpad section template
 
-The workpad comment body MUST start with the marker line on its own line, followed by these sections (omit `Reproduction` when the issue is not labelled `bug`):
+The workpad comment body MUST start with the marker line on its own line, followed by these sections (omit `Reproduction` when the recorded classification is non-bug):
 
 The always-visible region (marker line, header, `Status`, links, `## Progress`, `## Plan`, `## Acceptance Criteria`) stays uncollapsed so the comment is scannable at a glance. Append-only notes (`--note`) nest under their lifecycle phase *inside* `## Progress` — there is no separate Decisions / Notes section. Only `## Devflow Reflection` is wrapped in a `<details>` block so its accumulating bullets don't push the rest of the comment out of view. **Keep `## Acceptance Criteria` outside any `<details>`** — the Phase 3.4 gate reads it.
 
@@ -132,7 +132,7 @@ The always-visible region (marker line, header, `Status`, links, `## Progress`, 
 - [ ] {criterion mirrored from issue body}
 
 ## Reproduction
-{captured signal — failing test, error log, or repro command. Section only present for `bug`-labelled issues.}
+{captured signal — failing test, error log, or repro command. Section only present when the recorded classification is bug-report.}
 
 ## Devflow Reflection
 <details>
@@ -236,7 +236,7 @@ Orientation only (the phase file is authoritative): fetch the issue and parse it
 
 **Entry-gate (mandatory, on every entry):** before any Phase 2 action, `Read` `<skill-dir>/phases/phase-2-implement.md` and follow it exactly; re-read it each time you (re-)enter this phase, never relying on an earlier read. If `<skill-dir>` is empty or an unsubstituted placeholder (neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory resolves) or the read fails, halt Phase 2 with an attributable breadcrumb — do not improvise this phase from the stub.
 
-Orientation only (the phase file is authoritative): explore the codebase; reproduce first for `bug`-labelled issues; assess complexity and write the plan (using the architect for complex work); implement against the plan while running the mandatory code sweeps; test; and commit.
+Orientation only (the phase file is authoritative): explore the codebase; reproduce first when the recorded classification is bug-report; assess complexity and write the plan (using the architect for complex work); implement against the plan while running the mandatory code sweeps; test; and commit.
 
 ---
 

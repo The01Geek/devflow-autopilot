@@ -2761,6 +2761,18 @@ assert_eq "#449: retired 'only for bug-labelled issues' gate heading is gone (ws
   "0" "$(printf '%s' "$IMPL_NORM_449" | grep -oF -- 'only for `bug`-labelled issues' | grep -c .)"
 assert_eq "#449: retired 'labels do include bug, you must capture' gate condition is gone (ws-normalized)" \
   "0" "$(printf '%s' "$IMPL_NORM_449" | grep -oF -- 'include `bug`, you must capture' | grep -c .)"
+# SKILL.md reproduce-gate mirror sites also drifted (skeleton Reproduction note + orientation
+# summary). A bare "`bug`-labelled" pin is WRONG here: that generic token legitimately appears
+# in the new Phase 1.1 classification prose ("a `bug`-labelled issue whose content …"), where
+# the label is (correctly) one input signal. Pin the specific retired *reproduce-gate*
+# phrasings absent instead, so a reintroduced label-keyed reproduce trigger turns the suite RED
+# without false-firing on the classification instructions' legitimate mention of the label.
+assert_eq "#449: retired 'reproduce first for bug-labelled issues' orientation phrasing is gone (ws-normalized)" \
+  "0" "$(printf '%s' "$IMPL_NORM_449" | grep -oF -- 'reproduce first for `bug`-labelled issues' | grep -c .)"
+assert_eq "#449: retired 'only present for bug-labelled issues' Reproduction-section phrasing is gone (ws-normalized)" \
+  "0" "$(printf '%s' "$IMPL_NORM_449" | grep -oF -- 'only present for `bug`-labelled issues' | grep -c .)"
+assert_eq "#449: retired 'not labelled \`bug\`' Reproduction-omit phrasing is gone (ws-normalized)" \
+  "0" "$(printf '%s' "$IMPL_NORM_449" | grep -oF -- 'not labelled `bug`' | grep -c .)"
 
 # ── issue #443: the mandatory Step 3.6 fresh-context audit in /devflow:create-issue ──
 # The deliverable is agent-executed skill prose plus one tracked extension file; no runtime

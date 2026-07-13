@@ -1811,6 +1811,34 @@ assert_raises("record-classification: empty rationale raises", workpad._UpdateEr
 assert_raises("record-classification: unknown class raises", workpad._UpdateError,
               lambda: apply_mut(_WP_NONBUG, make_args(
                   record_classification=['maybe-bug', 'rationale'])))
+# A multi-line rationale is its own fail-closed guard arm (distinct from empty/unknown):
+# a line boundary would split the note bullet and could inject a forged checkbox row, so it
+# raises structurally before any PATCH — the same bullet-splitting hazard --rewrite-ac guards.
+assert_raises("record-classification: multi-line rationale raises (bullet-split guard)",
+              workpad._UpdateError,
+              lambda: apply_mut(_WP_NONBUG, make_args(
+                  record_classification=['non-bug', 'ok\n- [x] phantom AC'])))
+
+# _reconcile_reproduction_row fails CLOSED (loud) when the ## Progress skeleton has no
+# **Implement** anchor row to insert under — a bug-classified run must never silently lose
+# its reproduce-first gate row.
+_WP_NO_IMPLEMENT = _WP_NONBUG.replace("- [ ] **Implement**\n  - [ ] code + sweeps\n", "")
+assert_raises("reconcile: bug-report with no **Implement** anchor raises (fail-closed)",
+              workpad._UpdateError,
+              lambda: apply_mut(_WP_NO_IMPLEMENT, make_args(
+                  reconcile_reproduction='bug-report')))
+
+# The real Phase 1.3 production call shape: record the classification AND reconcile the row
+# in one `update` call (both mutate ## Progress sequentially). Confirm both land.
+_combo = apply_mut(_WP_NONBUG, make_args(
+    record_classification=['bug-report', 'stack trace in the body'],
+    reconcile_reproduction='bug-report'))
+assert_eq("record+reconcile in one call: classification note lands", True,
+          'classification: bug-report — stack trace in the body' in _combo)
+assert_eq("record+reconcile in one call: repro row added", True,
+          '- [ ] ' + _REPRO_SUBSTR in _combo)
+assert_eq("record+reconcile in one call: exactly one classification note", 1,
+          _combo.count('classification: '))
 
 
 print("parse_acs._is_post_merge")
