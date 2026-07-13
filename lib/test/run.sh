@@ -27654,7 +27654,8 @@ assert_eq "#437 exec-shape(scalar): usage unavailable" "yes" \
 
 # EMPTY-ARGUMENT invocation (#438 review): when the action errors out, the workflow's
 # always() step calls the helper with an EMPTY "${EXECUTION_FILE}" argument — the shape a
-# real degraded run produces. A refactor replacing ${1:-} with $1 would crash that step.
+# real degraded run produces. This pins the empty-argument best-effort contract that
+# always() step relies on: exit 0 + an all-unavailable record, never a crash or a partial.
 bash "$EES" "" >/dev/null 2>&1
 assert_eq "#438 exec-shape(empty-arg): empty argument exits 0 (best-effort contract)" "0" "$?"
 assert_eq "#438 exec-shape(empty-arg): empty argument degrades to encoding unavailable" "yes" \
@@ -27800,6 +27801,11 @@ done
 # it (CLAUDE.md documents that permission_denials_count publishes exactly this literal).
 assert_eq "#437 exec-shape(denials): a present-but-unparseable count is 'unavailable', NOT 'absent'" "yes" \
   "$(bash "$EES" "$EES_FIX/exec-shape-denials-countbad.json" 2>/dev/null | grep -qxF 'permission_denials: unavailable' && echo yes || echo no)"
+# An explicit JSON null count is the same never-established class (#438 review): it survives
+# the carrier collection ($counts length 1) but normalizes to null, so it must resolve to
+# 'unavailable' — pinned so a refactor cannot silently flip it to 'absent' or 'present'.
+assert_eq "#438 exec-shape(denials): an explicit-null count is 'unavailable', NOT 'absent'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-countnull.json" 2>/dev/null | grep -qxF 'permission_denials: unavailable' && echo yes || echo no)"
 
 # STATED LIMITATION (pinned so it stays known, not surprising): a single-event JSONL file is
 # byte-identical to a single top-level object, so it records `encoding: object`. Field
@@ -28084,10 +28090,10 @@ assert_eq "#437 stop-hook: malformed payload exits 0" "0" "$?"
 # grep green (the #370 pin-in-comment class, flagged by PR #438 review). The helper builds
 # the path as MARKER_DIR="$_root/.devflow/tmp" + MARKER="$MARKER_DIR/stop-hook-probe-fired",
 # so assert those two code fragments plus the workflow's full read literal.
-assert_eq "#437 stop-hook: helper writes the marker path the hook-probe job reads (code fragments, not comments)" "yes" \
+assert_eq "#437 stop-hook: helper writes the marker path the hook-probe job reads (code fragments on BOTH sides, not comments)" "yes" \
   "$(grep -qF 'MARKER_DIR="$_root/.devflow/tmp"' "$SHP" \
      && grep -qF 'MARKER="$MARKER_DIR/stop-hook-probe-fired"' "$SHP" \
-     && grep -qF '.devflow/tmp/stop-hook-probe-fired' "$REPO_ROOT/.github/workflows/matcher-probe.yml" \
+     && grep -qF 'MARKER=".devflow/tmp/stop-hook-probe-fired"' "$REPO_ROOT/.github/workflows/matcher-probe.yml" \
      && echo yes || echo no)"
 # And the hook must actually be REGISTERED on base, or the probe observes nothing at all.
 assert_eq "#437 stop-hook: .claude/settings.json registers the probe as a Stop hook" "yes" \
@@ -28162,7 +28168,70 @@ assert_eq "#438 stop-hook(jq-unrunnable): fallback marker still written and vali
   "$(jq -e . "$(_shp_marker "$SHP_NOJQ")" >/dev/null 2>&1 && echo yes || echo no)"
 assert_eq "#438 stop-hook(jq-unrunnable): an unestablished shape reports 'unavailable'" "unavailable" \
   "$(jq -r '.token_shape' "$(_shp_marker "$SHP_NOJQ")")"
+# Attribution (#438 review, mirroring the extract helper's pair of assertions): an unrunnable
+# jq must be blamed on JQ, never on the payload or the transcript — the arms that would
+# otherwise misattribute are silenced when the runnability probe failed.
+SHP_NOJQ2="$SHP_TMP/nojq2"; mkdir -p "$SHP_NOJQ2"
+cp "$SHP_NOJQ/t.jsonl" "$SHP_NOJQ2/t.jsonl"
+SHP_NOJQ_ERR="$(_shp_payload "$SHP_NOJQ2" "$SHP_NOJQ2/t.jsonl" | ( cd "$SHP_NOJQ2" && DEVFLOW_JQ="$SHP_TMP/definitely-not-a-jq" bash "$SHP" 2>&1 >/dev/null ) )"
+assert_eq "#438 stop-hook(jq-unrunnable): breadcrumb names jq itself" "yes" \
+  "$(printf '%s' "$SHP_NOJQ_ERR" | grep -qF 'is not runnable' && echo yes || echo no)"
+assert_eq "#438 stop-hook(jq-unrunnable): breadcrumb does NOT blame the transcript" "yes" \
+  "$(printf '%s' "$SHP_NOJQ_ERR" | grep -qF 'could not be parsed' && echo no || echo yes)"
+assert_eq "#438 stop-hook(jq-unrunnable): breadcrumb does NOT blame the payload" "yes" \
+  "$(printf '%s' "$SHP_NOJQ_ERR" | grep -qF 'no transcript_path' && echo no || echo yes)"
+
+# (11) Fallback-path transcript_path_present=false polarity (#438 review): (4h) asserts the
+#      fallback's true polarity; pin the false arm of the fallback's own `case "$TRANSCRIPT"`.
+SHP_FBNP="$SHP_TMP/fallback-notp"; mkdir -p "$SHP_FBNP"
+printf '{"hook_event_name":"Stop","cwd":"%s"}' "$SHP_FBNP" | DEVFLOW_JQ="$SHP_STUB/jq-no-dash-n" bash "$SHP" >/dev/null 2>&1
+assert_eq "#438 stop-hook(fallback): transcript_path_present false when the payload carried none" "false" \
+  "$(jq -r '.transcript_path_present' "$(_shp_marker "$SHP_FBNP")")"
+
+# (12) The 'absent' arm's max figure is 0 (read, and genuinely none) — the none->0
+#      normalization's second field, previously asserted only for usage_blocks.
+assert_eq "#438 stop-hook(AC7): 'absent' carries max_usage_figure 0" "0" \
+  "$(jq -r '.max_usage_figure' "$(_shp_marker "$SHP_A")")"
+
+# (13) An EMPTY-STRING transcript_path passes the jq type==string read but resolves to no
+#      transcript: shape 'unavailable', transcript_path_present false — the valid-falsy row.
+SHP_ETP="$SHP_TMP/emptytp"; mkdir -p "$SHP_ETP"
+printf '{"hook_event_name":"Stop","cwd":"%s","transcript_path":""}' "$SHP_ETP" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#438 stop-hook: empty-string transcript_path classifies 'unavailable'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_ETP")")"
+assert_eq "#438 stop-hook: empty-string transcript_path reports transcript_path_present=false" "false" \
+  "$(jq -r '.transcript_path_present' "$(_shp_marker "$SHP_ETP")")"
 rm -rf "$SHP_TMP"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#438 describe-hook-probe.sh (AC6 observation renderer — both arms suite-driven)"
+# ────────────────────────────────────────────────────────────────────────────
+# Extracted from matcher-probe.yml's hook-probe step (PR #438 review; the repo's
+# extract-branch-selecting-inline-shell convention, PR #367 precedent) so BOTH arms and
+# their wording are driven here, not just grep-pinned. The did-not-fire arm must carry
+# the reverse-launder warning; the FIRED arm must fire only on marker presence.
+DHP="$REPO_ROOT/scripts/describe-hook-probe.sh"
+DHP_TMP="$(mktemp -d)"
+: > "$DHP_TMP/fired-marker"
+DHP_FIRED="$(bash "$DHP" "$DHP_TMP/fired-marker" 2>/dev/null)"
+assert_eq "#438 describe-hook-probe: marker present renders the FIRED arm" "yes" \
+  "$(printf '%s' "$DHP_FIRED" | grep -qF 'observed: **FIRED**' && echo yes || echo no)"
+assert_eq "#438 describe-hook-probe: FIRED arm never carries the did-not-fire wording" "yes" \
+  "$(printf '%s' "$DHP_FIRED" | grep -qF 'did not fire' && echo no || echo yes)"
+DHP_ABSENT="$(bash "$DHP" "$DHP_TMP/absent-marker" 2>/dev/null)"
+assert_eq "#438 describe-hook-probe: marker absent renders the did-not-fire arm" "yes" \
+  "$(printf '%s' "$DHP_ABSENT" | grep -qF 'did not fire this run' && echo yes || echo no)"
+assert_eq "#438 describe-hook-probe: did-not-fire arm carries the reverse-launder warning" "yes" \
+  "$(printf '%s' "$DHP_ABSENT" | grep -qF "Do NOT read this as" && echo yes || echo no)"
+assert_eq "#438 describe-hook-probe: did-not-fire arm never claims FIRED" "yes" \
+  "$(printf '%s' "$DHP_ABSENT" | grep -qF '**FIRED**' && echo no || echo yes)"
+bash "$DHP" >/dev/null 2>&1
+assert_eq "#438 describe-hook-probe: no-argument invocation exits 0 (best-effort renderer)" "0" "$?"
+# The workflow must actually route through the helper (the extraction is only coverage if
+# the inline selector is gone), and the coupled marker literal stays a workflow CODE line.
+assert_eq "#438 describe-hook-probe: matcher-probe.yml routes the observation through the helper" "yes" \
+  "$(grep -qF 'describe-hook-probe.sh' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo yes || echo no)"
+rm -rf "$DHP_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

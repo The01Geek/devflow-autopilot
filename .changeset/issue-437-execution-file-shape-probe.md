@@ -7,7 +7,7 @@ type: Added
   long-standing assumption.** Added `scripts/extract-execution-shape.sh`, a best-effort read-only
   helper that reads a `claude-code-action` execution file and emits a **redacted** shape record —
   per-field `present`/`absent`/`unavailable` for token `usage`, wall-clock timing, `tool_use`,
-  `subagent_type`, and `permission_denials`, plus the top-level encoding (array/object/jsonl) —
+  `subagent_type`, and `permission_denials`, plus the top-level encoding (array/object/jsonl, or `unavailable` when it could not be established) —
   dropping every string *value* leaf so no prompt text, repository content, or attacker-controlled
   check-run name can leave a run. Two repo-internal probe jobs in `matcher-probe.yml`
   (`execfile-shape-probe`, `hook-probe`) feed a real cloud run's execution file through it and probe

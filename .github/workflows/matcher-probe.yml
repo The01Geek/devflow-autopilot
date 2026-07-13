@@ -613,13 +613,11 @@ jobs:
         run: |
           set -uo pipefail
           MARKER=".devflow/tmp/stop-hook-probe-fired"
+          # Branch selection + user-facing wording live in the suite-drivable helper
+          # (scripts/describe-hook-probe.sh) per the repo's extract-branch-selecting-
+          # inline-shell convention (PR #367 precedent); the workflow only supplies the
+          # coupled marker literal and the run link.
           {
-            echo "## Stop-hook execution probe (issue #437 AC6)"
-            if [ -f "$MARKER" ]; then
-              echo "- observed: **FIRED** — the base-branch \`.claude/settings.json\` Stop hook executed under claude-code-action (breadcrumb \`$MARKER\` present)."
-            else
-              echo "- observed: **did not fire this run** — breadcrumb \`$MARKER\` absent."
-              echo "- NOTE: this is EXPECTED on a probe PR — claude-code-action restores \`.claude/\` from the BASE branch, so the hook is only effective once merged. Re-run via workflow_dispatch from the default branch for the meaningful observation. Do NOT read this as 'hooks do not fire'."
-            fi
+            bash scripts/describe-hook-probe.sh "$MARKER"
             echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           } | tee -a "$GITHUB_STEP_SUMMARY"

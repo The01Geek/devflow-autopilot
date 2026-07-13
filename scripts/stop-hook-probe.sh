@@ -50,6 +50,20 @@ _SHP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   || { echo "devflow: resolve-jq.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'jq'" >&2; : "${DEVFLOW_JQ:=jq}"; }
 [ -n "${DEVFLOW_JQ:-}" ] || DEVFLOW_JQ=jq
 
+# Attribute an unrunnable jq to JQ, not to the payload/transcript (PR #438 review — the
+# same misattribution class the sibling extract-execution-shape.sh probes for): with a
+# present-but-broken jq every extraction below fails, and the later breadcrumbs would
+# blame the Stop payload or the transcript for a binary problem. Probe once (network/
+# auth-free); on failure emit the attributing breadcrumb here and silence the
+# payload/transcript-blaming arms below. The contract is unchanged: still exit 0, still
+# write the (fallback) marker with token_shape 'unavailable'.
+if "$DEVFLOW_JQ" --version >/dev/null 2>&1; then
+  JQ_OK=1
+else
+  JQ_OK=0
+  echo "devflow stop-hook-probe: jq ('$DEVFLOW_JQ') is not runnable (set DEVFLOW_JQ to override) — the payload and transcript cannot be read; token_shape will be recorded 'unavailable'" >&2
+fi
+
 # Repo root: prefer the payload's `cwd`, else the git toplevel, else $PWD — matching
 # the repo-root-anchoring contract so a hook fired from a subdirectory still writes the
 # breadcrumb where the workflow job looks for it.
@@ -116,12 +130,15 @@ if [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ]; then
     read -r TOKEN_SHAPE USAGE_BLOCKS MAX_SEEN <<<"$_shape"
     [ "$USAGE_BLOCKS" = "none" ] && USAGE_BLOCKS="0"
     [ "$MAX_SEEN" = "none" ] && MAX_SEEN="0"
-  else
+  elif [ "$JQ_OK" = 1 ]; then
     echo "devflow stop-hook-probe: transcript '$TRANSCRIPT' could not be parsed; token_shape recorded as 'unavailable' (never 'absent', never 0)" >&2
   fi
 elif [ -n "$TRANSCRIPT" ]; then
   echo "devflow stop-hook-probe: transcript_path '$TRANSCRIPT' is not readable; token_shape recorded as 'unavailable'" >&2
-else
+elif [ "$JQ_OK" = 1 ]; then
+  # Only when jq is runnable is an empty TRANSCRIPT evidence about the PAYLOAD — with a
+  # broken jq the extraction failed, not the payload, and the jq breadcrumb above already
+  # named the actual cause (never blame the payload for a binary problem).
   echo "devflow stop-hook-probe: no transcript_path in the Stop payload; token_shape recorded as 'unavailable'" >&2
 fi
 

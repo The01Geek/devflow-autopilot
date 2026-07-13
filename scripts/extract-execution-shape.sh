@@ -219,7 +219,8 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
     # number first; a non-digit string (the literal "unavailable") normalizes to null,
     # which is correctly NOT a presence signal.
     # Tri-state, not a boolean: a count carrier that is PRESENT but UNPARSEABLE (the literal
-    # "unavailable", any non-digit string) means the count was never established. Folding that
+    # "unavailable", any non-digit string, or an explicit JSON null — which survives the
+    # carrier collection but normalizes to null below) means the count was never established. Folding that
     # onto `absent` would assert "the harness does not carry denials" about a run whose denial
     # count we simply could not read — the unknown-is-not-zero rule, which is the rule this whole
     # helper exists to honor. So it resolves to `unavailable` instead.

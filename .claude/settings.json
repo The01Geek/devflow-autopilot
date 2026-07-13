@@ -15,7 +15,7 @@
           },
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}\"/scripts/stop-hook-probe.sh || true",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}\"/scripts/stop-hook-probe.sh || echo \"devflow stop-hook-probe: launch failed (CLAUDE_PROJECT_DIR='${CLAUDE_PROJECT_DIR:-}')\" >&2",
             "timeout": 15
           }
         ]

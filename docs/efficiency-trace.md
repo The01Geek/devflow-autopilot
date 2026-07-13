@@ -232,11 +232,11 @@ agent can follow the engine's *substance* (review, shadow, fixes) but silently d
 *bookkeeping* — the per-iteration workpad write, the record derivation, the durable copy, and the
 `chore:` persist commit. Nothing distinguishes "correctly persisted nothing because telemetry was
 off" from "silently forgot to persist," so the gap is invisible, and the lost *full* record is not
-reconstructed by any shipped backstop (token/wall-clock telemetry is captured live — whether the
-harness's own output *could* reconstruct it has been **measured by the #437 probe**, result in
-[`docs/execution-file-shape.md`](execution-file-shape.md); see the cost-half note below. The Layer-3+
+reconstructed by any shipped backstop. Token/wall-clock telemetry is captured live — whether the
+harness's own output *could* reconstruct it has been **measured by the #437 probe** (result in
+[`docs/execution-file-shape.md`](execution-file-shape.md); see the cost-half note below). The Layer-3+
 synthesis floor below recovers a minimal effectiveness skeleton from the fix
-commits, never that detail). Layered
+commits, never that detail. Layered
 backstops close this, weakest to strongest — the deterministic backstop (Layer 3) and its synthesis
 floor (Layer 3+) are the actual guarantee; the others shrink the blast radius and provide a portable
 fallback.
