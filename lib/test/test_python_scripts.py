@@ -1770,6 +1770,24 @@ _keep = apply_mut(_WP_BUG_TICKED, make_args(reconcile_reproduction='non-bug'))
 assert_eq("reconcile: non-bug preserves a TICKED repro row", True,
           '- [x] ' + _REPRO_SUBSTR in _keep)
 
+# ticked-row-preserved, uppercase variant: the drop-set test is exact-`[ ]`, so an
+# `[X]`-ticked row (hand-edited workpad) is preserved just like `[x]`.
+_WP_BUG_TICKED_UPPER = _WP_BUG.replace(
+    "  - [ ] reproduction captured (bug issues only)",
+    "  - [X] reproduction captured (bug issues only)",
+)
+_keep_upper = apply_mut(_WP_BUG_TICKED_UPPER, make_args(reconcile_reproduction='non-bug'))
+assert_eq("reconcile: non-bug preserves an uppercase-[X]-ticked repro row", True,
+          '- [X] ' + _REPRO_SUBSTR in _keep_upper)
+
+# bug-report against an already-TICKED row is a no-op in any tick state: the row
+# matches regardless of its box, so no second (unticked) row is inserted.
+_noop_bug_ticked = apply_mut(_WP_BUG_TICKED, make_args(reconcile_reproduction='bug-report'))
+assert_eq("reconcile: bug-report is a no-op against a ticked row (no duplicate insert)", True,
+          _noop_bug_ticked.split('## Progress', 1)[1].count(_REPRO_SUBSTR) == 1)
+assert_eq("reconcile: bug-report no-op keeps the ticked row ticked", True,
+          '- [x] ' + _REPRO_SUBSTR in _noop_bug_ticked)
+
 # no-op arms: bug-report on a skeleton that already has the row, and non-bug on a
 # skeleton that never had it, both leave Progress byte-identical (idempotent).
 _noop_bug = apply_mut(_WP_BUG, make_args(reconcile_reproduction='bug-report'))
