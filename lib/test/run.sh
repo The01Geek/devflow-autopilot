@@ -28212,6 +28212,42 @@ assert_eq "#448 ubc-dirty-tree-staged: exit 3" "3" "$UBC_RC"
 assert_eq "#448 ubc-dirty-tree-staged: no fetch performed (origin/main ref unchanged)" \
   "$UBC_ORIGIN_MAIN_BEFORE" "$(git -C "$D/work" rev-parse origin/main 2>/dev/null)"
 
+# ── ubc-detached-head → Pre-state guards: a detached HEAD (no branch name) → UNVERIFIED,
+# exit 3, no fetch performed (origin/main ref unchanged), the tree untouched, and the cause
+# named on stderr — a base merge is never attempted when the checkout is on no branch (the
+# only untested *primary* guard prior to this; helper's PRE_SHA/BRANCH resolution step). ──
+D="$(git_sandbox 'ubc-detached-head')"
+ubc_make "$D"
+ubc_advance_base "$D" dh
+git -C "$D/work" checkout -q --detach
+UBC_ORIGIN_MAIN_BEFORE="$(git -C "$D/work" rev-parse origin/main 2>/dev/null)"
+UBC_HEAD_BEFORE="$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+ubc_run "$D"
+assert_eq "#448 ubc-detached-head: token is UNVERIFIED" "UNVERIFIED" "$UBC_OUT"
+assert_eq "#448 ubc-detached-head: exit 3" "3" "$UBC_RC"
+assert_eq "#448 ubc-detached-head: no fetch performed (work origin/main ref unchanged)" \
+  "$UBC_ORIGIN_MAIN_BEFORE" "$(git -C "$D/work" rev-parse origin/main 2>/dev/null)"
+assert_eq "#448 ubc-detached-head: HEAD untouched (no merge)" \
+  "$UBC_HEAD_BEFORE" "$(git -C "$D/work" rev-parse HEAD 2>/dev/null)"
+assert_eq "#448 ubc-detached-head: stderr names the detached-HEAD cause" "yes" \
+  "$(printf '%s' "$UBC_ERR" | grep -qF 'detached HEAD' && echo yes || echo no)"
+
+# ── DEFERRED test gaps (PR #451 review, Suggestion-graded, recorded per receiving-code-review
+# "Record Every Deferral") — four defense-in-depth arms are NOT behaviorally covered because
+# they are not deterministically triggerable in a scratch-repo integration test:
+#   • behind-by validation UNVERIFIED arm (helper step 5 `case` guard): a `git rev-list
+#     --count HEAD..origin/$BASE` that runs after a SUCCESSFUL fetch of a valid base ref
+#     cannot emit a non-numeric/empty value, so the guard is unreachable without stubbing git.
+#   • post-unshallow behind-by keep-old-value fallback (helper step 8 `case`): same class —
+#     needs the re-derivation rev-list to fail while unshallow succeeded.
+#   • `_reject_restore` failed-restore WARNING branch: needs `git reset --hard $PRE_SHA` to
+#     fail (locked index / invalid SHA) on top of a double push rejection — not constructible.
+#   • `_push_or_recover` fetch-`origin/$BRANCH`-failure arm: push-REJECTED and fetch-of-the-
+#     same-feature-ref-FAILS are mutually exclusive over one origin (a hook-denied push leaves
+#     the ref fetchable; a missing ref makes the initial push CREATE it rather than be refused).
+# Revisit if the helper gains a git stub/injection seam, or if any arm's trigger becomes
+# reachable — then add the proportionate behavioral test (or a mutation-pin for step 5/8).
+
 # ── ubc-base-branch → Config: a non-default `base_branch` is honored — the helper fetches
 # and merges origin/<that branch>, not a hard-coded `main`. Also exercises the config
 # `.base_branch` read + fallback path that every other test leaves at the default. ────────

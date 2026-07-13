@@ -196,7 +196,13 @@ _merge_and_dispatch
 # uses fetch-depth:50, which actions/checkout performs as a single-branch fetch (the origin
 # refspec is scoped to the feature ref), so a bare `git fetch --unshallow origin` would not
 # deepen refs/remotes/origin/$BASE and the merge base could still lie beyond its boundary.
-if git fetch --unshallow origin "$BASE" >/dev/null 2>&1; then
+# git's stderr is NOT suppressed (symmetric with the primary fetch at step 4): a real
+# transient failure here (network drop, expired token, 5xx) would otherwise collapse into
+# the cause-neutral "no reachable merge base" breadcrumb below, and that breadcrumb's own
+# "see the git error above" promise would point at a suppressed error. On a genuinely
+# complete (non-shallow) repo git prints "--unshallow on a complete repository does not make
+# sense" and exits non-zero — expected noise on the no-merge-base path, not a real failure.
+if git fetch --unshallow origin "$BASE" >/dev/null; then
   # Re-derive behind-by now that base history is complete — a shallow view undercounts it,
   # so the pre-unshallow BEHIND would publish a confidently-low UPDATED count. Keep the old
   # value if re-derivation fails (guard-class 2 — bash `case` builtin, never wc/cut).

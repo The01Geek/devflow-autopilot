@@ -417,7 +417,7 @@ An `/devflow:implement` run can take hours while sibling PRs merge, leaving its 
 | `UPDATED <n>` | 0 | merged and pushed (incl. via push-race recovery) |
 | `DISABLED` | 0 | off-switch; tree untouched |
 | `CONFLICT` | 2 | base merge left in progress (`MERGE_HEAD` present); conflicted paths + resolution contract on stderr |
-| `UNVERIFIED` | 3 | fetch or behind-by derivation failed, or the tree was dirty; nothing merged |
+| `UNVERIFIED` | 3 | fetch or behind-by derivation failed, the tree was dirty, HEAD is detached / on no branch, or no merge base was reachable (even after the unshallow retry); nothing merged |
 | `PUSH_REJECTED` | 4 | push refused twice (or a conflicted integrate); local branch restored to its pre-checkpoint SHA |
 | `MERGE_IN_PROGRESS` | 5 | `MERGE_HEAD` existed at invocation; nothing touched |
 
