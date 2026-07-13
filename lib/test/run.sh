@@ -28500,6 +28500,23 @@ assert_eq "#438 describe-hook-probe: did-not-fire arm carries the reverse-launde
   "$(printf '%s' "$DHP_ABSENT" | grep -qF "Do NOT read this as" && echo yes || echo no)"
 assert_eq "#438 describe-hook-probe: did-not-fire arm never claims FIRED" "yes" \
   "$(printf '%s' "$DHP_ABSENT" | grep -qF '**FIRED**' && echo no || echo yes)"
+# #457: the hook is now on base, so an absent marker is an ANOMALY — the stale pre-merge
+# framing ("expected on a probe PR" / "only effective once merged") must be gone, and the
+# anomaly framing + job-log breadcrumb pointer must be present.
+assert_eq "#457 describe-hook-probe: did-not-fire arm drops the stale 'expected on a probe PR' framing" "yes" \
+  "$(printf '%s' "$DHP_ABSENT" | grep -qiF 'expected on a probe PR' && echo no || echo yes)"
+assert_eq "#457 describe-hook-probe: did-not-fire arm drops the stale 'only effective once merged' framing" "yes" \
+  "$(printf '%s' "$DHP_ABSENT" | grep -qiF 'only effective once merged' && echo no || echo yes)"
+assert_eq "#457 describe-hook-probe: did-not-fire arm frames an absent marker as an anomaly" "yes" \
+  "$(printf '%s' "$DHP_ABSENT" | grep -qF 'anomaly' && echo yes || echo no)"
+assert_eq "#457 describe-hook-probe: did-not-fire arm points at the job-log stderr breadcrumb" "yes" \
+  "$(printf '%s' "$DHP_ABSENT" | grep -qF 'stderr breadcrumb' && echo yes || echo no)"
+# Behavioral-fix pin (#457, #375 rule): the anomaly framing must survive; a regression that
+# re-introduces the stale "EXPECTED on a probe PR" phrasing flips the pin PASS->FAIL.
+assert_pin_red_under "#457 describe-hook-probe: anomaly framing is pinned against stale-phrase regression" \
+  'absent marker here is an **anomaly**' \
+  's/an absent marker here is an \*\*anomaly\*\*, not the expected state/this is EXPECTED on a probe PR/' \
+  "$DHP"
 bash "$DHP" >/dev/null 2>&1
 assert_eq "#438 describe-hook-probe: no-argument invocation exits 0 (best-effort renderer)" "0" "$?"
 # The no-arg contract is 'breadcrumbs to stderr and renders NOTHING' — assert both halves,
@@ -28521,6 +28538,18 @@ assert_eq "#438 exec-shape: observed.txt carries the emitter's structural-sectio
 # and the selector re-inlined (the #370 pin-in-comment class, flagged by the iter-2 gate).
 assert_eq "#438 describe-hook-probe: matcher-probe.yml routes the observation through the helper (invocation line)" "yes" \
   "$(grep -qF 'bash scripts/describe-hook-probe.sh "$MARKER"' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo yes || echo no)"
+# #457: the docs AC6 record must state the observed FIRED result (with the run cited) and no
+# longer carry the stale 'unavailable (pending)' verdict.
+DHP_DOC="$REPO_ROOT/docs/execution-file-shape.md"
+assert_eq "#457 execution-file-shape: AC6 no longer records 'unavailable (pending)'" "yes" \
+  "$(grep -qF 'unavailable` (pending)' "$DHP_DOC" && echo no || echo yes)"
+assert_eq "#457 execution-file-shape: AC6 records the FIRED observation citing run 29224205805" "yes" \
+  "$(grep -qF '**FIRED**' "$DHP_DOC" && grep -qF '29224205805' "$DHP_DOC" && echo yes || echo no)"
+assert_eq "#457 execution-file-shape: AC6 links the security corollary issue #458" "yes" \
+  "$(grep -qF '#458' "$DHP_DOC" && echo yes || echo no)"
+# #457: the matcher-probe.yml hook-probe comment no longer asserts the pre-merge landing.
+assert_eq "#457 matcher-probe: hook-probe comment drops the stale 'SHIPS in this PR' framing" "yes" \
+  "$(grep -qF 'SHIPS in this' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo no || echo yes)"
 rm -rf "$DHP_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────

@@ -564,19 +564,18 @@ jobs:
           path: artifact/execution-file-shape.txt
           if-no-files-found: warn
 
-  # issue #437 (AC6) — establish whether a Stop hook committed to the BASE branch's
-  # .claude/settings.json executes when claude-code-action runs. This is INHERENTLY A
-  # TWO-STEP LANDING: claude-code-action removes .claude/ and restores it from the BASE
-  # branch before running, so a Stop hook added *in the probe PR* is restored away and
-  # proves nothing — the hook must already be on base for a run to be meaningful. A
-  # first-run "did not fire" therefore must NOT be read as "hooks do not fire under the
-  # action" (the reverse launder the issue warns against). The Stop hook itself SHIPS in this
-  # PR — scripts/stop-hook-probe.sh, registered in .claude/settings.json — so no operator
-  # hand-edit is needed; what remains is only the ordering: it must be on the BASE branch
-  # (i.e. this PR merged) before a dispatch can observe it fire. It writes the gitignored
-  # breadcrumb .devflow/tmp/stop-hook-probe-fired (a COUPLED contract: renaming it on either
-  # side alone would silently read as "did not fire" forever — lib/test/run.sh pins both).
-  # This job checks for that breadcrumb after the action. See docs/execution-file-shape.md.
+  # issue #437 (AC6) — records whether a Stop hook committed to the BASE branch's
+  # .claude/settings.json executes when claude-code-action runs. This is now OBSERVED:
+  # the hook (scripts/stop-hook-probe.sh, registered in .claude/settings.json) is on the
+  # BASE branch (landed in PR #438), and claude-code-action removes .claude/ and restores
+  # it from that BASE branch before running — so run 29224205805 observed it FIRE. Because
+  # the hook is on base, an absent marker is now an ANOMALY (it could not write / the
+  # session never reached Stop), not the expected state — but a "did not fire" still must
+  # NOT be read as "hooks do not fire under the action" (the reverse launder the issue
+  # warns against). It writes the gitignored breadcrumb .devflow/tmp/stop-hook-probe-fired
+  # (a COUPLED contract: renaming it on either side alone would silently read as "did not
+  # fire" forever — lib/test/run.sh pins both). This job checks for that breadcrumb after
+  # the action. See docs/execution-file-shape.md.
   hook-probe:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest

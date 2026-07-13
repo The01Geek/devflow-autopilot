@@ -97,22 +97,30 @@ probe produces. `lib/test/run.sh` pins this behavior so it stays a known, assert
 
 ### Stop-hook execution under `claude-code-action` (AC6)
 
-**Observed: `unavailable` (pending).** Whether a `Stop` hook committed to the **base**
-branch's `.claude/settings.json` fires under `claude-code-action` is established by the
-`hook-probe` job. The probe hook **ships in this PR** (`scripts/stop-hook-probe.sh`,
-registered as a `Stop` hook in `.claude/settings.json`), so no operator hand-edit is
-required — but the observation is still an inherently **two-step landing**:
+**Observed: `FIRED`.** A `Stop` hook committed to the **base** branch's
+`.claude/settings.json` **does** execute under `claude-code-action`. The probe hook
+(`scripts/stop-hook-probe.sh`, registered as a `Stop` hook in `.claude/settings.json`)
+landed on the default branch in PR #438; `claude-code-action` removes `.claude/` and
+restores it from the **base** branch before running, and the `hook-probe` job's
+`workflow_dispatch` run observed the hook's gitignored marker present after the action.
 
-1. `claude-code-action` removes `.claude/` and restores it from the **base** branch before
-   running, so the `Stop` hook added *in this PR* is restored away for any run against this
-   PR and proves nothing — the hook must already be on base for a run to be meaningful. A
-   pre-merge "did not fire" must **not** be read as "hooks do not fire" (the reverse
-   launder).
-2. Therefore the meaningful observation comes **after this PR merges**, when the hook is on
-   the default branch: re-dispatch `matcher-probe.yml` via `workflow_dispatch` from the
-   default branch. The `hook-probe` job checks for the gitignored
-   `.devflow/tmp/stop-hook-probe-fired` marker the hook writes, and records fired /
-   did-not-fire with the run URL.
+- **Probe run:** `29224205805` (the `hook-probe` job in `matcher-probe.yml`, `main`, 2026-07-13)
+- **Observed:** `**FIRED**` — the base-branch `.claude/settings.json` `Stop` hook executed.
+- **Observed on:** `anthropics/claude-code-action@v1`, 2026-07-13
+
+This is a **dated observation of one action version**, not a platform contract: the fact
+that base-registered `.claude/` hooks execute is an action behavior, not a guarantee —
+re-dispatch `matcher-probe.yml` via `workflow_dispatch` after any `claude-code-action`
+upgrade to re-confirm. Because the hook is now on base, an absent marker on a later run is
+an **anomaly** (the hook could not write, or the session never reached `Stop`), not the
+expected state — but a "did not fire" still must **not** be read as "hooks do not fire"
+(the reverse launder).
+
+**Security corollary — FIRED is not a consequence-free telemetry fact.** That base-registered
+`Stop` hooks execute checked-out-tree scripts inside `claude-code-action` has a threat-model
+implication tracked separately in **issue #458** (base-branch `.claude/settings.json` `Stop`
+hooks execute PR-head scripts, bypassing the #402 deny-floor). This record states the
+observation; #458 owns the hardening.
 
 The marker path is a **coupled contract**: `scripts/stop-hook-probe.sh` writes it and
 `matcher-probe.yml`'s `hook-probe` job reads it. Renaming it on one side alone would not

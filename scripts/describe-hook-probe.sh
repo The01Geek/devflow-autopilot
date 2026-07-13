@@ -10,8 +10,9 @@
 #
 # Usage: describe-hook-probe.sh <marker-path>
 #   Selects on the marker file's PRESENCE — the AC6 measurement itself. The
-#   did-not-fire arm carries the reverse-launder warning verbatim: a pre-merge
-#   "did not fire" must never be read as "hooks do not fire".
+#   did-not-fire arm carries the reverse-launder warning verbatim: a
+#   "did not fire" must never be read as "hooks do not fire". The hook is on
+#   base (run 29224205805 proved it fires), so an absent marker is an anomaly.
 #
 # Best-effort: always exits 0 (an informational renderer must not fail the probe
 # job); a missing argument breadcrumbs to stderr and renders nothing.
@@ -29,6 +30,6 @@ if [ -f "$MARKER" ]; then
   echo "- observed: **FIRED** — the base-branch \`.claude/settings.json\` Stop hook executed under claude-code-action (breadcrumb \`$MARKER\` present)."
 else
   echo "- observed: **did not fire this run** — breadcrumb \`$MARKER\` absent."
-  echo "- NOTE: this is EXPECTED on a probe PR — claude-code-action restores \`.claude/\` from the BASE branch, so the hook is only effective once merged. Re-run via workflow_dispatch from the default branch for the meaningful observation. Do NOT read this as 'hooks do not fire'."
+  echo "- NOTE: the Stop hook is on the BASE branch (\`.claude/settings.json\` on the default branch), which claude-code-action restores and run \`29224205805\` proved fires — so an absent marker here is an **anomaly**, not the expected state. It means the hook could not write or the session never reached Stop, not that hooks are ineffective: the hook never ran, its \`mkdir -p\` failed, both write attempts failed, or the \`claude\` step itself failed before Stop — each leaves a distinct stderr breadcrumb in this job's log; check it for the cause. Do NOT read this as 'hooks do not fire'."
 fi
 exit 0
