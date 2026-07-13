@@ -3552,7 +3552,7 @@ assert_pin_unique "#296 review-and-fix: Common Mistakes names the direct-Agent-d
 # (2) SEAM SCRATCH DISCIPLINE — the Phase 3.3 seam authors .devflow/tmp scratch/telemetry with
 # the Write tool, not a shell `>` redirect: operative directive, removal re-opens the friction.
 assert_pin_red_on_removal "#296 phase-3.3: deleting the Write-tool-for-.devflow/tmp seam directive turns its pin RED" \
-  'author it with the Write tool, not a shell `>` redirect' "$DEF_SKILL"
+  'author it with the Write tool, not a shell redirect' "$DEF_SKILL"
 # (2b) the non-optional-emit obligation RESTATED for the inline driver at the seam: operative.
 assert_pin_red_on_removal "#296 phase-3.3: deleting the inline-driver non-optional-emit restatement turns its pin RED" \
   'the per-iteration effectiveness record (`iter-<N>.json`) is a non-optional emit on every iteration, written with the Write tool' "$DEF_SKILL"
@@ -27652,6 +27652,14 @@ assert_eq "#437 exec-shape(scalar): encoding unavailable" "yes" \
 assert_eq "#437 exec-shape(scalar): usage unavailable" "yes" \
   "$(printf '%s' "$EES_SCALAR" | grep -qxF 'usage: unavailable' && echo yes || echo no)"
 
+# EMPTY-ARGUMENT invocation (#438 review): when the action errors out, the workflow's
+# always() step calls the helper with an EMPTY "${EXECUTION_FILE}" argument — the shape a
+# real degraded run produces. A refactor replacing ${1:-} with $1 would crash that step.
+bash "$EES" "" >/dev/null 2>&1
+assert_eq "#438 exec-shape(empty-arg): empty argument exits 0 (best-effort contract)" "0" "$?"
+assert_eq "#438 exec-shape(empty-arg): empty argument degrades to encoding unavailable" "yes" \
+  "$(bash "$EES" "" 2>/dev/null | grep -qxF 'encoding: unavailable' && echo yes || echo no)"
+
 # --- exec-shape(empty) / exec-shape(malformed): exit 0 + breadcrumb + all unavailable (AC4) ---
 bash "$EES" "$EES_TMP/empty.json" >/dev/null 2>&1
 assert_eq "#437 exec-shape(empty): exits 0 (best-effort contract)" "0" "$?"
@@ -28071,8 +28079,14 @@ assert_eq "#437 stop-hook: malformed payload exits 0" "0" "$?"
 #     equal the MARKER the hook-probe job READS. A rename on either side turns the AC6
 #     probe into a permanent, silent "did not fire" — it would not fail loudly, it would
 #     just never observe a firing. Pin both sides to the same literal.
-assert_eq "#437 stop-hook: helper writes the marker path the hook-probe job reads" "yes" \
-  "$(grep -qF '.devflow/tmp/stop-hook-probe-fired' "$SHP" \
+# Pin the CODE fragments, not the comment copies: the full literal appears in the helper
+# only inside comments, so a code rename with stale comments would keep a comment-anchored
+# grep green (the #370 pin-in-comment class, flagged by PR #438 review). The helper builds
+# the path as MARKER_DIR="$_root/.devflow/tmp" + MARKER="$MARKER_DIR/stop-hook-probe-fired",
+# so assert those two code fragments plus the workflow's full read literal.
+assert_eq "#437 stop-hook: helper writes the marker path the hook-probe job reads (code fragments, not comments)" "yes" \
+  "$(grep -qF 'MARKER_DIR="$_root/.devflow/tmp"' "$SHP" \
+     && grep -qF 'MARKER="$MARKER_DIR/stop-hook-probe-fired"' "$SHP" \
      && grep -qF '.devflow/tmp/stop-hook-probe-fired' "$REPO_ROOT/.github/workflows/matcher-probe.yml" \
      && echo yes || echo no)"
 # And the hook must actually be REGISTERED on base, or the probe observes nothing at all.
@@ -28117,6 +28131,37 @@ cp "$SHP_ORPH/t.jsonl" "$SHP_ORPH2/t.jsonl"
 _shp_payload "$SHP_ORPH2" "$SHP_ORPH2/t.jsonl" | DEVFLOW_JQ= bash "$SHP_ORPHAN/stop-hook-probe.sh" >/dev/null 2>&1
 assert_eq "#438 stop-hook(no-sibling): an EMPTY DEVFLOW_JQ degrades to bare jq, not an empty exec" "real" \
   "$(jq -r '.token_shape' "$(_shp_marker "$SHP_ORPH2")" 2>/dev/null)"
+
+# (9) MIXED usage:null transcript (#438 review): a streamed `usage: null` event carries no
+#     recoverable count, so usage_blocks must count only non-null carriers — an inflated
+#     count silently misleads a cost floor reading it as "messages with recoverable counts".
+SHP_MIX="$SHP_TMP/mixnull"; mkdir -p "$SHP_MIX"
+printf '%s\n' \
+  '{"type":"assistant","message":{"usage":null}}' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":1200,"output_tokens":345}}}' \
+  '{"type":"assistant","message":{"usage":null}}' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":80,"output_tokens":9}}}' \
+  > "$SHP_MIX/t.jsonl"
+_shp_payload "$SHP_MIX" "$SHP_MIX/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#438 stop-hook(mixed-null): token_shape stays 'real' on a mixed transcript" "real" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_MIX")")"
+assert_eq "#438 stop-hook(mixed-null): usage_blocks counts ONLY non-null usage carriers" "2" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_MIX")")"
+
+# (10) FULLY UNRUNNABLE jq for the stop hook (#438 review): the extract helper has this
+#      test; the hook did not. Every jq call fails (root derivation, transcript parse, the
+#      breadcrumb build) — the hook must still exit 0 and write a valid fallback marker
+#      with token_shape 'unavailable' (nothing was established), never crash or fabricate.
+SHP_NOJQ="$SHP_TMP/nojq"; mkdir -p "$SHP_NOJQ"
+printf '%s\n' '{"type":"assistant","message":{"usage":{"input_tokens":1200}}}' > "$SHP_NOJQ/t.jsonl"
+# cd into the marker dir: with jq unrunnable the payload's cwd cannot be read, so root
+# derivation falls through git-toplevel (not a repo here) to $PWD — which must be SHP_NOJQ.
+_shp_payload "$SHP_NOJQ" "$SHP_NOJQ/t.jsonl" | ( cd "$SHP_NOJQ" && DEVFLOW_JQ="$SHP_TMP/definitely-not-a-jq" bash "$SHP" >/dev/null 2>&1 )
+assert_eq "#438 stop-hook(jq-unrunnable): exits 0 (never blocks the Stop)" "0" "$?"
+assert_eq "#438 stop-hook(jq-unrunnable): fallback marker still written and valid JSON" "yes" \
+  "$(jq -e . "$(_shp_marker "$SHP_NOJQ")" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "#438 stop-hook(jq-unrunnable): an unestablished shape reports 'unavailable'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_NOJQ")")"
 rm -rf "$SHP_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────

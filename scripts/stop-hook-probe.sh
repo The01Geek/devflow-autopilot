@@ -86,7 +86,10 @@ if [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ]; then
   # the question a harness-side cost floor turns on.
   _shape="$("$DEVFLOW_JQ" -s -r '
       [ .. | objects ] as $objs
-      | [ $objs[] | select(has("usage")) | .usage | .. | numbers ] as $n
+      # usage carriers are objects whose usage is non-null: a streamed `usage: null` event
+      # carries no recoverable count, so counting it would inflate usage_blocks and mislead
+      # a cost floor reading it as "messages with recoverable counts" (PR #438 review).
+      | [ $objs[] | select(has("usage") and (.usage != null)) | .usage | .. | numbers ] as $n
       # A transcript with NO message objects at all was not meaningfully read — the file is
       # empty, or the async write has not flushed yet (the docs warn the transcript lags the
       # in-memory conversation). That is `unavailable` (never established), NOT `absent`
@@ -104,7 +107,7 @@ if [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ]; then
         elif ($n | length) == 0 then "absent none none"
         else
           ( if ($n | max) > 1 then "real" else "placeholder" end )
-          + " " + ([ $objs[] | select(has("usage")) ] | length | tostring)
+          + " " + ([ $objs[] | select(has("usage") and (.usage != null)) ] | length | tostring)
           + " " + ($n | max | tostring)
         end
     ' "$TRANSCRIPT" 2>/dev/null || true)"

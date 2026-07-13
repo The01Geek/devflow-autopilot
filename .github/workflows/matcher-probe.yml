@@ -18,7 +18,12 @@ name: Matcher probe
 # measurement to a single `--disallowedTools ScheduleWakeup` session, deriving a
 # DENIED/AVAILABLE/REMOVED/INCONCLUSIVE verdict that gates a claude_args change in
 # devflow-implement.yml; it runs in its own job so the flag never perturbs the
-# matcher probe above.
+# matcher probe above. Two further #437 sibling jobs share the workflow: an
+# `execfile-shape-probe` job that captures a real run's execution_file as a
+# REDACTED shape artifact (docs/execution-file-shape.md), and a `hook-probe` job
+# that records whether a base-branch .claude/settings.json Stop hook fires under
+# claude-code-action. A pull_request edit to this file therefore launches a
+# paid Claude session per probe job, not just the original two.
 #
 # Triggers: workflow_dispatch (available post-merge, from the default branch) plus
 # pull_request scoped to this file's own path (so a change to the probe re-runs it

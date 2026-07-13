@@ -128,8 +128,11 @@ if ! "$DEVFLOW_JQ" --version >/dev/null 2>&1; then
 fi
 ENC_TYPES="$("$DEVFLOW_JQ" -c 'type' "$FILE" 2>/dev/null)" || ENC_TYPES=""
 if [ -z "$ENC_TYPES" ]; then
-  # jq runs (probed above), so an empty parse is genuinely an unparseable FILE.
-  _emit_unavailable "present but unparseable ('$FILE')"
+  # jq runs (probed above), so an empty parse is USUALLY a malformed file — but a jq that
+  # passes --version can still die on this specific input (OOM/rlimit on a huge file, a
+  # signal, a half-broken shim), so hedge the attribution instead of asserting the file is
+  # at fault (PR #438 review; same hedge as the slurp-fail arm below).
+  _emit_unavailable "could not be parsed as JSON ('$FILE') — malformed content, or a jq failure on this input"
 fi
 _n=0
 _first=""

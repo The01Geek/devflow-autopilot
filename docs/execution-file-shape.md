@@ -44,7 +44,7 @@ reviewer, given the run URL, reaches the same verdict by downloading the same ar
 | Field | Observed | Evidence |
 |---|---|---|
 | top-level encoding (array / object / jsonl) | **`array`** | `encoding: array` |
-| per-message token `usage` | **`present`** | `usage: object`; keys observed in the structural set: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `total_tokens` (the flattened artifact does not itself prove their parent — see the committed evidence) |
+| per-message token `usage` | **`present`** | `usage: object`; keys observed in the structural set: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `total_tokens` (the flattened, `unique`d key set erases parentage, so the per-message attachment of these keys is a schema-level observation from the run, not something the committed artifact itself can prove) |
 | wall-clock timing | **`present`** | `duration_ms`, `duration_api_ms`, `ttft_ms`, `end_time` |
 | `tool_use` events | **`present`** | `tool_name`, `tool_input`, `tool_use_id`, `tool_uses` |
 | `subagent_type` on `Task` dispatches | **`present`** | `subagent_type: string` (plus `task_id`, `task_type`, `agents`) |
