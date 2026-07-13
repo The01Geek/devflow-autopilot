@@ -476,6 +476,16 @@ def cmd_now(_args):
 # `_(none provided in issue body)_` parse-acs.py emits, so no warning fires there.
 _AC_PENDING_PLACEHOLDER = '_(pending — mirrored from the issue when the run begins)_'
 
+# The bug-only "reproduction captured" ## Progress sub-row. SINGLE SOURCE for the
+# row `cmd_new_body` renders AND the row `_reconcile_reproduction_row` (issue #449)
+# adds/removes to match the recorded content classification — so the reconcile can
+# never drift from the skeleton the gate/new-body seed. `_REPRODUCTION_ROW_SUBSTR`
+# is the substring the reconcile matches an existing row by (tick-state- and
+# marker-agnostic), so a future reword of the parenthetical never blinds detection.
+_REPRODUCTION_ROW_TEXT = 'reproduction captured (bug issues only)'
+_REPRODUCTION_ROW = f'  - [ ] {_REPRODUCTION_ROW_TEXT}'
+_REPRODUCTION_ROW_SUBSTR = 'reproduction captured'
+
 
 def cmd_new_body(args):
     """Print the lean initial workpad skeleton to stdout, for piping into a file
@@ -499,7 +509,7 @@ def cmd_new_body(args):
     repro = (
         ''
         if getattr(args, 'no_reproduction', False)
-        else '  - [ ] reproduction captured (bug issues only)\n'
+        else _REPRODUCTION_ROW + '\n'
     )
     sys.stdout.write(f"""{marker}
 # DevFlow Workpad — Issue #{args.issue}
@@ -940,6 +950,77 @@ def _append_progress_note(
         end -= 1
     new_lines = lines[:end] + [f"  - {timestamp} — {note}"] + lines[end:]
     return _join_preserving_newline(new_lines, content)
+
+
+# ── Reproduce-first classification: row reconcile + note supersede (issue #449) ──
+#
+# The Phase 2.1.5 reproduce-first gate keys on a recorded *content* classification,
+# not the `bug` label. Phase 1.3 records that classification as a superseding
+# `classification: ` note and reconciles the bug-only "reproduction captured"
+# Progress row to match it — on every entry — so a gate-created skeleton (rendered
+# deterministically from the label) always agrees with the classification before
+# Phase 2 begins. Both operate on the ## Progress section.
+_CLASSIFICATION_VALUES = ('bug-report', 'non-bug')
+# The fixed, greppable note prefix. Phase 1.1's two exact forms are
+# `classification: bug-report — <rationale>` / `classification: non-bug — <rationale>`.
+_CLASSIFICATION_NOTE_PREFIX = 'classification: '
+# Matches an existing classification note bullet — the `  - HH:MM:SS — ` prefix
+# `_append_progress_note` writes (em-dash separator), then the note prefix — so a
+# fresh record can supersede it. Anchored at line start; tick-state-irrelevant
+# (notes are plain bullets, not checkboxes).
+_CLASSIFICATION_NOTE_RE = re.compile(
+    r'^\s*[-*]\s+\d{2}:\d{2}:\d{2}\s+—\s+' + re.escape(_CLASSIFICATION_NOTE_PREFIX)
+)
+
+
+def _reconcile_reproduction_row(content: str, classification: str) -> str:
+    """Idempotently add or remove the bug-only reproduction-captured Progress
+    sub-row so the skeleton matches the recorded content classification (#449).
+
+    - `bug-report` → ensure the row is present: insert `_REPRODUCTION_ROW` directly
+      under the `**Implement**` phase row (above `code + sweeps`) when absent; no-op
+      when a row is already present in ANY tick state.
+    - `non-bug` → remove the row only when present AND unticked; a *ticked* row is
+      historical evidence and is preserved; an absent row is a no-op.
+
+    Never removes a ticked row and never inserts a duplicate — so running it on
+    every Phase 1.3 entry is safe. Operates on the ## Progress section content."""
+    lines = content.split('\n')
+    matches = [
+        (i, m) for i, ln in enumerate(lines)
+        if (m := _CHECKBOX_ROW_RE.match(ln))
+        and _REPRODUCTION_ROW_SUBSTR.lower() in m.group(4).lower()
+    ]
+    if classification == 'bug-report':
+        if matches:
+            return content  # already present (ticked or not) → idempotent no-op
+        for i, ln in enumerate(lines):
+            m = _TOP_LEVEL_CHECKBOX_RE.match(ln)
+            if m and 'implement' in m.group(2).lower():
+                new_lines = lines[:i + 1] + [_REPRODUCTION_ROW] + lines[i + 1:]
+                return _join_preserving_newline(new_lines, content)
+        # No **Implement** phase row to anchor under — a malformed/legacy skeleton.
+        # Fail structurally (loud) rather than silently drop the row into the wrong
+        # place: a bug-classified run must not lose its reproduce-first gate row.
+        raise _UpdateError(
+            "cannot reconcile reproduction row: no '**Implement**' phase row in "
+            "## Progress to anchor it under"
+        )
+    # non-bug: drop only unticked repro rows; keep ticked ones and no-op when absent.
+    drop = {i for i, m in matches if m.group(2) == '[ ]'}
+    if not drop:
+        return content
+    new_lines = [ln for i, ln in enumerate(lines) if i not in drop]
+    return _join_preserving_newline(new_lines, content)
+
+
+def _remove_classification_notes(content: str) -> str:
+    """Drop every existing `classification: ` note bullet from ## Progress content,
+    so a fresh record supersedes it — the workpad carries exactly one at all times
+    (issue #449). Read-only otherwise; preserves the section's trailing newline."""
+    kept = [ln for ln in content.split('\n')
+            if not _CLASSIFICATION_NOTE_RE.match(ln)]
+    return _join_preserving_newline(kept, content)
 
 
 # ── Devflow Reflection: kind taxonomy + grouped rendering ───────────────────
@@ -1661,6 +1742,47 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
             content = _append_reflection(content, kind, bullet)
         sections[idx] = (heading, content)
 
+    # Record the reproduce-first content classification (issue #449) as a
+    # superseding `classification: ` Progress note — exactly one at all times.
+    if args.record_classification:
+        cls, rationale = args.record_classification
+        if cls not in _CLASSIFICATION_VALUES:
+            raise _UpdateError(
+                f"--record-classification: unknown class {cls!r}; expected one of "
+                f"{', '.join(_CLASSIFICATION_VALUES)}"
+            )
+        if not rationale.strip():
+            raise _UpdateError(
+                "--record-classification: a non-empty rationale is required (the "
+                "note form is 'classification: <class> — <rationale>')"
+            )
+        if not _is_single_line(rationale):
+            # A line boundary would split the note bullet (same hazard --rewrite-ac
+            # guards against); reject before any PATCH so all-or-nothing holds.
+            raise _UpdateError(
+                "--record-classification: rationale must be a single line (a line "
+                "boundary would split the note bullet). No PATCH was made."
+            )
+        idx = _find_section(sections, 'Progress')
+        if idx is None:
+            raise _UpdateError("section '## Progress' not found")
+        heading, content = sections[idx]
+        content = _remove_classification_notes(content)
+        note_text = f'{_CLASSIFICATION_NOTE_PREFIX}{cls} — {rationale.strip()}'
+        phase_label = _progress_phase_for_status(content, current_phase)
+        content = _append_progress_note(content, note_text, now_time, phase_label)
+        sections[idx] = (heading, content)
+
+    # Reconcile the bug-only reproduction Progress row to the classification
+    # (issue #449) — idempotent, runs on every Phase 1.3 entry.
+    if args.reconcile_reproduction:
+        idx = _find_section(sections, 'Progress')
+        if idx is None:
+            raise _UpdateError("section '## Progress' not found")
+        heading, content = sections[idx]
+        content = _reconcile_reproduction_row(content, args.reconcile_reproduction)
+        sections[idx] = (heading, content)
+
     # Terminal self-record gate (issue #258): a `--status Complete` write is the
     # deterministic chokepoint that guarantees the workpad's Plan/AC self-record
     # matches reality. It runs LAST, over the *post-mutation* sections, so a call
@@ -1846,6 +1968,21 @@ def main():
     u.add_argument('--set-reproduction-file', metavar='FILE',
                    help='Set the Reproduction section to FILE contents. Inserts '
                         'the section after Acceptance Criteria if missing.')
+    u.add_argument('--record-classification', nargs=2,
+                   metavar=('CLASS', 'RATIONALE'),
+                   help='Record the Phase 2.1.5 reproduce-first content '
+                        'classification (issue #449) as a superseding '
+                        '"classification: <CLASS> — <RATIONALE>" ## Progress note. '
+                        'CLASS is bug-report or non-bug; RATIONALE is a non-empty '
+                        'single line. Replaces any existing classification note, so '
+                        'the workpad carries exactly one at all times.')
+    u.add_argument('--reconcile-reproduction', choices=_CLASSIFICATION_VALUES,
+                   help='Idempotently reconcile the bug-only "reproduction '
+                        'captured" ## Progress row to the classification: '
+                        'bug-report adds it when absent, non-bug removes it when '
+                        'present and unticked (a ticked row is preserved), and it '
+                        'no-ops when the skeleton already matches. Run on every '
+                        'Phase 1.3 entry.')
     u.add_argument('--marker', default=None, help=_marker_help)
     u.set_defaults(func=cmd_update)
 

@@ -100,6 +100,7 @@ def make_args(**overrides):
         rewrite_ac=[],
         replace_plan_file=None, replace_acs_file=None, set_reproduction_file=None,
         note=[], reflection=[], reflection_kind=None, marker=None,
+        reconcile_reproduction=None, record_classification=None,
     )
     base.update(overrides)
     return argparse.Namespace(**base)
@@ -1696,6 +1697,120 @@ assert_eq("new-body: --no-reproduction omits the bug-only sub-item", False,
           'reproduction captured' in _nb3)
 assert_eq("new-body: --no-reproduction keeps code + sweeps under Implement", True,
           '**Implement**' in _nb3 and '- [ ] code + sweeps' in _nb3)
+
+
+print("workpad reproduction-row reconcile + classification-note supersede (issue #449)")
+
+# The Phase 2.1.5 reproduce-first gate now fires on a recorded *content*
+# classification, not the `bug` label. Phase 1.3 records the classification as a
+# superseding `classification: ` note and reconciles the bug-only "reproduction
+# captured" Progress row to match it, on every entry — so a gate-created skeleton
+# (rendered from the label) always agrees with the classification before Phase 2.
+
+# A non-bug skeleton: Implement carries only `code + sweeps` (no repro row).
+_WP_NONBUG = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #449
+
+**Status:** Setup
+**Branch:** `x`
+**Last updated:** 2026-07-13T00:00:00Z
+
+## Progress
+- [ ] **Setup** — branch & workpad
+  - 00:00:00 — /devflow:implement run started
+- [ ] **Implement**
+  - [ ] code + sweeps
+- [ ] **Review**
+- [ ] **Documentation**
+- [ ] **PR marked ready**
+
+## Plan
+- [ ] Step alpha
+
+## Acceptance Criteria
+- [ ] AC one
+
+## Devflow Reflection
+"""
+
+# A bug skeleton: Implement carries the repro row (unticked) above `code + sweeps`.
+_WP_BUG = _WP_NONBUG.replace(
+    "- [ ] **Implement**\n  - [ ] code + sweeps",
+    "- [ ] **Implement**\n  - [ ] reproduction captured (bug issues only)\n  - [ ] code + sweeps",
+)
+# Same, but the repro row is already ticked (historical evidence).
+_WP_BUG_TICKED = _WP_BUG.replace(
+    "  - [ ] reproduction captured (bug issues only)",
+    "  - [x] reproduction captured (bug issues only)",
+)
+
+_REPRO_SUBSTR = 'reproduction captured (bug issues only)'
+
+# add-when-missing: bug-report classification on a non-bug skeleton inserts the
+# unticked repro row directly under **Implement**, above `code + sweeps`.
+_add = apply_mut(_WP_NONBUG, make_args(reconcile_reproduction='bug-report'))
+assert_eq("reconcile: bug-report adds the repro row when absent", True,
+          '- [ ] ' + _REPRO_SUBSTR in _add)
+assert_eq("reconcile: added repro row sits above code + sweeps", True,
+          _add.index(_REPRO_SUBSTR) < _add.index('- [ ] code + sweeps'))
+assert_eq("reconcile: added repro row sits below the Implement heading", True,
+          _add.index('**Implement**') < _add.index(_REPRO_SUBSTR))
+
+# remove-when-present-unticked: non-bug classification on a bug skeleton drops the
+# unticked repro row, leaving `code + sweeps` intact.
+_rm = apply_mut(_WP_BUG, make_args(reconcile_reproduction='non-bug'))
+assert_eq("reconcile: non-bug removes the unticked repro row", False,
+          _REPRO_SUBSTR in _rm)
+assert_eq("reconcile: non-bug keeps code + sweeps after removal", True,
+          '- [ ] code + sweeps' in _rm)
+
+# ticked-row-preserved: a ticked repro row is historical evidence — non-bug must
+# NOT remove it.
+_keep = apply_mut(_WP_BUG_TICKED, make_args(reconcile_reproduction='non-bug'))
+assert_eq("reconcile: non-bug preserves a TICKED repro row", True,
+          '- [x] ' + _REPRO_SUBSTR in _keep)
+
+# no-op arms: bug-report on a skeleton that already has the row, and non-bug on a
+# skeleton that never had it, both leave Progress byte-identical (idempotent).
+_noop_bug = apply_mut(_WP_BUG, make_args(reconcile_reproduction='bug-report'))
+assert_eq("reconcile: bug-report is a no-op when the row already exists", True,
+          _noop_bug.count(_REPRO_SUBSTR) == 1)
+assert_eq("reconcile: bug-report no-op keeps a single repro row (no duplicate)", True,
+          _noop_bug.split('## Progress', 1)[1].count(_REPRO_SUBSTR) == 1)
+_noop_nonbug = apply_mut(_WP_NONBUG, make_args(reconcile_reproduction='non-bug'))
+assert_eq("reconcile: non-bug is a no-op when the row is already absent", False,
+          _REPRO_SUBSTR in _noop_nonbug)
+
+# note-supersede: recording a classification replaces any existing `classification: `
+# note, so the workpad carries exactly one at all times, in the exact form.
+_c1 = apply_mut(_WP_NONBUG, make_args(
+    record_classification=['non-bug', 'reads as a feature request']))
+assert_eq("record-classification: first record lands in the exact form", True,
+          'classification: non-bug — reads as a feature request' in _c1)
+assert_eq("record-classification: exactly one classification note after first record",
+          1, _c1.count('classification: '))
+_c2 = apply_mut(_c1, make_args(
+    record_classification=['bug-report', 'quoted stack trace in the body']))
+assert_eq("record-classification: second record supersedes the first", True,
+          'classification: bug-report — quoted stack trace in the body' in _c2)
+assert_eq("record-classification: superseded note is gone", False,
+          'reads as a feature request' in _c2)
+assert_eq("record-classification: still exactly one classification note after supersede",
+          1, _c2.count('classification: '))
+
+# A classification note nests inside ## Progress (not Reflection), so
+# lib/fetch-pr-context.sh's reflection parse never picks it up.
+assert_eq("record-classification: note lands inside ## Progress", True,
+          _c1.split('## Progress', 1)[1].split('## Plan', 1)[0].count('classification: ') == 1)
+
+# Guard rails: an empty rationale and an unknown class both fail structurally
+# (an _UpdateError before any PATCH), never a silent malformed record.
+assert_raises("record-classification: empty rationale raises", workpad._UpdateError,
+              lambda: apply_mut(_WP_NONBUG, make_args(
+                  record_classification=['non-bug', '   '])))
+assert_raises("record-classification: unknown class raises", workpad._UpdateError,
+              lambda: apply_mut(_WP_NONBUG, make_args(
+                  record_classification=['maybe-bug', 'rationale'])))
 
 
 print("parse_acs._is_post_merge")

@@ -2745,6 +2745,23 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
   'prefer using that consumer as the guard itself' "$RCR_SKILL"
 # FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
+# ── issue #449: the reproduce-first gate keys on a recorded CONTENT classification, not the
+#    `bug` label. The deliverable is agent-executed skill prose (phase-1/phase-2) plus the
+#    workpad.py reconcile/supersede capability (pinned in lib/test/test_python_scripts.py).
+#    Here: (1) a positive pin on the new classification-keyed §2.1.5 trigger sentence, and
+#    (2) a WHITESPACE-NORMALIZED negative pin (the #375 wrapped-literal hazard) that the
+#    retired label-only gate conditions are gone from the implement skill files (bundle).
+assert_pin_unique "#449: phase-2 §2.1.5 fires on the recorded content classification, not the label" \
+  'This gate fires on the **recorded content classification** from Phase 1.3' "$IMPL_SKILL_BUNDLE"
+# Collapse all whitespace runs to a single space so a phrase re-wrapped across lines is still
+# caught, then assert each retired label-only gate condition no longer appears anywhere in the
+# implement skill files.
+IMPL_NORM_449="$(tr -s '[:space:]' ' ' < "$IMPL_SKILL_BUNDLE")"
+assert_eq "#449: retired 'only for bug-labelled issues' gate heading is gone (ws-normalized)" \
+  "0" "$(printf '%s' "$IMPL_NORM_449" | grep -oF -- 'only for `bug`-labelled issues' | grep -c .)"
+assert_eq "#449: retired 'labels do include bug, you must capture' gate condition is gone (ws-normalized)" \
+  "0" "$(printf '%s' "$IMPL_NORM_449" | grep -oF -- 'include `bug`, you must capture' | grep -c .)"
+
 # ── issue #443: the mandatory Step 3.6 fresh-context audit in /devflow:create-issue ──
 # The deliverable is agent-executed skill prose plus one tracked extension file; no runtime
 # code path executes in CI, so the automated boundary is the repo's skill-contract mechanism:

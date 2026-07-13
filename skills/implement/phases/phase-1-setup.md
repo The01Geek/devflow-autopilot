@@ -13,7 +13,14 @@ gh issue view $ARGUMENTS --json title,body,labels,number
 
 If this fails, stop immediately and report: "Error: Could not fetch GitHub issue #$ARGUMENTS. Verify the issue number exists."
 
-Save the issue title, body, labels, and number — you will use these throughout the workflow. Note whether the labels include `bug` — Phase 2.1.5 depends on it.
+Save the issue title, body, labels, and number — you will use these throughout the workflow.
+
+**Classify the issue as a bug report from its *content*, not its label — Phase 2.1.5 depends on it.** The reproduce-first gate (2.1.5) fires on this classification, so decide it here from the issue **title and body**, treating an existing `bug` label as *one input signal* among them — labeling is a human convention the engine does not control, so a genuine bug filed without the label must still fire the gate, and a stale `bug` label on a feature request must not force reproduction. Classify as **bug-report** or **non-bug**:
+
+- **Content overrides the label in both directions, but only on a *positive* classification.** An unlabelled issue whose content positively reads as a **bug report** (it describes incorrect behavior, a failure, a regression, an error/trace) classifies **bug-report** and fires the gate. A `bug`-labelled issue whose content positively reads as a **feature request** (it asks for new capability with no malfunction described) classifies **non-bug** and skips the gate — and the rationale must state what content overrode the label.
+- **Ambiguity resolves toward the operator's explicit signal — one unconditional pair of defaults.** When the content is genuinely ambiguous (you cannot positively read it either way): ambiguous content on an **unlabelled** issue classifies **non-bug**; ambiguous content on a **`bug`-labelled** issue classifies **bug-report**. (A wrongly-skipped gate fails silent while a wrongly-fired gate fails loud, so ambiguity defers to the label when one exists and to non-bug when none does.)
+
+Hold the verdict and a one-line rationale; Phase 1.3 records them in the workpad as a `classification: ` note (exact forms `classification: bug-report — <rationale>` / `classification: non-bug — <rationale>`) and reconciles the skeleton to match.
 
 ### 1.2 Parse Acceptance Criteria from the issue body
 
@@ -48,9 +55,10 @@ WORKPAD_ID=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner rep
 - **`WORKPAD_ID` empty (fresh issue — local-tier run with no `gate` job)** → Build the lean skeleton with the helper and create it, then mirror the issue's Acceptance Criteria into it:
   ```bash
   BODY=$(mktemp)
-  # Add --no-reproduction for non-bug issues (labels from 1.1) so the bug-only
-  # "reproduction captured" sub-item isn't rendered; omit the flag for bug issues.
-  workpad.py new-body $ISSUE_NUMBER --run-link "[View run]($RUN_URL)" > "$BODY"   # + --no-reproduction unless the issue is bug-labelled; omit --run-link for a local run
+  # Add --no-reproduction when the 1.1 classification is non-bug so the bug-only
+  # "reproduction captured" sub-item isn't rendered; omit the flag when it is
+  # bug-report. Decide from the CLASSIFICATION (1.1), not the label.
+  workpad.py new-body $ISSUE_NUMBER --run-link "[View run]($RUN_URL)" > "$BODY"   # + --no-reproduction when the 1.1 classification is non-bug; omit --run-link for a local run
   workpad.py create $ISSUE_NUMBER "$BODY"
   workpad.py update $ISSUE_NUMBER --replace-acs-file /tmp/acs-${ARGUMENTS}.md
   ```
@@ -66,6 +74,20 @@ WORKPAD_ID=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner rep
   **Legacy-workpad migration (required):** a workpad created before run/PR links and the `## Progress` checklist existed won't have those lines. `--run-link`/`--pr-link` insert the missing header lines on their own, but `--tick-progress`/`--note` (used at every later phase boundary) will **abort the run** with `section '## Progress' not found` if the section is absent. So when resuming such a workpad you MUST seed a `## Progress` section before Phase 1.5 — `workpad.py body` the live comment, splice the `## Progress` checklist from the template above into the body (right after the front-matter, before `## Plan`), and `workpad.py patch $WORKPAD_ID <file>`. Do not leave it to chance: skip this and the first `--tick-progress`/`--note` call fails closed.
 
 After this step, every later phase boundary touches the workpad via `workpad.py update $ISSUE_NUMBER ...` — no `WORKPAD_ID` variable to track across calls.
+
+**Record the classification and reconcile the skeleton (every entry — fresh run, in-flight resume, and terminal re-trigger).** The 2.1.5 gate reads the recorded classification, and the gate/`new-body` skeleton is rendered deterministically from the *label*, so it can disagree with the *content* classification (1.1) — Phase 1.3 records the classification and reconciles the skeleton to it, on every entry, before Phase 2 starts. Resume semantics decide whether to classify afresh or read the recorded verdict:
+
+- **Fresh run** (`WORKPAD_ID` was empty), **or a resume that finds no `classification: ` note** (a gate-created skeleton that only carries the run-started note, or a prior run that died before recording), **or a re-trigger after a *terminal* workpad `Status`** (🎉/👎/💥 — the operator's correction channel is editing the issue and re-triggering) → **classify now** (per 1.1, from the issue's *current* content and labels) and **record** it, which also supersedes any stale note from a prior verdict:
+  ```bash
+  workpad.py update $ISSUE_NUMBER --record-classification {bug-report|non-bug} "{one-line rationale}"
+  ```
+- **In-flight resume** (a non-terminal `Status`, and a `classification: ` note is already present) → **do NOT re-classify**; read the recorded `classification: ` note from the body (fetched above) and use its verdict as-is.
+
+Then, in **both** cases, reconcile the skeleton to the (recorded or read) classification — idempotent, so it is safe on every entry and a no-op when the skeleton already matches:
+```bash
+workpad.py update $ISSUE_NUMBER --reconcile-reproduction {bug-report|non-bug}
+```
+(The two `update` calls may be combined into one when recording — `--record-classification … --reconcile-reproduction …` — since both mutate `## Progress`.) A non-bug verdict never deletes a **ticked** "reproduction captured" row or a populated `## Reproduction` section — those stay as historical evidence, annotated by the superseding `classification: ` note; reconciliation only removes the *unticked* bug-only row when the classification is non-bug, and adds it when bug-report and absent.
 
 **Write the run marker (both arms — fresh create and resume).** Immediately after the workpad exists (created above, or detected on the resume arm), write an empty run-marker file so a local-tier Stop-hook guard knows an implement run is in flight for this issue. The workpad remains the source of truth for the run's `Status`; the marker only gates *whether* the guard queries it, so ordinary sessions never pay a network call on stop. It lives under the gitignored `.devflow/tmp/`, anchored to the repo (or worktree) root, and is removed at every terminal `Status` transition by the *Outcome reaction* block in the orchestrator:
 

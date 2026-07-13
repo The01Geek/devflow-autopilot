@@ -284,11 +284,17 @@ jobs:
             exit 0
           fi
           BODY="$(mktemp)"
-          # Non-bug issues omit the bug-only "reproduction captured" sub-item, so
-          # the gate-created workpad matches Phase 1.3's fresh-issue path. Only
-          # trim when the label lookup SUCCEEDS and a 'bug' label is absent; if the
-          # lookup fails, fall back to rendering it (a bug issue must not silently
-          # lose the row). The assignment in the `if` condition is exempt from set -e.
+          # Deterministic label-based PRE-RENDER only: YAML cannot judge issue
+          # content, so this trims the bug-only "reproduction captured" sub-item by
+          # the 'bug' LABEL. It is a heuristic, NOT the authority: Phase 1.3's
+          # `--reconcile-reproduction` (keyed on the recorded CONTENT classification,
+          # issue #449) is the authoritative correction that reconciles this skeleton
+          # to the classification on every entry — so a bug filed without the label
+          # gains the row and a mislabelled feature request loses it there. Only trim
+          # when the label lookup SUCCEEDS and a 'bug' label is absent; if the lookup
+          # fails, fall back to rendering it (render-on-lookup-failure — a bug issue
+          # must not silently lose the row, and 1.3 reconciles it regardless). The
+          # assignment in the `if` condition is exempt from set -e.
           REPRO_FLAG=""
           if LABELS="$(gh issue view "$NUMBER" --json labels --jq '.labels[].name' 2>/dev/null)"; then
             grep -qix bug <<<"$LABELS" || REPRO_FLAG="--no-reproduction"
