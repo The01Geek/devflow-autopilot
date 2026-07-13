@@ -18,7 +18,12 @@ name: Matcher probe
 # measurement to a single `--disallowedTools ScheduleWakeup` session, deriving a
 # DENIED/AVAILABLE/REMOVED/INCONCLUSIVE verdict that gates a claude_args change in
 # devflow-implement.yml; it runs in its own job so the flag never perturbs the
-# matcher probe above.
+# matcher probe above. Two further #437 sibling jobs share the workflow: an
+# `execfile-shape-probe` job that captures a real run's execution_file as a
+# REDACTED shape artifact (docs/execution-file-shape.md), and a `hook-probe` job
+# that records whether a base-branch .claude/settings.json Stop hook fires under
+# claude-code-action. A pull_request edit to this file therefore launches a
+# paid Claude session per probe job, not just the original two.
 #
 # Triggers: workflow_dispatch (available post-merge, from the default branch) plus
 # pull_request scoped to this file's own path (so a change to the probe re-runs it
@@ -460,3 +465,163 @@ jobs:
           # review, finding #1) so lib/test/run.sh can drive every arm + the
           # fail-open matrix; see scripts/schedulewakeup-probe-verdict.py.
           python3 scripts/schedulewakeup-probe-verdict.py "${EXECUTION_FILE}"
+
+  # issue #437 — capture the SHAPE of claude-code-action's execution_file and settle
+  # the unproven "the token/wall-clock cost half is unreconstructable" claim in
+  # docs/efficiency-trace.md with real evidence. The prompt deliberately exercises the
+  # events the shape record cares about: a positive-control grep, ONE Task/subagent
+  # dispatch (so a `subagent_type` field has something to carry), and one deliberately
+  # ungranted command (so `permission_denials` has something to carry). The resulting
+  # `steps.claude.outputs.execution_file` is fed through scripts/extract-execution-shape.sh,
+  # which emits a REDACTED shape record (per-field present/absent/unavailable + the
+  # top-level encoding + a key→type structural set; every string VALUE leaf is dropped —
+  # object KEYS are fail-closed filtered (`safekey`: emitted verbatim only when bounded-length
+  # and identifier-shaped, else `<redacted-key>`), so an unrecognized key loses its name rather
+  # than leaking its content. The observed schema keys are fixed schema
+  # field names; untrusted content lives in value positions). ONLY
+  # that redacted record is uploaded — the raw execution file, which can carry prompt
+  # text, repo content, and attacker-controlled check-run names, NEVER leaves the run
+  # (issue #437 AC2). Re-run on demand after a claude-code-action upgrade to refresh
+  # docs/execution-file-shape.md.
+  execfile-shape-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run Claude Code (execution-file shape probe)
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Same rationale as the probes above: same-repo only, read-only, but a
+          # DevFlow bot PR touching this file is a non-human actor claude-code-action
+          # would otherwise refuse.
+          allowed_bots: "*"
+          prompt: |
+            You are an EXECUTION-FILE SHAPE PROBE. Perform the three numbered actions
+            below, each EXACTLY ONCE in its own single tool call, in order. Do not
+            retry a denied action and do not work around it. After all three, STOP and
+            reply with the single word DONE.
+
+            Your text output is not measured. Only the harness execution record — which
+            token-usage, timing, tool_use, subagent_type, and permission_denials fields
+            it carries — is measured, by a deterministic helper reading the execution
+            file afterward.
+
+            Action 1 (positive control) — run this Bash command once:
+            grep -c . /etc/hosts
+
+            Action 2 — dispatch ONE subagent using the Task tool: subagent_type
+            "general-purpose", with the prompt "Reply with exactly the single word ok
+            and nothing else." This makes the execution file carry a tool_use with a
+            subagent_type field.
+
+            Action 3 — attempt this Bash command once. It is deliberately NOT granted,
+            so it WILL be denied — that denial is exactly the signal being collected, to
+            populate permission_denials:
+            rm -rf /tmp/devflow-execfile-probe-denied
+
+          # No plugin_marketplaces/plugins: Action 2 dispatches the BUILT-IN
+          # general-purpose subagent, which needs no plugin — loading devflow would add
+          # a marketplace clone + install for zero measurement value.
+          #
+          # Task is granted so the subagent dispatch is permitted; Bash(grep:*) grants
+          # the control; `rm` is deliberately UNGRANTED so Action 3 is denied.
+          # acceptEdits so a granted call never prompt-denies and masquerades as a denial.
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --permission-mode acceptEdits
+            --allowed-tools "Task,Bash(grep:*)"
+
+      # Redact + extract the shape, then upload ONLY the redacted record. always() so
+      # the record is produced even if the engine ended in error (it degrades to an
+      # all-unavailable record, never a crash). The helper always exits 0.
+      - name: Extract redacted execution-file shape
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          mkdir -p artifact
+          # scripts/extract-execution-shape.sh is a repo-root helper; this is a plain
+          # workflow run step (NOT a claude-code-action allowlisted context), so a
+          # direct `bash scripts/…` invocation is fine here.
+          bash scripts/extract-execution-shape.sh "${EXECUTION_FILE}" > artifact/execution-file-shape.txt
+          echo "## Execution-file shape (redacted)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat artifact/execution-file-shape.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload redacted shape record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: execution-file-shape
+          path: artifact/execution-file-shape.txt
+          if-no-files-found: warn
+
+  # issue #437 (AC6) — establish whether a Stop hook committed to the BASE branch's
+  # .claude/settings.json executes when claude-code-action runs. This is INHERENTLY A
+  # TWO-STEP LANDING: claude-code-action removes .claude/ and restores it from the BASE
+  # branch before running, so a Stop hook added *in the probe PR* is restored away and
+  # proves nothing — the hook must already be on base for a run to be meaningful. A
+  # first-run "did not fire" therefore must NOT be read as "hooks do not fire under the
+  # action" (the reverse launder the issue warns against). The Stop hook itself SHIPS in this
+  # PR — scripts/stop-hook-probe.sh, registered in .claude/settings.json — so no operator
+  # hand-edit is needed; what remains is only the ordering: it must be on the BASE branch
+  # (i.e. this PR merged) before a dispatch can observe it fire. It writes the gitignored
+  # breadcrumb .devflow/tmp/stop-hook-probe-fired (a COUPLED contract: renaming it on either
+  # side alone would silently read as "did not fire" forever — lib/test/run.sh pins both).
+  # This job checks for that breadcrumb after the action. See docs/execution-file-shape.md.
+  hook-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run Claude Code (Stop-hook execution probe)
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowed_bots: "*"
+          prompt: |
+            You are a STOP-HOOK PROBE. Run this single Bash command once, then STOP and
+            reply with the single word DONE. Your only purpose is to reach a normal Stop
+            so that any base-branch Stop hook has a chance to fire; the hook's side
+            effect — not your output — is the measurement.
+
+            grep -c . /etc/hosts
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --permission-mode acceptEdits
+            --allowed-tools "Bash(grep:*)"
+
+      # Record fired / did-not-fire. always() so a verdict is produced even on engine
+      # error. A missing breadcrumb on a probe PR is EXPECTED (the hook is not yet on
+      # base) — the meaningful run is post-merge, from the default branch via
+      # workflow_dispatch. Never collapse "did not fire" to "hooks do not fire".
+      - name: Record Stop-hook firing observation
+        if: always()
+        run: |
+          set -uo pipefail
+          # cwd assumption, explicit (PR #438 review): this reads the marker at the
+          # WORKSPACE ROOT. The hook resolves the git toplevel from the Stop payload cwd,
+          # and this job runs Claude from the checkout root, so the two coincide; a future
+          # action variant running Claude from a different tree must revisit this read.
+          MARKER=".devflow/tmp/stop-hook-probe-fired"
+          # Branch selection + user-facing wording live in the suite-drivable helper
+          # (scripts/describe-hook-probe.sh) per the repo's extract-branch-selecting-
+          # inline-shell convention (PR #367 precedent); the workflow only supplies the
+          # coupled marker literal and the run link.
+          {
+            bash scripts/describe-hook-probe.sh "$MARKER"
+            echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
