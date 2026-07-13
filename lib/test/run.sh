@@ -2704,11 +2704,17 @@ assert_pin_unique "#312 item 1: Step 4.5 weighs convergence by severity and surf
 # item 9 — Step 3 item 3a names job-gating / control-flow changes as mechanism changes
 assert_pin_unique "#312 item 9: Step 3 item 3a trigger names a rerouted step / job gating" \
   'a rerouted step, a relocated where-a-decision-concludes' "$MAXI_SKILL"
-# item 2 — platform-behavior premise class in BOTH the template and Step 3.5
-assert_pin_unique "#312 item 2: issue-template names the platform-behavior premise class (WebFetch official docs)" \
-  'verified fact and its source URL recorded' "$CI312_TMPL"
-assert_pin_unique "#312 item 2: create-issue Step 3.5 re-applies the platform-behavior class" \
-  'platform-behavior** class: any load-bearing claim about external platform' "$CI312_SKILL"
+# item 2 (broadened by #446) — the premise class widened from "an AC's mechanism" to every
+# relied-on third-party behavior, with the WebFetch → WebSearch → ask-the-user ladder, in BOTH
+# the template and Step 3.5. The pins cover the relied-on breadth AND the ladder's ask-user arm.
+assert_pin_unique "#312 item 2 (broadened #446): issue-template names the relied-on third-party premise class" \
+  'relied-on third-party behavior** — every behavior of an external platform' "$CI312_TMPL"
+assert_pin_unique "#312 item 2 (broadened #446): issue-template ladder reaches the ask-the-user arm" \
+  '**(3)** when search is unavailable or fails, **ask the user to' "$CI312_TMPL"
+assert_pin_unique "#312 item 2 (broadened #446): create-issue Step 3.5 re-applies the relied-on class" \
+  'relied-on-third-party-behavior** class: every behavior of an external platform' "$CI312_SKILL"
+assert_pin_unique "#312 item 2 (broadened #446): Step 3.5 ladder reaches the ask-the-user arm" \
+  'when search is unavailable or fails, by **asking the user to provide the documentation**' "$CI312_SKILL"
 # item 3 — Phase 2.3.4 workflow-diff addendum (both named checks)
 assert_pin_unique "#312 item 3: Phase 2.3.4 carries the workflow-diff addendum" \
   'Workflow-diff addendum (mandatory whenever the diff touches' "$IMPL_SKILL_BUNDLE"
@@ -3552,7 +3558,7 @@ assert_pin_unique "#296 review-and-fix: Common Mistakes names the direct-Agent-d
 # (2) SEAM SCRATCH DISCIPLINE — the Phase 3.3 seam authors .devflow/tmp scratch/telemetry with
 # the Write tool, not a shell `>` redirect: operative directive, removal re-opens the friction.
 assert_pin_red_on_removal "#296 phase-3.3: deleting the Write-tool-for-.devflow/tmp seam directive turns its pin RED" \
-  'author it with the Write tool, not a shell `>` redirect' "$DEF_SKILL"
+  'author it with the Write tool, not a shell redirect' "$DEF_SKILL"
 # (2b) the non-optional-emit obligation RESTATED for the inline driver at the seam: operative.
 assert_pin_red_on_removal "#296 phase-3.3: deleting the inline-driver non-optional-emit restatement turns its pin RED" \
   'the per-iteration effectiveness record (`iter-<N>.json`) is a non-optional emit on every iteration, written with the Write tool' "$DEF_SKILL"
@@ -10028,6 +10034,224 @@ assert_pin_unique "#272 AC9: unresolved UI-placement detail flows to the existin
 # AC10 (coupled trio): SYSTEM_OVERVIEW §11 mirrors the new visual-specification behavior.
 assert_pin_unique "#272 AC10: overview §11 mirrors the visual-specification behavior" \
   'infers an issue involves user-visible UI changes' "$CI_OVERVIEW_272"
+
+# ── #446: Dependencies section wired to the implement gate, relied-on third-party docs
+#    ladder, gated implement-comment offer, and Step 1 completion wait. The deliverable is
+#    skill/template/doc prose; the automatable boundary is this pin layer. Removal-proof
+#    presence pins (assert_pin_unique), plus an assert_pin_red_under behavioral pin proving
+#    the offer gate guards against the restored-unconditional-offer regression, plus a
+#    verified-config multi-shape block driving config-get.sh's fail-closed arm selection.
+CI446_TMPL="$LIB/../skills/create-issue/references/issue-template.md"
+CI446_SKILL="$LIB/../skills/create-issue/SKILL.md"
+CI446_P4="$LIB/../skills/implement/phases/phase-4-documentation.md"
+CI446_P1="$LIB/../skills/implement/phases/phase-1-setup.md"
+CI446_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# AC1/AC2 — the optional ## Dependencies section in BOTH the template's structure guidance
+# and its bottom skeleton (coupled mirror sites: a one-sided edit turns one of these RED).
+assert_pin_unique "#446 AC1: issue-template carries the Dependencies structure guidance (conditional section)" \
+  '### Dependencies (include only when a prerequisite is still open at drafting time)' "$CI446_TMPL"
+assert_pin_unique "#446 AC1: issue-template Dependencies entry form is the Blocked-by line" \
+  'Blocked by #N — <one-line reason it must land first>' "$CI446_TMPL"
+assert_pin_unique "#446 AC2: issue-template bottom skeleton mirrors the Dependencies section (above Problem Statement)" \
+  '(include this section, above Problem Statement, ONLY when a prerequisite is still open at' "$CI446_TMPL"
+# Coupled producer↔consumer contract: the template's dependency vocabulary and phase-1 Pass 4's
+# recognized forms are pinned together — RED if either side's heading or phrasing drifts.
+assert_eq "#446: template Dependencies vocabulary matches phase-1 Pass 4's recognized forms (producer/consumer coupled)" "yes" \
+  "$(grep -qF '## Dependencies' "$CI446_TMPL" && grep -qF 'Blocked by #N' "$CI446_TMPL" && grep -qF '## Dependencies' "$CI446_P1" && grep -qiF 'blocked by #N' "$CI446_P1" && echo yes || echo no)"  # raw-guard-ok: compound coupled producer/consumer vocabulary check across template + Pass 4
+# AC4 — phase-4 Phase 4.0 renders ## Dependencies above Problem Statement (Sections-in-order
+# list + the render bullet + the heredoc line).
+assert_pin_unique "#446 AC4: phase-4 Phase 4.0 Sections-in-order list leads with ## Dependencies" \
+  '**Sections, in this order:** `## Dependencies`, `## Problem Statement`' "$CI446_P4"
+assert_pin_unique "#446 AC4: phase-4 Phase 4.0 documents the parent-ordering redundancy bullet" \
+  'making the same parent-ordering fact scannable as its own section' "$CI446_P4"
+assert_pin_unique "#446 AC4: phase-4 Phase 4.0 heredoc renders the parent Blocked-by line" \
+  'Blocked by #$ARGUMENTS — the parent issue' "$CI446_P4"
+# AC4 — the "intentionally omitted" list is reconciled: it now names the Technical-Context
+# Dependencies *bullet* as omitted while the top-level ## Dependencies section IS rendered, so a
+# regression re-adding the section to the omitted set (contradicting the render bullet) goes RED.
+assert_pin_unique "#446 AC4: phase-4 intentionally-omitted list keeps the top-level ## Dependencies section rendered" \
+  'distinct from the top-level `## Dependencies` section, which *is* rendered' "$CI446_P4"
+# AC6 — the ladder terminal arm is decided two ways, and the Blocked-section inclusion rule is
+# reconciled to admit the ladder-produced vendor-behavior question (no longer "solely when the
+# user disengaged"). Pin both so a revert of either terminal-arm reconciliation goes RED.
+assert_pin_unique "#446 AC6: issue-template decides the ladder terminal arm two ways" \
+  'Ladder terminal arm — decided two ways' "$CI446_TMPL"
+assert_pin_unique "#446 AC6: issue-template Blocked-inclusion rule admits the ladder-produced class" \
+  'ladder-produced vendor-behavior question is the one Blocked entry class not arising from user' "$CI446_TMPL"
+# AC6 — the flagged-assumption paragraph's "not a Blocked item" sentence carries the ladder-terminal
+# exception, so a revert reintroducing the (flagged-assumption-never-Blocked) vs (terminal-arm-is-
+# Blocked) contradiction goes RED.
+assert_pin_unique "#446 AC6: flagged-assumption paragraph carries the ladder-terminal-arm exception" \
+  'it is not a `## 🚫 Blocked` item — **with the one exception of the' "$CI446_TMPL"
+# AC1/AC6 — the quality-checklist mirrors: the Dependencies checklist line and the broadened
+# relied-on-third-party checklist line are reconciled in the same change.
+assert_pin_unique "#446 AC1: quality-checklist lists open prerequisites in ## Dependencies" \
+  'Open cross-issue prerequisites are listed in `## Dependencies`' "$CI446_TMPL"
+# AC(Step 2) — Definition of Ready gains the known-prerequisites item (no question when none).
+assert_pin_unique "#446: create-issue Step 2 DoR gains the known-prerequisites item" \
+  'Known prerequisites (cross-issue ordering)' "$CI446_SKILL"
+# AC(Step 1) — docs-verify completion-wait discipline mirroring Step 3.6.
+assert_pin_unique "#446: create-issue Step 1 carries the docs-verify completion-wait discipline" \
+  'Completion-wait discipline (mandatory, mirroring Step 3.6' "$CI446_SKILL"
+assert_pin_unique "#446: Step 1 wait forbids treating a launch acknowledgment as the report" \
+  'launch acknowledgment is never treated as the findings report' "$CI446_SKILL"
+# AC(offer gate) — the two-condition gate: body-level condition + tier condition via config-get.sh
+# leading-token then python3/jq fallback, bash-builtin compare; and the never-silent withheld reason.
+assert_pin_unique "#446: offer gate reads workflows.devflow via config-get.sh as the leading token" \
+  'scripts/config-get.sh .workflows.devflow false' "$CI446_SKILL"
+assert_pin_unique "#446: offer gate compares to literal true with bash builtins only (no tr/sed)" \
+  'never `tr`/`sed` lowering, which fails **open**' "$CI446_SKILL"
+# Pin the SKILL's DOCUMENTED python3/jq fallback one-liners themselves, so a typo introduced
+# into the SKILL fallback text (the ONLY read path on the local tier when config-get.sh is
+# classifier-denied) turns RED — the fallback-agreement block below drives a hand-copy of
+# these shapes, so without these pins a SKILL-side drift from that copy would be uncaught.
+assert_pin_unique "#446: SKILL documents the type-tolerant python3 fallback read of workflows.devflow (lowercases only booleans, top-level-tolerant, mirrors config-get)" \
+  "w=d.get('workflows') if isinstance(d,dict) else None; v=w['devflow'] if (isinstance(w,dict) and 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$CI446_SKILL"
+assert_pin_unique "#446: SKILL documents the type-tolerant jq fallback read of workflows.devflow (repo-root anchored, string-truthy, top-level-tolerant)" \
+  "jq -r 'if (type==\"object\") and ((.workflows|type)==\"object\") then (.workflows.devflow // false) else false end' \"\$ROOT/.devflow/config.json\"" "$CI446_SKILL"
+# A boolean-only fallback (== true / is True) would diverge from config-get.sh AND the cloud gate
+# on a string "true" value (both accept it as enabled). Pin the clause forbidding the narrowing so
+# a revert to a boolean-only test turns RED.
+assert_pin_unique "#446: SKILL forbids a boolean-only fallback (string 'true' must read as enabled, matching the gate)" \
+  'Do **not** narrow the fallback to a boolean-only `== true` test' "$CI446_SKILL"
+# The fallbacks anchor the config path to the git repo root (#295 SHARED REPO-ROOT CONFIG
+# CONTRACT), matching config-get.sh — so a subdir run reads the same root config, not a
+# nonexistent cwd-relative one. Pin the anchoring clause so a revert to a cwd-relative read
+# turns RED.
+assert_pin_unique "#446: SKILL fallbacks anchor the config path to the git repo root (#295 contract)" \
+  'anchoring the config path to the git repo root the same way `config-get.sh` does' "$CI446_SKILL"
+# File-absent is detected by a bash `test -f`, NOT by letting an interpreter crash on the missing
+# path (which would mislabel an absent config "unreadable"). Pin the [ -f ] guard clause so a
+# revert to a raw crash-on-absent one-liner turns RED.
+assert_pin_unique "#446: SKILL fallback detects file-absent with [ -f ], not an interpreter crash" \
+  'Check file existence first with a bash builtin `test`' "$CI446_SKILL"
+# Reason-selection guards (Finding: config-unreadable vs tier-disabled conflation on the fallback
+# path). Pin the operative clauses so a regression that (a) reads a crashed rung's empty stdout as
+# the value false, or (b) buckets a merely-absent config as "unreadable", turns RED.
+assert_pin_unique "#446: reason-selection observes exit status, never empty stdout as the value false" \
+  'inspect each rung'"'"'s **exit status**' "$CI446_SKILL"
+assert_pin_unique "#446: an absent/unconfigured config is tier-disabled on every rung, never 'unreadable'" \
+  'unconfigured on every rung**, never "unreadable"' "$CI446_SKILL"
+assert_pin_unique "#446: offer gate prints a one-line withheld-offer reason (never silent)" \
+  'When the gate withholds the prompt, print a one-line reason naming the exact failed condition' "$CI446_SKILL"
+assert_pin_unique "#446: withheld-offer config-unreadable reason is kept distinct from tier-disabled" \
+  'use the distinct *config unreadable* reason' "$CI446_SKILL"
+# The unconditional-offer source literal is GONE (absence pin — the exact bytes the issue named).
+# (grep_present is deliberately scoped to 2 known compound MISSING-FILE sites by a meta-guard,
+# so a general absence pin uses the hand-rolled negated grep with a raw-guard-ok marker, matching
+# the sibling #228 absence pin.)
+assert_eq "#446: create-issue removed the unconditional-offer source literal" "yes" \
+  "$(! grep -qF '**always** present a yes/no prompt' "$CI446_SKILL" && echo yes || echo no)"  # raw-guard-ok: absence pin — the unconditional-offer literal is GONE (negated grep, not a presence pin)
+# Behavioral-fix pin (assert_pin_red_under): a mutation removing the gate's operative qualifier
+# — restoring the unconditional offer — must turn the pin RED, proving it guards the gate itself,
+# not merely its own line vanishing. Mutation removes ` **only when both conditions hold**`.
+assert_pin_red_under "#446: offer-gate pin guards against the restored-unconditional-offer mutation" \
+  'present the yes/no implement prompt **only when both conditions hold**' \
+  's/ \*\*only when both conditions hold\*\*//' \
+  "$CI446_SKILL"
+# AC(completion checklist) — gated-offer framing + todo 7 completable on both outcomes.
+assert_pin_unique "#446: create-issue Completion-checklist framing is the gated-offer form" \
+  'a *gated* offer to start implementation' "$CI446_SKILL"
+assert_pin_unique "#446: create-issue todo 7 is the gated implement-offer step (completable both ways)" \
+  'run the gated implement-offer step — present the offer, or print the withheld-offer reason' "$CI446_SKILL"
+# AC(docs) — overview §11 describes all four new behaviors.
+assert_pin_unique "#446: overview §11 describes the four authoring-pipeline hardenings" \
+  'Four authoring-pipeline hardenings (issue #446)' "$CI446_OVERVIEW"
+# Verified-config cases (obligation): drive config-get.sh over eight shapes — explicit false →
+# not-true (offer withheld), absent key → the false default (withheld), explicit true → true
+# (offered), wrong-type container → false (tier-disabled), top-level array and top-level scalar →
+# false (tier-disabled, not a crash), a string "true" → true (enabled,
+# matching the cloud gate), and a capitalized "True" → verbatim "True" (NOT enabled — case-sensitive).
+# config-get preserves valid-falsy and applies the caller default
+# only on absence (the #312 valid-falsy discipline), so the explicit-`true` gate is fail-closed on
+# absent/false/wrong-type/capitalized-string alike while a lowercase string "true" reads enabled (the
+# block drives explicit-false / absent-key / explicit-true / wrong-type / top-level-array /
+# top-level-scalar / string-true / string-True; the genuinely-unreadable arm — malformed JSON →
+# config-get exits non-zero with no value on stdout, the executable property the *config unreadable*
+# reason-selection rests on — is asserted below; file-absent is
+# handled by the SKILL's [ -f ] guard, pinned above).
+CG446="$LIB/../scripts/config-get.sh"
+CG446_FALSE="$(probe_tmp "#446 cfg explicit-false")";  printf '%s' '{"workflows":{"devflow":false}}' > "$CG446_FALSE"
+CG446_ABSENT="$(probe_tmp "#446 cfg absent-key")";     printf '%s' '{}' > "$CG446_ABSENT"
+CG446_TRUE="$(probe_tmp "#446 cfg explicit-true")";    printf '%s' '{"workflows":{"devflow":true}}' > "$CG446_TRUE"
+# Wrong-type `workflows` (an array, not an object): config-get.sh walks the path, hits a non-dict
+# at `devflow`, and returns the `false` default exit 0 — i.e. a wrong-type shape reads as
+# tier-disabled/unconfigured, NOT unreadable. The type-tolerant fallbacks must agree (Finding 2:
+# a raw fallback one-liner crashes here and would mislabel it *config unreadable*).
+CG446_WRONGTYPE="$(probe_tmp "#446 cfg wrong-type")";  printf '%s' '{"workflows":[]}' > "$CG446_WRONGTYPE"
+# Top-level NON-OBJECT config (hand-corrupted `[]` / bare scalar): config-get.sh walks the path,
+# finds no dict, and returns the false default at exit 0 — tier-disabled/unconfigured, NOT
+# unreadable. The fallbacks must agree: an unguarded `d.get(...)` / `.workflows` crashes here
+# (AttributeError / jq "Cannot index"), which would misroute the shape to *config unreadable*
+# on exactly the local tier where the fallback is the only read path (Important finding 2).
+CG446_TOPARR="$(probe_tmp "#446 cfg top-level-array")";   printf '%s' '[]' > "$CG446_TOPARR"
+CG446_TOPSCAL="$(probe_tmp "#446 cfg top-level-scalar")"; printf '%s' '"oops"' > "$CG446_TOPSCAL"
+# String-valued devflow: "true" — schema-invalid but human-corruptible. config-get.sh stringifies
+# the value ("true") and the authoritative cloud gate reads `.workflows.devflow // false` then
+# string-compares to "true", so BOTH treat a string "true" as ENABLED. The fallbacks must agree
+# (a boolean-only fallback would diverge — withhold + mislabel "tier disabled" — on exactly the
+# local tier where the fallback is the only read path).
+CG446_STRTRUE="$(probe_tmp "#446 cfg string-true")";   printf '%s' '{"workflows":{"devflow":"true"}}' > "$CG446_STRTRUE"
+# Capitalized string "True": config-get.sh and the cloud gate are CASE-SENSITIVE against literal
+# "true", so "True" reads NOT enabled — the fallbacks must agree (a `.lower()` on the whole value
+# would case-fold "True"->"true" and fire an offer the resolver + gate treat as disabled).
+CG446_STRCAP="$(probe_tmp "#446 cfg string-True-cap")"; printf '%s' '{"workflows":{"devflow":"True"}}' > "$CG446_STRCAP"
+assert_eq "#446 offer-gate: explicit false reads not-true (offer withheld)" "false" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_FALSE")"
+assert_eq "#446 offer-gate: absent key reads the false default (offer withheld)" "false" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_ABSENT")"
+assert_eq "#446 offer-gate: explicit true reads true (offer presented)" "true" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_TRUE")"
+assert_eq "#446 offer-gate: wrong-type workflows reads the false default (tier-disabled, not unreadable)" "false" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_WRONGTYPE")"
+assert_eq "#446 offer-gate: top-level array config reads the false default (tier-disabled, not unreadable)" "false" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_TOPARR")"
+assert_eq "#446 offer-gate: top-level scalar config reads the false default (tier-disabled, not unreadable)" "false" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_TOPSCAL")"
+# The genuinely-unreadable arm (Suggestion 1): the *config unreadable* reason-selection rests on one
+# executable property — config-get.sh EXITS NON-ZERO on malformed JSON and never fail-open-prints
+# the caller default. Assert both halves on a malformed fixture (stderr carries the parse message;
+# stdout must carry no value at all).
+CG446_BAD="$(probe_tmp "#446 cfg malformed-json")"; printf '%s' '{not json' > "$CG446_BAD"
+cg446_bad_out="$(bash "$CG446" .workflows.devflow false "$CG446_BAD" 2>/dev/null)" && cg446_bad_rc=0 || cg446_bad_rc=$?
+assert_eq "#446 offer-gate: config-get exits non-zero on malformed JSON (unreadable, never fail-open default)" "yes" \
+  "$([ "$cg446_bad_rc" -ne 0 ] && [ -z "$cg446_bad_out" ] && echo yes || echo no)"
+assert_eq "#446 offer-gate: string 'true' reads true (enabled, matching the cloud gate)" "true" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_STRTRUE")"
+assert_eq "#446 offer-gate: capitalized 'True' reads verbatim (NOT enabled — case-sensitive, matching config-get/gate)" "True" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_STRCAP")"
+# Fallback-agreement (obligation, pr-test-analyzer + fix-delta-gate hardening): the SKILL documents
+# a type-tolerant python3 and jq fallback read for when config-get.sh is classifier-denied. Drive
+# BOTH documented fallback shapes over the fixtures — INCLUDING the wrong-type and top-level
+# non-object shapes, where a raw (non-type-tolerant) fallback crashes and diverges from the
+# resolver — and assert each agrees with
+# config-get's true/false verdict, so a nesting/typo/type-intolerance divergence between a fallback
+# and the resolver (which would silently produce a different offer decision, or a different withheld
+# reason, on exactly the local tier where the fallback is the only read path) turns RED here. The
+# forms are STRING-TRUTHY, mirroring config-get.sh and the cloud gate (never boolean-only — see the
+# pin at the top of this block): the python form mirrors the SKILL's
+# `w=d.get('workflows') if isinstance(d,dict) else None; v=w['devflow'] if (isinstance(w,dict) and
+# 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))`; the jq form
+# mirrors `if (type=="object") and ((.workflows|type)=="object") then (.workflows.devflow // false)
+# else false end` — which is why the string "true" fixture must read enabled below. Both are
+# fed the fixture path in place of the repo-root-anchored `"$ROOT/.devflow/config.json"` the SKILL
+# one-liners read (both SKILL forms read the path as their last argument, so the substitution
+# mirrors them). File-absent is NOT driven here — the SKILL detects it with a `[ -f ]` guard BEFORE
+# the interpreter runs, pinned separately above; these one-liners assume an existing file.
+# Each `want` is a hand-copied literal that the assert_eq block above verifies is config-get's own
+# output for the same fixture, so agreement here is byte-for-byte with the resolver by transitivity
+# (not just agreement on the true/false decision): capitalized "True" stays "True" on
+# every rung (case-sensitive → withheld), pinning that a `.lower()`-the-whole-value regression
+# (which would emit "true" and fire) turns RED.
+for cg446_case in "false:$CG446_FALSE" "false:$CG446_ABSENT" "true:$CG446_TRUE" "false:$CG446_WRONGTYPE" "false:$CG446_TOPARR" "false:$CG446_TOPSCAL" "true:$CG446_STRTRUE" "True:$CG446_STRCAP"; do
+  cg446_want="${cg446_case%%:*}"; cg446_file="${cg446_case#*:}"
+  assert_eq "#446 offer-gate: python3 fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
+    "$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); w=d.get('workflows') if isinstance(d,dict) else None; v=w['devflow'] if (isinstance(w,dict) and 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$cg446_file")"
+  assert_eq "#446 offer-gate: jq fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
+    "$(jq -r 'if (type=="object") and ((.workflows|type)=="object") then (.workflows.devflow // false) else false end' "$cg446_file")"
+done
+rm -f "$CG446_FALSE" "$CG446_ABSENT" "$CG446_TRUE" "$CG446_WRONGTYPE" "$CG446_TOPARR" "$CG446_TOPSCAL" "$CG446_STRTRUE" "$CG446_STRCAP" "$CG446_BAD"
+
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
 assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" "yes" \
@@ -26011,6 +26235,224 @@ else
     "$( ( cd "$LIB/.." && git diff origin/main...HEAD | python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $? ) )"
 fi
 
+# ── #439 R3 recognition-only tier: widened claim recognition, NON-GATING ──────────────
+# The tier surfaces the `count-locked` policy trigger on a widened claim shape (spelled-out
+# numerals, new plural-only nouns, up to two intervening modifiers) that the gating _COUNT_RE
+# does not match. It NEVER emits STALE and NEVER affects the exit code. The first three
+# fixtures are TEST-FIRST: each showed NO row on the pre-tier helper (the recognition gap is
+# the bug), then the recognition row after the tier lands.
+# spl_detail: field-5 (detail) of the first matching TSV row — used to pin the count-locked prefix.
+spl_detail() {  # repo_dir verdict rule -> detail string of the first matching row
+  ( cd "$1" 2>/dev/null || exit
+    git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null \
+      | awk -F '\t' -v v="$2" -v r="$3" '$1==v && $2==r { print $5; exit }' )
+}
+spl_detail_pref() {  # repo_dir verdict rule prefix -> yes/no (detail begins with prefix)
+  case "$(spl_detail "$1" "$2" "$3")" in "$4"*) echo yes ;; *) echo no ;; esac
+}
+
+# AC1 — word numeral + new noun. Exits 0 (non-gating) and emits an UNRESOLVABLE R3 row whose
+# detail begins with the count-locked recognition prefix (the policy coupling, AC7).
+SPF="$(probe_tmp '#439 word-numeral recog')"
+printf '%s\n' 'Three tags mean the opposite:' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 AC1 word-numeral recognition fixture exits 0 (non-gating)" "0" "$(spl_rc "$SPR")"
+assert_eq "#439 AC1 emits an UNRESOLVABLE R3 recognition row" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+assert_eq "#439 AC1/AC7 detail begins with the count-locked recognition prefix (policy coupling)" "yes" \
+  "$(spl_detail_pref "$SPR" UNRESOLVABLE R3 'count-locked: recognition-only (3 tags)')"
+assert_eq "#439 AC1 recognition tier emits NO STALE R3 row (cannot gate)" "no" "$(spl_has "$SPR" STALE R3)"
+
+# AC2 — modifier tolerance: an emphasised intervening modifier is tolerated.
+SPF="$(probe_tmp '#439 modifier recog')"
+printf '%s\n' 'the three **unestablished** tags below.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 AC2 modifier-tolerance fixture exits 0" "0" "$(spl_rc "$SPR")"
+assert_eq "#439 AC2 emits the UNRESOLVABLE R3 recognition row through a wrapped modifier" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# AC3 — digit numeral + new noun: new-surface (the noun is new), so non-gating.
+SPF="$(probe_tmp '#439 digit new-noun recog')"
+printf '%s\n' 'The set carries 4 tags today.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 AC3 digit + new-noun fixture exits 0 (non-gating new surface)" "0" "$(spl_rc "$SPR")"
+assert_eq "#439 AC3 emits the UNRESOLVABLE R3 recognition row" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+assert_eq "#439 AC3 detail begins with the count-locked recognition prefix (4 tags)" "yes" \
+  "$(spl_detail_pref "$SPR" UNRESOLVABLE R3 'count-locked: recognition-only (4 tags)')"
+
+# AC4 — existing surface is byte-identical: a digit + existing noun adjacent still gates (STALE,
+# exit 1) via the untouched _COUNT_RE path, NOT the recognition tier. (The T3 #336 block above
+# also covers this; asserted here for #439 traceability.)
+SPF="$(probe_tmp '#439 existing surface floor')"
+printf '%s\n' 'This header locks in 3 assertions below:' '  assert a' '  assert b' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 AC4 existing _COUNT_RE surface still gates (exit 1, STALE)" "1" "$(spl_rc "$SPR")"
+assert_eq "#439 AC4 existing surface emits a STALE R3 row (not recognition-only)" "yes" "$(spl_has "$SPR" STALE R3)"
+assert_eq "#439 AC4 existing-surface STALE detail is NOT the recognition prefix" "no" \
+  "$(spl_detail_pref "$SPR" STALE R3 'count-locked: recognition-only')"
+
+# AC6 — noise-guard matrix: each fixture must exit 0 with NO recognition row.
+sp439_noise() {  # label line
+  local f; f="$(probe_tmp "#439 noise $1")"
+  printf '%s\n' "$2" > "$f"
+  local r; r="$(spl_repo "$f")"
+  assert_eq "#439 AC6 noise [$1] exits 0 (no gating)" "0" "$(spl_rc "$r")"
+  assert_eq "#439 AC6 noise [$1] emits NO recognition row" "no" "$(spl_has "$r" UNRESOLVABLE R3)"
+}
+sp439_noise "hash-ref"        'The #402 name-match check is unrelated.'
+sp439_noise "section-number"  'See §2.3 rule for the details.'
+sp439_noise "partitive-of"    'Only two of these tags are set.'
+sp439_noise "plural-only"     'The two rule classes below differ.'
+sp439_noise "unlisted-noun"   'It takes 5 minutes to run.'
+sp439_noise "hyphen-compound" 'There are twenty-one tags in total.'
+sp439_noise "word-one"        'Pick one of these tags to keep.'
+# Positive control for plural-only: the PLURAL new noun DOES fire (so "no row" above is
+# attributable to the singular, not to some unrelated precondition).
+SPF="$(probe_tmp '#439 plural positive control')"
+printf '%s\n' 'These three rules mean the opposite:' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 AC6 plural-only positive control: the PLURAL noun fires (recognition row present)" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# AC5 — non-gating cap (behavioral-fix pin): flipping the recognition emit to STALE turns the
+# tier into a gate. assert_pin_red_under proves the UNRESOLVABLE token on the emit line is
+# operative — a mutation to STALE flips the pin PASS->FAIL.
+assert_pin_red_under "#439 AC5 recognition tier emits UNRESOLVABLE, never STALE (flip to STALE goes RED)" \
+  'rows.append(Row(UNRESOLVABLE, "R3", path, post_ln, rec_detail))' \
+  's/Row\(UNRESOLVABLE, "R3", path, post_ln, rec_detail\)/Row(STALE, "R3", path, post_ln, rec_detail)/' \
+  "$SPL"
+
+# AC8 — behavioral-fix pins for the three operative constructs, each proven via a mutation that
+# re-introduces the regression (word-numeral map, modifier tolerance, numeral lookbehind).
+assert_pin_red_under "#439 AC8 word-numeral map is operative (dropping 'twelve' goes RED)" \
+  '"twelve": 12' \
+  's/"eleven": 11, "twelve": 12,/"eleven": 11,/' \
+  "$SPL"
+assert_pin_red_under "#439 AC8 modifier tolerance is operative (collapsing {0,2}->{0,0} goes RED)" \
+  '){0,2})(?P<noun>' \
+  's/\{0,2\}/{0,0}/' \
+  "$SPL"
+assert_pin_red_under "#439 AC8 numeral lookbehind is operative (dropping the § guard char goes RED)" \
+  '(?<![#§\d.\-])' \
+  's/§//' \
+  "$SPL"
+
+# AC10 — module header documents the recognition tier + the decided out-of-scope items.
+assert_pin_unique "#439 AC10 header names the recognition-only tier" \
+  '**R3 recognition-only tier (issue #439).**' "$SPL"
+assert_pin_unique "#439 AC10 header records the non-gating-by-construction contract" \
+  'non-gating by construction' "$SPL"
+assert_pin_unique "#439 AC10 header records the recognition-tier out-of-scope items" \
+  '**Recognition-tier out of scope (by design, decided in issue #439).**' "$SPL"
+
+# AC11 — the engine skill's Phase 4.2 carries the deterministic-vs-carve-out clarification.
+assert_pin_unique "#439 AC11 Phase 4.2 clarifies deterministic Phase 0.6 STALE uses rule-3 severity only, never the self-contradicting-diff carve-out" \
+  'never invoke the threshold-independent self-contradicting-diff carve-out' "$SP_REVIEW"
+
+# GAP-1 (finditer recovery): a first claim disqualified by its modifier must NOT mask a later
+# valid claim on the same line — this is why _recognize_count uses finditer, not search.
+SPF="$(probe_tmp '#439 finditer recovery')"
+printf '%s\n' 'two of these tags and three rows follow.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 finditer recovery: disqualified first claim does not mask a later valid one (row present)" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+assert_eq "#439 finditer recovery: the surviving claim is the later one (3 rows)" "yes" \
+  "$(spl_detail_pref "$SPR" UNRESOLVABLE R3 'count-locked: recognition-only (3 rows)')"
+
+# GAP-2 (numeral-shaped modifier disqualifier): a word-numeral used as an intervening modifier
+# disqualifies the recognition (the _mods_ok `bare in _WORD_NUM` branch, distinct from of/per/and/or).
+SPF="$(probe_tmp '#439 numeral modifier')"
+printf '%s\n' 'There are three two tags here.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 numeral-shaped modifier disqualifies the recognition (no row)" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# GAP-3 (word-numeral upper boundary, behavioral backstop for the source-mutation map pin): the
+# map's top value 'twelve' fires; 'thirteen' (out of scope) does not.
+SPF="$(probe_tmp '#439 twelve boundary')"
+printf '%s\n' 'Twelve files below the fold.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 word-numeral upper boundary: 'twelve' is recognized (row present)" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+assert_eq "#439 word-numeral upper boundary: the value maps to 12 (12 files)" "yes" \
+  "$(spl_detail_pref "$SPR" UNRESOLVABLE R3 'count-locked: recognition-only (12 files)')"
+SPF="$(probe_tmp '#439 thirteen out of scope')"
+printf '%s\n' 'There are thirteen files here.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 'thirteen' is out of scope (no row)" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# GAP-4 (§ lookbehind, behavioral backstop for the source-mutation pin): a numeral directly
+# preceded by § is not a numeral, so a would-be '§3 rows' claim produces no row.
+SPF="$(probe_tmp '#439 section lookbehind behavioral')"
+printf '%s\n' 'See §3 rows below.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 § lookbehind (behavioral): a §-prefixed numeral produces no recognition row" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# GAP-5 (double-emission invariant): a gating line (existing _COUNT_RE surface) must NOT also
+# emit an UNRESOLVABLE R3 recognition row — the examine_file `continue` prevents it.
+SPF="$(probe_tmp '#439 no double emission')"
+printf '%s\n' 'This header locks in 3 assertions below:' '  assert a' '  assert b' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 a gating _COUNT_RE line emits NO recognition-only UNRESOLVABLE R3 row (no double emission)" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# GAP-6 (decimal lookbehind): a decimal like '3.2 tags' is not a recognized numeral (the '.'
+# lookbehind blocks the fractional digit; the leading digit has no whitespace before the noun).
+SPF="$(probe_tmp '#439 decimal lookbehind')"
+printf '%s\n' 'The list holds 3.2 tags overall.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 a decimal ('3.2 tags') produces no recognition row" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# GAP-CRITICAL (shadow-surfaced): the recognition tier must NEVER preempt a downstream gating
+# rule. A line that matches BOTH the widened count shape AND a gating R4 deny-absolute+operator
+# conflict must still emit the STALE R4 row (exit 1) — the recognition tier is evaluated last,
+# so its `continue` cannot suppress R4. (Pre-fix, the tier ran before R4 and swallowed it,
+# flipping exit 1->0 — the fail-open this fixture pins closed.)
+SPF="$(probe_tmp '#439 r4 co-occurrence')"
+printf '%s\n' 'These three legacy rules must never touch `>` output.' \
+              'An in-workspace `>` redirect is permitted.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 recognition tier does NOT preempt a gating R4 conflict (STALE R4 still gates, exit 1)" "1" "$(spl_rc "$SPR")"
+assert_eq "#439 the co-occurring line emits the STALE R4 row (not swallowed by recognition)" "yes" "$(spl_has "$SPR" STALE R4)"
+assert_eq "#439 the co-occurring gating line emits NO recognition-only UNRESOLVABLE R3 row" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# GAP-7 (modifier cap, both boundaries — PR #445 review): the intervening-modifier bound is
+# pinned behaviorally on each side. At the cap the recognition fires; one modifier past the
+# cap it does not — so a regression widening the bound (e.g. to an unbounded repeat) turns
+# the over-cap fixture RED instead of passing every existing assertion.
+SPF="$(probe_tmp '#439 modifier cap at bound')"
+printf '%s\n' 'The three big red tags differ.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 modifier cap: a claim at the modifier bound fires (row present)" "yes" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+assert_eq "#439 modifier cap: the at-bound claim resolves to (3 tags)" "yes" \
+  "$(spl_detail_pref "$SPR" UNRESOLVABLE R3 'count-locked: recognition-only (3 tags)')"
+SPF="$(probe_tmp '#439 modifier cap exceeded')"
+printf '%s\n' 'The three big red shiny tags differ.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 modifier cap: one modifier past the bound produces NO recognition row" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# GAP-8 (noun-alternation coverage — PR #445 review): every previously-unexercised new noun
+# fires behaviorally, so a single-alternand typo in _RECOG_NOUN is no longer invisible.
+sp439_noun() {  # label line
+  local f; f="$(probe_tmp "#439 noun $1")"
+  printf '%s\n' "$2" > "$f"
+  local r; r="$(spl_repo "$f")"
+  assert_eq "#439 noun alternand [$1] fires (recognition row present)" "yes" "$(spl_has "$r" UNRESOLVABLE R3)"
+}
+sp439_noun "members" 'The four members below drift.'
+sp439_noun "fields"  'These five fields mean the opposite.'
+sp439_noun "columns" 'Six columns are frozen here.'
+sp439_noun "arms"    'The seven arms below diverge.'
+sp439_noun "sites"   'Eight sites carry the mirror.'
+
+# Second singular exclusion (PR #445 review): the plural-only rule is uniform, not a one-noun
+# accident — a second noun's singular form also produces no row (companion positive control:
+# the "fields" plural fixture above fires on the same alternand family).
+SPF="$(probe_tmp '#439 second singular exclusion')"
+printf '%s\n' 'The three field layout is fixed.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 plural-only: a second noun's singular form produces NO recognition row" "no" "$(spl_has "$SPR" UNRESOLVABLE R3)"
+
+# The lint stays CLEAN (exit 0) against a fixture carrying the recognition shape — the tier is
+# non-gating end to end, so even a live recognition row never reddens a run's exit code.
+SPF="$(probe_tmp '#439 non-gating exit')"
+printf '%s\n' 'Three tags mean the opposite:' 'Twelve files below the fold.' > "$SPF"
+SPR="$(spl_repo "$SPF")"
+assert_eq "#439 recognition rows never gate: multi-claim fixture still exits 0" "0" "$(spl_rc "$SPR")"
+
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
@@ -27994,6 +28436,766 @@ assert_pin_unique "#448 ubc-call-sites: phase-1-setup.md read-target sentence na
   'reconciled at the Phase 1.4 update-branch checkpoint' "$UBC_P1"
 assert_pin_unique "#448 ubc-call-sites: phase-2-implement.md read-target sentence names the reconciliation checkpoint" \
   'reconciled at the Phase 1.4 update-branch checkpoint' "$UBC_P2"
+# ────────────────────────────────────────────────────────────────────────────
+echo "extract-execution-shape.sh (#437 execution-file shape probe: redaction + present/absent/unavailable + encoding)"
+# ────────────────────────────────────────────────────────────────────────────
+# Best-effort read-only shape extractor for a claude-code-action execution_file.
+# Records per-field present/absent/unavailable + the top-level encoding, and emits a
+# REDACTED structural key→type set (every string leaf is dropped to the token
+# `string`). Always exits 0. Driven over checked-in fixtures in all three encodings.
+EES="$LIB/../scripts/extract-execution-shape.sh"
+EES_FIX="$LIB/test/fixtures"
+EES_TMP="$(mktemp -d)"
+: > "$EES_TMP/empty.json"   # zero-byte file (absent-content case)
+
+# --- exec-shape(present): a full fixture marks every field observed-present (AC3) ---
+EES_FULL="$(bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null)"
+assert_eq "#437 exec-shape(present): usage present"              "yes" \
+  "$(printf '%s' "$EES_FULL" | grep -qxF 'usage: present' && echo yes || echo no)"
+assert_eq "#437 exec-shape(present): wall_clock_timing present"  "yes" \
+  "$(printf '%s' "$EES_FULL" | grep -qxF 'wall_clock_timing: present' && echo yes || echo no)"
+assert_eq "#437 exec-shape(present): tool_use present"           "yes" \
+  "$(printf '%s' "$EES_FULL" | grep -qxF 'tool_use: present' && echo yes || echo no)"
+assert_eq "#437 exec-shape(present): subagent_type present"      "yes" \
+  "$(printf '%s' "$EES_FULL" | grep -qxF 'subagent_type: present' && echo yes || echo no)"
+assert_eq "#437 exec-shape(present): permission_denials present" "yes" \
+  "$(printf '%s' "$EES_FULL" | grep -qxF 'permission_denials: present' && echo yes || echo no)"
+
+# --- exec-shape(absent-vs-unavailable): the load-bearing distinction (AC3, AC4) ---
+# A result event present but WITHOUT usage → usage:absent (the field was genuinely
+# not carried). A file with NO result event, and an unparseable file → usage:
+# unavailable (we could not establish it). These must be DISTINGUISHABLE.
+EES_NOUSAGE="$(bash "$EES" "$EES_FIX/exec-shape-result-nousage.json" 2>/dev/null)"
+assert_eq "#437 exec-shape(absent-vs-unavailable): result-but-no-usage records absent" "yes" \
+  "$(printf '%s' "$EES_NOUSAGE" | grep -qxF 'usage: absent' && echo yes || echo no)"
+# The result-nousage fixture carries a result event with ONLY duration_ms, so the four
+# non-timing fields each land on the `absent` branch (a present result event, field not
+# seen) — assert all four, not just usage, so a per-field regression that reported one of
+# them `unavailable` (or `present`) instead of `absent` is caught, not just the usage field.
+for _afld in tool_use subagent_type permission_denials; do
+  assert_eq "#437 exec-shape(absent-vs-unavailable): result-but-no-$_afld records absent" "yes" \
+    "$(printf '%s' "$EES_NOUSAGE" | grep -qxF "$_afld: absent" && echo yes || echo no)"
+done
+assert_eq "#437 exec-shape(absent-vs-unavailable): result-with-duration_ms records timing present" "yes" \
+  "$(printf '%s' "$EES_NOUSAGE" | grep -qxF 'wall_clock_timing: present' && echo yes || echo no)"
+# wall-clock timing via duration_api_ms ALONE (the OR-branch's second operand) — a fixture
+# whose only timing field is duration_api_ms must still record timing present.
+assert_eq "#437 exec-shape(timing): duration_api_ms alone records timing present" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-timing-apionly.json" 2>/dev/null | grep -qxF 'wall_clock_timing: present' && echo yes || echo no)"
+EES_NORESULT="$(bash "$EES" "$EES_FIX/exec-shape-noresult.json" 2>/dev/null)"
+assert_eq "#437 exec-shape(absent-vs-unavailable): no-result-event records unavailable" "yes" \
+  "$(printf '%s' "$EES_NORESULT" | grep -qxF 'usage: unavailable' && echo yes || echo no)"
+# absent ≠ unavailable proven distinguishable on the same field.
+assert_eq "#437 exec-shape(absent-vs-unavailable): no-result never reads 'absent'" "yes" \
+  "$(printf '%s' "$EES_NORESULT" | grep -qxF 'usage: absent' && echo no || echo yes)"
+# A no-result file marks EVERY field unavailable, never 0, never absent (AC4).
+for _fld in usage wall_clock_timing tool_use subagent_type permission_denials; do
+  assert_eq "#437 exec-shape(no-result): $_fld unavailable" "yes" \
+    "$(printf '%s' "$EES_NORESULT" | grep -qxF "$_fld: unavailable" && echo yes || echo no)"
+done
+
+# --- exec-shape(null-fields): the valid-falsy adversarial row (CLAUDE.md best-effort-parser
+# convention). A result event whose usage/duration/subagent_type/permission_denials are
+# explicit JSON null must record `absent`, never `present` — the `has(X) and (.X != null)`
+# guard is what enforces it, and dropping the `!= null` operand would flip these to present.
+EES_NULLF="$(bash "$EES" "$EES_FIX/exec-shape-result-nullfields.json" 2>/dev/null)"
+for _nfld in usage wall_clock_timing subagent_type permission_denials; do
+  assert_eq "#437 exec-shape(null-fields): explicit-null $_nfld records absent (valid-falsy row)" "yes" \
+    "$(printf '%s' "$EES_NULLF" | grep -qxF "$_nfld: absent" && echo yes || echo no)"
+done
+
+# --- exec-shape(scalar): a top-level JSON scalar (not an execution log) is its own parse
+# branch, distinct from unparseable and no-result — it must record encoding: unavailable and
+# all fields unavailable, never a fabricated array/object encoding (AC4/AC5). ---
+bash "$EES" "$EES_FIX/exec-shape-scalar.json" >/dev/null 2>&1
+assert_eq "#437 exec-shape(scalar): exits 0 (best-effort contract)" "0" "$?"
+EES_SCALAR="$(bash "$EES" "$EES_FIX/exec-shape-scalar.json" 2>/dev/null)"
+assert_eq "#437 exec-shape(scalar): encoding unavailable" "yes" \
+  "$(printf '%s' "$EES_SCALAR" | grep -qxF 'encoding: unavailable' && echo yes || echo no)"
+assert_eq "#437 exec-shape(scalar): usage unavailable" "yes" \
+  "$(printf '%s' "$EES_SCALAR" | grep -qxF 'usage: unavailable' && echo yes || echo no)"
+
+# EMPTY-ARGUMENT invocation (#438 review): when the action errors out, the workflow's
+# always() step calls the helper with an EMPTY "${EXECUTION_FILE}" argument — the shape a
+# real degraded run produces. This pins the empty-argument best-effort contract that
+# always() step relies on: exit 0 + an all-unavailable record, never a crash or a partial.
+bash "$EES" "" >/dev/null 2>&1
+assert_eq "#438 exec-shape(empty-arg): empty argument exits 0 (best-effort contract)" "0" "$?"
+assert_eq "#438 exec-shape(empty-arg): empty argument degrades to encoding unavailable" "yes" \
+  "$(bash "$EES" "" 2>/dev/null | grep -qxF 'encoding: unavailable' && echo yes || echo no)"
+
+# --- exec-shape(empty) / exec-shape(malformed): exit 0 + breadcrumb + all unavailable (AC4) ---
+bash "$EES" "$EES_TMP/empty.json" >/dev/null 2>&1
+assert_eq "#437 exec-shape(empty): exits 0 (best-effort contract)" "0" "$?"
+EES_EMPTY_ERR="$(bash "$EES" "$EES_TMP/empty.json" 2>&1 >/dev/null)"
+assert_eq "#437 exec-shape(empty): stderr breadcrumb names the degradation" "yes" \
+  "$(printf '%s' "$EES_EMPTY_ERR" | grep -qF 'extract-execution-shape' && echo yes || echo no)"
+EES_EMPTY="$(bash "$EES" "$EES_TMP/empty.json" 2>/dev/null)"
+assert_eq "#437 exec-shape(empty): encoding unavailable" "yes" \
+  "$(printf '%s' "$EES_EMPTY" | grep -qxF 'encoding: unavailable' && echo yes || echo no)"
+bash "$EES" "$EES_FIX/exec-shape-malformed.json" >/dev/null 2>&1
+assert_eq "#437 exec-shape(malformed): exits 0 (best-effort contract)" "0" "$?"
+EES_MAL="$(bash "$EES" "$EES_FIX/exec-shape-malformed.json" 2>/dev/null)"
+assert_eq "#437 exec-shape(malformed): usage unavailable" "yes" \
+  "$(printf '%s' "$EES_MAL" | grep -qxF 'usage: unavailable' && echo yes || echo no)"
+assert_eq "#437 exec-shape(malformed): encoding unavailable" "yes" \
+  "$(printf '%s' "$EES_MAL" | grep -qxF 'encoding: unavailable' && echo yes || echo no)"
+# `_emit_unavailable` emits a STRUCTURAL PLACEHOLDER line under the key-paths heading, not an
+# empty section. Without it a reader cannot tell "the file carried no key-paths" from "the
+# section was silently dropped" — the same unknown-vs-zero collapse the field lines avoid — and
+# the placeholder is emitted bytes, so it must be asserted rather than assumed.
+assert_eq "#437 exec-shape(degrade): the structural section carries the '_(none — ...)_' placeholder" "yes" \
+  "$(printf '%s' "$EES_MAL" | grep -qF '_(none — could not be parsed as JSON' && echo yes || echo no)"
+# The file-ABSENT arm's placeholder must keep its own file attribution (the de-prefixed
+# template moved attribution into each reason, so pin the file-side arm too):
+assert_eq "#438 exec-shape(degrade): the absent-file placeholder still names the execution file" "yes" \
+  "$(printf '%s' "$EES_EMPTY" | grep -qF '_(none — execution file absent or empty' && echo yes || echo no)"
+# ...and the placeholder's reason is interpolated BARE (no 'execution file' prefix baked
+# into the template), so a jq-side degradation is not grammatically blamed on the file in
+# the emitted record (PR #438 review) — the jq-unrunnable arm's placeholder names jq:
+assert_eq "#438 exec-shape(degrade): the jq-unrunnable placeholder attributes jq, not the file" "yes" \
+  "$(DEVFLOW_JQ="$EES_TMP/definitely-not-a-jq" bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qF '_(none — jq (' && echo yes || echo no)"
+
+# The always-exit-0 best-effort contract is asserted on the empty/malformed/scalar arms, but was
+# unasserted on the three fixtures that degrade WITHOUT being unparseable. The helper runs inside
+# the probe job (and its sibling runs as a Stop hook), so a non-zero exit on any of these would
+# break the caller while every content assertion above stayed green.
+for _f in exec-shape-noresult.json exec-shape-result-nullfields.json exec-shape-denials-countbad.json; do
+  bash "$EES" "$EES_FIX/$_f" >/dev/null 2>&1
+  assert_eq "#437 exec-shape(best-effort): $_f exits 0" "0" "$?"
+done
+
+# --- exec-shape(redaction): the security boundary (AC2). The full fixture seeds a
+# fake secret, a long prompt body, and a hostile/attacker-controlled check-run name
+# as STRING LEAVES. Assert on the EMITTED BYTES that NONE of them survive — a test
+# that checks the filter's internals would prove nothing. ---
+for _leak in 'SECRET_sentinel_value' 'this is a long prompt body' 'DROP TABLE' 'onerror=alert'; do
+  assert_eq "#437 exec-shape(redaction): '$_leak' stripped from output" "yes" \
+    "$(printf '%s' "$EES_FULL" | grep -qF "$_leak" && echo no || echo yes)"
+done
+# The structural section still carries the KEY→type shape (redaction keeps structure).
+assert_eq "#437 exec-shape(redaction): structural key retained as type-only" "yes" \
+  "$(printf '%s' "$EES_FULL" | grep -qxF 'subagent_type: string' && echo yes || echo no)"
+# Redaction is a security boundary (AC2), so confirm it holds on ALL THREE encodings, not
+# only the array fixture — the object and jsonl fixtures each seed SECRET_sentinel_value as
+# a string value; neither may echo it. Guards against an encoding path that fell back to
+# emitting raw content.
+assert_eq "#437 exec-shape(redaction): 'SECRET_sentinel_value' stripped from object encoding" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-full-object.json" 2>/dev/null | grep -qF 'SECRET_sentinel_value' && echo no || echo yes)"
+assert_eq "#437 exec-shape(redaction): 'SECRET_sentinel_value' stripped from jsonl encoding" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-full-jsonl.json" 2>/dev/null | grep -qF 'SECRET_sentinel_value' && echo no || echo yes)"
+
+# --- exec-shape(encodings): same logical content in array / object / JSONL yields the
+# same field determinations, confirming the three-encoding tolerance (AC5). The
+# `encoding:` line legitimately differs (it RECORDS which encoding was seen — that is
+# the whole point), so it is excluded from the identity comparison. ---
+_fields_of() { bash "$EES" "$1" 2>/dev/null | grep -E '^(usage|wall_clock_timing|tool_use|subagent_type|permission_denials): '; }
+EES_F_ARR="$(_fields_of "$EES_FIX/exec-shape-full-array.json")"
+EES_F_OBJ="$(_fields_of "$EES_FIX/exec-shape-full-object.json")"
+EES_F_JSONL="$(_fields_of "$EES_FIX/exec-shape-full-jsonl.json")"
+assert_eq "#437 exec-shape(encodings): array == object field determinations" "yes" \
+  "$([ "$EES_F_ARR" = "$EES_F_OBJ" ] && echo yes || echo no)"
+assert_eq "#437 exec-shape(encodings): array == jsonl field determinations" "yes" \
+  "$([ "$EES_F_ARR" = "$EES_F_JSONL" ] && echo yes || echo no)"
+# --- exec-shape(encoding recorded): each encoding is reported correctly (AC5) ---
+assert_eq "#437 exec-shape(encoding): array recorded" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qxF 'encoding: array' && echo yes || echo no)"
+assert_eq "#437 exec-shape(encoding): object recorded" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-full-object.json" 2>/dev/null | grep -qxF 'encoding: object' && echo yes || echo no)"
+assert_eq "#437 exec-shape(encoding): jsonl recorded" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-full-jsonl.json" 2>/dev/null | grep -qxF 'encoding: jsonl' && echo yes || echo no)"
+# permission_denials has TWO carriers (issue #329): the detail ARRAY, and — when detail
+# degrades — a bare `permission_denials_count`. Reading only the array records `absent`
+# (a definitive "the harness does not carry this") for a run that demonstrably HAD
+# denials, i.e. the exact opposite of the truth, in the one field this probe exists to
+# establish. Both arms are driven here; neither is a grep-pin, because the misreport is a
+# wrong VALUE, not a missing line.
+assert_eq "#437 exec-shape(denials): count-only shape reports 'present', not 'absent'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-countonly.json" 2>/dev/null | grep -qxF 'permission_denials: present' && echo yes || echo no)"
+# Valid-falsy mirror image: a real `permission_denials_count: 0` means the harness refused
+# NOTHING — genuinely `absent`. Collapsing that onto `present` would be the same class of
+# error in the other direction, so pin it explicitly.
+assert_eq "#437 exec-shape(denials): valid-falsy count:0 stays 'absent' (refused nothing)" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-countzero.json" 2>/dev/null | grep -qxF 'permission_denials: absent' && echo yes || echo no)"
+# CLAUDE.md records that permission_denials_count "publishes a DIGIT STRING". Filtering the
+# count on jq `numbers` alone would drop that carrier and report `absent` for a run that HAD
+# denials — the same wrong-direction misreport as the array-only read, one type over.
+assert_eq "#437 exec-shape(denials): a digit-STRING count ('3') reports 'present'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-countstring.json" 2>/dev/null | grep -qxF 'permission_denials: present' && echo yes || echo no)"
+
+# Timing has FOUR observed carriers, and each is pinned by its OWN single-carrier fixture. A
+# fixture supplying two carriers at once cannot catch a regression that drops just one of them —
+# it stays green on the surviving operand. So: duration_api_ms (existing), ttft_ms, end_time each
+# alone must report `present`, or a future action emitting only that one reads as a definitive
+# `absent` about a run that carried timing.
+assert_eq "#437 exec-shape(timing): ttft_ms ALONE reports 'present', not 'absent'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-timing-ttftonly.json" 2>/dev/null | grep -qxF 'wall_clock_timing: present' && echo yes || echo no)"
+assert_eq "#437 exec-shape(timing): end_time ALONE reports 'present', not 'absent'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-timing-endtimeonly.json" 2>/dev/null | grep -qxF 'wall_clock_timing: present' && echo yes || echo no)"
+
+# AC2 SECURITY BOUNDARY, key position. Values are already type-reduced, so a KEY is the only
+# remaining channel for untrusted bytes. The observed schema puts nothing untrusted in keys —
+# but that schema is explicitly not a contract, so the boundary must not depend on it. Assert on
+# the EMITTED BYTES: the hostile key's content must not appear anywhere in the output.
+assert_eq "#437 exec-shape(redaction): a hostile KEY is replaced by <redacted-key>" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key.json" 2>/dev/null | grep -qF '<redacted-key>' && echo yes || echo no)"
+assert_eq "#437 exec-shape(redaction): hostile key CONTENT never reaches the emitted bytes" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key.json" 2>/dev/null | grep -qiE 'SECRET_key_sentinel|ignore previous instructions' && echo no || echo yes)"
+# Schema-identifier keys must still survive verbatim — a fail-closed filter that redacted
+# everything would be "safe" and useless.
+assert_eq "#437 exec-shape(redaction): ordinary schema keys still emitted verbatim" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key.json" 2>/dev/null | grep -qxF 'duration_ms: number' && echo yes || echo no)"
+# AC2 is an encoding-INDEPENDENT boundary: the hostile-key arm was previously proven on the array
+# encoding only, so a redaction bug reachable through the object or jsonl path would have shipped.
+# Each hostile key carries TWO distinct sentinels — a secret-shaped token and an injected
+# instruction — and each is swept SEPARATELY per encoding. A single combined regex would go green
+# on a leak of one sentinel as long as the other was stripped, and the injected-instruction half is
+# the one a prompt-injection boundary exists to stop.
+for _enc in object jsonl; do
+  _hk_out="$(bash "$EES" "$EES_FIX/exec-shape-hostile-key-$_enc.json" 2>/dev/null)"
+  for _sent in 'SECRET_key_sentinel' 'ignore previous instructions'; do
+    assert_eq "#437 exec-shape(redaction): '$_sent' never escapes via the $_enc encoding" "yes" \
+      "$(printf '%s' "$_hk_out" | grep -qiF "$_sent" && echo no || echo yes)"
+  done
+  assert_eq "#437 exec-shape(redaction): hostile key IS redacted via the $_enc encoding" "yes" \
+    "$(printf '%s' "$_hk_out" | grep -qF '<redacted-key>' && echo yes || echo no)"
+done
+# Same two-sentinel discipline on the array encoding (the arm above uses one combined regex).
+for _sent in 'SECRET_key_sentinel' 'ignore previous instructions'; do
+  assert_eq "#437 exec-shape(redaction): '$_sent' never escapes via the array encoding" "yes" \
+    "$(bash "$EES" "$EES_FIX/exec-shape-hostile-key.json" 2>/dev/null | grep -qiF "$_sent" && echo no || echo yes)"
+done
+
+# A count carrier that is PRESENT but UNPARSEABLE (the literal "unavailable") was never
+# established — it must NOT collapse onto `absent` ("the harness does not carry denials"). This is
+# the unknown-is-not-zero rule applied to the count itself, and it is the rule this helper exists
+# to honor; the fact that the live probe cannot produce this shape today is not a licence to break
+# it (CLAUDE.md documents that permission_denials_count publishes exactly this literal).
+assert_eq "#437 exec-shape(denials): a present-but-unparseable count is 'unavailable', NOT 'absent'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-countbad.json" 2>/dev/null | grep -qxF 'permission_denials: unavailable' && echo yes || echo no)"
+# An explicit JSON null count is the same never-established class (#438 review): it survives
+# the carrier collection ($counts length 1) but normalizes to null, so it must resolve to
+# 'unavailable' — pinned so a refactor cannot silently flip it to 'absent' or 'present'.
+assert_eq "#438 exec-shape(denials): an explicit-null count is 'unavailable', NOT 'absent'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-countnull.json" 2>/dev/null | grep -qxF 'permission_denials: unavailable' && echo yes || echo no)"
+# Valid-falsy on the ARRAY carrier (#438 review): an EMPTY permission_denials array is the
+# natural shape of a completed zero-denial run — genuinely 'absent' (refused nothing), so
+# the two carriers agree on the same real-world event (count 0 => absent, [] => absent).
+assert_eq "#438 exec-shape(denials): an EMPTY denials array is 'absent', not 'present' (carrier agreement)" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-emptyarray.json" 2>/dev/null | grep -qxF 'permission_denials: absent' && echo yes || echo no)"
+# ...and the same valid-falsy rule one type over: a FALSY SCALAR carrier (0/""/false) is a
+# refused-nothing value like [] and count 0; a TRUTHY unknown-shape carrier stays a
+# presence signal (the deliberate fail-toward-signal arm, now pinned rather than untested).
+# Each falsy comparand is individually load-bearing (0, digit-string "0" — normalized like
+# the count carrier — empty string, false): dropping any one arm from the predicate turns
+# its own fixture RED rather than hiding behind a sibling.
+for _fsf in falsyscalar falsystring falsyempty falsyfalse; do
+  assert_eq "#438 exec-shape(denials): FALSY denials carrier ($_fsf) is 'absent', not 'present'" "yes" \
+    "$(bash "$EES" "$EES_FIX/exec-shape-denials-$_fsf.json" 2>/dev/null | grep -qxF 'permission_denials: absent' && echo yes || echo no)"
+done
+assert_eq "#438 exec-shape(denials): a TRUTHY unknown-shape denials carrier is 'present'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-truthyscalar.json" 2>/dev/null | grep -qxF 'permission_denials: present' && echo yes || echo no)"
+# The normalized-TRUTHY direction ("3" -> 3 -> present) is pinned separately: a plausible
+# "simplification" of the falsy test to a type check would keep every falsy fixture green
+# while flipping a real digit-string denials carrier to 'absent' — the wrong-direction
+# misreport this series exists to prevent.
+assert_eq "#438 exec-shape(denials): a TRUTHY digit-string denials carrier ('3') is 'present'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-denials-truthystring.json" 2>/dev/null | grep -qxF 'permission_denials: present' && echo yes || echo no)"
+
+# STATED LIMITATION (pinned so it stays known, not surprising): a single-event JSONL file is
+# byte-identical to a single top-level object, so it records `encoding: object`. Field
+# determinations are unaffected (the slurp normalizes all three encodings) — assert both halves.
+assert_eq "#437 exec-shape(encoding): single-event JSONL records 'object' (stated limitation)" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-oneline-jsonl.json" 2>/dev/null | grep -qxF 'encoding: object' && echo yes || echo no)"
+assert_eq "#437 exec-shape(encoding): the JSONL/object ambiguity does NOT affect field determination" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-oneline-jsonl.json" 2>/dev/null | grep -qxF 'usage: present' && echo yes || echo no)"
+
+# The key cap is >64 chars, and an over-long key can still be identifier-SHAPED — so the charset
+# arm alone would pass it through. Assert the LENGTH arm independently, or a 70-char key (a
+# plausible carrier for injected content) walks the boundary while the charset test stays green.
+assert_eq "#437 exec-shape(redaction): an over-long but identifier-shaped key is still redacted" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-longkey.json" 2>/dev/null | grep -qF '<redacted-key>' && echo yes || echo no)"
+assert_eq "#437 exec-shape(redaction): the over-long key's text never reaches the emitted bytes" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-longkey.json" 2>/dev/null | grep -qF 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' && echo no || echo yes)"
+
+# The existing encodings-identity test compares three ALL-PRESENT fixtures, so a per-encoding bug
+# that mis-determined an ABSENT field would slip through it. Re-run the identity check over a
+# triple whose subagent_type and permission_denials are genuinely absent.
+EES_ABS_A="$(bash "$EES" "$EES_FIX/exec-shape-absent-array.json" 2>/dev/null | grep -E '^(usage|wall_clock_timing|tool_use|subagent_type|permission_denials):')"
+EES_ABS_J="$(bash "$EES" "$EES_FIX/exec-shape-absent-jsonl.json" 2>/dev/null | grep -E '^(usage|wall_clock_timing|tool_use|subagent_type|permission_denials):')"
+EES_ABS_O="$(bash "$EES" "$EES_FIX/exec-shape-absent-object.json" 2>/dev/null | grep -E '^(usage|wall_clock_timing|tool_use|subagent_type|permission_denials):')"
+assert_eq "#437 exec-shape(encodings): array == jsonl on a fixture with ABSENT fields" "$EES_ABS_A" "$EES_ABS_J"
+assert_eq "#437 exec-shape(encodings): array == object on a fixture with ABSENT fields" "$EES_ABS_A" "$EES_ABS_O"
+# ...and that the absent fields really are recorded `absent` (not silently `present`), so the
+# identity assertions above are comparing a meaningful negative rather than three identical bugs.
+assert_eq "#437 exec-shape(encodings): the absent-field triple really does record 'absent'" "yes" \
+  "$(printf '%s\n' "$EES_ABS_A" | grep -qxF 'subagent_type: absent' && printf '%s\n' "$EES_ABS_A" | grep -qxF 'permission_denials: absent' && echo yes || echo no)"
+
+# Degradation completeness: the empty/malformed arms must report ALL FIVE fields `unavailable`,
+# not just the two previously spot-checked — a partial degrade could leave a field reading
+# `absent` (a real negative) on a file that was never parsed at all.
+for _f in exec-shape-malformed.json exec-shape-scalar.json; do
+  _out="$(bash "$EES" "$EES_FIX/$_f" 2>/dev/null)"
+  _n=0
+  for _fld in usage wall_clock_timing tool_use subagent_type permission_denials; do
+    printf '%s\n' "$_out" | grep -qxF "${_fld}: unavailable" && _n=$((_n + 1))
+  done
+  assert_eq "#437 exec-shape(degrade): $_f reports all 5 fields 'unavailable' (never 'absent')" "5" "$_n"
+done
+
+# COMPLETION GATE on the denials tri-branch (#438 review, Important #2): a run with NO result
+# event that nevertheless streamed a denials array (and a positive count) is an aborted run —
+# EVERY field must read `unavailable`, including permission_denials. Before the gate, the
+# array/count arms returned `present` here, diverging from the helper's own contract while all
+# sibling fields read `unavailable`. Both carriers are in the fixture, so this drives the gate
+# in front of both arms.
+assert_eq "#438 exec-shape(denials): no-result + denials array records 'unavailable', not 'present'" "yes" \
+  "$(bash "$EES" "$EES_FIX/exec-shape-noresult-denials.json" 2>/dev/null | grep -qxF 'permission_denials: unavailable' && echo yes || echo no)"
+
+# UNRUNNABLE JQ is attributed to jq, not to the file (#438 review, Suggestion 2): both fail the
+# parse, but a "file unparseable" breadcrumb about a fine file steers a debugger at the wrong
+# artifact. The emitted record is all-unavailable either way; only the stderr attribution differs.
+EES_NOJQ_ERR="$(DEVFLOW_JQ="$EES_TMP/definitely-not-a-jq" bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>&1 >/dev/null)"
+assert_eq "#438 exec-shape(jq-unrunnable): exits 0 (best-effort contract)" "0" "$?"
+assert_eq "#438 exec-shape(jq-unrunnable): breadcrumb names jq, not the file" "yes" \
+  "$(printf '%s' "$EES_NOJQ_ERR" | grep -qF 'is not runnable' && echo yes || echo no)"
+assert_eq "#438 exec-shape(jq-unrunnable): breadcrumb does NOT misattribute 'unparseable'" "yes" \
+  "$(printf '%s' "$EES_NOJQ_ERR" | grep -qF 'unparseable' && echo no || echo yes)"
+assert_eq "#438 exec-shape(jq-unrunnable): record degrades to all-unavailable" "yes" \
+  "$(DEVFLOW_JQ="$EES_TMP/definitely-not-a-jq" bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qxF 'usage: unavailable' && echo yes || echo no)"
+
+# SLURP-FAIL degradation branch (#438 review, Suggestion 4): a jq that passes the --version
+# probe and the encoding pass but fails the -rs slurp pass must land on the fail-closed
+# "jq slurp pass failed" arm — previously unreachable by any test. The stub fails ONLY when
+# -rs is among its args, leaving every other invocation intact.
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'for _a in "$@"; do [ "$_a" = "-rs" ] && exit 1; done' \
+  'exec jq "$@"' \
+  > "$EES_TMP/jq-no-slurp"
+chmod +x "$EES_TMP/jq-no-slurp"
+EES_SLURP_ERR="$(DEVFLOW_JQ="$EES_TMP/jq-no-slurp" bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>&1 >/dev/null)"
+assert_eq "#438 exec-shape(slurp-fail): exits 0 (best-effort contract)" "0" "$?"
+assert_eq "#438 exec-shape(slurp-fail): breadcrumb names the slurp pass" "yes" \
+  "$(printf '%s' "$EES_SLURP_ERR" | grep -qF 'jq slurp pass failed' && echo yes || echo no)"
+assert_eq "#438 exec-shape(slurp-fail): record degrades to all-unavailable, never partial" "yes" \
+  "$(DEVFLOW_JQ="$EES_TMP/jq-no-slurp" bash "$EES" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qxF 'usage: unavailable' && echo yes || echo no)"
+
+# RESOLVE-JQ SOURCE-FAILURE degradation (#438 review, Suggestion 5): a partial deployment
+# carrying the helper without its lib/resolve-jq.sh sibling must degrade to bare `jq` with a
+# breadcrumb — never leave DEVFLOW_JQ unbound and abort under `set -u`. Copy the script into a
+# tree with no ../lib and drive it; it must still produce a correct record via PATH jq. An
+# EMPTY (not merely unset) DEVFLOW_JQ must degrade identically (the empty-string trap).
+EES_ORPHAN="$EES_TMP/orphan/scripts"; mkdir -p "$EES_ORPHAN"
+cp "$EES" "$EES_ORPHAN/extract-execution-shape.sh"
+EES_ORPH_ERR="$(env -u DEVFLOW_JQ bash "$EES_ORPHAN/extract-execution-shape.sh" "$EES_FIX/exec-shape-full-array.json" 2>&1 >/dev/null)"
+assert_eq "#438 exec-shape(no-sibling): exits 0 (never a set -u abort)" "0" "$?"
+assert_eq "#438 exec-shape(no-sibling): breadcrumb names the missing resolver" "yes" \
+  "$(printf '%s' "$EES_ORPH_ERR" | grep -qF 'resolve-jq.sh could not be sourced' && echo yes || echo no)"
+assert_eq "#438 exec-shape(no-sibling): still produces a correct record via bare jq" "yes" \
+  "$(env -u DEVFLOW_JQ bash "$EES_ORPHAN/extract-execution-shape.sh" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qxF 'usage: present' && echo yes || echo no)"
+assert_eq "#438 exec-shape(no-sibling): an EMPTY DEVFLOW_JQ degrades to bare jq, not an empty exec" "yes" \
+  "$(DEVFLOW_JQ= bash "$EES_ORPHAN/extract-execution-shape.sh" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qxF 'usage: present' && echo yes || echo no)"
+rm -rf "$EES_TMP"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#437 stop-hook-probe.sh (AC6 firing breadcrumb + AC7 transcript token shape)"
+# ────────────────────────────────────────────────────────────────────────────
+# The Stop hook is the ONLY channel that can answer AC6 (do .claude/ hooks execute
+# under claude-code-action?) and AC7 (are the transcript's token counts real or
+# streaming placeholders?). Both verdicts are EMITTED results, so the four-way
+# real/placeholder/absent/unavailable classification is driven here over real
+# transcripts — a grep-pin on the helper's source would not catch a mis-ordered arm.
+SHP="$REPO_ROOT/scripts/stop-hook-probe.sh"
+SHP_TMP="$(mktemp -d)"
+
+# Emit a Stop payload whose transcript_path points at $2, with cwd $1.
+_shp_payload() { printf '{"hook_event_name":"Stop","cwd":"%s","transcript_path":"%s"}' "$1" "$2"; }
+_shp_marker() { printf '%s' "$1/.devflow/tmp/stop-hook-probe-fired"; }
+
+# (1) AC6 — the breadcrumb's PRESENCE is the measurement. A real transcript with
+#     genuine token figures (>1) must classify as `real`.
+SHP_R="$SHP_TMP/real"; mkdir -p "$SHP_R"
+printf '%s\n' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":1200,"output_tokens":345}}}' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":80,"output_tokens":9}}}' \
+  > "$SHP_R/t.jsonl"
+_shp_payload "$SHP_R" "$SHP_R/t.jsonl" | bash "$SHP" >"$SHP_TMP/out-real" 2>/dev/null
+assert_eq "#437 stop-hook(AC6): breadcrumb written — presence is the firing measurement" "yes" \
+  "$([ -f "$(_shp_marker "$SHP_R")" ] && echo yes || echo no)"
+assert_eq "#437 stop-hook(AC6): hook is silent on stdout (must not disturb the session it observes)" "" \
+  "$(cat "$SHP_TMP/out-real")"
+assert_eq "#437 stop-hook(AC7): genuine token figures (>1) classify as 'real'" "real" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_R")")"
+
+# (2) AC7 — the reported streaming-placeholder shape: usage blocks exist but every
+#     figure is 0 or 1. A cost floor CANNOT ride these, so this must not read as `real`.
+SHP_P="$SHP_TMP/placeholder"; mkdir -p "$SHP_P"
+printf '%s\n' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":0,"output_tokens":1}}}' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":1,"output_tokens":0}}}' \
+  > "$SHP_P/t.jsonl"
+_shp_payload "$SHP_P" "$SHP_P/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(AC7): all-0/1 figures classify as 'placeholder', never 'real'" "placeholder" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_P")")"
+
+# (3) AC7 — `absent`: the transcript PARSED but carries no usage block at all.
+SHP_A="$SHP_TMP/absent"; mkdir -p "$SHP_A"
+printf '%s\n' '{"type":"user","message":{"content":"hi"}}' > "$SHP_A/t.jsonl"
+_shp_payload "$SHP_A" "$SHP_A/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(AC7): parsed transcript with no usage block classifies as 'absent'" "absent" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_A")")"
+
+# (4) AC7 — `unavailable` MUST be distinguishable from `absent` (unknown-is-not-zero).
+#     An unreadable transcript never establishes the shape, so it must not report the
+#     same verdict as a transcript that was read and genuinely had no usage block.
+#     Collapsing these is exactly the defect scripts/describe-denial-count.sh exists for.
+SHP_U="$SHP_TMP/unavail"; mkdir -p "$SHP_U"
+_shp_payload "$SHP_U" "$SHP_U/does-not-exist.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(AC7): unreadable transcript classifies as 'unavailable', NOT 'absent'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_U")")"
+assert_eq "#437 stop-hook(AC7): unavailable carries a null count, never 0" "null" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_U")")"
+# Still fires: an unestablished token shape must NOT cost us the AC6 firing observation.
+assert_eq "#437 stop-hook(AC6): breadcrumb still written when the transcript is unreadable" "yes" \
+  "$([ -f "$(_shp_marker "$SHP_U")" ] && echo yes || echo no)"
+
+# (4b) The numeric payload fields must carry the real figures, not just the verdict — a floor
+#      built on this reads THESE, so a correct token_shape beside a wrong count is still wrong.
+assert_eq "#437 stop-hook(AC7): 'real' carries the true usage_blocks count" "2" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_R")")"
+assert_eq "#437 stop-hook(AC7): 'real' carries the true max_usage_figure" "1200" \
+  "$(jq -r '.max_usage_figure' "$(_shp_marker "$SHP_R")")"
+assert_eq "#437 stop-hook(AC7): 'placeholder' still carries its (0/1-bounded) max figure" "1" \
+  "$(jq -r '.max_usage_figure' "$(_shp_marker "$SHP_P")")"
+assert_eq "#437 stop-hook(AC7): 'absent' carries 0 blocks (read, and genuinely none)" "0" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_A")")"
+
+# (4c) An EMPTY (or not-yet-flushed) transcript is 'unavailable', NOT 'absent'. The docs warn
+#      the transcript is written asynchronously and may lag, so a Stop-time read can legitimately
+#      see nothing — that is a measurement that never happened, not a real negative. Collapsing it
+#      onto 'absent' would assert "this run genuinely had no tokens" about a file we never read.
+SHP_EMPTY="$SHP_TMP/emptytrans"; mkdir -p "$SHP_EMPTY"
+: > "$SHP_EMPTY/t.jsonl"
+_shp_payload "$SHP_EMPTY" "$SHP_EMPTY/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(AC7): empty/unflushed transcript is 'unavailable', NOT 'absent'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_EMPTY")")"
+assert_eq "#437 stop-hook(AC7): empty transcript carries null blocks, never 0" "null" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_EMPTY")")"
+
+# (4d) Readable-but-UNPARSEABLE transcript: the jq pass fails, so nothing was established.
+SHP_BAD="$SHP_TMP/badtrans"; mkdir -p "$SHP_BAD"
+printf 'not json {{{\n' > "$SHP_BAD/t.jsonl"
+_shp_payload "$SHP_BAD" "$SHP_BAD/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(AC7): readable-but-unparseable transcript is 'unavailable'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_BAD")")"
+assert_eq "#437 stop-hook(AC6): breadcrumb still written when the transcript is unparseable" "yes" \
+  "$([ -f "$(_shp_marker "$SHP_BAD")" ] && echo yes || echo no)"
+
+# (4e) Root resolution when the payload carries NO cwd: fall back to the git toplevel (else pwd),
+#      so the breadcrumb still lands where the hook-probe job looks for it. Driven from inside a
+#      real git repo whose toplevel is the temp dir.
+SHP_GIT="$SHP_TMP/gitroot"; mkdir -p "$SHP_GIT"
+git -C "$SHP_GIT" init -q 2>/dev/null
+printf '{"hook_event_name":"Stop"}' | ( cd "$SHP_GIT" && bash "$SHP" >/dev/null 2>&1 )
+assert_eq "#437 stop-hook: cwd-absent payload falls back to the git toplevel for the marker" "yes" \
+  "$([ -f "$(_shp_marker "$SHP_GIT")" ] && echo yes || echo no)"
+
+# (4f) transcript_path_present is EMITTED, so it must be ASSERTED — an emitted field nobody
+#      checks is a field free to lie. Both polarities.
+assert_eq "#437 stop-hook: transcript_path_present is true when a transcript was supplied" "true" \
+  "$(jq -r '.transcript_path_present' "$(_shp_marker "$SHP_R")")"
+SHP_NOTP="$SHP_TMP/notp"; mkdir -p "$SHP_NOTP"
+printf '{"hook_event_name":"Stop","cwd":"%s"}' "$SHP_NOTP" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook: transcript_path_present is false when the payload carried none" "false" \
+  "$(jq -r '.transcript_path_present' "$(_shp_marker "$SHP_NOTP")")"
+
+# (4g) A payload whose `cwd` is present but NOT a directory (a stale/renamed path, a file) must
+#      fall back to the git toplevel rather than trusting the bad value and losing the breadcrumb.
+SHP_BADCWD="$SHP_TMP/badcwd"; mkdir -p "$SHP_BADCWD"
+git -C "$SHP_BADCWD" init -q 2>/dev/null
+printf '{"hook_event_name":"Stop","cwd":"%s/not-a-real-dir"}' "$SHP_BADCWD" | ( cd "$SHP_BADCWD" && bash "$SHP" >/dev/null 2>&1 )
+assert_eq "#437 stop-hook: a cwd that is not a directory falls back to the git toplevel" "yes" \
+  "$([ -f "$(_shp_marker "$SHP_BADCWD")" ] && echo yes || echo no)"
+
+# (4h) The breadcrumb-build FALLBACK path (the `jq -n` write failed) must not throw away what was
+#      already ESTABLISHED. The token shape is classified by an EARLIER, separate jq pass, so a
+#      failed breadcrumb build says nothing about it — hardcoding `unavailable`/`null` there would
+#      collapse a real measurement onto the unknown sentinel (the inverse of unknown-is-not-zero).
+#      Force the path with a jq stub that fails ONLY on `jq -n`, leaving the payload/transcript
+#      passes intact, and assert the fallback literal is valid JSON carrying the real figures.
+SHP_STUB="$SHP_TMP/stubbin"; mkdir -p "$SHP_STUB"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'for _a in "$@"; do [ "$_a" = "-n" ] && exit 1; done' \
+  'exec jq "$@"' \
+  > "$SHP_STUB/jq-no-dash-n"
+chmod +x "$SHP_STUB/jq-no-dash-n"
+SHP_FB="$SHP_TMP/fallback"; mkdir -p "$SHP_FB"
+printf '%s\n' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":1200,"output_tokens":345}}}' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":80,"output_tokens":9}}}' \
+  > "$SHP_FB/t.jsonl"
+_shp_payload "$SHP_FB" "$SHP_FB/t.jsonl" | DEVFLOW_JQ="$SHP_STUB/jq-no-dash-n" bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(fallback): the hand-built breadcrumb is still valid JSON" "yes" \
+  "$(jq -e . "$(_shp_marker "$SHP_FB")" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "#437 stop-hook(fallback): the already-classified token_shape is REUSED, not discarded" "real" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_FB")")"
+assert_eq "#437 stop-hook(fallback): the already-counted usage_blocks is REUSED, not nulled" "2" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_FB")")"
+assert_eq "#437 stop-hook(fallback): the already-measured max_usage_figure is REUSED, not nulled" "1200" \
+  "$(jq -r '.max_usage_figure' "$(_shp_marker "$SHP_FB")")"
+assert_eq "#437 stop-hook(fallback): transcript_path_present stays honest on the fallback path" "true" \
+  "$(jq -r '.transcript_path_present' "$(_shp_marker "$SHP_FB")")"
+# Fail-CLOSED on the same path: when the shape was genuinely never established, the fallback must
+# still emit `unavailable`/null — reuse must not become fabrication.
+SHP_FBU="$SHP_TMP/fallback-unavail"; mkdir -p "$SHP_FBU"
+_shp_payload "$SHP_FBU" "$SHP_FBU/missing.jsonl" | DEVFLOW_JQ="$SHP_STUB/jq-no-dash-n" bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(fallback): an unestablished shape still reports 'unavailable'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_FBU")")"
+assert_eq "#437 stop-hook(fallback): an unestablished count is null, never 0" "null" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_FBU")")"
+# The two write paths must agree on the SAME input. The primary path builds max_usage_figure with
+# jq `tonumber`, which accepts a decimal; an integers-only guard on the fallback would emit `null`
+# for a float the primary path emits as a number — a silent per-path divergence. Drive a transcript
+# whose largest usage figure is fractional and assert the fallback carries it through.
+SHP_FLT="$SHP_TMP/fallback-float"; mkdir -p "$SHP_FLT"
+printf '%s\n' '{"type":"assistant","message":{"usage":{"input_tokens":2.5,"output_tokens":1}}}' \
+  > "$SHP_FLT/t.jsonl"
+_shp_payload "$SHP_FLT" "$SHP_FLT/t.jsonl" | DEVFLOW_JQ="$SHP_STUB/jq-no-dash-n" bash "$SHP" >/dev/null 2>&1
+assert_eq "#437 stop-hook(fallback): a DECIMAL max figure survives (paths must not diverge)" "2.5" \
+  "$(jq -r '.max_usage_figure' "$(_shp_marker "$SHP_FLT")")"
+assert_eq "#437 stop-hook(fallback): the decimal-carrying breadcrumb is still valid JSON" "yes" \
+  "$(jq -e . "$(_shp_marker "$SHP_FLT")" >/dev/null 2>&1 && echo yes || echo no)"
+
+# (5) Degenerate payloads never break the session: empty stdin, malformed JSON, and a
+#     missing transcript_path each exit 0 (a non-zero Stop hook can disrupt the run).
+SHP_E="$SHP_TMP/empty"; mkdir -p "$SHP_E"
+( cd "$SHP_E" && printf '' | bash "$SHP" >/dev/null 2>&1 )
+assert_eq "#437 stop-hook: empty stdin exits 0 (best-effort; never blocks the Stop)" "0" "$?"
+( cd "$SHP_E" && printf 'not json{{' | bash "$SHP" >/dev/null 2>&1 )
+assert_eq "#437 stop-hook: malformed payload exits 0" "0" "$?"
+
+# (6) COUPLED CONTRACT (the silent-failure trap): the marker path the helper WRITES must
+#     equal the MARKER the hook-probe job READS. A rename on either side turns the AC6
+#     probe into a permanent, silent "did not fire" — it would not fail loudly, it would
+#     just never observe a firing. Pin both sides to the same literal.
+# Pin the CODE fragments, not the comment copies: the full literal appears in the helper
+# only inside comments, so a code rename with stale comments would keep a comment-anchored
+# grep green (the #370 pin-in-comment class, flagged by PR #438 review). The helper builds
+# the path as MARKER_DIR="$_root/.devflow/tmp" + MARKER="$MARKER_DIR/stop-hook-probe-fired",
+# so assert those two code fragments plus the workflow's full read literal.
+assert_eq "#437 stop-hook: helper writes the marker path the hook-probe job reads (code fragments on BOTH sides, not comments)" "yes" \
+  "$(grep -qF 'MARKER_DIR="$_root/.devflow/tmp"' "$SHP" \
+     && grep -qF 'MARKER="$MARKER_DIR/stop-hook-probe-fired"' "$SHP" \
+     && grep -qF 'MARKER=".devflow/tmp/stop-hook-probe-fired"' "$REPO_ROOT/.github/workflows/matcher-probe.yml" \
+     && echo yes || echo no)"
+# And the hook must actually be REGISTERED on base, or the probe observes nothing at all.
+assert_eq "#437 stop-hook: .claude/settings.json registers the probe as a Stop hook" "yes" \
+  "$(jq -e '[.hooks.Stop[].hooks[].command] | any(test("stop-hook-probe\\.sh"))' \
+       "$REPO_ROOT/.claude/settings.json" >/dev/null 2>&1 && echo yes || echo no)"
+# The pre-existing Stop hooks must survive the addition (an overwrite would silently
+# disable the efficiency-trace persist floor — the very telemetry this issue is about).
+assert_eq "#437 stop-hook: the existing efficiency-trace persist Stop hook is preserved" "yes" \
+  "$(jq -e '[.hooks.Stop[].hooks[].command] | any(test("efficiency-trace\\.sh --persist"))' \
+       "$REPO_ROOT/.claude/settings.json" >/dev/null 2>&1 && echo yes || echo no)"
+
+# (7) MARKER-DIR CREATE FAILURE (#438 review, Suggestion 6): an unwritable marker parent (here:
+#     `.devflow` is a regular FILE, so mkdir -p fails) must exit 0 with a breadcrumb — a Stop hook
+#     that fails non-zero can disrupt the session it observes, and the breadcrumb is what stops the
+#     resulting "did not fire" from being silently misread.
+SHP_NODIR="$SHP_TMP/nodir"; mkdir -p "$SHP_NODIR"
+: > "$SHP_NODIR/.devflow"
+SHP_NODIR_ERR="$(_shp_payload "$SHP_NODIR" "$SHP_NODIR/t.jsonl" | bash "$SHP" 2>&1 >/dev/null)"
+assert_eq "#438 stop-hook(mkdir-fail): exits 0 (never blocks the Stop)" "0" "$?"
+assert_eq "#438 stop-hook(mkdir-fail): stderr breadcrumb names the uncreatable dir" "yes" \
+  "$(printf '%s' "$SHP_NODIR_ERR" | grep -qF 'could not create' && echo yes || echo no)"
+assert_eq "#438 stop-hook(mkdir-fail): no marker is written (a half-firing must not fabricate one)" "yes" \
+  "$([ -e "$(_shp_marker "$SHP_NODIR")" ] && echo no || echo yes)"
+
+# (8) RESOLVE-JQ SOURCE-FAILURE degradation (#438 review, Suggestion 5): the probe copied
+#     without its lib/resolve-jq.sh sibling must degrade to bare `jq` with a breadcrumb — never a
+#     `set -u` abort — and still write a correct breadcrumb. An EMPTY DEVFLOW_JQ degrades the same.
+SHP_ORPHAN="$SHP_TMP/orphan/scripts"; mkdir -p "$SHP_ORPHAN"
+cp "$SHP" "$SHP_ORPHAN/stop-hook-probe.sh"
+SHP_ORPH="$SHP_TMP/orphanrun"; mkdir -p "$SHP_ORPH"
+printf '%s\n' '{"type":"assistant","message":{"usage":{"input_tokens":1200,"output_tokens":345}}}' \
+  > "$SHP_ORPH/t.jsonl"
+SHP_ORPH_ERR="$(_shp_payload "$SHP_ORPH" "$SHP_ORPH/t.jsonl" | env -u DEVFLOW_JQ bash "$SHP_ORPHAN/stop-hook-probe.sh" 2>&1 >/dev/null)"
+assert_eq "#438 stop-hook(no-sibling): exits 0 (never a set -u abort)" "0" "$?"
+assert_eq "#438 stop-hook(no-sibling): breadcrumb names the missing resolver" "yes" \
+  "$(printf '%s' "$SHP_ORPH_ERR" | grep -qF 'resolve-jq.sh could not be sourced' && echo yes || echo no)"
+assert_eq "#438 stop-hook(no-sibling): breadcrumb still written and correct via bare jq" "real" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_ORPH")" 2>/dev/null)"
+SHP_ORPH2="$SHP_TMP/orphanrun2"; mkdir -p "$SHP_ORPH2"
+cp "$SHP_ORPH/t.jsonl" "$SHP_ORPH2/t.jsonl"
+_shp_payload "$SHP_ORPH2" "$SHP_ORPH2/t.jsonl" | DEVFLOW_JQ= bash "$SHP_ORPHAN/stop-hook-probe.sh" >/dev/null 2>&1
+assert_eq "#438 stop-hook(no-sibling): an EMPTY DEVFLOW_JQ degrades to bare jq, not an empty exec" "real" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_ORPH2")" 2>/dev/null)"
+
+# (9) MIXED usage:null transcript (#438 review): a streamed `usage: null` event carries no
+#     recoverable count, so usage_blocks must count only non-null carriers — an inflated
+#     count silently misleads a cost floor reading it as "messages with recoverable counts".
+SHP_MIX="$SHP_TMP/mixnull"; mkdir -p "$SHP_MIX"
+printf '%s\n' \
+  '{"type":"assistant","message":{"usage":null}}' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":1200,"output_tokens":345}}}' \
+  '{"type":"assistant","message":{"usage":null}}' \
+  '{"type":"assistant","message":{"usage":{"input_tokens":80,"output_tokens":9}}}' \
+  > "$SHP_MIX/t.jsonl"
+_shp_payload "$SHP_MIX" "$SHP_MIX/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#438 stop-hook(mixed-null): token_shape stays 'real' on a mixed transcript" "real" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_MIX")")"
+assert_eq "#438 stop-hook(mixed-null): usage_blocks counts ONLY non-null usage carriers" "2" \
+  "$(jq -r '.usage_blocks' "$(_shp_marker "$SHP_MIX")")"
+
+# (10) FULLY UNRUNNABLE jq for the stop hook (#438 review): the extract helper has this
+#      test; the hook did not. Every jq call fails (root derivation, transcript parse, the
+#      breadcrumb build) — the hook must still exit 0 and write a valid fallback marker
+#      with token_shape 'unavailable' (nothing was established), never crash or fabricate.
+SHP_NOJQ="$SHP_TMP/nojq"; mkdir -p "$SHP_NOJQ"
+printf '%s\n' '{"type":"assistant","message":{"usage":{"input_tokens":1200}}}' > "$SHP_NOJQ/t.jsonl"
+# cd into the marker dir: with jq unrunnable the payload's cwd cannot be read, so root
+# derivation falls through git-toplevel (not a repo here) to $PWD — which must be SHP_NOJQ.
+_shp_payload "$SHP_NOJQ" "$SHP_NOJQ/t.jsonl" | ( cd "$SHP_NOJQ" && DEVFLOW_JQ="$SHP_TMP/definitely-not-a-jq" bash "$SHP" >/dev/null 2>&1 )
+assert_eq "#438 stop-hook(jq-unrunnable): exits 0 (never blocks the Stop)" "0" "$?"
+assert_eq "#438 stop-hook(jq-unrunnable): fallback marker still written and valid JSON" "yes" \
+  "$(jq -e . "$(_shp_marker "$SHP_NOJQ")" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "#438 stop-hook(jq-unrunnable): an unestablished shape reports 'unavailable'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_NOJQ")")"
+# Attribution (#438 review, mirroring the extract helper's pair of assertions): an unrunnable
+# jq must be blamed on JQ, never on the payload or the transcript — the arms that would
+# otherwise misattribute are silenced when the runnability probe failed.
+SHP_NOJQ2="$SHP_TMP/nojq2"; mkdir -p "$SHP_NOJQ2"
+cp "$SHP_NOJQ/t.jsonl" "$SHP_NOJQ2/t.jsonl"
+SHP_NOJQ_ERR="$(_shp_payload "$SHP_NOJQ2" "$SHP_NOJQ2/t.jsonl" | ( cd "$SHP_NOJQ2" && DEVFLOW_JQ="$SHP_TMP/definitely-not-a-jq" bash "$SHP" 2>&1 >/dev/null ) )"
+assert_eq "#438 stop-hook(jq-unrunnable): breadcrumb names jq itself" "yes" \
+  "$(printf '%s' "$SHP_NOJQ_ERR" | grep -qF 'is not runnable' && echo yes || echo no)"
+assert_eq "#438 stop-hook(jq-unrunnable): breadcrumb does NOT blame the transcript" "yes" \
+  "$(printf '%s' "$SHP_NOJQ_ERR" | grep -qF 'could not be parsed' && echo no || echo yes)"
+assert_eq "#438 stop-hook(jq-unrunnable): breadcrumb does NOT blame the payload" "yes" \
+  "$(printf '%s' "$SHP_NOJQ_ERR" | grep -qF 'no transcript_path' && echo no || echo yes)"
+
+# (11) Fallback-path transcript_path_present=false polarity (#438 review): (4h) asserts the
+#      fallback's true polarity; pin the false arm of the fallback's own `case "$TRANSCRIPT"`.
+SHP_FBNP="$SHP_TMP/fallback-notp"; mkdir -p "$SHP_FBNP"
+printf '{"hook_event_name":"Stop","cwd":"%s"}' "$SHP_FBNP" | DEVFLOW_JQ="$SHP_STUB/jq-no-dash-n" bash "$SHP" >/dev/null 2>&1
+assert_eq "#438 stop-hook(fallback): transcript_path_present false when the payload carried none" "false" \
+  "$(jq -r '.transcript_path_present' "$(_shp_marker "$SHP_FBNP")")"
+
+# (12) The 'absent' arm's max figure is 0 (read, and genuinely none) — the none->0
+#      normalization's second field, previously asserted only for usage_blocks.
+assert_eq "#438 stop-hook(AC7): 'absent' carries max_usage_figure 0" "0" \
+  "$(jq -r '.max_usage_figure' "$(_shp_marker "$SHP_A")")"
+
+# (13) An EMPTY-STRING transcript_path passes the jq type==string read but resolves to no
+#      transcript: shape 'unavailable', transcript_path_present false — the valid-falsy row.
+SHP_ETP="$SHP_TMP/emptytp"; mkdir -p "$SHP_ETP"
+printf '{"hook_event_name":"Stop","cwd":"%s","transcript_path":""}' "$SHP_ETP" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#438 stop-hook: empty-string transcript_path classifies 'unavailable'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_ETP")")"
+assert_eq "#438 stop-hook: empty-string transcript_path reports transcript_path_present=false" "false" \
+  "$(jq -r '.transcript_path_present' "$(_shp_marker "$SHP_ETP")")"
+
+# (14) SUBDIRECTORY cwd resolves to the git TOPLEVEL (#438 review — the #295 repo-root
+#      contract): a session launched from a repo subdirectory delivers cwd=<subdir>; the
+#      marker must land at the repo ROOT (where the hook-probe job and this suite look),
+#      never at <subdir>/.devflow/tmp — the off-root write that read as a permanent
+#      'did not fire'.
+SHP_SUB="$SHP_TMP/subcwd"; mkdir -p "$SHP_SUB/inner/deeper"
+git -C "$SHP_SUB" init -q 2>/dev/null
+printf '%s\n' '{"type":"assistant","message":{"usage":{"input_tokens":1200,"output_tokens":345}}}' > "$SHP_SUB/t.jsonl"
+_shp_payload "$SHP_SUB/inner/deeper" "$SHP_SUB/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#438 stop-hook(subdir-cwd): marker lands at the git toplevel, not the subdirectory" "yes" \
+  "$([ -f "$(_shp_marker "$SHP_SUB")" ] && echo yes || echo no)"
+assert_eq "#438 stop-hook(subdir-cwd): no off-root marker is written under the subdirectory" "yes" \
+  "$([ -e "$SHP_SUB/inner/deeper/.devflow" ] && echo no || echo yes)"
+# ...and the toplevel-anchored marker still carries the real classification (the
+# transcript was read normally; only the marker LOCATION was at stake).
+assert_eq "#438 stop-hook(subdir-cwd): the toplevel marker carries the classified shape" "real" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_SUB")")"
+
+# (15) transcript_path pointing at a DIRECTORY: [ -r ] passes, the jq parse fails, and the
+#      verdict must degrade to 'unavailable' (previously reached only by accident).
+SHP_DIR="$SHP_TMP/dirtrans"; mkdir -p "$SHP_DIR/t.jsonl"
+_shp_payload "$SHP_DIR" "$SHP_DIR/t.jsonl" | bash "$SHP" >/dev/null 2>&1
+assert_eq "#438 stop-hook: a directory-valued transcript_path classifies 'unavailable'" "unavailable" \
+  "$(jq -r '.token_shape' "$(_shp_marker "$SHP_DIR")")"
+rm -rf "$SHP_TMP"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#438 describe-hook-probe.sh (AC6 observation renderer — both arms suite-driven)"
+# ────────────────────────────────────────────────────────────────────────────
+# Extracted from matcher-probe.yml's hook-probe step (PR #438 review; the repo's
+# extract-branch-selecting-inline-shell convention, PR #367 precedent) so BOTH arms and
+# their wording are driven here, not just grep-pinned. The did-not-fire arm must carry
+# the reverse-launder warning; the FIRED arm must fire only on marker presence.
+DHP="$REPO_ROOT/scripts/describe-hook-probe.sh"
+DHP_TMP="$(mktemp -d)"
+: > "$DHP_TMP/fired-marker"
+DHP_FIRED="$(bash "$DHP" "$DHP_TMP/fired-marker" 2>/dev/null)"
+assert_eq "#438 describe-hook-probe: marker present renders the FIRED arm" "yes" \
+  "$(printf '%s' "$DHP_FIRED" | grep -qF 'observed: **FIRED**' && echo yes || echo no)"
+assert_eq "#438 describe-hook-probe: FIRED arm never carries the did-not-fire wording" "yes" \
+  "$(printf '%s' "$DHP_FIRED" | grep -qF 'did not fire' && echo no || echo yes)"
+DHP_ABSENT="$(bash "$DHP" "$DHP_TMP/absent-marker" 2>/dev/null)"
+assert_eq "#438 describe-hook-probe: marker absent renders the did-not-fire arm" "yes" \
+  "$(printf '%s' "$DHP_ABSENT" | grep -qF 'did not fire this run' && echo yes || echo no)"
+assert_eq "#438 describe-hook-probe: did-not-fire arm carries the reverse-launder warning" "yes" \
+  "$(printf '%s' "$DHP_ABSENT" | grep -qF "Do NOT read this as" && echo yes || echo no)"
+assert_eq "#438 describe-hook-probe: did-not-fire arm never claims FIRED" "yes" \
+  "$(printf '%s' "$DHP_ABSENT" | grep -qF '**FIRED**' && echo no || echo yes)"
+# #457: the hook is now on base, so an absent marker is an ANOMALY — the stale pre-merge
+# framing ("expected on a probe PR" / "only effective once merged") must be gone, and the
+# anomaly framing + job-log breadcrumb pointer must be present.
+assert_eq "#457 describe-hook-probe: did-not-fire arm drops the stale 'expected on a probe PR' framing" "yes" \
+  "$(printf '%s' "$DHP_ABSENT" | grep -qiF 'expected on a probe PR' && echo no || echo yes)"
+assert_eq "#457 describe-hook-probe: did-not-fire arm drops the stale 'only effective once merged' framing" "yes" \
+  "$(printf '%s' "$DHP_ABSENT" | grep -qiF 'only effective once merged' && echo no || echo yes)"
+# (The anomaly framing itself is pinned more strongly by the assert_pin_red_under
+# behavioral pin below, so a bare 'anomaly' presence check would be redundant.)
+assert_eq "#457 describe-hook-probe: did-not-fire arm points at the job-log stderr breadcrumb" "yes" \
+  "$(printf '%s' "$DHP_ABSENT" | grep -qF 'stderr breadcrumb' && echo yes || echo no)"
+# Behavioral-fix pin (#457, #375 rule): the anomaly framing must survive; a regression that
+# re-introduces the stale "EXPECTED on a probe PR" phrasing flips the pin PASS->FAIL.
+assert_pin_red_under "#457 describe-hook-probe: anomaly framing is pinned against stale-phrase regression" \
+  'absent marker here is an **anomaly**' \
+  's/an absent marker here is an \*\*anomaly\*\*, not the expected state/this is EXPECTED on a probe PR/' \
+  "$DHP"
+bash "$DHP" >/dev/null 2>&1
+assert_eq "#438 describe-hook-probe: no-argument invocation exits 0 (best-effort renderer)" "0" "$?"
+# The no-arg contract is 'breadcrumbs to stderr and renders NOTHING' — assert both halves,
+# or a regression that rendered the did-not-fire arm on a missing argument would pass.
+assert_eq "#438 describe-hook-probe: no-argument invocation renders nothing on stdout" "" \
+  "$(bash "$DHP" 2>/dev/null)"
+assert_eq "#438 describe-hook-probe: no-argument invocation leaves the stderr breadcrumb" "yes" \
+  "$(bash "$DHP" 2>&1 >/dev/null | grep -qF 'no marker path argument' && echo yes || echo no)"
+# The committed evidence record's 'unedited helper output' claim stays coupled to the
+# emitter: the structural-section heading literal must match on both sides (#438 review).
+assert_eq "#438 exec-shape: observed.txt carries the emitter's structural-section heading verbatim" "yes" \
+  "$(grep -qxF '## Structural key-paths (redacted; string leaves shown as type only)' "$REPO_ROOT/docs/execution-file-shape.observed.txt" \
+     && grep -qF '## Structural key-paths (redacted; string leaves shown as type only)' "$REPO_ROOT/scripts/extract-execution-shape.sh" \
+     && echo yes || echo no)"
+# The workflow must actually route through the helper (the extraction is only coverage if
+# the inline selector is gone), and the coupled marker literal stays a workflow CODE line.
+# Pin the INVOCATION code line, not the helper's bare name — the workflow also names the
+# helper in a comment, so a bare-name grep would stay green if the code line were deleted
+# and the selector re-inlined (the #370 pin-in-comment class, flagged by the iter-2 gate).
+assert_eq "#438 describe-hook-probe: matcher-probe.yml routes the observation through the helper (invocation line)" "yes" \
+  "$(grep -qF 'bash scripts/describe-hook-probe.sh "$MARKER"' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo yes || echo no)"
+# #457: the docs AC6 record must state the observed FIRED result (with the run cited) and no
+# longer carry the stale 'unavailable (pending)' verdict.
+DHP_DOC="$REPO_ROOT/docs/execution-file-shape.md"
+assert_eq "#457 execution-file-shape: AC6 no longer records 'unavailable (pending)'" "yes" \
+  "$(grep -qF 'unavailable` (pending)' "$DHP_DOC" && echo no || echo yes)"
+assert_eq "#457 execution-file-shape: AC6 records the FIRED observation citing run 29224205805" "yes" \
+  "$(grep -qF '**FIRED**' "$DHP_DOC" && grep -qF '29224205805' "$DHP_DOC" && echo yes || echo no)"
+assert_eq "#457 execution-file-shape: AC6 links the security corollary issue #458" "yes" \
+  "$(grep -qF '#458' "$DHP_DOC" && echo yes || echo no)"
+# #457: the matcher-probe.yml hook-probe comment no longer asserts the pre-merge landing.
+assert_eq "#457 matcher-probe: hook-probe comment drops the stale 'SHIPS in this PR' framing" "yes" \
+  "$(grep -qF 'SHIPS in this' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo no || echo yes)"
+rm -rf "$DHP_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
