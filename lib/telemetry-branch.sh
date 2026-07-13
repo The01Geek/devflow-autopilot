@@ -442,56 +442,49 @@ devflow_telemetry_persist_tree() {
         committed="$new"
         break
       fi
-      # Classify the failure by ASKING THE REF, never by parsing git's prose
-      # (PR #442 review — the CAS-race discriminator).
+      # RETRY EVERY failure, bounded — and classify only the TERMINAL breadcrumb, by
+      # asking the ref whether it ever moved. Never by parsing git's prose.
       #
-      # The previous form matched `*"but expected"*` on stderr. That was wrong in
-      # two independent ways, and both fail in the SAME direction — a real race is
-      # misread as a hardware fault, the bounded retry that would have succeeded is
-      # skipped, the run's telemetry is dropped, and the terminal breadcrumb then
-      # tells the operator the cause was "NOT a concurrent writer":
-      #   1. It only ever matched ONE of git's three CAS-failure shapes. A sibling
-      #      that CREATES the branch between our `old` read (empty) and our write
-      #      is rejected with `reference already exists` — no `but expected` — and
-      #      that is precisely the first-use race two parallel worktrees are most
-      #      likely to hit, on the very branch this feature exists to create. A
-      #      sibling that DELETES the ref yields `unable to resolve reference`.
-      #   2. Those strings are gettext-translated (git wraps them in `_()`), so on
-      #      a non-English host even the value-mismatch shape stopped matching.
-      # A compare-and-swap race is DEFINED by "the ref is no longer what I expected"
-      # — a structural fact git will state exactly, in any locale. So re-read it:
-      # if the ref moved, it is a race (rebuild on the new tip and retry, bounded);
-      # if it did not move, our expected-old was fine and the WRITE itself failed,
-      # which retrying cannot fix.
-      now="$(git -C "$root" rev-parse --verify --quiet "$ref" 2>/dev/null || true)"
-      if [ "$now" != "${old:-}" ]; then
-        raced=1        # genuine race (value mismatch, sibling-created, or deleted)
-        continue
+      # The original form matched `*"but expected"*` on stderr and broke out otherwise.
+      # That was wrong in two independent ways, both failing in the same direction (a
+      # real race misread as a hardware fault, the retry that would have succeeded
+      # skipped, the run's telemetry dropped):
+      #   1. It matched only ONE of git's CAS-failure shapes. A sibling that CREATES
+      #      the branch between our absent-ref read and our write is rejected with
+      #      `reference already exists` — no `but expected` — and that is precisely the
+      #      first-use race two parallel worktrees hit, on the very branch this feature
+      #      creates. A sibling that DELETES the ref yields `unable to resolve reference`.
+      #   2. Those strings are gettext-translated, so on a non-English host even the
+      #      value-mismatch shape stopped matching.
+      # Re-reading the ref fixes both — but "the ref did not move" does NOT imply
+      # "retrying cannot help": a sibling holding `<ref>.lock` with its write still
+      # pending fails our update-ref while the ref is momentarily unmoved. That IS a
+      # concurrent writer, and a bounded retry is exactly what clears it. So do not
+      # break on it. Retrying is cheap and bounded, and a genuinely durable fault (a
+      # read-only .git, a full disk) simply exhausts the same small budget.
+      #
+      # `now` is only a CLASSIFIER for the terminal message, so a failed rev-parse must
+      # not masquerade as a moved ref: `--verify --quiet` exits 0 (present) or 1
+      # (absent); any other rc means we could not establish the ref's position, and we
+      # leave `raced` untouched rather than inventing a race that burns the budget and
+      # then blames "a sibling worktree kept advancing it".
+      if now="$(git -C "$root" rev-parse --verify --quiet "$ref" 2>/dev/null)"; then
+        [ "$now" != "${old:-}" ] && raced=1
+      elif [ "$?" -eq 1 ]; then
+        now=""
+        [ -n "${old:-}" ] && raced=1   # ref vanished under us — a sibling deleted it
       fi
-      raced=0          # ref unchanged ⇒ lock / read-only / disk — retrying won't help
-      break
     done
     if [ -z "$committed" ]; then
-      if [ "${raced:-0}" -eq 1 ]; then
+      if [ "$raced" -eq 1 ]; then
         echo "::warning::telemetry-branch: compare-and-swap on '${branch}' lost ${_DEVFLOW_TELEMETRY_CAS_TRIES} races (a sibling worktree/process kept advancing it); telemetry not persisted this run" >&2
       else
-        echo "::warning::telemetry-branch: could not advance the ref for '${branch}' (git update-ref failed: ${upd_err}) — the ref did not move, so this is a held ref .lock, a read-only .git, or a full disk, NOT a concurrent writer; telemetry not persisted this run" >&2
+        echo "::warning::telemetry-branch: could not advance the ref for '${branch}' after ${_DEVFLOW_TELEMETRY_CAS_TRIES} attempts and it never moved (git update-ref failed: ${upd_err}) — a held ref .lock (another git process), a read-only .git, or a full disk; telemetry not persisted this run" >&2
       fi
       exit 0
     fi
 
     # ── Push loop (best-effort) ────────────────────────────────────────────────
-    # Nothing actually changed (the CAS took the NOOP arm — this run's record was
-    # already on the branch): the local ref equals what it was, so there is nothing
-    # to push. Skip the push entirely rather than making a network round-trip that
-    # can only print "Everything up-to-date" (PR #442 review). This matters because
-    # `--persist` is wired to the local `Stop` hook, so without this gate EVERY
-    # agent turn ended in a blocking push — and a rejected one could cost up to
-    # _DEVFLOW_TELEMETRY_PUSH_TRIES fetch/re-parent/push cycles.
-    if [ "$committed" = "${old:-}" ]; then
-      exit 0
-    fi
-
     # No `origin` remote → nothing to push; the local ref carries the run (AC7).
     # This is the offline/local-only case. Test `origin` SPECIFICALLY, not "any
     # remote": the push below targets the literal `origin`, so a repo whose only
@@ -500,6 +493,26 @@ devflow_telemetry_persist_tree() {
     if ! git -C "$root" remote get-url origin >/dev/null 2>&1; then
       echo "::warning::telemetry-branch: no 'origin' git remote configured — '${branch}' advanced locally but not pushed; telemetry is retained on the local ref only" >&2
       exit 0
+    fi
+
+    # Skip the push ONLY when the remote is already AT our tip — the condition the push
+    # loop actually exists to establish. Gating instead on "this run created no new commit"
+    # (`committed == old`, the CAS NOOP arm) is a DIFFERENT question, and the two diverge on
+    # exactly the path that matters: after an OFFLINE run, the local ref is ahead of the
+    # remote, and the next persist re-walks the same run dirs → tree unchanged → NOOP. A
+    # NOOP-keyed skip would then exit before the push and strand those offline-accumulated
+    # commits indefinitely — silently, and falsifying the offline breadcrumb's own promise
+    # that "the next persist will carry it". So ask about the REMOTE, not about ourselves.
+    #
+    # `ls-remote` is a cheap, read-only query (no object transfer). It is also the only way
+    # to know the remote's actual position: refs/remotes/origin/<branch> is a local cache
+    # that a fresh clone or a pruned ref can leave stale. If the query FAILS (offline, auth),
+    # do NOT skip — fall through and let the push attempt produce the real breadcrumb.
+    local remote_head=""
+    if remote_head="$(LC_ALL=C git -C "$root" ls-remote --exit-code origin "$ref" 2>/dev/null)"; then
+      case "$remote_head" in
+        "$committed"*) exit 0 ;;   # remote already at our tip — nothing to push
+      esac
     fi
 
     local ptry push_err remote_tip local_cur

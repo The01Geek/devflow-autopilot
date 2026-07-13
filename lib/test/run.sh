@@ -16892,7 +16892,16 @@ mkdir -p "$TB_LK_REPO/.git/refs/heads"
 : > "$TB_LK_REPO/.git/refs/heads/devflow-telemetry.lock"   # a stale/held ref lock
 TB_LK_ERR="$( ( cd "$TB_LK_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; TB_LK_RC=$?
 assert_eq "tb(#442 Sug-3): held ref .lock → exit 0 (best-effort)" "0" "$TB_LK_RC"
+# The breadcrumb no longer claims "NOT a concurrent writer" (PR #442 review): a held
+# `<ref>.lock` IS another git process — git's own captured text on the same line says
+# "Another git process seems to be running" — so that absolute contradicted the evidence
+# printed beside it. The accurate claim is the OBSERVABLE one: the ref never moved across
+# the bounded attempts. Pin that, plus the causes it names.
 assert_eq "tb(#442 Sug-3): held ref .lock takes the NON-race arm (names the lock/permission/disk cause)" "yes" \
+  "$(printf '%s' "$TB_LK_ERR" | grep -qF 'a held ref .lock (another git process)' && echo yes || echo no)"
+assert_eq "tb(#442 Sug-3): ...and the breadcrumb states the OBSERVABLE fact (the ref never moved)" "yes" \
+  "$(printf '%s' "$TB_LK_ERR" | grep -qF 'never moved' && echo yes || echo no)"
+assert_eq "tb(#442 Sug-3): ...and does NOT assert 'NOT a concurrent writer' (a held lock IS one)" "no" \
   "$(printf '%s' "$TB_LK_ERR" | grep -qF 'NOT a concurrent writer' && echo yes || echo no)"
 assert_eq "tb(#442 Sug-3): held ref .lock is NOT misdiagnosed as a lost CAS race" "no" \
   "$(printf '%s' "$TB_LK_ERR" | grep -qF 'lost 5 races' && echo yes || echo no)"
@@ -17136,8 +17145,15 @@ PYEOF
 #       COMMENT LINES ARE STRIPPED FIRST: the fix's own explanatory comments necessarily QUOTE
 #       the banned form, and counting those would inflate the count to a permanent RED — the
 #       pin-in-comment defect class (#370). Scan code, never prose.
+#       The regex anchors on the OPENING `"${` rather than requiring a preceding character,
+#       so a bare expansion at column 0 (or right after a `(`) cannot slip past it; the
+#       guarded form is excluded by requiring that `[@]}` is NOT preceded by a `+` construct,
+#       which we express by matching the guarded form separately and subtracting nothing —
+#       i.e. we match `"${name[@]}"` only when it is NOT itself inside `${name[@]+...}`.
 assert_eq "tb(#442 Critical-1): telemetry-branch.sh has NO bare \"\${arr[@]}\" expansion (bash-3.2 set -u abort)" "0" \
-  "$(grep -vE '^[[:space:]]*#' "$LIB/telemetry-branch.sh" | grep -cE '[^+]"\$\{[A-Za-z_][A-Za-z0-9_]*\[@\]\}"' || true)"
+  "$(grep -vE '^[[:space:]]*#' "$LIB/telemetry-branch.sh" \
+     | sed -E 's/\$\{[A-Za-z_][A-Za-z0-9_]*\[@\]\+"\$\{[A-Za-z_][A-Za-z0-9_]*\[@\]\}"\}//g' \
+     | grep -cE '"\$\{[A-Za-z_][A-Za-z0-9_]*\[@\]\}"' || true)"
 #   (b) BEHAVIORAL pin — runs only where a real bash 3.x exists (the macOS dev tier). This is
 #       the assertion that actually reproduces the defect; the static pin above is what keeps
 #       Linux CI honest. A conditional skip is correct here: the bug is interpreter-specific,
@@ -17252,6 +17268,61 @@ assert_eq "tb(#442): ...and does NOT misattribute it to a held ref .lock / read-
 assert_eq "tb(#442): ...and still persists, on the default branch" "yes" \
   "$(_et_on_branch "$TB_BADNAME_REPO" ".devflow/logs/efficiency/pr-bn-run-1.json")"
 rm -rf "$TB_BADNAME_REPO"
+
+# PR #442 Step-3.5 fix-delta gate, C2: the push must be skipped only when the REMOTE is
+# already at our tip — never merely because THIS run created no new commit. Those diverge on
+# the reconnect path: after an offline run the local ref is AHEAD of the remote, and the next
+# persist re-walks the same run dirs → tree unchanged → CAS NOOP. A NOOP-keyed skip would exit
+# before the push and strand the offline-accumulated commits indefinitely, falsifying the
+# offline breadcrumb's own promise that "the next persist will carry it".
+TB_OFFP_REMOTE="$(git_sandbox "tb offline-then-reconnect remote")"
+git -C "$TB_OFFP_REMOTE" init -q --bare
+TB_OFFP_REPO="$(git_sandbox "tb offline-then-reconnect repo")"
+git -C "$TB_OFFP_REPO" init -q
+git -C "$TB_OFFP_REPO" config user.email t@e.com; git -C "$TB_OFFP_REPO" config user.name t
+mkdir -p "$TB_OFFP_REPO/.devflow"; printf 'tmp/\n' > "$TB_OFFP_REPO/.devflow/.gitignore"
+git -C "$TB_OFFP_REPO" add -A; git -C "$TB_OFFP_REPO" commit -qm seed
+# Run 1: OFFLINE (origin unreachable) → local ref advances, push fails, record is local-only.
+git -C "$TB_OFFP_REPO" remote add origin /nonexistent/telemetry/remote.git
+mkdir -p "$TB_OFFP_REPO/.devflow/tmp/review/pr-off/run-1"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$TB_OFFP_REPO/.devflow/tmp/review/pr-off/run-1/iter-1.json"
+( cd "$TB_OFFP_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "tb(#442 C2): offline run → the record is on the LOCAL ref" "yes" \
+  "$(_et_on_branch "$TB_OFFP_REPO" ".devflow/logs/efficiency/pr-off-run-1.json")"
+# Run 2: RECONNECT. Same run dir → no new record → the CAS takes the NOOP arm. The push must
+# STILL happen, carrying the offline-accumulated commit to the now-reachable remote.
+git -C "$TB_OFFP_REPO" remote set-url origin "$TB_OFFP_REMOTE"
+( cd "$TB_OFFP_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "tb(#442 C2): reconnect with NOTHING new → the offline record is STILL pushed (not stranded)" "yes" \
+  "$(git -C "$TB_OFFP_REMOTE" cat-file -e "refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-off-run-1.json" >/dev/null 2>&1 && echo yes || echo no)"
+rm -rf "$TB_OFFP_REPO" "$TB_OFFP_REMOTE"
+
+# PR #442 Step-3.5 fix-delta gate, I1: a NON-STRING .telemetry.branch must not split the store.
+# config-get.sh COERCES a scalar to a string (5 -> "5"), so the writer persists to branch `5`;
+# a reader that fell back to the default would look on `devflow-telemetry` and find nothing,
+# silently. Reader and writer must resolve the SAME branch for every row of the wrong-type matrix.
+TB_WT_REPO="$(git_sandbox "tb wrong-typed telemetry.branch repo")"
+git -C "$TB_WT_REPO" init -q
+git -C "$TB_WT_REPO" config user.email t@e.com; git -C "$TB_WT_REPO" config user.name t
+mkdir -p "$TB_WT_REPO/.devflow"; printf 'tmp/\n' > "$TB_WT_REPO/.devflow/.gitignore"
+git -C "$TB_WT_REPO" add -A; git -C "$TB_WT_REPO" commit -qm seed
+for tb_wt_val in '5' 'false'; do
+  printf '{"telemetry":{"branch":%s}}\n' "$tb_wt_val" > "$TB_WT_REPO/.devflow/config.json"
+  tb_wt_writer="$( ( cd "$TB_WT_REPO" && bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_branch' _ "$LIB/telemetry-branch.sh" ) 2>/dev/null )"
+  tb_wt_reader="$(python3 - "$TB_WT_REPO" "$LIB/../scripts/build-experiment-records.py" <<'PYEOF'
+import importlib.util, sys, io, contextlib
+root, mod_path = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("ber", mod_path)
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+with contextlib.redirect_stderr(io.StringIO()):
+    print(m._telemetry_branch(root))
+PYEOF
+)"
+  assert_eq "tb(#442 I1): .telemetry.branch=${tb_wt_val} → reader resolves the SAME branch the writer wrote to" \
+    "$tb_wt_writer" "$tb_wt_reader"
+done
+rm -rf "$TB_WT_REPO"
 
 # AC18: config schema + example document telemetry.branch.
 assert_eq "tb(#441 AC18): config.schema.json documents telemetry.branch (default devflow-telemetry)" "yes" \

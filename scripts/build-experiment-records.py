@@ -461,8 +461,34 @@ def _telemetry_branch(repo_root):
     try:
         data = json.loads(text)
         val = (data.get("telemetry") or {}).get("branch")
-        if isinstance(val, str) and val:
-            return val
+        if isinstance(val, str):
+            return val or "devflow-telemetry"
+        if val is not None:
+            # A NON-STRING .telemetry.branch violates the schema, but rejecting it here
+            # while the WRITER accepts it is worse than either behavior alone: the writer
+            # resolves this key through config-get.sh, which COERCES a scalar to a string
+            # (5 -> "5", false -> "false", ["a"] -> "a") and then persists to that branch.
+            # A reader that fell back to the default would look for the telemetry on
+            # `devflow-telemetry` while every record actually landed on `5` — the run's
+            # cost rows would simply be missing, on both sides, with nothing said (PR #442
+            # review). The writer decides where the data physically IS, so the reader must
+            # follow it. Mirror config-get.sh's coerce() semantics byte-for-byte (booleans
+            # lowercase, lists comma-joined, dict -> "[object Object]") and warn, so the
+            # schema violation is visible instead of silently splitting the store in two.
+            def _coerce(v):
+                if isinstance(v, bool):
+                    return "true" if v else "false"
+                if isinstance(v, list):
+                    return ",".join(_coerce(x) for x in v)
+                if isinstance(v, dict):
+                    return "[object Object]"
+                return str(v)
+
+            coerced = _coerce(val)
+            _warn(f".telemetry.branch in {cfg} is {type(val).__name__}, not a string (the schema "
+                  f"declares a string); the writer coerces it to '{coerced}' and persists there, so "
+                  f"this reader follows it — fix the config to a quoted string")
+            return coerced or "devflow-telemetry"
     except (json.JSONDecodeError, AttributeError):
         # A PRESENT-but-malformed config IS a degradation — name it (a silent
         # default here would mask a corrupt config the operator needs to fix).
