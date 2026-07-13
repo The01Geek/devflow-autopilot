@@ -40,12 +40,20 @@ trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE"' EXIT   # protect RESULTS_FILE/SKIPS_F
 #   terminal summary re-lists it) and prints the NOTE inline at the skip site. Increments
 #   neither PASS nor FAIL — a skip is not a pass and not a failure.
 skip() {  # name kind reason
+  # Fields are DELIMITER-SANITIZED here, at the sole producer, so the skip log's tab-separated
+  # one-line-per-skip shape holds by construction: an embedded TAB in a name/kind would
+  # mis-split the renderer's `IFS=<tab> read -r kind name reason` (rendering a skip's fields
+  # transposed), and an embedded NEWLINE would forge an extra log line (inflating the tally the
+  # renderer reconciles against). Both are replaced with a space using bash parameter expansion
+  # — a builtin, never `tr`/`sed`: this value decides an EMITTED result, and a missing
+  # non-preflight PATH tool would empty it silently (CLAUDE.md guard-class 2).
+  local name="${1//[$'\t'$'\n']/ }" kind="${2//[$'\t'$'\n']/ }" reason="${3//[$'\t'$'\n']/ }"
   # Stored KIND-first (kind<TAB>name<TAB>reason) — the order devflow_render_test_summary reads
   # back — even though the call signature is name-first; the coupling is pinned END-TO-END by
   # the #456 test that drives a log produced by THIS function through the renderer and asserts
   # the name and kind land in their rendered slots.
-  printf '%s\t%s\t%s\n' "$2" "$1" "$3" >> "$SKIPS_FILE"
-  printf '  NOTE  %s skipped [%s] — %s\n' "$1" "$2" "$3"
+  printf '%s\t%s\t%s\n' "$kind" "$name" "$reason" >> "$SKIPS_FILE"
+  printf '  NOTE  %s skipped [%s] — %s\n' "$name" "$kind" "$reason"
 }
 # SKIP_HELPER_REGION_END
 
@@ -28891,12 +28899,52 @@ rm -f "$S456_SKIPS"
 # breadcrumb, never a silent header-with-no-detail (the laundering #456 exists to prevent).
 assert_eq "#456 summary: K>0 with an absent skip log emits a 'detail unavailable' breadcrumb, not silence" "yes" \
   "$(devflow_render_test_summary 10 0 2 "$LIB/test/.devflow-nonexistent-skip-log-zzz" | grep -qF 'SKIP  (detail unavailable' && echo yes || echo no)"
-# ...and a partially-itemizable log (fewer lines than announced) surfaces the shortfall.
+# ...and a partially-itemizable log (fewer lines than announced) surfaces the shortfall —
+# WITHOUT swallowing the skips it can itemize: the breadcrumb accounts for the missing one,
+# and the genuine skip is still listed, so a shortfall never costs the reader the skips the
+# log does carry.
 S456_SHORT="$(probe_tmp '#456 renderer shortfall fixture')"
 printf 'blocking-gate\t#434 shortfall\treason\n' > "$S456_SHORT"
 assert_eq "#456 summary: K announced greater than itemizable lines surfaces a shortfall breadcrumb" "yes" \
-  "$(devflow_render_test_summary 10 0 2 "$S456_SHORT" | grep -qF 'could not be itemized' && echo yes || echo no)"
-rm -f "$S456_SHORT"
+  "$(devflow_render_test_summary 10 0 2 "$S456_SHORT" | grep -qF '1 of 2 announced skip(s) could not be itemized' && echo yes || echo no)"
+assert_eq "#456 summary: the shortfall arm STILL itemizes the skip the log does carry (the breadcrumb adds to the detail, never replaces it)" "1" \
+  "$(devflow_render_test_summary 10 0 2 "$S456_SHORT" | grep -cxF '  SKIP  #434 shortfall [blocking-gate] — reason')"
+# The OVER-count direction is reconciled too: a log carrying MORE itemizable skips than the
+# announced K means the tally the reader trusts under-reports the run's real skip population —
+# every skip is listed, but the header is wrong, which is the same laundering in the other
+# direction. Surface it; never print a "1 skipped" header over a 2-skip log in silence.
+S456_SKIPS_OVER="$(probe_tmp '#456 renderer over-count fixture')"
+printf 'blocking-gate\t#434 over-count A\treason A\n' > "$S456_SKIPS_OVER"
+printf 'host-capability\t#423 over-count B\treason B\n' >> "$S456_SKIPS_OVER"
+assert_eq "#456 summary: K announced LESS than the itemized lines surfaces a tally/log disagreement breadcrumb" "yes" \
+  "$(devflow_render_test_summary 10 0 1 "$S456_SKIPS_OVER" | grep -qF 'itemizes 1 more skip(s) than the announced tally of 1' && echo yes || echo no)"
+assert_eq "#456 summary: the over-count arm still itemizes EVERY skip in the log (both, not just the announced one)" "2" \
+  "$(devflow_render_test_summary 10 0 1 "$S456_SKIPS_OVER" | grep -c '^  SKIP  #4')"
+# ...and an EXACT agreement emits neither reconciliation breadcrumb (the positive control that
+# keeps the two arms above non-vacuous — they fire on disagreement, not on every K > 0 run).
+assert_eq "#456 summary: an agreeing tally and log emit NO reconciliation breadcrumb (positive control)" "0" \
+  "$(devflow_render_test_summary 10 0 2 "$S456_SKIPS_OVER" | grep -cE 'could not be itemized|tally and log disagree')"
+rm -f "$S456_SHORT" "$S456_SKIPS_OVER"
+# A present-but-UNREADABLE skip log takes the loud "absent or unreadable" arm — the arm whose
+# wording claims it. Positive control on the SAME fixture first: while readable it itemizes
+# normally, so the breadcrumb below is attributable to the unreadability and not to some
+# unrelated defect in the fixture. Where the host cannot express unreadability (running as
+# root, which reads a chmod-000 file anyway), this self-skips as host-capability rather than
+# asserting vacuously.
+S456_UNREAD="$(probe_tmp '#456 renderer unreadable-log fixture')"
+printf 'blocking-gate\t#434 unreadable\treason\n' > "$S456_UNREAD"
+assert_eq "#456 summary: positive control — the unreadable-log fixture itemizes normally WHILE readable" "1" \
+  "$(devflow_render_test_summary 10 0 1 "$S456_UNREAD" | grep -cxF '  SKIP  #434 unreadable [blocking-gate] — reason')"
+chmod 000 "$S456_UNREAD" 2>/dev/null || true
+if [ -r "$S456_UNREAD" ]; then
+  skip "#456 renderer present-but-unreadable skip log" host-capability \
+    "this host reads a chmod-000 file anyway (running as root?) — the unreadable condition is not reproducible here"
+else
+  assert_eq "#456 summary: a present-but-UNREADABLE skip log takes the 'absent or unreadable' arm (not the shortfall arm, which would name the wrong cause)" "yes" \
+    "$(devflow_render_test_summary 10 0 1 "$S456_UNREAD" | grep -qF 'SKIP  (detail unavailable — skip log absent or unreadable)' && echo yes || echo no)"
+fi
+chmod 600 "$S456_UNREAD" 2>/dev/null || true
+rm -f "$S456_UNREAD"
 # Renderer honesty (fail-closed on an unestablished tally): a skip argument that is not a
 # plain count — empty (a caller whose grep derivation errored, rc >= 2, prints nothing) or
 # non-numeric — renders a LOUD "tally unavailable" line, never a silent coercion to the
@@ -28918,6 +28966,32 @@ assert_eq "#456 the suite exit predicate (FAIL==0) is present exactly once, unch
 S456_UNDERIV="$(printf 'SKIP tally %s' 'underivable')"
 assert_eq "#456 the tail SKIP derivation guard is present exactly once (an unestablished tally fails closed, never reads as 0)" \
   "1" "$(grep -cF "$S456_UNDERIV" "$SELF_SRC")"
+# ...and the guard's DECISION is driven, not merely grepped. The tail's `case` glob used to be
+# a second copy of the renderer's, pinned by source presence only — so a mistyped glob or a
+# deleted arm could survive as long as the message literal above still matched. Both callers
+# now share ONE predicate (devflow_tally_is_derivable, lib/test/summary.sh), exercised here
+# over every arm it decides: a real count is derivable; an empty value (the grep-error shape
+# the guard exists for), a non-numeric one, a negative/spaced one, and NO argument at all are
+# not. A predicate that answered "derivable" to any of the latter is exactly the fail-OPEN the
+# tail guard claims to prevent.
+s456_deriv() { devflow_tally_is_derivable "$@" && echo derivable || echo underivable; }
+assert_eq "#456 tally predicate: a plain count is derivable" "derivable" "$(s456_deriv 0)"
+assert_eq "#456 tally predicate: a multi-digit count is derivable" "derivable" "$(s456_deriv 42)"
+assert_eq "#456 tally predicate: an EMPTY value (the grep-error shape) is underivable" "underivable" "$(s456_deriv "")"
+assert_eq "#456 tally predicate: a non-numeric value is underivable" "underivable" "$(s456_deriv "grep: no such file")"
+assert_eq "#456 tally predicate: a negative value is underivable" "underivable" "$(s456_deriv "-1")"
+assert_eq "#456 tally predicate: a digits-with-whitespace value is underivable" "underivable" "$(s456_deriv "1 2")"
+assert_eq "#456 tally predicate: NO argument at all is underivable (never an unbound-variable abort)" \
+  "underivable" "$(s456_deriv)"
+# Wiring: the tail actually ROUTES through that predicate and fails closed on false. Pinned
+# with an ASSEMBLED literal (so this line carries no contiguous copy) and MUTATION-PROVEN —
+# dropping the `!` inverts the guard, letting an underivable tally sail through to the
+# renderer, and the pin must go RED on exactly that regression, not merely on its own removal.
+S456_TAIL_CALL="$(printf 'if ! devflow_tally_is_derivable "$%s"; then' 'SKIP')"
+assert_eq "#456 the tail routes its SKIP tally through the shared derivability predicate" "1" \
+  "$(grep -cF "$S456_TAIL_CALL" "$SELF_SRC")"
+assert_pin_red_under "#456 MUTATION: inverting the tail guard (dropping its \`!\`) trips the wiring pin" \
+  "$S456_TAIL_CALL" 's/if ! devflow_tally_is_derivable/if devflow_tally_is_derivable/' "$SELF_SRC"
 #
 # skip() records a SKIP and moves NEITHER counter — with a positive control on the same
 # results fixture proving a normal assertion DOES still record a PASS (so the zero below is a
@@ -28943,6 +29017,29 @@ RESULTS_FILE="$S456_RES" assert_eq "#456 positive control (recorded to the isola
 assert_eq "#456 positive control: a normal assertion still records a PASS to the fixture (the zero above is real)" \
   "1" "$(grep -c '^PASS$' "$S456_RES")"
 rm -f "$S456_SK" "$S456_RES"
+#
+# Adversarial field shapes: skip() SANITIZES the log's own delimiters at the sole producer, so
+# the renderer's `IFS=<tab> read -r kind name reason` cannot be defeated by a field's content.
+# An embedded TAB in a name would otherwise split into an extra field and transpose every slot
+# to its right (name → the tail of the name, reason → the real name's remainder); an embedded
+# NEWLINE would forge a whole extra log line and inflate the tally. Both are driven end-to-end
+# through skip() → renderer, since the store and the read are the pair that must survive them.
+S456_ADV="$(probe_tmp '#456 skip() delimiter-sanitization skip log')"; : > "$S456_ADV"
+S456_ADV_RES="$(probe_tmp '#456 skip() delimiter-sanitization results')"; : > "$S456_ADV_RES"
+SKIPS_FILE="$S456_ADV" RESULTS_FILE="$S456_ADV_RES" \
+  skip "$(printf 'na\tme')" host-capability "$(printf 'rea\tson')" >/dev/null
+assert_eq "#456 skip(): an embedded TAB in a field is sanitized — the stored line keeps exactly 3 fields" "3" \
+  "$(awk -F'\t' 'NR==1 { print NF }' "$S456_ADV")"
+assert_eq "#456 skip(): a TAB-carrying name still renders in the NAME slot (no field transposition)" "1" \
+  "$(devflow_render_test_summary 1 0 1 "$S456_ADV" | grep -cxF '  SKIP  na me [host-capability] — rea son')"
+: > "$S456_ADV"
+SKIPS_FILE="$S456_ADV" RESULTS_FILE="$S456_ADV_RES" \
+  skip "#456 newline probe" host-capability "$(printf 'two\nlines')" >/dev/null
+assert_eq "#456 skip(): an embedded NEWLINE in a field is sanitized — one skip appends exactly ONE log line (no forged tally)" \
+  "1" "$(grep -c . "$S456_ADV")"
+assert_eq "#456 skip(): the NEWLINE-carrying reason renders on the skip's single line" "1" \
+  "$(devflow_render_test_summary 1 0 1 "$S456_ADV" | grep -cxF '  SKIP  #456 newline probe [host-capability] — two lines')"
+rm -f "$S456_ADV" "$S456_ADV_RES"
 #
 # NOTE-emit meta-assertion. The SOLE `printf '  NOTE ` emit lives inside skip(), delimited by
 # the split-built markers below (split so these definition lines add no second occurrence).
@@ -29029,11 +29126,15 @@ SKIP=$(grep -c . "$SKIPS_FILE" || true)
 # real grep error (rc >= 2) prints NOTHING, leaving SKIP empty — and an empty value coerced
 # downstream to 0 would launder an unestablished tally into "nothing skipped" (unknown is
 # not zero). Fail CLOSED: refuse to render a summary over a tally that could not be derived.
-case "$SKIP" in
-  ''|*[!0-9]*)
-    printf 'ERROR: SKIP tally underivable from %s (grep error, not an empty log) — refusing to report it as 0 skipped\n' "$SKIPS_FILE"
-    exit 1 ;;
-esac
+# The derivability test itself is devflow_tally_is_derivable (lib/test/summary.sh) — the SAME
+# predicate the renderer's unavailable-tally arm uses, so the two cannot drift apart and the
+# suite drives it directly instead of grepping a `case` glob. The two fail-closed RESPONSES
+# stay distinct and are deliberate defense-in-depth: this one aborts the run, the renderer's
+# prints a loud unavailable line for any other caller.
+if ! devflow_tally_is_derivable "$SKIP"; then
+  printf 'ERROR: SKIP tally underivable from %s (grep error, not an empty log) — refusing to report it as 0 skipped\n' "$SKIPS_FILE"
+  exit 1
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"

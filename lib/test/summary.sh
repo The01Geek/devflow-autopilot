@@ -35,18 +35,36 @@
 #
 # This function never sets the exit code: run.sh's `[ "$FAIL" -eq 0 ]` predicate is
 # unchanged, so a skip never fails the suite.
-devflow_render_test_summary() {
-  local pass="$1" fail="$2" skip="${3-}" skips_file="${4:-}" tab kind name reason
-  # A skip tally that is not a plain count — empty (a caller whose derivation errored) or
-  # non-numeric — is UNESTABLISHED, and unknown is never zero: silently coercing it to 0
-  # would render a clean "N passed, M failed" line and launder a derivation failure into
-  # "nothing skipped", the exact laundering this renderer exists to prevent. Say so instead.
-  case "$skip" in
-    ''|*[!0-9]*)
-      printf '%s passed, %s failed\n' "$pass" "$fail"
-      printf '  SKIP  (skip tally unavailable — got "%s", not a count; the skip population of this run is unverified)\n' "$skip"
-      return 0 ;;
+
+# devflow_tally_is_derivable VALUE
+#
+# The shared derivability predicate for a tally. True (rc 0) when VALUE is a plain count (a
+# non-empty run of digits); false (rc 1) when it is empty (a `grep -c` that errored — rc >= 2
+# prints nothing) or non-numeric. Such a value is an UNESTABLISHED tally, and unknown is never
+# zero: a caller that coerced it to 0 would launder a derivation failure into "nothing skipped".
+#
+# The predicate is a FUNCTION, not a `case` glob copy-pasted into each caller, for two reasons:
+# it has exactly one definition (a mistyped glob cannot exist in only one of the two copies),
+# and the suite can drive it directly over the empty/non-numeric/valid inputs rather than
+# pinning its source text. It prints nothing — each caller owns its own fail-closed response
+# (run.sh's tail aborts the run; the renderer below prints a loud unavailable line). Those two
+# responses are deliberate defense-in-depth and stay distinct; only the predicate is shared.
+devflow_tally_is_derivable() {
+  case "${1-}" in
+    ''|*[!0-9]*) return 1 ;;
   esac
+  return 0
+}
+
+devflow_render_test_summary() {
+  local pass="$1" fail="$2" skip="${3-}" skips_file="${4-}" tab kind name reason
+  # An unestablished tally renders a loud line instead of a clean "N passed, M failed" — the
+  # exact laundering this renderer exists to prevent. (Shared predicate; see above.)
+  if ! devflow_tally_is_derivable "$skip"; then
+    printf '%s passed, %s failed\n' "$pass" "$fail"
+    printf '  SKIP  (skip tally unavailable — got "%s", not a count; the skip population of this run is unverified)\n' "$skip"
+    return 0
+  fi
   if [ "$skip" -eq 0 ]; then
     printf '%s passed, %s failed\n' "$pass" "$fail"
     return 0
@@ -57,7 +75,11 @@ devflow_render_test_summary() {
   # than returning silently — a header that says "K skipped" with zero detail lines would
   # re-create the very laundering #456 exists to prevent, so the renderer stays honest
   # independent of caller discipline.
-  if [ -z "$skips_file" ] || [ ! -f "$skips_file" ]; then
+  # `-r` is tested alongside `-f`, so the "absent or unreadable" wording is true of every input
+  # that takes this arm: a present-but-unreadable log lands on THIS loud breadcrumb rather than
+  # falling through to a read loop that silently yields no lines (which would have surfaced as
+  # the shortfall breadcrumb below — loud, but naming the wrong cause).
+  if [ -z "$skips_file" ] || [ ! -f "$skips_file" ] || [ ! -r "$skips_file" ]; then
     printf '  SKIP  (detail unavailable — skip log absent or unreadable)\n'
     return 0
   fi
@@ -68,9 +90,19 @@ devflow_render_test_summary() {
     printf '  SKIP  %s [%s] — %s\n' "$name" "$kind" "$reason"
     emitted=$((emitted + 1))
   done < "$skips_file"
-  # The announced count and the itemized lines must agree; surface any shortfall rather than
-  # leaving it silent (the honesty property above, applied to a partially-readable log).
-  [ "$emitted" -ge "$skip" ] || \
+  # The announced count and the itemized lines must AGREE, and disagreement is surfaced in BOTH
+  # directions — a header that says "K skipped" while the detail lines say otherwise is the
+  # laundering this renderer exists to prevent, whichever side is short. A shortfall (fewer
+  # lines than announced) hides a skip the reader is never shown; an over-count (more lines
+  # than announced) means the announced K under-reports the run's real skip population, so the
+  # tally the reader trusts is wrong even though every skip happens to be listed. In-suite both
+  # are derived from the same file and agree, so either breadcrumb means the tally and the log
+  # have come apart and the skip population of the run is unverified.
+  if [ "$emitted" -lt "$skip" ]; then
     printf '  SKIP  (%s of %s announced skip(s) could not be itemized from the skip log)\n' \
       "$((skip - emitted))" "$skip"
+  elif [ "$emitted" -gt "$skip" ]; then
+    printf '  SKIP  (skip log itemizes %s more skip(s) than the announced tally of %s — tally and log disagree; the skip population of this run is unverified)\n' \
+      "$((emitted - skip))" "$skip"
+  fi
 }
