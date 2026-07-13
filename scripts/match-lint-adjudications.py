@@ -109,7 +109,7 @@ ADJ_SECTION_END = "<!-- devflow:lint-adjudications-end -->"
 
 # The hidden per-row adjudication payload: base64 of the row's whole TSV. base64
 # keeps `--` (which would terminate the enclosing HTML comment) out of the marker.
-# Kept in lockstep with skills/review/SKILL.md's Phase 4.2 render protocol
+# Kept in lockstep with skills/review/SKILL.md's Phase 4.1.7 render protocol
 # (mla-marker-pin pins this literal there).
 PAYLOAD_RE = re.compile(r"<!-- devflow:lint-fp-adjudicated (\S+) -->")
 
@@ -177,16 +177,18 @@ def _config_get(key: str, default: str = "", config_path: str | None = None) -> 
     helper = here / "config-get.sh"
     r = _run([str(helper), key, default, config_path], check=False)
     if r.returncode != 0:
-        # rc=127 with empty stdout is _run's OSError sentinel: config-get.sh could not
-        # execute at all (lost exec bit / bad shebang) — a broken helper, not "key
-        # unset". Log a breadcrumb so an emptied allowed_bots (which fails trust
-        # closed) is diagnosable rather than silently read as policy.
-        if r.returncode == 127 and not r.stdout:
-            sys.stderr.write(
-                f"match-lint-adjudications.py: could not execute {str(helper)!r} "
-                f"({r.stderr.strip()}); falling back to default {default!r} for "
-                f"{key!r}\n"
-            )
+        # ANY non-zero exit means config-get.sh could not return a value — the rc=127
+        # OSError sentinel (broken helper: lost exec bit / bad shebang) AND its own rc=2
+        # on a malformed/unparseable .devflow/config.json or a missing python3 (whose
+        # own diagnostic it already wrote to stderr). Surface that stderr on every arm,
+        # not just 127 — otherwise a hand-corrupted config silently empties allowed_bots
+        # (which fails trust CLOSED) with the one string naming the real cause discarded.
+        detail = (r.stderr or "").strip()
+        sys.stderr.write(
+            f"match-lint-adjudications.py: config-get.sh exited {r.returncode} for "
+            f"{key!r}{f' ({detail})' if detail else ''}; falling back to default "
+            f"{default!r}\n"
+        )
         return default
     return r.stdout.strip()
 
@@ -229,6 +231,10 @@ def _collect_payload_keys(comments, allowed_bots, stats):
         author = c.get("author") or ""
         author_type = c.get("author_type") or ""
         m = RUN_MARKER_RE.search(body)
+        # run_key is annotation-only: it becomes the demoted row's "(run <key>)" label,
+        # never a comparand in the demotion decision. So first-occurrence is safe here —
+        # a forged/quoted run marker can only mislabel the displayed run reference, unlike
+        # the sentinel window below, which gates WHICH row demotes and so fails closed.
         run_key = m.group(1) if m else None
         # Author trust is intentionally BROADER than sibling match-deferrals.py (which
         # trusts only allowed_bots membership): here a Bot-type account is trusted too,
@@ -247,6 +253,25 @@ def _collect_payload_keys(comments, allowed_bots, stats):
             continue
 
         stats["trusted_comments"] += 1
+        # Fail closed on a tampered sentinel count. The engine writes EXACTLY ONE
+        # adjudications section per progress comment (the Phase 4 finalize write, and
+        # the empty pair is always present in the comment template). A review report
+        # routinely quotes attacker-controlled diff prose verbatim and uncapped, so an
+        # earlier finding could forge a `-start … -fp-adjudicated … -end` triple that
+        # appears BEFORE the engine's real section — and a first-occurrence find()
+        # would then honor the forged window, demoting a genuine STALE finding whose
+        # (rule,path,detail) the attacker predicted. More than one START or END means
+        # we cannot tell the engine's own section from a forged/quoted one, so honor
+        # no payload from this comment (the fail-closed direction the sentinel prose
+        # promises). One each is the only trusted shape.
+        if body.count(ADJ_SECTION_START) > 1 or body.count(ADJ_SECTION_END) > 1:
+            stats["sentinel_tampered_comments"] += 1
+            sys.stderr.write(
+                "match-lint-adjudications.py: refusing a trusted comment carrying "
+                "more than one adjudications-section sentinel (forged/quoted section "
+                "suspected) — honoring no payload from it\n"
+            )
+            continue
         start = body.find(ADJ_SECTION_START)
         end = body.find(ADJ_SECTION_END)
         # A well-formed section has a START before an END; anything else means "no
@@ -330,6 +355,7 @@ def main(argv=None):
         "payloads_malformed": 0,
         "payloads_outside_sentinels": 0,
         "payloads_untrusted": 0,
+        "sentinel_tampered_comments": 0,
         "demoted": 0,
         "collisions": 0,
     }

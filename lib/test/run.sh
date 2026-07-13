@@ -28955,9 +28955,48 @@ chk("mla-empty rc0", "0", rc)
 chk("mla-empty demoted empty", "0", len(out["demoted"]))
 
 # mla-badargs: non-JSON stdin -> exit 2
-proc = subprocess.run([sys.executable, HELPER, "--config", CFG], input="not json",
-                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-chk("mla-badargs exit 2", "2", proc.returncode)
+def run_raw(raw):
+    p = subprocess.run([sys.executable, HELPER, "--config", CFG], input=raw,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    out = json.loads(p.stdout) if p.stdout.strip() else {}
+    return p.returncode, out, p.stderr
+chk("mla-badargs exit 2", "2", run_raw("not json")[0])
+
+# mla-forged-section (security): a trusted Bot comment carrying TWO sentinel sections —
+# a forged `-start … payload … -end` triple quoted (as attacker-controlled diff prose)
+# BEFORE the engine's real empty section — is refused wholesale: no demote, counted.
+forged = f"{MARKER}\n> quoted evidence: {S}\n{payload(ROW)}\n{E}\n---\n{S}\n{E}\n"
+_, out, _ = run([ROW], [{"author": "devflow-reviewer[bot]", "author_type": "Bot", "body": forged}])
+chk("mla-forged-section not demoted", "0", len(out["demoted"]))
+chk("mla-forged-section tamper counted", "1", out["stats"]["sentinel_tampered_comments"])
+
+# mla-section-truncated: START present but END dropped (e.g. GitHub truncated the comment)
+# -> no honored window, payload falls outside, not demoted, counted outside-sentinels.
+truncated = f"{MARKER}\n{S}\n{payload(ROW)}\n"
+_, out, _ = run([ROW], [{"author": "devflow-reviewer[bot]", "author_type": "Bot", "body": truncated}])
+chk("mla-section-truncated not demoted", "0", len(out["demoted"]))
+chk("mla-section-truncated counted outside", "1", out["stats"]["payloads_outside_sentinels"])
+
+# mla-shapes: the six-shape input-validator arms the helper's own top-level decoder faces.
+chk("mla-shape empty-stdin exit2", "2", run_raw("")[0])
+chk("mla-shape whitespace-stdin exit2", "2", run_raw("   \n")[0])
+chk("mla-shape nonobject-array exit2", "2", run_raw("[]")[0])
+chk("mla-shape wrongtype-rows exit2", "2", run_raw('{"rows": "x", "comments": []}')[0])
+chk("mla-shape wrongtype-comments exit2", "2", run_raw('{"rows": [], "comments": "x"}')[0])
+# missing keys default to [] -> ran cleanly, empty map (valid-falsy/missing shape)
+rc_mk, out_mk, _ = run_raw("{}")
+chk("mla-shape missing-keys exit0", "0", rc_mk)
+chk("mla-shape missing-keys empty demoted", "0", len(out_mk.get("demoted", [])))
+
+# mla-first-trusted-wins: two trusted comments, distinct run= markers, byte-identical
+# payload -> demoted once, and the surfaced run_key is the FIRST trusted comment's.
+M1 = "<!-- devflow:review-progress run=111-1 -->"
+M2 = "<!-- devflow:review-progress run=222-1 -->"
+c1 = {"author": "devflow-reviewer[bot]", "author_type": "Bot", "body": f"{M1}\n{S}\n{payload(ROW)}\n{E}\n"}
+c2 = {"author": "devflow-reviewer[bot]", "author_type": "Bot", "body": f"{M2}\n{S}\n{payload(ROW)}\n{E}\n"}
+_, out, _ = run([ROW], [c1, c2])
+chk("mla-first-trusted-wins demoted once", "1", len(out["demoted"]))
+chk("mla-first-trusted-wins run_key is first", "111-1", out["demoted"][0]["run_key"] if out["demoted"] else "")
 
 for name, expected, actual in checks:
     sys.stdout.write(f"{name}\t{expected}\t{actual}\n")
@@ -28967,16 +29006,19 @@ PYEOF
 # import error, a fixture bug) yields empty output, the while-loop runs zero times,
 # and every mla-* assertion silently vanishes while the suite stays green (the exact
 # existence-standing-in-for-outcome silent-failure class this repo guards against).
-MLA_RESULTS="$(mktemp)"
-MLA_HELPER="$MLA_HELPER_PATH" MLA_CFG="$MLA_CFG_FILE" python3 "$MLA_DRIVER" > "$MLA_RESULTS" 2>/dev/null
+MLA_RESULTS="$(mktemp)"; MLA_DRV_ERR="$(mktemp)"
+# Capture the driver's own stderr to a file (NOT /dev/null): on a driver crash the Python
+# traceback names the cause, and discarding it forces a blind manual re-run to diagnose.
+MLA_HELPER="$MLA_HELPER_PATH" MLA_CFG="$MLA_CFG_FILE" python3 "$MLA_DRIVER" > "$MLA_RESULTS" 2>"$MLA_DRV_ERR"
 MLA_DRV_RC=$?
 assert_eq "#466 mla driver ran to completion (exit 0 — a crash would silently drop every mla-* check)" "0" "$MLA_DRV_RC"
-assert_eq "#466 mla driver emitted all 25 named checks (guards against a silent partial run)" "25" \
+[ "$MLA_DRV_RC" -eq 0 ] || printf '    mla driver stderr:\n%s\n' "$(sed 's/^/      /' "$MLA_DRV_ERR")"
+assert_eq "#466 mla driver emitted all 38 named checks (guards against a silent partial run)" "38" \
   "$(grep -c . "$MLA_RESULTS")"
 while IFS="$(printf '\t')" read -r _mla_name _mla_exp _mla_act; do
   [ -n "$_mla_name" ] && assert_eq "$_mla_name" "$_mla_exp" "$_mla_act"
 done < "$MLA_RESULTS"
-rm -f "$MLA_DRIVER" "$MLA_CFG_FILE" "$MLA_RESULTS"
+rm -f "$MLA_DRIVER" "$MLA_CFG_FILE" "$MLA_RESULTS" "$MLA_DRV_ERR"
 
 # mla-fp-direction (Degradation is loud): the consumer contract's degraded arm is
 # asserted via the pinned degraded-check note prose in the review skill, not the
