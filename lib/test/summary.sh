@@ -57,7 +57,7 @@ devflow_tally_is_derivable() {
 }
 
 devflow_render_test_summary() {
-  local pass="$1" fail="$2" skip="${3-}" skips_file="${4-}" tab kind name reason
+  local pass="$1" fail="$2" skip="${3-}" skips_file="${4-}" tab line rest kind name reason
   # An unestablished tally renders a loud line instead of a clean "N passed, M failed" — the
   # exact laundering this renderer exists to prevent. (Shared predicate; see above.)
   if ! devflow_tally_is_derivable "$skip"; then
@@ -85,8 +85,27 @@ devflow_render_test_summary() {
   fi
   local emitted=0
   tab="$(printf '\t')"
-  while IFS="$tab" read -r kind name reason; do
-    [ -n "$name" ] || continue
+  # Itemization uses the SAME definition of "a skip line" as the tally (run.sh's `grep -c .`):
+  # every NON-EMPTY line is itemized, so the announced count and the emitted lines agree
+  # definitionally — not merely because the producer happens to fill every field. A line whose
+  # NAME field is empty (possible only in a log skip() did not write — skip() normalizes an
+  # empty name at the producer) is still itemized, under the matching "(unnamed check)"
+  # placeholder (the fail-closed cosmetic-sanitization idiom): silently dropping it would make
+  # the reconciliation breadcrumbs below fire on a healthy log and name the wrong cause. The
+  # `|| [ -n "$line" ]` keeps a final unterminated line (which `grep -c .` counts) itemized too.
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    kind="${line%%"$tab"*}"
+    case "$line" in
+      *"$tab"*) rest="${line#*"$tab"}" ;;
+      *)        rest="" ;;
+    esac
+    name="${rest%%"$tab"*}"
+    case "$rest" in
+      *"$tab"*) reason="${rest#*"$tab"}" ;;
+      *)        reason="" ;;
+    esac
+    [ -n "$name" ] || name="(unnamed check)"
     printf '  SKIP  %s [%s] — %s\n' "$name" "$kind" "$reason"
     emitted=$((emitted + 1))
   done < "$skips_file"
