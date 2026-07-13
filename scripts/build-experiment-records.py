@@ -461,38 +461,68 @@ def _telemetry_branch(repo_root):
     try:
         data = json.loads(text)
         val = (data.get("telemetry") or {}).get("branch")
-        if isinstance(val, str):
-            return val or "devflow-telemetry"
-        if val is not None:
-            # A NON-STRING .telemetry.branch violates the schema, but rejecting it here
-            # while the WRITER accepts it is worse than either behavior alone: the writer
-            # resolves this key through config-get.sh, which COERCES a scalar to a string
-            # (5 -> "5", false -> "false", ["a"] -> "a") and then persists to that branch.
-            # A reader that fell back to the default would look for the telemetry on
-            # `devflow-telemetry` while every record actually landed on `5` — the run's
-            # cost rows would simply be missing, on both sides, with nothing said (PR #442
-            # review). The writer decides where the data physically IS, so the reader must
-            # follow it. Mirror config-get.sh's coerce() semantics byte-for-byte (booleans
-            # lowercase, lists comma-joined, dict -> "[object Object]") and warn, so the
-            # schema violation is visible instead of silently splitting the store in two.
-            def _coerce(v):
-                if isinstance(v, bool):
-                    return "true" if v else "false"
-                if isinstance(v, list):
-                    return ",".join(_coerce(x) for x in v)
-                if isinstance(v, dict):
-                    return "[object Object]"
-                return str(v)
-
-            coerced = _coerce(val)
-            _warn(f".telemetry.branch in {cfg} is {type(val).__name__}, not a string (the schema "
-                  f"declares a string); the writer coerces it to '{coerced}' and persists there, so "
-                  f"this reader follows it — fix the config to a quoted string")
-            return coerced or "devflow-telemetry"
     except (json.JSONDecodeError, AttributeError):
         # A PRESENT-but-malformed config IS a degradation — name it (a silent
         # default here would mask a corrupt config the operator needs to fix).
         _warn(f"could not parse .telemetry.branch from {cfg}; using default 'devflow-telemetry'")
+        return "devflow-telemetry"
+    if val is None:
+        return "devflow-telemetry"
+
+    # Resolve EXACTLY as the writer does, in the writer's order — coerce, then validate as a
+    # git ref name, then fall back to the default. Reader and writer must land on the same
+    # branch for EVERY config shape, or the store silently splits in two: the writer persists
+    # to branch X while the reader unions `devflow-telemetry`, so every cost row for that run
+    # simply goes missing, on both sides, with nothing said (PR #442 review).
+    #
+    # Both halves are load-bearing, and each was a real split before it was mirrored here:
+    #   * COERCION — the writer reads this key through config-get.sh, whose coerce() turns a
+    #     non-string scalar into a string (5 -> "5", false -> "false", null -> "", a list into
+    #     a comma-join of its coerced elements, an object into "[object Object]") and then
+    #     persists to THAT branch. The `None -> ""` arm is easy to miss and is why a nested
+    #     null (`["a", null]`) resolved to "a," in the writer but "a,None" here.
+    #   * REF-NAME VALIDATION — the writer additionally rejects a name git will not accept
+    #     (`git check-ref-format --branch`) and falls back to the default. That arm fires on
+    #     schema-VALID strings ("my branch", "a..b", "x.lock"), so a reader that only handled
+    #     the non-string case still diverged on every one of them.
+    # The writer's rules are duplicated here rather than shared only because it is bash and
+    # this is Python; keep the two in lockstep (lib/telemetry-branch.sh devflow_telemetry_branch).
+    def _coerce(v):
+        # Mirrors scripts/config-get.sh coerce() — see its own header comment.
+        if v is None:
+            return ""
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if isinstance(v, list):
+            return ",".join(_coerce(x) for x in v)
+        if isinstance(v, dict):
+            return "[object Object]"
+        return str(v)
+
+    branch = _coerce(val)
+    if not isinstance(val, str):
+        _warn(f".telemetry.branch in {cfg} is {type(val).__name__}, not a string (the schema "
+              f"declares a string); the writer coerces it to '{branch}' and persists there, so "
+              f"this reader follows it — fix the config to a quoted string")
+    if not branch:
+        return "devflow-telemetry"
+    # Same gate, same fallback as the writer. Exit codes, verified against real git (2.50):
+    # 0 = the name is usable; 128 = git REJECTS it ("my branch", "a..b", "x.lock", "-lead",
+    # "[object Object]"). It is NOT 1 — an `rc == 1` check would never fire and the split
+    # would survive. `_run` additionally synthesizes 127 from an OSError (git absent, a broken
+    # DEVFLOW_GIT override), which is an UNESTABLISHED check, not a rejection: do not silently
+    # rewrite the branch on it — keep the resolved name and let the caller's own git probes
+    # report the real problem, rather than laundering "could not ask" into "git said no".
+    rc, _out, err = _run([GIT, "check-ref-format", "--branch", branch])
+    if rc == 0:
+        return branch
+    if rc == 127:
+        _warn(f"could not validate .telemetry.branch '{branch}' as a git ref name (git could not "
+              f"be run: {(err or '').strip()[:120]}) — proceeding with it unvalidated")
+        return branch
+    _warn(f".telemetry.branch in {cfg} resolves to '{branch}', which git rejects as a branch name "
+          f"(check-ref-format rc={rc}); the writer falls back to 'devflow-telemetry' and this "
+          f"reader follows it — fix .devflow/config.json to read from your intended branch")
     return "devflow-telemetry"
 
 

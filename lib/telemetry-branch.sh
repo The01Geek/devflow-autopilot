@@ -82,7 +82,13 @@ devflow_telemetry_branch() {
       echo "::warning::telemetry-branch: config key 'telemetry.branch' resolved to '${b}', which git rejects as a branch name (git check-ref-format); falling back to 'devflow-telemetry' — fix .devflow/config.json to persist to your intended branch" >&2
       b="devflow-telemetry"
     fi
-    _DEVFLOW_TELEMETRY_BRANCH_CACHE="$b"
+    # EXPORT the memo, don't just set it: `--persist` runs its write in a subshell (and the
+    # discovery path forks per run dir), and a plain shell variable does not survive into a
+    # child that re-sources this lib. Without the export the cache missed in every fork, so the
+    # config was re-read and — on a bad value — the check-ref-format breadcrumb was printed
+    # once per fork (three times in a single --persist). An exported value is inherited, so the
+    # resolution and its warning happen once per process tree.
+    export _DEVFLOW_TELEMETRY_BRANCH_CACHE="$b"
   fi
   printf '%s\n' "$_DEVFLOW_TELEMETRY_BRANCH_CACHE"
 }

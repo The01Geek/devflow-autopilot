@@ -17267,6 +17267,20 @@ assert_eq "tb(#442): ...and does NOT misattribute it to a held ref .lock / read-
   "$(printf '%s' "$TB_BN_ERR" | grep -qF 'a held ref .lock' && echo yes || echo no)"
 assert_eq "tb(#442): ...and still persists, on the default branch" "yes" \
   "$(_et_on_branch "$TB_BADNAME_REPO" ".devflow/logs/efficiency/pr-bn-run-1.json")"
+# ...and the READER must follow the writer's fallback to the same default. Asserting only the
+# writer's half here is what let the two tests jointly ENCODE a store split without detecting
+# it: the writer fell back to `devflow-telemetry` while the reader looked on `bad name with
+# spaces` and found nothing, silently (PR #442 Step-3.5 gate).
+assert_eq "tb(#442): ...and the READER resolves that same default (no silent store split)" "devflow-telemetry" \
+  "$(DEVFLOW_CONFIG_FILE="$TB_BADNAME_REPO/.devflow/config.json" python3 - "$TB_BADNAME_REPO" "$LIB/../scripts/build-experiment-records.py" <<'PYEOF'
+import importlib.util, sys, io, contextlib
+root, mod_path = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("ber", mod_path)
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+with contextlib.redirect_stderr(io.StringIO()):
+    print(m._telemetry_branch(root))
+PYEOF
+)"
 rm -rf "$TB_BADNAME_REPO"
 
 # PR #442 Step-3.5 fix-delta gate, C2: the push must be skipped only when the REMOTE is
@@ -17307,10 +17321,20 @@ git -C "$TB_WT_REPO" init -q
 git -C "$TB_WT_REPO" config user.email t@e.com; git -C "$TB_WT_REPO" config user.name t
 mkdir -p "$TB_WT_REPO/.devflow"; printf 'tmp/\n' > "$TB_WT_REPO/.devflow/.gitignore"
 git -C "$TB_WT_REPO" add -A; git -C "$TB_WT_REPO" commit -qm seed
-for tb_wt_val in '5' 'false'; do
+# The matrix must include the rows that DIVERGE if either half of the resolution is missed —
+# not just the ones that happen to agree (a matrix of only-agreeing rows is a vacuous test):
+#   * coercion rows      : 5 / false / 0 / ["a"] / {"x":1}  (config-get.sh stringifies these)
+#   * coercion NULL arm  : [null] / ["a",null]              (config-get.sh maps null -> "")
+#   * ref-NAME rows      : "my branch" / "a..b" / "x.lock" / "-lead"  — schema-VALID strings
+#                          that git REJECTS, so the writer falls back to the default. These
+#                          bypass the non-string branch entirely and were the split a
+#                          coercion-only mirror still left open.
+while IFS= read -r tb_wt_val; do
+  [ -n "$tb_wt_val" ] || continue
   printf '{"telemetry":{"branch":%s}}\n' "$tb_wt_val" > "$TB_WT_REPO/.devflow/config.json"
-  tb_wt_writer="$( ( cd "$TB_WT_REPO" && bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_branch' _ "$LIB/telemetry-branch.sh" ) 2>/dev/null )"
-  tb_wt_reader="$(python3 - "$TB_WT_REPO" "$LIB/../scripts/build-experiment-records.py" <<'PYEOF'
+  tb_wt_writer="$( ( cd "$TB_WT_REPO" && DEVFLOW_CONFIG_FILE="$TB_WT_REPO/.devflow/config.json" \
+      bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_branch' _ "$LIB/telemetry-branch.sh" ) 2>/dev/null )"
+  tb_wt_reader="$(DEVFLOW_CONFIG_FILE="$TB_WT_REPO/.devflow/config.json" python3 - "$TB_WT_REPO" "$LIB/../scripts/build-experiment-records.py" <<'PYEOF'
 import importlib.util, sys, io, contextlib
 root, mod_path = sys.argv[1], sys.argv[2]
 spec = importlib.util.spec_from_file_location("ber", mod_path)
@@ -17321,7 +17345,21 @@ PYEOF
 )"
   assert_eq "tb(#442 I1): .telemetry.branch=${tb_wt_val} → reader resolves the SAME branch the writer wrote to" \
     "$tb_wt_writer" "$tb_wt_reader"
-done
+done <<'EOF'
+"my-branch"
+"my branch"
+"a..b"
+"x.lock"
+"-lead"
+5
+false
+0
+""
+["a"]
+["a",null]
+[null]
+{"x":1}
+EOF
 rm -rf "$TB_WT_REPO"
 
 # AC18: config schema + example document telemetry.branch.

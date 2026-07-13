@@ -865,6 +865,15 @@ persist_one() {
 do_persist() {
   local root dir slug run_id _TELEMETRY_STAGE
   root="$(devflow_repo_root)"
+  # Resolve the telemetry branch ONCE, here in the parent, before anything forks. The
+  # resolution is memoized in _DEVFLOW_TELEMETRY_BRANCH_CACHE, and a subshell inherits the
+  # parent's variables — but NOT a sibling's. Without this seed the first call happened
+  # inside a subshell, so every later subshell re-resolved from scratch: the config was
+  # re-read once per fork and, on an invalid `telemetry.branch`, its breadcrumb was printed
+  # once per fork (three times in a single --persist). Seed it in the parent and they all
+  # inherit one resolution, and one warning. Redirect stdout ONLY — stderr must stay open or
+  # this seed would swallow the very breadcrumb it exists to emit exactly once.
+  devflow_telemetry_branch >/dev/null || true
   # Shared staging root under gitignored .devflow/tmp/ (issue #441). Every
   # persist_one call stages its record + durable workpad copy here, mirroring the
   # exact .devflow/logs/… layout; after the loop the detached telemetry-branch
