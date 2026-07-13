@@ -17390,8 +17390,11 @@ printf '{"slug":"pr-foreign"}\n' > "$TB_UO_FSTAGE/.devflow/logs/efficiency/pr-fo
     "$LIB/telemetry-branch.sh" "$TB_UO_FOREIGN" "$TB_UO_FSTAGE" ) >/dev/null 2>&1
 git -C "$TB_UO_FOREIGN" remote add origin "$TB_UO_REMOTE"
 git -C "$TB_UO_FOREIGN" push -q origin refs/heads/devflow-telemetry:refs/heads/devflow-telemetry
-# Our run: persist locally (creates our local tip), then CORRUPT that tip's tree object so the
-# overlay listing fails, then drive the push path (which re-parents onto the fetched remote tip).
+# Our run: persist locally (creates our local tip), then persist AGAIN so the push is rejected by
+# the foreign remote and the fetch -> union re-parent path is the one that actually runs. (This is
+# the POSITIVE control for that path. It does NOT corrupt anything: corrupting the local tip's tree
+# to drive the fail-closed half is impossible from outside, because verify_store rejects the run
+# earlier — see the pin below.)
 TB_UO_STAGE="$TB_UO_REPO/.devflow/tmp/stage"
 mkdir -p "$TB_UO_STAGE/.devflow/logs/efficiency"
 printf '{"slug":"pr-mine"}\n' > "$TB_UO_STAGE/.devflow/logs/efficiency/pr-mine-run-1.json"
@@ -17410,15 +17413,25 @@ rm -rf "$TB_UO_REPO" "$TB_UO_REMOTE" "$TB_UO_FOREIGN"
 # The FAIL-CLOSED half (an unreadable overlay must never read as "already on the remote") cannot
 # be driven by a fixture: the only way to make the overlay unreadable from outside is to corrupt
 # the local tip's tree object, and verify_store then rejects the run EARLIER, so the fixture never
-# reaches commit_union_on — a negative test that passes for the wrong reason, which is precisely
-# the vacuity class this suite hunts. Rather than ship that, pin the operative guard through the
-# mutation-taking assertion: the pin is proven RED by a `sed` mutation that re-introduces the
-# exact fail-open (streaming the listing with its rc discarded), so it catches the regression, not
-# merely its own line vanishing. Reaching it behaviorally needs a test seam; recorded, not faked.
+# reaches commit_union_on — a negative test that would pass for the wrong reason, which is exactly
+# the vacuity class this suite hunts. So pin the operative guard through the mutation-taking
+# assertion instead. The mutation must RE-INTRODUCE THE BUG, not merely delete the line: it
+# replaces the capture-and-check with the original STREAMING form (rc discarded, listing piped
+# straight into the build loop), which is precisely the fail-open — and, unlike an `if false`
+# stub, leaves the function otherwise well-formed, so a pin that survived it really would be
+# vacuous. Driving it behaviorally would need a test seam; that is recorded, not faked.
 assert_pin_red_under \
   "tb(#442 shadow-C1): commit_union_on captures the overlay listing's rc (an unreadable tip is not 'already on the remote')" \
   'if ! overlay_out="$(git -c core.quotePath=false -C "$root" ls-tree -r "$overlay" 2>/dev/null)"; then' \
-  's|if ! overlay_out="\$\(git -c core.quotePath=false -C "\$root" ls-tree -r "\$overlay" 2>/dev/null\)"; then|if false; then|' \
+  's|if ! overlay_out="\$\(git -c core.quotePath=false -C "\$root" ls-tree -r "\$overlay" 2>/dev/null\)"; then|overlay_out="$(git -C "$root" ls-tree -r "$overlay" 2>/dev/null)"; if false; then|' \
+  "$LIB/telemetry-branch.sh"
+# The sibling guard on the same fail-open: an EMPTY overlay (a sibling deleted the ref between our
+# CAS and the re-parent) would make `ls-tree -r ""` fail → empty tree → NOOP → fast-forward, which
+# orphans the very records the union preserves. Same reachability problem as above, same treatment.
+assert_pin_red_under \
+  "tb(#442 shadow-S4): commit_union_on refuses a VANISHED local tip (never fast-forwards onto the remote on empty evidence)" \
+  'refusing to fast-forward onto the fetched tip, which would orphan this run'"'"'s records' \
+  's|refusing to fast-forward onto the fetched tip, which would orphan this run.s records|proceeding|' \
   "$LIB/telemetry-branch.sh"
 
 # PR #442 shadow review, Important: list_blobs' REF probe is three-way, like its ls-tree arm and
@@ -17478,6 +17491,22 @@ assert_eq "tb(#442 shadow-T1): CAS exhaustion FIRES the 'lost N races' arm (prev
 assert_eq "tb(#442 shadow-T1): ...and does NOT misattribute a racing sibling to a lock/disk fault" "no" \
   "$(printf '%s' "$TB_EX_ERR" | grep -qF 'a held ref .lock (another git process)' && echo yes || echo no)"
 rm -rf "$TB_EX_REPO"
+
+# (a2) The THIRD terminal-CAS arm — `raced=unknown` — is DEFENSIVE and not behaviorally drivable,
+# and saying so is more honest than a fixture that passes for the wrong reason. Arm `1` is driven
+# by (a) above and arm `*` by TB_LK. The `unknown` arm fires only when the post-update-ref
+# `rev-parse --verify --quiet` returns an rc OUTSIDE {0,1} — but inside a valid repo (which the
+# caller always is) that probe returns 0 (present) or 1 (absent) and nothing else; I confirmed the
+# obvious fixture (a directory blocking the loose-ref path) yields rc 1, i.e. it drives the `*`
+# arm, not this one. Reaching it needs a git-stub seam this helper deliberately does not have
+# (it calls bare `git`, a hard preflight prerequisite). So the arm is pinned, not faked: the
+# mutation COLLAPSES `unknown` onto the `never moved` arm — the exact misattribution the arm
+# exists to prevent — so the pin catches the regression rather than merely its own line vanishing.
+assert_pin_red_under \
+  "tb(#442 shadow-T5): the CAS terminal selector keeps a distinct UNKNOWN arm (never asserts 'it never moved' about a ref it could not read)" \
+  'a concurrent writer cannot be ruled out' \
+  's|a concurrent writer cannot be ruled out|it never moved|' \
+  "$LIB/telemetry-branch.sh"
 
 # (b) An ABSENT staging root (the caller's mkdir was denied) must not read as "nothing staged".
 TB_AS_REPO="$(git_sandbox "tb absent staging-root repo")"

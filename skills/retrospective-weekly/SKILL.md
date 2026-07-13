@@ -296,8 +296,18 @@ legacy archive alone; the retrospective is never blocked by a missing telemetry 
 #     both fell back to `devflow-telemetry`.
 # Source the lib and ask it. The `||` keeps this best-effort: if the lib cannot be sourced, fall
 # back to the same default the resolver would have returned.
-. "$LIB/telemetry-branch.sh" 2>/dev/null || true
-TELEMETRY_BRANCH=$(devflow_telemetry_branch 2>/dev/null) || TELEMETRY_BRANCH=""
+#
+# Do NOT redirect the resolver's stderr to /dev/null. Its breadcrumb is the whole reason for
+# routing through it: on a git-invalid `telemetry.branch` it is the one place that names the
+# config key to fix. Silencing it would leave an operator with a broken config reading a
+# perfectly healthy-looking retrospective that quietly contains no telemetry-branch rows.
+# Only stdout is captured; stderr flows to the run log.
+#
+# Note the lib sources `config-source.sh`, which sets `set -euo pipefail` in THIS shell. Every
+# command below is `||`-guarded, so that is harmless today — but keep new commands in this fence
+# guarded, or errexit will abort the step.
+. "$LIB/telemetry-branch.sh" || true
+TELEMETRY_BRANCH=$(devflow_telemetry_branch) || TELEMETRY_BRANCH=""
 [ -n "$TELEMETRY_BRANCH" ] || TELEMETRY_BRANCH=devflow-telemetry
 git fetch origin "${TELEMETRY_BRANCH}:${TELEMETRY_BRANCH}" 2>/dev/null || \
   echo "retrospective-weekly: could not fetch telemetry branch '${TELEMETRY_BRANCH}' (absent on a fresh repo, offline, or the local ref has commits the remote lacks) — the experiment-record reader unions whatever local '${TELEMETRY_BRANCH}' ref exists (if any) with any legacy tracked .devflow/logs/" >&2

@@ -147,7 +147,7 @@ devflow_telemetry_verify_store() {
   # on every persist — O(N) in stored run files. Scoping to top-level entries
   # would suffice (the staged-path guard keeps the invariant), but one small JSON
   # per run keeps N modest for years; revisit if persist latency ever matters.
-  if ! tree_out="$(git -C "$root" ls-tree -r --name-only "$ref" 2>/dev/null)"; then
+  if ! tree_out="$(git -c core.quotePath=false -C "$root" ls-tree -r --name-only "$ref" 2>/dev/null)"; then
     echo "::warning::telemetry-branch: could not read the tip tree of existing ref '${ref}' (git ls-tree failed — corrupt or unreadable tree); cannot verify it is a telemetry store, refusing to append this run" >&2
     return 1
   fi
@@ -217,7 +217,7 @@ devflow_telemetry_list_blobs() {
     echo "::warning::telemetry-branch: could not establish whether ref '${ref}' exists (git rev-parse rc=${rc} — not a git repo, an unreadable refs layer, or git could not be run); its records cannot be listed this run, so the fix-commit exclusion set is INCOMPLETE and synthesis may re-attribute an already-recorded commit" >&2
     return 0
   fi
-  if ! out="$(git -C "$root" ls-tree -r --name-only "$ref" -- "$prefix" 2>/dev/null)"; then
+  if ! out="$(git -c core.quotePath=false -C "$root" ls-tree -r --name-only "$ref" -- "$prefix" 2>/dev/null)"; then
     echo "::warning::telemetry-branch: ref '${ref}' exists but its '${prefix}' tree could not be read (git ls-tree failed — corrupt or unreadable tree); its records cannot be listed this run, so the fix-commit exclusion set is INCOMPLETE and synthesis may re-attribute an already-recorded commit" >&2
     return 0
   fi
