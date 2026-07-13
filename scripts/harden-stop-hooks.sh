@@ -44,12 +44,16 @@
 #                                 e.g. $TRUSTED_DIR/lib/implement-stop-guard.sh; may be empty
 #                                 or absent — then EVERY target is stubbed, fail-closed).
 #   effect : each hook target under WORKSPACE_ROOT is replaced by its trusted copy when
-#            present in TRUSTED_DIR, else by a no-op `exit 0` stub. Always chmod +x.
+#            present in TRUSTED_DIR, else by a no-op `exit 0` stub (chmod +x best-effort).
 #   stderr : one breadcrumb line per target naming the source used (trusted | stub).
-#   exit   : always 0 (best-effort — a single unwritable target must not abort the review;
-#            a target that cannot be written at all is breadcrumbed but never left as the
-#            PR-head copy that this helper exists to displace, because the copy/stub write
-#            is attempted before anything and a failure is reported, not silently skipped).
+#   exit   : always 0 (best-effort — a single unwritable target must not abort the review).
+#            Displacement of the PR-head copy is always ATTEMPTED (trusted copy, else stub)
+#            and every failure is breadcrumbed loudly, never silently skipped. In the one
+#            unexpected case where BOTH the trusted copy AND the stub write fail (a wholly
+#            unwritable path), the PR-head copy may remain — the final breadcrumb flags that
+#            target for runner inspection. The workflow's own inline fail-closed stub arm
+#            and the base-ref materialization make that case unreachable in practice, but
+#            this helper does not pretend to guarantee displacement on an unwritable host.
 #
 # HOOK_TARGETS is the authoritative mirror of the three .claude/settings.json Stop-hook
 # script paths (COUPLED — a target added there must be added here, pinned in lib/test/run.sh).

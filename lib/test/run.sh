@@ -16659,6 +16659,15 @@ assert_eq "#458 coupling: settings.json wires lib/implement-stop-guard.sh Stop h
   "$(grep -c 'lib/implement-stop-guard.sh' "$SETTINGS" || true)"
 assert_eq "#458 coupling: settings.json wires scripts/stop-hook-probe.sh Stop hook" "1" \
   "$(grep -c 'scripts/stop-hook-probe.sh' "$SETTINGS" || true)"
+# BIDIRECTIONAL coupling (the drift direction the three per-path pins above miss):
+# a NEW Stop hook added to settings.json but NOT to HOOK_TARGETS would execute from
+# the PR-head checkout untouched — the exact exposure this helper closes. Pin the
+# COUNT of Stop-hook commands == 3 (== HOOK_TARGETS's three entries), so adding a
+# fourth hook without extending HOOK_TARGETS turns this RED.
+assert_eq "#458 coupling: settings.json has exactly 3 Stop-hook commands (== HOOK_TARGETS entries)" "3" \
+  "$(jq '[.hooks.Stop[].hooks[]] | length' "$SETTINGS" 2>/dev/null || echo BAD)"
+assert_eq "#458 coupling: HOOK_TARGETS has exactly 3 entries (== settings.json Stop-hook count)" "3" \
+  "$(grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -c '\.sh' || true)"
 
 # Adversarial drive: a scratch PR-head workspace whose hook targets carry a
 # MALICIOUS marker, and a trusted dir supplying a base copy for ONLY ONE target.
@@ -16739,6 +16748,25 @@ assert_eq "#458 workflow: fail-closed inline stub writes exit-0 stubs" "1" \
 # The step passes WORKSPACE_ROOT + TRUSTED_DIR into the helper.
 assert_eq "#458 workflow: helper invoked with WORKSPACE_ROOT + TRUSTED_DIR" "1" \
   "$(grep -cF 'WORKSPACE_ROOT="$ROOT" TRUSTED_DIR="$TRUSTED_DIR" bash "$HELPER"' "$RUNNER" || true)"
+# A RESOLVED helper that fails to EXECUTE (truncated/corrupt copy, noexec RUNNER_TEMP)
+# must NOT merely warn-and-proceed — that would leave every PR-head Stop-hook script
+# executable (fail-OPEN, review finding). The rc is captured in the `if bash "$HELPER"`
+# statement and a non-zero result falls through to the same inline-stub fallback as an
+# unresolved helper (HARDENED stays 0). Behavioral-fix pin: the operative construct is
+# the `if [ "$HARDENED" -eq 0 ]` fallback guard — mutating it so the fallback never runs
+# re-opens the fail-open. (assert_pin_red_under proves it flips PASS->FAIL under that
+# mutation.)
+assert_eq "#458 workflow: helper rc captured in-statement (if bash \"\$HELPER\")" "1" \
+  "$(grep -cF 'if WORKSPACE_ROOT="$ROOT" TRUSTED_DIR="$TRUSTED_DIR" bash "$HELPER"; then' "$RUNNER" || true)"
+assert_pin_red_under "#458 workflow: a failed/unrun helper falls through to inline stubs (HARDENED-guard) — removing the guard re-opens the fail-OPEN" \
+  'if [ "$HARDENED" -eq 0 ]; then' \
+  's/if \[ "\$HARDENED" -eq 0 \]; then/if false; then/' \
+  "$RUNNER"
+# Rank-1 self-copy of the harden helper from the base ref is gated on the base ref
+# actually being the DevFlow plugin repo (plugin.json name), so a consumer's unrelated
+# like-named scripts/harden-stop-hooks.sh is never executed as the trusted helper.
+assert_eq "#458 workflow: harden self-copy gated on plugin.json name discriminator" "1" \
+  "$(grep -cF 'git show "FETCH_HEAD:scripts/harden-stop-hooks.sh"' "$RUNNER" || true)"
 
 # The setup-project-env step is gated on the base-ref provision flag.
 assert_eq "provision: setup-project-env step present" "1" \

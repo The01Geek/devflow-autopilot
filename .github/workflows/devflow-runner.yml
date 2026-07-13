@@ -753,15 +753,32 @@ jobs:
             && [ -f "$ROOT/.devflow/vendor/devflow/scripts/harden-stop-hooks.sh" ]; then
             HELPER="$ROOT/.devflow/vendor/devflow/scripts/harden-stop-hooks.sh"
           fi
+          # Fail CLOSED to inline stubs whenever a trusted helper did NOT run to
+          # completion — either it never resolved (HELPER empty), OR it resolved but
+          # `bash "$HELPER"` exited non-zero. A resolved helper that cannot execute at
+          # all (a truncated/corrupt materialized copy, a noexec RUNNER_TEMP, disk
+          # pressure) hardens ZERO targets and is contracted to exit 0, so a non-zero
+          # exit means hardening did not happen — merely warning and proceeding would
+          # leave every PR-head Stop-hook script executable in this secrets-bearing
+          # job, the exact fail-OPEN this floor exists to prevent. So a helper failure
+          # takes the SAME inline-stub fallback as an unresolved helper (mirroring the
+          # #402 deny-floor, which fails closed on its helper's non-zero rc). Capture
+          # the rc in the SAME statement (`if bash …`), never a later `$?` read.
+          HARDENED=0
           if [ -n "$HELPER" ]; then
-            WORKSPACE_ROOT="$ROOT" TRUSTED_DIR="$TRUSTED_DIR" bash "$HELPER" \
-              || echo "::warning::harden-stop-hooks helper exited non-zero (it is contracted to exit 0); some hook targets may be unhardened — inspect the runner."
+            if WORKSPACE_ROOT="$ROOT" TRUSTED_DIR="$TRUSTED_DIR" bash "$HELPER"; then
+              HARDENED=1
+            else
+              echo "::warning::harden-stop-hooks helper exited non-zero / could not execute (it is contracted to exit 0) — hardening did not complete; failing closed by stubbing every Stop-hook target inline (never the PR-head copy)."
+            fi
           else
-            # FAIL CLOSED with NO trusted helper: stub every target inline (this is
+            echo "::warning::harden-stop-hooks: no TRUSTED helper resolved (base-ref / vendored-fetch); failing closed by stubbing every Stop-hook target inline (never the PR-head copy)."
+          fi
+          if [ "$HARDENED" -eq 0 ]; then
+            # FAIL CLOSED (no trusted helper ran): stub every target inline (this is
             # trusted workflow shell, read from the base/default branch under
             # pull_request_target), so a PR-head hook script is never executed even
-            # when the helper itself cannot be resolved from a trusted source.
-            echo "::warning::harden-stop-hooks: no TRUSTED helper resolved (base-ref / vendored-fetch); failing closed by stubbing every Stop-hook target inline (never the PR-head copy)."
+            # when the helper cannot be resolved OR cannot execute.
             for t in $TARGETS; do
               d="$ROOT/$t"
               mkdir -p "${d%/*}" 2>/dev/null || true
