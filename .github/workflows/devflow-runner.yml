@@ -741,7 +741,15 @@ jobs:
             # (same plugin.json-name discriminator baseprovision uses), so a consumer's
             # unrelated like-named script is never executed. Resolved BEFORE the gate so
             # the gate can decide via the helper's tested --wired-check mode.
-            SETTINGS_JSON="$(git show "FETCH_HEAD:.claude/settings.json" 2>/dev/null || true)"
+            # Read BOTH .claude/settings.json AND .claude/settings.local.json (issue #460
+            # SHADOW): claude-code-action restores ALL of .claude/ from base, so a Stop hook
+            # wired via a base-tracked settings.local.json is just as live as one in
+            # settings.json — reading only settings.json would be a fail-OPEN (gate reads
+            # 'not wired' → skips while the action restores+fires the local-file hook). Both
+            # blobs are concatenated so the wiring scan below sees either; a gitignored
+            # (untracked) settings.local.json is not in the base tree, so `git show` yields
+            # nothing for it and it is correctly ignored.
+            SETTINGS_JSON="$(git show "FETCH_HEAD:.claude/settings.json" 2>/dev/null; git show "FETCH_HEAD:.claude/settings.local.json" 2>/dev/null)"
             if raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/harden-stop-hooks.sh" 2>/dev/null); then
               printf '%s\n' "$raw" > "$RUNNER_TEMP/harden-stop-hooks.sh" 2>/dev/null && HELPER="$RUNNER_TEMP/harden-stop-hooks.sh"
             elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq '"name"[[:space:]]*:[[:space:]]*"devflow"' \
@@ -757,13 +765,11 @@ jobs:
             # hook. DECIDE VIA THE TRUSTED HELPER'S --wired-check MODE — the single,
             # lib/test/run.sh-driven source of truth for this selection — falling back to
             # an inline substring scan only when no trusted helper resolved. Keyed on the
-            # BASE ref, never the PR head: a PR cannot strip its own settings.json wiring
-            # to dodge the floor while claude-code-action still restores the base hooks.
-            # SCOPE: this gate reads .claude/settings.json only. claude-code-action restores
-            # all of .claude/, so a hook wired via a base-tracked .claude/settings.local.json
-            # would be missed here (fail-SAFE toward not-hardening); DevFlow wires via
-            # settings.json (pinned to exactly 3 hooks), so this is correct for DevFlow — a
-            # future settings split must extend this read.
+            # BASE ref, never the PR head: a PR cannot strip its own settings wiring to
+            # dodge the floor while claude-code-action still restores the base hooks. The
+            # read now covers BOTH settings.json and settings.local.json (above), the two
+            # base-tracked .claude/ files that can wire a Stop hook, so a wiring split
+            # across them cannot silently un-gate the floor.
             HOOKS_WIRED=0
             # FAIL-CLOSED READ (issue #460 SHADOW, SF-fail-open): an EMPTY SETTINGS_JSON is
             # ambiguous — it means EITHER the base ref has no .claude/settings.json (a
@@ -772,13 +778,17 @@ jobs:
             # read). --wired-check / the inline scan would read BOTH as "not wired" and skip
             # — dropping DevFlow's OWN floor on the second case (a PR editing a closure
             # script would then run unmediated shell in this secrets-bearing job). So when
-            # SETTINGS_JSON is empty, distinguish the two with `git cat-file -e`: blob EXISTS
-            # → inconclusive read → harden anyway (fail closed); blob ABSENT → genuinely no
-            # hooks → skip. Only a READABLE, non-empty settings.json is decided by wiring.
+            # SETTINGS_JSON is empty, distinguish the two with `git cat-file -e`: EITHER blob
+            # EXISTS → inconclusive read → harden anyway (fail closed); BOTH blobs ABSENT →
+            # genuinely no hooks → skip. Only a READABLE, non-empty settings read is decided
+            # by wiring.
             if [ -z "$SETTINGS_JSON" ]; then
-              if git cat-file -e "FETCH_HEAD:.claude/settings.json" 2>/dev/null; then
+              _settings_present=0
+              git cat-file -e "FETCH_HEAD:.claude/settings.json" 2>/dev/null && _settings_present=1
+              git cat-file -e "FETCH_HEAD:.claude/settings.local.json" 2>/dev/null && _settings_present=1
+              if [ "$_settings_present" -eq 1 ]; then
                 HOOKS_WIRED=1
-                echo "::warning::harden-stop-hooks: base .claude/settings.json exists at the base ref but read back empty after a successful fetch — hardening anyway (fail-closed) rather than inferring 'not wired' and dropping the floor."
+                echo "::warning::harden-stop-hooks: a base .claude/settings*.json exists at the base ref but read back empty after a successful fetch — hardening anyway (fail-closed) rather than inferring 'not wired' and dropping the floor."
               fi
             elif [ -n "$HELPER" ]; then
               # Distinguish the helper's THREE outcomes (issue #460 SHADOW, Obs A): rc 0 =
@@ -886,6 +896,11 @@ jobs:
             for t in $TARGETS; do
               d="$ROOT/$t"
               mkdir -p "${d%/*}" 2>/dev/null || true
+              # Unlink a symlink dest first (issue #460 SHADOW), mirroring the helper's
+              # write_stub: without this the `> "$d"` would write the stub THROUGH the link
+              # into its resolved target, leaving the PR-controlled symlink at the hook path
+              # (and, for an absolute link, writing bytes outside the workspace).
+              [ -L "$d" ] && rm -f "$d" 2>/dev/null
               if printf '#!/usr/bin/env bash\nexit 0\n' > "$d" 2>/dev/null; then
                 chmod +x "$d" 2>/dev/null || true
               else

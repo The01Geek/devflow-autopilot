@@ -16988,6 +16988,8 @@ if false; then :; else . "$d/dep-else.sh"; fi
 if false; then :; elif . "$d/dep-elif.sh"; then :; fi
 ( . "$d/dep-subshell.sh" )
 : | . "$d/dep-pipe.sh"
+: ; . "$d/dep-semi.sh"
+echo 'a #b'; . "$d/dep-squote.sh"
 source "$d/dep-src.sh"
 python3 scripts/dep-py.py
 bash scripts/dep-bash.sh
@@ -17015,6 +17017,13 @@ assert_eq "#460 positive control: subshell source edge (\`( . … )\`, dep-subsh
   "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-subshell\.sh' || true)"
 assert_eq "#460 positive control: pipe source edge (\`| . …\`, dep-pipe.sh) is reported" "1" \
   "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-pipe\.sh' || true)"
+assert_eq "#460 positive control: semicolon source edge (\`; . …\`, dep-semi.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-semi\.sh' || true)"
+# Single-quote in-string '#' (issue #460 SHADOW, CT3 PT2): the earlier in-string control
+# used DOUBLE quotes; _strip_comment tracks single-quote state separately, so a `#` inside
+# single quotes must also not swallow a later same-line source edge.
+assert_eq "#460 positive control: edge after a '#' inside SINGLE quotes (dep-squote.sh) is reported" "1" \
+  "$(printf '%s\n' "$HSH_PC_OUT" | grep -c 'dep-squote\.sh' || true)"
 # NEGATIVE control (issue #460 SHADOW, CT2 PT4): a genuinely commented-out source edge
 # (whole-line `# . dep`) must NOT be reported — proves the comment strip excludes it,
 # independent of the real closure files' incidental content.
@@ -17200,6 +17209,25 @@ assert_eq "#460 helper: a symlink dest gets its trusted base body (link displace
 assert_eq "#460 helper: the symlink's ORIGINAL outside target is NOT written through" "ORIGINAL-OUTSIDE-CONTENT" \
   "$(cat "$HSH_SL_OUTSIDE")"
 
+# Scenario (symlink dest, NO trusted copy → write_stub path, issue #460 SHADOW, CT3 PT1):
+# the prior symlink scenario supplies a full trusted dir, so it exercises
+# try_install_trusted's `[ -L ] && rm -f`. write_stub carries an IDENTICAL guard reached
+# only when a symlink dest has no trusted copy (EMPTY TRUSTED_DIR). Drive it: symlink an
+# entry to an outside file with empty TRUSTED_DIR; the path must become a real no-op stub
+# (not a symlink) and the outside target must be untouched.
+hsh_mk_ws "$HSH_TMP/slw/ws"
+HSH_SLW_OUTSIDE="$HSH_TMP/slw/outside.txt"
+printf 'ORIGINAL-SLW\n' > "$HSH_SLW_OUTSIDE"
+rm -f "$HSH_TMP/slw/ws/lib/efficiency-trace.sh"
+ln -s "$HSH_SLW_OUTSIDE" "$HSH_TMP/slw/ws/lib/efficiency-trace.sh"
+WORKSPACE_ROOT="$HSH_TMP/slw/ws" TRUSTED_DIR="" bash "$HSH" >/dev/null 2>&1
+assert_eq "#460 helper: write_stub unlinks a symlink dest (no trusted copy) — path is a real file, not a symlink" "no" \
+  "$([ -L "$HSH_TMP/slw/ws/lib/efficiency-trace.sh" ] && echo yes || echo no)"
+assert_eq "#460 helper: write_stub symlink path becomes a no-op exit-0 stub" "1" \
+  "$(grep -c '^exit 0$' "$HSH_TMP/slw/ws/lib/efficiency-trace.sh" || true)"
+assert_eq "#460 helper: write_stub does NOT write through the symlink to its outside target" "ORIGINAL-SLW" \
+  "$(cat "$HSH_SLW_OUTSIDE")"
+
 # Scenario (Pass-2 non-neutralized entry stub, issue #460 SHADOW, PT1): a lone ENTRY with
 # no trusted copy while ALL sourced libs ARE present (neutralize_entries=0) — the entry is
 # stubbed via the plain Pass-2 write_stub arm (not the neutralize arm). Give every target a
@@ -17235,6 +17263,11 @@ assert_eq "#460 helper --wired-check: file arg wiring a hook -> wired (exit 0)" 
   "$(bash "$HSH" --wired-check "$HSH_WC_F"; echo $?)"
 assert_eq "#460 helper --wired-check: absent/unreadable file arg -> not wired (exit 1, fail-safe)" "1" \
   "$(bash "$HSH" --wired-check /nonexistent-devflow-settings-xyz; echo $?)"
+# Negative: a settings blob mentioning a NON-entry closure path (a sourced lib) must read
+# NOT wired — --wired-check keys only on HOOK_ENTRY_TARGETS, not the whole closure (issue
+# #460 SHADOW, CT3 PT4).
+assert_eq "#460 helper --wired-check: a non-entry closure path (lib/resolve-jq.sh) alone -> not wired (exit 1)" "1" \
+  "$(printf 'see lib/resolve-jq.sh for details\n' | bash "$HSH" --wired-check; echo $?)"
 rm -f "$HSH_WC_F"
 
 # EMPTY-READ DISAMBIGUATION — behavioral git-fixture test (issue #460 SHADOW, CT2 PT2).
@@ -17395,6 +17428,10 @@ assert_eq "#458 workflow: fail-closed inline stub arm present (no trusted helper
   "$(grep -c 'no TRUSTED helper resolved' "$RUNNER" || true)"
 assert_eq "#458 workflow: fail-closed inline stub writes exit-0 stubs" "1" \
   "$(grep -cF "printf '#!/usr/bin/env bash\\nexit 0\\n' > \"\$d\"" "$RUNNER" || true)"
+# The inline stub arm unlinks a symlink dest first (issue #460 SHADOW, mirrors the helper's
+# write_stub) so the `> "$d"` never writes THROUGH the link into its resolved target.
+assert_eq "#460 workflow: inline stub arm unlinks a symlink dest before writing (no write-through)" "1" \
+  "$(grep -cF '[ -L "$d" ] && rm -f "$d"' "$RUNNER" || true)"
 # LAST-RESORT arm must be genuinely fail-CLOSED (issue #460): if the inline stub WRITE
 # itself fails (a wholly-unwritable dest), the PR-head hook script REMAINS — warning and
 # exiting 0 would let `Run Claude Code` proceed with a PR-controlled hook intact in this
@@ -17498,14 +17535,18 @@ assert_eq "#460 workflow: empty settings read is disambiguated with git cat-file
   "$(grep -cF 'git cat-file -e "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
 assert_eq "#460 workflow: a present-but-unreadable base settings.json fails closed (hardens, warns)" "1" \
   "$(grep -c 'read back empty after a successful fetch' "$RUNNER" || true)"
-# Behavioral-fix pin: the operative construct is the `[ -z "$SETTINGS_JSON" ]` +
-# cat-file-exists branch that sets HOOKS_WIRED=1 (harden) on an unreadable-but-present
-# settings.json. Mutating the cat-file guard to always-false makes a present-but-empty
-# read fall through to "not wired" → skip → the floor drops. assert_pin_red_under proves
-# PASS->FAIL under that mutation.
-assert_pin_red_under "#460 workflow: present-but-unreadable base settings.json hardens (fail-closed) — dropping the cat-file guard re-opens the floor-drop fail-open" \
-  'if git cat-file -e "FETCH_HEAD:.claude/settings.json" 2>/dev/null; then' \
-  's/if git cat-file -e "FETCH_HEAD:\.claude\/settings\.json" 2>\/dev\/null; then/if false; then/' \
+# SETTINGS.LOCAL.JSON scope (issue #460 SHADOW): the gate must ALSO read
+# .claude/settings.local.json — claude-code-action restores all of .claude/, so a hook
+# wired there is just as live; reading only settings.json would be a fail-OPEN. Pin both
+# the wiring read and the empty-read existence probe of the local file.
+assert_eq "#460 workflow: gate ALSO reads base .claude/settings.local.json (both the show and the cat-file probe)" "2" \
+  "$(grep -cF 'FETCH_HEAD:.claude/settings.local.json' "$RUNNER" || true)"
+# Behavioral-fix pin: the operative construct is the `_settings_present` guard that
+# hardens on a present-but-empty settings*.json. Mutating it to always-false makes a
+# present-but-empty read fall through to "not wired" → skip → the floor drops.
+assert_pin_red_under "#460 workflow: present-but-unreadable base settings*.json hardens (fail-closed) — dropping the _settings_present guard re-opens the floor-drop fail-open" \
+  'if [ "$_settings_present" -eq 1 ]; then' \
+  's/if \[ "\$_settings_present" -eq 1 \]; then/if false; then/' \
   "$RUNNER"
 # INLINE FALLBACK selection guard (issue #460 SHADOW, PT2): the SINGLE inline `case`
 # fallback (reached when no trusted helper resolved OR the helper errored) is a mirror of
