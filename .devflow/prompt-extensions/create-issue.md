@@ -44,8 +44,8 @@ subagent. Judge the draft against each of these, in addition to the generic dime
   the bounded search behind any `governing conventions consulted:` line and flag a governing matrix
   at a path the line omits; (3) an **unstated mechanism dependency** resting on a
   **preflight-guaranteed helper contract** (only `git`/`gh`/`jq`/`python3`/PyYAML are guaranteed; a
-  resolver's output shape, a gate's exit-code semantics) that the body never asserts as a claim; and
-  (4) an **execution-shaped obligation AC** whose discharge runs an in-repo command — confirm it
+  resolver's output shape, a gate's exit-code semantics) that the body never asserts as a claim; and — the cross-cutting obligation-arm check on shapes (1)
+  and (3), not a fourth defect class — (4) an **execution-shaped obligation AC** whose discharge runs an in-repo command — confirm it
   names a command already granted in **`devflow_implement.allowed_tools`** (or is a code-reading
   obligation citing the producer), never one that would send a consumer's cloud implement run
   Blocked on an ungranted helper.

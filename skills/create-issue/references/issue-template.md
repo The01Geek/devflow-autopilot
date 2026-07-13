@@ -217,8 +217,8 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   language** ("explicit `true`", "reads as exactly `true`") without that grounding is
   **non-conforming** — including the shape where a probe is present in the issue but **silent on
   the axis** the AC's language gestures at (the named #446 defect). **Obligation arms are
-  implement-tier verification commands (governs rule 1 here and the Step 3.5 mechanism-dependency
-  hunt alike):** an obligation whose discharge requires *executing* an in-repo command must name a
+  implement-tier verification commands (this governs this value-comparison AC and the Step 3.5
+  unstated-mechanism-dependency hunt alike):** an obligation whose discharge requires *executing* an in-repo command must name a
   command already granted on the consuming tier (the repo's declared test/lint commands in
   `devflow_implement.allowed_tools`) or be phrased as a **code-reading obligation citing the
   producer code** — never a run-this-ungranted-helper AC that would send a consumer repo's cloud

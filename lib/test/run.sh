@@ -2887,7 +2887,7 @@ assert_pin_unique "#462 rule1: template AC guidance states value-comparison in o
 assert_pin_unique "#462 rule1: verified arm requires the probe exercise the distinguishing boundary fixture" \
   'and a probe **silent on the distinguishing axis' "$CI312_TMPL"
 assert_pin_unique "#462 rule1: obligation arm carries the execution-tier constraint (governs rule 3 too)" \
-  'implement-tier verification commands (governs rule 1 here and the Step 3.5 mechanism-dependency' "$CI312_TMPL"
+  'implement-tier verification commands (this governs this value-comparison AC and the Step 3.5' "$CI312_TMPL"
 assert_pin_unique "#462 rule1: quality-checklist mirror line for the value-comparison rule" \
   "Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms" "$CI312_TMPL"
 # Rule 1 also verified in the Step 3.5 steelman (the check that flags a non-conforming AC).
@@ -2910,6 +2910,11 @@ assert_pin_unique "#462 rule3: Step 3.5 summary reports both new sweeps" \
   'The summary additionally reports both new sweeps' "$CI312_SKILL"
 assert_pin_unique "#462 rule3: zero arm states the falsifiable no-dependencies claim, not a count" \
   'the mechanism invokes no in-repo helpers, resolvers, or gates' "$CI312_SKILL"
+# Rule 3's template quality-checklist mirror pinned too (symmetry with rule 1's checklist pin) —
+# closes the coupled-mirror drift gap the pr-test-analyzer flagged: the checklist line can no
+# longer silently drift out of agreement with the premise-class prose it mirrors.
+assert_pin_unique "#462 rule3: quality-checklist mirror line for the unstated-mechanism-dependency rule" \
+  'are each resolved with a cited probe or an implementer-obligation AC' "$CI312_TMPL"
 # Step 3.6 — one consolidated generic dimension + the growth policy.
 assert_pin_unique "#462 dim: Step 3.6 generic checklist carries the consolidated authoring-discipline dimension" \
   'Authoring-discipline defects** — three related shapes' "$CI312_SKILL"
