@@ -10105,8 +10105,8 @@ assert_pin_unique "#446: offer gate compares to literal true with bash builtins 
 # into the SKILL fallback text (the ONLY read path on the local tier when config-get.sh is
 # classifier-denied) turns RED — the fallback-agreement block below drives a hand-copy of
 # these shapes, so without these pins a SKILL-side drift from that copy would be uncaught.
-assert_pin_unique "#446: SKILL documents the type-tolerant python3 fallback read of workflows.devflow (string-truthy, mirrors config-get)" \
-  "print(str(w.get('devflow')).lower() if (isinstance(w,dict) and 'devflow' in w) else 'false')" "$CI446_SKILL"
+assert_pin_unique "#446: SKILL documents the type-tolerant python3 fallback read of workflows.devflow (lowercases only booleans, mirrors config-get)" \
+  "v=w['devflow'] if (isinstance(w,dict) and 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$CI446_SKILL"
 assert_pin_unique "#446: SKILL documents the type-tolerant jq fallback read of workflows.devflow (repo-root anchored, string-truthy)" \
   "jq -r 'if (.workflows|type)==\"object\" then (.workflows.devflow // false) else false end' \"\$ROOT/.devflow/config.json\"" "$CI446_SKILL"
 # A boolean-only fallback (== true / is True) would diverge from config-get.sh AND the cloud gate
@@ -10157,13 +10157,14 @@ assert_pin_unique "#446: create-issue todo 7 is the gated implement-offer step (
 # AC(docs) — overview §11 describes all four new behaviors.
 assert_pin_unique "#446: overview §11 describes the four authoring-pipeline hardenings" \
   'Four authoring-pipeline hardenings (issue #446)' "$CI446_OVERVIEW"
-# Verified-config cases (obligation): drive config-get.sh over five shapes — explicit false →
+# Verified-config cases (obligation): drive config-get.sh over six shapes — explicit false →
 # not-true (offer withheld), absent key → the false default (withheld), explicit true → true
-# (offered), wrong-type container → false (tier-disabled), and a string "true" → true (enabled,
-# matching the cloud gate). config-get preserves valid-falsy and applies the caller default
+# (offered), wrong-type container → false (tier-disabled), a string "true" → true (enabled,
+# matching the cloud gate), and a capitalized "True" → verbatim "True" (NOT enabled — case-sensitive).
+# config-get preserves valid-falsy and applies the caller default
 # only on absence (the #312 valid-falsy discipline), so the explicit-`true` gate is fail-closed on
-# absent/false/wrong-type alike while a string "true" reads enabled (the block drives explicit-false
-# / absent-key / explicit-true / wrong-type / string-true; the genuinely-unreadable arm — malformed
+# absent/false/wrong-type/capitalized-string alike while a lowercase string "true" reads enabled (the
+# block drives explicit-false / absent-key / explicit-true / wrong-type / string-true / string-True; the genuinely-unreadable arm — malformed
 # JSON / unreadable file → the *config unreadable* reason — is a gate-design property this block
 # does not exercise, and file-absent is
 # handled by the SKILL's [ -f ] guard, pinned above).
@@ -10182,6 +10183,10 @@ CG446_WRONGTYPE="$(probe_tmp "#446 cfg wrong-type")";  printf '%s' '{"workflows"
 # (a boolean-only fallback would diverge — withhold + mislabel "tier disabled" — on exactly the
 # local tier where the fallback is the only read path).
 CG446_STRTRUE="$(probe_tmp "#446 cfg string-true")";   printf '%s' '{"workflows":{"devflow":"true"}}' > "$CG446_STRTRUE"
+# Capitalized string "True": config-get.sh and the cloud gate are CASE-SENSITIVE against literal
+# "true", so "True" reads NOT enabled — the fallbacks must agree (a `.lower()` on the whole value
+# would case-fold "True"->"true" and fire an offer the resolver + gate treat as disabled).
+CG446_STRCAP="$(probe_tmp "#446 cfg string-True-cap")"; printf '%s' '{"workflows":{"devflow":"True"}}' > "$CG446_STRCAP"
 assert_eq "#446 offer-gate: explicit false reads not-true (offer withheld)" "false" \
   "$(bash "$CG446" .workflows.devflow false "$CG446_FALSE")"
 assert_eq "#446 offer-gate: absent key reads the false default (offer withheld)" "false" \
@@ -10192,6 +10197,8 @@ assert_eq "#446 offer-gate: wrong-type workflows reads the false default (tier-d
   "$(bash "$CG446" .workflows.devflow false "$CG446_WRONGTYPE")"
 assert_eq "#446 offer-gate: string 'true' reads true (enabled, matching the cloud gate)" "true" \
   "$(bash "$CG446" .workflows.devflow false "$CG446_STRTRUE")"
+assert_eq "#446 offer-gate: capitalized 'True' reads verbatim (NOT enabled — case-sensitive, matching config-get/gate)" "True" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_STRCAP")"
 # Fallback-agreement (obligation, pr-test-analyzer + fix-delta-gate hardening): the SKILL documents
 # a type-tolerant python3 and jq fallback read for when config-get.sh is classifier-denied. Drive
 # BOTH documented fallback shapes over the fixtures — INCLUDING the wrong-type shape, where a raw
@@ -10205,14 +10212,18 @@ assert_eq "#446 offer-gate: string 'true' reads true (enabled, matching the clou
 # one-liners read (both SKILL forms read the path as their last argument, so the substitution
 # mirrors them). File-absent is NOT driven here — the SKILL detects it with a `[ -f ]` guard BEFORE
 # the interpreter runs, pinned separately above; these one-liners assume an existing file.
-for cg446_case in "false:$CG446_FALSE" "false:$CG446_ABSENT" "true:$CG446_TRUE" "false:$CG446_WRONGTYPE" "true:$CG446_STRTRUE"; do
+# The `want` is config-get's own verbatim output for each fixture (the fallbacks must match it
+# byte-for-byte, not just agree on the true/false decision): capitalized "True" stays "True" on
+# every rung (case-sensitive → withheld), pinning that a `.lower()`-the-whole-value regression
+# (which would emit "true" and fire) turns RED.
+for cg446_case in "false:$CG446_FALSE" "false:$CG446_ABSENT" "true:$CG446_TRUE" "false:$CG446_WRONGTYPE" "true:$CG446_STRTRUE" "True:$CG446_STRCAP"; do
   cg446_want="${cg446_case%%:*}"; cg446_file="${cg446_case#*:}"
   assert_eq "#446 offer-gate: python3 fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
-    "$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); w=d.get('workflows'); print(str(w.get('devflow')).lower() if (isinstance(w,dict) and 'devflow' in w) else 'false')" "$cg446_file")"
+    "$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); w=d.get('workflows'); v=w['devflow'] if (isinstance(w,dict) and 'devflow' in w) else False; print(str(v).lower() if isinstance(v,bool) else str(v))" "$cg446_file")"
   assert_eq "#446 offer-gate: jq fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
     "$(jq -r 'if (.workflows|type)=="object" then (.workflows.devflow // false) else false end' "$cg446_file")"
 done
-rm -f "$CG446_FALSE" "$CG446_ABSENT" "$CG446_TRUE" "$CG446_WRONGTYPE" "$CG446_STRTRUE"
+rm -f "$CG446_FALSE" "$CG446_ABSENT" "$CG446_TRUE" "$CG446_WRONGTYPE" "$CG446_STRTRUE" "$CG446_STRCAP"
 
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
