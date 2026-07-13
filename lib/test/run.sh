@@ -10096,16 +10096,21 @@ assert_pin_unique "#446: offer gate compares to literal true with bash builtins 
 # into the SKILL fallback text (the ONLY read path on the local tier when config-get.sh is
 # classifier-denied) turns RED — the fallback-agreement block below drives a hand-copy of
 # these shapes, so without these pins a SKILL-side drift from that copy would be uncaught.
-assert_pin_unique "#446: SKILL documents the python3 fallback read of workflows.devflow" \
-  "str(d.get('workflows',{}).get('devflow',False)).lower()" "$CI446_SKILL"
-assert_pin_unique "#446: SKILL documents the jq fallback read of workflows.devflow (repo-root anchored)" \
-  "jq -r '.workflows.devflow // false' \"\$ROOT/.devflow/config.json\"" "$CI446_SKILL"
+assert_pin_unique "#446: SKILL documents the type-tolerant python3 fallback read of workflows.devflow" \
+  "print('true' if (isinstance(w,dict) and w.get('devflow') is True) else 'false')" "$CI446_SKILL"
+assert_pin_unique "#446: SKILL documents the type-tolerant jq fallback read of workflows.devflow (repo-root anchored)" \
+  "jq -r 'if (.workflows|type)==\"object\" then (.workflows.devflow==true) else false end' \"\$ROOT/.devflow/config.json\"" "$CI446_SKILL"
 # The fallbacks anchor the config path to the git repo root (#295 SHARED REPO-ROOT CONFIG
 # CONTRACT), matching config-get.sh — so a subdir run reads the same root config, not a
 # nonexistent cwd-relative one. Pin the anchoring clause so a revert to a cwd-relative read
 # turns RED.
 assert_pin_unique "#446: SKILL fallbacks anchor the config path to the git repo root (#295 contract)" \
   'anchoring the config path to the git repo root the same way `config-get.sh` does' "$CI446_SKILL"
+# File-absent is detected by a bash `test -f`, NOT by letting an interpreter crash on the missing
+# path (which would mislabel an absent config "unreadable"). Pin the [ -f ] guard clause so a
+# revert to a raw crash-on-absent one-liner turns RED.
+assert_pin_unique "#446: SKILL fallback detects file-absent with [ -f ], not an interpreter crash" \
+  'Check file existence first with a bash builtin `test`' "$CI446_SKILL"
 # Reason-selection guards (Finding: config-unreadable vs tier-disabled conflation on the fallback
 # path). Pin the operative clauses so a regression that (a) reads a crashed rung's empty stdout as
 # the value false, or (b) buckets a merely-absent config as "unreadable", turns RED.
@@ -10142,37 +10147,48 @@ assert_pin_unique "#446: overview §11 describes the four authoring-pipeline har
 # drafting — explicit false → not-true (offer withheld), absent key → the false default (withheld),
 # explicit true → true (offered). config-get preserves valid-falsy and applies the caller default
 # only on absence (the #312 valid-falsy discipline), so the explicit-`true` gate is fail-closed on
-# absent/false alike (the block drives explicit-false / absent-key / explicit-true; the
-# malformed/unreadable arm is a gate-design property — the *config unreadable* reason — not a
-# shape this block exercises).
+# absent/false/wrong-type alike (the block drives explicit-false / absent-key / explicit-true /
+# wrong-type; the genuinely-unreadable arm — malformed JSON / unreadable file → the *config
+# unreadable* reason — is a gate-design property this block does not exercise, and file-absent is
+# handled by the SKILL's [ -f ] guard, pinned above).
 CG446="$LIB/../scripts/config-get.sh"
 CG446_FALSE="$(probe_tmp "#446 cfg explicit-false")";  printf '%s' '{"workflows":{"devflow":false}}' > "$CG446_FALSE"
 CG446_ABSENT="$(probe_tmp "#446 cfg absent-key")";     printf '%s' '{}' > "$CG446_ABSENT"
 CG446_TRUE="$(probe_tmp "#446 cfg explicit-true")";    printf '%s' '{"workflows":{"devflow":true}}' > "$CG446_TRUE"
+# Wrong-type `workflows` (an array, not an object): config-get.sh walks the path, hits a non-dict
+# at `devflow`, and returns the `false` default exit 0 — i.e. a wrong-type shape reads as
+# tier-disabled/unconfigured, NOT unreadable. The type-tolerant fallbacks must agree (Finding 2:
+# a raw fallback one-liner crashes here and would mislabel it *config unreadable*).
+CG446_WRONGTYPE="$(probe_tmp "#446 cfg wrong-type")";  printf '%s' '{"workflows":[]}' > "$CG446_WRONGTYPE"
 assert_eq "#446 offer-gate: explicit false reads not-true (offer withheld)" "false" \
   "$(bash "$CG446" .workflows.devflow false "$CG446_FALSE")"
 assert_eq "#446 offer-gate: absent key reads the false default (offer withheld)" "false" \
   "$(bash "$CG446" .workflows.devflow false "$CG446_ABSENT")"
 assert_eq "#446 offer-gate: explicit true reads true (offer presented)" "true" \
   "$(bash "$CG446" .workflows.devflow false "$CG446_TRUE")"
-# Fallback-agreement (obligation, pr-test-analyzer hardening): the SKILL documents a python3
-# and a jq fallback read for when config-get.sh is classifier-denied. Drive BOTH documented
-# fallback shapes over the same three fixtures and assert each agrees with config-get's
-# true/false verdict — so a nesting/typo divergence between a fallback and the resolver (which
-# would silently produce a different offer decision on exactly the local tier where the
-# fallback is the only read path) turns RED here. The python form mirrors the SKILL's
-# `str(d.get('workflows',{}).get('devflow',False)).lower()`; the jq form mirrors
-# `.workflows.devflow // false`. Both are fed the fixture path in place of the
-# repo-root-anchored `"$ROOT/.devflow/config.json"` the SKILL one-liners read (the SKILL
-# python3 form reads its path from sys.argv[1], so the fixture-path substitution mirrors it).
-for cg446_case in "false:$CG446_FALSE" "false:$CG446_ABSENT" "true:$CG446_TRUE"; do
+assert_eq "#446 offer-gate: wrong-type workflows reads the false default (tier-disabled, not unreadable)" "false" \
+  "$(bash "$CG446" .workflows.devflow false "$CG446_WRONGTYPE")"
+# Fallback-agreement (obligation, pr-test-analyzer + fix-delta-gate hardening): the SKILL documents
+# a type-tolerant python3 and jq fallback read for when config-get.sh is classifier-denied. Drive
+# BOTH documented fallback shapes over the fixtures — INCLUDING the wrong-type shape, where a raw
+# (non-type-tolerant) fallback crashes and diverges from the resolver — and assert each agrees with
+# config-get's true/false verdict, so a nesting/typo/type-intolerance divergence between a fallback
+# and the resolver (which would silently produce a different offer decision, or a different withheld
+# reason, on exactly the local tier where the fallback is the only read path) turns RED here. The
+# python form mirrors the SKILL's `isinstance(w,dict) and w.get('devflow') is True`; the jq form
+# mirrors `if (.workflows|type)=="object" then (.workflows.devflow==true) else false end`. Both are
+# fed the fixture path in place of the repo-root-anchored `"$ROOT/.devflow/config.json"` the SKILL
+# one-liners read (both SKILL forms read the path as their last argument, so the substitution
+# mirrors them). File-absent is NOT driven here — the SKILL detects it with a `[ -f ]` guard BEFORE
+# the interpreter runs, pinned separately above; these one-liners assume an existing file.
+for cg446_case in "false:$CG446_FALSE" "false:$CG446_ABSENT" "true:$CG446_TRUE" "false:$CG446_WRONGTYPE"; do
   cg446_want="${cg446_case%%:*}"; cg446_file="${cg446_case#*:}"
   assert_eq "#446 offer-gate: python3 fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
-    "$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(str(d.get('workflows',{}).get('devflow',False)).lower())" "$cg446_file")"
+    "$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); w=d.get('workflows'); print('true' if (isinstance(w,dict) and w.get('devflow') is True) else 'false')" "$cg446_file")"
   assert_eq "#446 offer-gate: jq fallback shape agrees with config-get ($cg446_want)" "$cg446_want" \
-    "$(jq -r '.workflows.devflow // false' "$cg446_file")"
+    "$(jq -r 'if (.workflows|type)=="object" then (.workflows.devflow==true) else false end' "$cg446_file")"
 done
-rm -f "$CG446_FALSE" "$CG446_ABSENT" "$CG446_TRUE"
+rm -f "$CG446_FALSE" "$CG446_ABSENT" "$CG446_TRUE" "$CG446_WRONGTYPE"
 
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
