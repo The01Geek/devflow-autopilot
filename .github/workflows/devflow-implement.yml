@@ -609,7 +609,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           CG=.devflow/vendor/devflow/scripts/config-get.sh
           [ -f "$CG" ] || CG=scripts/config-get.sh
           # `|| true` so config-get's hard-fail exit (malformed config.json / missing

@@ -4,6 +4,91 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.137] — 2026-07-13
+
+### Changed
+- **The test suite now reports skipped checks, and a skipped gate can no longer be recorded as a clean pass.** `lib/test/run.sh` gained a third tally — `SKIP` alongside `PASS`/`FAIL`, derived by the same mechanism — and every self-skipping check now routes through one `skip <name> <kind> <reason>` helper carrying a **kind** (`blocking-gate` for a real gate that should have run, `host-capability` for a condition the host cannot express). With nothing skipped the summary is byte-identical (`N passed, M failed`); with skips it reads `N passed, M failed, K skipped` followed by one line per skipped check. The summary renderer moved to `lib/test/summary.sh` (added to the CI shellcheck scope). `ci.yml`'s `lib + python tests` job now checks out full history (`fetch-depth: 0`) so `origin/main` resolves and the `#434` stale-prose self-scan runs live in CI instead of silently self-skipping. `/devflow:review-and-fix`'s `verification_evidence` gained a `skipped_checks` list, so a run whose suite reported skipped checks is never recorded as a clean pass. The suite exit code is unchanged — a skip never fails the suite. (#456)
+
+### Fixed
+- **The review runner's Stop-hook hardening step no longer dies under GitHub's default `bash -e` shell, which had killed every auto-review run since it shipped.** `devflow-runner.yml`'s `harden_hooks` step declares `set -uo pipefail` (errexit deliberately off — every failure path is an explicit rc-handled arm), but GitHub's default `run:` shell is `bash -e {0}`, so the step inherited errexit anyway and its first expected non-zero — reading a `.claude/settings.local.json` absent at the base ref (`git show` rc 128) — aborted the whole step before any fail-closed arm could run (live failure: Actions run 29285485078; no post-merge auto-review could post a verdict). The step now turns errexit off explicitly, and a new suite block extracts the step's script and executes it end-to-end under `bash -e` in a fixture clone reproducing the exact live shape (settings.json tracked, settings.local.json absent), with positive controls proving the real harden path ran (PR-head-edited hook displaced) and a mutation control proving the test goes RED if the errexit-off line is dropped. An audit of the 13 sibling `set -uo pipefail` run-blocks found zero further live hazards — every expected-failure path is guarded, and the guards' own comments cite the default `-e` shell — so their headers now declare the option set that actually governs them (`set -euo pipefail`, no behavior change), and the one guard whose removal would recreate this failure (the manual review-backstop's `HEAD_SHA` lookup in `devflow.yml`) is marked load-bearing. (PR #461)
+
+## [2.8.136] — 2026-07-13
+
+### Added
+- **Add an `implement-probe` job to `matcher-probe.yml` (Stage A of the cloud-implement label-apply fix).** The new job measures which command SHAPES and grant FORMS the deployed `claude-code-action` permission matcher accepts under the read-write `devflow-implement` tool profile — a separate allowlist from the read-only review profile the existing `probe` job measures, so shapes/forms proven on one tier are unproven on the other. It composes `--allowed-tools` from `devflow-implement.yml`'s baked TOOLS literal (a verbatim-sync copy) plus the config extras, reshaped into a per-form attribution split (explicit vendored literal for `apply-labels.sh`, `*/basename` glob for `ensure-label.sh`) so every label verdict attributes to exactly one grant form. It probes the unexpanded-anchor leading token (the phase-4 emission suspected of being silently denied), `for` / piped `while read` / `VAR="$(…)"` wrappers, and a positive control, judging each by matcher verdict only (never observed API effect) under an `issues: read` floor with dummy arguments. Its human-dispatched observed table is the implement-tier evidence of record that the Stage B grant + call-site rework is gated on. (#450)
+
+## [2.8.135] — 2026-07-13
+
+### Security
+- **Harden base-branch `.claude/settings.json` Stop-hook script sources in the review runner.** `claude-code-action` restores `.claude/` (the Stop-hook configuration) from the base branch, but the three hook commands exec script files under `lib/` and `scripts/` — not under `.claude/` — which the review job's PR-head checkout supplies, so a PR editing those targets could run unmediated shell at session end inside a secrets-bearing job, bypassing the `#402` deny-floor. `devflow-runner.yml` now overwrites each Stop-hook target — **and the full transitive `source`/`exec`/`python3` closure the three entry scripts pull in** (`lib/resolve-jq.sh`, `lib/config-source.sh`, `lib/resolve-bin.sh`, `scripts/config-get.sh`, `scripts/config_fingerprint.py`, `scripts/workpad.py`), so the hole cannot be re-opened one `source` hop deeper — with the trusted base-ref copy (or a fail-closed no-op stub) before `claude-code-action` runs, via the suite-driven helper `scripts/harden-stop-hooks.sh` executed only from a trusted source (base-ref copy, or the fetch-vendored copy). A missing/unresolvable trusted copy of an inline-sourced library neutralizes the entry hooks (rather than a mid-`source` `exit 0` that would break them) — the neutralization decision is made independent of whether the library's own stub write then succeeds — and the helper exits non-zero on a wholly-unwritable target so the workflow's inline fail-closed arm runs. That inline arm is itself genuinely fail-closed: if even the inline stub write cannot land, the step fails the job (`exit 1`) before `claude-code-action` runs, so no PR-controlled hook fires. A `lib/test/run.sh` drift-guard — the shared walker `scripts/detect-hook-closure-edges.py` — walks the closure's `source`/`exec` edges and turns RED if a future added reference escapes the hardened set, including a **command-position** source edge (a negation-guarded `if ! . "$dep"`, a brace-grouped `{ . "$dep"; }`, or a **keyword-position** `then . "$dep"`), with positive-control tests asserting each source form AND each exec form (`python3`/`bash`/`exec`/assignment) is reported, and an unreadable closure member surfaced as a fail-closed violation rather than a silent clean set. The harden step **no-ops in consumer repos** whose trusted base `.claude/settings.json` does not wire these hooks (it ships via `install.sh` but DevFlow's hooks do not) — decided via the helper's testable `--wired-check` mode (the single source of truth the drift-suite drives, keyed on the base ref) — so a consumer review never stubs or creates the nine DevFlow-layout paths over same-named files; a symlink target is unlinked and displaced rather than written through. The walker also captures a `VAR="$DIR/name.sh"`-indirected source and documents its remaining conservative gaps (e.g. fully-dynamic indirection, Python-internal subprocess spawns, line continuation — see the walker docstring for the full list). Mirrors the `#402`/`#404` trusted-source pattern; the implement job is unaffected (it checks out the default branch, never a PR head). Residuals disclosed in `docs/DEVFLOW_SYSTEM_OVERVIEW.md`: the floor closes the checkout-supply channel, not in-session `git checkout` restore; it reverts closure files to base bytes before review (a fidelity trade for a PR editing one); and a transient base-ref fetch failure in a consumer bypasses the relevance gate (fail-closed over consumer fidelity). (#458)
+
+## [2.8.134] — 2026-07-13
+
+### Added
+- **`/devflow:create-issue`: three authoring-discipline rules that prevent defect classes at drafting time instead of at review time.** (1) A value-comparison AC or Testing-Strategy assertion must state its comparison in the producing surface's observed-output terms, grounded by a boundary-covering drafting-time probe or a named implementer obligation — adjective-only ("explicit/exactly `true`") or probe-silent-on-the-type-axis language is non-conforming. (2) A Testing Strategy that enumerates an input-shape/case matrix for a convention-governed surface must carry the full convention matrix (or an explicit named-and-justified narrowing) plus a bounded `governing conventions consulted:` discharge record the Step 3.6 auditor independently re-runs. (3) Step 3.5's steelman gains a mandatory sweep of the draft's own unstated in-repo mechanism dependencies (helper exit codes, resolver output shapes, gate semantics), each resolved with a cited probe or an implementer-obligation AC, with a content-bearing zero arm. Obligation arms for rules 1 and 3 carry an execution-tier constraint so they can never send a consumer's cloud implement run Blocked; the three classes consolidate into one generic Step 3.6 audit dimension and one DevFlow-specific prompt-extension sharpening, under a stated finding-cap growth policy. (#462)
+
+## [2.8.133] — 2026-07-13
+
+### Changed
+- **`/devflow:create-issue`: cross-issue `## Dependencies` section, relied-on third-party docs ladder, gated implement offer, and a Step 1 completion wait.** The issue template gains an optional top-level `## Dependencies` section (rendered above `## Problem Statement`, included only when a prerequisite is still open at drafting time; entries are `Blocked by #N — <reason>` lines) whose heading and phrasing are exactly the forms `/devflow:implement` Phase 1 Pass 4 already recognizes — giving the existing implement sequencing gate a deliberate authoring producer; Step 2's Definition of Ready infers and confirms known prerequisites, and Phase 4.0's deferred follow-ups render the same section alongside the existing `Follow-up to #N` opener. The never-assume premise class broadens from "an acceptance criterion's mechanism" to every third-party behavior the issue *relies on*, with a decided `WebFetch` → `WebSearch` → ask-the-user documentation ladder terminating in a `## 🚫 Blocked` vendor-behavior question or a flagged in-repo-example assumption. The post-creation implement-comment offer is now gated on the issue having no open dependencies and no blocked decisions **and** `workflows.devflow` resolving to exactly `true`, printing a one-line withheld-offer reason otherwise instead of posting a comment that fires nothing. Step 1's `/devflow:docs-verify` gains an explicit completion-wait rule so clarification never precedes its findings. (#447)
+
+## [2.8.132] — 2026-07-13
+
+### Fixed
+- **Correct the stale AC6 Stop-hook record and its three now-false pre-merge prose sites.**
+  `docs/execution-file-shape.md`'s AC6 section now records the observed result — **FIRED**,
+  a base-branch `.claude/settings.json` `Stop` hook does execute under `claude-code-action`
+  (run `29224205805`, 2026-07-13) — as a dated one-action-version observation with the
+  pre-merge two-step narrative removed and the security corollary (#458) linked. The
+  now-false "expected on a probe PR / only effective once merged" framing in
+  `scripts/describe-hook-probe.sh`'s did-not-fire arm and the "SHIPS in this PR / must be
+  merged" comment in `.github/workflows/matcher-probe.yml` are rewritten to say that, the
+  hook being on base, an absent marker is an anomaly (pointing at the job-log stderr
+  breadcrumbs); the no-launder warning is preserved verbatim. (#457)
+
+## [2.8.131] — 2026-07-13
+
+### Added
+- **Pinned what the harness actually reports about its execution file — and the answer overturns a
+  long-standing assumption.** Added `scripts/extract-execution-shape.sh`, a best-effort read-only
+  helper that reads a `claude-code-action` execution file and emits a **redacted** shape record —
+  per-field `present`/`absent`/`unavailable` for token `usage`, wall-clock timing, `tool_use`,
+  `subagent_type`, and `permission_denials`, plus the top-level encoding (array/object/jsonl, or `unavailable` when it could not be established) —
+  dropping every string *value* leaf so no prompt text, repository content, or attacker-controlled
+  check-run name can leave a run. Two repo-internal probe jobs in `matcher-probe.yml`
+  (`execfile-shape-probe`, `hook-probe`) feed a real cloud run's execution file through it and probe
+  whether a base-branch `Stop` hook fires under `claude-code-action`.
+- **Observed result (cloud tier): every field is present.** The `execfile-shape-probe` ran and its
+  artifact records `encoding: array` with per-message token `usage`, wall-clock
+  (`duration_ms` / `duration_api_ms` / `ttft_ms`), `tool_use` events, `subagent_type` on `Task`
+  dispatches, and `permission_denials` all **present** — plus cost directly (`costUSD`,
+  `total_cost_usd`, per-model `modelUsage`). Recorded in the new `docs/execution-file-shape.md`.
+- **Observed result (local tier): the transcript's token counts are real.** Added
+  `scripts/stop-hook-probe.sh`, registered as a `Stop` hook in this repo's `.claude/settings.json`,
+  which writes a gitignored breadcrumb recording (a) that the hook fired — the measurement the
+  `hook-probe` job reads to settle whether `.claude/` hooks execute under `claude-code-action` at
+  all — and (b) a four-way `real`/`placeholder`/`absent`/`unavailable` verdict on whether the `Stop`
+  payload's `transcript_path` JSONL carries genuine per-message token counts. Observed: **`real`**
+  (196 `usage` blocks, largest figure 342,272) — not the streaming placeholders it was assumed to
+  hold.
+- **Consequence: the "cost half is unreconstructable" claim in `docs/efficiency-trace.md` was false,
+  and is corrected.** The cloud `execution_file` demonstrably carries the tokens, wall-clock, the
+  subagent dispatch roster, and cost with **zero agent cooperation**; on the local tier the
+  transcript's per-message token counts were observed to be **real** figures, not streaming
+  placeholders (wall-clock and the dispatch roster were not measured there). Either way the claim
+  that the cost half is unreconstructable does not survive, so an agent-independent telemetry floor
+  is buildable. The
+  honest form — now the shipped wording — is that no backstop DevFlow *ships* reconstructs it: a gap
+  in what was built, not a limit of the platform. Two things stay open and are stated as such: the
+  `execution_file` schema is not a public contract (the record is a dated observation of one action
+  version — re-dispatch after upgrades), and realness is not freshness (the transcript may lag, so a
+  `Stop`-time read can miss the final turn).
+- **Scope of runtime change.** No consumer-facing, engine, review-loop, or merge-gate surface is
+  touched, and `extract-execution-shape.sh` is invoked only by the probe workflow and its tests. The
+  one behavior change is repo-internal: this repo's own `.claude/settings.json` gains a third,
+  best-effort `Stop` hook (always exit 0, silent on stdout, writes only under `.devflow/tmp/`), and
+  `.claude/` is not shipped to consumers. (#437)
+
 ## [2.8.130] — 2026-07-13
 
 ### Added

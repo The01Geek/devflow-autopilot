@@ -1,0 +1,94 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-13T21:45:00Z",
+  "fix_commit_sha": "fd453515805c5ef5417b3d76323e1fac068d764b",
+  "fix_files": [".github/workflows/matcher-probe.yml", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "docs/implement-skill.md", "lib/test/run.sh"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [
+    {
+      "agent": "shadow-promoted",
+      "severity": "Important",
+      "description": "implement-probe ordinal inconsistency across 3 PR-added sites (two 'second', one 'third'; 5-job file). Elevated from Suggestion via documented-falsehood carve-out (contradicts HEAD + internal contradiction).",
+      "defect_signature": {"file": "multiple", "line_range": [28, 531], "kind": "cross_doc_ordinal_inconsistency"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "shadow-promoted",
+      "severity": "Important",
+      "description": "job-intro states #401 anchor-denial as settled implement-tier fact ('so the helpers never run') vs 'suspected' in changeset/Shape-1. Elevated via contradicts-another-part-of-this-change carve-out.",
+      "defect_signature": {"file": ".github/workflows/matcher-probe.yml", "line_range": [386, 391], "kind": "comment_overstatement"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "shadow-promoted",
+      "severity": "Suggestion",
+      "description": "run.sh #450 pin 'byte-token identity'/'byte-synced' imprecise; literals are token-synced not byte-identical. Fixed for accuracy (repeatedly flagged across iter-1 + shadow).",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [5633, 5640], "kind": "comment_accuracy"},
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "shadow-promoted",
+      "severity": "Suggestion",
+      "description": "issues:read 'safe floor' framing undersold that omitting (none) is tighter for reads. Refined to a deliberate conservative read declaration.",
+      "defect_signature": {"file": ".github/workflows/matcher-probe.yml", "line_range": [79, 84], "kind": "comment_accuracy"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "fd453515805c5ef5417b3d76323e1fac068d764b"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "fd453515805c5ef5417b3d76323e1fac068d764b"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "fd453515805c5ef5417b3d76323e1fac068d764b"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "fd453515805c5ef5417b3d76323e1fac068d764b"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 24,
+    "new_corroborated_critical_count": 0,
+    "code_fixes_applied": 0,
+    "note": "all four fixes are comment/doc/test-label prose; zero product/runtime code lines, so convergence conditions 1 and 2 are satisfied"
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 110
+  },
+  "telemetry": {
+    "phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_2_6": {"calls": 5, "tokens": 348955, "wall_clock_s": 372}
+  },
+  "shadow": {
+    "ran_at": "2026-07-13T21:55:00Z",
+    "reviewed_sha": "fd453515805c5ef5417b3d76323e1fac068d764b",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "mode": "post-shadow-edit-delta-review",
+    "delta_range": "76a20d50c9fcfeb83dfaed5647f345c552a38df2..fd453515805c5ef5417b3d76323e1fac068d764b",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": "intentional",
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false,
+    "note": "Blinded delta-review over the iteration-2 prose delta (the iter-1 full shadow reviewed 76a20d5; iteration 2 committed prose corrections on top). All 5 expected reviewers dispatched and returned cleanly; every corrected claim verified accurate against HEAD; pr-test-analyzer mutation-verified the #450 pin still fails RED on drift. No new findings -> genuine convergence (outcome 1)."
+  }
+}
