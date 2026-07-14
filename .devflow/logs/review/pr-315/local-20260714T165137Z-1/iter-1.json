@@ -71,5 +71,29 @@
     "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": null, "webfetches": 0, "note": "no external-tool single-source claims requiring web verification"},
     "step_3_5": {"calls": 1, "tokens": null, "wall_clock_s": null},
     "step_2_6": {"calls": 5, "tokens": null, "wall_clock_s": null, "note": "early shadow trigger (engine_self_modifying)"}
+  },
+  "fix_delta_gate": {"result": "clean", "note": "blinded subagent verified all 6 config_source fixtures live, confirmed empty-BASE_REF assertion is genuine red-before-green, operand-contract honored (degraded in the ok/absent/degraded consumer set). 2 cosmetic Suggestions (pre-existing OAuth-remedy text imprecision on near-unreachable empty-ref path; my test comment says 'disjunct' for an and-conjunction) — advisory per gate routing."},
+  "shadow": {
+    "ran_at": "2026-07-14T16:51:37Z",
+    "reviewed_sha": "4b98009a1bf28a587e610917ea899aa1477d8ed4",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "trigger": "early (engine_self_modifying, after iteration 1 which routed to fixes)",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "env-map key guard `jq -e ... >/dev/null 2>&1` masks jq's own error rc (fail-open direction if .env were ever non-object); NOT reachable today (resolver guarantees .env object); latent-coupling defense-in-depth across the 3 byte-identical inject blocks", "defect_signature": {"file": ".github/workflows/devflow-implement.yml", "line_range": [236, 239], "kind": "security"}, "corroboration_count": 1, "new": true},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "single-sourced cargs SECURITY comment's threat-provenance parenthetical (bootstrap fallback / caller-effort-input / PR-head) is runner-specific but byte-copied into devflow.yml/devflow-implement.yml; operative claim ('refuse flag-smuggling values') correct in all 3; NOT a documented_falsehood", "defect_signature": {"file": ".github/workflows/devflow.yml", "line_range": [759, 762], "kind": "comment_drift"}, "corroboration_count": 2, "new": true},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "corroborates iter-1 CA-1: cloud-setup.md 'exported unfiltered' understates the charset validation (defensible in intended sense)", "defect_signature": {"file": "docs/cloud-setup.md", "line_range": [1169, 1176], "kind": "comment_drift"}, "corroboration_count": 1, "new": false, "overlaps_iter1": "CA-1"},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "4 test-completeness nits (crit 2-3): <<-carrying env-key test exit-code-only; effort_supported non-bool tests string not number 1; 3 degraded producer paths assert value not branch (acceptable, empty-ref IS discriminated); runner degraded/absent provider-path composition covered only transitively", "defect_signature": {"file": "lib/test/run.sh", "line_range": null, "kind": "test_gap"}, "corroboration_count": 1, "new": true}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 7, "overlap_with_iter_1": 1, "new": 6, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false,
+    "park_calibration_gate": "clean: no parked finding matched a mis-grade shape — CA-1 is a precision nit on a defensible statement (next clause warns of dangerous names); RCR-1 env-map name-denylist is an optional hardening on TRUSTED (base-ref/default-branch) input, not an under-specified-vs-AC guard, and the guard does catch the malformed-KEY inputs it was added for; RCR-2 comment already says 'from ANY cause'; shadow-SFH-NEW is not-reachable latent coupling (the guard's own added-for inputs — malformed keys — ARE caught), graded LOW by its own author.",
+    "over_grade_calibration_gate": "clean: no promote-path finding flagged (no outcome-2 promotion — every new shadow finding is Suggestion/LOW).",
+    "notes": "Early shadow ran a full-coverage blinded fan-out over the post-fix HEAD 4b98009a and AGREED (shadow_verdict APPROVE, no new Critical/Important). All new findings Suggestion/LOW; final-pass's config.example.json suggestion is CONTRARY to AC2 (which mandates leaving it untouched) → non-finding. Loop converged: this early shadow serves as the convergence audit — it covered the exact final post-fix HEAD with full coverage and agreement, so a separate iteration 2 (which would apply zero code fixes, all residuals being advisory Suggestions) plus a redundant convergence-time shadow over the unchanged HEAD would only re-confirm this result. Post-shadow edit gate: HEAD unchanged since the shadow (still 4b98009a) — no unreviewed final edit."
   }
 }
