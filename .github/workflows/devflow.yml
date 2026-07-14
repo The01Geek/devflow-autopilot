@@ -673,7 +673,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           CG=.devflow/vendor/devflow/scripts/config-get.sh
           [ -f "$CG" ] || CG=scripts/config-get.sh
           # `|| true` so config-get's hard-fail exit (malformed config.json / missing
@@ -715,7 +715,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           PEE=.devflow/vendor/devflow/scripts/parse-engine-error.sh
           [ -f "$PEE" ] || PEE=scripts/parse-engine-error.sh
           if [ -f "$PEE" ]; then
@@ -750,7 +750,7 @@ jobs:
           CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
           ENGINE_ERROR: ${{ steps.engine.outputs.is_error }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
           FLIP_HELPER=.devflow/vendor/devflow/scripts/flip-review-progress-failed.sh
           [ -f "$FLIP_HELPER" ] || FLIP_HELPER=scripts/flip-review-progress-failed.sh
@@ -799,7 +799,7 @@ jobs:
           VERDICT: incomplete
           APP_TOKEN_PRESENT: ${{ steps.backstop-token.outputs.token != '' }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           if [ -z "${PR_NUMBER:-}" ]; then
             echo "::notice::review stall backstop: no PR number on this event; nothing to resume."
             exit 0
@@ -807,6 +807,10 @@ jobs:
           # The comment marker is head-scoped; resolve the PR head SHA (this manual path
           # carries no precheck head_sha output). A failed lookup leaves HEAD_SHA empty and
           # the helper's decision takes its unscoped no-fire arm — never an unbounded resume.
+          # The `|| true` is LOAD-BEARING under this step's errexit shell: without it, an
+          # expected lookup failure (issue-comment event, transient API error) is an
+          # assignment-position non-zero that kills the whole backstop before the helper
+          # runs — the exact shape that took down the harden_hooks step (PR #461).
           HEAD_SHA=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha 2>/dev/null || true)
           # The post-and-annotate glue — resolve+call request-review-backstop.sh (its
           # decision contract UNCHANGED), parse the decision, compose the /devflow:review
@@ -829,12 +833,11 @@ jobs:
           set +e
           HELPER=.devflow/vendor/devflow/lib/efficiency-trace.sh
           [ -f "$HELPER" ] || { echo "::warning::observability backstop: $HELPER missing; skipped"; exit 0; }
-          git config user.name "github-actions[bot]" 2>/dev/null || true
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com" 2>/dev/null || true
-          before=$(git rev-parse HEAD 2>/dev/null)
+          # --persist derives each run's record + durable workpad copy and writes them to
+          # the dedicated telemetry branch via git plumbing, then pushes with a fetch/
+          # re-parent retry loop — all inside the helper, which sets its own committer
+          # identity. It never touches HEAD or the TRACKED working tree, so the former before/after-
+          # HEAD gate and the bare `git push` are gone (issue #441): the helper owns the
+          # targeted, retry-looped push to the telemetry branch. Best-effort/exit-0.
           bash "$HELPER" --persist
-          after=$(git rev-parse HEAD 2>/dev/null)
-          if [ -n "$after" ] && [ "$before" != "$after" ]; then
-            git push || echo "::warning::observability backstop: push of persisted artifacts failed; commit is local-only"
-          fi
           exit 0

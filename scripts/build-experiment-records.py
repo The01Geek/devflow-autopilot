@@ -435,40 +435,240 @@ def _slug_variants(branch):
     return v
 
 
-def _index_efficiency(eff_dir):
+def _telemetry_branch(repo_root):
+    """The telemetry-branch name (config .telemetry.branch, default
+    devflow-telemetry — issue #441). Read in-process from repo_root/.devflow/
+    config.json rather than shelling to config-get.sh: this reader is invoked once
+    per retrospective run in a known repo root, an empty/missing key resolves to
+    the default, and an unreadable/malformed config degrades to the default with a
+    breadcrumb (best-effort — the reader must not abort on a bad config).
+
+    Honors DEVFLOW_CONFIG_FILE, because the WRITER does: lib/telemetry-branch.sh
+    resolves the branch through devflow_conf → lib/config-source.sh, which reads
+    that override. A reader that ignored it would, under an override, union the
+    default `devflow-telemetry` while the writer stored to the overridden branch —
+    a silent store miss where every cost row simply goes missing and nothing says
+    so (PR #442 review). Reader and writer must resolve the same key from the same
+    file."""
+    override = os.environ.get("DEVFLOW_CONFIG_FILE")
+    cfg = Path(override) if override else Path(repo_root) / ".devflow/config.json"
+    try:
+        text = cfg.read_text(encoding="utf-8")
+    except OSError:
+        # A missing/unreadable config is the ordinary "use the default" path
+        # (config-get.sh is silent here too) — not a degradation worth a breadcrumb.
+        return "devflow-telemetry"
+    try:
+        data = json.loads(text)
+        val = (data.get("telemetry") or {}).get("branch")
+    except (json.JSONDecodeError, AttributeError):
+        # A PRESENT-but-malformed config IS a degradation — name it (a silent
+        # default here would mask a corrupt config the operator needs to fix).
+        _warn(f"could not parse .telemetry.branch from {cfg}; using default 'devflow-telemetry'")
+        return "devflow-telemetry"
+    if val is None:
+        return "devflow-telemetry"
+
+    # Resolve EXACTLY as the writer does, in the writer's order — coerce, then validate as a
+    # git ref name, then fall back to the default. Reader and writer must land on the same
+    # branch for EVERY config shape, or the store silently splits in two: the writer persists
+    # to branch X while the reader unions `devflow-telemetry`, so every cost row for that run
+    # simply goes missing, on both sides, with nothing said (PR #442 review).
+    #
+    # Both halves are load-bearing, and each was a real split before it was mirrored here:
+    #   * COERCION — the writer reads this key through config-get.sh, whose coerce() turns a
+    #     non-string scalar into a string (5 -> "5", false -> "false", null -> "", a list into
+    #     a comma-join of its coerced elements, an object into "[object Object]") and then
+    #     persists to THAT branch. The `None -> ""` arm is easy to miss and is why a nested
+    #     null (`["a", null]`) resolved to "a," in the writer but "a,None" here.
+    #   * REF-NAME VALIDATION — the writer additionally rejects a name git will not accept
+    #     (`git check-ref-format --branch`) and falls back to the default. That arm fires on
+    #     schema-VALID strings ("my branch", "a..b", "x.lock"), so a reader that only handled
+    #     the non-string case still diverged on every one of them.
+    # The writer's rules are duplicated here rather than shared only because it is bash and
+    # this is Python; keep the two in lockstep (lib/telemetry-branch.sh devflow_telemetry_branch).
+    def _coerce(v):
+        # Mirrors scripts/config-get.sh coerce() — see its own header comment.
+        if v is None:
+            return ""
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if isinstance(v, list):
+            return ",".join(_coerce(x) for x in v)
+        if isinstance(v, dict):
+            return "[object Object]"
+        return str(v)
+
+    branch = _coerce(val)
+    if not isinstance(val, str):
+        _warn(f".telemetry.branch in {cfg} is {type(val).__name__}, not a string (the schema "
+              f"declares a string); the writer coerces it to '{branch}' and persists there, so "
+              f"this reader follows it — fix the config to a quoted string")
+    if not branch:
+        return "devflow-telemetry"
+    # Same gate and same fallback as the writer for every CONFIG shape. There is exactly one
+    # deliberate divergence, and it is in the git-unrunnable direction, not the config
+    # direction: the writer falls back on ANY non-zero rc, while this reader keeps the name
+    # unvalidated on rc 127 (see below) — "could not ask" is not "git said no". That arm cannot
+    # split the store, because if git cannot run here it could not have run for the writer
+    # either, so nothing was persisted anywhere. Exit codes verified against real git (2.50):
+    # 0 = the name is usable; 128 = git REJECTS it ("my branch", "a..b", "x.lock", "-lead",
+    # "[object Object]"). It is NOT 1 — an `rc == 1` check would never fire and the split
+    # would survive. `_run` additionally synthesizes 127 from an OSError (git absent, a broken
+    # DEVFLOW_GIT override), which is an UNESTABLISHED check, not a rejection: do not silently
+    # rewrite the branch on it — keep the resolved name and let the caller's own git probes
+    # report the real problem, rather than laundering "could not ask" into "git said no".
+    rc, _out, err = _run([GIT, "check-ref-format", "--branch", branch])
+    if rc == 0:
+        return branch
+    if rc == 127:
+        _warn(f"could not validate .telemetry.branch '{branch}' as a git ref name (git could not "
+              f"be run: {(err or '').strip()[:120]}) — proceeding with it unvalidated")
+        return branch
+    _warn(f".telemetry.branch in {cfg} resolves to '{branch}', which git rejects as a branch name "
+          f"(check-ref-format rc={rc}); the writer falls back to 'devflow-telemetry' and this "
+          f"reader follows it — fix .devflow/config.json to read from your intended branch")
+    return "devflow-telemetry"
+
+
+def _efficiency_entry(record, run_id):
+    """Shape one efficiency record dict into an index entry, or None when the
+    record is not a slug-bearing object. Shared by the working-tree and the
+    telemetry-branch sources so both produce identical entry shapes."""
+    if not isinstance(record, dict):
+        return None
+    slug = record.get("slug")
+    if not isinstance(slug, str):
+        return None
+    return {
+        "slug": slug,
+        "run_id": run_id,
+        "source": record.get("source"),
+        "iterations": record.get("iterations"),
+        "synthesized": bool(record.get("synthesized")),
+        "cost": _run_cost(record),
+        "telemetry_complete": _telemetry_complete(record),
+        "config_fingerprint": record.get("config_fingerprint"),
+    }
+
+
+def _run_id_from_stem(stem, slug):
+    """run_id = filename stem with the `<slug>-` prefix stripped (else the whole
+    stem)."""
+    return stem[len(slug) + 1:] if stem.startswith(slug + "-") else stem
+
+
+def _index_efficiency(eff_dir, repo_root=None, branch=None):
     """Parse the efficiency store ONCE into `slug -> [per-run entry]`, so the per-PR
     loop does dict lookups instead of re-globbing/re-parsing the whole dir for each
     candidate PR (the O(N×M) cost of a per-PR scan). Each entry carries slug, run_id
     (from the filename), per-run cost, synthesized flag, iteration count,
-    telemetry_complete, and the raw config_fingerprint (for the join)."""
-    index = {}
-    d = Path(eff_dir)
-    if not d.is_dir():
-        return index
-    for f in sorted(d.glob("*.json")):
+    telemetry_complete, and the raw config_fingerprint (for the join).
+
+    Sources are UNIONED (issue #441), keyed by `(slug, run_id)` with BRANCH-WINS
+    precedence so a run present in both contributes exactly one cost row:
+      1. the working-tree `.devflow/logs/efficiency/*.json` glob — the legacy
+         tracked archive a consumer repo may still carry (read first);
+      2. the durable `devflow-telemetry` branch's `.devflow/logs/efficiency/*.json`
+         blobs, read via `git ls-tree`/`git show` at repo_root (read second, so it
+         OVERWRITES a same-key working-tree entry). The branch is where every run
+         now persists; the legacy glob is the read-only migration archive.
+    Tolerates the branch being absent (a not-yet-upgraded repo — the ls-tree yields
+    nothing and the legacy archive is used alone, AC17)."""
+    by_key = {}   # (slug, run_id) -> entry ; insertion order preserved (branch overwrites in place)
+
+    def _ingest(text, stem, label):
+        """Parse one record's JSON text, shape it, and key it into by_key by
+        (slug, run_id). Warns and skips on a parse failure AND on a record that
+        parses but is not a slug-bearing object (PR #442 review Suggestion-1: on the
+        now-authoritative branch store a silently-dropped record is a LOST
+        measurement, so producer-schema drift must be visible — not swallowed).
+        Shared by both sources so the parse→entry→run_id→by_key tail is written
+        once."""
         try:
-            record = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            _warn(f"skipping unreadable efficiency record {f}")
-            continue
-        if not isinstance(record, dict):
-            continue
-        slug = record.get("slug")
-        if not isinstance(slug, str):
-            continue
-        # run_id = filename with the `<slug>-` prefix and `.json` suffix stripped.
-        stem = f.stem
-        run_id = stem[len(slug) + 1:] if stem.startswith(slug + "-") else stem
-        index.setdefault(slug, []).append({
-            "slug": slug,
-            "run_id": run_id,
-            "source": record.get("source"),
-            "iterations": record.get("iterations"),
-            "synthesized": bool(record.get("synthesized")),
-            "cost": _run_cost(record),
-            "telemetry_complete": _telemetry_complete(record),
-            "config_fingerprint": record.get("config_fingerprint"),
-        })
+            record = json.loads(text)
+        except json.JSONDecodeError:
+            _warn(f"skipping unreadable efficiency record {label}")
+            return
+        entry = _efficiency_entry(record, None)
+        if entry is None:
+            _warn(f"skipping malformed efficiency record {label} "
+                  f"(not a JSON object with a string `slug` — producer-schema drift?)")
+            return
+        entry["run_id"] = _run_id_from_stem(stem, entry["slug"])
+        by_key[(entry["slug"], entry["run_id"])] = entry
+
+    # (1) working-tree legacy archive.
+    d = Path(eff_dir)
+    if d.is_dir():
+        for f in sorted(d.glob("*.json")):
+            try:
+                text = f.read_text(encoding="utf-8")
+            except OSError:
+                _warn(f"skipping unreadable efficiency record {f}")
+                continue
+            _ingest(text, f.stem, f)
+
+    # (2) telemetry-branch blobs — branch-wins (overwrites any same-key legacy entry).
+    if repo_root is not None:
+        br = branch or _telemetry_branch(repo_root)
+        # Does the branch exist at all? An ABSENT branch (a not-yet-upgraded repo) is
+        # the ordinary case — read the legacy archive alone, silently. Distinguish it
+        # from a PRESENT branch whose tree can't be read (corrupt/packed object store,
+        # a ref lock, a permissions blip): only the latter warns, so a failed read is
+        # never laundered into the measured-absence the downstream provenance stamps
+        # `efficiency: absent`. (A bare `rc != 0` from ls-tree cannot tell the two
+        # apart — an absent ref also exits non-zero — so gate on ref existence first.)
+        #
+        # The probe itself has THREE outcomes, not two (PR #442 review Important-1):
+        # `rev-parse --verify --quiet` exits 0 (ref present) or exactly 1 (ref absent),
+        # while ANY OTHER rc means the probe never established the answer — repo_root
+        # is not a git repo (128), or `git` itself could not be executed at all (127,
+        # which `_run` also synthesizes from an OSError: absent binary, a
+        # non-executable DEVFLOW_GIT override, a broken shim). Folding those onto the
+        # absent arm would launder an UNREADABLE store into a MEASURED absence and let
+        # the downstream provenance stamp `efficiency: absent` on a run whose telemetry
+        # was merely unreadable — the exact fail-open the ls-tree arm below is written
+        # to prevent. Warn instead, exactly as the unreadable-tree case does.
+        rc_v, _, err_v = _run([GIT, "-C", str(repo_root), "rev-parse", "--verify", "--quiet", f"{br}^{{commit}}"])
+        if rc_v not in (0, 1):
+            _warn(f"could not establish whether telemetry branch {br} exists "
+                  f"(git rev-parse rc={rc_v}): {(err_v or '').strip()[:160]} — telemetry-branch "
+                  f"cost rows unestablished for this run")
+        if rc_v == 0:
+            rc, out, err = _run([GIT, "-C", str(repo_root), "ls-tree", "-r", "--name-only",
+                                 br, "--", ".devflow/logs/efficiency/"])
+            if rc != 0:
+                _warn(f"branch {br} exists but its .devflow/logs/efficiency/ tree could not be read "
+                      f"(ls-tree rc={rc}): {(err or '').strip()[:160]} — telemetry-branch cost rows "
+                      f"unestablished for this run")
+            elif out.strip():
+                for path in out.splitlines():
+                    path = path.strip()
+                    if not path.endswith(".json"):
+                        continue
+                    text = _git_show(repo_root, f"{br}:{path}")
+                    if text is None:
+                        # `ls-tree` above ALREADY established this path is in the
+                        # tree, so a failed read of it is never "the blob is absent"
+                        # — it is a blob we know exists and could not establish the
+                        # content of (a corrupt/unreadable object, a git failure).
+                        # Skipping it silently would launder that unestablished read
+                        # into a measured absence and let the downstream provenance
+                        # stamp `efficiency: absent` on a run whose telemetry merely
+                        # could not be read — the exact fail-open the rev-parse and
+                        # ls-tree arms above are written to prevent. `_git_show`
+                        # already warns, but generically; name the CONSEQUENCE here
+                        # so the row's loss is attributable (PR #442 review).
+                        _warn(f"telemetry blob {br}:{path} is present in the tree but could not be "
+                              f"read — this run's cost row is UNESTABLISHED (not absent) and is "
+                              f"omitted from the index")
+                        continue
+                    _ingest(text, Path(path).stem, f"{br}:{path}")
+
+    index = {}
+    for entry in by_key.values():
+        index.setdefault(entry["slug"], []).append(entry)
     return index
 
 
@@ -1172,7 +1372,7 @@ def main(argv=None):
         return 0
 
     # Parse the efficiency store ONCE up front (not per candidate PR).
-    eff_index = _index_efficiency(eff_dir)
+    eff_index = _index_efficiency(eff_dir, repo_root)
 
     assembled = 0
     failed = 0
