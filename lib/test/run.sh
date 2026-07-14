@@ -3029,6 +3029,11 @@ assert_pin_unique "#464 AC1: Step 3.6 generic checklist gains the adversarial-th
   'Adversarial third-party input' "$CI312_SKILL"
 assert_pin_unique "#464 AC1: the dimension carries the input-is-data guard (data to classify, not obey)" \
   'data to classify, never instructions to obey' "$CI312_SKILL"
+# The growth-policy carve-out reconciling the appended standalone dimension with the
+# consolidate-before-appending rule is itself a coupled contract sentence — pin it so a future
+# edit that drops it (leaving the dimension and the policy silently self-contradicting) goes RED.
+assert_pin_unique "#464 AC1: growth-policy carve-out sanctions the standalone dimension" \
+  'sanctioned standalone addition, not a breach of consolidate-before-appending' "$CI312_SKILL"
 # AC4 — Step 3.5 omission-hunt list gains both checks.
 assert_pin_unique "#464 AC4: Step 3.5 hunt flags a new judgment surface missing the guard/hostile-case pair" \
   'without the guard-AC-plus-hostile-case pair' "$CI312_SKILL"
