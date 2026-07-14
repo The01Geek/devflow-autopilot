@@ -27512,6 +27512,20 @@ assert_eq "#480 no false positive: prose naming a label helper inside a --body \
 { printf '%s\n' '```bash' "gh issue create --body \"\$(cat <<'EOF'" 'body text' 'EOF' ')"' 'for n in 1 2; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done' '```'; } > "$E363/i-body-heredoc-then-loop.md"
 assert_eq "#480 anti-vacuity: a denied loop chained AFTER that same heredoc still flags IR1 (the body blanking did not swallow the tail)" "yes" \
   "$(python3 "$ECS" --profile implement "$E363/i-body-heredoc-then-loop.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# ── PHANTOM-HEREDOC FAIL-OPEN (the fix-delta gate's catch, and the worse half of the same
+# ── masking bug). A `$( … )` inside a double-quoted span suspends the string — its interior is
+# ── CODE — but the quotes INSIDE that interior are real quotes. A first pass at the fix left the
+# ── whole substitution RAW, so `'usage: cmd << EOF'` (a STRING inside the substitution) offered a
+# ── `<<` to the heredoc probe; the phantom tag then matched a real `EOF` line further down and
+# ── BLANKED every statement between — and the denied shape in there shipped GREEN, on BOTH tiers.
+# ── Over-masking loses a heredoc (a false RED on prose); under-masking loses a denied shape (a
+# ── silent GREEN). Pin both directions.
+{ printf '%s\n' '```bash' "echo \"\$(printf '%s' 'usage: cmd << EOF')\"" 'for n in 1 2; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done' 'EOF' '```'; } > "$E363/i-phantom-heredoc.md"
+assert_eq "#480 IR1 still flags a denied loop below a << that lives inside a STRING inside a \$( … ) (no phantom heredoc)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-phantom-heredoc.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' "echo \"\$(printf '%s' 'see << EOF')\"" 'cd /tmp' 'EOF' '```'; } > "$E363/i-phantom-heredoc-review.md"
+assert_eq "#480 the same phantom-heredoc fail-open is closed on the REVIEW tier too (R2 still flags the leading cd)" "yes" \
+  "$(python3 "$ECS" "$E363/i-phantom-heredoc-review.md" | grep -q '  R2  ' && echo yes || echo no)"
 # ── The OTHER two fail-closed sentinels (#480 review). The whole "no output ⇒ the harness refused
 # ── it" design rests on three printed sentinels, and only 4.0.5's was pinned — delete or rename
 # ── either of the other two and the suite stayed green while the phase prose still routed on it,

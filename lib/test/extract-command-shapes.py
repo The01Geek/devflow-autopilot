@@ -135,7 +135,7 @@ def _strip_line_comment(line: str, quote: str | None = None) -> tuple[str, str |
 
 
 def _shape_preprocess_lines(block: str) -> list[str]:
-    """`_shape_preprocess`, but LINE-PRESERVING: returns exactly one cleaned line per
+    """Comment- and heredoc-clean a fence block, LINE-PRESERVING: exactly one cleaned line per
     input line, so a caller that reports a block-relative line offset (the implement-
     tier loop scan) can clean the source and still attribute a hit to the right line.
 
@@ -675,53 +675,79 @@ def _mask_quoted(line: str) -> str:
     merge"` — reads as a command-position loop opener and starts a phantom span.
     Comment-stripping alone does not cover it: that text is code, just quoted.
 
-    A `$( … )` inside a DOUBLE-quoted span is NOT masked — its interior is code, not string
-    (the shell runs it), and masking it blinded the heredoc-opener probe to the single idiom
-    the guarded fences most rely on: `--body "$(cat <<'EOF' … EOF)"`. With the `<<'EOF'`
-    masked away, no heredoc was detected, the body was never blanked, and the issue-body
-    PROSE inside it was scanned as shell — so a follow-up-issue template that merely
-    MENTIONS a label helper turned the desk RED with a diagnosis pointing at documentation
-    text (the #480 review). Single quotes stay fully masked: inside `'…'` a `$(` is literal.
+    A `$( … )` inside a DOUBLE-quoted span SUSPENDS the string: its interior is CODE, and the
+    shell parses it normally — including its own quotes. Both halves of that are load-bearing,
+    and getting either wrong is a real defect this masker has already had (the #480 review):
+
+    * Masking the substitution's interior blinded the heredoc-opener probe to the one idiom the
+      guarded fences most rely on — `--body "$(cat <<'EOF' … EOF)"`. With the `<<'EOF'` masked
+      away no heredoc was detected, the body was never blanked, and the issue-body PROSE inside
+      it was scanned as shell, so a follow-up-issue template that merely MENTIONED a label helper
+      turned the desk RED pointing at documentation text.
+    * Leaving it RAW is worse — a fail-OPEN. Quotes inside the substitution are real quotes, so
+      `echo "$(printf '%s' 'usage: cmd << EOF')"` puts a `<<` in a *string*; treating it as code
+      opened a PHANTOM heredoc whose tag then matched a real `EOF` line further down, blanking
+      every statement between — and a denied shape in there shipped GREEN, on both tiers.
+
+    So the substitution is entered as a code CONTEXT (a stack frame), not as a hole in the mask:
+    inside it, `'…'` / `"…"` mask their contents exactly as at top level, nested `$( … )` and
+    subshell parens nest, and only the unquoted code is visible. `<<'EOF'` is then seen (the `<<`
+    is unquoted code) while `'… << …'` is not (it is a string). The masked TAG is fine: the probe
+    only takes an OFFSET from this line and re-reads the real tag from the original.
     """
     out: list[str] = []
-    quote: str | None = None
-    depth = 0  # `$( … )` nesting INSIDE a double-quoted span — code, so left visible
+    # Stack of contexts: ("q", <quote char>) for a string span, ("c", <paren depth>) for the
+    # interior of a `$( … )`. Empty stack = ordinary top-level code.
+    stack: list[list] = []
     prev = ""
     i = 0
     n = len(line)
     while i < n:
         ch = line[i]
-        if quote == '"' and depth:
-            if ch == "(":
-                depth += 1
-            elif ch == ")":
-                depth -= 1
-            out.append(ch)
-        elif quote:
+        top = stack[-1] if stack else None
+        if top is not None and top[0] == "q":
+            quote = top[1]
+            # `$(` inside a DOUBLE-quoted span opens code — the string is suspended, not ended.
             if quote == '"' and ch == "$" and prev != "\\" and i + 1 < n and line[i + 1] == "(":
-                depth = 1
+                stack.append(["c", 1])
                 out.append(ch)
                 out.append(line[i + 1])
                 prev = "("
                 i += 2
                 continue
             if ch == quote and prev != "\\":
-                quote = None
+                stack.pop()
                 out.append(ch)
             else:
-                out.append("x")
-        elif ch in ("'", '"'):
-            quote = ch
-            out.append(ch)
+                out.append("x")  # string content: masked
         else:
-            out.append(ch)
+            # Top-level code, or the interior of a `$( … )`. Quotes here are real quotes.
+            if ch in ("'", '"') and prev != "\\":
+                stack.append(["q", ch])
+                out.append(ch)
+            elif top is not None and ch == "(" and prev != "\\":
+                top[1] += 1
+                out.append(ch)
+            elif top is not None and ch == ")" and prev != "\\":
+                top[1] -= 1
+                if top[1] <= 0:
+                    stack.pop()  # substitution closed — back to the enclosing string
+                out.append(ch)
+            else:
+                out.append(ch)
         prev = ch
         i += 1
     return "".join(out)
 
 
 def _mask_quoted_lines(lines: list[str], carry: bool) -> list[str]:
-    """`_mask_quoted` over a block. `carry` selects whether quote state crosses newlines.
+    """Quote-mask a block for the LOOP scan. `carry` selects whether quote state crosses newlines.
+
+    This is a SEPARATE implementation from `_mask_quoted`, deliberately: that one is the
+    heredoc-opener probe's masker and leaves the interior of a `$( … )` visible as code, which is
+    exactly what a heredoc opener needs. The loop scan wants the opposite — a `;`/`(`/loop keyword
+    inside ANY quoted argument must not read as a command-position opener — so it does NOT carry
+    that carve-out. Do not "unify" the two: they answer different questions about the same text.
 
     NEITHER setting is safe alone, which is why `_loop_violations` scans BOTH and unions
     the hits (a loop opener visible under *either* masking is a hit — fail-closed):
