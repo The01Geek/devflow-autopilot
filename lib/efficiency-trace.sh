@@ -874,7 +874,7 @@ persist_one() {
 #                           (pr-description derives no record by design).
 #   GITHUB_RUN_ID / GITHUB_RUN_ATTEMPT  the run-id identity the record is keyed by:
 #                           <run-id> == ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}, the same
-#                           value skills/review-and-fix/SKILL.md:57 composes as RUN_ID.
+#                           value skills/review-and-fix/SKILL.md's RUN_ID= line composes.
 #   GITHUB_WORKFLOW_REF     the path-pinned workflow identity (harness_cost.workflow).
 #
 # Telemetry-gated exactly as record derivation is (AC8); best-effort/exit-0 like every

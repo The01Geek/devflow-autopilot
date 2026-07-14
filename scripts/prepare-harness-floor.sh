@@ -82,9 +82,13 @@ if [ -z "$EXEC_FILE" ] || [ ! -f "$EXEC_FILE" ] || [ ! -s "$EXEC_FILE" ]; then
   [ -n "$COST_OUT" ] && : > "$COST_OUT" 2>/dev/null || true
   _emit "" "$CLASS"
 fi
-COST="$(python3 "$READER" "$EXEC_FILE" 2>/dev/null || true)"
+# Do NOT suppress the reader's stderr: its breadcrumb (OSError / empty / JSON-garbage —
+# the exact reason COST comes back empty here) must reach the step log so the "see the
+# reader's breadcrumb" message below points at a breadcrumb that actually appears. Only
+# stdout is captured into COST; the reader's stderr flows to this step's log.
+COST="$(python3 "$READER" "$EXEC_FILE" || true)"
 if [ -z "$COST" ]; then
-  echo "::warning::prepare-harness-floor: harness cost floor inert this run: execution file could not be parsed for cost (see the reader's breadcrumb)" >&2
+  echo "::warning::prepare-harness-floor: harness cost floor inert this run: execution file could not be parsed for cost (see the reader's breadcrumb above)" >&2
   [ -n "$COST_OUT" ] && : > "$COST_OUT" 2>/dev/null || true
   _emit "" "$CLASS"
 fi

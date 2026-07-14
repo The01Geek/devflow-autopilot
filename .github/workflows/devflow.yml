@@ -830,13 +830,16 @@ jobs:
       - name: Persist review-and-fix observability artifacts (backstop)
         if: ${{ always() }}
         env:
-          # Harness-side cost floor inputs (issue #475). On devflow.yml the candidate
-          # number is the gate's RESOLVED command target (parsed from the command by
-          # prepare-harness-floor.sh) — never the raw comment-context number, which
-          # diverges on an explicit-number command or an issue-context comment.
+          # Harness-side cost floor inputs (issue #475). DEVFLOW_COMMAND is the gate's
+          # RESOLVED command (`/devflow:<class> <n>` — resolve-command-trigger.sh always
+          # appends the number); prepare-harness-floor.sh parses the class and the explicit
+          # trailing PR number from it and PREFERS that number. DEVFLOW_CANDIDATE_NUMBER is
+          # only the fallback context number used when the command carries none — written
+          # with the workflow-wide `issue.number || pull_request.number` idiom so it also
+          # resolves on the issue_comment trigger (where github.event.pull_request is absent).
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
           DEVFLOW_COMMAND: ${{ needs.gate.outputs.command }}
-          DEVFLOW_CANDIDATE_NUMBER: ${{ github.event.pull_request.number }}
+          DEVFLOW_CANDIDATE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
           # Job-lifetime-valid token for the floor's gh PR verification: the job-start
           # App token can already be past its ~60-minute lifetime by backstop time (#287).
           GH_TOKEN: ${{ github.token }}
