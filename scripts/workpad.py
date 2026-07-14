@@ -1033,30 +1033,39 @@ def _remove_classification_notes(content: str) -> str:
 
 # ── Devflow Reflection: kind taxonomy + grouped rendering ───────────────────
 #
-# Reflection bullets are grouped by KIND into two `### ` sub-sections inside the
-# `## Devflow Reflection` <details> block, so a human scanning a run sees the
-# actionable items separated from the informational notes. The helper owns the
-# glyph, bold label, and sub-section placement — the caller passes only a bare
-# kind token via `--reflection-kind` — the same "helper owns the rendering
-# token" idiom as the `--status` glyph and `--note` phase-nesting.
+# Reflection bullets are grouped by KIND into the `### ` sub-sections defined in
+# _REFLECTION_SUBSECTIONS inside the `## Devflow Reflection` <details> block, so a
+# human scanning a run sees actionable items, improvement proposals, and
+# informational notes separated. The helper owns the glyph, bold label (or none),
+# and sub-section placement — the caller passes only a bare kind token via
+# `--reflection-kind` — the same "helper owns the rendering token" idiom as the
+# `--status` glyph and `--note` phase-nesting.
 #
-# Ordered: kind -> (glyph, bold label, sub-section key). The three actionable
-# kinds map to the "action" sub-section; `note` (the default) to "notes".
+# Ordered: kind -> (glyph, bold label, sub-section key). A label of '' renders
+# the bullet GLYPH-ONLY (`- {glyph} {text}`) — used when the sub-section heading
+# already names the kind, so the bold label would be redundant: `note` under
+# `### ℹ️ Notes` and `improvement` under `### 💡 Improvements` (issue #476). The
+# three actionable kinds keep their label (they share one `### ⚠️ Action required`
+# heading, so the label is what distinguishes them); `issue-accuracy` keeps its
+# label because it renders under `### ℹ️ Notes`, which does NOT name it.
 _REFLECTION_KINDS = {
     'blocked':        ('⛔', 'Blocked',        'action'),
     'deferred':       ('⏭️', 'Deferred',       'action'),
     'dropped-failed': ('❗', 'Dropped/Failed', 'action'),
-    'note':           ('ℹ️', 'Note',           'notes'),
+    'improvement':    ('💡', '',              'improvements'),
+    'issue-accuracy': ('📝', 'Issue accuracy', 'notes'),
+    'note':           ('ℹ️', '',              'notes'),
 }
 _DEFAULT_REFLECTION_KIND = 'note'
 
-# Sub-section headings in canonical render order (Action required before Notes).
-# Level-3 (`### `) is mandatory: lib/fetch-pr-context.sh terminates the
+# Sub-section headings in canonical render order (Action required → Improvements
+# → Notes). Level-3 (`### `) is mandatory: lib/fetch-pr-context.sh terminates the
 # reflection parse at the first `## ` heading, so a level-2 sub-heading would
 # truncate it — keep these `### `.
 _REFLECTION_SUBSECTIONS = (
-    ('action', '### ⚠️ Action required'),
-    ('notes',  '### ℹ️ Notes'),
+    ('action',       '### ⚠️ Action required'),
+    ('improvements', '### 💡 Improvements'),
+    ('notes',        '### ℹ️ Notes'),
 )
 _SUBSECTION_HEADINGS = dict(_REFLECTION_SUBSECTIONS)            # sub-key -> heading
 _SUBSECTION_HEADING_ORDER = [h for _, h in _REFLECTION_SUBSECTIONS]  # canonical order
@@ -1134,7 +1143,11 @@ def _insert_reflection_bullet(inner: str, kind: str, text: str) -> str:
     # bullet would silently drop its continuation from reflections[]. (Single-line
     # text round-trips unchanged through splitlines+join.)
     one_line = ' '.join(text.splitlines())
-    bullet = f'- {glyph} **{label}:** {one_line}'
+    # Glyph-only render when the kind carries no label (its sub-heading already
+    # names it — see _REFLECTION_KINDS); labeled render otherwise. Isolate the one
+    # varying segment so the bullet skeleton lives in a single f-string.
+    label_part = f'**{label}:** ' if label else ''
+    bullet = f'- {glyph} {label_part}{one_line}'
     target_heading = _SUBSECTION_HEADINGS[sub_key]
     blocks = _parse_reflection_blocks(inner)
     for blk in blocks:
@@ -1182,6 +1195,37 @@ def _read_section_file(path: str, flag: str) -> str:
         return Path(path).read_text()
     except OSError as e:
         raise _UpdateError(f"{flag}: could not read {path!r}: {e}")
+
+
+def _read_reflection_payload(path: str) -> str:
+    """Read a reflection payload for --reflection-file, bypassing shell
+    interpolation: the text is read verbatim as UTF-8 from a file, or from stdin
+    when `path` is `-`. Hardened past _read_section_file on the encoding axis —
+    UTF-8 is decoded EXPLICITLY (never the ambient locale codec) so a payload with
+    an em-dash or emoji round-trips byte-identical on any host, and a decode
+    failure (a `UnicodeDecodeError`, which is a `ValueError` the plain
+    `except OSError` shape would let escape as a raw traceback) is converted to the
+    file's clean `_UpdateError` contract. An empty or whitespace-only payload is
+    also a structural failure — a blank reflection bullet carries no signal — so it
+    aborts before any PATCH. All failure modes raise `_UpdateError`, so
+    `_apply_mutations` aborts with no partial workpad write."""
+    try:
+        if path == '-':
+            raw = sys.stdin.buffer.read()
+        else:
+            raw = Path(path).read_bytes()
+    except OSError as e:
+        raise _UpdateError(f"--reflection-file: could not read {path!r}: {e}")
+    try:
+        text = raw.decode('utf-8')
+    except UnicodeDecodeError as e:
+        raise _UpdateError(
+            f"--reflection-file: {path!r} is not valid UTF-8: {e}")
+    if not text.strip():
+        raise _UpdateError(
+            "--reflection-file: payload is empty or whitespace-only; a "
+            "reflection bullet must carry text")
+    return text
 
 
 class _UpdateError(Exception):
@@ -1734,7 +1778,7 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
             content = _append_progress_note(content, text, now_time, phase_label)
         sections[idx] = (heading, content)
 
-    if args.reflection:
+    if args.reflection or args.reflection_file:
         idx = _find_section(sections, 'Devflow Reflection')
         if idx is None:
             raise _UpdateError("section '## Devflow Reflection' not found")
@@ -1748,6 +1792,13 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         kind = args.reflection_kind or _DEFAULT_REFLECTION_KIND
         for bullet in args.reflection:
             content = _append_reflection(content, kind, bullet)
+        # The --reflection-file bullet appends AFTER the inline --reflection
+        # bullets, under the same kind. Its reader raises _UpdateError (unreadable
+        # path, undecodable payload, empty/whitespace-only) before the PATCH, so a
+        # bad payload aborts the whole call with no partial write.
+        if args.reflection_file:
+            content = _append_reflection(
+                content, kind, _read_reflection_payload(args.reflection_file))
         sections[idx] = (heading, content)
 
     # Record the reproduce-first content classification (issue #449) as a
@@ -1962,18 +2013,31 @@ def main():
                    help='Append a bullet to Devflow Reflection (no timestamp). '
                         'May be passed multiple times to append several bullets '
                         'in one atomic update.')
+    u.add_argument('--reflection-file', metavar='PATH', default=None,
+                   help='Append a Devflow Reflection bullet whose text is read '
+                        'verbatim as UTF-8 from PATH (or from stdin when PATH is '
+                        '"-"), bypassing shell interpolation — use for text '
+                        'containing backticks, $, or double quotes. The call\'s '
+                        '--reflection-kind applies; the file bullet appends after '
+                        'any --reflection bullets. An unreadable path, an '
+                        'undecodable (non-UTF-8) payload, or an empty/'
+                        'whitespace-only payload aborts the call before any PATCH.')
     u.add_argument('--reflection-kind',
                    # Derive choices from the taxonomy dict so the CLI-validated
                    # set and the `_REFLECTION_KINDS[kind]` lookup can never drift
-                   # (a kind added to one but not the other would KeyError). Dict
-                   # insertion order → blocked, deferred, dropped-failed, note.
+                   # (a kind added to one but not the other would KeyError). The
+                   # accepted set and its order are exactly `_REFLECTION_KINDS`'s
+                   # keys in insertion order — see that dict for the authoritative
+                   # list (not re-enumerated here, which would rot on the next edit).
                    choices=list(_REFLECTION_KINDS),
                    default=None,
-                   help="Kind for this update's --reflection bullet(s). "
-                        'blocked/deferred/dropped-failed render under '
-                        '"### ⚠️ Action required"; note (the default '
-                        'when omitted) under "### ℹ️ Notes". Applies '
-                        'to every --reflection bullet in the call.')
+                   help="Kind for this update's --reflection / --reflection-file "
+                        'bullet(s). blocked/deferred/dropped-failed render '
+                        '(labeled) under "### ⚠️ Action required"; improvement '
+                        '(glyph-only) under "### 💡 Improvements"; issue-accuracy '
+                        '(labeled) and note (the default when omitted, glyph-only) '
+                        'under "### ℹ️ Notes". Applies to every bullet in the '
+                        'call.')
     u.add_argument('--replace-plan-file', metavar='FILE',
                    help='Replace the Plan section content with FILE contents.')
     u.add_argument('--replace-acs-file', metavar='FILE',
