@@ -1,0 +1,25 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-14T14:30:00Z",
+  "fix_commit_sha": "dc8b6378",
+  "fix_files": ["lib/test/run.sh", "skills/create-issue/SKILL.md"],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [],
+  "fix_decisions": [
+    {"finding_id": "S-1", "decision": "applied", "commit": "dc8b6378"},
+    {"finding_id": "S-2", "decision": "applied", "commit": "dc8b6378"}
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 12, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 90, "skipped_checks": []},
+  "note": "iteration 2 applied the two sub-Important shadow findings (C1/C3 checklist pins + doubled-'and' grammar); post-shadow-edit delta-review over d9c6489f..HEAD returned clean, so reviewed_sha advanced to HEAD (dc8b6378). No new Phase-3 fan-out was run for this trivial additive delta; the blinded delta-review is the independent pass over it."
+}

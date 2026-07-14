@@ -1,0 +1,52 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-14T14:00:00Z",
+  "fix_commit_sha": "d9c6489f",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "stale run.sh:3148 comment 'dimension count held at 7' contradicts the D3 guard's 8 after the #464 merge", "defect_signature": {"file": "lib/test/run.sh", "line_range": [3148, 3148], "kind": "stale_comment"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "A3 END-anchor assert_pin_unique is an unanchored substring while the sed range keys on line-start ^**; position drift slips it", "defect_signature": {"file": "lib/test/run.sh", "line_range": [3116, 3119], "kind": "vacuous_guard"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "D3 whole-file count guard defeatable by a compensating add/remove edit (inherent count-guard limitation)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [3165, 3166], "kind": "count_guard_limitation"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "d9c6489f"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "d9c6489f"},
+    {"finding_id": "F-3", "decision": "deferred", "source_file": "lib/test/run.sh", "claim_text": "D3 whole-file count guard defeatable by a compensating add/remove edit", "skip_category": "claim-quality", "evidence": "AC-D3 mandates the whole-file `grep -c '^- **'` form; inherent count-guard limitation; the dimension itself is separately pinned at the D3 content pin. Not fixable without violating the AC's specified command."}
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 12, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 90, "skipped_checks": []},
+  "shadow": {
+    "ran_at": "2026-07-14T14:15:00Z",
+    "reviewed_sha": "d9c6489f",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "C1/C3 quality-checklist mirror rows unpinned while sibling clusters' checklist mirrors are pinned (AC-E1 coverage asymmetry)", "defect_signature": {"file": "skills/create-issue/references/issue-template.md", "line_range": [475, 479], "kind": "coverage_asymmetry"}},
+      {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "doubled 'and' in Step 3.5 item 3 omit-series (merge artifact, cosmetic)", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [133, 133], "kind": "grammar"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 2, "overlap_with_iter_N": 0, "new": 2, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  }
+}
