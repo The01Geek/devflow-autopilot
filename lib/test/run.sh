@@ -18985,6 +18985,44 @@ assert_eq "489/AC4: _dvt_admitted admits a valid review path" "admit" "$(_489_ad
 assert_eq "489/AC4: _dvt_admitted denies a path outside .devflow/logs" "deny" "$(_489_admitted 'foo/bar.json')"
 assert_eq "489/AC4: _dvt_admitted denies an over-deep review path" "deny" "$(_489_admitted '.devflow/logs/review/a/b/c/d.json')"
 
+# (15) ATTRIBUTABLE cap fail-closed: prove _dvt_num coerces a garbage/empty override to the
+# DEFAULT, not to "unlimited/off" — the distinction tests (10)/(12) cannot make with a clean
+# artifact (which admits under both correct fallback AND the bug). This is the real fail-closed
+# guarantee for both caps (they share _dvt_num).
+_489_num() { ( DVT_LIB_ONLY=1; . "$_489_VAL"; _dvt_num "$1" "$2" ); }
+assert_eq "489/AC4: _dvt_num coerces a non-numeric override to the DEFAULT (not unlimited)" "500" "$(_489_num 'notanumber' 500)"
+assert_eq "489/AC4: _dvt_num coerces an empty override to the DEFAULT" "500" "$(_489_num '' 500)"
+assert_eq "489/AC4: _dvt_num keeps a valid numeric override" "7" "$(_489_num '7' 500)"
+assert_eq "489/AC4: _dvt_num rejects a negative override, falling back to the default" "500" "$(_489_num '-3' 500)"
+
+# (16) jq fail-closed (guard-class-2, record-shape gate): a broken/absent jq must REJECT the
+# whole artifact, not silently admit an unparsed entry. Point DEVFLOW_JQ at a binary that always
+# fails and confirm the clean artifact is dropped.
+assert_eq "489/AC4: a broken jq (DEVFLOW_JQ=false) drops the whole artifact (fails closed)" "1|no" \
+  "$(_489_run_val "$_489_A/ok" "$_489_A/ok-jqfail" DEVFLOW_JQ=/usr/bin/false)"
+
+# (17) collect helper's copy-failure branch (saw_stage set, found not → the distinct 'records
+# existed but none could be copied' warning). Driven deterministically by pointing DEST_PARENT
+# read-only is not reachable (the top mkdir would abort first), and a chmod-000 source is
+# environment-sensitive under the suite's process context, so this branch is verified by an
+# INJECTED cp override rather than a real permission failure: shadow `cp` with a stub that
+# always fails, so the per-stage copy fails while the stage is genuinely present (saw_stage=1).
+_489_CFROOT="$(git_sandbox "489 collect copy-fail root")"
+mkdir -p "$_489_CFROOT/.devflow/tmp/telemetry-stage-x/.devflow/logs/efficiency" "$_489_CFROOT/bin"
+printf '{"schema_version":1,"slug":"a"}\n' > "$_489_CFROOT/.devflow/tmp/telemetry-stage-x/.devflow/logs/efficiency/a-1.json"
+printf '#!/bin/sh\nexit 1\n' > "$_489_CFROOT/bin/cp"; chmod +x "$_489_CFROOT/bin/cp"
+_489_CF_OUT="$(PATH="$_489_CFROOT/bin:$PATH" bash "$_489_SC/collect-staged-telemetry.sh" "$_489_CFROOT" "$_489_CFROOT/out" 2>/dev/null)"
+_489_CF_ERR="$(PATH="$_489_CFROOT/bin:$PATH" bash "$_489_SC/collect-staged-telemetry.sh" "$_489_CFROOT" "$_489_CFROOT/out" 2>&1 >/dev/null)"
+assert_eq "489/AC2: collect helper emits NO stdout signal when every copy fails" "" "$_489_CF_OUT"
+assert_eq "489/AC2: collect helper names the copy-failure distinctly (not 'nothing staged')" "yes" \
+  "$(printf '%s' "$_489_CF_ERR" | grep -qF 'records existed but none could be copied' && echo yes || echo no)"
+
+# AC2 — the upload step MUST include hidden files: the collected tree is entirely under the
+# dot-prefixed .devflow/, and upload-artifact@v4 excludes hidden files by default, so without
+# this the relay would silently transfer zero telemetry.
+assert_pin_unique "489/AC2: the telemetry upload includes hidden files (.devflow/ is dot-prefixed)" \
+  'include-hidden-files: true' "$_489_WF/devflow-runner.yml"
+
 # --- AC3/AC4: end-to-end — a hostile artifact leaves the telemetry branch UNCHANGED, a clean
 # one lands, and an empty one is inert. Drive the trusted pusher against a fixture repo. ---
 _489_BARE="$(git_sandbox "489 e2e bare remote")"; git init -q --bare "$_489_BARE"

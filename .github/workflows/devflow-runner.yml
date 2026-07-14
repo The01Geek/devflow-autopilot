@@ -1505,5 +1505,12 @@ jobs:
           # A stable, run-scoped name the trusted pusher downloads by run id via `workflow_run`.
           name: devflow-telemetry-stage-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.collect_telemetry.outputs.path }}
+          # LOAD-BEARING: the entire collected tree lives under the DOT-prefixed `.devflow/`,
+          # and actions/upload-artifact@v4 EXCLUDES hidden files by default (include-hidden-files
+          # defaults to 'false' since v4.4.0). Without this the upload would match nothing and the
+          # whole relay would silently transfer zero telemetry (a no-op with no error). The store-
+          # relative `.devflow/logs/…` paths are load-bearing for the validator allowlist and
+          # telemetry-branch.sh, so keeping the hidden root + this flag is the correct fix.
+          include-hidden-files: true
           retention-days: 3
           if-no-files-found: ignore

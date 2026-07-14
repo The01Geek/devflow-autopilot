@@ -54,11 +54,14 @@ _dvt_path_safe() {  # rel -> rc 0 if safe, 1 otherwise
   case "$rel" in /*) return 1 ;; esac        # absolute
   # Disable pathname expansion around the IFS split so a component containing a glob
   # metacharacter (`*`/`?`) cannot expand against cwd before the `.`/`..`/empty check
-  # (defense-in-depth; _dvt_admitted's allowlist already rejects such names).
+  # (defense-in-depth; _dvt_admitted's allowlist already rejects such names). Save and
+  # restore the caller's noglob state so the predicate is self-contained (never clobbers a
+  # glob-off caller) — bash 3.2 compatible, unlike `local -`.
+  local _dvt_glob_was_on=1; case "$-" in *f*) _dvt_glob_was_on= ;; esac
   set -f
   # shellcheck disable=SC2086
   set -- $rel
-  set +f
+  [ -z "$_dvt_glob_was_on" ] || set +f
   for comp in "$@"; do
     case "$comp" in ''|.|..) return 1 ;; esac
   done
@@ -76,6 +79,16 @@ _dvt_admitted() {  # rel -> rc 0 if the path shape is admitted
   if [[ "$rel" =~ ^\.devflow/logs/review/${seg}/${seg}/${seg}\.json$ ]]; then return 0; fi
   if [[ "$rel" =~ ^\.devflow/logs/efficiency/${seg}\.json$ ]]; then return 0; fi
   return 1
+}
+
+# Cap resolution — a non-numeric/empty override fails CLOSED to the DEFAULT (echoes the
+# default, never an "unlimited"/off value). Defined here (above the lib-only guard) so the
+# suite can unit-test that a garbage override coerces to the default, not to unlimited.
+_dvt_num() {  # value default -> echoes value if a positive integer, else default
+  case "$1" in
+    ''|*[!0-9]*) printf '%s\n' "$2" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
 }
 
 # Sourced for unit testing (DVT_LIB_ONLY set) → stop here with the predicates defined,
@@ -99,13 +112,7 @@ fi
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/resolve-jq.sh" \
   || { echo "::warning::validate-telemetry-artifact: resolve-jq.sh could not be sourced — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
 
-# Cap resolution — a non-numeric/empty override fails CLOSED to the default (never off).
-_dvt_num() {  # value default -> echoes value if a positive integer, else default
-  case "$1" in
-    ''|*[!0-9]*) printf '%s\n' "$2" ;;
-    *) printf '%s\n' "$1" ;;
-  esac
-}
+# Cap resolution (_dvt_num defined above the lib-only guard).
 MAX_ENTRIES="$(_dvt_num "${DEVFLOW_TELEMETRY_MAX_ENTRIES:-}" 500)"
 MAX_BYTES="$(_dvt_num "${DEVFLOW_TELEMETRY_MAX_BYTES:-}" 5242880)"
 

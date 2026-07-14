@@ -23,8 +23,9 @@ on:
     types: [completed]
 
 # Least privilege: the actions-read scope lets download-artifact fetch the triggering run's
-# artifact; the contents-read scope is for the checkout. The telemetry-branch PUSH authenticates
-# with the seeded DevFlow App token (a valid org integration / bypass actor), not GITHUB_TOKEN.
+# artifact. Both the checkout and the telemetry-branch PUSH authenticate with the seeded DevFlow
+# App token (a valid org integration / bypass actor), not this job's GITHUB_TOKEN — the
+# contents-read grant here is only a floor for the default token, not the checkout credential.
 permissions:
   contents: read
   actions: read
