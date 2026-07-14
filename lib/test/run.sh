@@ -3067,11 +3067,14 @@ for CI465_TOK in 'lib/test/run.sh' 'lib + python tests'; do
     "0" "$(pin_count "$CI465_TOK" "$CI312_TMPL")"
   # Non-vacuity proof: an absence pin over a token the detector could never match is a guard
   # that cannot fail. Inject the token into a copy and confirm the SAME detector reports it —
-  # so the `0` above is evidence of a clean body, not of a blind grep.
+  # so the `0` above is evidence of a clean body, not of a blind grep. Asserted as a DELTA
+  # (injected count == clean count + 1), not as the absolute `1`: the absolute form silently
+  # depends on the source being clean, so a body that already carried the token would fail this
+  # proof with the message "injected token is NOT detected" — the exact inverse of what happened.
   CI465_INJ="$(probe_tmp "#465 (g)-mp: '$CI465_TOK' injection setup")" || continue
   { cat "$CI312_SKILL"; printf 'the pins live in %s (injected)\n' "$CI465_TOK"; } > "$CI465_INJ"
-  assert_eq "#465 (g)-mp: absence pin is non-vacuous — injected '$CI465_TOK' is detected" \
-    "1" "$(pin_count "$CI465_TOK" "$CI465_INJ")"
+  assert_eq "#465 (g)-mp: absence pin is non-vacuous — injecting '$CI465_TOK' raises the count by 1" \
+    "$(( $(pin_count "$CI465_TOK" "$CI312_SKILL") + 1 ))" "$(pin_count "$CI465_TOK" "$CI465_INJ")"
 done
 # ── issue #464: create-issue adversarial-input dimension + enumerated-AC-list floor rule.
 #    Reuses the #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT) and adds
