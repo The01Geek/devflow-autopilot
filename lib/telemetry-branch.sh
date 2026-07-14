@@ -523,8 +523,13 @@ devflow_telemetry_persist_tree() {
                   git -C "$root" update-index --add --cacheinfo "${mode},${_u_blob},${path}" 2>/dev/null || exit 1
                   continue
                 fi
-                # jq unavailable/failed: fall through to a plain local-wins overlay (the
-                # pre-#475 behavior) rather than dropping the record — best-effort.
+                # jq unavailable/failed (or an empty base/local blob from an object-store
+                # read race): fall through to a plain local-wins overlay (the pre-#475
+                # behavior) rather than dropping the record — best-effort. Emit a NAMED
+                # breadcrumb so this degradation is auditable rather than silent (the
+                # floor's never-silent discipline): a stale local copy overwriting base
+                # here could revert a concurrent writer's harness_cost (issue #475).
+                echo "::warning::telemetry-branch: harness-cost merge for '${path}' fell back to local-wins (jq unavailable/failed, or an empty base/local blob); a concurrent base-side harness_cost may be reverted this push" >&2
               fi
               ;;
           esac

@@ -172,8 +172,9 @@ the tree-equality guard, and every OTHER path stays strictly per-run-immutable. 
   scope: "whole-job", cost_usd, tokens, model_usage, num_turns, duration_ms}`. It is **whole-JOB**
   cost, not per-phase: `scope`/`workflow` mark that so analyses segment by `workflow` and never
   compare it to per-phase `telemetry` figures as like-for-like. It is deliberately **invisible** to
-  `_run_cost`/`_telemetry_complete` (which read only `telemetry`), so per-phase aggregates are
-  unchanged by its presence. Absent on records from a run whose execution file the floor never saw.
+  `_run_cost`/`_telemetry_complete` (neither reads `harness_cost` — `_run_cost` sums only
+  `telemetry`, and `_telemetry_complete` reads only `telemetry` and `synthesized`), so per-phase
+  aggregates are unchanged by its presence. Absent on records from a run whose execution file the floor never saw.
 
 A run with zero readable iterations (catastrophic early failure) writes **no record at all** rather
 than a contentless skeleton — symmetric with the flag-off contract.

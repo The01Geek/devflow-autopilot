@@ -15991,6 +15991,13 @@ assert_eq "hc-merge(A4): workflow identity recorded from GITHUB_WORKFLOW_REF" "o
   "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost.workflow')"
 assert_eq "hc-merge(A4): engine_version resolved from plugin.json beside the helper (a string)" "string" \
   "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost.engine_version | type')"
+# AC4 (spread join): the reader's OWN figures must land in harness_cost verbatim — the
+# A4 key-set assertion above proves the keys exist but NOT that the values map through, so
+# a mislabelled spread (e.g. cost_usd wired to .num_turns) would still pass it. HC_COST
+# carries cost_usd:0.42, num_turns:9, duration_ms:8000, tokens.input_tokens:150.
+assert_eq "hc-merge(A4): the reader's figures land in harness_cost verbatim (cost_usd/num_turns/duration_ms/tokens.input_tokens)" \
+  '[0.42,9,8000,150]' \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -c '[.harness_cost.cost_usd,.harness_cost.num_turns,.harness_cost.duration_ms,.harness_cost.tokens.input_tokens]')"
 # AC9 (read side): _run_cost/_telemetry_complete unchanged by harness_cost; it is
 # passed through verbatim as an entry key.
 HC_RS="$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | python3 -c 'import importlib.util,sys,json
@@ -16098,7 +16105,33 @@ assert_eq "hc-malformed(A3): non-object DEVFLOW_EXECUTION_COST → record carrie
   "$(_et_show "$HC_BAD" ".devflow/logs/efficiency/pr-3-333-1.json" | jq -c '.harness_cost')"
 assert_eq "hc-malformed(A3): non-object value → a specific breadcrumb" "yes" \
   "$(printf '%s' "$HC_BAD_ERR" | grep -qF 'not a JSON object' && echo yes || echo no)"
-rm -rf "$HC_BAD"
+# Valid-JSON-but-not-an-object (a JSON array): the `type == "object"` operand guard exists
+# precisely so a non-object never reaches `jq --argjson`; the 'not json' case above fails the
+# jq PARSE, whereas '[1,2]' PARSES yet is not an object — a DISTINCT arm of the writer's
+# adversarial matrix. Must draw the same "not a JSON object" breadcrumb and no floor write.
+HC_ARR="$(_hc_repo "hc arr-cost")"
+mkdir -p "$HC_ARR/.devflow/tmp/review/pr-3/334-1"
+printf '%s' "$HC_ITER" > "$HC_ARR/.devflow/tmp/review/pr-3/334-1/iter-1.json"
+HC_ARR_ERR="$( ( cd "$HC_ARR" && GITHUB_RUN_ID=334 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST='[1,2]' \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-malformed(A3): valid-JSON-but-non-object (array) → record carries no harness_cost" "null" \
+  "$(_et_show "$HC_ARR" ".devflow/logs/efficiency/pr-3-334-1.json" | jq -c '.harness_cost')"
+assert_eq "hc-malformed(A3): valid-JSON-but-non-object (array) → the 'not a JSON object' breadcrumb" "yes" \
+  "$(printf '%s' "$HC_ARR_ERR" | grep -qF 'not a JSON object' && echo yes || echo no)"
+rm -rf "$HC_ARR"
+# GITHUB_RUN_ID unset (AC3 fail-closed): cost set + valid object + telemetry enabled, but the
+# run cannot be identified, so the floor DECLINES rather than attach to an arbitrary swept
+# record. Every other HC merge test sets GITHUB_RUN_ID, so this fail-closed guard was unexercised.
+HC_RU="$(_hc_repo "hc runid-unset")"
+mkdir -p "$HC_RU/.devflow/tmp/review/pr-4/iddir-1"
+printf '%s' "$HC_ITER" > "$HC_RU/.devflow/tmp/review/pr-4/iddir-1/iter-1.json"
+HC_RU_ERR="$( ( cd "$HC_RU" && unset GITHUB_RUN_ID; DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-runid(A3): GITHUB_RUN_ID unset → no harness_cost attached to any swept record" "null" \
+  "$(_et_show "$HC_RU" ".devflow/logs/efficiency/pr-4-iddir-1.json" | jq -c '.harness_cost')"
+assert_eq "hc-runid(A3): GITHUB_RUN_ID unset → a specific 'cannot be identified' breadcrumb (fail-closed, not silent)" "yes" \
+  "$(printf '%s' "$HC_RU_ERR" | grep -qF 'GITHUB_RUN_ID is unset' && echo yes || echo no)"
+rm -rf "$HC_RU"
 
 # ── A5a: two-writer union race — a stale local snapshot must NOT revert another
 # writer's harness_cost on the push-rejection re-parent (mirrors the #441
