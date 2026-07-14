@@ -1,0 +1,6 @@
+---
+bump: patch
+type: Fixed
+---
+
+- **Cloud `/devflow:implement` runs now apply their best-effort labels instead of silently dropping them.** On the read-write implement tier the phase-4 deferred-label loops emitted command shapes the matcher refuses (a `for`/piped-`while read` loop or a `VAR="$(…)"` capture wrapping a label helper) and the label helpers were granted only via a config `*/basename` glob the matcher does not match against a vendored-literal leading token — so the `DevFlow` provenance, `Documented`, and configured `deferred.labels` applies were denied with no error. `devflow-implement.yml` now grants `apply-labels.sh`/`ensure-label.sh` in the explicit vendored-literal leading-token form the implement-probe table proved PERMITTED, and the Phase 4.0/4.0.5 label applies are reworked to agent-level single-leading-token calls. A new `extract-command-shapes.py --profile implement` desk lint (rules IR1/IR2/IR3) turns a re-introduced denied shape in the implement skill files RED at the desk. **Upgrade coupling:** the workflow grants arrive by re-running `install.sh` and the skill rework arrives by bumping `devflow_version` — take both halves together, or the applies stay silently denied. (#455)
