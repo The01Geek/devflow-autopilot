@@ -26,9 +26,10 @@ Never leave it as prose in the body.
 
 ## Issue structure
 
-Every issue includes these sections, in this order. (A **Visual Specification** section
-appears only for user-visible UI changes, and `## 🚫 Blocked` appears only if unresolved
-items exist — see below.)
+Every issue includes these sections, in this order. (A **`## Dependencies`** section
+appears as the very first body section only when a prerequisite is still open at drafting
+time, a **Visual Specification** section appears only for user-visible UI changes, and
+`## 🚫 Blocked` appears only if unresolved items exist — see below.)
 
 ### Title
 Clear, descriptive, action-oriented, and scoped to **one** feature/fix (e.g., "Add PDF
@@ -39,6 +40,37 @@ Exception: if the scope-split decision is itself unresolved because the user dis
 (it is the first item in `## 🚫 Blocked`), a neutral multi-feature title is acceptable —
 it honestly reflects the unresolved scope. Do not silently pick one feature to satisfy the
 title rule; that would be inventing a default the skill forbids.
+
+### Dependencies (include only when a prerequisite is still open at drafting time)
+Rendered as the **first body section, above `## Problem Statement`** — and included **only**
+when at least one prerequisite issue is **still open at drafting time**. Each entry is one
+line naming the blocking issue and why it must land first:
+
+```markdown
+## Dependencies
+Blocked by #N — <one-line reason it must land first>
+```
+
+Both the `## Dependencies` heading and the `Blocked by #N` phrasing are exactly the forms
+`/devflow:implement` Phase 1 Pass 4 recognizes as a declared sequencing dependency, so the
+existing implement gate consumes this section with **no recognizer change** — it blocks an
+implement run while any listed prerequisite is still open (and fails closed on an
+unresolvable reference). Omit the section entirely when no prerequisite is open — exactly as
+the Visual Specification and Blocked sections are omitted when empty; never write
+"Dependencies: none".
+
+Keep this section distinct from the two other "dependency"-flavored surfaces, or drafters
+will file entries in the wrong one:
+
+- **`## Dependencies` (this section)** — cross-issue **ordering**: another issue/PR that must
+  land before this work can start. This is the only surface Pass 4 reads.
+- **`## 🚫 Blocked`** — unresolved **decisions**, not ordering (see below).
+- **`Technical Context` → `Dependencies` bullet** — the **service/module/library** this
+  depends on, not another issue.
+
+A prerequisite that is **already closed at drafting time** is not listed here — record it as
+provenance in `Technical Context` instead (e.g. "builds on #M, merged"), never in this
+section, so producer and Pass-4 consumer agree on the open-at-drafting-time inclusion rule.
 
 ### Problem Statement
 Why is this needed? Which user hits what pain.
@@ -78,26 +110,60 @@ holds the role name") against the schema definitions or the code that reads and 
 data; **"parent PR or commit already did X"** claims at HEAD (read the file, `git log -p` /
 `git log -S<symbol>`), never taken from the parent issue's narrative; **data-coverage /
 population** claims ("column X is set for most users") against live data when it is available;
-and **platform-behavior** claims — any load-bearing claim about external platform or API
-semantics (webhook / event delivery, trigger syntax, token scopes, endpoint behavior) that an
-acceptance criterion's mechanism depends on — **verified against the official documentation
-(a `WebFetch` of the vendor's own docs, not memory) before the AC is written**, with the
-verified fact and its source URL recorded in the draft's `Technical Context`. This is the
-premise class the #304 run missed: it prescribed a `check_suite`/`workflow_run` mechanism
-GitHub cannot deliver (Actions-created check suites never emit `check_suite`; `workflow_run`
-requires a named workflow list), which only surfaced mid-implement — a `WebFetch` of the
-events docs at drafting time would have caught it.
+and **relied-on third-party behavior** — every behavior of an external platform, API, or
+service the issue **relies on** (load-bearing for the Desired Behavior, an acceptance
+criterion, **or** the Implementation Notes Approach — not only an AC's mechanism): webhook /
+event delivery, trigger syntax, token scopes, endpoint behavior, response shapes, rate
+limits, and the like. Relied-on behavior is **never assumed**. Verify it with this **decided
+fallback ladder**, in order, stopping at the first rung that resolves it: **(1)** the vendor's
+**official documentation via `WebFetch`** (not memory); **(2)** when the official docs are not
+reachable, **`WebSearch`**; **(3)** when search is unavailable or fails, **ask the user to
+provide the documentation**. Record the verified fact and its source URL in the draft's
+`Technical Context` before the relied-on claim is written. This is the premise class the #304
+run missed: it prescribed a `check_suite`/`workflow_run` mechanism GitHub cannot deliver
+(Actions-created check suites never emit `check_suite`; `workflow_run` requires a named
+workflow list), which only surfaced mid-implement — a `WebFetch` of the events docs at
+drafting time would have caught it.
+
+**Ladder terminal arm — decided two ways.** When the ladder yields **no documentation** and
+**no working example in this codebase already proves** the relied-on behavior, the item
+becomes a `## 🚫 Blocked` entry phrased as a **direct question** — the exact vendor-behavior
+fact to confirm plus one line on why it blocks the work — because an unverifiable load-bearing
+external premise blocks implementation exactly as an undecided decision does. When a **working
+in-codebase example does prove** the behavior but documentation remains unavailable, write the
+claim inline as an explicitly flagged `— assumption, confirm before implementing` line
+**citing that in-repo example** (not a Blocked entry).
+
 Treat an empty or inconclusive result (no matching commit, no matching column/schema, data
 unavailable) as **unverified** — never as silent confirmation. A load-bearing premise that
 cannot be verified is written as an explicitly flagged assumption for the implementer to
 confirm — stated inline as a declarative fact tagged `— assumption, confirm before
 implementing` (a factual premise-to-confirm, so the no-options gate's hedge/deferral ban does
-not apply to it and it is not a `## 🚫 Blocked` item, which is for undecided *decisions*), and
-never baked into a prescriptive `Approach`.
+not apply to it, and it is not a `## 🚫 Blocked` item — **with the one exception of the
+ladder terminal arm above**, where a relied-on third-party behavior that is neither
+documentation-verified nor proven by an in-repo example becomes a Blocked vendor-behavior
+question), and never baked into a prescriptive `Approach`.
 
 Verification is **proportional**: cheap in-repo reads for most claims, live-data only for
-population claims. It is scoped to **load-bearing** premises, so incidental context bullets
-stay light and drafting is never blocked in a data-less authoring context.
+population claims, and the docs ladder only for **relied-on** third-party behavior. It is
+scoped to **load-bearing** premises, so incidental context bullets — and an **incidental
+third-party mention** (named in passing, not load-bearing for the Desired Behavior, an AC, or
+the Approach) — stay light and trigger no verification, so drafting is never blocked in a
+data-less authoring context.
+
+**Unstated mechanism dependencies are a premise class too.** The verification above attaches
+to premises the issue **states as fact**. But a designed mechanism can *rely on* an in-repo
+behavior — a helper's exit code, a resolver's output shape, a gate's semantics — that the body
+never asserts as a claim, so the claim-driven loop has nothing to verify (issue #446's
+config-unreadable arm rested on `config-get.sh`'s malformed-input non-zero exit without ever
+asserting it as a claim). Enumerate the draft's **own mechanism dependencies** — the in-repo
+behaviors the designed mechanism relies on but never states — and resolve each with a **cited
+probe** (a "Verified:" bullet citing observed output) or an **implementer-obligation AC** (subject
+to the obligation-arm execution-tier constraint in the Acceptance Criteria guidance above: a
+command already granted in `devflow_implement.allowed_tools`, or a code-reading obligation citing
+the producer — never an ungranted-helper run). This is the **in-repo sibling of the
+relied-on-third-party-behavior class** above — same discipline, extended to unstated in-repo
+reliances; it adds no duplicate premise class.
 
 This same discipline runs **twice**: here at drafting time, and again in the calling
 skill's Step 3.5 self-steelman, which re-applies it to the *assembled* draft (fresh
@@ -133,6 +199,50 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   discipline at draft time — a polished, comprehensive-looking list earns the same scrutiny a
   terse story gets.
 - Specific and implementable — a developer knows exactly when it's met.
+- **A value-comparison AC states its comparison in the producing surface's observed-output
+  terms — in the AC's own language.** When an AC (or a Testing-Strategy assertion) compares a
+  produced value against a literal, phrase the comparison in the terms the producing surface
+  actually emits, grounded one of two decided ways. **(a) The verified arm** — a drafting-time
+  probe cited in the issue; the cited probe must exercise the **boundary fixtures the
+  comparison distinguishes** (for a type-sensitive comparison, the type-boundary fixture — a
+  JSON string `"true"` vs. a boolean `true`), and a probe **silent on the distinguishing axis
+  does not ground the verified arm**. **(b) The obligation arm** — a named implementer
+  obligation stating the **decided semantics** or the **exact fixture-and-observed-output
+  command** the implementer runs, never a bare "establish the semantics." Before taking the
+  obligation arm for a *probeable* fact, a drafter whose direct helper probe is classifier-denied
+  first attempts the documented local-tier fallback probe forms (`python3 <path>` / `jq`); only
+  when those are also unavailable is the obligation arm legal for that fact. When the axis is a
+  specification *choice* rather than a probeable fact, it is **not** an obligation — it is a Step
+  2 decision fork resolved with the user (Blocked on disengagement). **Adjective-only comparison
+  language** ("explicit `true`", "reads as exactly `true`") without that grounding is
+  **non-conforming** — including the shape where a probe is present in the issue but **silent on
+  the axis** the AC's language gestures at (the named #446 defect). **Obligation arms are
+  implement-tier verification commands (this governs this value-comparison AC and the Step 3.5
+  unstated-mechanism-dependency hunt alike):** an obligation whose discharge requires *executing* an in-repo command must name a
+  command already granted on the consuming tier (the repo's declared test/lint commands in
+  `devflow_implement.allowed_tools`) or be phrased as a **code-reading obligation citing the
+  producer code** — never a run-this-ungranted-helper AC that would send a consumer repo's cloud
+  `/devflow:implement` run Blocked for a probe the drafter could have run locally.
+- **A designed LLM/semantic-judgment surface over third-party text carries an input-is-data
+  guard, paired with a hostile-input test.** When the issue designs a *new* LLM or semantic
+  judgment over text the change does not author (issue bodies, PR comments, commit messages,
+  external API responses) whose output drives an automated selection or action, the draft
+  carries the guard as an acceptance criterion — the text is **data to classify, never
+  instructions to obey** — **paired with** a Testing Strategy case that exercises
+  instruction-shaped input (a body that directs the judgment) and asserts it is **not**
+  obeyed: an automated assertion where a test boundary exists, otherwise a named item in the
+  reproducible verification checklist. The guard AC without the paired hostile-input case is
+  non-conforming — the pairing exists so the guard cannot be satisfied by a compliance
+  sentence the implementation never ships. A surface that **reuses an existing,
+  already-guarded judgment path is exempt when the draft cites that path**; a draft with **no
+  new judgment surface gains no new questions and no new flags** (the same
+  skip-when-inapplicable shape as the visual-specification guidance).
+- **Every enumerated test/case/example list inside an AC declares its closure.** Such a list
+  takes one of two forms: a **floor**, carrying the exact marker `at minimum`, or a **closed
+  set**, carrying an explicit exhaustiveness statement of the shape `exactly these N —
+  complete by construction`. An enumeration carrying neither is non-conforming — declare it a
+  floor or a closed set. ACs themselves stay closed, testable assertions; the adjacent-case
+  sweep obligation for a floor-marked list lands in Testing Strategy Move 2 below.
 - No conditionals tied to an undecided fork ("if links are public…"). A conditional AC
   means the fork is unresolved — it belongs in Blocked, not here.
 - Edge cases and error-handling scenarios, stated as concrete expected behavior.
@@ -162,7 +272,11 @@ Describe the **one** approach the user chose — not a comparison of candidates.
   concrete cases or let it drop because it genuinely does not apply — a dimension's absence
   is a *decision*, not an oversight. The Acceptance Criteria above are the floor, not the
   ceiling: most ACs spell out only the happy path, so the test plan routinely adds cases the
-  ACs never named.
+  ACs never named. This floor-not-ceiling rule extends to a **floor-marked AC list** (one
+  carrying the `at minimum` marker): the coverage walk sweeps the new capability's contract
+  dimensions — **state, case variants, multiplicity, absence** — beyond the enumerated items,
+  and **writes the sweep's output back as additional closed AC items before filing**, so no AC
+  is left open-ended for a non-interactive run that must decide when it is met.
   - **Happy path** — the primary decided behavior for each AC.
   - **Boundary & degenerate inputs** — empty / zero / one / max: empty collection, first and
     last element, off-by-one edges, page 0 and past-the-end, size and length limits, empty
@@ -185,10 +299,35 @@ Describe the **one** approach the user chose — not a comparison of candidates.
   - **Security / authorization** — ownership and tenant isolation, and that secrets or other
     tenants' data are never exposed, whenever the change touches an access boundary.
 
+  **Move 2a — Reconcile an enumerated case matrix against governing conventions.** *This
+  applies only when the Testing Strategy enumerates an input-shape or case matrix* for a
+  surface (a parser, a config consumer, a best-effort input handler) — a matrix-free Testing
+  Strategy imposes nothing here, so a convention-free repo's issues carry at most one bounded-search
+  line and only when they enumerate a matrix. When it *does* enumerate one, and a repo-published
+  convention already governs that surface's matrix, the issue either enumerates the **full
+  convention matrix** or states the **narrowing explicitly with its justification** — a silently
+  narrower list must never override the convention. Such a Testing Strategy (only this class of
+  issue) carries a one-line **discharge record**:
+
+  > `governing conventions consulted: <sources cited by path, or "none found; searched <the bounded list>">`
+
+  The search is **bounded to a named list** — `CLAUDE.md`, `CONTRIBUTING.md`, and testing
+  guidance under the repo's configured internal-docs path — with the **consumer prompt extension**
+  as the override point naming where that repo's conventions actually live; cite sources by path
+  when found. The record is a **claim to verify, not an attestation to accept**: the Step 3.6
+  auditor independently re-runs the bounded search and its flag condition is **defined** — it
+  fires when the auditor finds a governing matrix at a path the line omits, never on a judgment
+  disagreement about what counts as governing. (On a runner where Step 3.6 takes its degraded
+  inline arm, the verify-not-attest property does not hold — the record is attestation-only there,
+  which the mandatory "degraded" audit-summary marker already signals.)
+
   **Move 3 — Commit to named assertions.**
   - **Every AC maps to at least one named assertion, and every assertion maps back to an
-    AC** — no orphans in either direction. If an AC cannot be pinned by any assertion, it is
-    not testable as written: tighten it, or it belongs in `## 🚫 Blocked`.
+    AC** — no orphans in either direction; **and every state a multi-state contract enumerates
+    maps to ≥1 AC** (a status enum, an outcome-token set, an error/exit-code set, or a
+    state-machine node — the *contract-enumeration* sense of "state", distinct from the runtime
+    *State, concurrency & idempotency* coverage dimension above). If an AC cannot be pinned by
+    any assertion, it is not testable as written: tighten it, or it belongs in `## 🚫 Blocked`.
   - Each assertion is **test-first**: written before the code, it must fail first *for the
     right reason* — and spell that reason out. For a *feature*, the right reason is that the
     behavior does not exist yet. **For a bug fix, the right reason is that the test
@@ -230,9 +369,12 @@ Describe the **one** approach the user chose — not a comparison of candidates.
   unresolved choices).
 
 ### 🚫 Blocked — resolve before implementation (include only if non-empty)
-The **only** place unresolved decisions may appear. Include this section solely when the
-user disengaged in Step 2 leaving Definition-of-Ready items open. Each item is a direct
-question plus one line on why it blocks work:
+The **only** place unresolved decisions may appear. Include this section when the user
+disengaged in Step 2 leaving Definition-of-Ready items open — **or** when the relied-on
+third-party-behavior ladder (see *Technical Context* above) terminates with a load-bearing
+external premise that is neither documentation-verified nor proven by an in-repo example: that
+ladder-produced vendor-behavior question is the one Blocked entry class not arising from user
+disengagement. Each item is a direct question plus one line on why it blocks work:
 
 ```markdown
 ## 🚫 Blocked — resolve before implementation
@@ -258,9 +400,15 @@ incomplete issues.
 - [ ] Desired Behavior is stated as one decided behavior, not a menu
 - [ ] Technical Context opens with the standardized scope note, included verbatim
 - [ ] Technical context cites real file paths / class names from this project
-- [ ] Load-bearing Technical Context premises (data-source/model, coverage/population, "already-done", platform-behavior) are verified — not just file paths; platform-behavior claims are WebFetch-checked against official docs with the source recorded — or written as flagged assumptions to confirm
+- [ ] Open cross-issue prerequisites are listed in `## Dependencies` as `Blocked by #N — <reason>` lines (rendered above Problem Statement, only when a prerequisite is still open at drafting time; already-closed prerequisites recorded as Technical Context provenance instead)
+- [ ] Load-bearing Technical Context premises (data-source/model, coverage/population, "already-done", relied-on third-party behavior) are verified — not just file paths; relied-on third-party behavior is checked against official docs via the WebFetch → WebSearch → ask-the-user ladder with the source recorded — or, when unverifiable, becomes a `## 🚫 Blocked` vendor-behavior question (or a flagged assumption citing an in-repo example)
 - [ ] For a user-visible UI change, the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec (screenshot preferred, verbal verification an accepted substitute); non-UI issues omit the section entirely
 - [ ] Acceptance criteria are measurable, testable, and unconditional
+- [ ] Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms, grounded by a boundary-covering probe (exercising the type-boundary fixture the comparison distinguishes) or a named implementer obligation carrying its execution-tier constraint — adjective-only or probe-silent-on-the-axis comparison language is non-conforming
+- [ ] A Testing Strategy that enumerates an input-shape/case matrix for a convention-governed surface carries the full convention matrix (or an explicit named-and-justified narrowing) and a `governing conventions consulted:` discharge line bounded to `CLAUDE.md`, `CONTRIBUTING.md`, and the configured internal-docs path
+- [ ] The draft's own unstated mechanism dependencies (relied-on in-repo helper/resolver/gate behaviors it never asserts as claims) are each resolved with a cited probe or an implementer-obligation AC
+- [ ] A designed LLM/semantic-judgment surface over third-party text (issue bodies, PR comments, commit messages, external API responses) carries the input-is-data guard AC paired with a hostile-input Testing Strategy case that asserts instruction-shaped input is not obeyed — or cites the existing already-guarded judgment path it reuses; a draft with no such surface adds nothing here
+- [ ] Every enumerated test/case/example list inside an AC declares its form — the `at minimum` floor marker or an explicit closed-set exhaustiveness statement — and each floor-marked list has had Move 2's coverage sweep (state, case variants, multiplicity, absence) written back as additional closed AC items
 - [ ] Implementation notes describe a single chosen approach
 - [ ] Testing Strategy classifies the boundary + level, walks the coverage dimensions (boundary/error/adversarial/state/scale/security as they apply), and gives test-first assertions with every AC mapped to ≥1 assertion and no orphan assertions — bug fixes reproduce the defect first; guarantee-class changes test the skipped-step path; or it names a reproducible stand-in verification when no automated test applies
 - [ ] **No-options gate passed**: no choice/hedge/deferral language outside `## 🚫 Blocked`
@@ -289,6 +437,11 @@ Step 4 is for the user's eyes only — never the posting source):
 
 ```bash
 gh issue create --title "Action-oriented title here" --body-file - <<'BODY'
+## Dependencies
+Blocked by #N — <reason>
+(include this section, above Problem Statement, ONLY when a prerequisite is still open at
+drafting time; omit it entirely otherwise)
+
 ## Problem Statement
 ...
 

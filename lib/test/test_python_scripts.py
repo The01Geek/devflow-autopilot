@@ -39,6 +39,7 @@ import importlib.util
 import io
 import re
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -59,6 +60,7 @@ file_deferrals = _load('file_deferrals', SCRIPTS / 'file-deferrals.py')
 match_deferrals = _load('match_deferrals', SCRIPTS / 'match-deferrals.py')
 resolve_review_overrides = _load(
     'resolve_review_overrides', SCRIPTS / 'resolve-review-overrides.py')
+stale_prose_lint = _load('stale_prose_lint', SCRIPTS / 'stale-prose-lint.py')
 
 
 PASS = 0
@@ -98,7 +100,9 @@ def make_args(**overrides):
         tick_progress=[], tick_plan=[], tick_plan_n=[], tick_ac=[], tick_ac_n=[],
         rewrite_ac=[],
         replace_plan_file=None, replace_acs_file=None, set_reproduction_file=None,
-        note=[], reflection=[], reflection_kind=None, marker=None,
+        note=[], reflection=[], reflection_kind=None, reflection_file=None,
+        marker=None,
+        reconcile_reproduction=None, record_classification=None,
     )
     base.update(overrides)
     return argparse.Namespace(**base)
@@ -1462,7 +1466,10 @@ rk = _reflect_seq(('blocked', 'B'), ('deferred', 'D'), ('dropped-failed', 'F'), 
 assert_eq("kind blocked: glyph + bold label", True, '- ⛔ **Blocked:** B' in rk)
 assert_eq("kind deferred: glyph + bold label", True, '- ⏭️ **Deferred:** D' in rk)
 assert_eq("kind dropped-failed: glyph + bold label", True, '- ❗ **Dropped/Failed:** F' in rk)
-assert_eq("kind note: glyph + bold label", True, '- ℹ️ **Note:** N' in rk)
+# note is glyph-only now: the `### ℹ️ Notes` heading already names the kind, so
+# the redundant `**Note:**` label is dropped (issue #476).
+assert_eq("kind note: glyph only, no bold label", True, '- ℹ️ N' in rk)
+assert_eq("kind note: no **Note:** label remains", True, '**Note:**' not in rk)
 # Exactly one of each sub-heading (the 3 actionable kinds share Action required).
 assert_eq("one Action required sub-heading (shared by 3 actionable kinds)", 1,
           rk.count('### ⚠️ Action required'))
@@ -1473,14 +1480,14 @@ assert_eq("Action required precedes Notes", True,
 assert_eq("actionable bullet sits under Action required (above Notes heading)", True,
           rk.index('### ⚠️ Action required') < rk.index('- ⛔ **Blocked:** B') < rk.index('### ℹ️ Notes'))
 assert_eq("note bullet sits under Notes (below its heading)", True,
-          rk.index('### ℹ️ Notes') < rk.index('- ℹ️ **Note:** N'))
+          rk.index('### ℹ️ Notes') < rk.index('- ℹ️ N'))
 # Sub-headings are kept before </details> (stay inside the collapsible block).
 assert_eq("grouped sub-sections stay before </details>", True,
           rk.index('### ℹ️ Notes') < rk.index('</details>'))
 
 # Omitted --reflection-kind → note (default), never Action required.
 rk_def = _reflect_seq((None, 'defaulted'))
-assert_eq("omitted kind renders as note", True, '- ℹ️ **Note:** defaulted' in rk_def)
+assert_eq("omitted kind renders as note", True, '- ℹ️ defaulted' in rk_def)
 assert_eq("omitted kind → Notes heading, no Action required heading", True,
           '### ℹ️ Notes' in rk_def and '### ⚠️ Action required' not in rk_def)
 
@@ -1492,9 +1499,9 @@ assert_eq("single blocked → Action required heading, no Notes heading (empty g
 # Append second-of-kind nests under the existing heading (no duplicate).
 rk_two = _reflect_seq(('note', 'first'), ('note', 'second'))
 assert_eq("two notes → single Notes heading (no dup)", 1, rk_two.count('### ℹ️ Notes'))
-assert_eq("two notes → both bullets present", 2, rk_two.count('- ℹ️ **Note:**'))
+assert_eq("two notes → both bullets present", 2, rk_two.count('- ℹ️ '))
 assert_eq("appended bullet stays before </details>", True,
-          rk_two.index('- ℹ️ **Note:** second') < rk_two.index('</details>'))
+          rk_two.index('- ℹ️ second') < rk_two.index('</details>'))
 # Two actionable kinds also share one Action required heading.
 rk_act = _reflect_seq(('blocked', 'b1'), ('deferred', 'd1'))
 assert_eq("blocked+deferred → single shared Action required heading", 1,
@@ -1511,7 +1518,7 @@ assert_eq("no level-2 (## ) heading emitted inside the reflection region", True,
 _mx = 'has `code`, $VAR, and *stars*'
 rk_mx = _reflect_seq(('note', _mx))
 assert_eq("metacharacters (backticks/$/*) survive rendering", True,
-          ('- ℹ️ **Note:** ' + _mx) in rk_mx)
+          ('- ℹ️ ' + _mx) in rk_mx)
 
 # Canonical ordering holds regardless of call order: a `note` written BEFORE an
 # action-kind bullet still renders Action required ABOVE Notes (exercises the
@@ -1521,7 +1528,7 @@ rk_no = _reflect_seq(('note', 'N'), ('blocked', 'B'))
 assert_eq("note-first then blocked → Action required still precedes Notes", True,
           rk_no.index('### ⚠️ Action required') < rk_no.index('### ℹ️ Notes'))
 assert_eq("note-first then blocked → both bullets present", True,
-          '- ⛔ **Blocked:** B' in rk_no and '- ℹ️ **Note:** N' in rk_no)
+          '- ⛔ **Blocked:** B' in rk_no and '- ℹ️ N' in rk_no)
 
 # Multi-line reflection text (e.g. a captured multi-line gh/jq error fed into a
 # dropped-failed breadcrumb) collapses to a single bullet line, so the line-based
@@ -1615,6 +1622,177 @@ def _bad_reflection_kind():
 assert_raises("bad reflection kind raises _UpdateError (not a bare KeyError)",
               workpad._UpdateError, _bad_reflection_kind)
 
+
+print("workpad reflection new kinds + interpolation-safe input (issue #476)")
+
+# --- improvement kind: glyph-only under a lazily-created ### 💡 Improvements ---
+rk_imp = _reflect_seq(('improvement', 'hoist the resolver'))
+assert_eq("improvement: glyph-only bullet (no bold label)", True,
+          '- 💡 hoist the resolver' in rk_imp)
+assert_eq("improvement: no **Improvement** label rendered", True,
+          '**Improvement' not in rk_imp)
+assert_eq("improvement: lazily-created ### 💡 Improvements heading", True,
+          '### 💡 Improvements' in rk_imp)
+assert_eq("improvement alone: no Action required or Notes heading (empty groups)", True,
+          '### ⚠️ Action required' not in rk_imp and '### ℹ️ Notes' not in rk_imp)
+assert_eq("improvement bullet sits under its heading", True,
+          rk_imp.index('### 💡 Improvements') < rk_imp.index('- 💡 hoist the resolver'))
+
+# Full three-sub-section canonical order: Action required → Improvements → Notes,
+# regardless of the call order (note emitted first exercises the _rank insertion).
+rk_all = _reflect_seq(('note', 'N'), ('improvement', 'I'), ('blocked', 'B'))
+assert_eq("three sub-sections: Action required precedes Improvements", True,
+          rk_all.index('### ⚠️ Action required') < rk_all.index('### 💡 Improvements'))
+assert_eq("three sub-sections: Improvements precedes Notes", True,
+          rk_all.index('### 💡 Improvements') < rk_all.index('### ℹ️ Notes'))
+assert_eq("three sub-sections: all bullets present", True,
+          '- ⛔ **Blocked:** B' in rk_all and '- 💡 I' in rk_all and '- ℹ️ N' in rk_all)
+
+# Legacy un-kinded preamble stays ABOVE a lazily-created Improvements sub-section.
+_imp_legacy = apply_mut(
+    _LEGACY_REFLECTION_BODY,
+    make_args(reflection=['propose a shared helper'], reflection_kind='improvement'))
+_imp_legacy_rf = _imp_legacy.split('## Devflow Reflection', 1)[1]
+assert_eq("improvement: legacy preamble bullet retained above Improvements heading", True,
+          '- a legacy flat bullet' in _imp_legacy_rf
+          and _imp_legacy_rf.index('- a legacy flat bullet')
+          < _imp_legacy_rf.index('### 💡 Improvements'))
+
+# --- issue-accuracy kind: labeled, under ### ℹ️ Notes (heading does not name it) ---
+rk_ia = _reflect_seq(('issue-accuracy', 'the issue claimed 5 skills; there are 6'))
+assert_eq("issue-accuracy: 📝 glyph + bold Issue accuracy label", True,
+          '- 📝 **Issue accuracy:** the issue claimed 5 skills; there are 6' in rk_ia)
+assert_eq("issue-accuracy: rendered under Notes heading", True,
+          '### ℹ️ Notes' in rk_ia
+          and rk_ia.index('### ℹ️ Notes') < rk_ia.index('- 📝 **Issue accuracy:**'))
+assert_eq("issue-accuracy alone: no Action required / Improvements heading", True,
+          '### ⚠️ Action required' not in rk_ia and '### 💡 Improvements' not in rk_ia)
+
+# --- Closed kind model: exactly the six kinds, argparse-validated ---
+assert_eq("closed kind model: exactly the six kinds", True,
+          set(workpad._REFLECTION_KINDS) == {
+              'blocked', 'deferred', 'dropped-failed', 'note',
+              'improvement', 'issue-accuracy'})
+
+# --- --reflection-file: interpolation-safe verbatim UTF-8 input ---
+def _reflect_file(payload_bytes, kind='note', body=WORKPAD_V2, also_reflection=None):
+    """Write payload_bytes to a temp file, apply an update carrying
+    --reflection-file (+ optional --reflection), return the reflection region."""
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / 'payload.txt'
+        p.write_bytes(payload_bytes)
+        out = apply_mut(body, make_args(
+            reflection=(also_reflection or []),
+            reflection_kind=kind,
+            reflection_file=str(p)))
+    return out.split('## Devflow Reflection', 1)[1]
+
+# Backticks + $(…) round-trip byte-identical (the shell-interpolation hazard the
+# flag exists to defeat — passed via a file, never a CLI arg).
+_shelly = 'ran `git rev-parse` and $(cmd) with "quotes"'
+rk_bf = _reflect_file(_shelly.encode('utf-8'), kind='note')
+assert_eq("--reflection-file: backticks/$(…)/quotes round-trip byte-identical", True,
+          ('- ℹ️ ' + _shelly) in rk_bf)
+
+# Non-ASCII (em-dash + emoji) round-trips byte-identical via explicit UTF-8.
+_nonascii = 'reconciled — see 🚀 the workpad'
+rk_na = _reflect_file(_nonascii.encode('utf-8'), kind='improvement')
+assert_eq("--reflection-file: non-ASCII (em-dash + emoji) round-trips byte-identical", True,
+          ('- 💡 ' + _nonascii) in rk_na)
+
+# Multi-line file text collapses to one bullet line (line-based parser contract).
+rk_mlf = _reflect_file(b'first line\nsecond line\nthird line', kind='note')
+assert_eq("--reflection-file: multi-line file collapses to one bullet line", True,
+          '- ℹ️ first line second line third line' in rk_mlf)
+assert_eq("--reflection-file: multi-line file emits exactly one bullet", 1,
+          rk_mlf.count('- ℹ️ '))
+
+# The call's --reflection-kind applies to the file bullet; it combines with
+# repeatable --reflection flags, and the file bullet appends AFTER them.
+rk_comb = _reflect_file(b'from the file', kind='deferred',
+                        also_reflection=['from a flag'])
+assert_eq("--reflection-file: --reflection-kind applies to the file bullet", True,
+          '- ⏭️ **Deferred:** from the file' in rk_comb)
+assert_eq("--reflection-file: combines with --reflection (both bullets present)", True,
+          '- ⏭️ **Deferred:** from a flag' in rk_comb)
+assert_eq("--reflection-file: file bullet appends AFTER the flag bullet", True,
+          rk_comb.index('- ⏭️ **Deferred:** from a flag')
+          < rk_comb.index('- ⏭️ **Deferred:** from the file'))
+
+# CRLF line endings collapse too (a bare \r must not survive into the bullet).
+rk_crlf = _reflect_file(b'win one\r\nwin two', kind='note')
+assert_eq("--reflection-file: CRLF collapses to one bullet line", True,
+          '- ℹ️ win one win two' in rk_crlf)
+
+# stdin arm: --reflection-file - decodes UTF-8 from sys.stdin.buffer.
+class _FakeStdin:
+    def __init__(self, data):
+        self.buffer = io.BytesIO(data)
+
+def _reflect_stdin(payload_bytes, kind='note'):
+    saved = sys.stdin
+    sys.stdin = _FakeStdin(payload_bytes)
+    try:
+        out = apply_mut(WORKPAD_V2, make_args(
+            reflection_kind=kind, reflection_file='-'))
+    finally:
+        sys.stdin = saved
+    return out.split('## Devflow Reflection', 1)[1]
+
+rk_stdin = _reflect_stdin('via `stdin` — 🚀'.encode('utf-8'), kind='note')
+assert_eq("--reflection-file -: stdin honored, UTF-8 decoded at the bytes level", True,
+          '- ℹ️ via `stdin` — 🚀' in rk_stdin)
+
+# Structural aborts before any PATCH: empty, whitespace-only, undecodable, unreadable.
+def _empty_file():
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / 'e.txt'
+        p.write_bytes(b'')
+        apply_mut(WORKPAD_V2, make_args(reflection_file=str(p)))
+assert_raises("--reflection-file: empty payload raises _UpdateError",
+              workpad._UpdateError, _empty_file)
+
+def _ws_only_file():
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / 'w.txt'
+        p.write_bytes(b'   \n\t  \n')
+        apply_mut(WORKPAD_V2, make_args(reflection_file=str(p)))
+assert_raises("--reflection-file: whitespace-only payload raises _UpdateError",
+              workpad._UpdateError, _ws_only_file)
+
+def _undecodable_file():
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / 'u.txt'
+        p.write_bytes(b'\xff\xfe\xfd not utf-8')
+        apply_mut(WORKPAD_V2, make_args(reflection_file=str(p)))
+assert_raises("--reflection-file: undecodable payload raises _UpdateError (no traceback)",
+              workpad._UpdateError, _undecodable_file)
+
+def _unreadable_file():
+    apply_mut(WORKPAD_V2, make_args(
+        reflection_file='/nonexistent/definitely/missing/payload.txt'))
+assert_raises("--reflection-file: unreadable path raises _UpdateError",
+              workpad._UpdateError, _unreadable_file)
+
+# Atomicity: a bad --reflection-file payload aborts the WHOLE call — the
+# accompanying inline --reflection bullet is not partially applied. The reader
+# raises _UpdateError before _apply_mutations returns, so no body is produced to
+# PATCH; pin that the raise fires even when an inline bullet rode along (proving
+# the "no partial write" contract the docstring/comment assert).
+def _bad_file_with_inline():
+    apply_mut(WORKPAD_V2, make_args(
+        reflection=['inline bullet that must not persist'],
+        reflection_file='/nonexistent/definitely/missing/payload.txt'))
+assert_raises("--reflection-file: a bad payload aborts even with an inline --reflection (no partial write)",
+              workpad._UpdateError, _bad_file_with_inline)
+
+# Default kind via the file path: --reflection-file with no --reflection-kind
+# defaults to `note` (glyph-only), exercising the `kind = ... or _DEFAULT...`
+# default through the file arm (rk_def above exercises it via --reflection).
+rk_fdef = _reflect_file(b'defaulted via file', kind=None)
+assert_eq("--reflection-file: omitted --reflection-kind defaults to note (glyph-only)", True,
+          '- ℹ️ defaulted via file' in rk_fdef)
+
 # Invariants preserved: marker first line; AC section still parseable.
 out = apply_mut(WORKPAD_V2, make_args(
     status='Reviewing', note=['n'], reflection=['r'], tick_ac=['AC one']))
@@ -1695,6 +1873,274 @@ assert_eq("new-body: --no-reproduction omits the bug-only sub-item", False,
           'reproduction captured' in _nb3)
 assert_eq("new-body: --no-reproduction keeps code + sweeps under Implement", True,
           '**Implement**' in _nb3 and '- [ ] code + sweeps' in _nb3)
+
+
+print("workpad reproduction-row reconcile + classification-note supersede (issue #449)")
+
+# The Phase 2.1.5 reproduce-first gate now fires on a recorded *content*
+# classification, not the `bug` label. Phase 1.3 records the classification as a
+# superseding `classification: ` note and reconciles the bug-only "reproduction
+# captured" Progress row to match it, on every entry — so a gate-created skeleton
+# (rendered from the label) always agrees with the classification before Phase 2.
+
+# A non-bug skeleton: Implement carries only `code + sweeps` (no repro row).
+_WP_NONBUG = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #449
+
+**Status:** Setup
+**Branch:** `x`
+**Last updated:** 2026-07-13T00:00:00Z
+
+## Progress
+- [ ] **Setup** — branch & workpad
+  - 00:00:00 — /devflow:implement run started
+- [ ] **Implement**
+  - [ ] code + sweeps
+- [ ] **Review**
+- [ ] **Documentation**
+- [ ] **PR marked ready**
+
+## Plan
+- [ ] Step alpha
+
+## Acceptance Criteria
+- [ ] AC one
+
+## Devflow Reflection
+"""
+
+# A bug skeleton: Implement carries the repro row (unticked) above `code + sweeps`.
+_WP_BUG = _WP_NONBUG.replace(
+    "- [ ] **Implement**\n  - [ ] code + sweeps",
+    "- [ ] **Implement**\n  - [ ] reproduction captured (bug issues only)\n  - [ ] code + sweeps",
+)
+# Same, but the repro row is already ticked (historical evidence).
+_WP_BUG_TICKED = _WP_BUG.replace(
+    "  - [ ] reproduction captured (bug issues only)",
+    "  - [x] reproduction captured (bug issues only)",
+)
+
+_REPRO_SUBSTR = 'reproduction captured (bug issues only)'
+
+# add-when-missing: bug-report classification on a non-bug skeleton inserts the
+# unticked repro row directly under **Implement**, above `code + sweeps`.
+_add = apply_mut(_WP_NONBUG, make_args(reconcile_reproduction='bug-report'))
+assert_eq("reconcile: bug-report adds the repro row when absent", True,
+          '- [ ] ' + _REPRO_SUBSTR in _add)
+assert_eq("reconcile: added repro row sits above code + sweeps", True,
+          _add.index(_REPRO_SUBSTR) < _add.index('- [ ] code + sweeps'))
+assert_eq("reconcile: added repro row sits below the Implement heading", True,
+          _add.index('**Implement**') < _add.index(_REPRO_SUBSTR))
+
+# remove-when-present-unticked: non-bug classification on a bug skeleton drops the
+# unticked repro row, leaving `code + sweeps` intact.
+_rm = apply_mut(_WP_BUG, make_args(reconcile_reproduction='non-bug'))
+assert_eq("reconcile: non-bug removes the unticked repro row", False,
+          _REPRO_SUBSTR in _rm)
+assert_eq("reconcile: non-bug keeps code + sweeps after removal", True,
+          '- [ ] code + sweeps' in _rm)
+
+# ticked-row-preserved: a ticked repro row is historical evidence — non-bug must
+# NOT remove it.
+_keep = apply_mut(_WP_BUG_TICKED, make_args(reconcile_reproduction='non-bug'))
+assert_eq("reconcile: non-bug preserves a TICKED repro row", True,
+          '- [x] ' + _REPRO_SUBSTR in _keep)
+
+# ticked-row-preserved, uppercase variant: the drop-set test is exact-`[ ]`, so an
+# `[X]`-ticked row (hand-edited workpad) is preserved just like `[x]`.
+_WP_BUG_TICKED_UPPER = _WP_BUG.replace(
+    "  - [ ] reproduction captured (bug issues only)",
+    "  - [X] reproduction captured (bug issues only)",
+)
+_keep_upper = apply_mut(_WP_BUG_TICKED_UPPER, make_args(reconcile_reproduction='non-bug'))
+assert_eq("reconcile: non-bug preserves an uppercase-[X]-ticked repro row", True,
+          '- [X] ' + _REPRO_SUBSTR in _keep_upper)
+
+# bug-report against an already-TICKED row is a no-op in any tick state: the row
+# matches regardless of its box, so no second (unticked) row is inserted.
+_noop_bug_ticked = apply_mut(_WP_BUG_TICKED, make_args(reconcile_reproduction='bug-report'))
+assert_eq("reconcile: bug-report is a no-op against a ticked row (no duplicate insert)", True,
+          _noop_bug_ticked.split('## Progress', 1)[1].count(_REPRO_SUBSTR) == 1)
+assert_eq("reconcile: bug-report no-op keeps the ticked row ticked", True,
+          '- [x] ' + _REPRO_SUBSTR in _noop_bug_ticked)
+
+# no-op arms: bug-report on a skeleton that already has the row, and non-bug on a
+# skeleton that never had it, both leave Progress byte-identical (idempotent).
+_noop_bug = apply_mut(_WP_BUG, make_args(reconcile_reproduction='bug-report'))
+assert_eq("reconcile: bug-report is a no-op when the row already exists", True,
+          _noop_bug.count(_REPRO_SUBSTR) == 1)
+assert_eq("reconcile: bug-report no-op keeps a single repro row (no duplicate)", True,
+          _noop_bug.split('## Progress', 1)[1].count(_REPRO_SUBSTR) == 1)
+_noop_nonbug = apply_mut(_WP_NONBUG, make_args(reconcile_reproduction='non-bug'))
+assert_eq("reconcile: non-bug is a no-op when the row is already absent", False,
+          _REPRO_SUBSTR in _noop_nonbug)
+
+# note-supersede: recording a classification replaces any existing `classification: `
+# note, so the workpad carries exactly one at all times, in the exact form.
+_c1 = apply_mut(_WP_NONBUG, make_args(
+    record_classification=['non-bug', 'reads as a feature request']))
+assert_eq("record-classification: first record lands in the exact form", True,
+          'classification: non-bug — reads as a feature request' in _c1)
+assert_eq("record-classification: exactly one classification note after first record",
+          1, _c1.count('classification: '))
+_c2 = apply_mut(_c1, make_args(
+    record_classification=['bug-report', 'quoted stack trace in the body']))
+assert_eq("record-classification: second record supersedes the first", True,
+          'classification: bug-report — quoted stack trace in the body' in _c2)
+assert_eq("record-classification: superseded note is gone", False,
+          'reads as a feature request' in _c2)
+assert_eq("record-classification: still exactly one classification note after supersede",
+          1, _c2.count('classification: '))
+
+# A classification note nests inside ## Progress (not Reflection), so
+# lib/fetch-pr-context.sh's reflection parse never picks it up.
+assert_eq("record-classification: note lands inside ## Progress", True,
+          _c1.split('## Progress', 1)[1].split('## Plan', 1)[0].count('classification: ') == 1)
+
+# Guard rails: an empty rationale and an unknown class both fail structurally
+# (an _UpdateError before any PATCH), never a silent malformed record.
+assert_raises("record-classification: empty rationale raises", workpad._UpdateError,
+              lambda: apply_mut(_WP_NONBUG, make_args(
+                  record_classification=['non-bug', '   '])))
+assert_raises("record-classification: unknown class raises", workpad._UpdateError,
+              lambda: apply_mut(_WP_NONBUG, make_args(
+                  record_classification=['maybe-bug', 'rationale'])))
+# A multi-line rationale is its own fail-closed guard arm (distinct from empty/unknown):
+# a line boundary would split the note bullet and could inject a forged checkbox row, so it
+# raises structurally before any PATCH — the same bullet-splitting hazard --rewrite-ac guards.
+assert_raises("record-classification: multi-line rationale raises (bullet-split guard)",
+              workpad._UpdateError,
+              lambda: apply_mut(_WP_NONBUG, make_args(
+                  record_classification=['non-bug', 'ok\n- [x] phantom AC'])))
+
+# _reconcile_reproduction_row fails CLOSED (loud) when the ## Progress skeleton has no
+# **Implement** anchor row to insert under — a bug-classified run must never silently lose
+# its reproduce-first gate row.
+_WP_NO_IMPLEMENT = _WP_NONBUG.replace("- [ ] **Implement**\n  - [ ] code + sweeps\n", "")
+assert_raises("reconcile: bug-report with no **Implement** anchor raises (fail-closed)",
+              workpad._UpdateError,
+              lambda: apply_mut(_WP_NO_IMPLEMENT, make_args(
+                  reconcile_reproduction='bug-report')))
+
+# The real Phase 1.3 production call shape: record the classification AND reconcile the row
+# in one `update` call (both mutate ## Progress sequentially). Confirm both land.
+_combo = apply_mut(_WP_NONBUG, make_args(
+    record_classification=['bug-report', 'stack trace in the body'],
+    reconcile_reproduction='bug-report'))
+assert_eq("record+reconcile in one call: classification note lands", True,
+          'classification: bug-report — stack trace in the body' in _combo)
+assert_eq("record+reconcile in one call: repro row added", True,
+          '- [ ] ' + _REPRO_SUBSTR in _combo)
+assert_eq("record+reconcile in one call: exactly one classification note", 1,
+          _combo.count('classification: '))
+
+# The inverse production shape — the mislabelled-feature-request correction: record
+# non-bug AND remove the repro row from a bug skeleton in one `update` call.
+_combo_nb = apply_mut(_WP_BUG, make_args(
+    record_classification=['non-bug', 'reads as a feature request'],
+    reconcile_reproduction='non-bug'))
+assert_eq("record+reconcile non-bug in one call: classification note lands", True,
+          'classification: non-bug — reads as a feature request' in _combo_nb)
+assert_eq("record+reconcile non-bug in one call: unticked repro row removed", False,
+          _REPRO_SUBSTR in _combo_nb)
+assert_eq("record+reconcile non-bug in one call: code + sweeps kept", True,
+          '- [ ] code + sweeps' in _combo_nb)
+assert_eq("record+reconcile non-bug in one call: exactly one classification note", 1,
+          _combo_nb.count('classification: '))
+
+# supersede against an ALREADY-CORRUPTED workpad carrying TWO classification notes:
+# the exactly-one invariant must hold even when the input violates it (a regex
+# regression matching only the first bullet would pass every build-it-via-the-tool
+# test while leaving the second stale note behind).
+_WP_TWO_NOTES = _WP_NONBUG.replace(
+    "  - 00:00:00 — /devflow:implement run started",
+    "  - 00:00:00 — /devflow:implement run started\n"
+    "  - 00:00:01 — classification: non-bug — first stale note\n"
+    "  - 00:00:02 — classification: bug-report — second stale note",
+)
+_c3 = apply_mut(_WP_TWO_NOTES, make_args(
+    record_classification=['bug-report', 'quoted stack trace']))
+assert_eq("record-classification: BOTH pre-existing corrupted notes superseded", 1,
+          _c3.count('classification: '))
+assert_eq("record-classification: the fresh note is the survivor", True,
+          'classification: bug-report — quoted stack trace' in _c3)
+# ...and a NON-classification Progress note is untouched by the supersede sweep: a
+# broadened _CLASSIFICATION_NOTE_RE deleting real progress history must fail here.
+assert_eq("record-classification: non-classification progress note survives supersede",
+          True, '/devflow:implement run started' in _c3)
+assert_eq("record-classification: non-classification note also survives plain record",
+          True, '/devflow:implement run started' in _c2)
+
+# bug-report insert against a resume-shaped layout: intervening non-checkbox
+# sub-bullets under **Implement** (a resume note logged before code + sweeps). The
+# anchor is the **Implement** line itself, so the row lands as its FIRST sub-item.
+_WP_RESUME = _WP_NONBUG.replace(
+    "- [ ] **Implement**\n  - [ ] code + sweeps",
+    "- [ ] **Implement**\n  - 00:05:00 — resumed from Implementing\n  - [ ] code + sweeps",
+)
+_add_resume = apply_mut(_WP_RESUME, make_args(reconcile_reproduction='bug-report'))
+assert_eq("reconcile: resume layout — repro row inserted (exactly one)", 1,
+          _add_resume.count(_REPRO_SUBSTR))
+assert_eq("reconcile: resume layout — row lands directly under **Implement**, above "
+          "the intervening resume note", True,
+          _add_resume.index('**Implement**') < _add_resume.index(_REPRO_SUBSTR)
+          < _add_resume.index('resumed from Implementing'))
+
+# DUPLICATE pre-existing repro rows (a hand-corrupted skeleton): non-bug removes
+# every unticked copy; bug-report no-ops without inserting a third.
+_WP_BUG_DUP = _WP_BUG.replace(
+    "  - [ ] reproduction captured (bug issues only)",
+    "  - [ ] reproduction captured (bug issues only)\n"
+    "  - [ ] reproduction captured (bug issues only)",
+)
+_rm_dup = apply_mut(_WP_BUG_DUP, make_args(reconcile_reproduction='non-bug'))
+assert_eq("reconcile: non-bug removes ALL duplicate unticked repro rows", False,
+          _REPRO_SUBSTR in _rm_dup)
+_noop_dup = apply_mut(_WP_BUG_DUP, make_args(reconcile_reproduction='bug-report'))
+assert_eq("reconcile: bug-report no-ops on duplicate rows (no third insert)", 2,
+          _noop_dup.count(_REPRO_SUBSTR))
+# Mixed tick states among duplicates: only the unticked copy drops.
+_WP_BUG_DUP_MIXED = _WP_BUG.replace(
+    "  - [ ] reproduction captured (bug issues only)",
+    "  - [x] reproduction captured (bug issues only)\n"
+    "  - [ ] reproduction captured (bug issues only)",
+)
+_rm_mixed = apply_mut(_WP_BUG_DUP_MIXED, make_args(reconcile_reproduction='non-bug'))
+assert_eq("reconcile: mixed duplicates — ticked copy preserved", True,
+          '- [x] ' + _REPRO_SUBSTR in _rm_mixed)
+assert_eq("reconcile: mixed duplicates — unticked copy removed (one row left)", 1,
+          _rm_mixed.count(_REPRO_SUBSTR))
+
+# Missing `## Progress` SECTION (distinct from the missing **Implement** anchor
+# above) fails closed for BOTH new mutations — attributed to the section guard's
+# own message, so a rejection from some other guard cannot masquerade as this one.
+# Positive control: the identical fixture WITH ## Progress succeeds in the tests
+# above (_c1/_add), so the rejection here is attributable to the removed section.
+_WP_NO_PROGRESS = _WP_NONBUG.replace(
+    "## Progress\n"
+    "- [ ] **Setup** — branch & workpad\n"
+    "  - 00:00:00 — /devflow:implement run started\n"
+    "- [ ] **Implement**\n"
+    "  - [ ] code + sweeps\n"
+    "- [ ] **Review**\n"
+    "- [ ] **Documentation**\n"
+    "- [ ] **PR marked ready**\n"
+    "\n",
+    "",
+)
+assert_eq("no-progress fixture: section really removed (fixture self-check)", False,
+          '## Progress' in _WP_NO_PROGRESS)
+for _label, _np_args in (
+    ("record-classification", make_args(record_classification=['non-bug', 'r'])),
+    ("reconcile-reproduction", make_args(reconcile_reproduction='bug-report')),
+):
+    try:
+        apply_mut(_WP_NO_PROGRESS, _np_args)
+        assert_eq(f"{_label}: missing ## Progress raises", "_UpdateError raised",
+                  "no exception")
+    except workpad._UpdateError as _e:
+        assert_eq(f"{_label}: missing ## Progress fails closed naming the section",
+                  True, "'## Progress' not found" in str(_e))
 
 
 print("parse_acs._is_post_merge")
@@ -2263,6 +2709,63 @@ _res6, _ = _rro.resolve_overrides(
 )
 assert_eq("resolve: empty own entry shadows default → no override", {}, _res6)
 
+# --- iterations key (issue #425): default-off "first-only" roster scoping ---
+# The resolver only READS/passes the key through; the fix-loop-iteration≥2 exclusion
+# is enforced engine-side (skills/review/SKILL.md Phase 3.1). These cases pin the
+# resolver's pass-through + drop-with-warning contract, mirroring effort's arm.
+
+# T1: first-only passed through in the resolved map, for its agent only.
+_it_res, _it_warn = _rro.resolve_overrides(
+    {"devflow:code-reviewer": {"model": "m", "effort": "high", "iterations": "first-only"},
+     "devflow:silent-failure-hunter": {"model": "n"}},
+    ["devflow:code-reviewer", "devflow:silent-failure-hunter"],
+)
+assert_eq("resolve(#425): first-only passed through for its agent",
+          {"model": "m", "effort": "high", "iterations": "first-only"},
+          _it_res["devflow:code-reviewer"])
+assert_eq("resolve(#425): an agent without the key has no iterations in its output",
+          {"model": "n"}, _it_res["devflow:silent-failure-hunter"])
+assert_eq("resolve(#425): first-only pass-through emits no warning", [], _it_warn)
+
+# T2: invalid iterations value dropped with a warning; run never aborts.
+_iti_res, _iti_warn = _rro.resolve_overrides(
+    {"devflow:code-reviewer": {"iterations": "always"}},
+    ["devflow:code-reviewer"],
+)
+assert_eq("resolve(#425): invalid iterations value dropped → no override", {}, _iti_res)
+assert_eq("resolve(#425): invalid iterations emits exactly one warning", 1, len(_iti_warn))
+assert_eq("resolve(#425): invalid-iterations warning names the entry + the valid value",
+          True, "iterations" in _iti_warn[0] and "first-only" in _iti_warn[0])
+
+# Empty-string iterations follows the invalid-value arm (dropped + warning); model forwarded.
+_ite_res, _ite_warn = _rro.resolve_overrides(
+    {"devflow:code-reviewer": {"model": "m", "iterations": ""}},
+    ["devflow:code-reviewer"],
+)
+assert_eq("resolve(#425): empty-string iterations dropped, model still forwarded",
+          {"model": "m"}, _ite_res["devflow:code-reviewer"])
+assert_eq("resolve(#425): empty-string iterations emits exactly one warning", 1, len(_ite_warn))
+
+# An entry carrying ONLY iterations (no model/effort) still resolves.
+_ito_res, _ito_warn = _rro.resolve_overrides(
+    {"devflow:code-reviewer": {"iterations": "first-only"}},
+    ["devflow:code-reviewer"],
+)
+assert_eq("resolve(#425): entry carrying only iterations still resolves",
+          {"iterations": "first-only"}, _ito_res["devflow:code-reviewer"])
+assert_eq("resolve(#425): only-iterations entry emits no warning", [], _ito_warn)
+
+# T3: default-entry inheritance + entry-level precedence, identical to model/effort.
+_itd_res, _ = _rro.resolve_overrides(
+    {"default": {"iterations": "first-only"},
+     "devflow:code-reviewer": {"model": "m"}},
+    ["devflow:code-reviewer", "devflow:silent-failure-hunter"],
+)
+assert_eq("resolve(#425): default iterations applies to a no-entry agent",
+          {"iterations": "first-only"}, _itd_res["devflow:silent-failure-hunter"])
+assert_eq("resolve(#425): own entry does NOT inherit default iterations (entry-level precedence)",
+          {"model": "m"}, _itd_res["devflow:code-reviewer"])
+
 # read_raw integration (exercises the real config-get.sh I/O path, not just the
 # pure resolver). The empty-own-entry contract must hold END-TO-END: the leaf
 # reads alone can't tell {} from an absent key, so read_raw probes the entry
@@ -2276,28 +2779,41 @@ with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _cf:
         '{"devflow_review":{"agent_overrides":{'
         '"default":{"effort":"high"},'
         '"devflow:checklist-verifier":{},'
-        '"devflow:code-reviewer":{"model":"m","effort":"low"}}}}'
+        '"devflow:silent-failure-hunter":{"iterations":{"nested":"obj"}},'
+        '"devflow:code-reviewer":{"model":"m","effort":"low","iterations":"first-only"}}}}'
     )
     _cfg_path = _cf.name
 try:
     _rr_raw, _rr_warn = _rro.read_raw(
         ["devflow:checklist-verifier", "devflow:code-reviewer",
-         "devflow:comment-analyzer"],
+         "devflow:silent-failure-hunter", "devflow:comment-analyzer"],
         _config_get_sh, _cfg_path,
     )
     assert_eq("read_raw: present-but-empty entry is represented as {} (shadows default)",
               {}, _rr_raw.get("devflow:checklist-verifier"))
-    assert_eq("read_raw: full entry's fields are read",
-              {"model": "m", "effort": "low"},
+    # #425: the `iterations` leaf round-trips through the real config-get.sh I/O path
+    # (the pure-resolver tests never exercise read_raw's field loop for the new key).
+    assert_eq("read_raw(#425): full entry reads model+effort+iterations end-to-end",
+              {"model": "m", "effort": "low", "iterations": "first-only"},
               _rr_raw.get("devflow:code-reviewer"))
+    # #425: an OBJECT-valued iterations leaf is dropped with the sentinel warning (read_raw
+    # lines guarding _OBJECT_SENTINEL), leaving the entry empty rather than laundering the
+    # sentinel string into a bogus value.
+    assert_eq("read_raw(#425): object-valued iterations leaf is dropped (sentinel), entry empty",
+              {}, _rr_raw.get("devflow:silent-failure-hunter"))
+    assert_eq("read_raw(#425): object-valued iterations leaf surfaces a warning",
+              True, any("iterations" in _w and "object" in _w for _w in _rr_warn))
     assert_eq("read_raw: absent agent is not added to raw",
               False, "devflow:comment-analyzer" in _rr_raw)
     assert_eq("read_raw: default entry is read", {"effort": "high"},
               _rr_raw.get("default"))
-    assert_eq("read_raw: well-formed config yields no warnings", [], _rr_warn)
     # End-to-end resolution off the real config path: empty entry must NOT inherit default.
     _e2e, _ = _rro.resolve_overrides(_rr_raw, ["devflow:checklist-verifier"])
     assert_eq("read_raw+resolve: empty entry shadows default end-to-end", {}, _e2e)
+    # #425: end-to-end, the valid iterations value survives into the resolved map.
+    _e2e_it, _ = _rro.resolve_overrides(_rr_raw, ["devflow:code-reviewer"])
+    assert_eq("read_raw+resolve(#425): valid iterations survives to the resolved map",
+              "first-only", _e2e_it.get("devflow:code-reviewer", {}).get("iterations"))
 finally:
     _os.unlink(_cfg_path)
 
@@ -2517,6 +3033,45 @@ _schema_keys = set(
 )
 assert_eq("schema agent_overrides keys == KNOWN_AGENTS + 'default'",
           set(_rro.KNOWN_AGENTS) | {"default"}, _schema_keys)
+
+# T4 (issue #425): every agent_overrides entry (all nine agents + `default`) declares
+# the optional `iterations` property as a string enum whose ONLY value is "first-only",
+# and each entry stays additionalProperties:false (so a stale/typo'd entry key — and an
+# out-of-enum iterations value in a validated config — is rejected outright). This pins
+# the schema surface the resolver's VALID_ITERATIONS mirrors.
+_ao_entries = (
+    _schema["properties"]["devflow_review"]["properties"]["agent_overrides"]["properties"]
+)
+for _ent_name, _ent in _ao_entries.items():
+    _it = _ent.get("properties", {}).get("iterations")
+    assert_eq("#425 schema: agent_overrides[%s] declares iterations enum ['first-only']"
+              % _ent_name,
+              {"type": "string", "enum": ["first-only"]}, _it)
+    assert_eq("#425 schema: agent_overrides[%s] stays additionalProperties:false"
+              % _ent_name,
+              False, _ent.get("additionalProperties"))
+assert_eq("#425 schema: VALID_ITERATIONS mirrors the schema enum",
+          ("first-only",), _rro.VALID_ITERATIONS)
+
+# T6 (issue #425): the shipped tracked .devflow/config.json pins the code-reviewer
+# override to model+effort+iterations exactly, so a partial edit (dropping iterations,
+# or changing model/effort) fails the suite. config.example.json carries iterations too.
+_shipped_cfg_path = SCRIPTS.parent / '.devflow' / 'config.json'
+with open(_shipped_cfg_path) as _scf:
+    _shipped_cfg = json.load(_scf)
+_shipped_cr = (
+    _shipped_cfg["devflow_review"]["agent_overrides"]["devflow:code-reviewer"]
+)
+assert_eq("#425 config.json: code-reviewer override is model+effort+iterations exactly",
+          {"model": "claude-opus-4-8", "effort": "low", "iterations": "first-only"},
+          _shipped_cr)
+_example_cfg_path = SCRIPTS.parent / '.devflow' / 'config.example.json'
+with open(_example_cfg_path) as _ecf:
+    _example_cfg = json.load(_ecf)
+assert_eq("#425 config.example.json: code-reviewer override carries iterations first-only",
+          "first-only",
+          _example_cfg["devflow_review"]["agent_overrides"]
+          ["devflow:code-reviewer"].get("iterations"))
 
 # Migration: the documented schema-rejection of a stale externally-namespaced override key
 # (PR #143 review, Major #1 + Minor #1). CHANGELOG/migration-doc prose promise that a stale
@@ -2838,6 +3393,170 @@ assert_eq("#338: _post_merge_flags flags ticked and unticked rows alike, skippin
               "some prose (post-merge)\n"
               "- [ ] deferred (post-merge)\n"))
 
+
+# ── stale_prose_lint.parse_diff / main (#423 helper, hardened per the #424 review) ────────
+# parse_diff is driven end-to-end by run.sh only over `git diff <empty-tree> HEAD` — a single
+# all-`+` hunk. The REAL callers feed a `base...HEAD` diff. These tests pin the post-image
+# bookkeeping directly on the shapes that diff actually has.
+_MULTI_HUNK = (
+    "diff --git a/f.md b/f.md\n"
+    "index 1111111..2222222 100644\n"
+    "--- a/f.md\n"
+    "+++ b/f.md\n"
+    "@@ -3,4 +3,5 @@ ctx\n"
+    " keep three\n"
+    "+added four\n"
+    "-gone five\n"
+    " keep six\n"
+    "+added seven\n"
+    " keep eight\n"
+    "@@ -40,3 +42,4 @@ ctx\n"
+    " keep forty\n"
+    "+added forty-three\n"
+    " keep forty-one\n"
+    " keep forty-two\n"
+)
+# Hunk 1 starts at post-image line 3: " keep three"=3, "+added four"=4, "-gone five" spends NO
+# post-image budget, " keep six"=5, "+added seven"=6, " keep eight"=7.
+# Hunk 2 starts at post-image line 42: " keep forty"=42, "+added forty-three"=43.
+assert_eq("#424: parse_diff tracks post-image line numbers across context, deletions, and a "
+          "second hunk starting past line 1",
+          {'f.md': {4: 'added four', 6: 'added seven', 43: 'added forty-three'}},
+          stale_prose_lint.parse_diff(_MULTI_HUNK))
+
+# A diff-ADDED content line whose own text begins "++ " is emitted as "+++ ". A prefix-only
+# parser reads it as the next file header and retargets every later added line onto a phantom
+# path; the hunk budget consumes it as content.
+_PLUSPLUS = (
+    "diff --git a/f.md b/f.md\n"
+    "--- a/f.md\n"
+    "+++ b/f.md\n"
+    "@@ -0,0 +1,2 @@\n"
+    "+++ leading plus-plus is content, not a header\n"
+    "+real claim line\n"
+)
+assert_eq("#424: a '++ '-leading added line is content, not a file header (no phantom path)",
+          {'f.md': {1: '++ leading plus-plus is content, not a header', 2: 'real claim line'}},
+          stale_prose_lint.parse_diff(_PLUSPLUS))
+
+# "@@ -1 +1 @@" (no comma) promises a ONE-line post image.
+assert_eq("#424: parse_diff reads a countless '@@ -1 +1 @@' hunk header as a 1-line post image",
+          {'f.md': {1: 'only line'}},
+          stale_prose_lint.parse_diff(
+              "--- a/f.md\n+++ b/f.md\n@@ -1 +1 @@\n-old line\n+only line\n"))
+
+# An OVERSTATED hunk count (a hand-rolled or truncated diff claiming more post-image lines
+# than it carries) must not let the leftover budget swallow the NEXT hunk header — that would
+# silently drop every claim after it. A bare `@@` at column 0 is unambiguously structure (a
+# content line always carries a +/-/space prefix), so the parser resyncs on it.
+assert_eq("#424: an overstated hunk count does not swallow the next hunk header",
+          {'f.md': {4: 'added four', 43: 'added forty-three'}},
+          stale_prose_lint.parse_diff(
+              "--- a/f.md\n+++ b/f.md\n"
+              "@@ -3,1 +3,9 @@\n keep three\n+added four\n"      # claims 9, carries 2
+              "@@ -40,1 +42,2 @@\n keep forty\n+added forty-three\n"))
+
+# A `+++ /dev/null` target (a deletion) contributes no added lines.
+assert_eq("#424: parse_diff attributes nothing to a /dev/null target",
+          {}, stale_prose_lint.parse_diff(
+              "--- a/f.md\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\n"))
+
+# main()'s exit-2 catch-all must cover the WHOLE body. Before the #424 fix the stream
+# reconfigure and the argparse construction sat OUTSIDE the guard, so an exception there
+# escaped and Python exited 1 — and 1 is a contracted helper arm ("at least one STALE row"),
+# so a crashed run read to the callers' routers as a completed one over its empty stdout.
+# Anything unexpected must surface as 2.
+
+
+def _main_rc_when_argparse_explodes():
+    _real = stale_prose_lint.argparse.ArgumentParser
+
+    def _boom(*_a, **_kw):
+        raise OSError("simulated: argparse construction failed")
+
+    stale_prose_lint.argparse.ArgumentParser = _boom
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            return stale_prose_lint.main(['stale-prose-lint.py', '--rev', 'HEAD'])
+    finally:
+        stale_prose_lint.argparse.ArgumentParser = _real
+
+
+assert_eq("#424: an exception outside the old guard (argparse construction) exits 2, "
+          "never Python's default 1 (which the routers read as the STALE arm)",
+          2, _main_rc_when_argparse_explodes())
+
+# The positive control: the same call path with argparse intact does NOT exit 2 — so the
+# assertion above is attributable to the raised OSError, not to a broken fixture that would
+# have failed anyway. `--rev` is a real commit here (HEAD of this repo) and stdin is an empty
+# diff, so the contract says exit 0.
+
+
+def _main_rc_on_empty_diff():
+    _real_stdin = sys.stdin
+    sys.stdin = type('S', (), {'buffer': io.BytesIO(b'')})()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return stale_prose_lint.main(['stale-prose-lint.py', '--rev', 'HEAD'])
+    finally:
+        sys.stdin = _real_stdin
+
+
+assert_eq("#424: positive control — the same fixture with argparse intact exits 0 on an empty "
+          "diff (the exit-2 above is the raised error, not an unrelated precondition)",
+          0, _main_rc_on_empty_diff())
+
+# ── stale_prose_lint.prose_mask (#434 line scoping) ───────────────────────────────────────
+# The predicate is FILE-STATEFUL: fence / docstring / block-comment membership cannot be
+# decided from an added line's own text (a hunk can begin *inside* a fence, so the opening
+# delimiter is often not in the diff at all). These drive it over whole post-file content,
+# which is what the helper actually feeds it.
+assert_eq("#434: an unrecognised extension returns None — FAIL OPEN, examine every line",
+          None, stale_prose_lint.prose_mask('x.zzz', ['# Cases 1-2', 'code']))
+assert_eq("#434: a .sh mask is True only for '#' comment lines",
+          [True, False, True],
+          stale_prose_lint.prose_mask('x.sh', ['# a comment', "printf '# Cases 1-2'", '  # indented']))
+assert_eq("#434: a .go mask covers '//' comments and /* … */ interiors",
+          [True, False, True, True, True, False],
+          stale_prose_lint.prose_mask(
+              'x.go', ['// line comment', 'x := 1', '/* block', '   still block', '   end */', 'y := 2']))
+assert_eq("#434: markdown prose is True, fenced-block interior is False",
+          [True, False, False, False, True],
+          stale_prose_lint.prose_mask('x.md', ['prose', '```bash', '# Cases 1-2', '```', 'more prose']))
+# A 4-backtick fence wrapping a 3-backtick run: a naive "toggle on any ```" would invert fence
+# state for the rest of the file — mis-scoping every later line in BOTH directions.
+assert_eq("#434: a 4-backtick fence wrapping a 3-backtick run closes on the 4-run, not the 3",
+          [False, False, False, True],
+          stale_prose_lint.prose_mask('x.md', ['````md', '```', '````', 'prose after']))
+# An unclosed fence fails OPEN: a stray backtick run must not un-examine the file's tail.
+assert_eq("#434: an UNCLOSED fence fails open (its region stays prose, not code)",
+          [True, True], stale_prose_lint.prose_mask('x.md', ['```', 'still examined']))
+# Python: a real docstring is prose; a claim-shaped assigned string literal is fixture DATA.
+assert_eq("#434: a .py module docstring is prose; an assigned triple-quoted literal is not",
+          [True, False, False],
+          stale_prose_lint.prose_mask(
+              'x.py', ['"""Cases 1-2 below."""', 'FIXTURE = """Cases 1-2 below."""', 'x = 1']))
+assert_eq("#434: a .py '#' comment is prose",
+          [True, False], stale_prose_lint.prose_mask('x.py', ['# Cases 1-2', 'x = 1']))
+# CRLF and a UTF-8 BOM must not hide a comment marker (consumer Windows repos).
+assert_eq("#434: a CRLF '#' comment is still prose (trailing \\r stripped)",
+          [True], stale_prose_lint.prose_mask('x.sh', ['# Cases 1-2\r']))
+assert_eq("#434: a BOM before '#' does not hide the comment marker",
+          [True], stale_prose_lint.prose_mask('x.sh', ['﻿# Cases 1-2']))
+assert_eq("#434: an uppercase extension is matched case-insensitively (.MD is markdown prose)",
+          [True, True], stale_prose_lint.prose_mask('X.MD', ['prose', 'more prose']))
+# Extensionless / dotfile paths fall open (None), never to "examine nothing".
+assert_eq("#434: an extensionless path falls OPEN (None), never to no-checking",
+          None, stale_prose_lint.prose_mask('CHANGELOG', ['Cases 1-2']))
+assert_eq("#434: Makefile/Dockerfile are recognised '#'-comment basenames",
+          [True, False], stale_prose_lint.prose_mask('Makefile', ['# Cases 1-2', 'all:']))
+
+# git C-quotes a non-ASCII path; left encoded it would fail `git show` AND land on the
+# unrecognised arm for a reason unrelated to its type.
+assert_eq("#434: a C-quoted non-ASCII path is decoded back to real text",
+          {'café.md': {1: 'prose'}},
+          stale_prose_lint.parse_diff(
+              '--- a/x\n+++ "b/caf\\303\\251.md"\n@@ -0,0 +1,1 @@\n+prose\n'))
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

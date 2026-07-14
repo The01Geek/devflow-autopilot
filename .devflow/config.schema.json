@@ -156,6 +156,11 @@
           "description": "Extra --allowed-tools entries for the /devflow:implement path (devflow-implement.yml), APPENDED on top of devflow's built-in base list. The implement path does NOT inherit devflow.allowed_tools, so list every extra tool you want during implementation here. Empty/omitted \u2192 base list only.",
           "default": []
         },
+        "update_branch_checkpoints": {
+          "type": "boolean",
+          "description": "Master switch for the base-branch update checkpoints (issue #448). true (the default) brings the feature branch up to date with base_branch at four checkpoints of a /devflow:implement run \u2014 resume/adopt (Phase 1.4), pre-draft-PR (Phase 3.1), each fix iteration + loop exit of the review-and-fix loop under --push-each-iteration (Checkpoint 3), and pre-ready (Phase 4.3) \u2014 via scripts/update-branch-checkpoint.sh, so every state the merge gate or an auto-review consumes is current, including the terminal pushed state. This same key also governs the checkpoint inside a standalone /devflow:review-and-fix --push-each-iteration run. Disabled exactly when the value serializes to the string 'false' via config-get.sh \u2014 an explicit JSON false, the JSON string \"false\", or [false] (arrays comma-join); a missing key, empty string, or any other value leaves the checkpoints enabled (issue #312 valid-falsy discipline). A consumer repo without an up-to-date branch-protection rule keeps working unchanged apart from ordinary base merges on feature branches. See docs/implement-skill.md.",
+          "default": true
+        },
         "stall_backstop": {
           "type": "object",
           "additionalProperties": false,
@@ -265,6 +270,28 @@
           "description": "When true, a PR-mode /devflow:review authors a live progress comment for that run (a run-keyed <!-- devflow:review-progress run=<id>-<attempt> --> comment \u2014 one per review run, so a later run posts its own rather than overwriting an earlier run's) incrementally as it works \u2014 a blueprint of the phases up front, then per-phase updates (diff classification, checklist results, each Phase-3 agent's findings as they land, the verdict), finalizing with the run-telemetry summary and effectiveness trace. When false, /devflow:review falls back to producing its report once at the end (no incremental updates). Independent of devflow_review_and_fix.efficiency_telemetry_enabled, which separately gates the embedded telemetry/trace.",
           "default": true
         },
+        "stale_prose": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Gates the shared review engine's Phase 0.6 deterministic stale-counted-prose lint (scripts/stale-prose-lint.py, issue #423), which flags diff-added prose asserting counts/ranges/sums/deny-absolutes that the same PR's later commits outgrow or falsify. Inherited identically by standalone /devflow:review, the Phase-3 pass of /devflow:review-and-fix, and the shadow pass, since all three drive the same engine. Purely additive: absent, the phase runs with its defaults (enabled, findings at 'important').",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Master switch for Phase 0.6. true (the default) runs the lint and enters each STALE row as an engine finding; false disables the phase with a recorded config-disabled note (never a silent skip). Any value other than an explicit false resolves to enabled — the safe, feature-on-by-default direction.",
+              "default": true
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "critical",
+                "important",
+                "suggestion"
+              ],
+              "description": "The engine-finding severity assigned to each STALE row from Phase 0.6, which then participates in Phase 4.2 verdict computation exactly like any other finding at that severity. UNRESOLVABLE rows are informational notes and never gate regardless of this value. A missing/wrong-type/unknown/empty value falls back to the default 'important' with a stderr breadcrumb (never aborts a run).",
+              "default": "important"
+            }
+          }
+        },
         "require_up_to_date": {
           "type": "boolean",
           "description": "When true (the default), the devflow-review auto-trigger defers \u2014 posting a neutral 'waiting: branch behind base' Devflow Review check instead of running the engine \u2014 while the PR branch is behind its configured base_branch, so an LLM review that a forthcoming branch update would invalidate is not wasted. The review auto-re-triggers on the next reviewable event (synchronize, or other-CI completion). A neutral required check does NOT itself block merge: this precondition is a cost optimization, not a correctness gate \u2014 pair it with branch protection's 'require branches up to date' if staleness must block. When false, restores the unconditional auto-trigger for this precondition. Evaluated by scripts/derive-review-preconditions.sh; an unverifiable comparison fails closed (defer, recoverable via a later event or the check's Re-run button).",
@@ -295,7 +322,7 @@
         },
         "agent_overrides": {
           "type": "object",
-          "description": "Per-subagent model/effort overrides for the shared /devflow:review engine. Applies to BOTH standalone /devflow:review AND the Phase-3 review pass of /devflow:review-and-fix (and thus /devflow:implement), since both drive the same engine. Keys are the nine review-engine subagent identifiers (byte-identical to the telemetry strings) plus an optional `default` fallback. Each value optionally sets `model` (free-form model id, forwarded to the dispatch as given) and/or `effort` (one of low/medium/high/xhigh/max \u2014 an out-of-enum value warns and falls back to the session effort rather than aborting). Resolution is entry-level: a subagent with its own entry uses only that entry (the `default` does NOT backfill its missing fields); `default` supplies model/effort only for subagents with no entry of their own. A subagent with neither its own entry nor a `default` is dispatched exactly as today \u2014 global claude_model + session effort \u2014 with no --agents override emitted for it. See docs/review-agent-overrides.md.",
+          "description": "Per-subagent model/effort overrides for the shared /devflow:review engine. Applies to BOTH standalone /devflow:review AND the Phase-3 review pass of /devflow:review-and-fix (and thus /devflow:implement), since both drive the same engine. Keys are the nine review-engine subagent identifiers (byte-identical to the telemetry strings) plus an optional `default` fallback. Each value optionally sets `model` (free-form model id, forwarded to the dispatch as given), `effort` (one of low/medium/high/xhigh/max \u2014 an out-of-enum value warns and falls back to the session effort rather than aborting), and/or `iterations` (issue #425; only valid value `first-only` \u2014 an agent whose resolved override carries it is excluded from the Phase-3 review roster on fix-loop iterations >= 2, enforced engine-side; an out-of-enum value warns and is dropped rather than aborting; key absent = today's behavior). Resolution is entry-level: a subagent with its own entry uses only that entry (the `default` does NOT backfill its missing fields); `default` supplies model/effort only for subagents with no entry of their own. A subagent with neither its own entry nor a `default` is dispatched exactly as today \u2014 global claude_model + session effort \u2014 with no --agents override emitted for it. See docs/review-agent-overrides.md.",
           "additionalProperties": false,
           "properties": {
             "default": {
@@ -313,6 +340,12 @@
                     "high",
                     "xhigh",
                     "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
                   ]
                 }
               }
@@ -332,6 +365,12 @@
                     "high",
                     "xhigh",
                     "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
                   ]
                 }
               }
@@ -353,6 +392,12 @@
                     "xhigh",
                     "max"
                   ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
                 }
               }
             },
@@ -371,6 +416,12 @@
                     "high",
                     "xhigh",
                     "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
                   ]
                 }
               }
@@ -391,6 +442,12 @@
                     "xhigh",
                     "max"
                   ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
                 }
               }
             },
@@ -409,6 +466,12 @@
                     "high",
                     "xhigh",
                     "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
                   ]
                 }
               }
@@ -429,6 +492,12 @@
                     "xhigh",
                     "max"
                   ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
                 }
               }
             },
@@ -447,6 +516,12 @@
                     "high",
                     "xhigh",
                     "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
                   ]
                 }
               }
@@ -467,6 +542,12 @@
                     "xhigh",
                     "max"
                   ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
                 }
               }
             },
@@ -485,6 +566,12 @@
                     "high",
                     "xhigh",
                     "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
                   ]
                 }
               }
@@ -635,6 +722,17 @@
           "type": "string",
           "description": "Comma-separated list of labels applied to the follow-up issues /devflow:implement files for deferred work \u2014 both Phase 4.0 deferred-acceptance-criteria issues and Phase 4.0.5 deferred-review-finding issues. Each entry is trimmed and blank entries are dropped, so \"DevFlow, Deferred\" applies both DevFlow and Deferred, and a whitespace-only or all-separators value (e.g. \" , \") normalizes to none, applying no labels. (A literal empty string resolves to this default rather than meaning no-labels, matching how config defaults resolve; set a whitespace value to apply none.) Labels are ensured to exist and applied best-effort after the issue is created, so a label hiccup never blocks filing. This is separate from the hardcoded `DevFlow` provenance label that retrospective detection (lib/scan.sh, lib/classify-pr-kind.jq) matches literally \u2014 only deferred-issue labeling is configurable here.",
           "default": "DevFlow,Deferred"
+        }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "description": "Settings for the durable observability-telemetry store (issue #441). DevFlow persists every writable run's effectiveness records and durable review workpads to a dedicated long-lived orphan branch that shares no history with the base branch and is never merged into it, written via git plumbing without touching the current branch, HEAD, or the tracked working tree (it stages under gitignored .devflow/tmp/, which it removes afterwards), then pushed. The weekly retrospective reads that branch (unioned with any legacy tracked .devflow/logs/).",
+      "properties": {
+        "branch": {
+          "type": "string",
+          "description": "Name of the long-lived orphan branch DevFlow persists observability artifacts to. Auto-created on first use if absent; verified to be a telemetry store (its tip tree holds only .devflow/logs/-shaped paths) before appending, so DevFlow never commits onto a same-named branch a consumer uses for something else. A literal empty string resolves to this default (a string key \u2014 an empty branch name is never a valid selection). Keep every workflow `push:` trigger branch-filtered so a telemetry push runs no CI (DevFlow's own workflows filter `push:` to `main`; a consumer whose `on: push` is unfiltered should add a `branches-ignore` entry for this branch).",
+          "default": "devflow-telemetry"
         }
       }
     },

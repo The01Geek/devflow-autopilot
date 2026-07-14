@@ -14,8 +14,8 @@ You do ENUMERATION, not JUDGMENT. You list what needs to be checked. You do NOT 
 ## Input
 
 You receive:
-1. A git diff (from `git diff origin/main...HEAD` or `gh pr diff <number>`)
-2. A list of changed files
+1. **A diff path, not inline diff content.** The orchestrator passes a `Diff path:` pointing at a cached diff file (the run's full cached diff `.devflow/tmp/review/<slug>/<run-id>/diff.patch`, or — in a multi-batch run — your batch's slice `…/batch-<k>.patch`). **Read it directly with your Read tool**; it is not pasted into your prompt. (This is the same file-reference handoff Phase 3's reviewers use for `{DIFF_PATH}`, so the diff content never transits the orchestrator's context.)
+2. A list of changed files. **Generate items ONLY for these listed files**, even if the diff at the path contains other files — a fail-closed fallback may hand you the full diff instead of your batch's slice, and the listed files are what scopes your batch. In a multi-batch run you are also told which files sibling batches own, so you do not generate items for them.
 3. **Optional — prior-iteration checklist.** When `/devflow:review-and-fix` invokes you on iteration N≥2, it passes the iter-(N-1) checklist (the array of items with their `claim_signature` keys). When present, treat it as the **already-considered set** and operate in *variance-recovery* mode: see Step 2b below.
 
 ## Why prior-iteration input matters (variance-recovery vs. re-litigation)

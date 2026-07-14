@@ -16,6 +16,7 @@
     "effort": "high",
     "implement_pr_state": "ready_for_review",
     "allowed_tools": [],
+    "update_branch_checkpoints": true,
     "stall_backstop": {
       "enabled": true,
       "max_resume_attempts": 2
@@ -35,6 +36,10 @@
   "devflow_review": {
     "verdict_severity_threshold": "critical",
     "live_progress_comment_enabled": true,
+    "stale_prose": {
+      "enabled": true,
+      "severity": "important"
+    },
     "require_up_to_date": true,
     "require_ci_green": true,
     "stall_backstop": {
@@ -51,7 +56,8 @@
       },
       "devflow:code-reviewer": {
         "model": "claude-opus-4-8",
-        "effort": "high"
+        "effort": "high",
+        "iterations": "first-only"
       }
     }
   },
@@ -76,6 +82,9 @@
   },
   "deferred": {
     "labels": "DevFlow,Deferred"
+  },
+  "telemetry": {
+    "branch": "devflow-telemetry"
   },
   "devflow_retrospective": {
     "enabled": true,

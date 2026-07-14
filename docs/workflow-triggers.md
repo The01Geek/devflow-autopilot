@@ -363,9 +363,19 @@ phase boundary; Phase 4.5 finalizes it).
 - It works under the **read-only cloud `review` profile**: the comment is
   created/edited via `gh` (a comment edit, not a tree write), and the runner's
   `review` tool profile additionally allow-lists `workpad.py`, `config-get.sh`,
-  and `efficiency-trace.sh` for this. The effectiveness-trace **record file**
-  under `.devflow/logs/efficiency/` is gated to writable (local/IDE) runs only —
-  see [`efficiency-trace.md`](efficiency-trace.md).
+  and `efficiency-trace.sh` for this. The effectiveness-trace **record**
+  is persisted to the dedicated `devflow-telemetry` branch (issue #441). Every
+  *writable* run pushes it directly. This read-only `review` runner
+  (`contents: read`) still runs `--persist`, but in **staging-only** mode: because
+  the workflow leaves the push operand `DEVFLOW_TELEMETRY_PUSH` unset, `--persist`
+  fails closed under CI (issue #469 AC5) — it stages the records under
+  `.devflow/tmp/`, writes no new branch records, and does no push (a best-effort
+  fetch may fast-forward the *local* `devflow-telemetry` ref to mirror the remote;
+  that leaves the tree and the *remote* ref untouched), so this runner leaves the
+  remote `devflow-telemetry` ref untouched by its own action. Landing those staged records on the
+  branch is the job of a forthcoming trusted telemetry-push relay (which does not
+  check out the PR head; tracked as follow-up work to issue #469) — see
+  [`efficiency-trace.md`](efficiency-trace.md).
 - Gating: `devflow_review.live_progress_comment_enabled = false` skips the live
   comment (the report is produced once at the end, as before); in non-PR /
   current-branch mode there is no comment surface and the narrative goes to chat.

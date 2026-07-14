@@ -245,6 +245,84 @@ Record `cooldown_skipped` tags for the final report.
 
 ---
 
+### Step 6.5 — Build experiment records (best-effort)
+
+After Step 5 materialized this week's retrospective entries (and before the Step 7
+state PR commits the learnings files), assemble the unified experiment record —
+joining each merged PR's per-run cost to its review outcome (verdict, Important-finding
+count, denial count, config fingerprint). Anchored **here** so this week's PRs join
+against this week's freshly-materialized retrospective entries.
+
+This is a **best-effort** step and **never blocks** the retrospective: a non-zero exit is
+logged as a breadcrumb and the run continues. Carry that breadcrumb into the Step 9 status
+report as a blocker note so the failure is visible, then proceed.
+
+A non-zero exit means **some** PRs did not make it into the store — not necessarily that
+*nothing* was written. The assembler exits 2 when any candidate failed to assemble **or**
+had an **unestablished** merge state (a `gh` outage, an unresolvable repo), and it still
+writes the records that *did* assemble, so a partial failure leaves a partially-updated
+store. Report it as "N PRs missing from the experiment store," not as "the store was not
+updated." **An unestablished PR does not backfill by itself** — it never enters the store,
+and only stored or retrospective-listed PRs are re-selected as candidates — so name the
+PRs from the breadcrumb and re-run with `--prs` once the cause is resolved.
+
+Before the reader runs, **fetch the telemetry branch** (issue #441) into its local ref so
+`build-experiment-records.py` can union each run's durable record off that branch with any
+legacy tracked `.devflow/logs/`. Best-effort: on a fresh repo the branch does not exist yet
+(nothing has persisted to it) and the fetch is a harmless no-op — the reader then reads the
+legacy archive alone; the retrospective is never blocked by a missing telemetry branch.
+
+```bash
+# Fetch the telemetry branch into its local ref — deliberately NO force `+` refspec: the
+# local ref can be AHEAD of the remote (offline-accumulated `--persist` commits not yet
+# reconciled by a writer's union re-parent), and a forced fetch would rewind it and
+# permanently orphan those records. A plain fetch fast-forwards the common case and rejects
+# exactly the local-ahead/diverged case, leaving the local ref — and its records — intact
+# for the reader; reconciling with the remote belongs to the next writing run's
+# fetch → re-parent → push loop, never to this read-side fetch.
+# The reader (`_index_efficiency`) reads it by its local branch name.
+#
+# Resolve the branch through the SAME resolver the writer uses — never a third, independent
+# re-derivation. `devflow_telemetry_branch` (lib/telemetry-branch.sh) owns the full contract:
+# the `.telemetry.branch` read, config-get.sh's coercion, and the `git check-ref-format`
+# fallback to the default. A bare `config-get.sh` read here applies NEITHER guard, and both
+# gaps end the same way — this fetch targets a branch nobody wrote to, the local ref is never
+# populated, and on a fresh clone or a cloud checkout the reader then finds nothing and every
+# cost row silently goes missing:
+#   * a schema-valid but git-invalid name ("my branch", "a..b") → the writer persisted to
+#     `devflow-telemetry`, but this would try to fetch `my branch`;
+#   * a malformed config → config-get.sh prints NOTHING and exits 2, so TELEMETRY_BRANCH is
+#     empty and the command degrades to `git fetch origin ":"`, while the writer and reader
+#     both fell back to `devflow-telemetry`.
+# Source the lib and ask it. The `||` keeps this best-effort: if the lib cannot be sourced, fall
+# back to the same default the resolver would have returned.
+#
+# Do NOT redirect the resolver's stderr to /dev/null. Its breadcrumb is the whole reason for
+# routing through it: on a git-invalid `telemetry.branch` it is the one place that names the
+# config key to fix. Silencing it would leave an operator with a broken config reading a
+# perfectly healthy-looking retrospective that quietly contains no telemetry-branch rows.
+# Only stdout is captured; stderr flows to the run log.
+#
+# Note the lib sources `config-source.sh`, which sets `set -euo pipefail` in THIS shell. Every
+# command below is `||`-guarded, so that is harmless today — but keep new commands in this fence
+# guarded, or errexit will abort the step.
+. "$LIB/telemetry-branch.sh" || true
+TELEMETRY_BRANCH=$(devflow_telemetry_branch) || TELEMETRY_BRANCH=""
+[ -n "$TELEMETRY_BRANCH" ] || TELEMETRY_BRANCH=devflow-telemetry
+git fetch origin "${TELEMETRY_BRANCH}:${TELEMETRY_BRANCH}" 2>/dev/null || \
+  echo "retrospective-weekly: could not fetch telemetry branch '${TELEMETRY_BRANCH}' (absent on a fresh repo, offline, or the local ref has commits the remote lacks) — the experiment-record reader unions whatever local '${TELEMETRY_BRANCH}' ref exists (if any) with any legacy tracked .devflow/logs/" >&2
+python3 $LIB/../scripts/build-experiment-records.py || \
+  echo "retrospective-weekly: build-experiment-records.py exited non-zero (rc=$?) — one or more PRs are MISSING from the experiment store (see its stderr for which, and whether they failed to assemble or had an unestablished merge state); records that did assemble were still written" >&2
+```
+
+The assembler is idempotent (one line per merged PR, keyed by PR number) and incremental
+(it processes merged PRs absent from `.devflow/learnings/experiment-records.jsonl` plus
+any passed via `--prs`, never a full-history sweep), so re-running is safe and cheap. It
+runs on the **local/interactive retrospective tier only** — it is never invoked from a
+workflow. See `docs/efficiency-trace.md` for the store schema and the abandoned-run bias.
+
+---
+
 ### Step 7 — State PR
 
 **Open the state PR now, before Stage B**, so that the learnings files are

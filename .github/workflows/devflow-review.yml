@@ -1314,6 +1314,14 @@ jobs:
               flip_review "review job failed (result: $REVIEW_RESULT)"
               ;;
           esac
+          # Durable denial-count publication (issue #431): append the count
+          # VERBATIM to the summary the check-run PATCH already writes, so it
+          # reaches an API-retrievable surface for every finalized HEAD —
+          # including zero-denial runs annotations never emit. `unavailable`
+          # stays `unavailable` (the env default above already preserves it); no
+          # path coerces an unestablished count to 0. The #431 assembler parses
+          # this `permission_denials_count:` line from the check-run output[summary].
+          SUMMARY="${SUMMARY}"$'\n\n'"permission_denials_count: ${PERMISSION_DENIALS_COUNT}"
           if ! gh api -X PATCH "repos/$REPO/check-runs/$CHECK_RUN_ID" \
             -f status='completed' \
             -f conclusion="$CONCLUSION" \
@@ -1399,7 +1407,7 @@ jobs:
           VERDICT: incomplete
           APP_TOKEN_PRESENT: ${{ steps.backstop-token.outputs.token != '' }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           # The post-and-annotate glue — resolve+call request-review-backstop.sh (its
           # decision contract UNCHANGED), parse the decision, compose the /devflow:review
           # re-trigger body, POST it via post-issue-comment.sh, and select the

@@ -6,6 +6,14 @@ Output: `Phase 3/4: Review & Fix — creating PR and running review...`
 
 ### 3.1 Create Draft PR
 
+**Base-branch update checkpoint 2 (pre-draft-PR) — run FIRST, before `gh pr create`.** Phase 2 can run for hours, so immediately before the draft PR exists, bring the feature branch up to date with the configured base so the self-review (3.2) and the first review pass (3.3) see current base. Invoke the shared checkpoint helper — it derives the base branch *internally* (from `base_branch`, the same fail-closed fallback the draft-PR block re-derives below), so no `$BASE` needs to be in scope here:
+
+```bash
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/update-branch-checkpoint.sh
+```
+
+Handle the printed token **per the implement-driven outcome-handling contract in phase-1-setup.md §1.4.1** (record on the issue workpad; `Blocked` on `MERGE_IN_PROGRESS` or a failed conflict resolution; resolve a `CONFLICT` and re-run the Phase 2.3.0 sweep before continuing; record-and-continue on `UNVERIFIED`/`PUSH_REJECTED`). **Do not open the draft PR on a tree the run has hard-stopped on**: `MERGE_IN_PROGRESS`, an unresolved (or suite-failed, aborted) `CONFLICT`, and a `PUSH_REJECTED` whose stderr carries the failed-restore `WARNING` (see §1.4.1's `PUSH_REJECTED` caveat) each stop the run instead. **Every other token proceeds to open the draft PR** — `UP_TO_DATE`, `UPDATED`, `DISABLED`, a *resolved* `CONFLICT`, and equally the record-and-continue outcomes `UNVERIFIED` and an ordinary (restore-succeeded) `PUSH_REJECTED`: those two are *degraded but non-fatal* by the §1.4.1 contract, and the branch is simply not vouched current (the #429 read-target rules stay in force). Withholding the PR on them would contradict the contract's own "record and continue" and would leave the run wedged at Phase 3.1 with no PR and no stop.
+
 Re-derive the base branch and open the draft PR against it **in one bash block**. Each phase's bash block runs as a **separate** shell, so the `$BASE` resolved in Phase 1.4 is **not** in scope here — re-read it (behaviorally identical to Phase 1.4: the `config-get.sh` read plus the fail-closed empty-read fallback to `main`) so `gh pr create` targets the **configured** `base_branch` rather than the repo default branch. Keep the re-derivation and `gh pr create` in the **same** block so `$BASE` cannot be lost to a shell boundary between them (an empty `--base ""` would mistarget silently — the very failure this fix prevents). Pass the re-derived base as the `--base` flag; do **not** pass `--head` — Phase 3.1 runs on the checked-out feature branch, so `gh pr create` defaults `--head` to it correctly:
 
 Derive the run link exactly the way Phase 1.3 §1.3 does — the same
@@ -108,9 +116,15 @@ set -- "$ROOT"/.devflow/tmp/review/*/*/iter-*.json
 { [ -e "$1" ] && printf '%s\n' "$@" | sort; } > "$ROOT/.devflow/tmp/.phase33-iters-before" || :
 ```
 
-Invoke the **Skill tool** with `skill: review-and-fix` and `args: "--push-each-iteration"`. The flag is load-bearing here: this phase operates on the live draft PR created in 3.1, and `--push-each-iteration` propagates each fix iteration to the remote branch so its CI validates the converging state and progress survives a mid-loop crash. (Direct users of `/devflow:review-and-fix` omit the flag and the loop stays local — see that skill's Input section for the flag's semantics.)
+Invoke the **Skill tool** with `skill: review-and-fix` and `args: "--push-each-iteration"`. The flag is load-bearing here: this phase operates on the live draft PR created in 3.1, and `--push-each-iteration` propagates each fix iteration to the remote branch so its CI validates the converging state and progress survives a mid-loop crash. (Direct users of `/devflow:review-and-fix` omit the flag and the loop's **fix commits** stay local — though Loop Exit's `--persist` still pushes the `devflow-telemetry` branch regardless of the flag; see that skill's Input section for the flag's semantics.)
 
-**Stay on the instrumented loop — a cloud permission/sandbox denial is not license to leave it.** This phase drives `review-and-fix` **inline in your context**. If you hit a `claude-code-action` permission or sandbox denial here — a piped/compound `.sh` invocation, a `$(...)` redirect target, or a shell `>` write into `.devflow/tmp` refused as "may only write to files in allowed working directories" — that denial is not the local-tier permission classifier, and is not license to abandon the instrumented loop and hand-run the review engine via direct `Agent` dispatch. On the cloud implement job `Skill`, `Agent`, `Write`, `efficiency-trace.sh`, `workpad.py`, and `config-get.sh` are all allowlisted, so the instrumented loop is navigable, not blocked. Whatever path the review runs, the per-iteration effectiveness record (`iter-<N>.json`) is a non-optional emit on every iteration, written with the Write tool (never a shell `>`/heredoc redirect the sandbox denies) — that is what keeps the **effectiveness** half of the telemetry recoverable even on a degraded, hand-run pass; the **token/wall-clock-cost** half is live-only and cannot be reconstructed once the loop is abandoned, which is the second reason not to leave it. When you need a scratch or telemetry file under `.devflow/tmp`, author it with the Write tool, not a shell `>` redirect; the pre-loop snapshot below is a shell-computed listing whose `>` may itself be refused — its failure does not abort the phase, though it degrades the no-inputs detector to whole-tree presence (which the detector's own `::warning::` surfaces on the run log, because on the persistent local tier a leftover `iter-*.json` can then mask a real loss); it is a degrade to note, not a hard blocker, and never a reason to leave the loop.
+**Stay on the instrumented loop — a cloud permission/sandbox denial is not license to leave it.** This phase drives `review-and-fix` **inline in your context**. If you hit a `claude-code-action` permission or sandbox denial here — a piped/compound `.sh` invocation, a `$(...)` redirect target, or a shell `>` write into `.devflow/tmp` refused as "may only write to files in allowed working directories" — that denial is not the local-tier permission classifier, and is not license to abandon the instrumented loop and hand-run the review engine via direct `Agent` dispatch. On the cloud implement job `Skill`, `Agent`, `Write`, `efficiency-trace.sh`, `workpad.py`, and `config-get.sh` are all allowlisted, so the instrumented loop is navigable, not blocked. Whatever path the review runs, the per-iteration effectiveness record (`iter-<N>.json`) is a non-optional emit on every iteration, written with the Write tool (never a shell `>`/heredoc redirect the sandbox denies) — that is what keeps the **effectiveness** half of the telemetry recoverable even on a degraded, hand-run pass; and the emit is non-optional **on every path, including a degraded one**.
+
+**A denied `Skill` call is not the engine being unavailable — `Skill` is a loader, and the engine is a file in the tree.** This dissolves the dilemma before any telemetry argument is needed. `review-and-fix` executes `skills/review/SKILL.md` Phases 0–4.3 verbatim; those files are in the checkout. If the `Skill` invocation is refused twice, apply the repo's own shape discipline (two denials of a shape → switch to a permitted alternative, never iterate variants): **`Read` the engine from the tree and execute its phases inline.** That is not "hand-running the review from memory" — it *is* the engine, from source. The only thing you may never substitute is a **paraphrase**: five agents dispatched from recollection, with no checklist generate/dedupe/verify, no Step 2.5 classification, no shadow pass, no deferrals manifest, no convergence criteria, is a different artifact wearing the label of a DevFlow review. Note also what the tempting rationalization that a hand-run pass "saves half the time" actually measures: the engine's time *is* those phases, so the saving **is** the omission — that is arithmetic, not a judgment call.
+
+**What the emit protects, stated precisely — claim no more than this, because a claim the harness can falsify teaches the reader to discount the true ones.** Do **not** argue that the data is *unrecoverable*: the cloud `execution_file` is a message transcript, so a reviewer's findings prose lands in it, and even the Phase 1.1.5 cap announcement is chat (in standalone `/devflow:review` that announcement is the *only* surface the engine ships). The true claim is narrower and stronger: **the emit is the only form any shipping code reads.** `lib/efficiency-trace.sh` pins the `iter-*.json` field contract and `--persist` derives `.devflow/logs/efficiency/` from it; `lib/efficiency-trace.jq` derives `verification_posture` from its `checklist[]`; and `defect_signature` is the correlation key the review engine itself joins on — Phase 3.2's mechanical corroboration and the fix loop's iter-(N+1) prior-findings handoff both key on it. **Nothing in the tree parses review findings or telemetry out of `execution_file` prose — the shipped readers consume only structured fields (denials, tool names, result status).** So the emit is structured, joinable data that ships, versus prose that nothing parses — and your **adjudication** in particular (the calibrated `severity`, the `fix_decision` and its reasoning, the `defect_signature`) is a judgment, not an event: it exists only because you record it. Drop the emit and no shipping consumer sees any of it, on either tier.
+
+(On the **token/wall-clock-cost** half, be precise rather than alarmist: issue #437 measured that the cloud `execution_file` *does* carry per-message tokens, wall-clock, the dispatch roster and cost with zero agent cooperation — so on the cloud tier that data is **un-ingested, not lost**, and a floor that reads it is buildable; on the **local** tier the only thing measured was that the `Stop` transcript's token counts are **real** rather than placeholders — **not** wall-clock, **not** the roster. Nothing ships today that ingests either. The cost half is therefore a *backlog* gap, and a cloud-tier agent can correctly defeat it as a reason to stay on the loop. **Do not rest the obligation on it** — rest it on the adjudication above (a judgment that exists only if recorded) and on `cap_drops` as structured, joinable data: nothing shipped ingests the chat announcement it would otherwise have to be scraped from.) When you need a scratch or telemetry file under `.devflow/tmp`, author it with the Write tool, not a shell redirect; the pre-loop snapshot below is a shell-computed listing whose redirect may itself be refused — its failure does not abort the phase, though it degrades the no-inputs detector to whole-tree presence (which the detector's own `::warning::` surfaces on the run log, because on the persistent local tier a leftover `iter-*.json` can then mask a real loss); it is a degrade to note, not a hard blocker, and never a reason to leave the loop.
 
 This runs the four-phase review engine in your context:
 1. **Verification checklist** — generates and verifies every dependency interaction, test-mock alignment, data format assumption, and API contract claim against actual source code
@@ -126,11 +140,14 @@ Follow the skill's instructions. It handles evaluation, fixing, testing, and re-
 # never a cwd-relative path that could diverge from the wrapper and fire a false
 # "telemetry lost" reflection (or mask a real loss) when cwd is not the repo root.
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-# Idempotent Layer-3 persist: derives + commits the effectiveness record and durable
-# workpad copy from whatever iter-*.json this run left under .devflow/tmp/review/; a commit
-# no-op if already persisted (the effectiveness record is presence-idempotent — skipped when
-# it already exists; the durable workpad copy re-runs but is content-idempotent, rewriting
-# identical bytes) and a full no-op if the inline loop wrote no per-iter workpad. Best-effort
+# Idempotent Layer-3 persist: derives the effectiveness record and durable workpad copy
+# from whatever iter-*.json this run left under .devflow/tmp/review/ and writes them to the
+# long-lived orphan telemetry branch (default `devflow-telemetry`, key telemetry.branch) via
+# git plumbing — it does NOT commit to this feature branch and never touches HEAD, the
+# current branch, or the TRACKED working tree (issue #441). Idempotent on that branch: the
+# effectiveness record is presence-idempotent (a `git cat-file -e <ref>:<path>` probe skips a
+# run already stored), the durable workpad copy re-writes identical bytes, and an unchanged
+# tree makes no new branch commit; a full no-op if the inline loop wrote no per-iter workpad. Best-effort
 # (always exits 0). Two calls, targeted FIRST: this orchestrator drove review-and-fix
 # inline and holds the loop's <slug> and RUN_ID, and persisting its own run by explicit
 # identity is immune to every discovery-mode skip (multi-slug ambiguity, not-latest
@@ -179,8 +196,9 @@ cat "$PERSIST_ERR" >&2   # surface every --persist breadcrumb to the run log, sa
 # had nothing to derive from and this run's effectiveness telemetry is genuinely lost — surface
 # it, do not swallow. (A persist that DID find inputs but failed to write still leaves
 # efficiency-trace.sh's own ::warning:: on the run log, surfaced above.) The detector counts NEW
-# iter-*.json regardless of --persist's source=="review" skip (standalone /devflow:review runs
-# have their own record path); that is correct here because at THIS seam the review-and-fix
+# iter-*.json unconditionally — issue #441 removed --persist's old source=="review" skip and
+# routed standalone /devflow:review onto this SAME --persist path, so there is no longer a skip
+# to be "regardless of". That is correct here anyway, because at THIS seam the review-and-fix
 # loop just driven inline is what writes this tree, so a foreign review-sourced dir being the
 # sole new occupant is not a reachable in-flow shape.
 BEFORE="$ROOT/.devflow/tmp/.phase33-iters-before"
@@ -224,10 +242,18 @@ fi
 # (disk/permission); not persisted for ..." — so match BOTH literals, or a mutated/renamed
 # breadcrumb on just the disk-write path would silently escape this detector exactly as the
 # single-literal form did (#236 review, Step 3.5 fix-delta gate). This intentionally scopes to
-# record derivation/write failures only, not the separate git-staging/commit failure surface
-# (efficiency-trace.sh's "not persisted this run" / "artifacts left staged" breadcrumbs) —
-# there the record IS written to disk, just not yet committed, a materially different and
-# lower-priority gap deferred on the issue #235 workpad. KNOWN LIMITATION (also deferred,
+# record derivation/write failures only, not the separate TELEMETRY-BRANCH write/push failure
+# surface (telemetry-branch.sh's "::warning::telemetry-branch: ..." breadcrumbs — a lost CAS, a
+# non-conforming store, an unwritable .devflow/tmp). The record is staged under gitignored
+# .devflow/tmp/; post-#469 a DEGRADED branch write (or a CI staging-only run) RETAINS that staging
+# root (only a clean rc-0 write deletes it), bounded by a newest-N prune on the next --persist; a
+# DEGRADED write additionally emits one ::warning:: naming its absolute path, while a staging-only
+# run retains silently — so on a LOCAL filesystem a failed branch write is recoverable rather than
+# lost. On an EPHEMERAL CI runner the staging tree does not survive
+# teardown, so recovery there awaits the forthcoming trusted telemetry-push relay (follow-up to
+# #469); until it lands a cloud runner's degraded/staged records are not recoverable. This surface
+# is still uncovered by this detector, and surfaced only by the helper's own
+# stderr breadcrumb (which this step captures but does not grep). KNOWN LIMITATION (also deferred,
 # #236 review shadow pass): unlike the this-run-scoped no-inputs detector above, this grep
 # runs against the combined capture (the targeted call's stderr plus the whole-tree
 # discovery call's), so a

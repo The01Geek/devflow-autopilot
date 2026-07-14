@@ -77,7 +77,7 @@ Plus the special `default` key (below).
 
 ## Shape
 
-Each value optionally sets `model` and/or `effort`:
+Each value optionally sets `model`, `effort`, and/or `iterations`:
 
 ```jsonc
 {
@@ -85,7 +85,7 @@ Each value optionally sets `model` and/or `effort`:
     "agent_overrides": {
       "default": { "effort": "high" },
       "devflow:checklist-deduper": { "model": "claude-sonnet-4-6", "effort": "medium" },
-      "devflow:code-reviewer": { "model": "claude-opus-4-8", "effort": "high" }
+      "devflow:code-reviewer": { "model": "claude-opus-4-8", "effort": "high", "iterations": "first-only" }
     }
   }
 }
@@ -95,6 +95,16 @@ Each value optionally sets `model` and/or `effort`:
   present-but-unusable model (empty string or non-string) is dropped with a `::warning::`, mirroring
   the invalid-effort path.
 - `effort` — one of `low`, `medium`, `high`, `xhigh`, `max`.
+- `iterations` — optional, **default-off**; the only valid value is `first-only`. An agent whose
+  resolved override carries it is **excluded from the Phase-3 review roster on fix-loop iterations
+  ≥ 2** — so it reviews only on iteration 1 of a `/devflow:review-and-fix` (and thus
+  `/devflow:implement`) fix loop. It is a **roster-scoping** key, not a dispatch-time model/effort
+  parameter: the resolver only reads it and passes a valid value through, and the exclusion itself is
+  enforced engine-side in `skills/review/SKILL.md` Phase 3.1. In **standalone `/devflow:review`** (a
+  single pass) and on **iteration 1** the key is a no-op — behavior is byte-identical to omitting it.
+  It is also **never** applied to the Step 2.6 shadow fan-out, whose blinded audit always keeps the
+  full roster. An out-of-enum value (or empty string) is dropped with a `::warning::`, mirroring the
+  invalid-effort path; the run never aborts.
 
 > **Claude Haiku rejects `effort`.** The `effort` parameter is supported only on Opus 4.5–4.8 and
 > Sonnet 4.6; Claude Haiku rejects it with **HTTP 400**. So any entry that pins a Haiku model (a
@@ -111,6 +121,35 @@ Each value optionally sets `model` and/or `effort`:
 > on every re-scaffold (`/devflow:init` or `install.sh`): it strips `effort` from *any*
 > `agent_overrides` entry whose `model` is a Haiku id, leaving non-Haiku overrides untouched. An
 > already-clean config is a quiet no-op (no file churn, no log line).
+
+## This repo's `code-reviewer` application — baseline, revert trigger, deferred repricing (issue #425)
+
+DevFlow's own tracked `.devflow/config.json` sets
+`"devflow:code-reviewer": { "model": "claude-opus-4-8", "effort": "low", "iterations": "first-only" }`.
+The `iterations` scoping was added on the evidence of replay study **R2** (2026-07-11): on this repo's
+overwhelmingly `engine_self_modifying` diffs, `devflow:code-reviewer` measured **6.7% unique-effective**
+(9 of 135 dispatches), **2 sole-source applied Importants across 129 dispatches**, and — the positional
+finding — **zero sole-source applied findings after iteration 1** (61 late-iteration dispatches produced
+nothing unique). Scoping the agent to `first-only` stops ~47% of its dispatches (the positionally-worthless
+late ones) with no measured loss.
+
+- **Revert trigger for the `iterations` key.** Any retrospective entry attributing an escaped
+  Important-or-higher defect on this repo to a *late-iteration miss* in this agent's specialty class
+  (guideline-adherence / doc-mirror) reverts the `iterations` key. Baseline for adjudication is R2 above
+  (6.7% unique-effective, 2/129 sole-source, 0 sole-source late).
+- **Deferred repricing (pre-registered follow-up).** Model repricing is deliberately deferred:
+  `agent_overrides` model values apply identically to standalone `/devflow:review`, and the frozen-judge
+  guardrail of the 2026-07-11 optimization methodology forbids repricing the outcome judge's roster
+  mid-window. After the current experiment window closes, a follow-up PR reprices `model` from
+  `claude-opus-4-8` to `claude-haiku-4-5-20251001` (the exact id, since the resolver forwards model
+  strings unvalidated) **and drops the entry's `effort: "low"` key** — a Haiku id must not carry
+  `effort` (see the Haiku HTTP-400 callout above), so the swap is not literally one line: the entry
+  becomes `{ "model": "claude-haiku-4-5-20251001", "iterations": "first-only" }`. That follow-up
+  carries its own trigger: any specialty-class escaped
+  Important-or-higher finding on a PR reviewed under the repriced config within **4 retrospective weeks**
+  (extended until **30 repriced dispatches**) reverts the model to `claude-opus-4-8`. A deterministic
+  auto-revert mechanism was considered and rejected — no machinery exists to edit tracked config on a
+  metric threshold, and building it is out of proportion to a one-line revert.
 
 ## Resolution rules
 
@@ -147,9 +186,32 @@ Each value optionally sets `model` and/or `effort`:
     (`["a","b"]` → `"a,b"`) is forwarded verbatim as a model id. All of these require hand-editing
     past the schema (`additionalProperties:false` + the `effort` enum + `model:string` reject them
     in any validated config); the worst case is one malformed dispatch the harness would itself reject.
+- **`iterations` roster scoping (default-off).** An optional `iterations: "first-only"` key excludes
+  its agent from the Phase-3 roster on fix-loop iterations ≥ 2 (enforced engine-side, not by this
+  resolver). It obeys the same **entry-level precedence** as `model`/`effort` — a
+  `default: { "iterations": "first-only" }` supplies it only to no-entry agents, and an agent's own
+  entry does not inherit the `default`'s `iterations`. The resolver only **reads** the key and passes
+  a valid value through the resolved map; an out-of-enum value (or empty string) is dropped with a
+  `::warning::` and the agent then participates on every iteration (the run never aborts). Standalone
+  `/devflow:review` has a single pass, so the key is a structural no-op there. An excluded agent is
+  legitimately absent from that iteration's `phase3_dispatched` (like a gated-out analyzer). An entry
+  carrying *only* `iterations` (no `model`/`effort`) still resolves.
 - **Gated agents.** The two structurally-gated Phase-3 analyzers (`type-design-analyzer`,
   `pr-test-analyzer`) are only dispatched on applicable diffs; an override is emitted only for an
   agent actually dispatched in a given run.
+
+## Version-skew safety of the `iterations` key (both directions)
+
+The `iterations` key was added additively (issue #425); it is safe across a version skew between a
+consumer's vendored resolver/schema and its `.devflow/config.json`, in **both** directions:
+
+- **Old resolver, new config.** A resolver vendored before the key existed reads only `model`/`effort`
+  and simply ignores an `iterations` entry key — so a config that carries `iterations` degrades to
+  today's behavior (the agent participates on every iteration). No error, no abort.
+- **New config, stale schema.** If you validate `.devflow/config.json` against a `config.schema.json`
+  that predates the key, `additionalProperties: false` on each override entry **rejects** the unknown
+  `iterations` key outright. The fix is to ship the schema version that declares it — the key requires
+  the schema that ships it. (An unvalidated config is unaffected; validation is opt-in.)
 
 ## Mechanism
 

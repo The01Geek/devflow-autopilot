@@ -134,6 +134,30 @@ prompt — a fresh context with the loop's findings withheld. The only residual 
 parent's aggregation step, a far smaller bias risk than losing all of Phase 3's coverage to a
 degraded subagent.
 
+**Blinding boundary (stated as a contract).** Every shadow prompt — reviewer *and*
+checklist-generator — references **only run-scoped diff artifacts (the cached `diff.patch` and any
+batch slice files under `.devflow/tmp/review/<slug>/<run-id>/`) and repository file paths; it never
+carries a workpad path or workpad content.** The workpad holds exactly the loop state this blinding
+withholds (iteration history, fix decisions, prior findings), so passing a workpad path — or pasted
+workpad content — into a shadow prompt would re-open that channel and turn the audit back into a
+self-check. This matters more now that the engine hands diffs to Phase 1 and Phase 3 agents **by
+file reference** (the generator receives a `Diff path:` to its batch slice, not inline content, so
+the diff never transits the orchestrator's context): the reference-based handoff must not become a
+leak channel for the loop state the blinding withholds — the artifacts it hands shadow prompts are
+diff files and repo paths only.
+
+**Why the shadow still re-Reads the engine fresh (read-reuse was considered and rejected).** Step
+2.6 keeps its mandatory fresh re-Read of `skills/review/SKILL.md` on every shadow pass; skipping it
+when the diff does not touch the engine file was considered and **rejected**. The reuse premise —
+that Step 1's Read is still verbatim in the parent's context at Step 2.6 — is unverifiable from
+skill prose: context compaction on a long run can replace the verbatim copy with a lossy summary,
+and the cloud tier's auto-resume machinery restarts runs in a *fresh* context where the Step-1 read
+never happened. Executing the engine from a possibly-degraded memory violates the "Read on every
+Step 1; never improvise" rule that exists because paraphrase drift caused real historical
+divergence, and the failure mode — a silently improvised audit — is invisible. The tokens it would
+save are the smallest lever available and do not justify an unverifiable precondition, so the
+fresh re-Read stays.
+
 ## The honest-degradation fail-safe: coverage is a positively-verified assertion
 
 A degraded pass must **never** clear a PR with a clean verdict. The guard is the shadow block's
@@ -451,3 +475,57 @@ the old single-subagent design logged; `step_2_6` aggregates the whole parent-ru
 fan-out. The cost is intentional: it matches the manual `/devflow:review`-after-fix workflow
 experienced users already pay (net-zero for them, now mechanical), and it buys a credible audit
 rather than a self-check that re-derives the loop's own answer.
+
+One component of that spend was **redundant context transit** the audit did not need: Phase 1's
+checklist-generator prompts carried their batch-sliced diff **inline** through the orchestrator's
+context on every engine pass — a cost the shadow re-paid on top of every main-pass iteration. That
+handoff is now **by file reference** (see the blinding-boundary contract above): Phase 1.1 authors
+each batch's slice with a shell-only `awk … >`-redirect over the already-cached `diff.patch`
+(reading no `git` objects, so a shallow checkout is unaffected, and taking no *per-file* filename
+arguments — its only operand is the fixed run-scoped `diff.patch` path, so no changed-file path is
+ever passed and paths with spaces cannot break quoting; a `>`-redirect rather than `| tee`, so the
+slice is never echoed to the orchestrator's stdout), and Phase 1.2 passes the generator the slice's
+*path*. A guard-class-2 fail-closed fallback preserves coverage in every degraded environment: the
+slice is gated on the authoring command's **own exit status** first and a bash-builtin `test -s`
+non-empty check second (an `&&`-chain — a size check alone would wave through a non-empty but
+**truncated** slice from a partial write, and the batch would review a thinned surface with the
+missing files silently unrepresented), and any observable slice-authoring failure — a non-zero
+`awk`/redirect exit, or a missing/empty slice from a shallow checkout or a run-id directory hiccup —
+routes that batch to the full `diff.patch` path. The residual window is named, not papered over: a
+write error `awk` itself neither reports nor exits non-zero on would still yield a truncated slice.
+(The fallback covers a *slice-authoring* failure over a populated `diff.patch`; a host with **no**
+`awk` at all degrades Phase 0.2's `diff.patch` build first — the whole review, not just the slice —
+so that is a different, upstream failure, not one this batch-level fallback masks.) The single-batch
+case passes `diff.patch` directly with no slice written. Because `awk`/`test` are already granted in
+both cloud allowlists, this adds **no** allowlist entry.
+
+### Non-droppable shadow telemetry, and a promoted-shadow floor
+
+The 2026-07-11 R3 replay study fixed the shadow pass as always-on and identified its licensed lever
+as **cost, not existence** — but it had to fight an observability problem: `step_2_6` telemetry
+existed in only 20 of 69 runs, and the shadow workpad block itself drops on issue-304-style runs, so
+shadow attribution had to be reconstructed from three markers (`loop_role`, `promoted_from_shadow`,
+the prior iteration's `promoted_to_iter_next`). The R3 baseline to re-measure against: **12.43M
+recorded shadow tokens; 115 shadow-attributable applied fixes across 32 of 69 runs; ~366k tokens per
+shadow-attributable Critical/Important fix.**
+
+Two changes make both sides of that ledger recordable instead of reconstructed:
+
+- **The shadow block write is now a single non-optional obligation fused to the pass's
+  *termination*, covering *both* termination paths** — Parse-and-compare completion for a full
+  fan-out, and the honest-degradation fail-safe for an outcome-3 pass that dies mid-fan-out (which
+  writes its `not_verified` block *before* taking outcome 3, rather than dying without writing
+  anything — the issue-304 drop shape). It is authored with the Write tool and carries the same
+  "mandatory on every pass regardless of how the loop was executed" force as the `iter-<N>.json`
+  Layer-1 fused emit. The Decide outcome-1 block-presence read-back gate is unchanged.
+- **`lib/efficiency-trace.sh --persist` gains a shadow floor.** When promotion evidence survives
+  (an `iter-<N+1>.json` with `loop_role: "promoted"`) but the `iter-<N>.json` carries no `shadow`
+  block, the floor synthesizes a minimal marker (`shadow_synthesized: true` + `promoted_to_iter_next`
+  linkage), which `--self-check` validates as a recognized degraded class, and which it never writes
+  over an agent-written block. **Stated limitation:** the floor recovers *promoted* shadows only — a
+  clean outcome-1 shadow whose block dropped leaves no promotion evidence to synthesize from. The
+  fused emit is the primary fix and the floor is its backstop, not its equal; the floor recovers
+  *attribution*, not cost (this floor recovers no token/wall figures — those are captured live by the
+  loop, and by nothing else DevFlow currently ships; issue #437 established the harness itself *does*
+  carry them, so a floor that reads them is buildable, but none exists today). So this narrows-the-gap, it does not close it — the shadow still audits its own audit with
+  honest calibration.

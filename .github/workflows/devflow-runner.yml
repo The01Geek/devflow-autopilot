@@ -397,9 +397,19 @@ jobs:
               # review-and-fix included — now runs; without this entry the read-only
               # profile would SILENTLY DENY it, so the convention would be a no-op in
               # the cloud review tier), and efficiency-trace.sh --mode trace only reads
-              # the run's workpads and prints Markdown. The per-run record FILE write
-              # (--mode record) is gated to writable runs by the skill and is not
-              # attempted here, so the profile stays read-only for the tree.
+              # the run's workpads and prints Markdown. The `--persist` step (run by the
+              # base-branch .claude/settings.json Stop hook, which claude-code-action
+              # restores in this job) STAGES the run's observability artifacts under the
+              # gitignored .devflow/tmp/ and, on this read-only tier, runs in STAGING-ONLY
+              # mode: it writes NO new telemetry-branch records and does NO push (the push
+              # operand DEVFLOW_TELEMETRY_PUSH is deliberately unset here, so #469 AC5 fails
+              # closed to staging). A best-effort fetch-before-exclusion step may fast-forward
+              # the LOCAL devflow-telemetry ref to mirror already-published remote records (a
+              # read — no record append, no push), leaving the tracked tree read-only and the
+              # REMOTE devflow-telemetry ref untouched by this job. Landing the staged artifacts
+              # on the branch is the job of a forthcoming trusted telemetry-push relay
+              # (never this PR-head, secrets-bearing job; follow-up to issue #469). So the
+              # grant stays read-only-safe.
               # Command heads the review skill actually invokes are pinned against this
               # string by lib/test/run.sh (issue #363): a head the skill runs but this
               # profile omits is silently DENIED at runtime, burning the run's budget and
@@ -408,7 +418,7 @@ jobs:
               # `git checkout`/`mktemp`/`cmp`/`rm -f` back Phase 3.1's dirty-tree backstop.
               # `git checkout` mutates the worktree, which is exactly what that backstop
               # restores; the reviewer's `contents: read` token still makes a push impossible.
-              TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Write(.devflow/tmp/**)'
+              TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Write(.devflow/tmp/**)'
               # When the trusted base config opted into provisioning, the runner
               # has a built env (setup-project-env ran below), so grant the
               # freeform build/verify commands the maintainer listed in
@@ -888,6 +898,251 @@ jobs:
           permission-pull-requests: write
           permission-actions: read
 
+      # SECURITY — harden the base-branch `.claude/settings.json` Stop-hook script
+      # sources (issue #458). claude-code-action restores `.claude/` (the hook
+      # CONFIG) from the base branch, but the three Stop-hook COMMANDS exec script
+      # files under lib/ and scripts/ — NOT under .claude/ — so this job's PR-HEAD
+      # checkout (ref: inputs.ref) supplies them. A PR that edits any of
+      # lib/efficiency-trace.sh, lib/implement-stop-guard.sh, or
+      # scripts/stop-hook-probe.sh would otherwise obtain unmediated shell at
+      # session end inside this secrets-bearing job, bypassing the #402 deny-floor
+      # entirely (the #404 REJECT class: a floor the PR controls is no floor).
+      #
+      # Same trusted-source pattern as the deny-floor: BEFORE claude-code-action
+      # runs, overwrite each hook target in the PR-head workspace with the TRUSTED
+      # base-ref copy (materialized here via `git show FETCH_HEAD:…`), and where no
+      # base copy exists overwrite it with a fail-closed no-op stub — NEVER left as
+      # the PR-head copy. The installer logic is the suite-driven, unit-tested
+      # helper scripts/harden-stop-hooks.sh, executed ONLY from a TRUSTED source
+      # (rank 1: base-ref materialized copy; rank 2: the vendored copy gated on
+      # vendor_source=fetch — never the PR-head checkout, which the PR can edit).
+      # When no trusted helper resolves the step fails closed INLINE (trusted
+      # workflow shell), stubbing every target. The implement job needs no such
+      # step: it checks out the DEFAULT branch (never a PR head), so its hook
+      # scripts are already trusted. See docs/DEVFLOW_SYSTEM_OVERVIEW.md.
+      - name: Harden Stop-hook script sources (trusted base copy or fail-closed stub)
+        id: harden_hooks
+        env:
+          # Same TRUSTED base ref the baseprovision step reads (the PR's target
+          # branch, or the repo default) — never a PR-controlled input.
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          # Only 'fetch' (a fresh official-repo clone at the pinned devflow_version)
+          # is a trusted source for the helper; committed/self copies are PR-head.
+          VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
+        run: |
+          # errexit OFF, EXPLICITLY (PR #461; live failure: Actions run 29285485078).
+          # GitHub's default `run:` shell is `bash -e {0}`, so errexit arrives ON even
+          # though this step declares only `set -uo pipefail`. The step is authored for
+          # explicit rc handling — every failure path is an rc-checked arm ending in a
+          # fail-closed stub, a warning, or `exit 1` — and expected-non-zero commands
+          # run OUTSIDE condition position (e.g. the compound `git show` read below of a
+          # .claude/settings.local.json that is absent at the base ref, git rc 128).
+          # Under inherited errexit the first such command aborts the whole step BEFORE
+          # any fail-closed arm can run. `set +e` makes the declared option set the real
+          # one; the #460-errexit suite block executes this step under `bash -e` and
+          # goes RED if this line is dropped.
+          set +e
+          set -uo pipefail
+          # COUPLED mirror of scripts/harden-stop-hooks.sh's HOOK_TARGETS — the FULL
+          # transitive source/exec closure of the three .claude/settings.json Stop-hook
+          # scripts, not just the entry points (issue #458 REJECT). Byte-identical to the
+          # helper's HOOK_TARGETS and pinned equal in lib/test/run.sh. Used both to
+          # materialize the trusted base copies AND, on the fail-closed arm, to stub
+          # every target inline. A file dropped here silently leaves that PR-head script
+          # executable (or un-materialized, so the helper stubs it).
+          TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py"
+          ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+          TRUSTED_DIR=""
+          HELPER=""
+          SKIP_HARDEN=0
+          # The three ENTRY hooks whose presence in the TRUSTED base .claude/settings.json
+          # is what makes this hardening relevant at all (issue #460 review, FP1).
+          ENTRY_TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh"
+          # Rank 1: materialize the trusted hook copies AND the trusted helper from
+          # the base ref. `origin` is the upstream repo, so the base tip is the
+          # maintainer-controlled tree, not the PR head. Only inside this fetch-
+          # success branch is FETCH_HEAD the base ref (checkout may leave it at the
+          # PR head elsewhere) — mirrors baseprovision's FLOOR_HELPER discipline.
+          if [ -n "${BASE_REF:-}" ] && git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
+            # Read the TRUSTED base .claude/settings.json (for the relevance gate below),
+            # then resolve the trusted helper: committed vendor copy first, then the
+            # repo's own scripts/ copy ONLY when the base ref IS the DevFlow plugin repo
+            # (same plugin.json-name discriminator baseprovision uses), so a consumer's
+            # unrelated like-named script is never executed. Resolved BEFORE the gate so
+            # the gate can decide via the helper's tested --wired-check mode.
+            # Read BOTH .claude/settings.json AND .claude/settings.local.json (issue #460
+            # SHADOW): claude-code-action restores ALL of .claude/ from base, so a Stop hook
+            # wired via a base-tracked settings.local.json is just as live as one in
+            # settings.json — reading only settings.json would be a fail-OPEN (gate reads
+            # 'not wired' → skips while the action restores+fires the local-file hook). Both
+            # blobs are concatenated so the wiring scan below sees either; a gitignored
+            # (untracked) settings.local.json is not in the base tree, so `git show` yields
+            # nothing for it and it is correctly ignored.
+            SETTINGS_JSON="$(git show "FETCH_HEAD:.claude/settings.json" 2>/dev/null; git show "FETCH_HEAD:.claude/settings.local.json" 2>/dev/null)"
+            if raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/harden-stop-hooks.sh" 2>/dev/null); then
+              printf '%s\n' "$raw" > "$RUNNER_TEMP/harden-stop-hooks.sh" 2>/dev/null && HELPER="$RUNNER_TEMP/harden-stop-hooks.sh"
+            elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq '"name"[[:space:]]*:[[:space:]]*"devflow"' \
+              && raw=$(git show "FETCH_HEAD:scripts/harden-stop-hooks.sh" 2>/dev/null); then
+              printf '%s\n' "$raw" > "$RUNNER_TEMP/harden-stop-hooks.sh" 2>/dev/null && HELPER="$RUNNER_TEMP/harden-stop-hooks.sh"
+            fi
+            # RELEVANCE GATE (issue #460 review, FP1 + PT2): install.sh ships
+            # devflow-runner.yml to consumer repos, but DevFlow's own .claude/settings.json
+            # Stop hooks do NOT ship. In a consumer whose TRUSTED base settings.json does
+            # not wire these hooks there is nothing to harden — and stubbing/creating the
+            # nine DevFlow-layout paths would clobber a same-named consumer file (a wrong
+            # verdict). So harden ONLY when the trusted base settings.json wires an entry
+            # hook. DECIDE VIA THE TRUSTED HELPER'S --wired-check MODE — the single,
+            # lib/test/run.sh-driven source of truth for this selection — falling back to
+            # an inline substring scan only when no trusted helper resolved. Keyed on the
+            # BASE ref, never the PR head: a PR cannot strip its own settings wiring to
+            # dodge the floor while claude-code-action still restores the base hooks. The
+            # read now covers BOTH settings.json and settings.local.json (above), the two
+            # base-tracked .claude/ files that can wire a Stop hook, so a wiring split
+            # across them cannot silently un-gate the floor.
+            HOOKS_WIRED=0
+            # FAIL-CLOSED READ (issue #460 SHADOW, SF-fail-open): an EMPTY SETTINGS_JSON is
+            # ambiguous — it means EITHER the base ref has no .claude/settings.json (a
+            # consumer without these hooks → correctly skip) OR the file EXISTS at base but
+            # `git show` read back empty despite a successful fetch (a transient/corrupt
+            # read). --wired-check / the inline scan would read BOTH as "not wired" and skip
+            # — dropping DevFlow's OWN floor on the second case (a PR editing a closure
+            # script would then run unmediated shell in this secrets-bearing job). So when
+            # SETTINGS_JSON is empty, distinguish the two with `git cat-file -e`: EITHER blob
+            # EXISTS → inconclusive read → harden anyway (fail closed); BOTH blobs ABSENT →
+            # genuinely no hooks → skip. Only a READABLE, non-empty settings read is decided
+            # by wiring.
+            if [ -z "$SETTINGS_JSON" ]; then
+              _settings_present=0
+              git cat-file -e "FETCH_HEAD:.claude/settings.json" 2>/dev/null && _settings_present=1
+              git cat-file -e "FETCH_HEAD:.claude/settings.local.json" 2>/dev/null && _settings_present=1
+              if [ "$_settings_present" -eq 1 ]; then
+                HOOKS_WIRED=1
+                echo "::warning::harden-stop-hooks: a base .claude/settings*.json exists at the base ref but read back empty after a successful fetch — hardening anyway (fail-closed) rather than inferring 'not wired' and dropping the floor."
+              fi
+            elif [ -n "$HELPER" ]; then
+              # Distinguish the helper's THREE outcomes (issue #460 SHADOW, Obs A): rc 0 =
+              # wired (harden); rc 1 = a CLEAN "not wired" verdict (trust it); rc >= 2 = the
+              # helper ERRORED (a corrupt/unparseable trusted-materialized copy, etc.) — NOT
+              # a verdict. Treating an error as "not wired" would skip and drop DevFlow's own
+              # floor (fail OPEN), so on any non-1 error request the inline substring scan
+              # (below) rather than skipping. Read the rc in the `else` of the `if <pipeline>`
+              # (the sanctioned else-RC idiom), never a later $?.
+              if printf '%s' "$SETTINGS_JSON" | bash "$HELPER" --wired-check; then
+                HOOKS_WIRED=1
+              else
+                _wc_rc=$?
+                if [ "$_wc_rc" -ne 1 ]; then
+                  echo "::warning::harden-stop-hooks: --wired-check helper errored (rc=$_wc_rc, not a clean 0/1 verdict) — falling back to the inline settings scan (fail-closed) rather than inferring 'not wired'."
+                  _need_inline_scan=1
+                fi
+              fi
+            else
+              _need_inline_scan=1
+            fi
+            # SINGLE inline substring scan (issue #460 SHADOW), reached when no trusted
+            # helper resolved OR the helper errored (rc>=2) — kept in ONE place so the
+            # selection has exactly one pinned copy. It only reads a NON-EMPTY SETTINGS_JSON
+            # (the empty-read arm set HOOKS_WIRED / SKIP directly above and never sets the
+            # flag), so it cannot mis-fire on an empty blob.
+            if [ "${_need_inline_scan:-0}" -eq 1 ]; then
+              for e in $ENTRY_TARGETS; do
+                case "$SETTINGS_JSON" in *"$e"*) HOOKS_WIRED=1 ;; esac
+              done
+            fi
+            if [ "$HOOKS_WIRED" -eq 0 ]; then
+              SKIP_HARDEN=1
+              echo "::notice::harden-stop-hooks: the trusted base .claude/settings.json does not wire the DevFlow Stop hooks — nothing to harden; skipping (this repo does not use the base-hook channel this floor protects)."
+            else
+              TRUSTED_DIR="$RUNNER_TEMP/devflow-trusted-hooks"
+              for t in $TARGETS; do
+                if raw=$(git show "FETCH_HEAD:$t" 2>/dev/null); then
+                  if mkdir -p "$TRUSTED_DIR/${t%/*}" 2>/dev/null; then
+                    # Checked write (issue #460 review, SF4): a partial/empty file left by a
+                    # failed write must NOT later be installed as a "trusted base copy" — remove
+                    # the residue so the helper stubs (fail-closed) instead of copying a corrupt
+                    # hook with a success breadcrumb.
+                    if ! printf '%s\n' "$raw" > "$TRUSTED_DIR/$t" 2>/dev/null; then
+                      rm -f "$TRUSTED_DIR/$t" 2>/dev/null || true
+                      echo "::warning::harden-stop-hooks: failed to materialize the trusted base copy of '$t'; it will be stubbed (fail-closed) rather than installed corrupt."
+                    fi
+                  fi
+                fi
+              done
+            fi
+          else
+            echo "::warning::harden-stop-hooks: could not fetch base ref '${BASE_REF:-}' to materialize trusted Stop-hook copies; failing closed (no-op stubs for every hook target). NOTE (issue #460 review, FP-S1): in a CONSUMER repo a base-ref fetch failure means the relevance gate cannot run, so the nine DevFlow-layout paths are stubbed/created over any same-named consumer files during this (read-only) review — a deliberate fail-closed-over-consumer-fidelity trade, disclosed in docs/DEVFLOW_SYSTEM_OVERVIEW.md."
+          fi
+          # RELEVANCE GATE early-out (issue #460 review, FP1): the trusted base ref
+          # demonstrably does not wire these Stop hooks, so there is nothing to harden
+          # and stubbing would clobber consumer files — exit cleanly before the helper
+          # / inline-stub arms run. (A fetch FAILURE does NOT set this — it stays on the
+          # fail-closed path so DevFlow's own protection is never dropped on a transient
+          # base-ref fetch error.)
+          if [ "$SKIP_HARDEN" -eq 1 ]; then
+            exit 0
+          fi
+          # Rank 2: the vendored helper, ONLY on a fresh fetch this run (never the
+          # PR-head committed/self copy — anchored to the repo ROOT like the floor).
+          if [ -z "$HELPER" ] && [ "${VENDOR_SOURCE:-}" = "fetch" ] \
+            && [ -f "$ROOT/.devflow/vendor/devflow/scripts/harden-stop-hooks.sh" ]; then
+            HELPER="$ROOT/.devflow/vendor/devflow/scripts/harden-stop-hooks.sh"
+          fi
+          # Fail CLOSED to inline stubs whenever a trusted helper did NOT run to
+          # completion — either it never resolved (HELPER empty), OR it resolved but
+          # `bash "$HELPER"` returned non-zero. The helper's contract is exit 0 ONLY
+          # when every target was displaced (trusted copy or stub); any non-zero rc —
+          # a wholly-unwritable target, or a truncated/unreadable copy that failed
+          # mid-run — means hardening may be partial or absent, so proceeding would risk
+          # leaving a PR-head Stop-hook script executable in this secrets-bearing job,
+          # the exact fail-OPEN this floor exists to prevent. So a non-zero rc takes the
+          # SAME inline-stub fallback as an unresolved helper (mirroring the #402 deny-
+          # floor, which fails closed on its helper's non-zero rc). Capture the rc in the
+          # SAME statement (`if bash …`), never a later `$?` read.
+          HARDENED=0
+          if [ -n "$HELPER" ]; then
+            if WORKSPACE_ROOT="$ROOT" TRUSTED_DIR="$TRUSTED_DIR" bash "$HELPER"; then
+              HARDENED=1
+            else
+              echo "::warning::harden-stop-hooks helper exited non-zero / could not execute (it is contracted to exit 0) — hardening did not complete; failing closed by stubbing every Stop-hook target inline (never the PR-head copy)."
+            fi
+          else
+            echo "::warning::harden-stop-hooks: no TRUSTED helper resolved (base-ref / vendored-fetch); failing closed by stubbing every Stop-hook target inline (never the PR-head copy)."
+          fi
+          if [ "$HARDENED" -eq 0 ]; then
+            # FAIL CLOSED (no trusted helper ran): stub every target inline (this is
+            # trusted workflow shell, read from the base/default branch under
+            # pull_request_target), so a PR-head hook script is never executed even
+            # when the helper cannot be resolved OR cannot execute.
+            #
+            # This is the LAST-RESORT arm of a security floor: if the stub WRITE itself
+            # fails (a wholly-unwritable dest — the case the helper's non-zero exit
+            # escalates here), the PR-head hook script REMAINS. Merely warning and
+            # exiting 0 would let `Run Claude Code` proceed with that PR-controlled hook
+            # INTACT in this secrets-bearing job — the exact fail-OPEN this floor exists
+            # to prevent. So on ANY target we could not stub, FAIL THE STEP after the
+            # loop: a failed job never reaches `Run Claude Code`, so no hook fires.
+            stub_failed=0
+            for t in $TARGETS; do
+              d="$ROOT/$t"
+              mkdir -p "${d%/*}" 2>/dev/null || true
+              # Unlink a symlink dest first (issue #460 SHADOW), mirroring the helper's
+              # write_stub: without this the `> "$d"` would write the stub THROUGH the link
+              # into its resolved target, leaving the PR-controlled symlink at the hook path
+              # (and, for an absolute link, writing bytes outside the workspace).
+              [ -L "$d" ] && rm -f "$d" 2>/dev/null
+              if printf '#!/usr/bin/env bash\nexit 0\n' > "$d" 2>/dev/null; then
+                chmod +x "$d" 2>/dev/null || true
+              else
+                stub_failed=1
+                echo "::warning::harden-stop-hooks: could not stub '$t' (wholly unwritable); the PR-head copy MAY REMAIN — the step will fail closed below."
+              fi
+            done
+            if [ "$stub_failed" -eq 1 ]; then
+              echo "::error::harden-stop-hooks: one or more Stop-hook targets could NOT be stubbed (wholly unwritable path); the PR-head copy MAY REMAIN. Failing the job BEFORE Run Claude Code so no PR-controlled Stop hook fires in this secrets-bearing review — inspect the runner."
+              exit 1
+            fi
+          fi
+
       # SECURITY (issue #313 shadow S1): this step writes the provider endpoint —
       # including, for bearer auth, the DEVFLOW_PROVIDER_API_KEY secret as
       # ANTHROPIC_AUTH_TOKEN — into the JOB env, which is visible to every LATER
@@ -1031,7 +1286,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           # Parse is_error from claude-code-action's execution log via the
           # extracted, unit-tested helper (lib/test/run.sh) rather than an inline
           # jq, so the array/object/fail-safe branches are actually verified.
@@ -1079,7 +1334,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           CG=.devflow/vendor/devflow/scripts/config-get.sh
           [ -f "$CG" ] || CG=scripts/config-get.sh
           # `|| true` so config-get's hard-fail exit (malformed config.json / missing
@@ -1136,7 +1391,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           OUT="$RUNNER_TEMP/claude-execution-scrubbed.json"
           if [ ! -f "$EXECUTION_FILE" ]; then
             echo "::notice::execution file absent; no transcript to preserve."

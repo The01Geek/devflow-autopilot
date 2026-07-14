@@ -124,3 +124,36 @@ every reviewer who repeats the mistake, finding zero defects.
   mutation evidence was decisive. Cost: real effort, three times over; defects found: zero. **PR #340
   cost this would have eliminated:** the three false vacuity alarms — duplicated investigative effort
   across the orchestrator and two reviewers with zero defects found.
+
+## Count-locked prose — a `count-locked` row on an unpinned claim triggers the pin-or-don't-write policy
+
+The shared engine's Phase 0.6 `stale-prose-lint.py` ships **detection only**: it tags an exact-count
+claim in diff-added prose as `count-locked` in its TSV output. The **policy** for what to do about a
+`count-locked` claim lives here, in this repo's layer, not in the engine. When the fix loop's Step 3
+stale-prose pre-check (or the engine's Phase 0.6) reports a `count-locked` row whose claim is **not**
+already bound to a test assertion that would fail if the count drifts (the `assert_pin_unique` /
+`assert_pin_red_under` / `pin_count` corpus), apply the repo's **pin-or-don't-write** policy: either
+bind the counted claim to a suite pin in the same change so a later drift turns the desk RED, or reword
+it drift-proof (a lower bound instead of an exact count, a pointer to the defining symbol instead of a
+copied enumeration) so there is no frozen count to go stale. Do not ship an unpinned exact-count claim
+in engine prose — an unpinned `count-locked` header is the very defect class (#328/#336) Phase 0.6
+exists to catch, so authoring a fresh one is a self-inflicted Important finding. The engine detects; this
+extension decides. (#423)
+
+## Config-derivation fixes sweep the full six-shape adversarial matrix, not just the reviewer-cited row
+
+When a fix touches **how a config value is read, derived, or defaulted** — a `config-get.sh` read, an
+inline `jq` extraction over `.devflow/config.json`, an `// default` / `// true`-style fallback, an enum
+validation, or any other code that turns a raw config value into a decision — the **same fix** sweeps the
+full CLAUDE.md six-shape adversarial matrix over that value: `{object, array, scalar, valid-falsy (explicit false / 0 / empty string), missing, wrong-type}`.
+Each shape is **tested in `lib/test/run.sh` in the same change** (exit-0 + a specific, not generic,
+breadcrumb per shape; the **valid-falsy** row is load-bearing — a real `false` / `0` / `""` an
+`// true` / `// default` extraction silently coerces to its truthy default is the documented
+off-switch-that-never-worked defect, #312/#304). A shape that genuinely does not apply to this value is
+recorded with a **written reason** instead of a test — never silently skipped. A fix that covers **only**
+the reviewer-cited shape row is **incomplete by policy**: the sibling rows are exactly the next run's
+predictable test-gap findings (PR #451 round 2 fixed and tested one config-read arm; round 3 existed
+almost solely to add the untested sibling arm), so shipping the whole matrix at once is what stops the
+per-fix extra review iteration. This is DevFlow-repo policy; the governing convention is CLAUDE.md's
+best-effort-parser adversarial-matrix gotcha, and this section is its coupled mirror in
+`.devflow/prompt-extensions/receiving-code-review.md` — edit both in the same change. (#466)

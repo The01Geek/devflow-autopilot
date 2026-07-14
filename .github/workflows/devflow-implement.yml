@@ -284,11 +284,17 @@ jobs:
             exit 0
           fi
           BODY="$(mktemp)"
-          # Non-bug issues omit the bug-only "reproduction captured" sub-item, so
-          # the gate-created workpad matches Phase 1.3's fresh-issue path. Only
-          # trim when the label lookup SUCCEEDS and a 'bug' label is absent; if the
-          # lookup fails, fall back to rendering it (a bug issue must not silently
-          # lose the row). The assignment in the `if` condition is exempt from set -e.
+          # Deterministic label-based PRE-RENDER only: YAML cannot judge issue
+          # content, so this trims the bug-only "reproduction captured" sub-item by
+          # the 'bug' LABEL. It is a heuristic, NOT the authority: Phase 1.3's
+          # `--reconcile-reproduction` (keyed on the recorded CONTENT classification,
+          # issue #449) is the authoritative correction that reconciles this skeleton
+          # to the classification on every entry — so a bug filed without the label
+          # gains the row and a mislabelled feature request loses it there. Only trim
+          # when the label lookup SUCCEEDS and a 'bug' label is absent; if the lookup
+          # fails, fall back to rendering it (render-on-lookup-failure — a bug issue
+          # must not silently lose the row, and 1.3 reconciles it regardless). The
+          # assignment in the `if` condition is exempt from set -e.
           REPRO_FLAG=""
           if LABELS="$(gh issue view "$NUMBER" --json labels --jq '.labels[].name' 2>/dev/null)"; then
             grep -qix bug <<<"$LABELS" || REPRO_FLAG="--no-reproduction"
@@ -340,6 +346,17 @@ jobs:
       issues: write
       id-token: write
       actions: write # write scope so actions/cache can save the pip cache (read alone → "cache write denied: token has no writable scopes"); superset still lets Claude read CI results on PRs
+    env:
+      # Authorize the Stop-hook `--persist` telemetry PUSH on this WRITABLE tier
+      # (issue #469 AC5). This job holds contents:write, so the branch push
+      # succeeds here; the read-only `review` tier (devflow-runner.yml) deliberately
+      # leaves this UNSET so `--persist` fails closed to staging-only. Set at JOB
+      # level so it reaches the Stop-hook subprocess claude-code-action spawns —
+      # the base-branch .claude/settings.json (restored in every claude-code-action
+      # job) cannot distinguish tiers, so the operand must come from the job env,
+      # not the hook command. (Platform premise — the job env propagates into the
+      # Stop-hook subprocess; see the workpad's unverified-boundary note.)
+      DEVFLOW_TELEMETRY_PUSH: '1'
     steps:
       # Optional, opt-in: mint a GitHub App installation token at full
       # installation scope (notably Contents: write + Workflows: write — no
@@ -706,6 +723,7 @@ jobs:
             Bash(git ls-files:*),
             Bash(git rev-parse:*),
             Bash(git merge-base:*),
+            Bash(git merge:*),
             Bash(gh pr create:*),
             Bash(gh pr edit:*),
             Bash(gh pr comment:*),
@@ -738,6 +756,7 @@ jobs:
             Bash(.devflow/vendor/devflow/scripts/workpad.py:*),
             Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*),
             Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*),
+            Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*),
             Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),
             Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),
             Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),
@@ -811,7 +830,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           CG=.devflow/vendor/devflow/scripts/config-get.sh
           [ -f "$CG" ] || CG=scripts/config-get.sh
           # `|| true` so config-get's hard-fail exit (malformed config.json / missing
@@ -845,14 +864,13 @@ jobs:
           set +e
           HELPER=.devflow/vendor/devflow/lib/efficiency-trace.sh
           [ -f "$HELPER" ] || { echo "::warning::observability backstop: $HELPER missing; skipped"; exit 0; }
-          git config user.name "github-actions[bot]" 2>/dev/null || true
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com" 2>/dev/null || true
-          before=$(git rev-parse HEAD 2>/dev/null)
+          # --persist derives each run's record + durable workpad copy and writes them to
+          # the dedicated telemetry branch via git plumbing, then pushes with a fetch/
+          # re-parent retry loop — all inside the helper, which sets its own committer
+          # identity. It never touches HEAD or the TRACKED working tree, so the former before/after-
+          # HEAD gate and the bare `git push` are gone (issue #441): the helper owns the
+          # targeted, retry-looped push to the telemetry branch. Best-effort/exit-0.
           bash "$HELPER" --persist
-          after=$(git rev-parse HEAD 2>/dev/null)
-          if [ -n "$after" ] && [ "$before" != "$after" ]; then
-            git push || echo "::warning::observability backstop: push of persisted artifacts failed; commit is local-only"
-          fi
           exit 0
 
       # ── Fresh App token for the stall backstop (issue #287) ────────────────

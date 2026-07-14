@@ -417,6 +417,16 @@ jobs:
       # engine then loses the CI ground truth the block exists to give it. The
       # actions/runs + jobs queries ride the `actions: write` superset above.
       checks: read
+    env:
+      # Authorize the Stop-hook `--persist` telemetry PUSH on this WRITABLE tier
+      # (issue #469 AC5). The manual `/devflow:review` comment path (and every other
+      # command this job runs) holds contents:write, so the branch push succeeds
+      # here — unlike the read-only auto-review `review` tier (devflow-runner.yml),
+      # which deliberately leaves this UNSET so `--persist` fails closed to
+      # staging-only. Job-level so it reaches the Stop-hook subprocess
+      # claude-code-action spawns. Kept in sync with devflow-implement.yml's claude
+      # job. (Platform premise — job env propagates into the Stop-hook subprocess.)
+      DEVFLOW_TELEMETRY_PUSH: '1'
     steps:
       # Optional, opt-in: mint a primary-App installation token at full
       # installation scope (notably Contents: write + Workflows: write — no
@@ -531,7 +541,7 @@ jobs:
           EXTRA: ${{ needs.config.outputs.allowed_tools_extra }}
         run: |
           set -euo pipefail
-          TOOLS='Read, Write, Edit, Glob, Grep, LS, Skill, Agent, TodoWrite, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch, Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git pull:*), Bash(git fetch:*), Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git show:*), Bash(git checkout:*), Bash(git cat-file:*), Bash(git branch:*), Bash(git stash:*), Bash(git rm:*), Bash(git mv:*), Bash(git restore:*), Bash(git revert:*), Bash(git blame:*), Bash(git ls-files:*), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(gh pr create:*), Bash(gh pr edit:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr review:*), Bash(gh pr ready:*), Bash(gh pr list:*), Bash(gh pr checks:*), Bash(gh pr status:*), Bash(gh pr reopen:*), Bash(gh issue view:*), Bash(gh issue comment:*), Bash(gh issue list:*), Bash(gh issue edit:*), Bash(gh issue create:*), Bash(gh issue reopen:*), Bash(gh issue status:*), Bash(gh search:*), Bash(gh label list:*), Bash(gh repo view:*), Bash(gh run view:*), Bash(gh run list:*), Bash(gh workflow view:*), Bash(gh workflow list:*), Bash(gh api:*), Bash(jq:*), Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*), Bash(.devflow/vendor/devflow/scripts/config-get.sh:*), Bash(.devflow/vendor/devflow/scripts/workpad.py:*), Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*), Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*), Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*), Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*), Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*), Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*), Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*), Bash(pip install:*), Bash(pip:*), Bash(python:*), Bash(python3:*), Bash(python -m:*), Bash(python3 -m:*), Bash(ruff:*), Bash(ruff check:*), Bash(ruff format:*), Bash(pytest:*), Bash(mypy:*), Bash(grep:*), Bash(rg:*), Bash(find:*), Bash(wc:*), Bash(sort:*), Bash(uniq:*), Bash(cut:*), Bash(tr:*), Bash(xargs:*), Bash(awk:*), Bash(sed:*), Bash(diff:*), Bash(comm:*), Bash(cat:*), Bash(head:*), Bash(tail:*), Bash(less:*), Bash(ls:*), Bash(tree:*), Bash(file:*), Bash(stat:*), Bash(date:*), Bash(pwd:*), Bash(realpath:*), Bash(dirname:*), Bash(basename:*), Bash(which:*), Bash(type:*), Bash(env:*), Bash(echo:*), Bash(printf:*), Bash(test:*), Bash(touch:*), Bash(mkdir:*), Bash(rmdir:*), Bash(rm:*), Bash(mv:*), Bash(cp:*), Bash(mktemp:*), Bash(cmp:*), Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*), Bash(*/load-prompt-extension.sh:*), Bash(tee:*)'
+          TOOLS='Read, Write, Edit, Glob, Grep, LS, Skill, Agent, TodoWrite, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch, Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git pull:*), Bash(git fetch:*), Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git show:*), Bash(git checkout:*), Bash(git cat-file:*), Bash(git branch:*), Bash(git stash:*), Bash(git rm:*), Bash(git mv:*), Bash(git restore:*), Bash(git revert:*), Bash(git blame:*), Bash(git ls-files:*), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(git merge:*), Bash(gh pr create:*), Bash(gh pr edit:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr review:*), Bash(gh pr ready:*), Bash(gh pr list:*), Bash(gh pr checks:*), Bash(gh pr status:*), Bash(gh pr reopen:*), Bash(gh issue view:*), Bash(gh issue comment:*), Bash(gh issue list:*), Bash(gh issue edit:*), Bash(gh issue create:*), Bash(gh issue reopen:*), Bash(gh issue status:*), Bash(gh search:*), Bash(gh label list:*), Bash(gh repo view:*), Bash(gh run view:*), Bash(gh run list:*), Bash(gh workflow view:*), Bash(gh workflow list:*), Bash(gh api:*), Bash(jq:*), Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*), Bash(.devflow/vendor/devflow/scripts/config-get.sh:*), Bash(.devflow/vendor/devflow/scripts/workpad.py:*), Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*), Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*), Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*), Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*), Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*), Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*), Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*), Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*), Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*), Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*), Bash(pip install:*), Bash(pip:*), Bash(python:*), Bash(python3:*), Bash(python -m:*), Bash(python3 -m:*), Bash(ruff:*), Bash(ruff check:*), Bash(ruff format:*), Bash(pytest:*), Bash(mypy:*), Bash(grep:*), Bash(rg:*), Bash(find:*), Bash(wc:*), Bash(sort:*), Bash(uniq:*), Bash(cut:*), Bash(tr:*), Bash(xargs:*), Bash(awk:*), Bash(sed:*), Bash(diff:*), Bash(comm:*), Bash(cat:*), Bash(head:*), Bash(tail:*), Bash(less:*), Bash(ls:*), Bash(tree:*), Bash(file:*), Bash(stat:*), Bash(date:*), Bash(pwd:*), Bash(realpath:*), Bash(dirname:*), Bash(basename:*), Bash(which:*), Bash(type:*), Bash(env:*), Bash(echo:*), Bash(printf:*), Bash(test:*), Bash(touch:*), Bash(mkdir:*), Bash(rmdir:*), Bash(rm:*), Bash(mv:*), Bash(cp:*), Bash(mktemp:*), Bash(cmp:*), Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*), Bash(*/load-prompt-extension.sh:*), Bash(tee:*)'
           printf 'tools=%s\n' "${TOOLS}${EXTRA}" >> "$GITHUB_OUTPUT"
 
       # Ground the manual `/devflow:review` engine in the same two facts the
@@ -871,7 +881,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           CG=.devflow/vendor/devflow/scripts/config-get.sh
           [ -f "$CG" ] || CG=scripts/config-get.sh
           # `|| true` so config-get's hard-fail exit (malformed config.json / missing
@@ -913,7 +923,7 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           PEE=.devflow/vendor/devflow/scripts/parse-engine-error.sh
           [ -f "$PEE" ] || PEE=scripts/parse-engine-error.sh
           if [ -f "$PEE" ]; then
@@ -948,7 +958,7 @@ jobs:
           CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
           ENGINE_ERROR: ${{ steps.engine.outputs.is_error }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
           FLIP_HELPER=.devflow/vendor/devflow/scripts/flip-review-progress-failed.sh
           [ -f "$FLIP_HELPER" ] || FLIP_HELPER=scripts/flip-review-progress-failed.sh
@@ -997,7 +1007,7 @@ jobs:
           VERDICT: incomplete
           APP_TOKEN_PRESENT: ${{ steps.backstop-token.outputs.token != '' }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           if [ -z "${PR_NUMBER:-}" ]; then
             echo "::notice::review stall backstop: no PR number on this event; nothing to resume."
             exit 0
@@ -1005,6 +1015,10 @@ jobs:
           # The comment marker is head-scoped; resolve the PR head SHA (this manual path
           # carries no precheck head_sha output). A failed lookup leaves HEAD_SHA empty and
           # the helper's decision takes its unscoped no-fire arm — never an unbounded resume.
+          # The `|| true` is LOAD-BEARING under this step's errexit shell: without it, an
+          # expected lookup failure (issue-comment event, transient API error) is an
+          # assignment-position non-zero that kills the whole backstop before the helper
+          # runs — the exact shape that took down the harden_hooks step (PR #461).
           HEAD_SHA=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha 2>/dev/null || true)
           # The post-and-annotate glue — resolve+call request-review-backstop.sh (its
           # decision contract UNCHANGED), parse the decision, compose the /devflow:review
@@ -1027,12 +1041,11 @@ jobs:
           set +e
           HELPER=.devflow/vendor/devflow/lib/efficiency-trace.sh
           [ -f "$HELPER" ] || { echo "::warning::observability backstop: $HELPER missing; skipped"; exit 0; }
-          git config user.name "github-actions[bot]" 2>/dev/null || true
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com" 2>/dev/null || true
-          before=$(git rev-parse HEAD 2>/dev/null)
+          # --persist derives each run's record + durable workpad copy and writes them to
+          # the dedicated telemetry branch via git plumbing, then pushes with a fetch/
+          # re-parent retry loop — all inside the helper, which sets its own committer
+          # identity. It never touches HEAD or the TRACKED working tree, so the former before/after-
+          # HEAD gate and the bare `git push` are gone (issue #441): the helper owns the
+          # targeted, retry-looped push to the telemetry branch. Best-effort/exit-0.
           bash "$HELPER" --persist
-          after=$(git rev-parse HEAD 2>/dev/null)
-          if [ -n "$after" ] && [ "$before" != "$after" ]; then
-            git push || echo "::warning::observability backstop: push of persisted artifacts failed; commit is local-only"
-          fi
           exit 0

@@ -2,7 +2,10 @@
   "iter": 1,
   "started_at": "2026-07-09T17:24:45Z",
   "fix_commit_sha": "e1c74a2e72d68240ec1a1af94afa3d40eccc6e16",
-  "fix_files": ["lib/test/run.sh", "scripts/workpad.py"],
+  "fix_files": [
+    "lib/test/run.sh",
+    "scripts/workpad.py"
+  ],
   "loop_role": "fix",
   "diff_profile": {
     "small_diff": false,
@@ -20,32 +23,210 @@
     "devflow:requesting-code-review"
   ],
   "checklist": [
-    {"id": "VC-1", "claim": "run.sh source-pin greps workpad.py for _pair_appends_post_merge", "file": "scripts/workpad.py", "verification_mode": "lite", "claim_signature": "test_mock_alignment:workpad.py:pair-appends-post-merge-symbol", "verdict": "PASS", "evidence": "def _pair_appends_post_merge present", "reused_from_iter_prev": false},
-    {"id": "VC-2", "claim": "run.sh source-pin greps workpad.py for _find_checkbox_row", "file": "scripts/workpad.py", "verification_mode": "lite", "claim_signature": "test_mock_alignment:workpad.py:find-checkbox-row-symbol", "verdict": "PASS", "evidence": "def _find_checkbox_row present", "reused_from_iter_prev": false},
-    {"id": "VC-3", "claim": "SKILL.md --rewrite-ac row publishes the row-scoped exemption", "file": "skills/implement/SKILL.md", "verification_mode": "lite", "claim_signature": "api_contract:SKILL.md:row-scoped-exemption-pin", "verdict": "PASS", "evidence": "phrase present at :161 and :185", "reused_from_iter_prev": false},
-    {"id": "VC-4", "claim": "T6 assert_pin_unique operative sentence appears exactly once in phase-3-review.md", "file": "skills/implement/phases/phase-3-review.md", "verification_mode": "agent", "claim_signature": "api_contract:phase-3-review.md:self-reconfig-operative-sentence-unique", "verdict": "PASS", "evidence": "grep -c == 1", "reused_from_iter_prev": false},
-    {"id": "VC-5", "claim": "per-pair guard stderr contains 'no non-empty --note'", "file": "scripts/workpad.py", "verification_mode": "lite", "claim_signature": "test_mock_alignment:workpad.py:guard-stderr-note-rationale", "verdict": "PASS", "evidence": "present in _UpdateError message", "reused_from_iter_prev": false},
-    {"id": "VC-6", "claim": "state backstop stderr contains 'net-adds'", "file": "scripts/workpad.py", "verification_mode": "lite", "claim_signature": "test_mock_alignment:workpad.py:backstop-stderr-net-adds", "verdict": "PASS", "evidence": "present; T7 asserts it", "reused_from_iter_prev": false},
-    {"id": "VC-7", "claim": "per-pair raise interpolates OLD/NEW so T1's greps match", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "test_mock_alignment:workpad.py:per-pair-stderr-names-pair", "verdict": "PASS", "evidence": "f-string renders {old!r} -> {new!r} + marker; observed in T1 stderr", "reused_from_iter_prev": false},
-    {"id": "VC-8", "claim": "has_note is call-scoped and strips; --note is action='append'", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "dependency_interaction:workpad.py:has-note-call-scope-strip", "verdict": "PASS", "evidence": "any(n.strip() for n in args.note); T2b/T4/T4c", "reused_from_iter_prev": false},
-    {"id": "VC-9", "claim": "guard consults resolved row_text via _find_checkbox_row", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "data_format_assumption:workpad.py:guard-reads-resolved-row", "verdict": "PASS", "evidence": "T3c green; mutation to string-only predicate turns T3c RED", "reused_from_iter_prev": false},
-    {"id": "VC-10", "claim": "_ends_with_post_merge rstrips; _unticked_rows routes through it", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "data_format_assumption:workpad.py:ends-with-rstrip-shared", "verdict": "PASS", "evidence": "shared helper; T4b pins rstrip", "reused_from_iter_prev": false},
-    {"id": "VC-11", "claim": "state backstop compares pre/post unticked post-merge counts", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "dependency_interaction:workpad.py:state-backstop-count-delta", "verdict": "PASS", "evidence": "pre_pm captured before loop; T7 refuses with net-adds, T7b/T5b no false fire", "reused_from_iter_prev": false},
-    {"id": "VC-12", "claim": "both raises occur before any PATCH (all-or-nothing)", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "dependency_interaction:workpad.py:guard-aborts-before-patch", "verdict": "PASS", "evidence": "raises inside _apply_mutations; T1/T4/T5/T7 assert empty patchlog", "reused_from_iter_prev": false},
-    {"id": "VC-13", "claim": "argparse --rewrite-ac help must not contradict the row-aware predicate", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "api_contract:workpad.py:help-old-only-vs-row-scoped", "verdict": "FAIL", "evidence": "help text published the stale '(NEW ends with it, OLD does not)' contract, contradicting the shipped row-scoped guard — documented_falsehood on the user-facing CLI surface. FIXED in e1c74a2; three rendered-help pins added.", "reused_from_iter_prev": false},
-    {"id": "VC-14", "claim": "'Three cases' count matches three enumerated forbidden bullets", "file": "docs/implement-skill.md", "verification_mode": "agent", "claim_signature": "api_contract:implement-skill.md:three-cases-count-mirror", "verdict": "PASS", "evidence": "both files say Three cases; three bullets each", "reused_from_iter_prev": false},
-    {"id": "VC-15", "claim": "self-reconfiguration bound across all five twin/entry sites", "file": "skills/implement/phases/phase-3-review.md", "verification_mode": "agent", "claim_signature": "api_contract:phase-3-review.md:self-reconfig-twin-sites", "verdict": "PASS", "evidence": "present in phase-1-setup, phase-2-implement, phase-3-review, implement-skill.md, DEVFLOW_SYSTEM_OVERVIEW.md", "reused_from_iter_prev": false},
-    {"id": "VC-16", "claim": "genuinely-live condition/examples/CI-deferral channel byte-for-byte unchanged", "file": "skills/implement/phases/phase-3-review.md", "verification_mode": "agent", "claim_signature": "api_contract:phase-3-review.md:genuinely-live-channel-unchanged", "verdict": "PASS", "evidence": "only 'Two cases' -> 'Three cases' in that paragraph; confirmed by code-reviewer + final-pass", "reused_from_iter_prev": false},
-    {"id": "VC-17", "claim": "changeset 'type: Changed' is an accepted consolidator category", "file": ".changeset/issue-338-post-merge-self-reconfiguration.md", "verification_mode": "agent", "claim_signature": "data_format_assumption:changeset:type-changed-valid", "verdict": "PASS", "evidence": "CANONICAL_TYPES includes 'Changed' (also DEFAULT_TYPE)", "reused_from_iter_prev": false},
-    {"id": "VC-18", "claim": "$LIB-relative pin paths resolve", "file": "lib/test/run.sh", "verification_mode": "agent", "claim_signature": "api_contract:run.sh:pin-path-resolution", "verdict": "PASS", "evidence": "LIB=lib/; both pinned paths exist; pins PASS in the run", "reused_from_iter_prev": false},
-    {"id": "VC-19", "claim": "_rewrite_checkbox preserves the '- [ ] ' box prefix", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "test_mock_alignment:workpad.py:rewrite-preserves-box-prefix", "verdict": "PASS", "evidence": "rebuilds groups 1-3 + new_text; T2/T3c greps on '- [ ] ...' match", "reused_from_iter_prev": false}
+    {
+      "id": "VC-1",
+      "claim": "run.sh source-pin greps workpad.py for _pair_appends_post_merge",
+      "file": "scripts/workpad.py",
+      "verification_mode": "lite",
+      "claim_signature": "test_mock_alignment:workpad.py:pair-appends-post-merge-symbol",
+      "verdict": "PASS",
+      "evidence": "def _pair_appends_post_merge present",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "claim": "run.sh source-pin greps workpad.py for _find_checkbox_row",
+      "file": "scripts/workpad.py",
+      "verification_mode": "lite",
+      "claim_signature": "test_mock_alignment:workpad.py:find-checkbox-row-symbol",
+      "verdict": "PASS",
+      "evidence": "def _find_checkbox_row present",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "claim": "SKILL.md --rewrite-ac row publishes the row-scoped exemption",
+      "file": "skills/implement/SKILL.md",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:SKILL.md:row-scoped-exemption-pin",
+      "verdict": "PASS",
+      "evidence": "phrase present at :161 and :185",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "claim": "T6 assert_pin_unique operative sentence appears exactly once in phase-3-review.md",
+      "file": "skills/implement/phases/phase-3-review.md",
+      "verification_mode": "agent",
+      "claim_signature": "api_contract:phase-3-review.md:self-reconfig-operative-sentence-unique",
+      "verdict": "PASS",
+      "evidence": "grep -c == 1",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-5",
+      "claim": "per-pair guard stderr contains 'no non-empty --note'",
+      "file": "scripts/workpad.py",
+      "verification_mode": "lite",
+      "claim_signature": "test_mock_alignment:workpad.py:guard-stderr-note-rationale",
+      "verdict": "PASS",
+      "evidence": "present in _UpdateError message",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-6",
+      "claim": "state backstop stderr contains 'net-adds'",
+      "file": "scripts/workpad.py",
+      "verification_mode": "lite",
+      "claim_signature": "test_mock_alignment:workpad.py:backstop-stderr-net-adds",
+      "verdict": "PASS",
+      "evidence": "present; T7 asserts it",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-7",
+      "claim": "per-pair raise interpolates OLD/NEW so T1's greps match",
+      "file": "scripts/workpad.py",
+      "verification_mode": "agent",
+      "claim_signature": "test_mock_alignment:workpad.py:per-pair-stderr-names-pair",
+      "verdict": "PASS",
+      "evidence": "f-string renders {old!r} -> {new!r} + marker; observed in T1 stderr",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-8",
+      "claim": "has_note is call-scoped and strips; --note is action='append'",
+      "file": "scripts/workpad.py",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:workpad.py:has-note-call-scope-strip",
+      "verdict": "PASS",
+      "evidence": "any(n.strip() for n in args.note); T2b/T4/T4c",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-9",
+      "claim": "guard consults resolved row_text via _find_checkbox_row",
+      "file": "scripts/workpad.py",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:workpad.py:guard-reads-resolved-row",
+      "verdict": "PASS",
+      "evidence": "T3c green; mutation to string-only predicate turns T3c RED",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-10",
+      "claim": "_ends_with_post_merge rstrips; _unticked_rows routes through it",
+      "file": "scripts/workpad.py",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:workpad.py:ends-with-rstrip-shared",
+      "verdict": "PASS",
+      "evidence": "shared helper; T4b pins rstrip",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-11",
+      "claim": "state backstop compares pre/post unticked post-merge counts",
+      "file": "scripts/workpad.py",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:workpad.py:state-backstop-count-delta",
+      "verdict": "PASS",
+      "evidence": "pre_pm captured before loop; T7 refuses with net-adds, T7b/T5b no false fire",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-12",
+      "claim": "both raises occur before any PATCH (all-or-nothing)",
+      "file": "scripts/workpad.py",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:workpad.py:guard-aborts-before-patch",
+      "verdict": "PASS",
+      "evidence": "raises inside _apply_mutations; T1/T4/T5/T7 assert empty patchlog",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-13",
+      "claim": "argparse --rewrite-ac help must not contradict the row-aware predicate",
+      "file": "scripts/workpad.py",
+      "verification_mode": "agent",
+      "claim_signature": "api_contract:workpad.py:help-old-only-vs-row-scoped",
+      "verdict": "FAIL",
+      "evidence": "help text published the stale '(NEW ends with it, OLD does not)' contract, contradicting the shipped row-scoped guard — documented_falsehood on the user-facing CLI surface. FIXED in e1c74a2; three rendered-help pins added.",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-14",
+      "claim": "'Three cases' count matches three enumerated forbidden bullets",
+      "file": "docs/implement-skill.md",
+      "verification_mode": "agent",
+      "claim_signature": "api_contract:implement-skill.md:three-cases-count-mirror",
+      "verdict": "PASS",
+      "evidence": "both files say Three cases; three bullets each",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-15",
+      "claim": "self-reconfiguration bound across all five twin/entry sites",
+      "file": "skills/implement/phases/phase-3-review.md",
+      "verification_mode": "agent",
+      "claim_signature": "api_contract:phase-3-review.md:self-reconfig-twin-sites",
+      "verdict": "PASS",
+      "evidence": "present in phase-1-setup, phase-2-implement, phase-3-review, implement-skill.md, DEVFLOW_SYSTEM_OVERVIEW.md",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-16",
+      "claim": "genuinely-live condition/examples/CI-deferral channel byte-for-byte unchanged",
+      "file": "skills/implement/phases/phase-3-review.md",
+      "verification_mode": "agent",
+      "claim_signature": "api_contract:phase-3-review.md:genuinely-live-channel-unchanged",
+      "verdict": "PASS",
+      "evidence": "only 'Two cases' -> 'Three cases' in that paragraph; confirmed by code-reviewer + final-pass",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-17",
+      "claim": "changeset 'type: Changed' is an accepted consolidator category",
+      "file": ".changeset/issue-338-post-merge-self-reconfiguration.md",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:changeset:type-changed-valid",
+      "verdict": "PASS",
+      "evidence": "CANONICAL_TYPES includes 'Changed' (also DEFAULT_TYPE)",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-18",
+      "claim": "$LIB-relative pin paths resolve",
+      "file": "lib/test/run.sh",
+      "verification_mode": "agent",
+      "claim_signature": "api_contract:run.sh:pin-path-resolution",
+      "verdict": "PASS",
+      "evidence": "LIB=lib/; both pinned paths exist; pins PASS in the run",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-19",
+      "claim": "_rewrite_checkbox preserves the '- [ ] ' box prefix",
+      "file": "scripts/workpad.py",
+      "verification_mode": "agent",
+      "claim_signature": "test_mock_alignment:workpad.py:rewrite-preserves-box-prefix",
+      "verdict": "PASS",
+      "evidence": "rebuilds groups 1-3 + new_text; T2/T3c greps on '- [ ] ...' match",
+      "reused_from_iter_prev": false
+    }
   ],
   "phase3_findings": [
     {
       "agent": "devflow:comment-analyzer",
       "severity": "Critical",
       "description": "workpad.py --rewrite-ac argparse help (and the _apply_mutations guard comment) published the stale OLD-only contract '(NEW ends with it, OLD does not)' after the guard was rebound to the resolved row. False against HEAD on the user-facing CLI surface.",
-      "defect_signature": {"file": "scripts/workpad.py", "line_range": [1706, 1721], "kind": "documented_falsehood"},
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          1706,
+          1721
+        ],
+        "kind": "documented_falsehood"
+      },
       "corroboration_count": 2,
       "step25_classification": "codebase",
       "fix_decision": "applied"
@@ -54,7 +235,14 @@
       "agent": "devflow:pr-test-analyzer",
       "severity": "Suggestion",
       "description": "A crafted multi-pair shuttle appending (post-merge) to an already-ticked [x] AC row is outside the backstop's unticked-row population and untested.",
-      "defect_signature": {"file": "scripts/workpad.py", "line_range": [1481, 1521], "kind": "test_gap"},
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          1481,
+          1521
+        ],
+        "kind": "test_gap"
+      },
       "corroboration_count": 2,
       "step25_classification": "codebase",
       "fix_decision": "deferred"
@@ -63,14 +251,25 @@
       "agent": "devflow:pr-test-analyzer",
       "severity": "Suggestion",
       "description": "The SKILL.md coupled-invariant pin uses grep -q and matches 2 lines, so it guards wholesale removal but not single-site drift between the two coupled sentences.",
-      "defect_signature": {"file": "lib/test/run.sh", "line_range": [4340, 4344], "kind": "test_gap"},
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          4340,
+          4344
+        ],
+        "kind": "test_gap"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "deferred"
     }
   ],
   "fix_decisions": [
-    {"finding_id": "F-1", "decision": "applied", "commit": "e1c74a2e72d68240ec1a1af94afa3d40eccc6e16"},
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "e1c74a2e72d68240ec1a1af94afa3d40eccc6e16"
+    },
     {
       "finding_id": "F-2",
       "decision": "deferred",
@@ -102,24 +301,75 @@
     "fix_diff_lines": 24,
     "new_corroborated_critical_count": 0
   },
-  "cap_drops": {"count": 0, "by_category": {}},
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
   "completeness_critic": {
     "ran": true,
     "audit_population": "channels that can introduce a (post-merge) AC row",
     "independent_signal": "every writer of the '## Acceptance Criteria' section in workpad.py, enumerated from _find_section/_set_section_content call sites and the argparse flag surface — NOT from the guard's own pattern",
-    "independent_enumeration": ["--rewrite-ac", "--replace-acs-file", "create (initial AC seeding)", "--tick-ac/--tick-ac-n (box state only, writes no text)"],
-    "audit_covered_set": ["--rewrite-ac"],
+    "independent_enumeration": [
+      "--rewrite-ac",
+      "--replace-acs-file",
+      "create (initial AC seeding)",
+      "--tick-ac/--tick-ac-n (box state only, writes no text)"
+    ],
+    "audit_covered_set": [
+      "--rewrite-ac"
+    ],
     "result": "The guard's matched set is a strict subset of the independent enumeration, but every uncovered member is DISCLOSED, not silent: --replace-acs-file is named as a deliberate open limitation in the guard's scope comment, docs/implement-skill.md, and issue #338's Potential Gotchas; create/initial seeding is covered by the Phase 1.2 + Phase 3.4 classification gate rather than the workpad guard; tick flags write no AC text. No undisclosed uncovered member -> no finding. Note: this asserts the audit is a superset of one independent enumeration, not exhaustiveness."
   },
   "telemetry": {
-    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 20},
-    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 5},
-    "phase_1": {"calls": 1, "tokens": 63050, "wall_clock_s": 106},
-    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
-    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 30},
-    "phase_3": {"calls": 5, "tokens": 364805, "wall_clock_s": 365},
-    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2, "webfetches": 0},
-    "step_3_5": {"calls": 1, "tokens": 67428, "wall_clock_s": 312},
-    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 2}
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 20
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "phase_1": {
+      "calls": 1,
+      "tokens": 63050,
+      "wall_clock_s": 106
+    },
+    "phase_1_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_2": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 30
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 364805,
+      "wall_clock_s": 365
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 2,
+      "webfetches": 0
+    },
+    "step_3_5": {
+      "calls": 1,
+      "tokens": 67428,
+      "wall_clock_s": 312
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 2
+    }
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
   }
 }

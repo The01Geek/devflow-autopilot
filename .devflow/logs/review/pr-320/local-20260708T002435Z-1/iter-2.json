@@ -2,20 +2,77 @@
   "iter": 2,
   "started_at": "2026-07-08T00:56:00Z",
   "fix_commit_sha": "4c1dcb5",
-  "fix_files": ["lib/test/run.sh"],
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
   "loop_role": "promoted",
   "checklist": [],
   "phase3_dispatched": [],
-  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "detect_all_audit": true, "checklist_skipped": null},
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
   "phase3_findings": [
-    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "Promoted from iter-1 shadow: single-helper attribution live fail-open (derive-review-verdict.sh comments in finalize_check never attributed).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15796, 15799], "kind": "guard-fails-open-incomplete-coverage"}, "step25_classification": "codebase", "fix_decision": "applied"}
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "Promoted from iter-1 shadow: single-helper attribution live fail-open (derive-review-verdict.sh comments in finalize_check never attributed).",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          15796,
+          15799
+        ],
+        "kind": "guard-fails-open-incomplete-coverage"
+      },
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "SHADOW-1", "decision": "severity-calibrated", "source_file": "lib/test/run.sh", "claim_text": "single-helper attribution live fail-open", "original_severity": "Important", "calibrated_severity": "Important", "evidence": "Over-grade gate: verified empirically REAL (derive-review-verdict.sh:221 comments call, finalize_check runs it, lint walked only preconditions.sh). Affirmed Important — genuine fail-open in the lint's central guarantee, concrete finalize_check counterexample. Not down-calibrated."},
-    {"finding_id": "SHADOW-1-fix", "decision": "applied", "commit": "4c1dcb5"}
+    {
+      "finding_id": "SHADOW-1",
+      "decision": "severity-calibrated",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "single-helper attribution live fail-open",
+      "original_severity": "Important",
+      "calibrated_severity": "Important",
+      "evidence": "Over-grade gate: verified empirically REAL (derive-review-verdict.sh:221 comments call, finalize_check runs it, lint walked only preconditions.sh). Affirmed Important — genuine fail-open in the lint's central guarantee, concrete finalize_check counterexample. Not down-calibrated."
+    },
+    {
+      "finding_id": "SHADOW-1-fix",
+      "decision": "applied",
+      "commit": "4c1dcb5"
+    }
   ],
-  "convergence_inputs": {"fixes_applied": 1, "fix_diff_lines": 64, "new_corroborated_critical_count": 0},
-  "cap_drops": {"count": 0, "by_category": {}},
-  "telemetry": {"step_2_5": {"calls": 0, "webfetches": 0}, "phase_3": {"calls": 0}, "step_3_5": {"calls": 1}},
-  "notes": "Promoted iter from iter-1 shadow outcome-2. Applied the derive-review-verdict.sh second-helper attribution; fix-delta gate PASS. Fresh final shadow ran on 4c1dcb5 (see iter-3 for its findings)."
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 64,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "step_2_5": {
+      "calls": 0,
+      "webfetches": 0
+    },
+    "phase_3": {
+      "calls": 0
+    },
+    "step_3_5": {
+      "calls": 1
+    }
+  },
+  "notes": "Promoted iter from iter-1 shadow outcome-2. Applied the derive-review-verdict.sh second-helper attribution; fix-delta gate PASS. Fresh final shadow ran on 4c1dcb5 (see iter-3 for its findings).",
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
 }

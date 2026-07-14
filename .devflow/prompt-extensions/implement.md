@@ -184,14 +184,15 @@ end, where context compaction will have dropped the detail):
 - **Improvement ideas** the run surfaced, even if you did not act on them.
 
 **How to record it.** Append each observation with
-`scripts/workpad.py update <WORKPAD_ID> --reflection-kind note --reflection "<observation>"`
-— process-improvement signal is a `note` (it lands under `### ℹ️ Notes`). Reserve the
-actionable kinds for what they mean: `blocked` (a hard stop), `deferred` (punted work),
-`dropped-failed` (a subagent/step that failed and you continued past). Name the **concrete
-surface** — the file, skill, or step — and the specific improvement, so the retrospective can
-act without re-deriving what you already saw. This is **additive** to the verification-gap
-reflections above and to the reflections the base skill already writes (deferrals, reverts,
-post-review code fixes); it does not replace any of them.
+`scripts/workpad.py update <ISSUE_NUMBER> --reflection-kind improvement --reflection "<observation>"`
+— an engine/process-improvement proposal is an `improvement` (it lands under `### 💡
+Improvements`). Reserve the other kinds for what they mean: `note` (a friction or deviation you
+worked around), `issue-accuracy` (the driving issue's own claims were wrong or underspecified),
+`blocked` (a hard stop), `deferred` (punted work), `dropped-failed` (a subagent/step that failed
+and you continued past). Name the **concrete surface** — the file, skill, or step — and the
+specific improvement, so the retrospective can act without re-deriving what you already saw. This
+is **additive** to the verification-gap reflections above and to the reflections the base skill
+already writes (deferrals, reverts, post-review code fixes); it does not replace any of them.
 
 **Before finalizing (Phase 4.3), confirm the side task ran — and record the confirmation on
 the *right* surface, because the surface carries a cost.** `lib/cheap-gate.jq` forces an LLM
@@ -200,11 +201,12 @@ reflection is the expensive-but-loud surface and a `## Progress` note is the che
 one. Route by whether the run actually had signal:
 
 - **The run hit real friction / a bug / a hazard** → it is already a `## Devflow Reflection`
-  `note` bullet (per *How to record it* above). That is exactly the signal the retrospective
-  must be forced to read; the gate tripping here is correct, not waste.
+  bullet (an `improvement`, `note`, or `issue-accuracy` per *How to record it* above). That is
+  exactly the signal the retrospective must be forced to read; the gate tripping here is
+  correct, not waste.
 - **The run was genuinely frictionless end-to-end** → do **not** file a `--reflection` bullet
   for it. Record the confirmation as a `## Progress` note instead:
-  `scripts/workpad.py update <WORKPAD_ID> --note "dogfood side task ran: frictionless, nothing to capture"`.
+  `scripts/workpad.py update <ISSUE_NUMBER> --note "dogfood side task ran: frictionless, nothing to capture"`.
   A `--note` writes to `## Progress`, which does **not** feed `reflections[]`, so `## Devflow
   Reflection` stays empty and `cheap-gate.jq` still skips the clean PR cheaply — while the
   Progress note still proves the side task was run, not silently skipped.

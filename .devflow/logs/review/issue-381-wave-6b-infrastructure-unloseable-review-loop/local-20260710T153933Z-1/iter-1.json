@@ -10,25 +10,196 @@
   ],
   "loop_role": "fix",
   "checklist": [
-    {"id": "VC-1", "claim": "synth_base_ref reads top-level .base_branch via devflow_conf with main default", "file": "lib/efficiency-trace.sh", "verification_mode": "agent", "claim_signature": "dependency_interaction:efficiency-trace.sh:base-branch-config-key", "verdict": "PASS", "evidence": "config.schema.json:13, config.example.json:3, config-source.sh:28-43", "reused_from_iter_prev": false},
-    {"id": "VC-2", "claim": "fix-commit subject literal byte-matches across SKILL.md item 6 and FIX_COMMIT_SUBJECT_PREFIX", "file": "lib/efficiency-trace.sh", "verification_mode": "agent", "claim_signature": "api_contract:efficiency-trace.sh:fix-subject-two-site-invariant", "verdict": "PASS", "evidence": "SKILL.md:643 vs efficiency-trace.sh:172", "reused_from_iter_prev": false},
-    {"id": "VC-3", "claim": "synthesized field name/shape matches between shell writer and jq reader", "file": "lib/efficiency-trace.jq", "verification_mode": "agent", "claim_signature": "data_format_assumption:efficiency-trace.jq:synthesized-field-shape", "verdict": "PASS", "evidence": "sh writes literal true; jq strict == true at 204/262/271", "reused_from_iter_prev": false},
-    {"id": "VC-4", "claim": "synthesized minimal records render rc-0 both modes with none-recorded posture", "file": "lib/efficiency-trace.jq", "verification_mode": "agent", "claim_signature": "data_format_assumption:efficiency-trace.jq:synthesized-record-no-null-detonation", "verdict": "PASS", "evidence": "// defaults null-safe; live suite run green", "reused_from_iter_prev": false},
-    {"id": "VC-5", "claim": "fix_files derived via git diff-tree --no-commit-id --name-only -r and newline-split", "file": "lib/efficiency-trace.sh", "verification_mode": "agent", "claim_signature": "dependency_interaction:efficiency-trace.sh:fix-files-diff-tree", "verdict": "PASS", "evidence": "matches issue spec; T2 asserts [\"f1\"]", "reused_from_iter_prev": false},
-    {"id": "VC-6", "claim": "git log %s yields bare subject so prefix case match holds", "file": "lib/efficiency-trace.sh", "verification_mode": "agent", "claim_signature": "dependency_interaction:efficiency-trace.sh:git-log-subject-parse", "verdict": "PASS", "evidence": "verified empirically with body-carrying commit", "reused_from_iter_prev": false},
-    {"id": "VC-7", "claim": "only latest workpad-less run-id synthesizes and no fix commit double-counted", "file": "lib/efficiency-trace.sh", "verification_mode": "agent", "claim_signature": "absolute_claim:efficiency-trace.sh:latest-run-id-only-no-double-count", "verdict": "FAIL", "evidence": "reproduced double-count: workpad-holding sibling run + workpad-less dir both record same shas; fixed in iteration 1 via sha-level exclusion (recorded_fix_shas)", "reused_from_iter_prev": false},
-    {"id": "VC-8", "claim": "adversarial subject shapes each exit-0 with specific breadcrumb", "file": "lib/efficiency-trace.sh", "verification_mode": "agent", "claim_signature": "absolute_claim:efficiency-trace.sh:adversarial-subjects-each-breadcrumb", "verdict": "PASS", "evidence": "all constructed malformed shapes breadcrumbed; git strips trailing-whitespace subjects", "reused_from_iter_prev": false},
-    {"id": "VC-9", "claim": "self-check exempts synthesized records from full field validation", "file": "lib/efficiency-trace.sh", "verification_mode": "agent", "claim_signature": "data_format_assumption:efficiency-trace.sh:selfcheck-synthesized-exemption", "verdict": "PASS", "evidence": "live jq test; hardened in iteration 1 to validate the synthesized minimal set instead of nothing", "reused_from_iter_prev": false},
-    {"id": "VC-10", "claim": "phase-3-review reflection literal matches updated run.sh pin", "file": "skills/implement/phases/phase-3-review.md", "verification_mode": "lite", "claim_signature": "string_presence:phase-3-review.md:synthesized-nothing-pin", "verdict": "PASS", "evidence": "lite probe hit", "reused_from_iter_prev": false},
-    {"id": "VC-11", "claim": "old '--persist had no inputs' literal absent", "file": "skills/implement/phases/phase-3-review.md", "verification_mode": "lite", "claim_signature": "string_presence:phase-3-review.md:old-no-inputs-literal-removed", "verdict": "PASS", "evidence": "lite probe no hit", "reused_from_iter_prev": false},
-    {"id": "VC-12", "claim": "CLAUDE.md carries extraction convention sentence", "file": "CLAUDE.md", "verification_mode": "lite", "claim_signature": "string_presence:CLAUDE.md:inline-shell-extraction-convention", "verdict": "PASS", "evidence": "lite probe hit", "reused_from_iter_prev": false},
-    {"id": "VC-13", "claim": "phase-2-implement carve-out sentence present", "file": "skills/implement/phases/phase-2-implement.md", "verification_mode": "lite", "claim_signature": "string_presence:phase-2-implement.md:workflow-shell-carveout", "verdict": "PASS", "evidence": "lite probe hit", "reused_from_iter_prev": false},
-    {"id": "VC-14", "claim": "SKILL.md item 6 fused-emit clause present", "file": "skills/review-and-fix/SKILL.md", "verification_mode": "lite", "claim_signature": "string_presence:review-and-fix.md:fused-emit-clause", "verdict": "PASS", "evidence": "lite probe hit", "reused_from_iter_prev": false},
-    {"id": "VC-15", "claim": "phase-3-review seam names synthesis", "file": "skills/implement/phases/phase-3-review.md", "verification_mode": "lite", "claim_signature": "string_presence:phase-3-review.md:synthesis-seam", "verdict": "PASS", "evidence": "lite probe hit", "reused_from_iter_prev": false},
-    {"id": "VC-16", "claim": "describe-denial-count.sh reference exists", "file": "CLAUDE.md", "verification_mode": "lite", "claim_signature": "string_presence:scripts:describe-denial-count-reference-exists", "verdict": "PASS", "evidence": "lite probe hit + scripts/describe-denial-count.sh present", "reused_from_iter_prev": false},
-    {"id": "VC-17", "claim": "changeset bump: patch present; no plugin.json/CHANGELOG edits", "file": ".changeset/issue-381-unloseable-telemetry-and-shell-extraction.md", "verification_mode": "lite", "claim_signature": "string_presence:changeset:bump-patch", "verdict": "PASS", "evidence": "lite probe hit; file list clean", "reused_from_iter_prev": false},
-    {"id": "VC-18", "claim": "--persist idempotent for synthesized records", "file": "lib/efficiency-trace.sh", "verification_mode": "agent", "claim_signature": "dependency_interaction:efficiency-trace.sh:persist-idempotent-synthesized", "verdict": "PASS", "evidence": "presence guards + pathspec-scoped diff gate; live suite run", "reused_from_iter_prev": false},
-    {"id": "VC-19", "claim": "argjson iter always receives numeric N", "file": "lib/efficiency-trace.sh", "verification_mode": "agent", "claim_signature": "data_format_assumption:efficiency-trace.sh:argjson-iter-numeric-guaranteed", "verdict": "PASS", "evidence": "numeric guard upstream; iteration 1 adds leading-zero normalization", "reused_from_iter_prev": false}
+    {
+      "id": "VC-1",
+      "claim": "synth_base_ref reads top-level .base_branch via devflow_conf with main default",
+      "file": "lib/efficiency-trace.sh",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:efficiency-trace.sh:base-branch-config-key",
+      "verdict": "PASS",
+      "evidence": "config.schema.json:13, config.example.json:3, config-source.sh:28-43",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "claim": "fix-commit subject literal byte-matches across SKILL.md item 6 and FIX_COMMIT_SUBJECT_PREFIX",
+      "file": "lib/efficiency-trace.sh",
+      "verification_mode": "agent",
+      "claim_signature": "api_contract:efficiency-trace.sh:fix-subject-two-site-invariant",
+      "verdict": "PASS",
+      "evidence": "SKILL.md:643 vs efficiency-trace.sh:172",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "claim": "synthesized field name/shape matches between shell writer and jq reader",
+      "file": "lib/efficiency-trace.jq",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:efficiency-trace.jq:synthesized-field-shape",
+      "verdict": "PASS",
+      "evidence": "sh writes literal true; jq strict == true at 204/262/271",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "claim": "synthesized minimal records render rc-0 both modes with none-recorded posture",
+      "file": "lib/efficiency-trace.jq",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:efficiency-trace.jq:synthesized-record-no-null-detonation",
+      "verdict": "PASS",
+      "evidence": "// defaults null-safe; live suite run green",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-5",
+      "claim": "fix_files derived via git diff-tree --no-commit-id --name-only -r and newline-split",
+      "file": "lib/efficiency-trace.sh",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:efficiency-trace.sh:fix-files-diff-tree",
+      "verdict": "PASS",
+      "evidence": "matches issue spec; T2 asserts [\"f1\"]",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-6",
+      "claim": "git log %s yields bare subject so prefix case match holds",
+      "file": "lib/efficiency-trace.sh",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:efficiency-trace.sh:git-log-subject-parse",
+      "verdict": "PASS",
+      "evidence": "verified empirically with body-carrying commit",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-7",
+      "claim": "only latest workpad-less run-id synthesizes and no fix commit double-counted",
+      "file": "lib/efficiency-trace.sh",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:efficiency-trace.sh:latest-run-id-only-no-double-count",
+      "verdict": "FAIL",
+      "evidence": "reproduced double-count: workpad-holding sibling run + workpad-less dir both record same shas; fixed in iteration 1 via sha-level exclusion (recorded_fix_shas)",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-8",
+      "claim": "adversarial subject shapes each exit-0 with specific breadcrumb",
+      "file": "lib/efficiency-trace.sh",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:efficiency-trace.sh:adversarial-subjects-each-breadcrumb",
+      "verdict": "PASS",
+      "evidence": "all constructed malformed shapes breadcrumbed; git strips trailing-whitespace subjects",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-9",
+      "claim": "self-check exempts synthesized records from full field validation",
+      "file": "lib/efficiency-trace.sh",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:efficiency-trace.sh:selfcheck-synthesized-exemption",
+      "verdict": "PASS",
+      "evidence": "live jq test; hardened in iteration 1 to validate the synthesized minimal set instead of nothing",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-10",
+      "claim": "phase-3-review reflection literal matches updated run.sh pin",
+      "file": "skills/implement/phases/phase-3-review.md",
+      "verification_mode": "lite",
+      "claim_signature": "string_presence:phase-3-review.md:synthesized-nothing-pin",
+      "verdict": "PASS",
+      "evidence": "lite probe hit",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-11",
+      "claim": "old '--persist had no inputs' literal absent",
+      "file": "skills/implement/phases/phase-3-review.md",
+      "verification_mode": "lite",
+      "claim_signature": "string_presence:phase-3-review.md:old-no-inputs-literal-removed",
+      "verdict": "PASS",
+      "evidence": "lite probe no hit",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-12",
+      "claim": "CLAUDE.md carries extraction convention sentence",
+      "file": "CLAUDE.md",
+      "verification_mode": "lite",
+      "claim_signature": "string_presence:CLAUDE.md:inline-shell-extraction-convention",
+      "verdict": "PASS",
+      "evidence": "lite probe hit",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-13",
+      "claim": "phase-2-implement carve-out sentence present",
+      "file": "skills/implement/phases/phase-2-implement.md",
+      "verification_mode": "lite",
+      "claim_signature": "string_presence:phase-2-implement.md:workflow-shell-carveout",
+      "verdict": "PASS",
+      "evidence": "lite probe hit",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-14",
+      "claim": "SKILL.md item 6 fused-emit clause present",
+      "file": "skills/review-and-fix/SKILL.md",
+      "verification_mode": "lite",
+      "claim_signature": "string_presence:review-and-fix.md:fused-emit-clause",
+      "verdict": "PASS",
+      "evidence": "lite probe hit",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-15",
+      "claim": "phase-3-review seam names synthesis",
+      "file": "skills/implement/phases/phase-3-review.md",
+      "verification_mode": "lite",
+      "claim_signature": "string_presence:phase-3-review.md:synthesis-seam",
+      "verdict": "PASS",
+      "evidence": "lite probe hit",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-16",
+      "claim": "describe-denial-count.sh reference exists",
+      "file": "CLAUDE.md",
+      "verification_mode": "lite",
+      "claim_signature": "string_presence:scripts:describe-denial-count-reference-exists",
+      "verdict": "PASS",
+      "evidence": "lite probe hit + scripts/describe-denial-count.sh present",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-17",
+      "claim": "changeset bump: patch present; no plugin.json/CHANGELOG edits",
+      "file": ".changeset/issue-381-unloseable-telemetry-and-shell-extraction.md",
+      "verification_mode": "lite",
+      "claim_signature": "string_presence:changeset:bump-patch",
+      "verdict": "PASS",
+      "evidence": "lite probe hit; file list clean",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-18",
+      "claim": "--persist idempotent for synthesized records",
+      "file": "lib/efficiency-trace.sh",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:efficiency-trace.sh:persist-idempotent-synthesized",
+      "verdict": "PASS",
+      "evidence": "presence guards + pathspec-scoped diff gate; live suite run",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-19",
+      "claim": "argjson iter always receives numeric N",
+      "file": "lib/efficiency-trace.sh",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:efficiency-trace.sh:argjson-iter-numeric-guaranteed",
+      "verdict": "PASS",
+      "evidence": "numeric guard upstream; iteration 1 adds leading-zero normalization",
+      "reused_from_iter_prev": false
+    }
   ],
   "phase3_dispatched": [
     "devflow:code-reviewer",
@@ -45,34 +216,281 @@
     "checklist_skipped": null
   },
   "phase3_findings": [
-    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "Synthesis attributes the whole branch's fix commits to every workpad-less run; 'never double-counted' guarantee does not hold (mixed sibling / leftover dirs)", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [228, 334], "kind": "logic_error"}, "corroboration_count": 4, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "Diff-added comment asserts double-count invariant the code does not hold (documented_falsehood, self-contradicting diff)", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [331, 334], "kind": "documented_falsehood"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "Changeset + run.sh say §2.4 but the carve-out lives in §2.3 (documented_falsehood, three sites)", "defect_signature": {"file": ".changeset/issue-381-unloseable-telemetry-and-shell-extraction.md", "line_range": [7, 7], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "AC9: four operative-prose pins used assert_pin_red_on_removal instead of assert_pin_red_under; T1/AC5-seam pins were framing-clause pins", "defect_signature": {"file": "lib/test/run.sh", "line_range": [14285, 14294], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "Unknown collapsed onto zero: unresolvable base ref / failed writes reported as 'no fix commits were found'", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [339, 341], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "synth_base_ref preferred stale local base over origin/<base>, sweeping merged history into synthesis", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [176, 186], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "self-check synthesized exemption skipped ALL validation instead of validating the minimal set", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [304, 306], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "duplicate-N dedupe compared raw token so 01 vs 1 bypassed it; leading-zero argjson is jq-version-dependent", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [220, 226], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "silent return 0 when synthesis claims success but no files exist (defensive seam)", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [343, 344], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "duplicate-N earliest-wins asserted only by breadcrumb, --reverse unguarded", "defect_signature": {"file": "lib/test/run.sh", "line_range": [14166, 14189], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "synth_base_ref failure and non-default base_branch untested", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [177, 196], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "synthesized:false direction untested", "defect_signature": {"file": "lib/efficiency-trace.jq", "line_range": [40, 51], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "no-closing-')' breadcrumb wording misdescribes a non-trailing ')' subject", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [236, 239], "kind": "style"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "Synthesis attributes the whole branch's fix commits to every workpad-less run; 'never double-counted' guarantee does not hold (mixed sibling / leftover dirs)",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          228,
+          334
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 4,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "Diff-added comment asserts double-count invariant the code does not hold (documented_falsehood, self-contradicting diff)",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          331,
+          334
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "Changeset + run.sh say §2.4 but the carve-out lives in §2.3 (documented_falsehood, three sites)",
+      "defect_signature": {
+        "file": ".changeset/issue-381-unloseable-telemetry-and-shell-extraction.md",
+        "line_range": [
+          7,
+          7
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "AC9: four operative-prose pins used assert_pin_red_on_removal instead of assert_pin_red_under; T1/AC5-seam pins were framing-clause pins",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          14285,
+          14294
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "Unknown collapsed onto zero: unresolvable base ref / failed writes reported as 'no fix commits were found'",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          339,
+          341
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "synth_base_ref preferred stale local base over origin/<base>, sweeping merged history into synthesis",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          176,
+          186
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "self-check synthesized exemption skipped ALL validation instead of validating the minimal set",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          304,
+          306
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "duplicate-N dedupe compared raw token so 01 vs 1 bypassed it; leading-zero argjson is jq-version-dependent",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          220,
+          226
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "silent return 0 when synthesis claims success but no files exist (defensive seam)",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          343,
+          344
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "duplicate-N earliest-wins asserted only by breadcrumb, --reverse unguarded",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          14166,
+          14189
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "synth_base_ref failure and non-default base_branch untested",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          177,
+          196
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "synthesized:false direction untested",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.jq",
+        "line_range": [
+          40,
+          51
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "no-closing-')' breadcrumb wording misdescribes a non-trailing ')' subject",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          236,
+          239
+        ],
+        "kind": "style"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "F-1", "decision": "applied", "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"},
-    {"finding_id": "F-2", "decision": "applied", "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"},
-    {"finding_id": "F-3", "decision": "applied", "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"},
-    {"finding_id": "F-4", "decision": "applied", "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"},
-    {"finding_id": "F-5", "decision": "applied", "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"},
-    {"finding_id": "F-6", "decision": "applied", "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"},
-    {"finding_id": "F-7", "decision": "applied", "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"},
-    {"finding_id": "F-8", "decision": "applied", "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"},
-    {"finding_id": "F-9", "decision": "applied", "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"},
-    {"finding_id": "F-10", "decision": "applied", "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"},
-    {"finding_id": "F-11", "decision": "applied", "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"},
-    {"finding_id": "F-12", "decision": "applied", "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"},
-    {"finding_id": "F-13", "decision": "applied", "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"}
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "applied",
+      "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "applied",
+      "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "applied",
+      "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"
+    },
+    {
+      "finding_id": "F-9",
+      "decision": "applied",
+      "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"
+    },
+    {
+      "finding_id": "F-10",
+      "decision": "applied",
+      "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"
+    },
+    {
+      "finding_id": "F-11",
+      "decision": "applied",
+      "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"
+    },
+    {
+      "finding_id": "F-12",
+      "decision": "applied",
+      "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"
+    },
+    {
+      "finding_id": "F-13",
+      "decision": "applied",
+      "commit": "e13ab06680774ced2734b27627cf36e09448e5b9"
+    }
   ],
   "convergence_inputs": {
     "fixes_applied": 13,
@@ -84,13 +502,50 @@
     "by_category": {}
   },
   "telemetry": {
-    "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 60},
-    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 30},
-    "phase_1":   {"calls": 1, "tokens": 83024, "wall_clock_s": 120},
-    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
-    "phase_2":   {"calls": 11, "tokens": 549511, "wall_clock_s": 380},
-    "phase_3":   {"calls": 5, "tokens": 447030, "wall_clock_s": 480},
-    "step_2_5":  {"calls": 0, "tokens": 0, "wall_clock_s": 10, "webfetches": 0},
-    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 30}
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 60
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 30
+    },
+    "phase_1": {
+      "calls": 1,
+      "tokens": 83024,
+      "wall_clock_s": 120
+    },
+    "phase_1_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_2": {
+      "calls": 11,
+      "tokens": 549511,
+      "wall_clock_s": 380
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 447030,
+      "wall_clock_s": 480
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 10,
+      "webfetches": 0
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 30
+    }
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
   }
 }

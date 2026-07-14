@@ -22,8 +22,9 @@ run — gitignored and routinely cleaned out locally, and destroyed wholesale wh
 runner is torn down. Either way, the moment a run finishes the data is liable to vanish.
 Optimization decisions ("is this agent pulling its weight?") were left to guesswork.
 
-At Loop Exit the loop now derives a per-run effectiveness trace, prints it to chat, and writes one
-durable, **tracked** record so the data survives teardown and is reviewable after the fact.
+At Loop Exit the loop now derives a per-run effectiveness trace, prints it to chat, and persists one
+durable record to a dedicated **telemetry branch** (issue #441) so the data survives teardown, lands
+in one place across every writable run (local and cloud), and is reviewable after the fact.
 
 ## The workpad roster field: `phase3_dispatched`
 
@@ -115,19 +116,36 @@ visible at a glance.
 
 ## The per-run record
 
-`lib/efficiency-trace.sh --mode record` emits one JSON object written to
-`.devflow/logs/efficiency/<slug>-<run-id>.json` — **one file per run** (not an appended
-JSONL), which keeps the store conflict-free across concurrent PR branches at merge time. The
-filename is keyed by the run's `<run-id>` (the same discriminator that scopes the workpad
-directory), **not** a fresh `date` timestamp: this is what lets the `--persist` backstop (below) be
-idempotent — the agent's Loop-Exit write and any later `--persist` re-derivation resolve the *same*
-path, so a run is never recorded twice. The record carries:
+`lib/efficiency-trace.sh --mode record` emits one JSON record object **to stdout**; `--persist` derives
+that same object and stores it on the telemetry branch at `.devflow/logs/efficiency/<slug>-<run-id>.json`
+— **one file per run** (not an appended JSONL), so parallel writers never touch the same file. The
+filename is keyed by the run's `<run-id>` (the same
+discriminator that scopes the workpad directory), **not** a fresh `date` timestamp: this is what lets
+`--persist` be idempotent — it tests record presence **on the branch** (`git cat-file -e
+refs/heads/<branch>:.devflow/logs/efficiency/<slug>-<run-id>.json` — the fully-qualified ref the
+code actually probes, not a bare-name lookup) and never re-derives an existing record, so a
+re-run is a clean no-op (no new branch commit, `generated_at` unchanged) and a run is never recorded
+twice. The record carries:
 
 - `schema_version`, `slug`, `generated_at`, `iterations`, and `synthesized` — record-level `true`
   when **any** iteration was reconstructed by `--persist`'s synthesis floor rather than written by
   the loop (see *Non-droppable persistence* below); an agent-written run reads `false`.
 - `cut_candidate_min_dispatch` — the config threshold (below), carried forward for the follow-up
   cross-run analyzer.
+- `config_fingerprint` — the config-variant fingerprint (issue #431): an object
+  `{sha256, partial, salient}` (or `null` when it could not be established), where `sha256` is over
+  the canonicalized `devflow_review` + `devflow_review_and_fix` blocks, `partial` is `true` when only
+  one of the two blocks exists (the hash covers what exists), and `salient` carries a few
+  interrupted-time-series-relevant key values **verbatim** (`verdict_severity_threshold`,
+  `fix_severity_threshold`, `max_iterations`). Computed by the wrapper via python3 (a hard preflight
+  prerequisite — **no new command head**), it names the config variant that produced the run, which
+  is what makes an experiment's interrupted-time-series comparison attributable.
+  **`schema_version` decision (issue #431):** the field is additive and **optional** (nullable), and
+  **no consumer gates on `schema_version`**, so the record stays at `schema_version: 1` — a bump would
+  imply a breaking change this is not. Records predating the field remain valid; the experiment-record
+  assembler (below) handles presence/absence uniformly, falling back to
+  `git show <merge_sha>:.devflow/config.json` and marking the fingerprint source when the record
+  carries none.
 - `per_iteration[]` — dispatch counts, `diff_profile` (Phase 0.5 flags — segment cut decisions by
   this), `verification_posture`, checklist lite/agent split, fixes applied, the `added_nothing` flag,
   `phase3_dispatched_present` (so the analyzer can tell a genuinely zero-dispatch iteration from one
@@ -148,18 +166,57 @@ path, so a run is never recorded twice. The record carries:
 A run with zero readable iterations (catastrophic early failure) writes **no record at all** rather
 than a contentless skeleton — symmetric with the flag-off contract.
 
-`.devflow/logs/` is a **tracked** directory (mirroring the tracked `.devflow/learnings/`
-learnings-store). Under **`/devflow:review-and-fix`**, the Loop Exit persists the record
-deterministically in a single dedicated `chore:` commit (alongside the durable workpad copy),
-scoped to the `.devflow/logs/` artifacts so it never absorbs unrelated changes — created on
-every writable run, **local mode included**, so the record no longer depends on an incidental
-future `git add -A` to sweep it in. That commit is **pushed only under `--push-each-iteration`**;
-in default local mode it is committed but not pushed, preserving the no-remote-side-effect
-property by not pushing rather than by leaving a tracked file uncommitted. Either way the
-record survives teardown — whether a cloud runner being destroyed or a local `.devflow/tmp/`
-cleanup. (Standalone **`/devflow:review`** has no fix loop and no Loop Exit: its Phase 4.5 record
-write is gated to writable runs and swept up by the surrounding run's commits — it does not emit
-this dedicated `chore:` commit.)
+**The durable store is a dedicated telemetry branch (issue #441).** Every writable run — local
+and cloud, `/devflow:review-and-fix` **and** standalone `/devflow:review` — persists its record
+and durable workpad copy to a single long-lived **orphan branch, `devflow-telemetry`** (name
+configurable via `telemetry.branch`). The branch shares no history with `main` and is never
+merged into it. The persist step (`lib/efficiency-trace.sh --persist`) writes each run's
+artifacts to that branch **through git plumbing** — hashing them into the object store,
+assembling a tree against a temporary index, `git commit-tree`, and a compare-and-swap
+`git update-ref` — **without checking the branch out and without materializing anything in the
+tracked working tree.** After `--persist`, the current branch, its `HEAD`, the default branch,
+and `git status` are byte-for-byte unchanged. It then pushes the branch (a fetch → re-parent →
+push retry loop lives inside the helper), using the **same code path** in both environments:
+cloud authenticates with the workflow token, local with the developer's own git credentials.
+
+This replaces the former current-branch `chore:` commit, and with it three problems it caused:
+durability no longer depends on whichever branch the run sat on ever being pushed and merged (a
+local run's telemetry is retained on the local `devflow-telemetry` ref even offline, and pushed
+when a remote is reachable); a local run on the default branch can no longer diverge local `main`
+from `origin/main`; and telemetry from every writable run lands in **one** place. Persistence is
+best-effort and exit-0: when the branch cannot be pushed (offline, no remote, a read-only fork-PR
+token, a missing permission, or the read-only cloud `review` profile) the local ref still
+advances, a `::warning::` is emitted, and the run is never aborted. Before appending to an
+existing `devflow-telemetry` ref the write verifies it is a telemetry store (its tip tree holds
+only `.devflow/logs/`-shaped paths) and breadcrumb-skips on mismatch — and the push-rejection
+re-parent re-runs the same verification against the freshly-fetched **remote** tip before building
+the union commit (the case where a consumer's same-named branch exists only on the remote and first
+surfaces as the push rejection) — so it never commits onto a same-named branch a consumer uses for
+something else, on either the local-append or the push-reconcile path. The ref advance is a compare-and-swap that
+re-reads the tip and rebuilds on it when a sibling worktree/process advanced it first, so two
+parallel local worktrees sharing `.git/refs` both survive with no lost commit. The read-only
+cloud `review` profile (`devflow-runner.yml`, `contents: read`) **does** run `--persist` — the
+base-branch `.claude/settings.json` Stop hook is restored into every `claude-code-action` job (this
+rests on the same **unverified platform premise** the writable-tier workflow-env comments flag: that
+`claude-code-action` fires the restored Stop hook and propagates the job env into its subprocess; on
+this read-only tier the fail direction is safe either way — if the hook does not fire, nothing is
+staged and nothing is lost) — but
+in **staging-only** mode: the workflow does not set the push operand `DEVFLOW_TELEMETRY_PUSH`, so
+under `GITHUB_ACTIONS` `--persist` fails closed (issue #469 AC5), staging the run's artifacts under
+`.devflow/tmp/` and writing **no new** telemetry-branch records and doing **no** push. (The
+best-effort fetch-before-exclusion step `do_persist` runs on *every* tier may fast-forward the
+**local** `refs/heads/devflow-telemetry` ref to mirror already-published remote records — a read
+that leaves the tracked tree, `HEAD`, the current branch, and the **remote** ref all byte-unchanged;
+it appends no record and pushes nothing.) The read-only tier therefore leaves the remote
+`devflow-telemetry` ref untouched by its own action. Landing those staged records on the branch is
+the job of a separate **trusted telemetry-push relay** — a job that does **not** check out the PR
+head, mints a write-capable token, and validates the staged artifacts as untrusted input — which is
+**forthcoming** (tracked as follow-up work to issue #469; until it lands, the auto-review tier stages
+its records and they are not yet pushed). On the ephemeral cloud runner the staged tree does **not**
+survive job teardown, so once that relay lands its recovery path **will be** the uploaded
+**workflow artifact**, not on-disk retention; **until then a cloud runner's staged records are not
+recoverable**. A degraded persist's on-disk staging-root retention (below) helps a **local** run,
+where the filesystem persists.
 
 **Headless persistence.** `/devflow:review-and-fix` invokes `config-get.sh` and
 `efficiency-trace.sh` **directly** (resolving to a `.devflow/vendor/devflow/…` path), the same way
@@ -188,13 +245,23 @@ Both live under `devflow_review_and_fix` in `.devflow/config.json`
 
 | Key | Type | Default | Effect |
 |---|---|---|---|
-| `efficiency_telemetry_enabled` | boolean | `true` | Master gate. When `false`, the loop renders no trace and writes no file under `.devflow/logs/`. |
+| `efficiency_telemetry_enabled` | boolean | `true` | Master gate. When `false`, the loop renders no trace and persists no effectiveness record to the telemetry branch. |
 | `efficiency_cut_candidate_min_dispatch` | integer | `3` | Minimum dispatch count before an all-null/noise agent is flagged as a cut candidate. Defined here so the config surface is stable; **consumed by the follow-up cross-run analyzer**, not by `/devflow:review-and-fix` itself (the record carries it forward). |
+
+The telemetry-store branch is configured separately, at the top level of `.devflow/config.json`:
+
+| Key | Type | Default | Effect |
+|---|---|---|---|
+| `telemetry.branch` | string | `devflow-telemetry` | Name of the long-lived orphan branch every writable run persists its observability artifacts to (issue #441). Auto-created on first use; verified to be a telemetry store (its tip tree holds only `.devflow/logs/`-shaped paths) before appending. Keep every workflow `push:` trigger branch-filtered so a push to it runs no CI — DevFlow's own workflows filter `push:` to `main`; a consumer whose `on: push` is unfiltered should add a `branches-ignore` entry for this branch. |
 
 **Acting on the trace.** The telemetry above tells you *which* subagents earn their cost; the
 per-subagent `devflow_review.agent_overrides` block is the lever to *act* on it — move a mechanical
 pass to a cheaper model / lower effort, or pin a high-value reviewer to a stronger model / higher
-effort. The override keys are byte-identical to the subagent identifiers the engine dispatches
+effort. When the trace shows an agent earns its cost on the first pass but adds nothing unique on
+later fix-loop iterations, its optional `iterations: "first-only"` key (default-off) drops it from
+the Phase-3 roster on `/devflow:review-and-fix` iterations ≥ 2 — a positional cost lever, distinct
+from the model/effort levers (see [review-agent-overrides.md](review-agent-overrides.md)). The
+override keys are byte-identical to the subagent identifiers the engine dispatches
 under: the six Phase-3 keys are the `phase3_dispatched` / finding `agent` identifiers used
 throughout this doc, while the three checklist-phase keys (Phases 1/1.5/2) run earlier and so do not
 appear in `phase3_dispatched`. Either way the trace and the override config stay aligned. See
@@ -212,10 +279,13 @@ Best-effort persistence has a failure mode: when `/devflow:review-and-fix` is dr
 **interactively/inline** by an orchestrator rather than as a discrete end-to-end invocation, the
 agent can follow the engine's *substance* (review, shadow, fixes) but silently drop the Loop Exit
 *bookkeeping* — the per-iteration workpad write, the record derivation, the durable copy, and the
-`chore:` persist commit. Nothing distinguishes "correctly persisted nothing because telemetry was
-off" from "silently forgot to persist," so the gap is invisible, and the lost *full* record can never
-be reconstructed (token/wall-clock telemetry is only capturable live; the Layer-3+ synthesis floor
-below recovers a minimal effectiveness skeleton from the fix commits, never that detail). Layered
+telemetry-branch persist. Nothing distinguishes "correctly persisted nothing because telemetry was
+off" from "silently forgot to persist," so the gap is invisible, and the lost *full* record is not
+reconstructed by any shipped backstop. Token/wall-clock telemetry is captured live — whether the
+harness's own output *could* reconstruct it has been **measured by the #437 probe** (result in
+[`docs/execution-file-shape.md`](execution-file-shape.md); see the cost-half note below). The Layer-3+
+synthesis floor below recovers a minimal effectiveness skeleton from the fix
+commits, never that detail. Layered
 backstops close this, weakest to strongest — the deterministic backstop (Layer 3) and its synthesis
 floor (Layer 3+) are the actual guarantee; the others shrink the blast radius and provide a portable
 fallback.
@@ -224,11 +294,50 @@ fallback.
 design.** The **effectiveness** data — findings-per-agent, dispatch counts, verdicts, fix decisions —
 is in the agent's context during *any* run, including a hand-run; it is lost only because the
 `iter-<N>.json` write was optional, so it is made recoverable by turning that write into a
-**non-optional obligation** (see Layer 1). The **token/wall-clock cost** half is *live-only*: it can
-only be captured while the loop runs, so it is gone the moment the loop is abandoned and **no
-backstop can reconstruct it** — there is no deterministic guarantee for the cost half, only the
-probabilistic protection of keeping the loop running live. The emit-obligation guarantees the
-effectiveness half; it does **not** promise the cost half.
+**non-optional obligation** (see Layer 1). The **token/wall-clock cost** half is captured *live* by
+the running loop; when a loop is abandoned, no backstop DevFlow currently ships reconstructs it, so
+the emit-obligation guarantees the effectiveness half but does **not** promise the cost half — keep
+the loop running live to protect it. Whether an *agent-independent* floor **could** reconstruct the
+cost half from the harness's own output — `claude-code-action`'s `execution_file` and the `Stop`-hook
+transcript — was long asserted here as settled fact ("no backstop can reconstruct it"), but that
+assertion was never measured. Issue #437 replaced the assertion with a re-runnable probe
+([`.github/workflows/matcher-probe.yml`](../.github/workflows/matcher-probe.yml)) whose **observed**
+results are recorded in [`docs/execution-file-shape.md`](execution-file-shape.md): read that shape
+record — not this sentence — before deciding whether an agent-independent cost floor is buildable.
+
+**The measurements refute the old claim. It was false.** Each tier refutes it — but they were
+measured to *different depths*, and the difference matters (do not read the two rows below as
+parity; the cloud row is a full field sweep, the local row is a token-realness check):
+
+- **Cloud** (`execfile-shape-probe`, run `29201071531`, 2026-07-12): `claude-code-action`'s
+  `execution_file` carries per-message token `usage` (`input_tokens` / `output_tokens` /
+  `cache_read_input_tokens`), wall-clock (`duration_ms`, `duration_api_ms`, `ttft_ms`), `tool_use`
+  events, `subagent_type` on `Task` dispatches, `permission_denials` — **and cost directly**
+  (`costUSD`, `total_cost_usd`, per-model `modelUsage`).
+- **Local** (`scripts/stop-hook-probe.sh`, 2026-07-12): the `Stop`-hook transcript carries **real**
+  per-message token counts (196 `usage` blocks, largest figure 342,272) — not the streaming
+  placeholders it was assumed to hold. **That is the whole local measurement**: token *realness*.
+  Wall-clock and the subagent dispatch roster were **not** measured on this tier — they may well be
+  derivable from the transcript, but nothing here establishes that, so do not cite the cloud row's
+  field sweep as if it applied locally.
+
+So *"no backstop **can** reconstruct the cost half"* is **not true**, and repeating it steered three
+issues' worth of work (#170, #381, #426) into building ever-more-elaborate floors fed by operands the
+agent had to volunteer, while the harness was emitting the same data, deterministically, the whole
+time. The honest statement is the weaker one: **no backstop DevFlow currently *ships* reconstructs
+it** — a gap in what we built, not a law of the platform. An agent-independent (class-(c)) cost floor
+is **buildable on both tiers** — on the cloud tier from the full observed field set above, on the
+local tier from the transcript's real token counts (wall-clock and the dispatch roster were *not*
+measured there, so a local floor's phase attribution is an open question, not an observed fact); see
+[`docs/execution-file-shape.md`](execution-file-shape.md) for the observed shape and the run URL, and
+build against that record rather than this paragraph.
+
+Two things remain genuinely open, and a floor must not assume them away: the `execution_file` schema
+is **not a public contract** (the record is a dated observation of one action version — re-dispatch the
+probe after any upgrade), and on the local tier **realness is not freshness** (the docs warn the
+transcript is written asynchronously and may lag, so a `Stop`-time read may miss the final turn's
+counts). Until a floor actually ships, keeping the loop running live is still what protects the cost
+half — but that is now a statement about our backlog, not about what is possible.
 
 **Layer 1 — wording (portable, agent-executed).** The SKILL.md Loop Exit persistence steps are
 marked **mandatory on every writable run**, and a `## Common Mistakes` entry names the
@@ -251,8 +360,9 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   dropped Loop Exit therefore still leaves the workpads on disk for Layers 2/3 to derive from,
   shrinking the blast radius from "everything" to "just the final derive+commit."
 - *Self-check.* `lib/efficiency-trace.sh --self-check --workpad-dir DIR --slug SLUG` is run at Loop
-  Exit on a converged writable run. If the run wrote **zero** `iter-*.json` workpads, or produced no
-  effectiveness record at `.devflow/logs/efficiency/<slug>-<run-id>.json`, it emits a loud
+  Exit on a converged writable run. If the run wrote **zero** `iter-*.json` workpads, or persisted no
+  effectiveness record for `<slug>-<run-id>` to the telemetry branch (`git cat-file -e
+  refs/heads/<branch>:.devflow/logs/efficiency/<slug>-<run-id>.json`), it emits a loud
   `::warning::` naming exactly what was not persisted (and points at `--persist` as the recovery).
   It **additionally validates each `iter-<N>.json`'s field set**: for every iter workpad missing a
   field in the single-source `ITER_EXPECTED_FIELDS` set (the iter schema's top-level fields minus
@@ -272,18 +382,21 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   never invokes it — there is no Loop Exit there).
 
 **Layer 3 — deterministic backstop (harness-executed, the actual guarantee).**
-- *`lib/efficiency-trace.sh --persist`.* Derives the effectiveness record **and** stages+commits it +
-  the durable workpad copy from whatever `iter-*.json` workpads exist on disk, in one scoped
-  `chore:` commit. With `--workpad-dir`/`--slug` it persists one run; without them it **discovers**
-  every `.devflow/tmp/review/<slug>/<run-id>/` run dir and persists each — a dir holding
-  `iter-*.json` directly, a workpad-less dir via the Layer-3+ synthesis floor below (skipping
-  standalone `/devflow:review` runs — `source == "review"` — which have their own Phase 4.5 path).
-  It is **idempotent**: the record filename is run-id-keyed and presence-based (an existing record is
-  never re-derived, so its `generated_at` can't churn), the durable copy is a content-idempotent
-  `cp`, and the commit is pathspec-scoped with a `git diff --cached` guard — so a re-run produces no
-  new commit and never an empty one. Best-effort: every failure logs a `::warning::` and it always
-  exits 0. The durable copy runs on every writable run (not telemetry-gated); the record is
-  telemetry-gated.
+- *`lib/efficiency-trace.sh --persist`.* Derives the effectiveness record **and** stages the durable
+  workpad copy from whatever `iter-*.json` workpads exist on disk into `.devflow/tmp/` scratch, then
+  writes both to the **telemetry branch** via git plumbing (object-store hash → tree → `commit-tree`
+  → compare-and-swap `update-ref` → fetch/re-parent/push retry) — nothing is materialized in the
+  tracked working tree. With `--workpad-dir`/`--slug` it persists one run; without them it
+  **discovers** every `.devflow/tmp/review/<slug>/<run-id>/` run dir and persists each — a dir holding
+  `iter-*.json` directly, a workpad-less dir via the Layer-3+ synthesis floor below. As of issue #441
+  standalone `/devflow:review` runs (`source == "review"`) are **no longer skipped** — they persist
+  through this same path to the same branch (their Phase 4.5 step invokes `--persist` too), unifying
+  every writable run into one store. It is **idempotent**: the record filename is run-id-keyed and its
+  presence is tested **on the branch** (an existing record is never re-derived, so its `generated_at`
+  can't churn), the durable copy is content-identical bytes, and the branch write skips the commit
+  when the resulting tree is unchanged — so a re-run produces no new branch commit and never an empty
+  one. Best-effort: every failure logs a `::warning::` and it always exits 0. The durable copy runs on
+  every writable run (not telemetry-gated); the record is telemetry-gated.
 - *`Stop` hook (local-tier only).* The project's `.claude/settings.json` registers a `Stop` hook
   that runs `--persist` after the agent's turn ends — when the run is already complete, so persisting
   there is **non-blocking by construction**. `--persist`'s discovery + presence-based idempotency *is*
@@ -326,13 +439,15 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   discarded for that PR's own cloud run, and the cloud guarantee must **never** depend on the hook.
   Instead the cloud writable workflows — **`.github/workflows/devflow.yml`** (the
   `/devflow:review-and-fix` comment path's `command` job) and **`.github/workflows/devflow-implement.yml`**
-  (the `/devflow:implement` Phase 3.3 `--push-each-iteration` path) — invoke `--persist`
-  unconditionally (`if: always()`, best-effort) in a workflow step **after** `Run Claude Code`,
-  pushing only if a recovery commit was created. (`devflow-runner.yml` is the read-only `review`
-  profile — it runs no fix loop and cannot write the tree, so it is intentionally **excluded**: there
-  is nothing to persist there.) Because a GitHub App token cannot self-modify `.github/workflows/`,
-  a maintainer committed this step after `Run Claude Code` in each of those two workflows; it now
-  ships committed in both:
+  (the `/devflow:implement` path) — invoke `--persist`
+  unconditionally (`if: always()`, best-effort) in a workflow step **after** `Run Claude Code`. As of
+  issue #441 the helper owns the entire write: it commits to the telemetry branch via git plumbing
+  and pushes it with a fetch/re-parent retry loop, so the former before/after-`HEAD` gate and bare
+  `git push` are gone — the step is just `bash "$HELPER" --persist`. (`devflow-runner.yml` is the
+  read-only `review` profile — it runs no fix loop and cannot write, so it is intentionally
+  **excluded**: there is nothing to persist there.) Because a GitHub App token cannot self-modify
+  `.github/workflows/`, a maintainer committed this step after `Run Claude Code` in each of those two
+  workflows; it now ships committed in both:
 
   ```yaml
   - name: Persist review-and-fix observability artifacts (backstop)
@@ -341,14 +456,9 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
       set +e
       HELPER=.devflow/vendor/devflow/lib/efficiency-trace.sh
       [ -f "$HELPER" ] || { echo "::warning::observability backstop: $HELPER missing; skipped"; exit 0; }
-      git config user.name "github-actions[bot]" 2>/dev/null || true
-      git config user.email "41898282+github-actions[bot]@users.noreply.github.com" 2>/dev/null || true
-      before=$(git rev-parse HEAD 2>/dev/null)
+      # --persist writes to the telemetry branch and pushes it, all inside the helper
+      # (it sets its own committer identity). No HEAD gate, no bare git push here.
       bash "$HELPER" --persist
-      after=$(git rev-parse HEAD 2>/dev/null)
-      if [ -n "$after" ] && [ "$before" != "$after" ]; then
-        git push || echo "::warning::observability backstop: push of persisted artifacts failed; commit is local-only"
-      fi
       exit 0
   ```
 
@@ -383,10 +493,12 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   it scans the exact `.devflow/tmp/review/` tree `--persist` scans and never fires a false "telemetry
   lost" reflection from a cwd-relative divergence (if the pre-loop snapshot is itself missing, the
   detector degrades to whole-tree presence and emits a distinct `::warning::` naming that degrade,
-  since it can then mask a real loss behind a leftover file). The detector counts NEW `iter-*.json`
-  regardless of `--persist`'s `source == "review"` skip: at this inline seam the review-and-fix loop
-  just driven is what writes the tree, so a foreign review-sourced dir being the sole new occupant is
-  not a reachable in-flow shape. The no-new-inputs case above only catches a dropped *Loop Exit*
+  since it can then mask a real loss behind a leftover file). The detector counts every NEW
+  `iter-*.json` unconditionally — there is no longer a `source == "review"` skip for it to be
+  "regardless of" (issue #441 removed it, unifying standalone `/devflow:review` onto this same
+  `--persist` path) — and in any case, at this inline seam the review-and-fix loop just driven is
+  what writes the tree, so a foreign review-sourced dir being the sole new occupant is not a
+  reachable in-flow shape. The no-new-inputs case above only catches a dropped *Loop Exit*
   (the loop wrote nothing at all); it does not by itself catch the sibling failure mode where the
   loop *did* write `iter-*.json` but `--persist`'s own record derivation/write step then failed —
   its jq-derivation and mkdir failure paths both leave a `record not written` breadcrumb on stderr,
@@ -396,9 +508,21 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   both breadcrumb shapes (a single-literal grep here would silently miss the disk/permission path),
   recording a second, independent `dropped-failed` reflection when either fires, so a record
   derivation/write failure is surfaced even when inputs existed — this is deliberately narrower than
-  every conceivable `--persist` failure surface; a record written to disk but not yet git-committed
-  (a separate staging/commit failure path) is a distinct, lower-priority gap tracked on the issue's
-  workpad rather than covered here. And because the `APPROVE WITH UNRESOLVED
+  every conceivable `--persist` failure surface. **The uncovered surface is the telemetry-branch
+  write/push itself** (`::warning::telemetry-branch: …` — a non-conforming store, a lost CAS, an
+  unwritable `.devflow/tmp`), which the detector's two literals do not match. Note what that costs:
+  post-#441 the record is staged under gitignored `.devflow/tmp/`, and post-#469 a **degraded**
+  branch write (or a CI staging-only run) **retains** that staging root instead of deleting it — only
+  a *clean* write (pushed / idempotent no-op / nothing staged, `persist_tree` rc 0) deletes the
+  scratch, so `git status` stays byte-unchanged on the success path. A degraded write emits one
+  `::warning::` naming the staging root's **absolute path** so the run's only copy is recoverable, and
+  a bounded newest-N prune (`_DEVFLOW_TELEMETRY_STAGE_KEEP`, default 8) at the start of the next
+  `--persist` keeps retained roots from accumulating. On a **local** filesystem this makes a failed
+  branch write recoverable; on an **ephemeral CI runner** the filesystem does not survive teardown, so
+  on-disk retention is moot there — the forthcoming trusted telemetry-push relay (follow-up to #469)
+  is the cloud recovery path, and until it lands a cloud runner's degraded/staged records are not
+  recoverable. This uncovered surface is still surfaced only by the helper's own stderr
+  breadcrumb, which Phase 3.3 captures but does not currently grep for. And because the `APPROVE WITH UNRESOLVED
   SHADOW FINDINGS` path can drive a **second**, separate inline `review-and-fix` invocation (the
   bounded re-review), Phase 3.3 re-runs the whole snapshot-then-backstop procedure — a fresh
   this-run baseline before, the persistence check after — around that second invocation too, so it
@@ -410,7 +534,7 @@ no longer stops at "nothing to derive": it reconstructs **minimal** iteration re
 branch's fix commits, so even a run whose every workpad emit was dropped still contributes an
 effectiveness floor. The floor is exactly that — a floor, **never license to skip the item-6 emit**:
 it recovers only the skeleton below and none of the checklist / findings / per-phase cost detail the
-real record carries, which is unreconstructable once dropped.
+real record carries, none of which is recoverable **from the fix commits**.
 
 - *Commit-subject selector (coupled two-site invariant).* Commits are selected by the subject
   template `fix: address review findings (iteration {N})` — **written** by
@@ -477,10 +601,169 @@ This guarantees **persistence of whatever telemetry was captured**. It does **no
 post-hoc tool can recover them if the agent never recorded them (the incremental writes + the
 self-check warning maximize capture, but it remains irreducibly agent-dependent).
 
+### Shadow synthesis floor (issue #426)
+
+`--persist` carries a second, narrower synthesis floor for the **shadow** block, sibling to the
+iter floor above. The shadow pass (`/devflow:review-and-fix` Step 2.6) appends a `shadow` block to
+the triggering iter's workpad, but that block can drop entirely (the issue-304 drop shape), leaving
+a promotion with no record of the shadow that produced it. When an `iter-<N>.json` carries **no
+`shadow` block** but the run holds **promotion evidence** — an `iter-<N+1>.json` with
+`loop_role: "promoted"`, meaning iteration N's shadow promoted new findings into iteration N+1 —
+`synthesize_shadow_markers` writes a minimal marker into `iter-<N>.json`'s `shadow` field:
+
+- *Synthesized shadow-marker shape.* Exactly `shadow_synthesized: true` and
+  `promoted_to_iter_next: true` (the promotion linkage). `--self-check` validates a
+  `shadow_synthesized: true` block against this minimal set (`SHADOW_SYNTH_EXPECTED_FIELDS`) as a
+  recognized degraded class — a truncated synthesized marker still warns, exactly like a truncated
+  synthesized iter record; a real (agent-written) shadow block carries no `shadow_synthesized` key
+  and is never validated by this branch (it stays unvalidated, as before).
+- *Never overwrites an agent-written block.* The floor writes only when `.shadow` is `null` — the key
+  missing, or present with an explicit JSON `null` (both are "no block"); an
+  existing block — agent-written or already synthesized — is left untouched. It is telemetry-gated
+  (a disabled repo gets none) and runs before the durable copy, so a synthesized marker is committed
+  alongside the workpads it annotates. Best-effort: any failure warns and continues, never aborting
+  `--persist`.
+- *Every failure arm names its own cause.* The marker is merged in via a temp file plus `mv`, and
+  both write arms surface the underlying tool's error text — the failing `jq`'s message, and `mv`'s
+  own errno (read-only mount, `ENOSPC`) — rather than discarding it, so a floor that could not write
+  is diagnosable rather than merely reported. On either failure the source `iter-<N>.json` is left
+  untouched and the temp file is removed: no half-written marker, no orphaned `.shadowtmp`.
+- *Stated limitation — promoted shadows only.* The floor recovers a dropped shadow block **only**
+  when promotion evidence survives. A clean outcome-1 shadow whose block dropped leaves no promotion
+  evidence to synthesize from, so it is unrecoverable here — the fused Step 2.6 emit (mandatory on
+  both termination paths, authored with the Write tool) is the primary fix and this floor is its
+  backstop, not its equal. Like the iter floor, it recovers **attribution, not cost**: the
+  `step_2_6` token/wall figures are captured live and no shipped backstop reconstructs them after the
+  fact. Whether the harness's own `execution_file`/transcript could supply an agent-independent cost
+  floor is no longer asserted here as settled — it was **measured by the #437 probe**, with the
+  observed result recorded in [`docs/execution-file-shape.md`](execution-file-shape.md).
+  Older records without the marker remain valid.
+
+## The unified experiment record (`experiment-records.jsonl`)
+
+`scripts/build-experiment-records.py` (issue #431) is the **join** that makes the operator's
+experiment program measurable: it assembles one line per merged PR into the tracked
+`.devflow/learnings/experiment-records.jsonl`, joining what a run **spent** (the efficiency records
+above) to whether its PR came out **clean** (the review outcome). It is a **reader** of every
+historical store shape — python3 stdlib plus `gh`/`git` subprocesses (the `DEVFLOW_GH` env-read
+pattern, no probe; native `git` subprocess per the #295 Windows rule) — and runs on the
+**local/interactive retrospective tier only** (invoked by `skills/retrospective-weekly/SKILL.md`
+between Step 5 (Materialize) and Step 7 (State PR), best-effort — its failure logs a stderr breadcrumb
+carried into the Step 9 status report as a blocker note and never blocks the retrospective;
+`lib/open-state-pr.sh` then commits the store on the state PR so `main` is clean entering Stage B).
+
+**Sourcing telemetry (issue #441).** The efficiency records the reader joins against are read as a
+**union** of two sources, keyed by `(slug, run-id)` with **branch-wins** precedence so a run present
+in both contributes exactly one cost row: the durable **telemetry branch** (enumerated via
+`git ls-tree`/`git show`, where every run now persists) unioned with any **legacy tracked
+`.devflow/logs/efficiency/`** in the working tree (the read-only archive a consumer repo may still
+carry from before the branch existed — no history is lost, no manual migration needed). The
+orchestrator (`skills/retrospective-weekly/SKILL.md`) **fetches the telemetry branch before the
+reader runs**; when the branch does not exist yet (a not-yet-upgraded repo), the fetch is a harmless
+no-op and the reader reads the legacy archive alone.
+
+Each line carries its own `schema_version` (currently `1`, independent of the efficiency record's)
+plus the PR's identity — `pr`, `issue`, `branch`, `merged_at`, `merge_commit_sha` — and then the
+joined fields:
+
+- **`efficiency_runs[]`** — **all** matching efficiency records for the PR as a per-run list with
+  per-run `cost` (never newest-wins, since discarding earlier runs' cost corrupts a cost-vs-outcome
+  experiment). Both slug families are resolved: `pr-<N>` directly, and the branch slug from the
+  retrospective entry's `branch` field (with a `gh` lookup fallback). Each entry also carries
+  `synthesized`, `iterations`, `run_id`, `config_fingerprint`, and `telemetry_complete`.
+- **`telemetry_complete`** (per efficiency run) — `true` **only** when the record is not synthesized,
+  every iteration carries non-null token telemetry, and no degradation breadcrumb is present. Analyses
+  exclude degraded records **by this flag** rather than silently averaging them in.
+- **`retrospective`** — the PR's retrospective entry (the `branch`-slug join key and PR metadata).
+- **`verdict`** — selected by **artifact shape**: the first completed PR review whose body matches the
+  `## Verdict:` contract **regardless of bot identity**; when none exists, the run-keyed
+  `devflow:review-progress` comment's `## Verdict:` line is the fallback; when neither exists the
+  verdict is `null` (the #403 shape). The parser strips both the full-report `(summary)` suffix and
+  the pr-review stub suffix `— full report in PR comment` the engine appends when a live progress
+  comment is active, so the stored verdict is the bare token (`APPROVE` / `REJECT` / …) on every
+  surface. The `provenance.verdict` field names which arm resolved it — `pr-review`,
+  `progress-comment`, `progress-comment-degraded` (the comment supplied the verdict *because* the
+  authoritative reviews call could not be established, so the value may predate the final reviewed
+  HEAD — degraded, not merely second-choice; the reason is spelled out in `provenance.notes`),
+  `unparseable` (a `## Verdict:` marker was present but its line did not parse), `absent`, or one of
+  the **unestablished** tags enumerated below.
+- **`important_finding_count`** — parsed from the run-keyed progress comment joined via
+  `review.commit_id` == the comment's `**Reviewed HEAD:**` line (the engine's own join — see
+  `skills/review/SKILL.md`, the normative source). `null` with provenance when no progress comment
+  joins to the review's commit_id (absent or superseded by a later run's comment), its findings
+  section is unparseable, or the comment could not be established.
+- **`permission_denials_count`** — read from the `Devflow Review` check-run `output[summary]`
+  `permission_denials_count:` line (issue #431) for PRs after that change; for historical PRs it falls
+  back to best-effort check-run **annotation** retrieval (provenance `check-run-annotation`), whose
+  bias is recorded in `provenance.notes` (annotations carry only **positive** counts, so a historical
+  zero is indistinguishable from unavailable, and expired logs yield nothing). Carried **verbatim** in
+  every path — `unavailable` stays `unavailable`, and **no code path coerces an unestablished count to
+  `0`** (the repo's unknown-is-not-zero contract, end to end).
+- **`config_fingerprint`** — from the efficiency record's `config_fingerprint` when present, else
+  recomputed from `git show <merge_sha>:.devflow/config.json` (records predating the field);
+  `provenance.config_fingerprint` marks the source (`efficiency-record` / `merge-commit-config` /
+  `absent`, plus the unestablished tags below). When a PR's runs carry **disagreeing** fingerprints
+  (its runs straddled a config change), the record-level value is `null` with source
+  `mixed-across-runs` rather than first-wins: this field is the experiment's *attribution key*, so
+  silently stamping such a PR with the older variant would misattribute its outcome. Nothing is lost —
+  the per-run fingerprints remain in `efficiency_runs[]`.
+- **`provenance`** — a map naming which sources joined (and a `notes` list), so a `null` field is
+  always distinguishable from an unqueried one.
+
+**Unestablished is not absent.** `absent` is the strong claim *"we looked and it genuinely was not
+there"*. The **unestablished** tags below mean the opposite — the join could not be measured at all — and they are never
+collapsed onto `absent` (the provenance-dimension analogue of the value-level unknown-is-not-zero
+contract). They apply to every gh-sourced field above:
+
+| Tag | Meaning |
+| --- | --- |
+| `fetch-failed` | The call ran and did not yield a usable answer — a non-zero `gh` exit, or an exit-0 response whose body was unparseable. |
+| `no-repo` | The repo could not be resolved, so no *join* call was attempted (the single `gh repo view` probe that resolves it having already failed). |
+| `no-sha` | The PR metadata that supplies the query key (head / merge sha) was itself unestablished, so this join is unestablished *by cascade*. |
+| `unparseable` | The artifact was retrieved, but the value could not be read out of it (a `## Verdict:` marker whose line does not parse; a fingerprint envelope carrying no `sha256`). |
+
+The normative list is `PROVENANCE_UNESTABLISHED` in `scripts/build-experiment-records.py`; a record is
+rejected at construction if any field governed by one of these tags carries a non-null value, so an
+unqueryable join can never publish a measurement.
+
+**Idempotent** (one line per PR, keyed by PR number — a re-run replaces, never duplicates) and
+**incremental** (it processes merged PRs absent from the store plus any passed via `--prs`, never a
+full-history sweep per invocation). **Missing-source-tolerant — for the *inputs***: every join input
+is optional, so an absent source yields null fields plus a provenance tag, and an unreadable *input*
+store emits a stderr breadcrumb and simply does not join. Never a fabricated value.
+
+**But tolerance is a claim about the inputs, not about the exit status.** The *destination* store
+(`experiment-records.jsonl`) is read **strictly**, because the assembler REWRITES it rather than
+appending: tolerating a corrupt line there would silently delete every record it could not parse, and
+`lib/open-state-pr.sh` would commit the truncation. The run **exits 2** — writing nothing — in that
+case, and also when a PR's merge state could not be **established** (a `gh` outage: excluding it
+silently would lose it for good, since only stored or retrospective-listed PRs are ever re-selected)
+or when any candidate failed to assemble. Records that *did* assemble are still written on a partial
+failure, so a non-zero exit means "some PRs are missing from the store," not "nothing was written."
+A PR **observed** to be unmerged is a clean exclusion and exits 0 — observed-unmerged and
+unestablished are never conflated in either direction.
+
+**CLI surface.** Invoked bare, the assembler resolves everything from the repo root and needs no
+arguments — that is how `/devflow:retrospective-weekly` calls it. The flags exist for re-runs and
+tests: `--prs <n,n,…>` forces specific PRs into the candidate set (the re-run path after a partial
+failure, since an unestablished PR never enters the store and so is not re-selected on its own),
+`--dry-run` assembles and reports without writing the store, and `--repo-root` / `--store` /
+`--retrospectives` / `--efficiency-dir` override the four resolved paths. Exit codes are **0**
+(everything selected was assembled, or cleanly excluded as observed-unmerged) and **2** (see above);
+there is no exit 1.
+
+**Abandoned-run exclusion and its cost-side bias.** The record is keyed on **merged** PRs, so a run
+whose slug never produced a merged PR (an abandoned branch) contributes **no cost row** — the cost side
+therefore carries a documented survivorship bias (abandoned-run cost is invisible to the join). This is
+deliberate: the experiment measures cost-vs-outcome for PRs that shipped.
+
 ## Out of scope (tracked as follow-up)
 
-The cross-run analyzer (`lib/efficiency-report.jq`), the weekly-loop recommendation section, and the
-cut-threshold consumer are deliberately out of scope.
+The cross-run analyzer (`lib/efficiency-report.jq`) and the weekly-loop recommendation section remain
+open work this issue does **not** supersede — the cut-candidate aggregation that consumes
+`cut_candidate_min_dispatch` / `phase3_dispatched_present` is still unbuilt. Issue #431 added the
+`experiment-records.jsonl` **join** (above), which is the measurement substrate those analyzers will
+read; it does not itself compute cut candidates or weekly recommendations.
 
 (Standalone `/devflow:review` was previously listed here as out of scope; it now produces its own
 per-run record and live trace — see **Standalone /devflow:review** below.)

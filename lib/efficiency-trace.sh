@@ -22,12 +22,16 @@
 #                       converged writable run left no iter-*.json workpad or no
 #                       persisted effectiveness record. Run-id is the basename of
 #                       --workpad-dir. Silent when telemetry is disabled.
-#   --persist           Layer 3 backstop: derive the per-run record AND commit it
-#                       + the durable workpad copy from whatever iter-*.json
-#                       workpads exist on disk, in one scoped `chore:` commit.
-#                       Idempotent: a no-op (no empty commit) once the record is
-#                       already persisted. With --workpad-dir/--slug it persists
-#                       just that run; without them it DISCOVERS every run under
+#   --persist           Layer 3 backstop: derive the per-run record + the durable
+#                       workpad copy from whatever iter-*.json workpads exist on
+#                       disk, and persist them to the dedicated telemetry branch
+#                       (`telemetry.branch`, default devflow-telemetry) via git
+#                       plumbing — it does NOT commit to the current branch and
+#                       never touches HEAD or the tracked working tree (#441).
+#                       Idempotent: once a run's record is already on the branch,
+#                       the tree is unchanged and no new branch commit is made.
+#                       With --workpad-dir/--slug it persists just that run;
+#                       without them it DISCOVERS every run under
 #                       .devflow/tmp/review/<slug>/<run-id>/ and persists each.
 #
 # Gating: when devflow_review_and_fix.efficiency_telemetry_enabled is false,
@@ -58,6 +62,37 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # shellcheck source=lib/config-source.sh
 . "$HERE/config-source.sh"
+
+# Detached telemetry-branch persistence (issue #441). Sourced beside this script.
+# On a copied/vendored deployment missing lib/, sourcing fails; rather than leave
+# the devflow_telemetry_* functions UNDEFINED (a later unguarded `$(devflow_telemetry_branch)`
+# would then trip `set -e` — the exact abort the best-effort contract forbids), define
+# no-op stubs so EVERY consumer degrades uniformly at the source boundary: the branch
+# reads return "absent" and the write is a no-op, telemetry is simply not persisted this
+# run, and nothing aborts. This is the SOURCE-time signal; do_persist emits a second,
+# PERSIST-time breadcrumb (gated on the _DEVFLOW_TELEMETRY_BRANCH_SOURCED sentinel) that
+# names the staging root whose artifacts are discarded — the two are complementary, not
+# duplicates, and the persist-time one is what tells the operator what was lost.
+# shellcheck source=lib/telemetry-branch.sh
+. "$HERE/telemetry-branch.sh" || {
+  echo "devflow: telemetry-branch.sh could not be sourced beside ${BASH_SOURCE[0]} — --persist cannot reach the telemetry branch this run; using no-op stubs so backstop reads degrade cleanly (best-effort exit-0 preserved)" >&2
+  devflow_telemetry_branch()       { printf 'devflow-telemetry\n'; }
+  devflow_telemetry_ref()          { printf 'refs/heads/devflow-telemetry\n'; }
+  devflow_telemetry_blob_exists()  { return 1; }
+  devflow_telemetry_list_blobs()   { return 0; }
+  devflow_telemetry_show_blob()    { return 1; }
+  devflow_telemetry_persist_tree() { return 0; }
+  # verify_store MUST be stubbed too (#469 review): do_persist's fetch-before-exclusion
+  # block calls devflow_telemetry_verify_store DIRECTLY and BEFORE the
+  # _DEVFLOW_TELEMETRY_BRANCH_SOURCED gate, so on a source failure an un-stubbed call would
+  # be `command not found` (rc 127). Both the un-stubbed 127 and this stub's `return 1` land
+  # in the fetch block's `[ -n "$_rtip" ] && devflow_telemetry_verify_store …` (a condition
+  # context — set -e does not abort — whose false result takes the UNESTABLISHED else arm), so
+  # the stub does NOT change that arm's outcome; its effect is to suppress the spurious
+  # `command not found` on stderr and to honor this block's stated "no-op stubs so EVERY
+  # consumer degrades uniformly" contract, which currently misses this one call. Fail CLOSED.
+  devflow_telemetry_verify_store() { return 1; }
+}
 
 WORKPAD_DIR=""
 SLUG=""
@@ -150,23 +185,83 @@ warn_on_mixed_source() {
   fi
 }
 
+# Compute the config fingerprint (issue #431): a sha256 over the canonicalized
+# devflow_review + devflow_review_and_fix config blocks, plus a small map of
+# salient key values carried VERBATIM, so a cross-run/experiment analysis can
+# attribute each record to the config variant that produced it. Emits a compact
+# JSON object `{sha256, partial, salient}` — `partial:true` when only one of the
+# two blocks exists (the hash covers what exists) — or the literal `null` when
+# python3 or the config is unavailable / neither block exists. Best-effort: it
+# NEVER aborts the wrapper (a null fingerprint just means the #431 assembler
+# falls back to `git show <merge_sha>:.devflow/config.json` and marks the source).
+# Adds NO new command head: python3 is a hard preflight prerequisite and
+# config-source.sh (already sourced above) shells to it on every config read. This
+# claim is load-bearing, so the body below must stay free of any non-preflight PATH
+# tool (`mktemp`, `head`, `tr`, `sed`, …). An earlier revision reached for `mktemp`
+# (to capture stderr) and `head` (to truncate it), which both broke that claim AND
+# regressed the failure path: on a host without `mktemp` — e.g. the cloud runner,
+# where CLAUDE.md records that mktemp writes are blocked — it fell back to the very
+# `2>/dev/null` swallow this function exists to avoid, turning a genuine helper
+# defect into an invisible null fingerprint on exactly the tier that has it (#431).
+compute_config_fingerprint() {
+  local cfg="$1" out rc
+  # Delegate to the shared scripts/config_fingerprint.py — the SINGLE source of
+  # truth this producer and the #431 assembler-reader both use, so their
+  # fingerprints are byte-identical by construction (not a hand-kept mirror).
+  #
+  # config_fingerprint.py fails SOFT (prints `null`, exit 0) for the degradations it can
+  # actually SEE — no config file, an unreadable/malformed config, neither block present.
+  # It cannot soft-fail a MISSING INTERPRETER: with no python3 the script never executes,
+  # so it prints nothing and rc is 127. That is why the two arms below are distinguished
+  # rather than both reported as "crashed" — telling an operator whose PATH lacks python3
+  # that the *helper* crashed sends them to read a script that never ran (#431 shadow).
+  # Either way we degrade to `null` rather than aborting the wrapper under `set -e`
+  # (best-effort contract), and the helper's own stderr flows straight to ours — no temp
+  # file, no truncation, nothing to clean up — so the real reason lands in the run log.
+  if out="$(python3 "$HERE/../scripts/config_fingerprint.py" "$cfg")"; then
+    printf '%s\n' "$out"
+  else
+    rc=$?
+    # 127 = not found; 126 = found but NOT EXECUTABLE (a broken Windows/WSL shim, a
+    # `noexec` mount, a permissions blip). Both mean the script never ran, so both must
+    # take the interpreter arm — routing 126 to the "crashed" arm would send the operator
+    # to read a script that never executed, the exact mis-steer this discrimination exists
+    # to eliminate, one errno over (#431 delta review).
+    case "$rc" in
+      126|127)
+        printf 'compute_config_fingerprint: python3 not found or not executable (rc=%s) — it is a hard preflight prerequisite (see lib/preflight.sh); degrading to null\n' \
+          "$rc" >&2 ;;
+      *)
+        printf 'compute_config_fingerprint: config_fingerprint.py crashed (rc=%s; its stderr is above) — degrading to null\n' \
+          "$rc" >&2 ;;
+    esac
+    printf 'null\n'
+  fi
+}
+
 # Run the jq derivation over VALID_FILES for $1 mode ("trace"|"record") and the
 # slug $2, to stdout. A fresh GENERATED_AT is stamped per call.
 emit_jq() {
-  local mode="$1" slug="$2" generated_at
+  local mode="$1" slug="$2" generated_at config_fingerprint
   generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  # Fingerprint the config that produced this run (issue #431). Guard the empty
+  # case to a JSON null so --argjson never aborts jq (and the wrapper under set -e).
+  config_fingerprint="$(compute_config_fingerprint "$_DEVFLOW_CONFIG")"
+  [ -n "$config_fingerprint" ] || config_fingerprint="null"
   # jq -s over zero files yields null, not []; feed an explicit empty array so the
   # filter (which expects an array) degrades to an empty trace / empty record.
   if [ "${#VALID_FILES[@]}" -eq 0 ]; then
     printf '[]\n' | "$DEVFLOW_JQ" --raw-output -f "$HERE/efficiency-trace.jq" \
       --arg mode "$mode" --arg slug "$slug" \
       --arg generated_at "$generated_at" \
-      --argjson cut_candidate_min_dispatch "$THRESHOLD"
+      --argjson cut_candidate_min_dispatch "$THRESHOLD" \
+      --argjson config_fingerprint "$config_fingerprint"
   else
     "$DEVFLOW_JQ" --raw-output --slurp -f "$HERE/efficiency-trace.jq" \
       --arg mode "$mode" --arg slug "$slug" \
       --arg generated_at "$generated_at" \
       --argjson cut_candidate_min_dispatch "$THRESHOLD" \
+      --argjson config_fingerprint "$config_fingerprint" \
       "${VALID_FILES[@]}"
   fi
 }
@@ -189,6 +284,14 @@ ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role checkli
 # synthesized record is a recognized degraded class, exempt from the full set above
 # but NOT from its own — a truncated synthesized record must still warn).
 ITER_SYNTH_EXPECTED_FIELDS="iter fix_commit_sha fix_files loop_role synthesized"
+# The synthesized SHADOW-marker minimal field set (issue #426): what
+# synthesize_shadow_markers writes into an iter's `shadow` block when the block
+# was dropped but promotion evidence survives, and what --self-check validates a
+# `shadow_synthesized: true` block against (a recognized degraded class, exempt
+# from a real shadow block's full shape but NOT from its own minimal set — a
+# truncated synthesized shadow marker must still warn). Plain single-line
+# assignment so a run.sh guard can grep `^SHADOW_SYNTH_EXPECTED_FIELDS=`.
+SHADOW_SYNTH_EXPECTED_FIELDS="shadow_synthesized promoted_to_iter_next"
 
 # ── Synthesis backstop (Layer 3+): reconstruct a minimal iteration record from
 # the branch's fix commits when a run left ZERO iter-*.json (issue #381) ───────
@@ -226,26 +329,37 @@ synth_base_ref() {
   return 1
 }
 
-# Emit every fix_commit_sha already recorded by ANY other run's iter-*.json —
-# both the live tmp tree and the committed durable copies — so synthesis never
-# re-attributes a commit some other run (real or previously-synthesized) already
-# recorded. $2 is the target run dir's TMP path, excluded from the scan (its own
-# workpads are what synthesis is about to write; its durable mirror under
-# .devflow/logs/review/, if one survives a wiped tmp, is deliberately NOT
-# excluded — a run whose workpads were already persisted reads as already-
-# recorded, which is correct: its record exists and must not be re-attributed).
-# Best-effort with a CONTAINED, breadcrumbed per-file failure: an unreadable/
-# malformed workpad is skipped — its sha (if any) is lost from the exclusion
-# set, a fail-open-for-that-file window the breadcrumb makes loud — while the
-# `if !` guard keeps the failure from truncating the REST of the scan (this
-# loop runs in an errexit-inheriting process-substitution subshell, where a
-# bare failing jq would kill it mid-list and silently drop every later sha —
-# the wider fail-open the #62/#98 operand-contract check exists to catch).
-# Residual windows: a run whose EVERY workpad copy was deleted after its record
-# was derived (the durable-copy layer exists to prevent it), and the
-# single-unreadable-sibling sha just described (breadcrumbed, never silent).
+# Validate + emit a fix_commit_sha token (lowercase-hex charset — length
+# deliberately unchecked, which is sufficient here: the check exists to keep a
+# corrupt string value ("aaa bbb <realsha>", an embedded newline) from smuggling
+# whitespace-bearing tokens into the space-delimited exclusion set; space/newline
+# both fail the charset class. The producer contract is `git rev-parse HEAD`, so a
+# wrong-LENGTH hex token can only weaken the exclusion for an already-corrupt
+# workpad, never cause a wrong exclusion of a full-sha match). $1 is the sha,
+# $2 the source label used in the not-sha-shaped breadcrumb.
+_emit_fix_sha() {
+  case "$1" in
+    ''|*[!0-9a-f]*) [ -n "$1" ] && echo "::warning::efficiency-trace.sh --persist: fix_commit_sha in ${2} is not sha-shaped; not added to the exclusion set" >&2 ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# Emit every fix_commit_sha already recorded by ANY other run's iter-*.json,
+# UNIONED across three sources so a run persisted to the telemetry branch (issue
+# #441) stays in the exclusion set and its fix commits are never re-attributed
+# (AC12): (1) the live tmp scratch tree, (2) the telemetry branch's durable
+# iter-*.json blobs (read via git ls-tree/git show — the branch is where durable
+# copies now live), and (3) any legacy tracked working-tree .devflow/logs/review/
+# (retained so a consumer's pre-#441 in-tree archive is not dropped). $2 is the
+# target run dir's TMP path, excluded from source (1) only — its durable mirror on
+# the branch, if a prior persist wrote one, is deliberately NOT excluded (a run
+# whose workpads were already persisted reads as already-recorded, which is
+# correct). Best-effort: an unreadable/malformed workpad is skipped with a
+# breadcrumb (a contained fail-open the breadcrumb makes loud), never truncating
+# the rest of the scan.
 recorded_fix_shas() {
-  local root="$1" skip_dir="$2" f sha_out
+  local root="$1" skip_dir="$2" f sha_out ref blob_path
+  # (1) tmp scratch + (3) legacy tracked working-tree copies.
   for f in "$root"/.devflow/tmp/review/*/*/iter-*.json "$root"/.devflow/logs/review/*/*/iter-*.json; do
     [ -e "$f" ] || continue
     case "$f" in "$skip_dir"/*) continue ;; esac
@@ -253,20 +367,20 @@ recorded_fix_shas() {
       echo "::warning::efficiency-trace.sh --persist: could not read fix_commit_sha from ${f} (unreadable or malformed workpad); its sha (if any) cannot be excluded from synthesis" >&2
       continue
     fi
-    # Emit only sha-shaped tokens (lowercase-hex charset — length deliberately
-    # unchecked, which is sufficient here: the check exists to keep a corrupt
-    # string value ("aaa bbb <realsha>", an embedded newline) from smuggling
-    # arbitrary whitespace-bearing tokens into the space-delimited exclusion
-    # set, and space/newline both fail the charset class. The producer contract
-    # is `git rev-parse HEAD`, so a wrong-LENGTH hex token — which passes this
-    # arm silently and then matches nothing against full `%H` shas — can only
-    # weaken the exclusion for a workpad that was already corrupt, never cause
-    # a wrong exclusion of a full-sha match).
-    case "$sha_out" in
-      ''|*[!0-9a-f]*) [ -n "$sha_out" ] && echo "::warning::efficiency-trace.sh --persist: fix_commit_sha in ${f} is not sha-shaped; not added to the exclusion set" >&2 ;;
-      *) printf '%s\n' "$sha_out" ;;
-    esac
+    _emit_fix_sha "$sha_out" "$f"
   done
+  # (2) telemetry-branch durable iter-*.json blobs. No `command -v` guard here:
+  # the source boundary (top of file) defines no-op stubs when the lib is absent,
+  # so devflow_telemetry_* are always callable and list_blobs then yields nothing.
+  ref="$(devflow_telemetry_ref)"
+  while IFS= read -r blob_path; do
+    case "$blob_path" in */iter-*.json) ;; *) continue ;; esac
+    if ! sha_out="$(devflow_telemetry_show_blob "$root" "$ref" "$blob_path" | "$DEVFLOW_JQ" -r 'if (.fix_commit_sha | type) == "string" then .fix_commit_sha else empty end' 2>/dev/null)"; then
+      echo "::warning::efficiency-trace.sh --persist: could not read fix_commit_sha from ${ref}:${blob_path} (unreadable or malformed telemetry blob); its sha (if any) cannot be excluded from synthesis" >&2
+      continue
+    fi
+    _emit_fix_sha "$sha_out" "${ref}:${blob_path}"
+  done < <(devflow_telemetry_list_blobs "$root" "$ref" ".devflow/logs/review/")
   return 0
 }
 
@@ -336,9 +450,9 @@ select_fix_commits() {
 # Synthesize minimal iter-<N>.json workpads into $1 from the branch's fix
 # commits (issue #381). Each record carries only iter / fix_commit_sha /
 # fix_files / loop_role:"fix" / synthesized:true — a distinct recognized degraded
-# class the jq filter and --self-check both ride. Three-way outcome so the
-# caller's breadcrumb never collapses an unestablished measurement onto "found
-# none" (the repo's unknown-is-not-zero gotcha): returns 0 iff ≥1 record was
+# class the jq filter and --self-check both ride. The rc is a FOUR-way outcome (0/2/3/4,
+# enumerated below) so the caller's breadcrumb never collapses an unestablished measurement
+# onto "found none" (the repo's unknown-is-not-zero gotcha): returns 0 iff ≥1 record was
 # written; 2 when selection RAN and found no unrecorded matching commit; 3 when
 # the search could not run at all (an uncreatable target dir, no base ref
 # resolvable, OR the git log enumeration itself failed — either way, whether
@@ -415,6 +529,78 @@ synthesize_iter_workpads() {
   return 2
 }
 
+# Shadow synthesis floor (Layer 3+, issue #426): when an iter-<N>.json carries no
+# `shadow` block but the run holds promotion evidence that iteration N's shadow
+# promoted — iter-<N+1>.json exists with loop_role "promoted" — the shadow block
+# was dropped (the issue-304 drop shape). Synthesize a minimal marker
+# {shadow_synthesized: true, promoted_to_iter_next: true} into iter-<N>.json so
+# the promotion is not left silently unattributable. Best-effort, always returns
+# 0 (a floor failure never aborts --persist). Two guards keep it faithful: it
+# NEVER overwrites an existing `shadow` block (agent-written or already
+# synthesized — the read gates on `.shadow` absence), and it writes at most one
+# marker per promotion-evidenced iter (no double-count — a second --persist pass
+# sees the marker it wrote and declines). STATED LIMITATION: this recovers
+# PROMOTED shadows only — a clean outcome-1 shadow whose block dropped leaves no
+# promotion evidence to synthesize from; the fused Step 2.6 emit is the primary
+# fix and this floor is its backstop, not its equal.
+synthesize_shadow_markers() {
+  local dir="$1" iter n next has_shadow promoted jq_err mv_err
+  for iter in "$dir"/iter-*.json; do
+    [ -e "$iter" ] || continue
+    # Parse N from the filename with bash builtins only — this DECIDES whether a
+    # marker is written, so it must not depend on a non-preflight PATH tool
+    # (guard-class 2); a non-numeric stem is skipped, not defaulted.
+    n="${iter##*/iter-}"; n="${n%.json}"
+    case "$n" in ''|*[!0-9]*) continue ;; esac
+    # Never overwrite: synthesize ONLY when `.shadow` is absent (jq `null`); skip
+    # any iter that already carries a non-null `shadow` value — an object
+    # (agent-written or previously synthesized) OR a malformed partial a truncated
+    # write left behind (a string/number). Keying on object-ness alone would
+    # clobber such a malformed real block; keying on `== null` fails closed on it
+    # while still synthesizing into a genuinely-absent slot. A parse failure is
+    # skipped (never clobber an unreadable block) but BREADCRUMBED, not silent —
+    # matching recorded_fix_shas' unreadable-workpad breadcrumb and the file's
+    # "surfacing failures" convention, so a malformed workpad that dropped a real
+    # promoted shadow (the issue-304 drop shape this floor recovers) leaves a signal
+    # rather than an unattributed silence.
+    if ! has_shadow="$("$DEVFLOW_JQ" -r 'if .shadow == null then "no" else "yes" end' "$iter" 2>/dev/null)"; then
+      echo "::warning::efficiency-trace.sh --persist: could not read '.shadow' from $(basename "$iter") (unreadable or malformed workpad); its shadow attribution (if any) cannot be recovered" >&2
+      continue
+    fi
+    [ "$has_shadow" = "no" ] || continue
+    # Promotion evidence: the next iter exists AND is a promoted iter. Force base-10
+    # on the stem (`10#$n`) so a zero-padded numeric stem (`iter-08.json`) — which the
+    # all-digit guard above admits — is not misread by `$(( ))` as invalid octal
+    # (`08`/`09` → "value too great for base"); the producer never zero-pads, so this
+    # is an adversarial-input guard, consistent with the guard-class-2 discipline.
+    next="$dir/iter-$((10#$n + 1)).json"
+    [ -e "$next" ] || continue
+    if ! promoted="$("$DEVFLOW_JQ" -r 'if .loop_role == "promoted" then "yes" else "no" end' "$next" 2>/dev/null)"; then
+      echo "::warning::efficiency-trace.sh --persist: could not read '.loop_role' from $(basename "$next") (unreadable or malformed workpad); cannot confirm promotion evidence for $(basename "$iter")" >&2
+      continue
+    fi
+    [ "$promoted" = "yes" ] || continue
+    # Merge the marker in via a temp file + mv (jq cannot edit in place; a direct
+    # `> "$iter"` would truncate the source before jq reads it). A failed jq
+    # leaves the original untouched with a breadcrumb — never a silent drop.
+    if jq_err="$("$DEVFLOW_JQ" '.shadow = {shadow_synthesized: true, promoted_to_iter_next: true}' "$iter" 2>&1 > "$iter.shadowtmp")"; then
+      if mv_err="$(mv "$iter.shadowtmp" "$iter" 2>&1)"; then
+        echo "::warning::efficiency-trace.sh --persist: synthesized a minimal shadow marker on $(basename "$iter") — its shadow block was dropped but iter-$((10#$n + 1)).json is a promoted iter, so the promotion linkage is recovered (cost figures are unrecoverable after the fact — attribution only, per the floor's promoted-shadows-only limitation)" >&2
+      else
+        # Surface mv's own errno text (read-only mount, ENOSPC, …) rather than
+        # discarding it to /dev/null — symmetric with the jq branch's $jq_err, and
+        # the difference between a diagnosable failure and an unexplained one.
+        echo "::warning::efficiency-trace.sh --persist: could not move the synthesized shadow marker into $(basename "$iter") (mv failed: ${mv_err:-no error text}); leaving it without one" >&2
+        rm -f "$iter.shadowtmp" 2>/dev/null
+      fi
+    else
+      echo "::warning::efficiency-trace.sh --persist: could not synthesize a shadow marker on $(basename "$iter") (${jq_err:-no error text}); leaving it without one" >&2
+      rm -f "$iter.shadowtmp" 2>/dev/null
+    fi
+  done
+  return 0
+}
+
 # ── --self-check (Layer 2): warn-only, never writes, never fails ─────────────
 do_self_check() {
   # Silent when telemetry is disabled — there is no record to expect, so a
@@ -433,10 +619,16 @@ do_self_check() {
     echo "::warning::devflow review-and-fix self-check: NO iter-*.json workpad was written for run ${SLUG}/${run_id} — per-iteration effectiveness telemetry was not captured this run; recover a minimal floor with 'lib/efficiency-trace.sh --persist --workpad-dir ${WORKPAD_DIR} --slug ${SLUG}' (the targeted form — bare discovery-mode --persist can decline this dir on a multi-slug or not-latest skip), which synthesizes an iteration record from this branch's unrecorded 'fix: address review findings (iteration N)' commits when any exist." >&2
     return 0
   fi
-  # Workpads exist but the effectiveness record was not persisted.
-  record="${root}/.devflow/logs/efficiency/${SLUG}-${run_id}.json"
-  if [ ! -e "$record" ]; then
-    echo "::warning::devflow review-and-fix self-check: effectiveness record '.devflow/logs/efficiency/${SLUG}-${run_id}.json' was NOT persisted for run ${SLUG}/${run_id} — recover it with 'lib/efficiency-trace.sh --persist'." >&2
+  # Workpads exist but the effectiveness record was not persisted. Presence is
+  # tested ON THE TELEMETRY BRANCH now (issue #441) — the record no longer lives
+  # in the working tree — via `git cat-file -e <ref>:<path>`, so a correctly
+  # persisted run never draws a false "not persisted" warning and a genuinely
+  # dropped one still does (AC15).
+  local ref
+  ref="$(devflow_telemetry_ref)"
+  record=".devflow/logs/efficiency/${SLUG}-${run_id}.json"
+  if ! devflow_telemetry_blob_exists "$root" "$ref" "$record"; then
+    echo "::warning::devflow review-and-fix self-check: effectiveness record '${record}' was NOT persisted to the telemetry branch '${ref#refs/heads/}' for run ${SLUG}/${run_id} — recover it with 'lib/efficiency-trace.sh --persist'." >&2
   fi
   # Per-iteration field validation (issue #170): warn — best-effort, never writes,
   # never aborts — for each iter-<N>.json missing an expected field, naming the
@@ -457,7 +649,7 @@ do_self_check() {
   #       and skips — otherwise a wrong-shape workpad masquerades as complete.
   # An object yields its missing-field names; field names are bare identifiers, so
   # the `for field in $missing` word-split is safe (and emits one warning line each).
-  local iter field missing
+  local iter field missing shadow_missing
   for iter in "$WORKPAD_DIR"/iter-*.json; do
     [ -e "$iter" ] || continue
     # A synthesized record (issue #381) is a recognized degraded class — it
@@ -480,11 +672,27 @@ do_self_check() {
     for field in $missing; do
       echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is missing expected field '${field}'" >&2
     done
+    # Synthesized shadow marker validation (issue #426): a `shadow` block carrying
+    # `shadow_synthesized: true` is a recognized degraded class — validate it
+    # against its own minimal set (SHADOW_SYNTH_EXPECTED_FIELDS), so a truncated
+    # synthesized marker still warns while a complete one passes cleanly. A real
+    # (agent-written) shadow block has no `shadow_synthesized` key, so this branch
+    # never fires on it — the self-check leaves real shadow blocks unvalidated
+    # exactly as before. The earlier `if !`/`continue` (the iter-field check above)
+    # already warned about and skipped any unreadable/parse-failed file, so this
+    # plain `if` only ever runs on a valid JSON object.
+    if shadow_missing="$("$DEVFLOW_JQ" -r --arg sfields "$SHADOW_SYNTH_EXPECTED_FIELDS" \
+                          'if ((.shadow | type) == "object") and (.shadow.shadow_synthesized == true) then (($sfields | split(" ")) - (.shadow | keys))[] else empty end' \
+                          "$iter" 2>/dev/null)"; then
+      for field in $shadow_missing; do
+        echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' has a synthesized shadow marker missing expected field '${field}'" >&2
+      done
+    fi
   done
   return 0
 }
 
-# ── --persist (Layer 3): derive + durable-copy + one scoped chore: commit ────
+# ── --persist (Layer 3): derive + durable-copy → telemetry-branch write ──────
 
 # Persist one run dir's artifacts (best-effort). Returns 0 always.
 persist_one() {
@@ -499,7 +707,7 @@ persist_one() {
       echo "::warning::efficiency-trace.sh --persist: run dir '${dir}' carries an unsubstituted '<placeholder>' identity (a verbatim '<slug>/<run-id>' directory left by a non-substituting run?); refusing to persist or synthesize under it — remove or rename the directory to recover" >&2
       return 0 ;;
   esac
-  local src durable record out jq_rc cp_err src_probe
+  local durable record out jq_rc cp_err
   local iters=("$dir"/iter-*.json)
   if [ ! -e "${iters[0]}" ]; then
     # No per-iteration workpad. Layer-3+ synthesis floor (issue #381): reconstruct
@@ -571,46 +779,51 @@ persist_one() {
       return 0
     fi
   fi
-  # Skip standalone /devflow:review runs (source == "review") — they have their
-  # own Phase 4.5 record path and are out of scope for this backstop. `source` is
-  # a RUN-level field, identical across a run's iterations, so any one iter is a
-  # valid probe; pick the last glob element (no ls|sort|tail). The glob sorts
-  # lexicographically (so iter-10 precedes iter-2), but which iter we read is
-  # irrelevant here — every iter carries the same run-level source. (Last-index
-  # form, not ${iters[-1]}: negative indexing needs bash 4.3, but these helpers
-  # must run on stock macOS bash 3.2.) Because the probe is single, --persist does
-  # not run warn_on_mixed_source the way --mode does; a mixed-source run is not
-  # expected here (a run is single-source by construction).
-  src_probe="${iters[$((${#iters[@]} - 1))]}"
-  # `if !` (not a bare assignment): a failing command-substitution assignment trips
-  # `set -e`, so guard the jq in a condition. An unreadable/parse-failed probe
-  # defaults to the historical producer (review-and-fix) — the SAFE direction for
-  # this issue: never skip (and thus never lose the record of) a real
-  # review-and-fix run. But leave a breadcrumb rather than swallow it silently
-  # (the project's no-silent-failure stance).
-  if ! src="$("$DEVFLOW_JQ" -r 'if (.source | type) == "string" then .source else "review-and-fix" end' "$src_probe" 2>/dev/null)"; then
-    echo "::warning::efficiency-trace.sh --persist: could not read 'source' from ${src_probe}; assuming review-and-fix" >&2
-    src="review-and-fix"
-  fi
-  [ "$src" = "review" ] && return 0
+  # NOTE (issue #441): the historical `source == "review"` skip is GONE. Both
+  # standalone /devflow:review (Phase 4.5) and /devflow:review-and-fix now persist
+  # through this SAME code path to the SAME telemetry branch — the record is keyed
+  # by (slug, run-id) and its jq derivation branches on the workpad's own `source`
+  # field, so a review run yields a review-mode record and a fix-loop run a
+  # fix-loop record, both idempotent by branch presence. Unifying the paths is the
+  # whole point of #441 (one durable store for every writable run), so a review run
+  # discovered here is persisted, not skipped.
+
+  # Shadow synthesis floor (issue #426): recover a dropped-but-promoted shadow
+  # block as a minimal marker BEFORE the durable copy below, so a synthesized
+  # marker is committed alongside the workpads it annotates. Telemetry-gated like
+  # the iter floor above — a synthesized marker is a telemetry artifact, so a
+  # telemetry-disabled repo gets none. (Runs on the real-workpad path too: a
+  # synthesized-iter run is all `loop_role: "fix"` with no promotion evidence, so
+  # the floor is a no-op there and only fires when a real promoted iter exists.)
+  [ "$ENABLED" = "true" ] && synthesize_shadow_markers "$dir"
+
+  # ── Everything below STAGES into .devflow/tmp/ (never the tracked tree) so the
+  # detached telemetry-branch write (do_persist) picks it up (issue #441). The
+  # current branch, HEAD, and the working tree are never touched. _TELEMETRY_STAGE
+  # is the shared staging root do_persist created; its subtree mirrors the exact
+  # .devflow/logs/… layout the branch commit will carry. ────────────────────────
 
   # Durable workpad copy — NOT telemetry-gated (runs on every writable run).
   # Copies every *.json in the run dir (iter-*.json + deferrals.json), mirroring
-  # the SKILL.md Loop Exit durable-copy. Content-idempotent: cp overwrites with
-  # identical bytes, so git sees a delta only for genuinely new/changed workpads.
-  durable="${root}/.devflow/logs/review/${slug}/${run_id}"
+  # the SKILL.md Loop Exit durable-copy. Content-idempotent: the branch write's
+  # tree-equality no-op guard emits no commit when the bytes are unchanged.
+  durable="${_TELEMETRY_STAGE}/.devflow/logs/review/${slug}/${run_id}"
   if ! cp_err="$( { mkdir -p "$durable" && cp -p "$dir"/*.json "$durable"/; } 2>&1 )"; then
     echo "::warning::efficiency-trace.sh --persist: durable workpad copy failed (${dir} -> ${durable}): ${cp_err:-unknown}; best-effort, continuing" >&2
   fi
 
-  # Effectiveness record — telemetry-gated, presence-based idempotency. Never
-  # re-derive an existing record: its `generated_at` is stamped at derivation
-  # time, so re-deriving would churn the bytes and defeat the no-op-on-re-run
-  # contract. An existing file (written by the agent's Loop Exit or a prior
-  # --persist) is left untouched.
+  # Effectiveness record — telemetry-gated, presence-based idempotency tested ON
+  # THE TELEMETRY BRANCH (issue #441 AC14): `git cat-file -e <ref>:<path>`. Never
+  # re-derive an existing record — its `generated_at` is stamped at derivation
+  # time, so re-deriving would churn the bytes and force a spurious new branch
+  # commit, defeating the no-op-on-re-run contract. A record already on the branch
+  # (a prior --persist) is left untouched: staged for neither derivation nor write.
   if [ "$ENABLED" = "true" ]; then
-    record="${root}/.devflow/logs/efficiency/${slug}-${run_id}.json"
-    if [ ! -e "$record" ]; then
+    local ref rel_record
+    ref="$(devflow_telemetry_ref)"
+    rel_record=".devflow/logs/efficiency/${slug}-${run_id}.json"
+    if ! devflow_telemetry_blob_exists "$root" "$ref" "$rel_record"; then
+      record="${_TELEMETRY_STAGE}/${rel_record}"
       collect_valid_files "$dir"
       # `if !` guards `set -e` on a failing command-substitution assignment, and
       # captures emit_jq's rc so a jq DERIVATION FAILURE (broken filter, jq missing,
@@ -626,11 +839,10 @@ persist_one() {
       elif [ -n "$out" ]; then
         if mkdir -p "$(dirname "$record")" 2>/dev/null; then
           # Check the redirection itself: a write failure after mkdir (ENOSPC,
-          # EROFS, quota, perms) must not be reported as a clean persist, and a
-          # truncated file must not be left to satisfy the `[ ! -e ]` presence
-          # check on the next run (which would lock in a corrupt record).
+          # EROFS, quota, perms) must not stage a truncated/partial record for the
+          # branch write.
           if ! printf '%s\n' "$out" > "$record"; then
-            echo "::warning::efficiency-trace.sh --persist: writing record ${record} failed (disk/permission); not persisted for ${slug}/${run_id}" >&2
+            echo "::warning::efficiency-trace.sh --persist: staging record ${record} failed (disk/permission); not persisted for ${slug}/${run_id}" >&2
             rm -f "$record" 2>/dev/null
           fi
         else
@@ -643,8 +855,153 @@ persist_one() {
 }
 
 do_persist() {
-  local root dir slug run_id
+  local root dir slug run_id _TELEMETRY_STAGE
   root="$(devflow_repo_root)"
+  # Resolve the telemetry branch ONCE, here in the parent, before anything forks. The
+  # resolution is memoized in _DEVFLOW_TELEMETRY_BRANCH_CACHE, and a subshell inherits the
+  # parent's variables — but NOT a sibling's. Without this seed the first call happened
+  # inside a subshell, so every later subshell re-resolved from scratch: the config was
+  # re-read once per fork and, on an invalid `telemetry.branch`, its breadcrumb was printed
+  # once per fork (three times in a single --persist). Seed it in the parent and they all
+  # inherit one resolution, and one warning. Redirect stdout ONLY — stderr must stay open or
+  # this seed would swallow the very breadcrumb it exists to emit exactly once.
+  devflow_telemetry_branch >/dev/null || true
+  # Best-effort, non-forced fetch of the telemetry branch BEFORE recorded_fix_shas
+  # computes the fix-commit exclusion set (issue #469 AC6). recorded_fix_shas reads
+  # the LOCAL ref, which on an ephemeral CI runner is absent — so without this fetch
+  # the exclusion set is silently empty and synthesis can re-attribute a commit an
+  # earlier run already recorded (a double-counted record with no signal). Populate
+  # the local ref from origin so prior records are visible. The fetch below is into
+  # the remote-tracking CACHE (refs/remotes/origin/<branch>, forced/`+` — safe because
+  # it is a cache, never local history); the LOCAL ref is then advanced only when it
+  # fast-forwards (merge-base --is-ancestor), so a diverged local ref is left untouched
+  # rather than clobbered. This is a read (contents:read suffices), so even the
+  # read-only review tier runs it.
+  # Record the OUTCOME in _DEVFLOW_TELEMETRY_FETCH_STATUS so list_blobs' absent-ref
+  # arm can tell an ESTABLISHED empty (fetch ok, ref still absent) from an
+  # UNESTABLISHED one (fetch failed/unattempted) — AC7, the "unknown is not zero"
+  # rule. dynamic-scope-visible to recorded_fix_shas/list_blobs below; not exported.
+  local _DEVFLOW_TELEMETRY_FETCH_STATUS=unattempted _tb_branch _tb_ref _remote_line _rtip _ltip
+  _tb_branch="$(devflow_telemetry_branch)"
+  _tb_ref="$(devflow_telemetry_ref)"
+  if git -C "$root" remote get-url origin >/dev/null 2>&1; then
+    # Query the remote READ-ONLY first (ls-remote — no object transfer). Its success
+    # is what establishes "the remote was consulted", so the exclusion-set absence is
+    # keyed on THAT, not on the branch's presence (AC7): a remote with no such branch
+    # yet is an ESTABLISHED 'no records' (a fresh adopter, or any repo before the
+    # branch's first use) — we skip the fetch and emit NO warning, ref stays absent.
+    # When the branch DOES exist remotely, fetch it into the remote-tracking CACHE
+    # (`refs/remotes/origin/<branch>`, force-safe — it is a cache, never local
+    # history) and VERIFY it is a DevFlow telemetry store before advancing the LOCAL
+    # ref. A consumer's same-named NON-telemetry branch is therefore never clobbered
+    # into refs/heads/<branch> (which persist_tree trusts) — that case is left for
+    # persist_tree's own rejection-arm re-verification, exactly as before. Only a
+    # verified store is fast-forwarded onto the local ref (created when absent; a
+    # diverged local ref is never overwritten), making prior records visible to
+    # recorded_fix_shas. A FAILED query, a FAILED fetch, OR a fetched tip that cannot
+    # be verified as a readable telemetry store is UNESTABLISHED (status=failed → the
+    # absent-ref arm of list_blobs warns) — unknown is not zero.
+    if _remote_line="$(GIT_TERMINAL_PROMPT=0 git -C "$root" ls-remote --heads origin "$_tb_branch" 2>/dev/null)"; then
+      if [ -z "$_remote_line" ]; then
+        _DEVFLOW_TELEMETRY_FETCH_STATUS=ok           # established: remote has no such branch yet
+      elif GIT_TERMINAL_PROMPT=0 git -C "$root" fetch -q --no-tags origin "+${_tb_branch}:refs/remotes/origin/${_tb_branch}" 2>/dev/null; then
+        _rtip="$(git -C "$root" rev-parse --verify --quiet "refs/remotes/origin/${_tb_branch}" 2>/dev/null || true)"
+        if [ -n "$_rtip" ] && devflow_telemetry_verify_store "$root" "refs/remotes/origin/${_tb_branch}"; then
+          # A readable telemetry store was fetched. Fast-forward the LOCAL ref onto the
+          # verified tip (created when absent; a diverged local ref is never overwritten).
+          _ltip="$(git -C "$root" rev-parse --verify --quiet "$_tb_ref" 2>/dev/null || true)"
+          if [ -z "$_ltip" ] || git -C "$root" merge-base --is-ancestor "$_ltip" "$_rtip" 2>/dev/null; then
+            git -C "$root" update-ref "$_tb_ref" "$_rtip" 2>/dev/null || true
+          fi
+          # recorded_fix_shas reads the LOCAL ref, so the exclusion set is ESTABLISHED only
+          # when that ref is now PRESENT — either we just advanced it, or it was already
+          # present (a diverged ref left untouched; list_blobs then reads it directly, and the
+          # remote-only records it cannot see without clobbering are the deliberate
+          # don't-overwrite tradeoff). Assert status AFTER establishing it, never before: a
+          # swallowed update-ref failure (`|| true`) that leaves the ref ABSENT must NOT stay
+          # ok, or list_blobs' absent-ref arm would launder a verified-but-unfetched store
+          # into a silent established-empty and re-attribute an already-recorded commit
+          # (#469 review — the same assert-after-establish discipline as the verify-fail arm).
+          if git -C "$root" rev-parse --verify --quiet "$_tb_ref" >/dev/null 2>&1; then
+            _DEVFLOW_TELEMETRY_FETCH_STATUS=ok
+          else
+            _DEVFLOW_TELEMETRY_FETCH_STATUS=failed
+            echo "::warning::efficiency-trace.sh --persist: fetched a verified telemetry store for '${_tb_branch}' but could not advance the local ref onto it (git update-ref failed — a held ref .lock, a read-only .git, or a full disk) — whether prior records exist is UNESTABLISHED, so the fix-commit exclusion set may be incomplete this run; synthesis could re-attribute an already-recorded commit" >&2
+          fi
+        else
+          # Fetch succeeded but the fetched tip could NOT be verified as a readable
+          # telemetry store — an unreadable/corrupt tree, or a consumer's same-named
+          # non-telemetry branch. We cannot tell "records exist but are unreadable this
+          # run" from "genuinely no telemetry records", so — unknown is not zero (AC7) —
+          # leave status UNESTABLISHED (do NOT set ok before verify) so the absent-ref arm
+          # of list_blobs warns rather than laundering an unreadable store into a silent
+          # established-empty and re-attributing an already-recorded commit.
+          _DEVFLOW_TELEMETRY_FETCH_STATUS=failed
+          echo "::warning::efficiency-trace.sh --persist: the telemetry branch '${_tb_branch}' exists on origin and was fetched, but its tip could not be verified as a readable DevFlow telemetry store — whether prior records exist is UNESTABLISHED, so the fix-commit exclusion set may be incomplete this run; synthesis could re-attribute an already-recorded commit" >&2
+        fi
+      else
+        _DEVFLOW_TELEMETRY_FETCH_STATUS=failed
+        echo "::warning::efficiency-trace.sh --persist: the telemetry branch '${_tb_branch}' exists on origin but fetching it failed (offline or auth) — the fix-commit exclusion set may be incomplete this run; synthesis could re-attribute an already-recorded commit" >&2
+      fi
+    else
+      _DEVFLOW_TELEMETRY_FETCH_STATUS=failed
+      echo "::warning::efficiency-trace.sh --persist: could not query origin for telemetry branch '${_tb_branch}' (offline or auth) — whether prior records exist is UNESTABLISHED, so the fix-commit exclusion set may be incomplete this run; synthesis could re-attribute an already-recorded commit" >&2
+    fi
+  else
+    # No origin remote: the LOCAL ref is the authoritative and complete source (there is
+    # nowhere else records could live), so its absence is a genuine ESTABLISHED empty, not an
+    # unestablished one — mark ok so list_blobs does not emit a misleading "synthesis may
+    # re-attribute" warning on a local-only repo's first --persist (#469 review).
+    _DEVFLOW_TELEMETRY_FETCH_STATUS=ok
+  fi
+  # Bounded cleanup policy for retained staging roots (issue #469 AC8): a degraded
+  # or staging-only persist RETAINS its staging root under .devflow/tmp/ (below), so
+  # prune older ones to the newest _DEVFLOW_TELEMETRY_STAGE_KEEP (default 8) here,
+  # before creating this run's, so they cannot grow without bound. The timestamp
+  # prefix on the name below makes the glob sort chronologically (lexicographic ==
+  # oldest-first), so dropping the leading entries drops the oldest. Best-effort;
+  # a prune failure never aborts (the whole helper is exit-0/best-effort).
+  local _keep="${_DEVFLOW_TELEMETRY_STAGE_KEEP:-8}" _stale=() _s
+  # A non-numeric override (e.g. `abc`) would make the `-gt` test below error and the
+  # prune go INERT, so retained roots would accumulate unbounded — the opposite of the
+  # bound's purpose. Fall back to the default on any non-numeric value so the bound holds.
+  case "$_keep" in ''|*[!0-9]*) _keep=8 ;; esac
+  # Normalize to base-10 AFTER the all-digit check above (#469 review): an all-digit but
+  # leading-zero value (`08`, `09`) passes that check yet is an INVALID OCTAL literal, so the
+  # later `$(( ${#_stale[@]} - _keep ))` arithmetic aborts with "value too great for base" —
+  # and under this file's `set -euo pipefail` that abort would kill do_persist mid-run and
+  # lose the run's telemetry (the exact fail-open the bound exists to prevent). `10#` forces
+  # base-10 (safe: the case above guaranteed `$_keep` is all-digits, so `10#` never sees a
+  # non-digit). But all-digit does NOT imply within intmax: a value >= 2^63 silently WRAPS
+  # (bash integer overflow does not error) to a negative, which would make `_drop` exceed the
+  # staged-array length and index past it under `set -u` (aborting the best-effort prune — the
+  # same fail-open again). Clamp a negative (overflowed) result back to the default so `_keep`
+  # is always non-negative and `_drop = count - _keep <= count` keeps the loop in bounds. A
+  # large-but-in-range `_keep` needs no clamp: it just makes `_drop` non-positive → prune nothing.
+  _keep=$(( 10#$_keep ))
+  [ "$_keep" -ge 0 ] || _keep=8
+  for _s in "${root}"/.devflow/tmp/telemetry-stage-*; do
+    [ -d "$_s" ] && _stale+=("$_s")
+  done
+  if [ "${#_stale[@]}" -gt "$_keep" ]; then
+    local _drop=$(( ${#_stale[@]} - _keep )) _i
+    for ((_i = 0; _i < _drop; _i++)); do rm -rf "${_stale[$_i]}" 2>/dev/null || true; done
+  fi
+  # Shared staging root under gitignored .devflow/tmp/ (issue #441). Every
+  # persist_one call stages its record + durable workpad copy here, mirroring the
+  # exact .devflow/logs/… layout; after the loop the detached telemetry-branch
+  # write consumes the whole tree and this scratch is removed. Nothing is ever
+  # materialized in the tracked working tree, so `git status` stays byte-for-byte
+  # unchanged (AC2). Unique name via bash builtins (not mktemp — the cloud sandbox
+  # blocks it, AC9).
+  # UTC-timestamp prefix so retained roots glob-sort chronologically for the prune
+  # above (#469 AC8). `date` is not a preflight-guaranteed tool and this name only
+  # orders CLEANUP (never selects an emitted telemetry value — guard-class 2 does
+  # not bind), so a missing `date` degrades to a fixed prefix (prune still runs,
+  # ordering just falls back to $$/RANDOM); $$-RANDOM-SECONDS keep the name unique.
+  _TELEMETRY_STAGE="${root}/.devflow/tmp/telemetry-stage-$(date -u +%Y%m%d%H%M%S 2>/dev/null || printf '00000000000000')-$$-${RANDOM}-${SECONDS}"
+  rm -rf "$_TELEMETRY_STAGE" 2>/dev/null || true
+  mkdir -p "$_TELEMETRY_STAGE" 2>/dev/null || true
   if [ -n "$WORKPAD_DIR" ]; then
     # Targeted: persist exactly the given run. Slug from --slug, else the parent
     # dir name; run-id is the workpad-dir basename. Derived with bash parameter
@@ -741,47 +1098,57 @@ do_persist() {
     done
   fi
 
-  # ── One scoped `chore:` commit for everything written above ────────────────
-  # Stage ONLY the .devflow/logs/ artifact subtrees, each conditionally on its
-  # existence (a single `git add` of a non-existent pathspec aborts atomically).
-  # The commit is ALSO pathspec-scoped so the "only .devflow/logs/ artifacts"
-  # guarantee holds even if the index was pre-dirty. The diff guard makes a
-  # re-run (nothing changed) a clean no-op — no empty commit. Best-effort: a
-  # failure leaves a ::warning:: and exits 0.
-  # Relative pathspecs resolved against $root via `git -C` (robust regardless of
-  # the caller's cwd); existence is checked on the absolute path.
-  local add_err diff_rc commit_err
-  ADD_PATHS=()
-  [ -d "${root}/.devflow/logs/efficiency" ] && ADD_PATHS+=(".devflow/logs/efficiency")
-  [ -d "${root}/.devflow/logs/review" ] && ADD_PATHS+=(".devflow/logs/review")
-  if [ "${#ADD_PATHS[@]}" -gt 0 ]; then
-    if ! add_err="$(git -C "$root" add -- "${ADD_PATHS[@]}" 2>&1)"; then
-      echo "::warning::efficiency-trace.sh --persist: staging failed: ${add_err:-unknown}; not persisted this run" >&2
-    else
-      # Inspect the staged-diff rc explicitly rather than via `! git diff --quiet`:
-      # `--quiet` returns 0 = no staged diff, 1 = staged diff present, but >=2 (128)
-      # on a git FAULT (corrupt index, an index.lock race with a concurrent process
-      # — reachable when the Stop hook overlaps another git op). `! …` would fold
-      # that fault into the rc-0 no-commit no-op SILENTLY, leaving the staged record
-      # uncommitted (and lost at cloud teardown) while self-check sees the
-      # working-tree file and reads clean — the exact false-clean this issue closes.
-      # `|| diff_rc=$?` (not a bare command): `git diff --quiet` returns 1 when a
-      # staged diff is present, which would trip `set -e` as a bare statement —
-      # the left side of `||` is exempt, and we still capture the rc.
-      diff_rc=0
-      git -C "$root" diff --cached --quiet -- "${ADD_PATHS[@]}" || diff_rc=$?
-      if [ "$diff_rc" -eq 1 ]; then
-        if ! commit_err="$(git -C "$root" commit -m "chore: persist review-and-fix observability artifacts
-
-Co-Authored-By: Claude <noreply@anthropic.com>" -- "${ADD_PATHS[@]}" 2>&1)"; then
-          echo "::warning::efficiency-trace.sh --persist: commit failed: ${commit_err:-unknown}; artifacts left staged" >&2
-        fi
-      elif [ "$diff_rc" -ne 0 ]; then
-        # rc 0 is the clean nothing-to-commit no-op (no breadcrumb); only a fault rc warns.
-        echo "::warning::efficiency-trace.sh --persist: staged-diff check failed (rc=${diff_rc}, git fault); artifacts left staged, not committed" >&2
-      fi
-    fi
+  # ── Detached write of everything staged above to the telemetry branch ──────
+  # (issue #441). Replaces the former current-branch `chore:` commit: the shared
+  # lib hashes each staged .devflow/logs/… file into the object store, builds a
+  # tree parented on the telemetry ref (orphan root on first use), CAS-advances
+  # the ref, and pushes with a fetch/re-parent retry loop — never touching the
+  # current branch, HEAD, or the working tree. Best-effort/exit-0: a push that
+  # can't happen (offline, read-only token/profile, no remote) still advances the
+  # local ref and breadcrumbs. Then remove the staging scratch so `git status`
+  # stays byte-for-byte unchanged (AC2). devflow_telemetry_persist_tree is a
+  # clean no-op when nothing was staged.
+  # Gate on the REAL source sentinel telemetry-branch.sh sets on a successful
+  # source (_DEVFLOW_TELEMETRY_BRANCH_SOURCED) — NOT `command -v`, which always finds
+  # the no-op stubs the source-failure branch defines, making this persist-time
+  # "artifacts discarded" warning unreachable dead code. With the sentinel, a
+  # vendored deploy missing lib/ takes the else and emits a specific persist-time
+  # breadcrumb naming the discarded staging root, instead of silently no-op'ing.
+  # Capture the write's outcome (issue #469 AC8). devflow_telemetry_persist_tree
+  # now REPORTS via its return code — 0 = clean (pushed / idempotent no-op / nothing
+  # staged / no staging root); 1 = a DEGRADED arm that produced a staging root
+  # (worktree-checked-out branch, non-conforming store, unwritable temp index, CAS
+  # exhausted, or a push/re-parent failure); 2 = STAGING-ONLY (CI without an
+  # affirmative DEVFLOW_TELEMETRY_PUSH — AC5). It still NEVER aborts its caller, so
+  # `|| persist_rc=$?` keeps this best-effort under set -e and --persist still exits 0.
+  local persist_rc=0
+  if [ -n "${_DEVFLOW_TELEMETRY_BRANCH_SOURCED:-}" ]; then
+    devflow_telemetry_persist_tree "$root" "$_TELEMETRY_STAGE" || persist_rc=$?
+  else
+    echo "::warning::efficiency-trace.sh --persist: telemetry-branch.sh was not sourced; cannot persist to the telemetry branch this run — the run's staged artifacts under ${_TELEMETRY_STAGE} are discarded" >&2
   fi
+  case "$persist_rc" in
+    0) rm -rf "$_TELEMETRY_STAGE" 2>/dev/null || true ;;   # clean (pushed / no-op / nothing staged): delete is gated to rc 0 ONLY so `git status`, HEAD, and the current branch stay byte-for-byte unchanged (#469 AC13, #441 AC2), and no non-clean result can reach it (#469 AC8, fail-closed)
+    2)
+      # Staging-only (AC5): the operand breadcrumb already fired in telemetry-branch.sh.
+      # RETAIN the staged tree (a forthcoming trusted telemetry-push relay — follow-up to
+      # #469 — uploads+pushes it); do not delete and do not emit a second warning — the
+      # intended read-only-review posture, not a degradation.
+      : ;;
+    *)
+      # Degraded (rc 1) OR any other non-clean/unexpected result — including a subshell
+      # killed by a signal (128+n via the `|| _persist_subrc=$?` capture in
+      # telemetry-branch.sh): the staged records are the run's ONLY copy (nothing is ever
+      # written to the tracked tree), so RETAINING them is what makes the failure
+      # recoverable instead of a silent deletion (#469 AC8 — this arm fails CLOSED toward
+      # retention for every value that is not an explicit clean 0). One ::warning:: names
+      # the absolute path; bounded by the newest-N prune at the top of do_persist, so
+      # retained roots cannot accumulate without limit. On an ephemeral CI runner the
+      # filesystem does not survive teardown, so on-disk retention is moot there — a
+      # forthcoming trusted telemetry-push relay (follow-up to #469) is the cloud recovery
+      # path; until it lands the records are not recoverable from a cloud runner (see docs).
+      echo "::warning::efficiency-trace.sh --persist: the telemetry-branch write DEGRADED — RETAINING the staged records at '${_TELEMETRY_STAGE}' so they are recoverable (delete once recovered; a bounded newest-${_keep} prune runs each --persist). On an ephemeral CI runner the filesystem does not survive teardown, so recovery there is not on-disk — a forthcoming trusted telemetry-push relay (follow-up to #469) will push the staged records; until it lands they are not recoverable from a cloud runner." >&2 ;;
+  esac
   return 0
 }
 
