@@ -4865,6 +4865,68 @@ _docs_sweeps=$(grep -oE 'still runs the contract-completeness sweeps \([^)]+\)' 
 assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set (cross-site)" \
   "$_skill_sweeps" "$_docs_sweeps"
 
+# ── issue #474: Phase 2.3 gains §2.3.7 (collection-cardinality sweep) and two §2.3.0c
+# sharpenings (derived-comparand arms, obligation placement). Each pin below targets the
+# OPERATIVE sentence — the minimal text whose removal ALONE re-introduces the guarded gap —
+# expressed through assert_pin_red_under with a `sed -E` mutation that removes only that
+# sentence, so a framing-only pin would be reported RED (per the behavioral-fix-pin rule).
+# The behavioral pins scope to phase-2-implement.md ($P2_FILE); the docs/overview mirror
+# presence pins guard the coupled enumerating sites (§2.3.0b enumeration reconciliation).
+OVERVIEW_DOC474="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# §2.3.0c trigger (a): a DERIVED comparand's malformed/empty arms must be enumerated. The
+# operative requirement, the arm list, and the defect teeth are three necessary sentences —
+# one pin each (a multi-sentence property under-covers with a single pin).
+assert_pin_red_under "#474(2.3.0c-a): derived-comparand arm-enumeration requirement is operative" \
+  'its row additionally enumerates the malformed/empty arms the producer can emit' \
+  's|its row additionally enumerates the malformed/empty arms the producer can emit|its row is otherwise complete|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.0c-a): the six-shape arm list is operative (removing it re-opens the unenumerated-arm gap)" \
+  'producer failure (a non-zero exit or a denial), unparseable output, a wrong-type value, a valid-falsy/empty value, and a missing key or file' \
+  's|producer failure \(a non-zero exit or a denial\), unparseable output, a wrong-type value, a valid-falsy/empty value, and a missing key or file|the arms|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.0c-a): the unenumerated-arm defect teeth are operative" \
+  'an unauthored fail-open accident' \
+  's|an unauthored fail-open accident|acceptable|' "$P2_FILE"
+# §2.3.0c trigger (b): a stated policy places its obligation at the execution point it gates.
+assert_pin_red_under "#474(2.3.0c-b): obligation-placement requirement is operative" \
+  'A stated policy places its obligation at the execution point it gates' \
+  's|A stated policy places its obligation at the execution point it gates|A policy may be stated anywhere|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.0c-b): thematic-only prose does not discharge the trigger (teeth are operative)" \
+  'prose that describes the hazard only in a thematic section, leaving the execution point it gates with no obligation, does not discharge this trigger' \
+  's|prose that describes the hazard only in a thematic section, leaving the execution point it gates with no obligation, does not discharge this trigger|thematic-only prose is fine|' "$P2_FILE"
+# §2.3.7 collection-cardinality sweep: heading trigger, multi-element requirement,
+# single-element-non-discharge teeth, and the Sweep-selection index row.
+assert_pin_red_under "#474(2.3.7): the heading trigger is operative (removing it un-gates the sweep)" \
+  'mandatory whenever the change adds a collection output with ordering, dedup, or aggregation logic' \
+  's|mandatory whenever the change adds a collection output with ordering, dedup, or aggregation logic|always|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.7): the multi-element test requirement is operative" \
+  'The change carries a multi-element test case that exercises that logic' \
+  's|The change carries a multi-element test case that exercises that logic|A test exists|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.7): single-element-does-not-discharge teeth are operative" \
+  'A single-element happy-path test does not discharge this sweep' \
+  's|A single-element happy-path test does not discharge this sweep|A single-element test suffices|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.7): the Sweep-selection consider-list index row is operative" \
+  'Adds a collection output with ordering, dedup, or aggregation logic' \
+  's|Adds a collection output with ordering, dedup, or aggregation logic|Adds something|' "$P2_FILE"
+# §2.3.7 mirror sites (coupled invariant — the enumerating sites §2.3.0b reconciliation
+# requires): the sweep body heading, the docs rationale table row, and the
+# DEVFLOW_SYSTEM_OVERVIEW sweep-index entry must all carry §2.3.7.
+assert_pin_unique "#474(2.3.7): implement SKILL keeps the sweep body heading" \
+  '#### 2.3.7 Collection-cardinality sweep' "$IMPL_SKILL"
+assert_pin_unique "#474(2.3.7): implement SKILL lists it in the Sweep-selection index" \
+  'run **2.3.7**' "$IMPL_SKILL"
+assert_eq "#474(2.3.7): docs/implement-skill.md keeps the rationale table row" "yes" \
+  "$(grep -qF '| 2.3.7 Collection-cardinality |' "$IMPL_DOC" && echo yes || echo no)"
+assert_eq "#474(2.3.7): DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-index entry" "yes" \
+  "$(grep -qF '**2.3.7** Collection-cardinality sweep' "$OVERVIEW_DOC474" && echo yes || echo no)"
+# Reconciliation guards: the falsified "2.3.6 is last" claims must be GONE from the docs
+# (a regression would re-assert a §2.3.7-falsified statement), and the "five always-on
+# sweeps (…)" enumeration must be UNCHANGED (§2.3.7 is trigger-gated, never always-on).
+assert_eq "#474: docs no longer claim 2.3.6 is 'numbered last only to avoid renumbering'" "0" \
+  "$(grep -Fc 'numbered last only to avoid renumbering' "$IMPL_DOC")"
+assert_eq "#474: docs no longer claim '2.3.6 sits last'" "0" \
+  "$(grep -Fc '2.3.6 sits last' "$IMPL_DOC")"
+assert_eq "#474: the five-always-on enumeration is unchanged (2.3.7 is trigger-gated, not always-on)" "yes" \
+  "$(grep -qF 'five always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.5/2.3.6)' "$IMPL_DOC" && echo yes || echo no)"
+
 # Drift guard: the base_branch read in the implement skill (phases/phase-1-setup.md) Phase 1.4 is
 # a load-bearing inline-bash block in the skill (Phase 3.1's §3.1 re-derivation below is another) — like the max_iterations clamp above, the
 # tokens it relies on can be silently broken by a SKILL edit (drop the `|| BASE=""`
