@@ -61,59 +61,40 @@ EOF
 )"
 ```
 
-**Apply the deferred-issue labels.** As you create each follow-up issue above, **capture its number** from the `gh issue create` output (the command prints the new issue URL; the trailing path segment is the number) into `DEFERRED_ISSUE_NUMBERS` — a space-separated list you assemble from the issues you actually filed (e.g. `DEFERRED_ISSUE_NUMBERS="201 202"`). Then apply the configured `deferred.labels` to every filed issue. The labels are read from config (default `DevFlow,Deferred`) and normalized with the **same** split/trim/drop-empties idiom Phase 4.1 uses for `docs.labels`, so an empty or whitespace-only value applies no labels. Ensure each label exists first (best-effort), then apply them through the shared REST `apply-labels.sh` helper (`POST .../issues/{n}/labels` — repo-scope only, unlike `gh issue edit --add-label`'s org-scoped GraphQL resolution) per filed issue — best-effort and post-creation, so a label hiccup can never block or unwind the filing:
+**Apply the deferred-issue labels.** As you create each follow-up issue above, **capture its number** from the `gh issue create` output (the command prints the new issue URL; the trailing path segment is the number) into `DEFERRED_ISSUE_NUMBERS` — a space-separated list you assemble from the issues you actually filed (e.g. `DEFERRED_ISSUE_NUMBERS="201 202"`). Then apply the configured `deferred.labels` to every filed issue. The labels are read from config (default `DevFlow,Deferred`) and normalized with the **same** split/trim/drop-empties idiom Phase 4.1 uses for `docs.labels`, so an empty or whitespace-only value applies no labels. Ensure each label exists first (best-effort), then apply them through the shared REST `apply-labels.sh` helper (`POST .../issues/{n}/labels` — repo-scope only, unlike `gh issue edit --add-label`'s org-scoped GraphQL resolution) per filed issue — best-effort and post-creation, so a label hiccup can never block or unwind the filing.
+
+**Cloud-emission discipline (label helpers): iterate at the agent level, never in a shell loop or a capture — see the *Cloud command-shape discipline* section in `skills/implement/SKILL.md`.** The cloud implement matcher **denies** a `for`/piped-`while read` loop wrapping a label helper (`ensure-label.sh` / `apply-labels.sh`) and a `VAR="$(label-helper …)"` output capture — the implement-tier probe rows I4/I5/I6 (`.github/workflows/matcher-probe.yml`, evidence of record on issues #450/#455). So do **not** wrap the label helpers in a shell loop or capture their output into a variable: emit **one single-statement, leading-token call per label and per issue**, iterating over the labels/numbers yourself. (A `config-get` capture below is fine — the matcher descends into `$(…)` for a non-label helper; only the label-helper wrappers are denied. Phase 4.1's single docs-label `apply-labels.sh` call is likewise permitted because it is one leading-token call, not a loop.)
+
+First resolve and **print** the clean label list — a `config-get` capture is permitted, and printing it lets you read the resolved value for the per-issue calls below (a shell variable set here does not survive into a later separate command on the cloud runner):
 
 ```bash
-# Assemble this from the issue numbers you captured above (the gh issue create
-# outputs). It is NOT auto-populated — set it explicitly, e.g.:
-#   DEFERRED_ISSUE_NUMBERS="201 202"
-DEFERRED_ISSUE_NUMBERS="${DEFERRED_ISSUE_NUMBERS:-}"
-# Discriminate a real read failure (corrupt config.json / missing python3 → rc≠0, empty
-# stdout) from a deliberately-empty value with a single-statement `if !` that reads
-# config-get's OWN exit status — never a captured rc read in a later statement (an
-# inline-bash runner that strips such cross-statement variable reads — Copilot CLI /
-# Cursor / Codex CLI / Gemini CLI — would leave the rc empty and make the breadcrumb check
-# inert). The `if !` condition is also exempt from `set -e`. The default arg covers the
-# SOFT paths (missing file / unset key → config-get prints it, exit 0); only the HARD path
-# (rc≠0) enters the branch, where we leave DEFERRED_LABELS empty so CLEAN below applies NO
-# labels (deferred follow-up issues filed WITHOUT labels) AND leave an attributable breadcrumb.
+# The default arg covers the SOFT paths (missing file / unset key → config-get prints it,
+# exit 0); only the HARD path (rc≠0 — corrupt config.json / missing python3) enters the
+# `if !` branch, where DEFERRED_LABELS stays empty (no labels applied) AND a breadcrumb is
+# left. The `if !` reads config-get's OWN exit status inline (never a captured rc read in a
+# later statement, which a cross-statement-variable-stripping inline-bash runner would
+# leave empty) and is exempt from `set -e`.
 if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then
   DEFERRED_LABELS=""
   workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred follow-up issues filed WITHOUT labels."
 fi
 CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
-if [ -z "$DEFERRED_ISSUE_NUMBERS" ]; then
-  # We only reach this block because deferred work WAS filed above, so an empty list
-  # means the issue-number capture was missed — a real gap, not a benign no-op. Route it
-  # to the workpad (durable, retrospective-visible) like the rc-failure breadcrumb, not
-  # just stderr (ephemeral in an autonomous cloud run).
-  echo "devflow: Phase 4.0 captured no deferred-issue numbers — deferred.labels applied to nothing (check the gh issue create captures)" >&2
-  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."
-elif [ -n "$CLEAN_DEFERRED_LABELS" ]; then
-  # Ensure each configured label exists (best-effort; ensure-label.sh always exits 0, so
-  # this loop never aborts on a label that can't be created). `|| continue` just skips a
-  # blank entry; CLEAN already drops blanks, so it is belt-and-suspenders kept symmetric
-  # with the apply loop below. (These blocks run as ordinary Bash-tool invocations, not
-  # under `set -e` — the best-effort idiom matches the pre-existing docs.labels block.)
-  echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
-    [ -n "$lbl" ] || continue
-    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh "$lbl"
-  done
-  # Apply to every issue filed above (the numbers captured into DEFERRED_ISSUE_NUMBERS)
-  # through the shared REST label-apply helper (POST .../issues/{n}/labels — repo-scope
-  # only; `gh issue edit --add-label` resolves the repo via org-scoped GraphQL and fails
-  # under a repo-scoped token). The helper is best-effort (always exits 0) and emits a
-  # specific breadcrumb to stderr ONLY on failure, so capture that stderr: a failed apply
-  # is the feature's most likely real-world failure, so route it to the durable workpad
-  # (retrospective-visible) as well as stderr — stderr is ephemeral in an autonomous cloud
-  # run, so a stderr-only breadcrumb would leave an unlabeled issue with no durable trace.
-  for n in $DEFERRED_ISSUE_NUMBERS; do
-    LBL_ERR="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS" 2>&1)"
-    [ -n "$LBL_ERR" ] && { echo "$LBL_ERR" >&2; \
-      workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
-  done
-fi
+echo "deferred labels to apply: [$CLEAN_DEFERRED_LABELS]"
 ```
+
+If you filed follow-up work above but captured **no** issue numbers into `DEFERRED_ISSUE_NUMBERS`, that is a real capture gap (not a benign no-op) — record it durably and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."` If the printed `CLEAN_DEFERRED_LABELS` is empty (config resolved to no labels), also apply nothing.
+
+Otherwise, read the printed `CLEAN_DEFERRED_LABELS` value and apply the labels with **single granted-literal leading-token calls**, iterating at the agent level:
+
+- For **each** label in the printed comma-list (skip blanks), ensure it exists with one call — the helper path is the command's leading token, and `ensure-label.sh` is best-effort (always exits 0):
+  ```bash
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh <label>
+  ```
+- For **each** number in `DEFERRED_ISSUE_NUMBERS`, apply the whole comma-list with one call — the helper path is the leading token, the issue number and the resolved label list substituted as literals:
+  ```bash
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh <filed-issue-number> "<deferred-labels>"
+  ```
+  `apply-labels.sh` is best-effort (always exits 0) and prints a breadcrumb to **stderr only on failure** (POST `.../issues/{n}/labels` — repo-scope only; never `gh issue edit --add-label`'s org-scoped GraphQL). Read that stderr from the tool result; when it names a failure, record it durably (a failed apply is the feature's most likely real-world failure and stderr is ephemeral in an autonomous cloud run): `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not apply the configured deferred labels (<deferred-labels>) to issue #<filed-issue-number> (best-effort; the issue was filed but carries none of the configured deferred labels)."`
 
 Record the new issue numbers in the workpad: `workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred work: #N (phase 2), #N+1 (phase 3), …"` before continuing to 4.0.5.
 
@@ -226,50 +207,37 @@ Record the filed issue numbers in the workpad:
 if [ -n "${FILED_NUMBERS:-}" ]; then
     NUMBERS_CSV=$(echo "$FILED_NUMBERS" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, #/g')
     workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred review findings: #${NUMBERS_CSV}"
-    # Apply the configured deferred.labels to each filed issue — same resolve/normalize/
-    # ensure/apply idiom as Phase 4.0 (default DevFlow,Deferred; empty/whitespace → none).
-    # `file-deferrals.py` itself stays out of config-reading (config is resolver
-    # territory — read through config-get.sh, not re-parsed ad hoc); the skill owns
-    # labeling. Best-effort and post-filing, so a label hiccup never unwinds an
-    # already-filed issue.
-    # Discriminate a hard read failure (same as Phase 4.0) with a single-statement `if !`
-    # that reads config-get's OWN exit status — never a captured rc read in a later
-    # statement (an inline-bash runner that strips such cross-statement variable reads —
-    # Copilot CLI / Cursor / Codex CLI / Gemini CLI — would leave the rc empty and make the
-    # breadcrumb check inert). The `if !` condition is also exempt from `set -e`. The
-    # default arg covers the SOFT paths (missing file / unset key → exit 0); only the HARD
-    # path (rc≠0) enters the branch, where we leave DEFERRED_LABELS empty so CLEAN applies
-    # NO labels AND leave an attributable breadcrumb.
-    if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then
-        DEFERRED_LABELS=""
-        workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred review-finding issues filed WITHOUT labels."
-    fi
-    CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
-    if [ -n "$CLEAN_DEFERRED_LABELS" ]; then
-        # `|| continue` just skips a blank entry (CLEAN already drops blanks — symmetric
-        # with Phase 4.0); ensure-label.sh always exits 0, so the loop never aborts.
-        echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
-            [ -n "$lbl" ] || continue
-            "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh "$lbl"
-        done
-        # Apply via the shared REST label-apply helper (POST .../issues/{n}/labels — repo-scope
-        # only; `gh issue edit --add-label` resolves the repo via org-scoped GraphQL and fails
-        # under a repo-scoped token). The helper is best-effort (always exits 0) and emits a
-        # breadcrumb to stderr ONLY on failure, so capture that stderr and route it to the
-        # durable workpad as well (same as Phase 4.0): the unlabeled outcome is the feature's
-        # most likely failure and stderr is ephemeral in an autonomous cloud run, so a
-        # stderr-only breadcrumb would leave no retrospective-visible trace. `|| continue`
-        # skips a blank line (this piped-`while` reads blank lines that Phase 4.0's `for`
-        # would word-split away); the per-issue failure is caught best-effort so the loop completes.
-        echo "$FILED_NUMBERS" | while IFS= read -r n; do
-            [ -n "$n" ] || continue
-            LBL_ERR="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS" 2>&1)"
-            [ -n "$LBL_ERR" ] && { echo "$LBL_ERR" >&2; \
-                workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
-        done
-    fi
 fi
 ```
+
+Then apply the configured `deferred.labels` to each filed issue — the **same** resolve/normalize idiom as Phase 4.0 (default `DevFlow,Deferred`; empty/whitespace → none). `file-deferrals.py` itself stays out of config-reading (config is resolver territory — read through `config-get.sh`, not re-parsed ad hoc); the skill owns labeling, best-effort and post-filing, so a label hiccup never unwinds an already-filed issue.
+
+**Cloud-emission discipline (label helpers): iterate at the agent level, never in a shell loop or a capture — identical to Phase 4.0, see the *Cloud command-shape discipline* section in `skills/implement/SKILL.md`.** The cloud implement matcher denies a `for`/piped-`while read` loop wrapping a label helper and a `VAR="$(label-helper …)"` capture (implement-tier probe rows I4/I5/I6). First resolve and **print** the clean label list (a `config-get` capture is permitted; printing lets you read the value for the per-issue calls, since a shell variable does not survive into a later separate command on the cloud runner):
+
+```bash
+# The `if !` reads config-get's OWN exit status inline (never a captured rc in a later
+# statement) and is exempt from set -e; the default arg covers the SOFT paths (missing
+# file / unset key → exit 0), only the HARD path (rc≠0 — corrupt config.json / missing
+# python3) leaves DEFERRED_LABELS empty AND a breadcrumb.
+if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then
+    DEFERRED_LABELS=""
+    workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred review-finding issues filed WITHOUT labels."
+fi
+CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
+echo "deferred labels to apply: [$CLEAN_DEFERRED_LABELS]"
+```
+
+If the printed `CLEAN_DEFERRED_LABELS` is empty, apply nothing. Otherwise, read it and apply the labels with **single granted-literal leading-token calls, iterating at the agent level** (the label helpers must never be wrapped in a shell loop or an output capture):
+
+- For **each** label in the printed comma-list (skip blanks), ensure it exists with one call — the helper path is the leading token, and `ensure-label.sh` is best-effort (always exits 0):
+  ```bash
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh <label>
+  ```
+- For **each** filed issue number in `FILED_NUMBERS` (one per line, from `file-deferrals.py`), apply the whole comma-list with one call — the helper path is the leading token, the issue number and resolved label list substituted as literals:
+  ```bash
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh <filed-issue-number> "<deferred-labels>"
+  ```
+  `apply-labels.sh` is best-effort (always exits 0) and prints a breadcrumb to **stderr only on failure** (POST `.../issues/{n}/labels` — repo-scope only; never `gh issue edit --add-label`'s org-scoped GraphQL). Read that stderr from the tool result; when it names a failure, record it durably (same discipline as Phase 4.0): `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not apply the configured deferred labels (<deferred-labels>) to issue #<filed-issue-number> (best-effort; the issue was filed but carries none of the configured deferred labels)."`
 
 The rc handling above distinguishes three cases: a clean filing (rc 0), the benign idempotent-re-run (`exit 2` with "already has follow_up" — the prior aggregate is still hydrated, `/pr-description` reads it fine, recorded as a plain note), and a genuine failure (any other non-zero — every `gh issue create` group failed, or an unusable/corrupt manifest), which lands a `Devflow Reflection` breadcrumb. On a genuine failure continue to 4.1 anyway — the PR can still ship; it just won't carry the Scope-Acknowledged Findings block, so `/devflow:review` will treat any deferred findings as new.
 

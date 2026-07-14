@@ -931,10 +931,10 @@ assert_eq "deferred.labels normalize: empty string → empty (no labels)"    "" 
 DEF_SKILL="$IMPL_SKILL_BUNDLE"
 assert_eq "deferred.labels: SKILL reads via config-get with the DevFlow,Deferred default" "yes" \
   "$(grep -qF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
-assert_eq "deferred.labels: SKILL ensures each label exists before applying" "yes" \
-  "$(grep -qF 'ensure-label.sh "$lbl"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
-assert_eq "deferred.labels: SKILL applies labels via best-effort REST apply-labels.sh helper" "yes" \
-  "$(grep -qF 'apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
+assert_eq "deferred.labels: SKILL ensures each label exists before applying (agent-level per-label call, #455)" "yes" \
+  "$(grep -qF 'ensure-label.sh <label>' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5); #455 reworked the piped-while loop into an agent-level single-leading-token call
+assert_eq "deferred.labels: SKILL applies labels via best-effort REST apply-labels.sh helper (agent-level per-issue call, #455)" "yes" \
+  "$(grep -qF 'apply-labels.sh <filed-issue-number> "<deferred-labels>"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5); #455 reworked the for/while loop + VAR="$(…)" capture into an agent-level single-leading-token call
 # Both deferral channels must label: Phase 4.0 (no longer "add no --label") and Phase
 # 4.0.5. Require the resolution token to appear at least twice (once per channel).
 assert_eq "deferred.labels: SKILL resolves the labels in BOTH deferral channels (4.0 + 4.0.5)" "yes" \
@@ -26338,6 +26338,53 @@ assert_eq "#401 grounding block renders the two-denials-then-switch rule" "yes" 
 assert_pin_red_under "#401 grounding: deleting the two-denials-switch rule from the renderer flips its pin RED" \
   'after two denials of a shape, switch to a permitted alternative above' \
   '/after two denials of a shape/d' "$RGB"
+
+# ── #455 implement-tier shape lint ──────────────────────────────────────────
+# The read-write devflow-implement profile is a SEPARATE allowlist from the review
+# profile above, with its OWN probed denied shapes (matcher-probe.yml's implement-probe
+# job; evidence of record on issues #450/#455): a `for` / piped-`while read` loop or a
+# `VAR="$(…)"` capture WRAPPING a label helper (rows I4/I5/I6). `extract-command-shapes.py
+# --profile implement` is the desk-time pin for that class over the implement skill files;
+# the Phase 4.0/4.0.5 label applies are reworked to agent-level single-leading-token calls
+# that lint clean. (Row I1 — the unexpanded anchor leading token — is prose-discipline, not
+# lint-pinnable, since every legitimate helper call keeps the portable anchor in source.)
+IMPL_DIR="$LIB/../skills/implement"
+# Contract: SKILL.md + every phase file teaches NO implement-tier denied shape (exit 0, empty).
+for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md; do
+  assert_eq "#455 implement shape-lint: $(basename "$f") teaches no proven-denied shape" "" \
+    "$(python3 "$ECS" --profile implement "$f" 2>&1)"
+done
+# ── Anti-vacuity: each implement-tier rule flags its denied shape (fixtures under $E363).
+{ printf '%s\n' '```bash' 'for n in $NUMS; do' '  .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow' 'done' '```'; } > "$E363/i-ir1.md"
+assert_eq "#455 IR1 flags a for-loop wrapping a label helper" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir1.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'echo "$L" | while IFS= read -r lbl; do' '  .devflow/vendor/devflow/scripts/ensure-label.sh "$lbl"' 'done' '```'; } > "$E363/i-ir2.md"
+assert_eq "#455 IR2 flags a piped while-read loop wrapping a label helper" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir2.md" | grep -q '  IR2  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'LBL_ERR="$(.devflow/vendor/devflow/scripts/apply-labels.sh "$n" "$X" 2>&1)"' '```'; } > "$E363/i-ir3.md"
+assert_eq "#455 IR3 flags a VAR=\$(label-helper …) capture" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir3.md" | grep -q '  IR3  ' && echo yes || echo no)"
+# ── Discrimination: the PERMITTED implement shapes are NOT flagged — a config-get/gh capture
+# ── the matcher descends into, and a bare single-leading-token label call (the reworked form).
+{ printf '%s\n' '```bash' 'D=$(.devflow/vendor/devflow/scripts/config-get.sh .deferred.labels DevFlow,Deferred)' 'PR=$(gh pr view --json number --jq ".number")' '.devflow/vendor/devflow/scripts/ensure-label.sh <label>' '.devflow/vendor/devflow/scripts/apply-labels.sh <n> "<labels>"' '```'; } > "$E363/i-ok.md"
+assert_eq "#455 implement shape-lint does NOT flag permitted shapes (config-get/gh capture, bare label call)" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ok.md")"
+# ── Behavioral proof (the assert_pin_red_under analogue for a program-based guard, per the
+# ── behavioral-fix-pin rule): a mutation REINTRODUCING the exact for-loop-wrapping-a-label-
+# ── helper shape #455 removed from Phase 4.0 flips the implement lint RED and is named IR1 —
+# ── the guarded regression, not merely a vanished line.
+I455_MUT="$E363/i-mut.md"; cp "$IMPL_DIR/phases/phase-4-documentation.md" "$I455_MUT"
+{ printf '%s\n' '```bash' 'for n in $DEFERRED_ISSUE_NUMBERS; do' '  .devflow/vendor/devflow/scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS"' 'done' '```'; } >> "$I455_MUT"
+I455_OUT="$(python3 "$ECS" --profile implement "$I455_MUT" 2>&1)"; I455_RC=$?
+assert_eq "#455 behavioral: reintroducing a for-loop around a label helper flips the implement lint RED (exit 1)" "1" "$I455_RC"
+assert_eq "#455 behavioral: that reintroduced regression is named IR1" "yes" \
+  "$(printf '%s\n' "$I455_OUT" | grep -q '  IR1  ' && echo yes || echo no)"
+# ── Coupled-invariant: the workflow grants the two label helpers in the explicit
+# ── vendored-literal leading-token form the implement-probe table proved PERMITTED (#455).
+assert_eq "#455: devflow-implement.yml grants apply-labels.sh in the explicit vendored-literal form" "yes" \
+  "$(grep -qF 'Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*)' "$IMPL_YML" && echo yes || echo no)"
+assert_eq "#455: devflow-implement.yml grants ensure-label.sh in the explicit vendored-literal form" "yes" \
+  "$(grep -qF 'Bash(.devflow/vendor/devflow/scripts/ensure-label.sh:*)' "$IMPL_YML" && echo yes || echo no)"
 
 # ── Process wrappers are stripped before matching, exactly as Claude Code does.
 printf '%s\n' '```bash' 'timeout 300 bash x.sh' 'nice -n 5 aa' 'nohup bb' 'stdbuf -oL cc' 'xargs dd' 'time ee' '```' > "$E363/wrap.md"

@@ -56,9 +56,13 @@ Rule table (each keyed to a probe row / run — see .github/workflows/matcher-pr
       `review` profile grants no interpreter (run 29105381021 denials).
 
 CLI:
-    extract-command-shapes.py FILE
+    extract-command-shapes.py [--profile review|implement] FILE
         -> one `FILE:LINE  RULE  statement` per denied-shape hit; exit 1 if any hit,
-           exit 0 when the file is clean.
+           exit 0 when the file is clean. The default `review` profile applies R1-R4
+           (read-only review allowlist). `--profile implement` applies the implement-
+           tier rules IR1/IR2/IR3 (issue #455) — a `for` / piped-`while read` loop or a
+           `VAR="$(…)"` capture wrapping a label helper, keyed to the SEPARATE
+           devflow-implement matcher probe (matcher-probe.yml's implement-probe job).
 """
 
 from __future__ import annotations
@@ -369,14 +373,118 @@ def find_violations(text: str) -> list[tuple[int, str, str]]:
     return hits
 
 
+# ── Implement-tier rules (issue #450 -> #455) ────────────────────────────────
+# The read-write `devflow-implement` profile is a SEPARATE allowlist from the
+# read-only `review` profile the R1-R4 rules above target, with its OWN empirically
+# probed denied shapes (matcher-probe.yml's implement-probe job; evidence of record
+# on issues #450/#455). The label helpers ensure-label.sh / apply-labels.sh ARE
+# granted as vendored literals, but the matcher denies WRAPPING them in a `for` /
+# piped-`while read` loop or a `VAR="$(…)"` output capture (probe rows I4/I5/I6). The
+# three rules below pin exactly those wrappers AROUND A LABEL HELPER, so the Phase
+# 4.0/4.0.5 agent-level rework cannot silently regress. A loop or capture of any
+# OTHER command (config-get, gh) is NOT flagged — the matcher descends into a
+# non-label `$(…)` and a non-label loop was never probed denied, and the implement
+# skill legitimately uses those (e.g. `DEFERRED_LABELS=$(…config-get.sh …)`).
+#
+# Probe row I1 (the unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor as a leading token) is
+# deliberately NOT a rule here: every legitimate helper call keeps the portable
+# anchor in source (issue #275) and resolves it to the vendored literal at runtime,
+# so a fence-static rule would flag every call site. It is a prose-discipline rule
+# (the skill's *Cloud command-shape discipline* + *Cloud helper-invocation form*
+# sections), exactly as the unexpanded-anchor case is handled in the review skill.
+
+_LABEL_HELPER = re.compile(r"(?:apply-labels|ensure-label)\.sh\b")
+
+
+def _label_capture_violation(statement: str) -> bool:
+    """IR3: a `VAR=$(…)` / `VAR="$(…)"` capture whose substitution invokes a label
+    helper (probe row I6 — the old `LBL_ERR="$(apply-labels.sh … 2>&1)"`). A capture
+    of any other command is NOT this shape (the matcher descends into it)."""
+    raw = statement.strip()
+    while True:  # strip leading control words so `if ! LBL=$(…)` reads as its capture
+        stripped = _CONTROL_PREFIX.sub("", raw, count=1)
+        if stripped == raw:
+            break
+        raw = stripped.lstrip()
+    lead = re.match(r"^[A-Za-z_][A-Za-z0-9_]*=(.*)$", raw, re.S)
+    if not lead:
+        return False
+    value = lead.group(1)
+    if "$(" not in value:
+        return False
+    return bool(_LABEL_HELPER.search(value))
+
+
+def _loop_violations(lines: list[str]) -> list[tuple[int, str]]:
+    """IR1/IR2: a `for … in` / `while` loop whose do…done span invokes a label helper
+    (probe rows I4/I5). Returns (block-relative line offset of the opener, rule).
+    Non-nested by design — the reworked skill has no such loop; a re-introduced one is
+    single-level, and the span ends at the first `done`."""
+    hits: list[tuple[int, str]] = []
+    n = len(lines)
+    i = 0
+    while i < n:
+        line = lines[i]
+        if re.search(r"\bfor\s+[A-Za-z_][A-Za-z0-9_]*\s+in\b", line):
+            rule = "IR1"
+        elif re.search(r"\bwhile\b", line):
+            rule = "IR2"
+        else:
+            i += 1
+            continue
+        found = _LABEL_HELPER.search(line) is not None
+        j = i + 1
+        while j < n:
+            found = found or (_LABEL_HELPER.search(lines[j]) is not None)
+            if re.search(r"(?:^|[|;&\s])done(?:$|[|;&\s])", lines[j]):
+                break
+            j += 1
+        if found:
+            hits.append((i, rule))
+        i = j + 1
+    return hits
+
+
+def find_implement_violations(text: str) -> list[tuple[int, str, str]]:
+    """Every (approx line, rule, statement) implement-tier denied-shape hit."""
+    lines = text.splitlines()
+    hits: list[tuple[int, str, str]] = []
+    for start, block in _fence_line_offsets(text):
+        block_lines = block.split("\n")
+        for statement in _statements(block):
+            if not _label_capture_violation(statement):
+                continue
+            probe = statement.strip().split("\n", 1)[0][:40]
+            lineno = start
+            for off in range(len(block_lines)):
+                src_idx = start - 1 + off
+                if src_idx >= len(lines):
+                    break
+                if probe and probe in lines[src_idx]:
+                    lineno = start + off
+                    break
+            hits.append((lineno, "IR3", statement.strip()))
+        for off, rule in _loop_violations(block_lines):
+            hits.append((start + off, rule, block_lines[off].strip()))
+    return hits
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print("usage: extract-command-shapes.py FILE", file=sys.stderr)
+    args = argv[1:]
+    profile = "review"
+    if args and args[0] == "--profile":
+        if len(args) < 2:
+            print("usage: extract-command-shapes.py [--profile review|implement] FILE", file=sys.stderr)
+            return 2
+        profile = args[1]
+        args = args[2:]
+    if len(args) != 1 or profile not in ("review", "implement"):
+        print("usage: extract-command-shapes.py [--profile review|implement] FILE", file=sys.stderr)
         return 2
-    path = argv[1]
+    path = args[0]
     with open(path, encoding="utf-8") as handle:
         text = handle.read()
-    hits = find_violations(text)
+    hits = find_implement_violations(text) if profile == "implement" else find_violations(text)
     for lineno, rule, statement in hits:
         oneline = " ".join(statement.split())
         if len(oneline) > 160:
