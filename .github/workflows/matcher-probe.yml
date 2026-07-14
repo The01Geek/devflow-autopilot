@@ -318,6 +318,13 @@ jobs:
           # match ("denied", checked ahead of tool_use below) as DENIED — so a
           # /etc/hosts read makes THIS control read DENIED (issue #477). Change the
           # command literal and this marker in lockstep.
+          # (Scope note — #477 touches ONLY this row and the implement-probe row 7.
+          # The file's other /etc/hosts positive controls — schedulewakeup-probe,
+          # execfile-shape-probe, hook-probe — are intentionally left unchanged and
+          # are unaffected: none scores its control DENIED off permission_denials the
+          # way this denied-first verdict does. schedulewakeup keys on tool_use
+          # PRESENCE (a denied read still records a tool_use, so its control still
+          # reads "ran"); execfile/hook don't verdict-score their control at all.)
           rows = [
               (1,  "heredoc write, granted head (`cat > f <<'EOF'`)",        "probe-01", "/tmp/probe-01.txt"),
               (2,  "assignment-led compound, granted head (`M=…`; printf)",   "probe-02", "/tmp/probe-02.txt"),
@@ -626,6 +633,13 @@ jobs:
           # ("denied", checked ahead of tool_use below) as DENIED — so a /etc/hosts
           # read makes THIS control read DENIED (issue #477). Change the command
           # literal and this marker in lockstep.
+          # (Scope note — #477 touches ONLY this row and the review-profile row 11.
+          # The file's other /etc/hosts positive controls — schedulewakeup-probe,
+          # execfile-shape-probe, hook-probe — are intentionally left unchanged and
+          # are unaffected: none scores its control DENIED off permission_denials the
+          # way this denied-first verdict does. schedulewakeup keys on tool_use
+          # PRESENCE (a denied read still records a tool_use, so its control still
+          # reads "ran"); execfile/hook don't verdict-score their control at all.)
           rows = [
               (1, "unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor leading token (ensure-label.sh)", "iprobe01anchor",  "${CLAUDE_SKILL_DIR"),
               (2, "vendored-literal leading token, EXPLICIT candidate (apply-labels.sh)",        "iprobe02explicit", ".devflow/vendor/devflow/scripts/apply-labels.sh"),
