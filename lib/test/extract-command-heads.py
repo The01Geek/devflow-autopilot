@@ -251,7 +251,15 @@ def _join_continuations(block: str) -> str:
     shape GREEN (issue #480). Token separation is preserved without the space: the shell
     keeps whatever whitespace precedes the backslash and follows the newline, so
     `cmd \\<newline>    --flag` still joins to `cmd     --flag` (two tokens), while
-    `cmd\\<newline>--flag` joins to `cmd--flag` — exactly as bash reads them.
+    `cmd\\<newline>--flag` joins to `cmd--flag` — as bash reads them.
+
+    NON-GOALS (disclosed, so the joiner's accepted set is not mistaken for the shell's):
+    it tracks neither QUOTE STATE nor ESCAPED BACKSLASHES, so a `\\`+newline inside single
+    quotes (which the shell keeps literally, not as a continuation) and a line-final `\\\\`
+    (an escaped literal backslash, not a continuation) are both folded anyway. Both are
+    pre-existing limits of this textual join, no fence writes either shape, and the failure
+    direction is a *joined* line — never a dropped one — so a name-literal rule downstream
+    still sees the helper. A guard must not lie about what it accepts (issue #480).
     """
     return re.sub(r"\\\n", "", block)
 

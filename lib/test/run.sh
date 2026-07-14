@@ -27428,6 +27428,33 @@ done
 { printf '%s\n' '```bash' "X=\$(echo \"\$L\" | tr ',' '\\n' | paste -sd, -)" '```'; } > "$E363/i-paste.md"
 assert_eq "#455 ungranted-head pin goes RED on a fence that uses paste (anti-vacuity)" "1" \
   "$(python3 "$ECH" heads "$E363/i-paste.md" 2>/dev/null | grep -cxF 'paste' || true)"
+# ── #480 fix-delta gate: the Phase 4.0.5 sentinel must PRINT ON EVERY PATH, including the
+# ── clean no-op (no hydrated aggregate) that never enters the filing guard. Its operands are
+# ── therefore initialized OUTSIDE that guard. `${FILED_NUMBERS//$'\n'/ }` cannot carry a `:-`
+# ── default (bash forbids one in a substitution expansion), so an UNSET FILED_NUMBERS aborts
+# ── the whole `echo` under `set -u` on bash 5 — the sentinel would not print, and the reader's
+# ── rule ("no sentinel ⇒ the fence was refused") would fabricate a harness-denial reflection on
+# ── a run where nothing went wrong. Behavioral, not structural: replay the SHIPPED sentinel line
+# ── under `set -u` with only the pre-guard initializers set, exactly as the no-op path leaves it.
+I480_P4="$IMPL_DIR/phases/phase-4-documentation.md"
+I480_SENTINEL="$(grep -F 'echo "phase 4.0.5 filing fence ran;' "$I480_P4")"
+assert_eq "#480 the 4.0.5 sentinel line is present in the phase file (the pin below is not vacuous)" "1" \
+  "$(printf '%s\n' "$I480_SENTINEL" | grep -cF 'filed deferred-finding issues=[' || true)"
+assert_eq "#480 the 4.0.5 sentinel PRINTS on the clean-no-op path under 'set -u' (unset FILED_NUMBERS must not abort the echo)" "yes" \
+  "$(bash -c 'set -uo pipefail
+FILED_STATE=""
+FILED_NUMBERS=""
+PR_NUMBER=99
+MANIFEST_STATE=""
+'"$I480_SENTINEL" 2>/dev/null | grep -qF 'phase 4.0.5 filing fence ran' && echo yes || echo no)"
+# Anti-vacuity: the same sentinel WITHOUT the pre-guard initializers (the shape the fix-delta
+# gate caught) must NOT print — proving the assertion above measures the initializers, not just
+# that some echo exists.
+assert_eq "#480 anti-vacuity: that same sentinel does NOT print when FILED_NUMBERS is unset (the regression this pins)" "no" \
+  "$(bash -c 'set -uo pipefail
+PR_NUMBER=99
+MANIFEST_STATE=""
+'"$I480_SENTINEL" 2>/dev/null | grep -qF 'phase 4.0.5 filing fence ran' && echo yes || echo no)"
 # ── Coupled-invariant: the workflow grants the two label helpers in the explicit
 # ── vendored-literal leading-token form the implement-probe table proved PERMITTED (#455).
 assert_eq "#455: devflow-implement.yml grants apply-labels.sh in the explicit vendored-literal form" "yes" \

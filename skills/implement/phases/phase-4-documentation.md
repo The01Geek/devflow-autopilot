@@ -193,6 +193,16 @@ if [ -n "$MANIFESTS" ]; then
         AGG=""   # make the filing guard below unambiguously false
     fi
 fi
+# Initialize the sentinel's operands OUTSIDE the aggregate guard, because the sentinel that
+# reads them is outside it too. Every field the sentinel prints must be produced on EVERY path
+# the fence can take — including the clean no-op (no hydrated aggregate), which is the common
+# one and which never enters the guard below. `${FILED_NUMBERS//$'\n'/ }` cannot carry a `:-`
+# default (bash forbids it in a substitution expansion), so an UNSET `FILED_NUMBERS` aborts the
+# whole `echo` under `set -u` on bash 5 — the sentinel then does not print, and the reader's
+# rule ("no sentinel ⇒ refused") fabricates a harness-denial reflection on a run where nothing
+# went wrong. Initializing here is what makes the sentinel's "unconditional" claim true.
+FILED_STATE=""
+FILED_NUMBERS=""
 if [ -n "$AGG" ] && [ -s "$AGG" ]; then
     # Discriminate file-deferrals.py's exit codes without a captured rc read in a later
     # statement (a cross-statement-variable-stripping inline-bash runner would leave it
