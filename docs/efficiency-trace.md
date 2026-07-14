@@ -199,15 +199,20 @@ cloud `review` profile (`devflow-runner.yml`, `contents: read`) **does** run `--
 base-branch `.claude/settings.json` Stop hook is restored into every `claude-code-action` job — but
 in **staging-only** mode: the workflow does not set the push operand `DEVFLOW_TELEMETRY_PUSH`, so
 under `GITHUB_ACTIONS` `--persist` fails closed (issue #469 AC5), staging the run's artifacts under
-`.devflow/tmp/` and performing **no** telemetry-branch write and **no** push. The read-only tier
-therefore leaves the remote `devflow-telemetry` ref untouched by its own action. Landing those
-staged records on the branch is the job of a separate **trusted telemetry-push relay** — a job that
-does **not** check out the PR head, mints a write-capable token, and validates the staged artifacts
-as untrusted input — which is **forthcoming** (tracked as follow-up work to issue #469; until it
-lands, the auto-review tier stages its records and they are not yet pushed). On the ephemeral cloud
-runner the staged tree does **not** survive job teardown, so its recovery path is the uploaded
-**workflow artifact**, not on-disk retention; a degraded persist's on-disk staging-root retention
-(below) helps a **local** run, where the filesystem persists.
+`.devflow/tmp/` and writing **no new** telemetry-branch records and doing **no** push. (The
+best-effort fetch-before-exclusion step `do_persist` runs on *every* tier may fast-forward the
+**local** `refs/heads/devflow-telemetry` ref to mirror already-published remote records — a read
+that leaves the tracked tree, `HEAD`, the current branch, and the **remote** ref all byte-unchanged;
+it appends no record and pushes nothing.) The read-only tier therefore leaves the remote
+`devflow-telemetry` ref untouched by its own action. Landing those staged records on the branch is
+the job of a separate **trusted telemetry-push relay** — a job that does **not** check out the PR
+head, mints a write-capable token, and validates the staged artifacts as untrusted input — which is
+**forthcoming** (tracked as follow-up work to issue #469; until it lands, the auto-review tier stages
+its records and they are not yet pushed). On the ephemeral cloud runner the staged tree does **not**
+survive job teardown, so once that relay lands its recovery path **will be** the uploaded
+**workflow artifact**, not on-disk retention; **until then a cloud runner's staged records are not
+recoverable**. A degraded persist's on-disk staging-root retention (below) helps a **local** run,
+where the filesystem persists.
 
 **Headless persistence.** `/devflow:review-and-fix` invokes `config-get.sh` and
 `efficiency-trace.sh` **directly** (resolving to a `.devflow/vendor/devflow/…` path), the same way

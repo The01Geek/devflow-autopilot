@@ -897,14 +897,26 @@ do_persist() {
       elif GIT_TERMINAL_PROMPT=0 git -C "$root" fetch -q --no-tags origin "+${_tb_branch}:refs/remotes/origin/${_tb_branch}" 2>/dev/null; then
         _rtip="$(git -C "$root" rev-parse --verify --quiet "refs/remotes/origin/${_tb_branch}" 2>/dev/null || true)"
         if [ -n "$_rtip" ] && devflow_telemetry_verify_store "$root" "refs/remotes/origin/${_tb_branch}"; then
-          # A readable telemetry store was fetched, so the remote records are visible and
-          # the exclusion set is ESTABLISHED. Set status ok ONLY here (after verify), then
-          # fast-forward the local ref onto the verified tip (created when absent; a
-          # diverged local ref is never overwritten).
-          _DEVFLOW_TELEMETRY_FETCH_STATUS=ok
+          # A readable telemetry store was fetched. Fast-forward the LOCAL ref onto the
+          # verified tip (created when absent; a diverged local ref is never overwritten).
           _ltip="$(git -C "$root" rev-parse --verify --quiet "$_tb_ref" 2>/dev/null || true)"
           if [ -z "$_ltip" ] || git -C "$root" merge-base --is-ancestor "$_ltip" "$_rtip" 2>/dev/null; then
             git -C "$root" update-ref "$_tb_ref" "$_rtip" 2>/dev/null || true
+          fi
+          # recorded_fix_shas reads the LOCAL ref, so the exclusion set is ESTABLISHED only
+          # when that ref is now PRESENT — either we just advanced it, or it was already
+          # present (a diverged ref left untouched; list_blobs then reads it directly, and the
+          # remote-only records it cannot see without clobbering are the deliberate
+          # don't-overwrite tradeoff). Assert status AFTER establishing it, never before: a
+          # swallowed update-ref failure (`|| true`) that leaves the ref ABSENT must NOT stay
+          # ok, or list_blobs' absent-ref arm would launder a verified-but-unfetched store
+          # into a silent established-empty and re-attribute an already-recorded commit
+          # (#469 review — the same assert-after-establish discipline as the verify-fail arm).
+          if git -C "$root" rev-parse --verify --quiet "$_tb_ref" >/dev/null 2>&1; then
+            _DEVFLOW_TELEMETRY_FETCH_STATUS=ok
+          else
+            _DEVFLOW_TELEMETRY_FETCH_STATUS=failed
+            echo "::warning::efficiency-trace.sh --persist: fetched a verified telemetry store for '${_tb_branch}' but could not advance the local ref onto it (git update-ref failed — a held ref .lock, a read-only .git, or a full disk) — whether prior records exist is UNESTABLISHED, so the fix-commit exclusion set may be incomplete this run; synthesis could re-attribute an already-recorded commit" >&2
           fi
         else
           # Fetch succeeded but the fetched tip could NOT be verified as a readable
@@ -925,6 +937,12 @@ do_persist() {
       _DEVFLOW_TELEMETRY_FETCH_STATUS=failed
       echo "::warning::efficiency-trace.sh --persist: could not query origin for telemetry branch '${_tb_branch}' (offline or auth) — whether prior records exist is UNESTABLISHED, so the fix-commit exclusion set may be incomplete this run; synthesis could re-attribute an already-recorded commit" >&2
     fi
+  else
+    # No origin remote: the LOCAL ref is the authoritative and complete source (there is
+    # nowhere else records could live), so its absence is a genuine ESTABLISHED empty, not an
+    # unestablished one — mark ok so list_blobs does not emit a misleading "synthesis may
+    # re-attribute" warning on a local-only repo's first --persist (#469 review).
+    _DEVFLOW_TELEMETRY_FETCH_STATUS=ok
   fi
   # Bounded cleanup policy for retained staging roots (issue #469 AC8): a degraded
   # or staging-only persist RETAINS its staging root under .devflow/tmp/ (below), so
@@ -1105,7 +1123,7 @@ do_persist() {
       # filesystem does not survive teardown, so on-disk retention is moot there — a
       # forthcoming trusted telemetry-push relay (follow-up to #469) is the cloud recovery
       # path; until it lands the records are not recoverable from a cloud runner (see docs).
-      echo "::warning::efficiency-trace.sh --persist: the telemetry-branch write DEGRADED — RETAINING the staged records at '${_TELEMETRY_STAGE}' so they are recoverable (delete once recovered; a bounded newest-${_DEVFLOW_TELEMETRY_STAGE_KEEP:-8} prune runs each --persist). On an ephemeral CI runner the filesystem does not survive teardown, so recovery there is not on-disk — a forthcoming trusted telemetry-push relay (follow-up to #469) will push the staged records; until it lands they are not recoverable from a cloud runner." >&2 ;;
+      echo "::warning::efficiency-trace.sh --persist: the telemetry-branch write DEGRADED — RETAINING the staged records at '${_TELEMETRY_STAGE}' so they are recoverable (delete once recovered; a bounded newest-${_keep} prune runs each --persist). On an ephemeral CI runner the filesystem does not survive teardown, so recovery there is not on-disk — a forthcoming trusted telemetry-push relay (follow-up to #469) will push the staged records; until it lands they are not recoverable from a cloud runner." >&2 ;;
   esac
   return 0
 }

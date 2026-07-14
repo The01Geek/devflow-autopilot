@@ -17173,6 +17173,14 @@ assert_eq "tb(#441 AC10): branch checked out in a worktree → ref NOT advanced 
   "$TB_WT_TIP" "$(git -C "$TB_WT_REPO" rev-parse devflow-telemetry)"
 assert_eq "tb(#441 AC10): worktree-checkout degrade is breadcrumbed" "yes" \
   "$(printf '%s' "$TB_WT_ERR" | grep -qF 'is checked out in a worktree' && echo yes || echo no)"
+# #469 AC8: the worktree-checkout arm is a DEGRADED arm (persist_tree returns 1), so do_persist
+# must RETAIN its staging root and emit the degraded RETAINING breadcrumb — not silently rm -rf
+# the run's only copy. (This arm shares the AC8 fix with CAS/unwritable but had no retention
+# assertion; a regression flipping its return 1 → return 0 would delete the copy undetected.)
+assert_eq "#469 AC8: the worktree-checkout degraded arm RETAINS its staging root" "yes" \
+  "$(compgen -G "$TB_WT_REPO/.devflow/tmp/telemetry-stage-*" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "#469 AC8: the worktree-checkout degraded arm emits the RETAINING breadcrumb" "yes" \
+  "$(printf '%s' "$TB_WT_ERR" | grep -qF 'RETAINING the staged records at' && echo yes || echo no)"
 git -C "$TB_WT_REPO" worktree remove --force "$TB_WT_LINK" 2>/dev/null; rm -rf "$TB_WT_REPO" "$(dirname "$TB_WT_LINK")"
 
 # AC12 (highest-value regression — silent dataset corruption): recorded_fix_shas
@@ -18251,7 +18259,18 @@ assert_eq "#469 AC8: retained staging roots are pruned to the newest KEEP (bound
   "$([ "$(find "$I469_PR/.devflow/tmp" -maxdepth 1 -name 'telemetry-stage-*' | wc -l | tr -d ' ')" -le 3 ] && echo yes || echo no)"
 assert_eq "#469 AC8: the prune keeps the NEWEST (highest timestamp survives)" "yes" \
   "$([ -d "$I469_PR/.devflow/tmp/telemetry-stage-20000101000006-x-y-z" ] && echo yes || echo no)"
-rm -rf "$I469_PR"
+# A NON-NUMERIC _DEVFLOW_TELEMETRY_STAGE_KEEP must fall back to the default 8, NOT make the
+# `-gt` arithmetic error and the prune go INERT (unbounded growth — the opposite of the bound).
+# Seed 10 roots with KEEP=abc → the fallback keeps 8 (a numeric-typo override cannot defeat the bound).
+I469_PRK="$(git_sandbox "#469 stage-prune non-numeric-keep repo")"; git -C "$I469_PRK" init -q
+git -C "$I469_PRK" config user.email t@e.com; git -C "$I469_PRK" config user.name t
+mkdir -p "$I469_PRK/.devflow/tmp"; printf 'tmp/\n' > "$I469_PRK/.devflow/.gitignore"
+git -C "$I469_PRK" add -A; git -C "$I469_PRK" commit -qm seed 2>/dev/null || true
+for _p in 01 02 03 04 05 06 07 08 09 10; do mkdir -p "$I469_PRK/.devflow/tmp/telemetry-stage-200001010000$_p-x-y-z"; done
+( cd "$I469_PRK" && _DEVFLOW_TELEMETRY_STAGE_KEEP=abc GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "#469 AC8: a non-numeric _DEVFLOW_TELEMETRY_STAGE_KEEP falls back to 8 (prune stays bounded, not inert)" "yes" \
+  "$([ "$(find "$I469_PRK/.devflow/tmp" -maxdepth 1 -name 'telemetry-stage-*' | wc -l | tr -d ' ')" -le 8 ] && echo yes || echo no)"
+rm -rf "$I469_PR" "$I469_PRK"
 
 # ── Retention-note: _devflow_telemetry_retention_note reports the records LOST
 # only under GITHUB_ACTIONS (the ephemeral-runner truth), and is silent off CI. ──
@@ -18291,6 +18310,23 @@ assert_pin_red_on_removal \
   'devflow_telemetry_branch >/dev/null || true' \
   "$LIB/efficiency-trace.sh"
 rm -rf "$I469_MS"
+
+# ── AC5 tier-distinction coupled invariant (#469): the writable tiers set the push operand
+# DEVFLOW_TELEMETRY_PUSH=1 at job level so their Stop-hook --persist pushes; the read-only
+# auto-review tier (devflow-runner.yml) deliberately leaves it UNSET so --persist fails closed
+# to staging-only. This is a "kept in sync" contract across three workflows — pin BOTH sides so
+# a future edit that drops it from a writable tier (silent telemetry loss) or adds it to the
+# read-only tier (a push its contents:read token can never complete) turns the suite RED. ──
+_I469_WF="$LIB/../.github/workflows"
+assert_eq "#469 AC5: devflow-implement.yml (writable) sets DEVFLOW_TELEMETRY_PUSH so its Stop-hook --persist pushes" "1" \
+  "$(pin_count "DEVFLOW_TELEMETRY_PUSH: '1'" "$_I469_WF/devflow-implement.yml")"
+assert_eq "#469 AC5: devflow.yml command job (writable) sets DEVFLOW_TELEMETRY_PUSH so its Stop-hook --persist pushes" "1" \
+  "$(pin_count "DEVFLOW_TELEMETRY_PUSH: '1'" "$_I469_WF/devflow.yml")"
+# The read-only tier's rationale COMMENT names the operand ("...DEVFLOW_TELEMETRY_PUSH is
+# deliberately unset..."), so pin the env-KEY form (trailing colon) — present only when the
+# operand is actually SET as job env — which must be ABSENT (a comment mention has no colon).
+assert_eq "#469 AC5: devflow-runner.yml (read-only auto-review tier) does NOT set DEVFLOW_TELEMETRY_PUSH as job env (stays fail-closed to staging-only)" "0" \
+  "$(pin_count "DEVFLOW_TELEMETRY_PUSH:" "$_I469_WF/devflow-runner.yml")"
 
 # End of the telemetry section's push authorization (#469 AC5): unset so downstream
 # tests see the real ambient environment again.

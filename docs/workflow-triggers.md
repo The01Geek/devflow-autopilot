@@ -369,8 +369,10 @@ phase boundary; Phase 4.5 finalizes it).
   (`contents: read`) still runs `--persist`, but in **staging-only** mode: because
   the workflow leaves the push operand `DEVFLOW_TELEMETRY_PUSH` unset, `--persist`
   fails closed under CI (issue #469 AC5) — it stages the records under
-  `.devflow/tmp/` and performs no branch write and no push, so this runner leaves
-  the remote `devflow-telemetry` ref untouched. Landing those staged records on the
+  `.devflow/tmp/`, writes no new branch records, and does no push (a best-effort
+  fetch may fast-forward the *local* `devflow-telemetry` ref to mirror the remote;
+  that leaves the tree and the *remote* ref untouched), so this runner leaves the
+  remote `devflow-telemetry` ref untouched by its own action. Landing those staged records on the
   branch is the job of a forthcoming trusted telemetry-push relay (which does not
   check out the PR head; tracked as follow-up work to issue #469) — see
   [`efficiency-trace.md`](efficiency-trace.md).
