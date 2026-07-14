@@ -31,8 +31,6 @@
     "execution_transcript_artifact_enabled": true
   },
   "devflow_implement": {
-    "provider": "openrouter",
-    "claude_model": "z-ai/glm-5.2",
     "effort": "medium",
     "implement_pr_state": "ready_for_review",
     "allowed_tools": [
