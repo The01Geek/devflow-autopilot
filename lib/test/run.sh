@@ -19018,6 +19018,28 @@ assert_pin_unique "489/AC2: devflow-runner.yml collects the staged telemetry tre
   'Collect staged telemetry artifacts' "$_489_WF/devflow-runner.yml"
 assert_pin_unique "489/AC2: devflow-runner.yml uploads the staged telemetry artifact" \
   'name: devflow-telemetry-stage-${{ github.run_id }}-${{ github.run_attempt }}' "$_489_WF/devflow-runner.yml"
+assert_pin_unique "489/AC2: the collect step calls the suite-tested collect helper (not inline shell)" \
+  'scripts/collect-staged-telemetry.sh "$GITHUB_WORKSPACE" "$dest"' "$_489_WF/devflow-runner.yml"
+
+# AC2 collect helper (extracted from the workflow so the suite can drive it): consolidates every
+# staged .devflow/logs subtree into <dest>, prints "1" iff it collected something, best-effort.
+_489_COLLECT="$_489_SC/collect-staged-telemetry.sh"
+_489_CROOT="$(git_sandbox "489 collect fixture root")"
+mkdir -p "$_489_CROOT/.devflow/tmp/telemetry-stage-20260101-1/.devflow/logs/efficiency" \
+         "$_489_CROOT/.devflow/tmp/telemetry-stage-20260101-2/.devflow/logs/review/pr-7/run-q"
+printf '{"schema_version":1,"slug":"a"}\n' > "$_489_CROOT/.devflow/tmp/telemetry-stage-20260101-1/.devflow/logs/efficiency/a-1.json"
+printf '{"iter":1}\n' > "$_489_CROOT/.devflow/tmp/telemetry-stage-20260101-2/.devflow/logs/review/pr-7/run-q/iter-1.json"
+_489_CDEST="$_489_CROOT/out"
+_489_CSIG="$(bash "$_489_COLLECT" "$_489_CROOT" "$_489_CDEST" 2>/dev/null)"
+assert_eq "489/AC2: collect helper signals it collected staged telemetry" "1" "$_489_CSIG"
+assert_eq "489/AC2: collect helper merges the efficiency record into the upload tree" "yes" \
+  "$([ -f "$_489_CDEST/.devflow/logs/efficiency/a-1.json" ] && echo yes || echo no)"
+assert_eq "489/AC2: collect helper merges a review record from a SECOND staging root" "yes" \
+  "$([ -f "$_489_CDEST/.devflow/logs/review/pr-7/run-q/iter-1.json" ] && echo yes || echo no)"
+# No staged dirs → empty signal (nothing to upload), still exit 0.
+_489_CEMPTY="$(git_sandbox "489 collect empty root")"; mkdir -p "$_489_CEMPTY/.devflow/tmp"
+_489_CEMPTY_SIG="$(bash "$_489_COLLECT" "$_489_CEMPTY" "$_489_CEMPTY/out" 2>/dev/null; echo "rc=$?")"
+assert_eq "489/AC2: collect helper is empty-signal + exit 0 when nothing is staged" "rc=0" "$_489_CEMPTY_SIG"
 
 # AC3 — the trusted pusher workflow: workflow_run trigger, App-token minted ABOVE checkout,
 # cross-run download by run-id, never checks out the PR head.

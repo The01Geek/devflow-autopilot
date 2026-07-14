@@ -155,8 +155,9 @@ for e in ${_entries[@]+"${_entries[@]}"}; do
   _dvt_path_safe "$rel" || reject "entry '$rel' has an unsafe path (absolute, empty, or a '.'/'..' traversal component)"
   _dvt_admitted "$rel" || reject "entry '$rel' is not an admitted telemetry path (only .devflow/logs/review/<slug>/<run-id>/<name>.json and .devflow/logs/efficiency/<slug>-<run-id>.json)"
 
-  # Size cap (accumulated across all entries). `wc -c` is not preflight-guaranteed and
-  # this value gates admission, so derive the byte size with a builtin read instead.
+  # Size cap (accumulated across all entries). This value gates admission, so _dvt_filesize
+  # validates its `wc -c` output as a bare integer and fails CLOSED (rc 1 → reject) when it
+  # cannot be derived — an unsized entry is never admitted.
   sz=0
   if ! sz="$(_dvt_filesize "$e")"; then
     reject "entry '$rel' could not be sized (unreadable)"

@@ -1487,21 +1487,9 @@ jobs:
         run: |
           set -uo pipefail
           dest="${RUNNER_TEMP:-/tmp}/devflow-telemetry-artifact"
-          rm -rf "$dest"; mkdir -p "$dest"
-          found=
-          for stage in .devflow/tmp/telemetry-stage-*/; do
-            [ -d "$stage" ] || continue
-            [ -d "${stage}.devflow/logs" ] || continue
-            # Copy the .devflow/logs subtree, preserving relative paths, into the consolidated
-            # dest. Best-effort collection only — the trusted pusher RE-VALIDATES every entry,
-            # so a miss here can never let an unadmitted path reach the branch.
-            ( cd "$stage" && find .devflow/logs -type f -print0 2>/dev/null \
-                | while IFS= read -r -d '' f; do
-                    mkdir -p "$dest/$(dirname "$f")" && cp "$f" "$dest/$f"
-                  done )
-            found=1
-          done
-          if [ -n "$found" ]; then
+          # The collection logic lives in a suite-tested helper (best-effort; the trusted pusher
+          # re-validates every entry all-or-nothing, so a collection miss cannot reach the branch).
+          if [ -n "$(scripts/collect-staged-telemetry.sh "$GITHUB_WORKSPACE" "$dest")" ]; then
             echo "path=$dest" >> "$GITHUB_OUTPUT"
           else
             echo "::notice::no staged telemetry artifacts to upload (writable tier pushed directly, or nothing was staged this run)."
