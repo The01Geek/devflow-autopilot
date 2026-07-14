@@ -89,9 +89,9 @@ _devflow_telemetry_retention_note() {
 #     restored identically in every claude-code-action job, so a value baked into
 #     the hook command could not distinguish the read-only review tier from a
 #     writable one). The writable tiers set DEVFLOW_TELEMETRY_PUSH=1 at job level;
-#     the read-only review tier deliberately does not, so it stages, and a forthcoming
-#     trusted telemetry-push relay (not this read-only job; follow-up to issue #469)
-#     performs the branch push from the staged artifacts.
+#     the read-only review tier deliberately does not, so it stages, and the trusted
+#     telemetry-push relay (not this read-only job; telemetry-push.yml, issue #489)
+#     performs the branch push from the uploaded staged artifacts.
 # rc 0 = push; rc 1 = stage-only.
 _devflow_telemetry_should_push() {
   [ -n "${GITHUB_ACTIONS:-}" ] || return 0
@@ -398,13 +398,13 @@ devflow_telemetry_persist_tree() {
 
   # Push-operand gate (issue #469 AC5). On CI without an affirmative
   # DEVFLOW_TELEMETRY_PUSH we do NO branch write and NO push: the staged files
-  # under staging_root are left in place for a forthcoming trusted telemetry-push
-  # relay (follow-up to issue #469) to upload and push
+  # under staging_root are left in place for the trusted telemetry-push
+  # relay (telemetry-push.yml, issue #489) to upload and push
   # (return 2 → the caller retains them, silently — this is the
   # intended read-only-review posture, not a degradation). Off CI, and on CI with
   # the operand set, fall through to the CAS+push below.
   if ! _devflow_telemetry_should_push; then
-    echo "::warning::telemetry-branch: GITHUB_ACTIONS is set but the push operand DEVFLOW_TELEMETRY_PUSH is unset/empty/non-affirmative — STAGING '${branch}' artifacts without a branch write or push (a trusted telemetry-push job, forthcoming, pushes them from the uploaded artifact); set DEVFLOW_TELEMETRY_PUSH=1 in a workflow holding contents:write to push directly" >&2
+    echo "::warning::telemetry-branch: GITHUB_ACTIONS is set but the push operand DEVFLOW_TELEMETRY_PUSH is unset/empty/non-affirmative — STAGING '${branch}' artifacts without a branch write or push (the trusted telemetry-push job telemetry-push.yml pushes them from the uploaded artifact); set DEVFLOW_TELEMETRY_PUSH=1 in a workflow holding contents:write to push directly" >&2
     return 2
   fi
 

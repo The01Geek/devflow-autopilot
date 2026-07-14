@@ -19027,6 +19027,17 @@ assert_eq "489/AC4: _dvt_num rejects a negative override, falling back to the de
 assert_eq "489/AC4: a broken jq (DEVFLOW_JQ=false) drops the whole artifact (fails closed)" "1|no" \
   "$(_489_run_val "$_489_A/ok" "$_489_A/ok-jqfail" DEVFLOW_JQ=/usr/bin/false)"
 
+# (16b) wc fail-closed (guard-class-2, size-cap gate; sibling of (16)): _dvt_filesize's `wc -c`
+# derivation gates admission, so a broken/absent wc must REJECT the whole artifact, not silently
+# admit an unsized entry (which would bypass the size cap with a green suite). wc is not a
+# preflight-guaranteed tool, so this is a real regression surface. Driven by the PATH-stub
+# technique (17) — shadow `wc` with a stub that always fails — since wc is invoked by path lookup,
+# not via an env override.
+_489_WCROOT="$(git_sandbox "489 wc fail stub")"; mkdir -p "$_489_WCROOT/bin"
+printf '#!/bin/sh\nexit 1\n' > "$_489_WCROOT/bin/wc"; chmod +x "$_489_WCROOT/bin/wc"
+assert_eq "489/AC4: a broken wc (size derivation fails) drops the whole artifact (fails closed)" "1|no" \
+  "$(_489_run_val "$_489_A/ok" "$_489_A/ok-wcfail" "PATH=$_489_WCROOT/bin:$PATH")"
+
 # (17) collect helper's copy-failure branch (saw_stage set, found not → the distinct 'records
 # existed but none could be copied' warning). Driven deterministically by pointing DEST_PARENT
 # read-only is not reachable (the top mkdir would abort first), and a chmod-000 source is
@@ -19110,6 +19121,17 @@ assert_eq "489/AC3: ...and says so (a 'no telemetry records to push' notice)" "y
 _489_ABSENT_ERR="$( ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_REPO/.no-such-dl" "$_489_REPO" ) 2>&1 1>/dev/null )"
 assert_eq "489/AC3: an ABSENT artifact dir leaves the branch UNCHANGED" "yes" \
   "$([ "$(git -C "$_489_REPO" rev-parse refs/heads/devflow-telemetry 2>/dev/null)" = "$_489_TIP" ] && echo yes || echo no)"
+
+# Fail-LOUD environment guards (the trusted writer must exit 1 red, not silently no-op, on a
+# broken invocation — the contract at the file head). These arms are otherwise unexercised.
+_489_pusher_rc() { ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$@" ) >/dev/null 2>&1; echo $?; }
+assert_eq "489/AC3: the pusher fails LOUD (rc 1) on a usage error (missing operands)" "1" \
+  "$(_489_pusher_rc)"
+assert_eq "489/AC3: the pusher fails LOUD (rc 1) when repo_root is not a git working tree" "1" \
+  "$(_489_pusher_rc "$_489_CART" "$(git_sandbox '489 non-git repo_root')")"
+_489_NONGIT_ERR="$( ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_CART" "$(git_sandbox '489 non-git repo_root msg')" ) 2>&1 1>/dev/null )"
+assert_eq "489/AC3: ...naming the not-a-git-working-tree cause (::error::, fail loud)" "yes" \
+  "$(printf '%s' "$_489_NONGIT_ERR" | grep -qF 'is not a git working tree' && echo yes || echo no)"
 
 # --- AC2/AC3: workflow content pins ---
 # AC2 — the read-only review runner uploads its staged telemetry as a workflow artifact.
