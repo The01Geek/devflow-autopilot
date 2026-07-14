@@ -891,14 +891,41 @@ Claude model ID the gateway won't serve and fail. Always map them to a real mode
 the endpoint serves (you may point the haiku slot at a smaller/cheaper model the
 gateway offers to save on background calls; the examples use `glm-5.2` for simplicity).
 
+**Context window — a gateway model defaults to 200K, NOT its real window.** Claude Code
+cannot verify a gateway model's context length, so it budgets **200K** and auto-compacts
+at that boundary — even when the model is natively 1M (GLM-5.2, MiniMax-M3, Qwen3.7-Plus, …).
+Left alone you silently lose most of the window you are paying for, and long runs compact
+repeatedly. Lift it by setting **`CLAUDE_CODE_MAX_CONTEXT_TOKENS`** in the `env` map to the
+model's real window:
+
+```json
+"CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000"
+```
+
+Claude Code's context resolver honors this variable **only for model ids that do not begin
+with `claude-`** — i.e. it exists precisely for third-party gateway models, which is exactly
+this path. Verified: with it set, `/context` reports a **1,000,000**-token window against
+`z-ai/glm-5.2` on OpenRouter instead of 200,000.
+
+> **Undocumented — load-bearing but fragile.** `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is not in
+> Anthropic's published env-var reference. Re-verify after a Claude Code upgrade (`/context`
+> should still report your value). Do **not** substitute the `CLAUDE_CODE_EXTRA_BODY` +
+> `opus[1m]` trick circulating as an alternative: it force-injects a `model` override into
+> **every** request, which clobbers `ANTHROPIC_DEFAULT_HAIKU_MODEL` /
+> `CLAUDE_CODE_SUBAGENT_MODEL` and collapses every role onto a single model.
+
 **Gateway 400s — two *separate* failure modes, do not conflate them:**
 
 - `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` (shipped by default in the example
   below) strips `anthropic-beta` headers / beta tool-schema fields, avoiding
   "Extra inputs are not permitted"-class 400s on gateways.
-- 400s that name `thinking` / `adaptive` parameters are a **different** failure
-  mode — the fix is `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1` (add it to the `env`
-  map) or an upstream gateway fix. The beta-header toggle does **not** address these.
+- 400s that name `thinking` / `adaptive` parameters are a **different** failure mode, and the
+  beta-header toggle does **not** address them. Note that `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1`
+  is **hard-scoped to the Opus/Sonnet 4.6 family** and is therefore **inert for a third-party
+  gateway model** — the lever that actually drops the `thinking` field for any model is
+  `CLAUDE_CODE_DISABLE_THINKING=1`. Reach for it only if you actually see such a 400: some
+  gateways serve `thinking` fine (OpenRouter/GLM-5.2 does), and disabling it can cost output
+  quality.
 
 **Prompt caching.** `CLAUDE_CODE_ATTRIBUTION_HEADER=0` (shipped by default below)
 omits the attribution block Claude Code otherwise prepends to the system prompt;
@@ -922,7 +949,8 @@ only `/devflow:implement`, leaving review/command on Claude):
         "ANTHROPIC_DEFAULT_HAIKU_MODEL": "z-ai/glm-5.2",
         "CLAUDE_CODE_SUBAGENT_MODEL": "z-ai/glm-5.2",
         "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
-        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
+        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000"
       }
     }
   },
@@ -971,7 +999,8 @@ base URL and Z.AI's own bracket-suffixed model IDs:
         "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.2",
         "CLAUDE_CODE_SUBAGENT_MODEL": "glm-5.2[1m]",
         "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
-        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
+        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000"
       }
     }
   },

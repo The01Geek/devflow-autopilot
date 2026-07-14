@@ -4,6 +4,28 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.2] — 2026-07-14
+
+### Fixed
+- **Third-party model providers: document how to get the model's real context window.** Claude Code
+  cannot verify a gateway model's context length, so it budgets **200K** and auto-compacts there —
+  even for a natively-1M model (GLM-5.2, MiniMax-M3, Qwen3.7-Plus, …), silently costing most of the
+  window you are paying for. `docs/cloud-setup.md` now documents `CLAUDE_CODE_MAX_CONTEXT_TOKENS`
+  (honored only for model ids that do not begin with `claude-`, i.e. purpose-built for gateway
+  models) and both worked examples set it to `1000000`. Verified: `/context` reports a 1,000,000-token
+  window against `z-ai/glm-5.2` on OpenRouter instead of 200,000. Flagged as undocumented/upgrade-fragile,
+  with an explicit warning against the `CLAUDE_CODE_EXTRA_BODY` + `opus[1m]` workaround, which injects a
+  `model` override into every request and collapses the haiku/subagent roles onto a single model.
+- **Corrected a wrong gateway-400 remedy.** The docs advised `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1`
+  for `thinking`/`adaptive` 400s, but that flag is hard-scoped to the Opus/Sonnet **4.6** family and is
+  therefore **inert for a third-party gateway model** — exactly the audience of that section. The lever
+  that actually drops the `thinking` field for any model is `CLAUDE_CODE_DISABLE_THINKING=1`.
+
+## [2.13.1] — 2026-07-14
+
+### Fixed
+- **Cloud `/devflow:implement` runs now apply their best-effort labels instead of silently dropping them.** On the read-write implement tier the phase-4 deferred-label loops emitted command shapes the matcher refuses (a `for`/piped-`while read` loop or a `VAR="$(…)"` capture wrapping a label helper) and the label helpers were granted only via a config `*/basename` glob the matcher does not match against a vendored-literal leading token — so the `DevFlow` provenance, `Documented`, and configured `deferred.labels` applies were denied with no error. `devflow-implement.yml` now grants `apply-labels.sh`/`ensure-label.sh` in the explicit vendored-literal leading-token form the implement-probe table proved PERMITTED, and **all four** label call sites — Phase 3.1's `DevFlow` provenance apply, Phase 4.0 and 4.0.5's `deferred.labels` applies, and Phase 4.1's `Documented` apply — are reworked to agent-level single-leading-token calls that read their inputs from printed tool output rather than from shell variables that do not survive into a later command. The label-normalizing pipelines no longer end in `paste`, which is granted in **no** allowlist: that tail would have refused the normalizer statement outright, leaving the raw config value resolved but the normalized label list empty, so the applies silently did nothing. Each of the four channels now fails **closed**: a command that produced no output is recorded as a possible denial, never read as "no labels configured" — and `apply-labels.sh` now breadcrumbs on **success** as well as failure, so a silently-refused apply (which prints nothing) is distinguishable from one that landed. A new `extract-command-shapes.py --profile implement` desk lint (rules IR1/IR2/IR3) turns a re-introduced denied shape in the implement skill files RED at the desk. **One caveat, stated rather than hidden:** each channel opens with a **non-label command substitution** — an `if ! VAR=$(config-get.sh …)` read in Phase 4.0/4.0.5/4.1, and a `VAR=$(gh pr view …)` read in Phase 3.1 — a shape **no implement-tier probe row has measured** — the label helpers' own grants are probe-proven, but the config read rests on the inference that the matcher descends into a non-label `$(…)`. Probe rows 8/9 exist to settle it and are human-dispatch-only. If that inference is wrong, the channels fail closed with a durable breadcrumb rather than silently dropping labels, which is the point of the rework — but they would still apply nothing until the read is granted. **Upgrade coupling:** the workflow grants arrive by re-running `install.sh` and the skill rework arrives by bumping `devflow_version` — take both halves together, or the applies stay silently denied. (#455)
+
 ## [2.13.0] — 2026-07-14
 
 ### Added

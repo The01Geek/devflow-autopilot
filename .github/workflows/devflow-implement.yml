@@ -819,6 +819,8 @@ jobs:
             Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),
             Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),
             Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),
+            Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*),
+            Bash(.devflow/vendor/devflow/scripts/ensure-label.sh:*),
             Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),
             Bash(pip install:*),
             Bash(pip:*),
