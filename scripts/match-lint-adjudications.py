@@ -24,11 +24,17 @@ row always lives in), which is why this is a separate helper.
 Trust (both required, per issue #466):
     1. Run marker:  the comment body carries the run-keyed
                     ``<!-- devflow:review-progress run=<id> -->`` marker (the
-                    ``run_key`` the demotion map surfaces). Requiring it closes
-                    the bot-echo hole a bare account-type check leaves open.
+                    ``run_key`` the demotion map surfaces). It scopes payloads to
+                    engine progress comments; it is public unsigned text and does
+                    NOT authenticate the author (a bot echoing attacker prose
+                    reproduces it too) — the structural defenses below do that.
     2. Author:      the comment author is a ``Bot``-type account, OR its login is
                     in ``.devflow.allowed_bots`` (read via ``config-get.sh``,
-                    honored as an additional author allowance).
+                    honored as an additional author allowance). Broader than
+                    sibling match-deferrals.py by design: ``allowed_bots`` defaults
+                    EMPTY, so an allowlist-only rule would make this inert for every
+                    consumer that never configures it. What makes that acceptable is
+                    the bounded blast radius below, not the marker.
 Within a trusted comment, payloads are honored ONLY inside the sentinel-delimited
 adjudications section (between the START/END sentinels). A payload literal echoed
 anywhere else — including inside a quoted evidence line — is data to quote, never
@@ -90,6 +96,7 @@ Known limitation (bounded — a forged single pair in a sectionless trusted comm
 
 Exit codes:
     0  Helper ran successfully (regardless of match results).
+    1  Unsupported Python (< 3.11) — the interpreter guard fired before any work.
     2  Bad arguments / unrecoverable input error.
 """
 
@@ -261,17 +268,27 @@ def _collect_payload_keys(comments, allowed_bots, stats):
         author = c.get("author") if isinstance(c.get("author"), str) else ""
         author_type = c.get("author_type") if isinstance(c.get("author_type"), str) else ""
         m = RUN_MARKER_RE.search(body)
-        # run_key is annotation-only: it becomes the demoted row's "(run <key>)" label,
-        # never a comparand in the demotion decision. So first-occurrence is safe here —
-        # a forged/quoted run marker can only mislabel the displayed run reference, unlike
-        # the sentinel window below, which gates WHICH row demotes and so fails closed.
+        # The run_key VALUE is annotation-only — it becomes the demoted row's "(run <key>)"
+        # label and is never a comparand in WHICH row demotes, so first-occurrence selection
+        # is safe for the label. Its PRESENCE, however, is a trust comparand (see `trusted`
+        # below) — do not read this as "the marker is decorative".
         run_key = m.group(1) if m else None
-        # Author trust is intentionally BROADER than sibling match-deferrals.py (which
-        # trusts only allowed_bots membership): here a Bot-type account is trusted too,
-        # because trust is a CONJUNCTION with the run-keyed progress-comment marker below —
-        # requiring the marker closes the bot-echo hole a bare account-type check would
-        # leave open, so admitting any Bot-type author is safe here where it would not be
-        # for match-deferrals' PR-author check.
+        # Author trust is intentionally BROADER than sibling match-deferrals.py (which trusts
+        # only allowed_bots membership): a Bot-type account is trusted here too, so the feature
+        # works out of the box (allowed_bots defaults EMPTY, so an allowlist-only rule would
+        # make this inert for every consumer that never configures it).
+        #
+        # Be precise about what the marker conjunction does and does not buy: the marker is
+        # public, unsigned text, so a Bot that ECHOES attacker-authored prose reproduces it
+        # too — the marker does NOT independently authenticate the author, and the real
+        # defenses against a forged adjudication are structural: the sentinel window (a
+        # payload is honored only BETWEEN the engine's own START/END sentinels), the
+        # count>1 tamper guard, and the producer-side neutralization rule that keeps a
+        # quoted sentinel from ever rendering live. What makes admitting any Bot acceptable
+        # is the BLAST RADIUS, not the marker: the worst case is one config-gated stale-prose
+        # row demoted to Informational, which Phase 4.2 excludes from the verdict at every
+        # severity and which can never flip a genuine code-defect REJECT to APPROVE.
+        # A consumer wanting the narrow posture pins its reviewer login in allowed_bots.
         author_ok = (author_type == "Bot") or (author in allowed_bots)
         trusted = (run_key is not None) and author_ok
 
@@ -403,6 +420,16 @@ def main(argv=None):
             continue
         parsed = _row_key(row)
         if parsed is None:
+            # A column-deficient row (fewer than the 5 TSV fields) is dropped — but it is
+            # COUNTED and breadcrumbed like the payload side does, so "every drop is
+            # accounted for" holds for rows too (a silent drop left rows_in - stale_rows
+            # unexplained).
+            stats["rows_malformed"] += 1
+            print(
+                "match-lint-adjudications: skipping malformed row "
+                "(expected 5 TAB-separated fields)",
+                file=sys.stderr,
+            )
             continue
         verdict, rule, path, detail = parsed
         if verdict != STALE:

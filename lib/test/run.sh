@@ -8403,8 +8403,9 @@ rm -rf "$LPE_DIR"
 # ────────────────────────────────────────────────────────────────────────────
 echo "#295: repo-root anchoring — config/extension readers resolve from a subdir"
 # ────────────────────────────────────────────────────────────────────────────
-# Issue #295: the four .devflow/ readers (config-get.sh, load-prompt-extension.sh,
-# workpad.py, match-deferrals.py) anchor the DEFAULT config/extension path to the git
+# Issue #295: the five .devflow/ readers (config-get.sh, load-prompt-extension.sh,
+# workpad.py, match-deferrals.py, match-lint-adjudications.py) anchor the DEFAULT
+# config/extension path to the git
 # repo root (git rev-parse --show-toplevel, cwd fallback) so a skill invoked from a
 # subdirectory loads the consumer's ROOT config/extension instead of silently missing
 # it. Build a real temp git repo with .devflow/ at the root, cd into a nested subdir,
@@ -8446,6 +8447,16 @@ assert_eq "#295 lockstep: all readers resolve the identical root config from sub
 # value read RED).
 assert_eq "#295 AC4: match-deferrals _config_get(None) reads ROOT allowed_bots from subdir" "botX,botY" \
   "$(cd "$R295/a/b/c" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('md','$MD295');m=u.module_from_spec(s);s.loader.exec_module(m);print(m._config_get('.devflow.allowed_bots','MISS'))")"
+
+# AC6 (#466): match-lint-adjudications.py is the FIFTH reader in this family — it carries its
+# own _repo_root()/_default_config_path()/_config_get() copy, so it gets the same pair of
+# assertions as match-deferrals (path equality AND the config_path=None value read, since
+# pinning the path in isolation misses the None wiring).
+MLA295="$LIB/../scripts/match-lint-adjudications.py"
+assert_eq "#295 AC6: match-lint-adjudications default config from subdir → root config" "$R295_TOP/.devflow/config.json" \
+  "$(cd "$R295/a/b/c" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('mla','$MLA295');m=u.module_from_spec(s);s.loader.exec_module(m);print(m._default_config_path())")"
+assert_eq "#295 AC6: match-lint-adjudications _config_get(None) reads ROOT allowed_bots from subdir" "botX,botY" \
+  "$(cd "$R295/a/b/c" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('mla','$MLA295');m=u.module_from_spec(s);s.loader.exec_module(m);print(m._config_get('.devflow.allowed_bots','MISS'))")"
 
 # AC5: cwd == root → byte-identical to the subdir result (no regression on common path).
 assert_eq "#295 AC5: config-get at root byte-identical" "CUSTOM/DOCS" \
@@ -31320,13 +31331,26 @@ _, out, _ = run(rows, [CBOT])
 chk("mla-key-scope only line-diff demoted (len 1)", "1", len(out["demoted"]))
 chk("mla-key-scope line-diff row_index 2", "2", out["demoted"][0]["row_index"])
 
-# mla-verdict-scope: VERIFIED + UNRESOLVABLE rows byte-identical payload -> never demoted
-rows = [
-    tsv("VERIFIED", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills"),
-    tsv("UNRESOLVABLE", "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills"),
-]
-_, out, _ = run(rows, [CBOT])
-chk("mla-verdict-scope non-STALE never demoted", "0", len(out["demoted"]))
+# mla-verdict-scope: a non-STALE row whose payload matches byte-for-byte is NEVER demoted.
+# Each verdict is run ALONE, and stale_rows (the filter's own distinct signal) is asserted —
+# both are load-bearing against a vacuous pass. Putting the two rows in ONE fixture (as this
+# check first did) made them share a match key, so deleting the `if verdict != STALE: continue`
+# guard merely tripped the COLLISION guard one step later: demoted stayed 0 and the check
+# passed against the exact mutant it exists to kill (guard-class shape 3 — refusal from the
+# wrong guard). Alone, a mutant demotes the row (len 1) and reports stale_rows 1 -> RED.
+for _v in ("VERIFIED", "UNRESOLVABLE"):
+    _r = tsv(_v, "count-locked", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills")
+    _, out, _ = run([_r], [CBOT])
+    chk(f"mla-verdict-scope {_v} alone: not demoted", "0", len(out["demoted"]))
+    chk(f"mla-verdict-scope {_v} alone: not counted as a STALE row", "0", out["stats"]["stale_rows"])
+
+# mla-row-malformed: a column-deficient STALE row is DROPPED but COUNTED + breadcrumbed
+# (the payload side already did; the row side dropped it silently, leaving rows_in-stale_rows
+# unexplained). Assert the counter, not just the absence of a demotion.
+_, out_rm, err_rm = run(["STALE\tcount-locked"], [CBOT])
+chk("mla-row-malformed counted", "1", out_rm["stats"]["rows_malformed"])
+chk("mla-row-malformed no stale row", "0", out_rm["stats"]["stale_rows"])
+chk("mla-row-malformed breadcrumb", "yes", "yes" if "skipping malformed row" in err_rm else "no")
 
 # mla-trust: User-not-in-allowed (no, counted); Bot (yes); User-in-allowed (yes)
 _, out, _ = run([ROW], [adj_comment("random-user", "User", ROW)])
@@ -31451,6 +31475,19 @@ for name, val in SHAPES:
     cfg = write_cfg({"allowed_bots": val})
     _, out, _ = run_cfg([ROW], [CBOT], cfg)
     chk(f"mla-shape allowed_bots {name}: bot-author still demotes (fail-safe)", "1", len(out["demoted"]))
+    # The fail-SAFE row above is allowlist-INDEPENDENT (author_ok short-circuits on the Bot
+    # arm before allowed_bots is consulted), so on its own it would stay green even if the
+    # derivation were deleted. Pair every shape with the fail-CLOSED direction — an
+    # allowlist-only User author — which is the assertion the derivation actually decides.
+    _, out_u, _ = run_cfg([ROW], [adj_comment("trusted-human", "User", ROW)], cfg)
+    chk(f"mla-shape allowed_bots {name}: non-listed User NOT trusted (fail-closed)",
+        "0", len(out_u["demoted"]))
+# Positive control for the same derivation: a login that IS in the (well-formed) array shape
+# IS trusted. Without it, every row above stays green under a mutant that empties allowed_bots
+# unconditionally — "nobody is trusted" would satisfy all the fail-closed rows.
+cfg_ok = write_cfg({"allowed_bots": ["trusted-human", "other"]})
+_, out_ok, _ = run_cfg([ROW], [adj_comment("trusted-human", "User", ROW)], cfg_ok)
+chk("mla-shape allowed_bots array: LISTED User IS trusted (positive control)", "1", len(out_ok["demoted"]))
 # missing key shape (no allowed_bots at all)
 cfg_missing = write_cfg({})
 _, out, _ = run_cfg([ROW], [CBOT], cfg_missing)
@@ -31535,7 +31572,7 @@ MLA_HELPER="$MLA_HELPER_PATH" MLA_CFG="$MLA_CFG_FILE" python3 "$MLA_DRIVER" > "$
 MLA_DRV_RC=$?
 assert_eq "#466 mla driver ran to completion (exit 0 — a crash would silently drop every mla-* check)" "0" "$MLA_DRV_RC"
 [ "$MLA_DRV_RC" -eq 0 ] || printf '    mla driver stderr:\n%s\n' "$(sed 's/^/      /' "$MLA_DRV_ERR")"
-assert_eq "#466 mla driver emitted all 63 named checks (guards against a silent partial run)" "63" \
+assert_eq "#466 mla driver emitted all 75 named checks (guards against a silent partial run)" "75" \
   "$(grep -c . "$MLA_RESULTS")"
 while IFS="$(printf '\t')" read -r _mla_name _mla_exp _mla_act; do
   [ -n "$_mla_name" ] && assert_eq "$_mla_name" "$_mla_exp" "$_mla_act"
@@ -31585,6 +31622,18 @@ assert_eq "#466 every emitted stats key is documented in the helper docstring Ou
 # render verbatim in a post-feature comment.
 assert_pin_unique "#466 mla-neutralization: review skill Phase 4.1.7 carries the producer sentinel-neutralization rule" \
   'Sentinel-channel integrity (producer neutralization' "$REVIEW_SKILL"
+
+# #466 mla-flatten: `gh api --paginate` applies `--jq` PER PAGE, so the fetched file holds
+# CONCATENATED arrays and the Phase 0.6 join MUST flatten them (`$comments | add`). Reading
+# `$comments[0]` would silently pass only page 1 — and since issue comments are served
+# oldest-first, that drops the most RECENT progress comments, i.e. exactly the ones carrying
+# the adjudication payloads: the feature would no-op on any PR past 100 comments, exit 0, and
+# fire no degradation arm. Pin the flatten (Phase 0.3.6 already mandates the same idiom), and
+# pin the truncating form ABSENT so a revert to `$comments[0]` goes RED at the desk.
+assert_pin_unique "#466 mla-flatten: Phase 0.6 join flattens the concatenated --paginate pages" \
+  'comments: ($comments | add // [])' "$REVIEW_SKILL"
+assert_eq "#466 mla-flatten: the page-1-only form (\$comments[0]) is absent from the review skill" "0" \
+  "$(grep -cF 'comments: $comments[0]' "$REVIEW_SKILL" || true)"
 
 # mla-fp-direction (Degradation is loud): the consumer contract's degraded arm is
 # asserted via the pinned degraded-check note prose in the review skill, not the
