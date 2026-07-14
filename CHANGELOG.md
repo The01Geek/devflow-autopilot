@@ -4,6 +4,12 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] — 2026-07-14
+
+### Changed
+- **Unify observability telemetry into a durable, pushed telemetry branch.** Every writable run — local and cloud, `/devflow:review-and-fix` and standalone `/devflow:review` — now persists its effectiveness records and durable review workpads to a dedicated long-lived orphan branch (`devflow-telemetry`, configurable via the new `telemetry.branch` key) via git plumbing, without ever touching the current branch, `HEAD`, or the working tree. The write uses a compare-and-swap ref advance and a fetch → re-parent → push retry loop, is best-effort/exit-0 (an unpushable branch still advances the local ref), auto-creates the orphan branch on first use, and verifies an existing branch is a telemetry store before appending. This replaces the former current-branch `chore:` commit: local telemetry is no longer lost when its feature branch is never pushed, a local run on the default branch no longer diverges local `main`, and the weekly retrospective analyzes one complete cross-run history (the reader unions the branch with any legacy tracked `.devflow/logs/`, keyed by `(slug, run-id)`, branch-wins). Existing consumer repos keep all their tracked history and require no manual migration. (#441)
+- **New remote side-effect to be aware of:** a writable **local** run (including a standalone `/devflow:review`) now *pushes* `devflow-telemetry` to `origin` with your ambient git credential, where previously it committed locally and pushed nothing. The push is best-effort — if it is rejected, denied, or there is no remote, the run still succeeds and the records stay on the local ref. No `push:` workflow trigger matches the branch, so a telemetry push runs no CI, and the branch only ever carries `.devflow/logs/` records. (#441)
+
 ## [2.8.137] — 2026-07-13
 
 ### Changed

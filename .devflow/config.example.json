@@ -83,6 +83,9 @@
   "deferred": {
     "labels": "DevFlow,Deferred"
   },
+  "telemetry": {
+    "branch": "devflow-telemetry"
+  },
   "devflow_retrospective": {
     "enabled": true,
     "retrospective_model": "claude-sonnet-4-6",

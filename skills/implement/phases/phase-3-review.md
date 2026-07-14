@@ -116,7 +116,7 @@ set -- "$ROOT"/.devflow/tmp/review/*/*/iter-*.json
 { [ -e "$1" ] && printf '%s\n' "$@" | sort; } > "$ROOT/.devflow/tmp/.phase33-iters-before" || :
 ```
 
-Invoke the **Skill tool** with `skill: review-and-fix` and `args: "--push-each-iteration"`. The flag is load-bearing here: this phase operates on the live draft PR created in 3.1, and `--push-each-iteration` propagates each fix iteration to the remote branch so its CI validates the converging state and progress survives a mid-loop crash. (Direct users of `/devflow:review-and-fix` omit the flag and the loop stays local — see that skill's Input section for the flag's semantics.)
+Invoke the **Skill tool** with `skill: review-and-fix` and `args: "--push-each-iteration"`. The flag is load-bearing here: this phase operates on the live draft PR created in 3.1, and `--push-each-iteration` propagates each fix iteration to the remote branch so its CI validates the converging state and progress survives a mid-loop crash. (Direct users of `/devflow:review-and-fix` omit the flag and the loop's **fix commits** stay local — though Loop Exit's `--persist` still pushes the `devflow-telemetry` branch regardless of the flag; see that skill's Input section for the flag's semantics.)
 
 **Stay on the instrumented loop — a cloud permission/sandbox denial is not license to leave it.** This phase drives `review-and-fix` **inline in your context**. If you hit a `claude-code-action` permission or sandbox denial here — a piped/compound `.sh` invocation, a `$(...)` redirect target, or a shell `>` write into `.devflow/tmp` refused as "may only write to files in allowed working directories" — that denial is not the local-tier permission classifier, and is not license to abandon the instrumented loop and hand-run the review engine via direct `Agent` dispatch. On the cloud implement job `Skill`, `Agent`, `Write`, `efficiency-trace.sh`, `workpad.py`, and `config-get.sh` are all allowlisted, so the instrumented loop is navigable, not blocked. Whatever path the review runs, the per-iteration effectiveness record (`iter-<N>.json`) is a non-optional emit on every iteration, written with the Write tool (never a shell `>`/heredoc redirect the sandbox denies) — that is what keeps the **effectiveness** half of the telemetry recoverable even on a degraded, hand-run pass; and the emit is non-optional **on every path, including a degraded one**.
 
@@ -140,11 +140,14 @@ Follow the skill's instructions. It handles evaluation, fixing, testing, and re-
 # never a cwd-relative path that could diverge from the wrapper and fire a false
 # "telemetry lost" reflection (or mask a real loss) when cwd is not the repo root.
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-# Idempotent Layer-3 persist: derives + commits the effectiveness record and durable
-# workpad copy from whatever iter-*.json this run left under .devflow/tmp/review/; a commit
-# no-op if already persisted (the effectiveness record is presence-idempotent — skipped when
-# it already exists; the durable workpad copy re-runs but is content-idempotent, rewriting
-# identical bytes) and a full no-op if the inline loop wrote no per-iter workpad. Best-effort
+# Idempotent Layer-3 persist: derives the effectiveness record and durable workpad copy
+# from whatever iter-*.json this run left under .devflow/tmp/review/ and writes them to the
+# long-lived orphan telemetry branch (default `devflow-telemetry`, key telemetry.branch) via
+# git plumbing — it does NOT commit to this feature branch and never touches HEAD, the
+# current branch, or the TRACKED working tree (issue #441). Idempotent on that branch: the
+# effectiveness record is presence-idempotent (a `git cat-file -e <ref>:<path>` probe skips a
+# run already stored), the durable workpad copy re-writes identical bytes, and an unchanged
+# tree makes no new branch commit; a full no-op if the inline loop wrote no per-iter workpad. Best-effort
 # (always exits 0). Two calls, targeted FIRST: this orchestrator drove review-and-fix
 # inline and holds the loop's <slug> and RUN_ID, and persisting its own run by explicit
 # identity is immune to every discovery-mode skip (multi-slug ambiguity, not-latest
@@ -193,8 +196,9 @@ cat "$PERSIST_ERR" >&2   # surface every --persist breadcrumb to the run log, sa
 # had nothing to derive from and this run's effectiveness telemetry is genuinely lost — surface
 # it, do not swallow. (A persist that DID find inputs but failed to write still leaves
 # efficiency-trace.sh's own ::warning:: on the run log, surfaced above.) The detector counts NEW
-# iter-*.json regardless of --persist's source=="review" skip (standalone /devflow:review runs
-# have their own record path); that is correct here because at THIS seam the review-and-fix
+# iter-*.json unconditionally — issue #441 removed --persist's old source=="review" skip and
+# routed standalone /devflow:review onto this SAME --persist path, so there is no longer a skip
+# to be "regardless of". That is correct here anyway, because at THIS seam the review-and-fix
 # loop just driven inline is what writes this tree, so a foreign review-sourced dir being the
 # sole new occupant is not a reachable in-flow shape.
 BEFORE="$ROOT/.devflow/tmp/.phase33-iters-before"
@@ -238,10 +242,14 @@ fi
 # (disk/permission); not persisted for ..." — so match BOTH literals, or a mutated/renamed
 # breadcrumb on just the disk-write path would silently escape this detector exactly as the
 # single-literal form did (#236 review, Step 3.5 fix-delta gate). This intentionally scopes to
-# record derivation/write failures only, not the separate git-staging/commit failure surface
-# (efficiency-trace.sh's "not persisted this run" / "artifacts left staged" breadcrumbs) —
-# there the record IS written to disk, just not yet committed, a materially different and
-# lower-priority gap deferred on the issue #235 workpad. KNOWN LIMITATION (also deferred,
+# record derivation/write failures only, not the separate TELEMETRY-BRANCH write/push failure
+# surface (telemetry-branch.sh's "::warning::telemetry-branch: ..." breadcrumbs — a lost CAS, a
+# non-conforming store, an unwritable .devflow/tmp). Post-#441 that surface is NOT the milder gap
+# this comment used to claim ("the record IS written to disk, just not yet committed"): the record
+# is staged under gitignored .devflow/tmp/ and that staging root is rm -rf'd once the branch write
+# returns, so a failed branch write loses the run's record ENTIRELY. It is a record-LOSING gap, not
+# a lower-priority one — still uncovered by this detector, and surfaced only by the helper's own
+# stderr breadcrumb (which this step captures but does not grep). KNOWN LIMITATION (also deferred,
 # #236 review shadow pass): unlike the this-run-scoped no-inputs detector above, this grep
 # runs against the combined capture (the targeted call's stderr plus the whole-tree
 # discovery call's), so a

@@ -266,7 +266,51 @@ updated." **An unestablished PR does not backfill by itself** — it never enter
 and only stored or retrospective-listed PRs are re-selected as candidates — so name the
 PRs from the breadcrumb and re-run with `--prs` once the cause is resolved.
 
+Before the reader runs, **fetch the telemetry branch** (issue #441) into its local ref so
+`build-experiment-records.py` can union each run's durable record off that branch with any
+legacy tracked `.devflow/logs/`. Best-effort: on a fresh repo the branch does not exist yet
+(nothing has persisted to it) and the fetch is a harmless no-op — the reader then reads the
+legacy archive alone; the retrospective is never blocked by a missing telemetry branch.
+
 ```bash
+# Fetch the telemetry branch into its local ref — deliberately NO force `+` refspec: the
+# local ref can be AHEAD of the remote (offline-accumulated `--persist` commits not yet
+# reconciled by a writer's union re-parent), and a forced fetch would rewind it and
+# permanently orphan those records. A plain fetch fast-forwards the common case and rejects
+# exactly the local-ahead/diverged case, leaving the local ref — and its records — intact
+# for the reader; reconciling with the remote belongs to the next writing run's
+# fetch → re-parent → push loop, never to this read-side fetch.
+# The reader (`_index_efficiency`) reads it by its local branch name.
+#
+# Resolve the branch through the SAME resolver the writer uses — never a third, independent
+# re-derivation. `devflow_telemetry_branch` (lib/telemetry-branch.sh) owns the full contract:
+# the `.telemetry.branch` read, config-get.sh's coercion, and the `git check-ref-format`
+# fallback to the default. A bare `config-get.sh` read here applies NEITHER guard, and both
+# gaps end the same way — this fetch targets a branch nobody wrote to, the local ref is never
+# populated, and on a fresh clone or a cloud checkout the reader then finds nothing and every
+# cost row silently goes missing:
+#   * a schema-valid but git-invalid name ("my branch", "a..b") → the writer persisted to
+#     `devflow-telemetry`, but this would try to fetch `my branch`;
+#   * a malformed config → config-get.sh prints NOTHING and exits 2, so TELEMETRY_BRANCH is
+#     empty and the command degrades to `git fetch origin ":"`, while the writer and reader
+#     both fell back to `devflow-telemetry`.
+# Source the lib and ask it. The `||` keeps this best-effort: if the lib cannot be sourced, fall
+# back to the same default the resolver would have returned.
+#
+# Do NOT redirect the resolver's stderr to /dev/null. Its breadcrumb is the whole reason for
+# routing through it: on a git-invalid `telemetry.branch` it is the one place that names the
+# config key to fix. Silencing it would leave an operator with a broken config reading a
+# perfectly healthy-looking retrospective that quietly contains no telemetry-branch rows.
+# Only stdout is captured; stderr flows to the run log.
+#
+# Note the lib sources `config-source.sh`, which sets `set -euo pipefail` in THIS shell. Every
+# command below is `||`-guarded, so that is harmless today — but keep new commands in this fence
+# guarded, or errexit will abort the step.
+. "$LIB/telemetry-branch.sh" || true
+TELEMETRY_BRANCH=$(devflow_telemetry_branch) || TELEMETRY_BRANCH=""
+[ -n "$TELEMETRY_BRANCH" ] || TELEMETRY_BRANCH=devflow-telemetry
+git fetch origin "${TELEMETRY_BRANCH}:${TELEMETRY_BRANCH}" 2>/dev/null || \
+  echo "retrospective-weekly: could not fetch telemetry branch '${TELEMETRY_BRANCH}' (absent on a fresh repo, offline, or the local ref has commits the remote lacks) — the experiment-record reader unions whatever local '${TELEMETRY_BRANCH}' ref exists (if any) with any legacy tracked .devflow/logs/" >&2
 python3 $LIB/../scripts/build-experiment-records.py || \
   echo "retrospective-weekly: build-experiment-records.py exited non-zero (rc=$?) — one or more PRs are MISSING from the experiment store (see its stderr for which, and whether they failed to assemble or had an unestablished merge state); records that did assemble were still written" >&2
 ```
