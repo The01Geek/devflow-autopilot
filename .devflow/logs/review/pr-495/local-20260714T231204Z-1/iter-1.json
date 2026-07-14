@@ -1,13 +1,40 @@
 {
   "iter": 1,
-  "fix_commit_sha": "0697157173c01ef4d82870621b6b37fce12fdf17",
-  "fix_files": [
-    ".github/workflows/devflow-runner.yml",
-    "lib/test/run.sh",
-    "scripts/collect-staged-telemetry.sh",
-    "scripts/telemetry-push-artifact.sh",
-    "scripts/validate-telemetry-artifact.sh"
-  ],
+  "started_at": "2026-07-14T23:12:00Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
   "loop_role": "fix",
-  "synthesized": true
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "collect step in devflow-runner.yml launders a helper-exec failure into a benign no-op notice", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [62, 69], "kind": "conflated-failure-and-empty"}, "corroboration_count": 1, "fix_decision": "advisory"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "validator rc1 conflates hostile-drop with Pass-2 infra failure; pusher swallows both as exit 0", "defect_signature": {"file": "scripts/telemetry-push-artifact.sh", "line_range": [768, 771], "kind": "infra-failure-conflated-with-drop"}, "corroboration_count": 1, "fix_decision": "advisory"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "pusher persist_tree non-zero rc case arms (degraded/staging-only/unknown) undriven", "defect_signature": {"file": "scripts/telemetry-push-artifact.sh", "line_range": [811, 816], "kind": "untested-branch"}, "corroboration_count": 1, "fix_decision": "advisory"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "pusher source-failure + declare -F fail-loud guards untested", "defect_signature": {"file": "scripts/telemetry-push-artifact.sh", "line_range": [788, 798], "kind": "untested-branch"}, "corroboration_count": 1, "fix_decision": "advisory"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "dangling-symlink walk clause untested (existing-target symlink test does not exercise -L fallback)", "defect_signature": {"file": "scripts/validate-telemetry-artifact.sh", "line_range": [974, 977], "kind": "untested-branch"}, "corroboration_count": 1, "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "advisory", "source_file": ".github/workflows/devflow-runner.yml", "claim_text": "collect step launders helper-exec failure into benign notice", "skip_category": "advisory-parked", "evidence": "Suggestion-level, below important fix threshold; best-effort telemetry observability only"},
+    {"finding_id": "F-2", "decision": "advisory", "source_file": "scripts/telemetry-push-artifact.sh", "claim_text": "validator rc1 conflates infra failure with hostile drop", "skip_category": "advisory-parked", "evidence": "Suggestion-level, below important fix threshold; best-effort telemetry observability only"},
+    {"finding_id": "F-3", "decision": "advisory", "source_file": "scripts/telemetry-push-artifact.sh", "claim_text": "persist_tree non-zero rc arms undriven", "skip_category": "advisory-parked", "evidence": "Suggestion-level; arms all exit 0 with stderr breadcrumb only, no branch effect"},
+    {"finding_id": "F-4", "decision": "advisory", "source_file": "scripts/telemetry-push-artifact.sh", "claim_text": "declare -F / source-failure guards untested", "skip_category": "advisory-parked", "evidence": "Suggestion-level, defensive guards"},
+    {"finding_id": "F-5", "decision": "advisory", "source_file": "scripts/validate-telemetry-artifact.sh", "claim_text": "dangling-symlink clause untested", "skip_category": "advisory-parked", "evidence": "Suggestion-level; reject outcome identical to existing-target symlink which is tested"}
+  ],
+  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh + shellcheck + ruff", "result": "pass", "duration_s": 210, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD); arms in CI on clean full-history checkout"}]},
+  "telemetry": {"phase_3": {"calls": 5, "tokens": 416000, "wall_clock_s": 215}}
 }
