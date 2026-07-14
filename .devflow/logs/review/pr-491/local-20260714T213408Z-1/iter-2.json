@@ -1,0 +1,49 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-14T22:00:00Z",
+  "fix_commit_sha": "359345aa",
+  "fix_files": [
+    ".github/workflows/devflow-implement.yml",
+    ".github/workflows/devflow.yml",
+    "scripts/refresh-app-credentials.sh",
+    "scripts/stop-refresher.sh",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:requesting-code-review+devflow:pr-test-analyzer", "severity": "Important", "description": "Coupled production default-path literals unpinned (shadow-promoted).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [34619, 34660], "kind": "coverage-gap-coupled-default-unpinned"}, "corroboration_count": 2, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "surface-2 write-failure divergence branch uncovered.", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [228, 242], "kind": "uncovered-error-branch"}, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Minor", "description": "unknown-subcommand arm untested.", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [282, 282], "kind": "uncovered-branch"}, "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "Stop-step outcome comment imprecise (ran vs succeeded).", "defect_signature": {"file": ".github/workflows/devflow-implement.yml", "line_range": [882, 884], "kind": "inaccurate_comment"}, "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "JWT-in-argv residual undisclosed.", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [140, 141], "kind": "security-hardening-residual"}, "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "stop-refresher grep/tail guard-class-2 undisclosed.", "defect_signature": {"file": "scripts/stop-refresher.sh", "line_range": [95, 108], "kind": "convention-adherence"}, "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "SF-A", "decision": "applied", "commit": "359345aa"},
+    {"finding_id": "SF-B", "decision": "applied", "commit": "359345aa"},
+    {"finding_id": "SF-C", "decision": "applied", "commit": "359345aa"},
+    {"finding_id": "SF-4-comment", "decision": "applied", "commit": "359345aa"},
+    {"finding_id": "SF-2-jwt", "decision": "applied", "commit": "359345aa"},
+    {"finding_id": "SF-3-guardclass2", "decision": "applied", "commit": "359345aa"}
+  ],
+  "convergence_inputs": {"fixes_applied": 6, "fix_diff_lines": 0, "new_corroborated_critical_count": 0, "note": "all applied fixes are test/comment/doc — zero runtime-code-fix lines"},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 90,
+    "skipped_checks": [
+      {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD); runs live in CI on clean full-history"}
+    ]
+  },
+  "telemetry": {"step_2_6": {"calls": 5, "tokens": 641610, "wall_clock_s": 265}, "step_3_5": {"calls": 1, "tokens": 50724, "wall_clock_s": 110}}
+}

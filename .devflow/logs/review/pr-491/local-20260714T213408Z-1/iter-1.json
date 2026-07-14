@@ -107,5 +107,26 @@
       {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD); runs live in CI on clean full-history"}
     ]
   },
-  "telemetry": {"phase_3": {"calls": 5, "tokens": 536898, "wall_clock_s": 273}}
+  "telemetry": {"phase_3": {"calls": 5, "tokens": 536898, "wall_clock_s": 273}},
+  "shadow": {
+    "ran_at": "2026-07-14T21:55:00Z",
+    "reviewed_sha": "3bdf0e2e",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review", "devflow:pr-test-analyzer"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review", "devflow:pr-test-analyzer"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "Coupled production default-path literals (devflow-gh-token, devflow-gh-fingerprint, devflow-refresh.pid, devflow-refresh.log) shared writer<->reader across 2 scripts + 2 workflows are unpinned; every arm overrides them, so a one-sided rename ships green.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [34109, 34860], "kind": "coverage-gap-coupled-default-unpinned"}, "corroboration_count": 2},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "Same coupled-default-path coverage gap (corroborates the final-pass finding); also notes the surface-2 write-failure branch routes the loop to BACKOFF cadence, untested.", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [228, 234], "kind": "uncovered-error-branch"}, "corroboration_count": 2},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "Stop-step steps.refresher.outcome comment says 'success iff it actually ran' — conflates ran/succeeded and enumerates 2 of 4 outcomes; helper treats ran = success OR failure, not-ran = skipped OR cancelled. Coupled in both workflows.", "defect_signature": {"file": ".github/workflows/devflow-implement.yml", "line_range": [882, 884], "kind": "inaccurate_comment"}, "corroboration_count": 1},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "App JWT passed in curl argv (/proc/<curl_pid>/cmdline), a same-uid read vector symmetric to the /proc/environ one this PR closes; small blast radius (9-min JWT), industry-standard. Disclose or move to stdin curl-config.", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [1166, 1183], "kind": "security-hardening-residual"}, "corroboration_count": 1},
+      {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "stop-refresher.sh derives the sustained-vs-recovered SELECTION via grep/tail/cat (non-preflight PATH tools, guard-class-2); missing tool fails open (suppresses defeat alert). Cloud-only; suggest parity exemption note or fail-closed.", "defect_signature": {"file": "scripts/stop-refresher.sh", "line_range": [95, 108], "kind": "convention-adherence"}, "corroboration_count": 1},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Minor", "description": "main's unknown-subcommand arm untested (trivial best-effort path).", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [282, 282], "kind": "uncovered-branch"}, "corroboration_count": 1}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 6, "overlap_with_iter_N": 1, "new": 5, "new_critical": 0, "new_important": 1},
+    "promoted_to_iter_next": true
+  }
 }
