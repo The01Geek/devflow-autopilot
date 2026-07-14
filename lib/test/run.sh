@@ -4914,6 +4914,30 @@ assert_pin_red_under "#474(2.3.7): the Sweep-selection consider-list index row i
 assert_pin_red_under "#474(2.3.7): the un-drivable-output dry-trace multi-element requirement is operative" \
   'against at least two elements including a duplicate, never a single-element trace' \
   's|against at least two elements including a duplicate, never a single-element trace|against an example|' "$P2_FILE"
+# §2.3.0c COMPLETION-GATE appended clauses (PR #481 review, finding a): the completion-gate
+# sentence begins with the prefix the #376 w2-completion-gate pin already pins ("The sweep is
+# not done until every comparand has a completed four-column row"), but #474 APPENDED two
+# clauses that bind the gate to the two new triggers — trigger-a's derived-arm enumeration and
+# trigger-b's obligation-placement. The #376 mutation removes only the unchanged prefix, and the
+# 2.3.0c-a/2.3.0c-b definition pins target the DEFINITION sentences (different wording), so
+# dropping either appended gate clause left every existing pin GREEN. Pin each appended clause
+# with a mutation that WEAKENS the gate (drops the requirement) → a future edit that guts the
+# gate-level obligation while leaving the definitions intact goes RED here. (Mutations use `.`
+# to match the ASCII apostrophe in comparand's/arm's so the sed program stays single-quote-safe.)
+assert_pin_red_under "#474(2.3.0c-a): the completion gate binds trigger-a derived-arm enumeration (appended clause, distinct from the #376 prefix pin)" \
+  'malformed/empty arms enumerated and each arm' \
+  's|with a derived comparand.s malformed/empty arms enumerated and each arm.s decided behavior stated \(trigger a\)|with each comparand row present|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.0c-b): the completion gate binds trigger-b obligation-placement (appended clause, distinct from the #376 prefix pin)" \
+  'places that obligation at the execution point it gates (trigger b)' \
+  's|, and places that obligation at the execution point it gates \(trigger b\)||' "$P2_FILE"
+# §2.3.7 closing ENFORCEMENT sentence (PR #481 review, finding b): the "defect in **this** PR,
+# not a downstream finding" teeth are what make the sweep a mandatory this-PR obligation rather
+# than advisory guidance; none of the §2.3.7 pins above cover this sentence, so softening it
+# from mandatory to advisory flipped no pin RED. The mutation rewrites the mandatory framing
+# into an accept-and-defer framing, removing the pinned "defect in **this** PR" teeth → RED.
+assert_pin_red_under "#474(2.3.7): the closing this-PR-defect enforcement sentence is operative (softening mandatory->advisory goes RED)" \
+  'shipped with only a single-element test as a defect in **this** PR' \
+  's|as a defect in \*\*this\*\* PR, not a|as acceptable to defer to a|' "$P2_FILE"
 # §2.3.7 mirror sites (coupled invariant — the enumerating sites §2.3.0b reconciliation
 # requires): the sweep body heading, the Sweep-selection index row, the docs rationale
 # table row, and the DEVFLOW_SYSTEM_OVERVIEW sweep-index entry must all carry §2.3.7.
