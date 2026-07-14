@@ -306,9 +306,15 @@ devflow_telemetry_show_blob() {
 #      the AC4 never-commit-onto-a-consumer-branch guarantee holds on the push
 #      path too. Give up best-effort after the cap with a ::warning::. No remote
 #      → keep the local ref, breadcrumb, return 0.
-# Always returns 0. The temp index is uniquely named with bash builtins (not
-# mktemp, which the cloud sandbox blocks — AC9) and removed on every exit path
-# via the subshell's EXIT trap.
+# Return code (issue #469 AC8): 0 = clean (pushed / idempotent no-op / nothing
+# staged / no staging root); 1 = a DEGRADED arm that produced a staging root
+# (non-conforming store, branch checked out in a worktree, unwritable temp index,
+# object-store/commit-build failure, CAS exhausted, or a push/re-parent failure);
+# 2 = STAGING-ONLY (CI without an affirmative DEVFLOW_TELEMETRY_PUSH — AC5). It
+# NEVER aborts its caller on any arm (best-effort); the return VALUE reports the
+# outcome so do_persist retains the staged records on 1/2 and deletes only on 0.
+# The temp index is uniquely named with bash builtins (not mktemp, which the cloud
+# sandbox blocks — AC9) and removed on every exit path via the subshell's EXIT trap.
 devflow_telemetry_persist_tree() {
   local root="$1" staging_root="$2"
   [ -n "$root" ] && [ -n "$staging_root" ] || return 0

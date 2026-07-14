@@ -443,8 +443,10 @@ def _telemetry_branch(repo_root):
     the default, a MALFORMED (present-but-unparseable) config degrades to the
     default WITH a breadcrumb, and a MISSING or UNREADABLE config degrades to the
     default SILENTLY (the ordinary "no config" path — the OSError arm returns the
-    default with no _warn, matching config-get.sh, which is silent here too). All
-    best-effort — the reader must not abort on a bad config.
+    default with no _warn). This reader is silent on BOTH the missing and the
+    unreadable subcase; config-get.sh is silent only on a MISSING config (it
+    breadcrumbs a present-but-unreadable one, which this reader deliberately does
+    not). All best-effort — the reader must not abort on a bad config.
 
     Honors DEVFLOW_CONFIG_FILE, because the WRITER does: lib/telemetry-branch.sh
     resolves the branch through devflow_conf → lib/config-source.sh, which reads

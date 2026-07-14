@@ -18042,6 +18042,12 @@ assert_eq "#469 AC5(e2e): staging-only breadcrumbs the absent push operand" "yes
   "$(printf '%s' "$I469_ERR" | grep -qF 'DEVFLOW_TELEMETRY_PUSH is unset/empty/non-affirmative' && echo yes || echo no)"
 assert_eq "#469 AC5(e2e): staging-only RETAINS the staged tree for the trusted push relay" "yes" \
   "$(compgen -G "$I469_REPO/.devflow/tmp/telemetry-stage-*" >/dev/null 2>&1 && echo yes || echo no)"
+# Staging-only (rc 2) is the INTENDED read-only-review posture, NOT a degradation: it must
+# retain SILENTLY and must NOT emit the do_persist "…write DEGRADED…" warning (which is the
+# rc-1 arm). If do_persist folded rc 2 into the degraded arm, every read-only review run
+# would spuriously warn DEGRADED — assert the negative so that regression goes RED.
+assert_eq "#469 AC5(e2e): staging-only does NOT emit the degraded (rc 1) warning" "no" \
+  "$(printf '%s' "$I469_ERR" | grep -qF 'the telemetry-branch write DEGRADED' && echo yes || echo no)"
 # Positive control: the SAME run with the operand set DOES push (proves the fixture reaches a push path).
 git -C "$I469_REPO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && git -C "$I469_REPO" update-ref -d refs/heads/devflow-telemetry
 ( cd "$I469_REPO" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
@@ -18078,6 +18084,75 @@ assert_pin_red_under \
   "$LIB/telemetry-branch.sh"
 rm -rf "$I469_LB"
 
+# ── AC6 producer path (end-to-end): do_persist FETCHES the telemetry branch from origin and
+# fast-forwards the ABSENT local ref onto it, so prior remote records become visible to
+# recorded_fix_shas (the anti-double-count fix). The AC7 test above injects the STATUS and
+# drives only the CONSUMER (list_blobs); this drives the PRODUCER against a real bare remote. ─
+I469_FP_BARE="$(git_sandbox "#469 fetch-producer bare remote")"; git -C "$I469_FP_BARE" init --bare -q
+# Seed a REAL telemetry store on the remote via a first repo's pushing --persist.
+I469_FP_SEED="$(git_sandbox "#469 fetch-producer seed repo")"; git -C "$I469_FP_SEED" init -q
+git -C "$I469_FP_SEED" config user.email t@e.com; git -C "$I469_FP_SEED" config user.name t
+git -C "$I469_FP_SEED" remote add origin "$I469_FP_BARE"
+mkdir -p "$I469_FP_SEED/.devflow"; printf 'tmp/\n' > "$I469_FP_SEED/.devflow/.gitignore"
+git -C "$I469_FP_SEED" add -A; git -C "$I469_FP_SEED" commit -qm seed; git -C "$I469_FP_SEED" branch -M main; git -C "$I469_FP_SEED" push -q -u origin main
+mkdir -p "$I469_FP_SEED/.devflow/tmp/review/pr-seed/run-seed"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$I469_FP_SEED/.devflow/tmp/review/pr-seed/run-seed/iter-1.json"
+( cd "$I469_FP_SEED" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+I469_FP_TIP="$(git -C "$I469_FP_BARE" rev-parse --verify --quiet refs/heads/devflow-telemetry 2>/dev/null || true)"
+assert_eq "#469 AC6(producer): the fixture seeded a real telemetry store on the remote" "yes" \
+  "$([ -n "$I469_FP_TIP" ] && echo yes || echo no)"
+# Second repo: origin points at the seeded remote, LOCAL telemetry ref ABSENT. A --persist
+# must fetch + verify + fast-forward the local ref onto the remote tip (the producer path).
+I469_FP="$(git_sandbox "#469 fetch-producer consumer repo")"; git -C "$I469_FP" init -q
+git -C "$I469_FP" config user.email t@e.com; git -C "$I469_FP" config user.name t
+git -C "$I469_FP" remote add origin "$I469_FP_BARE"
+mkdir -p "$I469_FP/.devflow"; printf 'tmp/\n' > "$I469_FP/.devflow/.gitignore"
+git -C "$I469_FP" add -A; git -C "$I469_FP" commit -qm seed
+mkdir -p "$I469_FP/.devflow/tmp/review/pr-fp/run-fp"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$I469_FP/.devflow/tmp/review/pr-fp/run-fp/iter-1.json"
+assert_eq "#469 AC6(producer): the LOCAL telemetry ref is ABSENT before --persist" "no" \
+  "$(git -C "$I469_FP" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+# Staging-only (operand empty) so this run does not itself push — isolating the FETCH producer.
+( cd "$I469_FP" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH='' bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "#469 AC6(producer): --persist fast-forwarded the ABSENT local ref onto the fetched remote tip (prior records now visible to recorded_fix_shas)" "$I469_FP_TIP" \
+  "$(git -C "$I469_FP" rev-parse --verify --quiet refs/heads/devflow-telemetry 2>/dev/null || true)"
+rm -rf "$I469_FP" "$I469_FP_SEED" "$I469_FP_BARE"
+
+# ── AC7 producer fail-open guard (#469 review fix): when origin HAS a branch named
+# devflow-telemetry but it is NOT a readable telemetry store (a consumer's same-named branch,
+# or a corrupt tree), do_persist must NOT set status=ok before verify_store — it leaves the
+# state UNESTABLISHED (status=failed + warning) and does NOT advance the local ref, so a
+# present-but-unreadable store is never laundered into a silent established-empty. ──
+I469_VF_BARE="$(git_sandbox "#469 verify-fail bare remote")"; git -C "$I469_VF_BARE" init --bare -q
+# Push a NON-telemetry branch named devflow-telemetry (a root file → verify_store rejects it).
+I469_VF_SEED="$(git_sandbox "#469 verify-fail seed repo")"; git -C "$I469_VF_SEED" init -q
+git -C "$I469_VF_SEED" config user.email t@e.com; git -C "$I469_VF_SEED" config user.name t
+printf 'not a telemetry store\n' > "$I469_VF_SEED/random.txt"
+git -C "$I469_VF_SEED" add -A; git -C "$I469_VF_SEED" commit -qm 'not a store'
+git -C "$I469_VF_SEED" push -q "$I469_VF_BARE" HEAD:refs/heads/devflow-telemetry
+# Consumer repo: origin → that remote, local telemetry ref ABSENT.
+I469_VF="$(git_sandbox "#469 verify-fail consumer repo")"; git -C "$I469_VF" init -q
+git -C "$I469_VF" config user.email t@e.com; git -C "$I469_VF" config user.name t
+git -C "$I469_VF" remote add origin "$I469_VF_BARE"
+mkdir -p "$I469_VF/.devflow"; printf 'tmp/\n' > "$I469_VF/.devflow/.gitignore"
+git -C "$I469_VF" add -A; git -C "$I469_VF" commit -qm seed
+mkdir -p "$I469_VF/.devflow/tmp/review/pr-vf/run-vf"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$I469_VF/.devflow/tmp/review/pr-vf/run-vf/iter-1.json"
+I469_VF_ERR="$( ( cd "$I469_VF" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH='' bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "#469 AC7 fail-open fix: a present-but-unverifiable remote tip is UNESTABLISHED (do_persist warns it could not be verified), not laundered into status=ok" "yes" \
+  "$(printf '%s' "$I469_VF_ERR" | grep -qF 'could not be verified as a readable DevFlow telemetry store' && echo yes || echo no)"
+assert_eq "#469 AC7 fail-open fix: the unverifiable remote tip is NOT advanced onto the local ref" "no" \
+  "$(git -C "$I469_VF" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+# The first assertion is itself the behavioral guard: the "could not be verified as a readable
+# DevFlow telemetry store" warning is emitted ONLY by the post-verify fail arm this fix added.
+# Reverting to the pre-fix "status=ok on bare fetch success" (no such arm) removes that warning,
+# so the assertion goes RED — no separate comment-pin needed (which would re-create the very
+# comment-anchored-pin defect the #469 review flagged for the AC8 pin).
+rm -rf "$I469_VF" "$I469_VF_SEED" "$I469_VF_BARE"
+
 # ── AC8: a DEGRADED persist RETAINS its staging root and breadcrumbs its absolute
 # path (instead of the old unconditional rm -rf). Drive an unpushable-but-CI push
 # (operand set, remote unreachable) → persist_tree returns 1 → do_persist retains. ─
@@ -18095,12 +18170,17 @@ assert_eq "#469 AC8: a degraded persist RETAINS the staging root (not rm -rf'd)"
   "$(compgen -G "$I469_DEG/.devflow/tmp/telemetry-stage-*" >/dev/null 2>&1 && echo yes || echo no)"
 assert_eq "#469 AC8: the degraded breadcrumb names the RETAINED staging root's absolute path" "yes" \
   "$(printf '%s' "$I469_DEG_ERR" | grep -qE 'RETAINING the staged records at .*/\.devflow/tmp/telemetry-stage-' && echo yes || echo no)"
-# Behavioral-fix pin: reverting do_persist to the unconditional post-write rm -rf
-# re-introduces the silent-deletion bug (#469 defect 4). Pin the guarded case arm.
+# Behavioral-fix pin (OPERATIVE, not a comment): the silent-deletion bug (#469 defect 4)
+# is re-introduced by letting a non-clean persist_rc reach the rm -rf. The guard is that
+# `rm -rf` is gated to the `0)` (clean) case arm ONLY. The mutation rewrites that arm's
+# label `0)` → `*)`, making the delete a catch-all that swallows the degraded rc 1 (and
+# staging-only rc 2) — the exact regression — so the degraded-RETAINS assertion above goes
+# RED. Pinning the operative one-liner (not the `the run's ONLY copy` comment the earlier
+# pin used, which a comment edit could defeat) is what makes this a real behavioral pin.
 assert_pin_red_under \
-  "#469 AC8: do_persist RETAINS on a degraded (rc 1) result rather than always rm -rf'ing" \
-  'the run'"'"'s ONLY copy' \
-  's|the run'"'"'s ONLY copy|X|' \
+  "#469 AC8: rm -rf is gated to the clean (rc 0) arm ONLY — a non-clean result never reaches it" \
+  '0) rm -rf "$_TELEMETRY_STAGE" 2>/dev/null || true ;;' \
+  's|0\) rm -rf|*) rm -rf|' \
   "$LIB/efficiency-trace.sh"
 rm -rf "$I469_DEG"
 
