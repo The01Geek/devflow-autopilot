@@ -388,8 +388,11 @@ Describe the **one** approach the user chose — not a comparison of candidates.
 
   **Move 3 — Commit to named assertions.**
   - **Every AC maps to at least one named assertion, and every assertion maps back to an
-    AC** — no orphans in either direction. If an AC cannot be pinned by any assertion, it is
-    not testable as written: tighten it, or it belongs in `## 🚫 Blocked`.
+    AC** — no orphans in either direction; **and every state a multi-state contract enumerates
+    maps to ≥1 AC** (a status enum, an outcome-token set, an error/exit-code set, or a
+    state-machine node — the *contract-enumeration* sense of "state", distinct from the runtime
+    *State, concurrency & idempotency* coverage dimension above). If an AC cannot be pinned by
+    any assertion, it is not testable as written: tighten it, or it belongs in `## 🚫 Blocked`.
   - Each assertion is **test-first**: written before the code, it must fail first *for the
     right reason* — and spell that reason out. For a *feature*, the right reason is that the
     behavior does not exist yet. **For a bug fix, the right reason is that the test

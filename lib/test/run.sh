@@ -2277,6 +2277,66 @@ assert_pin_unique "over-grade: severity-calibrated record carries no skip_catego
   'it is a calibration record, not a skip' "$MAXI_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#479: receiving-code-review — two-route mutation-check recipe + over-grade-annotation rule"
+# ────────────────────────────────────────────────────────────────────────────
+# Two prose-only reception fixes in the vendored receiving-code-review skill (issue #479):
+#   (1) the mutation-check recipe now states an invariant + two satisfiable routes (a copy-based
+#       route and a working-tree-in-place-then-restore route) instead of the single "on a copy"
+#       recipe that was unsatisfiable for fixed-path / fixed-module-path suites;
+#   (2) the Symmetric Severity Calibration section now has a rule for a review that annotates its
+#       own finding as a suspected over-grade — advisory input, never on its own a reason to skip.
+# Each contract *sentence* is a BEHAVIORAL-FIX pin (removing the operative clause re-introduces the
+# named defect: an unsatisfiable/incomplete recipe, or a missing counter-rule), so each behavioral
+# sentence is routed through assert_pin_red_under with a `sed -E` mutation that strips ONLY the
+# operative clause and is observed RED under it — not a whole-line-removal pin (which cannot tell
+# operative from framing). The lone exception is route (b)'s trigger *wording* (AC3-condition,
+# below), which is a presence contract, not a behavioral clause, so it is pinned present-and-unique
+# via assert_pin_unique rather than mutation-checked.
+# Placed AFTER assert_pin_red_under's definition (above) so the behavioral pins actually run — a
+# call sited before the helper's definition would silently no-op (command-not-found), the exact
+# vacuous-guard trap the mutation-check discipline exists to prevent.
+# The additions stay repo-agnostic; the whole-file #379(AC8) negatives already cover the new text
+# (no repo test path, no CI job name), so they are extended, not duplicated, here. Target the file
+# through RECV_SKILL (declared for the over-grade block above, same path) rather than re-declaring it.
+# AC1 — the mutation-check invariant (never left behind; observed RED for the reason the test pins).
+assert_pin_red_under "#479(AC1): mutation-check invariant (no mutation left behind; RED for the pinned reason)" \
+  'the mutation is never left behind in the working tree, and the suite is observed RED for the reason the test pins' \
+  's/is never left behind in the working tree//' "$RECV_SKILL"
+# AC2 — route (a): mutate a copy (for a redirectable suite / assertion that takes the target as an arg).
+assert_pin_red_under "#479(AC2): route (a) mutate-a-copy for a redirectable suite" \
+  'whose assertion accepts the target file as an argument, mutate the copy' \
+  's/mutate the copy and run the assertion against it//' "$RECV_SKILL"
+# AC3 — route (b) action: mutate the working-tree file in place, run the suite, restore.
+assert_pin_red_under "#479(AC3): route (b) mutate-in-place-run-restore for a non-redirectable suite" \
+  'mutate the working-tree file in place, run the suite, confirm it goes RED, and then restore it' \
+  's/mutate the working-tree file in place, run the suite//' "$RECV_SKILL"
+# AC3 (condition wording): route (b)'s trigger — fixed paths / fixed module paths, cannot be redirected.
+assert_pin_unique "#479(AC3): route (b) names the fixed-path / fixed-module-path non-redirectable trigger" \
+  'reads fixed paths, or imports the module under test through fixed module paths' "$RECV_SKILL"
+# AC4 — route (b) requires an explicit restore verification (reverted + tree re-verified clean).
+assert_pin_red_under "#479(AC4): route (b) explicit restore verification before any completion claim" \
+  'the mutation is reverted and the tree re-verified clean before any completion claim' \
+  's/the tree re-verified clean before any completion claim//' "$RECV_SKILL"
+# AC5 — route (b) chosen only when redirection is genuinely impossible; route (a) stays the default.
+assert_pin_red_under "#479(AC5): route (b) is last resort; route (a) remains the default" \
+  'Choose route (b) only when redirection is genuinely impossible, so route (a) remains the default' \
+  's/only when redirection is genuinely impossible//' "$RECV_SKILL"
+# AC6 — over-grade annotation is advisory input, never on its own a reason to skip the finding.
+assert_pin_red_under "#479(AC6): over-grade annotation is advisory, never permission to skip" \
+  'advisory input to severity calibration, never on its own a reason to skip the finding' \
+  's/never on its own a reason to skip the finding//' "$RECV_SKILL"
+# AC7 — an annotated finding at or above the configured re-open threshold is still fixed.
+assert_pin_red_under "#479(AC7): annotated finding at/above the re-open threshold is still fixed" \
+  'an annotated finding at or above the configured re-open threshold is still fixed' \
+  's/at or above the configured re-open threshold is still fixed//' "$RECV_SKILL"
+# AC8 (repo-agnostic) — extend, DO NOT duplicate (issue #479 Testing Strategy): the whole-file
+# #379(AC8) negatives above already assert no repo test path / no CI job name across the entire
+# body (covering these additions), and their non-vacuity control is anchored on a #379 sentence
+# this change preserved, so it stays live. AC1's assert_pin_red_under already requires a #479
+# sentence to be present, so it doubles as the non-vacuity anchor for the added surface — no
+# separate presence pin is added here (a second grep of AC1's literal would only duplicate it).
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "deterministic in-code-comment cap (shape 2 refinement, Phase 4.1.5) (#291)"
 # ────────────────────────────────────────────────────────────────────────────
 # #291 refines shape 2's IN-CODE-COMMENT sub-case from advisory-only into a
@@ -3104,6 +3164,61 @@ assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the
 # sharpened the existing case-matrix bullet in place, adding no row.
 assert_eq "#467 D3: create-issue extension is 8 dimension bullets (7 base + #464's dimension; #467 added none)" "8" \
   "$(grep -c '^- \*\*' "$CI443_EXT")"
+# ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
+#    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
+#    Each pin is a behavioral-fix pin: its literal IS an operative sentence whose removal
+#    re-introduces the unreconciled-contract gap, so it is expressed through assert_pin_red_under
+#    with a `sed -E` mutation that strips a load-bearing fragment of the operative sentence
+#    (framing-only survives → RED here). (a)–(d) pin the four coupled-mirror contract surfaces;
+#    (e)/(f) additionally pin the Step 3.5 target's scope-honesty and no-burden operative clauses
+#    (the "Scope honesty" / "No burden on non-contract issues" ACs), so every AC's operative prose
+#    maps to ≥1 assertion — the same bidirectional-orphan discipline this issue itself adds.
+# (a) Step 3.5 hunt gains the within-text contract-reconciliation target.
+assert_pin_red_under "#465 (a): Step 3.5 names the within-text multi-state-contract reconciliation target" \
+  'no summary or table form lists fewer causes for a state than the detailed per-state ACs' \
+  's/lists fewer causes for a state/REMOVED/' "$CI312_SKILL"
+# (b) Template Move 3 orphan sentence folds the enumerated-state→AC clause.
+assert_pin_red_under "#465 (b): template folds the every-enumerated-contract-state-maps-to-an-AC clause" \
+  'every state a multi-state contract enumerates' \
+  's/multi-state contract enumerates/CONTRACT/' "$CI312_TMPL"
+# (c) Prompt-extension Coupled-mirror-sites gains the source-reconciled-before-propagation sentence.
+assert_pin_red_under "#465 (c): extension sharpens Coupled mirror sites — source reconciled before propagation" \
+  'the source form must itself be internally reconciled before it is propagated' \
+  's/internally reconciled before it is propagated/IGNORED/' "$CI443_EXT"
+# (d) SYSTEM_OVERVIEW §11 Self-steelman enumeration reconciled to include the new target.
+assert_pin_red_under "#465 (d): SYSTEM_OVERVIEW §11 Self-steelman enumeration includes the new target" \
+  'unstated scope, and an unreconciled multi-state contract' \
+  's/an unreconciled multi-state contract/REMOVED/' "$OG_OVERVIEW_DOC"
+# (e) Step 3.5 target carries the scope-honesty operative clause ("Scope honesty" AC).
+assert_pin_red_under "#465 (e): Step 3.5 target scopes to the draft's own forms (no not-yet-written-implementation claim)" \
+  'makes **no** claim to catch a state that only a not-yet-written implementation will emit' \
+  's/not-yet-written implementation will emit/REMOVED/' "$CI312_SKILL"
+# (f) Step 3.5 target carries the no-burden-on-non-contract-issues operative clause ("No burden…" AC).
+assert_pin_red_under "#465 (f): Step 3.5 target draws no new hunt/question/revision on a non-contract draft" \
+  'a draft that states none draws no new hunt, question, or revision' \
+  's/draws no new hunt, question, or revision/REMOVED/' "$CI312_SKILL"
+# (g) Consumer-agnostic ABSENCE pin (the issue's Testing-Strategy coverage-dimension (e)).
+#     (a)–(f) are all positive-presence pins, so a future edit injecting a DevFlow-internal
+#     reference into a body that ships into consumer repos would pass them all. Assert the two
+#     consumer-installed create-issue bodies name no repo-internal test path / CI job name.
+#     `devflow_implement.allowed_tools` is deliberately NOT banned: it is a consumer-facing
+#     config key (consumers set it themselves), not a DevFlow-repo-internal token.
+for CI465_TOK in 'lib/test/run.sh' 'lib + python tests'; do
+  assert_eq "#465 (g): create-issue SKILL stays consumer-agnostic — no '$CI465_TOK'" \
+    "0" "$(pin_count "$CI465_TOK" "$CI312_SKILL")"
+  assert_eq "#465 (g): create-issue template stays consumer-agnostic — no '$CI465_TOK'" \
+    "0" "$(pin_count "$CI465_TOK" "$CI312_TMPL")"
+  # Non-vacuity proof: an absence pin over a token the detector could never match is a guard
+  # that cannot fail. Inject the token into a copy and confirm the SAME detector reports it —
+  # so the `0` above is evidence of a clean body, not of a blind grep. Asserted as a DELTA
+  # (injected count == clean count + 1), not as the absolute `1`: the absolute form silently
+  # depends on the source being clean, so a body that already carried the token would fail this
+  # proof with the message "injected token is NOT detected" — the exact inverse of what happened.
+  CI465_INJ="$(probe_tmp "#465 (g)-mp: '$CI465_TOK' injection setup")" || continue
+  { cat "$CI312_SKILL"; printf 'the pins live in %s (injected)\n' "$CI465_TOK"; } > "$CI465_INJ"
+  assert_eq "#465 (g)-mp: absence pin is non-vacuous — injecting '$CI465_TOK' raises the count by 1" \
+    "$(( $(pin_count "$CI465_TOK" "$CI312_SKILL") + 1 ))" "$(pin_count "$CI465_TOK" "$CI465_INJ")"
+done
 # ── issue #464: create-issue adversarial-input dimension + enumerated-AC-list floor rule.
 #    Reuses the #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT) and adds
 #    the overview doc var. Each pinned literal is a verbatim fragment of the new contract prose
@@ -4893,6 +5008,111 @@ _docs_sweeps=$(grep -oE 'still runs the contract-completeness sweeps \([^)]+\)' 
 assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set (cross-site)" \
   "$_skill_sweeps" "$_docs_sweeps"
 
+# ── issue #474: Phase 2.3 gains §2.3.7 (collection-cardinality sweep) and two §2.3.0c
+# sharpenings (derived-comparand arms, obligation placement). Each BEHAVIORAL pin below
+# (the assert_pin_red_under calls) targets the OPERATIVE sentence — the minimal text whose
+# removal ALONE re-introduces the guarded gap — with a `sed -E` mutation that removes only
+# that sentence, so a framing-only pin would be reported RED (per the behavioral-fix-pin
+# rule). The behavioral pins scope to phase-2-implement.md ($P2_FILE); the docs/overview
+# mirror-presence pins (assert_pin_unique / assert_eq) and the reconciliation guards
+# (assert_eq) guard the coupled enumerating sites (§2.3.0b enumeration reconciliation).
+OVERVIEW_DOC474="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# §2.3.0c trigger (a): a DERIVED comparand's malformed/empty arms must be enumerated. The
+# operative requirement, the arm list, and the defect teeth are three necessary sentences —
+# one pin each (a multi-sentence property under-covers with a single pin).
+assert_pin_red_under "#474(2.3.0c-a): derived-comparand arm-enumeration requirement is operative" \
+  'its row additionally enumerates the malformed/empty arms the producer can emit' \
+  's|its row additionally enumerates the malformed/empty arms the producer can emit|its row is otherwise complete|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.0c-a): the six-shape arm list is operative (removing it re-opens the unenumerated-arm gap)" \
+  'producer failure (a non-zero exit or a denial), unparseable output, a wrong-type value, a valid-falsy/empty value, and a missing key or file' \
+  's|producer failure \(a non-zero exit or a denial\), unparseable output, a wrong-type value, a valid-falsy/empty value, and a missing key or file|the arms|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.0c-a): the unenumerated-arm defect teeth are operative (removing the whole this-PR-defect obligation, not just its adjective, re-opens the gap)" \
+  'is an unauthored fail-open accident and a defect in **this** PR' \
+  's|is an unauthored fail-open accident and a defect in \*\*this\*\* PR|is acceptable|' "$P2_FILE"
+# §2.3.0c trigger (b): a stated policy places its obligation at the execution point it gates.
+assert_pin_red_under "#474(2.3.0c-b): obligation-placement requirement is operative" \
+  'A stated policy places its obligation at the execution point it gates' \
+  's|A stated policy places its obligation at the execution point it gates|A policy may be stated anywhere|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.0c-b): thematic-only prose does not discharge the trigger (teeth are operative)" \
+  'prose that describes the hazard only in a thematic section, leaving the execution point it gates with no obligation, does not discharge this trigger' \
+  's|prose that describes the hazard only in a thematic section, leaving the execution point it gates with no obligation, does not discharge this trigger|thematic-only prose is fine|' "$P2_FILE"
+# §2.3.7 collection-cardinality sweep: heading trigger, multi-element requirement,
+# single-element-non-discharge teeth, and the Sweep-selection index row.
+assert_pin_red_under "#474(2.3.7): the heading trigger is operative (removing it un-gates the sweep)" \
+  'mandatory whenever the change adds a collection output with ordering, dedup, or aggregation logic' \
+  's|mandatory whenever the change adds a collection output with ordering, dedup, or aggregation logic|always|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.7): the multi-element test requirement is operative" \
+  'The change carries a multi-element test case that exercises that logic' \
+  's|The change carries a multi-element test case that exercises that logic|A test exists|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.7): single-element-does-not-discharge teeth are operative" \
+  'A single-element happy-path test does not discharge this sweep' \
+  's|A single-element happy-path test does not discharge this sweep|A single-element test suffices|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.7): the Sweep-selection consider-list index row is operative" \
+  'Adds a collection output with ordering, dedup, or aggregation logic' \
+  's|Adds a collection output with ordering, dedup, or aggregation logic|Adds something|' "$P2_FILE"
+# §2.3.7 step 3 is the self-referential arm — DevFlow's own deliverable is prose, so the
+# un-drivable-output branch (dry-trace over >=2 elements incl. a duplicate) governs how the
+# sweep applies to this very repo. Pin its operative multi-element requirement so a future
+# edit cannot weaken it to a single-element/"an example" trace without going RED.
+assert_pin_red_under "#474(2.3.7): the un-drivable-output dry-trace multi-element requirement is operative" \
+  'against at least two elements including a duplicate, never a single-element trace' \
+  's|against at least two elements including a duplicate, never a single-element trace|against an example|' "$P2_FILE"
+# §2.3.0c COMPLETION-GATE appended clauses (PR #481 review, finding a): the completion-gate
+# sentence begins with the prefix the #376 w2-completion-gate pin already pins ("The sweep is
+# not done until every comparand has a completed four-column row"), but #474 APPENDED two
+# clauses that bind the gate to the two new triggers — trigger-a's derived-arm enumeration and
+# trigger-b's obligation-placement. The #376 mutation removes only the unchanged prefix, and the
+# 2.3.0c-a/2.3.0c-b definition pins target the DEFINITION sentences (different wording), so
+# dropping either appended gate clause left every existing pin GREEN. Pin each appended clause
+# with a mutation that WEAKENS the gate (drops the requirement) → a future edit that guts the
+# gate-level obligation while leaving the definitions intact goes RED here. (Mutations use `.`
+# to match the ASCII apostrophe in comparand's/arm's so the sed program stays single-quote-safe.)
+assert_pin_red_under "#474(2.3.0c-a): the completion gate binds trigger-a derived-arm enumeration (appended clause, distinct from the #376 prefix pin)" \
+  'malformed/empty arms enumerated and each arm' \
+  's|with a derived comparand.s malformed/empty arms enumerated and each arm.s decided behavior stated \(trigger a\)|with each comparand row present|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.0c-b): the completion gate binds trigger-b obligation-placement (appended clause, distinct from the #376 prefix pin)" \
+  'places that obligation at the execution point it gates (trigger b)' \
+  's|, and places that obligation at the execution point it gates \(trigger b\)||' "$P2_FILE"
+# §2.3.7 closing ENFORCEMENT sentence (PR #481 review, finding b): the "defect in **this** PR,
+# not a downstream finding" teeth are what make the sweep a mandatory this-PR obligation rather
+# than advisory guidance; none of the §2.3.7 pins above cover this sentence, so softening it
+# from mandatory to advisory flipped no pin RED. The mutation rewrites the mandatory framing
+# into an accept-and-defer framing, removing the pinned "defect in **this** PR" teeth → RED.
+assert_pin_red_under "#474(2.3.7): the closing this-PR-defect enforcement sentence is operative (softening mandatory->advisory goes RED)" \
+  'shipped with only a single-element test as a defect in **this** PR' \
+  's|as a defect in \*\*this\*\* PR, not a|as acceptable to defer to a|' "$P2_FILE"
+# §2.3.7 mirror sites (coupled invariant — the enumerating sites §2.3.0b reconciliation
+# requires): the sweep body heading, the Sweep-selection index row, the docs rationale
+# table row, and the DEVFLOW_SYSTEM_OVERVIEW sweep-index entry must all carry §2.3.7.
+assert_pin_unique "#474(2.3.7): implement SKILL keeps the sweep body heading" \
+  '#### 2.3.7 Collection-cardinality sweep' "$IMPL_SKILL"
+assert_pin_unique "#474(2.3.7): implement SKILL lists it in the Sweep-selection index" \
+  'run **2.3.7**' "$IMPL_SKILL"
+assert_eq "#474(2.3.7): docs/implement-skill.md keeps the rationale table row" "yes" \
+  "$(grep -qF '| 2.3.7 Collection-cardinality |' "$IMPL_DOC" && echo yes || echo no)"
+assert_eq "#474(2.3.7): DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-index entry" "yes" \
+  "$(grep -qF '**2.3.7** Collection-cardinality sweep' "$OVERVIEW_DOC474" && echo yes || echo no)"
+# Reconciliation guards: the falsified "2.3.6 is last" claims must be GONE from the docs
+# (a regression would re-assert a §2.3.7-falsified statement), and the "five always-on
+# sweeps (…)" enumeration must be UNCHANGED (§2.3.7 is trigger-gated, never always-on).
+# Each absence guard is paired with an INJECTION non-vacuity proof (the #465 delta form,
+# 7f7161a): an absolute `== 0` alone cannot tell "phrase removed" from "grep blind", so it
+# would degrade to a no-op if the phrase were reworded. Inject the phrase into a copy and
+# confirm the SAME grep detects it (count rises by exactly 1) — proving the `0` is a
+# reconciled body, not a blind detector. Injection (not a base-ref read) keeps the proof
+# robust to merge state: origin/main carries the reconciled body once this PR merges.
+for _474_ABSENT in 'numbered last only to avoid renumbering' '2.3.6 sits last'; do
+  assert_eq "#474: docs no longer claim '$_474_ABSENT' (§2.3.7-falsified 'last' claim reconciled)" "0" \
+    "$(grep -Fc "$_474_ABSENT" "$IMPL_DOC")"
+  _474_INJ="$(probe_tmp "#474 absence-guard injection: '$_474_ABSENT'")" || continue
+  { cat "$IMPL_DOC"; printf '%s (injected)\n' "$_474_ABSENT"; } > "$_474_INJ"
+  assert_eq "#474: absence guard non-vacuous — injecting '$_474_ABSENT' raises the count by 1" \
+    "$(( $(grep -Fc "$_474_ABSENT" "$IMPL_DOC") + 1 ))" "$(grep -Fc "$_474_ABSENT" "$_474_INJ")"
+  rm -f "$_474_INJ"
+done
+assert_eq "#474: the five-always-on enumeration is unchanged (2.3.7 is trigger-gated, not always-on)" "yes" \
+  "$(grep -qF 'five always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.5/2.3.6)' "$IMPL_DOC" && echo yes || echo no)"
+
 # Drift guard: the base_branch read in the implement skill (phases/phase-1-setup.md) Phase 1.4 is
 # a load-bearing inline-bash block in the skill (Phase 3.1's §3.1 re-derivation below is another) — like the max_iterations clamp above, the
 # tokens it relies on can be silently broken by a SKILL edit (drop the `|| BASE=""`
@@ -6573,8 +6793,8 @@ assert_pin_unique "#346: Pass 5 matches only the repo's own .github/workflows (v
   'Match only the repo'"'"'s *own* `.github/workflows/`' "$P1_FILE"
 assert_pin_unique "#346: Pass 5 treats a coupled CI pin as blocked with the workflow edit" \
   'blocked with it**, so the pushable subset stays CI-green on its own' "$P1_FILE"
-assert_pin_unique "#346: Pass 5 cloud-tier defer routes capability-blocked ACs through 2.2.5" \
-  'issue-claim audit (execution-capability): cloud tier — ACs {list} require editing .github/workflows/' "$P1_FILE"
+assert_pin_unique "#346/#476: Pass 5 cloud-tier partial-deferral arm records via --reflection-kind deferred (punted work, not a clean note)" \
+  '--reflection-kind deferred --reflection "issue-claim audit (execution-capability): cloud tier — ACs {list} require editing .github/workflows/' "$P1_FILE"
 assert_pin_unique "#346: Pass 5 all-blocked arm takes the Phase 1 Blocked path and opens no PR" \
   'issue-claim audit (execution-capability): every in-scope acceptance criterion requires editing .github/workflows/' "$P1_FILE"
 assert_pin_unique "#346/#350: Pass 5 workflow-capable-credential arm (local/interactive OR cloud+DEVFLOW_APP_ID-set) never defers/blocks" \
@@ -6609,7 +6829,10 @@ assert_pin_unique "#346: Phase 4.0 OBLIGATION requires the follow-up body to sta
 # every-AC-blocked is discovered late (at 2.2.5/2.3), narrowing yields an EMPTY pushable
 # subset with no executable stop, so the run could fall through to a near-empty PR. Pin the
 # empty-subset → Blocked stop restated at 2.2.5. Also pin the clean cloud-tier arm's
-# record-even-when-clean reflection (AC1's contract on the no-workflow-AC path).
+# record-even-when-clean record (issue #476 re-points this at the new `--note` form:
+# a clean confirmation is a `## Progress` note, no longer a reflection, so the pin
+# asserts the `--note ` prefix rather than a bare outcome-text literal that would stay
+# green even if the arm reverted to `--reflection-kind note`).
 assert_pin_unique "#346: 2.2.5 takes the Blocked path when the pushable subset would be empty (late-discovered all-blocked)" \
   'Empty pushable subset ⇒ take the Blocked path here, do not narrow-and-proceed' "$IMPL_PHASES_DIR/phase-2-implement.md"
 # Review iter 4 (shadow): the Phase 2.3-discovery backstop was inert prose — no firing
@@ -6628,8 +6851,48 @@ assert_pin_unique "#346: Phase 2.5 commit guard detects tracked workflow edits (
   'git diff HEAD --name-only -- .github/workflows/' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#346: Phase 2.5 commit guard also detects untracked new workflow files (not tracked-only)" \
   'git ls-files --others --exclude-standard -- .github/workflows/' "$IMPL_PHASES_DIR/phase-2-implement.md"
-assert_pin_unique "#346: Pass 5 records a clean note on the cloud-tier no-workflow-AC path (record-even-when-clean)" \
-  'issue-claim audit (execution-capability): cloud tier — no acceptance criterion requires editing .github/workflows/' "$P1_FILE"
+assert_pin_unique "#346/#476: Pass 5 records a clean cloud-tier no-workflow-AC note via --note (record-even-when-clean, now a Progress note)" \
+  '--note "issue-claim audit (execution-capability): cloud tier — no acceptance criterion requires editing .github/workflows/' "$P1_FILE"
+# ── issue #476: §1.6 clean-arm records re-route to `--note`; findings re-kind. ──
+# The audit's clean/confirm arms no longer emit reflections (the attestation noise
+# that tripped the retrospective cheap gate on every clean run) — each records a
+# `## Progress` --note the moment its pass completes. Only FINDINGS reflect now: a
+# wrong issue claim (issue-accuracy), punted work (deferred), or a hard stop
+# (blocked). Pin each property per-arm.
+# (a) Absence: §1.6 (the LAST section of phase-1-setup.md) carries ZERO
+#     `--reflection-kind note` — that kind was the exclusive clean-arm marker, so a
+#     count of 0 proves every clean arm routed to `--note`. The 1.4
+#     freshness/resume/checkpoint `--reflection-kind note` arms live ABOVE §1.6 and
+#     stay unchanged, which is exactly why this pin slices the section first (a
+#     whole-file count would never reach 0). The slice is the same awk technique the
+#     #325 freshness-guard pin above uses.
+#     NON-VACUITY GUARD (else the absence assertion fails OPEN): if the
+#     `### 1.6 Issue-Claim Audit` heading ever drifts, the awk pattern matches
+#     nothing, the slice is EMPTY, and `pin_count … == 0` would pass vacuously —
+#     silently retiring the guard. So first assert the slice positively captured the
+#     region (the heading present once, and a known clean-arm `--note` line present),
+#     making the "count 0" a proven delta over a non-empty slice, not an absolute
+#     over a possibly-empty input (issue #476 review; same discipline as commit
+#     7f7161a's absence-pin non-vacuity proof).
+P1_16_SLICE="$(probe_tmp "#476: slice §1.6 for the clean-arm-reflection absence pin")"
+awk '/^### 1\.6 Issue-Claim Audit/{f=1} f' "$P1_FILE" > "$P1_16_SLICE"
+assert_eq "#476: §1.6 slice non-vacuity — the audit heading was captured (slice is not empty)" "1" \
+  "$(pin_count '### 1.6 Issue-Claim Audit' "$P1_16_SLICE")"
+assert_eq "#476: §1.6 slice non-vacuity — a clean-arm --note line is present in the slice" "1" \
+  "$(pin_count '--note "issue-claim audit (count): no count or enumeration claims found' "$P1_16_SLICE")"
+assert_eq "#476: §1.6 has no clean-arm --reflection-kind note (clean confirmations route to --note)" "0" \
+  "$(pin_count '--reflection-kind note' "$P1_16_SLICE")"
+rm -f "$P1_16_SLICE"
+# (b) The issue-accuracy finding arms — Pass 1 counts-differ and Pass 2
+#     wrong-exclusion (both are feedback that the issue's own claim was wrong).
+assert_pin_unique "#476: Pass 1 counts-differ arm records via --reflection-kind issue-accuracy" \
+  '--reflection-kind issue-accuracy --reflection "issue-claim audit (count):' "$P1_FILE"
+assert_pin_unique "#476: Pass 2 wrong-exclusion arm records via --reflection-kind issue-accuracy" \
+  '--reflection-kind issue-accuracy --reflection "issue-claim audit (negative-scope): issue excluded' "$P1_FILE"
+# (c) A representative clean arm records via --note (the counts-match arm; distinct
+#     from the counts-differ issue-accuracy arm above, so it proves the split landed).
+assert_pin_unique "#476: Pass 1 counts-match arm records a clean confirmation via --note" \
+  '--note "issue-claim audit (count): claimed '"'"'{N} X'"'"', verified '"'"'{M}'"'"' at HEAD"' "$P1_FILE"
 # ── #350 review fixes: re-key the deferral on CREDENTIAL CAPABILITY, and make the
 # signal observable + the guard complete. Coupled sites for this ONE change:
 #   (1) phase-1 Pass 5 + phase-2 2.2.5/2.5 prose (keyed on cloud AND DEVFLOW_APP_ID empty),
@@ -10107,7 +10370,11 @@ esac
 STUB
 chmod +x "$F126/gh"
 
-# Grouped shape: four kind bullets across two ### sub-sections.
+# Grouped shape: kind bullets across all three ### sub-sections (issue #476
+# added the ### 💡 Improvements section, the glyph-only `note` render, and the
+# labeled `issue-accuracy` kind). The glyph-only `- ℹ️ …` note and `- 💡 …`
+# improvement bullets exercise the shape-agnostic parser capturing a label-less
+# bullet identically to a labeled one.
 cat > "$F126/workpad-grouped.md" <<'WPMD'
 <!-- devflow:workpad -->
 # DevFlow Workpad — Issue #901
@@ -10126,19 +10393,32 @@ cat > "$F126/workpad-grouped.md" <<'WPMD'
 - ⏭️ **Deferred:** part X to follow-up
 - ❗ **Dropped/Failed:** manifest group dropped
 
+### 💡 Improvements
+- 💡 hoist the shared resolver
+
 ### ℹ️ Notes
-- ℹ️ **Note:** subagent retried once
+- 📝 **Issue accuracy:** the issue claimed 5 skills; there are 6
+- ℹ️ subagent retried once
 </details>
 WPMD
 jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-06-01T10:00:00Z"}]' < "$F126/workpad-grouped.md" > "$F126/issuecomments.json"
 F126_OUT="$(DEVFLOW_FX="$F126" DEVFLOW_GH="$F126/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
 F126_CTX="$(cat "$F126_OUT")"
-assert_eq "#126 fetch: grouped shape → 4 kind bullets captured (### sub-headings excluded)" "4" \
+assert_eq "#126 fetch: grouped shape → 6 kind bullets captured (### sub-headings excluded)" "6" \
   "$(jq '.reflections | length' <<<"$F126_CTX")"
 assert_eq "#126 fetch: no captured reflection is a ### sub-heading" "0" \
   "$(jq -r '.reflections[]' <<<"$F126_CTX" | grep -c '^###')"
 assert_eq "#126 fetch: first bullet keeps its glyph+label prefix intact" '⛔ **Blocked:** could not reproduce' \
   "$(jq -r '.reflections[0]' <<<"$F126_CTX")"
+# #476: a glyph-only note bullet (label dropped) is captured verbatim, and a
+# glyph-only improvement bullet under ### 💡 Improvements is captured too — the
+# parser is shape-agnostic to the missing bold label.
+assert_eq "#476 fetch: glyph-only note bullet captured verbatim (no **Note:** label)" "1" \
+  "$(jq -r '.reflections[]' <<<"$F126_CTX" | grep -cF 'ℹ️ subagent retried once')"
+assert_eq "#476 fetch: glyph-only improvement bullet captured verbatim" "1" \
+  "$(jq -r '.reflections[]' <<<"$F126_CTX" | grep -cF '💡 hoist the shared resolver')"
+assert_eq "#476 fetch: labeled issue-accuracy bullet captured verbatim" "1" \
+  "$(jq -r '.reflections[]' <<<"$F126_CTX" | grep -cF '📝 **Issue accuracy:** the issue claimed 5 skills; there are 6')"
 assert_eq "#126 gate: grouped shape with ≥1 bullet → clean=false (forces analysis)" "false" \
   "$(jq -c -f "$LIB/cheap-gate.jq" < "$F126_OUT" | jq -r .clean)"
 
@@ -10183,19 +10463,24 @@ assert_eq "#126 gate: empty reflection section → reflections == [] → clean=t
   "$(jq -c -f "$LIB/cheap-gate.jq" < "$F126_OUT3" | jq -r .clean)"
 rm -rf "$F126"
 
-# SKILL.md call-site pin: every line that uses the executable `--reflection `
-# flag must carry a --reflection-kind on that SAME line (the AC: every call-site
-# passes the matching kind). Exclude lines that mention the flag without invoking
-# it — the markdown doc-table row (content starts with `|`) and prose comment
-# lines (content starts with `#`). REFL_UNKINDED holds any offending call-site;
-# the assert demands it be empty. This actually enforces the AC — the old
-# `--reflection-kind count >= 1` check passed as long as ONE kind appeared
-# anywhere, so a new --reflection call-site added without a kind (silently
-# degrading to the `note` default) would have slipped through.
-# issue #218: grep the BUNDLE, not the thin orchestrator — most --reflection call-sites
-# moved into the phase files, so checking SKILL.md alone would silently under-cover
-# (this coverage guard would pass vacuously on the call-sites it must police).
-REFL_UNKINDED="$(grep -n -- '--reflection ' "$IMPL_SKILL_BUNDLE" \
+# SKILL.md call-site pin: every line that uses the executable `--reflection ` OR
+# `--reflection-file ` flag must carry a --reflection-kind on that SAME line (the
+# AC: every call-site passes the matching kind). issue #476 extends the pattern to
+# `--reflection-file` — its bullet is filed under the call's --reflection-kind
+# exactly like --reflection, so a --reflection-file call-site without a kind would
+# silently degrade to the `note` default just the same. The `--reflection(-file)? `
+# ERE matches an invocation of either flag (a trailing space is required, so a
+# backtick-wrapped prose mention like `--reflection-file` without an argument does
+# NOT match, and `--reflection-kind` — `-kind`, no space — is never matched).
+# Exclude lines that mention a flag without invoking it — the markdown doc-table row
+# (content starts with `|`) and prose comment lines (content starts with `#`).
+# REFL_UNKINDED holds any offending call-site; the assert demands it be empty. This
+# actually enforces the AC — the old `--reflection-kind count >= 1` check passed as
+# long as ONE kind appeared anywhere, so a new call-site added without a kind
+# (silently degrading to the `note` default) would have slipped through.
+# issue #218: grep the BUNDLE, not the thin orchestrator — most call-sites moved
+# into the phase files, so checking SKILL.md alone would silently under-cover.
+REFL_UNKINDED="$(grep -nE -- '--reflection(-file)? ' "$IMPL_SKILL_BUNDLE" \
   | grep -vE '^[0-9]*:[[:space:]]*[|#]' \
   | grep -v -- '--reflection-kind' || true)"
 assert_eq "#126 pin: workpad.py documents the --reflection-kind flag" "yes" \
@@ -10204,6 +10489,27 @@ assert_eq "#126 pin: every --reflection call-site in the implement skill carries
   "$REFL_UNKINDED"
 assert_eq "#126 pin: docs describe the grouped reflection structure + --reflection-kind" "yes" \
   "$(grep -q -- '--reflection-kind' "$LIB/../docs/implement-skill.md" && grep -q -- '--reflection-kind' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
+
+# ── issue #476: reflection style contract + interpolation-safe file-based recipe ──
+# The implement bundle gains (a) a reflection style contract (one plain-language
+# lead sentence, one topic per bullet, files-by-path, no invented shorthand),
+# (b) the "Surfacing failures" routing sentence updated to the six-kind set plus
+# the clean-confirmations-are-Progress-notes rule, and (c) the file-based
+# call-site recipe with its safety rules (delete-after-success, and a
+# terminal-status call never carries --reflection-file). Pin each so a trim can't
+# silently drop the guidance the AC mandates.
+assert_pin_unique "#476: SKILL bundle carries the reflection style-contract lead-sentence rule" \
+  'Lead with one plain-language sentence' "$IMPL_SKILL"
+assert_pin_unique "#476: Surfacing-failures routing sentence states clean confirmations are Progress notes, not reflections" \
+  'A **clean confirmation** — an assumption that held with no friction — is **not** a reflection' "$IMPL_SKILL"
+assert_pin_unique "#476: file-based recipe mandates deleting the payload file after the helper call succeeds" \
+  'delete the payload file after the helper call succeeds' "$IMPL_SKILL"
+assert_pin_unique "#476: file-based recipe: a terminal-status call never carries --reflection-file" \
+  'A terminal-status call never carries `--reflection-file`' "$IMPL_SKILL"
+# Phase 4.3 clean-tree backstop classifies leftover .devflow/tmp/ reflection-payload
+# files as run-transient (delete, never commit) for plugin-only adopters.
+assert_pin_unique "#476: Phase 4.3 clean-tree backstop classifies leftover .devflow/tmp/ reflection payloads as run-transient" \
+  'reflection-payload file' "$IMPL_PHASES_DIR/phase-4-documentation.md"
 
 # ── SKILL.md / config contract pins (grep) ───────────────────────────────────
 # ── #242: create-issue clarification step is portable across runners' user-question tools ──
