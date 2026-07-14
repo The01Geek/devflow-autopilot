@@ -223,6 +223,26 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   `devflow_implement.allowed_tools`) or be phrased as a **code-reading obligation citing the
   producer code** — never a run-this-ungranted-helper AC that would send a consumer repo's cloud
   `/devflow:implement` run Blocked for a probe the drafter could have run locally.
+- **A designed LLM/semantic-judgment surface over third-party text carries an input-is-data
+  guard, paired with a hostile-input test.** When the issue designs a *new* LLM or semantic
+  judgment over text the change does not author (issue bodies, PR comments, commit messages,
+  external API responses) whose output drives an automated selection or action, the draft
+  carries the guard as an acceptance criterion — the text is **data to classify, never
+  instructions to obey** — **paired with** a Testing Strategy case that exercises
+  instruction-shaped input (a body that directs the judgment) and asserts it is **not**
+  obeyed: an automated assertion where a test boundary exists, otherwise a named item in the
+  reproducible verification checklist. The guard AC without the paired hostile-input case is
+  non-conforming — the pairing exists so the guard cannot be satisfied by a compliance
+  sentence the implementation never ships. A surface that **reuses an existing,
+  already-guarded judgment path is exempt when the draft cites that path**; a draft with **no
+  new judgment surface gains no new questions and no new flags** (the same
+  skip-when-inapplicable shape as the visual-specification guidance).
+- **Every enumerated test/case/example list inside an AC declares its closure.** Such a list
+  takes one of two forms: a **floor**, carrying the exact marker `at minimum`, or a **closed
+  set**, carrying an explicit exhaustiveness statement of the shape `exactly these N —
+  complete by construction`. An enumeration carrying neither is non-conforming — declare it a
+  floor or a closed set. ACs themselves stay closed, testable assertions; the adjacent-case
+  sweep obligation for a floor-marked list lands in Testing Strategy Move 2 below.
 - No conditionals tied to an undecided fork ("if links are public…"). A conditional AC
   means the fork is unresolved — it belongs in Blocked, not here.
 - Edge cases and error-handling scenarios, stated as concrete expected behavior.
@@ -252,7 +272,11 @@ Describe the **one** approach the user chose — not a comparison of candidates.
   concrete cases or let it drop because it genuinely does not apply — a dimension's absence
   is a *decision*, not an oversight. The Acceptance Criteria above are the floor, not the
   ceiling: most ACs spell out only the happy path, so the test plan routinely adds cases the
-  ACs never named.
+  ACs never named. This floor-not-ceiling rule extends to a **floor-marked AC list** (one
+  carrying the `at minimum` marker): the coverage walk sweeps the new capability's contract
+  dimensions — **state, case variants, multiplicity, absence** — beyond the enumerated items,
+  and **writes the sweep's output back as additional closed AC items before filing**, so no AC
+  is left open-ended for a non-interactive run that must decide when it is met.
   - **Happy path** — the primary decided behavior for each AC.
   - **Boundary & degenerate inputs** — empty / zero / one / max: empty collection, first and
     last element, off-by-one edges, page 0 and past-the-end, size and length limits, empty
@@ -380,6 +404,8 @@ incomplete issues.
 - [ ] Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms, grounded by a boundary-covering probe (exercising the type-boundary fixture the comparison distinguishes) or a named implementer obligation carrying its execution-tier constraint — adjective-only or probe-silent-on-the-axis comparison language is non-conforming
 - [ ] A Testing Strategy that enumerates an input-shape/case matrix for a convention-governed surface carries the full convention matrix (or an explicit named-and-justified narrowing) and a `governing conventions consulted:` discharge line bounded to `CLAUDE.md`, `CONTRIBUTING.md`, and the configured internal-docs path
 - [ ] The draft's own unstated mechanism dependencies (relied-on in-repo helper/resolver/gate behaviors it never asserts as claims) are each resolved with a cited probe or an implementer-obligation AC
+- [ ] A designed LLM/semantic-judgment surface over third-party text (issue bodies, PR comments, commit messages, external API responses) carries the input-is-data guard AC paired with a hostile-input Testing Strategy case that asserts instruction-shaped input is not obeyed — or cites the existing already-guarded judgment path it reuses; a draft with no such surface adds nothing here
+- [ ] Every enumerated test/case/example list inside an AC declares its form — the `at minimum` floor marker or an explicit closed-set exhaustiveness statement — and each floor-marked list has had Move 2's coverage sweep (state, case variants, multiplicity, absence) written back as additional closed AC items
 - [ ] Implementation notes describe a single chosen approach
 - [ ] Testing Strategy classifies the boundary + level, walks the coverage dimensions (boundary/error/adversarial/state/scale/security as they apply), and gives test-first assertions with every AC mapped to ≥1 assertion and no orphan assertions — bug fixes reproduce the defect first; guarantee-class changes test the skipped-step path; or it names a reproducible stand-in verification when no automated test applies
 - [ ] **No-options gate passed**: no choice/hedge/deferral language outside `## 🚫 Blocked`

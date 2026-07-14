@@ -49,3 +49,14 @@ subagent. Judge the draft against each of these, in addition to the generic dime
   names a command already granted in **`devflow_implement.allowed_tools`** (or is a code-reading
   obligation citing the producer), never one that would send a consumer's cloud implement run
   Blocked on an ungranted helper.
+- **Mutation evidence for behavioral-fix pins (issue #464).** A Testing Strategy that commits to
+  a **behavioral-fix / regression pin** — one added *specifically because* removing the pinned
+  text would re-introduce a **named** bug or regression (a coupled-invariant pin, the operative
+  qualifier of a sweep rule, a regression guard), per `CLAUDE.md`'s behavioral-fix-pin rule and
+  `skills/implement/phases/phase-2-implement.md` §2.3 — must carry the `assert_pin_red_under`
+  mutation-evidence obligation: a `sed -E` mutation that re-introduces the named bug by removing
+  only the operative sentence, with the pin observed RED under it. The auditor flags such a pin
+  plan that states no mutation obligation. **Surface-presence contract pins** — a plain
+  `assert_pin_unique` on new prose whose removal breaks no behavioral guarantee — are explicitly
+  **outside this dimension's scope** and carry no mutation obligation, matching the suite's own
+  precedent (this very issue's prose pins are that class).
