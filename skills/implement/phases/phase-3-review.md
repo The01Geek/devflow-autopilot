@@ -45,19 +45,34 @@ EOF
 gh pr create --base "$BASE" --draft --title "{issue title}" --body "$BODY"
 ```
 
-Then populate the workpad's `PR` link from the freshly-created draft PR:
+Then populate the workpad's `PR` link from the freshly-created draft PR, and **print the PR number** — you need it as a literal in the label call below, and a shell variable does not survive into a later separate command on the cloud runner:
 ```bash
 PR_URL=$(gh pr view --json url --jq '.url')
 PR_NUM=$(gh pr view --json number --jq '.number')
 workpad.py update $ISSUE_NUMBER --pr-link "[#$PR_NUM]($PR_URL)"
+echo "draft PR number: [$PR_NUM]"
 ```
 
-Then stamp the reserved `DevFlow` **provenance** label on the PR (best-effort). `DevFlow` is a hardcoded provenance constant (no config key controls it) — it is the branch-naming-independent signal the weekly retrospective uses to detect DevFlow-authored PRs. Apply it through the shared REST label-apply helper after creation (a PR is an issue, so the same `POST .../issues/{n}/labels` endpoint serves it) so a label hiccup can never block the run:
+Then stamp the reserved `DevFlow` **provenance** label on the PR (best-effort). `DevFlow` is a hardcoded provenance constant (no config key controls it) — it is the branch-naming-independent signal the weekly retrospective uses to detect DevFlow-authored PRs. Apply it through the shared REST label-apply helper after creation (a PR is an issue, so the same `POST .../issues/{n}/labels` endpoint serves it) so a label hiccup can never block the run.
+
+**Cloud-emission discipline (label helpers): emit each call as a single leading-token statement, and substitute the PR number as a LITERAL — see the *Cloud command-shape discipline* section in `skills/implement/SKILL.md`.** Two rules bind here, both learned from the silent-denial defect (#450/#455): the label helpers must never be wrapped in a shell loop or an output capture (probe rows I4/I5/I6), and `$PR_NUM` — set in the *previous* fence — **does not survive into this separate command**, so passing it as a variable applies the label to **no issue at all**: the helper sees an empty number, refuses at its arg-slip guard, and breadcrumbs `got a non-numeric issue/PR number ''` (unquoted, the empty expansion word-splits away and the *label* is swallowed as the number instead — same refusal). Nothing is ever applied to issue `""`, but nothing is applied to the PR either, and the provenance label is silently lost unless you read that breadcrumb. Read the printed `draft PR number` and substitute the digits:
+**Two exits before the apply.** If **no `draft PR number` line was printed at all**, the fence was refused, not answered (the `VAR=$(gh pr view …)` capture is an unproven shape on this tier) — do **not** read it as "empty": record it and apply nothing, noting the workpad `PR` link written in that same refused fence may also be unset — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 3.1: the draft-PR-number fence produced no output at all (likely a harness denial); the PR carries no DevFlow label and the workpad PR link may be unset."` If the line printed but is **empty**, the PR number could not be resolved: record it durably and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 3.1 could not resolve the draft PR number to apply the DevFlow provenance label; the PR carries no DevFlow label, so the retrospective's label-first detection will not see this run."`
+
+This is **two separate calls**, not one fence split for readability: each helper path must really be its own command's leading token, so they are emitted as two distinct Bash invocations (the three phase-4 label channels do the same). Never merge them into one fence, and never chain them with `&&` or `;` — the second head would no longer lead its command.
+
+**Call 1 — ensure the `DevFlow` label exists in the repo** (idempotent; creates it if absent):
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh DevFlow
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh "$PR_NUM" DevFlow
 ```
-Both helpers always exit 0 and need only the `repo` scope: `ensure-label.sh` logs whether the label was created / present / hit a `gh` error, and `apply-labels.sh` applies via REST `POST .../issues/{n}/labels` (not `gh pr edit --add-label`, which resolves the repo via org-scoped GraphQL and fails under a repo-scoped token), logging its own breadcrumb on failure — continue regardless of the label outcome.
+
+**Call 2 — apply it to the draft PR**, substituting the digits of the `draft PR number` printed above for `<draft-pr-number>` (a literal, never `$PR_NUM` — see the discipline note above):
+```bash
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh <draft-pr-number> DevFlow
+```
+
+Both helpers always exit 0 and need only the `repo` scope: `ensure-label.sh` always breadcrumbs — created / present / a `gh` error — so **no output at all from it means the harness refused it**; record that (`--reflection-kind dropped-failed`) and continue, and `apply-labels.sh` applies via REST `POST .../issues/{n}/labels` (not `gh pr edit --add-label`, which resolves the repo via org-scoped GraphQL and fails under a repo-scoped token).
+
+**Route on the apply's stderr — all four outcomes, not just the failure one.** `apply-labels.sh` **always** breadcrumbs on **every path it can take**, so a harness refusal is its ONLY silent outcome: `devflow: applied label(s) 'DevFlow' to #N` on success; `devflow: warning: could not apply …` on an API failure; `devflow: warning: apply-labels.sh got a non-numeric issue/PR number …` (or `… got no label content …`) on a **caller arg-slip** — the breadcrumb says outright that it is *not* a harness denial, and it is the shape a `$PR_NUM` that did not survive into this command produces, so re-emit the call once with the printed digits substituted as a literal before recording anything; and **no output at all when the harness refuses the command** (a denied command prints nothing — which is why the helper breadcrumbs on every other path: otherwise "applied", "denied" and an empty label list would be indistinguishable). The run continues regardless of the label outcome, but a non-success must not vanish: `DevFlow` is the hardcoded provenance constant the weekly retrospective's label-first detection matches, so a silently-dropped provenance label makes this whole run invisible to the retrospective loop. On a surviving warning line **or no output at all**, record it durably, naming which outcome it was: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 3.1 could not apply the DevFlow provenance label to the draft PR — the apply reported an API failure or a caller arg-slip, or produced no output at all (a harness denial); the PR carries no DevFlow label, so the retrospective's label-first detection will not see this run."`
 
 ### 3.2 Self-Review with /simplify
 

@@ -240,8 +240,35 @@ def _strip_case_patterns(block: str) -> str:
 
 
 def _join_continuations(block: str) -> str:
-    """Fold `\\`-continued lines into one logical line before any splitting."""
-    return re.sub(r"\\\n[ \t]*", " ", block)
+    """Fold `\\`-continued lines into one logical line before any splitting.
+
+    The backslash-newline pair is REMOVED, not replaced by a space — that is the shell's
+    own rule, and the difference is load-bearing, not cosmetic. A continuation may split a
+    line MID-TOKEN (`…/apply\\<newline>-labels.sh 1 X` is one word to the shell), and a
+    space-join reconstructs it as two words (`apply -labels.sh`) — a token that matches no
+    helper-name literal. Every name-literal rule downstream (the #363 head grants, the #455
+    implement-tier label rules) then reads a helper that is not there and ships the denied
+    shape GREEN (the #480 review). Token separation is preserved without the space: the shell
+    keeps whatever whitespace precedes the backslash and follows the newline, so
+    `cmd \\<newline>    --flag` still joins to `cmd     --flag` (two tokens), while
+    `cmd\\<newline>--flag` joins to `cmd--flag` — as bash reads them.
+
+    NON-GOALS (disclosed, so the joiner's accepted set is not mistaken for the shell's):
+    it tracks neither QUOTE STATE nor ESCAPED BACKSLASHES, so a `\\`+newline inside single
+    quotes (which the shell keeps literally, not as a continuation) and a line-final `\\\\`
+    (an escaped literal backslash, which ENDS the command — the next line is a new one) are
+    both folded anyway. Both are pre-existing limits of this textual join and no fence writes
+    either shape, but the consequence differs by rule and must not be overstated:
+
+    * The #455 label rules NAME-SEARCH the joined span, so they still see a helper on the
+      swallowed line — over-joining cannot hide it from them.
+    * The #363 HEAD extractor does NOT: a line-final `\\\\` folds the following command into
+      the previous line as an argument, so that command's head is dropped from the head set
+      entirely and an ungranted head there would ship green. This is the one direction in
+      which over-joining loses a signal, and it is why the shape is called out rather than
+      waved through. A guard must not lie about what it accepts (the #480 review).
+    """
+    return re.sub(r"\\\n", "", block)
 
 
 def _split_statements(text: str) -> list[str]:
