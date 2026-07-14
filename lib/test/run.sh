@@ -7196,8 +7196,8 @@ assert_pin_unique "#377 w3-triage-carveout-intact: §3.2 #193 stale-AC carve-out
 # verify half of a fix-authoring test-first gate; Step 3 gains the gate itself and Step 4.5 gains
 # one defining clause. Every rewritten/new operative sentence is pinned through assert_pin_red_under
 # (default file $MAXI_SKILL = skills/review-and-fix/SKILL.md). The retained #377 Wave-3 pins
-# (frequency / delta-scope / trigger-gating / umbrella / evidence-routing / finding-disposition /
-# operative-umbrella) stay above; the obsolete per-sweep-reference and negative-tail pins were
+# (operative / frequency / delta-scope / trigger-gating / gate-umbrella / evidence-routing /
+# finding-disposition) stay above; the obsolete per-sweep-reference and negative-tail pins were
 # removed with the enumeration.
 P478_P2="$IMPL_PHASES_DIR/phase-2-implement.md"
 
@@ -7209,6 +7209,12 @@ assert_pin_red_under "#478 AC1 re-anchor: item 3b runs every Phase 2.3 sweep the
 assert_pin_red_under "#478 AC1 no-subset: item 3b carries no hand-enumerated sweep subset" \
   'no hand-enumerated sweep subset' \
   's/no hand-enumerated sweep subset//'
+# AC1 auditability (#478 Phase-3 review): the re-anchor's selection-note obligation is what makes it
+# checkable by a reviewer/retrospective. Deleting it silently removes the audit trail while the
+# re-anchor pins above stay green — so pin the recording obligation.
+assert_pin_red_under "#478 AC1 selection-note: item 3b records the classified diff shape and the sweeps it is running" \
+  'Record the diff shape you classified and the sweeps you are running' \
+  's/Record the diff shape you classified and the sweeps you are running//'
 # AC1/AC12 — the "Sweep selection (run first)" heading literal is a CROSS-FILE coupled pair: item 3b
 # cites it, phase-2-implement.md carries it. Pin both, so a heading rename that would orphan 3b's
 # pointer goes RED at whichever site still carries the old literal.
@@ -7217,7 +7223,8 @@ assert_pin_unique "#478 AC12 heading pair (SKILL): item 3b cites the Sweep selec
 assert_pin_unique "#478 AC12 heading pair (phase-2): the Sweep selection (run first) preamble exists to cite" \
   'Sweep selection (run first)' "$P478_P2"
 
-# AC2 — the durable-operand read protocol. Four operative clauses on the read-protocol paragraph.
+# AC2 — the durable-operand read protocol. Five operative clauses on the read-protocol paragraph
+# (four read-protocol clauses + the unreadable-source degradation arm).
 assert_pin_red_under "#478 AC2 read-protocol: item 3b records a sweep_defs_read list on the first fix-applying iteration" \
   'the source path plus the sweep identifiers read' \
   's/the source path plus the sweep identifiers read//'
@@ -7246,6 +7253,14 @@ assert_pin_red_under "#478 AC8 command-forms: the Grep tool first, ignore-aware"
 assert_pin_red_under "#478 AC8 command-forms: match-count evidence is over tracked/non-ignored files" \
   'tracked/non-ignored files' \
   's#tracked/non-ignored files##'
+# AC8 crux (#478 Phase-3 review): the load-bearing negative of the command-forms paragraph — that
+# git grep -n is ungranted in both cloud allowlists — is carried by the "never git grep -n"
+# prohibition, which no pin above guards. A mutation flipping it back to "use git grep -n" would
+# leave every AC8 pin green while re-instating the exact ungranted-command silent-denial the
+# paragraph exists to prevent. Pin the prohibition so its removal goes RED.
+assert_pin_red_under "#478 AC8 command-forms: the paragraph forbids git grep -n (ungranted in both cloud allowlists)" \
+  'never `git grep -n`' \
+  's/never `git grep -n`//'
 
 # AC9 — termination + inner-path narrowing.
 assert_pin_red_under "#478 AC9 termination: a fold-in is not re-swept within the same 3b pass" \
@@ -7262,6 +7277,19 @@ assert_pin_red_under "#478 AC6 test-first: Step 3 writes the test first for a fi
 assert_pin_red_under "#478 AC6 verify-half: item 3b verifies the gate's durable gate-time record is present" \
   'durable gate-time record is present' \
   's/durable gate-time record is present//'
+# AC6 producer (#478 Phase-3 review): the verify-half above is one side of a coupled pair — the
+# Step-3 gate must PRODUCE the durable record it verifies. Pin the producer clause so deleting it
+# (leaving a verify-with-no-producer contradiction) goes RED.
+assert_pin_red_under "#478 AC6 gate-time producer: Step 3 records the gate's call durably at gate time" \
+  'call durably at gate time' \
+  's/call durably at gate time//'
+# AC7 no-automated-test arm (#478 Phase-3 review): the operative constraint is that the fixer runs
+# the dry-trace itself and does NOT delegate it to the blinded Step 3.5 gate (which would defeat the
+# gate's independence). The dry-trace pin below covers only the positive action, not this
+# anti-delegation constraint — pin it so permitting delegation to Step 3.5 goes RED.
+assert_pin_red_under "#478 AC7 no-automated-test arm: the fixer does not hand the dry-trace to Step 3.5" \
+  'does not hand the obligation to Step 3.5' \
+  's/does not hand the obligation to Step 3.5//'
 assert_pin_red_under "#478 AC7 degraded-arm: a permission-denied test records gate: unrunnable (command ungranted on this tier)" \
   'gate: unrunnable (command ungranted on this tier)' \
   '/command ungranted on this tier/d'
@@ -7279,16 +7307,36 @@ assert_pin_red_under "#478 no-automated-test arm: the fixer executes the Phase-2
 assert_pin_red_under "#478 AC10 step-4.5 clause: a code-shaped 3b fold-in is a severity-calibrated fix_decisions entry with the sweep as its source" \
   'with the sweep as its source' \
   's/with the sweep as its source//'
+# AC10 tally mechanism (#478 Phase-3 review): the source-attribution pin above guards the "sweep as
+# its source" tail, not the load-bearing behavior — that the recorded grade then TALLIES toward the
+# convergence conditions. Pin the tally clause so dropping the "tallies under conditions" mechanism
+# (while keeping the attribution) goes RED.
+assert_pin_red_under "#478 AC10 step-4.5 clause: the recorded grade tallies under the convergence conditions" \
+  'grade then tallies under conditions' \
+  's/grade then tallies under conditions//'
 
 # AC5 — routing-marker drift lint, driven from here with BOTH arms. Each closed-vocab marker present
 # in the §2.3 sweep bodies (phase-2-implement.md, "Sweep selection" preamble through "### 2.4 Test")
 # must have a mapping-table row in item 3b (skills/review-and-fix/SKILL.md, between the BEGIN/END
 # fix-loop mapping table anchors). The lint echoes GREEN when every present marker is mapped, RED
-# when one is not. GREEN arm: the real files. RED arm: a scratch SKILL copy with the
-# '## Devflow Reflection' mapping row deleted while the marker stays in the sweep bodies → RED.
+# when one is not. GREEN arm: the real files. RED arm: a scratch SKILL copy with every
+# '## Devflow Reflection' line stripped (including its mapping-table row) while the marker stays in
+# the sweep bodies → RED.
 P478_MARKERS=( 'workpad.py' '$ISSUE_NUMBER' 'Phase 3.4' 'Phase 4.1' '(post-merge)' '--rewrite-ac' '## Devflow Reflection' 'lib/test/run.sh' )
 p478_sweep_bodies() { awk '/Sweep selection/{f=1} /### 2.4 Test/{f=0} f' "$1"; }
-p478_maptable()     { awk '/BEGIN fix-loop mapping table/{f=1} /END fix-loop mapping table/{f=0} f' "$1"; }
+# p478_maptable is FAIL-CLOSED on its END anchor (#478 Phase-3 review): it buffers the BEGIN..END
+# region and emits it ONLY once the matching END anchor is seen. A renamed/removed END anchor yields
+# EMPTY output (the region never closes) rather than a run-to-EOF over-wide table — so the routing
+# lint's markers all read unmapped -> RED -> the GREEN-arm assert fails LOUD, instead of silently
+# widening the table region to the rest of SKILL.md where a marker recurring below BEGIN could mask
+# a genuine dropped-row drift. (The BEGIN side was already fail-loud: no BEGIN -> empty table -> RED.)
+p478_maptable() {
+  awk '
+    /BEGIN fix-loop mapping table/ { f=1; buf=""; next }
+    /END fix-loop mapping table/   { if (f) printf "%s", buf; f=0; next }
+    f { buf = buf $0 "\n" }
+  ' "$1"
+}
 p478_routing_lint() {  # skill_file phase2_file -> echoes GREEN or RED
   local bodies table mk
   bodies="$(p478_sweep_bodies "$2")"
@@ -7312,14 +7360,25 @@ done
 # GREEN arm: item 3b's mapping table maps every marker present in the sweep bodies.
 assert_eq "#478 AC5 routing lint GREEN: item 3b maps every marker present in the §2.3 sweep bodies" \
   "GREEN" "$(p478_routing_lint "$MAXI_SKILL" "$P478_P2")"
-# RED arm: delete the '## Devflow Reflection' mapping row from a scratch SKILL copy (marker stays in
-# the sweep bodies) → the lint must flip GREEN->RED. This is the AC5 mutation the lint's own coverage
-# requires (a deleted mapping-table row while its marker remains in the sweep bodies turns the desk RED).
+# RED arm: strip every '## Devflow Reflection' line (including the mapping-table row) from a scratch
+# SKILL copy while the marker stays in the sweep bodies → the lint must flip GREEN->RED. Only the
+# mapping-table row matters to the lint (it reads the BEGIN/END span), so removing that row is what
+# flips it; this is the AC5 mutation the lint's own coverage requires (a mapping-table row gone while
+# its marker remains in the sweep bodies turns the desk RED).
 P478_MUT="$(probe_tmp '#478 AC5 routing lint RED-arm setup')"
 grep -vF -- '## Devflow Reflection' "$MAXI_SKILL" > "$P478_MUT"
 assert_eq "#478 AC5 routing lint RED: deleting a mapping-table row while its marker stays in the sweep bodies flips the lint RED" \
   "RED" "$(p478_routing_lint "$P478_MUT" "$P478_P2")"
 rm -f "$P478_MUT"
+# Fail-closed boundary arm (#478 Phase-3 review): a scratch SKILL copy with the END anchor line
+# removed makes p478_maptable emit nothing (the buffered region never closes), so every marker reads
+# unmapped -> RED. This proves the routing lint's own END boundary fails LOUD on a rename/removal
+# rather than silently widening the table region to EOF and masking a real drift.
+P478_MUT_END="$(probe_tmp '#478 maptable END-anchor fail-closed setup')"
+grep -vF -- 'END fix-loop mapping table' "$MAXI_SKILL" > "$P478_MUT_END"
+assert_eq "#478 maptable END-anchor fail-closed: removing the END anchor flips the routing lint RED (no silent widen to EOF)" \
+  "RED" "$(p478_routing_lint "$P478_MUT_END" "$P478_P2")"
+rm -f "$P478_MUT_END"
 
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
