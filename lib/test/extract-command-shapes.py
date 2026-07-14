@@ -206,14 +206,22 @@ def _leading_substitution_split(value: str):
     return (False, "")
 
 
-def _assignment_violation(statement: str) -> bool:
-    raw = statement.strip()
-    # Strip leading control words so `elif WP=$(cmd)` reads as its `WP=$(cmd)` capture.
+def _strip_control(raw: str) -> str:
+    """Iteratively strip leading control words (`if`/`elif`/`!`/…) so a wrapped
+    `VAR=$(cmd)` capture reads as its bare assignment. Shared by the review-tier
+    `_assignment_violation` and the implement-tier `_label_capture_violation` so the
+    two never drift."""
     while True:
         stripped = _CONTROL_PREFIX.sub("", raw, count=1)
         if stripped == raw:
-            break
+            return raw
         raw = stripped.lstrip()
+
+
+def _assignment_violation(statement: str) -> bool:
+    raw = statement.strip()
+    # Strip leading control words so `elif WP=$(cmd)` reads as its `WP=$(cmd)` capture.
+    raw = _strip_control(raw)
     lead = re.match(r"^([A-Za-z_][A-Za-z0-9_]*=)(.*)$", raw, re.S)
     if not lead:
         return False
@@ -347,6 +355,22 @@ def _fence_line_offsets(text: str) -> list[tuple[int, str]]:
     return blocks
 
 
+def _attribute_line(statement: str, start: int, block_line_count: int,
+                    lines: list[str]) -> int:
+    """Best-effort line attribution: the source line of the statement's first line-
+    fragment found verbatim in the fence's source lines, else the fence start. Shared
+    by `find_violations` and `find_implement_violations` so the two profiles'
+    attribution cannot drift."""
+    probe = statement.strip().split("\n", 1)[0][:40]
+    for off in range(block_line_count):
+        src_idx = start - 1 + off
+        if src_idx >= len(lines):
+            break
+        if probe and probe in lines[src_idx]:
+            return start + off
+    return start
+
+
 def find_violations(text: str) -> list[tuple[int, str, str]]:
     """Every (approx line, rule, statement) denied-shape hit in the file's fences."""
     lines = text.splitlines()
@@ -356,18 +380,7 @@ def find_violations(text: str) -> list[tuple[int, str, str]]:
             rules = classify(statement)
             if not rules:
                 continue
-            # Best-effort line attribution: find the statement's first source-line
-            # fragment verbatim in the fence's source lines.
-            probe = statement.strip().split("\n", 1)[0][:40]
-            lineno = start
-            block_len = len(block.split("\n"))
-            for off in range(block_len):
-                src_idx = start - 1 + off
-                if src_idx >= len(lines):
-                    break
-                if probe and probe in lines[src_idx]:
-                    lineno = start + off
-                    break
+            lineno = _attribute_line(statement, start, len(block.split("\n")), lines)
             for rule in rules:
                 hits.append((lineno, rule, statement.strip()))
     return hits
@@ -400,12 +413,7 @@ def _label_capture_violation(statement: str) -> bool:
     """IR3: a `VAR=$(…)` / `VAR="$(…)"` capture whose substitution invokes a label
     helper (probe row I6 — the old `LBL_ERR="$(apply-labels.sh … 2>&1)"`). A capture
     of any other command is NOT this shape (the matcher descends into it)."""
-    raw = statement.strip()
-    while True:  # strip leading control words so `if ! LBL=$(…)` reads as its capture
-        stripped = _CONTROL_PREFIX.sub("", raw, count=1)
-        if stripped == raw:
-            break
-        raw = stripped.lstrip()
+    raw = _strip_control(statement.strip())  # e.g. `if ! LBL=$(…)` reads as its capture
     lead = re.match(r"^[A-Za-z_][A-Za-z0-9_]*=(.*)$", raw, re.S)
     if not lead:
         return False
@@ -454,19 +462,14 @@ def find_implement_violations(text: str) -> list[tuple[int, str, str]]:
         for statement in _statements(block):
             if not _label_capture_violation(statement):
                 continue
-            probe = statement.strip().split("\n", 1)[0][:40]
-            lineno = start
-            for off in range(len(block_lines)):
-                src_idx = start - 1 + off
-                if src_idx >= len(lines):
-                    break
-                if probe and probe in lines[src_idx]:
-                    lineno = start + off
-                    break
+            lineno = _attribute_line(statement, start, len(block_lines), lines)
             hits.append((lineno, "IR3", statement.strip()))
         for off, rule in _loop_violations(block_lines):
             hits.append((start + off, rule, block_lines[off].strip()))
     return hits
+
+
+_USAGE = "usage: extract-command-shapes.py [--profile review|implement] FILE"
 
 
 def main(argv: list[str]) -> int:
@@ -474,12 +477,12 @@ def main(argv: list[str]) -> int:
     profile = "review"
     if args and args[0] == "--profile":
         if len(args) < 2:
-            print("usage: extract-command-shapes.py [--profile review|implement] FILE", file=sys.stderr)
+            print(_USAGE, file=sys.stderr)
             return 2
         profile = args[1]
         args = args[2:]
     if len(args) != 1 or profile not in ("review", "implement"):
-        print("usage: extract-command-shapes.py [--profile review|implement] FILE", file=sys.stderr)
+        print(_USAGE, file=sys.stderr)
         return 2
     path = args[0]
     with open(path, encoding="utf-8") as handle:
