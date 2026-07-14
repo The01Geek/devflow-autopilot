@@ -165,6 +165,27 @@ the producer — never an ungranted-helper run). This is the **in-repo sibling o
 relied-on-third-party-behavior class** above — same discipline, extended to unstated in-repo
 reliances; it adds no duplicate premise class.
 
+**Occurrence counts and coupled-site lists are a premise class too.** A *count* of in-repo
+occurrences ("fixed at both call sites", "the ten coupled invariants") or a *list* of mirror
+sites is a load-bearing premise the claim-driven loop otherwise accepts as written — and a count
+assembled from **recall** is exactly how a real enumeration silently drifts (a claimed "both
+occurrences" while the pattern lives at several more sites). Ground it one of two decided ways,
+selected by observed drafting-time capability: **(a) executed** — where the drafter's tier grants
+a repository text search, run a **whitespace-normalized** search (a phrase wrapped across adjacent
+lines defeats a line-based search) and cite it in the draft as a **"Verified:"** bullet carrying
+the exact command and its hit list; **(b) records** — where that search command is unavailable or
+denied on the tier, and for any count **not derivable from a repository text search** (a count of
+pull-request occurrences, a tally over an evidence bundle), cite the specific evidence records
+consulted — the query output, the source rows — **record-by-record**. Neither arm accepts a count
+from recall.
+
+**Verifying "the code does X" includes the gates on the path to X.** Confirming that the code
+doing X exists and does X is not complete until you have read the **enclosing gates,
+conditionals, and their defaults** on the path that reaches X — a claim can be true of code that
+a default-off conditional never executes ("appended by the runner" when the append is gated
+behind a flag that defaults false). A premise that holds only under a **non-default
+configuration** states that precondition **inside the claim**, never as a bare "the code does X".
+
 This same discipline runs **twice**: here at drafting time, and again in the calling
 skill's Step 3.5 self-steelman, which re-applies it to the *assembled* draft (fresh
 targeted reads/greps against the code, never ambient context) before the user sees it.
@@ -223,6 +244,34 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   `devflow_implement.allowed_tools`) or be phrased as a **code-reading obligation citing the
   producer code** — never a run-this-ungranted-helper AC that would send a consumer repo's cloud
   `/devflow:implement` run Blocked for a probe the drafter could have run locally.
+- **Every universal quantifier the body asserts about the system under change is grounded,
+  or it does not ship.** A universal quantifier — "never", "always", "each", "every", "all",
+  "both", "cannot" — asserted anywhere outside `## 🚫 Blocked` (in Desired Behavior, an
+  acceptance criterion, Technical Context, or the Testing Strategy) is grounded one of three
+  decided ways: **(a) pinned** — a named AC or assertion covers each arm or element the
+  quantifier ranges over, and an **accepted-loss / suppression** claim ("X is silently
+  dropped", "never surfaces Y") is pinned by a fixture in which the suppressed input is
+  *present*, so the claimed absence is actually exercised; **(b) scoped** — rewritten to the
+  precise form the mechanism supports ("no *per-file* filename arguments", not "no filename
+  arguments"); or **(c) removed**. The carve-out is stated inside this rule and is
+  **extensional, not grammatical**: exempt are only (i) mandated-verbatim template boilerplate
+  (the Technical Context scope note, `Blocked by #N` lines) and (ii) rule text the change ships
+  as artifact content (a convention sentence the change adds to a file, quoted in the body). An
+  acceptance-criterion or Desired-Behavior sentence is **never** exempt however imperative its
+  phrasing — its universal is a claim about the post-change system by definition. A **detector
+  or guard coverage claim** ("catches all future X", "can never fall behind", "every violation
+  is flagged") additionally carries a **planted-defect positive-control obligation** on the
+  implementer — plant the defect the guard targets and prove the guard fires on it — the
+  claim-level counterpart to the mechanism-level **Guarantee-class bullet in Testing Strategy
+  Move 3**, extended from the delivered mechanism's tests to the coverage claim itself.
+- **An AC establishing a trust or integrity boundary over executable artifacts defines the
+  protected set over the transitive closure.** When an acceptance criterion protects scripts,
+  hooks, or anything sourced, exec'd, or imported — asserts they cannot be tampered with, are
+  validated, or run from a trusted copy — the protected set is defined over the **transitive
+  source / exec / import closure** of the named entry points, not the entry points alone (a
+  protected script that `source`s an unprotected sibling leaves the boundary open one hop
+  deeper). An issue that deliberately protects less states the **residual unprotected surface**
+  explicitly.
 - No conditionals tied to an undecided fork ("if links are public…"). A conditional AC
   means the fork is unresolved — it belongs in Blocked, not here.
 - Edge cases and error-handling scenarios, stated as concrete expected behavior.
@@ -296,6 +345,17 @@ Describe the **one** approach the user chose — not a comparison of candidates.
   disagreement about what counts as governing. (On a runner where Step 3.6 takes its degraded
   inline arm, the verify-not-attest property does not hold — the record is attestation-only there,
   which the mandatory "degraded" audit-summary marker already signals.)
+
+  **Move 2a also fires on *introduction*, not only on narrowing.** An issue that introduces a
+  **reader of input the repo does not itself produce** — historical records, user- or
+  reporter-controlled text, an external structured format, agent- or human-mutable markdown —
+  **enumerates that input's malformed / boundary shape matrix in the Testing Strategy**,
+  appropriate to the input's type, including **at least one production-realistic fixture** (a
+  real captured record, not only a hand-built well-formed token). A deliberately narrower
+  enumeration states its **justification**. A **blanket testing-scope waiver** ("this artifact
+  has no desk test", "the parser itself is untested") is **non-conforming**; a conforming
+  waiver states what **inside the exempted artifact remains governed** — which behavior is still
+  covered, and by what.
 
   **Move 3 — Commit to named assertions.**
   - **Every AC maps to at least one named assertion, and every assertion maps back to an
@@ -378,8 +438,13 @@ incomplete issues.
 - [ ] For a user-visible UI change, the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec (screenshot preferred, verbal verification an accepted substitute); non-UI issues omit the section entirely
 - [ ] Acceptance criteria are measurable, testable, and unconditional
 - [ ] Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms, grounded by a boundary-covering probe (exercising the type-boundary fixture the comparison distinguishes) or a named implementer obligation carrying its execution-tier constraint — adjective-only or probe-silent-on-the-axis comparison language is non-conforming
+- [ ] Every universal quantifier ("never/always/each/every/all/both/cannot") the body asserts about the system under change, outside `## 🚫 Blocked`, is grounded — pinned per-arm/per-element (an accepted-loss/suppression claim pinned by a fixture in which the suppressed input is present), scoped to the mechanism's supported form, or removed — with only mandated-verbatim boilerplate and rule-text-shipped-as-artifact-content exempt, and a detector-coverage claim additionally carrying a planted-defect positive-control obligation
+- [ ] No AC forbids a surface (a path, a file class, a tier) that another AC's discharge must touch — the ACs are mutually consistent
+- [ ] An AC establishing a trust/integrity boundary over executable artifacts defines the protected set over the transitive source/exec/import closure of its entry points, or states the residual unprotected surface explicitly
 - [ ] A Testing Strategy that enumerates an input-shape/case matrix for a convention-governed surface carries the full convention matrix (or an explicit named-and-justified narrowing) and a `governing conventions consulted:` discharge line bounded to `CLAUDE.md`, `CONTRIBUTING.md`, and the configured internal-docs path
 - [ ] The draft's own unstated mechanism dependencies (relied-on in-repo helper/resolver/gate behaviors it never asserts as claims) are each resolved with a cited probe or an implementer-obligation AC
+- [ ] Every in-repo occurrence count or coupled-site list is grounded by an executed whitespace-normalized search (cited as a "Verified:" bullet with the command and its hit list) where the tier grants one, else by the specific evidence records consulted record-by-record — never assembled from recall
+- [ ] A premise verified as "the code does X" was read with its enclosing gates/conditionals and their defaults on the path to X, and any claim that holds only under a non-default configuration states that precondition inside the claim
 - [ ] Implementation notes describe a single chosen approach
 - [ ] Testing Strategy classifies the boundary + level, walks the coverage dimensions (boundary/error/adversarial/state/scale/security as they apply), and gives test-first assertions with every AC mapped to ≥1 assertion and no orphan assertions — bug fixes reproduce the defect first; guarantee-class changes test the skipped-step path; or it names a reproducible stand-in verification when no automated test applies
 - [ ] **No-options gate passed**: no choice/hedge/deferral language outside `## 🚫 Blocked`

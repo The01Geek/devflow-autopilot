@@ -3014,6 +3014,73 @@ assert_pin_unique "#462 dim: Step 3.6 audit-prompt area states the finding-cap g
 assert_pin_unique "#462 ext: live create-issue extension carries the consolidated DevFlow sharpening" \
   'Authoring-discipline defects (DevFlow specifics, issue #462)' "$CI443_EXT"
 
+# ── issue #467: four create-issue authoring-discipline hardenings (prose + pins). Reuses the
+#    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
+#    IS the operative contract sentence itself, so assert_pin_unique is the honest primitive
+#    (the #312 item-2 coupled-pair pattern). The template<->Step-3.5 coupled pairs for the B1
+#    occurrence-count and C1 conditional-path premise classes are pinned on BOTH sides so a
+#    one-sided edit goes RED.
+# Cluster A — universal-claim rule (template AC guidance + checklist), Step 3.5 sweep + zero arm,
+# Step 3.6 dimension sharpening (generic checklist held at 8 bullets).
+assert_pin_unique "#467 A1: template AC guidance carries the universal-claim rule" \
+  'about the system under change is grounded' "$CI312_TMPL"
+assert_pin_unique "#467 A1: universal-claim rule carries the claim-level positive-control obligation" \
+  'positive-control obligation** on the' "$CI312_TMPL"
+assert_pin_unique "#467 A1: quality-checklist mirror for the universal-claim rule" \
+  'Every universal quantifier ("never/always/each/every/all/both/cannot")' "$CI312_TMPL"
+assert_pin_unique "#467 A2: Step 3.5 runs the universal-quantifier sweep (same carve-out)" \
+  'Universal-quantifier sweep (mandatory' "$CI312_SKILL"
+assert_pin_unique "#467 A2: Step 3.5 item-6 summary states the falsifiable zero arm" \
+  'the draft carries no ungrounded universal quantifier' "$CI312_SKILL"
+assert_pin_unique "#467 A3: Step 3.6 Load-bearing-assumptions dimension names universal quantifiers" \
+  'including any **universal quantifier** the draft asserts' "$CI312_SKILL"
+# A3 count guard — the generic dimension checklist block stays 8 bullets (dimension-growth policy).
+assert_eq "#467 A3: Step 3.6 generic dimension checklist remains 8 bullets" "8" \
+  "$(sed -n '/^\*\*Generic dimension checklist/,/^\*\*Dimension-list growth policy/p' "$CI312_SKILL" | grep -c '^- \*\*')"
+# Cluster B — occurrence-count premise class (coupled template<->Step-3.5) + checklist mirror; AC
+# mutual-consistency check (Step 3.5 + checklist mirror).
+assert_pin_unique "#467 B1 (coupled/template): template names the occurrence-count/site-list premise class" \
+  'Occurrence counts and coupled-site lists are a premise class too' "$CI312_TMPL"
+assert_pin_unique "#467 B1 (coupled/SKILL): Step 3.5 mirrors the occurrence-count premise class" \
+  'Occurrence counts and coupled-site lists are checked the same way' "$CI312_SKILL"
+assert_pin_unique "#467 B1: quality-checklist mirror for the occurrence-count premise class" \
+  'Every in-repo occurrence count or coupled-site list is grounded by an executed whitespace-normalized search' "$CI312_TMPL"
+assert_pin_unique "#467 B2: Step 3.5 carries the AC mutual-consistency check" \
+  'AC mutual-consistency check (mandatory)' "$CI312_SKILL"
+assert_pin_unique "#467 B2: quality-checklist mirror for the AC mutual-consistency check" \
+  'the ACs are mutually consistent' "$CI312_TMPL"
+# Cluster C — conditional-path (coupled template<->Step-3.5), stated-but-unbound (Step 3.5 item 4),
+# trust-boundary closure (template AC guidance + Step 3.5 omission hunt).
+assert_pin_unique "#467 C1 (coupled/template): template premise method includes the gates on the path to X" \
+  'Verifying "the code does X" includes the gates on the path to X' "$CI312_TMPL"
+assert_pin_unique "#467 C1 (coupled/SKILL): Step 3.5 mirrors the conditional-path premise check" \
+  'A "code does X" premise is verified with its enclosing gates on the path to X' "$CI312_SKILL"
+assert_pin_unique "#467 C2: Step 3.5 unstated-dependency item extends to stated-but-unbound inputs" \
+  'Extend the sweep to stated-but-unbound inputs (mandatory)' "$CI312_SKILL"
+assert_pin_unique "#467 C3 (template): AC guidance carries the trust-boundary closure rule" \
+  'source / exec / import closure' "$CI312_TMPL"
+assert_pin_unique "#467 C3 (SKILL): Step 3.5 omission hunt carries the trust-boundary closure check" \
+  'trust-boundary closure check (mirroring the template' "$CI312_SKILL"
+# Cluster D — Move 2a introduction trigger (template) + waiver-non-conforming clause; the
+# three-site best-effort-parser widening (CLAUDE.md, implement Phase 2.4, review-and-fix
+# fix-delta gate); extension sharpening (whole-file dimension count held at 7). The six-shape
+# SIXSHAPE_SET lockstep pins above stay green — the widening references the set, never restates it.
+assert_pin_unique "#467 D1: Move 2a carries the introduction trigger" \
+  'Move 2a also fires on *introduction*, not only on narrowing' "$CI312_TMPL"
+assert_pin_unique "#467 D1: introduction trigger names a blanket testing-scope waiver non-conforming" \
+  'blanket testing-scope waiver' "$CI312_TMPL"
+assert_pin_unique "#467 D2 (CLAUDE.md leg): best-effort-parser gotcha widened to mutable-markdown/external-format" \
+  'The governed surface is broader than config JSON' "$LIB/../CLAUDE.md"
+assert_pin_unique "#467 D2 (Phase 2.4 leg): dry-trace rule widened to mutable-markdown/external-format" \
+  'The governed surface is broader than config JSON' "$IMPL_SKILL_BUNDLE"
+assert_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mutable-markdown/external-format" \
+  'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$MAXI_SKILL"
+assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
+  'input-type analogue** for the widened surfaces' "$CI443_EXT"
+# D3 count guard — the extension's whole-file dimension-bullet count stays 7 (dimension-growth policy).
+assert_eq "#467 D3: create-issue extension remains 7 dimension bullets" "7" \
+  "$(grep -c '^- \*\*' "$CI443_EXT")"
+
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
 # regardless of that iteration's verdict (including REJECT), feeding new blinded
