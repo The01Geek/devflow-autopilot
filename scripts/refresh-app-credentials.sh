@@ -83,6 +83,11 @@ read_key_from_stdin() {
 # ── The real mint (no override): build an RS256 app JWT, resolve the
 # installation id, and mint an installation access token. Echoes the raw token
 # on success; returns non-zero (with a specific ::warning::) on any failure. ──
+# `tr` is a non-preflight PATH tool on an emitted value (CLAUDE.md guard-class 2),
+# but this is a deliberate, safe exemption: the refresher is cloud-only
+# (ubuntu-latest, where `tr` is guaranteed) AND it fails closed — a missing `tr`
+# yields a malformed JWT → the mint fails → a `::warning::` fires and the previous
+# credential is retained, never a wrong-but-emitted value.
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
 real_mint() {
@@ -139,13 +144,21 @@ mint_token() {
 # hardcoded path). Honors the suite override. ──
 locate_extraheader_file() {
   if [ -n "$CONFIG_FILE_OVERRIDE" ]; then printf '%s' "$CONFIG_FILE_OVERRIDE"; return 0; fi
-  local key origin
+  local key raw first
   key="http.${SERVER_URL}/.extraheader"
-  # `--show-origin` prints `file:<path>\t<value>`; take the first file whose key
-  # matches. This is the external git-credentials-<UUID>.config checkout wrote.
-  origin="$(git config --show-origin --get-all "$key" 2>/dev/null | head -n1 | sed -E 's/^file:([^\t]*)\t.*/\1/')"
-  [ -n "$origin" ] || return 1
-  printf '%s' "$origin"
+  # `--show-origin` prints `file:<path>\t<value>` per match. The path DECIDES which
+  # file gets rewritten, so it must be derived with bash builtins, never `head`/`sed`
+  # (non-preflight PATH tools — CLAUDE.md guard-class 2; and `sed`'s `\t` is a GNU
+  # extension BSD sed does not honor). Take the first line, strip the `file:` prefix,
+  # then strip from the first TAB onward — all builtins. This is the external
+  # git-credentials-<UUID>.config checkout wrote.
+  raw="$(git config --show-origin --get-all "$key" 2>/dev/null)" || return 1
+  [ -n "$raw" ] || return 1
+  first="${raw%%$'\n'*}"      # first line only (no `head`)
+  first="${first#file:}"      # strip the `file:` prefix
+  first="${first%%$'\t'*}"    # strip from the first TAB onward (no `sed`)
+  [ -n "$first" ] || return 1
+  printf '%s' "$first"
 }
 
 # ── One mint-and-rewrite cycle. Returns 0 on success, 1 on failure (leaving the
@@ -161,16 +174,24 @@ run_cycle() {
   b64="$(printf 'x-access-token:%s' "$token" | openssl base64 -A 2>/dev/null)" \
     || { warn "cycle: base64 encode of the token failed — push credential NOT rewritten"; return 1; }
   header="AUTHORIZATION: basic ${b64}"
-  # git's own locking makes this rewrite atomic against a concurrent push.
+  # git config writes via a lockfile + atomic rename, so a concurrent push reading
+  # this credential sees the old-or-new value, never a torn/partial file.
   git config --file "$cfg" "http.${SERVER_URL}/.extraheader" "$header" 2>/dev/null \
     || { warn "cycle: rewriting the extraheader in '$cfg' failed — push credential NOT rewritten"; return 1; }
 
-  # Surface 2: the mode-0600 token file the gh wrapper reads at call time.
-  local dir; dir="$(dirname "$TOKEN_FILE")"
+  # Surface 2: the mode-0600 token file the gh wrapper reads at call time. Write to
+  # a temp file in the same dir and atomically rename into place, so a concurrent
+  # gh-fresh.sh read never observes a truncated/partial token (mirroring the
+  # atomic-rename guarantee git config gives surface 1). A plain `> "$TOKEN_FILE"`
+  # would truncate-then-write, and a read landing in that window would see an empty
+  # or partial token and silently degrade the wrapper to the ambient credential.
+  local dir tmp; dir="$(dirname "$TOKEN_FILE")"; tmp="$TOKEN_FILE.tmp.$$"
   mkdir -p "$dir" 2>/dev/null || true
-  ( umask 077; printf '%s' "$token" > "$TOKEN_FILE" ) \
-    || { warn "cycle: writing the token file '$TOKEN_FILE' failed"; return 1; }
-  chmod 600 "$TOKEN_FILE" 2>/dev/null || true
+  ( umask 077; printf '%s' "$token" > "$tmp" ) \
+    || { warn "cycle: writing the token temp file '$tmp' failed"; rm -f "$tmp" 2>/dev/null; return 1; }
+  chmod 600 "$tmp" 2>/dev/null || true
+  mv -f "$tmp" "$TOKEN_FILE" \
+    || { warn "cycle: renaming the token file into place ('$TOKEN_FILE') failed"; rm -f "$tmp" 2>/dev/null; return 1; }
   return 0
 }
 

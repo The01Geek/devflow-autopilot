@@ -80,7 +80,17 @@ decide() {
   local fp cur
   fp="$(cat "$FINGERPRINT_FILE" 2>/dev/null || true)"
   cur="$(sha256_of "$GH_TOKEN" 2>/dev/null || true)"
-  [ -n "$fp" ] && [ -n "$cur" ] && [ "$cur" = "$fp" ]
+  # Could-not-establish the comparison (fingerprint file unreadable, or no
+  # sha256sum/shasum/awk to hash with) must NOT collapse silently onto the defer
+  # path — a buried defer would ride the possibly-expired ambient token, the exact
+  # failure this wrapper prevents. Fail toward NOT clobbering a deliberately-fresh
+  # #287/#356 backstop mint (defer), but emit a breadcrumb so the state is visible;
+  # the two-strikes fail-fast rule then catches a genuinely-expired token.
+  if [ -z "$fp" ] || [ -z "$cur" ]; then
+    printf 'devflow-gh-fresh: could not establish the job-start fingerprint comparison (fingerprint file unreadable or no sha256 tool on PATH); deferring to the ambient GH_TOKEN — if that is the expired job-start token, gh will 401 and the fail-fast rule applies.\n' >&2
+    return 1
+  fi
+  [ "$cur" = "$fp" ]
 }
 
 main() {

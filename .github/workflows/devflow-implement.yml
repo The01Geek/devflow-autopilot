@@ -436,7 +436,7 @@ jobs:
       # an unconfigured consumer's behavior is byte-identical to today).
       #
       # DELIBERATELY a DETACHED process, not a `background:` step: actionlint
-      # (CI's raven-actions/actionlint@v2) rejects the weeks-old `background:`
+      # (CI's raven-actions/actionlint@v2) rejects the unrecognized `background:`
       # step key, so the refresher is spawned with `nohup … &` in a normal step
       # that survives into the claude step. The private key is piped to the
       # refresher's stdin (never an env var visible to the agent, never argv,
@@ -689,6 +689,19 @@ jobs:
             echo "signalled credential refresher (pid $(cat "$PIDFILE"))"
           else
             echo "no refresher pidfile at $PIDFILE; nothing to stop"
+          fi
+          # Surface the detached refresher's log. Its ::warning:: lines are inert in
+          # a background process (GHA interprets ::warning:: only on a live step's
+          # stdout), so a sustained mint failure would otherwise be invisible in the
+          # job UI. Tail the log and re-emit a real ::warning:: if it recorded any
+          # failure, so a defeated refresher is visible without log archaeology.
+          LOG="$RUNNER_TEMP/devflow-refresh.log"
+          if [ -f "$LOG" ]; then
+            echo "--- credential refresher log (tail) ---"
+            tail -n 40 "$LOG" || true
+            if grep -q 'refresh-app-credentials:' "$LOG"; then
+              echo "::warning::credential refresher recorded one or more failures this run (see the refresher log tail above); pushes/gh calls past ~60 min may have used a stale token"
+            fi
           fi
 
       - name: Surface execution diagnostics

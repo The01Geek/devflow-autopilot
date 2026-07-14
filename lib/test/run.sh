@@ -33394,15 +33394,28 @@ assert_eq "#487 arm3: mint failure emits a ::warning::" "yes" \
   "$(printf '%s' "$_a3_err" | grep -qF '::warning::' && echo yes || echo no)"
 
 # Arm 4 — failed-then-succeeding cycle sequence → backoff retry recovers, cred ends fresh.
+# A recording sleep stub captures each sleep's duration so the FAILED cycle is proven to
+# take the BACKOFF branch and the SUCCESSFUL cycle the INTERVAL branch (distinguishable
+# via distinct override values), and the pidfile write (the retirement path's sole handle)
+# is asserted.
 CNT487="$D487/cnt"; echo 0 > "$CNT487"
+SLEEPLOG487="$D487/sleeps"; : > "$SLEEPLOG487"
+SLEEPSTUB487="$D487/sleepstub"
+{ printf '#!/usr/bin/env bash\n'; printf 'printf "%%s\\n" "$1" >> "%s"\n' "$SLEEPLOG487"; } > "$SLEEPSTUB487"
+chmod +x "$SLEEPSTUB487"
 _mint4='n=$(cat '"$CNT487"'); n=$((n+1)); echo $n > '"$CNT487"'; if [ "$n" -lt 2 ]; then exit 1; else printf TOKEN_FRESH; fi'
 DEVFLOW_REFRESH_MINT="$_mint4" DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
-  DEVFLOW_REFRESH_SLEEP=true DEVFLOW_REFRESH_MAX_CYCLES=2 DEVFLOW_REFRESH_PIDFILE="$D487/pid" \
+  DEVFLOW_REFRESH_SLEEP="$SLEEPSTUB487" DEVFLOW_REFRESH_INTERVAL=99 DEVFLOW_REFRESH_BACKOFF=11 \
+  DEVFLOW_REFRESH_MAX_CYCLES=2 DEVFLOW_REFRESH_PIDFILE="$D487/pid" \
   GITHUB_SERVER_URL="https://github.com" bash "$REFRESH_SH" loop </dev/null >/dev/null 2>&1
 _a4_rc=$?
 assert_eq "#487 arm4: loop never exits non-zero" "0" "$_a4_rc"
 assert_eq "#487 arm4: backoff retry recovers — credential ends fresh (TOKEN_FRESH)" "x-access-token:TOKEN_FRESH" \
   "$(_a487_hdr)"
+assert_eq "#487 arm4: loop writes its PID to the pidfile (the retirement handle)" "yes" \
+  "$([ -s "$D487/pid" ] && grep -qE '^[0-9]+$' "$D487/pid" && echo yes || echo no)"
+assert_eq "#487 arm4: failed cycle takes the BACKOFF branch then success takes the INTERVAL branch" "11 99" \
+  "$(tr '\n' ' ' < "$SLEEPLOG487" | sed 's/ *$//')"
 
 # ── Wrapper arms (5–9). A stub real gh prints the token it sees; a bad-cred stub 401s.
 GHSTUB487="$D487/gh"
@@ -33453,6 +33466,39 @@ _a9_def="$(GH_TOKEN='FRESH_287_MINT' DEVFLOW_GH_REAL="$GHBAD487" DEVFLOW_GH_TOKE
   DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
 assert_eq "#487 arm9: bad-cred on defer path also appends the diagnostic" "yes" \
   "$(printf '%s' "$_a9_def" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+
+# Arm 10 — the PRODUCTION extraheader locator (no DEVFLOW_REFRESH_CONFIG_FILE override):
+# seed a real git repo whose LOCAL config carries the extraheader, run the cycle from
+# inside it, and assert locate_extraheader_file() found and rewrote that real config file
+# (exercises the `git config --show-origin … | sed` parse the override otherwise bypasses).
+REPO10="$D487/repo10"; mkdir -p "$REPO10"; ( cd "$REPO10" && git init -q )
+( cd "$REPO10" && git config "http.https://ex10.test/.extraheader" \
+    "AUTHORIZATION: basic $(printf 'x-access-token:OLD10' | openssl base64 -A)" )
+( cd "$REPO10" && DEVFLOW_REFRESH_MINT='printf NEW10' DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok10" \
+    GITHUB_SERVER_URL="https://ex10.test" bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1 )
+assert_eq "#487 arm10: production locate_extraheader_file finds+rewrites the real git config" "x-access-token:NEW10" \
+  "$(cd "$REPO10" && git config --get 'http.https://ex10.test/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arm 11 — the wrapper's resolve_real_gh PATH fallback + self-exclusion (no DEVFLOW_GH_REAL):
+# place a stub `gh` on PATH AND a copy of the wrapper named `gh` ahead of it, then invoke
+# through that wrapper-named-gh. resolve_real_gh must SKIP itself and resolve the stub —
+# proving the recursion guard (a self-match would infinite-loop in production, where the
+# wrapper is installed ahead of the real gh on PATH).
+BIN11A="$D487/bin11a"; BIN11B="$D487/bin11b"; mkdir -p "$BIN11A" "$BIN11B"
+cp "$GHFRESH_SH" "$BIN11A/gh"; chmod +x "$BIN11A/gh"   # the wrapper, named gh, first on PATH
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "REAL11 ARGS=$*"\n'; } > "$BIN11B/gh"; chmod +x "$BIN11B/gh"
+_a11="$(env -u GH_TOKEN -u DEVFLOW_GH_REAL PATH="$BIN11A:$BIN11B:$PATH" \
+  DEVFLOW_GH_TOKEN_FILE="$D487/none11" DEVFLOW_GH_FINGERPRINT_FILE="$D487/none11fp" \
+  "$BIN11A/gh" x 2>/dev/null)"
+assert_eq "#487 arm11: resolve_real_gh skips the wrapper itself and resolves the real gh on PATH" "REAL11 ARGS=x" "$_a11"
+
+# Arm 12 — decide() must NOT silently defer when it cannot establish the fingerprint
+# comparison (GH_TOKEN present but fingerprint file absent): it emits a breadcrumb and
+# defers (fail toward not clobbering a fresh #287 mint), never a silent stale-token ride.
+_a12_err="$(GH_TOKEN='SOMETHING' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$D487/tok12" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/absent12" bash "$GHFRESH_SH" x 2>&1 1>/dev/null)"
+assert_eq "#487 arm12: unestablished fingerprint comparison emits a breadcrumb (not a silent defer)" "yes" \
+  "$(printf '%s' "$_a12_err" | grep -qF 'could not establish the job-start fingerprint comparison' && echo yes || echo no)"
 
 rm -rf "$D487"
 
