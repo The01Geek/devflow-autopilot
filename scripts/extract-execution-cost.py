@@ -95,23 +95,51 @@ def _find_numeric(dicts, keys, wrong_type):
     return None
 
 
+def _read_usage(usage, wrong_type, accumulate):
+    """Fold one `usage` dict's token figures into a fresh {key: None} map. When
+    `accumulate` is False each figure is taken as-is (the authoritative result total);
+    when True figures are summed (per-message fallback). Shared by both regimes below so
+    the per-figure numeric/None/wrong-type handling can never drift between them."""
+    sums = {k: None for k in _TOKEN_KEYS}
+    _fold_usage(usage, sums, wrong_type, accumulate)
+    return sums
+
+
+def _fold_usage(usage, sums, wrong_type, accumulate):
+    for k in _TOKEN_KEYS:
+        if k not in usage:
+            continue
+        v = usage[k]
+        if _is_number(v):
+            sums[k] = v if not accumulate else (sums[k] or 0) + v
+        else:
+            wrong_type.setdefault("usage." + k, v)
+
+
 def _accumulate_tokens(dicts, wrong_type):
-    """Sum each of the five token figures across every `usage` dict (per-message).
-    A figure NEVER seen in any usage block stays None (unknown-is-not-zero); a figure
-    seen only as 0 sums to 0. A non-numeric token value is skipped and noted."""
+    """Return the five token figures for the run. PREFER the result-summary event's
+    cumulative `usage` — the authoritative run total, consistent with how cost_usd /
+    num_turns / duration_ms read the result event first (unknown-is-not-zero). Sum
+    per-message `usage` blocks (excluding the result event) ONLY when no result event
+    carries a `usage`: summing the cumulative result `usage` AND every per-message
+    `usage` together double-counts the run's tokens (issue #475 review). A figure never
+    seen stays None; a figure seen only as 0 is 0; a non-numeric token value is skipped
+    and noted."""
+    # Authoritative path: a result event's own cumulative usage (dicts is result-ordered
+    # first, but match on type explicitly so a non-result usage never wins here).
+    for d in dicts:
+        if d.get("type") == "result":
+            usage = d.get("usage")
+            if isinstance(usage, dict):
+                return _read_usage(usage, wrong_type, accumulate=False)
+    # Fallback: sum per-message usage across the non-result events.
     sums = {k: None for k in _TOKEN_KEYS}
     for d in dicts:
-        usage = d.get("usage")
-        if not isinstance(usage, dict):
+        if d.get("type") == "result":
             continue
-        for k in _TOKEN_KEYS:
-            if k not in usage:
-                continue
-            v = usage[k]
-            if _is_number(v):
-                sums[k] = (sums[k] or 0) + v
-            else:
-                wrong_type.setdefault("usage." + k, v)
+        usage = d.get("usage")
+        if isinstance(usage, dict):
+            _fold_usage(usage, sums, wrong_type, accumulate=True)
     return sums
 
 

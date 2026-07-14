@@ -16086,6 +16086,17 @@ assert_eq "hc-reader(A2): per-message usage input_tokens summed across events" "
   "$(python3 "$HC_READER" "$HC_FX/arr.json" 2>/dev/null | jq -c '.tokens.input_tokens')"
 assert_eq "hc-reader(A2): a token never seen stays null (not 0)" "null" \
   "$(python3 "$HC_READER" "$HC_FX/arr.json" 2>/dev/null | jq -c '.tokens.output_tokens')"
+# A2 (token double-count, issue #475 review): when the file carries BOTH per-message
+# `usage` AND a result-summary cumulative `usage`, the reader must take the AUTHORITATIVE
+# result total — NOT sum per-message + result (the double-count bug). Here per-message sums
+# to 300 but the result cumulative is 500 (cache accounting differs), so the three possible
+# impls are distinguishable: correct(prefer-result)=500, old-bug(sum-all)=800,
+# fallback-only(sum-per-message)=300. Pinning ==500 fails RED against both wrong impls.
+printf '%s' '[{"type":"assistant","message":{"usage":{"input_tokens":100}}},{"type":"assistant","message":{"usage":{"input_tokens":200}}},{"type":"result","total_cost_usd":3,"usage":{"input_tokens":500,"output_tokens":42}}]' > "$HC_FX/dualusage.json"
+assert_eq "hc-reader(A2): result-summary usage is authoritative (no per-message double-count)" "500" \
+  "$(python3 "$HC_READER" "$HC_FX/dualusage.json" 2>/dev/null | jq -c '.tokens.input_tokens')"
+assert_eq "hc-reader(A2): a token present only on the result-summary usage is read (output=42)" "42" \
+  "$(python3 "$HC_READER" "$HC_FX/dualusage.json" 2>/dev/null | jq -c '.tokens.output_tokens')"
 # JSONL shape.
 printf '%s\n%s\n' '{"usage":{"input_tokens":9}}' '{"type":"result","total_cost_usd":2}' > "$HC_FX/lines.json"
 assert_eq "hc-reader(A2): JSONL shape tolerated → cost read" "2" \
@@ -16103,15 +16114,30 @@ assert_eq "hc-reader(A2): wrong-type cost field → null (treated as absent)" "n
   "$(python3 "$HC_READER" "$HC_FX/wrong.json" 2>/dev/null | jq -c '.cost_usd')"
 assert_eq "hc-reader(A2): a sibling numeric field is still read past a wrong-type one" "900" \
   "$(python3 "$HC_READER" "$HC_FX/wrong.json" 2>/dev/null | jq -c '.duration_ms')"
+# AC2 breadcrumb-specificity: every abnormal shape must draw its OWN specific breadcrumb
+# (the never-silent discipline), not merely exit 0 — a swapped/dropped breadcrumb string
+# on any arm would otherwise ship green.
+assert_eq "hc-reader(A2): wrong-type field → its specific 'not a numeric figure' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_FX/wrong.json" 2>&1 1>/dev/null | grep -qF 'not a numeric figure' && echo yes || echo no)"
 # missing file → cannot parse at all → prints NOTHING, exit 0.
 assert_eq "hc-reader(A2): missing file → prints nothing (cannot parse at all)" "" \
   "$(python3 "$HC_READER" "$HC_FX/does-not-exist.json" 2>/dev/null)"
 HC_MISS_RC=0; python3 "$HC_READER" "$HC_FX/does-not-exist.json" >/dev/null 2>&1 || HC_MISS_RC=$?
 assert_eq "hc-reader(A2): missing file → still exit 0 (best-effort)" "0" "$HC_MISS_RC"
+assert_eq "hc-reader(A2): missing file → its specific 'could not be read' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_FX/does-not-exist.json" 2>&1 1>/dev/null | grep -qF 'could not be read' && echo yes || echo no)"
+# empty file → distinct arm (prints nothing, its own 'is empty' breadcrumb, exit 0).
+printf '' > "$HC_FX/empty.json"
+assert_eq "hc-reader(A2): empty file → prints nothing" "" \
+  "$(python3 "$HC_READER" "$HC_FX/empty.json" 2>/dev/null)"
+assert_eq "hc-reader(A2): empty file → its specific 'is empty' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_FX/empty.json" 2>&1 1>/dev/null | grep -qF 'is empty' && echo yes || echo no)"
 # garbage (not JSON, not JSONL) → prints nothing, exit 0.
 printf '%s' 'not json { [ oops' > "$HC_FX/garbage.json"
 assert_eq "hc-reader(A2): unparseable garbage → prints nothing" "" \
   "$(python3 "$HC_READER" "$HC_FX/garbage.json" 2>/dev/null)"
+assert_eq "hc-reader(A2): unparseable garbage → its specific 'could not be parsed' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_FX/garbage.json" 2>&1 1>/dev/null | grep -qF 'could not be parsed as JSON or JSONL' && echo yes || echo no)"
 rm -rf "$HC_FX"
 
 # ── Shared scratch repo for the --persist floor arms ─────────────────────────
@@ -16131,19 +16157,26 @@ _hc_repo() {
 HC_ITER='{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":1,"tokens":10,"wall_clock_s":1}}}'
 
 # ── A3: run-id targeting + merge arm (a, staged this pass) ────────────────────
-# Two run dirs with DISTINCT run-ids; only the one matching the env identity gains
-# harness_cost (a naive "attach to every discovered record" fails this RED).
+# Two run dirs with DISTINCT run-ids; only the one matching the env identity (999-1)
+# gains harness_cost. The non-matching record's filename (pr-11-888-2.json) is chosen to
+# sort ALPHABETICALLY BEFORE the matching one (pr-77-999-1.json) — load-bearing, do NOT
+# renumber it back: the merge arm attaches to the FIRST glob match then returns, so if the
+# glob were broadened to `*.json`, the FIRST match would be the non-matching pr-11 and the
+# "matching gained harness_cost" assertion would fail RED. Were the matching record to sort
+# first instead, a broadened-glob regression would still attach to it and the behavioral
+# test would pass vacuously (issue #475 review, pr-test-analyzer) — the run-id targeting pin
+# below catches the literal change, and this ordering makes the behavioral test catch it too.
 HC_T="$(_hc_repo "hc target")"
-mkdir -p "$HC_T/.devflow/tmp/review/pr-77/999-1" "$HC_T/.devflow/tmp/review/pr-88/888-2"
+mkdir -p "$HC_T/.devflow/tmp/review/pr-77/999-1" "$HC_T/.devflow/tmp/review/pr-11/888-2"
 printf '%s' "$HC_ITER" > "$HC_T/.devflow/tmp/review/pr-77/999-1/iter-1.json"
-printf '%s' "$HC_ITER" > "$HC_T/.devflow/tmp/review/pr-88/888-2/iter-1.json"
+printf '%s' "$HC_ITER" > "$HC_T/.devflow/tmp/review/pr-11/888-2/iter-1.json"
 ( cd "$HC_T" && GITHUB_RUN_ID=999 GITHUB_RUN_ATTEMPT=1 GITHUB_WORKFLOW_REF="o/r/.github/workflows/devflow.yml@refs/heads/main" \
     DEVFLOW_EXECUTION_COST="$HC_COST" DEVFLOW_COMMAND_CLASS=review-and-fix \
     bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
 assert_eq "hc-merge(A3): the record matching the run-id identity gained harness_cost" "execution-file" \
   "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost.cost_source')"
-assert_eq "hc-merge(A3): a record with a DIFFERENT run-id was NOT touched" "null" \
-  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-88-888-2.json" | jq -c '.harness_cost')"
+assert_eq "hc-merge(A3): a record with a DIFFERENT run-id (sorting first) was NOT touched" "null" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-11-888-2.json" | jq -c '.harness_cost')"
 # AC4: harness_cost carries exactly the required fields.
 assert_eq "hc-merge(A4): harness_cost carries the required metadata + figures" \
   "command cost_source cost_usd duration_ms engine_version model_usage num_turns scope tokens workflow" \
@@ -16592,6 +16625,15 @@ assert_pin_red_under "hc-pin(A10): skeleton-overwrite guard re-checks the branch
   'if [ -n "$ref" ] && devflow_telemetry_blob_exists' \
   's/if \[ -n "\$ref" \] && devflow_telemetry_blob_exists/if false \&\& devflow_telemetry_blob_exists/' \
   "$LIB/efficiency-trace.sh"
+# The reader must PREFER the result-summary event's cumulative `usage` over summing every
+# per-message `usage` (issue #475 review — double-count). The operative line is the
+# result-preference early return in _accumulate_tokens; neutering it (→ `pass`) drops the
+# reader back to the per-message fallback and mis-reports the run's tokens, the exact
+# regression the hc-reader(A2) dual-usage behavioral test asserts RED. Mutation observed RED.
+assert_pin_red_under "hc-pin(A10): reader prefers the result-summary usage (no per-message token double-count)" \
+  'return _read_usage(usage, wrong_type, accumulate=False)' \
+  's/return _read_usage\(usage, wrong_type, accumulate=False\)/pass/' \
+  "$LIB/../scripts/extract-execution-cost.py"
 
 # ── issue #381: synthesis floor — --persist reconstructs a minimal iteration
 # record from the branch's fix commits when a run left ZERO iter-*.json ────────
