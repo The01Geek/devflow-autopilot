@@ -25,7 +25,18 @@ set -uo pipefail
 # shellcheck source=../lib/resolve-gh.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-gh.sh"
 : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
-NAME="${1:?Usage: ensure-label.sh <name>}"
+# `${1:-}`, NOT `${1:?}` — the same reasoning apply-labels.sh carries, and it binds here for the
+# same reason (the #480 review): a `${1:?}` aborts with a raw bash usage line and rc 1, which
+# breaks this helper's own "ALWAYS exits 0" contract AND emits an outcome that matches none of the
+# three its callers route on (`created` / `already exists` / `warning: …`) — nor the "no output at
+# all ⇒ the harness refused it" arm. It fires on a set-but-EMPTY argument too, which is exactly the
+# shape the label call sites can emit (`ensure-label.sh ""` when a configured label list normalizes
+# to a blank). Name the arg-slip and exit 0, so a refusal stays the ONLY silent outcome.
+NAME="${1:-}"
+if [ -z "$NAME" ]; then
+    echo "devflow: warning: ensure-label.sh got an empty label name (args: $*); no label ensured. This is NOT a harness denial — it is a caller arg-slip (an empty label literal, or a variable that did not survive into this command)." >&2
+    exit 0
+fi
 
 # Capture both streams so we can distinguish "already exists" (benign) from a
 # genuine failure (no auth / network / API error) and emit the right breadcrumb.
