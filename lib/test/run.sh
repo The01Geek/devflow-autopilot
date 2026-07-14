@@ -3021,6 +3021,61 @@ assert_pin_unique "#462 dim: Step 3.6 audit-prompt area states the finding-cap g
 assert_pin_unique "#462 ext: live create-issue extension carries the consolidated DevFlow sharpening" \
   'Authoring-discipline defects (DevFlow specifics, issue #462)' "$CI443_EXT"
 
+# ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
+#    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
+#    Each pin is a behavioral-fix pin: its literal IS an operative sentence whose removal
+#    re-introduces the unreconciled-contract gap, so it is expressed through assert_pin_red_under
+#    with a `sed -E` mutation that strips a load-bearing fragment of the operative sentence
+#    (framing-only survives → RED here). (a)–(d) pin the four coupled-mirror contract surfaces;
+#    (e)/(f) additionally pin the Step 3.5 target's scope-honesty and no-burden operative clauses
+#    (the "Scope honesty" / "No burden on non-contract issues" ACs), so every AC's operative prose
+#    maps to ≥1 assertion — the same bidirectional-orphan discipline this issue itself adds.
+# (a) Step 3.5 hunt gains the within-text contract-reconciliation target.
+assert_pin_red_under "#465 (a): Step 3.5 names the within-text multi-state-contract reconciliation target" \
+  'no summary or table form lists fewer causes for a state than the detailed per-state ACs' \
+  's/lists fewer causes for a state/REMOVED/' "$CI312_SKILL"
+# (b) Template Move 3 orphan sentence folds the enumerated-state→AC clause.
+assert_pin_red_under "#465 (b): template folds the every-enumerated-contract-state-maps-to-an-AC clause" \
+  'every state a multi-state contract enumerates' \
+  's/multi-state contract enumerates/CONTRACT/' "$CI312_TMPL"
+# (c) Prompt-extension Coupled-mirror-sites gains the source-reconciled-before-propagation sentence.
+assert_pin_red_under "#465 (c): extension sharpens Coupled mirror sites — source reconciled before propagation" \
+  'the source form must itself be internally reconciled before it is propagated' \
+  's/internally reconciled before it is propagated/IGNORED/' "$CI443_EXT"
+# (d) SYSTEM_OVERVIEW §11 Self-steelman enumeration reconciled to include the new target.
+assert_pin_red_under "#465 (d): SYSTEM_OVERVIEW §11 Self-steelman enumeration includes the new target" \
+  'unstated scope, and an unreconciled multi-state contract' \
+  's/an unreconciled multi-state contract/REMOVED/' "$OG_OVERVIEW_DOC"
+# (e) Step 3.5 target carries the scope-honesty operative clause ("Scope honesty" AC).
+assert_pin_red_under "#465 (e): Step 3.5 target scopes to the draft's own forms (no not-yet-written-implementation claim)" \
+  'makes **no** claim to catch a state that only a not-yet-written implementation will emit' \
+  's/not-yet-written implementation will emit/REMOVED/' "$CI312_SKILL"
+# (f) Step 3.5 target carries the no-burden-on-non-contract-issues operative clause ("No burden…" AC).
+assert_pin_red_under "#465 (f): Step 3.5 target draws no new hunt/question/revision on a non-contract draft" \
+  'a draft that states none draws no new hunt, question, or revision' \
+  's/draws no new hunt, question, or revision/REMOVED/' "$CI312_SKILL"
+# (g) Consumer-agnostic ABSENCE pin (the issue's Testing-Strategy coverage-dimension (e)).
+#     (a)–(f) are all positive-presence pins, so a future edit injecting a DevFlow-internal
+#     reference into a body that ships into consumer repos would pass them all. Assert the two
+#     consumer-installed create-issue bodies name no repo-internal test path / CI job name.
+#     `devflow_implement.allowed_tools` is deliberately NOT banned: it is a consumer-facing
+#     config key (consumers set it themselves), not a DevFlow-repo-internal token.
+for CI465_TOK in 'lib/test/run.sh' 'lib + python tests'; do
+  assert_eq "#465 (g): create-issue SKILL stays consumer-agnostic — no '$CI465_TOK'" \
+    "0" "$(pin_count "$CI465_TOK" "$CI312_SKILL")"
+  assert_eq "#465 (g): create-issue template stays consumer-agnostic — no '$CI465_TOK'" \
+    "0" "$(pin_count "$CI465_TOK" "$CI312_TMPL")"
+  # Non-vacuity proof: an absence pin over a token the detector could never match is a guard
+  # that cannot fail. Inject the token into a copy and confirm the SAME detector reports it —
+  # so the `0` above is evidence of a clean body, not of a blind grep. Asserted as a DELTA
+  # (injected count == clean count + 1), not as the absolute `1`: the absolute form silently
+  # depends on the source being clean, so a body that already carried the token would fail this
+  # proof with the message "injected token is NOT detected" — the exact inverse of what happened.
+  CI465_INJ="$(probe_tmp "#465 (g)-mp: '$CI465_TOK' injection setup")" || continue
+  { cat "$CI312_SKILL"; printf 'the pins live in %s (injected)\n' "$CI465_TOK"; } > "$CI465_INJ"
+  assert_eq "#465 (g)-mp: absence pin is non-vacuous — injecting '$CI465_TOK' raises the count by 1" \
+    "$(( $(pin_count "$CI465_TOK" "$CI312_SKILL") + 1 ))" "$(pin_count "$CI465_TOK" "$CI465_INJ")"
+done
 # ── issue #464: create-issue adversarial-input dimension + enumerated-AC-list floor rule.
 #    Reuses the #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT) and adds
 #    the overview doc var. Each pinned literal is a verbatim fragment of the new contract prose
