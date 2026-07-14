@@ -45,5 +45,26 @@
       {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD); runs live in CI on clean full-history"}
     ]
   },
-  "telemetry": {"step_2_6": {"calls": 5, "tokens": 641610, "wall_clock_s": 265}, "step_3_5": {"calls": 1, "tokens": 50724, "wall_clock_s": 110}}
+  "telemetry": {"step_2_6": {"calls": 10, "tokens": 1200000, "wall_clock_s": 460}, "step_3_5": {"calls": 1, "tokens": 72775, "wall_clock_s": 164}},
+  "shadow": {
+    "ran_at": "2026-07-14T22:12:00Z",
+    "reviewed_sha": "abba7c81",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "real_mint curl calls redirect stderr to /dev/null, dropping the HTTP status from the mint-failure breadcrumb (under-specific, not a true silent failure — the operation-named warning + job-level defeat warning still fire).", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [152, 170], "kind": "diagnostic-context-discarded"}, "corroboration_count": 1},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "'sub-second mint' in the JWT-argv disclosure understates a two-round-trip API window (say 'brief mint window').", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [146, 146], "kind": "clarity_nitpick"}, "corroboration_count": 1},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Additional wiring pins suggested (stdin-pipe PEM delivery, fingerprint token-source, wrapper cp) — single-source, loud-degrade, cleared by the convergence code-reviewer's independent wiring check.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [34570, 34630], "kind": "missing-wiring-pin"}, "corroboration_count": 1},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "JWT-in-argv residual (already disclosed in-code); recommends -K - hardening before adversarial deployments. Non-blocking, bounded (9-min, once/45-min).", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [152, 169], "kind": "credential-exposure"}, "corroboration_count": 1}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 4, "overlap_with_iter_N": 0, "new": 4, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false,
+    "park_calibration": "park-calibration gate clean: no parked finding matched a mis-grade shape (fail-open guard / breadcrumb-overclaim / unhonorable-deferral). Every shadow finding is a genuine Suggestion — the curl-stderr nit under-specifies a breadcrumb that already fires loudly; the wiring-pin gaps degrade LOUDLY (stop-refresher defeat warning) and were cleared by the convergence code-reviewer.",
+    "over_grade_calibration": "pr-test-analyzer's stdin-pipe pin finding (criticality 5) calibrated to Suggestion: single-source from an empirical over-grader, on a loud-degrade path (a dropped PEM pipe fails every mint cycle and stop-refresher re-emits a job-level defeat warning — not a silent green), the launch invocation + env-u ordering are already pinned, and the convergence code-reviewer independently cleared the wiring. Does not drive a promotion."
+  }
 }
