@@ -33486,7 +33486,7 @@ assert_eq "#487 arm2: mint success rewrites the extraheader to the fresh token" 
   "$(_a487_hdr)"
 assert_eq "#487 arm2: token file written with the fresh token" "TOKEN_B" "$(cat "$TOK487" 2>/dev/null)"
 assert_eq "#487 arm2: token file is mode 0600" "600" \
-  "$(stat -f '%Lp' "$TOK487" 2>/dev/null || stat -c '%a' "$TOK487" 2>/dev/null)"
+  "$(stat -c '%a' "$TOK487" 2>/dev/null || stat -f '%Lp' "$TOK487" 2>/dev/null)"
 
 # Arm 3 — mint failure → previous credential intact and a ::warning:: emitted.
 _a3_err="$(DEVFLOW_REFRESH_MINT='false' DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" \
