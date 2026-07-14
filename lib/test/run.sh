@@ -4882,9 +4882,9 @@ assert_pin_red_under "#474(2.3.0c-a): derived-comparand arm-enumeration requirem
 assert_pin_red_under "#474(2.3.0c-a): the six-shape arm list is operative (removing it re-opens the unenumerated-arm gap)" \
   'producer failure (a non-zero exit or a denial), unparseable output, a wrong-type value, a valid-falsy/empty value, and a missing key or file' \
   's|producer failure \(a non-zero exit or a denial\), unparseable output, a wrong-type value, a valid-falsy/empty value, and a missing key or file|the arms|' "$P2_FILE"
-assert_pin_red_under "#474(2.3.0c-a): the unenumerated-arm defect teeth are operative" \
-  'an unauthored fail-open accident' \
-  's|an unauthored fail-open accident|acceptable|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.0c-a): the unenumerated-arm defect teeth are operative (removing the whole this-PR-defect obligation, not just its adjective, re-opens the gap)" \
+  'is an unauthored fail-open accident and a defect in **this** PR' \
+  's|is an unauthored fail-open accident and a defect in \*\*this\*\* PR|is acceptable|' "$P2_FILE"
 # §2.3.0c trigger (b): a stated policy places its obligation at the execution point it gates.
 assert_pin_red_under "#474(2.3.0c-b): obligation-placement requirement is operative" \
   'A stated policy places its obligation at the execution point it gates' \
