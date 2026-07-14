@@ -1,0 +1,58 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-14T01:15:00Z",
+  "fix_commit_sha": "d2f9bad",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "fix",
+  "checklist": [
+    {"id": "VC-1", "claim": "The four (now six) assert_pin_red_under pins have present-and-unique operative literals and their sed mutations flip PASS->FAIL", "file": "lib/test/run.sh", "verification_mode": "lite", "claim_signature": "test_contract:run.sh:465-pins-operative", "verdict": "PASS", "evidence": "full suite GREEN 6425/0; all six #465 pins PASS", "reused_from_iter_prev": false},
+    {"id": "VC-2", "claim": "docs §11 and changeset prose accurately describe the shipped SKILL.md Step 3.5 behavior", "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "verification_mode": "lite", "claim_signature": "self_authored:overview:s11-matches-skill", "verdict": "PASS", "evidence": "2.3.4a sweep + comment-analyzer + requesting-code-review all confirmed no divergence", "reused_from_iter_prev": false},
+    {"id": "VC-3", "claim": "coupled create-issue mirror sites (SKILL.md, template, extension, §11) reconciled in lockstep; no stale enumeration", "file": "skills/create-issue/SKILL.md", "verification_mode": "lite", "claim_signature": "coupled_mirror:create-issue:reconciled", "verdict": "PASS", "evidence": "2.3.0a/2.3.0b grep sweep + code-reviewer confirmed two live enumeration sites both updated", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "the #465 pin comment said mutations 'strip that operative sentence' but they strip a fragment of it", "defect_signature": {"file": "lib/test/run.sh", "line_range": [52, 53], "kind": "style"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "the SKILL.md scope-honesty operative clause was unpinned — coverage hole vs the 'Scope honesty' / 'No burden on non-contract issues' ACs (park-calibration re-grade shape 1)", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [132, 132], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "the reconciliation check is one-directional (summary under-lists ACs); reverse orphan intentional/documented — no changes required", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [132, 132], "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-comment", "decision": "applied", "commit": "d2f9bad"},
+    {"finding_id": "F-coverage-hole", "decision": "severity-calibrated", "source_file": "skills/create-issue/SKILL.md", "claim_text": "scope-honesty operative clause unpinned", "original_severity": "Suggestion", "calibrated_severity": "Important", "evidence": "park-calibration gate shape 1 (coverage hole in this PR's own diff vs the issue's ACs): the 'Scope honesty' and 'No burden on non-contract issues' ACs have operative prose with no dedicated pin, in a change whose theme is bidirectional orphan coverage — re-graded up and fixed by adding pins (e)/(f)"},
+    {"finding_id": "F-coverage-hole", "decision": "applied", "commit": "d2f9bad"},
+    {"finding_id": "F-onedir", "decision": "advisory", "source_file": "skills/create-issue/SKILL.md", "claim_text": "one-directional reconciliation check", "skip_category": "advisory-parked", "evidence": "intentional/documented scoping matching issue #465's motivating direction; final-pass reviewer said 'no changes required'"}
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 14, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 60, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD) — runs live against committed HEAD in CI"}]},
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 1},
+    "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "phase_3": {"calls": 5, "tokens": 254975, "wall_clock_s": 305},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 1},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "step_2_6": {"calls": 5, "tokens": 260428, "wall_clock_s": 265}
+  },
+  "shadow": {
+    "ran_at": "2026-07-14T01:22:00Z",
+    "reviewed_sha": "d2f9bad",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "'skipped entirely for non-UI issues' quote — FALSE POSITIVE: verbatim in SKILL.md line 65's own DoR item; shadow checked the template instead", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [132, 132], "kind": "comment_drift"}, "corroboration_count": 1},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "unpinned disagreement-routing sub-clause (criticality 4, sub-clause of reconciliation-target AC, not a distinct AC)", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [132, 132], "kind": "test_gap"}, "corroboration_count": 1},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "unpinned template disambiguation parenthetical (criticality 3, clarifying framing, not a distinct AC)", "defect_signature": {"file": "skills/create-issue/references/issue-template.md", "line_range": [302, 306], "kind": "test_gap"}, "corroboration_count": 1}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 3, "overlap_with_iter_N": 0, "new": 3, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false,
+    "park_calibration": "clean: no parked finding matched a mis-grade shape (the comment-drift finding is a verified false positive — quote is verbatim in SKILL.md:65; the two test_gap findings are sub-clause/framing, not coverage holes vs named ACs)",
+    "over_grade_gate": "n/a: no promote-path Critical/Important finding"
+  }
+}
