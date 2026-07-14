@@ -1,0 +1,10 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "f73a527da2ccb7701470dde832d5984d9d02f135",
+  "fix_files": [
+    "lib/test/run.sh",
+    "scripts/match-lint-adjudications.py"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}
