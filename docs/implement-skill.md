@@ -476,20 +476,24 @@ A single `_report_failed_ticks` chokepoint in `scripts/workpad.py` writes the co
 
 ## `## Devflow Reflection`: grouped-by-kind rendering (`--reflection-kind`)
 
-Reflection bullets are grouped by **kind** so a human triaging a DevFlow PR/issue sees the items that need follow-up separated from purely informational notes, without expanding and reading a flat list. `scripts/workpad.py update` takes a `--reflection-kind {blocked|deferred|dropped-failed|note}` flag that applies to that call's `--reflection` bullet(s); the helper — the single chokepoint every reflection flows through — owns the glyph, bold label, and sub-section placement, so the structure holds regardless of how the orchestrator phrases the text.
+Reflection bullets are grouped by **kind** so a human triaging a DevFlow PR/issue sees the items that need follow-up separated from improvement proposals and purely informational notes, without expanding and reading a flat list. `scripts/workpad.py update` takes a `--reflection-kind {blocked|deferred|dropped-failed|improvement|issue-accuracy|note}` flag that applies to that call's `--reflection` / `--reflection-file` bullet(s); the helper — the single chokepoint every reflection flows through — owns the glyph, bold label (or none, for the glyph-only kinds), and sub-section placement, so the structure holds regardless of how the orchestrator phrases the text.
 
-| Kind | Glyph + label | Sub-section |
-|---|---|---|
-| `blocked` | `⛔ **Blocked:**` | `### ⚠️ Action required` |
-| `deferred` | `⏭️ **Deferred:**` | `### ⚠️ Action required` |
-| `dropped-failed` | `❗ **Dropped/Failed:**` | `### ⚠️ Action required` |
-| `note` (default when omitted) | `ℹ️ **Note:**` | `### ℹ️ Notes` |
+| Kind | Rendered bullet | Label? | Sub-section |
+|---|---|---|---|
+| `blocked` | `- ⛔ **Blocked:** …` | labeled | `### ⚠️ Action required` |
+| `deferred` | `- ⏭️ **Deferred:** …` | labeled | `### ⚠️ Action required` |
+| `dropped-failed` | `- ❗ **Dropped/Failed:** …` | labeled | `### ⚠️ Action required` |
+| `improvement` | `- 💡 …` | glyph-only | `### 💡 Improvements` |
+| `issue-accuracy` | `- 📝 **Issue accuracy:** …` | labeled | `### ℹ️ Notes` |
+| `note` (default when omitted) | `- ℹ️ …` | glyph-only | `### ℹ️ Notes` |
 
-Both sub-sections live inside the existing `## Devflow Reflection` `<details>` block. Mechanics, baked into the helper:
+The three sub-sections render in the canonical order `### ⚠️ Action required` → `### 💡 Improvements` → `### ℹ️ Notes`, all inside the existing `## Devflow Reflection` `<details>` block. A kind whose sub-heading already names it renders **glyph-only** (`note` under `### ℹ️ Notes`, `improvement` under `### 💡 Improvements`) — the redundant bold label is dropped (issue #476); the others keep a label because their heading does not uniquely name them (the three actionable kinds share `### ⚠️ Action required`; `issue-accuracy` renders under `### ℹ️ Notes`). Mechanics, baked into the helper:
 
 - A sub-heading is emitted **only** when its group has ≥1 bullet (an empty group produces no heading); a second bullet of an existing kind nests under the existing heading without duplicating it; appended content stays before `</details>`.
-- Sub-headings are `### ` (level-3), **never** `## ` — `lib/fetch-pr-context.sh` terminates the reflection parse at the first `## ` heading, so a level-2 sub-heading would truncate `reflections[]`. The parser captures every kind bullet (glyph + label prefix included — useful signal for the retrospective LLM, irrelevant to `cheap-gate.jq`'s non-empty check) and excludes the `### ` headings, for both the new grouped shape and a legacy flat block. The gate is unchanged: any run that left ≥1 reflection bullet is forced into LLM analysis.
-- `--reflection-kind` defaults to `note`, so un-migrated call-sites degrade to the Notes sub-section — never to Action required. A single kind applies to every `--reflection` in the call, so the orchestrator emits different kinds in separate `update` calls (this is why the Phase 4.3 `publish_failed` `dropped-failed` reflection is its own call, separate from the `note`-kind finalize). This mirrors `workpad.py`'s existing helper-owns-the-rendering-token idiom (`--status` derives and prepends the status glyph; `--note` nests under the right `## Progress` phase).
+- Sub-headings are `### ` (level-3), **never** `## ` — `lib/fetch-pr-context.sh` terminates the reflection parse at the first `## ` heading, so a level-2 sub-heading would truncate `reflections[]`. The parser captures every kind bullet (glyph, and bold-label prefix when present — a glyph-only bullet is captured identically; useful signal for the retrospective LLM, irrelevant to `cheap-gate.jq`'s non-empty check) and excludes the `### ` headings, for the grouped shape and a legacy flat block alike. The gate is unchanged: any run that left ≥1 reflection bullet is forced into LLM analysis.
+- `--reflection-kind` defaults to `note`, so un-kinded call-sites degrade to the Notes sub-section — never to Action required. A single kind applies to every bullet in the call, so the orchestrator emits different kinds in separate `update` calls (this is why the Phase 4.3 `publish_failed` `dropped-failed` reflection is its own call, separate from the `note`-kind finalize). This mirrors `workpad.py`'s existing helper-owns-the-rendering-token idiom (`--status` derives and prepends the status glyph; `--note` nests under the right `## Progress` phase).
+- **The Phase 1.6 issue-claim audit records clean confirmations as `## Progress` `--note`s, not reflections** — an assumption checked that held carries no friction signal, and a reflection trips the retrospective cheap gate. Only audit *findings* reflect: a wrong count/exclusion as `issue-accuracy`, punted workflow-capability work as `deferred`, a policy/dependency contradiction as `blocked`.
+- **Interpolation-safe input.** `--reflection-file PATH` reads the bullet text verbatim as UTF-8 from a file (or stdin when `PATH` is `-`), bypassing shell interpolation — the recipe for reflection text containing backticks, `$`, or double quotes. The call-site recipe (in `skills/implement/SKILL.md`) authors the payload to a `.devflow/tmp/` file with the Write tool, passes `--reflection-file <path>` alongside the `--reflection-kind`, then deletes the payload after the helper call succeeds; an unreadable, undecodable, or empty payload aborts the call before any PATCH.
 
 ## Phase 4.0 / 4.0.5 deferred-issue labels (`deferred.labels`)
 
