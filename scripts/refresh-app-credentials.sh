@@ -32,10 +32,15 @@
 # variable, never passes it as a process argument, and never writes it to disk
 # (openssl signs with the key handed over a file descriptor via process
 # substitution, a /dev/fd path, not a real file). Scope note: the *workflow* Start
-# step does pass the key as its own step-level `DEVFLOW_APP_PRIVATE_KEY` env and
-# pipes it to this script's stdin — so the key is in the trusted refresher process's
-# own environment, but NEVER in the separate `claude` agent step's env (the AC's
-# "not visible to the agent session" guarantee), and never on disk.
+# step passes the key as its own step-level `DEVFLOW_APP_PRIVATE_KEY` env solely to
+# pipe it to this script's stdin. That variable is inherited into this detached,
+# long-lived process, so read_key_from_stdin `unset`s it the instant the key lands
+# in shell memory — otherwise the concurrent same-uid `claude` agent step could
+# read the raw PEM via /proc/<pid>/environ for the whole run (a strictly larger
+# blast radius than a 60-min token). After the unset the key lives ONLY in the
+# shell-memory `$KEY` (not exposed via /proc/*/environ), NEVER in the separate
+# `claude` agent step's env (the AC's "not visible to the agent session"
+# guarantee), and never on disk.
 #
 # Testability: the mint honors a DEVFLOW_-prefixed override that wins verbatim
 # and is never probed (the lib/resolve-bin.sh DEVFLOW_<TOOL> stub contract), and
@@ -82,6 +87,16 @@ KEY=""
 read_key_from_stdin() {
   # -r: no backslash mangling; -d '': read the whole stream including newlines.
   IFS= read -r -d '' KEY || true
+  # Drop the key from THIS process's environment immediately. The workflow Start
+  # step exports the PEM as the step-level `DEVFLOW_APP_PRIVATE_KEY` env solely to
+  # pipe it to our stdin; that variable is then inherited into this detached,
+  # long-lived process's environment, where the concurrent same-uid (and
+  # prompt-injectable) `claude` agent step could read it via /proc/<pid>/environ
+  # for the whole run — a strictly larger blast radius than the pre-#487 60-min
+  # token (the raw PEM mints installation tokens indefinitely). The pipe-fed key
+  # now lives ONLY in the shell-memory `$KEY`, which /proc/*/environ does not
+  # expose. `unset` is a bash builtin (no non-preflight PATH tool on this path).
+  unset DEVFLOW_APP_PRIVATE_KEY
 }
 
 # ── The real mint (no override): build an RS256 app JWT, resolve the
@@ -200,13 +215,19 @@ run_cycle() {
   # atomic-rename guarantee git config gives surface 1). A plain `> "$TOKEN_FILE"`
   # would truncate-then-write, and a read landing in that window would see an empty
   # or partial token and silently degrade the wrapper to the ambient credential.
+  # NOTE: surface 1 (the extraheader) has already been rewritten to the fresh token by
+  # this point, so a surface-2 failure below leaves the two surfaces DIVERGED — the
+  # push credential is fresh while the gh token file is stale (the reverse of the mint/
+  # locate failures above, which leave BOTH surfaces on the previous credential). Both
+  # warnings name that divergence so the operator knows only the gh surface is at risk
+  # (both tokens are usually still valid — the stale one merely ages out sooner).
   local dir tmp; dir="$(dirname "$TOKEN_FILE")"; tmp="$TOKEN_FILE.tmp.$$"
   mkdir -p "$dir" 2>/dev/null || true
   ( umask 077; printf '%s' "$token" > "$tmp" ) \
-    || { warn "cycle: writing the token temp file '$tmp' failed"; rm -f "$tmp" 2>/dev/null; return 1; }
+    || { warn "cycle: writing the token temp file '$tmp' failed — push credential (surface 1) IS fresh but the gh token file (surface 2) is now stale"; rm -f "$tmp" 2>/dev/null; return 1; }
   chmod 600 "$tmp" 2>/dev/null || true
   mv -f "$tmp" "$TOKEN_FILE" \
-    || { warn "cycle: renaming the token file into place ('$TOKEN_FILE') failed"; rm -f "$tmp" 2>/dev/null; return 1; }
+    || { warn "cycle: renaming the token file into place ('$TOKEN_FILE') failed — push credential (surface 1) IS fresh but the gh token file (surface 2) is now stale"; rm -f "$tmp" 2>/dev/null; return 1; }
   # Positive success breadcrumb (stdout → the same log the workflow redirects). The
   # Stop step's scripts/stop-refresher.sh reads the LAST refresh-app-credentials:
   # line to tell a recovered transient (last line = this OK) from a sustained failure

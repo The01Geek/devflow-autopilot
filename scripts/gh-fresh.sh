@@ -134,6 +134,13 @@ main() {
   [ -n "$err" ] && printf '%s\n' "$err" >&2
 
   # On a bad-credential failure, append the distinctive diagnostic (both paths).
+  # The `Authentication failed` alternative is DELIBERATELY kept alongside gh's precise
+  # `HTTP 401`/`Bad credentials`: gh subcommands that shell out to git (e.g. `gh repo
+  # sync`, `gh pr checkout`) surface an expired-token failure as git's `fatal:
+  # Authentication failed for '<url>'`, NOT an `HTTP 401` — so dropping it would blind
+  # the two-strikes fail-fast rule to those expired-token cases (pinned by arm26). A
+  # non-token auth failure only ever gains one extra advisory line on an already-failed
+  # call, a far smaller cost than a missed expired-credential signal.
   if [ "$rc" -ne 0 ] && printf '%s' "$err" | grep -qiE 'HTTP 401|Bad credentials|Authentication failed'; then
     printf '%s\n' "$DIAG_LINE" >&2
   fi

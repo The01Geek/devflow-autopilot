@@ -34192,6 +34192,53 @@ assert_eq "#487 arm4: loop writes its PID to the pidfile (the retirement handle)
 assert_eq "#487 arm4: failed cycle takes the BACKOFF branch then success takes the INTERVAL branch" "11 99" \
   "$(tr '\n' ' ' < "$SLEEPLOG487" | sed 's/ *$//')"
 
+# Arm 4b — Key-hygiene /proc mitigation (PR #491 Important finding). The workflow
+# Start step exports DEVFLOW_APP_PRIVATE_KEY (to pipe the PEM to our stdin) and the
+# detached refresher inherits it into its own environment, where the concurrent
+# same-uid (prompt-injectable) claude step could read the raw PEM via
+# /proc/<pid>/environ for the whole run. read_key_from_stdin must `unset` it the
+# instant the piped key lands in shell memory. It runs BEFORE mint_token's `eval`,
+# so a mint override that echoes the env var observes the POST-unset environment —
+# a leaked var would surface in the written token, an unset one reads `<unset>`.
+_a4b_tok="$D487/tok4b"
+DEVFLOW_APP_PRIVATE_KEY='SECRET_PEM_MATERIAL' \
+  DEVFLOW_REFRESH_MINT='printf "envval=[${DEVFLOW_APP_PRIVATE_KEY:-<unset>}]"' \
+  DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" DEVFLOW_REFRESH_TOKEN_FILE="$_a4b_tok" \
+  GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1
+assert_eq "#487 arm4b: read_key_from_stdin unsets DEVFLOW_APP_PRIVATE_KEY from the refresher env (/proc mitigation)" "envval=[<unset>]" \
+  "$(cat "$_a4b_tok" 2>/dev/null)"
+# Behavioral-fix pin: prove the guard is the `unset` line specifically — a mutation
+# deleting it (reintroducing the /proc leak) must flip the pin RED.
+assert_pin_red_under "#487 arm4b-pin: DEVFLOW_APP_PRIVATE_KEY unset present (deleting it reopens the /proc leak)" \
+  'unset DEVFLOW_APP_PRIVATE_KEY' '/unset DEVFLOW_APP_PRIVATE_KEY/d' "$REFRESH_SH"
+
+# Arm 4c — SIGTERM teardown of a LIVE loop (PR #491 Suggestion 1). The loop sleeps in
+# the BACKGROUND and `wait`s on it so the TERM trap retires the process PROMPTLY; a
+# regression to a foreground `sleep "$INTERVAL"` would defer the trap until the full
+# interval elapses (up to 45 min in production), silently breaking the stop-refresher.sh
+# retirement contract on which the whole retirement design rests. Start a real loop with
+# a 20s interval, TERM it, and assert it dies well within that interval.
+CFG4C="$D487/cred4c.config"
+git config --file "$CFG4C" "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD4C" 2>/dev/null
+PIDF4C="$D487/pid4c"; rm -f "$PIDF4C"
+DEVFLOW_REFRESH_MINT='printf TOKEN_4C' DEVFLOW_REFRESH_CONFIG_FILE="$CFG4C" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok4c" DEVFLOW_REFRESH_PIDFILE="$PIDF4C" \
+  DEVFLOW_REFRESH_INTERVAL=20 DEVFLOW_REFRESH_BACKOFF=20 \
+  GITHUB_SERVER_URL="https://github.com" bash "$REFRESH_SH" loop </dev/null >/dev/null 2>&1 &
+_loop4c_bg=$!
+# Wait (bounded) for the loop to record its PID (cmd_loop writes it before the first
+# sleep), then send it SIGTERM.
+_i=0; while [ ! -s "$PIDF4C" ] && [ "$_i" -lt 50 ]; do sleep 0.1; _i=$((_i+1)); done
+_pid4c="$(cat "$PIDF4C" 2>/dev/null)"
+kill -TERM "$_pid4c" 2>/dev/null || true
+# Poll up to ~5s for exit. Background-sleep + TERM trap → sub-second; a foreground-sleep
+# regression stays alive here (interval is 20s), flipping this assertion RED.
+_i=0; while kill -0 "$_pid4c" 2>/dev/null && [ "$_i" -lt 50 ]; do sleep 0.1; _i=$((_i+1)); done
+assert_eq "#487 arm4c: SIGTERM retires a live loop promptly (background-sleep + TERM trap, not a foreground sleep)" "dead" \
+  "$(kill -0 "$_pid4c" 2>/dev/null && echo alive || echo dead)"
+wait "$_loop4c_bg" 2>/dev/null || true
+
 # ── Wrapper arms (5–9). A stub real gh prints the token it sees; a bad-cred stub 401s.
 GHSTUB487="$D487/gh"
 { printf '#!/usr/bin/env bash\n'; printf 'echo "GH_TOKEN_SEEN=${GH_TOKEN:-<none>} ARGS=$*"\n'; } > "$GHSTUB487"
@@ -34508,6 +34555,26 @@ for _wf487 in devflow-implement devflow; do
   # The install step records the job-start fingerprint and prepends the wrapper to PATH.
   assert_eq "#487 wiring: $_wf487.yml install step prepends the wrapper dir to GITHUB_PATH" "1" \
     "$(printf '%s\n' "$(mint_blk 'Install fresh-gh wrapper (optional)' "$_WFF487")" | grep -cF 'GITHUB_PATH')"
+  # ── Step ORDERING (PR #491 Suggestion 2): load-bearing but previously unpinned.
+  # (a) The refresher and the wrapper install must both precede the claude step, so the
+  # agent's >60-min run is already push-/gh-fresh from the start; a reordering that put
+  # either after the agent step would leave the run unprotected yet still pass the
+  # presence pins above. Compare 1-indexed line numbers within the workflow file.
+  _claude_ln="$(grep -nF 'name: Run Claude Code' "$_WFF487" | head -1 | cut -d: -f1)"
+  _start_ln="$(grep -nF 'name: Start credential refresher (optional)' "$_WFF487" | head -1 | cut -d: -f1)"
+  _inst_ln="$(grep -nF 'name: Install fresh-gh wrapper (optional)' "$_WFF487" | head -1 | cut -d: -f1)"
+  assert_eq "#487 wiring: $_wf487.yml starts the refresher BEFORE the claude step" "yes" \
+    "$([ -n "$_start_ln" ] && [ -n "$_claude_ln" ] && [ "$_start_ln" -lt "$_claude_ln" ] && echo yes || echo no)"
+  assert_eq "#487 wiring: $_wf487.yml installs the fresh-gh wrapper BEFORE the claude step" "yes" \
+    "$([ -n "$_inst_ln" ] && [ -n "$_claude_ln" ] && [ "$_inst_ln" -lt "$_claude_ln" ] && echo yes || echo no)"
+  # (b) Intra-step: the real gh's ABSOLUTE path must be captured BEFORE the wrapper dir
+  # is appended to GITHUB_PATH — otherwise a later name-based `gh` lookup recurses into
+  # the wrapper. Pin the two lines' order within the install step block.
+  _instblk="$(mint_blk 'Install fresh-gh wrapper (optional)' "$_WFF487")"
+  _cap_ln="$(printf '%s\n' "$_instblk" | grep -nF 'REAL_GH="$(command -v gh)"' | head -1 | cut -d: -f1)"
+  _path_ln="$(printf '%s\n' "$_instblk" | grep -nF 'GITHUB_PATH' | head -1 | cut -d: -f1)"
+  assert_eq "#487 wiring: $_wf487.yml captures REAL_GH before prepending the wrapper to GITHUB_PATH" "yes" \
+    "$([ -n "$_cap_ln" ] && [ -n "$_path_ln" ] && [ "$_cap_ln" -lt "$_path_ln" ] && echo yes || echo no)"
 done
 # devflow.yml's gate additionally excludes /devflow:review (read-only, never pushes).
 assert_eq "#487 wiring: devflow.yml refresher start excludes /devflow:review commands" "1" \

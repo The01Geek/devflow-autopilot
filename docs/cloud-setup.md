@@ -268,7 +268,8 @@ inert in the Actions UI, an `if: always()` **Stop credential refresher** step
 into the step output, and re-emits **one** live `::warning::` when the refresher was
 actually defeated (never started/crashed before its first cycle, died mid-run — the
 pidfile's pid no longer running, so a stale `cycle OK` in the log does not mask a death
-after that cycle — or its most recent cycle failed) — so a run that silently lost its
+after that cycle; the pidfile present but empty — the loop could not record its PID, so
+its liveness cannot be verified — or its most recent cycle failed) — so a run that silently lost its
 credentials is visible without log archaeology. The agent-side wrapper degrades loudly
 too: a substitute decision that finds no token file (a refresher defeated at startup
 never writes one) emits a stderr breadcrumb before riding the ambient token.
