@@ -1,0 +1,214 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-14T20:50:00Z",
+  "fix_commit_sha": "06971571",
+  "fix_files": [
+    "scripts/validate-telemetry-artifact.sh",
+    "scripts/telemetry-push-artifact.sh",
+    "scripts/collect-staged-telemetry.sh",
+    ".github/workflows/devflow-runner.yml",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "guard-class-1: source rc verified but devflow_telemetry_persist_tree definition not asserted; header overclaims fail-loud",
+      "defect_signature": {
+        "file": "scripts/telemetry-push-artifact.sh",
+        "line_range": [
+          78,
+          98
+        ],
+        "kind": "existence_vs_sourceability"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "header claims selection never routes through a non-preflight PATH tool but size cap uses wc",
+      "defect_signature": {
+        "file": "scripts/validate-telemetry-artifact.sh",
+        "line_range": [
+          15,
+          16
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "collect helper copy-failure reported as 'nothing staged' (misdirected breadcrumb)",
+      "defect_signature": {
+        "file": "scripts/collect-staged-telemetry.sh",
+        "line_range": [
+          39,
+          46
+        ],
+        "kind": "misdirected_breadcrumb"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "set -- $rel without set -f (glob exposure, not exploitable)",
+      "defect_signature": {
+        "file": "scripts/validate-telemetry-artifact.sh",
+        "line_range": [
+          130,
+          131
+        ],
+        "kind": "glob_hygiene"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "no direct test for .. traversal / absolute path (AC4 names them; unreachable via walk)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          18912,
+          18922
+        ],
+        "kind": "coverage_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "MAX_BYTES non-numeric fail-closed not tested; explicit all-or-nothing valid-sibling assertion missing",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          18944,
+          18947
+        ],
+        "kind": "coverage_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "push rc 1 -> warning + exit 0 (disclosed best-effort by design)",
+      "defect_signature": {
+        "file": "scripts/telemetry-push-artifact.sh",
+        "line_range": [
+          93,
+          99
+        ],
+        "kind": "best_effort_swallow"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F1",
+      "decision": "applied",
+      "commit": "06971571"
+    },
+    {
+      "finding_id": "F2",
+      "decision": "applied",
+      "commit": "06971571"
+    },
+    {
+      "finding_id": "F3",
+      "decision": "applied",
+      "commit": "06971571"
+    },
+    {
+      "finding_id": "F5",
+      "decision": "applied",
+      "commit": "06971571"
+    },
+    {
+      "finding_id": "F6",
+      "decision": "applied",
+      "commit": "06971571"
+    },
+    {
+      "finding_id": "F7",
+      "decision": "applied",
+      "commit": "06971571"
+    },
+    {
+      "finding_id": "F4-push-rc1",
+      "decision": "advisory",
+      "source_file": "scripts/telemetry-push-artifact.sh",
+      "claim_text": "push rc 1 warns and exits 0",
+      "skip_category": "advisory-parked",
+      "evidence": "disclosed best-effort contract in the header; telemetry loss is not a run-failing condition by design; reviewer said no change needed"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 6,
+    "fix_diff_lines": 90,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 60,
+    "skipped_checks": [
+      {
+        "check": "#434 stale-prose self-scan",
+        "kind": "blocking-gate",
+        "reason": "working tree dirty (grades committed HEAD); runs green on the committed tree in CI"
+      }
+    ]
+  },
+  "telemetry": {
+    "phase_3": {
+      "calls": 5,
+      "tokens": 250000,
+      "wall_clock_s": 190
+    }
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
+}
