@@ -15,3 +15,8 @@ type: Added
   deliberately-fresh `#287` backstop mint by fingerprint. A two-strikes bad-credential fail-fast
   rule stops long runs from burning budget on dead credentials. With no App configured
   (`vars.DEVFLOW_APP_ID` empty) everything is a no-op, byte-identical to today. (#487)
+- **Fail closed when the persisted `http.<server>/.extraheader` credential lives in more than
+  one config file.** `actions/checkout` persists exactly one, but if the config chain ever
+  held the key across multiple distinct files the refresher now warns and leaves the previous
+  credential in place rather than silently rewriting only the first file (which `git push`
+  might not read as the highest-precedence value) — preserving the loud-degrade design. (#491)

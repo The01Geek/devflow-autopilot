@@ -34925,6 +34925,16 @@ _a11="$(env -u GH_TOKEN -u DEVFLOW_GH_REAL PATH="$BIN11A:$BIN11B:$PATH" \
   "$BIN11A/gh" x 2>/dev/null)"
 assert_eq "#487 arm11: resolve_real_gh skips the wrapper itself and resolves the real gh on PATH" "REAL11 ARGS=x" "$_a11"
 
+# Arm 11b — resolve_real_gh: DEVFLOW_GH_REAL SET but NON-EXECUTABLE (e.g. a stale/removed
+# path) must NOT be used verbatim — the `[ -x "$REAL_GH" ]` guard fails and resolve_real_gh
+# falls through to the PATH walk, resolving the real gh there (SUG-5 coverage, PR #491).
+BIN11C="$D487/bin11c"; mkdir -p "$BIN11C"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "REAL11C ARGS=$*"\n'; } > "$BIN11C/gh"; chmod +x "$BIN11C/gh"
+_a11b="$(env -u GH_TOKEN PATH="$BIN11C:$PATH" DEVFLOW_GH_REAL="$D487/nonexistent-real-gh" \
+  DEVFLOW_GH_TOKEN_FILE="$D487/none11b" DEVFLOW_GH_FINGERPRINT_FILE="$D487/none11bfp" \
+  bash "$GHFRESH_SH" x 2>/dev/null)"
+assert_eq "#487 arm11b: DEVFLOW_GH_REAL set-but-non-executable falls through to the PATH walk" "REAL11C ARGS=x" "$_a11b"
+
 # Arm 12 — decide() must NOT silently defer when it cannot establish the fingerprint
 # comparison (GH_TOKEN present but fingerprint file absent): it emits a breadcrumb and
 # defers (fail toward not clobbering a fresh #287 mint), never a silent stale-token ride.
@@ -34947,6 +34957,37 @@ assert_eq "#487 arm21: multi-value extraheader collapses to ONE value after the 
   "$(git config --file "$CFG21" --get-all 'http.https://github.com/.extraheader' | wc -l | tr -d ' ')"
 assert_eq "#487 arm21: the surviving value is the fresh token" "x-access-token:TOKEN_21" \
   "$(git config --file "$CFG21" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arm 21b — IMP-1 (PR #491 review): the extraheader key set in MORE THAN ONE distinct
+# config file is anomalous (actions/checkout persists exactly one). The PRODUCTION
+# locator (no DEVFLOW_REFRESH_CONFIG_FILE override) must FAIL CLOSED — warn and leave
+# the previous credential intact — rather than silently rewrite just the first file
+# while `git push` reads a higher-precedence stale value elsewhere and the cycle still
+# prints `cycle OK`. Seed a real repo whose LOCAL config carries the key AND an
+# include.path'd config that also carries it → `git config --show-origin --get-all`
+# returns two DISTINCT files. Distinct from arm21 (multi-VALUE in ONE file → collapses
+# via --replace-all → succeeds).
+REPO21B="$D487/repo21b"; mkdir -p "$REPO21B"; ( cd "$REPO21B" && git init -q )
+INC21B="$REPO21B/included.config"
+git config --file "$INC21B" "http.https://ex21b.test/.extraheader" \
+  "AUTHORIZATION: basic $(printf 'x-access-token:INCVAL21B' | openssl base64 -A)"
+( cd "$REPO21B" \
+  && git config "http.https://ex21b.test/.extraheader" "AUTHORIZATION: basic $(printf 'x-access-token:OLD21B' | openssl base64 -A)" \
+  && git config include.path "$INC21B" )   # ABSOLUTE — a relative include.path resolves against .git/, not the repo root
+_a21b_err="$(cd "$REPO21B" && DEVFLOW_REFRESH_MINT='printf TOKEN_21B' DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok21b" \
+  GITHUB_SERVER_URL="https://ex21b.test" bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _a21b_rc=$?
+assert_eq "#487 arm21b: multi-FILE extraheader fails closed (exits 0, best-effort)" "0" "$_a21b_rc"
+assert_eq "#487 arm21b: multi-FILE extraheader emits the more-than-one-config-file ::warning::" "yes" \
+  "$(printf '%s' "$_a21b_err" | grep -qF 'MORE THAN ONE config file' && echo yes || echo no)"
+assert_eq "#487 arm21b: multi-FILE extraheader leaves the LOCAL credential intact (OLD21B, not rewritten)" "x-access-token:OLD21B" \
+  "$(cd "$REPO21B" && git config --file .git/config --get 'http.https://ex21b.test/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+assert_eq "#487 arm21b: multi-FILE extraheader did NOT write the token file (mint fresh but push credential not rewritten)" "yes" \
+  "$([ ! -e "$D487/tok21b" ] && echo yes || echo no)"
+# Behavioral-fix removal pin (IMP-1): deleting the multi-file detection (`multi=yes`)
+# re-opens the silent-stale-credential path — the cycle would rewrite only the first
+# config file while a higher-precedence stale credential wins elsewhere. Must flip RED.
+assert_pin_red_under "#487 arm21b-pin: multi-file extraheader detection present (deleting it re-opens the silent-stale-credential path)" \
+  'multi=yes' '/multi=yes/d' "$REFRESH_SH"
 
 # Arm 22 — the REAL mint path (no DEVFLOW_REFRESH_MINT override), desk-tested with a
 # stub `curl` (no network) and real `openssl`/`jq`: assert (a) the RS256 JWT header +
@@ -35013,6 +35054,101 @@ assert_eq "#487 arm23: empty minted token emits a ::warning::" "yes" \
   "$(printf '%s' "$_a23_err" | grep -qF '::warning::refresh-app-credentials' && echo yes || echo no)"
 assert_eq "#487 arm23: empty minted token leaves the previous credential intact (PREV23)" "x-access-token:PREV23" \
   "$(git config --file "$CFG23" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arms 23b–23g — real_mint intermediate-failure branches (SUG-5 coverage, PR #491
+# review). Each drives ONE undriven guard of the real (no-override) mint path with the
+# real RSA key from arm22 (RSAKEY22) and a stubbed `curl` (no network). Every branch
+# must exit 0 (best-effort) and emit its SPECIFIC ::warning:: naming the failed arm,
+# leaving the previous credential untouched.
+CFG23B="$D487/cred23b.config"
+git config --file "$CFG23B" "http.https://github.com/.extraheader" "AUTHORIZATION: basic PREV23B"
+
+# 23b — installation-id GET fails (curl exits non-zero for the installation URL).
+CURLDIR23B="$D487/curlbin23b"; mkdir -p "$CURLDIR23B"
+cat > "$CURLDIR23B/curl" <<'EOF23B'
+#!/usr/bin/env bash
+case "$*" in *installation*) exit 22 ;; esac
+EOF23B
+chmod +x "$CURLDIR23B/curl"
+_a23b_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23B:$PATH" DEVFLOW_APP_ID=APPID23B \
+  GITHUB_REPOSITORY="owner/myrepo23b" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23b" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23b_rc=$?
+assert_eq "#487 arm23b: installation GET failure exits 0" "0" "$_a23b_rc"
+assert_eq "#487 arm23b: installation GET failure warns 'could not resolve installation id'" "yes" \
+  "$(printf '%s' "$_a23b_err" | grep -qF 'could not resolve installation id' && echo yes || echo no)"
+
+# 23c — installation response missing `.id` (jq yields empty).
+CURLDIR23C="$D487/curlbin23c"; mkdir -p "$CURLDIR23C"
+cat > "$CURLDIR23C/curl" <<'EOF23C'
+#!/usr/bin/env bash
+case "$*" in *installation*) printf '{}' ;; esac
+EOF23C
+chmod +x "$CURLDIR23C/curl"
+_a23c_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23C:$PATH" DEVFLOW_APP_ID=APPID23C \
+  GITHUB_REPOSITORY="owner/myrepo23c" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23c" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23c_rc=$?
+assert_eq "#487 arm23c: missing installation .id exits 0" "0" "$_a23c_rc"
+assert_eq "#487 arm23c: missing installation .id warns 'installation id missing'" "yes" \
+  "$(printf '%s' "$_a23c_err" | grep -qF 'installation id missing' && echo yes || echo no)"
+
+# 23d — access-token POST fails (installation resolves, the POST curl exits non-zero).
+CURLDIR23D="$D487/curlbin23d"; mkdir -p "$CURLDIR23D"
+cat > "$CURLDIR23D/curl" <<'EOF23D'
+#!/usr/bin/env bash
+case "$*" in
+  *access_tokens*) exit 22 ;;
+  *installation*)  printf '{"id":9999}' ;;
+esac
+EOF23D
+chmod +x "$CURLDIR23D/curl"
+_a23d_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23D:$PATH" DEVFLOW_APP_ID=APPID23D \
+  GITHUB_REPOSITORY="owner/myrepo23d" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23d" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23d_rc=$?
+assert_eq "#487 arm23d: access-token POST failure exits 0" "0" "$_a23d_rc"
+assert_eq "#487 arm23d: access-token POST failure warns 'access-token POST failed'" "yes" \
+  "$(printf '%s' "$_a23d_err" | grep -qF 'access-token POST failed' && echo yes || echo no)"
+
+# 23e — JWT signing fails: feed a BOGUS (non-PEM) key on stdin so `openssl dgst -sign`
+# cannot load it. No curl is reached (signing precedes the API calls).
+_a23e_err="$(printf 'NOT-A-VALID-PEM-KEY' | env DEVFLOW_APP_ID=APPID23E \
+  GITHUB_REPOSITORY="owner/myrepo23e" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23e" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23e_rc=$?
+assert_eq "#487 arm23e: JWT signing failure exits 0" "0" "$_a23e_rc"
+assert_eq "#487 arm23e: bad private key warns on the JWT signing arm" "yes" \
+  "$(printf '%s' "$_a23e_err" | grep -qF 'JWT signing' && echo yes || echo no)"
+
+# 23f — GITHUB_REPOSITORY empty: the mint cannot resolve an installation → the specific
+# guard fires (signing never runs; the guard precedes it).
+_a23f_err="$(printf '%s' "$RSAKEY22" | env DEVFLOW_APP_ID=APPID23F \
+  GITHUB_REPOSITORY= DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23f" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23f_rc=$?
+assert_eq "#487 arm23f: empty GITHUB_REPOSITORY exits 0" "0" "$_a23f_rc"
+assert_eq "#487 arm23f: empty GITHUB_REPOSITORY warns it cannot resolve the installation" "yes" \
+  "$(printf '%s' "$_a23f_err" | grep -qF 'GITHUB_REPOSITORY empty' && echo yes || echo no)"
+
+# 23g — a required tool is missing: point PATH at a dir with ONLY `openssl` (the
+# tool-presence loop checks openssl THEN curl, before any signing), so `curl` is absent
+# and the missing-tool guard fires with its specific ::warning::. env is given an
+# ABSOLUTE bash so it can start with PATH pointed away from the system bindir.
+BINDIR23G="$D487/toolbin23g"; mkdir -p "$BINDIR23G"
+ln -s "$(command -v openssl)" "$BINDIR23G/openssl"
+BASH23G="$(command -v bash)"
+_a23g_err="$(printf '%s' "$RSAKEY22" | env "PATH=$BINDIR23G" DEVFLOW_APP_ID=APPID23G \
+  GITHUB_REPOSITORY="owner/myrepo23g" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23g" GITHUB_SERVER_URL="https://github.com" \
+  "$BASH23G" "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23g_rc=$?
+assert_eq "#487 arm23g: missing required tool exits 0" "0" "$_a23g_rc"
+assert_eq "#487 arm23g: missing curl warns about the required tool not found on PATH" "yes" \
+  "$(printf '%s' "$_a23g_err" | grep -qF "required tool 'curl' not found" && echo yes || echo no)"
+# All six failure branches must leave the previous credential UNTOUCHED (mint failed
+# before the git-config rewrite), so CFG23B still carries its seeded value verbatim.
+assert_eq "#487 arm23b-g: mint-failure branches leave the previous credential intact (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
 
 # Arm 24 — locate_extraheader_file failure (no override, no extraheader anywhere): a
 # successful mint but no config file to rewrite → warn, no crash, exit 0.
@@ -35102,6 +35238,17 @@ echo "$_live16" > "$D487/pidD"
 _s16="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidD" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
 assert_eq "#487 arm16: pidfile present (live) + no log does NOT warn defeated" "no" "$(_defeat487 "$_s16")"
 kill "$_live16" 2>/dev/null; wait "$_live16" 2>/dev/null || true
+
+# Arm 16b — pidfile present (live) + a log that EXISTS but carries NO
+# `refresh-app-credentials:` cycle line (unrelated content only) → the grep matches
+# nothing → `last` is empty → the `*)` default arm → nothing to assert → NO defeated
+# warning (SUG-5 coverage of the log-present-but-no-cycle-line default, PR #491).
+sleep 300 & _live16b=$!
+echo "$_live16b" > "$D487/pidG"
+printf 'some unrelated log noise\nanother line without the marker\n' > "$D487/logG"
+_s16b="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidG" DEVFLOW_REFRESH_LOG="$D487/logG" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm16b: live pid + log present but no cycle line (default arm) does NOT warn defeated" "no" "$(_defeat487 "$_s16b")"
+kill "$_live16b" 2>/dev/null; wait "$_live16b" 2>/dev/null || true
 
 # Arm 19 — pidfile present but the pid is DEAD + last cycle OK → the refresher died
 # after its last good cycle (OOM-killed/reaped); the stale `cycle OK` must NOT mask the

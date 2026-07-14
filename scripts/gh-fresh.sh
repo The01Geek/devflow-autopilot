@@ -3,7 +3,11 @@
 # SPDX-License-Identifier: MIT
 # gh-fresh.sh — a `gh` wrapper that resolves the token at CALL time from the
 # refresher-maintained token file, so agent-side `gh` invocations in a
-# >60-minute writer-job run never ride the expiring job-start token (issue #487).
+# >60-minute writer-job run ride the fresh refresher-maintained token rather than
+# the expiring job-start token whenever the refresher is healthy (issue #487). When
+# the refresher was defeated (token file absent/empty), the wrapper DEGRADES to the
+# ambient token with a stderr breadcrumb — see main()'s degrade path below; it is a
+# disclosed fail-safe, not an unconditional guarantee.
 #
 # It is wired two ways by the workflow's install step: as `DEVFLOW_GH` in the
 # claude step's env (so DevFlow's own gh-callers, which resolve gh through

@@ -186,20 +186,40 @@ mint_token() {
 # hardcoded path). Honors the suite override. ──
 locate_extraheader_file() {
   if [ -n "$CONFIG_FILE_OVERRIDE" ]; then printf '%s' "$CONFIG_FILE_OVERRIDE"; return 0; fi
-  local key raw first
+  local key raw line file first="" multi=no
   key="http.${SERVER_URL}/.extraheader"
   # `--show-origin` prints `file:<path>\t<value>` per match. The path DECIDES which
   # file gets rewritten, so it must be derived with bash builtins, never `head`/`sed`
   # (non-preflight PATH tools — CLAUDE.md guard-class 2; and `sed`'s `\t` is a GNU
-  # extension BSD sed does not honor). Take the first line, strip the `file:` prefix,
-  # then strip from the first TAB onward — all builtins. This is the external
-  # git-credentials-<UUID>.config checkout wrote.
+  # extension BSD sed does not honor). Strip the `file:` prefix, then strip from the
+  # first TAB onward — all builtins. This is the external git-credentials-<UUID>.config
+  # checkout wrote.
   raw="$(git config --show-origin --get-all "$key" 2>/dev/null)" || return 1
   [ -n "$raw" ] || return 1
-  first="${raw%%$'\n'*}"      # first line only (no `head`)
-  first="${first#file:}"      # strip the `file:` prefix
-  first="${first%%$'\t'*}"    # strip from the first TAB onward (no `sed`)
+  # Walk EVERY match, not just the first line (IMP-1 / PR #491 review). A single file
+  # holding MULTIPLE values is fine — run_cycle's `--replace-all` collapses them to the
+  # one fresh value (the #487 arm21 design). But matches spanning MORE THAN ONE distinct
+  # file break the single-file-rewrite assumption: `git push` reads the LAST/highest-
+  # precedence value, so rewriting only the first file would leave a stale credential
+  # winning in another and `run_cycle` would still print `cycle OK` — a silent-freshness
+  # path in an otherwise loud-degrade design. actions/checkout persists exactly one
+  # extraheader (the assumption this rests on), so a multi-file chain is anomalous:
+  # fail CLOSED with a `::warning::` rather than silently refresh just one file.
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    file="${line#file:}"      # strip the `file:` prefix
+    file="${file%%$'\t'*}"    # strip from the first TAB onward (no `sed`)
+    if [ -z "$first" ]; then
+      first="$file"
+    elif [ "$file" != "$first" ]; then
+      multi=yes
+    fi
+  done <<<"$raw"
   [ -n "$first" ] || return 1
+  if [ "$multi" = yes ]; then
+    warn "cycle: http.*/.extraheader is set in MORE THAN ONE config file — refusing to rewrite just one (git push would read a higher-precedence stale value); push credential NOT rewritten"
+    return 1
+  fi
   printf '%s' "$first"
 }
 
