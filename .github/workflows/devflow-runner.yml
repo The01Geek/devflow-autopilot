@@ -1470,3 +1470,49 @@ jobs:
           path: ${{ steps.scrub_transcript.outputs.path }}
           retention-days: 7
           if-no-files-found: ignore
+
+      # Issue #489 (AC2): hand the read-only review tier's STAGED telemetry to the trusted
+      # pusher. On this `contents: read` PR-head job, `--persist` runs staging-only (it left
+      # its records under gitignored `.devflow/tmp/telemetry-stage-*/.devflow/logs/…` and
+      # pushed nothing — see the TOOLS comment above). This job cannot push them (no write
+      # credential, and it must not gain one — it checks out the PR head). So it CONSOLIDATES
+      # every staged `.devflow/logs` subtree into one deterministic dir and uploads it as a
+      # workflow artifact; the trusted `telemetry-push.yml` job (triggered via `workflow_run`)
+      # downloads it, validates it as untrusted input, and pushes it. The step is naturally
+      # scoped to the staging-only tier: a writable tier's `--persist` returns clean (rc 0)
+      # and DELETES its staging root, so there is nothing to collect there.
+      - name: Collect staged telemetry artifacts
+        id: collect_telemetry
+        if: always()
+        run: |
+          set -uo pipefail
+          dest="${RUNNER_TEMP:-/tmp}/devflow-telemetry-artifact"
+          rm -rf "$dest"; mkdir -p "$dest"
+          found=
+          for stage in .devflow/tmp/telemetry-stage-*/; do
+            [ -d "$stage" ] || continue
+            [ -d "${stage}.devflow/logs" ] || continue
+            # Copy the .devflow/logs subtree, preserving relative paths, into the consolidated
+            # dest. Best-effort collection only — the trusted pusher RE-VALIDATES every entry,
+            # so a miss here can never let an unadmitted path reach the branch.
+            ( cd "$stage" && find .devflow/logs -type f -print0 2>/dev/null \
+                | while IFS= read -r -d '' f; do
+                    mkdir -p "$dest/$(dirname "$f")" && cp "$f" "$dest/$f"
+                  done )
+            found=1
+          done
+          if [ -n "$found" ]; then
+            echo "path=$dest" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::no staged telemetry artifacts to upload (writable tier pushed directly, or nothing was staged this run)."
+          fi
+
+      - name: Upload staged telemetry artifacts
+        if: always() && steps.collect_telemetry.outputs.path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          # A stable, run-scoped name the trusted pusher downloads by run id via `workflow_run`.
+          name: devflow-telemetry-stage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.collect_telemetry.outputs.path }}
+          retention-days: 3
+          if-no-files-found: ignore

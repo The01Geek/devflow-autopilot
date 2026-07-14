@@ -18862,6 +18862,190 @@ assert_eq "#469 AC5: devflow-runner.yml (read-only auto-review tier) does NOT se
 unset DEVFLOW_TELEMETRY_PUSH
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "issue #489: cross-workflow telemetry artifact relay (upload + trusted pusher + untrusted-input validation)"
+# ────────────────────────────────────────────────────────────────────────────
+_489_SC="$LIB/../scripts"
+_489_VAL="$_489_SC/validate-telemetry-artifact.sh"
+_489_PUSH="$_489_SC/telemetry-push-artifact.sh"
+_489_WF="$LIB/../.github/workflows"
+
+# --- AC4: validator unit rejections (all-or-nothing, ::warning::, non-zero, nothing staged) ---
+# Build a hostile/clean artifact dir, run the validator, and report rc + whether the out root
+# received any admitted tree. A drop-whole leaves the out root's .devflow/logs ABSENT.
+# _489_val <label> <expect-rc> <builder-fn>  — builder populates $ART (artifact) before validate.
+_489_run_val() {  # ART OUT [env...] -> echoes "rc|staged(yes/no)"
+  local art="$1" out="$2"; shift 2
+  local rc
+  env "$@" bash "$_489_VAL" "$art" "$out" >/dev/null 2>"$out.err"; rc=$?
+  printf '%s|%s\n' "$rc" "$([ -d "$out/.devflow/logs" ] && echo yes || echo no)"
+}
+
+_489_A="$(git_sandbox "489 validator artifacts")"
+
+# (1) clean happy path → admitted (rc 0, staged yes)
+mkdir -p "$_489_A/ok/.devflow/logs/review/pr-1/run-a" "$_489_A/ok/.devflow/logs/efficiency"
+printf '{"iter":1}\n' > "$_489_A/ok/.devflow/logs/review/pr-1/run-a/iter-1.json"
+printf '{"schema_version":1,"slug":"pr-1"}\n' > "$_489_A/ok/.devflow/logs/efficiency/pr-1-run-a.json"
+assert_eq "489/AC4: a clean artifact is admitted (rc 0, records staged)" "0|yes" \
+  "$(_489_run_val "$_489_A/ok" "$_489_A/ok-out")"
+
+# (2) malformed JSON → drop whole
+mkdir -p "$_489_A/bad-json/.devflow/logs/efficiency"
+printf 'not json{' > "$_489_A/bad-json/.devflow/logs/efficiency/pr-2-run-b.json"
+assert_eq "489/AC4: a malformed-JSON entry drops the WHOLE artifact (rc 1, nothing staged)" "1|no" \
+  "$(_489_run_val "$_489_A/bad-json" "$_489_A/bad-json-out")"
+assert_eq "489/AC4: ...and emits a ::warning:: naming the drop" "yes" \
+  "$(grep -qF '::warning::validate-telemetry-artifact: dropping the whole' "$_489_A/bad-json-out.err" && echo yes || echo no)"
+
+# (3) wrong top-level type (JSON array, not object) → drop whole
+mkdir -p "$_489_A/arr/.devflow/logs/efficiency"
+printf '[1,2,3]\n' > "$_489_A/arr/.devflow/logs/efficiency/pr-3-run-c.json"
+assert_eq "489/AC4: a non-object JSON entry drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/arr" "$_489_A/arr-out")"
+
+# (4) efficiency record missing the shape keys → drop whole
+mkdir -p "$_489_A/noshape/.devflow/logs/efficiency"
+printf '{"foo":"bar"}\n' > "$_489_A/noshape/.devflow/logs/efficiency/pr-4-run-d.json"
+assert_eq "489/AC4: an efficiency record without schema_version+slug drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/noshape" "$_489_A/noshape-out")"
+
+# (5) disallowed path (outside .devflow/logs) → drop whole
+mkdir -p "$_489_A/badpath/foo"
+printf '{}' > "$_489_A/badpath/foo/bar.json"
+assert_eq "489/AC4: an entry outside .devflow/logs/ drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/badpath" "$_489_A/badpath-out")"
+
+# (6) disallowed depth under review/ (extra nested dir) → drop whole
+mkdir -p "$_489_A/deep/.devflow/logs/review/pr-5/run-e/extra"
+printf '{"iter":1}' > "$_489_A/deep/.devflow/logs/review/pr-5/run-e/extra/iter-1.json"
+assert_eq "489/AC4: an over-deep review path drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/deep" "$_489_A/deep-out")"
+
+# (7) symlink entry → drop whole
+mkdir -p "$_489_A/sym/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"x"}' > "$_489_A/sym/.devflow/logs/efficiency/real-run-1.json"
+ln -s /etc/passwd "$_489_A/sym/.devflow/logs/efficiency/evil-run-1.json"
+assert_eq "489/AC4: a symlink entry drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/sym" "$_489_A/sym-out")"
+
+# (8) entry-count cap → drop whole (cap forced low via env; fail-closed on the numeric override)
+mkdir -p "$_489_A/many/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"a"}' > "$_489_A/many/.devflow/logs/efficiency/a-1.json"
+printf '{"schema_version":1,"slug":"b"}' > "$_489_A/many/.devflow/logs/efficiency/b-1.json"
+assert_eq "489/AC4: exceeding the entry-count cap drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/many" "$_489_A/many-out" DEVFLOW_TELEMETRY_MAX_ENTRIES=1)"
+
+# (9) total-size cap → drop whole
+mkdir -p "$_489_A/big/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"big","pad":"%s"}' "$(printf 'x%.0s' $(seq 1 200))" > "$_489_A/big/.devflow/logs/efficiency/big-1.json"
+assert_eq "489/AC4: exceeding the total-size cap drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/big" "$_489_A/big-out" DEVFLOW_TELEMETRY_MAX_BYTES=10)"
+
+# (10) a non-numeric cap override fails CLOSED to the default (does NOT disable the cap): a
+# clean single small record still admits under a garbage MAX_ENTRIES (default 500 applies).
+assert_eq "489/AC4: a non-numeric cap override falls back to the default (clean record still admits)" "0|yes" \
+  "$(_489_run_val "$_489_A/ok" "$_489_A/ok-out2" DEVFLOW_TELEMETRY_MAX_ENTRIES=notanumber)"
+
+# (11) absent artifact dir → inert (rc 0, nothing staged) — NOT a violation
+assert_eq "489/AC4: an absent artifact dir is inert (rc 0, nothing staged)" "0|no" \
+  "$(_489_run_val "$_489_A/does-not-exist" "$_489_A/absent-out")"
+
+# --- AC3/AC4: end-to-end — a hostile artifact leaves the telemetry branch UNCHANGED, a clean
+# one lands, and an empty one is inert. Drive the trusted pusher against a fixture repo. ---
+_489_BARE="$(git_sandbox "489 e2e bare remote")"; git init -q --bare "$_489_BARE"
+_489_REPO="$(git_sandbox "489 e2e repo")"
+git -C "$_489_REPO" init -q
+git -C "$_489_REPO" config user.email t@e.com; git -C "$_489_REPO" config user.name t
+git -C "$_489_REPO" remote add origin "$_489_BARE"
+mkdir -p "$_489_REPO/.devflow"; printf 'tmp/\n' > "$_489_REPO/.devflow/.gitignore"
+git -C "$_489_REPO" add -A; git -C "$_489_REPO" commit -qm seed
+git -C "$_489_REPO" push -q origin HEAD >/dev/null 2>&1 || true
+
+# Clean push lands the records.
+_489_CART="$(git_sandbox "489 clean artifact")"
+mkdir -p "$_489_CART/.devflow/logs/efficiency" "$_489_CART/.devflow/logs/review/pr-9/run-z"
+printf '{"schema_version":1,"slug":"pr-9"}\n' > "$_489_CART/.devflow/logs/efficiency/pr-9-run-z.json"
+printf '{"iter":1}\n' > "$_489_CART/.devflow/logs/review/pr-9/run-z/iter-1.json"
+( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_CART" "$_489_REPO" ) >/dev/null 2>&1
+assert_eq "489/AC3: a clean artifact's records land on the telemetry branch" "yes" \
+  "$(_et_on_branch "$_489_REPO" ".devflow/logs/efficiency/pr-9-run-z.json")"
+_489_TIP="$(git -C "$_489_REPO" rev-parse refs/heads/devflow-telemetry 2>/dev/null)"
+
+# Each hostile artifact leaves the branch tip UNCHANGED (nothing committed).
+_489_hostile_tip_unchanged() {  # label builder-cmd... — runs pusher, echoes yes/no tip-unchanged
+  local label="$1"; shift
+  ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null "$@" bash "$_489_PUSH" "$_489_HART" "$_489_REPO" ) >/dev/null 2>&1
+  [ "$(git -C "$_489_REPO" rev-parse refs/heads/devflow-telemetry 2>/dev/null)" = "$_489_TIP" ] && echo yes || echo no
+}
+
+_489_HART="$(git_sandbox "489 hostile malformed")"; mkdir -p "$_489_HART/.devflow/logs/efficiency"
+printf 'garbage{' > "$_489_HART/.devflow/logs/efficiency/evil-run-1.json"
+assert_eq "489/AC4: a malformed-JSON artifact leaves the branch UNCHANGED (nothing committed)" "yes" \
+  "$(_489_hostile_tip_unchanged malformed)"
+
+_489_HART="$(git_sandbox "489 hostile traversal")"; mkdir -p "$_489_HART/evilsub"
+printf '{}' > "$_489_HART/evilsub/x.json"
+assert_eq "489/AC4: a disallowed-path artifact leaves the branch UNCHANGED" "yes" \
+  "$(_489_hostile_tip_unchanged traversal)"
+
+_489_HART="$(git_sandbox "489 hostile symlink")"; mkdir -p "$_489_HART/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"ok"}' > "$_489_HART/.devflow/logs/efficiency/good-run-1.json"
+ln -s /etc/passwd "$_489_HART/.devflow/logs/efficiency/evil-run-1.json"
+assert_eq "489/AC4: a symlink-bearing artifact leaves the branch UNCHANGED" "yes" \
+  "$(_489_hostile_tip_unchanged symlink)"
+
+_489_HART="$(git_sandbox "489 hostile oversized")"; mkdir -p "$_489_HART/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"big","pad":"%s"}' "$(printf 'x%.0s' $(seq 1 200))" > "$_489_HART/.devflow/logs/efficiency/big-run-1.json"
+assert_eq "489/AC4: an oversized artifact leaves the branch UNCHANGED" "yes" \
+  "$(_489_hostile_tip_unchanged oversized DEVFLOW_TELEMETRY_MAX_BYTES=10)"
+
+# Inert on an EMPTY artifact (landing-order: intermediate state pushes nothing and says so).
+_489_HART="$(git_sandbox "489 empty artifact")"
+_489_EMPTY_ERR="$( ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_HART" "$_489_REPO" ) 2>&1 1>/dev/null )"
+assert_eq "489/AC3: an EMPTY artifact pushes nothing and leaves the branch UNCHANGED" "yes" \
+  "$([ "$(git -C "$_489_REPO" rev-parse refs/heads/devflow-telemetry 2>/dev/null)" = "$_489_TIP" ] && echo yes || echo no)"
+assert_eq "489/AC3: ...and says so (a 'no telemetry records to push' notice)" "yes" \
+  "$(printf '%s' "$_489_EMPTY_ERR" | grep -qF 'no telemetry records to push' && echo yes || echo no)"
+
+# Inert on an ABSENT artifact dir too (older review run with no upload).
+_489_ABSENT_ERR="$( ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_REPO/.no-such-dl" "$_489_REPO" ) 2>&1 1>/dev/null )"
+assert_eq "489/AC3: an ABSENT artifact dir leaves the branch UNCHANGED" "yes" \
+  "$([ "$(git -C "$_489_REPO" rev-parse refs/heads/devflow-telemetry 2>/dev/null)" = "$_489_TIP" ] && echo yes || echo no)"
+
+# --- AC2/AC3: workflow content pins ---
+# AC2 — the read-only review runner uploads its staged telemetry as a workflow artifact.
+assert_pin_unique "489/AC2: devflow-runner.yml collects the staged telemetry tree" \
+  'Collect staged telemetry artifacts' "$_489_WF/devflow-runner.yml"
+assert_pin_unique "489/AC2: devflow-runner.yml uploads the staged telemetry artifact" \
+  'name: devflow-telemetry-stage-${{ github.run_id }}-${{ github.run_attempt }}' "$_489_WF/devflow-runner.yml"
+
+# AC3 — the trusted pusher workflow: workflow_run trigger, App-token minted ABOVE checkout,
+# cross-run download by run-id, never checks out the PR head.
+assert_eq "489/AC3: telemetry-push.yml exists" "yes" \
+  "$([ -f "$_489_WF/telemetry-push.yml" ] && echo yes || echo no)"
+assert_pin_unique "489/AC3: pusher is triggered by the auto-review workflow's completion (workflow_run)" \
+  'workflows: ["Devflow Review (auto-trigger)"]' "$_489_WF/telemetry-push.yml"
+assert_pin_unique "489/AC3: pusher declares actions:read for cross-run artifact download" \
+  'actions: read' "$_489_WF/telemetry-push.yml"
+# App token minted ABOVE checkout (#357): the mint step precedes the checkout step in the file.
+_489_MINT_LN="$(grep -n 'uses: actions/create-github-app-token@v3' "$_489_WF/telemetry-push.yml" | head -1 | cut -d: -f1)"
+_489_CO_LN="$(grep -n 'uses: actions/checkout@v6' "$_489_WF/telemetry-push.yml" | head -1 | cut -d: -f1)"
+assert_eq "489/AC3(#357): the App token is minted ABOVE the checkout" "yes" \
+  "$([ -n "$_489_MINT_LN" ] && [ -n "$_489_CO_LN" ] && [ "$_489_MINT_LN" -lt "$_489_CO_LN" ] && echo yes || echo no)"
+assert_pin_unique "489/AC3: pusher seeds the App token as the checkout credential" \
+  'token: ${{ steps.app-token.outputs.token }}' "$_489_WF/telemetry-push.yml"
+assert_pin_unique "489/AC3: pusher downloads the triggering run's artifact by run-id" \
+  'run-id: ${{ github.event.workflow_run.id }}' "$_489_WF/telemetry-push.yml"
+assert_pin_unique "489/AC3: pusher checks out the DEFAULT branch, never the PR head" \
+  'ref: ${{ github.event.repository.default_branch }}' "$_489_WF/telemetry-push.yml"
+assert_pin_unique "489/AC3: pusher invokes the validate+push helper" \
+  'scripts/telemetry-push-artifact.sh' "$_489_WF/telemetry-push.yml"
+# Endpoint↔permission: the pusher makes NO inline `gh api` call (git push via App token +
+# download-artifact via github.token/actions:read), so no additional token permission is owed.
+assert_eq "489/AC3(endpoint↔permission): pusher adds no inline gh api call needing an undeclared permission" "0" \
+  "$(pin_count 'gh api' "$_489_WF/telemetry-push.yml")"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "devflow-runner.yml: opt-in environment provisioning (issues #18, #21)"
 # ────────────────────────────────────────────────────────────────────────────
 # The automated reviewer gains a build environment + build-tool allowlist ONLY
