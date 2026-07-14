@@ -3047,6 +3047,8 @@ assert_pin_unique "#467 B1: quality-checklist mirror for the occurrence-count pr
   'Every in-repo occurrence count or coupled-site list is grounded by an executed whitespace-normalized search' "$CI312_TMPL"
 assert_pin_unique "#467 B2: Step 3.5 carries the AC mutual-consistency check" \
   'AC mutual-consistency check (mandatory)' "$CI312_SKILL"
+assert_pin_unique "#467 B2: template AC guidance body carries the AC mutual-consistency rule" \
+  "No acceptance criterion forbids a surface another criterion's discharge must touch" "$CI312_TMPL"
 assert_pin_unique "#467 B2: quality-checklist mirror for the AC mutual-consistency check" \
   'the ACs are mutually consistent' "$CI312_TMPL"
 # Cluster C — conditional-path (coupled template<->Step-3.5), stated-but-unbound (Step 3.5's item-4 clause),

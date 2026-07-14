@@ -272,6 +272,11 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   protected script that `source`s an unprotected sibling leaves the boundary open one hop
   deeper). An issue that deliberately protects less states the **residual unprotected surface**
   explicitly.
+- **No acceptance criterion forbids a surface another criterion's discharge must touch.** The
+  criteria are checked against *each other* for mutual consistency: an AC that bars a path, a
+  file class, or a tier that a second AC's implementation must edit is an unresolved scope fork,
+  not two independent criteria — reconcile it (widen the exclusion, or move the conflict to
+  `## 🚫 Blocked`) before the issue ships.
 - No conditionals tied to an undecided fork ("if links are public…"). A conditional AC
   means the fork is unresolved — it belongs in Blocked, not here.
 - Edge cases and error-handling scenarios, stated as concrete expected behavior.
