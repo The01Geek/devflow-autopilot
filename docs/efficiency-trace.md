@@ -288,9 +288,10 @@ design.** The **effectiveness** data — findings-per-agent, dispatch counts, ve
 is in the agent's context during *any* run, including a hand-run; it is lost only because the
 `iter-<N>.json` write was optional, so it is made recoverable by turning that write into a
 **non-optional obligation** (see Layer 1). The **token/wall-clock cost** half is captured *live* by
-the running loop; when a loop is abandoned, no backstop DevFlow currently ships reconstructs it, so
-the emit-obligation guarantees the effectiveness half but does **not** promise the cost half — keep
-the loop running live to protect it. Whether an *agent-independent* floor **could** reconstruct the
+the running loop; when a loop is abandoned, the **cloud** tier's Layer-4 harness-side cost floor
+(#475, below) reconstructs the cost from `claude-code-action`'s `execution_file`, but the **local**
+tier ships no such backstop, so there the emit-obligation guarantees the effectiveness half but does
+**not** promise the cost half — keep the loop running live to protect it. Whether an *agent-independent* floor **could** reconstruct the
 cost half from the harness's own output — `claude-code-action`'s `execution_file` and the `Stop`-hook
 transcript — was long asserted here as settled fact ("no backstop can reconstruct it"), but that
 assertion was never measured. Issue #437 replaced the assertion with a re-runnable probe
@@ -317,11 +318,13 @@ parity; the cloud row is a full field sweep, the local row is a token-realness c
 So *"no backstop **can** reconstruct the cost half"* is **not true**, and repeating it steered three
 issues' worth of work (#170, #381, #426) into building ever-more-elaborate floors fed by operands the
 agent had to volunteer, while the harness was emitting the same data, deterministically, the whole
-time. The honest statement is the weaker one: **no backstop DevFlow currently *ships* reconstructs
-it** — a gap in what we built, not a law of the platform. An agent-independent (class-(c)) cost floor
-is **buildable on both tiers** — on the cloud tier from the full observed field set above, on the
-local tier from the transcript's real token counts (wall-clock and the dispatch roster were *not*
-measured there, so a local floor's phase attribution is an open question, not an observed fact); see
+time. The honest statement was the weaker one: **no backstop DevFlow *shipped* reconstructed it** — a
+gap in what we built, not a law of the platform. An agent-independent (class-(c)) cost floor is
+**buildable on both tiers**, and **#475 builds the cloud half** (the Layer-4 harness-side cost floor,
+below): on the cloud tier `--persist` now reconstructs cost from the full observed field set above.
+The **local** tier remains buildable-but-unbuilt — from the transcript's real token counts (wall-clock
+and the dispatch roster were *not* measured there, so a local floor's phase attribution is an open
+question, not an observed fact); see
 [`docs/execution-file-shape.md`](execution-file-shape.md) for the observed shape and the run URL, and
 build against that record rather than this paragraph.
 
@@ -666,8 +669,10 @@ so the floor is buildable on the cloud tier without the agent's cooperation.
 - *Race safety.* The floor makes the store's first path **mutation**, so the push-retry union
   (`commit_union_on`) is now **merge-aware** (base-wins by default; a path this run did not stage
   never overwrites the base side; a staged efficiency record present on base re-applies the
-  add-if-absent `harness_cost` onto the fetched base version) — a stale local snapshot can never
-  revert another writer's `harness_cost`.
+  add-if-absent `harness_cost` onto the fetched base version) — so a stale local snapshot does not
+  revert another writer's `harness_cost` on the normal jq-available merge path (a jq-unavailable or
+  empty-blob fallback to a plain local-wins overlay remains possible and is disclosed by a named
+  `::warning::` — the "narrows, never closes" posture, not an absolute).
 - *Coverage boundaries (explicit, so `harness_cost` presence is never read as complete cloud-cost
   coverage).* A hard-death run that never produced an execution file stays uncovered (a named inert
   breadcrumb in the backstop log, never silent). The read-only auto-review tier

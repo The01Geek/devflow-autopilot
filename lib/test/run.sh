@@ -16310,6 +16310,90 @@ assert_eq "hc-glue(A7): unrecognized class → the 'unrecognized command' breadc
   "$(grep -qF 'unrecognized command' "$HC_GD/uc.err" && echo yes || echo no)"
 rm -rf "$HC_GD"
 
+# ── Reader result-event precedence (_ordered_dicts): a type=="result" summary cost must win
+# over a competing costUSD on a NON-result (streamed message) dict. Every other reader fixture
+# has the cost only on the result event, so the ordering itself was unexercised — reorder to
+# `others + results` and the suite would otherwise stay green.
+HC_ORD="$(git_sandbox "hc reader ordering")"
+printf '%s' '[{"costUSD":0.11},{"type":"result","total_cost_usd":0.99}]' > "$HC_ORD/ord.json"
+assert_eq "hc-reader(A2): a result-event cost wins over a competing non-result costUSD (_ordered_dicts precedence)" "0.99" \
+  "$(python3 "$HC_READER" "$HC_ORD/ord.json" 2>/dev/null | jq -c '.cost_usd')"
+rm -rf "$HC_ORD"
+
+# ── engine_version:null (AC4 fail-closed): an unreadable/malformed plugin.json → engine_version
+# is null WITH a breadcrumb, never fabricated. Every other HC test runs the helper beside the
+# real repo's plugin.json (a valid string .version), so this fail-closed arm was unexercised.
+# Relocate the helper into a scratch lib/ whose sibling .claude-plugin/plugin.json has a
+# NON-STRING .version, so the `(.version|type)=="string"` guard fails. Drive the SKELETON arm
+# (no iter dir → no record-derivation/config_fingerprint dependency), which builds harness_cost
+# via the SAME engine_version resolution and writes it into the skeleton.
+HC_EV_ROOT="$(git_sandbox "hc engine-version-null root")"
+mkdir -p "$HC_EV_ROOT/lib" "$HC_EV_ROOT/.claude-plugin"
+cp "$LIB"/*.sh "$LIB"/*.jq "$HC_EV_ROOT/lib/" 2>/dev/null
+printf '%s' '{"version": 123}' > "$HC_EV_ROOT/.claude-plugin/plugin.json"   # .version is a NUMBER, not a string
+HC_EV="$(_hc_repo "hc ev record")"
+HC_EV_ERR="$( ( cd "$HC_EV" && GITHUB_RUN_ID=ev GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_EXECUTION_PR=1 DEVFLOW_COMMAND_CLASS=review-and-fix bash "$HC_EV_ROOT/lib/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-engineversion(A4): malformed plugin.json (.version not a string) → engine_version is null (never fabricated)" "null" \
+  "$(_et_show "$HC_EV" ".devflow/logs/efficiency/pr-1-ev-1.json" | jq -c '.harness_cost.engine_version')"
+assert_eq "hc-engineversion(A4): the floor still attaches harness_cost (only engine_version degrades)" "execution-file" \
+  "$(_et_show "$HC_EV" ".devflow/logs/efficiency/pr-1-ev-1.json" | jq -r '.harness_cost.cost_source')"
+assert_eq "hc-engineversion(A4): a specific 'engine_version recorded as null' breadcrumb (never silent)" "yes" \
+  "$(printf '%s' "$HC_EV_ERR" | grep -qF 'engine_version recorded as null' && echo yes || echo no)"
+rm -rf "$HC_EV" "$HC_EV_ROOT"
+
+# ── Union MIDDLE arm (base LACKS harness_cost, this run's staged copy HAS it → add-local's-hc
+# onto base). The A5a-staged fixture makes writer A merge harness_cost onto R BEFORE the union,
+# so base already carries it (the base-wins FIRST jq arm). The ordinary concurrent case — this
+# run is the only writer that added harness_cost and must LAND it onto a base copy that lacks it
+# — is the middle `elif ($local.harness_cost != null)` arm, otherwise undriven. Base holds R
+# WITHOUT harness_cost; a concurrent writer pushes an UNRELATED record (diverging the remote so
+# B's push is rejected); B stages R with harness_cost cost_usd=5 (merge-arm-b ident=run-m re-stages
+# the stale local R with B's own cost); the re-parent union must ADD B's harness_cost onto base R.
+HC_MA_BARE="$(git_sandbox "hc midarm bare")"; git -C "$HC_MA_BARE" init --bare -q
+HC_MA="$(git_sandbox "hc midarm repo")"; git -C "$HC_MA" init -q
+git -C "$HC_MA" config user.email t@e.com; git -C "$HC_MA" config user.name t
+git -C "$HC_MA" remote add origin "$HC_MA_BARE"
+mkdir -p "$HC_MA/.devflow"; printf 'tmp/\n' > "$HC_MA/.devflow/.gitignore"
+git -C "$HC_MA" add -A; git -C "$HC_MA" commit -qm seed; git -C "$HC_MA" branch -M main
+git -C "$HC_MA" push -q -u origin main
+HC_MA_REC='{"schema_version":1,"slug":"pr-6","generated_at":"2026-01-01T00:00:00Z","source":"review-and-fix","iterations":1,"telemetry":[]}'
+# B's stale LOCAL telemetry tip holds R WITHOUT harness_cost (what merge-arm-b re-stages).
+mv "$HC_MA_BARE" "${HC_MA_BARE}.down"
+HC_MA_IDX="$HC_MA/.git/maidx"
+HC_MA_SB="$(printf '%s' "$HC_MA_REC" | git -C "$HC_MA" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_MA_IDX" git -C "$HC_MA" update-index --add --cacheinfo "100644,${HC_MA_SB},.devflow/logs/efficiency/pr-6-run-m.json"
+HC_MA_ST="$(GIT_INDEX_FILE="$HC_MA_IDX" git -C "$HC_MA" write-tree)"; rm -f "$HC_MA_IDX"
+HC_MA_SN="$(GIT_AUTHOR_NAME=b GIT_AUTHOR_EMAIL=b@y GIT_COMMITTER_NAME=b GIT_COMMITTER_EMAIL=b@y git -C "$HC_MA" commit-tree "$HC_MA_ST" -m b)"
+git -C "$HC_MA" update-ref refs/heads/devflow-telemetry "$HC_MA_SN"
+mv "${HC_MA_BARE}.down" "$HC_MA_BARE"
+# Writer A seeds R (NO harness_cost) on base AND an UNRELATED record, then pushes → the remote
+# tip diverges from B's local tip so B's push is rejected, forcing the re-parent union over R.
+HC_MA_A="$(git_sandbox "hc midarm writerA")"; git clone -q "$HC_MA_BARE" "$HC_MA_A" 2>/dev/null
+HC_MA_AIDX="$HC_MA_A/.git/aidx"
+HC_MA_ASB="$(printf '%s' "$HC_MA_REC" | git -C "$HC_MA_A" hash-object -w --stdin)"
+HC_MA_AOTH="$(printf '%s' '{"schema_version":1,"slug":"pr-9","generated_at":"2026-01-01T00:00:00Z","source":"review","iterations":1,"telemetry":[]}' | git -C "$HC_MA_A" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_MA_AIDX" git -C "$HC_MA_A" update-index --add --cacheinfo "100644,${HC_MA_ASB},.devflow/logs/efficiency/pr-6-run-m.json"
+GIT_INDEX_FILE="$HC_MA_AIDX" git -C "$HC_MA_A" update-index --add --cacheinfo "100644,${HC_MA_AOTH},.devflow/logs/efficiency/pr-9-run-other.json"
+HC_MA_AT="$(GIT_INDEX_FILE="$HC_MA_AIDX" git -C "$HC_MA_A" write-tree)"; rm -f "$HC_MA_AIDX"
+HC_MA_AN="$(GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@y GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@y git -C "$HC_MA_A" commit-tree "$HC_MA_AT" -m a)"
+git -C "$HC_MA_A" update-ref refs/heads/devflow-telemetry "$HC_MA_AN"
+git -C "$HC_MA_A" push -q origin devflow-telemetry
+# B persists with the floor env (ident=run-m matches R's filename → merge-arm-b re-stages R with
+# cost_usd=5) plus its own new run dir; the push is rejected (remote diverged) and the re-parent
+# runs the STAGED efficiency-record union arm over R — base R lacks harness_cost, local R has it.
+mkdir -p "$HC_MA/.devflow/tmp/review/pr-6/run-b"
+printf '%s' "$HC_ITER" > "$HC_MA/.devflow/tmp/review/pr-6/run-b/iter-1.json"
+( cd "$HC_MA" && GITHUB_RUN_ID=run GITHUB_RUN_ATTEMPT=m \
+    DEVFLOW_EXECUTION_COST='{"cost_usd":5,"tokens":{},"model_usage":null,"num_turns":null,"duration_ms":null}' \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+git -C "$HC_MA" fetch -q origin devflow-telemetry:refs/remotes/origin/ma 2>/dev/null
+assert_eq "hc-race(A5a middle): base R lacked harness_cost, this run's staged copy had it → the union ADDS it (cost_usd=5)" "5" \
+  "$(git -C "$HC_MA" show "refs/remotes/origin/ma:.devflow/logs/efficiency/pr-6-run-m.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
+assert_eq "hc-race(A5a middle): the concurrent writer's UNRELATED record is preserved on base (base-wins for an unstaged path)" "yes" \
+  "$(git -C "$HC_MA" cat-file -e "refs/remotes/origin/ma:.devflow/logs/efficiency/pr-9-run-other.json" >/dev/null 2>&1 && echo yes || echo no)"
+rm -rf "$HC_MA" "$HC_MA_BARE" "$HC_MA_A"
+
 # ── A10: behavioral-fix pins (each with a recorded mutation run) ─────────────
 # The AC5a merge-aware union rests on the "unstaged path never overwrites base"
 # branch; mutating its guard so the branch is never taken reverts the store to the
@@ -16333,6 +16417,15 @@ assert_pin_red_under "hc-pin(A10): merge-arm run-id targeting glob" \
 assert_pin_red_under "hc-pin(A10): env-unset silent no-op guard" \
   '[ -n "${DEVFLOW_EXECUTION_COST:-}" ] || return 0' \
   's/DEVFLOW_EXECUTION_COST:-\}" \] \|\| return 0/DEVFLOW_EXECUTION_COST:-}" ] || :/' \
+  "$LIB/efficiency-trace.sh"
+# The skeleton-overwrite guard (issue #475 review): merge-arm-b's empty-list signal is ambiguous
+# (no record vs. a swallowed git failure), so before writing a skeleton the floor re-checks the
+# branch blob and declines if a real record already occupies the skeleton's filename. Mutating the
+# guard's condition to always-false (`false && …`) makes it never fire, re-introducing the
+# skeleton-overwrites-a-real-record data-loss path this guard closes. Mutation observed RED.
+assert_pin_red_under "hc-pin(A10): skeleton-overwrite guard re-checks the branch blob before writing" \
+  'if [ -n "$ref" ] && devflow_telemetry_blob_exists' \
+  's/if \[ -n "\$ref" \] && devflow_telemetry_blob_exists/if false \&\& devflow_telemetry_blob_exists/' \
   "$LIB/efficiency-trace.sh"
 
 # ── issue #381: synthesis floor — --persist reconstructs a minimal iteration

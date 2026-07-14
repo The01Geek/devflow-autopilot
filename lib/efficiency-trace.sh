@@ -1016,6 +1016,20 @@ apply_harness_floor() {
     return 0
   fi
   local slug="pr-${DEVFLOW_EXECUTION_PR}" generated_at skel
+  # Skeleton-overwrite guard (issue #475 review): merge-arm-b reaches here by falling through
+  # a `while … done < <(devflow_telemetry_list_blobs …)` loop that iterates ZERO times BOTH
+  # when the branch genuinely holds no record for this run-id AND when list_blobs swallowed a
+  # git failure (it returns empty on a rev-parse/ls-tree error) — an ambiguous signal. If a
+  # real, populated record already exists on the branch under the skeleton's OWN filename
+  # (`pr-<N>-<ident>.json`, the common review-and-fix collision), writing a contentless
+  # skeleton would OVERWRITE it (the union applies a staged path local-wins). So re-check the
+  # blob explicitly and decline rather than resting on the empty-list signal: a missed merge
+  # (record kept intact, gains harness_cost on a later working re-run) is strictly safer than
+  # replacing a real record with an iterations:0 skeleton.
+  if [ -n "$ref" ] && devflow_telemetry_blob_exists "$root" "$ref" ".devflow/logs/efficiency/${slug}-${ident}.json" 2>/dev/null; then
+    echo "::warning::efficiency-trace.sh --persist: harness cost floor: a record already exists on the telemetry branch at .devflow/logs/efficiency/${slug}-${ident}.json (merge-arm-b's branch listing may have failed silently); declining to overwrite it with a cost skeleton" >&2
+    return 0
+  fi
   generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   mkdir -p "$eff_dir" 2>/dev/null || true
   # source:null (no mode's derivation ran — outside both mode segments); synthesized:true

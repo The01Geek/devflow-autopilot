@@ -13,6 +13,8 @@ type: Added
   retrospective and experiment analyses most need cost data for — now contribute a deterministic cost
   record. `harness_cost` is whole-job cost (segmentable by `workflow`/`command`, invisible to the
   per-phase `_run_cost`/`telemetry_complete` aggregates), and the telemetry-branch push-retry union is
-  now merge-aware so a concurrent writer's `harness_cost` is never reverted. Best-effort and exit-0
+  now merge-aware so a concurrent writer's `harness_cost` is not reverted on the normal jq-available
+  merge path (a jq-unavailable/empty-blob fallback to local-wins remains possible and is disclosed by a
+  named `::warning::`). Best-effort and exit-0
   throughout; inert and byte-identical to before when the execution file is absent or the floor env is
   unset. (#475)
