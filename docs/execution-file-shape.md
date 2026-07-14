@@ -16,6 +16,15 @@ confirms or narrows that tolerance but must never be used to hard-code a brittle
 single-shape parser. Re-run the probe (`workflow_dispatch`) after any `claude-code-action`
 or Claude Code CLI upgrade and refresh the table below.
 
+**Consumed by (issue #475).** The cost half this record settles is now consumed by the
+**harness-side cost floor**: `scripts/extract-execution-cost.py` normalizes the file's cost
+(`costUSD`/`total_cost_usd`, per-message `usage` tokens, `modelUsage`, `num_turns`, `duration_ms`),
+and `lib/efficiency-trace.sh --persist` lands it as a per-run `harness_cost` record field on the
+telemetry branch — the first efficiency-pipeline floor NOT fed by an agent-volunteered operand. The
+reader mirrors this doc's three-encoding tolerance (object / array / JSONL); because the schema is a
+dated observation and not a contract, it is a preference-ordered tolerant parser, never a brittle
+single-shape one. See [`docs/efficiency-trace.md`](efficiency-trace.md)'s **Layer 4**.
+
 **How each field is recorded (issue #437 AC3/AC4).** For every field, exactly one of:
 
 - `present` — observed in the parsed execution file.

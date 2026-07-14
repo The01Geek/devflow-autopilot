@@ -807,7 +807,14 @@ persist_one() {
   # re-derive an existing record — its `generated_at` is stamped at derivation
   # time, so re-deriving would churn the bytes and force a spurious new branch
   # commit, defeating the no-op-on-re-run contract. A record already on the branch
-  # (a prior --persist) is left untouched: staged for neither derivation nor write.
+  # (a prior --persist) is not re-DERIVED here: staged for neither derivation nor
+  # write BY THIS DISCOVERY PASS. (Issue #475 relaxes the store's strictly-append-
+  # only posture: the harness-cost floor's merge arm — apply_harness_floor, run once
+  # after this loop in do_persist — reads such a record back and re-stages it with an
+  # add-if-absent `harness_cost` key, byte-preserving `generated_at` and every other
+  # field. A record already carrying harness_cost is still left untouched, so the
+  # backstop re-run remains a tree-equality no-op. This loop's derivation path is
+  # unchanged; only the floor mutates an existing path, and it never re-derives.)
   if [ "$ENABLED" = "true" ]; then
     local ref rel_record
     ref="$(devflow_telemetry_ref)"
@@ -840,6 +847,187 @@ persist_one() {
         fi
       fi
     fi
+  fi
+  return 0
+}
+
+# ── Harness-side cost floor (Layer 4, issue #475) ────────────────────────────
+# Merge the claude-code-action execution_file's cost — normalized by the reader
+# (scripts/extract-execution-cost.py) and handed in via DEVFLOW_EXECUTION_COST — into
+# THIS run's efficiency record as a distinct top-level `harness_cost` object. This is
+# the FIRST floor operand NOT fed by an agent-volunteered value: the execution file is
+# written harness-side, so a run that dropped every telemetry emit still contributes a
+# cost record. The reader is NEVER exec'd from here — doing so would add a python3 exec
+# edge to a Stop-hook trusted-closure entry (the #458 constraint) — so the glue helper
+# (scripts/prepare-harness-floor.sh) runs the reader and passes its already-normalized
+# JSON in via the environment.
+#
+# Env inputs (all set by prepare-harness-floor.sh + the backstop step):
+#   DEVFLOW_EXECUTION_COST  the reader's normalized JSON; presence GATES the whole
+#                           floor (unset/empty → silent no-op, --persist byte-identical
+#                           to before — the in-run Loop-Exit persist and the Stop-hook
+#                           persist both run with it unset by design, AC3).
+#   DEVFLOW_EXECUTION_PR    the run's PR number — the skeleton slug (pr-<N>); empty
+#                           skips the skeleton arm (the #431 analysis joins merged PRs).
+#   DEVFLOW_COMMAND_CLASS   review|review-and-fix|pr-description|implement — the
+#                           harness_cost.command field AND the skeleton gate
+#                           (pr-description derives no record by design).
+#   GITHUB_RUN_ID / GITHUB_RUN_ATTEMPT  the run-id identity the record is keyed by:
+#                           <run-id> == ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}, the same
+#                           value skills/review-and-fix/SKILL.md:57 composes as RUN_ID.
+#   GITHUB_WORKFLOW_REF     the path-pinned workflow identity (harness_cost.workflow).
+#
+# Telemetry-gated exactly as record derivation is (AC8); best-effort/exit-0 like every
+# other --persist arm. Per-phase aggregates never see floor data — harness_cost is a
+# distinct TOP-LEVEL key, invisible to _run_cost/_telemetry_complete (AC9).
+
+# Add harness_cost (add-if-absent) to an in-STAGING record file $1, via temp+mv so a
+# failed jq leaves the file untouched. $2 is the harness_cost JSON, $3 a display label.
+_floor_merge_staged() {
+  local file="$1" hc="$2" label="$3" jq_err
+  if "$DEVFLOW_JQ" -e 'has("harness_cost")' "$file" >/dev/null 2>&1; then
+    echo "devflow: efficiency-trace.sh --persist: harness cost floor: ${label} already carries harness_cost; left untouched" >&2
+    return 0
+  fi
+  if jq_err="$("$DEVFLOW_JQ" --argjson hc "$hc" '.harness_cost = $hc' "$file" 2>&1 > "$file.harnesstmp")"; then
+    if mv "$file.harnesstmp" "$file" 2>/dev/null; then
+      echo "devflow: efficiency-trace.sh --persist: harness cost floor: attached harness_cost to ${label}" >&2
+    else
+      echo "::warning::efficiency-trace.sh --persist: harness cost floor: could not move the merged ${label} into place; left without harness_cost" >&2
+      rm -f "$file.harnesstmp" 2>/dev/null
+    fi
+  else
+    echo "::warning::efficiency-trace.sh --persist: harness cost floor: could not merge harness_cost into ${label} (${jq_err:-no error text}); left without harness_cost" >&2
+    rm -f "$file.harnesstmp" 2>/dev/null
+  fi
+}
+
+# Consume DEVFLOW_EXECUTION_COST and land it as harness_cost on this run's record
+# (merge arm) or a minimal cost skeleton (skeleton arm). $1 root, $2 staging root.
+apply_harness_floor() {
+  local root="$1" stage="$2"
+  # Unset/empty cost → INERT and SILENT: --persist behaves byte-for-byte as before.
+  # This guard MUST stay first so the agent-side persist paths emit no breadcrumb (AC3).
+  [ -n "${DEVFLOW_EXECUTION_COST:-}" ] || return 0
+  # Gated (AC8): sits under efficiency_telemetry_enabled exactly as record derivation
+  # does. Set-but-gated-off draws one breadcrumb (the operand WAS supplied) and writes
+  # nothing.
+  if [ "$ENABLED" != "true" ]; then
+    echo "::warning::efficiency-trace.sh --persist: harness cost floor: efficiency telemetry is disabled; DEVFLOW_EXECUTION_COST supplied but not attached this run" >&2
+    return 0
+  fi
+  # Validate the operand is a JSON OBJECT — a malformed value draws one breadcrumb and
+  # no floor write (AC3). Never feed an unvalidated env value into a jq --argjson, which
+  # would abort the helper under set -e.
+  if ! printf '%s' "$DEVFLOW_EXECUTION_COST" | "$DEVFLOW_JQ" -e 'type == "object"' >/dev/null 2>&1; then
+    echo "::warning::efficiency-trace.sh --persist: harness cost floor: DEVFLOW_EXECUTION_COST is not a JSON object; no floor write this run" >&2
+    return 0
+  fi
+  # Run-id identity the record is keyed by. On the cloud tier GITHUB_RUN_ID is always
+  # set; without it this run cannot be identified, so decline (never attach to an
+  # arbitrary record a discovery pass swept — AC3).
+  if [ -z "${GITHUB_RUN_ID:-}" ]; then
+    echo "::warning::efficiency-trace.sh --persist: harness cost floor: GITHUB_RUN_ID is unset, so this run's record cannot be identified; no floor write" >&2
+    return 0
+  fi
+  local ident="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT:-1}"
+  # engine_version: the .version of plugin.json resolved BESIDE this helper — null with a
+  # breadcrumb when unreadable (AC4), never a fabricated value.
+  local plugin_json="$HERE/../.claude-plugin/plugin.json" ev ev_json="null"
+  if [ -f "$plugin_json" ] && ev="$("$DEVFLOW_JQ" -r 'if (.version | type) == "string" then .version else empty end' "$plugin_json" 2>/dev/null)" && [ -n "$ev" ]; then
+    ev_json="$("$DEVFLOW_JQ" -n --arg v "$ev" '$v')"
+  else
+    echo "::warning::efficiency-trace.sh --persist: harness cost floor: could not read .version from ${plugin_json}; engine_version recorded as null" >&2
+  fi
+  # Build harness_cost (AC4 — EXACTLY these fields): metadata plus the reader's figures
+  # spread in. workflow/command are null when their env is empty (unknown-is-not-zero).
+  local harness_cost
+  if ! harness_cost="$(printf '%s' "$DEVFLOW_EXECUTION_COST" | "$DEVFLOW_JQ" -c \
+        --argjson ev "$ev_json" \
+        --arg wf "${GITHUB_WORKFLOW_REF:-}" \
+        --arg cmd "${DEVFLOW_COMMAND_CLASS:-}" \
+        '{cost_source: "execution-file",
+          engine_version: $ev,
+          workflow: (if $wf == "" then null else $wf end),
+          command: (if $cmd == "" then null else $cmd end),
+          scope: "whole-job",
+          cost_usd: .cost_usd,
+          tokens: .tokens,
+          model_usage: .model_usage,
+          num_turns: .num_turns,
+          duration_ms: .duration_ms}' 2>/dev/null)"; then
+    echo "::warning::efficiency-trace.sh --persist: harness cost floor: could not assemble the harness_cost object (jq failed); no floor write" >&2
+    return 0
+  fi
+
+  local eff_dir="${stage}/.devflow/logs/efficiency" f
+  # Merge arm (a): a record DERIVED THIS PASS and staged under the run-id identity —
+  # `<slug>-<ident>.json`, matched by `*-<ident>.json` so ANY slug (pr-<N>, a branch
+  # slug, or a synthesized run) is caught, but ONLY for this run-id (AC3: never a record
+  # a discovery pass swept for another run).
+  if [ -d "$eff_dir" ]; then
+    for f in "$eff_dir"/*-"$ident".json; do
+      [ -e "$f" ] || continue
+      _floor_merge_staged "$f" "$harness_cost" "staged record $(basename "$f")"
+      return 0
+    done
+  fi
+  # Merge arm (b): a record already PERSISTED on the telemetry branch for this run-id (a
+  # prior --persist of this run — the in-run Loop-Exit persist landed it without
+  # harness_cost, since the execution file does not exist mid-run). Read it back, add
+  # harness_cost only when absent, re-stage. A record already carrying harness_cost is
+  # left unstaged, so re-running the backstop ends at the tree-equality no-op (AC5).
+  local ref rel base blob
+  ref="$(devflow_telemetry_ref)"
+  while IFS= read -r rel; do
+    case "$rel" in *-"$ident".json) ;; *) continue ;; esac
+    base="$(basename "$rel")"
+    blob="$(devflow_telemetry_show_blob "$root" "$ref" "$rel")" || continue
+    [ -n "$blob" ] || continue
+    if printf '%s' "$blob" | "$DEVFLOW_JQ" -e 'has("harness_cost")' >/dev/null 2>&1; then
+      echo "devflow: efficiency-trace.sh --persist: harness cost floor: record ${rel} already carries harness_cost; leaving it untouched (backstop re-run no-op)" >&2
+      return 0
+    fi
+    mkdir -p "$eff_dir" 2>/dev/null || true
+    if printf '%s' "$blob" | "$DEVFLOW_JQ" --argjson hc "$harness_cost" '.harness_cost = $hc' > "${eff_dir}/${base}" 2>/dev/null; then
+      echo "devflow: efficiency-trace.sh --persist: harness cost floor: attached harness_cost to already-persisted record ${rel}" >&2
+    else
+      echo "::warning::efficiency-trace.sh --persist: harness cost floor: could not merge harness_cost into ${rel}; no floor write" >&2
+      rm -f "${eff_dir}/${base}" 2>/dev/null
+    fi
+    return 0
+  done < <(devflow_telemetry_list_blobs "$root" "$ref" ".devflow/logs/efficiency/")
+
+  # Skeleton arm (AC6): no record for this run-id anywhere. Only record-DERIVING command
+  # classes get a skeleton — pr-description's healthy state is "no record", so it takes a
+  # named breadcrumb instead. An empty PR skips (the analysis joins merged PRs only).
+  case "${DEVFLOW_COMMAND_CLASS:-}" in
+    review|review-and-fix|implement) ;;
+    pr-description)
+      echo "::warning::efficiency-trace.sh --persist: harness cost floor: no record by design for command class 'pr-description'; no skeleton written" >&2
+      return 0 ;;
+    *)
+      echo "::warning::efficiency-trace.sh --persist: harness cost floor: command class '${DEVFLOW_COMMAND_CLASS:-<unset>}' does not derive records; no skeleton written" >&2
+      return 0 ;;
+  esac
+  if [ -z "${DEVFLOW_EXECUTION_PR:-}" ]; then
+    echo "::warning::efficiency-trace.sh --persist: harness cost floor: no record for run-id ${ident} and DEVFLOW_EXECUTION_PR is empty; skeleton skipped (the analysis joins merged PRs only)" >&2
+    return 0
+  fi
+  local slug="pr-${DEVFLOW_EXECUTION_PR}" generated_at skel
+  generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  mkdir -p "$eff_dir" 2>/dev/null || true
+  # source:null (no mode's derivation ran — outside both mode segments); synthesized:true
+  # + iterations:0 + source:null + harness_cost.cost_source is what distinguishes a
+  # cost-only skeleton from a #381 commit-reconstructed record (AC6).
+  if skel="$("$DEVFLOW_JQ" -n --arg slug "$slug" --arg ga "$generated_at" --argjson hc "$harness_cost" \
+        '{schema_version: 1, slug: $slug, generated_at: $ga, source: null,
+          synthesized: true, iterations: 0, per_iteration: [], telemetry: [],
+          harness_cost: $hc}' 2>/dev/null)" && printf '%s\n' "$skel" > "${eff_dir}/${slug}-${ident}.json"; then
+    echo "devflow: efficiency-trace.sh --persist: harness cost floor: no record for run-id ${ident}; wrote a minimal cost skeleton ${slug}-${ident}.json (source:null, synthesized:true)" >&2
+  else
+    echo "::warning::efficiency-trace.sh --persist: harness cost floor: could not write the cost skeleton for ${slug}-${ident}; no floor write" >&2
+    rm -f "${eff_dir}/${slug}-${ident}.json" 2>/dev/null
   fi
   return 0
 }
@@ -961,6 +1149,14 @@ do_persist() {
       persist_one "$dir" "$slug" "$run_id" "$root" "$allow"
     done
   fi
+
+  # ── Harness-side cost floor (issue #475): merge the execution file's cost into
+  # this run's staged record (or write a minimal cost skeleton) BEFORE the branch
+  # write consumes the staging tree. Inert + silent when DEVFLOW_EXECUTION_COST is
+  # unset, so the agent-side persist call sites (Loop-Exit, Stop-hook) are byte-
+  # identical to before. Best-effort; runs after every run dir has been staged so
+  # its run-id targeting sees this pass's staged record if one was derived. ────────
+  apply_harness_floor "$root" "$_TELEMETRY_STAGE"
 
   # ── Detached write of everything staged above to the telemetry branch ──────
   # (issue #441). Replaces the former current-branch `chore:` commit: the shared
