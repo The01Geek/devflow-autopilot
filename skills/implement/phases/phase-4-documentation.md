@@ -58,11 +58,15 @@ Follow-up to #$ARGUMENTS. <Why this remaining work is needed and who hits the pa
 - **Code Patterns** — <patterns in this codebase to mirror.>
 - **Potential Gotchas** — <constraints or pitfalls carried from the parent issue.>
 EOF
-)"
-echo "phase 4.0 create fence ran"
+)" && CREATE_STATE=ok || CREATE_STATE=failed
+echo "phase 4.0 create fence ran; create=[${CREATE_STATE}]"
 ```
 
-The trailing `echo` is an **unconditional sentinel**, and it is load-bearing for the same reason Phase 4.0.5's is (issue #480): `gh issue create` prints the new issue's URL on success and **nothing** when the harness refuses the command, so without it "the create was refused" and "there was nothing to create" reach you as the same empty tool result — and the capture guard below would then be asked to detect a condition you were given no way to observe. **No `phase 4.0 create fence ran` line at all ⇒ the fence was refused, not answered:** no follow-up issue was filed, so file nothing and label nothing, and record it — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0's follow-up-issue create fence produced no output at all (likely a harness denial); no deferred-AC follow-up issue was filed or labelled this run."`
+The trailing `echo` is an **unconditional sentinel**, and it is load-bearing for the same reason Phase 4.0.5's is (issue #480): `gh issue create` prints the new issue's URL on success and **nothing** when the harness refuses the command, so without it "the create was refused" and "there was nothing to create" reach you as the same empty tool result — and the capture guard below would then be asked to detect a condition you were given no way to observe. It carries `create=` for the same reason 4.0.5 carries `filing=`: a create that **ran and failed** (rate limit, auth, a malformed body) also yields no issue number, and without the state you would read that as the *capture gap* below and record a reflection asserting issues were filed that do not exist. Three states, three routes:
+
+- **No `phase 4.0 create fence ran` line at all** ⇒ the fence was refused, not answered: no follow-up issue was filed, so file nothing and label nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0's follow-up-issue create fence produced no output at all (likely a harness denial); no deferred-AC follow-up issue was filed or labelled this run."`
+- **`create=[failed]`** ⇒ the create ran and the API rejected it. **No issue exists** — do not claim one was filed: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0's gh issue create failed; no deferred-AC follow-up issue was filed this run, so none was labelled."`
+- **`create=[ok]`** ⇒ an issue exists; read its URL for the number and continue to the label applies below.
 
 **Apply the deferred-issue labels.** As you create each follow-up issue above, **capture its number** from the `gh issue create` output (the command prints the new issue URL; the trailing path segment is the number) and keep the numbers **in your own working notes** — an agent-level list, not a shell variable. Do **not** write it as a shell assignment: a shell variable does not survive into the separate command that applies the labels below (a `VAR=value` **prefix on the helper invocation** — `FOO=1 apply-labels.sh …` — is separately denied, because it makes the granted helper path no longer the command's leading token; an ordinary in-fence assignment like the `config-get` capture below is *not* that shape). Then apply the configured `deferred.labels` to every filed issue. The labels are read from config (default `DevFlow,Deferred`) and normalized with the **same** split/trim/drop-empties idiom Phase 4.1 uses for `docs.labels`, so an empty or whitespace-only value applies no labels. Ensure each label exists first (best-effort), then apply them through the shared REST `apply-labels.sh` helper (`POST .../issues/{n}/labels` — repo-scope only, unlike `gh issue edit --add-label`'s org-scoped GraphQL resolution) per filed issue — best-effort and post-creation, so a label hiccup can never block or unwind the filing.
 
@@ -97,10 +101,10 @@ echo "deferred.labels raw: [$DEFERRED_LABELS]"
 echo "deferred labels to apply: [$CLEAN_DEFERRED_LABELS]"
 ```
 
-Two distinct empty-handed outcomes, told apart by the sentinel — and they must not be collapsed, because only one of them means an issue exists that went unlabelled:
+The capture gap is the **`create=[ok]` but no number** case, and only that one — the other two empty-handed outcomes are routed above and must not be collapsed into it, because only this one means an issue exists that went unlabelled:
 
-- **The sentinel line is present but you captured no issue URL/number** — the create ran and did not give you a number. That is a real capture gap (not a benign no-op) — record it durably and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."`
-- **No sentinel line at all** — the fence was refused, so **nothing was filed**. Take the refusal exit above instead; do **not** record the capture-gap reflection, which would assert issues were created that do not exist.
+- **`create=[ok]` and you captured no issue URL/number** — the issue was created and you cannot read its number. That is a real capture gap (not a benign no-op) — record it durably and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."`
+- **`create=[failed]`, or no sentinel line at all** — no issue was created. Take the matching exit above; do **not** record the capture-gap reflection, which would assert issues exist that do not.
 
 **Read the two printed lines together — three outcomes, and only one is a benign no-op:**
 
@@ -264,13 +268,14 @@ fi
 # the path. Print the numbers RAW too — NUMBERS_CSV is display-formatted for the workpad
 # note (`201, #202`), so it is not what you want to substitute into the per-issue calls.
 #
-# `pr=` carries the PR_NUMBER capture's own outcome (issue #480). That capture is in the
-# UNPROVEN class (see the discipline note above), and it is the input SLUG_DIR/AGG are built
-# from: if it is denied or returns nothing, SLUG_DIR degrades to `.devflow/tmp/review/pr-`,
-# no manifest is found, AGG never hydrates, and the sentinel would print `manifest=[]` — the
-# CLEAN NO-OP state — on a run that had deferrals to file. That is the fail-OPEN this phase's
-# own rule forbids ("treat no output as a possible denial, never as an empty value"), so the
-# read is made observable rather than inferred.
+# `pr=` carries the PR_NUMBER capture's own outcome (issue #480). It is the input SLUG_DIR/AGG
+# are built from: if `gh pr view` returns nothing, SLUG_DIR degrades to `.devflow/tmp/review/pr-`,
+# no manifest is found, AGG never hydrates, and the sentinel would otherwise print `manifest=[]`
+# — the CLEAN NO-OP state — on a run that had deferrals to file. Printing the value makes that
+# read observable instead of inferred. (A matcher DENIAL of the capture is a different failure
+# and needs no field: the capture and this sentinel are statements of the SAME Bash call, so a
+# denial refuses the whole fence and NO sentinel prints at all — which is the no-sentinel exit.
+# `pr=[]` therefore means exactly one thing: the read ran and yielded nothing.)
 #
 # The `\n`→space fold is a BASH BUILTIN, not `tr`: this field is an emitted result the reader
 # ROUTES on, and CLAUDE.md's guard-class 2 forbids deriving such a value through a non-preflight
@@ -313,7 +318,7 @@ echo "deferred labels to apply: [$CLEAN_DEFERRED_LABELS]"
 Four further exits before any label is applied — the same fail-closed set Phase 4.0 carries (a rework must not lose them). They are read off the **sentinel** the filing fence prints unconditionally:
 
 - **No `phase 4.0.5 filing fence ran` sentinel at all.** The fence was refused, not answered — do **not** read it as "nothing was filed". Record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5's filing fence produced no output at all (likely a harness denial, not an empty aggregate); no deferred review-finding issues were filed or labelled this run."`
-- **Sentinel present, `pr=[]`** — the `PR_NUMBER` read produced no value, so every path built on it (`SLUG_DIR`, the manifest discovery, `AGG`) resolved against a truncated slug and found nothing. **Do not read the `manifest=[]` that follows it as the clean no-op** — the capture is in the unproven class, so an empty `pr=` is a possible *denial*, and this run's deferrals (if any) were neither filed nor labelled. Record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not resolve the PR number — the gh pr view read produced no value (likely a harness denial); no deferrals manifest could be located, so no deferred review-finding issues were filed or labelled this run."`
+- **Sentinel present, `pr=[]`** — the `gh pr view` read ran and yielded no number, so every path built on it (`SLUG_DIR`, the manifest discovery, `AGG`) resolved against a truncated slug and found nothing. **Do not read the `manifest=[]` that follows it as the clean no-op**: no manifest was even looked for at the right path, so this run's deferrals (if any) were neither filed nor labelled. Record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not resolve the PR number — the gh pr view read yielded no value; no deferrals manifest could be located, so no deferred review-finding issues were filed or labelled this run."` (A matcher *denial* of that capture is the separate no-sentinel exit above — the capture and the sentinel are statements of the same Bash call, so a denial prints no sentinel at all.)
 - **Sentinel present with `pr=[<n>]` and `manifest=[]`** — no hydrated aggregate (either there were no deferrals this run, or the merge produced nothing), so nothing was filed and there is nothing to label: apply nothing. This is the clean no-op. (A jq-merge *failure* already recorded its own `dropped-failed` reflection inside the fence, so it is not silently swallowed here.)
 - **Sentinel present with `manifest=[hydrated]` and `filing=[filed]`, but `filed deferred-finding issues=[]`** — the aggregate held deferrals, the filing arm *ran and succeeded*, yet you can read no filed issue numbers. That is a real capture gap, not a benign no-op: record it durably and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 filed deferred review-finding issues but could not read their numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."`
   **Read `filing=` before concluding a capture gap.** Three other arms also print an empty number list, and none of them is a capture gap — asserting one would fabricate a durable reflection claiming issues were filed on a run that filed none: `filing=[idempotent]` (a prior run already filed them; the hydrated aggregate stands — nothing to label this run), `filing=[none]` (the aggregate held no deferrals), and `filing=[failed]` (the filing itself failed and **already recorded its own accurate reflection inside the fence** — do not add a second, contradicting one). Only `filing=[filed]` with an empty list is the gap.

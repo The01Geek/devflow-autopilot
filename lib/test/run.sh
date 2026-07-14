@@ -27383,11 +27383,31 @@ assert_eq "#480 apply-labels.sh: a QUOTED empty number (\"\$PR_NUM\" that did no
   "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" "" DevFlow 2>&1 | grep -qF "non-numeric issue/PR number ''" && echo yes || echo no)"
 # The arg-slip guard must make NO POST — the breadcrumb alone would still pass if a future edit
 # dropped its `exit 0` and let the REST call fire against `.../issues/DevFlow/labels`.
-printf '#!/usr/bin/env bash\necho "GH_WAS_CALLED" >&2\nexit 0\n' > "$I455_STUB/gh_loud"; chmod +x "$I455_STUB/gh_loud"
-assert_eq "#480 apply-labels.sh: the arg-slip guard POSTs nothing (gh is never invoked)" "0" \
-  "$(DEVFLOW_GH="$I455_STUB/gh_loud" bash "$LIB/../scripts/apply-labels.sh" DevFlow 2>&1 | grep -cF "GH_WAS_CALLED" || true)"
-assert_eq "#480 apply-labels.sh: the empty-label guard POSTs nothing (gh is never invoked)" "0" \
-  "$(DEVFLOW_GH="$I455_STUB/gh_loud" bash "$LIB/../scripts/apply-labels.sh" 42 "  " 2>&1 | grep -cF "GH_WAS_CALLED" || true)"
+#
+# The probe is a MARKER FILE, not a stderr line: `apply-labels.sh` invokes gh as
+# `ERR_OUT="$(gh api … 2>&1 >/dev/null)"`, so a stub that announces itself on stderr is
+# CAPTURED into ERR_OUT and never reaches the assertion — a stderr probe reads 0 even on a
+# successful apply where gh was unambiguously called, so it can never fire and the pin asserts
+# nothing. And the fixture must be TWO args (`abc DevFlow`): with the one-arg `DevFlow` the
+# number is consumed and the label set comes out empty, so the EMPTY-LABEL guard rejects it one
+# step later and the pin stays green even against a mutant with the arg-slip guard's `exit 0`
+# removed — the rejection must be attributable to the guard under test, not to a sibling.
+printf '#!/usr/bin/env bash\ntouch "$DEVFLOW_TEST_GH_MARKER"\nexit 0\n' > "$I455_STUB/gh_marker"; chmod +x "$I455_STUB/gh_marker"
+rm -f "$E363/gh-called"
+assert_eq "#480 apply-labels.sh: the arg-slip guard POSTs nothing (gh is never invoked — marker-file probe, two-arg fixture)" "absent" \
+  "$(DEVFLOW_TEST_GH_MARKER="$E363/gh-called" DEVFLOW_GH="$I455_STUB/gh_marker" bash "$LIB/../scripts/apply-labels.sh" abc DevFlow >/dev/null 2>&1; [ -e "$E363/gh-called" ] && echo present || echo absent)"
+rm -f "$E363/gh-called"
+assert_eq "#480 apply-labels.sh: a QUOTED empty number POSTs nothing (never POSTs to /issues//labels)" "absent" \
+  "$(DEVFLOW_TEST_GH_MARKER="$E363/gh-called" DEVFLOW_GH="$I455_STUB/gh_marker" bash "$LIB/../scripts/apply-labels.sh" "" DevFlow >/dev/null 2>&1; [ -e "$E363/gh-called" ] && echo present || echo absent)"
+rm -f "$E363/gh-called"
+assert_eq "#480 apply-labels.sh: the empty-label guard POSTs nothing (gh is never invoked)" "absent" \
+  "$(DEVFLOW_TEST_GH_MARKER="$E363/gh-called" DEVFLOW_GH="$I455_STUB/gh_marker" bash "$LIB/../scripts/apply-labels.sh" 42 "  " >/dev/null 2>&1; [ -e "$E363/gh-called" ] && echo present || echo absent)"
+# POSITIVE CONTROL — without it the three `absent` pins above are indistinguishable from a probe
+# that never works (the stderr-probe defect this replaced). On a VALID apply the marker MUST appear.
+rm -f "$E363/gh-called"
+assert_eq "#480 anti-vacuity: the marker probe DOES fire on a valid apply (the 'absent' pins above are real)" "present" \
+  "$(DEVFLOW_TEST_GH_MARKER="$E363/gh-called" DEVFLOW_GH="$I455_STUB/gh_marker" bash "$LIB/../scripts/apply-labels.sh" 42 DevFlow >/dev/null 2>&1; [ -e "$E363/gh-called" ] && echo present || echo absent)"
+rm -f "$E363/gh-called"
 assert_eq "#455 apply-labels.sh: a label containing a space survives normalization" "yes" \
   "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 "needs review,DevFlow" 2>&1 | grep -qF "'needs review,DevFlow'" && echo yes || echo no)"
 # Guard-class 2: the label derivation must NOT depend on a non-preflight PATH tool. It decides
