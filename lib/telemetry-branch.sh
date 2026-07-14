@@ -77,6 +77,30 @@ _devflow_telemetry_retention_note() {
   fi
 }
 
+# Decide whether --persist may PUSH this run, or must only STAGE (issue #469 AC5).
+# The failure direction is deliberately asymmetric by tier:
+#   - OFF CI (GITHUB_ACTIONS unset/empty) → push, unchanged: the local Stop hook
+#     carries no job env, and a local ref survives to the next persist anyway, so
+#     the historical push-by-default behavior is preserved.
+#   - ON CI → push ONLY when the workflow AFFIRMATIVELY sets the observable push
+#     operand DEVFLOW_TELEMETRY_PUSH (`1`/`true`). Absent, empty, or any
+#     non-affirmative value FAILS CLOSED to staging-only. The operand must reach
+#     this hook from the JOB ENVIRONMENT (the base-branch .claude/settings.json is
+#     restored identically in every claude-code-action job, so a value baked into
+#     the hook command could not distinguish the read-only review tier from a
+#     writable one). The writable tiers set DEVFLOW_TELEMETRY_PUSH=1 at job level;
+#     the read-only review tier deliberately does not, so it stages, and a forthcoming
+#     trusted telemetry-push relay (not this read-only job; follow-up to issue #469)
+#     performs the branch push from the staged artifacts.
+# rc 0 = push; rc 1 = stage-only.
+_devflow_telemetry_should_push() {
+  [ -n "${GITHUB_ACTIONS:-}" ] || return 0
+  case "${DEVFLOW_TELEMETRY_PUSH:-}" in
+    1|true|TRUE|True|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Resolve the telemetry branch name (config .telemetry.branch, default
 # devflow-telemetry). An empty/absent key → the default (a string key, so the
 # #312 valid-falsy trap does not apply — an empty branch name is never a valid
@@ -212,7 +236,23 @@ devflow_telemetry_list_blobs() {
   # condition context (verified: `set -e; git -C /nonexistent rev-parse …; rc=$?` aborts).
   rc=0
   git -C "$root" rev-parse --verify --quiet "$ref" >/dev/null 2>&1 || rc=$?
-  [ "$rc" -eq 1 ] && return 0          # genuinely absent — a real "no records"
+  if [ "$rc" -eq 1 ]; then
+    # The ref is genuinely ABSENT. Whether that is a real "no records" or an
+    # unknown depends NOT on the absence itself but on whether the exclusion set's
+    # data source was actually consulted — i.e. whether do_persist's best-effort
+    # telemetry-branch fetch succeeded (issue #469 AC7, the "unknown is not zero"
+    # rule). `ok` → the fetch ran and the ref is still absent → an ESTABLISHED
+    # empty (a fresh adopter repo, or any repo before the branch's first use) →
+    # silent. `failed`/`unattempted` (a fetch that could not run, or a caller that
+    # never fetched — e.g. an ephemeral CI runner) → the absence is UNESTABLISHED,
+    # so the fix-commit exclusion set is INCOMPLETE and synthesis may re-attribute
+    # an already-recorded commit → breadcrumb it.
+    case "${_DEVFLOW_TELEMETRY_FETCH_STATUS:-unattempted}" in
+      ok) : ;;
+      *)  echo "::warning::telemetry-branch: ref '${ref}' is absent and the telemetry-branch fetch ${_DEVFLOW_TELEMETRY_FETCH_STATUS:-was not attempted} — whether prior records exist is UNESTABLISHED (not an established 'no records'), so the fix-commit exclusion set is INCOMPLETE and synthesis may re-attribute an already-recorded commit" >&2 ;;
+    esac
+    return 0
+  fi
   if [ "$rc" -ne 0 ]; then
     echo "::warning::telemetry-branch: could not establish whether ref '${ref}' exists (git rev-parse rc=${rc} — not a git repo, an unreadable refs layer, or git could not be run); its records cannot be listed this run, so the fix-commit exclusion set is INCOMPLETE and synthesis may re-attribute an already-recorded commit" >&2
     return 0
@@ -338,28 +378,53 @@ devflow_telemetry_persist_tree() {
     return 0   # every staged path was non-conforming — nothing left to persist
   fi
 
-  # Verify an existing store before appending.
-  devflow_telemetry_verify_store "$root" "$ref" || return 0
+  # Verify an existing store before appending. A non-conforming/unreadable store
+  # is a DEGRADED arm that produced a staging root (issue #469 AC8): return 1 so
+  # the caller RETAINS the staged records rather than discarding them silently.
+  devflow_telemetry_verify_store "$root" "$ref" || return 1
 
-  # Degrade if the branch is live in a worktree (AC10).
+  # Degrade if the branch is live in a worktree (AC10). Also a degraded arm that
+  # produced a staging root → return 1 (retain the staged records; #469 AC8).
   if devflow_telemetry_branch_checked_out "$root" "$ref"; then
     echo "::warning::telemetry-branch: '${branch}' is checked out in a worktree — refusing to advance its ref (would corrupt that worktree); telemetry not persisted this run" >&2
-    return 0
+    return 1
+  fi
+
+  # Push-operand gate (issue #469 AC5). On CI without an affirmative
+  # DEVFLOW_TELEMETRY_PUSH we do NO branch write and NO push: the staged files
+  # under staging_root are left in place for a forthcoming trusted telemetry-push
+  # relay (follow-up to issue #469) to upload and push
+  # (return 2 → the caller retains them, silently — this is the
+  # intended read-only-review posture, not a degradation). Off CI, and on CI with
+  # the operand set, fall through to the CAS+push below.
+  if ! _devflow_telemetry_should_push; then
+    echo "::warning::telemetry-branch: GITHUB_ACTIONS is set but the push operand DEVFLOW_TELEMETRY_PUSH is unset/empty/non-affirmative — STAGING '${branch}' artifacts without a branch write or push (a trusted telemetry-push job, forthcoming, pushes them from the uploaded artifact); set DEVFLOW_TELEMETRY_PUSH=1 in a workflow holding contents:write to push directly" >&2
+    return 2
   fi
 
   # All index-scoped work runs in a subshell so the unique temp index is removed
   # on EVERY exit path by the EXIT trap (AC9), and the caller's set -e / shell
   # state is untouched. Git object/ref writes are global, so the subshell still
-  # advances the ref for the parent.
+  # advances the ref for the parent. The subshell's exit status is CAPTURED (not
+  # discarded) so this function can REPORT a degraded write to its caller (issue
+  # #469 AC8): a degraded arm exits 1, a clean success/no-op exits 0. `|| ...`
+  # keeps the subshell in a condition context so its non-zero exit never aborts
+  # this function under the caller's set -e — the best-effort/never-abort contract
+  # holds while the return VALUE now carries the outcome.
+  local _persist_subrc=0
   (
     idx="${root}/.devflow/tmp/telemetry-index-$$-${RANDOM}-${SECONDS}-${RANDOM}"
     # `|| :` is load-bearing, not hygiene. An EXIT trap's LAST command supplies the subshell's
     # exit status, and this `rm` genuinely fails when `.devflow/tmp` is not a directory (ENOTDIR
     # — precisely the denied-.devflow/tmp case the guard below breadcrumbs). Without `|| :` the
     # subshell then exits 1, `set -e` in the caller turns that into an abort BEFORE the
-    # function's `return 0`, and the helper breaks its own never-aborts-the-caller contract on
-    # the exact degradation it was written to handle gracefully (PR #442 shadow review — caught
-    # by the new unwritable-tmp test, which asserts exit 0).
+    # function's `return`, and the helper breaks its own never-aborts-the-caller contract on
+    # the exact degradation it was written to handle gracefully (PR #442 shadow review). It
+    # also keeps the trap from perturbing the DELIBERATE subshell exit code the function now
+    # returns (issue #469 AC8): a degraded arm exits 1 and a success arm exits 0, and the
+    # unwritable-tmp test asserts that degraded contract — the arm exits 1 so the function
+    # REPORTS the degradation (do_persist then retains the staged records), while the
+    # caller/process still never aborts and --persist still exits 0.
     trap 'rm -f "$idx" 2>/dev/null || :' EXIT
     # Check this mkdir's rc. Discarding it (`|| true`) meant a DENIED .devflow/tmp
     # write — the cloud sandbox denial this very file cites elsewhere, a read-only
@@ -368,7 +433,7 @@ devflow_telemetry_persist_tree() {
     # .git/objects, which is perfectly healthy. Name the real cause (PR #442 review).
     if ! mkdir -p "${root}/.devflow/tmp" 2>/dev/null; then
       echo "::warning::telemetry-branch: could not create '${root}/.devflow/tmp' for the temp index (read-only filesystem, permissions, or the cloud sandbox's write denial into .devflow/tmp) — this is NOT an object-store failure; telemetry not persisted this run" >&2
-      exit 0
+      exit 1
     fi
 
     # Build a tree of <new blobs on top of `parent_tip`> into the temp index.
@@ -495,7 +560,7 @@ devflow_telemetry_persist_tree() {
       new="$(commit_on "$old")" || { new=""; }
       if [ -z "$new" ]; then
         echo "::warning::telemetry-branch: could not build the telemetry commit for '${branch}' (object-store write failed); telemetry not persisted this run" >&2
-        exit 0
+        exit 1
       fi
       if [ "$new" = "NOOP" ]; then
         committed="$old"   # tree unchanged — the record already exists on the branch
@@ -579,7 +644,7 @@ devflow_telemetry_persist_tree() {
         *)
           echo "::warning::telemetry-branch: could not advance the ref for '${branch}' after ${_DEVFLOW_TELEMETRY_CAS_TRIES} attempts and it never moved (git update-ref failed: ${upd_err}) — a held ref .lock (another git process), a read-only .git, or a full disk; telemetry not persisted this run" >&2 ;;
       esac
-      exit 0
+      exit 1
     fi
 
     # ── Push loop (best-effort) ────────────────────────────────────────────────
@@ -637,10 +702,10 @@ devflow_telemetry_persist_tree() {
           # must NOT force — opposite case, deliberately.)
           if ! GIT_TERMINAL_PROMPT=0 git -C "$root" fetch -q origin "+${ref}:refs/remotes/origin/${branch}" 2>/dev/null; then
             echo "::warning::telemetry-branch: push to '${branch}' was rejected and the follow-up fetch failed (no network/auth?); '${branch}' advanced locally but not pushed — telemetry retained on the local ref$(_devflow_telemetry_retention_note)" >&2
-            exit 0
+            exit 1
           fi
           remote_tip="$(git -C "$root" rev-parse --verify --quiet "refs/remotes/origin/${branch}" 2>/dev/null || true)"
-          [ -n "$remote_tip" ] || { echo "::warning::telemetry-branch: could not resolve the fetched tip of '${branch}'; telemetry retained on the local ref only$(_devflow_telemetry_retention_note)" >&2; exit 0; }
+          [ -n "$remote_tip" ] || { echo "::warning::telemetry-branch: could not resolve the fetched tip of '${branch}'; telemetry retained on the local ref only$(_devflow_telemetry_retention_note)" >&2; exit 1; }
           # Re-verify the FETCHED tip is a telemetry store before re-parenting onto
           # it (AC4's guarantee on the push path): when the local ref was absent the
           # pre-write verify_store vacuously passed, so a consumer's pre-existing
@@ -650,13 +715,13 @@ devflow_telemetry_persist_tree() {
           # for something else. verify_store fails closed on an unreadable tree.
           if ! devflow_telemetry_verify_store "$root" "refs/remotes/origin/${branch}"; then
             echo "::warning::telemetry-branch: the remote '${branch}' is not a DevFlow telemetry store — refusing to re-parent onto or push over it; telemetry retained on the local ref only (rename it or set telemetry.branch to a different name)$(_devflow_telemetry_retention_note)" >&2
-            exit 0
+            exit 1
           fi
           local_cur="$(git -C "$root" rev-parse --verify --quiet "$ref" 2>/dev/null || true)"
           new="$(commit_union_on "$remote_tip" "$local_cur")" || new=""
           if [ -z "$new" ]; then
             echo "::warning::telemetry-branch: could not re-parent the telemetry commit onto the fetched tip of '${branch}'; telemetry retained on the local ref only$(_devflow_telemetry_retention_note)" >&2
-            exit 0
+            exit 1
           fi
           # Capture the re-parent update-ref's stderr (NOT 2>/dev/null): a failure
           # here (ref lock, permission, disk) must not be swallowed and then
@@ -672,7 +737,7 @@ devflow_telemetry_persist_tree() {
           fi
           if ! upd_err="$(git -C "$root" update-ref "$ref" "$new" "${local_cur:-}" 2>&1)"; then
             echo "::warning::telemetry-branch: could not advance the local ref for '${branch}' onto the re-parented commit (git update-ref failed: ${upd_err}) — a held ref .lock, a read-only .git, or a full disk; '${branch}' not pushed this run, telemetry retained on the local ref$(_devflow_telemetry_retention_note)" >&2
-            exit 0
+            exit 1
           fi
           ;;
         *)
@@ -680,14 +745,14 @@ devflow_telemetry_persist_tree() {
           # token/profile, missing permission. Best-effort: keep the local ref,
           # breadcrumb, done (AC7).
           echo "::warning::telemetry-branch: push of '${branch}' failed (${push_err:-unknown}) — likely no network, a read-only/fork-PR token, or missing permission; '${branch}' advanced locally but not pushed, telemetry is retained on the local ref$(_devflow_telemetry_retention_note)" >&2
-          exit 0
+          exit 1
           ;;
       esac
     done
     echo "::warning::telemetry-branch: push of '${branch}' still rejected after ${_DEVFLOW_TELEMETRY_PUSH_TRIES} fetch/re-parent retries (a persistently racing remote writer?); '${branch}' advanced locally but not pushed this run — the next persist will carry it$(_devflow_telemetry_retention_note)" >&2
-    exit 0
-  )
-  return 0
+    exit 1
+  ) || _persist_subrc=$?
+  return "$_persist_subrc"
 }
 
 # ── Source-success sentinel (MUST be the last statement in this file) ──────────

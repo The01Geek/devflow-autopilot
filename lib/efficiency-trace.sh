@@ -856,6 +856,73 @@ do_persist() {
   # inherit one resolution, and one warning. Redirect stdout ONLY — stderr must stay open or
   # this seed would swallow the very breadcrumb it exists to emit exactly once.
   devflow_telemetry_branch >/dev/null || true
+  # Best-effort, non-forced fetch of the telemetry branch BEFORE recorded_fix_shas
+  # computes the fix-commit exclusion set (issue #469 AC6). recorded_fix_shas reads
+  # the LOCAL ref, which on an ephemeral CI runner is absent — so without this fetch
+  # the exclusion set is silently empty and synthesis can re-attribute a commit an
+  # earlier run already recorded (a double-counted record with no signal). Populate
+  # the local ref from origin so prior records are visible; NON-forced (no `+`), so
+  # a diverged local ref fails rather than clobbering unpushed local history. This is
+  # a read (contents:read suffices), so even the read-only review tier runs it.
+  # Record the OUTCOME in _DEVFLOW_TELEMETRY_FETCH_STATUS so list_blobs' absent-ref
+  # arm can tell an ESTABLISHED empty (fetch ok, ref still absent) from an
+  # UNESTABLISHED one (fetch failed/unattempted) — AC7, the "unknown is not zero"
+  # rule. dynamic-scope-visible to recorded_fix_shas/list_blobs below; not exported.
+  local _DEVFLOW_TELEMETRY_FETCH_STATUS=unattempted _tb_branch _tb_ref _remote_line _rtip _ltip
+  _tb_branch="$(devflow_telemetry_branch)"
+  _tb_ref="$(devflow_telemetry_ref)"
+  if git -C "$root" remote get-url origin >/dev/null 2>&1; then
+    # Query the remote READ-ONLY first (ls-remote — no object transfer). Its success
+    # is what establishes "the remote was consulted", so the exclusion-set absence is
+    # keyed on THAT, not on the branch's presence (AC7): a remote with no such branch
+    # yet is an ESTABLISHED 'no records' (a fresh adopter, or any repo before the
+    # branch's first use) — we skip the fetch and emit NO warning, ref stays absent.
+    # When the branch DOES exist remotely, fetch it into the remote-tracking CACHE
+    # (`refs/remotes/origin/<branch>`, force-safe — it is a cache, never local
+    # history) and VERIFY it is a DevFlow telemetry store before advancing the LOCAL
+    # ref. A consumer's same-named NON-telemetry branch is therefore never clobbered
+    # into refs/heads/<branch> (which persist_tree trusts) — that case is left for
+    # persist_tree's own rejection-arm re-verification, exactly as before. Only a
+    # verified store is fast-forwarded onto the local ref (created when absent; a
+    # diverged local ref is never overwritten), making prior records visible to
+    # recorded_fix_shas. Only a FAILED query or a FAILED fetch is UNESTABLISHED
+    # (status=failed → the absent-ref arm of list_blobs warns).
+    if _remote_line="$(GIT_TERMINAL_PROMPT=0 git -C "$root" ls-remote --heads origin "$_tb_branch" 2>/dev/null)"; then
+      if [ -z "$_remote_line" ]; then
+        _DEVFLOW_TELEMETRY_FETCH_STATUS=ok           # established: remote has no such branch yet
+      elif GIT_TERMINAL_PROMPT=0 git -C "$root" fetch -q --no-tags origin "+${_tb_branch}:refs/remotes/origin/${_tb_branch}" 2>/dev/null; then
+        _DEVFLOW_TELEMETRY_FETCH_STATUS=ok
+        _rtip="$(git -C "$root" rev-parse --verify --quiet "refs/remotes/origin/${_tb_branch}" 2>/dev/null || true)"
+        if [ -n "$_rtip" ] && devflow_telemetry_verify_store "$root" "refs/remotes/origin/${_tb_branch}"; then
+          _ltip="$(git -C "$root" rev-parse --verify --quiet "$_tb_ref" 2>/dev/null || true)"
+          if [ -z "$_ltip" ] || git -C "$root" merge-base --is-ancestor "$_ltip" "$_rtip" 2>/dev/null; then
+            git -C "$root" update-ref "$_tb_ref" "$_rtip" 2>/dev/null || true
+          fi
+        fi
+      else
+        _DEVFLOW_TELEMETRY_FETCH_STATUS=failed
+        echo "::warning::efficiency-trace.sh --persist: the telemetry branch '${_tb_branch}' exists on origin but fetching it failed (offline or auth) — the fix-commit exclusion set may be incomplete this run; synthesis could re-attribute an already-recorded commit" >&2
+      fi
+    else
+      _DEVFLOW_TELEMETRY_FETCH_STATUS=failed
+      echo "::warning::efficiency-trace.sh --persist: could not query origin for telemetry branch '${_tb_branch}' (offline or auth) — whether prior records exist is UNESTABLISHED, so the fix-commit exclusion set may be incomplete this run; synthesis could re-attribute an already-recorded commit" >&2
+    fi
+  fi
+  # Bounded cleanup policy for retained staging roots (issue #469 AC8): a degraded
+  # or staging-only persist RETAINS its staging root under .devflow/tmp/ (below), so
+  # prune older ones to the newest _DEVFLOW_TELEMETRY_STAGE_KEEP (default 8) here,
+  # before creating this run's, so they cannot grow without bound. The timestamp
+  # prefix on the name below makes the glob sort chronologically (lexicographic ==
+  # oldest-first), so dropping the leading entries drops the oldest. Best-effort;
+  # a prune failure never aborts (the whole helper is exit-0/best-effort).
+  local _keep="${_DEVFLOW_TELEMETRY_STAGE_KEEP:-8}" _stale=() _s
+  for _s in "${root}"/.devflow/tmp/telemetry-stage-*; do
+    [ -d "$_s" ] && _stale+=("$_s")
+  done
+  if [ "${#_stale[@]}" -gt "$_keep" ]; then
+    local _drop=$(( ${#_stale[@]} - _keep )) _i
+    for ((_i = 0; _i < _drop; _i++)); do rm -rf "${_stale[$_i]}" 2>/dev/null || true; done
+  fi
   # Shared staging root under gitignored .devflow/tmp/ (issue #441). Every
   # persist_one call stages its record + durable workpad copy here, mirroring the
   # exact .devflow/logs/… layout; after the loop the detached telemetry-branch
@@ -863,7 +930,12 @@ do_persist() {
   # materialized in the tracked working tree, so `git status` stays byte-for-byte
   # unchanged (AC2). Unique name via bash builtins (not mktemp — the cloud sandbox
   # blocks it, AC9).
-  _TELEMETRY_STAGE="${root}/.devflow/tmp/telemetry-stage-$$-${RANDOM}-${SECONDS}"
+  # UTC-timestamp prefix so retained roots glob-sort chronologically for the prune
+  # above (#469 AC8). `date` is not a preflight-guaranteed tool and this name only
+  # orders CLEANUP (never selects an emitted telemetry value — guard-class 2 does
+  # not bind), so a missing `date` degrades to a fixed prefix (prune still runs,
+  # ordering just falls back to $$/RANDOM); $$-RANDOM-SECONDS keep the name unique.
+  _TELEMETRY_STAGE="${root}/.devflow/tmp/telemetry-stage-$(date -u +%Y%m%d%H%M%S 2>/dev/null || printf '00000000000000')-$$-${RANDOM}-${SECONDS}"
   rm -rf "$_TELEMETRY_STAGE" 2>/dev/null || true
   mkdir -p "$_TELEMETRY_STAGE" 2>/dev/null || true
   if [ -n "$WORKPAD_DIR" ]; then
@@ -978,12 +1050,41 @@ do_persist() {
   # "artifacts discarded" warning unreachable dead code. With the sentinel, a
   # vendored deploy missing lib/ takes the else and emits a specific persist-time
   # breadcrumb naming the discarded staging root, instead of silently no-op'ing.
+  # Capture the write's outcome (issue #469 AC8). devflow_telemetry_persist_tree
+  # now REPORTS via its return code — 0 = clean (pushed / idempotent no-op / nothing
+  # staged / no staging root); 1 = a DEGRADED arm that produced a staging root
+  # (worktree-checked-out branch, non-conforming store, unwritable temp index, CAS
+  # exhausted, or a push/re-parent failure); 2 = STAGING-ONLY (CI without an
+  # affirmative DEVFLOW_TELEMETRY_PUSH — AC5). It still NEVER aborts its caller, so
+  # `|| persist_rc=$?` keeps this best-effort under set -e and --persist still exits 0.
+  local persist_rc=0
   if [ -n "${_DEVFLOW_TELEMETRY_BRANCH_SOURCED:-}" ]; then
-    devflow_telemetry_persist_tree "$root" "$_TELEMETRY_STAGE"
+    devflow_telemetry_persist_tree "$root" "$_TELEMETRY_STAGE" || persist_rc=$?
   else
     echo "::warning::efficiency-trace.sh --persist: telemetry-branch.sh was not sourced; cannot persist to the telemetry branch this run — the run's staged artifacts under ${_TELEMETRY_STAGE} are discarded" >&2
   fi
-  rm -rf "$_TELEMETRY_STAGE" 2>/dev/null || true
+  case "$persist_rc" in
+    1)
+      # Degraded write: the staged records are the run's ONLY copy (nothing is ever
+      # written to the tracked tree), so RETAINING them is what makes the failure
+      # recoverable instead of a silent deletion (#469 AC8). One ::warning:: names
+      # the absolute path. Bounded by the newest-N prune at the top of do_persist,
+      # so retained roots cannot accumulate without limit. On the cloud tier the
+      # runner filesystem does NOT survive teardown, so on-disk retention there is
+      # moot — the recovery path there is the workflow artifact (see docs); this
+      # retention is what saves a LOCAL degraded run.
+      echo "::warning::efficiency-trace.sh --persist: the telemetry-branch write DEGRADED — RETAINING the staged records at '${_TELEMETRY_STAGE}' so they are recoverable (delete once recovered; a bounded newest-${_DEVFLOW_TELEMETRY_STAGE_KEEP:-8} prune runs each --persist). On an ephemeral CI runner the filesystem does not survive teardown, so recovery there is via the uploaded workflow artifact, not this path." >&2 ;;
+    2)
+      # Staging-only (AC5): the operand breadcrumb already fired in telemetry-branch.sh.
+      # RETAIN the staged tree (the trusted telemetry-push relay uploads+pushes it);
+      # do not delete and do not emit a second warning — this is the intended
+      # read-only-review posture, not a degradation.
+      : ;;
+    *)
+      # Clean (pushed / no-op / nothing staged) — remove the scratch so `git status`,
+      # HEAD, and the current branch stay byte-for-byte unchanged (#469 AC13, #441 AC2).
+      rm -rf "$_TELEMETRY_STAGE" 2>/dev/null || true ;;
+  esac
   return 0
 }
 

@@ -440,8 +440,11 @@ def _telemetry_branch(repo_root):
     devflow-telemetry — issue #441). Read in-process from repo_root/.devflow/
     config.json rather than shelling to config-get.sh: this reader is invoked once
     per retrospective run in a known repo root, an empty/missing key resolves to
-    the default, and an unreadable/malformed config degrades to the default with a
-    breadcrumb (best-effort — the reader must not abort on a bad config).
+    the default, a MALFORMED (present-but-unparseable) config degrades to the
+    default WITH a breadcrumb, and a MISSING or UNREADABLE config degrades to the
+    default SILENTLY (the ordinary "no config" path — the OSError arm returns the
+    default with no _warn, matching config-get.sh, which is silent here too). All
+    best-effort — the reader must not abort on a bad config.
 
     Honors DEVFLOW_CONFIG_FILE, because the WRITER does: lib/telemetry-branch.sh
     resolves the branch through devflow_conf → lib/config-source.sh, which reads

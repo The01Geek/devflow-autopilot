@@ -375,9 +375,17 @@ jobs:
               # review-and-fix included — now runs; without this entry the read-only
               # profile would SILENTLY DENY it, so the convention would be a no-op in
               # the cloud review tier), and efficiency-trace.sh --mode trace only reads
-              # the run's workpads and prints Markdown. The per-run record FILE write
-              # (--mode record) is gated to writable runs by the skill and is not
-              # attempted here, so the profile stays read-only for the tree.
+              # the run's workpads and prints Markdown. The `--persist` step (run by the
+              # base-branch .claude/settings.json Stop hook, which claude-code-action
+              # restores in this job) STAGES the run's observability artifacts under the
+              # gitignored .devflow/tmp/ and, on this read-only tier, runs in STAGING-ONLY
+              # mode: it performs NO telemetry-branch write and NO push (the push operand
+              # DEVFLOW_TELEMETRY_PUSH is deliberately unset here, so #469 AC5 fails closed
+              # to staging), leaving the tracked tree read-only and the remote
+              # devflow-telemetry ref untouched by this job. Landing the staged artifacts
+              # on the branch is the job of a forthcoming trusted telemetry-push relay
+              # (never this PR-head, secrets-bearing job; follow-up to issue #469). So the
+              # grant stays read-only-safe.
               # Command heads the review skill actually invokes are pinned against this
               # string by lib/test/run.sh (issue #363): a head the skill runs but this
               # profile omits is silently DENIED at runtime, burning the run's budget and

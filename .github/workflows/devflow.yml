@@ -417,6 +417,16 @@ jobs:
       # engine then loses the CI ground truth the block exists to give it. The
       # actions/runs + jobs queries ride the `actions: write` superset above.
       checks: read
+    env:
+      # Authorize the Stop-hook `--persist` telemetry PUSH on this WRITABLE tier
+      # (issue #469 AC5). The manual `/devflow:review` comment path (and every other
+      # command this job runs) holds contents:write, so the branch push succeeds
+      # here — unlike the read-only auto-review `review` tier (devflow-runner.yml),
+      # which deliberately leaves this UNSET so `--persist` fails closed to
+      # staging-only. Job-level so it reaches the Stop-hook subprocess
+      # claude-code-action spawns. Kept in sync with devflow-implement.yml's claude
+      # job. (Platform premise — job env propagates into the Stop-hook subprocess.)
+      DEVFLOW_TELEMETRY_PUSH: '1'
     steps:
       # Optional, opt-in: mint a primary-App installation token at full
       # installation scope (notably Contents: write + Workflows: write — no

@@ -195,8 +195,19 @@ surfaces as the push rejection) — so it never commits onto a same-named branch
 something else, on either the local-append or the push-reconcile path. The ref advance is a compare-and-swap that
 re-reads the tip and rebuilds on it when a sibling worktree/process advanced it first, so two
 parallel local worktrees sharing `.git/refs` both survive with no lost commit. The read-only
-cloud `review` profile (`devflow-runner.yml`, `contents: read`) never runs `--persist`, so it is
-gated out entirely.
+cloud `review` profile (`devflow-runner.yml`, `contents: read`) **does** run `--persist` — the
+base-branch `.claude/settings.json` Stop hook is restored into every `claude-code-action` job — but
+in **staging-only** mode: the workflow does not set the push operand `DEVFLOW_TELEMETRY_PUSH`, so
+under `GITHUB_ACTIONS` `--persist` fails closed (issue #469 AC5), staging the run's artifacts under
+`.devflow/tmp/` and performing **no** telemetry-branch write and **no** push. The read-only tier
+therefore leaves the remote `devflow-telemetry` ref untouched by its own action. Landing those
+staged records on the branch is the job of a separate **trusted telemetry-push relay** — a job that
+does **not** check out the PR head, mints a write-capable token, and validates the staged artifacts
+as untrusted input — which is **forthcoming** (tracked as follow-up work to issue #469; until it
+lands, the auto-review tier stages its records and they are not yet pushed). On the ephemeral cloud
+runner the staged tree does **not** survive job teardown, so its recovery path is the uploaded
+**workflow artifact**, not on-disk retention; a degraded persist's on-disk staging-root retention
+(below) helps a **local** run, where the filesystem persists.
 
 **Headless persistence.** `/devflow:review-and-fix` invokes `config-get.sh` and
 `efficiency-trace.sh` **directly** (resolving to a `.devflow/vendor/devflow/…` path), the same way
