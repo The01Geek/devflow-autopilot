@@ -811,11 +811,12 @@ model-routing feature and is unrelated to that detection.
   name is a fixed literal on purpose — dynamic secret indexing resolves a missing
   key silently to an empty string, which would fail *open*.)
 
-**Small/fast (haiku-tier) and subagent models — required.** Claude Code fires
+**Haiku-tier (background) and subagent models — required.** Claude Code fires
 haiku-tier background calls and dispatches subagents; if the `env` map omits
 `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL`, those calls hit a
 Claude model ID the gateway won't serve and fail. Always map them to a real model
-the endpoint serves.
+the endpoint serves (you may point the haiku slot at a smaller/cheaper model the
+gateway offers to save on background calls; the examples use `glm-5.2` for simplicity).
 
 **Gateway 400s — two *separate* failure modes, do not conflate them:**
 
@@ -845,7 +846,7 @@ only `/devflow:implement`, leaving review/command on Claude):
       "auth": "bearer",
       "timeout_ms": 3000000,
       "env": {
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "z-ai/glm-4.7",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "z-ai/glm-5.2",
         "CLAUDE_CODE_SUBAGENT_MODEL": "z-ai/glm-5.2",
         "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
         "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
@@ -894,7 +895,7 @@ base URL and Z.AI's own bracket-suffixed model IDs:
       "auth": "bearer",
       "timeout_ms": 3000000,
       "env": {
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-4.7",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.2",
         "CLAUDE_CODE_SUBAGENT_MODEL": "glm-5.2[1m]",
         "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
         "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
@@ -907,7 +908,7 @@ base URL and Z.AI's own bracket-suffixed model IDs:
 
 Notes for Z.ai-direct: the `[1m]` **bracket suffix** on `glm-5.2[1m]` selects the
 1M-context variant — keep it on both `claude_model` and `CLAUDE_CODE_SUBAGENT_MODEL`
-if you want it; the haiku slot uses **`glm-4.7`** (no bracket). Set
+if you want it; the haiku slot uses **`glm-5.2`** (no bracket). Set
 `DEVFLOW_PROVIDER_API_KEY` to your Z.AI key.
 
 ## Workflow inventory

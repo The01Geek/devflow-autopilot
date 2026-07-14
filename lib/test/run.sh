@@ -24853,9 +24853,85 @@ ii=idx("Inject provider endpoint (provider-routed sections only)")
 ri=idx("Run Claude Code")
 print("yes" if (pi>=0 and ii>=0 and ri>=0 and pi<ii<ri) else "no")' "$RUNNER_WF")"
   assert_eq "#313 security: devflow-runner.yml injects the provider endpoint AFTER provision and before Run Claude Code (shadow S1)" "yes" "$R313_ORDER"
+
+  # config_source PRODUCER coverage (review PTA-1 + SFH-1): the shadow-S2 config_source
+  # signal (ok/absent/degraded) that disambiguates the runner's OAuth-default guard remedy
+  # was covered only at the CONSUMER (the OAuth-guard body above, with CONFIG_SOURCE injected
+  # by hand). Its PRODUCER — the baseprovision step's three-way selection — had NO coverage,
+  # so a future edit dropping a `='degraded'` assignment, or the emit itself, would silently
+  # regress the misdirection fix while every #313 consumer test stayed green. Trace the operand
+  # to its producer and prove it emits the right value on EVERY path (the CLAUDE.md operand-
+  # producer discipline): drive the EXTRACTED baseprovision run body (not a retyped copy — the
+  # same PyYAML `st["run"]` extraction the bodies above use) in a git sandbox with a local
+  # origin, across every config_source outcome (ok / absent / degraded) and each read path
+  # that produces it (valid, no-config, malformed, non-object, unfetchable, empty-base-ref).
+  # Parse config_source DIRECTLY (it is a plain `echo
+  # "config_source=…"` KEY=VALUE emit, NOT a heredoc, so gh_kv — heredoc-only — cannot read it).
+  R313_BASEPROV_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Read trusted base-ref provisioning config"))' "$RUNNER_WF")"
+  R313_CS_DIR="$(git_sandbox "#313 config_source producer sandbox")"
+  if [ -n "$R313_BASEPROV_BODY" ] && [ "$R313_CS_DIR" != "/dev/null/devflow-git-sandbox-unavailable" ]; then
+    # $1 = base-ref .devflow/config.json contents ('' → no config file committed);
+    # $2 = BASE_REF the step reads (default 'basebr'; '' exercises the empty-base-ref path).
+    # Rebuilds a fresh bare origin each call so `git fetch origin <ref>` resolves the ref we
+    # control. Echoes the produced config_source.
+    r313_cs() {
+      rm -rf "$R313_CS_DIR/work" "$R313_CS_DIR/base.git"
+      git init -q --bare "$R313_CS_DIR/base.git"
+      git init -q "$R313_CS_DIR/work"
+      git -C "$R313_CS_DIR/work" config user.email t@t.t
+      git -C "$R313_CS_DIR/work" config user.name t
+      mkdir -p "$R313_CS_DIR/work/.devflow"
+      [ -n "$1" ] && printf '%s' "$1" > "$R313_CS_DIR/work/.devflow/config.json"
+      git -C "$R313_CS_DIR/work" add -A >/dev/null 2>&1
+      git -C "$R313_CS_DIR/work" commit -q --allow-empty -m x >/dev/null 2>&1
+      git -C "$R313_CS_DIR/work" branch -M basebr >/dev/null 2>&1
+      git -C "$R313_CS_DIR/work" remote add origin "$R313_CS_DIR/base.git" >/dev/null 2>&1
+      git -C "$R313_CS_DIR/work" push -q origin basebr >/dev/null 2>&1
+      local out; out="$(mktemp)"
+      ( cd "$R313_CS_DIR/work" && export BASE_REF="${2-basebr}" RUNNER_TEMP="$R313_CS_DIR/rt" GITHUB_OUTPUT="$out"; mkdir -p "$RUNNER_TEMP"; bash -c "$R313_BASEPROV_BODY" ) >/dev/null 2>&1
+      sed -n 's/^config_source=//p' "$out"
+      rm -f "$out"
+    }
+    assert_eq "#313 config_source producer: valid base config → 'ok'" "ok" \
+      "$(r313_cs '{"claude_model":"m"}')"
+    assert_eq "#313 config_source producer: no committed config on the base ref → 'absent' (bootstrap case, NOT degraded)" "absent" \
+      "$(r313_cs '')"
+    assert_eq "#313 config_source producer: malformed base config → 'degraded' (shadow-S2 read-failed)" "degraded" \
+      "$(r313_cs 'not-json{')"
+    assert_eq "#313 config_source producer: non-object base config (bare scalar) → 'degraded'" "degraded" \
+      "$(r313_cs '42')"
+    assert_eq "#313 config_source producer: un-fetchable base ref → 'degraded'" "degraded" \
+      "$(r313_cs '{"claude_model":"m"}' 'no-such-ref-xyz')"
+    # SFH-1 fix: an empty BASE_REF (base ref could not be determined) must resolve to
+    # 'degraded', NOT the initial 'absent' — else the OAuth-default guard would misdirect
+    # ("no provider configured") when a base-configured provider was in fact silently un-read.
+    # This fixture goes RED against the pre-fix code (which left it 'absent').
+    assert_eq "#313 config_source producer: empty BASE_REF → 'degraded' (SFH-1: not the initial 'absent')" "degraded" \
+      "$(r313_cs '{"claude_model":"m"}' '')"
+    unset -f r313_cs
+    rm -rf "$R313_CS_DIR" 2>/dev/null
+  else
+    echo "  SKIP  #313 config_source producer behavioral checks (no PyYAML body extraction / no git sandbox)"
+  fi
 else
   echo "  SKIP  #313 body-identity + behavioral check (PyYAML unavailable)"
 fi
+
+# Matrix completeness (review PTA-2): the {field}×{wrong-type/empty} sweep pins base_url
+# both missing and empty-string, but auth only missing + wrong-value ('Bearer'); add the
+# empty-string auth cell so the `($a != "bearer" and $a != "api_key")` disjunct is pinned
+# on an EMPTY value too (a real input shape a future guard rewrite could regress).
+assert_eq "#313 matrix: provider entry with EMPTY auth ('') → incomplete_provider marker (auth-disjunct completeness)" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider auth must be bearer or api_key"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":""}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+# AC 8 (review PTA-3): the runner's dead `model` workflow_call input was removed. Pin the
+# reference absence so a re-introduced `inputs.model` (a merge-revert of the threading) goes
+# RED — the removal becomes a conscious future change rather than a silent regression.
+assert_eq "#313 AC8: devflow-runner.yml carries no reference to the removed dead 'model' workflow_call input" "0" \
+  "$(pin_count 'inputs.model' "$RUNNER_WF")"
+
 unset RESOLVER
 
 # Mutation check: the absence pin above only proves "count is 0 today" — it does not

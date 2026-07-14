@@ -313,6 +313,16 @@ jobs:
               CONFIG_SOURCE='degraded'
               echo "::warning::Could not fetch base ref '$BASE_REF'; defaulting to provision_env=false (read-only review) AND ignoring any devflow_runner.provider routing (review falls back to the Anthropic default this run)."
             fi
+          else
+            # An empty base ref means the trusted base ref could not even be
+            # determined, so a base-configured provider would be silently un-read —
+            # the same effect as a fetch failure or a malformed config, NOT the "no
+            # committed config on the base ref" bootstrap case. Classify it 'degraded'
+            # (not the initial 'absent') so the OAuth-default guard below names the
+            # unreadable-config cause rather than falsely reporting "no provider
+            # configured" (the shadow-S2 misdirection contract this signal exists for).
+            CONFIG_SOURCE='degraded'
+            echo "::warning::Base ref could not be determined (empty base ref); defaulting to provision_env=false (read-only review) AND ignoring any devflow_runner.provider routing (review falls back to the Anthropic default this run)."
           fi
           {
             echo "provision_env=$PROVISION"
