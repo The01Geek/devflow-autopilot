@@ -313,9 +313,11 @@ jobs:
           # (num, description, marker, sidefile-or-None)
           # The positive-control marker (row 11) MUST match the file its Shape 11
           # prompt command greps — an in-workspace file (README.md), NOT a system
-          # file like /etc/hosts, which the sandbox blocks regardless of the
-          # Bash(grep:*) grant, making the control read DENIED on every healthy run
-          # (issue #477). Change the command literal and this marker in lockstep.
+          # file like /etc/hosts: the sandbox blocks an out-of-workspace read even
+          # with the Bash(grep:*) grant, and this verdict counts a permission_denials
+          # match ("denied", checked ahead of tool_use below) as DENIED — so a
+          # /etc/hosts read makes THIS control read DENIED (issue #477). Change the
+          # command literal and this marker in lockstep.
           rows = [
               (1,  "heredoc write, granted head (`cat > f <<'EOF'`)",        "probe-01", "/tmp/probe-01.txt"),
               (2,  "assignment-led compound, granted head (`M=…`; printf)",   "probe-02", "/tmp/probe-02.txt"),
@@ -619,9 +621,11 @@ jobs:
           # helpers are best-effort exit-0 and the run is matcher-only by design.
           # The positive-control marker (row 7) MUST match the file its Shape 7 prompt
           # command greps — an in-workspace file (README.md), NOT a system file like
-          # /etc/hosts, which the sandbox blocks regardless of the Bash(grep:*) grant,
-          # making the control read DENIED on every healthy run (issue #477). Change
-          # the command literal and this marker in lockstep.
+          # /etc/hosts: the sandbox blocks an out-of-workspace read even with the
+          # Bash(grep:*) grant, and this verdict counts a permission_denials match
+          # ("denied", checked ahead of tool_use below) as DENIED — so a /etc/hosts
+          # read makes THIS control read DENIED (issue #477). Change the command
+          # literal and this marker in lockstep.
           rows = [
               (1, "unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor leading token (ensure-label.sh)", "iprobe01anchor",  "${CLAUDE_SKILL_DIR"),
               (2, "vendored-literal leading token, EXPLICIT candidate (apply-labels.sh)",        "iprobe02explicit", ".devflow/vendor/devflow/scripts/apply-labels.sh"),
