@@ -3110,11 +3110,22 @@ assert_pin_unique "#467 A3: Step 3.6 Load-bearing-assumptions dimension names un
 # present-and-unique so the count range stays bounded: a start-anchor drift already fails the count
 # RED (sed prints nothing -> count 0), but an *end*-anchor drift would let sed run to EOF while the
 # count coincidentally stays fixed, passing vacuously — these two pins turn either anchor's
-# rename/removal RED at the desk so the range can never silently un-bound.
+# rename/removal RED at the desk. The assert_pin_unique pins are UNANCHORED substring matches,
+# though, while the sed range keys on the LINE-START shape /^\*\*.../ — so a position-only drift
+# (an indent or prefix that keeps the substring but breaks ^** ) would slip the substring pins and
+# still let sed run to EOF while the count stays 9. The two assert_eq below close that residual hole
+# by binding each anchor to the exact ^** column-0 predicate sed uses, so the range can never
+# silently un-bound (rename, removal, OR position drift all go RED at the desk).
 assert_pin_unique "#467 A3: the generic-dimension-checklist sed START anchor is present and unique" \
   '**Generic dimension checklist' "$CI312_SKILL"
 assert_pin_unique "#467 A3: the generic-dimension-checklist sed END anchor is present and unique" \
   '**Dimension-list growth policy' "$CI312_SKILL"
+# Line-anchored anchor checks (close the position-drift hole the substring pins above cannot):
+# each heading must match the sed range's ^** column-0 shape exactly once.
+assert_eq "#467 A3: the generic-dimension-checklist sed START anchor matches at line-start exactly once" "1" \
+  "$(grep -c '^\*\*Generic dimension checklist' "$CI312_SKILL")"
+assert_eq "#467 A3: the generic-dimension-checklist sed END anchor matches at line-start exactly once" "1" \
+  "$(grep -c '^\*\*Dimension-list growth policy' "$CI312_SKILL")"
 assert_eq "#467 A3: Step 3.6 generic dimension checklist is 9 bullets (8 base + #464's dimension; #467 added none)" "9" \
   "$(sed -n '/^\*\*Generic dimension checklist/,/^\*\*Dimension-list growth policy/p' "$CI312_SKILL" | grep -c '^- \*\*')"
 # Cluster B — occurrence-count premise class (coupled template<->Step-3.5) + checklist mirror; AC
@@ -3145,7 +3156,8 @@ assert_pin_unique "#467 C3 (SKILL): Step 3.5 omission hunt carries the trust-bou
   'trust-boundary closure check (mirroring the template' "$CI312_SKILL"
 # Cluster D — Move 2a introduction trigger (template) + waiver-non-conforming clause; the
 # three-site best-effort-parser widening (CLAUDE.md, implement Phase 2.4, review-and-fix
-# fix-delta gate); extension sharpening (whole-file dimension count held at 7). The six-shape
+# fix-delta gate); extension sharpening (whole-file dimension count held at 8 — 7 base + #464's
+# dimension; #467 added none, matching the D3 guard below). The six-shape
 # SIXSHAPE_SET lockstep pins above stay green — the widening references the set, never restates it.
 assert_pin_unique "#467 D1: Move 2a carries the introduction trigger" \
   'Move 2a also fires on *introduction*, not only on narrowing' "$CI312_TMPL"
