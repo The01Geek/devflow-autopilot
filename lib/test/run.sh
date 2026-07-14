@@ -30253,18 +30253,36 @@ assert_eq "#448 ubc-single-branch-mutation: the regression mutation applied (not
   "changed" \
   "$(cmp -s "$UBC" "$UBC_MUT_DIR/mutant.sh" && echo unchanged || echo changed)"
 # Control: the UNMUTATED copy, staged identically, still updates → the staging is sound.
+# NOTE (host-independence — this row was RED in CI and GREEN locally): a fresh `git clone`
+# inherits NO committer identity, and the base merge below creates a merge COMMIT. Some hosts
+# (macOS) silently auto-derive an identity from the hostname, so the merge succeeds; a CI
+# runner cannot, so the merge fails ("Committer identity unknown"), the helper correctly falls
+# through to UNVERIFIED, and the row failed *for a reason that has nothing to do with what it
+# pins*. Every other ubc_* fixture sets the identity (ubc_make / ubc_advance_feat do); these
+# two clone-based fixtures were the only ones that did not. Set it here so the row measures
+# the staging, not the host.
 DM="$(git_sandbox 'ubc-single-branch-mutation control')"
 ubc_make "$DM"
 ubc_advance_base "$DM" sbc
 git clone -q --single-branch --branch feat "$DM/bare.git" "$DM/sb"
-UBC_SBC_OUT="$( cd "$DM/sb" && "$UBC_MUT_DIR/control.sh" 2>/dev/null )"
+git -C "$DM/sb" config user.email t@t
+git -C "$DM/sb" config user.name t
+UBC_SBC_OUT="$( cd "$DM/sb" && "$UBC_MUT_DIR/control.sh" 2>"$DM/ctl-err" )"
 assert_eq "#448 ubc-single-branch-mutation: staged CONTROL copy updates the same fixture (positive control — the staging itself does not reject)" \
   "UPDATED 1" "$UBC_SBC_OUT"
+# Attribute a control FAILURE if it ever recurs: a bare token assertion cannot tell "the
+# staging rejected" from "the host could not commit the merge" — which is exactly the
+# confusion that let the identity bug read as a staging defect. Assert the control did NOT
+# die on an identity error, so the two are distinguishable at the desk.
+assert_eq "#448 ubc-single-branch-mutation: the CONTROL's outcome is not an identity failure (host-independence)" "no" \
+  "$(grep -qiF 'identity unknown' "$DM/ctl-err" 2>/dev/null && echo yes || echo no)"
 # Mutant: the bare-fetch regression cannot resolve origin/$BASE on a feature-scoped clone.
 DM="$(git_sandbox 'ubc-single-branch-mutation mutant')"
 ubc_make "$DM"
 ubc_advance_base "$DM" sbm
 git clone -q --single-branch --branch feat "$DM/bare.git" "$DM/sb"
+git -C "$DM/sb" config user.email t@t
+git -C "$DM/sb" config user.name t
 UBC_SBM_OUT="$( cd "$DM/sb" && "$UBC_MUT_DIR/mutant.sh" 2>"$DM/mut-err" )"; UBC_SBM_RC=$?
 assert_eq "#448 ubc-single-branch-mutation: bare-fetch regression degrades to UNVERIFIED" \
   "UNVERIFIED" "$UBC_SBM_OUT"
