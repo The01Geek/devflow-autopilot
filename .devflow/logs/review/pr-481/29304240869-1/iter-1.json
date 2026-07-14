@@ -1,0 +1,57 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-14T04:00:00Z",
+  "fix_commit_sha": "b552a6f8",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "run.sh #474 block-intro comment 'Each pin below' over-broad (only 9 of 15 are assert_pin_red_under)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [4868, 4872], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "run.sh #474 mirror-sites comment listed 3 of 4 pinned sites", "defect_signature": {"file": "lib/test/run.sh", "line_range": [4909, 4911], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "§2.3.7 step-3 dry-trace multi-element obligation unpinned (self-referential arm)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [4907, 4909], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "two 2.3.6-is-last absence guards used absolute vs the just-adopted injection-delta non-vacuity form (7f7161a)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [4921, 4929], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "five-vs-six-shape label (lists 5 arms under 'six-shape' name); matches AC text verbatim, not a falsehood", "defect_signature": {"file": "skills/implement/phases/phase-2-implement.md", "line_range": [219, 219], "kind": "doc_imprecision"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "pushed_back"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "b552a6f8"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "b552a6f8"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "b552a6f8"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "b552a6f8"},
+    {"finding_id": "F-5", "decision": "pushed_back", "source_file": "skills/implement/phases/phase-2-implement.md", "claim_text": "five arms under a 'six-shape' label", "skip_category": "claim-quality", "evidence": "The arm list and label are copied verbatim from acceptance criterion 3; the CLAUDE.md six-shape matrix (object/array/scalar/valid-falsy/missing/wrong-type) is named-by-reference and re-mapped to a comparand's 5 producer arms. Not a falsehood; changing it would diverge from the AC text."}
+  ],
+  "convergence_inputs": {"fixes_applied": 4, "fix_diff_lines": 26, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 45, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (this check grades committed HEAD); runs green in CI on the committed tree"}]},
+  "shadow": {
+    "ran_at": "2026-07-14T04:20:00Z",
+    "reviewed_sha": "b552a6f8",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": "intentional",
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 4, "overlap_with_iter_N": 4, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_3": {"calls": 5, "tokens": 344000, "wall_clock_s": 675},
+    "step_2_6": {"calls": 5, "tokens": 327000, "wall_clock_s": 420}
+  }
+}
