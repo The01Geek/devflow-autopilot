@@ -5163,6 +5163,42 @@ assert_pin_unique "#168 create-path: SKILL guards branch-for-issue.py exit statu
 assert_pin_unique "#168 create-path: SKILL guards against an empty BRANCH name" \
   '[ -n "$BRANCH" ]' "$IMPL_SKILL"
 
+# ── Issue #493: Phase 1.4 §1.4 PR-body run-link refresh (cloud resume) ──
+# On a resumed cloud run that reaches §1.4 and finds an existing open PR, the
+# draft PR body's [View run](...) line (written once at PR creation by Phase 3.1)
+# is refreshed to the resumed run — mirroring the gate job's workpad Run-link
+# refresh. The deliverable is skill prose, so the test boundary is this
+# prose-pinning surface (per the issue's Testing Strategy), not a runtime unit
+# test. The AC1/AC2/AC6 pin is a BEHAVIORAL-FIX pin (assert_pin_red_under):
+# removing the refresh's operative PATCH line re-introduces the stale-link gap,
+# so the pin must flip PASS->FAIL under that mutation. The rest are presence
+# pins covering the no-op arm (AC3/AC4), the best-effort warn wrap (AC5),
+# idempotency (AC7), and multiple-match preservation (only the Phase 3.1 line).
+P1_SETUP="$IMPL_PHASES_DIR/phase-1-setup.md"
+assert_pin_red_under "#493 resume: PR-body run-link refresh PATCHes via REST pulls/\$PR_NUMBER (behavioral-fix)" \
+  'gh api --method PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@-' \
+  '/gh api --method PATCH/d' "$P1_SETUP"
+assert_pin_unique "#493 resume: derives PR_NUMBER from the selected PR_JSON entry (not gh pr view)" \
+  'from the SAME PR_JSON entry' "$P1_SETUP"
+assert_pin_unique "#493 resume: states the do-not-re-resolve-via-gh-pr-view rationale" \
+  're-resolve via' "$P1_SETUP"
+assert_pin_unique "#493 resume: rewrites only the Phase 3.1-placed [View run] line (prose)" \
+  'Phase 3.1 template places immediately after the' "$P1_SETUP"
+assert_pin_unique "#493 resume: python enforces only the [View run] line following Resolves #" \
+  'lines[i-1].startswith("Resolves #")' "$P1_SETUP"
+assert_pin_unique "#493 resume: cloud-only guard skips the refresh on a local-tier resume" \
+  '[ -n "${GITHUB_RUN_ID:-}" ]; then' "$P1_SETUP"
+assert_pin_unique "#493 resume: no-op arm warns when the body has no [View run] line" \
+  'has no Phase 3.1 [View run] line' "$P1_SETUP"
+assert_pin_unique "#493 resume: best-effort warn on PATCH failure (never blocks)" \
+  'PR-body run-link PATCH failed for PR' "$P1_SETUP"
+assert_pin_unique "#493 resume: best-effort warn on PR_NUMBER derivation failure" \
+  'could not derive PR_NUMBER from PR_JSON' "$P1_SETUP"
+assert_pin_unique "#493 resume: idempotency wording (no duplication, no corruption)" \
+  'is **idempotent**' "$P1_SETUP"
+assert_pin_unique "#493 resume: at-most-once-per-resume wording" \
+  'at most once per resume' "$P1_SETUP"
+
 # Issue #224: Phase 3.1 (phases/phase-3-review.md) opens the draft PR against the
 # CONFIGURED base_branch, not the GitHub default branch. Because each phase's bash
 # block is a SEPARATE shell, Phase 1.4's $BASE is out of scope at 3.1, so 3.1 must

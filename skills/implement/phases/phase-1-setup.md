@@ -141,6 +141,53 @@ CO_ERR=$( { git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"; } 2>&1 1>/
 LANDED=no; [ -n "$HEAD_REF" ] && [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$HEAD_REF" ] && LANDED=yes
 ```
 
+**PR-body run-link refresh (best-effort, cloud resume only — runs when `LANDED` is `yes`).** The gate job refreshes the *issue workpad's* `Run:` link to the current run on every resume, but the draft PR body's `[View run](...)` line is written once at PR creation (Phase 3.1) and never touched again — so a reviewer who arrives at the resumed run via the **PR** (not the issue) clicks a link to the original, now-stale run's logs. This rewrites that one line to the resumed run, mirroring the gate job's best-effort, `::warning::`-and-continue, never-blocks-the-resume contract. It runs only when the checkout landed (`LANDED=yes`) and only on a cloud run (`$GITHUB_RUN_ID` non-empty); a local-tier resume has no run URL and the outer guard leaves the body unchanged, never inserting a broken `[View run]()` line. The whole block is best-effort: any failure to derive the PR number, read the PR body, or PATCH it emits a `::warning::` breadcrumb naming the step and the run continues — it never fails the claude job or blocks the resume. The refresh runs **at most once per resume** (a single pass in the `LANDED=yes` path) and is **idempotent**: the `[View run](...)` line is *replaced in place*, not appended, so a second resume of the same run rewrites the same line to the same URL with no duplication and no body corruption.
+
+```bash
+if [ "$LANDED" = yes ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
+  RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+  # Derive PR_NUMBER from the SAME PR_JSON entry the pre-check selected (it
+  # carries `number` — gh pr list --json number,headRefName,createdAt,…). Do NOT
+  # re-resolve via `gh pr view`, which resolves by the current branch and can
+  # select a different PR when multiple open PRs share the head branch; match the
+  # selected entry's headRefName (== $HEAD_REF, the bound selected branch), newest
+  # by createdAt. run-jq.sh is the preflight-guaranteed jq wrapper (never bare jq
+  # in a skill fence); `// empty` plus the empty guard route a derivation failure
+  # to the warn below, never a malformed `pulls/` PATCH path.
+  PR_NUMBER=$(printf '%s' "$PR_JSON" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -r --arg h "$HEAD_REF" '[.[] | select(.headRefName == $h)] | sort_by(.createdAt) | last | .number // empty' 2>/dev/null) || PR_NUMBER=""
+  if [ -n "$PR_NUMBER" ]; then
+    PR_BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null) || PR_BODY=""
+    # Substitute ONLY when the body already carries a `[View run](` line; a body
+    # with no such line (local-tier-stripped, human-edited-away, or a pre-existing
+    # PR predating the link feature) takes the no-op arm (warn, no PATCH, no
+    # insert). The python3 step rewrites ONLY the `[View run](...)` line the
+    # Phase 3.1 template places immediately after the `Resolves #` line (its
+    # preceding line); a human-added `[View run]` elsewhere is preserved
+    # byte-for-byte. python3 is preflight-guaranteed; the body is piped through
+    # stdin so its backticks and `$` never traverse shell quoting, and the -c
+    # script uses no single quotes (double-quoted python strings only) so the bash
+    # single-quote wrapper is safe; RUN_URL passes as argv, not interpolated. The
+    # full body (one line changed) is PATCHed back via REST (repo-scope — `gh pr
+    # edit --body` is org-scoped GraphQL and fails under a repo-scoped token).
+    if [ -n "$PR_BODY" ] && printf '%s' "$PR_BODY" | grep -qF '[View run]('; then
+      printf '%s' "$PR_BODY" | python3 -c 'import sys
+url = sys.argv[1]
+lines = sys.stdin.read().split("\n")
+for i in range(1, len(lines)):
+    if lines[i].startswith("[View run](") and lines[i-1].startswith("Resolves #"):
+        lines[i] = "[View run](" + url + ")"
+sys.stdout.write("\n".join(lines))' "$RUN_URL" \
+        | gh api --method PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@- 2>/dev/null \
+        || echo "::warning::devflow resume: PR-body run-link PATCH failed for PR #$PR_NUMBER; continuing" >&2
+    else
+      echo "::warning::devflow resume: PR #$PR_NUMBER body has no Phase 3.1 [View run] line (absent, human-edited-away, or pre-feature); run-link refresh is a no-op" >&2
+    fi
+  else
+    echo "::warning::devflow resume: could not derive PR_NUMBER from PR_JSON; PR-body run-link refresh skipped" >&2
+  fi
+fi
+```
+
 - **`LANDED` is `yes`** — the tree is on the PR's head branch. Skip branch creation and both signals entirely.
 - **`LANDED` is `no` and `$CO_ERR` matches `already used by worktree` (or the older `already checked out at`)** — the branch is live in another linked worktree. Do not force it and do not duplicate the branch: read that worktree's path from `git worktree list --porcelain` and continue in that worktree instead of duplicating the branch, noting the switch in the workpad. (If the harness already placed you in a worktree, the checkout happens **inside** it — that is simply the current working tree, so no extra step is needed.)
 - **`LANDED` is `no` for any other reason** (including an empty `HEAD_REF`) — record it and **stop**: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "resume pre-check: PR #<n> exists on branch $HEAD_REF but the checkout did not land ($CO_ERR); refusing to fall through to branch creation, which would duplicate that PR and abandon its commits"`, then emit the 👎 outcome reaction and stop the run. Falling through here is never correct: an open PR is *known* to exist, so creating a branch is a known duplication, not an unknown risk.
