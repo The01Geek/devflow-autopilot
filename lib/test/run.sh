@@ -18310,7 +18310,23 @@ for _p in 01 02 03 04 05 06 07 08 09 10; do mkdir -p "$I469_PRO/.devflow/tmp/tel
 assert_eq "#469 review: a leading-zero-octal KEEP (08) does NOT abort --persist on the invalid-octal arithmetic" "0" "$I469_PRO_RC"
 assert_eq "#469 review: a leading-zero-octal KEEP (08) prunes (base-10 normalized) — bound holds, prune not aborted" "yes" \
   "$([ "$(find "$I469_PRO/.devflow/tmp" -maxdepth 1 -name 'telemetry-stage-*' | wc -l | tr -d ' ')" -le 8 ] && echo yes || echo no)"
-rm -rf "$I469_PR" "$I469_PRK" "$I469_PRO"
+# An all-digit but >= 2^63 KEEP (#469 fix-delta review): all-digit passes the case AND the base-10
+# normalize, but `$(( 10#… ))` silently WRAPS an overflowing value to a NEGATIVE (bash integer
+# overflow does not error), which would make `_drop = count - _keep` EXCEED the staged-array length
+# and `${_stale[$_i]}` index past it under `set -u` — aborting the best-effort prune (the same
+# fail-open the bound exists to prevent, re-introduced by the normalize). The `[ "$_keep" -ge 0 ] ||
+# _keep=8` clamp catches the wrapped negative. Seed 10 roots, KEEP=2^64-1 → clamp to 8, prune to ≤8,
+# exit 0 (no unbound-variable abort).
+I469_POV="$(git_sandbox "#469 stage-prune intmax-overflow-keep repo")"; git -C "$I469_POV" init -q
+git -C "$I469_POV" config user.email t@e.com; git -C "$I469_POV" config user.name t
+mkdir -p "$I469_POV/.devflow/tmp"; printf 'tmp/\n' > "$I469_POV/.devflow/.gitignore"
+git -C "$I469_POV" add -A; git -C "$I469_POV" commit -qm seed 2>/dev/null || true
+for _p in 01 02 03 04 05 06 07 08 09 10; do mkdir -p "$I469_POV/.devflow/tmp/telemetry-stage-200001010000$_p-x-y-z"; done
+( cd "$I469_POV" && _DEVFLOW_TELEMETRY_STAGE_KEEP=18446744073709551615 GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1; I469_POV_RC=$?
+assert_eq "#469 fix-delta review: an intmax-overflow KEEP (2^64-1) does NOT abort --persist (wrapped-negative clamp)" "0" "$I469_POV_RC"
+assert_eq "#469 fix-delta review: an intmax-overflow KEEP prunes to the clamped default (bound holds, no over-index)" "yes" \
+  "$([ "$(find "$I469_POV/.devflow/tmp" -maxdepth 1 -name 'telemetry-stage-*' | wc -l | tr -d ' ')" -le 8 ] && echo yes || echo no)"
+rm -rf "$I469_PR" "$I469_PRK" "$I469_PRO" "$I469_POV"
 
 # ── Retention-note: _devflow_telemetry_retention_note reports the records LOST
 # only under GITHUB_ACTIONS (the ephemeral-runner truth), and is silent off CI. ──

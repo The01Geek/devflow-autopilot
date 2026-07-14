@@ -85,11 +85,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
   # verify_store MUST be stubbed too (#469 review): do_persist's fetch-before-exclusion
   # block calls devflow_telemetry_verify_store DIRECTLY and BEFORE the
   # _DEVFLOW_TELEMETRY_BRANCH_SOURCED gate, so on a source failure an un-stubbed call would
-  # be `command not found` (rc 127). That 127 lands in an `if … && …` context (set -e does
-  # not abort), but it takes the else arm and misattributes the source failure to "the
-  # remote tip could not be verified as a readable telemetry store" — steering the operator
-  # at the wrong cause. Fail CLOSED (return 1) so the fetch block degrades to its honest
-  # UNESTABLISHED path, matching this block's "EVERY consumer degrades uniformly" intent.
+  # be `command not found` (rc 127). Both the un-stubbed 127 and this stub's `return 1` land
+  # in the fetch block's `[ -n "$_rtip" ] && devflow_telemetry_verify_store …` (a condition
+  # context — set -e does not abort — whose false result takes the UNESTABLISHED else arm), so
+  # the stub does NOT change that arm's outcome; its effect is to suppress the spurious
+  # `command not found` on stderr and to honor this block's stated "no-op stubs so EVERY
+  # consumer degrades uniformly" contract, which currently misses this one call. Fail CLOSED.
   devflow_telemetry_verify_store() { return 1; }
 }
 
@@ -970,8 +971,15 @@ do_persist() {
   # later `$(( ${#_stale[@]} - _keep ))` arithmetic aborts with "value too great for base" —
   # and under this file's `set -euo pipefail` that abort would kill do_persist mid-run and
   # lose the run's telemetry (the exact fail-open the bound exists to prevent). `10#` forces
-  # base-10; it is safe here because the case above already guaranteed `$_keep` is all-digits.
+  # base-10 (safe: the case above guaranteed `$_keep` is all-digits, so `10#` never sees a
+  # non-digit). But all-digit does NOT imply within intmax: a value >= 2^63 silently WRAPS
+  # (bash integer overflow does not error) to a negative, which would make `_drop` exceed the
+  # staged-array length and index past it under `set -u` (aborting the best-effort prune — the
+  # same fail-open again). Clamp a negative (overflowed) result back to the default so `_keep`
+  # is always non-negative and `_drop = count - _keep <= count` keeps the loop in bounds. A
+  # large-but-in-range `_keep` needs no clamp: it just makes `_drop` non-positive → prune nothing.
   _keep=$(( 10#$_keep ))
+  [ "$_keep" -ge 0 ] || _keep=8
   for _s in "${root}"/.devflow/tmp/telemetry-stage-*; do
     [ -d "$_s" ] && _stale+=("$_s")
   done
