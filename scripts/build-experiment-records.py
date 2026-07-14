@@ -460,8 +460,11 @@ def _telemetry_branch(repo_root):
     try:
         text = cfg.read_text(encoding="utf-8")
     except OSError:
-        # A missing/unreadable config is the ordinary "use the default" path
-        # (config-get.sh is silent here too) — not a degradation worth a breadcrumb.
+        # A missing OR unreadable config is the ordinary "use the default" path here — this
+        # reader degrades silently on BOTH subcases (see the docstring). config-get.sh is
+        # silent only on a MISSING config; it breadcrumbs a present-but-unreadable one, which
+        # this reader deliberately does not — so do not read this as "config-get.sh is silent
+        # here too" for the unreadable subcase.
         return "devflow-telemetry"
     try:
         data = json.loads(text)

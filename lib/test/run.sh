@@ -17346,6 +17346,17 @@ assert_eq "tb(#441 SFH-4a): the ref is NOT advanced when the store cannot be ver
 # breadcrumb's ABSENCE is what makes this test go RED under the fail-open mutation.
 assert_eq "tb(#441 SFH-4a): the refusal is terminal — persist never attempts the object-store write" "no" \
   "$(printf '%s' "$TB_UT_ERR" | grep -qF 'object-store write failed' && echo yes || echo no)"
+# #469 AC8 (shadow review): the verify_store-fail arm is a DEGRADED arm that produced a staging
+# root, so #469 changed its guard from `|| return 0` to `|| return 1` — do_persist must therefore
+# RETAIN the staged records (they are the run's only copy), not rm -rf them. The assertions above
+# (exit 0 / refusal breadcrumb / no ref advance / no object-store write) are all invariant to a
+# return-1→return-0 flip — that flip makes persist_tree return 0, do_persist hit its clean `0)`
+# arm, and SILENTLY DELETE the staged records (the exact #469 defect-4 regression) while every
+# assertion above stays green. So pin the retention outcome directly, which return 0 breaks.
+assert_eq "tb(#469 AC8): the verify_store-fail degraded arm RETAINS its staging root (persist_tree return 1, not 0)" "yes" \
+  "$(compgen -G "$TB_UT_REPO/.devflow/tmp/telemetry-stage-*" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "tb(#469 AC8): the verify_store-fail arm emits do_persist's degraded RETAINING breadcrumb (the only copy is kept)" "yes" \
+  "$(printf '%s' "$TB_UT_ERR" | grep -qF 'RETAINING the staged records at' && echo yes || echo no)"
 rm -rf "$TB_UT_REPO"
 
 # PR #442 review Suggestion-3: the CAS **non-race** failure arm (a held ref `.lock`, a
