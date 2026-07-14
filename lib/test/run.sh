@@ -31360,11 +31360,14 @@ R4ROW = tsv("STALE", "R4", "docs/GUIDE.md", 12, "deny-absolute forbids `cd` but 
 _, out_r4, _ = run([R4ROW], [adj_comment("devflow-reviewer[bot]", "Bot", R4ROW)])
 chk("mla-rule-scope R4 never demoted (detail carries no referent)", "0", len(out_r4["demoted"]))
 chk("mla-rule-scope R4 exclusion counted", "1", out_r4["stats"]["rows_rule_excluded"])
-# Positive control on the same shape: an R3 row (referent-bearing detail) IS carried forward,
-# so the exclusion above is rule-scoped and not a blanket "nothing demotes" regression.
-_, out_r3, _ = run([ROW], [CBOT])
-chk("mla-rule-scope R3-family row still demotes (positive control)", "1", len(out_r3["demoted"]))
-chk("mla-rule-scope R3-family row not rule-excluded", "0", out_r3["stats"]["rows_rule_excluded"])
+# Positive control on the same shape, using a REAL eligible rule id the lint actually emits
+# ("R3" — referent-bearing detail), not a synthetic token: it IS carried forward. This proves
+# the exclusion is rule-scoped rather than a blanket "nothing demotes" regression, and that the
+# eligible ids in CARRY_FORWARD_EXCLUDED_RULES' complement are the ones the lint really emits.
+R3ROW = tsv("STALE", "R3", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", 42, "claims 5 skills but adjacent block has 6")
+_, out_r3, _ = run([R3ROW], [adj_comment("devflow-reviewer[bot]", "Bot", R3ROW)])
+chk("mla-rule-scope real R3 row still demotes (positive control)", "1", len(out_r3["demoted"]))
+chk("mla-rule-scope real R3 row not rule-excluded", "0", out_r3["stats"]["rows_rule_excluded"])
 
 # mla-row-malformed: a column-deficient STALE row is DROPPED but COUNTED + breadcrumbed
 # (the payload side already did; the row side dropped it silently, leaving rows_in-stale_rows
@@ -31668,32 +31671,51 @@ assert_pin_unique "#466 mla-fetch: Phase 0.6 comment fetch uses the {owner}/{rep
 # because R4's detail carries no referent. That exclusion is a DENY-list, so a NEW stale-prose
 # rule would silently inherit eligibility. Pin the lint's emitted STALE rule-id set: adding a
 # rule turns this RED and forces the author to classify it in CARRY_FORWARD_EXCLUDED_RULES.
-assert_eq "#466 mla-rule-drift: the lint's emitted STALE rule ids are exactly R1,R2,R3,R4 (a new rule must be classified for carry-forward)" \
-  "R1 R2 R3 R4" \
+# The extraction is AST-based, NOT a source grep, and that is load-bearing: a regex guard
+# here can be pattern-matched around by the very thing it guards (a new `_emit_r5(rows, rule,
+# …)` helper with the same signature shape slips past any name-generic exclusion, so BOTH the
+# id set and the "no unknown idiom" count stay green while R5 silently inherits carry-forward
+# eligibility). The AST walk instead resolves every STALE-emitting call site: a literal rule
+# id is collected; a NON-literal rule id is a violation UNLESS it sits inside the one known
+# indirection (`_emit_count`, whose `rule` is bound by its literal call sites, which are
+# themselves collected). So a new emit helper — under any name — is SEEN, not matched around.
+assert_eq "#466 mla-rule-drift: the lint's emitted STALE rule ids are exactly R1,R2,R3,R4, emitted through no idiom the extractor cannot see (a new rule must be classified in CARRY_FORWARD_EXCLUDED_RULES)" \
+  "R1 R2 R3 R4 | violations=0" \
   "$(python3 - "$LIB/../scripts/stale-prose-lint.py" <<'RULEDRIFT'
-import re, sys
-src = open(sys.argv[1], encoding="utf-8").read()
-ids = set(re.findall(r'Row\(STALE,\s*"([^"]+)"', src))
-ids |= set(re.findall(r'_emit_count\(\s*rows,\s*"([^"]+)"', src))
-print(" ".join(sorted(ids)))
+import ast, sys
+
+# The one function allowed to emit a STALE row with a non-literal rule id: its `rule`
+# parameter is bound by its own call sites, which this walk reads as literals.
+INDIRECTION = "_emit_count"
+
+tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
+# Map every node to its enclosing function so a non-literal emit can be attributed.
+enclosing = {}
+for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+    for node in ast.walk(fn):
+        enclosing.setdefault(node, fn.name)
+
+ids, violations = set(), 0
+for node in ast.walk(tree):
+    if not isinstance(node, ast.Call) or not node.args:
+        continue
+    name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+    rule_arg = None
+    if name == "Row" and isinstance(node.args[0], ast.Name) and node.args[0].id == "STALE":
+        rule_arg = node.args[1] if len(node.args) > 1 else None
+    elif isinstance(name, str) and name.startswith("_emit_") and len(node.args) > 1:
+        rule_arg = node.args[1]          # _emit_*(rows, rule, ...)
+    if rule_arg is None:
+        continue
+    if isinstance(rule_arg, ast.Constant) and isinstance(rule_arg.value, str):
+        ids.add(rule_arg.value)
+    elif enclosing.get(node) != INDIRECTION:
+        violations += 1                   # a rule id this extractor cannot resolve
+print(" ".join(sorted(ids)), "| violations=%d" % violations)
 RULEDRIFT
 )"
 assert_pin_unique "#466 mla-rule-scope: the helper excludes R4 from carry-forward by name" \
   'CARRY_FORWARD_EXCLUDED_RULES = frozenset({"R4"})' "$LIB/../scripts/match-lint-adjudications.py"
-# The rule-id extraction above only knows TWO emit idioms (Row(STALE,"..") and
-# _emit_count(rows,"..")). A rule emitted through a NEW helper — or with a non-literal rule
-# arg — would be invisible to it, so the drift guard would pass VACUOUSLY and the new rule
-# would silently inherit carry-forward eligibility. Close that hole: assert no OTHER
-# row-emitting idiom exists in the lint, so introducing one turns this RED and forces the
-# extractor (and the R4 classification) to be updated with it.
-# Two non-literal forms are KNOWN and legitimate, so they are excluded before counting:
-# `def _emit_count(rows, rule, …)` (the definition) and its internal
-# `rows.append(Row(STALE, rule, …))` re-emit — whose `rule` is bound by the literal call
-# sites the extractor above already reads. Anything ELSE emitting a STALE row with a
-# non-literal rule id is a new idiom the extractor is blind to: fail RED.
-assert_eq "#466 mla-rule-drift: the lint emits STALE rows through no idiom the extractor cannot see" "0" \
-  "$(grep -E '(Row\(STALE,[[:space:]]*[^"[:space:]]|_emit_[a-z_]+\([[:space:]]*rows,[[:space:]]*[^"[:space:]])' "$LIB/../scripts/stale-prose-lint.py" \
-     | grep -vcE 'def _emit_[a-z_]+\(rows, rule,|Row\(STALE, rule,' || true)"
 assert_eq "#466 mla-flatten: the page-1-only form (\$comments[0]) is absent from the review skill" "0" \
   "$(grep -cF 'comments: $comments[0]' "$REVIEW_SKILL" || true)"
 
