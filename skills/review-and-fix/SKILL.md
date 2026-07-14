@@ -10,7 +10,7 @@ You are the review-and-fix orchestrator. Run /devflow:review's review engine, fi
 
 **Input:** `$ARGUMENTS` may contain an optional PR number and/or the flag `--push-each-iteration`. Parse the two independently — either, both, or neither may be present (`863`, `--push-each-iteration`, `863 --push-each-iteration`, or empty). If no PR number is given, review and fix the current branch. The numeric token (if any) is `$PR_NUMBER` throughout this skill.
 
-**`--push-each-iteration` (default off).** When set, the loop runs `git push` after each iteration's fix commit (Step 3, item 6), so the remote PR branch — and any CI attached to it — tracks every iteration. When absent (the default, and the expected mode for direct user invocation), the loop commits locally and never touches the remote. The flag governs *commit propagation only*; it does NOT post a verdict to GitHub (`gh pr review` / `gh pr comment`) in either case — the skill stays silent on verdicts by design (see "Engine source of truth"). `/devflow:implement` sets this flag at its Phase 3.3 because it operates on a live draft PR with CI; direct users normally omit it. The flag is orthogonal to loop correctness: the loop sees its own fixes regardless of pushing (current-branch mode diffs against local `HEAD`; PR mode uses the head-override in Step 1).
+**`--push-each-iteration` (default off).** When set, the loop runs `git push` after each iteration's fix commit (Step 3, item 6), so the remote PR branch — and any CI attached to it — tracks every iteration. When absent (the default, and the expected mode for direct user invocation), the loop commits locally and does not push the **fix commits**. It is not a no-remote-side-effects mode: independently of this flag, Loop Exit's mandatory `--persist` pushes the `devflow-telemetry` branch to `origin` on every writable run (see *Persisting observability artifacts*). This flag governs the fix commits only. The flag governs *commit propagation only*; it does NOT post a verdict to GitHub (`gh pr review` / `gh pr comment`) in either case — the skill stays silent on verdicts by design (see "Engine source of truth"). `/devflow:implement` sets this flag at its Phase 3.3 because it operates on a live draft PR with CI; direct users normally omit it. The flag is orthogonal to loop correctness: the loop sees its own fixes regardless of pushing (current-branch mode diffs against local `HEAD`; PR mode uses the head-override in Step 1).
 
 **Key principle:** You perform fixes DIRECTLY in this session. Do NOT delegate fixes to a subagent. You need full conversation context to apply `devflow:receiving-code-review` principles (technical evaluation, pushback, verification).
 
@@ -774,7 +774,7 @@ HEAD_NOW=$(git rev-parse HEAD)
 ```
 
 - **`HEAD_NOW` == `reviewed_sha`** → the shadow reviewed exactly what ships; proceed to the verdict unchanged.
-- **`HEAD_NOW` != `reviewed_sha` but the post-shadow delta touches only `.devflow/logs/**`** → a post-shadow commit whose diff touches only `.devflow/logs/**` does not constitute an unreviewed edit: these are the engine's own observability artifacts (the effectiveness record + durable workpad copy the Loop Exit `chore: persist review-and-fix observability artifacts` commit writes), and they are the same paths the review diff filter already strips from review, so nothing reviewable changed. The Loop Exit persist step mandates that commit *after* the shadow, so on every writable converging run `HEAD` legitimately advances past `reviewed_sha` by exactly this logs-only commit — without this exemption the engine's own bookkeeping would trip its own gate on every such run. Confirm the delta is logs-only with `git diff --name-only <reviewed_sha>..HEAD` and verify the changed-path list is **non-empty** *and* that **every** path in it is under `.devflow/logs/`; if so, set `reviewed_sha = HEAD_NOW`, record the logs-only exemption on the shadow block, and proceed to the verdict unchanged. **An empty or errored `git diff` output is NOT exempt** — with `HEAD_NOW != reviewed_sha` a diff that lists no paths means the command failed or the SHAs are not comparable, not that a logs-only commit landed, and "every path is under `.devflow/logs/`" is *vacuously* true over an empty list. **Fail closed directly:** set the verdict's `{shadow status}` to `shadow agreement not verified`, do **not** set `reviewed_sha = HEAD_NOW`, and do **not** fall through to the delta-review arm below — that arm re-runs the *same* `git diff <reviewed_sha>..HEAD`, so on an errored SHA it would hand the reviewers an equally empty diff and read the empty result as a clean delta (line "Delta-review clean → proceed with the verdict"), re-opening the very fail-open this check closes. An empty/errored diff carries no evidence either way, so it can never clear the gate. **Any commit touching a path outside `.devflow/logs/**` still trips the gate** and takes the delta-review arm below (a mixed commit that touches logs *and* other paths is not exempt — it is treated as a real post-shadow edit).
+- **`HEAD_NOW` != `reviewed_sha` but the post-shadow delta touches only `.devflow/logs/**`** → **Vestigial under issue #441 — retained as a defensive guard only.** DevFlow's Loop Exit no longer commits observability artifacts to the feature branch: the effectiveness record and durable workpad copy are now persisted to the dedicated **telemetry branch** via git plumbing that never touches `HEAD` or the working tree, so on a normal converging run `HEAD` does **not** advance at Loop Exit and DevFlow's own persistence can never trigger this exemption. It is kept because a post-shadow commit whose diff touches only `.devflow/logs/**` does not constitute an unreviewed edit — these are observability artifacts, not reviewable code, and they are the same paths the review diff filter still strips — so a **pre-#441 legacy branch** (or a consumer that commits `.devflow/logs/` to the feature branch for some other reason) is still handled correctly rather than tripping the gate. Confirm the delta is logs-only with `git diff --name-only <reviewed_sha>..HEAD` and verify the changed-path list is **non-empty** *and* that **every** path in it is under `.devflow/logs/`; if so, set `reviewed_sha = HEAD_NOW`, record the logs-only exemption on the shadow block, and proceed to the verdict unchanged. **An empty or errored `git diff` output is NOT exempt** — with `HEAD_NOW != reviewed_sha` a diff that lists no paths means the command failed or the SHAs are not comparable, not that a logs-only commit landed, and "every path is under `.devflow/logs/`" is *vacuously* true over an empty list. **Fail closed directly:** set the verdict's `{shadow status}` to `shadow agreement not verified`, do **not** set `reviewed_sha = HEAD_NOW`, and do **not** fall through to the delta-review arm below — that arm re-runs the *same* `git diff <reviewed_sha>..HEAD`, so on an errored SHA it would hand the reviewers an equally empty diff and read the empty result as a clean delta (line "Delta-review clean → proceed with the verdict"), re-opening the very fail-open this check closes. An empty/errored diff carries no evidence either way, so it can never clear the gate. **Any commit touching a path outside `.devflow/logs/**` still trips the gate** and takes the delta-review arm below (a mixed commit that touches logs *and* other paths is not exempt — it is treated as a real post-shadow edit).
 - **`HEAD_NOW` != `reviewed_sha`** (a commit touching paths outside `.devflow/logs/**` landed after the shadow) → the approve-family verdict is **stale over the post-shadow delta**; do **not** emit it as-is. Run a **bounded delta-review**: dispatch the standard Phase-3 reviewer roster (blinded, per Step 2.6) over just `git diff <reviewed_sha>..HEAD`.
   - Delta-review clean (no new Critical/Important) → set `reviewed_sha = HEAD_NOW`, record the delta-review on the shadow block, and proceed with the verdict.
   - Delta-review surfaces a new **Important** (or cannot run at all) → downgrade the chat verdict's `{shadow status}` to `shadow agreement not verified`.
@@ -893,11 +893,9 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
 
 2. **Resolve the run slug and run-id.** `<slug>` is `pr-<N>` in PR mode or the sanitized current branch name in branch mode; `<run-id>` is the per-run discriminator computed once at loop start (see Persistent workpad → Run-scoping). The run's workpads live in the run-scoped directory `.devflow/tmp/review/<slug>/<run-id>/`. The per-run **record filename is keyed by `<run-id>`** (`<slug>-<run-id>.json`), **not** a fresh `date` timestamp: the agent's Loop-Exit write here and the Layer-3 `lib/efficiency-trace.sh --persist` backstop must resolve the *same* path, or they would each write a duplicate record for one run. The run-id already embeds a timestamp on local runs (`local-<ts>-<attempt>`) and the run number on cloud runs, so it stays unique across runs while being deterministic *within* a run.
 
-3. **Render the trace to chat** and **write the per-run record**. Discriminate the trace's failure via a single-statement `if !` (redirecting its stderr to a temp file for the breadcrumb) so a real failure surfaces a reason rather than degrading silently to an empty skip:
+3. **Render the trace to chat.** Discriminate the trace's failure via a single-statement `if !` (redirecting its stderr to a temp file for the breadcrumb) so a real failure surfaces a reason rather than degrading silently to an empty skip. The trace is read-only (renders to chat); the **durable per-run record is no longer written into the working tree here** — it is derived and persisted to the telemetry branch by the single `--persist` call in "Persisting observability artifacts" below (issue #441), which reads these same run-scoped workpads:
    ```bash
    WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"   # run-scoped: the trace must read THIS run's iter-*.json, not a sibling run's
-   RECORD=".devflow/logs/efficiency/<slug>-<run-id>.json"   # run-id-keyed (NOT a fresh timestamp): the agent write + --persist backstop MUST agree on this exact path
-   mkdir -p .devflow/logs/efficiency
    # Render the Markdown trace to chat. Use ::warning:: (not a plain echo) so a
    # failure surfaces in the Actions UI on a headless run; and detect the
    # all-workpads-malformed case, where the helper exits 0 with empty stdout (the
@@ -911,119 +909,35 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
    else
      printf '%s\n' "$TRACE"
    fi
-   # Write the per-run JSON record (one file per run).
-   # Discriminate the helper's exit status with a single-statement `if` (reads its OWN
-   # status, never a captured rc read in a later statement). Only a clean rc-0, non-empty
-   # write survives — an empty (flag-off / zero-iteration → 0-byte) write, or a truncated
-   # file left by a mid-write abort (rc≠0), is removed so `git add -A` never commits it.
-   if "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-et-record.err; then
-     [ -s "$RECORD" ] || rm -f "$RECORD"
-   else
-     echo "::warning::devflow efficiency-trace record mode failed (rc≠0): $(cat /tmp/devflow-et-record.err 2>/dev/null)"
-     rm -f "$RECORD"
-   fi
    ```
    Print the rendered Markdown trace (the `--mode trace` output) into the chat report, after the Run telemetry table. The trace assigns each dispatched subagent exactly one verdict — **unique-effective**, **corroborating**, **noise**, or **null** (see `lib/efficiency-trace.jq`'s header and [`docs/efficiency-trace.md`](../../docs/efficiency-trace.md) for the derivation rules) — shows the per-iteration **diff profile** (the Phase 0.5 flags) and **verification posture** (so a low verifier count reads as a deliberate cheap-path/skip decision, not as "nothing ran"), the Phase-3 dispatch count, and flags any iteration that applied zero fixes as having added nothing.
 
-4. **The record is committed deterministically — mandatory on every writable run, never skipped (including when this skill is driven interactively/inline by an orchestrator).** `.devflow/logs/efficiency/<slug>-<run-id>.json` lives under a tracked directory (the scoped `.devflow/.gitignore` ignores only `tmp/`). Do **not** leave it for an incidental future `git add -A` to absorb — that is nondeterministic and leaves untracked working-tree cruft in a standalone local run (where no further commits follow this one). Instead, both observability artifacts (this record and the durable workpad copy below) are committed together in a single dedicated `chore:` commit at the end of Loop Exit — see "Persisting observability artifacts" below. That commit is created on every writable run, **local included**; it is pushed only when `--push-each-iteration` is set. So local mode's no-remote-side-effect property is preserved by *not pushing*, not by leaving a tracked file uncommitted. The record carries the existing per-phase/per-iteration cost telemetry forward from the workpads, so that cost data is no longer discarded with `.devflow/tmp/`.
+4. **The record is persisted deterministically to the telemetry branch — mandatory on every writable run, never skipped (including when this skill is driven interactively/inline by an orchestrator).** The record and the durable workpad copy are **not** written into the working tree and **not** committed on the current branch; they are derived from this run's tmp workpads and persisted to the durable **telemetry branch** by the single `--persist` call in "Persisting observability artifacts" below (issue #441). That call runs on every writable run, **local included**, and the push lives inside the helper — so local mode no longer depends on the feature branch ever being pushed, and the default-branch divergence the old current-branch commit caused is structurally impossible. The record carries the existing per-phase/per-iteration cost telemetry forward from the workpads, so that cost data is no longer discarded with `.devflow/tmp/`.
 
 If `lib/efficiency-trace.sh` is missing or errors, the trace step above already emits `Effectiveness trace unavailable: {reason}` to chat; proceed — the verdict is unaffected.
 
-### Durable workpad copy (writable runs only)
-
-The run-scoped scratch under `.devflow/tmp/review/<slug>/<run-id>/` is gitignored and is destroyed with the runner (or a local `.devflow/tmp/` cleanup). On a **writable** run, persist a durable run-scoped copy of the workpad so this run's `iter-*.json` / `deferrals.json` survive teardown. The read-only-profile guard is the same write-permission enforcement the effectiveness record relies on (the cloud `review` profile denies the `mkdir`/`cp`), mirroring `/devflow:review`'s Phase 4.5 tmp-scratch/logs-durable split — though unlike the effectiveness record this copy is not additionally behind the telemetry flag; it runs on every writable run:
-
-```bash
-# Writable run (local/IDE) only. Under the read-only cloud `review` profile, SKIP this
-# block entirely — no copy, no error; the gitignored `.devflow/tmp/` scratch above still
-# succeeds and is sufficient for the in-run consumers. `.devflow/logs/` is a tracked
-# directory (the repo `.gitignore` negates it), so no gitignore change is needed.
-# Define the paths in THIS block: each fenced snippet is a separate shell, and the
-# effectiveness-trace block's $WORKPAD_DIR is telemetry-gated, so it is not in scope here.
-WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"
-DURABLE=".devflow/logs/review/<slug>/<run-id>"
-# Portability: this prose block runs under the AGENT's own shell (zsh on macOS, sometimes
-# dash/sh), NOT a bash-shebanged .sh — so no bash-only builtin (the glob-completion builtin,
-# shopt, [[ ]], or arrays), and every unquoted glob must survive zsh's default `nomatch`. The
-# old form used the bash-only glob-completion builtin here, unavailable under zsh/dash/sh. The guard turns nomatch off
-# under native zsh (a no-op under bash/sh/dash: $ZSH_VERSION is unset so `&&` short-circuits,
-# and `|| :` keeps it rc-0 under a future set -e); WITHOUT it an unmatched glob would abort
-# this whole block on zsh, making the skip breadcrumb below unreachable exactly when it is
-# needed. `set -- "$WORKPAD_DIR"/*.json` then both TESTS for matches and (on success) IS the
-# matched list in "$@": with nomatch off, an unmatched glob leaves $1 the literal pattern, so
-# `[ -e "$1" ]` is false — a definitive "no .json here" (no external tool whose absence could
-# fake it), short-circuiting the copy instead of passing a literal `*.json` to cp. The
-# unmatched case (run dir exists but holds no .json) is reachable only if iter-1's best-effort
-# write failed. Caveat: `[ -e "$1" ]` is false if the first match is a dangling symlink —
-# irrelevant for this DevFlow-controlled tmp dir; don't "fix" it into a portability
-# regression. `set --` clobbers the positional params, so $WORKPAD_DIR/$DURABLE are captured
-# into named vars above, BEFORE this line.
-[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
-set -- "$WORKPAD_DIR"/*.json
-if [ -d "$WORKPAD_DIR" ] && [ -e "$1" ]; then
-  # Best-effort (never aborts the loop), but log on failure rather than swallowing it
-  # with a bare `|| true` — a denied mkdir/cp (read-only FS, ENOSPC, perms) should leave
-  # a breadcrumb, matching the effectiveness-trace block's posture, so a missing durable
-  # copy isn't discovered only when someone later goes looking for it. Capture the real
-  # mkdir/cp stderr into the warning rather than `2>/dev/null`-ing it, so the breadcrumb
-  # names the actual reason (ENOSPC/perms) instead of just asserting failure. Copy "$@"
-  # (the matched list from `set --`), never a re-globbed literal.
-  if ! cp_err="$( { mkdir -p "$DURABLE" && cp -p "$@" "$DURABLE"/; } 2>&1 )"; then
-    echo "::warning::durable workpad copy failed ($WORKPAD_DIR -> $DURABLE): ${cp_err:-unknown}; best-effort, loop continues"
-  fi
-else
-  # Skip path made observable (best-effort contract: always exit 0, but ALWAYS leave a
-  # specific breadcrumb) so a silently-skipped durable copy can never recur. The nomatch
-  # guard above is what makes this branch REACHABLE on zsh when the glob is unmatched.
-  echo "::warning::durable workpad copy skipped: $WORKPAD_DIR absent or holds no *.json (iter-1 best-effort write failed earlier?); best-effort, loop continues" >&2
-fi
-```
-
-The copy is best-effort: a failure never aborts the loop. Because the destination is tracked, this run persists it deterministically alongside the effectiveness record in the single dedicated `chore:` commit at the end of Loop Exit (see "Persisting observability artifacts" below) — committed on every writable run, **local included**, and additionally pushed only when `--push-each-iteration` is set (so when driven by `/devflow:implement`, that orchestrator finds it already committed rather than relying on a later `git add -A` to sweep it up). Do **not** run this block under the read-only cloud `review` profile — the durable copy is intentionally writable-runs-only.
-
 ### Persisting observability artifacts
 
-Both artifacts written above — the effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`, when telemetry is enabled and the run had readable iterations) and the durable workpad copy (`.devflow/logs/review/<slug>/<run-id>/`, on a writable run) — live under the tracked `.devflow/logs/` tree. Persist them deterministically in a single dedicated `chore:` commit at the end of Loop Exit, *after* the run's fix commits, rather than leaving them for an incidental future `git add -A` to absorb. **This persist step is mandatory on every writable run — it is the most-dropped step when this skill is driven inline by an orchestrator (see Common Mistakes), so treat it as non-skippable, not best-effort-optional:**
+Persist this run's observability artifacts — the effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`, when telemetry is enabled and the run had readable iterations) and the durable workpad copy (`.devflow/logs/review/<slug>/<run-id>/`) — to the durable **telemetry branch** with a single `--persist` call (issue #441). The helper derives the record and stages the durable workpad copy from **this run's own tmp workpads**, then writes them onto the long-lived orphan branch via git plumbing and pushes — **without committing anything on the current or default branch, and without touching the working tree or `HEAD`**. This replaces the former current-branch `chore:` commit: durability no longer depends on the branch this run happens to sit on ever being pushed and merged. **This persist step is mandatory on every writable run — it is the most-dropped step when this skill is driven inline by an orchestrator (see Common Mistakes), so treat it as non-skippable, not best-effort-optional:**
 
 ```bash
-# Stage ONLY the .devflow/logs/ artifact subtrees this run wrote. Add each subtree
-# conditionally on its existence: the effectiveness record is telemetry-gated (its dir is
-# absent when the trace is disabled) while the durable copy is not, so passing a
-# non-existent pathspec to a single `git add` would abort it atomically and stage NEITHER
-# subtree. The commit below is then ALSO pathspec-scoped (`git commit -- "${ADD_PATHS[@]}"`),
-# so the "only .devflow/logs/ artifacts" guarantee is enforced by the commit itself, not
-# merely by what we add — a pre-dirty index left staged by an earlier step can never ride
-# into this chore: commit. Best-effort with `::warning::` breadcrumbs, matching the
-# effectiveness-trace and durable-copy blocks above; a failure never aborts the loop.
-ADD_PATHS=()
-[ -d .devflow/logs/efficiency ] && ADD_PATHS+=(.devflow/logs/efficiency)
-[ -d .devflow/logs/review ] && ADD_PATHS+=(.devflow/logs/review)
-if [ "${#ADD_PATHS[@]}" -gt 0 ]; then
-  if ! add_err="$(git add -- "${ADD_PATHS[@]}" 2>&1)"; then
-    echo "::warning::observability-artifact staging failed: ${add_err:-unknown}; not persisted this run, loop continues"
-  # Scope the dirtiness check to the artifact pathspecs too, so an unrelated pre-staged
-  # change does not make this fire (and the empty case is a clean no-op — no empty commit).
-  elif ! git diff --cached --quiet -- "${ADD_PATHS[@]}"; then
-    if commit_err="$(git commit -m "chore: persist review-and-fix observability artifacts
-
-Co-Authored-By: Claude <noreply@anthropic.com>" -- "${ADD_PATHS[@]}" 2>&1)"; then
-      # Push ONLY when --push-each-iteration is set (cloud / opt-in) AND the commit landed,
-      # matching the fix iterations' remote contract. In default local mode the commit is
-      # created but NOT pushed: local mode's no-remote-side-effect property is preserved by
-      # not pushing, not by leaving tracked files uncommitted.
-      if <--push-each-iteration is set>; then
-        if ! push_err="$(git push 2>&1)"; then
-          echo "::warning::observability-artifact push failed: ${push_err:-unknown}; commit is local-only, loop continues"
-        fi
-      fi
-    else
-      echo "::warning::observability-artifact commit failed: ${commit_err:-unknown}; artifacts left staged, loop continues"
-    fi
-  fi
-fi
+# Derive + durably persist this run's record and workpad copy to the telemetry
+# branch. Everything — the record derivation, the durable copy, the compare-and-
+# swap ref advance, and the push (with a fetch/re-parent retry loop) — lives inside
+# the helper, so this is the SAME code path a local run and a cloud run use; the
+# ambient git credential is the only difference (cloud: the workflow token; local:
+# the developer's own credentials). Best-effort and exit-0: when the branch cannot
+# be pushed (offline, no remote, a read-only fork-PR token) the local telemetry ref
+# still advances and a ::warning:: is emitted — the loop is never aborted. Invoke the
+# helper directly (no `bash` prefix) so the resolved-path allow-list entry matches on
+# a headless run. (No `|| true`: --persist is exit-0 by contract, and a trailing
+# `|| true` would introduce an ungranted `true` command head — silently refused on
+# the cloud command path per the #363/#401 head-grant rule — the same reason review
+# Phase 4.5's persist fence drops it.)
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --persist --workpad-dir ".devflow/tmp/review/<slug>/<run-id>" --slug "<slug>"
 ```
 
-Run this block on every writable run; skip it under the read-only cloud `review` profile (where neither artifact was written and the tree is not writable). The existence checks plus the pathspec-scoped `git diff --cached --quiet -- "${ADD_PATHS[@]}"` guard make it a clean no-op when neither artifact changed this run (telemetry gated off *and* nothing durable to copy), so no empty commit is ever created. Because both the guard and the commit are pathspec-scoped, the commit contains only the `.devflow/logs/` artifacts regardless of what else may be staged. A user who does not want the logs can drop the single labeled `chore:` commit with one `git reset HEAD~1`.
+Run this on every writable run; **skip it under the read-only cloud `review` profile** (`contents: read`), where the tree — and now the telemetry-branch push — is not writable and the run's surface is the PR comment. The helper is a clean no-op when nothing new needs persisting (an idempotent re-run derives no new record and the branch's tree is unchanged, so no new branch commit is made). Because persistence targets a dedicated branch that shares no history with `main` and is never merged into it, the current branch's history and the reviewed diff are unaffected — there is no `chore:` commit to drop from the feature branch anymore.
 
 ### Persistence self-check (Layer 2 — warn-only backstop)
 
@@ -1053,7 +967,7 @@ If the self-check warns that the record or the workpads were not persisted, the 
 
 ## Common Mistakes
 
-- **Dropping the Loop Exit observability-persistence steps when this skill is driven interactively/inline by an orchestrator** (rather than as a discrete end-to-end invocation). The fix loop, shadow passes, and fixes all run correctly, but the final *bookkeeping* — Step 3's item 6's fused per-iteration `iter-<N>.json` write (record shape in item 7), the effectiveness-trace render+record, the durable workpad copy, and the `chore:` persist commit — gets silently skipped, leaving a hole in the `.devflow/logs/efficiency/` telemetry dataset that **no backstop DevFlow currently ships reconstructs** — the synthesis floor below recovers only an effectiveness skeleton from the fix commits, and nothing that ships reconstructs the per-phase **cost** half at all, which this loop alone captures live. These steps are **mandatory on every writable run**, not best-effort-optional. This applies with equal force to the sibling bypass this entry originally under-named: when the orchestrator does not invoke this Skill at all but **hand-runs the review engine via direct `Agent` dispatch** on a degraded path (e.g. under cloud `claude-code-action` friction), the per-iteration `iter-<N>.json` write (Step 3's item 6; record shape in its item 7) is still mandatory on that path — a permission/sandbox denial is not license to leave the instrumented loop. Layered backstops cover this: write each `iter-<N>.json` fused to its fix commit (Step 3's item 6) so the data survives a dropped Loop Exit; run the Loop Exit **Persistence self-check** so a drop is at least loud; and rely on the deterministic `lib/efficiency-trace.sh --persist` backstop (the `Stop` hook locally, the cloud-workflow wrapper in CI) that re-derives and commits the artifacts from the on-disk workpads regardless of what the agent did — and, when even the workpads are gone, **synthesizes a minimal iteration record from the fix commits** (issue #381) so a fully-dropped run still contributes a floor. **That synthesis floor is a safety net, not license to skip the emit:** it recovers only the effectiveness half (`iter` / `fix_commit_sha` / `fix_files` / `loop_role` / `synthesized: true`) and none of the checklist / findings / per-phase cost detail the real record carries — none of that detail is recoverable **from the fix commits** this floor reads. Never treat "the loop converged and I reported the verdict" as the finish line — persistence is part of the run.
+- **Dropping the Loop Exit observability-persistence steps when this skill is driven interactively/inline by an orchestrator** (rather than as a discrete end-to-end invocation). The fix loop, shadow passes, and fixes all run correctly, but the final *bookkeeping* — Step 3, item 6's fused per-iteration `iter-<N>.json` write (record shape in item 7), the effectiveness-trace render, and the `--persist` write of the record + durable workpad copy to the telemetry branch — gets silently skipped, leaving a hole in the telemetry dataset that **no backstop DevFlow currently ships reconstructs** — the synthesis floor below recovers only an effectiveness skeleton from the fix commits, and nothing that ships reconstructs the per-phase **cost** half at all, which this loop alone captures live. These steps are **mandatory on every writable run**, not best-effort-optional. This applies with equal force to the sibling bypass this entry originally under-named: when the orchestrator does not invoke this Skill at all but **hand-runs the review engine via direct `Agent` dispatch** on a degraded path (e.g. under cloud `claude-code-action` friction), the per-iteration `iter-<N>.json` write (Step 3, item 6; record shape in item 7) is still mandatory on that path — a permission/sandbox denial is not license to leave the instrumented loop. Layered backstops guard this: write each `iter-<N>.json` fused to its fix commit (Step 3, item 6) so the data survives a dropped Loop Exit; run the Loop Exit **Persistence self-check** so a drop is at least loud; and rely on the deterministic `lib/efficiency-trace.sh --persist` backstop (the `Stop` hook locally, the cloud-workflow wrapper in CI) that re-derives the artifacts from the on-disk workpads and persists them to the telemetry branch regardless of what the agent did — and, when even the workpads are gone, **synthesizes a minimal iteration record from the fix commits** (issue #381) so a fully-dropped run still contributes a floor. **That synthesis floor is a safety net, not license to skip the emit:** it recovers only the effectiveness half (`iter` / `fix_commit_sha` / `fix_files` / `loop_role` / `synthesized: true`) and none of the checklist / findings / per-phase cost detail the real record carries — none of that detail is recoverable **from the fix commits** this floor reads. Never treat "the loop converged and I reported the verdict" as the finish line — persistence is part of the run.
 - Trying to skip Step 2.6 because iter N looked clean — the whole point of the shadow pass is that iter N's quietness might be undersampling. A clean iter that didn't survive shadow audit is not convergence.
 - Re-posting the loop's verdict to GitHub via `gh pr review` from inside the loop — this skill is silent on GitHub by design; the user runs `/devflow:review <PR>` separately for a formal merge signal.
 - Confusing Step 0.9's narrow-reuse signals with a wholesale Phase 1+2 skip — Phase 1+2 always re-run on iter ≥ 2; Step 0.9 only stages reuse INPUTS (see the rationale block in Step 0.9 itself).

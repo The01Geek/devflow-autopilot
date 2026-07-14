@@ -22,12 +22,16 @@
 #                       converged writable run left no iter-*.json workpad or no
 #                       persisted effectiveness record. Run-id is the basename of
 #                       --workpad-dir. Silent when telemetry is disabled.
-#   --persist           Layer 3 backstop: derive the per-run record AND commit it
-#                       + the durable workpad copy from whatever iter-*.json
-#                       workpads exist on disk, in one scoped `chore:` commit.
-#                       Idempotent: a no-op (no empty commit) once the record is
-#                       already persisted. With --workpad-dir/--slug it persists
-#                       just that run; without them it DISCOVERS every run under
+#   --persist           Layer 3 backstop: derive the per-run record + the durable
+#                       workpad copy from whatever iter-*.json workpads exist on
+#                       disk, and persist them to the dedicated telemetry branch
+#                       (`telemetry.branch`, default devflow-telemetry) via git
+#                       plumbing — it does NOT commit to the current branch and
+#                       never touches HEAD or the tracked working tree (#441).
+#                       Idempotent: once a run's record is already on the branch,
+#                       the tree is unchanged and no new branch commit is made.
+#                       With --workpad-dir/--slug it persists just that run;
+#                       without them it DISCOVERS every run under
 #                       .devflow/tmp/review/<slug>/<run-id>/ and persists each.
 #
 # Gating: when devflow_review_and_fix.efficiency_telemetry_enabled is false,
@@ -58,6 +62,27 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # shellcheck source=lib/config-source.sh
 . "$HERE/config-source.sh"
+
+# Detached telemetry-branch persistence (issue #441). Sourced beside this script.
+# On a copied/vendored deployment missing lib/, sourcing fails; rather than leave
+# the devflow_telemetry_* functions UNDEFINED (a later unguarded `$(devflow_telemetry_branch)`
+# would then trip `set -e` — the exact abort the best-effort contract forbids), define
+# no-op stubs so EVERY consumer degrades uniformly at the source boundary: the branch
+# reads return "absent" and the write is a no-op, telemetry is simply not persisted this
+# run, and nothing aborts. This is the SOURCE-time signal; do_persist emits a second,
+# PERSIST-time breadcrumb (gated on the _DEVFLOW_TELEMETRY_BRANCH_SOURCED sentinel) that
+# names the staging root whose artifacts are discarded — the two are complementary, not
+# duplicates, and the persist-time one is what tells the operator what was lost.
+# shellcheck source=lib/telemetry-branch.sh
+. "$HERE/telemetry-branch.sh" || {
+  echo "devflow: telemetry-branch.sh could not be sourced beside ${BASH_SOURCE[0]} — --persist cannot reach the telemetry branch this run; using no-op stubs so backstop reads degrade cleanly (best-effort exit-0 preserved)" >&2
+  devflow_telemetry_branch()       { printf 'devflow-telemetry\n'; }
+  devflow_telemetry_ref()          { printf 'refs/heads/devflow-telemetry\n'; }
+  devflow_telemetry_blob_exists()  { return 1; }
+  devflow_telemetry_list_blobs()   { return 0; }
+  devflow_telemetry_show_blob()    { return 1; }
+  devflow_telemetry_persist_tree() { return 0; }
+}
 
 WORKPAD_DIR=""
 SLUG=""
@@ -294,26 +319,37 @@ synth_base_ref() {
   return 1
 }
 
-# Emit every fix_commit_sha already recorded by ANY other run's iter-*.json —
-# both the live tmp tree and the committed durable copies — so synthesis never
-# re-attributes a commit some other run (real or previously-synthesized) already
-# recorded. $2 is the target run dir's TMP path, excluded from the scan (its own
-# workpads are what synthesis is about to write; its durable mirror under
-# .devflow/logs/review/, if one survives a wiped tmp, is deliberately NOT
-# excluded — a run whose workpads were already persisted reads as already-
-# recorded, which is correct: its record exists and must not be re-attributed).
-# Best-effort with a CONTAINED, breadcrumbed per-file failure: an unreadable/
-# malformed workpad is skipped — its sha (if any) is lost from the exclusion
-# set, a fail-open-for-that-file window the breadcrumb makes loud — while the
-# `if !` guard keeps the failure from truncating the REST of the scan (this
-# loop runs in an errexit-inheriting process-substitution subshell, where a
-# bare failing jq would kill it mid-list and silently drop every later sha —
-# the wider fail-open the #62/#98 operand-contract check exists to catch).
-# Residual windows: a run whose EVERY workpad copy was deleted after its record
-# was derived (the durable-copy layer exists to prevent it), and the
-# single-unreadable-sibling sha just described (breadcrumbed, never silent).
+# Validate + emit a fix_commit_sha token (lowercase-hex charset — length
+# deliberately unchecked, which is sufficient here: the check exists to keep a
+# corrupt string value ("aaa bbb <realsha>", an embedded newline) from smuggling
+# whitespace-bearing tokens into the space-delimited exclusion set; space/newline
+# both fail the charset class. The producer contract is `git rev-parse HEAD`, so a
+# wrong-LENGTH hex token can only weaken the exclusion for an already-corrupt
+# workpad, never cause a wrong exclusion of a full-sha match). $1 is the sha,
+# $2 the source label used in the not-sha-shaped breadcrumb.
+_emit_fix_sha() {
+  case "$1" in
+    ''|*[!0-9a-f]*) [ -n "$1" ] && echo "::warning::efficiency-trace.sh --persist: fix_commit_sha in ${2} is not sha-shaped; not added to the exclusion set" >&2 ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# Emit every fix_commit_sha already recorded by ANY other run's iter-*.json,
+# UNIONED across three sources so a run persisted to the telemetry branch (issue
+# #441) stays in the exclusion set and its fix commits are never re-attributed
+# (AC12): (1) the live tmp scratch tree, (2) the telemetry branch's durable
+# iter-*.json blobs (read via git ls-tree/git show — the branch is where durable
+# copies now live), and (3) any legacy tracked working-tree .devflow/logs/review/
+# (retained so a consumer's pre-#441 in-tree archive is not dropped). $2 is the
+# target run dir's TMP path, excluded from source (1) only — its durable mirror on
+# the branch, if a prior persist wrote one, is deliberately NOT excluded (a run
+# whose workpads were already persisted reads as already-recorded, which is
+# correct). Best-effort: an unreadable/malformed workpad is skipped with a
+# breadcrumb (a contained fail-open the breadcrumb makes loud), never truncating
+# the rest of the scan.
 recorded_fix_shas() {
-  local root="$1" skip_dir="$2" f sha_out
+  local root="$1" skip_dir="$2" f sha_out ref blob_path
+  # (1) tmp scratch + (3) legacy tracked working-tree copies.
   for f in "$root"/.devflow/tmp/review/*/*/iter-*.json "$root"/.devflow/logs/review/*/*/iter-*.json; do
     [ -e "$f" ] || continue
     case "$f" in "$skip_dir"/*) continue ;; esac
@@ -321,20 +357,20 @@ recorded_fix_shas() {
       echo "::warning::efficiency-trace.sh --persist: could not read fix_commit_sha from ${f} (unreadable or malformed workpad); its sha (if any) cannot be excluded from synthesis" >&2
       continue
     fi
-    # Emit only sha-shaped tokens (lowercase-hex charset — length deliberately
-    # unchecked, which is sufficient here: the check exists to keep a corrupt
-    # string value ("aaa bbb <realsha>", an embedded newline) from smuggling
-    # arbitrary whitespace-bearing tokens into the space-delimited exclusion
-    # set, and space/newline both fail the charset class. The producer contract
-    # is `git rev-parse HEAD`, so a wrong-LENGTH hex token — which passes this
-    # arm silently and then matches nothing against full `%H` shas — can only
-    # weaken the exclusion for a workpad that was already corrupt, never cause
-    # a wrong exclusion of a full-sha match).
-    case "$sha_out" in
-      ''|*[!0-9a-f]*) [ -n "$sha_out" ] && echo "::warning::efficiency-trace.sh --persist: fix_commit_sha in ${f} is not sha-shaped; not added to the exclusion set" >&2 ;;
-      *) printf '%s\n' "$sha_out" ;;
-    esac
+    _emit_fix_sha "$sha_out" "$f"
   done
+  # (2) telemetry-branch durable iter-*.json blobs. No `command -v` guard here:
+  # the source boundary (top of file) defines no-op stubs when the lib is absent,
+  # so devflow_telemetry_* are always callable and list_blobs then yields nothing.
+  ref="$(devflow_telemetry_ref)"
+  while IFS= read -r blob_path; do
+    case "$blob_path" in */iter-*.json) ;; *) continue ;; esac
+    if ! sha_out="$(devflow_telemetry_show_blob "$root" "$ref" "$blob_path" | "$DEVFLOW_JQ" -r 'if (.fix_commit_sha | type) == "string" then .fix_commit_sha else empty end' 2>/dev/null)"; then
+      echo "::warning::efficiency-trace.sh --persist: could not read fix_commit_sha from ${ref}:${blob_path} (unreadable or malformed telemetry blob); its sha (if any) cannot be excluded from synthesis" >&2
+      continue
+    fi
+    _emit_fix_sha "$sha_out" "${ref}:${blob_path}"
+  done < <(devflow_telemetry_list_blobs "$root" "$ref" ".devflow/logs/review/")
   return 0
 }
 
@@ -404,9 +440,9 @@ select_fix_commits() {
 # Synthesize minimal iter-<N>.json workpads into $1 from the branch's fix
 # commits (issue #381). Each record carries only iter / fix_commit_sha /
 # fix_files / loop_role:"fix" / synthesized:true — a distinct recognized degraded
-# class the jq filter and --self-check both ride. Three-way outcome so the
-# caller's breadcrumb never collapses an unestablished measurement onto "found
-# none" (the repo's unknown-is-not-zero gotcha): returns 0 iff ≥1 record was
+# class the jq filter and --self-check both ride. The rc is a FOUR-way outcome (0/2/3/4,
+# enumerated below) so the caller's breadcrumb never collapses an unestablished measurement
+# onto "found none" (the repo's unknown-is-not-zero gotcha): returns 0 iff ≥1 record was
 # written; 2 when selection RAN and found no unrecorded matching commit; 3 when
 # the search could not run at all (an uncreatable target dir, no base ref
 # resolvable, OR the git log enumeration itself failed — either way, whether
@@ -573,10 +609,16 @@ do_self_check() {
     echo "::warning::devflow review-and-fix self-check: NO iter-*.json workpad was written for run ${SLUG}/${run_id} — per-iteration effectiveness telemetry was not captured this run; recover a minimal floor with 'lib/efficiency-trace.sh --persist --workpad-dir ${WORKPAD_DIR} --slug ${SLUG}' (the targeted form — bare discovery-mode --persist can decline this dir on a multi-slug or not-latest skip), which synthesizes an iteration record from this branch's unrecorded 'fix: address review findings (iteration N)' commits when any exist." >&2
     return 0
   fi
-  # Workpads exist but the effectiveness record was not persisted.
-  record="${root}/.devflow/logs/efficiency/${SLUG}-${run_id}.json"
-  if [ ! -e "$record" ]; then
-    echo "::warning::devflow review-and-fix self-check: effectiveness record '.devflow/logs/efficiency/${SLUG}-${run_id}.json' was NOT persisted for run ${SLUG}/${run_id} — recover it with 'lib/efficiency-trace.sh --persist'." >&2
+  # Workpads exist but the effectiveness record was not persisted. Presence is
+  # tested ON THE TELEMETRY BRANCH now (issue #441) — the record no longer lives
+  # in the working tree — via `git cat-file -e <ref>:<path>`, so a correctly
+  # persisted run never draws a false "not persisted" warning and a genuinely
+  # dropped one still does (AC15).
+  local ref
+  ref="$(devflow_telemetry_ref)"
+  record=".devflow/logs/efficiency/${SLUG}-${run_id}.json"
+  if ! devflow_telemetry_blob_exists "$root" "$ref" "$record"; then
+    echo "::warning::devflow review-and-fix self-check: effectiveness record '${record}' was NOT persisted to the telemetry branch '${ref#refs/heads/}' for run ${SLUG}/${run_id} — recover it with 'lib/efficiency-trace.sh --persist'." >&2
   fi
   # Per-iteration field validation (issue #170): warn — best-effort, never writes,
   # never aborts — for each iter-<N>.json missing an expected field, naming the
@@ -640,7 +682,7 @@ do_self_check() {
   return 0
 }
 
-# ── --persist (Layer 3): derive + durable-copy + one scoped chore: commit ────
+# ── --persist (Layer 3): derive + durable-copy → telemetry-branch write ──────
 
 # Persist one run dir's artifacts (best-effort). Returns 0 always.
 persist_one() {
@@ -655,7 +697,7 @@ persist_one() {
       echo "::warning::efficiency-trace.sh --persist: run dir '${dir}' carries an unsubstituted '<placeholder>' identity (a verbatim '<slug>/<run-id>' directory left by a non-substituting run?); refusing to persist or synthesize under it — remove or rename the directory to recover" >&2
       return 0 ;;
   esac
-  local src durable record out jq_rc cp_err src_probe
+  local durable record out jq_rc cp_err
   local iters=("$dir"/iter-*.json)
   if [ ! -e "${iters[0]}" ]; then
     # No per-iteration workpad. Layer-3+ synthesis floor (issue #381): reconstruct
@@ -727,28 +769,14 @@ persist_one() {
       return 0
     fi
   fi
-  # Skip standalone /devflow:review runs (source == "review") — they have their
-  # own Phase 4.5 record path and are out of scope for this backstop. `source` is
-  # a RUN-level field, identical across a run's iterations, so any one iter is a
-  # valid probe; pick the last glob element (no ls|sort|tail). The glob sorts
-  # lexicographically (so iter-10 precedes iter-2), but which iter we read is
-  # irrelevant here — every iter carries the same run-level source. (Last-index
-  # form, not ${iters[-1]}: negative indexing needs bash 4.3, but these helpers
-  # must run on stock macOS bash 3.2.) Because the probe is single, --persist does
-  # not run warn_on_mixed_source the way --mode does; a mixed-source run is not
-  # expected here (a run is single-source by construction).
-  src_probe="${iters[$((${#iters[@]} - 1))]}"
-  # `if !` (not a bare assignment): a failing command-substitution assignment trips
-  # `set -e`, so guard the jq in a condition. An unreadable/parse-failed probe
-  # defaults to the historical producer (review-and-fix) — the SAFE direction for
-  # this issue: never skip (and thus never lose the record of) a real
-  # review-and-fix run. But leave a breadcrumb rather than swallow it silently
-  # (the project's no-silent-failure stance).
-  if ! src="$("$DEVFLOW_JQ" -r 'if (.source | type) == "string" then .source else "review-and-fix" end' "$src_probe" 2>/dev/null)"; then
-    echo "::warning::efficiency-trace.sh --persist: could not read 'source' from ${src_probe}; assuming review-and-fix" >&2
-    src="review-and-fix"
-  fi
-  [ "$src" = "review" ] && return 0
+  # NOTE (issue #441): the historical `source == "review"` skip is GONE. Both
+  # standalone /devflow:review (Phase 4.5) and /devflow:review-and-fix now persist
+  # through this SAME code path to the SAME telemetry branch — the record is keyed
+  # by (slug, run-id) and its jq derivation branches on the workpad's own `source`
+  # field, so a review run yields a review-mode record and a fix-loop run a
+  # fix-loop record, both idempotent by branch presence. Unifying the paths is the
+  # whole point of #441 (one durable store for every writable run), so a review run
+  # discovered here is persisted, not skipped.
 
   # Shadow synthesis floor (issue #426): recover a dropped-but-promoted shadow
   # block as a minimal marker BEFORE the durable copy below, so a synthesized
@@ -759,23 +787,33 @@ persist_one() {
   # the floor is a no-op there and only fires when a real promoted iter exists.)
   [ "$ENABLED" = "true" ] && synthesize_shadow_markers "$dir"
 
+  # ── Everything below STAGES into .devflow/tmp/ (never the tracked tree) so the
+  # detached telemetry-branch write (do_persist) picks it up (issue #441). The
+  # current branch, HEAD, and the working tree are never touched. _TELEMETRY_STAGE
+  # is the shared staging root do_persist created; its subtree mirrors the exact
+  # .devflow/logs/… layout the branch commit will carry. ────────────────────────
+
   # Durable workpad copy — NOT telemetry-gated (runs on every writable run).
   # Copies every *.json in the run dir (iter-*.json + deferrals.json), mirroring
-  # the SKILL.md Loop Exit durable-copy. Content-idempotent: cp overwrites with
-  # identical bytes, so git sees a delta only for genuinely new/changed workpads.
-  durable="${root}/.devflow/logs/review/${slug}/${run_id}"
+  # the SKILL.md Loop Exit durable-copy. Content-idempotent: the branch write's
+  # tree-equality no-op guard emits no commit when the bytes are unchanged.
+  durable="${_TELEMETRY_STAGE}/.devflow/logs/review/${slug}/${run_id}"
   if ! cp_err="$( { mkdir -p "$durable" && cp -p "$dir"/*.json "$durable"/; } 2>&1 )"; then
     echo "::warning::efficiency-trace.sh --persist: durable workpad copy failed (${dir} -> ${durable}): ${cp_err:-unknown}; best-effort, continuing" >&2
   fi
 
-  # Effectiveness record — telemetry-gated, presence-based idempotency. Never
-  # re-derive an existing record: its `generated_at` is stamped at derivation
-  # time, so re-deriving would churn the bytes and defeat the no-op-on-re-run
-  # contract. An existing file (written by the agent's Loop Exit or a prior
-  # --persist) is left untouched.
+  # Effectiveness record — telemetry-gated, presence-based idempotency tested ON
+  # THE TELEMETRY BRANCH (issue #441 AC14): `git cat-file -e <ref>:<path>`. Never
+  # re-derive an existing record — its `generated_at` is stamped at derivation
+  # time, so re-deriving would churn the bytes and force a spurious new branch
+  # commit, defeating the no-op-on-re-run contract. A record already on the branch
+  # (a prior --persist) is left untouched: staged for neither derivation nor write.
   if [ "$ENABLED" = "true" ]; then
-    record="${root}/.devflow/logs/efficiency/${slug}-${run_id}.json"
-    if [ ! -e "$record" ]; then
+    local ref rel_record
+    ref="$(devflow_telemetry_ref)"
+    rel_record=".devflow/logs/efficiency/${slug}-${run_id}.json"
+    if ! devflow_telemetry_blob_exists "$root" "$ref" "$rel_record"; then
+      record="${_TELEMETRY_STAGE}/${rel_record}"
       collect_valid_files "$dir"
       # `if !` guards `set -e` on a failing command-substitution assignment, and
       # captures emit_jq's rc so a jq DERIVATION FAILURE (broken filter, jq missing,
@@ -791,11 +829,10 @@ persist_one() {
       elif [ -n "$out" ]; then
         if mkdir -p "$(dirname "$record")" 2>/dev/null; then
           # Check the redirection itself: a write failure after mkdir (ENOSPC,
-          # EROFS, quota, perms) must not be reported as a clean persist, and a
-          # truncated file must not be left to satisfy the `[ ! -e ]` presence
-          # check on the next run (which would lock in a corrupt record).
+          # EROFS, quota, perms) must not stage a truncated/partial record for the
+          # branch write.
           if ! printf '%s\n' "$out" > "$record"; then
-            echo "::warning::efficiency-trace.sh --persist: writing record ${record} failed (disk/permission); not persisted for ${slug}/${run_id}" >&2
+            echo "::warning::efficiency-trace.sh --persist: staging record ${record} failed (disk/permission); not persisted for ${slug}/${run_id}" >&2
             rm -f "$record" 2>/dev/null
           fi
         else
@@ -808,8 +845,27 @@ persist_one() {
 }
 
 do_persist() {
-  local root dir slug run_id
+  local root dir slug run_id _TELEMETRY_STAGE
   root="$(devflow_repo_root)"
+  # Resolve the telemetry branch ONCE, here in the parent, before anything forks. The
+  # resolution is memoized in _DEVFLOW_TELEMETRY_BRANCH_CACHE, and a subshell inherits the
+  # parent's variables — but NOT a sibling's. Without this seed the first call happened
+  # inside a subshell, so every later subshell re-resolved from scratch: the config was
+  # re-read once per fork and, on an invalid `telemetry.branch`, its breadcrumb was printed
+  # once per fork (three times in a single --persist). Seed it in the parent and they all
+  # inherit one resolution, and one warning. Redirect stdout ONLY — stderr must stay open or
+  # this seed would swallow the very breadcrumb it exists to emit exactly once.
+  devflow_telemetry_branch >/dev/null || true
+  # Shared staging root under gitignored .devflow/tmp/ (issue #441). Every
+  # persist_one call stages its record + durable workpad copy here, mirroring the
+  # exact .devflow/logs/… layout; after the loop the detached telemetry-branch
+  # write consumes the whole tree and this scratch is removed. Nothing is ever
+  # materialized in the tracked working tree, so `git status` stays byte-for-byte
+  # unchanged (AC2). Unique name via bash builtins (not mktemp — the cloud sandbox
+  # blocks it, AC9).
+  _TELEMETRY_STAGE="${root}/.devflow/tmp/telemetry-stage-$$-${RANDOM}-${SECONDS}"
+  rm -rf "$_TELEMETRY_STAGE" 2>/dev/null || true
+  mkdir -p "$_TELEMETRY_STAGE" 2>/dev/null || true
   if [ -n "$WORKPAD_DIR" ]; then
     # Targeted: persist exactly the given run. Slug from --slug, else the parent
     # dir name; run-id is the workpad-dir basename. Derived with bash parameter
@@ -906,47 +962,28 @@ do_persist() {
     done
   fi
 
-  # ── One scoped `chore:` commit for everything written above ────────────────
-  # Stage ONLY the .devflow/logs/ artifact subtrees, each conditionally on its
-  # existence (a single `git add` of a non-existent pathspec aborts atomically).
-  # The commit is ALSO pathspec-scoped so the "only .devflow/logs/ artifacts"
-  # guarantee holds even if the index was pre-dirty. The diff guard makes a
-  # re-run (nothing changed) a clean no-op — no empty commit. Best-effort: a
-  # failure leaves a ::warning:: and exits 0.
-  # Relative pathspecs resolved against $root via `git -C` (robust regardless of
-  # the caller's cwd); existence is checked on the absolute path.
-  local add_err diff_rc commit_err
-  ADD_PATHS=()
-  [ -d "${root}/.devflow/logs/efficiency" ] && ADD_PATHS+=(".devflow/logs/efficiency")
-  [ -d "${root}/.devflow/logs/review" ] && ADD_PATHS+=(".devflow/logs/review")
-  if [ "${#ADD_PATHS[@]}" -gt 0 ]; then
-    if ! add_err="$(git -C "$root" add -- "${ADD_PATHS[@]}" 2>&1)"; then
-      echo "::warning::efficiency-trace.sh --persist: staging failed: ${add_err:-unknown}; not persisted this run" >&2
-    else
-      # Inspect the staged-diff rc explicitly rather than via `! git diff --quiet`:
-      # `--quiet` returns 0 = no staged diff, 1 = staged diff present, but >=2 (128)
-      # on a git FAULT (corrupt index, an index.lock race with a concurrent process
-      # — reachable when the Stop hook overlaps another git op). `! …` would fold
-      # that fault into the rc-0 no-commit no-op SILENTLY, leaving the staged record
-      # uncommitted (and lost at cloud teardown) while self-check sees the
-      # working-tree file and reads clean — the exact false-clean this issue closes.
-      # `|| diff_rc=$?` (not a bare command): `git diff --quiet` returns 1 when a
-      # staged diff is present, which would trip `set -e` as a bare statement —
-      # the left side of `||` is exempt, and we still capture the rc.
-      diff_rc=0
-      git -C "$root" diff --cached --quiet -- "${ADD_PATHS[@]}" || diff_rc=$?
-      if [ "$diff_rc" -eq 1 ]; then
-        if ! commit_err="$(git -C "$root" commit -m "chore: persist review-and-fix observability artifacts
-
-Co-Authored-By: Claude <noreply@anthropic.com>" -- "${ADD_PATHS[@]}" 2>&1)"; then
-          echo "::warning::efficiency-trace.sh --persist: commit failed: ${commit_err:-unknown}; artifacts left staged" >&2
-        fi
-      elif [ "$diff_rc" -ne 0 ]; then
-        # rc 0 is the clean nothing-to-commit no-op (no breadcrumb); only a fault rc warns.
-        echo "::warning::efficiency-trace.sh --persist: staged-diff check failed (rc=${diff_rc}, git fault); artifacts left staged, not committed" >&2
-      fi
-    fi
+  # ── Detached write of everything staged above to the telemetry branch ──────
+  # (issue #441). Replaces the former current-branch `chore:` commit: the shared
+  # lib hashes each staged .devflow/logs/… file into the object store, builds a
+  # tree parented on the telemetry ref (orphan root on first use), CAS-advances
+  # the ref, and pushes with a fetch/re-parent retry loop — never touching the
+  # current branch, HEAD, or the working tree. Best-effort/exit-0: a push that
+  # can't happen (offline, read-only token/profile, no remote) still advances the
+  # local ref and breadcrumbs. Then remove the staging scratch so `git status`
+  # stays byte-for-byte unchanged (AC2). devflow_telemetry_persist_tree is a
+  # clean no-op when nothing was staged.
+  # Gate on the REAL source sentinel telemetry-branch.sh sets on a successful
+  # source (_DEVFLOW_TELEMETRY_BRANCH_SOURCED) — NOT `command -v`, which always finds
+  # the no-op stubs the source-failure branch defines, making this persist-time
+  # "artifacts discarded" warning unreachable dead code. With the sentinel, a
+  # vendored deploy missing lib/ takes the else and emits a specific persist-time
+  # breadcrumb naming the discarded staging root, instead of silently no-op'ing.
+  if [ -n "${_DEVFLOW_TELEMETRY_BRANCH_SOURCED:-}" ]; then
+    devflow_telemetry_persist_tree "$root" "$_TELEMETRY_STAGE"
+  else
+    echo "::warning::efficiency-trace.sh --persist: telemetry-branch.sh was not sourced; cannot persist to the telemetry branch this run — the run's staged artifacts under ${_TELEMETRY_STAGE} are discarded" >&2
   fi
+  rm -rf "$_TELEMETRY_STAGE" 2>/dev/null || true
   return 0
 }
 

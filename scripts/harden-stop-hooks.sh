@@ -129,7 +129,7 @@ HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/
 # Libraries SOURCED INLINE (`.`/`source`) into an entry, directly or transitively. A
 # stub here would exit the SOURCING entry mid-run, so a MISSING trusted copy of one of
 # these neutralizes every entry instead of installing a mid-source-breaking stub.
-HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh'
+HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh'
 # Dependencies EXEC'd as a subprocess (command-substitution / `python3 <path>`). A stub
 # here just makes the subprocess a no-op and the entry degrades gracefully, so a missing
 # trusted copy needs no entry neutralization. This is the documentary/pinned mirror of
@@ -140,7 +140,7 @@ HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/w
 # Authoritative single-line closure literal (COUPLED mirror of devflow-runner.yml's
 # inline TARGETS= — pinned in lib/test/run.sh). Order: entries, then sourced libs, then
 # exec deps.
-HOOK_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'
+HOOK_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'
 
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-.}"
 TRUSTED_DIR="${TRUSTED_DIR:-}"

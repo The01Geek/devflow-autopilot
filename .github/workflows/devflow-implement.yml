@@ -643,14 +643,13 @@ jobs:
           set +e
           HELPER=.devflow/vendor/devflow/lib/efficiency-trace.sh
           [ -f "$HELPER" ] || { echo "::warning::observability backstop: $HELPER missing; skipped"; exit 0; }
-          git config user.name "github-actions[bot]" 2>/dev/null || true
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com" 2>/dev/null || true
-          before=$(git rev-parse HEAD 2>/dev/null)
+          # --persist derives each run's record + durable workpad copy and writes them to
+          # the dedicated telemetry branch via git plumbing, then pushes with a fetch/
+          # re-parent retry loop — all inside the helper, which sets its own committer
+          # identity. It never touches HEAD or the TRACKED working tree, so the former before/after-
+          # HEAD gate and the bare `git push` are gone (issue #441): the helper owns the
+          # targeted, retry-looped push to the telemetry branch. Best-effort/exit-0.
           bash "$HELPER" --persist
-          after=$(git rev-parse HEAD 2>/dev/null)
-          if [ -n "$after" ] && [ "$before" != "$after" ]; then
-            git push || echo "::warning::observability backstop: push of persisted artifacts failed; commit is local-only"
-          fi
           exit 0
 
       # ── Fresh App token for the stall backstop (issue #287) ────────────────
