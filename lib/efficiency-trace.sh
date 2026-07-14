@@ -82,6 +82,15 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
   devflow_telemetry_list_blobs()   { return 0; }
   devflow_telemetry_show_blob()    { return 1; }
   devflow_telemetry_persist_tree() { return 0; }
+  # verify_store MUST be stubbed too (#469 review): do_persist's fetch-before-exclusion
+  # block calls devflow_telemetry_verify_store DIRECTLY and BEFORE the
+  # _DEVFLOW_TELEMETRY_BRANCH_SOURCED gate, so on a source failure an un-stubbed call would
+  # be `command not found` (rc 127). That 127 lands in an `if … && …` context (set -e does
+  # not abort), but it takes the else arm and misattributes the source failure to "the
+  # remote tip could not be verified as a readable telemetry store" — steering the operator
+  # at the wrong cause. Fail CLOSED (return 1) so the fetch block degrades to its honest
+  # UNESTABLISHED path, matching this block's "EVERY consumer degrades uniformly" intent.
+  devflow_telemetry_verify_store() { return 1; }
 }
 
 WORKPAD_DIR=""
@@ -956,6 +965,13 @@ do_persist() {
   # prune go INERT, so retained roots would accumulate unbounded — the opposite of the
   # bound's purpose. Fall back to the default on any non-numeric value so the bound holds.
   case "$_keep" in ''|*[!0-9]*) _keep=8 ;; esac
+  # Normalize to base-10 AFTER the all-digit check above (#469 review): an all-digit but
+  # leading-zero value (`08`, `09`) passes that check yet is an INVALID OCTAL literal, so the
+  # later `$(( ${#_stale[@]} - _keep ))` arithmetic aborts with "value too great for base" —
+  # and under this file's `set -euo pipefail` that abort would kill do_persist mid-run and
+  # lose the run's telemetry (the exact fail-open the bound exists to prevent). `10#` forces
+  # base-10; it is safe here because the case above already guaranteed `$_keep` is all-digits.
+  _keep=$(( 10#$_keep ))
   for _s in "${root}"/.devflow/tmp/telemetry-stage-*; do
     [ -d "$_s" ] && _stale+=("$_s")
   done

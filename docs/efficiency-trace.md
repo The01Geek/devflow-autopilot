@@ -196,7 +196,11 @@ something else, on either the local-append or the push-reconcile path. The ref a
 re-reads the tip and rebuilds on it when a sibling worktree/process advanced it first, so two
 parallel local worktrees sharing `.git/refs` both survive with no lost commit. The read-only
 cloud `review` profile (`devflow-runner.yml`, `contents: read`) **does** run `--persist` — the
-base-branch `.claude/settings.json` Stop hook is restored into every `claude-code-action` job — but
+base-branch `.claude/settings.json` Stop hook is restored into every `claude-code-action` job (this
+rests on the same **unverified platform premise** the writable-tier workflow-env comments flag: that
+`claude-code-action` fires the restored Stop hook and propagates the job env into its subprocess; the
+fail direction is safe either way — if the hook does not fire, nothing is staged and nothing is
+lost) — but
 in **staging-only** mode: the workflow does not set the push operand `DEVFLOW_TELEMETRY_PUSH`, so
 under `GITHUB_ACTIONS` `--persist` fails closed (issue #469 AC5), staging the run's artifacts under
 `.devflow/tmp/` and writing **no new** telemetry-branch records and doing **no** push. (The

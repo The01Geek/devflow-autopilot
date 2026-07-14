@@ -18244,8 +18244,15 @@ git -C "$I469_DEG" add -A; git -C "$I469_DEG" commit -qm seed
 mkdir -p "$I469_DEG/.devflow/tmp/review/pr-dg/run-dg"
 printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
   > "$I469_DEG/.devflow/tmp/review/pr-dg/run-dg/iter-1.json"
+# AC13 for the DEGRADED-retention path (#469 review): the degraded arm both RETAINS a staging
+# root under gitignored .devflow/tmp/ AND advances the detached local telemetry ref before the
+# push fails — assert neither dirties the tree. Capture pre-state before --persist.
+I469_DG_ST0="$(git -C "$I469_DEG" status --porcelain)"; I469_DG_HD0="$(git -C "$I469_DEG" rev-parse HEAD)"; I469_DG_BR0="$(git -C "$I469_DEG" branch --show-current)"
 I469_DEG_ERR="$( ( cd "$I469_DEG" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; I469_DEG_RC=$?
 assert_eq "#469 AC8: a degraded persist still exits 0 (best-effort, never aborts)" "0" "$I469_DEG_RC"
+assert_eq "#469 AC13: the degraded-retention path leaves git status byte-for-byte unchanged" "$I469_DG_ST0" "$(git -C "$I469_DEG" status --porcelain)"
+assert_eq "#469 AC13: the degraded-retention path leaves HEAD unchanged" "$I469_DG_HD0" "$(git -C "$I469_DEG" rev-parse HEAD)"
+assert_eq "#469 AC13: the degraded-retention path leaves the current branch unchanged" "$I469_DG_BR0" "$(git -C "$I469_DEG" branch --show-current)"
 assert_eq "#469 AC8: a degraded persist RETAINS the staging root (not rm -rf'd)" "yes" \
   "$(compgen -G "$I469_DEG/.devflow/tmp/telemetry-stage-*" >/dev/null 2>&1 && echo yes || echo no)"
 assert_eq "#469 AC8: the degraded breadcrumb names the RETAINED staging root's absolute path" "yes" \
@@ -18288,7 +18295,22 @@ for _p in 01 02 03 04 05 06 07 08 09 10; do mkdir -p "$I469_PRK/.devflow/tmp/tel
 ( cd "$I469_PRK" && _DEVFLOW_TELEMETRY_STAGE_KEEP=abc GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
 assert_eq "#469 AC8: a non-numeric _DEVFLOW_TELEMETRY_STAGE_KEEP falls back to 8 (prune stays bounded, not inert)" "yes" \
   "$([ "$(find "$I469_PRK/.devflow/tmp" -maxdepth 1 -name 'telemetry-stage-*' | wc -l | tr -d ' ')" -le 8 ] && echo yes || echo no)"
-rm -rf "$I469_PR" "$I469_PRK"
+# An ALL-DIGIT but LEADING-ZERO KEEP (`08`, `09`) passes the `*[!0-9]*` non-digit check yet is an
+# INVALID OCTAL literal (#469 review): before the base-10 normalization the `$(( … - _keep ))`
+# prune arithmetic aborted with "value too great for base" and — under efficiency-trace.sh's
+# `set -euo pipefail` — killed do_persist at the prune line, BEFORE the rm loop, leaving all 10
+# roots AND losing the run's telemetry. The fix normalizes with `10#`, so the prune completes and
+# the bound holds (≤8) and --persist still exits 0. Seed 10 roots with KEEP=08.
+I469_PRO="$(git_sandbox "#469 stage-prune leading-zero-octal-keep repo")"; git -C "$I469_PRO" init -q
+git -C "$I469_PRO" config user.email t@e.com; git -C "$I469_PRO" config user.name t
+mkdir -p "$I469_PRO/.devflow/tmp"; printf 'tmp/\n' > "$I469_PRO/.devflow/.gitignore"
+git -C "$I469_PRO" add -A; git -C "$I469_PRO" commit -qm seed 2>/dev/null || true
+for _p in 01 02 03 04 05 06 07 08 09 10; do mkdir -p "$I469_PRO/.devflow/tmp/telemetry-stage-200001010000$_p-x-y-z"; done
+( cd "$I469_PRO" && _DEVFLOW_TELEMETRY_STAGE_KEEP=08 GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1; I469_PRO_RC=$?
+assert_eq "#469 review: a leading-zero-octal KEEP (08) does NOT abort --persist on the invalid-octal arithmetic" "0" "$I469_PRO_RC"
+assert_eq "#469 review: a leading-zero-octal KEEP (08) prunes (base-10 normalized) — bound holds, prune not aborted" "yes" \
+  "$([ "$(find "$I469_PRO/.devflow/tmp" -maxdepth 1 -name 'telemetry-stage-*' | wc -l | tr -d ' ')" -le 8 ] && echo yes || echo no)"
+rm -rf "$I469_PR" "$I469_PRK" "$I469_PRO"
 
 # ── Retention-note: _devflow_telemetry_retention_note reports the records LOST
 # only under GITHUB_ACTIONS (the ephemeral-runner truth), and is silent off CI. ──
@@ -18328,6 +18350,18 @@ assert_pin_red_on_removal \
   'devflow_telemetry_branch >/dev/null || true' \
   "$LIB/efficiency-trace.sh"
 rm -rf "$I469_MS"
+
+# ── #469 review: the source-failure stub block MUST define devflow_telemetry_verify_store.
+# do_persist's fetch-before-exclusion block calls verify_store DIRECTLY and BEFORE the
+# _DEVFLOW_TELEMETRY_BRANCH_SOURCED gate, so on a source failure an un-stubbed call is
+# `command not found` (rc 127) → the else arm misattributes the source failure to "the remote
+# tip could not be verified." The fix adds the stub; deleting it re-opens the gap. Removal-proof
+# pin (the guarded behavior is the stub's presence — its removal IS the regression), matching the
+# memo-seed pin above.
+assert_pin_red_on_removal \
+  "#469 review: the source-failure stub set includes devflow_telemetry_verify_store (fetch-block call degrades cleanly)" \
+  'devflow_telemetry_verify_store() { return 1; }' \
+  "$LIB/efficiency-trace.sh"
 
 # ── AC5 tier-distinction coupled invariant (#469): the writable tiers set the push operand
 # DEVFLOW_TELEMETRY_PUSH=1 at job level so their Stop-hook --persist pushes; the read-only
