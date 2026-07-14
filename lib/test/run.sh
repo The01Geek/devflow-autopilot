@@ -24330,6 +24330,11 @@ assert_eq "#295 AC9: config-get.sh documents the shared REPO-ROOT config contrac
   "$(grep -qF 'SHARED REPO-ROOT CONFIG CONTRACT' "$CG" && echo yes || echo no)"  # raw-guard-ok: presence pin: shared-contract doc in config-get.sh
 assert_eq "#295 AC9: workpad.py documents the shared REPO-ROOT config contract" "yes" \
   "$(grep -qF 'SHARED REPO-ROOT CONFIG CONTRACT' "$WP_PY" && echo yes || echo no)"  # raw-guard-ok: presence pin: shared-contract doc in workpad.py
+# The THIRD carrier (#466): match-lint-adjudications.py is the fifth .devflow/ reader and
+# carries the same contract header. CLAUDE.md asserts all three are pinned in lockstep, so
+# pinning only two would let this header be deleted while the suite stayed green.
+assert_eq "#295 AC9: match-lint-adjudications.py documents the shared REPO-ROOT config contract" "yes" \
+  "$(grep -qF 'SHARED REPO-ROOT CONFIG CONTRACT' "$LIB/../scripts/match-lint-adjudications.py" && echo yes || echo no)"  # raw-guard-ok: presence pin: shared-contract doc in match-lint-adjudications.py
 assert_eq "#295 AC9: config-get.sh anchors the default config path to the git repo root" "yes" \
   "$(grep -qF 'git rev-parse --show-toplevel' "$CG" && echo yes || echo no)"  # raw-guard-ok: presence pin: git-root anchoring in config-get.sh
 assert_eq "#295 AC9: workpad.py anchors its marker read to the git repo root" "yes" \
@@ -31675,6 +31680,20 @@ RULEDRIFT
 )"
 assert_pin_unique "#466 mla-rule-scope: the helper excludes R4 from carry-forward by name" \
   'CARRY_FORWARD_EXCLUDED_RULES = frozenset({"R4"})' "$LIB/../scripts/match-lint-adjudications.py"
+# The rule-id extraction above only knows TWO emit idioms (Row(STALE,"..") and
+# _emit_count(rows,"..")). A rule emitted through a NEW helper — or with a non-literal rule
+# arg — would be invisible to it, so the drift guard would pass VACUOUSLY and the new rule
+# would silently inherit carry-forward eligibility. Close that hole: assert no OTHER
+# row-emitting idiom exists in the lint, so introducing one turns this RED and forces the
+# extractor (and the R4 classification) to be updated with it.
+# Two non-literal forms are KNOWN and legitimate, so they are excluded before counting:
+# `def _emit_count(rows, rule, …)` (the definition) and its internal
+# `rows.append(Row(STALE, rule, …))` re-emit — whose `rule` is bound by the literal call
+# sites the extractor above already reads. Anything ELSE emitting a STALE row with a
+# non-literal rule id is a new idiom the extractor is blind to: fail RED.
+assert_eq "#466 mla-rule-drift: the lint emits STALE rows through no idiom the extractor cannot see" "0" \
+  "$(grep -E '(Row\(STALE,[[:space:]]*[^"[:space:]]|_emit_[a-z_]+\([[:space:]]*rows,[[:space:]]*[^"[:space:]])' "$LIB/../scripts/stale-prose-lint.py" \
+     | grep -vcE 'def _emit_[a-z_]+\(rows, rule,|Row\(STALE, rule,' || true)"
 assert_eq "#466 mla-flatten: the page-1-only form (\$comments[0]) is absent from the review skill" "0" \
   "$(grep -cF 'comments: $comments[0]' "$REVIEW_SKILL" || true)"
 

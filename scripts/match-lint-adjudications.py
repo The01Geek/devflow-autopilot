@@ -55,7 +55,7 @@ excerpt of the deny-absolute sentence), and says nothing about the permitting li
 that triggered it. So an R4 adjudication would keep matching after a LATER commit on
 the same PR added a genuine contradicting permit — silently demoting exactly the
 self-contradicting-diff finding the lint exists to catch. R4 rows are therefore
-EXCLUDED from carry-forward (``CARRY_FORWARD_RULES``): they are never demoted and
+EXCLUDED from carry-forward (``CARRY_FORWARD_EXCLUDED_RULES``): they are never demoted and
 never matched, and the exclusion is counted (``rows_rule_excluded``). Re-admitting R4
 requires first putting the permit referent into its detail.
 
