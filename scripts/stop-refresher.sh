@@ -98,6 +98,12 @@ if [ -f "$LOG" ]; then
   # Only consult the log for the sustained-vs-recovered decision when nothing has
   # decided defeat above (an absent pidfile, a dead pid, or an empty pidfile is a
   # more fundamental cause than any log line — a stale `cycle OK` must not mask it).
+  # Cloud-only exemption (parity with refresh-app-credentials.sh's tr note): the
+  # `grep`/`tail` below derive the value that GATES the user-facing defeat warning
+  # (guard-class-2), and neither is a lib/preflight.sh-guaranteed tool. A missing one
+  # would empty `last` → the `*)` arm → no warning (fail-open). This helper is invoked
+  # ONLY from the two writer workflows on ubuntu-latest, where grep/tail are always
+  # present, so the fail-open case is unreachable in the shipped invocation path.
   if [ "$defeated" = no ]; then
     last="$(grep -E 'refresh-app-credentials:' "$LOG" 2>/dev/null | tail -n1)"
     case "$last" in

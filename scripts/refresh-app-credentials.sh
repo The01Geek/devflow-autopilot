@@ -137,6 +137,14 @@ real_mint() {
   [ -n "$sig" ] || { warn "mint: JWT signing produced no signature"; return 1; }
   jwt="${signing_input}.${sig}"
 
+  # Disclosed residual (symmetric to the /proc/<pid>/environ PEM vector closed at
+  # launch): the two curl calls below pass the app JWT in argv (`-H "Authorization:
+  # Bearer $jwt"`), so it is briefly readable via /proc/<curl_pid>/cmdline by the
+  # same-uid agent step during the sub-second mint. Accepted, not closed: the JWT
+  # is short-lived (exp 9 min) and only mints THIS-repo-scoped installation tokens
+  # the agent already effectively holds via its ambient GH_TOKEN — a far smaller
+  # blast radius than the raw PEM, and passing the header on argv is standard curl
+  # usage. If this ever needs hardening, move the header to a stdin curl-config (-K -).
   local inst_json inst_id tok_json token
   inst_json="$(curl -fsS -H "Authorization: Bearer $jwt" \
     -H "Accept: application/vnd.github+json" \

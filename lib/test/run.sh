@@ -34241,6 +34241,39 @@ assert_eq "#487 arm4c: SIGTERM retires a live loop promptly (background-sleep + 
   "$(kill -0 "$_pid4c" 2>/dev/null && echo alive || echo dead)"
 wait "$_loop4c_bg" 2>/dev/null || true
 
+# Arm 4d — surface-2 (token-file) write failure AFTER surface-1 success leaves the two
+# credential surfaces DIVERGED (PR #491 shadow Finding B). run_cycle rewrites surface 1
+# (the extraheader) BEFORE writing surface 2 (the token file), so a surface-2 failure
+# leaves the push credential fresh while the gh token file is stale. Point the token file
+# under a regular FILE so its parent dir cannot be created and the temp-write fails, while
+# surface 1 succeeds. Assert surface 1 IS fresh, the divergence warning fires, surface 2
+# was not written. (This authored error branch had zero coverage — every other arm is a
+# full-success or a mint/locate failure that leaves BOTH surfaces on the previous value.)
+CFG4D="$D487/cred4d.config"
+git config --file "$CFG4D" "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD4D" 2>/dev/null
+_blocker4d="$D487/blocker4d"; : > "$_blocker4d"      # a regular file …
+_tokpath4d="$_blocker4d/sub/tok"                       # … used as a dir component → mkdir/write fail
+_stderr4d="$(DEVFLOW_REFRESH_MINT='printf TOKEN_DIV4D' DEVFLOW_REFRESH_CONFIG_FILE="$CFG4D" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$_tokpath4d" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"
+assert_eq "#487 arm4d: surface-2 write failure still leaves surface 1 (extraheader) FRESH" "x-access-token:TOKEN_DIV4D" \
+  "$(git config --file "$CFG4D" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+assert_eq "#487 arm4d: the surface-1-fresh/surface-2-stale divergence warning fires" "yes" \
+  "$(printf '%s' "$_stderr4d" | grep -qF 'surface 1) IS fresh but the gh token file (surface 2) is now stale' && echo yes || echo no)"
+assert_eq "#487 arm4d: surface 2 (the token file) was NOT written (stale)" "yes" \
+  "$([ ! -e "$_tokpath4d" ] && echo yes || echo no)"
+# Pin the shared divergence phrase in BOTH surface-2 failure branches (temp-write + rename),
+# two near-identical unpinned literals a reword could silently rot.
+assert_eq "#487 arm4d-pin: both surface-2 failure warnings carry the divergence phrase" "2" \
+  "$(grep -cF 'surface 1) IS fresh but the gh token file (surface 2) is now stale' "$REFRESH_SH")"
+
+# Arm 4e — unknown subcommand warns naming the expected subcommands and exits 0 (best-effort,
+# never fails the job), PR #491 shadow Finding C.
+_stderr4e="$(bash "$REFRESH_SH" bogus </dev/null 2>&1 >/dev/null)"; _rc4e=$?
+assert_eq "#487 arm4e: unknown subcommand exits 0 (best-effort)" "0" "$_rc4e"
+assert_eq "#487 arm4e: unknown subcommand warns naming the offending subcommand" "yes" \
+  "$(printf '%s' "$_stderr4e" | grep -qF "unknown subcommand 'bogus'" && echo yes || echo no)"
+
 # ── Wrapper arms (5–9). A stub real gh prints the token it sees; a bad-cred stub 401s.
 GHSTUB487="$D487/gh"
 { printf '#!/usr/bin/env bash\n'; printf 'echo "GH_TOKEN_SEEN=${GH_TOKEN:-<none>} ARGS=$*"\n'; } > "$GHSTUB487"
@@ -34620,6 +34653,37 @@ assert_eq "#487 coupled-literal: refresh-app-credentials.sh emits the 'cycle OK'
   "$(grep -cF "printf 'refresh-app-credentials: cycle OK" "$LIB/../scripts/refresh-app-credentials.sh")"
 assert_eq "#487 coupled-literal: stop-refresher.sh matches the 'cycle OK' marker in its operative case arm" "1" \
   "$(grep -cF '*"cycle OK"*)' "$LIB/../scripts/stop-refresher.sh")"
+
+# ── #491 coupled production-DEFAULT paths (shadow Finding A). Each credential surface is
+# written by one file and read by another, and the workflows pass NO override — production
+# works ONLY because two independently-defaulted RUNNER_TEMP/<basename> literals agree. Every
+# test arm injects matching DEVFLOW_* overrides on both sides, so a one-sided rename of a
+# DEFAULT ships green (gh-fresh reads no token / never matches the fingerprint, stop-refresher
+# false-fires a defeat). Pin the default BASENAMES agree across writer<->reader — the same
+# coupled-literal hazard as the 'cycle OK' marker above, one level down in the wiring.
+# Extract-and-compare (not substring grep) so a suffix-append rename is caught too.
+_dfbn() { grep -E "$2" "$1" 2>/dev/null | grep -oE 'devflow-[a-zA-Z0-9._-]+' | head -1; }
+_w_tok491="$(_dfbn "$LIB/../scripts/refresh-app-credentials.sh" '^TOKEN_FILE=')"
+_r_tok491="$(_dfbn "$LIB/../scripts/gh-fresh.sh" '^TOKEN_FILE=')"
+assert_eq "#491 coupled-default: token-file default basename agrees (refresh-app-credentials.sh writer <-> gh-fresh.sh reader) [$_w_tok491]" "yes" \
+  "$([ -n "$_w_tok491" ] && [ "$_w_tok491" = "$_r_tok491" ] && echo yes || echo no)"
+_w_pid491="$(_dfbn "$LIB/../scripts/refresh-app-credentials.sh" '^PIDFILE=')"
+_r_pid491="$(_dfbn "$LIB/../scripts/stop-refresher.sh" '^PIDFILE=')"
+assert_eq "#491 coupled-default: pidfile default basename agrees (refresh-app-credentials.sh writer <-> stop-refresher.sh reader) [$_w_pid491]" "yes" \
+  "$([ -n "$_w_pid491" ] && [ "$_w_pid491" = "$_r_pid491" ] && echo yes || echo no)"
+# fingerprint + log defaults are written by the WORKFLOWS (redirect / install-step write) and
+# read by gh-fresh.sh / stop-refresher.sh. Assert each reader's default basename appears as an
+# exact RUNNER_TEMP/<basename> token the workflow writes (space-bounded, so a suffix-append on
+# either side breaks the match), in BOTH workflows.
+_r_fp491="$(_dfbn "$LIB/../scripts/gh-fresh.sh" '^FINGERPRINT_FILE=')"
+_r_log491="$(_dfbn "$LIB/../scripts/stop-refresher.sh" '^LOG=')"
+for _wf491 in devflow-implement devflow; do
+  _wfbns491=" $(grep -oE 'RUNNER_TEMP/devflow-[a-zA-Z0-9._-]+' "$WF/$_wf491.yml" | sed 's#RUNNER_TEMP/##' | sort -u | tr '\n' ' ')"
+  assert_eq "#491 coupled-default: $_wf491.yml writes the fingerprint basename gh-fresh.sh reads [$_r_fp491]" "yes" \
+    "$([ -n "$_r_fp491" ] && printf '%s' "$_wfbns491" | grep -qF " $_r_fp491 " && echo yes || echo no)"
+  assert_eq "#491 coupled-default: $_wf491.yml writes the log basename stop-refresher.sh reads [$_r_log491]" "yes" \
+    "$([ -n "$_r_log491" ] && printf '%s' "$_wfbns491" | grep -qF " $_r_log491 " && echo yes || echo no)"
+done
 
 # Fail-fast prose rule (surface-presence class, per the issue's Testing Strategy): the
 # two-strikes bad-credential rule is present in both skill files. Pinned via

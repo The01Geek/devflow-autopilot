@@ -922,9 +922,14 @@ jobs:
       - name: Stop credential refresher (optional)
         if: ${{ always() && vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
         env:
-          # The Start step's outcome. `success` iff it actually ran; on an upstream
-          # early-abort it is skipped, and a missing pidfile is then expected rather
-          # than a defeat — see stop-refresher.sh.
+          # The Start step's outcome. stop-refresher.sh treats the launcher as having
+          # RAN when this is `success` OR `failure` (a ran-and-failed launcher is still
+          # a genuine never-started defeat — arm18), and as NOT run when `skipped` OR
+          # `cancelled` (an upstream early-abort), where a missing pidfile is expected
+          # rather than a defeat. (In practice the Start step's run: ends on a bare echo
+          # and never waits on its backgrounded nohup, so it realistically only yields
+          # success or skipped/cancelled — but the contract handed to the helper is the
+          # broader four-way one above.)
           DEVFLOW_REFRESH_STARTED: ${{ steps.refresher.outcome }}
         run: |
           H=.devflow/vendor/devflow/scripts/stop-refresher.sh
