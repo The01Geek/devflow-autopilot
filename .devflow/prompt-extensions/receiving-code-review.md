@@ -32,3 +32,22 @@ When the standalone cloud `/devflow:review` verdict is itself the feedback, read
 **Issue Compliance** section as the spec-of-record signal: a checklist FAIL citing a
 superseding requirement is not one finding among many — it reframes what "addressing the
 review" means for the whole pass.
+
+## Config-derivation fixes sweep the full six-shape adversarial matrix, not just the reviewer-cited row
+
+When a finding you are fixing touches **how a config value is read, derived, or defaulted** — a
+`config-get.sh` read, an inline `jq` extraction over `.devflow/config.json`, an `// default` /
+`// true`-style fallback, an enum validation, or any other code that turns a raw config value into a
+decision — the **same fix** sweeps the full CLAUDE.md six-shape adversarial matrix over that value:
+`{object, array, scalar, valid-falsy (explicit false / 0 / empty string), missing, wrong-type}`.
+Each shape is **tested in `lib/test/run.sh` in the same change** (exit-0 + a specific, not generic,
+breadcrumb per shape; the **valid-falsy** row is load-bearing — a real `false` / `0` / `""` an
+`// true` / `// default` extraction silently coerces to its truthy default is the documented
+off-switch-that-never-worked defect, #312/#304). A shape that genuinely does not apply is recorded with a
+**written reason** instead of a test — never silently skipped. Fixing **only** the reviewer-cited shape
+row is **incomplete by policy**: the sibling rows are exactly the next run's predictable test-gap
+findings (PR #451's third round existed almost solely to add the untested sibling arm of a
+config-read fix), so sweeping the whole matrix in one fix is what stops the per-fix extra review
+iteration. This is DevFlow-repo policy; the governing convention is CLAUDE.md's best-effort-parser
+adversarial-matrix gotcha, and this section is its coupled mirror in
+`.devflow/prompt-extensions/review-and-fix.md` — edit both in the same change. (#466)
