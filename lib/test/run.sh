@@ -9907,6 +9907,22 @@ EL_E4="$(DEVFLOW_GH="$EL_TMP/gh422" bash "$LIB/../scripts/ensure-label.sh" DevFl
 assert_eq "ensure-label: non-already_exists 422 still exits 0 (best-effort)" "0" "$EL_R4"
 assert_eq "ensure-label: non-already_exists 422 is NOT swallowed as already-exists" "yes" \
   "$(printf '%s' "$EL_E4" | grep -qiF 'could not ensure label' && ! printf '%s' "$EL_E4" | grep -qiF 'already exists' && echo yes || echo no)"
+# #480: empty/missing <name> arg-slip guard. A set-but-EMPTY argument (the shape a
+# label call site emits when a configured list normalizes to blank) must warn to
+# stderr and still exit 0 — NOT abort with a raw bash usage line + rc 1 (the retired
+# `${1:?}` behavior). Mirrors apply-labels.sh's `NOT a harness denial` pin; the `gh`
+# stub aborts non-zero if ever reached, proving the guard fires BEFORE any gh call.
+cat > "$EL_TMP/gh_never" <<'STUB'
+#!/usr/bin/env bash
+echo "ensure-label: gh must not be reached on an empty name" >&2; exit 3
+STUB
+chmod +x "$EL_TMP/gh_never"
+EL_E5="$(DEVFLOW_GH="$EL_TMP/gh_never" bash "$LIB/../scripts/ensure-label.sh" "" 2>&1 >/dev/null)"; EL_R5=$?
+assert_eq "ensure-label: empty-name arg-slip still exits 0 (best-effort, no abort)" "0" "$EL_R5"
+assert_eq "ensure-label: empty-name breadcrumb names the arg-slip (NOT a harness denial)" "yes" \
+  "$(printf '%s' "$EL_E5" | grep -qF 'NOT a harness denial' && echo yes || echo no)"
+EL_E6="$(DEVFLOW_GH="$EL_TMP/gh_never" bash "$LIB/../scripts/ensure-label.sh" 2>&1 >/dev/null)"; EL_R6=$?
+assert_eq "ensure-label: zero-args arg-slip still exits 0 (best-effort, no abort)" "0" "$EL_R6"
 rm -rf "$EL_TMP"
 
 # ── apply-labels.sh: REST label-apply helper (best-effort, always exit 0) ─────
