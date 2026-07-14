@@ -33363,6 +33363,9 @@ CFG487="$D487/cred.config"
 TOK487="$D487/tokfile"
 git config --file "$CFG487" "http.https://github.com/.extraheader" \
   "AUTHORIZATION: basic $(printf 'x-access-token:TOKEN_A' | openssl base64 -A)" 2>/dev/null
+# Decode the fixture extraheader back to its raw `x-access-token:<token>` payload
+# (used by arms 2/3/4 to assert which token the refresher wrote).
+_a487_hdr() { git config --file "$CFG487" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null; }
 
 # Arm 1 — missing inputs → clean exit 0 with a stderr breadcrumb.
 _a1_err="$(DEVFLOW_REFRESH_CONFIG_FILE="$D487/none" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
@@ -33376,7 +33379,7 @@ DEVFLOW_REFRESH_MINT='printf TOKEN_B' DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" \
   DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" GITHUB_SERVER_URL="https://github.com" \
   bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1
 assert_eq "#487 arm2: mint success rewrites the extraheader to the fresh token" "x-access-token:TOKEN_B" \
-  "$(git config --file "$CFG487" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+  "$(_a487_hdr)"
 assert_eq "#487 arm2: token file written with the fresh token" "TOKEN_B" "$(cat "$TOK487" 2>/dev/null)"
 assert_eq "#487 arm2: token file is mode 0600" "600" \
   "$(stat -f '%Lp' "$TOK487" 2>/dev/null || stat -c '%a' "$TOK487" 2>/dev/null)"
@@ -33386,7 +33389,7 @@ _a3_err="$(DEVFLOW_REFRESH_MINT='false' DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" \
   DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" GITHUB_SERVER_URL="https://github.com" \
   bash "$REFRESH_SH" cycle </dev/null 2>&1 1>/dev/null)"
 assert_eq "#487 arm3: mint failure leaves the previous credential intact (still TOKEN_B)" "x-access-token:TOKEN_B" \
-  "$(git config --file "$CFG487" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+  "$(_a487_hdr)"
 assert_eq "#487 arm3: mint failure emits a ::warning::" "yes" \
   "$(printf '%s' "$_a3_err" | grep -qF '::warning::' && echo yes || echo no)"
 
@@ -33399,7 +33402,7 @@ DEVFLOW_REFRESH_MINT="$_mint4" DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" DEVFLOW_REF
 _a4_rc=$?
 assert_eq "#487 arm4: loop never exits non-zero" "0" "$_a4_rc"
 assert_eq "#487 arm4: backoff retry recovers — credential ends fresh (TOKEN_FRESH)" "x-access-token:TOKEN_FRESH" \
-  "$(git config --file "$CFG487" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+  "$(_a487_hdr)"
 
 # ── Wrapper arms (5–9). A stub real gh prints the token it sees; a bad-cred stub 401s.
 GHSTUB487="$D487/gh"

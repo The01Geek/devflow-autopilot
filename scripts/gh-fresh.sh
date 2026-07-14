@@ -70,21 +70,17 @@ sha256_of() {
 }
 
 # Decide whether to substitute the token-file credential or defer to the ambient
-# env GH_TOKEN. Echoes "substitute" or "defer".
+# env GH_TOKEN. Returns 0 to SUBSTITUTE, 1 to DEFER.
 decide() {
-  if [ -z "${GH_TOKEN:-}" ]; then
-    printf 'substitute'   # ambient agent session: no explicit token → use the fresh one
-    return 0
-  fi
+  # ambient agent session: no explicit token → use the fresh one.
+  [ -z "${GH_TOKEN:-}" ] && return 0
   # env GH_TOKEN is present: compare its hash to the recorded job-start fingerprint.
+  # A match is the ambient job-start token → substitute; a mismatch is a deliberately
+  # fresh mint (#287/#356) → defer untouched.
   local fp cur
   fp="$(cat "$FINGERPRINT_FILE" 2>/dev/null || true)"
   cur="$(sha256_of "$GH_TOKEN" 2>/dev/null || true)"
-  if [ -n "$fp" ] && [ -n "$cur" ] && [ "$cur" = "$fp" ]; then
-    printf 'substitute'   # ambient job-start token (matches fingerprint) → refresh it
-  else
-    printf 'defer'        # a deliberately fresh mint (hash differs) → leave untouched
-  fi
+  [ -n "$fp" ] && [ -n "$cur" ] && [ "$cur" = "$fp" ]
 }
 
 main() {
@@ -94,9 +90,8 @@ main() {
     return 127
   }
 
-  local mode; mode="$(decide)"
   local token=""
-  if [ "$mode" = "substitute" ] && [ -f "$TOKEN_FILE" ]; then
+  if decide && [ -f "$TOKEN_FILE" ]; then
     token="$(cat "$TOKEN_FILE" 2>/dev/null || true)"
   fi
 
