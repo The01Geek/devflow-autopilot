@@ -4865,6 +4865,111 @@ _docs_sweeps=$(grep -oE 'still runs the contract-completeness sweeps \([^)]+\)' 
 assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set (cross-site)" \
   "$_skill_sweeps" "$_docs_sweeps"
 
+# ── issue #474: Phase 2.3 gains §2.3.7 (collection-cardinality sweep) and two §2.3.0c
+# sharpenings (derived-comparand arms, obligation placement). Each BEHAVIORAL pin below
+# (the assert_pin_red_under calls) targets the OPERATIVE sentence — the minimal text whose
+# removal ALONE re-introduces the guarded gap — with a `sed -E` mutation that removes only
+# that sentence, so a framing-only pin would be reported RED (per the behavioral-fix-pin
+# rule). The behavioral pins scope to phase-2-implement.md ($P2_FILE); the docs/overview
+# mirror-presence pins (assert_pin_unique / assert_eq) and the reconciliation guards
+# (assert_eq) guard the coupled enumerating sites (§2.3.0b enumeration reconciliation).
+OVERVIEW_DOC474="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# §2.3.0c trigger (a): a DERIVED comparand's malformed/empty arms must be enumerated. The
+# operative requirement, the arm list, and the defect teeth are three necessary sentences —
+# one pin each (a multi-sentence property under-covers with a single pin).
+assert_pin_red_under "#474(2.3.0c-a): derived-comparand arm-enumeration requirement is operative" \
+  'its row additionally enumerates the malformed/empty arms the producer can emit' \
+  's|its row additionally enumerates the malformed/empty arms the producer can emit|its row is otherwise complete|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.0c-a): the six-shape arm list is operative (removing it re-opens the unenumerated-arm gap)" \
+  'producer failure (a non-zero exit or a denial), unparseable output, a wrong-type value, a valid-falsy/empty value, and a missing key or file' \
+  's|producer failure \(a non-zero exit or a denial\), unparseable output, a wrong-type value, a valid-falsy/empty value, and a missing key or file|the arms|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.0c-a): the unenumerated-arm defect teeth are operative (removing the whole this-PR-defect obligation, not just its adjective, re-opens the gap)" \
+  'is an unauthored fail-open accident and a defect in **this** PR' \
+  's|is an unauthored fail-open accident and a defect in \*\*this\*\* PR|is acceptable|' "$P2_FILE"
+# §2.3.0c trigger (b): a stated policy places its obligation at the execution point it gates.
+assert_pin_red_under "#474(2.3.0c-b): obligation-placement requirement is operative" \
+  'A stated policy places its obligation at the execution point it gates' \
+  's|A stated policy places its obligation at the execution point it gates|A policy may be stated anywhere|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.0c-b): thematic-only prose does not discharge the trigger (teeth are operative)" \
+  'prose that describes the hazard only in a thematic section, leaving the execution point it gates with no obligation, does not discharge this trigger' \
+  's|prose that describes the hazard only in a thematic section, leaving the execution point it gates with no obligation, does not discharge this trigger|thematic-only prose is fine|' "$P2_FILE"
+# §2.3.7 collection-cardinality sweep: heading trigger, multi-element requirement,
+# single-element-non-discharge teeth, and the Sweep-selection index row.
+assert_pin_red_under "#474(2.3.7): the heading trigger is operative (removing it un-gates the sweep)" \
+  'mandatory whenever the change adds a collection output with ordering, dedup, or aggregation logic' \
+  's|mandatory whenever the change adds a collection output with ordering, dedup, or aggregation logic|always|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.7): the multi-element test requirement is operative" \
+  'The change carries a multi-element test case that exercises that logic' \
+  's|The change carries a multi-element test case that exercises that logic|A test exists|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.7): single-element-does-not-discharge teeth are operative" \
+  'A single-element happy-path test does not discharge this sweep' \
+  's|A single-element happy-path test does not discharge this sweep|A single-element test suffices|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.7): the Sweep-selection consider-list index row is operative" \
+  'Adds a collection output with ordering, dedup, or aggregation logic' \
+  's|Adds a collection output with ordering, dedup, or aggregation logic|Adds something|' "$P2_FILE"
+# §2.3.7 step 3 is the self-referential arm — DevFlow's own deliverable is prose, so the
+# un-drivable-output branch (dry-trace over >=2 elements incl. a duplicate) governs how the
+# sweep applies to this very repo. Pin its operative multi-element requirement so a future
+# edit cannot weaken it to a single-element/"an example" trace without going RED.
+assert_pin_red_under "#474(2.3.7): the un-drivable-output dry-trace multi-element requirement is operative" \
+  'against at least two elements including a duplicate, never a single-element trace' \
+  's|against at least two elements including a duplicate, never a single-element trace|against an example|' "$P2_FILE"
+# §2.3.0c COMPLETION-GATE appended clauses (PR #481 review, finding a): the completion-gate
+# sentence begins with the prefix the #376 w2-completion-gate pin already pins ("The sweep is
+# not done until every comparand has a completed four-column row"), but #474 APPENDED two
+# clauses that bind the gate to the two new triggers — trigger-a's derived-arm enumeration and
+# trigger-b's obligation-placement. The #376 mutation removes only the unchanged prefix, and the
+# 2.3.0c-a/2.3.0c-b definition pins target the DEFINITION sentences (different wording), so
+# dropping either appended gate clause left every existing pin GREEN. Pin each appended clause
+# with a mutation that WEAKENS the gate (drops the requirement) → a future edit that guts the
+# gate-level obligation while leaving the definitions intact goes RED here. (Mutations use `.`
+# to match the ASCII apostrophe in comparand's/arm's so the sed program stays single-quote-safe.)
+assert_pin_red_under "#474(2.3.0c-a): the completion gate binds trigger-a derived-arm enumeration (appended clause, distinct from the #376 prefix pin)" \
+  'malformed/empty arms enumerated and each arm' \
+  's|with a derived comparand.s malformed/empty arms enumerated and each arm.s decided behavior stated \(trigger a\)|with each comparand row present|' "$P2_FILE"
+assert_pin_red_under "#474(2.3.0c-b): the completion gate binds trigger-b obligation-placement (appended clause, distinct from the #376 prefix pin)" \
+  'places that obligation at the execution point it gates (trigger b)' \
+  's|, and places that obligation at the execution point it gates \(trigger b\)||' "$P2_FILE"
+# §2.3.7 closing ENFORCEMENT sentence (PR #481 review, finding b): the "defect in **this** PR,
+# not a downstream finding" teeth are what make the sweep a mandatory this-PR obligation rather
+# than advisory guidance; none of the §2.3.7 pins above cover this sentence, so softening it
+# from mandatory to advisory flipped no pin RED. The mutation rewrites the mandatory framing
+# into an accept-and-defer framing, removing the pinned "defect in **this** PR" teeth → RED.
+assert_pin_red_under "#474(2.3.7): the closing this-PR-defect enforcement sentence is operative (softening mandatory->advisory goes RED)" \
+  'shipped with only a single-element test as a defect in **this** PR' \
+  's|as a defect in \*\*this\*\* PR, not a|as acceptable to defer to a|' "$P2_FILE"
+# §2.3.7 mirror sites (coupled invariant — the enumerating sites §2.3.0b reconciliation
+# requires): the sweep body heading, the Sweep-selection index row, the docs rationale
+# table row, and the DEVFLOW_SYSTEM_OVERVIEW sweep-index entry must all carry §2.3.7.
+assert_pin_unique "#474(2.3.7): implement SKILL keeps the sweep body heading" \
+  '#### 2.3.7 Collection-cardinality sweep' "$IMPL_SKILL"
+assert_pin_unique "#474(2.3.7): implement SKILL lists it in the Sweep-selection index" \
+  'run **2.3.7**' "$IMPL_SKILL"
+assert_eq "#474(2.3.7): docs/implement-skill.md keeps the rationale table row" "yes" \
+  "$(grep -qF '| 2.3.7 Collection-cardinality |' "$IMPL_DOC" && echo yes || echo no)"
+assert_eq "#474(2.3.7): DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-index entry" "yes" \
+  "$(grep -qF '**2.3.7** Collection-cardinality sweep' "$OVERVIEW_DOC474" && echo yes || echo no)"
+# Reconciliation guards: the falsified "2.3.6 is last" claims must be GONE from the docs
+# (a regression would re-assert a §2.3.7-falsified statement), and the "five always-on
+# sweeps (…)" enumeration must be UNCHANGED (§2.3.7 is trigger-gated, never always-on).
+# Each absence guard is paired with an INJECTION non-vacuity proof (the #465 delta form,
+# 7f7161a): an absolute `== 0` alone cannot tell "phrase removed" from "grep blind", so it
+# would degrade to a no-op if the phrase were reworded. Inject the phrase into a copy and
+# confirm the SAME grep detects it (count rises by exactly 1) — proving the `0` is a
+# reconciled body, not a blind detector. Injection (not a base-ref read) keeps the proof
+# robust to merge state: origin/main carries the reconciled body once this PR merges.
+for _474_ABSENT in 'numbered last only to avoid renumbering' '2.3.6 sits last'; do
+  assert_eq "#474: docs no longer claim '$_474_ABSENT' (§2.3.7-falsified 'last' claim reconciled)" "0" \
+    "$(grep -Fc "$_474_ABSENT" "$IMPL_DOC")"
+  _474_INJ="$(probe_tmp "#474 absence-guard injection: '$_474_ABSENT'")" || continue
+  { cat "$IMPL_DOC"; printf '%s (injected)\n' "$_474_ABSENT"; } > "$_474_INJ"
+  assert_eq "#474: absence guard non-vacuous — injecting '$_474_ABSENT' raises the count by 1" \
+    "$(( $(grep -Fc "$_474_ABSENT" "$IMPL_DOC") + 1 ))" "$(grep -Fc "$_474_ABSENT" "$_474_INJ")"
+  rm -f "$_474_INJ"
+done
+assert_eq "#474: the five-always-on enumeration is unchanged (2.3.7 is trigger-gated, not always-on)" "yes" \
+  "$(grep -qF 'five always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.5/2.3.6)' "$IMPL_DOC" && echo yes || echo no)"
+
 # Drift guard: the base_branch read in the implement skill (phases/phase-1-setup.md) Phase 1.4 is
 # a load-bearing inline-bash block in the skill (Phase 3.1's §3.1 re-derivation below is another) — like the max_iterations clamp above, the
 # tokens it relies on can be silently broken by a SKILL edit (drop the `|| BASE=""`
