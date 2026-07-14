@@ -481,6 +481,195 @@ jobs:
               > "$RUNNER_TEMP/devflow-gh-fingerprint" )
           { echo "DEVFLOW_GH=$WRAPDIR/gh"; echo "DEVFLOW_GH_REAL=$REAL_GH"; } >> "$GITHUB_ENV"
           echo "$WRAPDIR" >> "$GITHUB_PATH"
+      # ── Third-party model provider resolution (issue #313) ─────────────────
+      # Resolve this section's (devflow_implement) provider decision from
+      # .devflow/config.json via the single-sourced inline jq RESOLVER below.
+      # The RESOLVER program is byte-identical across devflow.yml,
+      # devflow-implement.yml, and devflow-runner.yml (lib/test/run.sh pins that
+      # identity); only the `--arg section` value differs. An empty decision (no
+      # provider) reproduces today's Anthropic-OAuth wiring for a given
+      # `claude_model` (one deliberate change: an empty resolved model now fails
+      # loud instead of rendering `--model null`) — the provider path is strictly
+      # opt-in. See docs/cloud-setup.md.
+      - name: Resolve model provider
+        id: provider
+        env:
+          CONFIG_JSON: ${{ steps.cfg.outputs.json }}
+          SECTION: devflow_implement
+        run: |
+          set -euo pipefail
+          # devflow-provider-resolver BEGIN (single-sourced; keep byte-identical across the three cloud workflows — lib/test/run.sh pins it)
+          RESOLVER='
+          (if (. | type) == "object" then . else {} end) as $cfg
+          | (if (($cfg[$section]) | type) == "object" then $cfg[$section] else {} end) as $sec
+          | ($sec.provider) as $praw
+          | (if (($sec.claude_model) | type) == "string" and ($sec.claude_model != "") then $sec.claude_model else ($cfg.claude_model // "") end) as $model
+          | if ($praw == null or $praw == "") then
+              {provider:"", base_url:"", auth:"", timeout_ms:"", effort_supported:true, model:$model, env:{}}
+            elif (($praw) | type) != "string" then
+              {error:"invalid_provider", section:$section, provider:"", detail:"section provider must be a string"}
+            else
+              (if (($cfg.providers) | type) == "object" then $cfg.providers else {} end) as $provs
+              | if (($provs[$praw]) | type) != "object" then
+                  {error:"undefined_provider", section:$section, provider:$praw, detail:"provider is not defined in the providers map"}
+                elif ((($provs[$praw].base_url) | type) != "string" or ($provs[$praw].base_url == "")) then
+                  {error:"incomplete_provider", section:$section, provider:$praw, detail:"provider entry has no base_url"}
+                elif (($provs[$praw].auth) as $a | ($a != "bearer" and $a != "api_key")) then
+                  {error:"incomplete_provider", section:$section, provider:$praw, detail:"provider auth must be bearer or api_key"}
+                else
+                  ($provs[$praw]) as $p
+                  | {provider:$praw, base_url:$p.base_url, auth:$p.auth, timeout_ms:($p.timeout_ms // ""), effort_supported:(($p.effort_supported // false) == true), model:$model, env:(if (($p.env) | type) == "object" then $p.env else {} end)}
+                end
+            end
+          '
+          # devflow-provider-resolver END
+          DECISION=$(printf '%s' "$CONFIG_JSON" | jq -c --arg section "$SECTION" "$RESOLVER")
+          # jq on EMPTY stdin emits nothing with rc 0, so an empty CONFIG_JSON would
+          # otherwise sail through as a zero-output "decision" and silently select the
+          # default path (or a misdirected empty-model error downstream). Both producers
+          # provably never emit empty today, so this is a fail-loud tripwire, not a live path.
+          if [ -z "$DECISION" ]; then
+            echo "::error::provider resolver produced no decision for section '$SECTION' (empty config input?). Refusing to run."
+            exit 1
+          fi
+          if [ "$(printf '%s' "$DECISION" | jq -r '.error // ""')" != "" ]; then
+            PNAME=$(printf '%s' "$DECISION" | jq -r '.provider // ""')
+            DETAIL=$(printf '%s' "$DECISION" | jq -r '.detail // "provider configuration is invalid"')
+            echo "::error::.devflow/config.json section '$SECTION' provider '$PNAME': $DETAIL. Fix the providers.$PNAME entry (base_url + auth: bearer|api_key) or remove the section provider key. Refusing to run."
+            exit 1
+          fi
+          # One jq pass emits every scalar decision field to the step output, each as a
+          # newline-safe heredoc block: a config-sourced value carrying an embedded newline
+          # would otherwise split a plain KEY=VALUE line and forge further step outputs. The
+          # timestamped+PID delimiter mirrors the decision<< output below.
+          sdelim="OUT_EOF_$(date +%s%N)_$$"
+          printf '%s' "$DECISION" | jq -r --arg d "$sdelim" '
+            ["provider","model","auth","base_url","timeout_ms","effort_supported"][] as $k
+            | "\($k)<<\($d)", "\(.[$k])", $d' >> "$GITHUB_OUTPUT"
+          # Forward the full decision (it carries the provider env map) to the
+          # inject step via a heredoc output so embedded values survive verbatim.
+          delim="DEC_EOF_$(date +%s%N)_$$"
+          {
+            printf 'decision<<%s\n' "$delim"
+            printf '%s\n' "$DECISION"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      # Inject the provider endpoint into the JOB env — ONLY when a provider is
+      # active. A `run:` step writing $GITHUB_ENV (never a static step `env:`
+      # block of always-present expressions) is the only mechanism that can carry
+      # config-driven dynamic keys, and gating on `provider != ''` keeps the
+      # default path free of even empty-valued ANTHROPIC_* vars (AC 1/4). This
+      # step also carries the fail-loud empty-secret guard (AC 6), before the
+      # action step runs.
+      - name: Inject provider endpoint (provider-routed sections only)
+        if: ${{ steps.provider.outputs.provider != '' }}
+        env:
+          DECISION: ${{ steps.provider.outputs.decision }}
+          AUTH: ${{ steps.provider.outputs.auth }}
+          BASE_URL: ${{ steps.provider.outputs.base_url }}
+          TIMEOUT_MS: ${{ steps.provider.outputs.timeout_ms }}
+          PROVIDER: ${{ steps.provider.outputs.provider }}
+          PROVIDER_API_KEY: ${{ secrets.DEVFLOW_PROVIDER_API_KEY }}
+          SECTION: devflow_implement
+        run: |
+          set -euo pipefail
+          if [ -z "$PROVIDER_API_KEY" ]; then
+            echo "::error::.devflow/config.json section '$SECTION' selects provider '$PROVIDER' but the DEVFLOW_PROVIDER_API_KEY repository secret is empty. Set that secret (the provider API key) before running a provider-routed job. Refusing to run."
+            exit 1
+          fi
+          # SECURITY: the env-map KEY is interpolated RAW into the `KEY<<DELIM` heredoc
+          # header — the newline-safe heredoc protects VALUES, not keys, so a key
+          # carrying a newline or `<<` could forge a further job env var name or break
+          # the heredoc terminator (leaving an opaque "matching delimiter not found"
+          # abort). Keys come from maintainer-controlled config, but validate them
+          # POSITIVELY against a real env-var-name charset and fail loud on any stray
+          # key rather than emit a malformed/forged $GITHUB_ENV block.
+          if printf '%s' "$DECISION" | jq -e '.env | keys[] | select(test("^[A-Za-z_][A-Za-z0-9_]*$") | not)' >/dev/null 2>&1; then
+            echo "::error::.devflow/config.json section '$SECTION' provider '$PROVIDER' has an env-map key that is not a valid environment variable name ([A-Za-z_][A-Za-z0-9_]*). Fix the providers.$PROVIDER.env keys. Refusing to run."
+            exit 1
+          fi
+          # Every $GITHUB_ENV write below uses GitHub's newline-safe multiline (heredoc) form —
+          # the scalar endpoint values via genv(), the provider env map via the inline jq heredoc
+          # emit at the end — so a config-sourced value carrying an embedded newline cannot split
+          # a plain KEY=VALUE line and inject/forge a further job env var. Mirrors the resolver's
+          # decision<< output; the timestamped+PID delimiter makes value collision negligible.
+          genv() { local d; d="ENV_EOF_$(date +%s%N)_$$"; { printf '%s<<%s\n' "$1" "$d"; printf '%s\n' "$2"; printf '%s\n' "$d"; } >> "$GITHUB_ENV"; }
+          # base_url is guaranteed non-empty by the resolver (a provider-active decision
+          # fails loud on an empty base_url), so write it unconditionally.
+          genv ANTHROPIC_BASE_URL "$BASE_URL"
+          if [ -n "$TIMEOUT_MS" ]; then genv API_TIMEOUT_MS "$TIMEOUT_MS"; fi
+          # Bearer-token gateways read Authorization from ANTHROPIC_AUTH_TOKEN; the
+          # same key also rides as the anthropic_api_key action input below (the
+          # documented two-slot recipe). auth: api_key passes it via the input only.
+          if [ "$AUTH" = "bearer" ]; then genv ANTHROPIC_AUTH_TOKEN "$PROVIDER_API_KEY"; fi
+          # Every key of the provider env map (haiku/subagent model mappings, the
+          # beta/attribution toggles, …) verbatim, each as a heredoc block. These are
+          # non-secret model/config values (only the API key above is a masked secret).
+          edelim="ENV_EOF_$(date +%s%N)_$$"
+          printf '%s' "$DECISION" | jq -r --arg d "$edelim" '.env | to_entries[] | "\(.key)<<\($d)", "\(.value)", $d' >> "$GITHUB_ENV"
+
+      # Compute the claude_args head so --model is always present and --effort is
+      # dropped only for a provider whose effort_supported is false (AC 7). The
+      # Anthropic default path resolves effort_supported=true, so effort is
+      # preserved there (for a non-empty effort value — the run body's
+      # flag-injection guard enum-validates effort and allowlist-validates the
+      # model id, rejecting flag-shaped or out-of-charset values).
+      - name: Build claude_args head (model + conditional effort)
+        id: cargs
+        env:
+          MODEL: ${{ steps.provider.outputs.model }}
+          EFFORT: ${{ needs.config.outputs.effort }}
+          EFFORT_SUPPORTED: ${{ steps.provider.outputs.effort_supported }}
+        run: |
+          set -euo pipefail
+          if [ -z "$MODEL" ]; then
+            echo "::error::claude_model is missing from .devflow/config.json (set a top-level claude_model, or a per-section claude_model). Refusing to run."
+            exit 1
+          fi
+          # SECURITY: MODEL and EFFORT are spliced UNQUOTED into claude_args (a folded
+          # CLI string), and the runner can read either from PR-head config (EFFORT
+          # always via steps.extract when the caller passes no effort input; MODEL in
+          # the bootstrap fallback) — so refuse any value that could smuggle an extra
+          # CLI flag. A blacklist is NOT enough here: the action tokenises claude_args
+          # shell-style, so a flag-shaped single token (`--model --evil`) records
+          # --model as valueless and passes --evil through as its own flag, and a
+          # bytewise [[:space:]] check misses Unicode whitespace (NBSP/U+2028/U+3000)
+          # under a non-UTF-8 runner locale while the JS tokeniser still splits on it.
+          # So MODEL is validated POSITIVELY: reject a leading dash, then reject any
+          # character outside the conservative model-id allowlist
+          # A-Za-z0-9 . _ / : @ [ ] -  (covers claude-*, provider/model, Z.ai
+          # bracket-suffix ids like glm-5.2[1m], and Bedrock-style colon ids) — a
+          # multibyte character is rejected in every locale because none of its bytes
+          # (C locale) nor its codepoint (UTF-8 locale) is in the allowlist. EFFORT is
+          # pinned to its schema enum (or empty, which drops the flag below). In the
+          # negated bracket expression, `]` sits first after `!` and `-` last, making
+          # both literal members of the set.
+          case "$MODEL" in
+            -*)
+              echo "::error::claude_model value is flag-shaped (leading dash) — refusing to compose claude_args (flag-injection guard; the model must be a single non-dash-leading token)."
+              exit 1 ;;
+            *[!]A-Za-z0-9._/:@[-]*)
+              echo "::error::claude_model value contains a character outside the model-id allowlist (A-Za-z0-9 . _ / : @ [ ] -) — refusing to compose claude_args (flag-injection guard)."
+              exit 1 ;;
+          esac
+          case "$EFFORT" in
+            '' | low | medium | high | xhigh | max) : ;;
+            *)
+              echo "::error::effort value is not one of low/medium/high/xhigh/max — refusing to compose claude_args (flag-injection guard)."
+              exit 1 ;;
+          esac
+          ARGS="--model $MODEL"
+          # --effort only when the provider supports it AND a value actually resolved. The
+          # config effort defaults to "high", so the default path always has one; the -n
+          # co-guard just avoids ever handing the CLI a valueless --effort on a pathological
+          # empty effort.
+          if [ "$EFFORT_SUPPORTED" = "true" ] && [ -n "$EFFORT" ]; then
+            ARGS="$ARGS --effort $EFFORT"
+          fi
+          # Newline-safe heredoc output (mirrors the resolver's decision<< / scalar-output form).
+          adelim="OUT_EOF_$(date +%s%N)_$$"
+          { printf 'args<<%s\n' "$adelim"; printf '%s\n' "$ARGS"; printf '%s\n' "$adelim"; } >> "$GITHUB_OUTPUT"
 
       - name: Run Claude Code
         id: claude
@@ -498,7 +687,14 @@ jobs:
           # keying in skills/implement/phases/phase-1-setup.md and its lib/test/run.sh pins.
           DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Anthropic-default path only: pass the OAuth token when no provider is
+          # active. A provider-routed section passes '' here (the action treats
+          # empty as absent) and authenticates via anthropic_api_key below.
+          claude_code_oauth_token: ${{ steps.provider.outputs.provider == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          # Provider path only: the fixed DEVFLOW_PROVIDER_API_KEY secret satisfies
+          # the action's launch check (and, for bearer auth, is ALSO exported as
+          # ANTHROPIC_AUTH_TOKEN by the inject step). Empty on the default path.
+          anthropic_api_key: ${{ steps.provider.outputs.provider != '' && secrets.DEVFLOW_PROVIDER_API_KEY || '' }}
           # Use the minted App token for git auth when the opt-in App is
           # configured; otherwise fall back to the built-in GITHUB_TOKEN (the
           # skipped-step path, identical to pre-change behavior).
@@ -538,9 +734,14 @@ jobs:
             devflow@devflow-marketplace
 
           base_branch: ${{ needs.config.outputs.base_branch }}
+          # claude_args head is a COMPUTED string (steps.cargs): --model always,
+          # --effort conditional on effort_supported (issue #313). The --allowed-tools
+          # tail below is preserved verbatim — keep this literal list in sync with
+          # devflow.yml's literal list (devflow-runner.yml intentionally uses a computed
+          # steps.tools.outputs.tools profile string, not a literal list).
+          # allowed_tools_extra splices inside the closing quote.
           claude_args: >-
-            --model ${{ needs.config.outputs.claude_model }}
-            --effort ${{ needs.config.outputs.effort }}
+            ${{ steps.cargs.outputs.args }}
             --allowed-tools
             "Read,
             Write,

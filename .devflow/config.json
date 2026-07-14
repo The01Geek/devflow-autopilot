@@ -2,6 +2,19 @@
   "$schema": "./config.schema.json",
   "base_branch": "main",
   "claude_model": "claude-opus-4-8",
+  "providers": {
+    "openrouter": {
+      "base_url": "https://openrouter.ai/api",
+      "auth": "bearer",
+      "timeout_ms": 3000000,
+      "env": {
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "z-ai/glm-5.2",
+        "CLAUDE_CODE_SUBAGENT_MODEL": "z-ai/glm-5.2",
+        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
+      }
+    }
+  },
   "devflow_version": "main",
   "devflow": {
     "allowed_bots": "claude,dependabot,devflow-autopilot",
@@ -18,6 +31,8 @@
     "execution_transcript_artifact_enabled": true
   },
   "devflow_implement": {
+    "provider": "openrouter",
+    "claude_model": "z-ai/glm-5.2",
     "effort": "medium",
     "implement_pr_state": "ready_for_review",
     "allowed_tools": [
