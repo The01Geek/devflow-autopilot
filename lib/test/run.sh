@@ -6823,8 +6823,12 @@ assert_pin_unique "#350: Phase 2.5 guard keys on the same cloud + DEVFLOW_APP_ID
   'the same condition Pass 5 keys on: cloud tier (`GITHUB_ACTIONS=true`) with `DEVFLOW_APP_ID` empty/unset' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#350 (Important-1): Phase 2.5 guard reverts files coupled to a reverted workflow (else CI-red)" \
   'revert every file coupled to it in the same step' "$IMPL_PHASES_DIR/phase-2-implement.md"
-assert_pin_unique "#350: devflow-implement.yml exports DEVFLOW_APP_ID into the agent env (Pass 5's observable signal)" \
-  'DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}' "$IMPL_YML"
+# Presence (not uniqueness): the export appears in the Run Claude Code step AND, since
+# issue #487, a second legitimate copy in the 'Start credential refresher' step env
+# (which feeds the same vars.DEVFLOW_APP_ID to the refresher's mint). The load-bearing
+# guard is the structural check below, which confirms it sits in the Run Claude Code step.
+assert_eq "#350: devflow-implement.yml exports DEVFLOW_APP_ID into the agent env (Pass 5's observable signal)" "yes" \
+  "$(grep -qF 'DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}' "$IMPL_YML" && echo yes || echo no)"
 # Structurally confirm the export sits inside the 'Run Claude Code' step (between its
 # `name:` and its `with:`), so the /devflow:implement agent actually reads it — a bare
 # count could pass on a line stranded in the wrong step.
@@ -14413,9 +14417,11 @@ assert_eq "review-identity: devflow.yml command github_token is the review-condi
 assert_eq "review-identity: devflow.yml review branch selects reviewer-token, primary app token only in the else" "1" \
   "$(grep -cF "startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.reviewer-token.outputs.token" "$WF/devflow.yml")"
 # The primary-app mint in devflow.yml is now SKIPPED on the review command, so it
-# can never author the review — pin the negated startsWith on its if:.
+# can never author the review — pin the negated startsWith on its if:. Scoped to the
+# mint step's block (mint_blk): since issue #487 the same gate also guards the
+# refresher/wrapper-install steps, so a whole-file count is no longer 1.
 assert_eq "review-identity: devflow.yml primary app-token mint is skipped on /devflow:review" "1" \
-  "$(grep -cF "vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ')" "$WF/devflow.yml")"
+  "$(printf '%s\n' "$(mint_blk 'Mint workflow-capable token (optional)' "$WF/devflow.yml")" | grep -cF "vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ')")"
 # Conversely, devflow.yml's reviewer mint fires ONLY on the review command — pin the
 # positive startsWith conjunct on its if: so dropping it (which would mint the reviewer
 # token on /devflow:pr-description too) goes RED, keeping the mint scoped to /devflow:review.
@@ -32909,6 +32915,164 @@ assert_eq "#466 mla-extension-pins: receiving-code-review carries the config-der
   "$(grep -qF 'CLAUDE.md six-shape adversarial matrix' "$LIB/../.devflow/prompt-extensions/receiving-code-review.md" && echo yes || echo no)"
 assert_eq "#466 mla-extension-pins: review-and-fix carries the config-derivation six-shape rule" "yes" \
   "$(grep -qF 'CLAUDE.md six-shape adversarial matrix' "$LIB/../.devflow/prompt-extensions/review-and-fix.md" && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
+# Long-run credential refresh (issue #487): the refresher + gh wrapper. Drives the
+# nine arms the "Suite coverage" AC enumerates — gh-stubbed, no network, no real
+# key. The mint honors the verbatim, never-probed DEVFLOW_REFRESH_MINT override
+# (the lib/resolve-bin.sh DEVFLOW_<TOOL> stub contract), and the credential-surface
+# targets + sleep are overridable, so every arm runs at the desk.
+# ────────────────────────────────────────────────────────────────────────────
+REFRESH_SH="$LIB/../scripts/refresh-app-credentials.sh"
+GHFRESH_SH="$LIB/../scripts/gh-fresh.sh"
+
+assert_eq "#487 refresher: scripts/refresh-app-credentials.sh exists (single-cycle logic)" "yes" \
+  "$([ -f "$REFRESH_SH" ] && echo yes || echo no)"
+assert_eq "#487 wrapper: scripts/gh-fresh.sh exists (tracked gh wrapper)" "yes" \
+  "$([ -f "$GHFRESH_SH" ] && echo yes || echo no)"
+# The refresher must source resolve-jq.sh (the new-jq-caller pin) and never call bare jq.
+assert_eq "#487 refresher: sources lib/resolve-jq.sh (routes jq through the resolver)" "yes" \
+  "$(grep -qE '^\. .*resolve-jq\.sh' "$REFRESH_SH" && echo yes || echo no)"
+
+# sha256 helper matching the wrapper's own (sha256sum on Linux, shasum on macOS).
+_d487_sha() {
+  if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$1" | sha256sum | awk '{print $1}'
+  else printf '%s' "$1" | shasum -a 256 | awk '{print $1}'; fi
+}
+
+D487=$(mktemp -d)
+CFG487="$D487/cred.config"
+TOK487="$D487/tokfile"
+git config --file "$CFG487" "http.https://github.com/.extraheader" \
+  "AUTHORIZATION: basic $(printf 'x-access-token:TOKEN_A' | openssl base64 -A)" 2>/dev/null
+
+# Arm 1 — missing inputs → clean exit 0 with a stderr breadcrumb.
+_a1_err="$(DEVFLOW_REFRESH_CONFIG_FILE="$D487/none" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 1>/dev/null)"; _a1_rc=$?
+assert_eq "#487 arm1: missing inputs exits 0" "0" "$_a1_rc"
+assert_eq "#487 arm1: emits a ::warning:: breadcrumb" "yes" \
+  "$(printf '%s' "$_a1_err" | grep -qF '::warning::refresh-app-credentials' && echo yes || echo no)"
+
+# Arm 2 — mint success → extraheader rewritten and mode-0600 token file written.
+DEVFLOW_REFRESH_MINT='printf TOKEN_B' DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1
+assert_eq "#487 arm2: mint success rewrites the extraheader to the fresh token" "x-access-token:TOKEN_B" \
+  "$(git config --file "$CFG487" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+assert_eq "#487 arm2: token file written with the fresh token" "TOKEN_B" "$(cat "$TOK487" 2>/dev/null)"
+assert_eq "#487 arm2: token file is mode 0600" "600" \
+  "$(stat -f '%Lp' "$TOK487" 2>/dev/null || stat -c '%a' "$TOK487" 2>/dev/null)"
+
+# Arm 3 — mint failure → previous credential intact and a ::warning:: emitted.
+_a3_err="$(DEVFLOW_REFRESH_MINT='false' DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 1>/dev/null)"
+assert_eq "#487 arm3: mint failure leaves the previous credential intact (still TOKEN_B)" "x-access-token:TOKEN_B" \
+  "$(git config --file "$CFG487" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+assert_eq "#487 arm3: mint failure emits a ::warning::" "yes" \
+  "$(printf '%s' "$_a3_err" | grep -qF '::warning::' && echo yes || echo no)"
+
+# Arm 4 — failed-then-succeeding cycle sequence → backoff retry recovers, cred ends fresh.
+CNT487="$D487/cnt"; echo 0 > "$CNT487"
+_mint4='n=$(cat '"$CNT487"'); n=$((n+1)); echo $n > '"$CNT487"'; if [ "$n" -lt 2 ]; then exit 1; else printf TOKEN_FRESH; fi'
+DEVFLOW_REFRESH_MINT="$_mint4" DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_REFRESH_SLEEP=true DEVFLOW_REFRESH_MAX_CYCLES=2 DEVFLOW_REFRESH_PIDFILE="$D487/pid" \
+  GITHUB_SERVER_URL="https://github.com" bash "$REFRESH_SH" loop </dev/null >/dev/null 2>&1
+_a4_rc=$?
+assert_eq "#487 arm4: loop never exits non-zero" "0" "$_a4_rc"
+assert_eq "#487 arm4: backoff retry recovers — credential ends fresh (TOKEN_FRESH)" "x-access-token:TOKEN_FRESH" \
+  "$(git config --file "$CFG487" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# ── Wrapper arms (5–9). A stub real gh prints the token it sees; a bad-cred stub 401s.
+GHSTUB487="$D487/gh"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "GH_TOKEN_SEEN=${GH_TOKEN:-<none>} ARGS=$*"\n'; } > "$GHSTUB487"
+chmod +x "$GHSTUB487"
+GHBAD487="$D487/ghbad"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "gh: Bad credentials (HTTP 401)" >&2\n'; printf 'exit 1\n'; } > "$GHBAD487"
+chmod +x "$GHBAD487"
+FP487="$D487/fp"
+_d487_sha 'JOBSTART_TOKEN' > "$FP487"
+
+# Arm 5 — env GH_TOKEN absent → substitute, reading the token file at CALL time
+# (two calls observe two different tokens).
+printf 'FRESH1' > "$TOK487"
+_a5_1="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+printf 'FRESH2' > "$TOK487"
+_a5_2="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#487 arm5: env GH_TOKEN absent → substitutes token file (call 1 reads FRESH1)" "GH_TOKEN_SEEN=FRESH1 ARGS=api x" "$_a5_1"
+assert_eq "#487 arm5: token file read at CALL time (call 2 reads FRESH2)" "GH_TOKEN_SEEN=FRESH2 ARGS=api x" "$_a5_2"
+
+# Arm 6 — env GH_TOKEN present, hash MATCHES fingerprint → substitute.
+printf 'FRESHX' > "$TOK487"
+_a6="$(GH_TOKEN='JOBSTART_TOKEN' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#487 arm6: ambient job-start token (hash matches) → substitutes fresh token" "GH_TOKEN_SEEN=FRESHX ARGS=api x" "$_a6"
+
+# Arm 7 — env GH_TOKEN present, hash DIFFERS → defer untouched (fresh #287 mint).
+_a7="$(GH_TOKEN='FRESH_287_MINT' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#487 arm7: deliberately-fresh token (hash differs) → defers untouched" "GH_TOKEN_SEEN=FRESH_287_MINT ARGS=api x" "$_a7"
+
+# Arm 8 — substitute path but token file absent → degrade to plain invocation.
+rm -f "$TOK487"
+_a8="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#487 arm8: token file absent → degrades to plain invocation (no token)" "GH_TOKEN_SEEN=<none> ARGS=api x" "$_a8"
+
+# Arm 9 — bad-credential failure appends the diagnostic on BOTH substitute and defer paths.
+printf 'FRESH' > "$TOK487"
+_a9_sub="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHBAD487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"; _a9_sub_rc=$?
+assert_eq "#487 arm9: bad-cred on substitute path appends the expired-credential diagnostic" "yes" \
+  "$(printf '%s' "$_a9_sub" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+assert_eq "#487 arm9: substitute path preserves the real gh exit code" "1" "$_a9_sub_rc"
+_a9_def="$(GH_TOKEN='FRESH_287_MINT' DEVFLOW_GH_REAL="$GHBAD487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#487 arm9: bad-cred on defer path also appends the diagnostic" "yes" \
+  "$(printf '%s' "$_a9_def" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+
+rm -rf "$D487"
+
+# ── Workflow wiring (issue #487): both writer jobs gain the refresher + wrapper
+# install + pidfile-kill steps, gated on the same DEVFLOW_APP_ID condition as
+# their app-token mint. Deliberately NOT a `background:` step (actionlint rejects
+# the keyword) — a detached `nohup … &` process instead.
+for _wf487 in devflow-implement devflow; do
+  _WFF487="$WF/$_wf487.yml"
+  assert_eq "#487 wiring: $_wf487.yml starts the credential refresher" "1" \
+    "$(grep -cF 'name: Start credential refresher (optional)' "$_WFF487")"
+  assert_eq "#487 wiring: $_wf487.yml installs the fresh-gh wrapper" "1" \
+    "$(grep -cF 'name: Install fresh-gh wrapper (optional)' "$_WFF487")"
+  assert_eq "#487 wiring: $_wf487.yml retires the refresher (pidfile-kill, if: always())" "1" \
+    "$(grep -cF 'name: Stop credential refresher (optional)' "$_WFF487")"
+  assert_eq "#487 wiring: $_wf487.yml invokes the vendored refresher via nohup (detached, not background:)" "1" \
+    "$(grep -cF 'nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop' "$_WFF487")"
+  # No `background:` step key anywhere (would break actionlint).
+  assert_eq "#487 wiring: $_wf487.yml uses no 'background:' step key (actionlint-safe)" "0" \
+    "$(grep -cE '^[[:space:]]*background:[[:space:]]*true' "$_WFF487")"
+  # The refresher/install steps are gated on DEVFLOW_APP_ID (unconfigured no-op).
+  assert_eq "#487 wiring: $_wf487.yml refresher start is gated on vars.DEVFLOW_APP_ID" "1" \
+    "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$_WFF487")" | grep -cF "vars.DEVFLOW_APP_ID != ''")"
+  # The install step records the job-start fingerprint and prepends the wrapper to PATH.
+  assert_eq "#487 wiring: $_wf487.yml install step prepends the wrapper dir to GITHUB_PATH" "1" \
+    "$(printf '%s\n' "$(mint_blk 'Install fresh-gh wrapper (optional)' "$_WFF487")" | grep -cF 'GITHUB_PATH')"
+done
+# devflow.yml's gate additionally excludes /devflow:review (read-only, never pushes).
+assert_eq "#487 wiring: devflow.yml refresher start excludes /devflow:review commands" "1" \
+  "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
+
+# Fail-fast prose rule (surface-presence class, per the issue's Testing Strategy): the
+# two-strikes bad-credential rule is present in both skill files. Pinned via
+# assert_pin_unique (the sanctioned unique-literal guard, not a raw echo-driven grep).
+assert_pin_unique "#487 fail-fast prose: skills/implement/SKILL.md carries the expired-credential two-strikes rule" \
+  'Expired-credential fail-fast (two strikes' "$LIB/../skills/implement/SKILL.md"
+assert_pin_unique "#487 fail-fast prose: skills/review-and-fix/SKILL.md carries the expired-credential two-strikes rule" \
+  'Expired-credential fail-fast (two strikes' "$LIB/../skills/review-and-fix/SKILL.md"
+# The compaction-immune sibling signal (the wrapper diagnostic literal) is named in the prose.
+assert_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
+  'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"
 
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

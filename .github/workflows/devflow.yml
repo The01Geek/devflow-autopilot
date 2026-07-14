@@ -600,6 +600,48 @@ jobs:
           delim="PROMPT_EOF_$(date +%s%N)_$$"
           { printf 'prompt<<%s\n' "$delim"; printf '%s\n' "$PROMPT"; printf '%s\n' "$delim"; } >> "$GITHUB_OUTPUT"
 
+      # ── Long-run credential refresh (issue #487) ──────────────────────────
+      # Keep this /devflow:implement- or /devflow:review-and-fix-driven command
+      # run push- and gh-capable past the App installation token's 60-minute
+      # lifetime. Gated on the SAME condition as this job's app-token mint —
+      # vars.DEVFLOW_APP_ID != '' AND not a /devflow:review command (the
+      # read-only review path uses the downscoped reviewer token and never
+      # pushes). DELIBERATELY a DETACHED process, not a `background:` step:
+      # actionlint rejects the weeks-old `background:` key, so the refresher is
+      # spawned with `nohup … &` and survives into the claude step. Key piped to
+      # stdin (never env-visible-to-agent, never argv, never disk); the loop
+      # traps TERM/exits 0; the `if: always()` pidfile-kill step retires it. Kept
+      # in sync with devflow-implement.yml. See docs/cloud-setup.md.
+      - name: Start credential refresher (optional)
+        id: refresher
+        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        env:
+          DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}
+          DEVFLOW_APP_PRIVATE_KEY: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$DEVFLOW_APP_PRIVATE_KEY" \
+            | nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop \
+                >"$RUNNER_TEMP/devflow-refresh.log" 2>&1 &
+          disown || true
+          echo "credential refresher started (detached); log: $RUNNER_TEMP/devflow-refresh.log"
+
+      - name: Install fresh-gh wrapper (optional)
+        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          REAL_GH="$(command -v gh)"
+          WRAPDIR="$RUNNER_TEMP/devflow-gh-bin"
+          mkdir -p "$WRAPDIR"
+          cp .devflow/vendor/devflow/scripts/gh-fresh.sh "$WRAPDIR/gh"
+          chmod +x "$WRAPDIR/gh"
+          ( umask 077; printf '%s' "$APP_TOKEN" | sha256sum | awk '{print $1}' \
+              > "$RUNNER_TEMP/devflow-gh-fingerprint" )
+          { echo "DEVFLOW_GH=$WRAPDIR/gh"; echo "DEVFLOW_GH_REAL=$REAL_GH"; } >> "$GITHUB_ENV"
+          echo "$WRAPDIR" >> "$GITHUB_PATH"
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -668,6 +710,21 @@ jobs:
       # config-get.sh (repo-path fallback for a self-repo checkout); only the
       # exact string "false" disables it, and an empty read (config-get soft/hard
       # failure) falls safe to enabled.
+      # Retire the detached credential refresher (issue #487). Best-effort;
+      # always() so it runs on every exit path. Same gate as the start step but
+      # always() also covers the /devflow:review path (where the start step was
+      # skipped and the pidfile is absent → the no-op arm handles it).
+      - name: Stop credential refresher (optional)
+        if: ${{ always() && vars.DEVFLOW_APP_ID != '' }}
+        run: |
+          PIDFILE="$RUNNER_TEMP/devflow-refresh.pid"
+          if [ -f "$PIDFILE" ]; then
+            kill "$(cat "$PIDFILE")" 2>/dev/null || true
+            echo "signalled credential refresher (pid $(cat "$PIDFILE"))"
+          else
+            echo "no refresher pidfile at $PIDFILE; nothing to stop"
+          fi
+
       - name: Surface execution diagnostics
         if: always()
         env:

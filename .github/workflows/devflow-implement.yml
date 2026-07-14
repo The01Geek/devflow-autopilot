@@ -417,6 +417,60 @@ jobs:
         with:
           config_json: ${{ steps.cfg.outputs.json }}
 
+      # ── Long-run credential refresh (issue #487) ──────────────────────────
+      # A GitHub App installation token expires 60 minutes after minting and
+      # cannot be renewed. The two steps below keep a writer-job run push- and
+      # gh-capable past that hour when the opt-in App is configured (gated on the
+      # SAME vars.DEVFLOW_APP_ID != '' condition as the app-token mint above, so
+      # an unconfigured consumer's behavior is byte-identical to today).
+      #
+      # DELIBERATELY a DETACHED process, not a `background:` step: actionlint
+      # (CI's raven-actions/actionlint@v2) rejects the weeks-old `background:`
+      # step key, so the refresher is spawned with `nohup … &` in a normal step
+      # that survives into the claude step. The private key is piped to the
+      # refresher's stdin (never an env var visible to the agent, never argv,
+      # never disk — a pipe, not a here-string) and the loop traps TERM/exits 0,
+      # so the job conclusion never rides on it; the `if: always()` pidfile-kill
+      # step after the claude step retires it. See docs/cloud-setup.md.
+      - name: Start credential refresher (optional)
+        id: refresher
+        if: ${{ vars.DEVFLOW_APP_ID != '' }}
+        env:
+          DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}
+          DEVFLOW_APP_PRIVATE_KEY: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$DEVFLOW_APP_PRIVATE_KEY" \
+            | nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop \
+                >"$RUNNER_TEMP/devflow-refresh.log" 2>&1 &
+          disown || true
+          echo "credential refresher started (detached); log: $RUNNER_TEMP/devflow-refresh.log"
+
+      # Install scripts/gh-fresh.sh as a `gh` wrapper so agent-side gh resolves
+      # its token at call time from the refresher-maintained token file. Wired
+      # BOTH as DEVFLOW_GH (DevFlow's own gh-callers resolve gh through this seam)
+      # and ahead of the real gh on PATH via GITHUB_PATH (direct skill-fence gh
+      # calls + post-claude steps). The real gh's ABSOLUTE path is captured HERE,
+      # before the GITHUB_PATH prepend takes effect in later steps — a name-based
+      # lookup would otherwise recurse into the wrapper.
+      - name: Install fresh-gh wrapper (optional)
+        if: ${{ vars.DEVFLOW_APP_ID != '' }}
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          REAL_GH="$(command -v gh)"
+          WRAPDIR="$RUNNER_TEMP/devflow-gh-bin"
+          mkdir -p "$WRAPDIR"
+          cp .devflow/vendor/devflow/scripts/gh-fresh.sh "$WRAPDIR/gh"
+          chmod +x "$WRAPDIR/gh"
+          # Record the job-start token fingerprint (mode 0600) so the wrapper can
+          # tell the ambient token from a deliberately-fresh #287 backstop mint.
+          ( umask 077; printf '%s' "$APP_TOKEN" | sha256sum | awk '{print $1}' \
+              > "$RUNNER_TEMP/devflow-gh-fingerprint" )
+          { echo "DEVFLOW_GH=$WRAPDIR/gh"; echo "DEVFLOW_GH_REAL=$REAL_GH"; } >> "$GITHUB_ENV"
+          echo "$WRAPDIR" >> "$GITHUB_PATH"
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -612,6 +666,20 @@ jobs:
       # config-get.sh (repo-path fallback for a self-repo checkout); only the
       # exact string "false" disables it, and an empty read (config-get soft/hard
       # failure) falls safe to enabled.
+      # Retire the detached credential refresher (issue #487). Best-effort:
+      # always() so it runs on every exit path; kill by the pidfile the loop
+      # wrote so job completion never depends on process auto-cleanup.
+      - name: Stop credential refresher (optional)
+        if: ${{ always() && vars.DEVFLOW_APP_ID != '' }}
+        run: |
+          PIDFILE="$RUNNER_TEMP/devflow-refresh.pid"
+          if [ -f "$PIDFILE" ]; then
+            kill "$(cat "$PIDFILE")" 2>/dev/null || true
+            echo "signalled credential refresher (pid $(cat "$PIDFILE"))"
+          else
+            echo "no refresher pidfile at $PIDFILE; nothing to stop"
+          fi
+
       - name: Surface execution diagnostics
         if: always()
         env:
