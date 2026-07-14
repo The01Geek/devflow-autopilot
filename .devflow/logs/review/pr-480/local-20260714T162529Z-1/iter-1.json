@@ -1,0 +1,17 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "60e5093f092bdb026e2156450e2847c9af1ba028",
+  "fix_files": [
+    ".github/workflows/matcher-probe.yml",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "docs/implement-skill.md",
+    "lib/test/extract-command-heads.py",
+    "lib/test/extract-command-shapes.py",
+    "lib/test/run.sh",
+    "scripts/apply-labels.sh",
+    "skills/implement/phases/phase-3-review.md",
+    "skills/implement/phases/phase-4-documentation.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}
