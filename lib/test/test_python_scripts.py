@@ -1774,6 +1774,25 @@ def _unreadable_file():
 assert_raises("--reflection-file: unreadable path raises _UpdateError",
               workpad._UpdateError, _unreadable_file)
 
+# Atomicity: a bad --reflection-file payload aborts the WHOLE call — the
+# accompanying inline --reflection bullet is not partially applied. The reader
+# raises _UpdateError before _apply_mutations returns, so no body is produced to
+# PATCH; pin that the raise fires even when an inline bullet rode along (proving
+# the "no partial write" contract the docstring/comment assert).
+def _bad_file_with_inline():
+    apply_mut(WORKPAD_V2, make_args(
+        reflection=['inline bullet that must not persist'],
+        reflection_file='/nonexistent/definitely/missing/payload.txt'))
+assert_raises("--reflection-file: a bad payload aborts even with an inline --reflection (no partial write)",
+              workpad._UpdateError, _bad_file_with_inline)
+
+# Default kind via the file path: --reflection-file with no --reflection-kind
+# defaults to `note` (glyph-only), exercising the `kind = ... or _DEFAULT...`
+# default through the file arm (rk_def above exercises it via --reflection).
+rk_fdef = _reflect_file(b'defaulted via file', kind=None)
+assert_eq("--reflection-file: omitted --reflection-kind defaults to note (glyph-only)", True,
+          '- ℹ️ defaulted via file' in rk_fdef)
+
 # Invariants preserved: marker first line; AC section still parseable.
 out = apply_mut(WORKPAD_V2, make_args(
     status='Reviewing', note=['n'], reflection=['r'], tick_ac=['AC one']))

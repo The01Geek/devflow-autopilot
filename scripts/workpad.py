@@ -2025,9 +2025,10 @@ def main():
     u.add_argument('--reflection-kind',
                    # Derive choices from the taxonomy dict so the CLI-validated
                    # set and the `_REFLECTION_KINDS[kind]` lookup can never drift
-                   # (a kind added to one but not the other would KeyError). Dict
-                   # insertion order → blocked, deferred, dropped-failed,
-                   # improvement, issue-accuracy, note.
+                   # (a kind added to one but not the other would KeyError). The
+                   # accepted set and its order are exactly `_REFLECTION_KINDS`'s
+                   # keys in insertion order — see that dict for the authoritative
+                   # list (not re-enumerated here, which would rot on the next edit).
                    choices=list(_REFLECTION_KINDS),
                    default=None,
                    help="Kind for this update's --reflection / --reflection-file "

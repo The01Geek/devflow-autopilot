@@ -6618,12 +6618,24 @@ assert_pin_unique "#346/#476: Pass 5 records a clean cloud-tier no-workflow-AC n
 #     stay unchanged, which is exactly why this pin slices the section first (a
 #     whole-file count would never reach 0). The slice is the same awk technique the
 #     #325 freshness-guard pin above uses.
+#     NON-VACUITY GUARD (else the absence assertion fails OPEN): if the
+#     `### 1.6 Issue-Claim Audit` heading ever drifts, the awk pattern matches
+#     nothing, the slice is EMPTY, and `pin_count … == 0` would pass vacuously —
+#     silently retiring the guard. So first assert the slice positively captured the
+#     region (the heading present once, and a known clean-arm `--note` line present),
+#     making the "count 0" a proven delta over a non-empty slice, not an absolute
+#     over a possibly-empty input (issue #476 review; same discipline as commit
+#     7f7161a's absence-pin non-vacuity proof).
 P1_16_SLICE="$(probe_tmp "#476: slice §1.6 for the clean-arm-reflection absence pin")"
 awk '/^### 1\.6 Issue-Claim Audit/{f=1} f' "$P1_FILE" > "$P1_16_SLICE"
+assert_eq "#476: §1.6 slice non-vacuity — the audit heading was captured (slice is not empty)" "1" \
+  "$(pin_count '### 1.6 Issue-Claim Audit' "$P1_16_SLICE")"
+assert_eq "#476: §1.6 slice non-vacuity — a clean-arm --note line is present in the slice" "1" \
+  "$(pin_count '--note "issue-claim audit (count): no count or enumeration claims found' "$P1_16_SLICE")"
 assert_eq "#476: §1.6 has no clean-arm --reflection-kind note (clean confirmations route to --note)" "0" \
   "$(pin_count '--reflection-kind note' "$P1_16_SLICE")"
 rm -f "$P1_16_SLICE"
-# (b) The two issue-accuracy finding arms: Pass 1 counts-differ and Pass 2
+# (b) The issue-accuracy finding arms — Pass 1 counts-differ and Pass 2
 #     wrong-exclusion (both are feedback that the issue's own claim was wrong).
 assert_pin_unique "#476: Pass 1 counts-differ arm records via --reflection-kind issue-accuracy" \
   '--reflection-kind issue-accuracy --reflection "issue-claim audit (count):' "$P1_FILE"
@@ -10110,7 +10122,7 @@ esac
 STUB
 chmod +x "$F126/gh"
 
-# Grouped shape: six kind bullets across all THREE ### sub-sections (issue #476
+# Grouped shape: kind bullets across all three ### sub-sections (issue #476
 # added the ### 💡 Improvements section, the glyph-only `note` render, and the
 # labeled `issue-accuracy` kind). The glyph-only `- ℹ️ …` note and `- 💡 …`
 # improvement bullets exercise the shape-agnostic parser capturing a label-less
@@ -10235,7 +10247,7 @@ assert_eq "#126 pin: docs describe the grouped reflection structure + --reflecti
 # lead sentence, one topic per bullet, files-by-path, no invented shorthand),
 # (b) the "Surfacing failures" routing sentence updated to the six-kind set plus
 # the clean-confirmations-are-Progress-notes rule, and (c) the file-based
-# call-site recipe with its two safety rules (delete-after-success, and a
+# call-site recipe with its safety rules (delete-after-success, and a
 # terminal-status call never carries --reflection-file). Pin each so a trim can't
 # silently drop the guidance the AC mandates.
 assert_pin_unique "#476: SKILL bundle carries the reflection style-contract lead-sentence rule" \
