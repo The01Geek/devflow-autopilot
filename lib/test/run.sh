@@ -3154,6 +3154,15 @@ assert_pin_unique "#467 C3 (template): AC guidance carries the trust-boundary cl
   'source / exec / import closure' "$CI312_TMPL"
 assert_pin_unique "#467 C3 (SKILL): Step 3.5 omission hunt carries the trust-boundary closure check" \
   'trust-boundary closure check (mirroring the template' "$CI312_SKILL"
+# C1/C3 quality-checklist mirrors — pinned for parity with the A1/B1/B2 checklist-mirror pins
+# above (AC-E1: every new contract sentence in a pinned surface is presence-pinned), so a future
+# edit can no longer silently drop or reword the conditional-path / trust-boundary checklist rows
+# while their body rules stay pinned. Literals are unique to the checklist line (the C3 body pin
+# 'source / exec / import closure' is the spaced form; the checklist uses the no-space form below).
+assert_pin_unique "#467 C1: quality-checklist mirror for the conditional-path premise check" \
+  'enclosing gates/conditionals and their defaults on the path to X' "$CI312_TMPL"
+assert_pin_unique "#467 C3: quality-checklist mirror for the trust-boundary closure rule" \
+  'transitive source/exec/import closure of its entry points' "$CI312_TMPL"
 # Cluster D — Move 2a introduction trigger (template) + waiver-non-conforming clause; the
 # three-site best-effort-parser widening (CLAUDE.md, implement Phase 2.4, review-and-fix
 # fix-delta gate); extension sharpening (whole-file dimension count held at 8 — 7 base + #464's
