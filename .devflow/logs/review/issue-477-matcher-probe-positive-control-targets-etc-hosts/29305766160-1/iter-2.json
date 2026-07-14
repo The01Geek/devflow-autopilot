@@ -1,0 +1,77 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-14T04:40:00Z",
+  "fix_commit_sha": "5175b4a",
+  "fix_files": [".github/workflows/matcher-probe.yml"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [],
+  "fix_decisions": [
+    {
+      "finding_id": "SHADOW-1-documented_falsehood",
+      "decision": "pushed_back",
+      "source_file": ".github/workflows/matcher-probe.yml",
+      "claim_text": "the added comment's 'sandbox blocks an out-of-workspace read' claim is a documented_falsehood / the fix is incomplete because 3 sibling /etc/hosts controls are unchanged and broken",
+      "skip_category": "claim-quality",
+      "evidence": "REFUTED (over-grade calibration gate + verify-before-implementing). Verified against scripts/schedulewakeup-probe-verdict.py collect() (lines 110-124): every tool_use node is recorded independently of permission_denials, and control_before = '/etc/hosts' in tooluse_text (line 140) keys on tool_use PRESENCE. A sandbox-denied command is recorded in BOTH the tool_use stream (the model attempted it) AND permission_denials (the refusal), so 'the sandbox blocks the read' (permission_denials) and 'the control ran' (tool_use present) are SIMULTANEOUSLY TRUE — no contradiction. The siblings' verdict logic is denial-agnostic (schedulewakeup keys on tool_use presence; execfile-shape-probe keys on the execution-file shape; hook-probe keys on the Stop-hook breadcrumb), so they are genuinely unaffected by the #477 denied-first DENIED bug and correctly left unchanged (AC3 scope: only matcher-probe.yml). Promoting this would violate AC3 and be factually wrong. Both requesting-code-review passes independently traced this correctly. Iteration 2 applied a clarity note (the legitimate kernel both requesting-code-review agents recommended) preempting the misreading; the re-shadow's 4 agents all verified the comment accurate against source and returned clean."
+    },
+    {
+      "finding_id": "SHADOW-2-README-collision",
+      "decision": "severity-calibrated",
+      "source_file": ".github/workflows/matcher-probe.yml",
+      "claim_text": "README.md marker is collision-prone; a denied entry mentioning it could flip the positive control to a false DENIED",
+      "original_severity": "Important",
+      "calibrated_severity": "Suggestion",
+      "evidence": "over-grade shape 3 (single-source from silent-failure-hunter, no cross-agent corroboration; the two requesting-code-review passes explicitly assessed the same observation as non-blocking / 'never produces a false DENIED'). Same finding as iter-1 SF-1. The probe prompt instructs 'attempt only the 15/7 listed shapes verbatim, add no other command', so no other recorded call references README.md in a compliant run; a false DENIED would require the model to spontaneously run an unlisted denied command carrying 'README.md', which the prompt forbids. Issue #477 explicitly blessed README.md as an acceptable unique marker. The proposed nonce-sidecar fix carries its own regression risk (a model normalizing away an inert trailing '# probeNNctl' comment would make the healthy-run control read a systematic false UNATTEMPTED). Calibrated to Suggestion; parked advisory; not auto-fixed."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 14,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {
+    "command": "n/a (comment-only fix; suite not runnable in-env — classifier denies the bash-wrapper form; CI is the post-PR merge gate)",
+    "result": "skipped",
+    "reason": "comment-only clarity fix (no code/logic change); the direct-form suite run is available in-env but the classifier on this tier denies the invocation shapes — recorded as a tooling gap; CI 'lib + python tests' validates post-PR",
+    "skipped_checks": []
+  },
+  "stale_prose_check": "not re-run (comment-only fix adds no counted-prose R1-R4 claims)",
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "telemetry": {
+    "phase_3": {"calls": 1, "tokens": 53001, "wall_clock_s": 86},
+    "step_2_6": {"calls": 4, "tokens": 337690, "wall_clock_s": 231},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 2}
+  },
+  "shadow": {
+    "ran_at": "2026-07-14T04:45:00Z",
+    "reviewed_sha": "5175b4a",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": "intentional",
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "park_calibration": "park-calibration gate clean: no parked finding matched a mis-grade shape (SF-1/SHADOW-2 fails toward benign PERMITTED, not a fail-open guard; the refuted documented_falsehood/incomplete-fix findings are verified FALSE against source, not under-graded)",
+  "over_grade_calibration": "over-grade calibration gate: the first shadow's promote-path Critical/Important findings (documented_falsehood, incomplete-fix) were flagged and REFUTED with a recorded severity-calibrated/pushed_back technical evaluation verified against scripts/schedulewakeup-probe-verdict.py — never auto-demoted, never promoted on an unexamined label"
+}

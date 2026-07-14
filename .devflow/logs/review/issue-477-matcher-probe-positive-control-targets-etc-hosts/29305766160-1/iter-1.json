@@ -1,0 +1,131 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-14T04:30:00Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "The review-job control marks attempted = 'README.md' in the whole joined tool_use stream; README.md is a repo-generic filename so an incidental tool call carrying it could read a false PERMITTED when Shape 11 is itself UNATTEMPTED. Recommends a nonce sidecar token.",
+      "defect_signature": {
+        "file": ".github/workflows/matcher-probe.yml",
+        "line_range": [
+          332,
+          363
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "severity-calibrated"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The two added lockstep comments read as a universal 'the sandbox blocks an out-of-workspace read' while three sibling jobs still use /etc/hosts unchanged and schedulewakeup-probe's own recorded evidence says those controls ran. Clarity/consistency nit; both verified claims (denied-first ordering, README.md markers) are TRUE against HEAD.",
+      "defect_signature": {
+        "file": ".github/workflows/matcher-probe.yml",
+        "line_range": [
+          316,
+          319
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "SF-1",
+      "decision": "severity-calibrated",
+      "source_file": ".github/workflows/matcher-probe.yml",
+      "claim_text": "README.md marker widens the incidental-match surface; risk of false PERMITTED of the positive control",
+      "original_severity": "Important",
+      "calibrated_severity": "Suggestion",
+      "evidence": "over-grade shape 3 (uncorroborated single-source from empirical over-grader silent-failure-hunter, no other Phase-3 agent corroborated at finding level, no Phase-2 FAIL). Observable fail-direction is toward benign PERMITTED (the control's expected healthy reading), NEVER a false DENIED (requesting-code-review confirmed). The false-PERMITTED window is narrow: it requires Shape 11 itself UNATTEMPTED AND another recorded call carrying 'README.md', which the probe prompt's strict 'run only the 15 listed shapes verbatim, add no other command' rule forbids; a truly dead run records nothing so README.md is absent -> correctly UNATTEMPTED. Issue #477 itself blessed README.md ('a replacement like README.md is also unique to that row'). The proposed nonce-sidecar fix carries its own regression risk: an inert trailing '# probeNNctl' comment that a model normalizes away would make the healthy-run control read a systematic false UNATTEMPTED — worse than the current rare window. Calibrated to Suggestion; parked advisory; not auto-fixed."
+    },
+    {
+      "finding_id": "CA-1",
+      "decision": "advisory",
+      "source_file": ".github/workflows/matcher-probe.yml",
+      "claim_text": "added comments read as a universal 'sandbox blocks out-of-workspace reads' while sibling jobs still use /etc/hosts",
+      "skip_category": "advisory-parked",
+      "evidence": "graded 'low'/comment_drift by comment-analyzer, explicitly NOT documented_falsehood. Truthfulness sweep: the comment is accurate for what it describes ('makes THIS control read DENIED' — scoped to this control's denied-first verdict override). The apparent sibling tension is reconciled: the sibling jobs' verdict logic is denial-AGNOSTIC (schedulewakeup-probe-verdict.py checks '/etc/hosts' in tool_use presence, not denial), so a denied /etc/hosts read is both recorded (tool_use) AND blocked (permission_denials) — 'ran' and 'blocked' are consistent, not contradictory. Clarity nit, below fix threshold; parked advisory."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "verification_evidence": {
+    "command": "n/a (no fixes applied this iteration; suite not re-run)",
+    "result": "skipped",
+    "reason": "no-fix iteration — every finding calibrated to Suggestion and parked advisory; no code change to re-verify",
+    "skipped_checks": []
+  },
+  "stale_prose_check": "harness-refused (arm a): the classifier denied the pipe/stdin shapes stale-prose-lint.py requires on this local/interactive tier. Manual analysis: the diff adds only 4 literal command/marker swaps plus 2 lockstep comments carrying no counted-prose claims (no range header, legend sum, count-locked header, or shell-token deny-absolute), so no R1-R4 STALE row is possible.",
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 1
+    },
+    "phase_1": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_2": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_3": {
+      "calls": 4,
+      "tokens": 297058,
+      "wall_clock_s": 142
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 2
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 2
+    }
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
+}
