@@ -1,0 +1,79 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-08T00:23:00Z",
+  "fix_commit_sha": "b75f4c9",
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "Case 16 comment parenthetical lists 'indentation' and 'an intervening comment' as fixture nuances not present in the fixture (self-contradicting diff)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          4147,
+          4151
+        ],
+        "kind": "comment-claims-fixture-content-not-present"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "peer bold bullet with no blank separator leaks tokens (pre-existing, not introduced by this diff)",
+      "defect_signature": {
+        "file": "scripts/extract-doc-needed-paths.sh",
+        "line_range": [
+          92,
+          96
+        ],
+        "kind": "fail-open-false-positive"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "b75f4c9"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "deferred",
+      "source_file": "scripts/extract-doc-needed-paths.sh",
+      "claim_text": "peer bold bullet with no blank separator leaks tokens",
+      "skip_category": "out-of-scope",
+      "evidence": "pre-existing behavior; the diff reduces this surface. Confirmed by silent-failure-hunter and prior standalone review as not newly introduced."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 5,
+    "new_corroborated_critical_count": 0
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
+}

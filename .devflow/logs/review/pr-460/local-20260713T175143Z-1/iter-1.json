@@ -1,0 +1,439 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-13T17:51:43Z",
+  "fix_commit_sha": "48d989c",
+  "iter_fix_base": "e593e898",
+  "fix_files": [
+    ".changeset/issue-458-stop-hook-trusted-source-floor.md",
+    ".github/workflows/devflow-runner.yml",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/run.sh",
+    "scripts/detect-hook-closure-edges.py",
+    "scripts/harden-stop-hooks.sh"
+  ],
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "checklist_summary": "17 items generated; 17 PASS (6 verified via independent closure enumeration, 5 lite probes, 6 spot-checks). No FAIL/INCONCLUSIVE.",
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "completeness_critic": "detect_all_audit forced Phase 3.1.5: independently re-enumerated the source/exec/python3 closure of the 3 entry scripts via grep (a signal other than HOOK_TARGETS); result == the 9-file HOOK_TARGETS set. No finding.",
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "harden-stop-hooks.sh 'no working-tree delta' comment false against HEAD — unconditional chmod +x creates a mode delta on lib/resolve-jq.sh/lib/resolve-bin.sh (100644, core.fileMode=true)",
+      "defect_signature": {
+        "file": "scripts/harden-stop-hooks.sh",
+        "line_range": [
+          75,
+          76
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied",
+      "note": "self-contradicting-diff carve-out; verified directly. Non-demotable REJECT driver."
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "drift-guard has no positive control for the exec-edge regexes (pyexec/shexec/execb/assign) — proven vacuous",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          16935,
+          16959
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "walker misses keyword-position source edges (then/do/else . dep) — same class the #460 fix claims closed",
+      "defect_signature": {
+        "file": "scripts/detect-hook-closure-edges.py",
+        "line_range": [
+          32,
+          41
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 3,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "run.sh 'harden self-copy gated on plugin.json name discriminator' assertion vacuous",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          17196,
+          17199
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "walker refs_in swallows OSError + no rc check + UnicodeDecodeError uncaught -> drift-guard fails open on unreadable input",
+      "defect_signature": {
+        "file": "scripts/detect-hook-closure-edges.py",
+        "line_range": [
+          42,
+          60
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "harden step runs unconditionally in consumer repos, stubbing/creating 9 DevFlow-layout paths over same-named consumer files -> wrong verdict",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-runner.yml",
+        "line_range": [
+          707,
+          790
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "note": "FP1; verified install.sh ships devflow-runner.yml, not .claude/settings.json"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "reviewer-fidelity divergence: closure files reverted to base before engine reads them",
+      "defect_signature": {
+        "file": "scripts/harden-stop-hooks.sh",
+        "line_range": [
+          72,
+          76
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "note": "FP2; fixed by docs disclosure"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "'PR-head copy is never executed' over-strong — profile grants git checkout/tee for in-session restore",
+      "defect_signature": {
+        "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+        "line_range": [
+          560,
+          560
+        ],
+        "kind": "security"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "note": "FP3; softened + disclosed residual"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "workflow trusted-copy write swallow installs corrupt copy with success breadcrumb; fail-direction closed",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-runner.yml",
+        "line_range": [
+          735,
+          741
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "note": "SF4"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "devflow-runner.yml comment misleading (noexec/hardens-ZERO/contracted-exit-0)",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-runner.yml",
+        "line_range": [
+          98,
+          108
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "note": "CA2"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "try_install_trusted reports success when dest is a directory",
+      "defect_signature": {
+        "file": "scripts/harden-stop-hooks.sh",
+        "line_range": [
+          802,
+          816
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "note": "FP6"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "detect-hook-closure-edges.py docstring underclaims + undocumented basename/slash granularity",
+      "defect_signature": {
+        "file": "scripts/detect-hook-closure-edges.py",
+        "line_range": [
+          3,
+          25
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 3,
+      "fix_decision": "applied",
+      "note": "CA3/FP5/SF3-doc"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "walker '#'-in-string comment strip can drop a real edge",
+      "defect_signature": {
+        "file": "scripts/detect-hook-closure-edges.py",
+        "line_range": [
+          47,
+          47
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "note": "FP4"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "walker basename-only membership: same-basename diff-path edge treated as hardened",
+      "defect_signature": {
+        "file": "scripts/detect-hook-closure-edges.py",
+        "line_range": [
+          62,
+          76
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred",
+      "note": "SF3; documented granularity limit, no current instance"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "rank-1 vendored-helper write failure skips the elif self-copy fallback",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-runner.yml",
+        "line_range": [
+          746,
+          752
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred",
+      "note": "SF5; fail-closed, reachability ~nil"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "HARDENED=1 rests on helper rc; truncated helper exiting 0 at EOF hardens nothing",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-runner.yml",
+        "line_range": [
+          772,
+          781
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred",
+      "note": "SF6; defense-in-depth, reachability ~nil"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "harden step inline resolution ladder presence-pinned not behaviorally driven",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-runner.yml",
+        "line_range": [
+          703,
+          810
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred",
+      "note": "PT4; nice-to-have infra, operative guards mutation-pinned"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "CA1",
+      "decision": "applied",
+      "commit": "48d989c"
+    },
+    {
+      "finding_id": "PT1",
+      "decision": "applied",
+      "commit": "48d989c"
+    },
+    {
+      "finding_id": "PT3",
+      "decision": "applied",
+      "commit": "48d989c"
+    },
+    {
+      "finding_id": "CA4-PT2",
+      "decision": "applied",
+      "commit": "48d989c"
+    },
+    {
+      "finding_id": "SF1-SF2",
+      "decision": "applied",
+      "commit": "48d989c"
+    },
+    {
+      "finding_id": "FP1",
+      "decision": "applied",
+      "commit": "48d989c"
+    },
+    {
+      "finding_id": "FP2",
+      "decision": "applied",
+      "commit": "48d989c"
+    },
+    {
+      "finding_id": "FP3",
+      "decision": "applied",
+      "commit": "48d989c"
+    },
+    {
+      "finding_id": "SF4",
+      "decision": "applied",
+      "commit": "48d989c"
+    },
+    {
+      "finding_id": "CA2",
+      "decision": "applied",
+      "commit": "48d989c"
+    },
+    {
+      "finding_id": "FP6",
+      "decision": "applied",
+      "commit": "48d989c"
+    },
+    {
+      "finding_id": "CA3-FP5",
+      "decision": "applied",
+      "commit": "48d989c"
+    },
+    {
+      "finding_id": "FP4",
+      "decision": "applied",
+      "commit": "48d989c"
+    },
+    {
+      "finding_id": "SF3",
+      "decision": "deferred",
+      "source_file": "scripts/detect-hook-closure-edges.py",
+      "claim_text": "basename-only membership treats a same-basename diff-path edge as hardened",
+      "skip_category": "uncategorized",
+      "evidence": "documented as a known granularity limit; a full-path fix needs to resolve $DIR/-relative refs the shell syntax does not statically provide; no current closure instance; the coupled TARGETS/HOOK_TARGETS pin catches a genuinely new path"
+    },
+    {
+      "finding_id": "SF5",
+      "decision": "deferred",
+      "source_file": ".github/workflows/devflow-runner.yml",
+      "claim_text": "rank-1 vendored write failure skips the elif self-copy fallback",
+      "skip_category": "uncategorized",
+      "evidence": "fail-direction closed (inline stubs); reachability ~nil (a git-show materialization write failing)"
+    },
+    {
+      "finding_id": "SF6",
+      "decision": "deferred",
+      "source_file": ".github/workflows/devflow-runner.yml",
+      "claim_text": "HARDENED=1 rests on helper rc; truncated helper exiting 0 at EOF hardens nothing",
+      "skip_category": "uncategorized",
+      "evidence": "defense-in-depth; reachability ~nil (both materialization writes rc-guarded, rank-2 is a fresh clone); a completion-sentinel is a helper+workflow contract change parked for a follow-up"
+    },
+    {
+      "finding_id": "PT4",
+      "decision": "deferred",
+      "source_file": ".github/workflows/devflow-runner.yml",
+      "claim_text": "harden step inline ladder presence-pinned not behaviorally driven",
+      "skip_category": "uncategorized",
+      "evidence": "nice-to-have test infra; the operative guards + the new FP1 gate/SF4 writes are mutation-pinned/pinned"
+    }
+  ],
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 210,
+    "detail": "5992 passed, 0 failed post-fix; shellcheck + ruff clean on all changed files"
+  },
+  "convergence_inputs": {
+    "fixes_applied": 13,
+    "fix_diff_lines": 268,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "stale_prose_check": {
+    "result": "clean",
+    "detail": "no STALE rows (Phase 0.6 + Step 3 pre-check)"
+  },
+  "telemetry": {
+    "phase_1": {
+      "calls": 1,
+      "wall_clock_s": 152
+    },
+    "phase_3": {
+      "calls": 6,
+      "wall_clock_s": 615
+    },
+    "step_3_5": {
+      "calls": 1,
+      "wall_clock_s": 0
+    }
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
+}

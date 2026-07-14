@@ -1,0 +1,414 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-12T07:08:00Z",
+  "fix_commit_sha": "e19d2196ad4f4fbcdec53429b46f4de996232fbe",
+  "fix_files": [
+    "lib/test/run.sh",
+    "scripts/build-experiment-records.py"
+  ],
+  "loop_role": "fix",
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "valid-token set mirrors the devflow-review.yml producer contract (digit-string or literal unavailable)",
+      "file": "scripts/build-experiment-records.py",
+      "verification_mode": "agent",
+      "claim_signature": "api_contract:build-experiment-records.py:denial-token-matches-producer",
+      "verdict": "PASS",
+      "evidence": "producer chain surface-execution-diagnostics.sh -> devflow-runner.yml -> devflow-review.yml finalize_check only emits digits or unavailable",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "claim": "line-bound regex captures only from the label's own line; blank value still sets label_seen",
+      "file": "scripts/build-experiment-records.py",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:build-experiment-records.py:line-bound-blank-label",
+      "verdict": "PASS",
+      "evidence": "live regex probe + T435-1 fixture",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "claim": "probed sha appears in the check-runs endpoint path (stub sha-key mechanism)",
+      "file": "scripts/build-experiment-records.py",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:build-experiment-records.py:sha-in-checkruns-endpoint",
+      "verdict": "PASS",
+      "evidence": "f-string endpoint + stub case arms + disjoint fixture shas",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "claim": "'annotations' substring appears in argv only via the phase-2 fallback",
+      "file": "scripts/build-experiment-records.py",
+      "verification_mode": "agent",
+      "claim_signature": "test_mock_alignment:build-experiment-records.py:annotations-argv-grep",
+      "verdict": "PASS",
+      "evidence": "single annotations call site at line 751; stub logs every invocation",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-5",
+      "claim": "exp_field key paths + provenance literals match the record schema",
+      "file": "lib/test/run.sh",
+      "verification_mode": "agent",
+      "claim_signature": "test_mock_alignment:run.sh:exp-field-provenance-schema",
+      "verdict": "PASS",
+      "evidence": "record['permission_denials_count'] + provenance literals verified; unparseable in PROVENANCE_UNESTABLISHED",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-6",
+      "claim": "AC-5 asserted warning/notice literals match post-review-backstop-comment.sh",
+      "file": "lib/test/run.sh",
+      "verification_mode": "agent",
+      "claim_signature": "test_mock_alignment:post-review-backstop-comment.sh:warning-notice-literals",
+      "verdict": "PASS",
+      "evidence": "byte-match at helper lines 79/103",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-7",
+      "claim": "AC-5 env vars match the helper's contract and reach the mktemp guard",
+      "file": "lib/test/run.sh",
+      "verification_mode": "agent",
+      "claim_signature": "test_mock_alignment:post-review-backstop-comment.sh:env-var-contract",
+      "verdict": "PASS",
+      "evidence": "PR_NUMBER/HEAD_SHA/REPO/VERDICT/APP_TOKEN_PRESENT all read; fire decision reaches mktemp first call",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-8",
+      "claim": "decision-helper stub key=value lines match the helper's parser",
+      "file": "lib/test/run.sh",
+      "verification_mode": "agent",
+      "claim_signature": "test_mock_alignment:post-review-backstop-comment.sh:decision-helper-output-parse",
+      "verdict": "PASS",
+      "evidence": "while/case parse of decision/reason/marker/attempt; decision=fire sentinel",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-9",
+      "claim": "mktemp guard exits before the POST helper; POST stub records any invocation",
+      "file": "lib/test/run.sh",
+      "verification_mode": "agent",
+      "claim_signature": "test_mock_alignment:post-review-backstop-comment.sh:mktemp-before-post",
+      "verdict": "PASS",
+      "evidence": "guard at lines 78-81 precedes POST resolve/invoke at 87/99; sentinel written unconditionally",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-10",
+      "claim": "AC-6 pin literal present exactly once as executable code in devflow.yml; mutation valid",
+      "file": "lib/test/run.sh",
+      "verification_mode": "agent",
+      "claim_signature": "api_contract:devflow.yml:head-sha-prefix-pin-literal",
+      "verdict": "PASS",
+      "evidence": "devflow.yml:824; no comment occurrence; WFD408 resolves to that file",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-11",
+      "claim": "docs stall-backstop bullet names scripts/post-review-backstop-comment.sh",
+      "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+      "verification_mode": "lite",
+      "claim_signature": "string_presence:DEVFLOW_SYSTEM_OVERVIEW.md:names-post-backstop-helper",
+      "verdict": "PASS",
+      "evidence": "lite probe: hit at line 530",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-12",
+      "claim": "changeset carries bump: patch",
+      "file": ".changeset/issue-435-denial-parse-and-backstop-pins.md",
+      "verification_mode": "lite",
+      "claim_signature": "string_presence:issue-435-denial-parse-and-backstop-pins.md:bump-patch",
+      "verdict": "PASS",
+      "evidence": "lite probe: hit at line 2",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-13",
+      "claim": "isascii guard rejects Unicode digits (U+0663)",
+      "file": "scripts/build-experiment-records.py",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:build-experiment-records.py:isascii-rejects-unicode-digit",
+      "verdict": "PASS",
+      "evidence": "python3 probe + T435-2d fixture",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-14",
+      "claim": "fetch-failed precedes unparseable; failed fetch does not abort the sha scan",
+      "file": "scripts/build-experiment-records.py",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:build-experiment-records.py:fetch-failed-precedence",
+      "verdict": "PASS",
+      "evidence": "guard order at lines 740-743; loop continues past crs_ok False",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:requesting-code-review",
+    "devflow:pr-test-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "the line-bound denial parse is only \\n-bound: [^\\S\\n] consumes bare \\r/\\f/\\v/NEL/LS/PS so a digit on the next visual line is captured and validated verbatim — residual fabrication window",
+      "defect_signature": {
+        "file": "scripts/build-experiment-records.py",
+        "line_range": [
+          94,
+          99
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "diff-added comment/docstring claim the capture matches only HORIZONTAL whitespace and stays on the label's own line — false against the shipped regex (self-contradicting-diff carve-out)",
+      "defect_signature": {
+        "file": "scripts/build-experiment-records.py",
+        "line_range": [
+          95,
+          98
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "missing fixture: a later sha's valid summary token must beat an earlier sha's fetch failure (valid > fetch-failed apex precedence)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          26336,
+          26355
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "within-one-summary garbage-then-valid label ordering unpinned",
+      "defect_signature": {
+        "file": "scripts/build-experiment-records.py",
+        "line_range": [
+          652,
+          663
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "gh-stub sha-keyed matching is substring-based; document the distinct-non-substring-shas constraint",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          25895,
+          25914
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "comment overstates \\d (does not match ²)",
+      "defect_signature": {
+        "file": "scripts/build-experiment-records.py",
+        "line_range": [
+          656,
+          659
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "docstring phase-2 arm (c) omits the annotations-sub-fetch fetch-failed outcome",
+      "defect_signature": {
+        "file": "scripts/build-experiment-records.py",
+        "line_range": [
+          681,
+          686
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "ambiguous RED-first phrasing in the T435-1 comment",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          26277,
+          26278
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "severity-calibrated",
+      "source_file": "scripts/build-experiment-records.py",
+      "claim_text": "line-terminator fabrication window",
+      "original_severity": "Important",
+      "calibrated_severity": "Important",
+      "evidence": "over-grade shape 3 flagged (single-source from silent-failure-hunter); technical evaluation RE-AFFIRMS Important: the defect fails OPEN (admits a fabricated validated count verbatim into the experiment record on a crafted summary — verified live: \\r/\\f/\\v/\\u2028 all capture the next visual line's digit), the suite did not catch it, and it is the same fabrication class issue #435 graded Important; contrivedness of the input argues for the guard, not for demotion"
+    },
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "e19d2196ad4f4fbcdec53429b46f4de996232fbe"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "e19d2196ad4f4fbcdec53429b46f4de996232fbe"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "severity-calibrated",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "missing valid-beats-fetch-failed apex fixture",
+      "original_severity": "Important",
+      "calibrated_severity": "Important",
+      "evidence": "over-grade shape 3 flagged (single-source from pr-test-analyzer); technical evaluation RE-AFFIRMS Important: the guarded regression (early-return fetch-failed mid-scan) ships green under every existing fixture — verified by mutation run — and silently nulls real counts on transient head-fetch failures, defeating the durability-of-measurement property #431/#435 protect; consistent with issue #435's Important grading of the sibling gaps"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "e19d2196ad4f4fbcdec53429b46f4de996232fbe"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "e19d2196ad4f4fbcdec53429b46f4de996232fbe"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "e19d2196ad4f4fbcdec53429b46f4de996232fbe"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "applied",
+      "commit": "e19d2196ad4f4fbcdec53429b46f4de996232fbe"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "applied",
+      "commit": "e19d2196ad4f4fbcdec53429b46f4de996232fbe"
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "applied",
+      "commit": "e19d2196ad4f4fbcdec53429b46f4de996232fbe"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 8,
+    "critical_important_code_fixes": 1,
+    "fix_diff_lines": 103,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "stale_prose_check": "rc=0; one UNRESOLVABLE row (R3 count-locked, lib/test/run.sh:22533 — pre-existing #414-block comment, informational, never gates); no STALE rows",
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 60
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 20
+    },
+    "phase_1": {
+      "calls": 1,
+      "tokens": 93204,
+      "wall_clock_s": 103
+    },
+    "phase_1_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_2": {
+      "calls": 12,
+      "tokens": 910769,
+      "wall_clock_s": 90
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 496517,
+      "wall_clock_s": 508
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 10,
+      "webfetches": 0
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 30
+    }
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
+}

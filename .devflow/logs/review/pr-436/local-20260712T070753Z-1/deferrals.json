@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "pr_branch": "issue-435-close-out-the-three-unaddressed-important-review",
+  "base_branch": "main",
+  "generated_at": "2026-07-12T11:45:00Z",
+  "deferrals": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "file": "scripts/post-review-backstop-comment.sh",
+      "line_range": [82, 86],
+      "symbol": "BODY_FILE",
+      "kind": "logic_error",
+      "summary": "The re-trigger body compose write is unchecked, so a partial write (ENOSPC) can post a marker-only comment and annotate a false fired ::notice:: while burning a max_resume_attempts slot.",
+      "category": "out-of-scope",
+      "explanation": "post-review-backstop-comment.sh is untouched by this PR's diff (the diff only adds tests that drive it); the raising agent itself graded it pre-existing and a follow-up candidate, not a blocker. Widens-surface guard: no diff hunk overlaps this file."
+    }
+  ]
+}

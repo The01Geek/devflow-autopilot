@@ -1,0 +1,602 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-09T23:02:09Z",
+  "loop_role": "fix",
+  "fix_commit_sha": "866764617c0ccd94be29b2067b3aaa973425019a",
+  "fix_files": [
+    ".changeset/issue-363-ground-review-engine.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/run.sh",
+    "scripts/render-grounding-block.sh",
+    "skills/review/SKILL.md"
+  ],
+  "config": {
+    "max_iterations": 5,
+    "fix_severity_threshold": "important",
+    "efficiency_telemetry_enabled": true
+  },
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit_note": "set; forced the Phase 3.1.5 completeness-critic pass (not a persisted diff_profile field)",
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_failed_agents": [
+    "devflow:pr-test-analyzer"
+  ],
+  "checklist_summary": {
+    "total": 37,
+    "pass": 36,
+    "fail": 1,
+    "inconclusive": 0,
+    "lite": 7,
+    "agent": 30
+  },
+  "checklist": [
+    {
+      "id": "VC-5",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:devflow-runner.yml:denials-count-workflow-output-declared",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-6",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:devflow-runner.yml:grants-git-cat-file",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-7",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:devflow-runner.yml:grants-phase31-backstop-commands",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-8",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:devflow.yml:command-allowlist-grants-new-heads",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-10",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:devflow-runner.yml:checks-read-granted",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-11",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:devflow-review.yml:caller-checks-read-granted",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-12",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:devflow-review.yml:finalize-issues-read-granted",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-1",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:devflow-runner.yml:summarize-ci-checks-env-contract",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:render-grounding-block.sh:ci-summary-allowed-tools-env",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:describe-denial-count.sh:count-positional-arg",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:surface-execution-diagnostics.sh:denials-count-output-name",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-9",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:devflow.yml:hoist-preserves-all-grants",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-13",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:devflow.yml:review-block-gate-trailing-space",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-14",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:devflow.yml:prompt-fallback-to-bare-command",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-15",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:devflow-review.yml:progress-comment-marker-status-format",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-16",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:devflow.yml:reviewcompose-head-sha-env-contract",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-17",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:devflow-review.yml:finalize-vars-defined",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-18",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:summarize-ci-checks.sh:env-contract-repo-headsha-selfworkflow",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-19",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:summarize-ci-checks.sh:self-workflow-name-matches-actual",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-20",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:summarize-ci-checks.sh:github-api-response-shapes",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-21",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:summarize-ci-checks.sh:github-actions-app-slug",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-22",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:render-grounding-block.sh:env-contract-headsha-cisummary-allowedtools",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-23",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:extract-command-heads.py:both-allowlists-grant-every-head",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-24",
+      "verification_mode": "agent",
+      "verdict": "FAIL",
+      "claim_signature": "data_format_assumption:extract-command-heads.py:single-quote-tools-line-unique",
+      "evidence": "tools_allowlist_line() returns the FIRST matching line and raises only on zero matches; a duplicate TOOLS='...' line would be silently ignored. Exactly one match exists in each workflow today, so the pin is not vacuous now, but the uniqueness invariant is neither enforced nor tested.",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-25",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:extract-command-heads.py:gh-git-spec-granularity",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-26",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:extract-command-heads.py:anchor-normalizes-to-vendor-path",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-27",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:surface-execution-diagnostics.sh:denial-count-label-matches-renderer",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-28",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:surface-execution-diagnostics.sh:denial-count-unavailable-not-zero",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-29",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:describe-denial-count.sh:consumed-by-review-yml-error",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-30",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:SKILL.md:ground-truth-section-matches-rendered-block",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-31",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:SKILL.md:no-verdict-error-paired-with-finalize-check",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-32",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:SKILL.md:review-profile-grants-tee",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-33",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:summarize-ci-checks.sh:sources-resolvers-no-bare-gh-jq",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-34",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:summarize-ci-checks.sh:paginate-flatten-before-select",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-35",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:summarize-ci-checks.sh:checks-read-permission-granted",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-36",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:run.sh:scc-stub-fixture-matches-jq-selection",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-37",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:summarize-ci-checks.sh:null-conclusion-renders-status",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_findings": [
+    {
+      "id": "F-1",
+      "agent": "devflow:requesting-code-review",
+      "severity": "Critical",
+      "description": "The test suite is RED at HEAD: lib/test/run.sh's #142 pin asserts allowCrossMarketplaceDependenciesOn == [\"claude-plugins-official\"] but marketplace.json carries []. The required `lib + python tests` check fails, blocking merge. Verified directly: `lib/test/run.sh` exits 1, 4310 passed / 1 failed.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          15345,
+          15346
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F-2",
+      "agent": "devflow:requesting-code-review",
+      "severity": "Critical",
+      "description": "The comment justifying the #142 pin claims the allowlist was 'deliberately re-opened for the official marketplace only'. False against HEAD: marketplace.json carries []. Diff-added line -> self-contradicting-diff carve-out, non-demotable.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          15339,
+          15343
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F-3",
+      "agent": "devflow:completeness-critic",
+      "severity": "Important",
+      "description": "Phase 3.1.5 completeness critic: the detect-all audit (extract-command-heads.py) scans only ```bash fences, and the compensating direct-literal pin set covers only the git prose heads. `gh pr review` -- the command that EMITS the verdict (Phase 4.4 table) -- is extractor-blind and unpinned, so a future TOOLS-line edit dropping it leaves the whole #363 audit GREEN while silently disabling verdict posting: a verbatim rebuild of the no-verdict bug the audit exists to detect. Same class: gh pr comment, gh api, git merge-base, git rev-parse, rg, jq.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          19093,
+          19103
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F-5",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "The grounding block and SKILL.md declare the CI fence 'the authoritative test evidence' unconditionally, with no carve-out for the block's own fail-closed literals `CI status unavailable` / `No CI signals reported for this commit`. Unknown CI is laundered into pass -- the same 'unknown is not zero' fail-open the rest of #363 exists to kill, reintroduced at the prompt layer.",
+      "defect_signature": {
+        "file": "scripts/render-grounding-block.sh",
+        "line_range": [
+          41,
+          45
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F-6",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "skills/review/SKILL.md:21 (diff-added) attributes to Phase 2 an 'establish the suite passes' obligation. Phase 2 is Checklist Verification (2.0/2.0.5/2.1a/2.1b/2.2) and contains no such step. documented_falsehood on a diff-added doc line -> Phase 4.2 self-contradicting-diff carve-out, REJECT at every threshold regardless of severity chip.",
+      "defect_signature": {
+        "file": "skills/review/SKILL.md",
+        "line_range": [
+          21,
+          35
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F-7",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "Step 3a mechanism-scoped re-sweep: docs/DEVFLOW_SYSTEM_OVERVIEW.md:292 (diff-added) carries the same repudiated 'discharging Phase 2's \"establish the suite passes\" obligation' attribution -- the coupled mirror of the SKILL.md sentence. documented_falsehood on a diff-added doc line -> carve-out.",
+      "defect_signature": {
+        "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+        "line_range": [
+          292,
+          292
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F-8",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "lib/test/run.sh:19678 comment says the baseline engine 'declared the CI CONCLUSIONS unusable and Phase 2 undischarged', perpetuating the Phase-2/suite conflation this change repudiates.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          19678,
+          19678
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F-9",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "devflow.yml's 'Compose review grounding block' derives PR_NUM via `grep -oE | head -1`, non-preflight PATH tools deciding a selection (which head to summarize CI for).",
+      "defect_signature": {
+        "file": ".github/workflows/devflow.yml",
+        "line_range": [
+          339,
+          342
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "866764617c0ccd94be29b2067b3aaa973425019a"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "866764617c0ccd94be29b2067b3aaa973425019a"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "866764617c0ccd94be29b2067b3aaa973425019a"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "866764617c0ccd94be29b2067b3aaa973425019a"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "applied",
+      "commit": "866764617c0ccd94be29b2067b3aaa973425019a"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "applied",
+      "commit": "866764617c0ccd94be29b2067b3aaa973425019a"
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "applied",
+      "commit": "866764617c0ccd94be29b2067b3aaa973425019a"
+    },
+    {
+      "finding_id": "VC-24",
+      "decision": "pushed_back",
+      "source_file": "lib/test/extract-command-heads.py",
+      "claim_text": "tools_allowlist_line() cannot silently select the wrong TOOLS= line",
+      "skip_category": "claim-quality",
+      "evidence": "The verifier graded FAIL on a clause about a FUTURE duplicate TOOLS='...' line. Verified: `grep -cE \"^\\s*TOOLS='\" ` returns exactly 1 in each workflow, and tools_allowlist_line() raises SystemExit on zero matches, so the drift pin is non-vacuous today (mutation-tested: removing a grant from either allowlist turns it RED). The claim's factual core (exactly one line each; the double-quoted `TOOLS=\"$TOOLS,$FILTERED\"` append is excluded) PASSES. The residual is a hardening opportunity on a hypothetical duplicate, not a defect in the shipped tree, and is out of scope for a REJECT."
+    },
+    {
+      "finding_id": "F-9",
+      "decision": "pushed_back",
+      "source_file": ".github/workflows/devflow.yml",
+      "claim_text": "PR_NUM derived via grep|head, non-preflight PATH tools deciding a selection",
+      "skip_category": "claim-quality",
+      "evidence": "CLAUDE.md's rule forbids a non-preflight PATH tool deriving a value that decides a SELECTION *when a missing tool would silently change the answer*. Here a missing grep/head empties PR_NUM -> HEAD_SHA empty -> devflow.yml's `[ -z \"$HEAD_SHA\" ]` branch emits a ::warning:: and sets CI_SUMMARY='CI status unavailable', and summarize-ci-checks.sh re-checks the same precondition (line 80). It fails CLOSED with a specific breadcrumb, which is exactly the carve-out the rule permits. The reporting agent itself graded it LOW and recommended no change. Additionally these workflows run only on ubuntu-latest, where both tools are present."
+    },
+    {
+      "finding_id": "F-1",
+      "decision": "severity-calibrated",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "suite RED on the #142 pin",
+      "original_severity": "Critical",
+      "calibrated_severity": "Critical",
+      "evidence": "Over-grade shape 1 considered and REJECTED. The suite catching a defect RED is normally a loud bounded stop that argues for demotion, but here the defect IS the suite failing: `lib/test/run.sh` exits 1, and `lib + python tests` is the required status check, so the observable impact is that the PR cannot merge at all. Blast radius = the whole change. Re-affirmed Critical; not demoted."
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "severity-calibrated",
+      "source_file": "scripts/render-grounding-block.sh",
+      "claim_text": "unknown CI laundered into pass by the block's unconditional 'authoritative test evidence' prose",
+      "original_severity": "Important",
+      "calibrated_severity": "Important",
+      "evidence": "Over-grade shape 3 FLAGGED (uncorroborated single-source from silent-failure-hunter, an empirical over-grader; comment-analyzer flagged the same sentence but under a different defect_signature.file, so it does not corroborate mechanically). Evaluated on observable fail-direction rather than merits: the defect's direction is OPEN, not closed -- a fence reading `CI status unavailable` is cited as though a suite passed, so the engine emits a WRONG VERDICT (a real output), not a diagnostic. No suite catches it (it is prompt prose). Shape 1 and shape 2 both fail to apply (shape 2 excludes a false-against-HEAD diff-added artifact; and the impact is a verdict, not wording). Re-affirmed Important; not demoted."
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "severity-calibrated",
+      "source_file": "skills/review/SKILL.md",
+      "claim_text": "false attribution of a suite-execution obligation to Phase 2",
+      "original_severity": "Suggestion",
+      "calibrated_severity": "Important",
+      "evidence": "Graded UP, not down. comment-analyzer chipped it 'low-medium', but the deterministic in-code-comment cap explicitly EXCLUDES a comment/doc line the diff ADDED or MODIFIED: this line is diff-added and false against HEAD, so it is a self-contradicting diff that Phase 4.2 REJECTs at every threshold, non-demotably, regardless of severity chip. Routed to the fixer as a REJECT-driver under the widening rule."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 7,
+    "fix_diff_lines": 107,
+    "code_only_fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0,
+    "note": "The entire iteration-1 fix delta is test-pin, comment, doc, prompt-prose and changeset text. No product/runtime code path (signature, predicate, guard, control flow, data shape) changed: render-grounding-block.sh's edit is heredoc prose inside the block it prints. Per Step 4.5 condition 1/2 these do not count toward the churn tally."
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "verification_evidence": {
+    "suite_before_fix": "4310 passed, 1 failed (rc=1)",
+    "suite_after_fix": "4338 passed, 0 failed (rc=0)",
+    "assertion_delta": "+27 net; every added guard mutation-checked RED-on-removal",
+    "shellcheck": "clean (repo-wide, excl lib/test/)",
+    "ruff": "SKIPPED - `ruff` is not installed on this host (exit 127, tool absence, not a permission denial). No .py file was modified by this fix; CI's `lib + python tests` job runs ruff."
+  },
+  "reflections": [
+    "behavioral-fix pin (SKILL.md): operative sentence = '**An absent CI result is not a passing one.** ... treat the test evidence as MISSING ... Only a check *name* with a *conclusion* beside it is evidence.' Pin literals '**An absent CI result is not a passing one.**', 'treat the test evidence as MISSING', and 'Only a check *name* with a *conclusion* beside it is evidence.' are each a substring of it. Removing any one alone re-opens the unknown-CI fail-open.",
+    "behavioral-fix pin (render-grounding-block.sh): operative sentence = '**An absent result is not a passing one.** If the fence reads `CI status unavailable` or `No CI signals reported for this commit`, no CI evidence exists for this commit: treat the test evidence as MISSING...'. Pin literals are substrings of it. Verified RED before the fix (10 new pins failed), GREEN after.",
+    "fix-delta gate: pending (Step 3.5).",
+    "over-grade calibration gate: F-5 flagged under shape 3 (uncorroborated single-source from silent-failure-hunter); recorded technical evaluation re-affirmed Important on the observable fail-direction (fails OPEN, emits a wrong verdict). F-6 calibrated UP: the deterministic comment-only cap excludes a diff-added comment.",
+    "Step 3a mechanism-scoped re-sweep earned its keep: it found docs/DEVFLOW_SYSTEM_OVERVIEW.md:292 carrying the repudiated Phase-2 attribution verbatim -- a coupled mirror the fix's own new absence pin would otherwise have let ship. The absence pin now covers both sites.",
+    "ruff could not be run locally (not installed). Recorded as an auditable skip; the required CI job runs it and no .py file changed."
+  ],
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 40
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 15
+    },
+    "phase_1": {
+      "calls": 2,
+      "tokens": 143000,
+      "wall_clock_s": 121
+    },
+    "phase_1_5": {
+      "calls": 1,
+      "tokens": 46333,
+      "wall_clock_s": 89
+    },
+    "phase_2": {
+      "calls": 30,
+      "tokens": 1546000,
+      "wall_clock_s": 640
+    },
+    "phase_3": {
+      "calls": 6,
+      "tokens": 716000,
+      "wall_clock_s": 640
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5,
+      "webfetches": 0
+    },
+    "step_2_6": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_4_x": {
+      "calls": 1,
+      "tokens": 89193,
+      "wall_clock_s": 177
+    }
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
+}

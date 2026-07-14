@@ -1,0 +1,159 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-11T21:42:52Z",
+  "fix_commit_sha": "7d8b92c",
+  "fix_commits": ["3055f07", "811c7f1", "7d8b92c"],
+  "fix_files": ["scripts/stale-prose-lint.py", "lib/test/run.sh"],
+  "loop_role": "fix",
+  "step_3_5_fix_delta_gate": {
+    "attempts": 2,
+    "findings_caught_and_fixed": [
+      {"gate_run": 1, "severity": "Important", "kind": "documented_falsehood", "desc": "the iter-1 fix's rewritten _run_git docstring introduced a NEW closed enumeration ('the only exit-2 causes are X,Y,Z') incomplete against HEAD (omitted stdin-read return-2, narrowed catch-all). Re-fixed in 811c7f1 by removing the re-enumeration and pointing to the module header.", "over_grade_gate": "not-demoted: false-against-HEAD diff-added artifact is excluded from the over-grade cap; routed as Important."},
+      {"gate_run": 2, "severity": "Important", "kind": "documented_falsehood", "desc": "the 811c7f1 docstring's absolute 'a reviewed file's odd bytes NEVER reach exit 2' is false — an invalid-UTF-8 byte reaches exit 2 via the strict stdin-diff decode (intentional, documented). Self-verified (caf\\xe9 -> exit 2). Re-fixed in 7d8b92c by scoping to the two hardened channels and naming the stdin channel."}
+    ],
+    "final_gate_run": 3,
+    "result": "pending"
+  },
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": false,
+    "checklist_skipped": null
+  },
+  "phase0_6_stale_prose": {
+    "verdict": "0 real findings",
+    "note": "All STALE/UNRESOLVABLE rows are the linter's own T1-T4 negative-test fixtures in lib/test/run.sh (deliberately-constructed stale-prose corpus, ~line 24680+) plus doc-comment two-item references in stale-prose-lint.py. Out-of-scope test corpus, not defects."
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Critical",
+      "description": "documented_falsehood: _run_git docstring claims errors=replace keeps a non-ASCII byte from detonating the whole pass and that only an unreadable rev is exit-2; under strict-ASCII (C/POSIX) stdout the write path still exits 2 (UnicodeEncodeError). Self-verified by repro.",
+      "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [111, 113], "kind": "documented_falsehood"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "test_gap: the non-ASCII decode/encode path (the F-1 hardening) had zero coverage; a revert ships GREEN.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [668, 678], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "_run_git 'only an unreadable rev is exit-2' reads as incomplete (git-unavailable also exit-2). Corroborates the documented_falsehood.",
+      "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [113, 114], "kind": "comment_drift"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "InternalError docstring says 'git failure' but only unreadable-rev raises it (ambiguous/charitable).",
+      "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [98, 99], "kind": "comment_drift"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "R3b never emitted as a rule token (collapses to R3). Not a falsehood; drift-proof doc clause added.",
+      "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [19, 21], "kind": "comment_drift"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Important",
+      "description": "verdict-row is a stringly-typed positional 5-tuple; verdict drives exit code but is enforced nowhere (fail-open IF a future typo is introduced). No live bug.",
+      "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [223, 366], "kind": "type_design"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "severity-calibrated"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "git show non-zero -> UNRESOLVABLE discards git stderr, conflating benign absence with a real git error (fail-open for one file). Matches prior-run deferred F-6.",
+      "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [166, 173], "kind": "logic_error"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "strict UTF-8 decode of stdin diff aborts whole pass — but fails closed, and the docstring documents 'non-UTF-8 diff bytes -> exit 2' as intentional.",
+      "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [388, 392], "kind": "logic_error"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "parse_diff can drop added lines when content begins '++ '. Prior-run deferred F-5; minimal likelihood.",
+      "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [124, 143], "kind": "logic_error"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "_adjacent_list_count below-branch and deleted-at-rev UNRESOLVABLE '-' path untested (minor coverage).",
+      "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [354, 358], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "Cloud-runner leading-token shape for the helper invocation — verify via matcher-probe.yml, fail-safe (arm a) otherwise. Cannot verify locally (matcher semantics only provable in the real cloud action).",
+      "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [1247, 1249], "kind": "api_misuse"},
+      "corroboration_count": 1,
+      "step25_classification": "over_budget",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "3055f07"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "3055f07"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "3055f07"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "3055f07"},
+    {"finding_id": "F-5", "decision": "applied", "commit": "3055f07"},
+    {"finding_id": "F-tuple", "decision": "severity-calibrated", "source_file": "scripts/stale-prose-lint.py", "claim_text": "stringly-typed verdict-row fail-open", "original_severity": "Important", "calibrated_severity": "suggestion", "evidence": "over-grade shape 1 (fail-closed / no live bug): the code is correct today; the fail-open is hypothetical (a FUTURE typo at an emit site). No wrong output, no corrupted state on any current input. type-design-analyzer itself graded it 'no live bugs, none block'. A NamedTuple refactor is optional polish on a python3-stdlib-minimal helper; recorded evaluation, not auto-demoted."},
+    {"finding_id": "F-sfh1", "decision": "deferred", "source_file": "scripts/stale-prose-lint.py", "claim_text": "git show non-zero discards stderr / conflates absence with git error", "skip_category": "already-tracked", "evidence": "prior-run deferred F-6 (iter-1.json committed in the PR); blast radius low (--rev pre-validated up front, so common non-zero is legitimate absence); UNRESOLVABLE never gates."},
+    {"finding_id": "F-sfh2", "decision": "pushed_back", "source_file": "scripts/stale-prose-lint.py", "claim_text": "strict stdin-diff decode aborts whole pass", "skip_category": "claim-quality", "evidence": "intentional and documented (module header line 53 lists 'non-UTF-8 diff bytes' as an exit-2 cause); fails CLOSED (exit 2 + stderr + visible arm-c note), a loud bounded stop, not a silent miss. Distinct from the write path (this fix) which was undocumented-and-fail-open-shaped."},
+    {"finding_id": "F-sfh3", "decision": "deferred", "source_file": "scripts/stale-prose-lint.py", "claim_text": "parse_diff drops added lines beginning '++ '", "skip_category": "already-tracked", "evidence": "prior-run deferred F-5; prose beginning '++ ' is near-nonexistent; degrades toward no-finding, not a false gate."},
+    {"finding_id": "F-cov34", "decision": "deferred", "source_file": "scripts/stale-prose-lint.py", "claim_text": "_adjacent_list_count below-branch and deleted-at-rev path untested", "skip_category": "uncategorized", "evidence": "minor coverage gaps (criticality 3); the below-branch fallback and the '-' sentinel are simple and low-risk; not worth blocking convergence. Recorded for a future coverage pass."},
+    {"finding_id": "F-cloudshape", "decision": "advisory", "source_file": "skills/review/SKILL.md", "claim_text": "Phase 0.6 helper leading-token invocation shape permitted in cloud review runner", "skip_category": "advisory-parked", "evidence": "cloud matcher semantics are only provable via matcher-probe.yml in the real cloud action (repo convention; local probes invalid). Mirrors the established config-get.sh anchor shape; grant added to both TOOLS lines; degradation arm (a) fails safe naming the remedy. Parked for a matcher-probe run, not a code defect."},
+    {"finding_id": "F-phase06-fixtures", "decision": "deferred", "source_file": "lib/test/run.sh", "claim_text": "Phase 0.6 flags the linter's own T1-T4 negative-test fixtures as STALE", "skip_category": "out-of-scope", "evidence": "the STALE rows (~line 24680+) are the linter's deliberately-constructed stale-prose test corpus; they MUST contain stale prose to test detection. Fixing them would break the tests. Inherent property of a deterministic line scanner reviewing its own test file; one-time on this PR only."}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 5,
+    "fix_diff_lines": 40,
+    "new_corroborated_critical_count": 1
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verdict": "REJECT (self-contradicting-diff documented_falsehood) -> fixed in this iteration"
+}

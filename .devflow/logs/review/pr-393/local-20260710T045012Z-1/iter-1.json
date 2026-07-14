@@ -1,0 +1,69 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-10T04:50:00Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "loop_role": "fix",
+  "checklist": [
+    {"id": "VC-1", "claim": "The five deferral titles emitted by the helper are byte-identical to the removed inline case arms", "file": "scripts/describe-skip-title.sh", "verification_mode": "lite", "claim_signature": "api_contract:describe-skip-title.sh:titles-byte-identical", "verdict": "PASS", "evidence": "arm-by-arm diff of removed vs new; corroborated by code-reviewer + final-pass", "reused_from_iter_prev": false},
+    {"id": "VC-2", "claim": "The workflow invokes the helper leading-token and verifies the outcome (TITLE non-empty), never silently dropping the title", "file": ".github/workflows/devflow-review.yml", "verification_mode": "lite", "claim_signature": "api_contract:devflow-review.yml:leading-token-outcome-verified", "verdict": "PASS", "evidence": "silent-failure-hunter traced every failure mode → fail-closed breadcrumb", "reused_from_iter_prev": false},
+    {"id": "VC-3", "claim": "The run.sh #389 block drives all 5 arms and pins source arm-order so a reorder/deletion turns RED", "file": "lib/test/run.sh", "verification_mode": "lite", "claim_signature": "test_coverage:run.sh:arm-order-pinned", "verdict": "PASS", "evidence": "pr-test-analyzer confirmed; mutation-check proved reorder→RED, delete→RED", "reused_from_iter_prev": false},
+    {"id": "VC-4", "claim": "The four pre-existing #353/#304 title pins are repointed to the helper in the same commit (no stale workflow-title pins)", "file": "lib/test/run.sh", "verification_mode": "lite", "claim_signature": "convention:run.sh:coupled-pins-repointed", "verdict": "PASS", "evidence": "code-reviewer + pr-test-analyzer confirmed no orphaned pins remain", "reused_from_iter_prev": false},
+    {"id": "VC-5", "claim": "AC4 changeset present with bump: patch, type Changed, no direct plugin.json/CHANGELOG edit", "file": ".changeset/issue-389-extract-skip-title-selector.md", "verification_mode": "lite", "claim_signature": "api_contract:changeset:bump-patch", "verdict": "PASS", "evidence": "final-pass + code-reviewer confirmed well-formed", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "helper header honesty-rule prose re-enumerates the four reason names + * default (mirror-fact, low rot risk, co-located with the case)", "defect_signature": {"file": "scripts/describe-skip-title.sh", "line_range": [14, 18], "kind": "mirror_fact_comment"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "the workflow fallback repeats the helper's generic title as a substring; the 'defined once' pin covers only the helper, so a coupled pin could catch drift", "defect_signature": {"file": "lib/test/run.sh", "line_range": [20780, 20781], "kind": "coverage_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "advisory", "source_file": "scripts/describe-skip-title.sh", "claim_text": "header honesty-rule re-enumerates arm names (mirror-fact)", "skip_category": "advisory-parked", "evidence": "Suggestion below important threshold; comment-analyzer said 'no change required' — enumeration is intrinsic to the honesty rationale and co-located with the case; run.sh arm-order pin catches a case-side change"},
+    {"finding_id": "F-2", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "workflow fallback prefix not coupled-pinned to helper generic title", "skip_category": "advisory-parked", "evidence": "Suggestion below important threshold; the two strings are independent honest-generic fallbacks (deliberately byte-distinct per silent-failure-hunter), not a required coupled invariant — pinning would over-constrain; low stakes (fallback fires only when helper absent/broken)"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_3": {"calls": 5, "tokens": 261000, "wall_clock_s": 305},
+    "step_2_6": {"calls": 5, "tokens": 262000, "wall_clock_s": 375}
+  },
+  "shadow": {
+    "ran_at": "2026-07-10T05:05:00Z",
+    "reviewed_sha": "PENDING",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:requesting-code-review", "severity": "Critical", "description": "create_check job has no actions/checkout, so scripts/describe-skip-title.sh is absent at runtime; every deferral falls to the generic fallback title, regressing the specific titles #304/#353 pin", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [807, 810], "kind": "boundary_assumption_unreachable_file"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "helper header says honesty rule 'carried verbatim' but it was reworded (script->precheck, behind base->branch behind base)", "defect_signature": {"file": "scripts/describe-skip-title.sh", "line_range": [13, 13], "kind": "self_authored_claim_overclaim"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "single-definition verified only within the helper; a title lingering elsewhere in the workflow would not be caught (optional absence pin)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [20780, 20781], "kind": "coverage_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "workflow fallback string not behaviorally tested (gold-plating to extract)", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [813, 813], "kind": "coverage_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"},
+      {"agent": "devflow:requesting-code-review", "severity": "Minor", "description": "changeset ends with (#393) 'likely wrong number'", "defect_signature": {"file": ".changeset/issue-389-extract-skip-title-selector.md", "line_range": [11, 11], "kind": "false_positive"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"}
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 5,
+      "overlap_with_iter_1": 2,
+      "new": 3,
+      "new_critical": 1,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": true
+  }
+}
