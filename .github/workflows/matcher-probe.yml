@@ -452,8 +452,14 @@ jobs:
           # so the former per-form ATTRIBUTION SPLIT — dropping the apply-labels
           # glob here and adding a separate explicit CANDIDATE var — is now
           # HISTORICAL; its recorded evidence (shape I2 PERMITTED via the explicit
-          # form, shape I3 PERMITTED, shapes I1/I4/I5/I6 DENIED) is the implement-
-          # tier table on issues #450/#455. With the split retired, the probe once
+          # form; shape I3 DENIED — that row measured the `*/basename` config GLOB
+          # against a vendored-literal leading token, and the glob did not match;
+          # shapes I1/I4/I5/I6 DENIED) is the implement-tier table on issues
+          # #450/#455. That I3 denial is the whole reason the explicit grants had to
+          # ship: read it as "the glob form was refused", NOT as "ensure-label.sh is
+          # unreachable" — row 3 now measures the shipped EXPLICIT ensure-label.sh
+          # form, so a re-dispatch is expected to record it PERMITTED. With the split
+          # retired, the probe once
           # again measures the REAL shipped profile end-to-end: IMPLEMENT (now
           # carrying the explicit label grants) + the config extras verbatim.
           EXTRAS='Bash(lib/test/run.sh:*),Bash(lib/preflight.sh:*),Bash(shellcheck:*),Bash(chmod:*),Bash(git ls-remote:*),Bash(git check-ignore:*),Bash(*/apply-labels.sh:*),Bash(*/ensure-label.sh:*),Bash(*/render-grounding-block.sh:*),Bash(*/config-get.sh:*),Bash(*/efficiency-trace.sh:*),Bash(*/stale-prose-lint.py:*)'
@@ -477,12 +483,12 @@ jobs:
           allowed_bots: "*"
           prompt: |
             You are a PERMISSION-MATCHER PROBE. Your ONLY task is to attempt each of
-            the 7 numbered command shapes below EXACTLY ONCE, each in its OWN single
+            the 9 numbered command shapes below EXACTLY ONCE, each in its OWN single
             tool call, VERBATIM — do not modify, wrap, quote-escape, split, or combine
             them, and do not add any command that is not listed. Attempt them in order
-            1 through 7. If a shape is DENIED or errors, do NOT retry it and do NOT try
+            1 through 9. If a shape is DENIED or errors, do NOT retry it and do NOT try
             a different formulation — move straight to the next number. After
-            attempting all 7, STOP and reply with the single word DONE.
+            attempting all 9, STOP and reply with the single word DONE.
 
             Your text output is not measured. Only the harness record of which tool
             calls the permission matcher allowed versus denied is measured. Attempt
@@ -525,6 +531,27 @@ jobs:
 
             Shape 7 — plainly granted single command, positive control (Bash):
             grep -c . /etc/hosts
+
+            Shape 8 — `VAR=$(…)` capture of a NON-LABEL granted helper (Bash). This is
+            the DISAMBIGUATOR for shape 6: shape 6 confounds three things at once (a
+            label helper, a `VAR="$(…)"` capture, and an inner `2>&1` redirect), so its
+            denial cannot be attributed to any one of them. The reworked phase-4 fences
+            depend on this exact shape being PERMITTED (they read `deferred.labels`
+            through it), and no row has ever measured it. A PERMITTED here means the
+            matcher descends into a non-label substitution and the denial in shape 6 is
+            label- or redirect-attributable; a DENIED here means the CAPTURE SHAPE
+            itself is refused and the reworked fences' own first statement is silently
+            denied too. The second argument is `config-get.sh`'s DEFAULT value, used
+            here as this row's unique marker (it is only echoed if the key is absent,
+            so it has no side effect either way):
+            DEFERRED_LABELS=$(.devflow/vendor/devflow/scripts/config-get.sh .deferred.labels iprobe08nonlabel)
+
+            Shape 9 — redirect-free `VAR="$(…)"` capture of a LABEL helper (Bash). The
+            second disambiguator for shape 6: identical to shape 6 but WITHOUT the inner
+            `2>&1`. Read together with shapes 6 and 8, this separates "the capture shape
+            is denied" from "the inner redirect is denied" from "a label helper inside a
+            substitution is denied". Dummy issue 9999, dummy label:
+            LBL_OUT="$(.devflow/vendor/devflow/scripts/apply-labels.sh 9999 iprobe09nofd)"
 
           plugin_marketplaces: |
             https://github.com/anthropics/claude-plugins-official.git
@@ -623,8 +650,10 @@ jobs:
               (3, "vendored-literal leading token, ensure-label.sh (explicit form, shipped)",    "iprobe03glob",     ".devflow/vendor/devflow/scripts/ensure-label.sh"),
               (4, "`for …; do helper; done` compound wrapping a granted helper",                 "iprobe04for",      "for L in"),
               (5, "piped `while read` loop wrapping a granted helper",                           "iprobe05while",    "while read"),
-              (6, "`VAR=\"$(helper …)\"` capture of a granted helper (apply-labels.sh)",          "iprobe06capture",  "$("),
+              (6, "`VAR=\"$(helper …)\"` capture of a granted helper (apply-labels.sh, with `2>&1`)", "iprobe06capture", "$("),
               (7, "plainly granted single command (positive control)",                           "/etc/hosts",       None),
+              (8, "`VAR=$(helper …)` capture of a NON-LABEL helper (config-get.sh) — shape-6 disambiguator", "iprobe08nonlabel", "$("),
+              (9, "redirect-free `VAR=\"$(helper …)\"` capture of a label helper — shape-6 disambiguator", "iprobe09nofd", "$("),
           ]
 
           out = []

@@ -60,9 +60,15 @@ CLI:
         -> one `FILE:LINE  RULE  statement` per denied-shape hit; exit 1 if any hit,
            exit 0 when the file is clean. The default `review` profile applies R1-R4
            (read-only review allowlist). `--profile implement` applies the implement-
-           tier rules IR1/IR2/IR3 (issue #455) — a `for` / piped-`while read` loop or a
-           `VAR="$(…)"` capture wrapping a label helper, keyed to the SEPARATE
-           devflow-implement matcher probe (matcher-probe.yml's implement-probe job).
+           tier rules (issue #455), keyed to the SEPARATE devflow-implement matcher
+           probe (matcher-probe.yml's implement-probe job):
+
+  IR1 a `for … in` loop whose do…done span invokes a label helper (probe row I4).
+  IR2 a `while` / `until` loop whose do…done span invokes a label helper (row I5,
+      which measured the piped-`while read` spelling; the rule matches the loop
+      keyword in COMMAND POSITION, so any spelling of the same denied shape is
+      caught, not only the piped one).
+  IR3 a `VAR=$(…)` / `VAR="$(…)"` / backtick capture of a label helper (row I6).
 """
 
 from __future__ import annotations
@@ -89,12 +95,15 @@ _INTERPRETERS = frozenset({"python3", "python", "node"})
 _REDIR = re.compile(r"^&?[0-9]*(>>|>)(.*)$")
 
 
-def _shape_preprocess(block: str) -> str:
-    """Drop `#` comments (quote-aware) and heredoc BODIES, but KEEP the heredoc
-    OPENER token (`<<'EOF'`) so a `cat > f <<'EOF'` write is still one statement.
+def _shape_preprocess_lines(block: str) -> list[str]:
+    """`_shape_preprocess`, but LINE-PRESERVING: returns exactly one cleaned line per
+    input line, so a caller that reports a block-relative line offset (the implement-
+    tier loop scan) can clean the source and still attribute a hit to the right line.
 
-    This differs from extract-command-heads.py's stripper, which truncates the
-    opener at `<<` — that erases the very signal R3's cat-heredoc arm needs.
+    A heredoc BODY line is blanked to `""` rather than dropped — dropping it is what
+    makes the joined form unusable for offset attribution. Blanking is equivalent for
+    statement splitting (an empty line yields no statement), so `_shape_preprocess`
+    below is unchanged in behavior.
     """
     out: list[str] = []
     pending_tag: str | None = None
@@ -102,6 +111,7 @@ def _shape_preprocess(block: str) -> str:
         if pending_tag is not None:
             if line.strip() == pending_tag:
                 pending_tag = None
+            out.append("")  # heredoc body: blanked, NOT dropped (keeps line alignment)
             continue
         kept: list[str] = []
         quote: str | None = None
@@ -125,7 +135,17 @@ def _shape_preprocess(block: str) -> str:
             pending_tag = match.group(2)
             # KEEP cleaned as-is (opener token retained) — do NOT truncate at <<.
         out.append(cleaned)
-    return "\n".join(out)
+    return out
+
+
+def _shape_preprocess(block: str) -> str:
+    """Drop `#` comments (quote-aware) and heredoc BODIES, but KEEP the heredoc
+    OPENER token (`<<'EOF'`) so a `cat > f <<'EOF'` write is still one statement.
+
+    This differs from extract-command-heads.py's stripper, which truncates the
+    opener at `<<` — that erases the very signal R3's cat-heredoc arm needs.
+    """
+    return "\n".join(_shape_preprocess_lines(block))
 
 
 def _statements(block: str) -> list[str]:
@@ -388,16 +408,30 @@ def find_violations(text: str) -> list[tuple[int, str, str]]:
 
 # ── Implement-tier rules (issue #450 -> #455) ────────────────────────────────
 # The read-write `devflow-implement` profile is a SEPARATE allowlist from the
-# read-only `review` profile the R1-R4 rules above target, with its OWN empirically
+# read-only `review` profile the rules above target, with its OWN empirically
 # probed denied shapes (matcher-probe.yml's implement-probe job; evidence of record
 # on issues #450/#455). The label helpers ensure-label.sh / apply-labels.sh ARE
 # granted as vendored literals, but the matcher denies WRAPPING them in a `for` /
 # piped-`while read` loop or a `VAR="$(…)"` output capture (probe rows I4/I5/I6). The
-# three rules below pin exactly those wrappers AROUND A LABEL HELPER, so the Phase
-# 4.0/4.0.5 agent-level rework cannot silently regress. A loop or capture of any
-# OTHER command (config-get, gh) is NOT flagged — the matcher descends into a
-# non-label `$(…)` and a non-label loop was never probed denied, and the implement
-# skill legitimately uses those (e.g. `DEFERRED_LABELS=$(…config-get.sh …)`).
+# rules below pin exactly those wrappers AROUND A LABEL HELPER, so the Phase
+# 4.0/4.0.5 agent-level rework cannot silently regress.
+#
+# SCOPE BOUNDARY — and it rests on an INFERENCE, not a measurement. A loop or capture
+# of any OTHER command (config-get.sh, gh) is NOT flagged, because the implement skill
+# legitimately uses that shape (`DEFERRED_LABELS=$(…config-get.sh …)`) and we infer the
+# matcher descends into a non-label `$(…)` and matches the inner granted head. That
+# inference is carried over from the REVIEW tier (run 29105381021's `WP=$(vendored-path
+# create …)` executed), and this file's own rule is that a shape proven on the review
+# tier is UNPROVEN here. No implement-tier row has ever measured a non-label capture,
+# and the only capture row that WAS measured — I6 — came back DENIED while confounding
+# three properties at once (a label helper AND a `VAR="$(…)"` capture AND an inner
+# `2>&1`). So if I6's denial is attributable to the capture SHAPE, the reworked fences'
+# own `config-get.sh` read is silently denied too and these rules would not catch it.
+# matcher-probe.yml rows 8 (non-label capture) and 9 (redirect-free label capture) are
+# the disambiguators; until a dispatch records them, treat the non-label carve-out as a
+# stated inference and NOT as probe-proven — and keep the phase-4 fences fail-closed on
+# a config read that produces no output (a denied command and an empty value must not
+# look the same to the agent).
 #
 # Probe row I1 (the unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor as a leading token) is
 # deliberately NOT a rule here: every legitimate helper call keeps the portable
@@ -410,46 +444,83 @@ _LABEL_HELPER = re.compile(r"(?:apply-labels|ensure-label)\.sh\b")
 
 
 def _label_capture_violation(statement: str) -> bool:
-    """IR3: a `VAR=$(…)` / `VAR="$(…)"` capture whose substitution invokes a label
-    helper (probe row I6 — the old `LBL_ERR="$(apply-labels.sh … 2>&1)"`). A capture
-    of any other command is NOT this shape (the matcher descends into it)."""
+    """IR3: a `VAR=$(…)` / `VAR="$(…)"` / `VAR=`…`` capture whose substitution invokes
+    a label helper (probe row I6 — the old `LBL_ERR="$(apply-labels.sh … 2>&1)"`).
+
+    The BACKTICK form is the same denied shape spelled differently, so it is flagged
+    too: the guard's job is "a re-introduced denied shape goes RED at the desk", and a
+    guard that only knows one spelling of the shape it forbids is a hole an author
+    falls into by accident.
+
+    Scoping (see the rule-block comment above): a capture of a NON-label command is not
+    flagged, on the *inference* — not a measurement — that the matcher descends into it.
+    """
     raw = _strip_control(statement.strip())  # e.g. `if ! LBL=$(…)` reads as its capture
     lead = re.match(r"^[A-Za-z_][A-Za-z0-9_]*=(.*)$", raw, re.S)
     if not lead:
         return False
     value = lead.group(1)
-    if "$(" not in value:
+    if "$(" not in value and "`" not in value:
         return False
     return bool(_LABEL_HELPER.search(value))
 
 
+# A loop keyword only OPENS a loop in COMMAND POSITION — at the start of a statement,
+# or right after a separator (`;` `|` `&&` `||` `(`) or an opening keyword (`do`/`then`/
+# `else`). A bare `\bwhile\b` line match instead fires on the word `while` anywhere —
+# including inside a command ARGUMENT (`echo "wait a while"`) — and, paired with the
+# span rule below, swallowed every later label call in the fence. Callers pass
+# COMMENT-STRIPPED lines (`_shape_preprocess_lines`), so prose in a `#` comment is
+# already gone by the time this regex runs; this anchor handles the code case.
+_LOOP_OPENER = re.compile(
+    r"(?:^|[;|&(]|\b(?:do|then|else)\b)\s*(for|while|until)\b"
+)
+_LOOP_DONE = re.compile(r"(?:^|[|;&\s])done(?:$|[|;&\s])")
+
+
 def _loop_violations(lines: list[str]) -> list[tuple[int, str]]:
-    """IR1/IR2: a `for … in` / `while` loop whose do…done span invokes a label helper
-    (probe rows I4/I5). Returns (block-relative line offset of the opener, rule).
+    """IR1/IR2: a `for … in` (IR1) / `while` | `until` (IR2) loop whose do…done span
+    invokes a label helper (probe rows I4/I5). Returns (block-relative line offset of
+    the opener, rule). `lines` MUST be comment-stripped/heredoc-blanked
+    (`_shape_preprocess_lines`) — scanning raw source made a `#` comment mentioning a
+    loop a false hit.
+
+    The span runs from the opener to its closing `done`, INCLUSIVE, and a one-line
+    loop (`for f in a b; do …; done`) is closed by the `done` on the opener line
+    itself. An opener with NO `done` anywhere in the fence is NOT a loop we can
+    measure — it is skipped, never treated as running to end-of-fence (that made every
+    later label call in the block a phantom hit of a loop that does not exist).
+
     Non-nested by design — the reworked skill has no such loop; a re-introduced one is
-    single-level, and the span ends at the first `done`."""
+    single-level.
+    """
     hits: list[tuple[int, str]] = []
     n = len(lines)
     i = 0
     while i < n:
-        line = lines[i]
-        if re.search(r"\bfor\s+[A-Za-z_][A-Za-z0-9_]*\s+in\b", line):
-            rule = "IR1"
-        elif re.search(r"\bwhile\b", line):
-            rule = "IR2"
-        else:
+        opener = _LOOP_OPENER.search(lines[i])
+        if not opener:
             i += 1
             continue
-        found = _LABEL_HELPER.search(line) is not None
-        j = i + 1
-        while j < n:
-            found = found or (_LABEL_HELPER.search(lines[j]) is not None)
-            if re.search(r"(?:^|[|;&\s])done(?:$|[|;&\s])", lines[j]):
-                break
-            j += 1
-        if found:
+        rule = "IR1" if opener.group(1) == "for" else "IR2"
+        # Locate the closing `done`. On the opener line it only counts if it comes
+        # AFTER the loop keyword (a one-line `for …; do …; done`).
+        end: int | None = None
+        if _LOOP_DONE.search(lines[i][opener.end():]):
+            end = i
+        else:
+            j = i + 1
+            while j < n:
+                if _LOOP_DONE.search(lines[j]):
+                    end = j
+                    break
+                j += 1
+        if end is None:
+            i += 1  # unterminated: not a measurable loop span — do NOT swallow the tail
+            continue
+        if any(_LABEL_HELPER.search(lines[k]) for k in range(i, end + 1)):
             hits.append((i, rule))
-        i = j + 1
+        i = end + 1
     return hits
 
 
@@ -459,12 +530,16 @@ def find_implement_violations(text: str) -> list[tuple[int, str, str]]:
     hits: list[tuple[int, str, str]] = []
     for start, block in _fence_line_offsets(text):
         block_lines = block.split("\n")
+        # Comment-stripped, heredoc-blanked, LINE-ALIGNED with block_lines — the same
+        # cleaning `_statements()` (and every review-tier rule) applies. Scanning raw
+        # lines here made a `#` comment mentioning `while`/`for … in` a false hit.
+        clean_lines = _shape_preprocess_lines(block)
         for statement in _statements(block):
             if not _label_capture_violation(statement):
                 continue
             lineno = _attribute_line(statement, start, len(block_lines), lines)
             hits.append((lineno, "IR3", statement.strip()))
-        for off, rule in _loop_violations(block_lines):
+        for off, rule in _loop_violations(clean_lines):
             hits.append((start + off, rule, block_lines[off].strip()))
     return hits
 

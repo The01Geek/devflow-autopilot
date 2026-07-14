@@ -26419,21 +26419,55 @@ assert_eq "#455 IR2 flags a piped while-read loop wrapping a label helper" "yes"
 { printf '%s\n' '```bash' 'LBL_ERR="$(.devflow/vendor/devflow/scripts/apply-labels.sh "$n" "$X" 2>&1)"' '```'; } > "$E363/i-ir3.md"
 assert_eq "#455 IR3 flags a VAR=\$(label-helper …) capture" "yes" \
   "$(python3 "$ECS" --profile implement "$E363/i-ir3.md" | grep -q '  IR3  ' && echo yes || echo no)"
-# ── Discrimination: the PERMITTED implement shapes are NOT flagged — a config-get/gh capture
-# ── the matcher descends into, and a bare single-leading-token label call (the reworked form).
+# ── Discrimination: the shapes the skill actually emits are NOT flagged — a non-label
+# ── config-get/gh capture, and a bare single-leading-token label call (the reworked form).
+# ── NOTE the non-label capture carve-out is an INFERENCE (the matcher is assumed to descend
+# ── into a non-label `$(…)`), NOT a measured implement-tier row — see extract-command-shapes.py's
+# ── rule-block comment and matcher-probe.yml rows 8/9, which exist to settle it.
 { printf '%s\n' '```bash' 'D=$(.devflow/vendor/devflow/scripts/config-get.sh .deferred.labels DevFlow,Deferred)' 'PR=$(gh pr view --json number --jq ".number")' '.devflow/vendor/devflow/scripts/ensure-label.sh <label>' '.devflow/vendor/devflow/scripts/apply-labels.sh <n> "<labels>"' '```'; } > "$E363/i-ok.md"
 assert_eq "#455 implement shape-lint does NOT flag permitted shapes (config-get/gh capture, bare label call)" "" \
   "$(python3 "$ECS" --profile implement "$E363/i-ok.md")"
 # ── Behavioral proof (the assert_pin_red_under analogue for a program-based guard, per the
-# ── behavioral-fix-pin rule): a mutation REINTRODUCING the exact for-loop-wrapping-a-label-
-# ── helper shape #455 removed from Phase 4.0 flips the implement lint RED and is named IR1 —
-# ── the guarded regression, not merely a vanished line.
+# ── behavioral-fix-pin rule): a mutation REINTRODUCING the shape #455 actually removed from
+# ── Phase 4.0 flips the implement lint RED. The mutation is the VERBATIM removed block — a
+# ── `for` loop wrapping a `VAR="$(…)"` capture of the label helper invoked through the #275
+# ── ANCHOR form — not a simplified variant: the anchor+capture spelling is the one that
+# ── exercises IR3's path through the quote-aware statement splitter (a nested `"$("${…}"…)"`),
+# ── so a mutation using the flat vendored-literal form would leave that path unpinned and a
+# ── future splitter/quoting regression would ship green. Both IR1 (the loop) and IR3 (the
+# ── capture) must be named — the removed code was both.
 I455_MUT="$E363/i-mut.md"; cp "$IMPL_DIR/phases/phase-4-documentation.md" "$I455_MUT"
-{ printf '%s\n' '```bash' 'for n in $DEFERRED_ISSUE_NUMBERS; do' '  .devflow/vendor/devflow/scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS"' 'done' '```'; } >> "$I455_MUT"
+{ printf '%s\n' '```bash' 'for n in $DEFERRED_ISSUE_NUMBERS; do' '  LBL_ERR="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS" 2>&1)"' 'done' '```'; } >> "$I455_MUT"
 I455_OUT="$(python3 "$ECS" --profile implement "$I455_MUT" 2>&1)"; I455_RC=$?
-assert_eq "#455 behavioral: reintroducing a for-loop around a label helper flips the implement lint RED (exit 1)" "1" "$I455_RC"
-assert_eq "#455 behavioral: that reintroduced regression is named IR1" "yes" \
+assert_eq "#455 behavioral: reintroducing the removed for-loop+capture around a label helper flips the implement lint RED (exit 1)" "1" "$I455_RC"
+assert_eq "#455 behavioral: that reintroduced regression is named IR1 (the loop)" "yes" \
   "$(printf '%s\n' "$I455_OUT" | grep -q '  IR1  ' && echo yes || echo no)"
+assert_eq "#455 behavioral: that reintroduced regression is ALSO named IR3 (the anchor-form capture)" "yes" \
+  "$(printf '%s\n' "$I455_OUT" | grep -q '  IR3  ' && echo yes || echo no)"
+# ── Anti-vacuity for the two sibling SPELLINGS of the same denied shapes (a guard that knows
+# ── only one spelling of what it forbids is a hole an author falls into by accident).
+{ printf '%s\n' '```bash' 'E=`.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow`' '```'; } > "$E363/i-ir3-backtick.md"
+assert_eq "#455 IR3 flags a BACKTICK capture of a label helper (same denied shape, other spelling)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir3-backtick.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'until ok; do' '  .devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' 'done' '```'; } > "$E363/i-ir2-until.md"
+assert_eq "#455 IR2 flags an UNTIL loop wrapping a label helper (same denied shape, other spelling)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir2-until.md" | grep -q '  IR2  ' && echo yes || echo no)"
+# ── FALSE-POSITIVE controls (the #480 review): the loop scan runs over COMMENT-STRIPPED,
+# ── heredoc-blanked lines and requires a real `done`, so PROSE must never turn the desk RED.
+# ── Before the fix it did: a `#` comment mentioning a loop, or the word "while" in a command
+# ── ARGUMENT, opened a bogus span that ran to end-of-fence and swallowed every later label
+# ── call — turning a fence that emits ONLY permitted shapes RED, with the diagnosis pointing
+# ── at a comment. A spurious RED on the very files this lint guards is how a guard gets
+# ── weakened or scoped out, so each of these is pinned.
+{ printf '%s\n' '```bash' '# for L in a b: never wrap a label helper in a loop' '.devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' '```'; } > "$E363/i-fp-comment-for.md"
+assert_eq "#455 no false positive: a '#' comment mentioning a for-loop + a permitted bare label call stays clean" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-comment-for.md")"
+{ printf '%s\n' '```bash' '# poll while the run is in progress' '.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow' '```'; } > "$E363/i-fp-comment-while.md"
+assert_eq "#455 no false positive: a '#' comment mentioning 'while' + a permitted bare label call stays clean" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-comment-while.md")"
+{ printf '%s\n' '```bash' 'echo "wait a while"' '.devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' '```'; } > "$E363/i-fp-arg-while.md"
+assert_eq "#455 no false positive: the word 'while' in a command ARGUMENT + a permitted bare label call stays clean" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-arg-while.md")"
 # ── Coupled-invariant: the workflow grants the two label helpers in the explicit
 # ── vendored-literal leading-token form the implement-probe table proved PERMITTED (#455).
 assert_eq "#455: devflow-implement.yml grants apply-labels.sh in the explicit vendored-literal form" "yes" \
