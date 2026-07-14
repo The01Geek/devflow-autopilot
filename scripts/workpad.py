@@ -1144,9 +1144,10 @@ def _insert_reflection_bullet(inner: str, kind: str, text: str) -> str:
     # text round-trips unchanged through splitlines+join.)
     one_line = ' '.join(text.splitlines())
     # Glyph-only render when the kind carries no label (its sub-heading already
-    # names it — see _REFLECTION_KINDS); labeled render otherwise.
-    bullet = (f'- {glyph} **{label}:** {one_line}' if label
-              else f'- {glyph} {one_line}')
+    # names it — see _REFLECTION_KINDS); labeled render otherwise. Isolate the one
+    # varying segment so the bullet skeleton lives in a single f-string.
+    label_part = f'**{label}:** ' if label else ''
+    bullet = f'- {glyph} {label_part}{one_line}'
     target_heading = _SUBSECTION_HEADINGS[sub_key]
     blocks = _parse_reflection_blocks(inner)
     for blk in blocks:
