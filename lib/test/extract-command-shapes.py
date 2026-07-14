@@ -516,6 +516,8 @@ def find_violations(text: str) -> list[tuple[int, str, str]]:
 #  * The rules match the helper by NAME, so a label helper reached through a VARIABLE
 #    (`H=…/apply-labels.sh; for n in …; do "$H" "$n"; done`) is not flagged. Inherent to a
 #    name-literal desk lint — resolving it needs dataflow — and the skill files never write it.
+#    The same limit covers a FUNCTION wrapper (`lbl() { …/apply-labels.sh "$1" X; }; for n in …;
+#    do lbl "$n"; done`) — same dataflow gap, same disclosure.
 #  * A LOOP-EQUIVALENT per-item wrapper by another head — `… | xargs -I{} …/apply-labels.sh {} X`,
 #    `find … -exec …/apply-labels.sh …` — is not flagged either. It has the same "the helper is
 #    not the leading token" property the probe measured for I4/I5/I6, and `xargs` IS granted, so
