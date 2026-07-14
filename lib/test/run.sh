@@ -34192,25 +34192,27 @@ assert_eq "#487 arm4: loop writes its PID to the pidfile (the retirement handle)
 assert_eq "#487 arm4: failed cycle takes the BACKOFF branch then success takes the INTERVAL branch" "11 99" \
   "$(tr '\n' ' ' < "$SLEEPLOG487" | sed 's/ *$//')"
 
-# Arm 4b — Key-hygiene /proc mitigation (PR #491 Important finding). The workflow
-# Start step exports DEVFLOW_APP_PRIVATE_KEY (to pipe the PEM to our stdin) and the
-# detached refresher inherits it into its own environment, where the concurrent
-# same-uid (prompt-injectable) claude step could read the raw PEM via
-# /proc/<pid>/environ for the whole run. read_key_from_stdin must `unset` it the
-# instant the piped key lands in shell memory. It runs BEFORE mint_token's `eval`,
-# so a mint override that echoes the env var observes the POST-unset environment —
-# a leaked var would surface in the written token, an unset one reads `<unset>`.
+# Arm 4b — belt-and-suspenders child-env scrub (PR #491). read_key_from_stdin
+# `unset`s DEVFLOW_APP_PRIVATE_KEY from bash's in-memory environment table so that
+# any child the refresher spawns afterward (openssl/curl/git) can never inherit the
+# PEM in its own environment. NOTE: this is NOT the /proc/<pid>/environ mitigation —
+# that vector is closed at the WORKFLOW launch with `env -u DEVFLOW_APP_PRIVATE_KEY`
+# (pinned below), because /proc/<pid>/environ snapshots the exec-time environment and
+# a later `unset` does not rewrite it (proc(5)). This arm exercises only the child-
+# inheritance scrub: read_key_from_stdin runs BEFORE mint_token's `eval`, so a mint
+# override that echoes the env var observes the POST-unset bash environment — a
+# leaked var surfaces in the written token, an unset one reads `<unset>`.
 _a4b_tok="$D487/tok4b"
 DEVFLOW_APP_PRIVATE_KEY='SECRET_PEM_MATERIAL' \
   DEVFLOW_REFRESH_MINT='printf "envval=[${DEVFLOW_APP_PRIVATE_KEY:-<unset>}]"' \
   DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" DEVFLOW_REFRESH_TOKEN_FILE="$_a4b_tok" \
   GITHUB_SERVER_URL="https://github.com" \
   bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1
-assert_eq "#487 arm4b: read_key_from_stdin unsets DEVFLOW_APP_PRIVATE_KEY from the refresher env (/proc mitigation)" "envval=[<unset>]" \
+assert_eq "#487 arm4b: read_key_from_stdin unsets DEVFLOW_APP_PRIVATE_KEY from bash's env (child-inheritance scrub)" "envval=[<unset>]" \
   "$(cat "$_a4b_tok" 2>/dev/null)"
-# Behavioral-fix pin: prove the guard is the `unset` line specifically — a mutation
-# deleting it (reintroducing the /proc leak) must flip the pin RED.
-assert_pin_red_under "#487 arm4b-pin: DEVFLOW_APP_PRIVATE_KEY unset present (deleting it reopens the /proc leak)" \
+# Removal pin: deleting the `unset` line re-exposes the PEM to child processes the
+# refresher spawns, so it must flip the pin RED.
+assert_pin_red_under "#487 arm4b-pin: DEVFLOW_APP_PRIVATE_KEY unset present (deleting it re-exposes the PEM to children)" \
   'unset DEVFLOW_APP_PRIVATE_KEY' '/unset DEVFLOW_APP_PRIVATE_KEY/d' "$REFRESH_SH"
 
 # Arm 4c — SIGTERM teardown of a LIVE loop (PR #491 Suggestion 1). The loop sleeps in
@@ -34546,6 +34548,22 @@ for _wf487 in devflow-implement devflow; do
     "$(grep -cF '.devflow/vendor/devflow/scripts/stop-refresher.sh' "$_WFF487")"
   assert_eq "#487 wiring: $_wf487.yml invokes the vendored refresher via nohup (detached, not background:)" "1" \
     "$(grep -cF 'nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop' "$_WFF487")"
+  # ── /proc/<pid>/environ mitigation (PR #491). The Start step exports the PEM as a
+  # step-level env var (to pipe it to the refresher's stdin); that var is inherited
+  # into the detached refresher's exec-time environment, where the concurrent same-uid
+  # claude step could read the raw PEM via /proc/<pid>/environ (which snapshots the
+  # environment at execve and is NOT cleared by an in-process `unset` — proc(5)). The
+  # ACTUAL mitigation is launching the refresher with `env -u DEVFLOW_APP_PRIVATE_KEY`,
+  # so the long-lived process's environ never holds the PEM. Removal reopens the leak.
+  _startblk487="$(mint_blk 'Start credential refresher (optional)' "$_WFF487")"
+  _envu_ln="$(printf '%s\n' "$_startblk487" | grep -nF 'env -u DEVFLOW_APP_PRIVATE_KEY' | head -1 | cut -d: -f1)"
+  _nohup_ln="$(printf '%s\n' "$_startblk487" | grep -nF 'nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop' | head -1 | cut -d: -f1)"
+  assert_eq "#487 wiring: $_wf487.yml launches the refresher with env -u DEVFLOW_APP_PRIVATE_KEY BEFORE nohup (closes the /proc PEM leak)" "yes" \
+    "$([ -n "$_envu_ln" ] && [ -n "$_nohup_ln" ] && [ "$_envu_ln" -lt "$_nohup_ln" ] && echo yes || echo no)"
+  # Behavioral-fix pin: deleting the `env -u DEVFLOW_APP_PRIVATE_KEY` line reintroduces
+  # the /proc/<pid>/environ PEM exposure, so it must flip the pin RED.
+  assert_pin_red_under "#487 wiring: $_wf487.yml env -u DEVFLOW_APP_PRIVATE_KEY present (deleting it reopens the /proc PEM leak)" \
+    'env -u DEVFLOW_APP_PRIVATE_KEY' '/env -u DEVFLOW_APP_PRIVATE_KEY/d' "$_WFF487"
   # No `background:` step key anywhere (would break actionlint).
   assert_eq "#487 wiring: $_wf487.yml uses no 'background:' step key (actionlint-safe)" "0" \
     "$(grep -cE '^[[:space:]]*background:[[:space:]]*true' "$_WFF487")"

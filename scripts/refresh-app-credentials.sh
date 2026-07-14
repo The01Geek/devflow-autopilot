@@ -33,14 +33,18 @@
 # (openssl signs with the key handed over a file descriptor via process
 # substitution, a /dev/fd path, not a real file). Scope note: the *workflow* Start
 # step passes the key as its own step-level `DEVFLOW_APP_PRIVATE_KEY` env solely to
-# pipe it to this script's stdin. That variable is inherited into this detached,
-# long-lived process, so read_key_from_stdin `unset`s it the instant the key lands
-# in shell memory — otherwise the concurrent same-uid `claude` agent step could
-# read the raw PEM via /proc/<pid>/environ for the whole run (a strictly larger
-# blast radius than a 60-min token). After the unset the key lives ONLY in the
-# shell-memory `$KEY` (not exposed via /proc/*/environ), NEVER in the separate
-# `claude` agent step's env (the AC's "not visible to the agent session"
-# guarantee), and never on disk.
+# pipe it to this script's stdin. The `/proc/<pid>/environ` exposure of that
+# inherited var is closed at the WORKFLOW launch, not here: the detached refresher
+# is spawned with `env -u DEVFLOW_APP_PRIVATE_KEY`, so the var is absent from this
+# long-lived process's exec-time environment and never appears in its
+# `/proc/<pid>/environ` (which snapshots the environment at execve time and is NOT
+# updated by a later `unset`/`unsetenv` — proc(5)), which the concurrent same-uid
+# (prompt-injectable) `claude` agent step could otherwise read for the whole run.
+# read_key_from_stdin ALSO `unset`s the var as belt-and-suspenders — harmless when
+# `env -u` already removed it, and it scrubs bash's environment table so any child
+# the refresher spawns (openssl/curl/git) can never inherit the PEM. The key lives
+# ONLY in the shell-memory `$KEY` (a non-exported shell var, never in any
+# `/proc/*/environ`), NEVER in the `claude` agent step's own env, and never on disk.
 #
 # Testability: the mint honors a DEVFLOW_-prefixed override that wins verbatim
 # and is never probed (the lib/resolve-bin.sh DEVFLOW_<TOOL> stub contract), and
@@ -87,15 +91,15 @@ KEY=""
 read_key_from_stdin() {
   # -r: no backslash mangling; -d '': read the whole stream including newlines.
   IFS= read -r -d '' KEY || true
-  # Drop the key from THIS process's environment immediately. The workflow Start
-  # step exports the PEM as the step-level `DEVFLOW_APP_PRIVATE_KEY` env solely to
-  # pipe it to our stdin; that variable is then inherited into this detached,
-  # long-lived process's environment, where the concurrent same-uid (and
-  # prompt-injectable) `claude` agent step could read it via /proc/<pid>/environ
-  # for the whole run — a strictly larger blast radius than the pre-#487 60-min
-  # token (the raw PEM mints installation tokens indefinitely). The pipe-fed key
-  # now lives ONLY in the shell-memory `$KEY`, which /proc/*/environ does not
-  # expose. `unset` is a bash builtin (no non-preflight PATH tool on this path).
+  # Belt-and-suspenders scrub of the key from bash's environment table. The primary
+  # /proc/<pid>/environ mitigation is at the workflow launch (`env -u
+  # DEVFLOW_APP_PRIVATE_KEY` on the detached refresher — see the Key-hygiene header),
+  # because /proc/<pid>/environ snapshots the exec-time environment and a later
+  # `unset` does NOT rewrite it (proc(5)). This `unset` therefore does not by itself
+  # close the /proc vector; what it DOES do is scrub bash's in-memory environment so
+  # any child the refresher spawns afterward (openssl/curl/git) never inherits the
+  # PEM in its own environment. It is a bash builtin (no non-preflight PATH tool on
+  # this path) and is a harmless no-op when `env -u` already removed the var.
   unset DEVFLOW_APP_PRIVATE_KEY
 }
 

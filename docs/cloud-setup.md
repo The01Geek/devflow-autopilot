@@ -251,10 +251,15 @@ installation token and rewrites the two repo-controlled credential surfaces in p
    substitutes the refreshed token where the ambient (expiring) one would be used.
 
 **Key handling.** The App's PEM private key is piped to the refresher's **stdin** — it
-is never re-exported into an environment variable visible to the agent session, never
-passed as a process argument, and never written to disk (the JWT is signed with the
-key handed to `openssl` over a file descriptor). The key lives only in the trusted
-refresher process's own environment.
+is never passed as a process argument and never written to disk (the JWT is signed with
+the key handed to `openssl` over a file descriptor). The workflow's Start step exports
+the key as a step-level env var only so that short-lived launcher shell can pipe it; the
+**detached refresher is launched with `env -u DEVFLOW_APP_PRIVATE_KEY`**, so the raw PEM
+is absent from the long-lived refresher's exec-time environment and therefore never
+readable via its `/proc/<pid>/environ` by the concurrent same-uid `claude` agent step
+(`/proc/<pid>/environ` snapshots the environment at `execve` time and is not updated by a
+later `unset` — proc(5), so `env -u` at launch, not an in-process `unset`, is what closes
+that vector). The key then lives only in the refresher's shell memory.
 
 **Least privilege.** Each re-minted token is **scoped to this repository only**
 (`repositories: [<repo>]`), matching the job-start token's default scope rather than

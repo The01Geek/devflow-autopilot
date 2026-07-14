@@ -439,10 +439,15 @@ jobs:
       # (CI's raven-actions/actionlint@v2) rejects the unrecognized `background:`
       # step key, so the refresher is spawned with `nohup … &` in a normal step
       # that survives into the claude step. The private key is piped to the
-      # refresher's stdin (never an env var visible to the agent, never argv,
-      # never disk — a pipe, not a here-string) and the loop traps TERM/exits 0,
-      # so the job conclusion never rides on it; the `if: always()` pidfile-kill
-      # step after the claude step retires it. See docs/cloud-setup.md.
+      # refresher's stdin (never argv, never disk — a pipe, not a here-string),
+      # and the detached refresher is launched with `env -u` (dropping the key var)
+      # so its exec-time environment — hence /proc/<pid>/environ, readable by the
+      # concurrent same-uid (prompt-injectable) claude step — never holds the PEM.
+      # The step-level env var exists ONLY so THIS short-lived launcher shell (gone
+      # before the claude step) can pipe it; an in-process `unset` alone would NOT
+      # scrub the long-lived refresher's /proc environ, which snapshots exec time
+      # (proc(5)). The loop traps TERM/exits 0, so the job conclusion never rides on
+      # it; the `if: always()` pidfile-kill step retires it. See docs/cloud-setup.md.
       - name: Start credential refresher (optional)
         id: refresher
         if: ${{ vars.DEVFLOW_APP_ID != '' }}
@@ -452,7 +457,8 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$DEVFLOW_APP_PRIVATE_KEY" \
-            | nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop \
+            | env -u DEVFLOW_APP_PRIVATE_KEY \
+                nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop \
                 >"$RUNNER_TEMP/devflow-refresh.log" 2>&1 &
           disown || true
           echo "credential refresher started (detached); log: $RUNNER_TEMP/devflow-refresh.log"
