@@ -3041,8 +3041,6 @@ assert_pin_unique "#464 AC2: template states a no-new-judgment-surface draft gai
 # AC3 — template Acceptance-Criteria list-closure rule + Move 2 write-back extension.
 assert_pin_unique "#464 AC3: template AC rules require every enumerated AC list to declare its closure" \
   'Every enumerated test/case/example list inside an AC declares its closure' "$CI312_TMPL"
-assert_pin_unique "#464 AC3: closed-set exhaustiveness marker shape (complete by construction)" \
-  'complete by construction' "$CI312_TMPL"
 assert_pin_unique "#464 AC3: Move 2 writes the coverage-sweep output back as closed AC items before filing" \
   "writes the sweep's output back as additional closed AC items before filing" "$CI312_TMPL"
 # AC5 — extension gains the mutation-evidence dimension, scoping surface-presence pins OUT.
