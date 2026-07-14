@@ -33516,9 +33516,14 @@ _s13="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidA" DEVFLOW_REFRESH_LOG="$D487/logA" ba
 assert_eq "#487 arm13: recovered transient (last cycle OK) does NOT warn defeated" "no" "$(_defeat487 "$_s13")"
 assert_eq "#487 arm13: stop-refresher always exits 0" "0" "$_s13_rc"
 
-# Arm 14 — pidfile absent → never-started/crash → defeated warning.
-_s14="$(DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
-assert_eq "#487 arm14: absent pidfile (never started/crashed) warns defeated" "yes" "$(_defeat487 "$_s14")"
+# Arm 14 — pidfile absent AND the Start step ran (STARTED=success) → genuine defeat → warn.
+_s14="$(DEVFLOW_REFRESH_STARTED=success DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm14: absent pidfile + Start ran (never started/crashed) warns defeated" "yes" "$(_defeat487 "$_s14")"
+
+# Arm 17 — pidfile absent BUT the Start step did NOT run (job aborted upstream:
+# STARTED=skipped) → missing pidfile is expected → NO false defeated warning.
+_s17="$(DEVFLOW_REFRESH_STARTED=skipped DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm17: absent pidfile + Start skipped (upstream abort) does NOT warn defeated" "no" "$(_defeat487 "$_s17")"
 
 # Arm 15 — pidfile present + last log line is a ::warning:: → sustained failure → warn.
 echo 999999 > "$D487/pidC"
@@ -33564,6 +33569,28 @@ done
 # devflow.yml's gate additionally excludes /devflow:review (read-only, never pushes).
 assert_eq "#487 wiring: devflow.yml refresher start excludes /devflow:review commands" "1" \
   "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
+# The Stop step's review-exclusion ASYMMETRY is the design's load-bearing invariant:
+# devflow.yml's Stop step MUST carry the /devflow:review negation (else the review path,
+# where the refresher was never started, takes stop-refresher.sh's absent-pidfile defeat
+# arm and falsely warns), while devflow-implement.yml's Stop step must NOT (it always
+# starts the refresher). Pin both directions so a dropped or mis-copied gate goes RED.
+assert_eq "#487 wiring: devflow.yml Stop step carries the /devflow:review exclusion" "1" \
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
+assert_eq "#487 wiring: devflow-implement.yml Stop step does NOT carry a /devflow:review exclusion" "0" \
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow-implement.yml")" | grep -cF "/devflow:review")"
+# Both Stop steps pass the Start step's outcome so stop-refresher.sh can tell a genuine
+# never-started defeat from an upstream early-abort (absent pidfile is expected there).
+assert_eq "#487 wiring: devflow.yml Stop step passes steps.refresher.outcome as DEVFLOW_REFRESH_STARTED" "1" \
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow.yml")" | grep -cF 'DEVFLOW_REFRESH_STARTED: ${{ steps.refresher.outcome }}')"
+assert_eq "#487 wiring: devflow-implement.yml Stop step passes steps.refresher.outcome as DEVFLOW_REFRESH_STARTED" "1" \
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow-implement.yml")" | grep -cF 'DEVFLOW_REFRESH_STARTED: ${{ steps.refresher.outcome }}')"
+# Coupled literal: the refresher EMITS `cycle OK` and stop-refresher.sh MATCHES it to tell
+# a recovered transient from a sustained failure — a reworded producer breadcrumb would
+# silently break the consumer's discrimination. Pin the shared marker in both files.
+assert_eq "#487 coupled-literal: refresh-app-credentials.sh emits the 'cycle OK' success marker" "1" \
+  "$(grep -cF "printf 'refresh-app-credentials: cycle OK" "$LIB/../scripts/refresh-app-credentials.sh")"
+assert_eq "#487 coupled-literal: stop-refresher.sh matches the 'cycle OK' marker in its operative case arm" "1" \
+  "$(grep -cF '*"cycle OK"*)' "$LIB/../scripts/stop-refresher.sh")"
 
 # Fail-fast prose rule (surface-presence class, per the issue's Testing Strategy): the
 # two-strikes bad-credential rule is present in both skill files. Pinned via

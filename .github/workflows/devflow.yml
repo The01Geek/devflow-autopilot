@@ -716,6 +716,11 @@ jobs:
       # selection is suite-drivable (CLAUDE.md inline-shell-extraction convention).
       - name: Stop credential refresher (optional)
         if: ${{ always() && vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        env:
+          # The Start step's outcome. `success` iff it actually ran; on an upstream
+          # early-abort it is skipped, and a missing pidfile is then expected rather
+          # than a defeat — see stop-refresher.sh.
+          DEVFLOW_REFRESH_STARTED: ${{ steps.refresher.outcome }}
         run: |
           H=.devflow/vendor/devflow/scripts/stop-refresher.sh
           [ -f "$H" ] || H=scripts/stop-refresher.sh
