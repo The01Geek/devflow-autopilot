@@ -156,20 +156,33 @@ if [ "$LANDED" = yes ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
   # to the warn below, never a malformed `pulls/` PATCH path.
   PR_NUMBER=$(printf '%s' "$PR_JSON" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -r --arg h "$HEAD_REF" '[.[] | select(.headRefName == $h)] | sort_by(.createdAt) | last | .number // empty' 2>/dev/null) || PR_NUMBER=""
   if [ -n "$PR_NUMBER" ]; then
-    PR_BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null) || PR_BODY=""
-    # Substitute ONLY when the body already carries a `[View run](` line; a body
-    # with no such line (local-tier-stripped, human-edited-away, or a pre-existing
-    # PR predating the link feature) takes the no-op arm (warn, no PATCH, no
-    # insert). The python3 step rewrites ONLY the `[View run](...)` line the
-    # Phase 3.1 template places immediately after the `Resolves #` line (its
-    # preceding line); a human-added `[View run]` elsewhere is preserved
-    # byte-for-byte. python3 is preflight-guaranteed; the body is piped through
-    # stdin so its backticks and `$` never traverse shell quoting, and the -c
-    # script uses no single quotes (double-quoted python strings only) so the bash
-    # single-quote wrapper is safe; RUN_URL passes as argv, not interpolated. The
-    # full body (one line changed) is PATCHed back via REST (repo-scope — `gh pr
-    # edit --body` is org-scoped GraphQL and fails under a repo-scoped token).
-    if [ -n "$PR_BODY" ] && printf '%s' "$PR_BODY" | grep -qF '[View run]('; then
+    # Read the PR body via `gh pr view` (issue-sanctioned, best-effort). A read
+    # failure (transport/auth, a repo-scoped token that cannot resolve `gh pr
+    # view`'s GraphQL, or the PR deleted between selection and read) is DISTINCT
+    # from a genuinely line-absent body: the `if !` reads `gh pr view`'s OWN exit
+    # status (never a cross-statement rc — issue #284), routing a failed read to
+    # its own breadcrumb so a reviewer debugging a stale link is not misdirected
+    # to "no [View run] line" when the body was never observed.
+    if ! PR_BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null); then
+      PR_BODY=""
+      echo "::warning::devflow resume: could not read PR #$PR_NUMBER body (gh pr view failed); PR-body run-link refresh skipped" >&2
+    elif [ -n "$PR_BODY" ] && [[ $PR_BODY == *"[View run]("* ]]; then
+      # Substitute ONLY the `[View run](...)` line the
+      # Phase 3.1 template places immediately after the `Resolves #` line (its
+      # preceding line); a human-added `[View run]` elsewhere is preserved
+      # byte-for-byte. A body
+      # with no `[View run](` line at all (local-tier-stripped, human-edited-away,
+      # or a pre-existing PR predating the link feature) takes the no-op arm
+      # (warn, no PATCH, no insert). The `[[ == *"[View run]("* ]]` presence
+      # check is a bash builtin (no PATH tool — guard-class 2: a value that
+      # decides the PATCH must not be derived through a non-preflight tool like
+      # `grep`). python3 is preflight-guaranteed; the body is piped through stdin
+      # so its backticks and `$` never traverse shell quoting, and the -c script
+      # uses no single quotes (double-quoted python strings only) so the bash
+      # single-quote wrapper is safe; RUN_URL passes as argv, not interpolated.
+      # The full body (the Phase 3.1 line rewritten) is PATCHed back via REST
+      # (repo-scope — `gh pr edit --body` is org-scoped GraphQL and fails under a
+      # repo-scoped token).
       printf '%s' "$PR_BODY" | python3 -c 'import sys
 url = sys.argv[1]
 lines = sys.stdin.read().split("\n")
