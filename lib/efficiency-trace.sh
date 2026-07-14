@@ -933,21 +933,22 @@ apply_harness_floor() {
   local ident="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT:-1}"
   # engine_version: the .version of plugin.json resolved BESIDE this helper — null with a
   # breadcrumb when unreadable (AC4), never a fabricated value.
-  local plugin_json="$HERE/../.claude-plugin/plugin.json" ev ev_json="null"
+  local plugin_json="$HERE/../.claude-plugin/plugin.json" ev=""
   if [ -f "$plugin_json" ] && ev="$("$DEVFLOW_JQ" -r 'if (.version | type) == "string" then .version else empty end' "$plugin_json" 2>/dev/null)" && [ -n "$ev" ]; then
-    ev_json="$("$DEVFLOW_JQ" -n --arg v "$ev" '$v')"
+    :
   else
+    ev=""
     echo "::warning::efficiency-trace.sh --persist: harness cost floor: could not read .version from ${plugin_json}; engine_version recorded as null" >&2
   fi
   # Build harness_cost (AC4 — EXACTLY these fields): metadata plus the reader's figures
   # spread in. workflow/command are null when their env is empty (unknown-is-not-zero).
   local harness_cost
   if ! harness_cost="$(printf '%s' "$DEVFLOW_EXECUTION_COST" | "$DEVFLOW_JQ" -c \
-        --argjson ev "$ev_json" \
+        --arg ev "$ev" \
         --arg wf "${GITHUB_WORKFLOW_REF:-}" \
         --arg cmd "${DEVFLOW_COMMAND_CLASS:-}" \
         '{cost_source: "execution-file",
-          engine_version: $ev,
+          engine_version: (if $ev == "" then null else $ev end),
           workflow: (if $wf == "" then null else $wf end),
           command: (if $cmd == "" then null else $cmd end),
           scope: "whole-job",

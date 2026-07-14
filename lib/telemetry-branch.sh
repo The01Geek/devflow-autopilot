@@ -511,10 +511,9 @@ devflow_telemetry_persist_tree() {
                 _u_local="$(git -C "$root" show "${overlay}:${path}" 2>/dev/null)"
                 # jq is a preflight prerequisite (resolve-jq set DEVFLOW_JQ when this file
                 # was sourced by efficiency-trace.sh; a standalone source falls back to
-                # bare `jq`). Add our harness_cost onto base ONLY when base lacks it, so a
-                # base that already carries one (another writer got there first) wins.
-                # Add our harness_cost onto base ONLY when base lacks it AND the local
-                # copy actually carries one (never write a `harness_cost: null` key — the
+                # bare `jq`). Add our harness_cost onto base ONLY when base lacks it AND the
+                # local copy actually carries one (a base that already carries one — another
+                # writer got there first — wins; never write a `harness_cost: null` key — the
                 # staged record IS a merge-arm target so it carries one, but guard the
                 # operand rather than assume it).
                 if _u_merged="$(printf '%s' "$_u_base" | "${DEVFLOW_JQ:-jq}" -c --argjson local "$_u_local" \
