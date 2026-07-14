@@ -511,10 +511,17 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   every conceivable `--persist` failure surface. **The uncovered surface is the telemetry-branch
   write/push itself** (`::warning::telemetry-branch: …` — a non-conforming store, a lost CAS, an
   unwritable `.devflow/tmp`), which the detector's two literals do not match. Note what that costs:
-  post-#441 the record is staged under gitignored `.devflow/tmp/` and that staging root is
-  `rm -rf`'d after the branch write returns, so a failed branch write loses the run's record
-  **entirely** — it is *not* "written to disk, just not yet committed", and this is therefore a
-  record-*losing* gap, not a lower-priority one. It is surfaced only by the helper's own stderr
+  post-#441 the record is staged under gitignored `.devflow/tmp/`, and post-#469 a **degraded**
+  branch write (or a CI staging-only run) **retains** that staging root instead of deleting it — only
+  a *clean* write (pushed / idempotent no-op / nothing staged, `persist_tree` rc 0) deletes the
+  scratch, so `git status` stays byte-unchanged on the success path. A degraded write emits one
+  `::warning::` naming the staging root's **absolute path** so the run's only copy is recoverable, and
+  a bounded newest-N prune (`_DEVFLOW_TELEMETRY_STAGE_KEEP`, default 8) at the start of the next
+  `--persist` keeps retained roots from accumulating. On a **local** filesystem this makes a failed
+  branch write recoverable; on an **ephemeral CI runner** the filesystem does not survive teardown, so
+  on-disk retention is moot there — the forthcoming trusted telemetry-push relay (follow-up to #469)
+  is the cloud recovery path, and until it lands a cloud runner's degraded/staged records are not
+  recoverable. This uncovered surface is still surfaced only by the helper's own stderr
   breadcrumb, which Phase 3.3 captures but does not currently grep for. And because the `APPROVE WITH UNRESOLVED
   SHADOW FINDINGS` path can drive a **second**, separate inline `review-and-fix` invocation (the
   bounded re-review), Phase 3.3 re-runs the whole snapshot-then-backstop procedure — a fresh

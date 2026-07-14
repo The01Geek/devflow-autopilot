@@ -244,11 +244,14 @@ fi
 # single-literal form did (#236 review, Step 3.5 fix-delta gate). This intentionally scopes to
 # record derivation/write failures only, not the separate TELEMETRY-BRANCH write/push failure
 # surface (telemetry-branch.sh's "::warning::telemetry-branch: ..." breadcrumbs — a lost CAS, a
-# non-conforming store, an unwritable .devflow/tmp). Post-#441 that surface is NOT the milder gap
-# this comment used to claim ("the record IS written to disk, just not yet committed"): the record
-# is staged under gitignored .devflow/tmp/ and that staging root is rm -rf'd once the branch write
-# returns, so a failed branch write loses the run's record ENTIRELY. It is a record-LOSING gap, not
-# a lower-priority one — still uncovered by this detector, and surfaced only by the helper's own
+# non-conforming store, an unwritable .devflow/tmp). The record is staged under gitignored
+# .devflow/tmp/; post-#469 a DEGRADED branch write (or a CI staging-only run) RETAINS that staging
+# root (only a clean rc-0 write deletes it) and emits one ::warning:: naming its absolute path,
+# bounded by a newest-N prune on the next --persist — so on a LOCAL filesystem a failed branch write
+# is recoverable rather than lost. On an EPHEMERAL CI runner the staging tree does not survive
+# teardown, so recovery there awaits the forthcoming trusted telemetry-push relay (follow-up to
+# #469); until it lands a cloud runner's degraded/staged records are not recoverable. This surface
+# is still uncovered by this detector, and surfaced only by the helper's own
 # stderr breadcrumb (which this step captures but does not grep). KNOWN LIMITATION (also deferred,
 # #236 review shadow pass): unlike the this-run-scoped no-inputs detector above, this grep
 # runs against the combined capture (the targeted call's stderr plus the whole-tree

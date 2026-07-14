@@ -173,12 +173,15 @@ captures the invocation's stderr and greps it for `--persist`'s own `record not 
 breadcrumb (jq/mkdir failures) **and** its differently-worded disk/permission write-failure
 breadcrumb — a single-literal grep would silently miss the latter — recording a second
 `dropped-failed` reflection when either fires. The surface it does **not** cover is the
-telemetry-branch write/push itself (`::warning::telemetry-branch: …`), and post-#441 that is a
-record-**losing** gap, not the milder "written to disk, just not yet committed" one this line
-used to describe: the record is staged under gitignored `.devflow/tmp/` and that staging root is
-`rm -rf`'d once the branch write returns, so a failed branch write loses the run's record
-entirely (coupled with `skills/implement/phases/phase-3-review.md` and `docs/efficiency-trace.md`,
-which say the same). If the stderr capture itself can't be allocated
+telemetry-branch write/push itself (`::warning::telemetry-branch: …`). The record is staged under
+gitignored `.devflow/tmp/`; post-#469 a **degraded** branch write (or a CI staging-only run)
+**retains** that staging root (only a *clean* write deletes it) and emits one `::warning::` naming
+its **absolute path**, bounded by a newest-N prune on the next `--persist`, so on a **local**
+filesystem a failed branch write is recoverable rather than lost. On an **ephemeral CI runner** the
+staging tree does not survive teardown, so recovery there awaits the forthcoming trusted
+telemetry-push relay (follow-up to #469); until it lands a cloud runner's degraded/staged records are
+not recoverable (coupled with `skills/implement/phases/phase-3-review.md` and
+`docs/efficiency-trace.md`, which say the same). If the stderr capture itself can't be allocated
 (`mktemp` fails), the backstop degrades to discarding `--persist`'s stderr entirely rather than
 aborting — this disables the record-write-failure check for that run (the no-inputs case still
 runs) and emits its own distinct `::warning::`, the same degrade-and-warn discipline as the
