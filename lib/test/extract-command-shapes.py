@@ -443,6 +443,45 @@ def find_violations(text: str) -> list[tuple[int, str, str]]:
 _LABEL_HELPER = re.compile(r"(?:apply-labels|ensure-label)\.sh\b")
 
 
+def _substitution_bodies(value: str) -> list[str]:
+    """Every command-substitution body inside an assignment value — the `$( … )` form
+    (paren-balanced) and the backtick form, which are the same shape spelled two ways.
+
+    SINGLE-quoted spans are masked out first: a backtick or `$(` inside `'…'` is literal
+    text, not a substitution (`NOTE='runs `once`'`). Double-quoted spans are NOT masked —
+    `"$(cmd)"` is a real substitution, and it is the exact form the denied shape uses.
+    Masking preserves length, so offsets into `value` stay valid.
+    """
+    masked = _mask_quoted(value) if "'" in value else value
+    if len(masked) != len(value):  # defensive: offsets must align to slice `value`
+        masked = value
+    bodies: list[str] = []
+    i = 0
+    n = len(value)
+    while i < n:
+        if masked.startswith("$(", i):
+            depth = 1
+            j = i + 2
+            start = j
+            while j < n and depth:
+                if masked[j] == "(":
+                    depth += 1
+                elif masked[j] == ")":
+                    depth -= 1
+                j += 1
+            # Unbalanced (`$(` with no close) → take the tail: fail CLOSED, since an
+            # unmeasurable capture must not be waved through.
+            bodies.append(value[start : j - 1] if depth == 0 else value[start:])
+            i = j
+        elif masked[i] == "`":
+            close = masked.find("`", i + 1)
+            bodies.append(value[i + 1 : close] if close != -1 else value[i + 1 :])
+            i = (close + 1) if close != -1 else n
+        else:
+            i += 1
+    return bodies
+
+
 def _label_capture_violation(statement: str) -> bool:
     """IR3: a `VAR=$(…)` / `VAR="$(…)"` / `VAR=`…`` capture whose substitution invokes
     a label helper (probe row I6 — the old `LBL_ERR="$(apply-labels.sh … 2>&1)"`).
@@ -459,23 +498,58 @@ def _label_capture_violation(statement: str) -> bool:
     lead = re.match(r"^[A-Za-z_][A-Za-z0-9_]*=(.*)$", raw, re.S)
     if not lead:
         return False
-    value = lead.group(1)
-    if "$(" not in value and "`" not in value:
-        return False
-    return bool(_LABEL_HELPER.search(value))
+    # Search the SUBSTITUTION BODIES, not the raw value: the shape is "a capture OF a
+    # label helper", so a value that merely NAMES one outside any substitution — a
+    # message string like `MSG="$(date -u) applied via apply-labels.sh"` — is not this
+    # shape and must not be flagged.
+    return any(_LABEL_HELPER.search(body) for body in _substitution_bodies(lead.group(1)))
 
 
 # A loop keyword only OPENS a loop in COMMAND POSITION — at the start of a statement,
-# or right after a separator (`;` `|` `&&` `||` `(`) or an opening keyword (`do`/`then`/
-# `else`). A bare `\bwhile\b` line match instead fires on the word `while` anywhere —
-# including inside a command ARGUMENT (`echo "wait a while"`) — and, paired with the
-# span rule below, swallowed every later label call in the fence. Callers pass
-# COMMENT-STRIPPED lines (`_shape_preprocess_lines`), so prose in a `#` comment is
-# already gone by the time this regex runs; this anchor handles the code case.
+# or right after a separator (`;` `|` `&&` `||` `(`), a negation/wrapper (`!`, `time`),
+# or an opening keyword (`do`/`then`/`else`). A bare `\bwhile\b` line match instead fires
+# on the word `while` anywhere — including inside a command ARGUMENT (`echo "wait a
+# while"`) — and, paired with the span rule below, swallowed every later label call in
+# the fence. Callers pass COMMENT-STRIPPED, QUOTE-MASKED lines, so neither a `#` comment
+# nor a quoted argument can supply a phantom separator or keyword.
 _LOOP_OPENER = re.compile(
-    r"(?:^|[;|&(]|\b(?:do|then|else)\b)\s*(for|while|until)\b"
+    r"(?:^|[;|&(]|\b(?:do|then|else|time)\b|!)\s*(for|while|until)\b"
 )
-_LOOP_DONE = re.compile(r"(?:^|[|;&\s])done(?:$|[|;&\s])")
+# The closing `done` may be followed by a subshell/redirect/pipe close, not only
+# whitespace: `(…; done)`, `done>/dev/null`, `done | tee`, `done <labels.txt` are all
+# ordinary spellings. Omitting `)`/`<`/`>` here was a FAIL-OPEN: `_loop_violations` skips
+# an opener whose `done` it cannot find, so a real label-helper loop closed `done)` was
+# silently not scanned — the guard failing open in exactly the direction it exists to
+# fail closed.
+_LOOP_DONE = re.compile(r"(?:^|[|;&\s])done(?:$|[|;&)<>\s])")
+
+
+def _mask_quoted(line: str) -> str:
+    """Replace the CONTENT of quoted spans with `x`, preserving length (so a caller's
+    line offsets and match positions still align with the source).
+
+    The loop scan is a regex over shell TEXT, so without this a `;`, `(`, or loop keyword
+    inside an ordinary argument — `gh issue comment -b "Deferred; while open, do not
+    merge"` — reads as a command-position loop opener and starts a phantom span.
+    Comment-stripping alone does not cover it: that text is code, just quoted.
+    """
+    out: list[str] = []
+    quote: str | None = None
+    prev = ""
+    for ch in line:
+        if quote:
+            if ch == quote and prev != "\\":
+                quote = None
+                out.append(ch)
+            else:
+                out.append("x")
+        elif ch in ("'", '"'):
+            quote = ch
+            out.append(ch)
+        else:
+            out.append(ch)
+        prev = ch
+    return "".join(out)
 
 
 def _loop_violations(lines: list[str]) -> list[tuple[int, str]]:
@@ -496,9 +570,16 @@ def _loop_violations(lines: list[str]) -> list[tuple[int, str]]:
     """
     hits: list[tuple[int, str]] = []
     n = len(lines)
+    # SHELL STRUCTURE (loop openers, `done`) is read from the QUOTE-MASKED lines, so a
+    # separator or keyword inside a quoted argument cannot fake a loop. The LABEL-HELPER
+    # search runs over the UNMASKED lines, because a real denied call routinely sits
+    # inside quotes — the removed Phase 4.0 shape was `LBL_ERR="$(… apply-labels.sh …)"`,
+    # whose helper name lives inside a double-quoted capture. Masking both would blind
+    # IR1/IR2 to precisely the shape they exist to catch. Same length, so offsets align.
+    masked = [_mask_quoted(line) for line in lines]
     i = 0
     while i < n:
-        opener = _LOOP_OPENER.search(lines[i])
+        opener = _LOOP_OPENER.search(masked[i])
         if not opener:
             i += 1
             continue
@@ -506,12 +587,12 @@ def _loop_violations(lines: list[str]) -> list[tuple[int, str]]:
         # Locate the closing `done`. On the opener line it only counts if it comes
         # AFTER the loop keyword (a one-line `for …; do …; done`).
         end: int | None = None
-        if _LOOP_DONE.search(lines[i][opener.end():]):
+        if _LOOP_DONE.search(masked[i][opener.end():]):
             end = i
         else:
             j = i + 1
             while j < n:
-                if _LOOP_DONE.search(lines[j]):
+                if _LOOP_DONE.search(masked[j]):
                     end = j
                     break
                 j += 1

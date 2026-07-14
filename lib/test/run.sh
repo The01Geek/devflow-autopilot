@@ -26468,6 +26468,31 @@ assert_eq "#455 no false positive: a '#' comment mentioning 'while' + a permitte
 { printf '%s\n' '```bash' 'echo "wait a while"' '.devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' '```'; } > "$E363/i-fp-arg-while.md"
 assert_eq "#455 no false positive: the word 'while' in a command ARGUMENT + a permitted bare label call stays clean" "" \
   "$(python3 "$ECS" --profile implement "$E363/i-fp-arg-while.md")"
+# ── FAIL-OPEN controls (the #480 blinded fix-delta gate). The loop scan SKIPS an opener
+# ── whose closing `done` it cannot find — so every ordinary spelling of `done` must be
+# ── recognized, or a real denied loop ships GREEN. `(…; done)`, `done>/dev/null` and a
+# ── `!`-negated opener each did exactly that before this fix. These pin the fail-OPEN
+# ── direction; the false-positive controls above pin the fail-closed one. A guard that
+# ── knows only one spelling of the shape it forbids is a hole an author falls into.
+{ printf '%s\n' '```bash' '(for n in $NUMS; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done)' '```'; } > "$E363/i-fo-subshell.md"
+assert_eq "#455 no fail-open: a SUBSHELL-closed loop '(…; done)' around a label helper is still flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-subshell.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'for n in $L; do' '  .devflow/vendor/devflow/scripts/apply-labels.sh 42 "$n"' 'done>/dev/null' '```'; } > "$E363/i-fo-redirdone.md"
+assert_eq "#455 no fail-open: a redirect-closed loop 'done>/dev/null' around a label helper is still flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-redirdone.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' '! while read -r n; do .devflow/vendor/devflow/scripts/ensure-label.sh "$n"; done < labels.txt' '```'; } > "$E363/i-fo-negated.md"
+assert_eq "#455 no fail-open: a '!'-negated while-loop around a label helper is still flagged IR2" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-negated.md" | grep -q '  IR2  ' && echo yes || echo no)"
+# ── The loop scan reads shell STRUCTURE from quote-MASKED lines, so a separator or loop
+# ── keyword inside a quoted ARGUMENT cannot fake an opener — while the LABEL search still
+# ── reads the UNMASKED line, because the denied capture's helper name lives inside quotes.
+{ printf '%s\n' '```bash' 'gh issue comment 1 -b "Deferred; while this is open, do not merge"' '.devflow/vendor/devflow/scripts/ensure-label.sh Deferred' 'for f in $FILES; do echo "$f"; done' '```'; } > "$E363/i-fp-quoted-sep.md"
+assert_eq "#455 no false positive: a ';'+'while' inside a QUOTED argument does not open a phantom loop span" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-quoted-sep.md")"
+# ── IR3 matches a capture OF a label helper, not a value that merely NAMES one.
+{ printf '%s\n' '```bash' 'MSG="$(date -u) applied via apply-labels.sh"' '```'; } > "$E363/i-fp-msg.md"
+assert_eq "#455 no false positive: a helper NAMED in a message string (outside any substitution) is not an IR3 capture" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-msg.md")"
 # ── Coupled-invariant: the workflow grants the two label helpers in the explicit
 # ── vendored-literal leading-token form the implement-probe table proved PERMITTED (#455).
 assert_eq "#455: devflow-implement.yml grants apply-labels.sh in the explicit vendored-literal form" "yes" \
