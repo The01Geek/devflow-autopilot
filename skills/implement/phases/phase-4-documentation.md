@@ -112,7 +112,7 @@ Otherwise, read the printed `CLEAN_DEFERRED_LABELS` value and apply the labels w
   ```bash
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh <filed-issue-number> "<deferred-labels>"
   ```
-  `apply-labels.sh` is best-effort (always exits 0) and prints a breadcrumb to **stderr only on failure** (POST `.../issues/{n}/labels` — repo-scope only; never `gh issue edit --add-label`'s org-scoped GraphQL). Read that stderr from the tool result; when it names a failure, record it durably (a failed apply is the feature's most likely real-world failure and stderr is ephemeral in an autonomous cloud run): `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not apply the configured deferred labels (<deferred-labels>) to issue #<filed-issue-number> (best-effort; the issue was filed but carries none of the configured deferred labels)."`
+  `apply-labels.sh` is best-effort (always exits 0) and **always** prints a breadcrumb to **stderr** on a non-empty label set — `devflow: applied label(s) '…' to #N` on success, `devflow: warning: could not apply …` on an API failure (POST `.../issues/{n}/labels` — repo-scope only; never `gh issue edit --add-label`'s org-scoped GraphQL). **Read that stderr from the tool result and route on it — all three outcomes, not just the failure one:** a success line means the labels landed; a warning line is an API failure; **no output at all means the command was refused by the harness** (a denied command prints nothing, which is exactly why the helper breadcrumbs on success — otherwise "applied" and "denied" would look identical and the guard below would have no comparand in the case it exists to catch). Record either non-success durably (stderr is ephemeral in an autonomous cloud run): `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not apply the configured deferred labels (<deferred-labels>) to issue #<filed-issue-number> — the apply reported a failure, or produced no output at all (a harness denial); the issue was filed but carries none of the configured deferred labels."`
 
 Record the new issue numbers in the workpad: `workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred work: #N (phase 2), #N+1 (phase 3), …"` before continuing to 4.0.5.
 
@@ -212,6 +212,19 @@ if [ -n "$AGG" ] && [ -s "$AGG" ]; then
     else
         workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py failed (rc≠0): $(cat /tmp/devflow-fd.err); no follow-up issues filed this run."
     fi
+    # Record the filed numbers AND print them — IN THIS FENCE, because this is the only
+    # place `FILED_NUMBERS` exists. A shell variable does not survive into a later separate
+    # command on the cloud runner (the rule this phase states below), so a `[ -n "$FILED_NUMBERS" ]`
+    # read in a LATER fence always sees it empty, prints `[]`, and the agent then reads `[]`
+    # as "nothing was filed — a clean no-op" and labels NOTHING. Printing here is the only
+    # channel that carries the numbers to the agent-level label calls further down.
+    if [ -n "${FILED_NUMBERS:-}" ]; then
+        NUMBERS_CSV=$(echo "$FILED_NUMBERS" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, #/g')
+        workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred review findings: #${NUMBERS_CSV}"
+        echo "filed deferred-finding issues: [$NUMBERS_CSV]"
+    else
+        echo "filed deferred-finding issues: []"
+    fi
 fi
 ```
 
@@ -219,17 +232,7 @@ The helper groups manifest entries by `file` (one issue per source file), files 
 
 Failure mode: if `gh issue create` fails for a particular file-group, that group's entries are dropped from the manifest entirely — no fake deferral can downgrade a future review. The helper exits 0 as long as at least one group succeeded. Capture stderr in your `Devflow Reflection` notes if anything was dropped.
 
-Record the filed issue numbers in the workpad — and **print them**, so you can read them back for the per-issue label calls below. This `echo` is load-bearing, not decoration: `FILED_NUMBERS` is a shell variable set inside the fence above, and a shell variable **does not survive into a later separate command** on the cloud runner (the same rule that forces the label list to be printed). The per-issue label calls below iterate at the *agent* level, so the numbers must reach you through a tool result — printing them here is the only channel that does that:
-
-```bash
-if [ -n "${FILED_NUMBERS:-}" ]; then
-    NUMBERS_CSV=$(echo "$FILED_NUMBERS" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, #/g')
-    workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred review findings: #${NUMBERS_CSV}"
-    echo "filed deferred-finding issues: [$NUMBERS_CSV]"
-else
-    echo "filed deferred-finding issues: []"
-fi
-```
+The fence above recorded the filed issue numbers in the workpad **and printed them** (`filed deferred-finding issues: [...]`) — that print is load-bearing, not decoration, and it deliberately lives **inside** the filing fence: `FILED_NUMBERS` is a shell variable, and a shell variable **does not survive into a later separate command** on the cloud runner (the same rule that forces the label list to be printed). Reading it from a *later* fence would always see it empty, print `[]`, and lead you to conclude "nothing was filed" on a run that filed issues — labelling none of them. Read the printed list from that tool result; it is the only channel that carries the numbers to the agent-level label calls below.
 
 Then apply the configured `deferred.labels` to each filed issue — the **same** resolve/normalize idiom as Phase 4.0 (default `DevFlow,Deferred`; empty/whitespace → none). `file-deferrals.py` itself stays out of config-reading (config is resolver territory — read through `config-get.sh`, not re-parsed ad hoc); the skill owns labeling, best-effort and post-filing, so a label hiccup never unwinds an already-filed issue.
 
@@ -271,7 +274,7 @@ If the printed `CLEAN_DEFERRED_LABELS` is present but empty (config resolved to 
   ```bash
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh <filed-issue-number> "<deferred-labels>"
   ```
-  `apply-labels.sh` is best-effort (always exits 0) and prints a breadcrumb to **stderr only on failure** (POST `.../issues/{n}/labels` — repo-scope only; never `gh issue edit --add-label`'s org-scoped GraphQL). Read that stderr from the tool result; when it names a failure, record it durably (same discipline as Phase 4.0): `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not apply the configured deferred labels (<deferred-labels>) to issue #<filed-issue-number> (best-effort; the issue was filed but carries none of the configured deferred labels)."`
+  `apply-labels.sh` is best-effort (always exits 0) and **always** prints a breadcrumb to **stderr** on a non-empty label set — `devflow: applied label(s) '…' to #N` on success, `devflow: warning: could not apply …` on an API failure (POST `.../issues/{n}/labels` — repo-scope only; never `gh issue edit --add-label`'s org-scoped GraphQL). **Read that stderr from the tool result and route on it — all three outcomes, not just the failure one:** a success line means the labels landed; a warning line is an API failure; **no output at all means the command was refused by the harness** (a denied command prints nothing, which is exactly why the helper breadcrumbs on success — otherwise "applied" and "denied" would look identical and the guard below would have no comparand in the case it exists to catch). Record either non-success durably (stderr is ephemeral in an autonomous cloud run): `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not apply the configured deferred labels (<deferred-labels>) to issue #<filed-issue-number> — the apply reported a failure, or produced no output at all (a harness denial); the issue was filed but carries none of the configured deferred labels."`
 
 The rc handling above distinguishes three cases: a clean filing (rc 0), the benign idempotent-re-run (`exit 2` with "already has follow_up" — the prior aggregate is still hydrated, `/pr-description` reads it fine, recorded as a plain note), and a genuine failure (any other non-zero — every `gh issue create` group failed, or an unusable/corrupt manifest), which lands a `Devflow Reflection` breadcrumb. On a genuine failure continue to 4.1 anyway — the PR can still ship; it just won't carry the Scope-Acknowledged Findings block, so `/devflow:review` will treat any deferred findings as new.
 
@@ -407,7 +410,7 @@ Otherwise, read the printed values and apply the labels with **single granted-li
   ```bash
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh <docs-pr-number> "<docs-labels>"
   ```
-  `apply-labels.sh` is best-effort (always exits 0) and prints a breadcrumb to **stderr only on failure** (POST `.../issues/{n}/labels` — repo-scope only; never `gh pr edit --add-label`'s org-scoped GraphQL). Read that stderr from the tool result; when it names a failure, record it durably: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not apply the configured docs labels (<docs-labels>) to PR #<docs-pr-number> (best-effort; the PR carries none of the configured docs labels)."`
+  `apply-labels.sh` is best-effort (always exits 0) and **always** prints a breadcrumb to **stderr** on a non-empty label set — `devflow: applied label(s) '…' to #N` on success, `devflow: warning: could not apply …` on an API failure (POST `.../issues/{n}/labels` — repo-scope only; never `gh pr edit --add-label`'s org-scoped GraphQL). **Read that stderr from the tool result and route on it — all three outcomes, not just the failure one:** a success line means the labels landed; a warning line is an API failure; **no output at all means the command was refused by the harness** (a denied command prints nothing, which is exactly why the helper breadcrumbs on success — otherwise "applied" and "denied" would look identical and the guard below would have no comparand in the case it exists to catch). Record either non-success durably (stderr is ephemeral in an autonomous cloud run): `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not apply the configured docs labels (<docs-labels>) to PR #<docs-pr-number> — the apply reported a failure, or produced no output at all (a harness denial); the PR carries none of the configured docs labels."`
 
 Then tick the Documentation phase in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "Documentation"`.
 

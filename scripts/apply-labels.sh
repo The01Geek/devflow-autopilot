@@ -19,10 +19,17 @@
 # mirrors ensure-label.sh's best-effort contract: it ALWAYS exits 0 — whether it
 # applied the labels, the label set was empty, or the underlying `gh` call failed
 # (no auth, offline, rate-limited) — so a label hiccup can never abort the caller.
-# On a `gh` failure it still leaves a specific stderr breadcrumb naming the target
-# and the labels, so a real failure is visible rather than silently swallowed. It
-# never falls back to porcelain: a failed REST call is logged and tolerated, not
+# It never falls back to porcelain: a failed REST call is logged and tolerated, not
 # retried via `gh issue edit`/`gh pr edit`.
+#
+# It ALWAYS leaves a stderr breadcrumb on a non-empty label set — naming the target and
+# the labels on success as well as on failure (issue #455). The success line is what makes
+# a HARNESS REFUSAL observable: a permission matcher that denies the command produces no
+# output at all, so without a success breadcrumb "applied" and "denied" are byte-identical
+# to a caller reading the tool result, and a caller told to "record a failure when the
+# stderr names one" has a guard whose comparand is absent precisely in the denial case.
+# Three distinguishable outcomes: applied → the success line; API failure → the warning
+# line; refused by the harness → nothing at all.
 set -uo pipefail
 
 # gh binary: resolved once via the single-source resolver (execution-verified);
@@ -64,10 +71,20 @@ done
 ERR_OUT="$("$DEVFLOW_GH" api --method POST "repos/{owner}/{repo}/issues/${NUMBER}/labels" "${FIELDS[@]}" 2>&1 >/dev/null)"
 RC=$?
 
+_joined="$(IFS=,; echo "${LABELS[*]}")"
 if [ "$RC" -ne 0 ]; then
     # Best-effort: log the specific target + labels + cause, then still exit 0.
-    _joined="$(IFS=,; echo "${LABELS[*]}")"
     echo "devflow: warning: could not apply label(s) '${_joined}' to #${NUMBER} (best-effort, continuing): ${ERR_OUT}" >&2
+else
+    # SUCCESS breadcrumb — load-bearing, not chatter (issue #455). Without it this helper
+    # is silent on success AND silent when the harness REFUSES the command, so those two
+    # outcomes are byte-identical to an agent reading the tool result: "no stderr" cannot
+    # mean "applied" and "denied" at once. A caller told to "record a failure when the
+    # stderr names one" then has a guard whose comparand is absent in the denial case, and
+    # it fails open exactly where a silent denial is the defect being fixed. With this line,
+    # the three outcomes are distinguishable: applied → this breadcrumb; API failure → the
+    # warning above; refused by the harness → NO output at all.
+    echo "devflow: applied label(s) '${_joined}' to #${NUMBER}" >&2
 fi
 
 exit 0

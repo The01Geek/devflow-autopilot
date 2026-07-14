@@ -457,8 +457,10 @@ jobs:
           # shapes I1/I4/I5/I6 DENIED) is the implement-tier table on issues
           # #450/#455. That I3 denial is the whole reason the explicit grants had to
           # ship: read it as "the glob form was refused", NOT as "ensure-label.sh is
-          # unreachable" — row 3 now measures the shipped EXPLICIT ensure-label.sh
-          # form, so a re-dispatch is expected to record it PERMITTED. With the split
+          # unreachable" — row 3 now runs against a profile carrying BOTH the
+          # explicit grant and the glob, so a PERMITTED there confirms the leading-token
+          # call RUNS but attributes to neither form (I3's recorded glob denial remains the
+          # standing evidence that the glob does not match a vendored-literal leading token). With the split
           # retired, the probe once
           # again measures the REAL shipped profile end-to-end: IMPLEMENT (now
           # carrying the explicit label grants) + the config extras verbatim.
@@ -542,8 +544,8 @@ jobs:
             descent question, not the fences' exact statement shape. A PERMITTED here means the
             matcher descends into a non-label substitution and the denial in shape 6 is
             label- or redirect-attributable; a DENIED here means the CAPTURE SHAPE
-            itself is refused and the reworked fences' own first statement is silently
-            denied too. The second argument is `config-get.sh`'s DEFAULT value, used
+            itself is refused, in which case the reworked fences' own first statement (an
+            `if !` capture — a shape this row does not emit) is almost certainly denied too. The second argument is `config-get.sh`'s DEFAULT value, used
             here as this row's unique marker (it is only echoed if the key is absent,
             so it has no side effect either way):
             DEFERRED_LABELS=$(.devflow/vendor/devflow/scripts/config-get.sh .deferred.labels iprobe08nonlabel)

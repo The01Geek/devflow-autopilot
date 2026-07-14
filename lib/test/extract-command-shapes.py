@@ -282,9 +282,12 @@ def _leading_substitution_split(value: str):
 
 def _strip_control(raw: str) -> str:
     """Iteratively strip leading control words (`if`/`elif`/`!`/…) so a wrapped
-    `VAR=$(cmd)` capture reads as its bare assignment. Shared by the review-tier
-    `_assignment_violation` and the implement-tier `_label_capture_violation` so the
-    two never drift."""
+    `VAR=$(cmd)` capture reads as its bare assignment.
+
+    Used by the review-tier `_assignment_violation` ONLY. The implement-tier
+    `_label_capture_violation` deliberately does not call it: IR3 scans the substitution
+    bodies of the WHOLE statement, so a leading control word is already irrelevant there —
+    which is exactly what lets it catch `if [ -n "$(…)" ]` and `export LBL=$(…)` for free."""
     while True:
         stripped = _CONTROL_PREFIX.sub("", raw, count=1)
         if stripped == raw:
@@ -504,8 +507,12 @@ _LABEL_HELPER = re.compile(r"(?:apply-labels|ensure-label)\.sh\b")
 
 
 def _substitution_bodies(value: str) -> list[str]:
-    """Every command-substitution body inside an assignment value — the `$( … )` form
+    """Every command-substitution body in a shell fragment — the `$( … )` form
     (paren-balanced) and the backtick form, which are the same shape spelled two ways.
+
+    The fragment is whatever the caller passes: an assignment's right-hand side, or (as
+    IR3 does) a WHOLE statement — which is what lets IR3 see a capture in argument or
+    condition position, not only one behind a `VAR=`.
 
     SINGLE-quoted spans are masked out first: a backtick or `$(` inside `'…'` is literal
     text, not a substitution (`NOTE='runs `once`'`). Double-quoted spans are NOT masked —
@@ -568,7 +575,7 @@ def _label_capture_violation(statement: str) -> bool:
 
 
 # A loop keyword only OPENS a loop in COMMAND POSITION — at the start of a statement,
-# or right after a separator (`;` `|` `&&` `||` `(`), a negation/wrapper (`!`, `time`),
+# or right after a separator (`;` `|` `&&` `||` `(` `{`), a negation/wrapper (`!`, `time`),
 # or an opening keyword (`do`/`then`/`else`). A bare `\bwhile\b` line match instead fires
 # on the word `while` anywhere — including inside a command ARGUMENT (`echo "wait a
 # while"`) — and, paired with the span rule below, swallowed every later label call in
@@ -630,10 +637,45 @@ def _mask_quoted(line: str, single_only: bool = False) -> str:
     return "".join(out)
 
 
+def _mask_quoted_lines(lines: list[str]) -> list[str]:
+    """`_mask_quoted` over a block, CARRYING quote state across line boundaries.
+
+    Masking each line independently resets the quote state at every newline, so a
+    double-quoted argument that OPENS on one line and CLOSES on a later one inverts the
+    parity of that closing line: the masker reads the closing `"` as an *opening* quote and
+    masks everything after it — including a loop opener chained on the same line. The loop
+    then has no opener, no span is scanned, and the denied loop ships GREEN. That is a real
+    fail-open, not a theoretical one: `phase-4-documentation.md` already writes multi-line
+    double-quoted arguments (`gh issue create --body "$(cat <<'EOF' … )"`) right around the
+    code the removed label loop lived in. A shell string spans lines; so must the mask.
+    """
+    out: list[str] = []
+    quote: str | None = None
+    for line in lines:
+        kept: list[str] = []
+        prev = ""
+        for ch in line:
+            if quote:
+                if ch == quote and prev != "\\":
+                    quote = None
+                    kept.append(ch)
+                else:
+                    kept.append("x")
+            elif ch in ("'", '"'):
+                quote = ch
+                kept.append(ch)
+            else:
+                kept.append(ch)
+            prev = ch
+        out.append("".join(kept))
+    return out
+
+
 def _loop_violations(lines: list[str]) -> list[tuple[int, str]]:
-    """IR1/IR2: a `for … in` (IR1) / `while` | `until` (IR2) loop whose do…done span
-    invokes a label helper (probe rows I4/I5). Returns (block-relative line offset of
-    the opener, rule). `lines` MUST be comment-stripped/heredoc-blanked
+    """IR1/IR2: a `for` loop — any spelling, incl. C-style `for ((…))` (IR1) — or a
+    `while` / `until` loop (IR2) whose do…done span invokes a label helper (probe rows
+    I4/I5). Returns (block-relative line offset of the opener, rule). `lines` MUST be
+    comment-stripped/heredoc-blanked
     (`_shape_preprocess_lines`) — scanning raw source made a `#` comment mentioning a
     loop a false hit.
 
@@ -653,7 +695,9 @@ def _loop_violations(lines: list[str]) -> list[tuple[int, str]]:
     # inside quotes — the removed Phase 4.0 shape was `LBL_ERR="$(… apply-labels.sh …)"`,
     # whose helper name lives inside a double-quoted capture. Masking both would blind
     # IR1/IR2 to precisely the shape they exist to catch. Same length, so offsets align.
-    masked = [_mask_quoted(line) for line in lines]
+    # The mask CARRIES quote state across lines (see `_mask_quoted_lines`) — resetting it
+    # per line let a multi-line quoted argument hide a loop opener on its closing line.
+    masked = _mask_quoted_lines(lines)
     i = 0
     while i < n:
         opener = _LOOP_OPENER.search(masked[i])

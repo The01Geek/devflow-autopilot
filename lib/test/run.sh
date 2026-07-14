@@ -913,7 +913,7 @@ rm -f "$DEF_CFG"
 # so the trim / drop-empties / empty-value ACs are exercised, not just asserted in
 # prose. Keep byte-aligned with the SKILL block.
 deferred_labels_normalize() {
-  echo "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -
+  echo "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | tr '\n' ',' | sed 's/,$//'
 }
 assert_eq "deferred.labels normalize: default passed through"        "DevFlow,Deferred" "$(deferred_labels_normalize 'DevFlow,Deferred')"
 assert_eq "deferred.labels normalize: trims interior spaces"         "DevFlow,Deferred" "$(deferred_labels_normalize 'DevFlow, Deferred')"
@@ -26559,6 +26559,46 @@ assert_eq "#455 no fail-open: a label-helper capture in an UNQUOTED heredoc body
 { printf '%s\n' '```bash' "gh issue comment -F - <<'EOF'" 'labels: $(.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow)' 'EOF' '```'; } > "$E363/i-fp-heredoc-quoted.md"
 assert_eq "#455 no false positive: the same text under a QUOTED tag is literal (the shell does not expand it) — not a hit" "" \
   "$(python3 "$ECS" --profile implement "$E363/i-fp-heredoc-quoted.md")"
+# ── FAIL-OPEN controls, round 4 (the #480 iteration-3 review). The loop scan masks quoted
+# ── spans so a quoted separator cannot fake an opener — but masking each line INDEPENDENTLY
+# ── resets the quote state at every newline, so a double-quoted argument that OPENS on one
+# ── line and CLOSES on a later one inverts that closing line's parity: the masker reads the
+# ── closing `"` as an OPENING quote and masks the rest of the line, hiding a loop opener
+# ── chained after it. The denied loop then ships GREEN. Not theoretical — phase-4-documentation.md
+# ── already writes multi-line double-quoted arguments (`--body "$(cat <<'EOF' … )"`) right
+# ── around the code the removed label loop lived in. A shell string spans lines; so must the mask.
+{ printf '%s\n' '```bash' 'gh issue comment 1 -b "Deferred work filed.' 'See the workpad." ; for L in $LABELS; do .devflow/vendor/devflow/scripts/apply-labels.sh 1 "$L"; done' '```'; } > "$E363/i-fo-mlquote.md"
+assert_eq "#455 no fail-open: a loop opener after a MULTI-LINE quoted argument's closing quote is still flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-mlquote.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'gh issue comment 1 -b "line one' 'line two" ; printf "%s" "$N" | while read -r n; do .devflow/vendor/devflow/scripts/ensure-label.sh "$n"; done' '```'; } > "$E363/i-fo-mlquote-while.md"
+assert_eq "#455 no fail-open: the piped-while twin of the multi-line-quote shape is still flagged IR2" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-mlquote-while.md" | grep -q '  IR2  ' && echo yes || echo no)"
+# ── The guarded file's OWN idiom: a `--body "$(cat <<'EOF' … )"` argument with a label loop
+# ── chained on. This is the exact shape phase-4-documentation.md writes today.
+{ printf '%s\n' '```bash' 'gh issue create --title "D" --body "$(cat <<'"'"'EOF'"'"'' 'Body text.' 'EOF' ')" && for L in $C; do .devflow/vendor/devflow/scripts/apply-labels.sh 1 "$L"; done' '```'; } > "$E363/i-fo-bodyheredoc.md"
+assert_eq "#455 no fail-open: a loop chained after a multi-line --body \"\$(cat <<EOF …)\" argument is still flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-bodyheredoc.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# ── Second behavioral mutation: #455 removed TWO shapes, and the proof above only
+# ── reintroduces Phase 4.0's `for`+capture. Phase 4.0.5's PIPED form (`echo "$FILED_NUMBERS" |
+# ── while IFS= read -r n; do … LBL_ERR="$(…)" … done`) had no mutation-on-the-real-file proof —
+# ── IR2 rested on a synthetic fixture alone. Reintroduce it verbatim and assert IR2 + IR3.
+I455_MUT2="$E363/i-mut2.md"; cp "$IMPL_DIR/phases/phase-4-documentation.md" "$I455_MUT2"
+{ printf '%s\n' '```bash' 'echo "$FILED_NUMBERS" | while IFS= read -r n; do' '  LBL_ERR="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS" 2>&1)"' 'done' '```'; } >> "$I455_MUT2"
+I455_OUT2="$(python3 "$ECS" --profile implement "$I455_MUT2" 2>&1)"; I455_RC2=$?
+assert_eq "#455 behavioral: reintroducing the removed 4.0.5 PIPED while-read+capture flips the implement lint RED (exit 1)" "1" "$I455_RC2"
+assert_eq "#455 behavioral: that reintroduced 4.0.5 regression is named IR2 (the piped loop)" "yes" \
+  "$(printf '%s\n' "$I455_OUT2" | grep -q '  IR2  ' && echo yes || echo no)"
+assert_eq "#455 behavioral: that reintroduced 4.0.5 regression is ALSO named IR3 (the anchor-form capture)" "yes" \
+  "$(printf '%s\n' "$I455_OUT2" | grep -q '  IR3  ' && echo yes || echo no)"
+# ── apply-labels.sh must ALWAYS breadcrumb on a non-empty label set — the SUCCESS line is what
+# ── makes a harness REFUSAL observable (a denied command prints nothing, so without it
+# ── "applied" and "denied" are byte-identical to a caller reading the tool result, and the
+# ── skill's "record a failure when the stderr names one" guard has no comparand in the denial
+# ── case). Pin all three outcomes are distinguishable.
+assert_eq "#455 apply-labels.sh prints a SUCCESS breadcrumb (so a silent harness denial is distinguishable)" "yes" \
+  "$(grep -qF "devflow: applied label(s)" "$LIB/../scripts/apply-labels.sh" && echo yes || echo no)"
+assert_eq "#455 apply-labels.sh still prints its FAILURE breadcrumb" "yes" \
+  "$(grep -qF "could not apply label(s)" "$LIB/../scripts/apply-labels.sh" && echo yes || echo no)"
 # ── UNGRANTED-HEAD pin (#480 review): a grant is per-HEAD across the WHOLE pipeline, not
 # ── just the leading token, so ONE ungranted head in a tail refuses the entire statement.
 # ── `paste` is granted in NO allowlist (baked TOOLS, config.json, config.example.json) —
