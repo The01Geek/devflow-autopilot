@@ -404,16 +404,25 @@ jobs:
   # `probe` job above measures the read-only review profile; this job measures the
   # SEPARATE implement profile, because the two are distinct allowlists with
   # distinct evidence (a shape/form proven on one tier is unproven on the other).
-  # The motivating defect: cloud implement runs silently lose their best-effort
-  # label applies (`ensure-label.sh` / `apply-labels.sh`) — the phase-4 fences emit
-  # the UNEXPANDED portable anchor as the leading token, a shape class the cloud
-  # matcher denies in the read-only REVIEW runner (issue #401) and is SUSPECTED to
-  # deny here too, so the helpers are believed never to run and their best-effort
-  # stderr breadcrumbs never to fire. Whether that denial actually holds on the
-  # SEPARATE implement profile is exactly what this job measures — it must not be
-  # assumed (a shape proven on one tier is unproven on the other). This job
-  # establishes the implement-tier evidence table that Stage B's grant form and
-  # call-site rework are gated on.
+  # The motivating defect (now MEASURED and FIXED — issues #450/#455): cloud implement
+  # runs silently lost their best-effort label applies (`ensure-label.sh` /
+  # `apply-labels.sh`). The recorded table attributes that to the config `*/basename`
+  # glob-grant form (row I3, DENIED against a vendored-literal leading token) and to the
+  # `for` / piped-`while read` / `VAR="$(…)"` wrappers the phase-4 fences used to emit
+  # (rows I4/I5/I6, DENIED); the unexpanded anchor as a leading token is denied here too
+  # (row I1), and the explicit vendored-literal grant form is PERMITTED (row I2). Stage B
+  # shipped both halves: the explicit grants in `devflow-implement.yml` and the call-site
+  # rework. This job's job is now to KEEP that true — it re-measures the real shipped
+  # profile end-to-end after a `claude-code-action` / CLI upgrade, and rows 8/9 are the
+  # open disambiguators for the non-label-capture carve-out.
+  #
+  # RE-DERIVING THE I2/I3 ATTRIBUTION (what the retired split used to give you). The
+  # shipped profile now carries BOTH the explicit grant and the `*/basename` glob for each
+  # label helper, so a PERMITTED here proves the call RUNS but attributes to neither form.
+  # If an upgrade ever needs the per-form verdicts re-measured, re-split TEMPORARILY in a
+  # scratch branch — grant `apply-labels.sh` only explicitly and `ensure-label.sh` only via
+  # the glob, as the original run did — dispatch, record, and revert. Do not leave the split
+  # in: it makes this job measure a profile the repo does not ship.
   #
   # Human-dispatch only (issue #450 AC): in-band dispatch-and-await is infeasible
   # for an autonomous run (the constraint recorded at commit 5ac0237), so a human

@@ -62,7 +62,7 @@ EOF
 echo "phase 4.0 create fence ran; create=[${CREATE_STATE}]"
 ```
 
-The trailing `echo` is an **unconditional sentinel**, and it is load-bearing for the same reason Phase 4.0.5's is (issue #480): `gh issue create` prints the new issue's URL on success and **nothing** when the harness refuses the command, so without it "the create was refused" and "there was nothing to create" reach you as the same empty tool result — and the capture guard below would then be asked to detect a condition you were given no way to observe. It carries `create=` for the same reason 4.0.5 carries `filing=`: a create that **ran and failed** (rate limit, auth, a malformed body) also yields no issue number, and without the state you would read that as the *capture gap* below and record a reflection asserting issues were filed that do not exist. Three states, three routes:
+The trailing `echo` is an **unconditional sentinel**, and it is load-bearing for the same reason Phase 4.0.5's is (the #480 review): `gh issue create` prints the new issue's URL on success and **nothing** when the harness refuses the command, so without it "the create was refused" and "there was nothing to create" reach you as the same empty tool result — and the capture guard below would then be asked to detect a condition you were given no way to observe. It carries `create=` for the same reason 4.0.5 carries `filing=`: a create that **ran and failed** (rate limit, auth, a malformed body) also yields no issue number, and without the state you would read that as the *capture gap* below and record a reflection asserting issues were filed that do not exist. **This fence runs once per follow-up issue, so route each sentinel independently** — with two deferred chunks you get two sentinels, and an `ok` followed by a `failed` means one issue exists and one does not; never let the `failed` arm's wording ("no issue exists") be read run-globally over a run that filed another. Three states, three routes:
 
 - **No `phase 4.0 create fence ran` line at all** ⇒ the fence was refused, not answered: no follow-up issue was filed, so file nothing and label nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0's follow-up-issue create fence produced no output at all (likely a harness denial); no deferred-AC follow-up issue was filed or labelled this run."`
 - **`create=[failed]`** ⇒ the create ran and the API rejected it. **No issue exists** — do not claim one was filed: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0's gh issue create failed; no deferred-AC follow-up issue was filed this run, so none was labelled."`
@@ -116,7 +116,7 @@ Otherwise, read the printed `CLEAN_DEFERRED_LABELS` value and apply the labels w
 
 - For **each** label in the printed comma-list (skip blanks), ensure it exists with one call — the helper path is the command's leading token, and `ensure-label.sh` is best-effort (always exits 0). `ensure-label.sh` always breadcrumbs to stderr (`created` / `already exists` / `warning: …`), so **no output at all means the command was refused by the harness** — record it (`--reflection-kind dropped-failed`) and continue to the apply, which reports separately whether the label landed.
   ```bash
-  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh <label>
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh "<label>"
   ```
 - For **each** filed issue number in your working notes (**not** a live `$DEFERRED_ISSUE_NUMBERS` shell variable — it does not survive into this separate command), apply the whole comma-list with one call — the helper path is the leading token, the issue number and the resolved label list substituted as literals:
   ```bash
@@ -219,7 +219,7 @@ if [ -n "$AGG" ] && [ -s "$AGG" ]; then
     # genuine failure — none of which sets FILED_NUMBERS) print as well as the one real
     # capture gap, so the reader's "hydrated manifest + no numbers ⇒ a capture gap" rule
     # fires on all four and fabricates a durable reflection asserting issues were filed and
-    # their numbers lost — on runs where nothing was filed at all (issue #480).
+    # their numbers lost — on runs where nothing was filed at all (the #480 review).
     FILED_STATE=failed
     FILED_NUMBERS=""
     if FILED_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/file-deferrals.py \
@@ -268,14 +268,15 @@ fi
 # the path. Print the numbers RAW too — NUMBERS_CSV is display-formatted for the workpad
 # note (`201, #202`), so it is not what you want to substitute into the per-issue calls.
 #
-# `pr=` carries the PR_NUMBER capture's own outcome (issue #480). It is the input SLUG_DIR/AGG
+# `pr=` carries the PR_NUMBER capture's own outcome (the #480 review). It is the input SLUG_DIR/AGG
 # are built from: if `gh pr view` returns nothing, SLUG_DIR degrades to `.devflow/tmp/review/pr-`,
 # no manifest is found, AGG never hydrates, and the sentinel would otherwise print `manifest=[]`
 # — the CLEAN NO-OP state — on a run that had deferrals to file. Printing the value makes that
-# read observable instead of inferred. (A matcher DENIAL of the capture is a different failure
-# and needs no field: the capture and this sentinel are statements of the SAME Bash call, so a
-# denial refuses the whole fence and NO sentinel prints at all — which is the no-sentinel exit.
-# `pr=[]` therefore means exactly one thing: the read ran and yielded nothing.)
+# read observable instead of inferred. (A matcher DENIAL of the capture lands in one of these two
+# states — either no sentinel at all, or `pr=[]` — and it does NOT matter which: BOTH route to the
+# same fail-closed exit (record `dropped-failed`, apply nothing). The repo's documented rule is that
+# an ungranted head refuses the entire STATEMENT; whether the harness then refuses the rest of the
+# Bash call is not established by any probe row, so this fence does not depend on the answer.)
 #
 # The `\n`→space fold is a BASH BUILTIN, not `tr`: this field is an emitted result the reader
 # ROUTES on, and CLAUDE.md's guard-class 2 forbids deriving such a value through a non-preflight
@@ -315,7 +316,7 @@ echo "deferred labels to apply: [$CLEAN_DEFERRED_LABELS]"
 
 **A non-empty `raw` with an empty `to apply`** is a broken normalizer (a missing/denied `tr`/`sed`/`grep`), **not** an empty config — record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 resolved deferred.labels to a non-empty value but the normalizer produced an empty list (a missing/denied tr|sed|grep in the pipeline); deferred review-finding issues were filed WITHOUT labels."`
 
-Four further exits before any label is applied — the same fail-closed set Phase 4.0 carries (a rework must not lose them). They are read off the **sentinel** the filing fence prints unconditionally:
+Five further exits before any label is applied — the same fail-closed set Phase 4.0 carries (a rework must not lose them). They are read off the **sentinel** the filing fence prints unconditionally:
 
 - **No `phase 4.0.5 filing fence ran` sentinel at all.** The fence was refused, not answered — do **not** read it as "nothing was filed". Record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5's filing fence produced no output at all (likely a harness denial, not an empty aggregate); no deferred review-finding issues were filed or labelled this run."`
 - **Sentinel present, `pr=[]`** — the `gh pr view` read ran and yielded no number, so every path built on it (`SLUG_DIR`, the manifest discovery, `AGG`) resolved against a truncated slug and found nothing. **Do not read the `manifest=[]` that follows it as the clean no-op**: no manifest was even looked for at the right path, so this run's deferrals (if any) were neither filed nor labelled. Record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not resolve the PR number — the gh pr view read yielded no value; no deferrals manifest could be located, so no deferred review-finding issues were filed or labelled this run."` (A matcher *denial* of that capture is the separate no-sentinel exit above — the capture and the sentinel are statements of the same Bash call, so a denial prints no sentinel at all.)
@@ -328,7 +329,7 @@ If the printed `CLEAN_DEFERRED_LABELS` is present but empty (config resolved to 
 
 - For **each** label in the printed comma-list (skip blanks), ensure it exists with one call — the helper path is the leading token, and `ensure-label.sh` is best-effort (always exits 0). `ensure-label.sh` always breadcrumbs to stderr (`created` / `already exists` / `warning: …`), so **no output at all means the command was refused by the harness** — record it (`--reflection-kind dropped-failed`) and continue to the apply, which reports separately whether the label landed.
   ```bash
-  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh <label>
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh "<label>"
   ```
 - For **each** filed issue number in the printed `filed deferred-finding issues=[…]` list (the numbers `file-deferrals.py` filed, echoed back to you above — **not** a live `$FILED_NUMBERS` shell variable, which does not survive into this separate command), apply the whole comma-list with one call — the helper path is the leading token, the issue number and resolved label list substituted as literals:
   ```bash
@@ -464,7 +465,7 @@ Otherwise, read the printed values and apply the labels with **single granted-li
 
 - For **each** label in the printed comma-list (skip blanks), ensure it exists with one call — the helper path is the leading token, and `ensure-label.sh` is best-effort (always exits 0). `ensure-label.sh` always breadcrumbs to stderr (`created` / `already exists` / `warning: …`), so **no output at all means the command was refused by the harness** — record it (`--reflection-kind dropped-failed`) and continue to the apply, which reports separately whether the label landed.
   ```bash
-  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh <label>
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh "<label>"
   ```
 - Apply the whole comma-list to the PR with one call — the helper path is the leading token, the PR number and resolved label list substituted as literals (**not** `$DOCS_PR_NUM`/`$CLEAN_LABELS` shell variables, which do not survive into this separate command):
   ```bash

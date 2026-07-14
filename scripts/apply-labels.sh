@@ -24,7 +24,7 @@
 #
 # It ALWAYS leaves a stderr breadcrumb on EVERY path it can take — naming the target and
 # the labels on success as well as on failure (issue #455), and naming the arg-slip on a
-# missing/non-numeric number or an empty label set (issue #480). The success line is what
+# missing/non-numeric number or an empty label set (the #480 review). The success line is what
 # makes a HARNESS REFUSAL observable: a permission matcher that denies the command produces
 # no output at all, so without a success breadcrumb "applied" and "denied" are byte-identical
 # to a caller reading the tool result, and a caller told to "record a failure when the
@@ -46,7 +46,7 @@ set -uo pipefail
 : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
 # `${1:-}`, NOT `${1:?}`: a `${1:?}` aborts with a bash usage line and rc 1, which breaks the
 # "ALWAYS exits 0" best-effort contract above and — worse — leaves the arg-slip guard below
-# unreachable on the very shapes it exists to catch (issue #480).
+# unreachable on the very shapes it exists to catch (the #480 review).
 NUMBER="${1:-}"
 [ "$#" -gt 0 ] && shift
 
@@ -95,7 +95,7 @@ for _raw in "$@"; do
     done
 done
 
-# Empty label set → apply nothing (no POST), exit 0, but NEVER silently (issue #480). This
+# Empty label set → apply nothing (no POST), exit 0, but NEVER silently (the #480 review). This
 # mirrors the `[ -n "$CLEAN_LABELS" ]` guard the docs.labels/deferred.labels call sites use —
 # except the guard cannot be the caller's alone: the call sites route "no output at all" to a
 # `dropped-failed` denial reflection, so a silent exit here is byte-identical to a harness

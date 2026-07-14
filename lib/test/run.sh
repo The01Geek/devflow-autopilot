@@ -932,7 +932,7 @@ DEF_SKILL="$IMPL_SKILL_BUNDLE"
 assert_eq "deferred.labels: SKILL reads via config-get with the DevFlow,Deferred default" "yes" \
   "$(grep -qF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
 assert_eq "deferred.labels: SKILL ensures each label exists before applying (agent-level per-label call, #455)" "yes" \
-  "$(grep -qF 'ensure-label.sh <label>' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5); #455 reworked the piped-while loop into an agent-level single-leading-token call
+  "$(grep -qF 'ensure-label.sh "<label>"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5); #455 reworked the piped-while loop into an agent-level single-leading-token call. #480: the label arg is QUOTED — the retired loop passed "$lbl", and dropping the quotes made a multi-word configured label (docs.labels: "Needs Docs") create the WRONG label ('Needs') while breadcrumbing SUCCESS.
 assert_eq "deferred.labels: SKILL applies labels via best-effort REST apply-labels.sh helper (agent-level per-issue call, #455)" "yes" \
   "$(grep -qF 'apply-labels.sh <filed-issue-number> "<deferred-labels>"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5); #455 reworked the for/while loop + VAR="$(…)" capture into an agent-level single-leading-token call
 # Both deferral channels must label: Phase 4.0 (no longer "add no --label") and Phase
@@ -27373,10 +27373,15 @@ assert_eq "#480 apply-labels.sh: an EMPTY label set breadcrumbs the arg-slip (a 
   "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 "  " 2>&1 | grep -qF "NOT a harness denial" && echo yes || echo no)"
 assert_eq "#480 apply-labels.sh: an empty label set exits 0 (best-effort contract) and POSTs nothing" "0" \
   "$(DEVFLOW_GH="$I455_STUB/gh_fail" bash "$LIB/../scripts/apply-labels.sh" 42 "  " >/dev/null 2>&1; echo $?)"
+# ATTRIBUTION (#480 review): pin the ARG-SLIP guard's OWN distinct literal, and drive it with a
+# TWO-arg fixture. `NOT a harness denial` is emitted by BOTH guards, and the one-arg fixture
+# `apply-labels.sh DevFlow` leaves an empty label set, so the EMPTY-LABEL guard rejects it a step
+# later — a pin on the shared phrase stayed GREEN against a mutant with this guard deleted
+# outright. The literal below names the number it refused, so only this guard can satisfy it.
 assert_eq "#455 apply-labels.sh: a NON-NUMERIC number (a caller arg-slip) breadcrumbs loudly, never silently" "yes" \
-  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" DevFlow 2>&1 | grep -qF "NOT a harness denial" && echo yes || echo no)"
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" abc DevFlow 2>&1 | grep -qF "non-numeric issue/PR number 'abc'" && echo yes || echo no)"
 assert_eq "#480 apply-labels.sh: ZERO args breadcrumbs and exits 0 (the '' arm is live — \${1:?} would abort rc 1 before it)" "yes" \
-  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 2>&1 | grep -qF "NOT a harness denial" && echo yes || echo no)"
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 2>&1 | grep -qF "non-numeric issue/PR number ''" && echo yes || echo no)"
 assert_eq "#480 apply-labels.sh: ZERO args exits 0, never rc 1 with a raw bash usage line" "0" \
   "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" >/dev/null 2>&1; echo $?)"
 assert_eq "#480 apply-labels.sh: a QUOTED empty number (\"\$PR_NUM\" that did not survive) refuses — it never applies to issue ''" "yes" \
@@ -27475,6 +27480,64 @@ assert_eq "#480 anti-vacuity: that same sentinel does NOT print when FILED_NUMBE
 PR_NUMBER=99
 MANIFEST_STATE=""
 '"$I480_SENTINEL" 2>/dev/null | grep -qF 'phase 4.0.5 filing fence ran' && echo yes || echo no)"
+# PLACEMENT is the actual regression, and the two replays above cannot see it: they SUPPLY the
+# initializers themselves, so they prove a property of the echo line, not of the file. Moving
+# `FILED_STATE=""` / `FILED_NUMBERS=""` back INSIDE the `if [ -n "$AGG" ]` guard leaves them unset
+# on the clean-no-op path, the sentinel aborts under `set -u`, and the agent's "no sentinel ⇒
+# refused" rule fabricates a harness-denial reflection on a run where nothing went wrong. Pin the
+# ORDERING against the file itself: both initializers must appear BEFORE the aggregate guard.
+assert_eq "#480 the 4.0.5 sentinel operands are initialized BEFORE the aggregate guard (placement, not just presence)" "yes" \
+  "$(python3 - "$I480_P4" <<'PY'
+import sys
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+def first(pred):
+    return next((i for i, l in enumerate(lines) if pred(l)), None)
+guard = first(lambda l: l.strip().startswith('if [ -n "$AGG" ] && [ -s "$AGG" ]; then'))
+fs = first(lambda l: l.strip() == 'FILED_STATE=""')
+fn = first(lambda l: l.strip() == 'FILED_NUMBERS=""')
+print("yes" if None not in (guard, fs, fn) and fs < guard and fn < guard else "no")
+PY
+)"
+# ── FALSE-POSITIVE control for the idiom the guarded fences actually write (#480 review):
+# ── `--body "$(cat <<'EOF' … EOF)"`. The heredoc-opener probe used to mask the whole double-quoted
+# ── span, so the `<<'EOF'` INSIDE the substitution was hidden, no heredoc was detected, the body
+# ── was never blanked, and the issue-body PROSE was scanned as shell — a follow-up-issue template
+# ── that merely MENTIONS a label helper turned the desk RED with a diagnosis pointing at
+# ── documentation text. A lint that reddens on prose is a lint that gets scoped out.
+{ printf '%s\n' '```bash' "gh issue create --body \"\$(cat <<'EOF'" 'Notes: for each n, do run apply-labels.sh on it; done' 'EOF' ')"' '```'; } > "$E363/i-fp-body-heredoc.md"
+assert_eq "#480 no false positive: prose naming a label helper inside a --body \"\$(cat <<'EOF' …)\" heredoc stays clean" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-body-heredoc.md" 2>&1)"
+# …and the true positive on the same idiom must survive: a denied loop CHAINED AFTER the heredoc
+# closes is real code, not body text, so it must still flag (proving the fix did not blank the tail).
+{ printf '%s\n' '```bash' "gh issue create --body \"\$(cat <<'EOF'" 'body text' 'EOF' ')"' 'for n in 1 2; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done' '```'; } > "$E363/i-body-heredoc-then-loop.md"
+assert_eq "#480 anti-vacuity: a denied loop chained AFTER that same heredoc still flags IR1 (the body blanking did not swallow the tail)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-body-heredoc-then-loop.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# ── The OTHER two fail-closed sentinels (#480 review). The whole "no output ⇒ the harness refused
+# ── it" design rests on three printed sentinels, and only 4.0.5's was pinned — delete or rename
+# ── either of the other two and the suite stayed green while the phase prose still routed on it,
+# ── so every clean run would read "no sentinel" as a denial. They are the comparand the routing
+# ── tables literal-match, so pin the emitted literal.
+assert_eq "#480 phase 4.0's create fence prints its unconditional sentinel (the comparand its routing reads)" "yes" \
+  "$(grep -qF 'echo "phase 4.0 create fence ran; create=[${CREATE_STATE}]"' "$I480_P4" && echo yes || echo no)"
+assert_eq "#480 phase 3.1 prints the draft PR number sentinel (the comparand its routing reads)" "yes" \
+  "$(grep -qF 'draft PR number: [' "$IMPL_DIR/phases/phase-3-review.md" && echo yes || echo no)"
+# ── matcher-probe's EXTRAS is claimed to mirror the config VERBATIM; the IMPLEMENT half of that
+# ── mirror is pinned but EXTRAS was not, so a future config edit would silently make the
+# ── evidence-of-record probe measure a profile the repo does not ship (#480 review).
+assert_eq "#480 matcher-probe EXTRAS mirrors .devflow/config.json devflow_implement.allowed_tools verbatim" "SYNCED" \
+  "$(python3 - "$LIB/../.github/workflows/matcher-probe.yml" "$LIB/../.devflow/config.json" <<'PY'
+import json, re, sys
+yml = open(sys.argv[1], encoding="utf-8").read()
+cfg = json.load(open(sys.argv[2], encoding="utf-8"))
+want = list(cfg.get("devflow_implement", {}).get("allowed_tools", []))
+m = re.search(r"EXTRAS='([^']*)'", yml)
+if not m:
+    print("EXTRAS-NOT-FOUND")
+else:
+    got = [t for t in m.group(1).split(",") if t]
+    print("SYNCED" if got == want else f"DRIFT: probe={got} config={want}")
+PY
+)"
 # ── Coupled-invariant: the workflow grants the two label helpers in the explicit
 # ── vendored-literal leading-token form the implement-probe table proved PERMITTED (#455).
 assert_eq "#455: devflow-implement.yml grants apply-labels.sh in the explicit vendored-literal form" "yes" \

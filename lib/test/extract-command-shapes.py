@@ -70,7 +70,7 @@ CLI:
       COMMAND POSITION, so the unpiped spellings of the same denied shape are caught too).
 
       IR1/IR2 are matched BY NAME and scoped to a loop the scanner can measure — read the
-      NON-GOALS block below before reading either as total coverage (issue #480): a helper
+      NON-GOALS block below before reading either as total coverage (the #480 review): a helper
       reached through a VARIABLE or a FUNCTION wrapper, a loop-equivalent per-item wrapper
       by another head (`xargs -I{}`, `find -exec`), a `select … in` loop, and an opener whose
       `done` is absent from the fence are all NOT flagged, and each is disclosed there.
@@ -143,17 +143,34 @@ def _shape_preprocess_lines(block: str) -> list[str]:
     makes the joined form unusable for offset attribution. Blanking is equivalent for
     statement splitting (an empty line yields no statement).
 
-    Two heredoc rules, both fail-CLOSED (a preprocessor that blanks what it cannot
-    measure silently disarms every rule downstream of it — the worst failure this file
+    It KEEPS the heredoc OPENER token (`<<'EOF'`) so a `cat > f <<'EOF'` write is still one
+    statement — differing from extract-command-heads.py's stripper, which truncates the opener
+    at `<<` and so erases the very signal R3's cat-heredoc arm needs.
+
+    BOTH TIERS READ THIS TEXT — the review rules (R1-R4) as well as the implement rules — so a
+    change here moves both. The blank-vs-drop line preservation is behavior-preserving; the two
+    heredoc rules below are a strict TIGHTENING (a statement that used to be silently swallowed
+    is now scanned), never a loosening.
+
+    Two heredoc rules, both fail-CLOSED against a MISSED shape (a preprocessor that blanks what
+    it cannot measure silently disarms every rule downstream of it — the worst failure this file
     can have, because it is invisible):
 
     * The opener is matched on the QUOTE-MASKED line, so a `<<` inside a string
-      (`echo "see << EOF for details"`) cannot open a PHANTOM heredoc.
+      (`echo "see << EOF for details"`) cannot open a PHANTOM heredoc. The mask deliberately
+      leaves a `$( … )` inside double quotes VISIBLE (see `_mask_quoted`), because that interior
+      is code: without it the `--body "$(cat <<'EOF' … EOF)"` idiom — the one the guarded fences
+      actually write — was not seen as a heredoc at all, its body was never blanked, and the
+      issue-body PROSE inside it was scanned as shell (the #480 review).
     * An opener whose terminator never appears in the block is NOT treated as a heredoc
       at all: its tail is scanned as ordinary shell. Blanking to end-of-block on an
       unterminated tag — an elided body, a `…` placeholder, a typo, all routine in the
       DOCUMENTATION fences this lint exists to scan — would blank the rest of the fence
       and let a denied shape below it ship green.
+
+    Fail-closed here means "never hides a denied shape". It does NOT mean "never reports an inert
+    one": both rules can over-report (an unterminated-heredoc body is scanned as shell), and that
+    is the direction chosen deliberately.
     """
     return _preprocess(block, carry_comments=False)[0]
 
@@ -203,23 +220,6 @@ def _preprocess(block: str, carry_comments: bool = False) -> tuple[list[str], li
             out[k] = ""
         i = close + 1
     return out, expanding
-
-
-def _shape_preprocess(block: str) -> str:
-    """Drop `#` comments (quote-aware) and heredoc BODIES, but KEEP the heredoc
-    OPENER token (`<<'EOF'`) so a `cat > f <<'EOF'` write is still one statement.
-
-    This differs from extract-command-heads.py's stripper, which truncates the
-    opener at `<<` — that erases the very signal R3's cat-heredoc arm needs.
-
-    NOTE this DOES affect the review tier (R1-R4), which also reads this text. The
-    blank-vs-drop change is behavior-preserving, but the two heredoc fail-closed rules in
-    `_shape_preprocess_lines` are not: a `<<` inside a quoted string no longer opens a
-    phantom heredoc, and an unterminated heredoc no longer blanks the tail — so a review
-    statement that used to be silently swallowed is now scanned. That is a strict
-    tightening (previously-missed shapes are now caught), never a loosening.
-    """
-    return "\n".join(_shape_preprocess_lines(block))
 
 
 def _statements(block: str) -> list[str]:
@@ -529,6 +529,10 @@ def find_violations(text: str) -> list[tuple[int, str, str]]:
 #    whether the matcher permits it is precisely UNMEASURED. Not flagged on no evidence; disclosed
 #    rather than silently missing. A probe row would settle it.
 #  * `select … in` is not matched (never probed, never written here).
+#  * IR3's rescan of an UNQUOTED heredoc body is LINE-SCOPED: it re-reads each expanding body
+#    line on its own, so a capture whose `$(` opens on one body line and whose helper name sits
+#    on the NEXT is not flagged. (A multi-line capture in ordinary code IS caught — the statement
+#    splitter joins it; this limit is specific to the heredoc-body rescan.) No fence writes it.
 #
 # Probe row I1 (the unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor as a leading token) is
 # deliberately NOT a rule here: every legitimate helper call keeps the portable
@@ -661,7 +665,7 @@ _DO_TOK = re.compile(r"(?:^\s*|[;|&({]\s*)do(?=$|[;|&\s])")
 _DONE_TOK = re.compile(r"(?:^\s*|[;|&({]\s*)done(?=$|[;|&)<>\s])")
 
 
-def _mask_quoted(line: str, single_only: bool = False) -> str:
+def _mask_quoted(line: str) -> str:
     """Replace the CONTENT of quoted spans with `x`, preserving length exactly (callers
     slice the ORIGINAL string using offsets found in the masked one, so any length change
     would silently mis-extract).
@@ -671,29 +675,48 @@ def _mask_quoted(line: str, single_only: bool = False) -> str:
     merge"` — reads as a command-position loop opener and starts a phantom span.
     Comment-stripping alone does not cover it: that text is code, just quoted.
 
-    `single_only=True` masks ONLY `'…'` spans. This distinction is load-bearing for
-    `_substitution_bodies`: inside DOUBLE quotes a `$(…)` is a real substitution — it is
-    the denied shape's own spelling (`LBL_ERR="$(apply-labels.sh …)"`) — so masking
-    double-quoted content there would blank the very capture the guard must find, and one
-    apostrophe anywhere in the value (`… 'DevFlow')`) would be enough to hide it. Inside
-    SINGLE quotes a backtick or `$(` is literal text, never a substitution.
+    A `$( … )` inside a DOUBLE-quoted span is NOT masked — its interior is code, not string
+    (the shell runs it), and masking it blinded the heredoc-opener probe to the single idiom
+    the guarded fences most rely on: `--body "$(cat <<'EOF' … EOF)"`. With the `<<'EOF'`
+    masked away, no heredoc was detected, the body was never blanked, and the issue-body
+    PROSE inside it was scanned as shell — so a follow-up-issue template that merely
+    MENTIONS a label helper turned the desk RED with a diagnosis pointing at documentation
+    text (the #480 review). Single quotes stay fully masked: inside `'…'` a `$(` is literal.
     """
     out: list[str] = []
     quote: str | None = None
+    depth = 0  # `$( … )` nesting INSIDE a double-quoted span — code, so left visible
     prev = ""
-    for ch in line:
-        if quote:
+    i = 0
+    n = len(line)
+    while i < n:
+        ch = line[i]
+        if quote == '"' and depth:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            out.append(ch)
+        elif quote:
+            if quote == '"' and ch == "$" and prev != "\\" and i + 1 < n and line[i + 1] == "(":
+                depth = 1
+                out.append(ch)
+                out.append(line[i + 1])
+                prev = "("
+                i += 2
+                continue
             if ch == quote and prev != "\\":
                 quote = None
                 out.append(ch)
             else:
                 out.append("x")
-        elif ch == "'" or (ch == '"' and not single_only):
+        elif ch in ("'", '"'):
             quote = ch
             out.append(ch)
         else:
             out.append(ch)
         prev = ch
+        i += 1
     return "".join(out)
 
 
@@ -844,7 +867,7 @@ def _scan_loops(lines: list[str], masked: list[str]) -> list[tuple[int, str]]:
         # Search the span's text with `\`-CONTINUATIONS JOINED, not line by line. A helper
         # name split across a continuation (`…/apply\<newline>-labels.sh "$n" X`) is ONE word
         # to the shell but two fragments to a per-line regex, so a line-by-line search found
-        # neither and the loop shipped GREEN (issue #480). Reuse the SAME joiner the statement
+        # neither and the loop shipped GREEN (the #480 review). Reuse the SAME joiner the statement
         # splitter uses (share the contract — do not re-derive it), so IR1/IR2 and IR3 can
         # never disagree about what text a statement contains.
         span = _heads._join_continuations("\n".join(lines[i:end + 1]))
