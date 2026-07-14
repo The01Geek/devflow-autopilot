@@ -1,0 +1,12 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "39ab9bb7768d1a07b496fcfbdcb5bd49716be06a",
+  "fix_files": [
+    ".github/workflows/devflow-review.yml",
+    "lib/test/run.sh",
+    "scripts/derive-review-preconditions.sh",
+    "scripts/describe-skip-title.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}
