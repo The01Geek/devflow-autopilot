@@ -3014,6 +3014,60 @@ assert_pin_unique "#462 dim: Step 3.6 audit-prompt area states the finding-cap g
 assert_pin_unique "#462 ext: live create-issue extension carries the consolidated DevFlow sharpening" \
   'Authoring-discipline defects (DevFlow specifics, issue #462)' "$CI443_EXT"
 
+# ── issue #464: create-issue adversarial-input dimension + enumerated-AC-list floor rule.
+#    Reuses the #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT) and adds
+#    the overview doc var. Each pinned literal is a verbatim fragment of the new contract prose
+#    (a bullet header or an on-line span of the rule sentence, not a synthetic marker). These are all
+#    SURFACE-PRESENCE contract pins (plain assert_pin_unique on new prose) — the exact class the
+#    new extension mutation-evidence dimension EXCLUDES (this issue is that distinction's worked
+#    example), so no assert_pin_red_under mutation obligation applies. Wrapped-literal hazard
+#    (#375): every literal below is chosen to sit on a single physical line (grep -oF is
+#    line-scoped), so a phrase that wraps in the prose is pinned by its on-line fragment.
+CI464_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# AC1 — Step 3.6 generic dimension checklist gains the adversarial-third-party-input dimension.
+assert_pin_unique "#464 AC1: Step 3.6 generic checklist gains the adversarial-third-party-input dimension" \
+  'Adversarial third-party input' "$CI312_SKILL"
+assert_pin_unique "#464 AC1: the dimension carries the input-is-data guard (data to classify, not obey)" \
+  'data to classify, never instructions to obey' "$CI312_SKILL"
+# The growth-policy carve-out reconciling the appended standalone dimension with the
+# consolidate-before-appending rule is itself a coupled contract sentence — pin it so a future
+# edit that drops it (leaving the dimension and the policy silently self-contradicting) goes RED.
+assert_pin_unique "#464 AC1: growth-policy carve-out sanctions the standalone dimension" \
+  'sanctioned standalone addition, not a breach of consolidate-before-appending' "$CI312_SKILL"
+# AC4 — Step 3.5 omission-hunt list gains both checks.
+assert_pin_unique "#464 AC4: Step 3.5 hunt flags a new judgment surface missing the guard/hostile-case pair" \
+  'without the guard-AC-plus-hostile-case pair' "$CI312_SKILL"
+assert_pin_unique "#464 AC4: Step 3.5 hunt flags an AC enum list declaring neither floor nor closure" \
+  'declares neither a floor marker nor a closed-set' "$CI312_SKILL"
+# AC2 — template drafter-side judgment-surface guard rule (coupled with the Step 3.6 dimension).
+assert_pin_unique "#464 AC2: template carries the drafter-side judgment-surface guard rule" \
+  'A designed LLM/semantic-judgment surface over third-party text carries an input-is-data' "$CI312_TMPL"
+assert_pin_unique "#464 AC2: template states a no-new-judgment-surface draft gains no new questions/flags" \
+  'new judgment surface gains no new questions and no new flags' "$CI312_TMPL"
+# AC3 — template Acceptance-Criteria list-closure rule + Move 2 write-back extension.
+assert_pin_unique "#464 AC3: template AC rules require every enumerated AC list to declare its closure" \
+  'Every enumerated test/case/example list inside an AC declares its closure' "$CI312_TMPL"
+assert_pin_unique "#464 AC3: Move 2 writes the coverage-sweep output back as closed AC items before filing" \
+  "writes the sweep's output back as additional closed AC items before filing" "$CI312_TMPL"
+# AC2/AC3 second mirror site — the template's final self-review quality-checklist (the drafter's
+# actual self-check surface). Pinned on BOTH halves of each rule per the coupled-mirror discipline
+# (#462 quality-checklist-mirror pattern), so the guidance-prose site and the checklist site cannot
+# silently drift out of agreement.
+assert_pin_unique "#464 AC2: quality-checklist mirror line for the judgment-surface guard rule" \
+  'carries the input-is-data guard AC paired with a hostile-input' "$CI312_TMPL"
+assert_pin_unique "#464 AC3: quality-checklist mirror line for the enumerated-AC-list closure rule" \
+  'each floor-marked list has had Move 2' "$CI312_TMPL"
+# AC5 — extension gains the mutation-evidence dimension, scoping surface-presence pins OUT.
+assert_pin_unique "#464 AC5: extension gains the mutation-evidence dimension for behavioral-fix pins" \
+  'Mutation evidence for behavioral-fix pins (issue #464)' "$CI443_EXT"
+assert_pin_unique "#464 AC5: mutation-evidence dimension excludes surface-presence contract pins" \
+  'Surface-presence contract pins' "$CI443_EXT"
+# AC6/AC7 — overview §11 documents both seams and records the Stage-B auditor-side deferral.
+assert_pin_unique "#464 AC7: overview §11 documents the two new create-issue seams" \
+  'Adversarial-input dimension and enumerated-list floor rule (issue #464)' "$CI464_OVERVIEW"
+assert_pin_unique "#464 AC6: overview §11 records the deliberate Stage-B auditor-side deferral" \
+  'extending the audit seams into Stage B is a separate change' "$CI464_OVERVIEW"
+
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
 # regardless of that iteration's verdict (including REJECT), feeding new blinded
