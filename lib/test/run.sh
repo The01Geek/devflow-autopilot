@@ -34287,6 +34287,119 @@ _a12_err="$(GH_TOKEN='SOMETHING' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_F
 assert_eq "#487 arm12: unestablished fingerprint comparison emits a breadcrumb (not a silent defer)" "yes" \
   "$(printf '%s' "$_a12_err" | grep -qF 'could not establish the job-start fingerprint comparison' && echo yes || echo no)"
 
+# Arm 21 — the extraheader rewrite uses `git config --replace-all`: seed a fixture
+# config carrying TWO values for the key, run a cycle, and assert the cycle collapses
+# them to the single fresh value (a plain `set` would fail on the multi-value key and
+# leave the credential stale).
+CFG21="$D487/cred21.config"
+git config --file "$CFG21" --add "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD_A"
+git config --file "$CFG21" --add "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD_B"
+DEVFLOW_REFRESH_MINT='printf TOKEN_21' DEVFLOW_REFRESH_CONFIG_FILE="$CFG21" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok21" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1
+assert_eq "#487 arm21: multi-value extraheader collapses to ONE value after the cycle" "1" \
+  "$(git config --file "$CFG21" --get-all 'http.https://github.com/.extraheader' | wc -l | tr -d ' ')"
+assert_eq "#487 arm21: the surviving value is the fresh token" "x-access-token:TOKEN_21" \
+  "$(git config --file "$CFG21" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arm 22 — the REAL mint path (no DEVFLOW_REFRESH_MINT override), desk-tested with a
+# stub `curl` (no network) and real `openssl`/`jq`: assert (a) the RS256 JWT header +
+# claims decode correctly, (b) the access-token POST body scopes to THIS repo only
+# ({"repositories":["<repo_name>"]}), and (c) a real token is minted+written. This
+# converts issue #487's least-privilege key AC from attestation to evidence.
+RSAKEY22="$(openssl genrsa 2048 2>/dev/null)"
+CURLDIR22="$D487/curlbin22"; mkdir -p "$CURLDIR22"
+BEARERF22="$D487/bearer22"; BODYF22="$D487/body22"
+cat > "$CURLDIR22/curl" <<EOF22
+#!/usr/bin/env bash
+prev=""; body=""
+for a in "\$@"; do
+  case "\$a" in "Authorization: Bearer "*) printf '%s' "\${a#Authorization: Bearer }" > "$BEARERF22" ;; esac
+  [ "\$prev" = "-d" ] && body="\$a"
+  prev="\$a"
+done
+case "\$*" in
+  *access_tokens*) printf '%s' "\$body" > "$BODYF22"; printf '{"token":"MINTED22"}' ;;
+  *installation*)  printf '{"id":9999}' ;;
+esac
+EOF22
+chmod +x "$CURLDIR22/curl"
+CFG22="$D487/cred22.config"
+git config --file "$CFG22" "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD22"
+printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR22:$PATH" DEVFLOW_APP_ID=APPID22 \
+  GITHUB_REPOSITORY="owner/myrepo22" DEVFLOW_REFRESH_CONFIG_FILE="$CFG22" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok22" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle >/dev/null 2>&1
+# b64url-decode helper for the captured JWT.
+_b64url_dec22() { local s="$1"; s="${s//-/+}"; s="${s//_//}"; case $(( ${#s} % 4 )) in 2) s="$s==";; 3) s="$s=";; esac; printf '%s' "$s" | openssl base64 -d -A 2>/dev/null; }
+_jwt22="$(cat "$BEARERF22" 2>/dev/null)"
+_jhdr22="${_jwt22%%.*}"; _jrest22="${_jwt22#*.}"; _jpay22="${_jrest22%%.*}"
+assert_eq "#487 arm22a: minted JWT header decodes to the RS256 alg" '{"alg":"RS256","typ":"JWT"}' \
+  "$(_b64url_dec22 "$_jhdr22")"
+assert_eq "#487 arm22a: minted JWT claims carry the app id as iss" "yes" \
+  "$(_b64url_dec22 "$_jpay22" | grep -qF '"iss":"APPID22"' && echo yes || echo no)"
+assert_eq "#487 arm22b: access-token POST body scopes to THIS repo only (least privilege)" '{"repositories":["myrepo22"]}' \
+  "$(cat "$BODYF22" 2>/dev/null)"
+assert_eq "#487 arm22c: real mint writes the fresh token to the token file" "MINTED22" \
+  "$(cat "$D487/tok22" 2>/dev/null)"
+assert_eq "#487 arm22c: real mint rewrites the extraheader to the fresh token" "x-access-token:MINTED22" \
+  "$(git config --file "$CFG22" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arm 23 — real mint returns an empty token (POST responds without a .token) →
+# previous credential intact + a ::warning::, never a stale/empty overwrite.
+CURLDIR23="$D487/curlbin23"; mkdir -p "$CURLDIR23"
+cat > "$CURLDIR23/curl" <<'EOF23'
+#!/usr/bin/env bash
+case "$*" in
+  *access_tokens*) printf '{"token":""}' ;;
+  *installation*)  printf '{"id":9999}' ;;
+esac
+EOF23
+chmod +x "$CURLDIR23/curl"
+CFG23="$D487/cred23.config"
+git config --file "$CFG23" "http.https://github.com/.extraheader" "AUTHORIZATION: basic $(printf 'x-access-token:PREV23' | openssl base64 -A)"
+_a23_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23:$PATH" DEVFLOW_APP_ID=APPID23 \
+  GITHUB_REPOSITORY="owner/myrepo23" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23_rc=$?
+assert_eq "#487 arm23: empty minted token exits 0 (best-effort cycle)" "0" "$_a23_rc"
+assert_eq "#487 arm23: empty minted token emits a ::warning::" "yes" \
+  "$(printf '%s' "$_a23_err" | grep -qF '::warning::refresh-app-credentials' && echo yes || echo no)"
+assert_eq "#487 arm23: empty minted token leaves the previous credential intact (PREV23)" "x-access-token:PREV23" \
+  "$(git config --file "$CFG23" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arm 24 — locate_extraheader_file failure (no override, no extraheader anywhere): a
+# successful mint but no config file to rewrite → warn, no crash, exit 0.
+REPO24="$D487/repo24"; mkdir -p "$REPO24"; ( cd "$REPO24" && git init -q )
+_a24_err="$(cd "$REPO24" && DEVFLOW_REFRESH_MINT='printf TOKEN_24' DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok24" \
+  GITHUB_SERVER_URL="https://nomatch24.test" bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _a24_rc=$?
+assert_eq "#487 arm24: absent extraheader locator failure exits 0 (no crash)" "0" "$_a24_rc"
+assert_eq "#487 arm24: absent extraheader emits the could-not-locate ::warning::" "yes" \
+  "$(printf '%s' "$_a24_err" | grep -qF 'could not locate the persisted' && echo yes || echo no)"
+
+# Arm 25 — gh-fresh.sh resolve_real_gh returns 127 when no gh resolves (no
+# DEVFLOW_GH_REAL and no gh on PATH) → the breadcrumb, and rc 127.
+EMPTY25="$D487/emptybin25"; mkdir -p "$EMPTY25"
+# Give env an ABSOLUTE bash path — with PATH pointed at an empty dir, env could not
+# otherwise resolve `bash` itself (the point is only that the SCRIPT's internal PATH
+# has no `gh`, so resolve_real_gh's walk fails).
+BASH25="$(command -v bash)"
+_a25_err="$(env -u GH_TOKEN -u DEVFLOW_GH_REAL "PATH=$EMPTY25" "$BASH25" "$GHFRESH_SH" api x 2>&1 1>/dev/null)"; _a25_rc=$?
+assert_eq "#487 arm25: resolve_real_gh failure returns 127" "127" "$_a25_rc"
+assert_eq "#487 arm25: resolve_real_gh failure emits the could-not-resolve breadcrumb" "yes" \
+  "$(printf '%s' "$_a25_err" | grep -qF 'could not resolve the real gh binary' && echo yes || echo no)"
+
+# Arm 26 — the wrapper's bad-credential scan also matches the `Authentication failed`
+# regex alternative (arm9 only exercised `Bad credentials`).
+GHAUTHFAIL26="$D487/ghauthfail26"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "fatal: Authentication failed for '\''https://github.com/x'\''" >&2\n'; printf 'exit 1\n'; } > "$GHAUTHFAIL26"
+chmod +x "$GHAUTHFAIL26"
+printf 'FRESH26' > "$D487/tok26"; _d487_sha 'JOBSTART26' > "$D487/fp26"
+_a26="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHAUTHFAIL26" DEVFLOW_GH_TOKEN_FILE="$D487/tok26" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp26" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#487 arm26: 'Authentication failed' also triggers the expired-credential diagnostic" "yes" \
+  "$(printf '%s' "$_a26" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+
 # ── stop-refresher.sh arms (13–16, 19–20): the retirement step's defeated-refresher
 # signal is honest — it must NOT over-fire on a recovered transient, and it MUST fire on
 # the never-started/crash case (absent pidfile), the died-mid-run case (pidfile present

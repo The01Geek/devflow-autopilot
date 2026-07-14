@@ -188,7 +188,10 @@ run_cycle() {
   header="AUTHORIZATION: basic ${b64}"
   # git config writes via a lockfile + atomic rename, so a concurrent push reading
   # this credential sees the old-or-new value, never a torn/partial file.
-  git config --file "$cfg" "http.${SERVER_URL}/.extraheader" "$header" 2>/dev/null \
+  # --replace-all: if the located config ever held MULTIPLE values for this key, a
+  # plain set fails ("multiple values") and the credential would go stale; collapse
+  # them to the one fresh value instead.
+  git config --file "$cfg" --replace-all "http.${SERVER_URL}/.extraheader" "$header" 2>/dev/null \
     || { warn "cycle: rewriting the extraheader in '$cfg' failed — push credential NOT rewritten"; return 1; }
 
   # Surface 2: the mode-0600 token file the gh wrapper reads at call time. Write to
@@ -227,12 +230,18 @@ cmd_loop() {
   trap 'exit 0' TERM
   local count=0
   while :; do
+    # Sleep in the BACKGROUND and `wait` on it, so the TERM trap interrupts the
+    # wait and retires the process promptly — a foreground `sleep` would only let
+    # `trap 'exit 0' TERM` fire after the full interval elapsed, delaying
+    # stop-refresher.sh's kill by up to 45 min (harmless on an ephemeral
+    # ubuntu-latest runner torn down at job end, but a lingering minter on a
+    # self-hosted one). The `|| true` keeps the loop's never-exit-nonzero contract.
     if run_cycle; then
-      "$SLEEP_CMD" "$INTERVAL" || true
+      "$SLEEP_CMD" "$INTERVAL" & wait $! || true
     else
       # Backoff retry: a single transient mint failure never produces a
       # dead-credential window; sustained failure is required.
-      "$SLEEP_CMD" "$BACKOFF" || true
+      "$SLEEP_CMD" "$BACKOFF" & wait $! || true
     fi
     count=$((count + 1))
     if [ -n "$MAX_CYCLES" ] && [ "$count" -ge "$MAX_CYCLES" ]; then break; fi
