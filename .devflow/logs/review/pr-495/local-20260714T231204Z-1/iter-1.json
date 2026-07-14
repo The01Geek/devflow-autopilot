@@ -36,5 +36,26 @@
   "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
   "cap_drops": {"count": 0, "by_category": {}},
   "verification_evidence": {"command": "lib/test/run.sh + shellcheck + ruff", "result": "pass", "duration_s": 210, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD); arms in CI on clean full-history checkout"}]},
-  "telemetry": {"phase_3": {"calls": 5, "tokens": 416000, "wall_clock_s": 215}}
+  "telemetry": {"phase_3": {"calls": 5, "tokens": 416000, "wall_clock_s": 215}, "step_2_6": {"calls": 5, "tokens": 418000, "wall_clock_s": 180}},
+  "shadow": {
+    "ran_at": "2026-07-14T23:20:00Z",
+    "reviewed_sha": "a09b5ef1d118d668f7dc90a6af74d8702d334e88",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "entry-count cap enforced after full recursive walk (unbounded array accumulation before cap)", "defect_signature": {"file": "scripts/validate-telemetry-artifact.sh", "line_range": [971, 996], "kind": "unbounded-accumulation-before-cap"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "partial cp -R in collector can upload a half-copied stage tree (neutralized downstream by all-or-nothing re-validation)", "defect_signature": {"file": "scripts/collect-staged-telemetry.sh", "line_range": [692, 696], "kind": "partial-copy-on-error"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "dangling-symlink reject clause untested", "defect_signature": {"file": "scripts/validate-telemetry-artifact.sh", "line_range": [974, 977], "kind": "untested-branch"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "pusher persist non-zero rc arms undriven", "defect_signature": {"file": "scripts/telemetry-push-artifact.sh", "line_range": [811, 816], "kind": "untested-branch"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "source-failure/declare -F guards untested", "defect_signature": {"file": "scripts/telemetry-push-artifact.sh", "line_range": [788, 798], "kind": "untested-branch"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 5, "overlap_with_iter_1": 3, "new": 2, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false,
+    "park_calibration": "park-calibration gate clean: no parked finding matched a mis-grade shape"
+  }
 }
