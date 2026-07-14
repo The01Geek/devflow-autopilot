@@ -4866,12 +4866,13 @@ assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set
   "$_skill_sweeps" "$_docs_sweeps"
 
 # ── issue #474: Phase 2.3 gains §2.3.7 (collection-cardinality sweep) and two §2.3.0c
-# sharpenings (derived-comparand arms, obligation placement). Each pin below targets the
-# OPERATIVE sentence — the minimal text whose removal ALONE re-introduces the guarded gap —
-# expressed through assert_pin_red_under with a `sed -E` mutation that removes only that
-# sentence, so a framing-only pin would be reported RED (per the behavioral-fix-pin rule).
-# The behavioral pins scope to phase-2-implement.md ($P2_FILE); the docs/overview mirror
-# presence pins guard the coupled enumerating sites (§2.3.0b enumeration reconciliation).
+# sharpenings (derived-comparand arms, obligation placement). Each BEHAVIORAL pin below
+# (the assert_pin_red_under calls) targets the OPERATIVE sentence — the minimal text whose
+# removal ALONE re-introduces the guarded gap — with a `sed -E` mutation that removes only
+# that sentence, so a framing-only pin would be reported RED (per the behavioral-fix-pin
+# rule). The behavioral pins scope to phase-2-implement.md ($P2_FILE); the docs/overview
+# mirror-presence pins (assert_pin_unique / assert_eq) and the reconciliation guards
+# (assert_eq) guard the coupled enumerating sites (§2.3.0b enumeration reconciliation).
 OVERVIEW_DOC474="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 # §2.3.0c trigger (a): a DERIVED comparand's malformed/empty arms must be enumerated. The
 # operative requirement, the arm list, and the defect teeth are three necessary sentences —
@@ -4906,9 +4907,16 @@ assert_pin_red_under "#474(2.3.7): single-element-does-not-discharge teeth are o
 assert_pin_red_under "#474(2.3.7): the Sweep-selection consider-list index row is operative" \
   'Adds a collection output with ordering, dedup, or aggregation logic' \
   's|Adds a collection output with ordering, dedup, or aggregation logic|Adds something|' "$P2_FILE"
+# §2.3.7 step 3 is the self-referential arm — DevFlow's own deliverable is prose, so the
+# un-drivable-output branch (dry-trace over >=2 elements incl. a duplicate) governs how the
+# sweep applies to this very repo. Pin its operative multi-element requirement so a future
+# edit cannot weaken it to a single-element/"an example" trace without going RED.
+assert_pin_red_under "#474(2.3.7): the un-drivable-output dry-trace multi-element requirement is operative" \
+  'against at least two elements including a duplicate, never a single-element trace' \
+  's|against at least two elements including a duplicate, never a single-element trace|against an example|' "$P2_FILE"
 # §2.3.7 mirror sites (coupled invariant — the enumerating sites §2.3.0b reconciliation
-# requires): the sweep body heading, the docs rationale table row, and the
-# DEVFLOW_SYSTEM_OVERVIEW sweep-index entry must all carry §2.3.7.
+# requires): the sweep body heading, the Sweep-selection index row, the docs rationale
+# table row, and the DEVFLOW_SYSTEM_OVERVIEW sweep-index entry must all carry §2.3.7.
 assert_pin_unique "#474(2.3.7): implement SKILL keeps the sweep body heading" \
   '#### 2.3.7 Collection-cardinality sweep' "$IMPL_SKILL"
 assert_pin_unique "#474(2.3.7): implement SKILL lists it in the Sweep-selection index" \
@@ -4920,10 +4928,21 @@ assert_eq "#474(2.3.7): DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-index entry" "ye
 # Reconciliation guards: the falsified "2.3.6 is last" claims must be GONE from the docs
 # (a regression would re-assert a §2.3.7-falsified statement), and the "five always-on
 # sweeps (…)" enumeration must be UNCHANGED (§2.3.7 is trigger-gated, never always-on).
-assert_eq "#474: docs no longer claim 2.3.6 is 'numbered last only to avoid renumbering'" "0" \
-  "$(grep -Fc 'numbered last only to avoid renumbering' "$IMPL_DOC")"
-assert_eq "#474: docs no longer claim '2.3.6 sits last'" "0" \
-  "$(grep -Fc '2.3.6 sits last' "$IMPL_DOC")"
+# Each absence guard is paired with an INJECTION non-vacuity proof (the #465 delta form,
+# 7f7161a): an absolute `== 0` alone cannot tell "phrase removed" from "grep blind", so it
+# would degrade to a no-op if the phrase were reworded. Inject the phrase into a copy and
+# confirm the SAME grep detects it (count rises by exactly 1) — proving the `0` is a
+# reconciled body, not a blind detector. Injection (not a base-ref read) keeps the proof
+# robust to merge state: origin/main carries the reconciled body once this PR merges.
+for _474_ABSENT in 'numbered last only to avoid renumbering' '2.3.6 sits last'; do
+  assert_eq "#474: docs no longer claim '$_474_ABSENT' (§2.3.7-falsified 'last' claim reconciled)" "0" \
+    "$(grep -Fc "$_474_ABSENT" "$IMPL_DOC")"
+  _474_INJ="$(probe_tmp "#474 absence-guard injection: '$_474_ABSENT'")" || continue
+  { cat "$IMPL_DOC"; printf '%s (injected)\n' "$_474_ABSENT"; } > "$_474_INJ"
+  assert_eq "#474: absence guard non-vacuous — injecting '$_474_ABSENT' raises the count by 1" \
+    "$(( $(grep -Fc "$_474_ABSENT" "$IMPL_DOC") + 1 ))" "$(grep -Fc "$_474_ABSENT" "$_474_INJ")"
+  rm -f "$_474_INJ"
+done
 assert_eq "#474: the five-always-on enumeration is unchanged (2.3.7 is trigger-gated, not always-on)" "yes" \
   "$(grep -qF 'five always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.5/2.3.6)' "$IMPL_DOC" && echo yes || echo no)"
 
