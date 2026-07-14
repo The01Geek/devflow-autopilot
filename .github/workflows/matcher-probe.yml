@@ -534,11 +534,11 @@ jobs:
             .devflow/vendor/devflow/scripts/ensure-label.sh iprobe03explicit
 
             Shape 4 — `for …; do …; done` compound wrapping a granted helper (Bash,
-            one call, all lines). Head is the glob-granted ensure-label.sh:
+            one call, all lines). Head is the granted ensure-label.sh:
             for L in iprobe04for-a iprobe04for-b; do .devflow/vendor/devflow/scripts/ensure-label.sh "$L"; done
 
             Shape 5 — piped `while read` loop wrapping a granted helper (Bash, one
-            call). Head is the glob-granted ensure-label.sh:
+            call). Head is the granted ensure-label.sh:
             printf 'iprobe05while-a\niprobe05while-b\n' | while read -r L; do .devflow/vendor/devflow/scripts/ensure-label.sh "$L"; done
 
             Shape 6 — `VAR="$(…)"` capture of a granted helper (Bash). This is the

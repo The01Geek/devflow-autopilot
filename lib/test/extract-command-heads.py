@@ -240,8 +240,20 @@ def _strip_case_patterns(block: str) -> str:
 
 
 def _join_continuations(block: str) -> str:
-    """Fold `\\`-continued lines into one logical line before any splitting."""
-    return re.sub(r"\\\n[ \t]*", " ", block)
+    """Fold `\\`-continued lines into one logical line before any splitting.
+
+    The backslash-newline pair is REMOVED, not replaced by a space — that is the shell's
+    own rule, and the difference is load-bearing, not cosmetic. A continuation may split a
+    line MID-TOKEN (`…/apply\\<newline>-labels.sh 1 X` is one word to the shell), and a
+    space-join reconstructs it as two words (`apply -labels.sh`) — a token that matches no
+    helper-name literal. Every name-literal rule downstream (the #363 head grants, the #455
+    implement-tier label rules) then reads a helper that is not there and ships the denied
+    shape GREEN (issue #480). Token separation is preserved without the space: the shell
+    keeps whatever whitespace precedes the backslash and follows the newline, so
+    `cmd \\<newline>    --flag` still joins to `cmd     --flag` (two tokens), while
+    `cmd\\<newline>--flag` joins to `cmd--flag` — exactly as bash reads them.
+    """
+    return re.sub(r"\\\n", "", block)
 
 
 def _split_statements(text: str) -> list[str]:

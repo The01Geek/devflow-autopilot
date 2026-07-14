@@ -22,14 +22,21 @@
 # It never falls back to porcelain: a failed REST call is logged and tolerated, not
 # retried via `gh issue edit`/`gh pr edit`.
 #
-# It ALWAYS leaves a stderr breadcrumb on a non-empty label set — naming the target and
-# the labels on success as well as on failure (issue #455). The success line is what makes
-# a HARNESS REFUSAL observable: a permission matcher that denies the command produces no
-# output at all, so without a success breadcrumb "applied" and "denied" are byte-identical
+# It ALWAYS leaves a stderr breadcrumb on EVERY path it can take — naming the target and
+# the labels on success as well as on failure (issue #455), and naming the arg-slip on a
+# missing/non-numeric number or an empty label set (issue #480). The success line is what
+# makes a HARNESS REFUSAL observable: a permission matcher that denies the command produces
+# no output at all, so without a success breadcrumb "applied" and "denied" are byte-identical
 # to a caller reading the tool result, and a caller told to "record a failure when the
 # stderr names one" has a guard whose comparand is absent precisely in the denial case.
-# Three distinguishable outcomes: applied → the success line; API failure → the warning
-# line; refused by the harness → nothing at all.
+#
+# THE HELPER HAS NO SILENT PATH. That is the whole contract, and it is why the callers may
+# read "no output at all" as a refusal: applied → the success line; API failure → the warning
+# line; a caller arg-slip (no/blank/non-numeric number, or no label content) → its own warning
+# line; refused by the harness → nothing at all, the ONLY silent outcome. An earlier revision
+# exited silently on an empty label set, which made a caller that passed an empty label literal
+# indistinguishable from a denial — and every call site would have fabricated a `dropped-failed`
+# reflection blaming a refusal that never happened (CLAUDE.md's "unknown is not zero").
 set -uo pipefail
 
 # gh binary: resolved once via the single-source resolver (execution-verified);
@@ -37,17 +44,24 @@ set -uo pipefail
 # shellcheck source=../lib/resolve-gh.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-gh.sh"
 : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
-NUMBER="${1:?Usage: apply-labels.sh <issue-or-pr-number> <label…>}"
-shift
+# `${1:-}`, NOT `${1:?}`: a `${1:?}` aborts with a bash usage line and rc 1, which breaks the
+# "ALWAYS exits 0" best-effort contract above and — worse — leaves the arg-slip guard below
+# unreachable on the very shapes it exists to catch (issue #480).
+NUMBER="${1:-}"
+[ "$#" -gt 0 ] && shift
 
 # The number must be digits. This is a fail-CLOSED guard on the one caller mistake the skills
-# explicitly warn about: a `$PR_NUM` that did not survive into a later command word-splits
-# away, so `apply-labels.sh "$PR_NUM" DevFlow` degrades to `apply-labels.sh DevFlow` —
-# `NUMBER` swallows the LABEL, the label set comes out empty, and the helper takes the
-# deliberately-silent empty-set path below. Callers now read "no output at all" as a harness
-# refusal, so that silence would produce a durable reflection blaming a permission denial that
-# never happened — steering the reader away from the real cause (CLAUDE.md's "unknown is not
-# zero"). Breadcrumb loudly and exit 0 (best-effort contract preserved).
+# explicitly warn about: a `$PR_NUM` that did not survive into a later command. Both spellings
+# of that slip land here, and neither may be silent:
+#   * UNQUOTED (`apply-labels.sh $PR_NUM DevFlow`) — the empty expansion word-splits away, so
+#     `NUMBER` swallows the LABEL (`apply-labels.sh DevFlow`) and the label set comes out empty.
+#   * QUOTED (`apply-labels.sh "$PR_NUM" DevFlow`) — no word-splitting: `NUMBER` is set-but-null
+#     and the label survives. (This is why the number is read with `${1:-}` above: `${1:?}` would
+#     have aborted here with rc 1 and a raw bash usage line instead of the breadcrumb below.)
+# Callers read "no output at all" as a harness refusal, so a silent exit on either shape would
+# produce a durable reflection blaming a permission denial that never happened — steering the
+# reader away from the real cause (CLAUDE.md's "unknown is not zero"). No label is ever applied
+# to issue "" — the helper refuses first. Breadcrumb loudly and exit 0 (best-effort preserved).
 case "$NUMBER" in
     ''|*[!0-9]*)
         echo "devflow: warning: apply-labels.sh got a non-numeric issue/PR number '${NUMBER}' (args: $*); no labels applied. This is NOT a harness denial — it is a caller arg-slip, most likely a shell variable that did not survive into this command." >&2
@@ -81,17 +95,18 @@ for _raw in "$@"; do
     done
 done
 
-# Empty label set → apply nothing (no POST), exit 0, SILENTLY. This mirrors the
-# `[ -n "$CLEAN_LABELS" ]` guard the docs.labels/deferred.labels call sites already use.
-#
-# The silence is only sound because the derivation above is BUILTIN-ONLY: the set can now be
-# empty *only* when the caller genuinely passed no label content (no argument, or only
-# whitespace/commas). It can no longer be emptied by a missing PATH tool — which matters,
-# because a silent exit here is byte-identical to a harness refusal, and the call sites route
-# "no output at all" to a `dropped-failed` denial reflection. With the old `tr | sed | grep`
-# derivation a host without `tr` would have produced exactly that false denial while silently
-# dropping a real label. Callers still gate on a non-empty list before calling.
+# Empty label set → apply nothing (no POST), exit 0, but NEVER silently (issue #480). This
+# mirrors the `[ -n "$CLEAN_LABELS" ]` guard the docs.labels/deferred.labels call sites use —
+# except the guard cannot be the caller's alone: the call sites route "no output at all" to a
+# `dropped-failed` denial reflection, so a silent exit here is byte-identical to a harness
+# refusal and a caller that substitutes an empty label literal (`apply-labels.sh 42 ""`) would
+# fabricate a denial that never happened. Naming the empty set is what leaves the helper with
+# exactly ONE silent outcome — an actual refusal — which is the comparand every call site's
+# guard reads. The set can be empty only when the caller passed no label content: the derivation
+# above is BUILTIN-ONLY (a missing PATH tool can no longer empty it, which is what the old
+# `tr | sed | grep` derivation risked — a false denial while silently dropping a real label).
 if [ "${#LABELS[@]}" -eq 0 ]; then
+    echo "devflow: warning: apply-labels.sh got no label content for #${NUMBER} (args: $*); nothing applied. This is NOT a harness denial — the caller passed an empty/whitespace-only label list." >&2
     exit 0
 fi
 

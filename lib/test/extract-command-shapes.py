@@ -63,13 +63,18 @@ CLI:
            tier rules (issue #455), keyed to the SEPARATE devflow-implement matcher
            probe (matcher-probe.yml's implement-probe job):
 
-  IR1 a `for` loop — ANY spelling, including C-style `for ((i=0;…))` — whose do…done
-      span invokes a label helper (probe row I4). (`select … in` is not matched: a
-      stated non-goal, never probed and never written in these files.)
-  IR2 a `while` / `until` loop whose do…done span invokes a label helper (row I5,
-      which measured the piped-`while read` spelling; the rule matches the loop
-      keyword in COMMAND POSITION, so any spelling of the same denied shape is
-      caught, not only the piped one).
+  IR1 a `for` loop — any SYNTACTIC spelling of the loop itself, including C-style
+      `for ((i=0;…))` — whose do…done span invokes a label helper BY NAME (probe row I4).
+  IR2 a `while` / `until` loop whose do…done span invokes a label helper BY NAME (row I5,
+      which measured the piped-`while read` spelling; the rule matches the loop keyword in
+      COMMAND POSITION, so the unpiped spellings of the same denied shape are caught too).
+
+      IR1/IR2 are matched BY NAME and scoped to a loop the scanner can measure — read the
+      NON-GOALS block below before reading either as total coverage (issue #480): a helper
+      reached through a VARIABLE or a FUNCTION wrapper, a loop-equivalent per-item wrapper
+      by another head (`xargs -I{}`, `find -exec`), a `select … in` loop, and an opener whose
+      `done` is absent from the fence are all NOT flagged, and each is disclosed there.
+      "A limit mistaken for coverage is how a guard lies" — that applies to this docstring.
   IR3 a command substitution invoking a label helper — `$(…)`, backtick, or `<(…)`
       process substitution — in ASSIGNMENT, ARGUMENT, or CONDITION position. (Row I6
       measured the ASSIGNMENT spelling; the others are the same shape, unmeasured, and
@@ -836,7 +841,14 @@ def _scan_loops(lines: list[str], masked: list[str]) -> list[tuple[int, str]]:
         if end is None:
             i += 1  # unterminated: not a measurable loop span — do NOT swallow the tail
             continue
-        if any(_LABEL_HELPER.search(lines[k]) for k in range(i, end + 1)):
+        # Search the span's text with `\`-CONTINUATIONS JOINED, not line by line. A helper
+        # name split across a continuation (`…/apply\<newline>-labels.sh "$n" X`) is ONE word
+        # to the shell but two fragments to a per-line regex, so a line-by-line search found
+        # neither and the loop shipped GREEN (issue #480). Reuse the SAME joiner the statement
+        # splitter uses (share the contract — do not re-derive it), so IR1/IR2 and IR3 can
+        # never disagree about what text a statement contains.
+        span = _heads._join_continuations("\n".join(lines[i:end + 1]))
+        if _LABEL_HELPER.search(span):
             hits.append((i, rule))
         i = end + 1
     return hits

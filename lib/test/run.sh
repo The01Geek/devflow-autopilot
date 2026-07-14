@@ -11125,7 +11125,7 @@ assert_pin_unique "#241 pin (A3): sub-step 5a discriminates anchor-resolution fa
 assert_pin_unique "#241 pin (A3b): sub-step 5a surfaces an unresolvable anchor as an explicit degradation, not a silent skip" \
   'provenance label NOT applied' "$LIB/../skills/create-issue/SKILL.md"
 assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh <draft-pr-number> DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md). #480: the PR number is a substituted LITERAL, not "$PR_NUM" — that variable is set in a previous fence and does not survive into this separate command on the cloud runner, so the old form applied the label to issue "".
+  "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh <draft-pr-number> DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md). #480: the PR number is a substituted LITERAL, not "$PR_NUM" — that variable is set in a previous fence and does not survive into this separate command on the cloud runner, so the old form passed an empty number and the helper refused at its arg-slip guard (the label never landed on the PR).
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh' "$LIB/meta-issue.sh" && grep -qF 'apply-labels.sh' "$LIB/meta-issue.sh" && grep -qF 'DevFlow Retrospective' "$LIB/meta-issue.sh" && echo yes || echo no)"
 assert_eq "#97 pin: init creates the reserved DevFlow provenance label" "yes" \
@@ -27101,7 +27101,7 @@ assert_eq "#455 IR3 flags a VAR=\$(label-helper …) capture" "yes" \
 # ── rule-block comment and matcher-probe.yml rows 8/9, which exist to settle it.
 { printf '%s\n' '```bash' 'D=$(.devflow/vendor/devflow/scripts/config-get.sh .deferred.labels DevFlow,Deferred)' 'PR=$(gh pr view --json number --jq ".number")' '.devflow/vendor/devflow/scripts/ensure-label.sh <label>' '.devflow/vendor/devflow/scripts/apply-labels.sh <n> "<labels>"' '```'; } > "$E363/i-ok.md"
 assert_eq "#455 implement shape-lint does NOT flag permitted shapes (config-get/gh capture, bare label call)" "" \
-  "$(python3 "$ECS" --profile implement "$E363/i-ok.md")"
+  "$(python3 "$ECS" --profile implement "$E363/i-ok.md" 2>&1)"
 # ── Behavioral proof (the assert_pin_red_under analogue for a program-based guard, per the
 # ── behavioral-fix-pin rule): a mutation REINTRODUCING the shape #455 actually removed from
 # ── Phase 4.0 flips the implement lint RED. The mutation is the VERBATIM removed block — a
@@ -27127,6 +27127,28 @@ assert_eq "#455 IR3 flags a BACKTICK capture of a label helper (same denied shap
 { printf '%s\n' '```bash' 'until ok; do' '  .devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' 'done' '```'; } > "$E363/i-ir2-until.md"
 assert_eq "#455 IR2 flags an UNTIL loop wrapping a label helper (same denied shape, other spelling)" "yes" \
   "$(python3 "$ECS" --profile implement "$E363/i-ir2-until.md" | grep -q '  IR2  ' && echo yes || echo no)"
+# ── `\`-CONTINUATION spelling (#480 review — a live fail-open, not a hypothetical). A helper
+# ── name may be split MID-TOKEN by a line continuation: `…/apply\<newline>-labels.sh` is ONE
+# ── word to the shell. The joiner used to fold `\`+newline into a SPACE, reconstructing it as
+# ── `apply -labels.sh` — a token no helper-name literal matches — and the loop scan searched
+# ── raw per-line text besides, so BOTH holes hid the helper and the denied shape shipped GREEN
+# ── under the lint that exists to catch it. The joiner now REMOVES the pair (the shell's own
+# ── rule) and the loop scan searches the continuation-joined span. Pin both directions.
+{ printf '%s\n' '```bash' 'for n in $NUMS; do' '  .devflow/vendor/devflow/scripts/apply\' '-labels.sh "$n" DevFlow' 'done' '```'; } > "$E363/i-ir1-cont.md"
+assert_eq "#480 IR1 flags a loop whose label helper is split by a \\-continuation (mid-token join must not insert a space)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir1-cont.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'LBL="$(.devflow/vendor/devflow/scripts/apply\' '-labels.sh 1 DevFlow 2>&1)"' '```'; } > "$E363/i-ir3-cont.md"
+assert_eq "#480 IR3 flags a capture whose label helper is split by a \\-continuation" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir3-cont.md" | grep -q '  IR3  ' && echo yes || echo no)"
+# The joiner is shared with the #363 head extractor, so pin its shell-faithful contract directly:
+# a mid-token continuation must rejoin to ONE token (a space-join would silently break every
+# name-literal rule downstream), while a continuation at a token boundary must stay two tokens.
+{ printf '%s\n' '```bash' 'ap\' 'ply-labels-probe 1' '```'; } > "$E363/i-cont-token.md"
+assert_eq "#480 the continuation joiner rejoins a mid-token split into ONE head (never 'ap ply-…')" "yes" \
+  "$(python3 "$ECH" heads "$E363/i-cont-token.md" 2>/dev/null | grep -qxF 'apply-labels-probe' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'grep \' '  -q needle file' '```'; } > "$E363/i-cont-arg.md"
+assert_eq "#480 the continuation joiner keeps a token-boundary split as TWO tokens (head stays 'grep')" "yes" \
+  "$(python3 "$ECH" heads "$E363/i-cont-arg.md" 2>/dev/null | grep -qxF 'grep' && echo yes || echo no)"
 # ── FALSE-POSITIVE controls (the #480 review): the loop scan runs over COMMENT-STRIPPED,
 # ── heredoc-blanked lines and requires a real `done`, so PROSE must never turn the desk RED.
 # ── Before the fix it did: a `#` comment mentioning a loop, or the word "while" in a command
@@ -27136,13 +27158,13 @@ assert_eq "#455 IR2 flags an UNTIL loop wrapping a label helper (same denied sha
 # ── weakened or scoped out, so each of these is pinned.
 { printf '%s\n' '```bash' '# for L in a b: never wrap a label helper in a loop' '.devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' '```'; } > "$E363/i-fp-comment-for.md"
 assert_eq "#455 no false positive: a '#' comment mentioning a for-loop + a permitted bare label call stays clean" "" \
-  "$(python3 "$ECS" --profile implement "$E363/i-fp-comment-for.md")"
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-comment-for.md" 2>&1)"
 { printf '%s\n' '```bash' '# poll while the run is in progress' '.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow' '```'; } > "$E363/i-fp-comment-while.md"
 assert_eq "#455 no false positive: a '#' comment mentioning 'while' + a permitted bare label call stays clean" "" \
-  "$(python3 "$ECS" --profile implement "$E363/i-fp-comment-while.md")"
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-comment-while.md" 2>&1)"
 { printf '%s\n' '```bash' 'echo "wait a while"' '.devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' '```'; } > "$E363/i-fp-arg-while.md"
 assert_eq "#455 no false positive: the word 'while' in a command ARGUMENT + a permitted bare label call stays clean" "" \
-  "$(python3 "$ECS" --profile implement "$E363/i-fp-arg-while.md")"
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-arg-while.md" 2>&1)"
 # ── FAIL-OPEN controls (the #480 blinded fix-delta gate). The loop scan SKIPS an opener
 # ── whose closing `done` it cannot find — so every ordinary spelling of `done` must be
 # ── recognized, or a real denied loop ships GREEN. `(…; done)`, `done>/dev/null` and a
@@ -27163,11 +27185,11 @@ assert_eq "#455 no fail-open: a '!'-negated while-loop around a label helper is 
 # ── reads the UNMASKED line, because the denied capture's helper name lives inside quotes.
 { printf '%s\n' '```bash' 'gh issue comment 1 -b "Deferred; while this is open, do not merge"' '.devflow/vendor/devflow/scripts/ensure-label.sh Deferred' 'for f in $FILES; do echo "$f"; done' '```'; } > "$E363/i-fp-quoted-sep.md"
 assert_eq "#455 no false positive: a ';'+'while' inside a QUOTED argument does not open a phantom loop span" "" \
-  "$(python3 "$ECS" --profile implement "$E363/i-fp-quoted-sep.md")"
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-quoted-sep.md" 2>&1)"
 # ── IR3 matches a capture OF a label helper, not a value that merely NAMES one.
 { printf '%s\n' '```bash' 'MSG="$(date -u) applied via apply-labels.sh"' '```'; } > "$E363/i-fp-msg.md"
 assert_eq "#455 no false positive: a helper NAMED in a message string (outside any substitution) is not an IR3 capture" "" \
-  "$(python3 "$ECS" --profile implement "$E363/i-fp-msg.md")"
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-msg.md" 2>&1)"
 # ── FAIL-OPEN controls, round 2 (the #480 blinded fix-delta RE-gate). Each of these was a
 # ── real hole: a denied shape the guard silently passed. The first is the sharpest — the
 # ── quote-masking that keeps a QUOTED separator from faking a loop opener must NOT also
@@ -27191,7 +27213,7 @@ assert_eq "#455 no fail-open: a '<<' inside a quoted string does not blank the r
 # Control for the mask split: a backtick inside SINGLE quotes is literal text, not a capture.
 { printf '%s\n' '```bash' "NOTE='apply-labels.sh runs \`once\`'" '```'; } > "$E363/i-fp-sq-literal.md"
 assert_eq "#455 no false positive: a backtick inside SINGLE quotes is literal text, not an IR3 capture" "" \
-  "$(python3 "$ECS" --profile implement "$E363/i-fp-sq-literal.md")"
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-sq-literal.md" 2>&1)"
 # ── FAIL-OPEN controls, round 3 (the #480 blinded SHADOW pass). IR3 anchored on `^VAR=`,
 # ── so a capture in ARGUMENT or CONDITION position shipped green — and that is the most
 # ── natural regression there is: the shape #455 removed captured the helper's stderr IN
@@ -27218,7 +27240,7 @@ assert_eq "#455 no fail-open: an UNTERMINATED heredoc does not blank the tail (t
 # ...while a PROPERLY terminated heredoc body is still scanned as data, not shell.
 { printf '%s\n' '```bash' "cat <<'EOF' > f" 'for n in x; do apply-labels.sh 1 y; done' 'EOF' '.devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' '```'; } > "$E363/i-fp-heredoc-body.md"
 assert_eq "#455 no false positive: a terminated heredoc BODY is data, not shell (denied-looking text inside it is not a hit)" "" \
-  "$(python3 "$ECS" --profile implement "$E363/i-fp-heredoc-body.md")"
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-heredoc-body.md" 2>&1)"
 # ── ...BUT an UNQUOTED heredoc tag (`<<EOF`, not `<<'EOF'`) still EXPANDS substitutions in
 # ── its body, so a label-helper capture written there really executes — the I6 denied shape.
 # ── Blanking the body as "data" hid it from every rule. A `for` loop in the body stays inert
@@ -27228,7 +27250,7 @@ assert_eq "#455 no fail-open: a label-helper capture in an UNQUOTED heredoc body
   "$(python3 "$ECS" --profile implement "$E363/i-fo-heredoc-expand.md" | grep -q '  IR3  ' && echo yes || echo no)"
 { printf '%s\n' '```bash' "gh issue comment -F - <<'EOF'" 'labels: $(.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow)' 'EOF' '```'; } > "$E363/i-fp-heredoc-quoted.md"
 assert_eq "#455 no false positive: the same text under a QUOTED tag is literal (the shell does not expand it) — not a hit" "" \
-  "$(python3 "$ECS" --profile implement "$E363/i-fp-heredoc-quoted.md")"
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-heredoc-quoted.md" 2>&1)"
 # ── FAIL-OPEN controls, round 4 (the #480 iteration-3 review). The loop scan masks quoted
 # ── spans so a quoted separator cannot fake an opener — but masking each line INDEPENDENTLY
 # ── resets the quote state at every newline, so a double-quoted argument that OPENS on one
@@ -27340,10 +27362,32 @@ assert_eq "#455 apply-labels.sh: SUCCESS emits the applied breadcrumb (so a sile
   "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 " DevFlow , Deferred " 2>&1 | grep -qF "devflow: applied label(s) 'DevFlow,Deferred' to #42" && echo yes || echo no)"
 assert_eq "#455 apply-labels.sh: API FAILURE emits the warning breadcrumb" "yes" \
   "$(DEVFLOW_GH="$I455_STUB/gh_fail" bash "$LIB/../scripts/apply-labels.sh" 42 DevFlow 2>&1 | grep -qF "could not apply label(s) 'DevFlow' to #42" && echo yes || echo no)"
-assert_eq "#455 apply-labels.sh: an EMPTY label set is SILENT (this is what makes 'no output ⇒ denial' sound)" "" \
-  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 "  " 2>&1)"
+# ── NO SILENT PATH (#480 review). The four call sites route "no output at all" to a
+# ── `dropped-failed` DENIAL reflection, so every path the helper can take on a caller mistake
+# ── must breadcrumb — otherwise a caller that passes an empty label literal, or a $PR_NUM that
+# ── did not survive, is byte-identical to a harness refusal and the run fabricates a denial that
+# ── never happened. An earlier revision exited SILENTLY on an empty label set and rc 1 (a raw
+# ── bash usage line) on a missing number; both are pinned closed here. A refusal is now the ONLY
+# ── silent outcome, which is exactly what makes the callers' inference sound.
+assert_eq "#480 apply-labels.sh: an EMPTY label set breadcrumbs the arg-slip (a refusal must be the ONLY silent outcome)" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 "  " 2>&1 | grep -qF "NOT a harness denial" && echo yes || echo no)"
+assert_eq "#480 apply-labels.sh: an empty label set exits 0 (best-effort contract) and POSTs nothing" "0" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_fail" bash "$LIB/../scripts/apply-labels.sh" 42 "  " >/dev/null 2>&1; echo $?)"
 assert_eq "#455 apply-labels.sh: a NON-NUMERIC number (a caller arg-slip) breadcrumbs loudly, never silently" "yes" \
   "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" DevFlow 2>&1 | grep -qF "NOT a harness denial" && echo yes || echo no)"
+assert_eq "#480 apply-labels.sh: ZERO args breadcrumbs and exits 0 (the '' arm is live — \${1:?} would abort rc 1 before it)" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 2>&1 | grep -qF "NOT a harness denial" && echo yes || echo no)"
+assert_eq "#480 apply-labels.sh: ZERO args exits 0, never rc 1 with a raw bash usage line" "0" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" >/dev/null 2>&1; echo $?)"
+assert_eq "#480 apply-labels.sh: a QUOTED empty number (\"\$PR_NUM\" that did not survive) refuses — it never applies to issue ''" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" "" DevFlow 2>&1 | grep -qF "non-numeric issue/PR number ''" && echo yes || echo no)"
+# The arg-slip guard must make NO POST — the breadcrumb alone would still pass if a future edit
+# dropped its `exit 0` and let the REST call fire against `.../issues/DevFlow/labels`.
+printf '#!/usr/bin/env bash\necho "GH_WAS_CALLED" >&2\nexit 0\n' > "$I455_STUB/gh_loud"; chmod +x "$I455_STUB/gh_loud"
+assert_eq "#480 apply-labels.sh: the arg-slip guard POSTs nothing (gh is never invoked)" "0" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_loud" bash "$LIB/../scripts/apply-labels.sh" DevFlow 2>&1 | grep -cF "GH_WAS_CALLED" || true)"
+assert_eq "#480 apply-labels.sh: the empty-label guard POSTs nothing (gh is never invoked)" "0" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_loud" bash "$LIB/../scripts/apply-labels.sh" 42 "  " 2>&1 | grep -cF "GH_WAS_CALLED" || true)"
 assert_eq "#455 apply-labels.sh: a label containing a space survives normalization" "yes" \
   "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 "needs review,DevFlow" 2>&1 | grep -qF "'needs review,DevFlow'" && echo yes || echo no)"
 # Guard-class 2: the label derivation must NOT depend on a non-preflight PATH tool. It decides
@@ -27355,6 +27399,12 @@ assert_eq "#455 apply-labels.sh: a label containing a space survives normalizati
 # so a raw scan would match the prose that documents the fix rather than any surviving code.)
 assert_eq "#455 apply-labels.sh derives its label list with BUILTINS (no tr/sed/grep in the selection path)" "0" \
   "$(sed -n '/^LABELS=()/,/^fi$/p' "$LIB/../scripts/apply-labels.sh" | grep -v '^[[:space:]]*#' | grep -cE '\| *(tr|sed|grep|paste|awk) ' || true)"
+# ANTI-VACUITY for the pin above (#480 review): a count of 0 also passes when the sed RANGE
+# extracts nothing at all (a future edit renames `LABELS=()` or restructures the guard), so the
+# pin would stay green while a `tr`-based derivation was reintroduced under another name. Anchor
+# it: assert the extracted range really does contain the derivation it claims to be scanning.
+assert_eq "#480 the guard-class-2 sed range actually spans the label derivation (the 0-count pin is not vacuous)" "1" \
+  "$(sed -n '/^LABELS=()/,/^fi$/p' "$LIB/../scripts/apply-labels.sh" | grep -cF 'LABELS+=(' || true)"
 # ── UNGRANTED-HEAD pin (#480 review): a grant is per-HEAD across the WHOLE pipeline, not
 # ── just the leading token, so ONE ungranted head in a tail refuses the entire statement.
 # ── `paste` is granted in NO allowlist (baked TOOLS, config.json, config.example.json) — yet
