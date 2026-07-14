@@ -1,0 +1,10 @@
+{
+  "iter": 4,
+  "fix_commit_sha": "9c963a06cac0c155ae437776bca5d9b545fcebf1",
+  "fix_files": [
+    "lib/test/run.sh",
+    "scripts/stop-refresher.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}
