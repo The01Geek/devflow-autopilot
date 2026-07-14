@@ -1,0 +1,61 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-14T04:20:00Z",
+  "fix_commit_sha": "029f931",
+  "fix_files": [
+    "skills/implement/SKILL.md",
+    "lib/test/run.sh",
+    "scripts/workpad.py",
+    "lib/test/test_python_scripts.py"
+  ],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "SKILL.md:204 '≥1 bullet' trips the #434 stale-prose count-lock lint, reddening the required CI job.", "defect_signature": {"file": "skills/implement/SKILL.md", "line_range": [204, 204], "kind": "stale-counted-prose"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "§1.6 clean-arm-reflection absence pin fails open on heading drift (empty slice → vacuous count-0 pass).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [6621, 6625], "kind": "absence-pin-vacuous-on-empty-slice"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "--reflection-kind argparse comment hand-enumerates kind tokens (mirror-fact drift).", "defect_signature": {"file": "scripts/workpad.py", "line_range": [2018, 2020], "kind": "mirror-fact-drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Combined-failure atomicity and default-kind-via-file not directly tested.", "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [1690, 1700], "kind": "test-coverage"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "029f931"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "029f931"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "029f931"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "029f931"}
+  ],
+  "convergence_inputs": {"fixes_applied": 4, "fix_diff_lines": 60, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh + python3 lib/test/test_python_scripts.py", "result": "pass", "duration_s": 120, "skipped_checks": []},
+  "telemetry": {"phase_3": {"calls": 5, "tokens": 392000, "wall_clock_s": 549}, "step_2_6": {"calls": 7, "tokens": 470000, "wall_clock_s": 550}},
+  "shadow": {
+    "ran_at": "2026-07-14T04:40:00Z",
+    "reviewed_sha": "3452792",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "phase-4-documentation.md:520 reflection-routing enumeration omits improvement/issue-accuracy (diff-untouched pre-existing line).", "defect_signature": {"file": "skills/implement/phases/phase-4-documentation.md", "line_range": [520, 520], "kind": "incomplete-doc-enumeration"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Optional hardening: issue-accuracy+note co-render, stdin abort arms, internal-whitespace pin."}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 2, "overlap_with_iter_N": 0, "new": 2, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false,
+    "post_shadow_edit_gate": {"reviewed_sha_advanced_to": "3452792", "delta": ["skills/implement/phases/phase-4-documentation.md"], "delta_review": "clean", "note": "post-shadow commit 3452792 reconciled the phase-4 reflection-routing enumeration (the shadow's own Suggestion); bounded delta-review (comment-analyzer + final-pass, blinded) returned no findings; reviewed_sha advanced to HEAD"}
+  }
+}
