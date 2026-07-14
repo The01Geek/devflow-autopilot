@@ -56,6 +56,12 @@
     "phase2_fails": [],
     "comparison": {"shadow_total": 5, "overlap_with_iter_1": 3, "new": 2, "new_critical": 0, "new_important": 0},
     "promoted_to_iter_next": false,
-    "park_calibration": "park-calibration gate clean: no parked finding matched a mis-grade shape"
+    "park_calibration": "park-calibration gate clean: no parked finding matched a mis-grade shape",
+    "post_shadow_edit_gate": {
+      "reviewed_sha_original": "a09b5ef1d118d668f7dc90a6af74d8702d334e88",
+      "head_at_exit": "0d5d4b4a1f6d3cd0fffb287cb4f5a2134937f0a4",
+      "resolution": "base-merge-only: Checkpoint-3 UPDATED merged origin/main (already-reviewed #493/#494 commits + version bump); PR #495's own contributed files are byte-identical across the merge, delta is disjoint from #495's surface, loop-exit suite re-run GREEN (7030 passed, 0 failed). No unreviewed PR-authored edit. reviewed_sha advanced to head_at_exit.",
+      "reviewed_sha": "0d5d4b4a1f6d3cd0fffb287cb4f5a2134937f0a4"
+    }
   }
 }
