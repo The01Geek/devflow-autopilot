@@ -3014,6 +3014,28 @@ assert_pin_unique "#462 dim: Step 3.6 audit-prompt area states the finding-cap g
 assert_pin_unique "#462 ext: live create-issue extension carries the consolidated DevFlow sharpening" \
   'Authoring-discipline defects (DevFlow specifics, issue #462)' "$CI443_EXT"
 
+# ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
+#    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
+#    Each pin is a behavioral-fix pin: its literal IS the operative sentence whose removal
+#    re-introduces the unreconciled-contract gap, so it is expressed through assert_pin_red_under
+#    with a `sed -E` mutation that strips that operative sentence (framing-only survives → RED here).
+# (a) Step 3.5 hunt gains the within-text contract-reconciliation target.
+assert_pin_red_under "#465 (a): Step 3.5 names the within-text multi-state-contract reconciliation target" \
+  'no summary or table form lists fewer causes for a state than the detailed per-state ACs' \
+  's/lists fewer causes for a state/REMOVED/' "$CI312_SKILL"
+# (b) Template Move 3 orphan sentence folds the enumerated-state→AC clause.
+assert_pin_red_under "#465 (b): template folds the every-enumerated-contract-state-maps-to-an-AC clause" \
+  'every state a multi-state contract enumerates' \
+  's/multi-state contract enumerates/CONTRACT/' "$CI312_TMPL"
+# (c) Prompt-extension Coupled-mirror-sites gains the source-reconciled-before-propagation sentence.
+assert_pin_red_under "#465 (c): extension sharpens Coupled mirror sites — source reconciled before propagation" \
+  'the source form must itself be internally reconciled before it is propagated' \
+  's/internally reconciled before it is propagated/IGNORED/' "$CI443_EXT"
+# (d) SYSTEM_OVERVIEW §11 Self-steelman enumeration reconciled to include the new target.
+assert_pin_red_under "#465 (d): SYSTEM_OVERVIEW §11 Self-steelman enumeration includes the new target" \
+  'unstated scope, and an unreconciled multi-state contract' \
+  's/an unreconciled multi-state contract/REMOVED/' "$OG_OVERVIEW_DOC"
+
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
 # regardless of that iteration's verdict (including REJECT), feeding new blinded
