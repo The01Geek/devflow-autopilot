@@ -4,6 +4,16 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.12.2] — 2026-07-14
+
+### Fixed
+- **Fixed two reception defects in the vendored `receiving-code-review` skill.** The mutation-check recipe previously offered only a copy-based route ("on a copy of the file, never the working-tree file in place"), which is unsatisfiable for a suite that reads fixed paths or imports the module under test through fixed module paths — the majority case in consumer repos. It now states the invariant (the mutation is never left behind in the working tree, and the suite is observed RED for the reason the test pins) plus two routes: (a) mutate a copy where the suite can be redirected, and (b) mutate the working-tree file, run the suite, and restore — with an explicit restore verification — where it cannot, choosing (b) only when redirection is genuinely impossible. Separately, the *Symmetric Severity Calibration* section now has a rule for a review that annotates its own finding as a suspected over-grade: the annotation is advisory input to severity calibration, never on its own a reason to skip the finding, and an annotated finding at or above the configured re-open threshold is still fixed. (#486)
+
+## [2.12.1] — 2026-07-14
+
+### Added
+- **`/devflow:implement` Phase 2.3 gains §2.3.7 (collection-cardinality sweep) and sharpens §2.3.0c's two operand-trace triggers.** The new trigger-gated §2.3.7 fires whenever a change adds a collection output whose value depends on ordering, dedup, or aggregation (a sorted list, deduped set, grouped/counted tally, tie-broken ranking) and requires a **multi-element** test case (order-sensitive elements plus collapsing duplicates) that exercises that logic — a single-element happy-path test does not discharge it; where no automated test can drive the output, the obligation becomes the Phase 2.4 adversarial dry-trace over a multi-element input. §2.3.0c trigger (a) now requires a **derived** comparand's operand row to enumerate the malformed/empty arms its producer can emit (producer failure, unparseable output, wrong-type, valid-falsy/empty, missing key/file — the six-shape adversarial matrix) and state the guard's decided behavior on each. §2.3.0c trigger (b) now requires a stated policy to place its obligation at the execution point it gates, with at most a cross-reference from a thematic section — thematic-only prose no longer discharges the trigger. Because `/devflow:review-and-fix` Step 3 item 3b already dispatches §2.3.0c over each fix delta, both sharpenings reach the fix loop with no review-and-fix edit. `docs/implement-skill.md` and the `docs/DEVFLOW_SYSTEM_OVERVIEW.md` sweep index are reconciled, and the new operative sentences are pinned in `lib/test/run.sh`. (#474)
+
 ## [2.12.0] — 2026-07-14
 
 ### Changed

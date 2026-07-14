@@ -248,6 +248,7 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
   - **2.3.4a** Self-authored-claim reconciliation sweep (every behavioral claim the diff *authors* in internal/external docs and code comments, reconciled against the shipped code path before commit; the code is the fact)
   - **2.3.5** Simplification & efficiency sweep
   - **2.3.6** Error-handling & silent-failure sweep
+  - **2.3.7** Collection-cardinality sweep (trigger-gated: an added collection output with ordering/dedup/aggregation logic → a multi-element test case; a single-element test does not discharge it)
 - **2.4** Run tests + lint in parallel; fix failures.
 - **2.5** Commit (`feat:`) and push.
 
