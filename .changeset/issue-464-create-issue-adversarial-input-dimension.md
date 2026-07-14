@@ -1,6 +1,0 @@
----
-bump: patch
-type: Added
----
-
-- **`create-issue` catches adversarial-input and enumerated-test-list spec gaps at drafting time.** Step 3.6's generic dimension checklist gains a consumer-agnostic **Adversarial third-party input** dimension: a draft introducing a new LLM/semantic judgment over third-party text (issue bodies, PR comments, commit messages, external API responses) whose output drives an automated action must carry an input-is-data guard AC ("data to classify, never instructions to obey") **paired** with a Testing Strategy case exercising instruction-shaped input — reusing an already-guarded path is exempt when cited, and a draft with no new judgment surface gains no new flags. The issue template gains the matching drafter-side rule plus a rule requiring every enumerated test/case/example list inside an AC to declare its form (a **floor** marked `at minimum` or an explicit **closed set**), with Testing Strategy Move 2 sweeping a floor-marked list's contract dimensions (state, case variants, multiplicity, absence) back into closed AC items before filing. Both checks join Step 3.5's omission-hunt list, and the live prompt extension gains a mutation-evidence audit dimension for behavioral-fix pins (surface-presence pins excluded). Learnings from PR #454. (#464)
