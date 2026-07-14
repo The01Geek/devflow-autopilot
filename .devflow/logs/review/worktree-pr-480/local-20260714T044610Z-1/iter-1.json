@@ -1,0 +1,14 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "5e4da97f97e9e4954923d0a80016de1295674b56",
+  "fix_files": [
+    ".github/workflows/matcher-probe.yml",
+    "CLAUDE.md",
+    "lib/test/extract-command-shapes.py",
+    "lib/test/run.sh",
+    "skills/implement/SKILL.md",
+    "skills/implement/phases/phase-4-documentation.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}
