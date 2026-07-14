@@ -3016,9 +3016,13 @@ assert_pin_unique "#462 ext: live create-issue extension carries the consolidate
 
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
-#    Each pin is a behavioral-fix pin: its literal IS the operative sentence whose removal
+#    Each pin is a behavioral-fix pin: its literal IS an operative sentence whose removal
 #    re-introduces the unreconciled-contract gap, so it is expressed through assert_pin_red_under
-#    with a `sed -E` mutation that strips that operative sentence (framing-only survives → RED here).
+#    with a `sed -E` mutation that strips a load-bearing fragment of the operative sentence
+#    (framing-only survives → RED here). (a)–(d) pin the four coupled-mirror contract surfaces;
+#    (e)/(f) additionally pin the Step 3.5 target's scope-honesty and no-burden operative clauses
+#    (the "Scope honesty" / "No burden on non-contract issues" ACs), so every AC's operative prose
+#    maps to ≥1 assertion — the same bidirectional-orphan discipline this issue itself adds.
 # (a) Step 3.5 hunt gains the within-text contract-reconciliation target.
 assert_pin_red_under "#465 (a): Step 3.5 names the within-text multi-state-contract reconciliation target" \
   'no summary or table form lists fewer causes for a state than the detailed per-state ACs' \
@@ -3035,6 +3039,14 @@ assert_pin_red_under "#465 (c): extension sharpens Coupled mirror sites — sour
 assert_pin_red_under "#465 (d): SYSTEM_OVERVIEW §11 Self-steelman enumeration includes the new target" \
   'unstated scope, and an unreconciled multi-state contract' \
   's/an unreconciled multi-state contract/REMOVED/' "$OG_OVERVIEW_DOC"
+# (e) Step 3.5 target carries the scope-honesty operative clause ("Scope honesty" AC).
+assert_pin_red_under "#465 (e): Step 3.5 target scopes to the draft's own forms (no not-yet-written-implementation claim)" \
+  'makes **no** claim to catch a state that only a not-yet-written implementation will emit' \
+  's/not-yet-written implementation will emit/REMOVED/' "$CI312_SKILL"
+# (f) Step 3.5 target carries the no-burden-on-non-contract-issues operative clause ("No burden…" AC).
+assert_pin_red_under "#465 (f): Step 3.5 target draws no new hunt/question/revision on a non-contract draft" \
+  'a draft that states none draws no new hunt, question, or revision' \
+  's/draws no new hunt, question, or revision/REMOVED/' "$CI312_SKILL"
 
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
