@@ -32,11 +32,14 @@ name: Matcher probe
 # vendored literal vs. `*/basename` glob) and which command SHAPES (`for` / piped
 # `while read` / `VAR="$(…)"` wrappers, the unexpanded-anchor leading token) the
 # matcher accepts for the label helpers (`ensure-label.sh` / `apply-labels.sh`),
-# whose silently-denied applies are the defect issue #450 fixes. Its grant sets are
-# attribution-split (explicit-for-apply-labels, glob-for-ensure-label) so every
-# label verdict attributes to exactly one form. Human-dispatch only: its observed
-# table is the implement-tier evidence of record that Stage B's grant + call-site
-# rework is gated on.
+# whose silently-denied applies are the defect issue #450 fixes. Its grant sets were
+# originally attribution-split (explicit-for-apply-labels, glob-for-ensure-label) so
+# every label verdict attributed to exactly one form. Human-dispatch only: its
+# observed table is the implement-tier evidence of record that Stage B's grant +
+# call-site rework was gated on. That table is now RECORDED (issues #450/#455) and
+# Stage B SHIPPED the explicit vendored-literal grants into the baked profile, so the
+# split is retired and this job now measures the real shipped implement profile
+# end-to-end (see the compose step's HISTORY note).
 #
 # Triggers: workflow_dispatch (available post-merge, from the default branch) plus
 # pull_request scoped to this file's own path (so a change to the probe re-runs it
@@ -421,37 +424,40 @@ jobs:
       #
       # EXTRAS reproduces the consumer config extras
       # (.devflow_implement.allowed_tools in .devflow/config.json, appended at
-      # runtime by devflow-implement.yml as `allowed_tools_extra`) — but the two
-      # LABEL-helper entries are deliberately reshaped into a per-form ATTRIBUTION
-      # SPLIT so every label verdict is attributable to exactly ONE grant form:
-      #   * apply-labels.sh: the config's `Bash(*/apply-labels.sh:*)` glob is
-      #     DROPPED here and the explicit vendored-literal candidate
-      #     `Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*)` is added
-      #     instead, so apply-labels.sh is covered by NO glob and ONLY the explicit
-      #     grant — a PERMITTED verdict on it (shape I2) attributes to the explicit
-      #     vendored-literal FORM (the form Stage B expects to ship).
-      #   * ensure-label.sh: the config's `Bash(*/ensure-label.sh:*)` glob is kept
-      #     and NO explicit ensure-label candidate is added, so ensure-label.sh is
-      #     covered ONLY by the `*/basename` glob — a PERMITTED verdict on it
-      #     (shape I3) attributes to the GLOB form (resolving whether a `*/basename`
-      #     glob matches a vendored-literal leading token on the implement tier,
-      #     which review shape 15 left open for the different `scripts/*.sh` form).
-      # Every OTHER config-extras entry is verbatim. The config itself still ships
-      # BOTH label helpers as `*/` globs (unchanged by this probe); the split lives
-      # only here, purely for attribution.
-      - name: Resolve allowed-tools (implement profile + attribution-split label grants)
+      # runtime by devflow-implement.yml as `allowed_tools_extra`) VERBATIM.
+      #
+      # HISTORY (issue #450 -> #455): this compose step once carried a per-form
+      # ATTRIBUTION SPLIT for the two label helpers — the apply-labels glob was
+      # DROPPED from EXTRAS and an explicit vendored-literal CANDIDATE added, while
+      # ensure-label.sh was left glob-only — so a PERMITTED verdict on each attributed
+      # to exactly ONE grant form. That measurement is DONE: the implement-tier table
+      # recorded on #450/#455 found the explicit vendored-literal form PERMITTED (row
+      # 2 / shape I2 via a real recorded tool_use) and the `*/basename` config glob
+      # DENIED against a vendored-literal leading token (row 3 / shape I3), plus the
+      # unexpanded-anchor leading token (I1) and the `for` / piped-`while read` /
+      # `VAR="$(…)"` wrappers (I4/I5/I6) all DENIED. Stage B (#455) then SHIPPED the
+      # explicit grants into the baked IMPLEMENT literal above (and into
+      # devflow-implement.yml), so the split is retired: EXTRAS is config-verbatim
+      # again and there is no separate CANDIDATE. The profile composed here is now the
+      # real shipped implement profile end-to-end.
+      - name: Resolve allowed-tools (implement profile, incl. shipped explicit label grants)
         id: tools
         run: |
           set -euo pipefail
-          IMPLEMENT='Read,Write,Edit,Glob,Grep,LS,Skill,Agent,TodoWrite,EnterPlanMode,ExitPlanMode,WebFetch,WebSearch,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git pull:*),Bash(git fetch:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git checkout:*),Bash(git branch:*),Bash(git stash:*),Bash(git rm:*),Bash(git mv:*),Bash(git restore:*),Bash(git revert:*),Bash(git blame:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git merge:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr ready:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh pr status:*),Bash(gh pr reopen:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue create:*),Bash(gh issue reopen:*),Bash(gh issue status:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh workflow view:*),Bash(gh workflow list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*),Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*),Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*),Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Bash(pip install:*),Bash(pip:*),Bash(python:*),Bash(python3:*),Bash(python -m:*),Bash(python3 -m:*),Bash(ruff:*),Bash(ruff check:*),Bash(ruff format:*),Bash(pytest:*),Bash(mypy:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(less:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(touch:*),Bash(mkdir:*),Bash(rmdir:*),Bash(rm:*),Bash(mv:*),Bash(cp:*),Bash(tee:*)'
-          # Config extras, verbatim EXCEPT the two label lines (attribution split above):
-          #   dropped:  Bash(*/apply-labels.sh:*)   (replaced by the explicit candidate)
-          #   kept:     Bash(*/ensure-label.sh:*)   (glob-isolation row I3)
-          EXTRAS='Bash(lib/test/run.sh:*),Bash(lib/preflight.sh:*),Bash(shellcheck:*),Bash(chmod:*),Bash(git ls-remote:*),Bash(git check-ignore:*),Bash(*/ensure-label.sh:*),Bash(*/render-grounding-block.sh:*),Bash(*/config-get.sh:*),Bash(*/efficiency-trace.sh:*),Bash(*/stale-prose-lint.py:*)'
-          # Explicit vendored-literal candidate for apply-labels.sh (isolates the
-          # explicit FORM — the exact grant string Stage B is expected to ship).
-          CANDIDATE='Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*)'
-          TOOLS="$IMPLEMENT,$EXTRAS,$CANDIDATE"
+          IMPLEMENT='Read,Write,Edit,Glob,Grep,LS,Skill,Agent,TodoWrite,EnterPlanMode,ExitPlanMode,WebFetch,WebSearch,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git pull:*),Bash(git fetch:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git checkout:*),Bash(git branch:*),Bash(git stash:*),Bash(git rm:*),Bash(git mv:*),Bash(git restore:*),Bash(git revert:*),Bash(git blame:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git merge:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr ready:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh pr status:*),Bash(gh pr reopen:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue create:*),Bash(gh issue reopen:*),Bash(gh issue status:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh workflow view:*),Bash(gh workflow list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*),Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*),Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*),Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*),Bash(.devflow/vendor/devflow/scripts/ensure-label.sh:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Bash(pip install:*),Bash(pip:*),Bash(python:*),Bash(python3:*),Bash(python -m:*),Bash(python3 -m:*),Bash(ruff:*),Bash(ruff check:*),Bash(ruff format:*),Bash(pytest:*),Bash(mypy:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(less:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(touch:*),Bash(mkdir:*),Bash(rmdir:*),Bash(rm:*),Bash(mv:*),Bash(cp:*),Bash(tee:*)'
+          # Config extras, now mirrored VERBATIM from .devflow/config.json's
+          # devflow_implement.allowed_tools (BOTH label globs present). Stage B
+          # (issue #455) shipped the explicit vendored-literal label grants into
+          # devflow-implement.yml's baked IMPLEMENT literal above (and this copy),
+          # so the former per-form ATTRIBUTION SPLIT — dropping the apply-labels
+          # glob here and adding a separate explicit CANDIDATE var — is now
+          # HISTORICAL; its recorded evidence (shape I2 PERMITTED via the explicit
+          # form, shape I3 PERMITTED, shapes I1/I4/I5/I6 DENIED) is the implement-
+          # tier table on issues #450/#455. With the split retired, the probe once
+          # again measures the REAL shipped profile end-to-end: IMPLEMENT (now
+          # carrying the explicit label grants) + the config extras verbatim.
+          EXTRAS='Bash(lib/test/run.sh:*),Bash(lib/preflight.sh:*),Bash(shellcheck:*),Bash(chmod:*),Bash(git ls-remote:*),Bash(git check-ignore:*),Bash(*/apply-labels.sh:*),Bash(*/ensure-label.sh:*),Bash(*/render-grounding-block.sh:*),Bash(*/config-get.sh:*),Bash(*/efficiency-trace.sh:*),Bash(*/stale-prose-lint.py:*)'
+          TOOLS="$IMPLEMENT,$EXTRAS"
           delim="TOOLS_EOF_$(date +%s%N)_$$"
           {
             printf 'tools<<%s\n' "$delim"
@@ -492,15 +498,16 @@ jobs:
             expand the anchor yourself:
             "${CLAUDE_SKILL_DIR:-.devflow/vendor/devflow/skills/implement}"/../../scripts/ensure-label.sh iprobe01anchor
 
-            Shape 2 — vendored-literal leading token, EXPLICIT candidate grant
-            (Bash). apply-labels.sh is covered ONLY by the explicit vendored-literal
-            grant (no `*/apply-labels.sh` glob in this profile), so a PERMITTED here
-            attributes to the explicit FORM. Dummy issue 9999, dummy label:
+            Shape 2 — vendored-literal leading token, apply-labels.sh (Bash). Now
+            granted by the explicit vendored-literal form in the shipped profile
+            (Stage B, #455); a PERMITTED here confirms that leading-token form runs.
+            Dummy issue 9999, dummy label:
             .devflow/vendor/devflow/scripts/apply-labels.sh 9999 iprobe02explicit
 
-            Shape 3 — GLOB-ISOLATION row (Bash). ensure-label.sh is covered ONLY by
-            the `Bash(*/ensure-label.sh:*)` glob (no explicit candidate), so a
-            PERMITTED here attributes to the GLOB form. Dummy label:
+            Shape 3 — vendored-literal leading token, ensure-label.sh (Bash). Now
+            granted by the explicit vendored-literal form (Stage B, #455) alongside
+            the config `*/basename` glob; a PERMITTED here confirms the leading-token
+            form runs. Dummy label:
             .devflow/vendor/devflow/scripts/ensure-label.sh iprobe03glob
 
             Shape 4 — `for …; do …; done` compound wrapping a granted helper (Bash,
@@ -612,8 +619,8 @@ jobs:
           # helpers are best-effort exit-0 and the run is matcher-only by design.
           rows = [
               (1, "unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor leading token (ensure-label.sh)", "iprobe01anchor",  "${CLAUDE_SKILL_DIR"),
-              (2, "vendored-literal leading token, EXPLICIT candidate (apply-labels.sh)",        "iprobe02explicit", ".devflow/vendor/devflow/scripts/apply-labels.sh"),
-              (3, "glob-isolation `Bash(*/ensure-label.sh:*)` (ensure-label.sh)",                "iprobe03glob",     ".devflow/vendor/devflow/scripts/ensure-label.sh"),
+              (2, "vendored-literal leading token, apply-labels.sh (explicit form, shipped)",    "iprobe02explicit", ".devflow/vendor/devflow/scripts/apply-labels.sh"),
+              (3, "vendored-literal leading token, ensure-label.sh (explicit form, shipped)",    "iprobe03glob",     ".devflow/vendor/devflow/scripts/ensure-label.sh"),
               (4, "`for …; do helper; done` compound wrapping a granted helper",                 "iprobe04for",      "for L in"),
               (5, "piped `while read` loop wrapping a granted helper",                           "iprobe05while",    "while read"),
               (6, "`VAR=\"$(helper …)\"` capture of a granted helper (apply-labels.sh)",          "iprobe06capture",  "$("),
@@ -626,9 +633,10 @@ jobs:
           out.append("Deterministic verdict computed from the execution file's "
                      "`permission_denials` (DENIED) and recorded `tool_use` inputs "
                      "(PERMITTED). The model's text output is never the measurement. "
-                     "Grant sets are attribution-split (see the compose step): shape 2 "
-                     "attributes to the explicit vendored-literal form, shape 3 to the "
-                     "`*/basename` glob form. **REFORMULATED** means a call carrying the "
+                     "Stage B (#455) shipped the explicit vendored-literal label grants "
+                     "into the profile, so shapes 2 and 3 now confirm the shipped "
+                     "leading-token form runs (the former per-form attribution split is "
+                     "retired — see the compose step). **REFORMULATED** means a call carrying the "
                      "row's marker ran but NOT in the intended shape/form (the model "
                      "did not emit it verbatim) — treat it like UNATTEMPTED and re-run, "
                      "never as evidence the intended form is PERMITTED.")
