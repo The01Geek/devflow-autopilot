@@ -3016,8 +3016,10 @@ assert_pin_unique "#462 ext: live create-issue extension carries the consolidate
 
 # ── issue #467: four create-issue authoring-discipline hardenings (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
-#    IS the operative contract sentence itself, so assert_pin_unique is the honest primitive
-#    (the #312 coupled-pair pattern). The template<->Step-3.5 coupled pairs for the B1
+#    is drawn verbatim from the operative contract prose (a whole sentence or a load-bearing
+#    fragment of one), so assert_pin_unique is the honest primitive — the pin catches removal or
+#    rewording of the contract prose, not a behavioral regression (the #312 coupled-pair pattern).
+#    The template<->Step-3.5 coupled pairs for the B1
 #    occurrence-count and C1 conditional-path premise classes are pinned on BOTH sides so a
 #    one-sided edit goes RED.
 # Cluster A — universal-claim rule (template AC guidance + checklist), Step 3.5 sweep + zero arm,
@@ -3035,10 +3037,18 @@ assert_pin_unique "#467 A2: Step 3.5 item-6 summary states the falsifiable zero 
 assert_pin_unique "#467 A3: Step 3.6 Load-bearing-assumptions dimension names universal quantifiers" \
   'including any **universal quantifier** the draft asserts' "$CI312_SKILL"
 # A3 count guard — the generic dimension checklist size is guard-locked (dimension-growth policy).
+# Pin BOTH sed anchors present-and-unique so the count range stays bounded: a start-anchor drift
+# already fails the count RED (sed prints nothing -> count 0), but an *end*-anchor drift would let
+# sed run to EOF while the count coincidentally stays 8, passing vacuously — these two pins turn
+# either anchor's rename/removal RED at the desk so the range can never silently un-bound.
+assert_pin_unique "#467 A3: the generic-dimension-checklist sed START anchor is present and unique" \
+  '**Generic dimension checklist' "$CI312_SKILL"
+assert_pin_unique "#467 A3: the generic-dimension-checklist sed END anchor is present and unique" \
+  '**Dimension-list growth policy' "$CI312_SKILL"
 assert_eq "#467 A3: Step 3.6 generic dimension checklist remains 8 bullets" "8" \
   "$(sed -n '/^\*\*Generic dimension checklist/,/^\*\*Dimension-list growth policy/p' "$CI312_SKILL" | grep -c '^- \*\*')"
 # Cluster B — occurrence-count premise class (coupled template<->Step-3.5) + checklist mirror; AC
-# mutual-consistency check (Step 3.5 + checklist mirror).
+# mutual-consistency check (Step 3.5 + template AC guidance + checklist mirror).
 assert_pin_unique "#467 B1 (coupled/template): template names the occurrence-count/site-list premise class" \
   'Occurrence counts and coupled-site lists are a premise class too' "$CI312_TMPL"
 assert_pin_unique "#467 B1 (coupled/SKILL): Step 3.5 mirrors the occurrence-count premise class" \
