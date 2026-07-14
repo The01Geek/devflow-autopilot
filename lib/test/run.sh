@@ -31675,10 +31675,15 @@ assert_pin_unique "#466 mla-fetch: Phase 0.6 comment fetch uses the {owner}/{rep
 # here can be pattern-matched around by the very thing it guards (a new `_emit_r5(rows, rule,
 # …)` helper with the same signature shape slips past any name-generic exclusion, so BOTH the
 # id set and the "no unknown idiom" count stay green while R5 silently inherits carry-forward
-# eligibility). The AST walk instead resolves every STALE-emitting call site: a literal rule
-# id is collected; a NON-literal rule id is a violation UNLESS it sits inside the one known
-# indirection (`_emit_count`, whose `rule` is bound by its literal call sites, which are
-# themselves collected). So a new emit helper — under any name — is SEEN, not matched around.
+# eligibility). The AST walk instead resolves every STALE-emitting call site — positional OR
+# keyword form, `STALE` constant OR literal "STALE" verdict: a literal rule id is collected; a
+# rule id it CANNOT resolve is a violation (fail closed, never a silent skip) UNLESS it sits
+# inside the one known indirection (`_emit_count`, whose `rule` is bound by its literal call
+# sites, which are themselves collected). So a new emit helper — under any name, in either
+# call form — is SEEN, not matched around.
+# Note the id harvest is name-generic over `_emit_*`: a future helper that emits only
+# UNRESOLVABLE rows would still contribute its id and turn this RED. That is the safe
+# direction (it forces a classification decision), not a bug in the new code.
 assert_eq "#466 mla-rule-drift: the lint's emitted STALE rule ids are exactly R1,R2,R3,R4, emitted through no idiom the extractor cannot see (a new rule must be classified in CARRY_FORWARD_EXCLUDED_RULES)" \
   "R1 R2 R3 R4 | violations=0" \
   "$(python3 - "$LIB/../scripts/stale-prose-lint.py" <<'RULEDRIFT'
@@ -31690,27 +31695,54 @@ INDIRECTION = "_emit_count"
 
 tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
 # Map every node to its enclosing function so a non-literal emit can be attributed.
+# Async defs are included: attributing one to None would let it read as module level.
 enclosing = {}
-for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+for fn in [n for n in ast.walk(tree)
+           if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
     for node in ast.walk(fn):
         enclosing.setdefault(node, fn.name)
 
+
+def _arg(call, pos, kw):
+    """Positional-or-keyword arg, so a keyword-form emit is not invisible. Row's own
+    docstring invites the keyword form, so ignoring node.keywords would be a live hole."""
+    if len(call.args) > pos:
+        return call.args[pos]
+    for k in call.keywords:
+        if k.arg == kw:
+            return k.value
+    return None
+
+
+def _is_stale_row(call, name):
+    if name != "Row":
+        return False
+    v = _arg(call, 0, "verdict")
+    # Accept BOTH the STALE constant and a literal "STALE" — matching only the Name form
+    # would let `Row("STALE", "R5", …)` emit a new rule the extractor never sees.
+    return (isinstance(v, ast.Name) and v.id == "STALE") or (
+        isinstance(v, ast.Constant) and v.value == "STALE"
+    )
+
+
 ids, violations = set(), 0
 for node in ast.walk(tree):
-    if not isinstance(node, ast.Call) or not node.args:
+    if not isinstance(node, ast.Call):
         continue
     name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
-    rule_arg = None
-    if name == "Row" and isinstance(node.args[0], ast.Name) and node.args[0].id == "STALE":
-        rule_arg = node.args[1] if len(node.args) > 1 else None
-    elif isinstance(name, str) and name.startswith("_emit_") and len(node.args) > 1:
-        rule_arg = node.args[1]          # _emit_*(rows, rule, ...)
-    if rule_arg is None:
+    emits = _is_stale_row(node, name) or (
+        isinstance(name, str) and name.startswith("_emit_")   # _emit_*(rows, rule, ...)
+    )
+    if not emits:
         continue
+    rule_arg = _arg(node, 1, "rule")
     if isinstance(rule_arg, ast.Constant) and isinstance(rule_arg.value, str):
         ids.add(rule_arg.value)
     elif enclosing.get(node) != INDIRECTION:
-        violations += 1                   # a rule id this extractor cannot resolve
+        # Fail CLOSED: a rule id this extractor cannot resolve (a variable, a dict lookup,
+        # a missing arg) is a VIOLATION, never a silent skip — a skipped emit is exactly
+        # the vacuous pass this guard exists to prevent.
+        violations += 1
 print(" ".join(sorted(ids)), "| violations=%d" % violations)
 RULEDRIFT
 )"

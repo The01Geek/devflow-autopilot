@@ -10,7 +10,8 @@ line — ``<!-- devflow:lint-fp-adjudicated <base64 of the row's TSV> -->`` —
 inside a sentinel-delimited adjudications section of its run-keyed
 ``devflow:review-progress`` comment. This helper joins the current run's STALE
 lint rows against the payloads found in prior *trusted* progress comments and
-emits a demotion map: a current STALE row whose ``(rule, path, detail)`` is
+emits a demotion map: a current STALE row whose rule is carry-forward-eligible (see
+``CARRY_FORWARD_EXCLUDED_RULES`` — R4 is not) and whose ``(rule, path, detail)`` is
 byte-for-byte identical to an adjudicated payload is demoted to Informational.
 
 The helper owns the entire join so the skill prose only fetches comments, pipes
