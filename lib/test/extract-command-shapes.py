@@ -130,7 +130,14 @@ def _shape_preprocess_lines(block: str) -> list[str]:
                 kept.append(ch)
             prev = ch
         cleaned = "".join(kept)
-        match = _HEREDOC.search(cleaned)
+        # Find the heredoc opener on the QUOTE-MASKED line, so a `<<` inside a string
+        # (`echo "see << EOF for details"`) cannot open a phantom heredoc that blanks the
+        # rest of the fence — which silently disarmed every later rule in the block.
+        # Masking preserves length, so the match offset is valid in `cleaned`; re-search
+        # the ORIGINAL there to read the real tag (a quoted tag, `<<'EOF'`, is itself
+        # masked, so its group(2) cannot be trusted).
+        probe = _HEREDOC.search(_mask_quoted(cleaned))
+        match = _HEREDOC.search(cleaned, probe.start()) if probe else None
         if match:
             pending_tag = match.group(2)
             # KEEP cleaned as-is (opener token retained) — do NOT truncate at <<.
@@ -433,6 +440,12 @@ def find_violations(text: str) -> list[tuple[int, str, str]]:
 # a config read that produces no output (a denied command and an empty value must not
 # look the same to the agent).
 #
+# NON-GOAL (stated, not accidental): the rules match the helper by NAME, so a label helper
+# reached through a VARIABLE (`H=…/apply-labels.sh; for n in …; do "$H" "$n"; done`) is not
+# flagged. That is inherent to a name-literal desk lint — resolving it would need dataflow —
+# and the skill files never write that form. Stated here so a reader does not mistake the
+# limit for coverage; the same disclosure discipline as the I1 carve-out below.
+#
 # Probe row I1 (the unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor as a leading token) is
 # deliberately NOT a rule here: every legitimate helper call keeps the portable
 # anchor in source (issue #275) and resolves it to the vendored literal at runtime,
@@ -452,9 +465,9 @@ def _substitution_bodies(value: str) -> list[str]:
     `"$(cmd)"` is a real substitution, and it is the exact form the denied shape uses.
     Masking preserves length, so offsets into `value` stay valid.
     """
-    masked = _mask_quoted(value) if "'" in value else value
-    if len(masked) != len(value):  # defensive: offsets must align to slice `value`
-        masked = value
+    # SINGLE-only mask: see `_mask_quoted`. Masking double quotes here would blank the
+    # `"$(…)"` capture that IS the denied shape — one apostrophe in the value would hide it.
+    masked = _mask_quoted(value, single_only=True)
     bodies: list[str] = []
     i = 0
     n = len(value)
@@ -513,8 +526,15 @@ def _label_capture_violation(statement: str) -> bool:
 # the fence. Callers pass COMMENT-STRIPPED, QUOTE-MASKED lines, so neither a `#` comment
 # nor a quoted argument can supply a phantom separator or keyword.
 _LOOP_OPENER = re.compile(
-    r"(?:^|[;|&(]|\b(?:do|then|else|time)\b|!)\s*(for|while|until)\b"
+    r"(?:^|[;|&({]|\b(?:do|then|else|time)\b|!)\s*(for|while|until)\b"
 )
+# `do` / `done` in command position, used to DEPTH-COUNT the span. Counting is what makes
+# a NESTED loop safe: taking the first `done` after the opener let an inner one-line loop
+# (`for x in a b; do echo; done`) close the OUTER span, so a label call after it fell
+# outside and shipped green — a fail-open. `do` never matches inside `done` (the lookahead
+# rejects the `n`).
+_DO_TOK = re.compile(r"(?:^|[;|&({\s])do(?=$|[;|&\s])")
+_DONE_TOK = re.compile(r"(?:^|[;|&({\s])done(?=$|[;|&)<>\s])")
 # The closing `done` may be followed by a subshell/redirect/pipe close, not only
 # whitespace: `(…; done)`, `done>/dev/null`, `done | tee`, `done <labels.txt` are all
 # ordinary spellings. Omitting `)`/`<`/`>` here was a FAIL-OPEN: `_loop_violations` skips
@@ -524,14 +544,22 @@ _LOOP_OPENER = re.compile(
 _LOOP_DONE = re.compile(r"(?:^|[|;&\s])done(?:$|[|;&)<>\s])")
 
 
-def _mask_quoted(line: str) -> str:
-    """Replace the CONTENT of quoted spans with `x`, preserving length (so a caller's
-    line offsets and match positions still align with the source).
+def _mask_quoted(line: str, single_only: bool = False) -> str:
+    """Replace the CONTENT of quoted spans with `x`, preserving length exactly (callers
+    slice the ORIGINAL string using offsets found in the masked one, so any length change
+    would silently mis-extract).
 
     The loop scan is a regex over shell TEXT, so without this a `;`, `(`, or loop keyword
     inside an ordinary argument — `gh issue comment -b "Deferred; while open, do not
     merge"` — reads as a command-position loop opener and starts a phantom span.
     Comment-stripping alone does not cover it: that text is code, just quoted.
+
+    `single_only=True` masks ONLY `'…'` spans. This distinction is load-bearing for
+    `_substitution_bodies`: inside DOUBLE quotes a `$(…)` is a real substitution — it is
+    the denied shape's own spelling (`LBL_ERR="$(apply-labels.sh …)"`) — so masking
+    double-quoted content there would blank the very capture the guard must find, and one
+    apostrophe anywhere in the value (`… 'DevFlow')`) would be enough to hide it. Inside
+    SINGLE quotes a backtick or `$(` is literal text, never a substitution.
     """
     out: list[str] = []
     quote: str | None = None
@@ -543,7 +571,7 @@ def _mask_quoted(line: str) -> str:
                 out.append(ch)
             else:
                 out.append("x")
-        elif ch in ("'", '"'):
+        elif ch == "'" or (ch == '"' and not single_only):
             quote = ch
             out.append(ch)
         else:
@@ -584,18 +612,22 @@ def _loop_violations(lines: list[str]) -> list[tuple[int, str]]:
             i += 1
             continue
         rule = "IR1" if opener.group(1) == "for" else "IR2"
-        # Locate the closing `done`. On the opener line it only counts if it comes
-        # AFTER the loop keyword (a one-line `for …; do …; done`).
+        # Walk to the loop's OWN closing `done`, depth-counting `do`/`done` so a nested
+        # loop's `done` cannot close this span. On the opener line only the text AFTER the
+        # loop keyword counts (a one-line `for …; do …; done` closes on its own line).
         end: int | None = None
-        if _LOOP_DONE.search(masked[i][opener.end():]):
-            end = i
-        else:
-            j = i + 1
-            while j < n:
-                if _LOOP_DONE.search(masked[j]):
+        depth = 0
+        j = i
+        while j < n:
+            seg = masked[j][opener.end():] if j == i else masked[j]
+            depth += len(_DO_TOK.findall(seg))
+            closes = len(_DONE_TOK.findall(seg))
+            if closes:
+                depth -= closes
+                if depth <= 0:
                     end = j
                     break
-                j += 1
+            j += 1
         if end is None:
             i += 1  # unterminated: not a measurable loop span — do NOT swallow the tail
             continue

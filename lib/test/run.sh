@@ -26493,6 +26493,30 @@ assert_eq "#455 no false positive: a ';'+'while' inside a QUOTED argument does n
 { printf '%s\n' '```bash' 'MSG="$(date -u) applied via apply-labels.sh"' '```'; } > "$E363/i-fp-msg.md"
 assert_eq "#455 no false positive: a helper NAMED in a message string (outside any substitution) is not an IR3 capture" "" \
   "$(python3 "$ECS" --profile implement "$E363/i-fp-msg.md")"
+# ── FAIL-OPEN controls, round 2 (the #480 blinded fix-delta RE-gate). Each of these was a
+# ── real hole: a denied shape the guard silently passed. The first is the sharpest — the
+# ── quote-masking that keeps a QUOTED separator from faking a loop opener must NOT also
+# ── mask double quotes when hunting a capture, because `"$(apply-labels.sh …)"` IS the
+# ── denied shape: one apostrophe in the value (a single-quoted label list) would otherwise
+# ── blank the whole substitution and the I6 shape would ship GREEN.
+{ printf '%s\n' '```bash' "LBL=\"\$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 'DevFlow')\"" '```'; } > "$E363/i-fo-sq-capture.md"
+assert_eq "#455 no fail-open: a capture whose args carry a SINGLE-quoted label is still flagged IR3" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-sq-capture.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' '{ for n in $NUMS; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done; }' '```'; } > "$E363/i-fo-brace.md"
+assert_eq "#455 no fail-open: a BRACE-GROUP loop '{ for …; done; }' around a label helper is still flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-brace.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# A NESTED inner loop's `done` must not close the OUTER span (the label call sits after it).
+{ printf '%s\n' '```bash' 'for n in $NUMS; do' '  for x in a b; do echo "$x"; done' '  .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow' 'done' '```'; } > "$E363/i-fo-nested.md"
+assert_eq "#455 no fail-open: an inner loop's 'done' does not close the outer span (label call still flagged IR1)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-nested.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# A `<<` inside a STRING must not open a phantom heredoc that blanks (and disarms) the rest.
+{ printf '%s\n' '```bash' 'echo "see << EOF for details"' 'for n in $N; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done' '```'; } > "$E363/i-fo-phantom-heredoc.md"
+assert_eq "#455 no fail-open: a '<<' inside a quoted string does not blank the rest of the fence (loop still flagged IR1)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-phantom-heredoc.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# Control for the mask split: a backtick inside SINGLE quotes is literal text, not a capture.
+{ printf '%s\n' '```bash' "NOTE='apply-labels.sh runs \`once\`'" '```'; } > "$E363/i-fp-sq-literal.md"
+assert_eq "#455 no false positive: a backtick inside SINGLE quotes is literal text, not an IR3 capture" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-sq-literal.md")"
 # ── Coupled-invariant: the workflow grants the two label helpers in the explicit
 # ── vendored-literal leading-token form the implement-probe table proved PERMITTED (#455).
 assert_eq "#455: devflow-implement.yml grants apply-labels.sh in the explicit vendored-literal form" "yes" \
