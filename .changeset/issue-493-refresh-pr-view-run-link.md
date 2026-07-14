@@ -13,4 +13,8 @@ type: Added
   and never blocks the resume — every failure path emits a `::warning::`
   breadcrumb naming the step and continues. Only the `[View run]` line
   immediately following the `Resolves #` line is rewritten; a human-added one
-  elsewhere is preserved byte-for-byte. (#494)
+  elsewhere is preserved byte-for-byte. The single-line rewrite is a
+  deterministic, fixture-tested helper (`scripts/refresh-pr-run-link.py`), and
+  its output is captured and guarded non-empty before the PATCH so a crashed
+  transform can never blank the PR description; both the read and the write use
+  repo-scoped REST `gh api`. (#494)

@@ -5167,14 +5167,20 @@ assert_pin_unique "#168 create-path: SKILL guards against an empty BRANCH name" 
 # On a resumed cloud run that reaches §1.4 and finds an existing open PR, the
 # draft PR body's [View run](...) line (written once at PR creation by Phase 3.1)
 # is refreshed to the resumed run — mirroring the gate job's workpad Run-link
-# refresh. The deliverable is skill prose, so the test boundary is this
-# prose-pinning surface (per the issue's Testing Strategy), not a runtime unit
-# test. The behavioral-fix pin (assert_pin_red_under) targets the operative
-# REST PATCH line — removing it re-introduces the stale-link gap, so the pin
-# must flip PASS->FAIL under that mutation (covers AC1 + AC7). The presence
-# pins cover: PR_JSON-not-gh-pr-view derivation (AC1), only-the-Phase-3.1-line
-# rewriting (AC2/AC3), the cloud-only local-tier guard (AC4), the no-op +
-# read-failure warn arms (AC5/AC6), and idempotency / at-most-once (AC8).
+# refresh. The fence is skill prose, so its boundary is this prose-pinning
+# surface; the operative single-line transform, however, is extracted to a
+# deterministic helper (scripts/refresh-pr-run-link.py) and is EXECUTED here via
+# fixture assertions (issue #493 review Suggestion #1 — it was previously
+# asserted only as source text). The behavioral-fix pin (assert_pin_red_under)
+# targets the operative REST PATCH line — removing it re-introduces the
+# stale-link gap, so the pin must flip PASS->FAIL under that mutation (covers
+# AC1 + AC7). The presence pins cover: PR_JSON-not-gh-pr-view derivation (AC1),
+# only-the-Phase-3.1-line rewriting (AC2/AC3), the cloud-only local-tier guard
+# (AC4), the no-op + read-failure warn arms (AC5/AC6), the capture + non-empty
+# guard before the PATCH (issue #493 Important #1 empty-body hardening), and
+# idempotency / at-most-once (AC8). The fixture tests run the helper directly
+# for the Resolves-anchored rewrite, human-line preservation, idempotency, and
+# the fail-closed empty-stdin / missing-arg contract.
 P1_SETUP="$IMPL_PHASES_DIR/phase-1-setup.md"
 assert_pin_red_under "#493 resume: PR-body run-link refresh PATCHes via REST pulls/\$PR_NUMBER (behavioral-fix; AC1+AC7)" \
   'gh api --method PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@-' \
@@ -5185,8 +5191,51 @@ assert_pin_unique "#493 resume: states the do-not-re-resolve-via-gh-pr-view rati
   're-resolve via' "$P1_SETUP"
 assert_pin_unique "#493 resume: rewrites only the Phase 3.1-placed [View run] line (prose; AC2)" \
   'Phase 3.1 template places immediately after the' "$P1_SETUP"
-assert_pin_unique "#493 resume: python enforces only the [View run] line following Resolves # (AC2/AC3)" \
-  'lines[i-1].startswith("Resolves #")' "$P1_SETUP"
+# The single-line transform is extracted to a deterministic, fixture-tested
+# helper (issue #493 review Suggestion #1: the inline python was asserted only
+# as source text, never executed). The fence pipes the body through it and
+# guards the output non-empty before the PATCH (issue #493 Important #1
+# empty-body hardening: a direct transform|gh-api pipe without `pipefail` would
+# let a crashed transform blank the body). Pin (a) the anchoring predicate now
+# living in the helper, (b) the fence invoking the helper, and (c) the
+# capture + non-empty guard around the PATCH.
+P493_HELPER="$LIB/../scripts/refresh-pr-run-link.py"
+assert_pin_unique "#493 resume: helper rewrites only the [View run] line following Resolves # (AC2/AC3)" \
+  'lines[i - 1].startswith("Resolves #")' "$P493_HELPER"
+assert_pin_unique "#493 resume: fence invokes the fixture-tested transform helper (Suggestion #1)" \
+  'refresh-pr-run-link.py "$RUN_URL"' "$P1_SETUP"
+assert_pin_unique "#493 resume: transform output captured and guarded non-empty before PATCH (Important #1)" \
+  'PATCH skipped to avoid blanking PR' "$P1_SETUP"
+# Executable fixture coverage of the helper (Suggestion #1 — the operative
+# AC1/AC2/AC3/AC8 behavior is now RUN, not merely source-pinned): only the
+# Resolves-anchored line is rewritten, a human-added [View run] elsewhere is
+# preserved, the transform is idempotent, and empty stdin / a missing URL arg
+# fail closed (no output + non-zero exit) so the fence guard skips the PATCH.
+# The human-added [View run] line is a STANDALONE `[View run](` line (line 6)
+# whose predecessor (`## Reviewer Notes`) is NOT `Resolves #` — so the only thing
+# protecting it is the Resolves-anchor discrimination (a `startswith("[View
+# run](")`-only guard would rewrite it too). This makes the preservation
+# assertion genuinely exercise the anchor, so dropping `lines[i-1].startswith
+# ("Resolves #")` from the helper flips it RED (mutation-verified).
+P493_IN=$'## Summary\nResolves #493\n[View run](https://x/actions/runs/OLD)\n\n## Reviewer Notes\n[View run](https://x/actions/runs/HUMAN)'
+assert_eq "#493 helper: rewrites the Resolves-anchored [View run] line to the new URL (AC1)" \
+  '[View run](https://x/actions/runs/NEW)' \
+  "$(printf '%s' "$P493_IN" | python3 "$P493_HELPER" 'https://x/actions/runs/NEW' | sed -n '3p')"
+assert_eq "#493 helper: preserves a standalone human-added [View run] line not anchored to Resolves # (AC2)" \
+  '[View run](https://x/actions/runs/HUMAN)' \
+  "$(printf '%s' "$P493_IN" | python3 "$P493_HELPER" 'https://x/actions/runs/NEW' | sed -n '6p')"
+assert_eq "#493 helper: idempotent — a second pass reproduces the same body (AC8)" \
+  "$(printf '%s' "$P493_IN" | python3 "$P493_HELPER" 'https://x/actions/runs/NEW')" \
+  "$(printf '%s' "$P493_IN" | python3 "$P493_HELPER" 'https://x/actions/runs/NEW' | python3 "$P493_HELPER" 'https://x/actions/runs/NEW')"
+assert_eq "#493 helper: empty stdin fails closed — no output (Important #1)" \
+  "" \
+  "$(printf '' | python3 "$P493_HELPER" 'https://x/actions/runs/NEW')"
+assert_eq "#493 helper: empty stdin fails closed — non-zero exit (Important #1)" \
+  "2" \
+  "$(printf '' | python3 "$P493_HELPER" 'https://x/actions/runs/NEW' >/dev/null 2>&1; echo $?)"
+assert_eq "#493 helper: missing URL arg fails closed — non-zero exit (Important #1)" \
+  "2" \
+  "$(printf 'Resolves #1\n[View run](x)' | python3 "$P493_HELPER" >/dev/null 2>&1; echo $?)"
 assert_pin_unique "#493 resume: cloud-only guard skips the refresh on a local-tier resume (AC4)" \
   '[ -n "${GITHUB_RUN_ID:-}" ]; then' "$P1_SETUP"
 assert_pin_unique "#493 resume: presence check is a bash builtin (guard-class 2, not non-preflight grep)" \

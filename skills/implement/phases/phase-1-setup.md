@@ -156,16 +156,17 @@ if [ "$LANDED" = yes ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
   # to the warn below, never a malformed `pulls/` PATCH path.
   PR_NUMBER=$(printf '%s' "$PR_JSON" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -r --arg h "$HEAD_REF" '[.[] | select(.headRefName == $h)] | sort_by(.createdAt) | last | .number // empty' 2>/dev/null) || PR_NUMBER=""
   if [ -n "$PR_NUMBER" ]; then
-    # Read the PR body via `gh pr view` (issue-sanctioned, best-effort). A read
-    # failure (transport/auth, a repo-scoped token that cannot resolve `gh pr
-    # view`'s GraphQL, or the PR deleted between selection and read) is DISTINCT
-    # from a genuinely line-absent body: the `if !` reads `gh pr view`'s OWN exit
-    # status (never a cross-statement rc — issue #284), routing a failed read to
-    # its own breadcrumb so a reviewer debugging a stale link is not misdirected
-    # to "no [View run] line" when the body was never observed.
-    if ! PR_BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>/dev/null); then
+    # Read the PR body via REST `gh api` (repo-scope, best-effort) — symmetric
+    # with the REST `gh api` PATCH write below, so the whole read-modify-write
+    # path uses one repo-scoped surface (never org-scoped GraphQL porcelain). A
+    # read failure (transport/auth, or the PR deleted between selection and read)
+    # is DISTINCT from a genuinely line-absent body: the `if !` reads `gh api`'s
+    # OWN exit status (never a cross-statement rc — issue #284), routing a failed
+    # read to its own breadcrumb so a reviewer debugging a stale link is not
+    # misdirected to "no [View run] line" when the body was never observed.
+    if ! PR_BODY=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER" --jq '.body' 2>/dev/null); then
       PR_BODY=""
-      echo "::warning::devflow resume: could not read PR #$PR_NUMBER body (gh pr view failed); PR-body run-link refresh skipped" >&2
+      echo "::warning::devflow resume: could not read PR #$PR_NUMBER body (gh api read failed); PR-body run-link refresh skipped" >&2
     elif [ -n "$PR_BODY" ] && [[ $PR_BODY == *"[View run]("* ]]; then
       # Substitute ONLY the `[View run](...)` line the
       # Phase 3.1 template places immediately after the `Resolves #` line (its
@@ -176,22 +177,27 @@ if [ "$LANDED" = yes ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
       # (warn, no PATCH, no insert). The `[[ == *"[View run]("* ]]` presence
       # check is a bash builtin (no PATH tool — guard-class 2: a value that
       # decides the PATCH must not be derived through a non-preflight tool like
-      # `grep`). python3 is preflight-guaranteed; the body is piped through stdin
-      # so its backticks and `$` never traverse shell quoting, and the -c script
-      # uses no single quotes (double-quoted python strings only) so the bash
-      # single-quote wrapper is safe; RUN_URL passes as argv, not interpolated.
-      # The full body (the Phase 3.1 line rewritten) is PATCHed back via REST
-      # (repo-scope — `gh pr edit --body` is org-scoped GraphQL and fails under a
-      # repo-scoped token).
-      printf '%s' "$PR_BODY" | python3 -c 'import sys
-url = sys.argv[1]
-lines = sys.stdin.read().split("\n")
-for i in range(1, len(lines)):
-    if lines[i].startswith("[View run](") and lines[i-1].startswith("Resolves #"):
-        lines[i] = "[View run](" + url + ")"
-sys.stdout.write("\n".join(lines))' "$RUN_URL" \
-        | gh api --method PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@- 2>/dev/null \
-        || echo "::warning::devflow resume: PR-body run-link PATCH failed for PR #$PR_NUMBER; continuing" >&2
+      # `grep`). The single-line rewrite is a deterministic, fixture-tested
+      # helper (`scripts/refresh-pr-run-link.py`) invoked as an argument to the
+      # preflight-guaranteed `python3` (never a bare `python3 -c` leading token —
+      # an unproven implement-tier shape, #401): the body is piped through stdin
+      # so its backticks and `$` never traverse shell quoting, and RUN_URL passes
+      # as argv, not interpolated. The transform output is CAPTURED and guarded
+      # non-empty before the PATCH (issue #493 empty-body hardening): the helper
+      # fails closed (empty output on empty stdin / a crash), and without
+      # `pipefail` a direct transform|PATCH pipe would let `gh api` PATCH an
+      # empty body and exit 0, silently blanking the description; the non-empty
+      # guard makes that path skip-and-warn instead. The full body (the Phase 3.1
+      # line rewritten) is PATCHed back via REST (repo-scope — `gh pr edit
+      # --body` is org-scoped GraphQL and fails under a repo-scoped token).
+      NEW_BODY=$(printf '%s' "$PR_BODY" | python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/refresh-pr-run-link.py "$RUN_URL") || NEW_BODY=""
+      if [ -n "$NEW_BODY" ]; then
+        printf '%s' "$NEW_BODY" \
+          | gh api --method PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@- 2>/dev/null \
+          || echo "::warning::devflow resume: PR-body run-link PATCH failed for PR #$PR_NUMBER; continuing" >&2
+      else
+        echo "::warning::devflow resume: PR-body run-link transform produced no output; PATCH skipped to avoid blanking PR #$PR_NUMBER body" >&2
+      fi
     else
       echo "::warning::devflow resume: PR #$PR_NUMBER body has no Phase 3.1 [View run] line (absent, human-edited-away, or pre-feature); run-link refresh is a no-op" >&2
     fi
