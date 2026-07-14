@@ -31,11 +31,12 @@
 #   RUNNER_TEMP                 base dir for the default pidfile/log paths
 #   DEVFLOW_REFRESH_PIDFILE     pidfile path (default $RUNNER_TEMP/devflow-refresh.pid)
 #   DEVFLOW_REFRESH_LOG         log path     (default $RUNNER_TEMP/devflow-refresh.log)
-#   DEVFLOW_REFRESH_STARTED     the Start step's outcome (`success` when it ran). An
-#                               absent pidfile only means "defeated" when the Start
-#                               step actually RAN — otherwise (the job aborted
-#                               upstream and skipped the success()-gated Start step)
-#                               a missing pidfile is EXPECTED, not a defeat, and
+#   DEVFLOW_REFRESH_STARTED     the Start step's `outcome` (success/failure/skipped/
+#                               cancelled). An absent pidfile only means "defeated"
+#                               when the Start step actually RAN (outcome success OR
+#                               failure) — otherwise (skipped/cancelled: the job
+#                               aborted upstream before the success()-gated Start
+#                               step) a missing pidfile is EXPECTED, not a defeat, and
 #                               warning would misattribute an unrelated early failure
 #                               to the refresher.
 
