@@ -23,8 +23,7 @@ subagent. Judge the draft against each of these, in addition to the generic dime
   string literals defeats line-based `git grep`). Flag any draft that touches one half of a
   coupled invariant without naming the other. **A mirror is only as correct as its source:**
   the source form must itself be internally reconciled before it is propagated to its mirror
-  sites (the within-text multi-state-contract reconciliation the Step 3.5 hunt performs) —
-  mirroring an internally-incomplete source only propagates the gap.
+  sites (the within-text multi-state-contract reconciliation the Step 3.5 hunt performs).
 - **Cloud matcher command shapes (issue #401).** Even when every command *head* is granted, the
   cloud review/runner matcher denies composite *shapes* — leading `VAR=value`, leading `cd`,
   `>`/`2>` redirects, heredoc writes, interpreter heads, and an unexpanded
