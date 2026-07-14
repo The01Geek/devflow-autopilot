@@ -39,6 +39,7 @@ import importlib.util
 import io
 import re
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -99,7 +100,8 @@ def make_args(**overrides):
         tick_progress=[], tick_plan=[], tick_plan_n=[], tick_ac=[], tick_ac_n=[],
         rewrite_ac=[],
         replace_plan_file=None, replace_acs_file=None, set_reproduction_file=None,
-        note=[], reflection=[], reflection_kind=None, marker=None,
+        note=[], reflection=[], reflection_kind=None, reflection_file=None,
+        marker=None,
         reconcile_reproduction=None, record_classification=None,
     )
     base.update(overrides)
@@ -1464,7 +1466,10 @@ rk = _reflect_seq(('blocked', 'B'), ('deferred', 'D'), ('dropped-failed', 'F'), 
 assert_eq("kind blocked: glyph + bold label", True, '- ⛔ **Blocked:** B' in rk)
 assert_eq("kind deferred: glyph + bold label", True, '- ⏭️ **Deferred:** D' in rk)
 assert_eq("kind dropped-failed: glyph + bold label", True, '- ❗ **Dropped/Failed:** F' in rk)
-assert_eq("kind note: glyph + bold label", True, '- ℹ️ **Note:** N' in rk)
+# note is glyph-only now: the `### ℹ️ Notes` heading already names the kind, so
+# the redundant `**Note:**` label is dropped (issue #476).
+assert_eq("kind note: glyph only, no bold label", True, '- ℹ️ N' in rk)
+assert_eq("kind note: no **Note:** label remains", True, '**Note:**' not in rk)
 # Exactly one of each sub-heading (the 3 actionable kinds share Action required).
 assert_eq("one Action required sub-heading (shared by 3 actionable kinds)", 1,
           rk.count('### ⚠️ Action required'))
@@ -1475,14 +1480,14 @@ assert_eq("Action required precedes Notes", True,
 assert_eq("actionable bullet sits under Action required (above Notes heading)", True,
           rk.index('### ⚠️ Action required') < rk.index('- ⛔ **Blocked:** B') < rk.index('### ℹ️ Notes'))
 assert_eq("note bullet sits under Notes (below its heading)", True,
-          rk.index('### ℹ️ Notes') < rk.index('- ℹ️ **Note:** N'))
+          rk.index('### ℹ️ Notes') < rk.index('- ℹ️ N'))
 # Sub-headings are kept before </details> (stay inside the collapsible block).
 assert_eq("grouped sub-sections stay before </details>", True,
           rk.index('### ℹ️ Notes') < rk.index('</details>'))
 
 # Omitted --reflection-kind → note (default), never Action required.
 rk_def = _reflect_seq((None, 'defaulted'))
-assert_eq("omitted kind renders as note", True, '- ℹ️ **Note:** defaulted' in rk_def)
+assert_eq("omitted kind renders as note", True, '- ℹ️ defaulted' in rk_def)
 assert_eq("omitted kind → Notes heading, no Action required heading", True,
           '### ℹ️ Notes' in rk_def and '### ⚠️ Action required' not in rk_def)
 
@@ -1494,9 +1499,9 @@ assert_eq("single blocked → Action required heading, no Notes heading (empty g
 # Append second-of-kind nests under the existing heading (no duplicate).
 rk_two = _reflect_seq(('note', 'first'), ('note', 'second'))
 assert_eq("two notes → single Notes heading (no dup)", 1, rk_two.count('### ℹ️ Notes'))
-assert_eq("two notes → both bullets present", 2, rk_two.count('- ℹ️ **Note:**'))
+assert_eq("two notes → both bullets present", 2, rk_two.count('- ℹ️ '))
 assert_eq("appended bullet stays before </details>", True,
-          rk_two.index('- ℹ️ **Note:** second') < rk_two.index('</details>'))
+          rk_two.index('- ℹ️ second') < rk_two.index('</details>'))
 # Two actionable kinds also share one Action required heading.
 rk_act = _reflect_seq(('blocked', 'b1'), ('deferred', 'd1'))
 assert_eq("blocked+deferred → single shared Action required heading", 1,
@@ -1513,7 +1518,7 @@ assert_eq("no level-2 (## ) heading emitted inside the reflection region", True,
 _mx = 'has `code`, $VAR, and *stars*'
 rk_mx = _reflect_seq(('note', _mx))
 assert_eq("metacharacters (backticks/$/*) survive rendering", True,
-          ('- ℹ️ **Note:** ' + _mx) in rk_mx)
+          ('- ℹ️ ' + _mx) in rk_mx)
 
 # Canonical ordering holds regardless of call order: a `note` written BEFORE an
 # action-kind bullet still renders Action required ABOVE Notes (exercises the
@@ -1523,7 +1528,7 @@ rk_no = _reflect_seq(('note', 'N'), ('blocked', 'B'))
 assert_eq("note-first then blocked → Action required still precedes Notes", True,
           rk_no.index('### ⚠️ Action required') < rk_no.index('### ℹ️ Notes'))
 assert_eq("note-first then blocked → both bullets present", True,
-          '- ⛔ **Blocked:** B' in rk_no and '- ℹ️ **Note:** N' in rk_no)
+          '- ⛔ **Blocked:** B' in rk_no and '- ℹ️ N' in rk_no)
 
 # Multi-line reflection text (e.g. a captured multi-line gh/jq error fed into a
 # dropped-failed breadcrumb) collapses to a single bullet line, so the line-based
@@ -1616,6 +1621,177 @@ def _bad_reflection_kind():
         WORKPAD_V2, make_args(reflection=['x'], reflection_kind='bogus'))
 assert_raises("bad reflection kind raises _UpdateError (not a bare KeyError)",
               workpad._UpdateError, _bad_reflection_kind)
+
+
+print("workpad reflection new kinds + interpolation-safe input (issue #476)")
+
+# --- improvement kind: glyph-only under a lazily-created ### 💡 Improvements ---
+rk_imp = _reflect_seq(('improvement', 'hoist the resolver'))
+assert_eq("improvement: glyph-only bullet (no bold label)", True,
+          '- 💡 hoist the resolver' in rk_imp)
+assert_eq("improvement: no **Improvement** label rendered", True,
+          '**Improvement' not in rk_imp)
+assert_eq("improvement: lazily-created ### 💡 Improvements heading", True,
+          '### 💡 Improvements' in rk_imp)
+assert_eq("improvement alone: no Action required or Notes heading (empty groups)", True,
+          '### ⚠️ Action required' not in rk_imp and '### ℹ️ Notes' not in rk_imp)
+assert_eq("improvement bullet sits under its heading", True,
+          rk_imp.index('### 💡 Improvements') < rk_imp.index('- 💡 hoist the resolver'))
+
+# Full three-sub-section canonical order: Action required → Improvements → Notes,
+# regardless of the call order (note emitted first exercises the _rank insertion).
+rk_all = _reflect_seq(('note', 'N'), ('improvement', 'I'), ('blocked', 'B'))
+assert_eq("three sub-sections: Action required precedes Improvements", True,
+          rk_all.index('### ⚠️ Action required') < rk_all.index('### 💡 Improvements'))
+assert_eq("three sub-sections: Improvements precedes Notes", True,
+          rk_all.index('### 💡 Improvements') < rk_all.index('### ℹ️ Notes'))
+assert_eq("three sub-sections: all bullets present", True,
+          '- ⛔ **Blocked:** B' in rk_all and '- 💡 I' in rk_all and '- ℹ️ N' in rk_all)
+
+# Legacy un-kinded preamble stays ABOVE a lazily-created Improvements sub-section.
+_imp_legacy = apply_mut(
+    _LEGACY_REFLECTION_BODY,
+    make_args(reflection=['propose a shared helper'], reflection_kind='improvement'))
+_imp_legacy_rf = _imp_legacy.split('## Devflow Reflection', 1)[1]
+assert_eq("improvement: legacy preamble bullet retained above Improvements heading", True,
+          '- a legacy flat bullet' in _imp_legacy_rf
+          and _imp_legacy_rf.index('- a legacy flat bullet')
+          < _imp_legacy_rf.index('### 💡 Improvements'))
+
+# --- issue-accuracy kind: labeled, under ### ℹ️ Notes (heading does not name it) ---
+rk_ia = _reflect_seq(('issue-accuracy', 'the issue claimed 5 skills; there are 6'))
+assert_eq("issue-accuracy: 📝 glyph + bold Issue accuracy label", True,
+          '- 📝 **Issue accuracy:** the issue claimed 5 skills; there are 6' in rk_ia)
+assert_eq("issue-accuracy: rendered under Notes heading", True,
+          '### ℹ️ Notes' in rk_ia
+          and rk_ia.index('### ℹ️ Notes') < rk_ia.index('- 📝 **Issue accuracy:**'))
+assert_eq("issue-accuracy alone: no Action required / Improvements heading", True,
+          '### ⚠️ Action required' not in rk_ia and '### 💡 Improvements' not in rk_ia)
+
+# --- Closed kind model: exactly the six kinds, argparse-validated ---
+assert_eq("closed kind model: exactly the six kinds", True,
+          set(workpad._REFLECTION_KINDS) == {
+              'blocked', 'deferred', 'dropped-failed', 'note',
+              'improvement', 'issue-accuracy'})
+
+# --- --reflection-file: interpolation-safe verbatim UTF-8 input ---
+def _reflect_file(payload_bytes, kind='note', body=WORKPAD_V2, also_reflection=None):
+    """Write payload_bytes to a temp file, apply an update carrying
+    --reflection-file (+ optional --reflection), return the reflection region."""
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / 'payload.txt'
+        p.write_bytes(payload_bytes)
+        out = apply_mut(body, make_args(
+            reflection=(also_reflection or []),
+            reflection_kind=kind,
+            reflection_file=str(p)))
+    return out.split('## Devflow Reflection', 1)[1]
+
+# Backticks + $(…) round-trip byte-identical (the shell-interpolation hazard the
+# flag exists to defeat — passed via a file, never a CLI arg).
+_shelly = 'ran `git rev-parse` and $(cmd) with "quotes"'
+rk_bf = _reflect_file(_shelly.encode('utf-8'), kind='note')
+assert_eq("--reflection-file: backticks/$(…)/quotes round-trip byte-identical", True,
+          ('- ℹ️ ' + _shelly) in rk_bf)
+
+# Non-ASCII (em-dash + emoji) round-trips byte-identical via explicit UTF-8.
+_nonascii = 'reconciled — see 🚀 the workpad'
+rk_na = _reflect_file(_nonascii.encode('utf-8'), kind='improvement')
+assert_eq("--reflection-file: non-ASCII (em-dash + emoji) round-trips byte-identical", True,
+          ('- 💡 ' + _nonascii) in rk_na)
+
+# Multi-line file text collapses to one bullet line (line-based parser contract).
+rk_mlf = _reflect_file(b'first line\nsecond line\nthird line', kind='note')
+assert_eq("--reflection-file: multi-line file collapses to one bullet line", True,
+          '- ℹ️ first line second line third line' in rk_mlf)
+assert_eq("--reflection-file: multi-line file emits exactly one bullet", 1,
+          rk_mlf.count('- ℹ️ '))
+
+# The call's --reflection-kind applies to the file bullet; it combines with
+# repeatable --reflection flags, and the file bullet appends AFTER them.
+rk_comb = _reflect_file(b'from the file', kind='deferred',
+                        also_reflection=['from a flag'])
+assert_eq("--reflection-file: --reflection-kind applies to the file bullet", True,
+          '- ⏭️ **Deferred:** from the file' in rk_comb)
+assert_eq("--reflection-file: combines with --reflection (both bullets present)", True,
+          '- ⏭️ **Deferred:** from a flag' in rk_comb)
+assert_eq("--reflection-file: file bullet appends AFTER the flag bullet", True,
+          rk_comb.index('- ⏭️ **Deferred:** from a flag')
+          < rk_comb.index('- ⏭️ **Deferred:** from the file'))
+
+# CRLF line endings collapse too (a bare \r must not survive into the bullet).
+rk_crlf = _reflect_file(b'win one\r\nwin two', kind='note')
+assert_eq("--reflection-file: CRLF collapses to one bullet line", True,
+          '- ℹ️ win one win two' in rk_crlf)
+
+# stdin arm: --reflection-file - decodes UTF-8 from sys.stdin.buffer.
+class _FakeStdin:
+    def __init__(self, data):
+        self.buffer = io.BytesIO(data)
+
+def _reflect_stdin(payload_bytes, kind='note'):
+    saved = sys.stdin
+    sys.stdin = _FakeStdin(payload_bytes)
+    try:
+        out = apply_mut(WORKPAD_V2, make_args(
+            reflection_kind=kind, reflection_file='-'))
+    finally:
+        sys.stdin = saved
+    return out.split('## Devflow Reflection', 1)[1]
+
+rk_stdin = _reflect_stdin('via `stdin` — 🚀'.encode('utf-8'), kind='note')
+assert_eq("--reflection-file -: stdin honored, UTF-8 decoded at the bytes level", True,
+          '- ℹ️ via `stdin` — 🚀' in rk_stdin)
+
+# Structural aborts before any PATCH: empty, whitespace-only, undecodable, unreadable.
+def _empty_file():
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / 'e.txt'
+        p.write_bytes(b'')
+        apply_mut(WORKPAD_V2, make_args(reflection_file=str(p)))
+assert_raises("--reflection-file: empty payload raises _UpdateError",
+              workpad._UpdateError, _empty_file)
+
+def _ws_only_file():
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / 'w.txt'
+        p.write_bytes(b'   \n\t  \n')
+        apply_mut(WORKPAD_V2, make_args(reflection_file=str(p)))
+assert_raises("--reflection-file: whitespace-only payload raises _UpdateError",
+              workpad._UpdateError, _ws_only_file)
+
+def _undecodable_file():
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / 'u.txt'
+        p.write_bytes(b'\xff\xfe\xfd not utf-8')
+        apply_mut(WORKPAD_V2, make_args(reflection_file=str(p)))
+assert_raises("--reflection-file: undecodable payload raises _UpdateError (no traceback)",
+              workpad._UpdateError, _undecodable_file)
+
+def _unreadable_file():
+    apply_mut(WORKPAD_V2, make_args(
+        reflection_file='/nonexistent/definitely/missing/payload.txt'))
+assert_raises("--reflection-file: unreadable path raises _UpdateError",
+              workpad._UpdateError, _unreadable_file)
+
+# Atomicity: a bad --reflection-file payload aborts the WHOLE call — the
+# accompanying inline --reflection bullet is not partially applied. The reader
+# raises _UpdateError before _apply_mutations returns, so no body is produced to
+# PATCH; pin that the raise fires even when an inline bullet rode along (proving
+# the "no partial write" contract the docstring/comment assert).
+def _bad_file_with_inline():
+    apply_mut(WORKPAD_V2, make_args(
+        reflection=['inline bullet that must not persist'],
+        reflection_file='/nonexistent/definitely/missing/payload.txt'))
+assert_raises("--reflection-file: a bad payload aborts even with an inline --reflection (no partial write)",
+              workpad._UpdateError, _bad_file_with_inline)
+
+# Default kind via the file path: --reflection-file with no --reflection-kind
+# defaults to `note` (glyph-only), exercising the `kind = ... or _DEFAULT...`
+# default through the file arm (rk_def above exercises it via --reflection).
+rk_fdef = _reflect_file(b'defaulted via file', kind=None)
+assert_eq("--reflection-file: omitted --reflection-kind defaults to note (glyph-only)", True,
+          '- ℹ️ defaulted via file' in rk_fdef)
 
 # Invariants preserved: marker first line; AC section still parseable.
 out = apply_mut(WORKPAD_V2, make_args(
