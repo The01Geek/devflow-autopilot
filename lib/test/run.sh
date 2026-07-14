@@ -7123,24 +7123,16 @@ assert_pin_red_under "#377 w3-fix-delta-scope: Step 3 item 3b scopes every sweep
 assert_pin_red_under "#377 w3-fix-delta-trigger-gating: Step 3 item 3b gates each sweep on its own Phase 2.3 trigger (AC2)" \
   'each gated by its own Phase 2.3 trigger condition' \
   's/each gated by its own Phase 2.3 trigger condition//'
-# AC2 (negative gating — the don't-OVER-run half): AC2 requires the item to state that each sweep
-# fires ONLY when its own trigger matches — "a fix adding no guard runs no operand trace", etc. The
-# trigger-gating pin above covers the umbrella phrasing but not the three per-sweep negative tails
-# nor the "runs not at all" umbrella clause, so a delete or inversion of the don't-over-run half
-# (making a sweep run unconditionally, or over pre-existing untouched code) would leave every pin
-# green. Pin the umbrella clause and each per-sweep negative tail so removing any one goes RED.
+# AC2 (negative gating — the don't-OVER-run half): AC2 requires the item to state that a sweep
+# fires ONLY when its own trigger matches. After the issue #478 re-anchor, item 3b no longer
+# hand-enumerates three specific sweeps (so the three per-sweep negative tails this block used to
+# pin — "a fix adding no guard runs no operand trace", etc. — are gone with the enumeration); the
+# retained don't-over-run guarantee is the umbrella clause, which the re-anchor keeps verbatim.
+# Pin it so a delete or inversion of the don't-over-run half (making a sweep run unconditionally,
+# or over pre-existing untouched code) goes RED.
 assert_pin_red_under "#377 w3-fix-delta-gate-umbrella: item 3b states a sweep whose trigger the delta does not match runs not at all (AC2)" \
   'a sweep whose trigger the delta does not match runs not at all' \
   's/a sweep whose trigger the delta does not match runs not at all//'
-assert_pin_red_under "#377 w3-fix-delta-gate-tail-2.3.0c-a: item 3b states the new-guard operand trace does NOT run when the delta adds no guard (AC2)" \
-  'a fix adding no such guard runs no operand trace' \
-  's/a fix adding no such guard runs no operand trace//'
-assert_pin_red_under "#377 w3-fix-delta-gate-tail-2.3.0c-b: item 3b states the prose-policy check does NOT run when the delta touches no policy prose (AC2)" \
-  'a fix touching no agent-executed policy prose runs no prose-policy check' \
-  's/a fix touching no agent-executed policy prose runs no prose-policy check//'
-assert_pin_red_under "#377 w3-fix-delta-gate-tail-2.3.4: item 3b states the reproduction does NOT run when the delta touches no external-tool string (AC2)" \
-  'a fix touching no external-tool string runs no reproduction' \
-  's/a fix touching no external-tool string runs no reproduction//'
 # AC3: each triggered sweep's evidence obligation is honored, directed to the loop's own iteration
 # records when standalone. Removing the operative directive re-introduces the gap where the sweep
 # runs but its evidence lands nowhere on a standalone (no-issue-workpad) loop run.
@@ -7155,21 +7147,12 @@ assert_pin_red_under "#377 w3-fix-delta-evidence: Step 3 item 3b directs sweep e
 assert_pin_red_under "#377 w3-fix-delta-finding-disposition: item 3b routes a sweep-surfaced finding into the same iteration or the item 5 pushback flow (AC8)" \
   'A finding any of these sweeps surfaces folds into this same iteration' \
   's/A finding any of these sweeps surfaces folds into this same iteration//'
-# AC1 (per-sweep references): AC1 requires item 3b to reference EACH of the three shipped Wave-2
-# sweeps by its name/number. The umbrella w3-fix-delta-sweeps-operative pin above covers the
-# heading clause but not the individual sweep bullets, so deleting a whole sweep bullet (e.g.
-# dropping the §2.3.4 external-output sweep) would leave it green. Pin each sweep identifier's own
-# bullet so removing any one goes RED. The identifiers must match the shipped phase-2 sweeps (a
-# wrong number is a documented_falsehood — see the Potential Gotchas in issue #377).
-assert_pin_red_under "#377 w3-sweep-ref-2.3.0c-a: item 3b references §2.3.0c trigger (a) new-guard operand trace (AC1)" \
-  '§2.3.0c trigger (a) — new-guard operand trace' \
-  's/§2.3.0c trigger \(a\) — new-guard operand trace//'
-assert_pin_red_under "#377 w3-sweep-ref-2.3.0c-b: item 3b references §2.3.0c trigger (b) prose-policy operand check (AC1)" \
-  '§2.3.0c trigger (b) — prose-policy operand check' \
-  's/§2.3.0c trigger \(b\) — prose-policy operand check//'
-assert_pin_red_under "#377 w3-sweep-ref-2.3.4: item 3b references §2.3.4 external-output reproduction obligation (AC1)" \
-  '§2.3.4 external-output reproduction obligation' \
-  's/§2.3.4 external-output reproduction obligation//'
+# AC1 (per-sweep references): superseded by the issue #478 re-anchor. Item 3b no longer
+# hand-enumerates the three shipped Wave-2 sweeps by name/number — it re-anchors onto the full
+# §2.3 "Sweep selection (run first)" index (the single source), so the three per-sweep-reference
+# pins that used to live here (§2.3.0c trigger (a)/(b), §2.3.4 external-output) are obsolete and
+# removed. The #478 block below pins the re-anchor's operative sentences and the routing-marker
+# drift lint that keeps the imported sweep bodies dischargeable in the fix loop.
 # AC9: the new item must NOT duplicate or reword item 3a's pinned heading — still exactly one.
 assert_pin_unique "#377 w3-3a-heading-count: item 3a heading literal stays exactly-once after item 3b lands (AC9)" \
   'Mechanism-scoped self-authored-claim re-sweep' "$MAXI_SKILL"
@@ -7205,6 +7188,138 @@ assert_pin_unique "#377 w3-triage-scope-intact: §3.2 #193 issue-context scope p
   'exists only on the issue-context' "$P3_FILE"
 assert_pin_unique "#377 w3-triage-carveout-intact: §3.2 #193 stale-AC carve-out pin survives the rewrite (AC7)" \
   'that is Phase 2.2.6 AC-rewrite territory' "$P3_FILE"
+
+# ── issue #478: re-anchor Step 3 item 3b onto the full Phase 2.3 sweep-selection index ──
+# Part 2 of 2 (after #474). Item 3b no longer hand-enumerates three sweeps — it re-anchors onto
+# the §2.3 "Sweep selection (run first)" index, carries a durable-operand read protocol, a
+# drift-guarded fix-loop mapping table, ignore-aware command forms, a termination rule, and the
+# verify half of a fix-authoring test-first gate; Step 3 gains the gate itself and Step 4.5 gains
+# one defining clause. Every rewritten/new operative sentence is pinned through assert_pin_red_under
+# (default file $MAXI_SKILL = skills/review-and-fix/SKILL.md). The retained #377 Wave-3 pins
+# (frequency / delta-scope / trigger-gating / umbrella / evidence-routing / finding-disposition /
+# operative-umbrella) stay above; the obsolete per-sweep-reference and negative-tail pins were
+# removed with the enumeration.
+P478_P2="$IMPL_PHASES_DIR/phase-2-implement.md"
+
+# AC1 — the re-anchor: classify the fix delta by the §2.3 preamble and run every warranted sweep,
+# with no hand-enumerated subset. Two operative clauses.
+assert_pin_red_under "#478 AC1 re-anchor: item 3b runs every Phase 2.3 sweep the classification warrants" \
+  'run every Phase 2.3 sweep the classification warrants' \
+  's/run every Phase 2.3 sweep the classification warrants//'
+assert_pin_red_under "#478 AC1 no-subset: item 3b carries no hand-enumerated sweep subset" \
+  'no hand-enumerated sweep subset' \
+  's/no hand-enumerated sweep subset//'
+# AC1/AC12 — the "Sweep selection (run first)" heading literal is a CROSS-FILE coupled pair: item 3b
+# cites it, phase-2-implement.md carries it. Pin both, so a heading rename that would orphan 3b's
+# pointer goes RED at whichever site still carries the old literal.
+assert_pin_unique "#478 AC12 heading pair (SKILL): item 3b cites the Sweep selection (run first) preamble" \
+  'Sweep selection (run first)' "$MAXI_SKILL"
+assert_pin_unique "#478 AC12 heading pair (phase-2): the Sweep selection (run first) preamble exists to cite" \
+  'Sweep selection (run first)' "$P478_P2"
+
+# AC2 — the durable-operand read protocol. Four operative clauses on the read-protocol paragraph.
+assert_pin_red_under "#478 AC2 read-protocol: item 3b records a sweep_defs_read list on the first fix-applying iteration" \
+  'the source path plus the sweep identifiers read' \
+  's/the source path plus the sweep identifiers read//'
+assert_pin_red_under "#478 AC2 read-protocol: the every-heading re-read makes the heading-wins fail-safe operate in the loop" \
+  'so a sweep the index forgot still announces itself through its own authoritative heading' \
+  's/so a sweep the index forgot still announces itself through its own authoritative heading//'
+assert_pin_red_under "#478 AC2 read-protocol: adjudicated against the durable record, never recall" \
+  'adjudicated against that durable record, never against recall' \
+  's/adjudicated against that durable record, never against recall//'
+assert_pin_red_under "#478 AC2 read-protocol: a sweep is never executed from recall alone" \
+  'a sweep is never executed from recall alone' \
+  's/a sweep is never executed from recall alone//'
+assert_pin_red_under "#478 AC2 read-protocol: unreadable §2.3 source records sweeps: unrunnable and continues (never stall, never silent skip)" \
+  'sweeps: unrunnable (phase-2 source unreadable at <path>)' \
+  '/phase-2 source unreadable at/d'
+
+# AC4 — the drift-guarded fix-loop mapping table. Pin the drift-guard operative sentence.
+assert_pin_red_under "#478 AC4 mapping-table: the lint goes RED when a marker appears in a sweep body the table has no row for" \
+  'goes RED when a marker appears in a sweep body that this table carries no row for' \
+  's/goes RED when a marker appears in a sweep body that this table carries no row for//'
+
+# AC8 — ignore-aware command forms. Pin the order-first clause and the tracked/non-ignored semantics.
+assert_pin_red_under "#478 AC8 command-forms: the Grep tool first, ignore-aware" \
+  'Grep tool first' \
+  's/Grep tool first//'
+assert_pin_red_under "#478 AC8 command-forms: match-count evidence is over tracked/non-ignored files" \
+  'tracked/non-ignored files' \
+  's#tracked/non-ignored files##'
+
+# AC9 — termination + inner-path narrowing.
+assert_pin_red_under "#478 AC9 termination: a fold-in is not re-swept within the same 3b pass" \
+  'not re-swept within the same 3b pass' \
+  's/not re-swept within the same 3b pass//'
+assert_pin_red_under "#478 AC9 inner-path: Step 3.5 inner re-fixes run only the trigger-gated sweeps their re-fix delta matches" \
+  'run only the trigger-gated sweeps their re-fix delta matches' \
+  's/run only the trigger-gated sweeps their re-fix delta matches//'
+
+# AC6 — the Step 3 fix-authoring test-first gate + its verify half in item 3b + degraded arm + dry-trace arm.
+assert_pin_red_under "#478 AC6 test-first: Step 3 writes the test first for a fix that adds automated-testable behavior" \
+  'Before you write a fix that adds or alters behavior an automated test can exercise' \
+  's/Before you write a fix that adds or alters behavior an automated test can exercise//'
+assert_pin_red_under "#478 AC6 verify-half: item 3b verifies the gate's durable gate-time record is present" \
+  'durable gate-time record is present' \
+  's/durable gate-time record is present//'
+assert_pin_red_under "#478 AC7 degraded-arm: a permission-denied test records gate: unrunnable (command ungranted on this tier)" \
+  'gate: unrunnable (command ungranted on this tier)' \
+  '/command ungranted on this tier/d'
+assert_pin_red_under "#478 AC7 degraded-arm: the remedy mapping is keyed on tier first and driver second" \
+  'keyed on tier first and driver second' \
+  's/keyed on tier first and driver second//'
+assert_pin_red_under "#478 AC7 degraded-arm: a denied command is never routed to the no-automated-test arm" \
+  'a denied command is never routed to the no-automated-test arm' \
+  's/a denied command is never routed to the no-automated-test arm//'
+assert_pin_red_under "#478 no-automated-test arm: the fixer executes the Phase-2.4-defined adversarial dry-trace inline at gate time" \
+  'executes the Phase-2.4-defined adversarial dry-trace' \
+  's/executes the Phase-2.4-defined adversarial dry-trace//'
+
+# AC10 — the one Step 4.5 defining clause (code-shaped fold-in graded/recorded, sweep as its source).
+assert_pin_red_under "#478 AC10 step-4.5 clause: a code-shaped 3b fold-in is a severity-calibrated fix_decisions entry with the sweep as its source" \
+  'with the sweep as its source' \
+  's/with the sweep as its source//'
+
+# AC5 — routing-marker drift lint, driven from here with BOTH arms. Each closed-vocab marker present
+# in the §2.3 sweep bodies (phase-2-implement.md, "Sweep selection" preamble through "### 2.4 Test")
+# must have a mapping-table row in item 3b (skills/review-and-fix/SKILL.md, between the BEGIN/END
+# fix-loop mapping table anchors). The lint echoes GREEN when every present marker is mapped, RED
+# when one is not. GREEN arm: the real files. RED arm: a scratch SKILL copy with the
+# '## Devflow Reflection' mapping row deleted while the marker stays in the sweep bodies → RED.
+P478_MARKERS=( 'workpad.py' '$ISSUE_NUMBER' 'Phase 3.4' 'Phase 4.1' '(post-merge)' '--rewrite-ac' '## Devflow Reflection' 'lib/test/run.sh' )
+p478_sweep_bodies() { awk '/Sweep selection/{f=1} /### 2.4 Test/{f=0} f' "$1"; }
+p478_maptable()     { awk '/BEGIN fix-loop mapping table/{f=1} /END fix-loop mapping table/{f=0} f' "$1"; }
+p478_routing_lint() {  # skill_file phase2_file -> echoes GREEN or RED
+  local bodies table mk
+  bodies="$(p478_sweep_bodies "$2")"
+  table="$(p478_maptable "$1")"
+  for mk in "${P478_MARKERS[@]}"; do
+    if printf '%s\n' "$bodies" | grep -qF -- "$mk"; then
+      printf '%s\n' "$table" | grep -qF -- "$mk" || { echo RED; return; }
+    fi
+  done
+  echo GREEN
+}
+# Guard: the lint is only meaningful if the closed vocabulary actually appears in the sweep bodies
+# (else the loop never checks anything and RED can never fire). Assert every marker is present in
+# the §2.3 sweep bodies — a marker that silently left the sweep bodies would make its row's drift
+# undetectable.
+P478_BODIES="$(p478_sweep_bodies "$P478_P2")"
+for _mk in "${P478_MARKERS[@]}"; do
+  assert_eq "#478 AC5 lint precondition: marker present in the §2.3 sweep bodies: $_mk" "yes" \
+    "$(printf '%s\n' "$P478_BODIES" | grep -qF -- "$_mk" && echo yes || echo no)"
+done
+# GREEN arm: item 3b's mapping table maps every marker present in the sweep bodies.
+assert_eq "#478 AC5 routing lint GREEN: item 3b maps every marker present in the §2.3 sweep bodies" \
+  "GREEN" "$(p478_routing_lint "$MAXI_SKILL" "$P478_P2")"
+# RED arm: delete the '## Devflow Reflection' mapping row from a scratch SKILL copy (marker stays in
+# the sweep bodies) → the lint must flip GREEN->RED. This is the AC5 mutation the lint's own coverage
+# requires (a deleted mapping-table row while its marker remains in the sweep bodies turns the desk RED).
+P478_MUT="$(probe_tmp '#478 AC5 routing lint RED-arm setup')"
+grep -vF -- '## Devflow Reflection' "$MAXI_SKILL" > "$P478_MUT"
+assert_eq "#478 AC5 routing lint RED: deleting a mapping-table row while its marker stays in the sweep bodies flips the lint RED" \
+  "RED" "$(p478_routing_lint "$P478_MUT" "$P478_P2")"
+rm -f "$P478_MUT"
 
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
