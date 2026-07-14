@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] — 2026-07-14
+
+### Added
+- **Base-branch update checkpoints for `/devflow:implement` and the review-and-fix fix loop.** A new shared helper, `scripts/update-branch-checkpoint.sh`, brings the feature branch up to date with the configured `base_branch` at four checkpoints of an implement run — resume/adopt (Phase 1.4), pre-draft-PR (Phase 3.1), each fix iteration + Loop Exit of the `/devflow:review-and-fix` loop under `--push-each-iteration`, and pre-ready (Phase 4.3) — so every state the merge gate or an auto-review consumes (including the terminal pushed state) is current. Operators running concurrent implement runs no longer manually update branches: published PRs arrive with CI already triggered on an up-to-date branch, which in the common case avoids the review tier's head-scoped "branch behind base" deferral (it does not re-clear a deferral that has already stranded, nor cover a base that advances between the checkpoint push and the review firing — both still need a `synchronize`/CI event or a Re-run). The helper owns the whole mechanical sequence (off-switch, base derivation, pre-state guards, fetch, behind-by, merge, push, push-race recovery, shallow-history unshallow retry) and emits one machine-readable outcome token; conflicts are resolved in-run, a failed resolution is aborted before a context-appropriate hard stop, and an in-progress merge found at invocation hard-stops rather than being absorbed. On by default; disabled per-consumer with `devflow_implement.update_branch_checkpoints: false` (the same key also governs the checkpoint inside a standalone `/devflow:review-and-fix --push-each-iteration` run). (#448)
+
 ## [2.9.1] — 2026-07-14
 
 ### Changed
