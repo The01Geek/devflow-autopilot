@@ -1,0 +1,45 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-14T17:07:00Z",
+  "fix_commit_sha": "fc6c0de",
+  "fix_files": [
+    "scripts/gh-fresh.sh",
+    "scripts/refresh-app-credentials.sh",
+    ".github/workflows/devflow-implement.yml",
+    ".github/workflows/devflow.yml",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "production locate_extraheader_file branch uncovered", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [145, 154], "kind": "uncovered-production-path"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "decide() fails open silently when hash/fingerprint unavailable", "defect_signature": {"file": "scripts/gh-fresh.sh", "line_range": [74, 84], "kind": "silent-fallback-to-stale-credential"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "non-atomic token-file write races the wrapper read", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [171, 171], "kind": "non-atomic-write-read-concurrently"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "refresher ::warning:: buried in log, inert at job level", "defect_signature": {"file": ".github/workflows/devflow-implement.yml", "line_range": [99, 99], "kind": "breadcrumb-not-surfaced"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "git-locking mechanism misattribution + weeks-old phrasing", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [164, 164], "kind": "comment-accuracy"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "bad-cred diagnostic scans only stderr, not stdout", "defect_signature": {"file": "scripts/gh-fresh.sh", "line_range": [104, 116], "kind": "partial-error-detection"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "locator", "decision": "applied", "commit": "fc6c0de"},
+    {"finding_id": "decide-fail-open", "decision": "applied", "commit": "fc6c0de"},
+    {"finding_id": "atomic-write", "decision": "applied", "commit": "fc6c0de"},
+    {"finding_id": "log-surface", "decision": "applied", "commit": "fc6c0de"},
+    {"finding_id": "comment-accuracy", "decision": "applied", "commit": "fc6c0de"},
+    {"finding_id": "stdout-scan", "decision": "pushed_back", "source_file": "scripts/gh-fresh.sh", "claim_text": "bad-cred diagnostic scans only stderr not stdout", "skip_category": "uncategorized", "evidence": "gh writes HTTP auth errors (401/Bad credentials) to stderr; the diagnostic is a best-effort compaction-immune sibling to the prose fail-fast rule, and capturing stdout too would defeat the stdout pass-through/streaming. LOW severity, left as advisory."}
+  ],
+  "convergence_inputs": {"fixes_applied": 5, "fix_diff_lines": 70, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 180, "skipped_checks": [{"check": "#434 stale-prose self-scan / #423 T6b", "kind": "host-capability", "reason": "pre-existing self-skip unrelated to this change (1 skipped, byte-identical to base)"}]}
+}
