@@ -2285,10 +2285,13 @@ echo "#479: receiving-code-review — two-route mutation-check recipe + over-gra
 #       recipe that was unsatisfiable for fixed-path / fixed-module-path suites;
 #   (2) the Symmetric Severity Calibration section now has a rule for a review that annotates its
 #       own finding as a suspected over-grade — advisory input, never on its own a reason to skip.
-# Each contract sentence is a BEHAVIORAL-FIX pin (removing the operative clause re-introduces the
-# named defect: an unsatisfiable/incomplete recipe, or a missing counter-rule), so each is routed
-# through assert_pin_red_under with a `sed -E` mutation that strips ONLY the operative clause and
-# is observed RED under it — not a whole-line-removal pin (which cannot tell operative from framing).
+# Each contract *sentence* is a BEHAVIORAL-FIX pin (removing the operative clause re-introduces the
+# named defect: an unsatisfiable/incomplete recipe, or a missing counter-rule), so each behavioral
+# sentence is routed through assert_pin_red_under with a `sed -E` mutation that strips ONLY the
+# operative clause and is observed RED under it — not a whole-line-removal pin (which cannot tell
+# operative from framing). The lone exception is route (b)'s trigger *wording* (AC3-condition,
+# below), which is a presence contract, not a behavioral clause, so it is pinned present-and-unique
+# via assert_pin_unique rather than mutation-checked.
 # Placed AFTER assert_pin_red_under's definition (above) so the behavioral pins actually run — a
 # call sited before the helper's definition would silently no-op (command-not-found), the exact
 # vacuous-guard trap the mutation-check discipline exists to prevent.
