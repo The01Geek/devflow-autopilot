@@ -346,6 +346,17 @@ jobs:
       issues: write
       id-token: write
       actions: write # write scope so actions/cache can save the pip cache (read alone → "cache write denied: token has no writable scopes"); superset still lets Claude read CI results on PRs
+    env:
+      # Authorize the Stop-hook `--persist` telemetry PUSH on this WRITABLE tier
+      # (issue #469 AC5). This job holds contents:write, so the branch push
+      # succeeds here; the read-only `review` tier (devflow-runner.yml) deliberately
+      # leaves this UNSET so `--persist` fails closed to staging-only. Set at JOB
+      # level so it reaches the Stop-hook subprocess claude-code-action spawns —
+      # the base-branch .claude/settings.json (restored in every claude-code-action
+      # job) cannot distinguish tiers, so the operand must come from the job env,
+      # not the hook command. (Platform premise — the job env propagates into the
+      # Stop-hook subprocess; see the workpad's unverified-boundary note.)
+      DEVFLOW_TELEMETRY_PUSH: '1'
     steps:
       # Optional, opt-in: mint a GitHub App installation token at full
       # installation scope (notably Contents: write + Workflows: write — no
