@@ -417,8 +417,10 @@ jobs:
               # the LOCAL devflow-telemetry ref to mirror already-published remote records (a
               # read — no record append, no push), leaving the tracked tree read-only and the
               # REMOTE devflow-telemetry ref untouched by this job. Landing the staged artifacts
-              # on the branch is the job of a forthcoming trusted telemetry-push relay
-              # (never this PR-head, secrets-bearing job; follow-up to issue #469). So the
+              # on the branch is the job of the trusted telemetry-push relay (telemetry-push.yml,
+              # issue #489): this job uploads them as a workflow artifact (the "Upload staged
+              # telemetry artifacts" step below) and the workflow_run-triggered relay downloads,
+              # validates, and pushes them — never this PR-head, secrets-bearing job. So the
               # grant stays read-only-safe.
               # Command heads the review skill actually invokes are pinned against this
               # string by lib/test/run.sh (issue #363): a head the skill runs but this

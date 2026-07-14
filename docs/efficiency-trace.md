@@ -209,14 +209,19 @@ best-effort fetch-before-exclusion step `do_persist` runs on *every* tier may fa
 that leaves the tracked tree, `HEAD`, the current branch, and the **remote** ref all byte-unchanged;
 it appends no record and pushes nothing.) The read-only tier therefore leaves the remote
 `devflow-telemetry` ref untouched by its own action. Landing those staged records on the branch is
-the job of a separate **trusted telemetry-push relay** — a job that does **not** check out the PR
-head, mints a write-capable token, and validates the staged artifacts as untrusted input — which is
-**forthcoming** (tracked as follow-up work to issue #469; until it lands, the auto-review tier stages
-its records and they are not yet pushed). On the ephemeral cloud runner the staged tree does **not**
-survive job teardown, so once that relay lands its recovery path **will be** the uploaded
-**workflow artifact**, not on-disk retention; **until then a cloud runner's staged records are not
-recoverable**. A degraded persist's on-disk staging-root retention (below) helps a **local** run,
-where the filesystem persists.
+the job of a separate **trusted telemetry-push relay**, which now ships (issue #489):
+`.github/workflows/telemetry-push.yml` — a job that does **not** check out the PR head, mints a
+write-capable App token above its checkout, downloads the review run's uploaded artifact, and
+validates the staged artifacts as untrusted PR-influenced input (`scripts/validate-telemetry-artifact.sh`,
+all-or-nothing) before pushing them through `lib/telemetry-branch.sh`. To make those records
+reachable across the workflow boundary, the auto-review tier now **uploads** its staged tree as a
+workflow artifact (`scripts/collect-staged-telemetry.sh`, with `include-hidden-files: true` since the
+tree is under the dot-prefixed `.devflow/`); the relay is triggered off the auto-review workflow's
+`workflow_run` completion and pushes the validated records. On the ephemeral cloud runner the staged
+tree does **not** survive job teardown, so **the cloud-tier recovery path for a degraded persist is
+that uploaded workflow artifact, not on-disk retention** — the runner filesystem is gone by the time
+any later step could read it, so on-disk retention cannot help there. A degraded persist's on-disk
+staging-root retention (below) helps a **local** run, where the filesystem persists.
 
 **Headless persistence.** `/devflow:review-and-fix` invokes `config-get.sh` and
 `efficiency-trace.sh` **directly** (resolving to a `.devflow/vendor/devflow/…` path), the same way
@@ -519,9 +524,9 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   a bounded newest-N prune (`_DEVFLOW_TELEMETRY_STAGE_KEEP`, default 8) at the start of the next
   `--persist` keeps retained roots from accumulating. On a **local** filesystem this makes a failed
   branch write recoverable; on an **ephemeral CI runner** the filesystem does not survive teardown, so
-  on-disk retention is moot there — the forthcoming trusted telemetry-push relay (follow-up to #469)
-  is the cloud recovery path, and until it lands a cloud runner's degraded/staged records are not
-  recoverable. This uncovered surface is still surfaced only by the helper's own stderr
+  on-disk retention is moot there — the trusted telemetry-push relay (`telemetry-push.yml`, issue
+  #489) is the cloud recovery path, consuming the **uploaded workflow artifact** the auto-review tier
+  stages and uploads rather than any on-disk copy the ephemeral runner cannot retain. This uncovered surface is still surfaced only by the helper's own stderr
   breadcrumb, which Phase 3.3 captures but does not currently grep for. And because the `APPROVE WITH UNRESOLVED
   SHADOW FINDINGS` path can drive a **second**, separate inline `review-and-fix` invocation (the
   bounded re-review), Phase 3.3 re-runs the whole snapshot-then-backstop procedure — a fresh
