@@ -6,6 +6,14 @@ Output: `Phase 3/4: Review & Fix — creating PR and running review...`
 
 ### 3.1 Create Draft PR
 
+**Base-branch update checkpoint 2 (pre-draft-PR) — run FIRST, before `gh pr create`.** Phase 2 can run for hours, so immediately before the draft PR exists, bring the feature branch up to date with the configured base so the self-review (3.2) and the first review pass (3.3) see current base. Invoke the shared checkpoint helper — it derives the base branch *internally* (from `base_branch`, the same fail-closed fallback the draft-PR block re-derives below), so no `$BASE` needs to be in scope here:
+
+```bash
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/update-branch-checkpoint.sh
+```
+
+Handle the printed token **per the implement-driven outcome-handling contract in phase-1-setup.md §1.4.1** (record on the issue workpad; `Blocked` on `MERGE_IN_PROGRESS` or a failed conflict resolution; resolve a `CONFLICT` and re-run the Phase 2.3.0 sweep before continuing; record-and-continue on `UNVERIFIED`/`PUSH_REJECTED`). **Do not open the draft PR on a tree the run has hard-stopped on**: `MERGE_IN_PROGRESS`, an unresolved (or suite-failed, aborted) `CONFLICT`, and a `PUSH_REJECTED` whose stderr carries the failed-restore `WARNING` (see §1.4.1's `PUSH_REJECTED` caveat) each stop the run instead. **Every other token proceeds to open the draft PR** — `UP_TO_DATE`, `UPDATED`, `DISABLED`, a *resolved* `CONFLICT`, and equally the record-and-continue outcomes `UNVERIFIED` and an ordinary (restore-succeeded) `PUSH_REJECTED`: those two are *degraded but non-fatal* by the §1.4.1 contract, and the branch is simply not vouched current (the #429 read-target rules stay in force). Withholding the PR on them would contradict the contract's own "record and continue" and would leave the run wedged at Phase 3.1 with no PR and no stop.
+
 Re-derive the base branch and open the draft PR against it **in one bash block**. Each phase's bash block runs as a **separate** shell, so the `$BASE` resolved in Phase 1.4 is **not** in scope here — re-read it (behaviorally identical to Phase 1.4: the `config-get.sh` read plus the fail-closed empty-read fallback to `main`) so `gh pr create` targets the **configured** `base_branch` rather than the repo default branch. Keep the re-derivation and `gh pr create` in the **same** block so `$BASE` cannot be lost to a shell boundary between them (an empty `--base ""` would mistarget silently — the very failure this fix prevents). Pass the re-derived base as the `--base` flag; do **not** pass `--head` — Phase 3.1 runs on the checked-out feature branch, so `gh pr create` defaults `--head` to it correctly:
 
 Derive the run link exactly the way Phase 1.3 §1.3 does — the same
