@@ -18481,6 +18481,46 @@ assert_pin_red_under \
   "$LIB/telemetry-branch.sh"
 rm -rf "$I469_LB"
 
+# ── AC7 (e2e derivation, #469 review Suggestion #1): the assertions above INJECT
+# _DEVFLOW_TELEMETRY_FETCH_STATUS into list_blobs (the consumer), so the do_persist code
+# that DERIVES status=ok from a MISSING origin remote (efficiency-trace.sh's no-origin
+# else-arm) is never exercised end-to-end. Drive a real --persist in a no-origin fixture
+# and assert its stderr lacks UNESTABLISHED — a regression flipping that arm to `failed`
+# would spuriously warn on every local-only first --persist and turn this RED. ─
+I469_NO="$(git_sandbox "#469 no-origin e2e repo")"; git -C "$I469_NO" init -q
+git -C "$I469_NO" config user.email t@e.com; git -C "$I469_NO" config user.name t
+mkdir -p "$I469_NO/.devflow"; printf 'tmp/\n' > "$I469_NO/.devflow/.gitignore"
+git -C "$I469_NO" add -A; git -C "$I469_NO" commit -qm seed
+mkdir -p "$I469_NO/.devflow/tmp/review/pr-no/run-no"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$I469_NO/.devflow/tmp/review/pr-no/run-no/iter-1.json"
+# Staging-only isolates the fetch-status derivation (no push attempted); the LOCAL telemetry
+# ref is ABSENT, so list_blobs' absent-ref arm IS consulted during synthesis.
+assert_eq "#469 AC7(e2e): the no-origin fixture's LOCAL telemetry ref is ABSENT before --persist" "no" \
+  "$(git -C "$I469_NO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+# Drive the no-origin derivation BOTH under GITHUB_ACTIONS and off-CI (#469 review Suggestion #2 —
+# requirement (d)'s "with and without GITHUB_ACTIONS"): the no-origin else-arm is GITHUB_ACTIONS-
+# independent, so neither should ever emit UNESTABLISHED. (Off-CI push-by-default with no origin
+# degrades on the push — that is the rc-1 DEGRADED warning, not the list_blobs UNESTABLISHED one.)
+I469_NO_ERR="$( ( cd "$I469_NO" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH='' bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "#469 AC7(e2e, CI): a no-origin first --persist DERIVES an ESTABLISHED empty (no origin → status=ok) — stderr lacks UNESTABLISHED" "no" \
+  "$(printf '%s' "$I469_NO_ERR" | grep -qF 'UNESTABLISHED' && echo yes || echo no)"
+git -C "$I469_NO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && git -C "$I469_NO" update-ref -d refs/heads/devflow-telemetry
+I469_NO_ERR_LOCAL="$( ( cd "$I469_NO" && env -u GITHUB_ACTIONS bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "#469 AC7(e2e, off-CI): the SAME no-origin derivation off-CI also stays silent — stderr lacks UNESTABLISHED" "no" \
+  "$(printf '%s' "$I469_NO_ERR_LOCAL" | grep -qF 'UNESTABLISHED' && echo yes || echo no)"
+# Positive control on the SAME fixture: restore the absent-ref precondition, then add an
+# UNREACHABLE origin so the derivation takes the origin-present branch and the fetch FAILS →
+# status=failed → list_blobs DOES emit UNESTABLISHED. This proves the no-origin run above
+# actually REACHED list_blobs' absent-ref arm (so its silence is meaningful), rather than
+# --persist having bailed before ever consulting it.
+git -C "$I469_NO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && git -C "$I469_NO" update-ref -d refs/heads/devflow-telemetry
+git -C "$I469_NO" remote add origin /nonexistent/telemetry/remote.git
+I469_NO_CTL_ERR="$( ( cd "$I469_NO" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH='' bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "#469 AC7(e2e control): the SAME fixture WITH an unreachable origin DOES emit UNESTABLISHED (proves list_blobs' absent-ref arm is reached, so the silence above is not vacuous)" "yes" \
+  "$(printf '%s' "$I469_NO_CTL_ERR" | grep -qF 'UNESTABLISHED' && echo yes || echo no)"
+rm -rf "$I469_NO"
+
 # ── AC6 producer path (end-to-end): do_persist FETCHES the telemetry branch from origin and
 # fast-forwards the ABSENT local ref onto it, so prior remote records become visible to
 # recorded_fix_shas (the anti-double-count fix). The AC7 test above injects the STATUS and

@@ -198,9 +198,9 @@ parallel local worktrees sharing `.git/refs` both survive with no lost commit. T
 cloud `review` profile (`devflow-runner.yml`, `contents: read`) **does** run `--persist` — the
 base-branch `.claude/settings.json` Stop hook is restored into every `claude-code-action` job (this
 rests on the same **unverified platform premise** the writable-tier workflow-env comments flag: that
-`claude-code-action` fires the restored Stop hook and propagates the job env into its subprocess; the
-fail direction is safe either way — if the hook does not fire, nothing is staged and nothing is
-lost) — but
+`claude-code-action` fires the restored Stop hook and propagates the job env into its subprocess; on
+this read-only tier the fail direction is safe either way — if the hook does not fire, nothing is
+staged and nothing is lost) — but
 in **staging-only** mode: the workflow does not set the push operand `DEVFLOW_TELEMETRY_PUSH`, so
 under `GITHUB_ACTIONS` `--persist` fails closed (issue #469 AC5), staging the run's artifacts under
 `.devflow/tmp/` and writing **no new** telemetry-branch records and doing **no** push. (The

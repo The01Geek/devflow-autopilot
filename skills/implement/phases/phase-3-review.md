@@ -246,9 +246,10 @@ fi
 # surface (telemetry-branch.sh's "::warning::telemetry-branch: ..." breadcrumbs — a lost CAS, a
 # non-conforming store, an unwritable .devflow/tmp). The record is staged under gitignored
 # .devflow/tmp/; post-#469 a DEGRADED branch write (or a CI staging-only run) RETAINS that staging
-# root (only a clean rc-0 write deletes it) and emits one ::warning:: naming its absolute path,
-# bounded by a newest-N prune on the next --persist — so on a LOCAL filesystem a failed branch write
-# is recoverable rather than lost. On an EPHEMERAL CI runner the staging tree does not survive
+# root (only a clean rc-0 write deletes it), bounded by a newest-N prune on the next --persist; a
+# DEGRADED write additionally emits one ::warning:: naming its absolute path, while a staging-only
+# run retains silently — so on a LOCAL filesystem a failed branch write is recoverable rather than
+# lost. On an EPHEMERAL CI runner the staging tree does not survive
 # teardown, so recovery there awaits the forthcoming trusted telemetry-push relay (follow-up to
 # #469); until it lands a cloud runner's degraded/staged records are not recoverable. This surface
 # is still uncovered by this detector, and surfaced only by the helper's own

@@ -175,8 +175,9 @@ breadcrumb — a single-literal grep would silently miss the latter — recordin
 `dropped-failed` reflection when either fires. The surface it does **not** cover is the
 telemetry-branch write/push itself (`::warning::telemetry-branch: …`). The record is staged under
 gitignored `.devflow/tmp/`; post-#469 a **degraded** branch write (or a CI staging-only run)
-**retains** that staging root (only a *clean* write deletes it) and emits one `::warning::` naming
-its **absolute path**, bounded by a newest-N prune on the next `--persist`, so on a **local**
+**retains** that staging root (only a *clean* write deletes it), bounded by a newest-N prune on the
+next `--persist`; a *degraded* write additionally emits one `::warning::` naming its **absolute
+path**, while a staging-only run retains silently, so on a **local**
 filesystem a failed branch write is recoverable rather than lost. On an **ephemeral CI runner** the
 staging tree does not survive teardown, so recovery there awaits the forthcoming trusted
 telemetry-push relay (follow-up to #469); until it lands a cloud runner's degraded/staged records are
