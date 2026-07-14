@@ -45,19 +45,24 @@ EOF
 gh pr create --base "$BASE" --draft --title "{issue title}" --body "$BODY"
 ```
 
-Then populate the workpad's `PR` link from the freshly-created draft PR:
+Then populate the workpad's `PR` link from the freshly-created draft PR, and **print the PR number** — you need it as a literal in the label call below, and a shell variable does not survive into a later separate command on the cloud runner:
 ```bash
 PR_URL=$(gh pr view --json url --jq '.url')
 PR_NUM=$(gh pr view --json number --jq '.number')
 workpad.py update $ISSUE_NUMBER --pr-link "[#$PR_NUM]($PR_URL)"
+echo "draft PR number: [$PR_NUM]"
 ```
 
-Then stamp the reserved `DevFlow` **provenance** label on the PR (best-effort). `DevFlow` is a hardcoded provenance constant (no config key controls it) — it is the branch-naming-independent signal the weekly retrospective uses to detect DevFlow-authored PRs. Apply it through the shared REST label-apply helper after creation (a PR is an issue, so the same `POST .../issues/{n}/labels` endpoint serves it) so a label hiccup can never block the run:
+Then stamp the reserved `DevFlow` **provenance** label on the PR (best-effort). `DevFlow` is a hardcoded provenance constant (no config key controls it) — it is the branch-naming-independent signal the weekly retrospective uses to detect DevFlow-authored PRs. Apply it through the shared REST label-apply helper after creation (a PR is an issue, so the same `POST .../issues/{n}/labels` endpoint serves it) so a label hiccup can never block the run.
+
+**Cloud-emission discipline (label helpers): emit each call as a single leading-token statement, and substitute the PR number as a LITERAL — see the *Cloud command-shape discipline* section in `skills/implement/SKILL.md`.** Two rules bind here, both learned from the silent-denial defect (#450/#455): the label helpers must never be wrapped in a shell loop or an output capture (probe rows I4/I5/I6), and `$PR_NUM` — set in the *previous* fence — **does not survive into this separate command**, so passing it as a variable applies the label to issue `""`. Read the printed `draft PR number` and substitute the digits:
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh DevFlow
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh "$PR_NUM" DevFlow
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh <draft-pr-number> DevFlow
 ```
-Both helpers always exit 0 and need only the `repo` scope: `ensure-label.sh` logs whether the label was created / present / hit a `gh` error, and `apply-labels.sh` applies via REST `POST .../issues/{n}/labels` (not `gh pr edit --add-label`, which resolves the repo via org-scoped GraphQL and fails under a repo-scoped token), logging its own breadcrumb on failure — continue regardless of the label outcome.
+If the printed `draft PR number` is empty, the PR number could not be resolved: record it durably and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 3.1 could not resolve the draft PR number to apply the DevFlow provenance label; the PR carries no DevFlow label, so the retrospective's label-first detection will not see this run."`
+
+Both helpers always exit 0 and need only the `repo` scope: `ensure-label.sh` logs whether the label was created / present / hit a `gh` error, and `apply-labels.sh` applies via REST `POST .../issues/{n}/labels` (not `gh pr edit --add-label`, which resolves the repo via org-scoped GraphQL and fails under a repo-scoped token), logging its own breadcrumb on failure — read that stderr from the tool result and continue regardless of the label outcome.
 
 ### 3.2 Self-Review with /simplify
 

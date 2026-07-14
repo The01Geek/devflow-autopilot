@@ -950,7 +950,7 @@ assert_eq "deferred.labels: SKILL Phase 4.0 no longer instructs 'add no --label'
 # read 3 and a `>= 2` threshold would still pass if ONE deferred channel lost it. Both
 # channels (4.0 + 4.0.5) must carry the exact deferred pipeline → require EXACTLY 2.
 assert_eq "deferred.labels: SKILL keeps the exact normalization pipeline in BOTH channels" "yes" \
-  "$([ "$(grep -cF 'CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr '"'"','"'"' '"'"'\n'"'"' | sed '"'"'s/^[[:space:]]*//; s/[[:space:]]*$//'"'"' | grep -v '"'"'^$'"'"' | paste -sd, -)' "$DEF_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 occurrences (both channels), not single-presence
+  "$([ "$(grep -cF 'CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr '"'"','"'"' '"'"'\n'"'"' | sed '"'"'s/^[[:space:]]*//; s/[[:space:]]*$//'"'"' | grep -v '"'"'^$'"'"' | tr '"'"'\n'"'"' '"'"','"'"' | sed '"'"'s/,$//'"'"')' "$DEF_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 occurrences (both channels), not single-presence. #480: the tail is `tr | sed`, NOT `paste` — paste is granted in NO allowlist, so a paste tail refuses the whole pipeline and the capture comes back silently empty.
 # Pin the read-failure discrimination: a hard config-get read failure must be attributable,
 # not silently collapsed into the deliberately-empty-value path. Issue #284 moved this to a
 # single-statement `if !` that reads config-get's OWN exit status inline (no captured rc read
@@ -10874,7 +10874,7 @@ assert_pin_unique "#241 pin (A3): sub-step 5a discriminates anchor-resolution fa
 assert_pin_unique "#241 pin (A3b): sub-step 5a surfaces an unresolvable anchor as an explicit degradation, not a silent skip" \
   'provenance label NOT applied' "$LIB/../skills/create-issue/SKILL.md"
 assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh "$PR_NUM" DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md)
+  "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh <draft-pr-number> DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md). #480: the PR number is a substituted LITERAL, not "$PR_NUM" — that variable is set in a previous fence and does not survive into this separate command on the cloud runner, so the old form applied the label to issue "".
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh' "$LIB/meta-issue.sh" && grep -qF 'apply-labels.sh' "$LIB/meta-issue.sh" && grep -qF 'DevFlow Retrospective' "$LIB/meta-issue.sh" && echo yes || echo no)"
 assert_eq "#97 pin: init creates the reserved DevFlow provenance label" "yes" \
@@ -10898,7 +10898,7 @@ assert_eq "#228: phase-4 removed the gh issue edit --add-label deferred command"
 assert_eq "#228: phase-4 removed the gh pr edit --add-label docs-label command" "yes" \
   "$(! grep -qF 'gh pr edit --add-label "$CLEAN_LABELS"' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: absence pin — asserts the removed porcelain command literal is GONE (negated grep, not a presence pin)
 assert_eq "#228: phase-4 docs-label routes through apply-labels.sh (symmetric presence pin)" "yes" \
-  "$(grep -qF 'apply-labels.sh "$DOCS_PR_NUM" "$CLEAN_LABELS"' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: presence pin pairs with the docs-label absence pin above so a typo'd new invocation can't pass all phase-4 pins
+  "$(grep -qF 'apply-labels.sh <docs-pr-number> "<docs-labels>"' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: presence pin pairs with the docs-label absence pin above so a typo'd new invocation can't pass all phase-4 pins. #480: the PR number and label list are substituted LITERALS, not "$DOCS_PR_NUM"/"$CLEAN_LABELS" — the reworked 4.1 emits a single leading-token call (the old form nested it inside two `if` compounds, a shape no probe row measured).
 assert_eq "#228: pr-description edits the body via REST gh api PATCH, not gh pr edit --body" "yes" \
   "$(grep -qF 'api --method PATCH' "$LIB/../skills/pr-description/SKILL.md" && ! grep -qF 'gh pr edit $PR_NUMBER --body' "$LIB/../skills/pr-description/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound presence+absence pin (REST PATCH present AND old porcelain gone), not a single target-unique pin
 # Positively pin the migrated body-write SHAPE: `-F body=@-` reads the field literally
@@ -26405,8 +26405,13 @@ assert_pin_red_under "#401 grounding: deleting the two-denials-switch rule from 
 # lint-pinnable, since every legitimate helper call keeps the portable anchor in source.)
 IMPL_DIR="$LIB/../skills/implement"
 # Contract: SKILL.md + every phase file teaches NO implement-tier denied shape (exit 0, empty).
-for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md; do
-  assert_eq "#455 implement shape-lint: $(basename "$f") teaches no proven-denied shape" "" \
+# Scope is EVERY skill that invokes a label helper on a read-write cloud tier, not just
+# implement: create-issue and init call ensure-label.sh/apply-labels.sh too, and the same
+# matcher governs them, so a loop/capture introduced there would ship green under a
+# implement-only contract loop. All lint clean today, so the coverage is free (#480 review).
+for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md \
+         "$LIB/../skills/create-issue/SKILL.md" "$LIB/../skills/init/SKILL.md"; do
+  assert_eq "#455 implement shape-lint: $(basename "$(dirname "$f")")/$(basename "$f") teaches no proven-denied shape" "" \
     "$(python3 "$ECS" --profile implement "$f" 2>&1)"
 done
 # ── Anti-vacuity: each implement-tier rule flags its denied shape (fixtures under $E363).
@@ -26517,6 +26522,54 @@ assert_eq "#455 no fail-open: a '<<' inside a quoted string does not blank the r
 { printf '%s\n' '```bash' "NOTE='apply-labels.sh runs \`once\`'" '```'; } > "$E363/i-fp-sq-literal.md"
 assert_eq "#455 no false positive: a backtick inside SINGLE quotes is literal text, not an IR3 capture" "" \
   "$(python3 "$ECS" --profile implement "$E363/i-fp-sq-literal.md")"
+# ── FAIL-OPEN controls, round 3 (the #480 blinded SHADOW pass). IR3 anchored on `^VAR=`,
+# ── so a capture in ARGUMENT or CONDITION position shipped green — and that is the most
+# ── natural regression there is: the shape #455 removed captured the helper's stderr IN
+# ── ORDER TO PUT IT IN A COMMENT BODY, so the obvious way to re-introduce it is to inline
+# ── the capture into the `gh issue comment -b "…"` argument, with no assignment at all.
+{ printf '%s\n' '```bash' 'gh issue comment 1 -b "$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow 2>&1)"' '```'; } > "$E363/i-fo-argcap.md"
+assert_eq "#455 no fail-open: a capture of a label helper in ARGUMENT position is flagged IR3 (no assignment)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-argcap.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'if [ -n "$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)" ]; then echo y; fi' '```'; } > "$E363/i-fo-condcap.md"
+assert_eq "#455 no fail-open: a capture of a label helper in CONDITION position is flagged IR3" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-condcap.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'export LBL=$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow)' '```'; } > "$E363/i-fo-declcap.md"
+assert_eq "#455 no fail-open: a DECLARATION-prefixed capture (export/local/readonly) is flagged IR3" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-declcap.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'for ((i=0;i<2;i++)); do' '  .devflow/vendor/devflow/scripts/ensure-label.sh X' 'done' '```'; } > "$E363/i-fo-cstyle.md"
+assert_eq "#455 no fail-open: a C-style 'for ((…))' loop around a label helper is flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-cstyle.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# An UNTERMINATED heredoc must not blank (and thereby disarm) the rest of the fence. An
+# elided body / `…` placeholder / typo is routine in the DOCUMENTATION fences this lint
+# scans, so blanking-to-EOF on a missing terminator was a reachable, invisible fail-open.
+{ printf '%s\n' '```bash' 'cat > /tmp/body.md <<EOF' 'some body text' 'for n in $NUMS; do' '  .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow' 'done' '```'; } > "$E363/i-fo-unterm-heredoc.md"
+assert_eq "#455 no fail-open: an UNTERMINATED heredoc does not blank the tail (the loop below it is still flagged IR1)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-unterm-heredoc.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# ...while a PROPERLY terminated heredoc body is still scanned as data, not shell.
+{ printf '%s\n' '```bash' "cat <<'EOF' > f" 'for n in x; do apply-labels.sh 1 y; done' 'EOF' '.devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' '```'; } > "$E363/i-fp-heredoc-body.md"
+assert_eq "#455 no false positive: a terminated heredoc BODY is data, not shell (denied-looking text inside it is not a hit)" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-heredoc-body.md")"
+# ── UNGRANTED-HEAD pin (#480 review): a grant is per-HEAD across the WHOLE pipeline, not
+# ── just the leading token, so ONE ungranted head in a tail refuses the entire statement.
+# ── `paste` is granted in NO allowlist (baked TOOLS, config.json, config.example.json) —
+# ── yet the label-normalizing pipelines ended in `| paste -sd, -`, so the config read was
+# ── silently refused, the capture came back empty, and the skill's own fail-closed prose
+# ── then read that as "a denial" and filed the issues WITHOUT labels. The fix (#455) would
+# ── have shipped not working. Pin the class: no implement-tier fence may use `paste`, and
+# ── the granted tools its replacement depends on must actually be granted.
+for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md; do
+  assert_eq "#455 ungranted-head: $(basename "$f") uses no 'paste' (granted in no allowlist; refuses the whole pipeline)" "0" \
+    "$(python3 "$ECH" heads "$f" 2>/dev/null | grep -cxF 'paste' || true)"
+done
+for t in tr sed grep echo; do
+  assert_eq "#455 ungranted-head: devflow-implement.yml grants '$t' (the paste-free normalizer depends on it)" "yes" \
+    "$(grep -qF "Bash($t:*)" "$IMPL_YML" && echo yes || echo no)"
+done
+# Anti-vacuity: the paste pin must be able to go RED — prove the head extractor actually
+# reports `paste` when a fence uses it (otherwise the four pins above pass on a blind check).
+{ printf '%s\n' '```bash' "X=\$(echo \"\$L\" | tr ',' '\\n' | paste -sd, -)" '```'; } > "$E363/i-paste.md"
+assert_eq "#455 ungranted-head pin goes RED on a fence that uses paste (anti-vacuity)" "1" \
+  "$(python3 "$ECH" heads "$E363/i-paste.md" 2>/dev/null | grep -cxF 'paste' || true)"
 # ── Coupled-invariant: the workflow grants the two label helpers in the explicit
 # ── vendored-literal leading-token form the implement-probe table proved PERMITTED (#455).
 assert_eq "#455: devflow-implement.yml grants apply-labels.sh in the explicit vendored-literal form" "yes" \

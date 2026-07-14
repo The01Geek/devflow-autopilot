@@ -514,7 +514,7 @@ jobs:
             granted by the explicit vendored-literal form (Stage B, #455) alongside
             the config `*/basename` glob; a PERMITTED here confirms the leading-token
             form runs. Dummy label:
-            .devflow/vendor/devflow/scripts/ensure-label.sh iprobe03glob
+            .devflow/vendor/devflow/scripts/ensure-label.sh iprobe03explicit
 
             Shape 4 — `for …; do …; done` compound wrapping a granted helper (Bash,
             one call, all lines). Head is the glob-granted ensure-label.sh:
@@ -535,9 +535,11 @@ jobs:
             Shape 8 — `VAR=$(…)` capture of a NON-LABEL granted helper (Bash). This is
             the DISAMBIGUATOR for shape 6: shape 6 confounds three things at once (a
             label helper, a `VAR="$(…)"` capture, and an inner `2>&1` redirect), so its
-            denial cannot be attributed to any one of them. The reworked phase-4 fences
-            depend on this exact shape being PERMITTED (they read `deferred.labels`
-            through it), and no row has ever measured it. A PERMITTED here means the
+            denial cannot be attributed to any one of them. The reworked phase-4 fences depend on the
+            matcher DESCENDING into a non-label `$(…)`; this row measures that property
+            in its BARE spelling. Note the fences actually emit the capture inside an
+            `if !` compound, which remains unmeasured — so a PERMITTED here settles the
+            descent question, not the fences' exact statement shape. A PERMITTED here means the
             matcher descends into a non-label substitution and the denial in shape 6 is
             label- or redirect-attributable; a DENIED here means the CAPTURE SHAPE
             itself is refused and the reworked fences' own first statement is silently
@@ -647,7 +649,7 @@ jobs:
           rows = [
               (1, "unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor leading token (ensure-label.sh)", "iprobe01anchor",  "${CLAUDE_SKILL_DIR"),
               (2, "vendored-literal leading token, apply-labels.sh (explicit form, shipped)",    "iprobe02explicit", ".devflow/vendor/devflow/scripts/apply-labels.sh"),
-              (3, "vendored-literal leading token, ensure-label.sh (explicit form, shipped)",    "iprobe03glob",     ".devflow/vendor/devflow/scripts/ensure-label.sh"),
+              (3, "vendored-literal leading token, ensure-label.sh (explicit form, shipped)",    "iprobe03explicit",     ".devflow/vendor/devflow/scripts/ensure-label.sh"),
               (4, "`for …; do helper; done` compound wrapping a granted helper",                 "iprobe04for",      "for L in"),
               (5, "piped `while read` loop wrapping a granted helper",                           "iprobe05while",    "while read"),
               (6, "`VAR=\"$(helper …)\"` capture of a granted helper (apply-labels.sh, with `2>&1`)", "iprobe06capture", "$("),

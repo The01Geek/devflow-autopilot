@@ -80,13 +80,27 @@ if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this 
   DEFERRED_LABELS=""
   workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred follow-up issues filed WITHOUT labels."
 fi
-CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
+# Normalize with GRANTED heads only. `paste` is granted in NO allowlist (baked TOOLS,
+# config.json, config.example.json), so a `| paste -sd, -` tail makes the WHOLE pipeline
+# refused — the capture then produces no output, and a reader who treats that as "no
+# labels" ships exactly the silent-denial defect this rework exists to end. `tr`/`sed`/
+# `grep`/`echo` are all granted; the trailing-comma strip replaces what paste did.
+CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | tr '\n' ',' | sed 's/,$//')
+# Print BOTH: the RAW config value and the normalized list. Printing only the normalized
+# one makes an emptied normalizer indistinguishable from an empty config — and the
+# normalizer runs on PATH tools the preflight does not guarantee (CLAUDE.md guard-class 2:
+# a missing tool yields an empty value and the wrong thing is silently selected).
+echo "deferred.labels raw: [$DEFERRED_LABELS]"
 echo "deferred labels to apply: [$CLEAN_DEFERRED_LABELS]"
 ```
 
 If you filed follow-up work above but captured **no** issue numbers into `DEFERRED_ISSUE_NUMBERS`, that is a real capture gap (not a benign no-op) — record it durably and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."`
 
-**Distinguish "no labels configured" from "the command never ran" — they are not the same, and only one of them is benign.** If the fence printed a `deferred labels to apply: [...]` line whose value is empty, the config genuinely resolved to no labels: apply nothing, and that is a clean no-op. But if you received **no such line at all** — the command was refused by the harness, so it produced no output — do **not** read that as "no labels": the capture shape is unproven on this tier (above), and treating a denial as an empty config is exactly the silent-denial defect this rework exists to end. Record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not resolve deferred.labels — the config-get command produced no output at all (likely a harness denial, not an empty config); deferred follow-up issues were filed WITHOUT labels."`
+**Read the two printed lines together — three outcomes, and only one is a benign no-op:**
+
+- **Neither line printed at all.** The command was refused by the harness, so it produced no output. Do **not** read that as "no labels": the capture shape is unproven on this tier (above), and treating a denial as an empty config is exactly the silent-denial defect this rework exists to end. Record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not resolve deferred.labels — the config-get command produced no output at all (likely a harness denial, not an empty config); deferred follow-up issues were filed WITHOUT labels."`
+- **`raw` is NON-empty but `to apply` is empty.** The config *did* resolve labels and the normalizer dropped them — a missing `tr`/`sed`/`grep` on this host, or a refused pipeline. That is a broken derivation, **not** an empty config: record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 resolved deferred.labels to a non-empty value but the normalizer produced an empty list (a missing/denied tr|sed|grep in the pipeline); deferred follow-up issues were filed WITHOUT labels."`
+- **`raw` is empty (and printed).** The config genuinely resolved to no labels: apply nothing. This — and only this — is the clean no-op.
 
 Otherwise, read the printed `CLEAN_DEFERRED_LABELS` value and apply the labels with **single granted-literal leading-token calls**, iterating at the agent level:
 
@@ -230,11 +244,18 @@ if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this 
     DEFERRED_LABELS=""
     workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred review-finding issues filed WITHOUT labels."
 fi
-CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
+# GRANTED heads only — `paste` is granted in no allowlist, so a `| paste -sd, -` tail makes
+# the whole pipeline refused and the capture silently empty (see Phase 4.0's note).
+CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | tr '\n' ',' | sed 's/,$//')
+# Print BOTH, for the same reason Phase 4.0 does: an emptied normalizer must not be
+# indistinguishable from an empty config (CLAUDE.md guard-class 2).
+echo "deferred.labels raw: [$DEFERRED_LABELS]"
 echo "deferred labels to apply: [$CLEAN_DEFERRED_LABELS]"
 ```
 
-Three exits before any label is applied — the same fail-closed set Phase 4.0 carries (a rework must not lose them):
+**A non-empty `raw` with an empty `to apply`** is a broken normalizer (a missing/denied `tr`/`sed`/`grep`), **not** an empty config — record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 resolved deferred.labels to a non-empty value but the normalizer produced an empty list (a missing/denied tr|sed|grep in the pipeline); deferred review-finding issues were filed WITHOUT labels."`
+
+Three further exits before any label is applied — the same fail-closed set Phase 4.0 carries (a rework must not lose them):
 
 - **No issues filed** — the printed `filed deferred-finding issues:` line is `[]`. Nothing was filed, so there is nothing to label: apply nothing. This is the clean no-op.
 - **Issues filed but no numbers readable** — deferrals *were* filed above (the manifest was hydrated) yet you can read no filed issue numbers. That is a real capture gap, not a benign no-op: record it durably and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 filed deferred review-finding issues but could not read their numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."`
@@ -351,24 +372,42 @@ fi
 
 Once every named path is satisfied (or Stage 1 found no paths), apply the deferred post-docs labels — only when the docs pass succeeded per the Stage-1 decision above; a run that routed to Blocked never reaches this point, so a Blocked PR never carries them. `docs.labels` is a comma-separated list (default `Documented`); normalize it (split on commas, trim each entry, drop empties) and apply through the shared REST label-apply helper (a PR is an issue, so `POST .../issues/{n}/labels` serves it — repo-scope only, unlike `gh pr edit --add-label`'s org-scoped GraphQL resolution). The REST path needs the PR number explicitly, so resolve it first from the current branch:
 
+**Cloud-emission discipline (label helpers): iterate at the agent level, never in a shell loop or a capture — identical to Phase 4.0/4.0.5, see the *Cloud command-shape discipline* section in `skills/implement/SKILL.md`.** This channel gets the *same* treatment as the two deferral channels, for the same reason: the `apply-labels.sh` call must be a **single leading-token statement**, not nested inside an `if` compound (a shape **no probe row measured** — see that section's *Unproven* bullet), and the config read must fail **closed** on no output rather than reading a possible denial as "no labels configured". First resolve and **print** the values (a shell variable does not survive into a later separate command on the cloud runner, so the per-call values must reach you through a tool result):
+
 ```bash
-DOCS_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.labels Documented)
-CLEAN_LABELS=$(echo "$DOCS_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
-DOCS_PR_NUM=$(gh pr view --json number --jq '.number')
-# The REST endpoint needs the PR number, which the old `gh pr edit` form resolved
-# implicitly — so an empty $DOCS_PR_NUM (gh error / warning-corrupted output) is a NEW
-# failure point the migration introduced. Don't let it skip the apply silently and then
-# tick Documentation complete: route it to the durable workpad (same discipline the 4.0/
-# 4.0.5 deferral channels use, since stderr is ephemeral in an autonomous cloud run).
-if [ -n "$CLEAN_LABELS" ]; then
-  if [ -n "$DOCS_PR_NUM" ]; then
-    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh "$DOCS_PR_NUM" "$CLEAN_LABELS"
-  else
-    echo "devflow: Phase 4.1 could not resolve the PR number (gh pr view returned empty); docs labels ($CLEAN_LABELS) NOT applied" >&2
-    workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not resolve the PR number to apply docs labels ($CLEAN_LABELS); the PR carries none of the configured docs labels."
-  fi
+# GRANTED heads only — `paste` is granted in NO allowlist, so a `| paste -sd, -` tail makes
+# the whole pipeline refused and the capture silently empty (the same trap Phase 4.0 notes).
+if ! DOCS_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.labels Documented); then
+  DOCS_LABELS=""
+  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not read docs.labels (config-get rc≠0 — corrupt config.json or python3 missing); the PR carries none of the configured docs labels."
 fi
+CLEAN_LABELS=$(echo "$DOCS_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | tr '\n' ',' | sed 's/,$//')
+DOCS_PR_NUM=$(gh pr view --json number --jq '.number')
+# Print all three: an emptied normalizer must not be indistinguishable from an empty config
+# (CLAUDE.md guard-class 2), and the PR number is needed as a literal in the apply call below.
+echo "docs.labels raw: [$DOCS_LABELS]"
+echo "docs labels to apply: [$CLEAN_LABELS]"
+echo "docs PR number: [$DOCS_PR_NUM]"
 ```
+
+Four exits before any label is applied — the same fail-closed set the deferral channels carry:
+
+- **No lines printed at all.** The command was refused, not answered. Do **not** read it as "no labels": record it and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not resolve docs.labels — the config-get command produced no output at all (likely a harness denial, not an empty config); the PR carries none of the configured docs labels."`
+- **`raw` non-empty but `to apply` empty.** A broken normalizer (a missing/denied `tr`/`sed`/`grep`), not an empty config: record it and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 resolved docs.labels to a non-empty value but the normalizer produced an empty list (a missing/denied tr|sed|grep in the pipeline); the PR carries none of the configured docs labels."`
+- **`docs PR number` empty.** The REST endpoint needs the PR number, which the old `gh pr edit` form resolved implicitly — so an empty value (a `gh` error, warning-corrupted output) is a real failure point, not a reason to skip silently and tick Documentation complete: record it and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not resolve the PR number to apply docs labels; the PR carries none of the configured docs labels."`
+- **`raw` empty (and printed).** The config genuinely resolved to no labels: apply nothing. Only this is a clean no-op.
+
+Otherwise, read the printed values and apply the labels with **single granted-literal leading-token calls, iterating at the agent level**:
+
+- For **each** label in the printed comma-list (skip blanks), ensure it exists with one call — the helper path is the leading token, and `ensure-label.sh` is best-effort (always exits 0):
+  ```bash
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh <label>
+  ```
+- Apply the whole comma-list to the PR with one call — the helper path is the leading token, the PR number and resolved label list substituted as literals (**not** `$DOCS_PR_NUM`/`$CLEAN_LABELS` shell variables, which do not survive into this separate command):
+  ```bash
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh <docs-pr-number> "<docs-labels>"
+  ```
+  `apply-labels.sh` is best-effort (always exits 0) and prints a breadcrumb to **stderr only on failure** (POST `.../issues/{n}/labels` — repo-scope only; never `gh pr edit --add-label`'s org-scoped GraphQL). Read that stderr from the tool result; when it names a failure, record it durably: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not apply the configured docs labels (<docs-labels>) to PR #<docs-pr-number> (best-effort; the PR carries none of the configured docs labels)."`
 
 Then tick the Documentation phase in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "Documentation"`.
 

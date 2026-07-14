@@ -63,12 +63,15 @@ CLI:
            tier rules (issue #455), keyed to the SEPARATE devflow-implement matcher
            probe (matcher-probe.yml's implement-probe job):
 
-  IR1 a `for … in` loop whose do…done span invokes a label helper (probe row I4).
+  IR1 a `for` loop — ANY spelling, including C-style `for ((i=0;…))` — whose do…done
+      span invokes a label helper (probe row I4). (`select … in` is not matched: a
+      stated non-goal, never probed and never written in these files.)
   IR2 a `while` / `until` loop whose do…done span invokes a label helper (row I5,
       which measured the piped-`while read` spelling; the rule matches the loop
       keyword in COMMAND POSITION, so any spelling of the same denied shape is
       caught, not only the piped one).
-  IR3 a `VAR=$(…)` / `VAR="$(…)"` / backtick capture of a label helper (row I6).
+  IR3 a command substitution invoking a label helper — `$(…)` or backtick, in
+      ASSIGNMENT, ARGUMENT, or CONDITION position (row I6).
 """
 
 from __future__ import annotations
@@ -95,6 +98,27 @@ _INTERPRETERS = frozenset({"python3", "python", "node"})
 _REDIR = re.compile(r"^&?[0-9]*(>>|>)(.*)$")
 
 
+def _strip_line_comment(line: str) -> str:
+    """Drop a quote-aware `#` comment from one line, keeping everything before it."""
+    kept: list[str] = []
+    quote: str | None = None
+    prev = ""
+    for ch in line:
+        if quote:
+            kept.append(ch)
+            if ch == quote and prev != "\\":
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+            kept.append(ch)
+        elif ch == "#" and (prev == "" or prev.isspace()):
+            break
+        else:
+            kept.append(ch)
+        prev = ch
+    return "".join(kept)
+
+
 def _shape_preprocess_lines(block: str) -> list[str]:
     """`_shape_preprocess`, but LINE-PRESERVING: returns exactly one cleaned line per
     input line, so a caller that reports a block-relative line offset (the implement-
@@ -102,46 +126,44 @@ def _shape_preprocess_lines(block: str) -> list[str]:
 
     A heredoc BODY line is blanked to `""` rather than dropped — dropping it is what
     makes the joined form unusable for offset attribution. Blanking is equivalent for
-    statement splitting (an empty line yields no statement), so `_shape_preprocess`
-    below is unchanged in behavior.
+    statement splitting (an empty line yields no statement).
+
+    Two heredoc rules, both fail-CLOSED (a preprocessor that blanks what it cannot
+    measure silently disarms every rule downstream of it — the worst failure this file
+    can have, because it is invisible):
+
+    * The opener is matched on the QUOTE-MASKED line, so a `<<` inside a string
+      (`echo "see << EOF for details"`) cannot open a PHANTOM heredoc.
+    * An opener whose terminator never appears in the block is NOT treated as a heredoc
+      at all: its tail is scanned as ordinary shell. Blanking to end-of-block on an
+      unterminated tag — an elided body, a `…` placeholder, a typo, all routine in the
+      DOCUMENTATION fences this lint exists to scan — would blank the rest of the fence
+      and let a denied shape below it ship green.
     """
-    out: list[str] = []
-    pending_tag: str | None = None
-    for line in block.split("\n"):
-        if pending_tag is not None:
-            if line.strip() == pending_tag:
-                pending_tag = None
-            out.append("")  # heredoc body: blanked, NOT dropped (keeps line alignment)
-            continue
-        kept: list[str] = []
-        quote: str | None = None
-        prev = ""
-        for ch in line:
-            if quote:
-                kept.append(ch)
-                if ch == quote and prev != "\\":
-                    quote = None
-            elif ch in ("'", '"'):
-                quote = ch
-                kept.append(ch)
-            elif ch == "#" and (prev == "" or prev.isspace()):
-                break
-            else:
-                kept.append(ch)
-            prev = ch
-        cleaned = "".join(kept)
-        # Find the heredoc opener on the QUOTE-MASKED line, so a `<<` inside a string
-        # (`echo "see << EOF for details"`) cannot open a phantom heredoc that blanks the
-        # rest of the fence — which silently disarmed every later rule in the block.
-        # Masking preserves length, so the match offset is valid in `cleaned`; re-search
+    raw_lines = block.split("\n")
+    n = len(raw_lines)
+    out = [_strip_line_comment(line) for line in raw_lines]
+    i = 0
+    while i < n:
+        cleaned = out[i]
+        # Masking preserves length, so the probe's offset is valid in `cleaned`; re-search
         # the ORIGINAL there to read the real tag (a quoted tag, `<<'EOF'`, is itself
-        # masked, so its group(2) cannot be trusted).
+        # masked, so the probe's own group(2) cannot be trusted).
         probe = _HEREDOC.search(_mask_quoted(cleaned))
         match = _HEREDOC.search(cleaned, probe.start()) if probe else None
-        if match:
-            pending_tag = match.group(2)
-            # KEEP cleaned as-is (opener token retained) — do NOT truncate at <<.
-        out.append(cleaned)
+        if not match:
+            i += 1
+            continue
+        tag = match.group(2)
+        close = next(
+            (j for j in range(i + 1, n) if raw_lines[j].strip() == tag), None
+        )
+        if close is None:
+            i += 1  # unterminated: NOT a heredoc — fail closed, keep scanning the tail
+            continue
+        for k in range(i + 1, close + 1):  # body + terminator (opener token retained)
+            out[k] = ""
+        i = close + 1
     return out
 
 
@@ -151,6 +173,13 @@ def _shape_preprocess(block: str) -> str:
 
     This differs from extract-command-heads.py's stripper, which truncates the
     opener at `<<` — that erases the very signal R3's cat-heredoc arm needs.
+
+    NOTE this DOES affect the review tier (R1-R4), which also reads this text. The
+    blank-vs-drop change is behavior-preserving, but the two heredoc fail-closed rules in
+    `_shape_preprocess_lines` are not: a `<<` inside a quoted string no longer opens a
+    phantom heredoc, and an unterminated heredoc no longer blanks the tail — so a review
+    statement that used to be silently swallowed is now scanned. That is a strict
+    tightening (previously-missed shapes are now caught), never a loosening.
     """
     return "\n".join(_shape_preprocess_lines(block))
 
@@ -496,26 +525,28 @@ def _substitution_bodies(value: str) -> list[str]:
 
 
 def _label_capture_violation(statement: str) -> bool:
-    """IR3: a `VAR=$(…)` / `VAR="$(…)"` / `VAR=`…`` capture whose substitution invokes
-    a label helper (probe row I6 — the old `LBL_ERR="$(apply-labels.sh … 2>&1)"`).
+    """IR3: a command substitution that invokes a label helper — `VAR=$(…)`,
+    `VAR="$(…)"`, a backtick capture, and equally a capture in ARGUMENT or CONDITION
+    position (probe row I6 — the old `LBL_ERR="$(apply-labels.sh … 2>&1)"`).
 
-    The BACKTICK form is the same denied shape spelled differently, so it is flagged
-    too: the guard's job is "a re-introduced denied shape goes RED at the desk", and a
-    guard that only knows one spelling of the shape it forbids is a hole an author
-    falls into by accident.
+    Scoped to the whole STATEMENT, not just an assignment's right-hand side. Anchoring
+    on `^VAR=` was a fail-open on the most natural regression there is: the removed code
+    captured the helper's stderr *in order to put it in a comment body*, so the obvious
+    way to re-introduce it is to inline the capture into the argument —
+    `gh issue comment -b "$(apply-labels.sh … 2>&1)"` — which is the same denied shape
+    with no assignment anywhere. `[ -n "$(ensure-label.sh …)" ]` is the same story.
+
+    The BACKTICK form is likewise the same shape spelled differently. A guard that knows
+    only one spelling of what it forbids is a hole an author falls into by accident.
 
     Scoping (see the rule-block comment above): a capture of a NON-label command is not
     flagged, on the *inference* — not a measurement — that the matcher descends into it.
     """
-    raw = _strip_control(statement.strip())  # e.g. `if ! LBL=$(…)` reads as its capture
-    lead = re.match(r"^[A-Za-z_][A-Za-z0-9_]*=(.*)$", raw, re.S)
-    if not lead:
-        return False
-    # Search the SUBSTITUTION BODIES, not the raw value: the shape is "a capture OF a
-    # label helper", so a value that merely NAMES one outside any substitution — a
-    # message string like `MSG="$(date -u) applied via apply-labels.sh"` — is not this
-    # shape and must not be flagged.
-    return any(_LABEL_HELPER.search(body) for body in _substitution_bodies(lead.group(1)))
+    # Search the SUBSTITUTION BODIES of the whole statement: the shape is "a capture OF a
+    # label helper", so a statement that merely NAMES one outside any substitution — a
+    # message string like `MSG="$(date -u) applied via apply-labels.sh"`, or the permitted
+    # bare call `apply-labels.sh 1 X` itself — is not this shape and must not be flagged.
+    return any(_LABEL_HELPER.search(body) for body in _substitution_bodies(statement))
 
 
 # A loop keyword only OPENS a loop in COMMAND POSITION — at the start of a statement,
@@ -533,15 +564,16 @@ _LOOP_OPENER = re.compile(
 # (`for x in a b; do echo; done`) close the OUTER span, so a label call after it fell
 # outside and shipped green — a fail-open. `do` never matches inside `done` (the lookahead
 # rejects the `n`).
+#
+# `_DONE_TOK`'s trailing class is load-bearing and is the ONLY place `done`-recognition is
+# decided. A closing `done` may be followed by a subshell/redirect/pipe close, not just
+# whitespace — `(…; done)`, `done>/dev/null`, `done | tee`, `done <labels.txt` are all
+# ordinary spellings — and `_loop_violations` SKIPS an opener whose `done` it cannot find.
+# So omitting `)`/`<`/`>` here is a FAIL-OPEN: a real label-helper loop closed `done)` is
+# silently never scanned, the guard failing open in exactly the direction it exists to
+# fail closed.
 _DO_TOK = re.compile(r"(?:^|[;|&({\s])do(?=$|[;|&\s])")
 _DONE_TOK = re.compile(r"(?:^|[;|&({\s])done(?=$|[;|&)<>\s])")
-# The closing `done` may be followed by a subshell/redirect/pipe close, not only
-# whitespace: `(…; done)`, `done>/dev/null`, `done | tee`, `done <labels.txt` are all
-# ordinary spellings. Omitting `)`/`<`/`>` here was a FAIL-OPEN: `_loop_violations` skips
-# an opener whose `done` it cannot find, so a real label-helper loop closed `done)` was
-# silently not scanned — the guard failing open in exactly the direction it exists to
-# fail closed.
-_LOOP_DONE = re.compile(r"(?:^|[|;&\s])done(?:$|[|;&)<>\s])")
 
 
 def _mask_quoted(line: str, single_only: bool = False) -> str:
@@ -587,14 +619,13 @@ def _loop_violations(lines: list[str]) -> list[tuple[int, str]]:
     (`_shape_preprocess_lines`) — scanning raw source made a `#` comment mentioning a
     loop a false hit.
 
-    The span runs from the opener to its closing `done`, INCLUSIVE, and a one-line
-    loop (`for f in a b; do …; done`) is closed by the `done` on the opener line
-    itself. An opener with NO `done` anywhere in the fence is NOT a loop we can
-    measure — it is skipped, never treated as running to end-of-fence (that made every
-    later label call in the block a phantom hit of a loop that does not exist).
-
-    Non-nested by design — the reworked skill has no such loop; a re-introduced one is
-    single-level.
+    The span runs from the opener to its OWN closing `done`, INCLUSIVE — `do`/`done` are
+    depth-counted, so a NESTED inner loop's `done` cannot close the outer span and hide a
+    label call that follows it. A one-line loop (`for f in a b; do …; done`) is closed by
+    the `done` on the opener line itself. An opener with NO `done` anywhere in the fence
+    is NOT a loop we can measure — it is skipped, never treated as running to end-of-fence
+    (that made every later label call in the block a phantom hit of a loop that does not
+    exist).
     """
     hits: list[tuple[int, str]] = []
     n = len(lines)
