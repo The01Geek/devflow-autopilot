@@ -140,9 +140,25 @@ def _shape_preprocess_lines(block: str) -> list[str]:
       DOCUMENTATION fences this lint exists to scan — would blank the rest of the fence
       and let a denied shape below it ship green.
     """
+    return _preprocess(block)[0]
+
+
+def _preprocess(block: str) -> tuple[list[str], list[int]]:
+    """The single heredoc/comment scan. Returns `(cleaned_lines, expanding_body_offsets)`,
+    where the second element lists the body lines of an UNQUOTED heredoc.
+
+    Why that second list exists: a heredoc body is blanked because its text is DATA, not
+    shell — a `for … done` written in one is inert. But that is only true of the text as
+    *commands*. With an UNQUOTED delimiter (`<<EOF`, not `<<'EOF'`) the shell still expands
+    command substitutions inside the body, so `$(apply-labels.sh …)` in there is a real,
+    executed capture — the I6 denied shape — while a blanked body hides it from every rule.
+    IR3 therefore re-scans exactly these lines (see `find_implement_violations`), while the
+    loop rules keep ignoring them, which is correct for both.
+    """
     raw_lines = block.split("\n")
     n = len(raw_lines)
     out = [_strip_line_comment(line) for line in raw_lines]
+    expanding: list[int] = []
     i = 0
     while i < n:
         cleaned = out[i]
@@ -161,10 +177,12 @@ def _shape_preprocess_lines(block: str) -> list[str]:
         if close is None:
             i += 1  # unterminated: NOT a heredoc — fail closed, keep scanning the tail
             continue
+        if not match.group(1):  # unquoted tag ⇒ the shell EXPANDS substitutions in the body
+            expanding.extend(range(i + 1, close))
         for k in range(i + 1, close + 1):  # body + terminator (opener token retained)
             out[k] = ""
         i = close + 1
-    return out
+    return out, expanding
 
 
 def _shape_preprocess(block: str) -> str:
@@ -677,12 +695,19 @@ def find_implement_violations(text: str) -> list[tuple[int, str, str]]:
         # Comment-stripped, heredoc-blanked, LINE-ALIGNED with block_lines — the same
         # cleaning `_statements()` (and every review-tier rule) applies. Scanning raw
         # lines here made a `#` comment mentioning `while`/`for … in` a false hit.
-        clean_lines = _shape_preprocess_lines(block)
+        clean_lines, expanding = _preprocess(block)
         for statement in _statements(block):
             if not _label_capture_violation(statement):
                 continue
             lineno = _attribute_line(statement, start, len(block_lines), lines)
             hits.append((lineno, "IR3", statement.strip()))
+        # IR3 in an UNQUOTED heredoc body: blanked above (its text is data, not commands),
+        # but the shell still EXPANDS a `$(…)` there — so a label-helper capture written in
+        # `gh issue comment -F - <<EOF … $(apply-labels.sh …) … EOF` really executes, and
+        # blanking alone would hide the denied shape. Re-scan just those lines.
+        for off in expanding:
+            if _label_capture_violation(block_lines[off]):
+                hits.append((start + off, "IR3", block_lines[off].strip()))
         for off, rule in _loop_violations(clean_lines):
             hits.append((start + off, rule, block_lines[off].strip()))
     return hits

@@ -26549,6 +26549,16 @@ assert_eq "#455 no fail-open: an UNTERMINATED heredoc does not blank the tail (t
 { printf '%s\n' '```bash' "cat <<'EOF' > f" 'for n in x; do apply-labels.sh 1 y; done' 'EOF' '.devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' '```'; } > "$E363/i-fp-heredoc-body.md"
 assert_eq "#455 no false positive: a terminated heredoc BODY is data, not shell (denied-looking text inside it is not a hit)" "" \
   "$(python3 "$ECS" --profile implement "$E363/i-fp-heredoc-body.md")"
+# ── ...BUT an UNQUOTED heredoc tag (`<<EOF`, not `<<'EOF'`) still EXPANDS substitutions in
+# ── its body, so a label-helper capture written there really executes — the I6 denied shape.
+# ── Blanking the body as "data" hid it from every rule. A `for` loop in the body stays inert
+# ── text (it is never executed), so only the SUBSTITUTION arm re-scans these lines.
+{ printf '%s\n' '```bash' 'gh issue comment -F - <<EOF' 'labels: $(.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow)' 'EOF' '```'; } > "$E363/i-fo-heredoc-expand.md"
+assert_eq "#455 no fail-open: a label-helper capture in an UNQUOTED heredoc body (the shell expands it) is flagged IR3" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-heredoc-expand.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' "gh issue comment -F - <<'EOF'" 'labels: $(.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow)' 'EOF' '```'; } > "$E363/i-fp-heredoc-quoted.md"
+assert_eq "#455 no false positive: the same text under a QUOTED tag is literal (the shell does not expand it) — not a hit" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-heredoc-quoted.md")"
 # ── UNGRANTED-HEAD pin (#480 review): a grant is per-HEAD across the WHOLE pipeline, not
 # ── just the leading token, so ONE ungranted head in a tail refuses the entire statement.
 # ── `paste` is granted in NO allowlist (baked TOOLS, config.json, config.example.json) —
