@@ -3081,6 +3081,110 @@ assert_pin_unique "#462 dim: Step 3.6 audit-prompt area states the finding-cap g
 assert_pin_unique "#462 ext: live create-issue extension carries the consolidated DevFlow sharpening" \
   'Authoring-discipline defects (DevFlow specifics, issue #462)' "$CI443_EXT"
 
+# ── issue #467: four create-issue authoring-discipline hardenings (prose + pins). Reuses the
+#    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
+#    is drawn verbatim from the operative contract prose (a whole sentence or a load-bearing
+#    fragment of one), so assert_pin_unique is the honest primitive — the pin catches removal or
+#    rewording of the contract prose, not a behavioral regression (the #312 coupled-pair pattern).
+#    The template<->Step-3.5 coupled pairs for the B1
+#    occurrence-count and C1 conditional-path premise classes are pinned on BOTH sides so a
+#    one-sided edit goes RED.
+# Cluster A — universal-claim rule (template AC guidance + checklist), Step 3.5 sweep + zero arm,
+# Step 3.6 dimension sharpening (generic checklist size guard-locked below).
+assert_pin_unique "#467 A1: template AC guidance carries the universal-claim rule" \
+  'about the system under change is grounded' "$CI312_TMPL"
+assert_pin_unique "#467 A1: universal-claim rule carries the claim-level positive-control obligation" \
+  'positive-control obligation** on the' "$CI312_TMPL"
+assert_pin_unique "#467 A1: quality-checklist mirror for the universal-claim rule" \
+  'Every universal quantifier ("never/always/each/every/all/cannot")' "$CI312_TMPL"
+assert_pin_unique "#467 A2: Step 3.5 runs the universal-quantifier sweep (same carve-out)" \
+  'Universal-quantifier sweep (mandatory' "$CI312_SKILL"
+assert_pin_unique "#467 A2: Step 3.5 item-6 summary states the falsifiable zero arm" \
+  'the draft carries no ungrounded universal quantifier' "$CI312_SKILL"
+assert_pin_unique "#467 A3: Step 3.6 Load-bearing-assumptions dimension names universal quantifiers" \
+  'including any **universal quantifier** the draft asserts' "$CI312_SKILL"
+# A3 count guard — the generic dimension checklist size is guard-locked (dimension-growth policy).
+# The count is 9 after issue #464 (merged) appended the "Adversarial third-party input" dimension;
+# #467 sharpened the "Load-bearing assumptions" dimension in place, adding no row (the growth-policy
+# carve-out #464 pins sanctions that single standalone addition). Pin BOTH sed anchors
+# present-and-unique so the count range stays bounded: a start-anchor drift already fails the count
+# RED (sed prints nothing -> count 0), but an *end*-anchor drift would let sed run to EOF while the
+# count coincidentally stays fixed, passing vacuously — these two pins turn either anchor's
+# rename/removal RED at the desk. The assert_pin_unique pins are UNANCHORED substring matches,
+# though, while the sed range keys on the LINE-START shape /^\*\*.../ — so a position-only drift
+# (an indent or prefix that keeps the substring but breaks ^** ) would slip the substring pins and
+# still let sed run to EOF while the count stays 9. The two assert_eq below close that residual hole
+# by binding each anchor to the exact ^** column-0 predicate sed uses, so the range can never
+# silently un-bound (rename, removal, OR position drift all go RED at the desk).
+assert_pin_unique "#467 A3: the generic-dimension-checklist sed START anchor is present and unique" \
+  '**Generic dimension checklist' "$CI312_SKILL"
+assert_pin_unique "#467 A3: the generic-dimension-checklist sed END anchor is present and unique" \
+  '**Dimension-list growth policy' "$CI312_SKILL"
+# Line-anchored anchor checks (close the position-drift hole the substring pins above cannot):
+# each heading must match the sed range's ^** column-0 shape exactly once.
+assert_eq "#467 A3: the generic-dimension-checklist sed START anchor matches at line-start exactly once" "1" \
+  "$(grep -c '^\*\*Generic dimension checklist' "$CI312_SKILL")"
+assert_eq "#467 A3: the generic-dimension-checklist sed END anchor matches at line-start exactly once" "1" \
+  "$(grep -c '^\*\*Dimension-list growth policy' "$CI312_SKILL")"
+assert_eq "#467 A3: Step 3.6 generic dimension checklist is 9 bullets (8 base + #464's dimension; #467 added none)" "9" \
+  "$(sed -n '/^\*\*Generic dimension checklist/,/^\*\*Dimension-list growth policy/p' "$CI312_SKILL" | grep -c '^- \*\*')"
+# Cluster B — occurrence-count premise class (coupled template<->Step-3.5) + checklist mirror; AC
+# mutual-consistency check (Step 3.5 + template AC guidance + checklist mirror).
+assert_pin_unique "#467 B1 (coupled/template): template names the occurrence-count/site-list premise class" \
+  'Occurrence counts and coupled-site lists are a premise class too' "$CI312_TMPL"
+assert_pin_unique "#467 B1 (coupled/SKILL): Step 3.5 mirrors the occurrence-count premise class" \
+  'Occurrence counts and coupled-site lists are checked the same way' "$CI312_SKILL"
+assert_pin_unique "#467 B1: quality-checklist mirror for the occurrence-count premise class" \
+  'Every in-repo occurrence count or coupled-site list is grounded by an executed whitespace-normalized search' "$CI312_TMPL"
+assert_pin_unique "#467 B2: Step 3.5 carries the AC mutual-consistency check" \
+  'AC mutual-consistency check (mandatory)' "$CI312_SKILL"
+assert_pin_unique "#467 B2: template AC guidance body carries the AC mutual-consistency rule" \
+  "No acceptance criterion forbids a surface another criterion's discharge must touch" "$CI312_TMPL"
+assert_pin_unique "#467 B2: quality-checklist mirror for the AC mutual-consistency check" \
+  'the ACs are mutually consistent' "$CI312_TMPL"
+# Cluster C — conditional-path (coupled template<->Step-3.5), stated-but-unbound (Step 3.5's item-4 clause),
+# trust-boundary closure (template AC guidance + Step 3.5 omission hunt).
+assert_pin_unique "#467 C1 (coupled/template): template premise method includes the gates on the path to X" \
+  'Verifying "the code does X" includes the gates on the path to X' "$CI312_TMPL"
+assert_pin_unique "#467 C1 (coupled/SKILL): Step 3.5 mirrors the conditional-path premise check" \
+  'A "code does X" premise is verified with its enclosing gates on the path to X' "$CI312_SKILL"
+assert_pin_unique "#467 C2: Step 3.5 unstated-dependency item extends to stated-but-unbound inputs" \
+  'Extend the sweep to stated-but-unbound inputs (mandatory)' "$CI312_SKILL"
+assert_pin_unique "#467 C3 (template): AC guidance carries the trust-boundary closure rule" \
+  'source / exec / import closure' "$CI312_TMPL"
+assert_pin_unique "#467 C3 (SKILL): Step 3.5 omission hunt carries the trust-boundary closure check" \
+  'trust-boundary closure check (mirroring the template' "$CI312_SKILL"
+# C1/C3 quality-checklist mirrors — pinned for parity with the A1/B1/B2 checklist-mirror pins
+# above (AC-E1: every new contract sentence in a pinned surface is presence-pinned), so a future
+# edit can no longer silently drop or reword the conditional-path / trust-boundary checklist rows
+# while their body rules stay pinned. Literals are unique to the checklist line (the C3 body pin
+# 'source / exec / import closure' is the spaced form; the checklist uses the no-space form below).
+assert_pin_unique "#467 C1: quality-checklist mirror for the conditional-path premise check" \
+  'enclosing gates/conditionals and their defaults on the path to X' "$CI312_TMPL"
+assert_pin_unique "#467 C3: quality-checklist mirror for the trust-boundary closure rule" \
+  'transitive source/exec/import closure of its entry points' "$CI312_TMPL"
+# Cluster D — Move 2a introduction trigger (template) + waiver-non-conforming clause; the
+# three-site best-effort-parser widening (CLAUDE.md, implement Phase 2.4, review-and-fix
+# fix-delta gate); extension sharpening (whole-file dimension count held at 8 — 7 base + #464's
+# dimension; #467 added none, matching the D3 guard below). The six-shape
+# SIXSHAPE_SET lockstep pins above stay green — the widening references the set, never restates it.
+assert_pin_unique "#467 D1: Move 2a carries the introduction trigger" \
+  'Move 2a also fires on *introduction*, not only on narrowing' "$CI312_TMPL"
+assert_pin_unique "#467 D1: introduction trigger names a blanket testing-scope waiver non-conforming" \
+  'blanket testing-scope waiver' "$CI312_TMPL"
+assert_pin_unique "#467 D2 (CLAUDE.md leg): best-effort-parser gotcha widened to mutable-markdown/external-format" \
+  'The governed surface is broader than config JSON' "$LIB/../CLAUDE.md"
+assert_pin_unique "#467 D2 (Phase 2.4 leg): dry-trace rule widened to mutable-markdown/external-format" \
+  'The governed surface is broader than config JSON' "$IMPL_SKILL_BUNDLE"
+assert_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mutable-markdown/external-format" \
+  'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$MAXI_SKILL"
+assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
+  'input-type analogue** for the widened surfaces' "$CI443_EXT"
+# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 8 after
+# issue #464 (merged) appended the "Mutation evidence for behavioral-fix pins" dimension; #467
+# sharpened the existing case-matrix bullet in place, adding no row.
+assert_eq "#467 D3: create-issue extension is 8 dimension bullets (7 base + #464's dimension; #467 added none)" "8" \
+  "$(grep -c '^- \*\*' "$CI443_EXT")"
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
 #    Each pin is a behavioral-fix pin: its literal IS an operative sentence whose removal

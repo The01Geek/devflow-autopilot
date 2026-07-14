@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.12.4] — 2026-07-14
+
+### Changed
+- **Harden `/devflow:create-issue` authoring against the four dominant review-REJECT seed classes.** The issue template and Step 3.5 steelman gain a universal-claim rule (every "never/always/each/every/all/cannot" is grounded — pinned per-arm, scoped, or removed — with a claim-level positive-control obligation for detector-coverage claims), an executed-enumeration premise class (occurrence counts and coupled-site lists are grounded by a cited whitespace-normalized search or the specific evidence records, never recall) plus an AC mutual-consistency check, deeper premise verification (conditional-path gates/defaults, stated-but-unbound input binding, trust-boundary transitive-closure), and a Move 2a *introduction* trigger requiring a malformed/boundary matrix for any newly-introduced reader of repo-external input. The best-effort-parser convention is widened at its three lockstep sites (`CLAUDE.md`, implement Phase 2.4, review-and-fix fix-delta gate) and the create-issue prompt extension to name parsers over agent/human-mutable markdown and readers of new external structured formats as governed surfaces, the six-shape set staying the config-JSON matrix. Consumer-generic rules ship in the skill and template; DevFlow-specific sharpenings stay in the extension, `CLAUDE.md`, and the two enforcement-mirror skills. (#472)
+
 ## [2.12.3] — 2026-07-14
 
 ### Fixed
