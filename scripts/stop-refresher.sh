@@ -56,17 +56,20 @@ if [ -f "$PIDFILE" ]; then
   else
     echo "refresher pidfile '$PIDFILE' is empty; nothing to signal"
   fi
-elif [ "$STARTED" = success ]; then
-  # The Start step ran (launched the nohup) yet no pidfile exists → the refresher
-  # never started or crashed before writing it (e.g. a missing/unparseable vendored
-  # script, whose `bash: … .sh:` error the warn-prefix grep would miss). Genuine defeat.
+elif [ "$STARTED" != skipped ] && [ "$STARTED" != cancelled ]; then
+  # The Start step actually RAN (success OR failure — a hard Start-step failure means
+  # the refresher genuinely never started) yet no pidfile exists → the refresher never
+  # started or crashed before writing it (e.g. a missing/unparseable vendored script,
+  # whose `bash: … .sh:` error the warn-prefix grep would miss). Genuine defeat. Keying
+  # on "did it run" (not "did it succeed") is deliberate: a ran-and-failed Start is a
+  # real never-started defeat, not an expected-absent-pidfile case.
   echo "no refresher pidfile at $PIDFILE"
   defeated=yes
   reason="the refresher did not start or crashed before writing its pidfile"
 else
-  # The Start step did NOT run (the job aborted before reaching it), so the missing
-  # pidfile is expected — do not misattribute an unrelated upstream failure to the
-  # refresher.
+  # The Start step did NOT run (skipped/cancelled — the job aborted before reaching it),
+  # so the missing pidfile is expected — do not misattribute an unrelated upstream
+  # failure to the refresher.
   echo "refresher Start step did not run (outcome='$STARTED'); missing pidfile is expected, not a defeat"
 fi
 

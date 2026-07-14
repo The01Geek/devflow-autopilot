@@ -33525,6 +33525,11 @@ assert_eq "#487 arm14: absent pidfile + Start ran (never started/crashed) warns 
 _s17="$(DEVFLOW_REFRESH_STARTED=skipped DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
 assert_eq "#487 arm17: absent pidfile + Start skipped (upstream abort) does NOT warn defeated" "no" "$(_defeat487 "$_s17")"
 
+# Arm 18 — pidfile absent AND the Start step RAN-AND-FAILED (STARTED=failure) → the
+# refresher genuinely never started → warn (keys on "ran", not "succeeded").
+_s18="$(DEVFLOW_REFRESH_STARTED=failure DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm18: absent pidfile + Start ran-and-failed warns defeated (ran, not succeeded)" "yes" "$(_defeat487 "$_s18")"
+
 # Arm 15 — pidfile present + last log line is a ::warning:: → sustained failure → warn.
 echo 999999 > "$D487/pidC"
 printf 'refresh-app-credentials: cycle OK\n::warning::refresh-app-credentials: cycle: mint arm failed\n' > "$D487/logC"
