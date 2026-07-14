@@ -70,8 +70,10 @@ CLI:
       which measured the piped-`while read` spelling; the rule matches the loop
       keyword in COMMAND POSITION, so any spelling of the same denied shape is
       caught, not only the piped one).
-  IR3 a command substitution invoking a label helper — `$(…)` or backtick, in
-      ASSIGNMENT, ARGUMENT, or CONDITION position (row I6).
+  IR3 a command substitution invoking a label helper — `$(…)`, backtick, or `<(…)`
+      process substitution — in ASSIGNMENT, ARGUMENT, or CONDITION position. (Row I6
+      measured the ASSIGNMENT spelling; the others are the same shape, unmeasured, and
+      flagged deliberately — a guard that knows one spelling of what it forbids is a hole.)
 """
 
 from __future__ import annotations
@@ -105,8 +107,9 @@ def _strip_line_comment(line: str, quote: str | None = None) -> tuple[str, str |
     lines, so a `#`-leading line INSIDE a multi-line double-quoted argument is argument
     text, not a comment — stripping it would hide any capture on it. But carrying state is
     not safe alone either (one unbalanced apostrophe would stop every later comment being
-    stripped), so `_preprocess` is run BOTH ways and the hits are unioned — see
-    `_mask_quoted_lines`, which makes the same trade for the loop scan.
+    stripped), so the IMPLEMENT scan (`find_implement_violations`) runs `_preprocess` BOTH
+    ways and unions the hits — see `_mask_quoted_lines`, which makes the same trade for the
+    loop scan. The review tier (`find_violations`) runs the per-line form only.
     """
     kept: list[str] = []
     prev = ""
@@ -551,6 +554,23 @@ def _substitution_bodies(value: str) -> list[str]:
     i = 0
     n = len(value)
     while i < n:
+        # `<(…)` / `>(…)` process substitution: the same denied shape — the label helper is not
+        # the leading token of the tool call — and it is exactly how an author told "no `$( )`
+        # capture" re-introduces the capture (`mapfile -t X < <(apply-labels.sh …)`,
+        # `gh issue comment -F <(apply-labels.sh …)`). Read its body like any substitution.
+        if masked[i] in "<>" and masked.startswith("(", i + 1):
+            depth = 1
+            j = i + 2
+            start = j
+            while j < n and depth:
+                if masked[j] == "(":
+                    depth += 1
+                elif masked[j] == ")":
+                    depth -= 1
+                j += 1
+            bodies.append(value[start : j - 1] if depth == 0 else value[start:])
+            i = j
+            continue
         if masked.startswith("$(", i):
             depth = 1
             j = i + 2
@@ -616,6 +636,13 @@ _LOOP_OPENER = re.compile(
 # outside and shipped green — a fail-open. `do` never matches inside `done` (the lookahead
 # rejects the `n`).
 #
+# BOTH classes are command-position-anchored (line start or after a separator), NOT a bare
+# `\s`. With a bare whitespace lead, an ARGUMENT-position word matched: `echo done` inside a
+# loop body decremented the depth to 0, closed the span early, and every label call below it
+# in that loop fell outside the scanned range and shipped GREEN — a fail-open. The mirror
+# hazard applies to `do` (an argument-position `do` inflates depth, the closing `done` is never
+# reached, and the opener is skipped entirely).
+#
 # `_DONE_TOK`'s trailing class is load-bearing and is the ONLY place `done`-recognition is
 # decided. A closing `done` may be followed by a subshell/redirect/pipe close, not just
 # whitespace — `(…; done)`, `done>/dev/null`, `done | tee`, `done <labels.txt` are all
@@ -623,8 +650,8 @@ _LOOP_OPENER = re.compile(
 # So omitting `)`/`<`/`>` here is a FAIL-OPEN: a real label-helper loop closed `done)` is
 # silently never scanned, the guard failing open in exactly the direction it exists to
 # fail closed.
-_DO_TOK = re.compile(r"(?:^|[;|&({\s])do(?=$|[;|&\s])")
-_DONE_TOK = re.compile(r"(?:^|[;|&({\s])done(?=$|[;|&)<>\s])")
+_DO_TOK = re.compile(r"(?:^\s*|[;|&({]\s*)do(?=$|[;|&\s])")
+_DONE_TOK = re.compile(r"(?:^\s*|[;|&({]\s*)done(?=$|[;|&)<>\s])")
 
 
 def _mask_quoted(line: str, single_only: bool = False) -> str:

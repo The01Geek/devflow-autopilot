@@ -100,7 +100,7 @@ If you filed follow-up work above but captured **no** issue numbers, that is a r
 
 - **Neither line printed at all.** The command was refused by the harness, so it produced no output. Do **not** read that as "no labels": the capture shape is unproven on this tier (above), and treating a denial as an empty config is exactly the silent-denial defect this rework exists to end. Record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not resolve deferred.labels — the config-get command produced no output at all (likely a harness denial, not an empty config); deferred follow-up issues were filed WITHOUT labels."`
 - **`raw` is NON-empty but `to apply` is empty.** The config *did* resolve labels and the normalizer dropped them — a missing `tr`/`sed`/`grep` on this host, or a refused pipeline. That is a broken derivation, **not** an empty config: record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 resolved deferred.labels to a non-empty value but the normalizer produced an empty list (a missing/denied tr|sed|grep in the pipeline); deferred follow-up issues were filed WITHOUT labels."`
-- **`raw` is empty (and printed).** The config genuinely resolved to no labels: apply nothing. This — and only this — is the clean no-op.
+- **`raw` is empty (and printed), and no rc≠0 breadcrumb was recorded above.** The config genuinely resolved to no labels: apply nothing — the clean no-op. (If the `if !` hard-read-failure branch fired, `raw` is empty because the read *failed*, not because there are no labels; that path already recorded its own `dropped-failed` reflection and is not a no-op.)
 
 Otherwise, read the printed `CLEAN_DEFERRED_LABELS` value and apply the labels with **single granted-literal leading-token calls**, iterating at the agent level:
 
@@ -229,7 +229,15 @@ fi
 # "no output" as a denial. The sentinel makes the three states distinct: no line => refused;
 # manifest=[] => nothing to file (the clean no-op); manifest=[…] with an empty filed list =>
 # the real capture gap.
-echo "phase 4.0.5 filing fence ran; manifest=[${AGG:-}] filed deferred-finding issues=[${NUMBERS_CSV:-}]"
+# Derive the manifest state from the SAME predicate the filing guard used ([ -s "$AGG" ]).
+# `AGG` is a PATH, assigned unconditionally — printing it raw would make the ordinary
+# no-deferrals run (no manifest file) look identical to a hydrated one, routing a clean
+# no-op to the "capture gap" exit and fabricating a dropped-failed reflection; and a real
+# jq-merge failure (which blanks AGG) would read as the clean no-op. Print the STATE, not
+# the path. Print the numbers RAW too — NUMBERS_CSV is display-formatted for the workpad
+# note (`201, #202`), so it is not what you want to substitute into the per-issue calls.
+MANIFEST_STATE=""; [ -n "${AGG:-}" ] && [ -s "${AGG:-}" ] && MANIFEST_STATE=hydrated
+echo "phase 4.0.5 filing fence ran; manifest=[${MANIFEST_STATE}] filed deferred-finding issues=[$(echo "${FILED_NUMBERS:-}" | tr '\n' ' ')]"
 ```
 
 The helper groups manifest entries by `file` (one issue per source file), files each issue with a repo-agnostic title/body template (`<area>: deferred review findings in <file> (carried from #<source_issue>)` and a body containing the verbatim findings plus the `PR #<pr_number>` substring that the verdict matcher's mutual-cross-link guard validates against), then rewrites the manifest in place with `id: dfr-<6-hex>` (deterministic hash of `file + symbol + kind + summary`) and `follow_up: {issue, url, filed_at, filed_by}` populated per entry. Filed issue numbers are printed to stdout, one per line.
@@ -265,8 +273,8 @@ echo "deferred labels to apply: [$CLEAN_DEFERRED_LABELS]"
 Four further exits before any label is applied — the same fail-closed set Phase 4.0 carries (a rework must not lose them). They are read off the **sentinel** the filing fence prints unconditionally:
 
 - **No `phase 4.0.5 filing fence ran` sentinel at all.** The fence was refused, not answered — do **not** read it as "nothing was filed". Record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5's filing fence produced no output at all (likely a harness denial, not an empty aggregate); no deferred review-finding issues were filed or labelled this run."`
-- **Sentinel present, `manifest=[]`** — there was no hydrated aggregate, so nothing was filed and there is nothing to label: apply nothing. This is the clean no-op.
-- **Sentinel present with a manifest, but `filed deferred-finding issues=[]`** — deferrals *were* filed yet you can read no filed issue numbers. That is a real capture gap, not a benign no-op: record it durably and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 filed deferred review-finding issues but could not read their numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."`
+- **Sentinel present, `manifest=[]`** — no hydrated aggregate (either there were no deferrals this run, or the merge produced nothing), so nothing was filed and there is nothing to label: apply nothing. This is the clean no-op. (A jq-merge *failure* already recorded its own `dropped-failed` reflection inside the fence, so it is not silently swallowed here.)
+- **Sentinel present with `manifest=[hydrated]`, but `filed deferred-finding issues=[]`** — the aggregate held deferrals yet you can read no filed issue numbers. That is a real capture gap, not a benign no-op: record it durably and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 filed deferred review-finding issues but could not read their numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."`
 - **The config read produced no output at all** — you received no `deferred labels to apply: [...]` line whatsoever. The command was refused, not answered: do **not** read that as "no labels configured" (the capture shape is unproven on this tier — see the discipline note above). Record it and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not resolve deferred.labels — the config-get command produced no output at all (likely a harness denial, not an empty config); deferred review-finding issues were filed WITHOUT labels."`
 
 If the printed `CLEAN_DEFERRED_LABELS` is present but empty (config resolved to no labels), apply nothing. Otherwise, read it and apply the labels with **single granted-literal leading-token calls, iterating at the agent level** (the label helpers must never be wrapped in a shell loop or an output capture):
@@ -403,7 +411,7 @@ Four exits before any label is applied — the same fail-closed set the deferral
 - **No lines printed at all.** The command was refused, not answered. Do **not** read it as "no labels": record it and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not resolve docs.labels — the config-get command produced no output at all (likely a harness denial, not an empty config); the PR carries none of the configured docs labels."`
 - **`raw` non-empty but `to apply` empty.** A broken normalizer (a missing/denied `tr`/`sed`/`grep`), not an empty config: record it and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 resolved docs.labels to a non-empty value but the normalizer produced an empty list (a missing/denied tr|sed|grep in the pipeline); the PR carries none of the configured docs labels."`
 - **`docs PR number` empty.** The REST endpoint needs the PR number, which the old `gh pr edit` form resolved implicitly — so an empty value (a `gh` error, warning-corrupted output) is a real failure point, not a reason to skip silently and tick Documentation complete: record it and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not resolve the PR number to apply docs labels; the PR carries none of the configured docs labels."`
-- **`raw` empty (and printed).** The config genuinely resolved to no labels: apply nothing. Only this is a clean no-op.
+- **`raw` empty (and printed), and no rc≠0 breadcrumb above.** The config genuinely resolved to no labels: apply nothing — the clean no-op. (The `if !` hard-read-failure branch also leaves `raw` empty, but it recorded its own `dropped-failed` reflection and is not a no-op.)
 
 Otherwise, read the printed values and apply the labels with **single granted-literal leading-token calls, iterating at the agent level**:
 

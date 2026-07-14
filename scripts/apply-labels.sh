@@ -40,6 +40,20 @@ set -uo pipefail
 NUMBER="${1:?Usage: apply-labels.sh <issue-or-pr-number> <label…>}"
 shift
 
+# The number must be digits. This is a fail-CLOSED guard on the one caller mistake the skills
+# explicitly warn about: a `$PR_NUM` that did not survive into a later command word-splits
+# away, so `apply-labels.sh "$PR_NUM" DevFlow` degrades to `apply-labels.sh DevFlow` —
+# `NUMBER` swallows the LABEL, the label set comes out empty, and the helper takes the
+# deliberately-silent empty-set path below. Callers now read "no output at all" as a harness
+# refusal, so that silence would produce a durable reflection blaming a permission denial that
+# never happened — steering the reader away from the real cause (CLAUDE.md's "unknown is not
+# zero"). Breadcrumb loudly and exit 0 (best-effort contract preserved).
+case "$NUMBER" in
+    ''|*[!0-9]*)
+        echo "devflow: warning: apply-labels.sh got a non-numeric issue/PR number '${NUMBER}' (args: $*); no labels applied. This is NOT a harness denial — it is a caller arg-slip, most likely a shell variable that did not survive into this command." >&2
+        exit 0 ;;
+esac
+
 # Normalize the args into a clean label list — split on commas, trim, drop empties.
 # Accepts `DevFlow Retrospective` (separate args), `"DevFlow,Deferred"` (one
 # comma-separated arg), or a mix.

@@ -26405,10 +26405,11 @@ assert_pin_red_under "#401 grounding: deleting the two-denials-switch rule from 
 # lint-pinnable, since every legitimate helper call keeps the portable anchor in source.)
 IMPL_DIR="$LIB/../skills/implement"
 # Contract: SKILL.md + every phase file teaches NO implement-tier denied shape (exit 0, empty).
-# Scope is EVERY skill that invokes a label helper on a read-write cloud tier, not just
-# implement: create-issue and init call ensure-label.sh/apply-labels.sh too, and the same
-# matcher governs them, so a loop/capture introduced there would ship green under a
-# implement-only contract loop. All lint clean today, so the coverage is free (#480 review).
+# Scope is every skill that writes the label-helper idiom, not just implement: create-issue
+# and init call ensure-label.sh/apply-labels.sh too. They are NOT governed by the implement
+# matcher today (no workflow dispatches them on that tier) — linting them keeps the idiom
+# uniform and pre-empts a future read-write tier, rather than guarding a live denial. All
+# lint clean today, so the coverage is free (#480 review).
 for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md \
          "$LIB/../skills/create-issue/SKILL.md" "$LIB/../skills/init/SKILL.md"; do
   assert_eq "#455 implement shape-lint: $(basename "$(dirname "$f")")/$(basename "$f") teaches no proven-denied shape" "" \
@@ -26626,10 +26627,37 @@ assert_eq "#455 behavioral: reintroducing the removed per-label ensure-label pip
 # ── Scope pin: the lint reads only ```bash fences, so a ```sh-tagged fence would be invisible and
 # ── the contract loop's "teaches no proven-denied shape" claim would pass VACUOUSLY over it. Keep
 # ── the claim's reach equal to its wording — the guarded files must use no other shell fence tag.
-for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md; do
-  assert_eq "#455 scope: $(basename "$f") uses no non-bash shell fence tag (the lint reads only \`\`\`bash)" "0" \
+for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md \
+         "$LIB/../skills/create-issue/SKILL.md" "$LIB/../skills/init/SKILL.md"; do
+  assert_eq "#455 scope: $(basename "$(dirname "$f")")/$(basename "$f") uses no non-bash shell fence tag (the lint reads only \`\`\`bash)" "0" \
     "$(grep -cE '^\s*```(sh|shell|zsh|console)\s*$' "$f" || true)"
 done
+# ── FAIL-OPEN controls, round 6 (the #480 convergence shadow).
+# ── `do`/`done` are depth-counted to bound the loop span, and matching them after a bare
+# ── whitespace let an ARGUMENT-position word count: `echo done` inside a loop body closed the
+# ── span early, so every label call below it fell outside the scan and shipped GREEN.
+{ printf '%s\n' '```bash' 'for a in 1; do' '  echo done' '  .devflow/vendor/devflow/scripts/apply-labels.sh 1 A' 'done' '```'; } > "$E363/i-fo-argdone.md"
+assert_eq "#455 no fail-open: an argument-position 'done' (echo done) does not close the loop span early" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-argdone.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# ── Process substitution is the same denied shape spelled differently — and it is exactly how
+# ── an author told "no $( ) capture" re-introduces the capture.
+{ printf '%s\n' '```bash' 'mapfile -t OUT < <(.devflow/vendor/devflow/scripts/apply-labels.sh 42 DevFlow 2>&1)' '```'; } > "$E363/i-fo-procsub.md"
+assert_eq "#455 no fail-open: a PROCESS-SUBSTITUTION capture of a label helper is flagged IR3" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-procsub.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'gh issue comment 1 -F <(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)' '```'; } > "$E363/i-fo-procsub2.md"
+assert_eq "#455 no fail-open: a '-F <(label-helper …)' process substitution is flagged IR3" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-procsub2.md" | grep -q '  IR3  ' && echo yes || echo no)"
+# ── apply-labels.sh must fail CLOSED on a caller arg-slip: `apply-labels.sh DevFlow` (the
+# ── number lost to a non-surviving shell variable) would otherwise swallow the LABEL as the
+# ── number, produce an empty label set, and exit SILENTLY — which the reworked call sites now
+# ── read as a harness denial, fabricating a durable reflection that blames a refusal that
+# ── never happened.
+# ── AC4: every label call site carries a co-located Cloud-emission note anchored to SKILL.md's
+# ── discipline section. Without a pin, a future edit deletes a note and the suite stays green.
+assert_eq "#455 AC4: SKILL.md carries the Cloud command-shape discipline section" "yes" \
+  "$(grep -qF 'Cloud command-shape discipline (implement tier)' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: presence pin on the AC4 discipline section (bundle-scoped; the section heading is unique)
+assert_eq "#455 AC4: all four label call sites carry a co-located Cloud-emission discipline note" "4" \
+  "$(grep -cF 'Cloud-emission discipline (label helpers)' "$IMPL_SKILL_BUNDLE" || true)"  # raw-guard-ok: count-based: asserts ==4 co-located notes (one per label call site), not single-presence
 # BEHAVIORAL (not a source grep — a grep stays green if the echo is moved into a branch that
 # never fires). Drive the helper against a stubbed gh and assert each outcome is what the four
 # call sites' new routing rule reads: success line / failure line / SILENCE on an empty set.
@@ -26645,6 +26673,8 @@ assert_eq "#455 apply-labels.sh: API FAILURE emits the warning breadcrumb" "yes"
   "$(DEVFLOW_GH="$I455_STUB/gh_fail" bash "$LIB/../scripts/apply-labels.sh" 42 DevFlow 2>&1 | grep -qF "could not apply label(s) 'DevFlow' to #42" && echo yes || echo no)"
 assert_eq "#455 apply-labels.sh: an EMPTY label set is SILENT (this is what makes 'no output ⇒ denial' sound)" "" \
   "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 "  " 2>&1)"
+assert_eq "#455 apply-labels.sh: a NON-NUMERIC number (a caller arg-slip) breadcrumbs loudly, never silently" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" DevFlow 2>&1 | grep -qF "NOT a harness denial" && echo yes || echo no)"
 assert_eq "#455 apply-labels.sh: a label containing a space survives normalization" "yes" \
   "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 "needs review,DevFlow" 2>&1 | grep -qF "'needs review,DevFlow'" && echo yes || echo no)"
 # Guard-class 2: the label derivation must NOT depend on a non-preflight PATH tool. It decides
@@ -26658,14 +26688,16 @@ assert_eq "#455 apply-labels.sh derives its label list with BUILTINS (no tr/sed/
   "$(sed -n '/^LABELS=()/,/^fi$/p' "$LIB/../scripts/apply-labels.sh" | grep -v '^[[:space:]]*#' | grep -cE '\| *(tr|sed|grep|paste|awk) ' || true)"
 # ── UNGRANTED-HEAD pin (#480 review): a grant is per-HEAD across the WHOLE pipeline, not
 # ── just the leading token, so ONE ungranted head in a tail refuses the entire statement.
-# ── `paste` is granted in NO allowlist (baked TOOLS, config.json, config.example.json) —
-# ── yet the label-normalizing pipelines ended in `| paste -sd, -`, so the config read was
-# ── silently refused, the capture came back empty, and the skill's own fail-closed prose
-# ── then read that as "a denial" and filed the issues WITHOUT labels. The fix (#455) would
-# ── have shipped not working. Pin the class: no implement-tier fence may use `paste`, and
-# ── the granted tools its replacement depends on must actually be granted.
-for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md; do
-  assert_eq "#455 ungranted-head: $(basename "$f") uses no 'paste' (granted in no allowlist; refuses the whole pipeline)" "0" \
+# ── `paste` is granted in NO allowlist (baked TOOLS, config.json, config.example.json) — yet
+# ── the label-NORMALIZING pipelines ended in `| paste -sd, -`. That statement would have been
+# ── refused outright (the config-get read before it is a separate statement and still
+# ── resolves), so the raw label value came back fine while the normalized list came back
+# ── EMPTY, and the applies silently did nothing. The fix (#455) would have shipped not
+# ── working. Pin the class: no implement-tier fence may use `paste`, and the granted tools
+# ── its replacement depends on must actually be granted.
+for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md \
+         "$LIB/../skills/create-issue/SKILL.md" "$LIB/../skills/init/SKILL.md"; do
+  assert_eq "#455 ungranted-head: $(basename "$(dirname "$f")")/$(basename "$f") uses no 'paste' (granted in no allowlist)" "0" \
     "$(python3 "$ECH" heads "$f" 2>/dev/null | grep -cxF 'paste' || true)"
 done
 for t in tr sed grep echo; do
