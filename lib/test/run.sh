@@ -3081,6 +3081,110 @@ assert_pin_unique "#462 dim: Step 3.6 audit-prompt area states the finding-cap g
 assert_pin_unique "#462 ext: live create-issue extension carries the consolidated DevFlow sharpening" \
   'Authoring-discipline defects (DevFlow specifics, issue #462)' "$CI443_EXT"
 
+# ── issue #467: four create-issue authoring-discipline hardenings (prose + pins). Reuses the
+#    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
+#    is drawn verbatim from the operative contract prose (a whole sentence or a load-bearing
+#    fragment of one), so assert_pin_unique is the honest primitive — the pin catches removal or
+#    rewording of the contract prose, not a behavioral regression (the #312 coupled-pair pattern).
+#    The template<->Step-3.5 coupled pairs for the B1
+#    occurrence-count and C1 conditional-path premise classes are pinned on BOTH sides so a
+#    one-sided edit goes RED.
+# Cluster A — universal-claim rule (template AC guidance + checklist), Step 3.5 sweep + zero arm,
+# Step 3.6 dimension sharpening (generic checklist size guard-locked below).
+assert_pin_unique "#467 A1: template AC guidance carries the universal-claim rule" \
+  'about the system under change is grounded' "$CI312_TMPL"
+assert_pin_unique "#467 A1: universal-claim rule carries the claim-level positive-control obligation" \
+  'positive-control obligation** on the' "$CI312_TMPL"
+assert_pin_unique "#467 A1: quality-checklist mirror for the universal-claim rule" \
+  'Every universal quantifier ("never/always/each/every/all/cannot")' "$CI312_TMPL"
+assert_pin_unique "#467 A2: Step 3.5 runs the universal-quantifier sweep (same carve-out)" \
+  'Universal-quantifier sweep (mandatory' "$CI312_SKILL"
+assert_pin_unique "#467 A2: Step 3.5 item-6 summary states the falsifiable zero arm" \
+  'the draft carries no ungrounded universal quantifier' "$CI312_SKILL"
+assert_pin_unique "#467 A3: Step 3.6 Load-bearing-assumptions dimension names universal quantifiers" \
+  'including any **universal quantifier** the draft asserts' "$CI312_SKILL"
+# A3 count guard — the generic dimension checklist size is guard-locked (dimension-growth policy).
+# The count is 9 after issue #464 (merged) appended the "Adversarial third-party input" dimension;
+# #467 sharpened the "Load-bearing assumptions" dimension in place, adding no row (the growth-policy
+# carve-out #464 pins sanctions that single standalone addition). Pin BOTH sed anchors
+# present-and-unique so the count range stays bounded: a start-anchor drift already fails the count
+# RED (sed prints nothing -> count 0), but an *end*-anchor drift would let sed run to EOF while the
+# count coincidentally stays fixed, passing vacuously — these two pins turn either anchor's
+# rename/removal RED at the desk. The assert_pin_unique pins are UNANCHORED substring matches,
+# though, while the sed range keys on the LINE-START shape /^\*\*.../ — so a position-only drift
+# (an indent or prefix that keeps the substring but breaks ^** ) would slip the substring pins and
+# still let sed run to EOF while the count stays 9. The two assert_eq below close that residual hole
+# by binding each anchor to the exact ^** column-0 predicate sed uses, so the range can never
+# silently un-bound (rename, removal, OR position drift all go RED at the desk).
+assert_pin_unique "#467 A3: the generic-dimension-checklist sed START anchor is present and unique" \
+  '**Generic dimension checklist' "$CI312_SKILL"
+assert_pin_unique "#467 A3: the generic-dimension-checklist sed END anchor is present and unique" \
+  '**Dimension-list growth policy' "$CI312_SKILL"
+# Line-anchored anchor checks (close the position-drift hole the substring pins above cannot):
+# each heading must match the sed range's ^** column-0 shape exactly once.
+assert_eq "#467 A3: the generic-dimension-checklist sed START anchor matches at line-start exactly once" "1" \
+  "$(grep -c '^\*\*Generic dimension checklist' "$CI312_SKILL")"
+assert_eq "#467 A3: the generic-dimension-checklist sed END anchor matches at line-start exactly once" "1" \
+  "$(grep -c '^\*\*Dimension-list growth policy' "$CI312_SKILL")"
+assert_eq "#467 A3: Step 3.6 generic dimension checklist is 9 bullets (8 base + #464's dimension; #467 added none)" "9" \
+  "$(sed -n '/^\*\*Generic dimension checklist/,/^\*\*Dimension-list growth policy/p' "$CI312_SKILL" | grep -c '^- \*\*')"
+# Cluster B — occurrence-count premise class (coupled template<->Step-3.5) + checklist mirror; AC
+# mutual-consistency check (Step 3.5 + template AC guidance + checklist mirror).
+assert_pin_unique "#467 B1 (coupled/template): template names the occurrence-count/site-list premise class" \
+  'Occurrence counts and coupled-site lists are a premise class too' "$CI312_TMPL"
+assert_pin_unique "#467 B1 (coupled/SKILL): Step 3.5 mirrors the occurrence-count premise class" \
+  'Occurrence counts and coupled-site lists are checked the same way' "$CI312_SKILL"
+assert_pin_unique "#467 B1: quality-checklist mirror for the occurrence-count premise class" \
+  'Every in-repo occurrence count or coupled-site list is grounded by an executed whitespace-normalized search' "$CI312_TMPL"
+assert_pin_unique "#467 B2: Step 3.5 carries the AC mutual-consistency check" \
+  'AC mutual-consistency check (mandatory)' "$CI312_SKILL"
+assert_pin_unique "#467 B2: template AC guidance body carries the AC mutual-consistency rule" \
+  "No acceptance criterion forbids a surface another criterion's discharge must touch" "$CI312_TMPL"
+assert_pin_unique "#467 B2: quality-checklist mirror for the AC mutual-consistency check" \
+  'the ACs are mutually consistent' "$CI312_TMPL"
+# Cluster C — conditional-path (coupled template<->Step-3.5), stated-but-unbound (Step 3.5's item-4 clause),
+# trust-boundary closure (template AC guidance + Step 3.5 omission hunt).
+assert_pin_unique "#467 C1 (coupled/template): template premise method includes the gates on the path to X" \
+  'Verifying "the code does X" includes the gates on the path to X' "$CI312_TMPL"
+assert_pin_unique "#467 C1 (coupled/SKILL): Step 3.5 mirrors the conditional-path premise check" \
+  'A "code does X" premise is verified with its enclosing gates on the path to X' "$CI312_SKILL"
+assert_pin_unique "#467 C2: Step 3.5 unstated-dependency item extends to stated-but-unbound inputs" \
+  'Extend the sweep to stated-but-unbound inputs (mandatory)' "$CI312_SKILL"
+assert_pin_unique "#467 C3 (template): AC guidance carries the trust-boundary closure rule" \
+  'source / exec / import closure' "$CI312_TMPL"
+assert_pin_unique "#467 C3 (SKILL): Step 3.5 omission hunt carries the trust-boundary closure check" \
+  'trust-boundary closure check (mirroring the template' "$CI312_SKILL"
+# C1/C3 quality-checklist mirrors — pinned for parity with the A1/B1/B2 checklist-mirror pins
+# above (AC-E1: every new contract sentence in a pinned surface is presence-pinned), so a future
+# edit can no longer silently drop or reword the conditional-path / trust-boundary checklist rows
+# while their body rules stay pinned. Literals are unique to the checklist line (the C3 body pin
+# 'source / exec / import closure' is the spaced form; the checklist uses the no-space form below).
+assert_pin_unique "#467 C1: quality-checklist mirror for the conditional-path premise check" \
+  'enclosing gates/conditionals and their defaults on the path to X' "$CI312_TMPL"
+assert_pin_unique "#467 C3: quality-checklist mirror for the trust-boundary closure rule" \
+  'transitive source/exec/import closure of its entry points' "$CI312_TMPL"
+# Cluster D — Move 2a introduction trigger (template) + waiver-non-conforming clause; the
+# three-site best-effort-parser widening (CLAUDE.md, implement Phase 2.4, review-and-fix
+# fix-delta gate); extension sharpening (whole-file dimension count held at 8 — 7 base + #464's
+# dimension; #467 added none, matching the D3 guard below). The six-shape
+# SIXSHAPE_SET lockstep pins above stay green — the widening references the set, never restates it.
+assert_pin_unique "#467 D1: Move 2a carries the introduction trigger" \
+  'Move 2a also fires on *introduction*, not only on narrowing' "$CI312_TMPL"
+assert_pin_unique "#467 D1: introduction trigger names a blanket testing-scope waiver non-conforming" \
+  'blanket testing-scope waiver' "$CI312_TMPL"
+assert_pin_unique "#467 D2 (CLAUDE.md leg): best-effort-parser gotcha widened to mutable-markdown/external-format" \
+  'The governed surface is broader than config JSON' "$LIB/../CLAUDE.md"
+assert_pin_unique "#467 D2 (Phase 2.4 leg): dry-trace rule widened to mutable-markdown/external-format" \
+  'The governed surface is broader than config JSON' "$IMPL_SKILL_BUNDLE"
+assert_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mutable-markdown/external-format" \
+  'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$MAXI_SKILL"
+assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
+  'input-type analogue** for the widened surfaces' "$CI443_EXT"
+# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 8 after
+# issue #464 (merged) appended the "Mutation evidence for behavioral-fix pins" dimension; #467
+# sharpened the existing case-matrix bullet in place, adding no row.
+assert_eq "#467 D3: create-issue extension is 8 dimension bullets (7 base + #464's dimension; #467 added none)" "8" \
+  "$(grep -c '^- \*\*' "$CI443_EXT")"
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
 #    Each pin is a behavioral-fix pin: its literal IS an operative sentence whose removal
@@ -24262,6 +24366,677 @@ assert_pin_unique "#271 coupled: skills/implement/SKILL.md reaction-comment read
   "scripts/run-jq.sh -r '.comment.id" "$LIB/../skills/implement/SKILL.md"
 assert_pin_unique "#271 coupled: phase-4-documentation.md deferrals merge invokes the run-jq.sh wrapper" \
   "scripts/run-jq.sh -s '.[0] as \$f" "$LIB/../skills/implement/phases/phase-4-documentation.md"
+
+# ── #313 third-party model provider resolver ───────────────────────────────
+# The provider resolver is an INLINE jq program embedded in all three cloud
+# workflows (devflow.yml / devflow-implement.yml / devflow-runner.yml). It cannot
+# be a scripts/*.jq file (the config-extract jobs never vendor the plugin, so no
+# helper exists on disk there), so single-sourcing is enforced HERE: extract the
+# program body from each workflow at test time, assert the three copies are
+# byte-identical, then run ONE extracted copy live — never hand-maintain a fourth.
+# IMPL_WF / RUNNER_WF / LIGHT_WF are defined in the #271 block above; reuse them.
+# region_lines already prints the lines strictly between a BEGIN/END marker pair,
+# substring-matched — reuse it rather than a bespoke awk extractor.
+R313_IMPL="$(region_lines "$IMPL_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
+R313_RUNNER="$(region_lines "$RUNNER_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
+R313_LIGHT="$(region_lines "$LIGHT_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
+# Non-empty guard: a renamed/removed sentinel would extract "" and make the
+# identity asserts vacuously PASS ("" == "") — assert extraction found a program.
+assert_eq "#313 resolver: program extracted from devflow-implement.yml is non-empty (sentinels intact)" "yes" \
+  "$([ -n "$R313_IMPL" ] && echo yes || echo no)"
+assert_eq "#313 resolver single-sourced: devflow-implement.yml vs devflow.yml byte-identical" "yes" \
+  "$([ "$R313_IMPL" = "$R313_LIGHT" ] && echo yes || echo no)"
+assert_eq "#313 resolver single-sourced: devflow-implement.yml vs devflow-runner.yml byte-identical" "yes" \
+  "$([ "$R313_IMPL" = "$R313_RUNNER" ] && echo yes || echo no)"
+
+# Behavioral coverage: eval the EMBEDDED copy (single-sourced — not a retyped
+# program) to populate $RESOLVER, then drive it against literal config fixtures.
+eval "$R313_IMPL"
+r313() { jq -c --arg section "$1" "$RESOLVER"; }
+# AC 1: config with no provider keys → the Anthropic-default decision.
+assert_eq "#313 resolver: default (no providers, no section provider) → Anthropic-default decision" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"claude-opus-4-8","env":{}}' \
+  "$(echo '{"claude_model":"claude-opus-4-8","devflow_implement":{}}' | r313 devflow_implement)"
+# ACs 3/4: implement-section decision carries openrouter fields; the runner
+# section stays default in the SAME config (per-section isolation).
+R313_CFG='{"claude_model":"m","providers":{"openrouter":{"base_url":"https://openrouter.ai/api","auth":"bearer","timeout_ms":3000000,"env":{"CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2"}}},"devflow_implement":{"provider":"openrouter","claude_model":"z-ai/glm-5.2"}}'
+assert_eq "#313 resolver: section provider selects openrouter (base_url/auth/model/env)" \
+  '{"provider":"openrouter","base_url":"https://openrouter.ai/api","auth":"bearer","timeout_ms":3000000,"effort_supported":false,"model":"z-ai/glm-5.2","env":{"CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2"}}' \
+  "$(echo "$R313_CFG" | r313 devflow_implement)"
+assert_eq "#313 resolver: unrelated section stays Anthropic-default in the same provider config (AC 4 isolation)" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"m","env":{}}' \
+  "$(echo "$R313_CFG" | r313 devflow_runner)"
+# AC 3: model precedence — section claude_model beats global; global when absent.
+assert_eq "#313 resolver: section claude_model beats global" "section-model" \
+  "$(echo '{"claude_model":"global-model","devflow_implement":{"claude_model":"section-model"}}' | r313 devflow_implement | jq -r .model)"
+assert_eq "#313 resolver: global claude_model used when section absent" "global-model" \
+  "$(echo '{"claude_model":"global-model","devflow_implement":{}}' | r313 devflow_implement | jq -r .model)"
+# AC 3: a section naming a provider ABSENT from an EXISTING providers map yields the
+# explicit error marker. (Distinct from the matrix "providers map missing" shape below:
+# here the map exists but lacks the named entry — the literal "references an undefined
+# provider name" case AC 3 describes.)
+assert_eq "#313 resolver: provider name absent from an existing map → explicit error marker" \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"nope","detail":"provider is not defined in the providers map"}' \
+  "$(echo '{"claude_model":"m","providers":{"other":{"base_url":"u","auth":"bearer"}},"devflow_implement":{"provider":"nope"}}' | r313 devflow_implement)"
+# AC 7: effort_supported false/absent → false; true → true; strict (non-boolean → false).
+assert_eq "#313 resolver: effort_supported false when provider omits it (drop --effort)" "false" \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"api_key"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -r .effort_supported)"
+assert_eq "#313 resolver: effort_supported true when provider sets it (keep --effort)" "true" \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"api_key","effort_supported":true}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -r .effort_supported)"
+# strict `== true`: a non-boolean effort_supported (string "true", number 1) resolves to
+# false so --effort is dropped (fail-closed) — pins the deliberate `== true` over bare
+# truthiness (a mutation to `(… // false)` would flip this GREEN→behavior on a gateway).
+assert_eq "#313 resolver: effort_supported non-boolean (string) → false (strict == true)" "false" \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"api_key","effort_supported":"true"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -r .effort_supported)"
+# AC 4: the provider env map (haiku/subagent/betas keys) survives intact.
+assert_eq "#313 resolver: provider env map survives into the decision intact" \
+  '{"ANTHROPIC_DEFAULT_HAIKU_MODEL":"z-ai/glm-4.7","CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2","CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS":"1"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"bearer","env":{"ANTHROPIC_DEFAULT_HAIKU_MODEL":"z-ai/glm-4.7","CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2","CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS":"1"}}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -c .env)"
+
+# AC 9: adversarial input-shape matrix — each malformed shape yields exit-0 plus its
+# SPECIFIC (not generic) documented decision/error marker. The resolver type-guards every
+# index, so NO shape crashes the workflow step (rc≠0) — the exit-0 sweep below proves it.
+assert_eq "#313 matrix: providers map missing (+ section provider) → undefined_provider marker" \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"openrouter","detail":"provider is not defined in the providers map"}' \
+  "$(echo '{"claude_model":"m","devflow_implement":{"provider":"openrouter"}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: providers wrong-type (string) → undefined_provider marker" \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"openrouter","detail":"provider is not defined in the providers map"}' \
+  "$(echo '{"claude_model":"m","providers":"nope","devflow_implement":{"provider":"openrouter"}}' | r313 devflow_implement)"
+# Provider PRESENT but incomplete → FAIL-LOUD error marker (not a silent default with an
+# empty base_url/auth): a provider-active decision must never reach the inject step with an
+# empty ANTHROPIC_BASE_URL / a non-{bearer,api_key} auth (review C1/sfh — the old fail-open).
+assert_eq "#313 matrix: provider entry present but missing base_url → incomplete_provider marker (fail-loud)" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider entry has no base_url"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+# The EMPTY-STRING base_url disjunct (distinct from the missing/wrong-type one above): a
+# present but empty base_url is also fail-loud. Pins the `== ""` half of the guard so a
+# mutation dropping it (reintroducing the empty-ANTHROPIC_BASE_URL fail-open) goes RED.
+assert_eq "#313 matrix: provider entry with EMPTY base_url → incomplete_provider marker (== \"\" disjunct)" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider entry has no base_url"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"","auth":"bearer"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: provider entry present but missing auth → incomplete_provider marker" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider auth must be bearer or api_key"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: provider auth outside {bearer,api_key} (e.g. Bearer) → incomplete_provider marker" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider auth must be bearer or api_key"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"Bearer"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: empty-string section provider → Anthropic-default decision" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"m","env":{}}' \
+  "$(echo '{"claude_model":"m","devflow_implement":{"provider":""}}' | r313 devflow_implement)"
+# Crash-class shapes (used to be jq rc=5 → set -e step abort with a raw jq error). The
+# type-guards now yield a specific marker / safe default with rc=0.
+assert_eq "#313 matrix: non-string section provider (number) → invalid_provider marker (no crash)" \
+  '{"error":"invalid_provider","section":"devflow_implement","provider":"","detail":"section provider must be a string"}' \
+  "$(echo '{"claude_model":"m","devflow_implement":{"provider":5}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: non-object section (scalar) → Anthropic-default decision (no crash)" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"m","env":{}}' \
+  "$(echo '{"claude_model":"m","devflow_implement":"oops"}' | r313 devflow_implement)"
+assert_eq "#313 matrix: non-object top-level config → Anthropic-default decision (no crash)" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"","env":{}}' \
+  "$(echo '"not-an-object"' | r313 devflow_implement)"
+assert_eq "#313 matrix: env wrong-type (string) → env:{}" "{}" \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"bearer","env":"nope"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -c .env)"
+# timeout_ms is NOT semantically type-guarded (only `// ""` for null/missing) — a wrong-type
+# value flows through verbatim (the documented, accepted defense-in-depth: config is
+# maintainer/base-ref-controlled and schema-typed). Completes the {field} x {wrong-type}
+# matrix (review Suggestion #6) — pins the pass-through so a future type-guard is a conscious
+# change, not a silent one; the inject step then writes it heredoc-safely regardless.
+assert_eq "#313 matrix: timeout_ms wrong-type (object) → passes through verbatim (documented, not type-guarded)" \
+  '{"x":1}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"bearer","timeout_ms":{"x":1}}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -c .timeout_ms)"
+# section claude_model is the one type-GUARDED field (`type == "string" and != ""`); a wrong-type
+# section value (number/object) falls through to the global claude_model — completes the matrix's
+# {type-guarded field} x {wrong-type} cell (review Suggestion #5).
+assert_eq "#313 matrix: wrong-type section claude_model (number) → falls through to global claude_model" "global-m" \
+  "$(echo '{"claude_model":"global-m","devflow_implement":{"claude_model":5}}' | r313 devflow_implement | jq -r .model)"
+assert_eq "#313 matrix: provider entry wrong-type (string, not object) → undefined_provider marker" \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"p","detail":"provider is not defined in the providers map"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":"x"},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+# Every malformed shape EXITS 0 — sweep the shapes that USED to crash jq (rc=5) before the
+# type-guards, so a regression that drops a guard (reintroducing the set -e abort) goes RED.
+for R313_BAD in \
+  '{"providers":"nope","devflow_implement":{"provider":"openrouter"}}' \
+  '{"devflow_implement":{"provider":5}}' \
+  '{"devflow_implement":"oops"}' \
+  '{"devflow_implement":["x"]}' \
+  '"not-an-object"'; do
+  echo "$R313_BAD" | r313 devflow_implement >/dev/null 2>&1
+  assert_eq "#313 matrix: malformed shape exits 0 (no jq crash): $R313_BAD" "0" "$?"
+done
+
+# AC 1 defaults-unchanged pins — anchored to the three explicit workflow paths
+# (NOT a .github/workflows glob), so the synthetic claude.yml fixture elsewhere
+# in this suite can never satisfy or trip them. Each pin targets the OPERATIVE
+# conditional (its removal alone re-breaks the default-path wiring), and the
+# claude_code_oauth_token conditional is proven removal-proof (PASS→FAIL).
+for R313_WF in "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF"; do
+  R313_TAG="$(basename "$R313_WF")"
+  # claude_code_oauth_token stays under the empty-decision (no-provider) condition.
+  assert_pin_unique "#313 defaults: $R313_TAG passes OAuth token only on the no-provider path" \
+    "steps.provider.outputs.provider == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN" "$R313_WF"
+  assert_pin_red_on_removal "#313 defaults: $R313_TAG OAuth-under-empty-decision conditional is removal-proof" \
+    "steps.provider.outputs.provider == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN" "$R313_WF"
+  # anthropic_api_key rides only on the provider-active path.
+  assert_pin_unique "#313 defaults: $R313_TAG passes anthropic_api_key only on the provider path" \
+    "steps.provider.outputs.provider != '' && secrets.DEVFLOW_PROVIDER_API_KEY" "$R313_WF"
+  # AC 6 empty-secret guard: the inject step's run body is byte-identical across the three,
+  # so a UNIFORM removal keeps the body-identity check GREEN — this per-file presence pin is
+  # what makes dropping the fail-loud guard from all three go RED (assert_pin_unique proves
+  # PASS-with → FAIL-without at each site).
+  assert_pin_unique "#313 defaults: $R313_TAG inject step fails loud on an empty provider secret (AC 6)" \
+    "DEVFLOW_PROVIDER_API_KEY repository secret is empty" "$R313_WF"
+  # ANTHROPIC_BASE_URL is written exactly once (via genv, the newline-safe heredoc
+  # writer), and only inside the provider-gated inject step — structurally proving it
+  # never leaks onto the default path.
+  assert_eq "#313 defaults: $R313_TAG writes ANTHROPIC_BASE_URL exactly once" "1" \
+    "$(pin_count 'genv ANTHROPIC_BASE_URL' "$R313_WF")"
+  # mint_blk extracts a named step's block (- name: … to the next sibling/job
+  # boundary) — reuse it instead of a bespoke awk step-extractor.
+  R313_INJECT="$(mint_blk 'Inject provider endpoint (provider-routed sections only)' "$R313_WF")"
+  assert_eq "#313 defaults: $R313_TAG inject step is gated on provider != '' AND holds the ANTHROPIC_BASE_URL write" "yes" \
+    "$(printf '%s' "$R313_INJECT" | grep -qF "steps.provider.outputs.provider != ''" \
+       && printf '%s' "$R313_INJECT" | grep -qF 'genv ANTHROPIC_BASE_URL' && echo yes || echo no)"
+  # The cargs COMPUTED string must actually be CONSUMED by the action step's
+  # claude_args (the producer→consumer wiring pin): every cargs behavior above is
+  # executed, but without this pin a merge-conflict revert of claude_args to the
+  # old literal `--model …/--effort …` head would leave every #313 test green
+  # while the provider path silently regained --effort (gateway 400s) and lost
+  # the per-section model override.
+  assert_pin_unique "#313 defaults: $R313_TAG claude_args consumes the computed cargs head" \
+    '${{ steps.cargs.outputs.args }}' "$R313_WF"
+done
+# AC 8 default-path fail-loud OAuth guard (runner-only): the runner relaxed
+# CLAUDE_CODE_OAUTH_TOKEN to an optional workflow_call secret, so it must fail loud when the
+# Anthropic default path (no provider) has no OAuth token. This step is unique to the runner
+# (not covered by the 3-way body-identity check), so pin it removal-proof.
+assert_pin_red_on_removal "#313 defaults: devflow-runner.yml fails loud on the Anthropic default path when CLAUDE_CODE_OAUTH_TOKEN is empty (AC 8, removal-proof)" \
+  "No model provider is configured for the devflow_runner section" "$RUNNER_WF"
+# The AC-8 guard's `if:` GATE (not just its body): the body is executed below (both
+# arms) and its message is pinned removal-proof, but neither catches a deleted or
+# inverted `if:` — a deleted gate makes a provider-routed, OAuth-less repo (the exact
+# deployment #313 enables) fail spuriously on every review; an inverted one silently
+# drops the default path's fail-loud. Same mint_blk idiom as the inject-step gate check.
+R313_OAUTH_BLK="$(mint_blk 'Require OAuth token on the Anthropic default path' "$RUNNER_WF")"
+assert_eq "#313 defaults: devflow-runner.yml OAuth guard step is gated on provider == '' AND reads the OAuth secret" "yes" \
+  "$(printf '%s' "$R313_OAUTH_BLK" | grep -qF "steps.provider.outputs.provider == ''" \
+     && printf '%s' "$R313_OAUTH_BLK" | grep -qF 'secrets.CLAUDE_CODE_OAUTH_TOKEN' && echo yes || echo no)"
+# Review C1: the runner resolves its provider decision from the TRUSTED BASE ref config
+# (steps.baseprovision), never PR-head steps.cfg — a PR-head-sourced base_url + secret would
+# exfiltrate DEVFLOW_PROVIDER_API_KEY to an attacker gateway. Pin it removal-proof so a revert
+# to the head-config source goes RED. devflow.yml/devflow-implement.yml read the default-branch
+# (base) checkout on issue_comment, so steps.cfg is already the trusted config for them.
+assert_pin_red_on_removal "#313 security: devflow-runner.yml resolves the provider decision from the trusted base-ref config, not PR-head (review C1, removal-proof)" \
+  "CONFIG_JSON: \${{ steps.baseprovision.outputs.config_json }}" "$RUNNER_WF"
+# The runner's MODEL head-fallback (bootstrap case: base ref carries no committed config →
+# resolver model="" → fall back to head claude_model so --model is never empty). It lives in
+# the cargs step's env: block, which the run-body-identity check excludes, so pin it directly.
+assert_pin_unique "#313 defaults: devflow-runner.yml MODEL falls back to head claude_model when the base-resolved model is empty (bootstrap)" \
+  "steps.provider.outputs.model != '' && steps.provider.outputs.model || steps.extract.outputs.claude_model" "$RUNNER_WF"
+
+# Single-sourcing widened past the jq body (issue #313 /simplify altitude finding):
+# with the section name env-parameterized, the Resolve / Inject / Build-claude_args-head
+# step `run:` BODIES are byte-identical across the three workflows too (only their `env:`
+# section value + effort source legitimately differ). Pin that so a drift in the
+# triplicated scaffolding — not just the jq program — goes RED. YAML-parse the step
+# bodies (same python+yaml idiom as the tools-step extraction above); SKIP without PyYAML.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  R313_BODY_IDENT="$(python3 - "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF" <<'PY'
+import sys, yaml
+files = sys.argv[1:]
+names = ["Resolve model provider",
+         "Inject provider endpoint (provider-routed sections only)",
+         "Build claude_args head (model + conditional effort)"]
+bodies = {n: [] for n in names}
+for f in files:
+    doc = yaml.safe_load(open(f))
+    for job in doc["jobs"].values():
+        for st in job.get("steps", []):
+            if st.get("name") in bodies and "run" in st:
+                bodies[st["name"]].append(st["run"])
+out = []
+for n in names:
+    b = bodies[n]
+    out.append("yes" if len(b) == 3 and b[0] == b[1] == b[2] else "no")
+print(",".join(out))
+PY
+)"
+  assert_eq "#313 single-sourced: Resolve/Inject/cargs run: bodies byte-identical across the 3 workflows" "yes,yes,yes" "$R313_BODY_IDENT"
+
+  # gh_kv normalizes a $GITHUB_ENV/$GITHUB_OUTPUT file written in GitHub's newline-safe
+  # multiline-heredoc form (KEY<<DELIM\nvalue\nDELIM — the form this PR now uses everywhere)
+  # back into KEY=VALUE lines for whole-line assertions. All #313 emitted values are
+  # single-line, which is all this needs to handle.
+  gh_kv() {  # file -> KEY=VALUE lines on stdout
+    awk '
+      d == "" { p = index($0, "<<"); if (p > 0) { k = substr($0, 1, p-1); d = substr($0, p+2) } next }
+      $0 == d { d = ""; next }
+      { print k "=" $0 }
+    ' "$1"
+  }
+  # gh_topkeys prints the top-level env/output KEY names GitHub itself would set from a
+  # $GITHUB_ENV/$GITHUB_OUTPUT file, heredoc-aware: a `KEY<<DELIM` block swallows every line up
+  # to DELIM as the value, so a `FORGED=evil` line INSIDE a heredoc body is NOT a top-level var.
+  # This is the GitHub-faithful check behind the newline-forge-prevention tests below.
+  gh_topkeys() {  # file -> top-level KEY names, one per line
+    python3 -c '
+import sys
+d=None
+for line in open(sys.argv[1]):
+    line=line.rstrip("\n")
+    if d is None:
+        i=line.find("<<")
+        if i>0:
+            print(line[:i]); d=line[i+2:]
+        elif "=" in line:
+            print(line.split("=",1)[0])
+    elif line==d:
+        d=None
+' "$1"
+  }
+  # gh_topkeys self-test (anti-vacuity): the three forge assertions below rely on its
+  # plain `KEY=` arm actually REPORTING a top-level key — if that arm were broken
+  # (never yielding FORGED even from a plain line), all three forge tests would pass
+  # vacuously and keep passing after the guarded regression. Prove the arm live.
+  R313_TKPROBE="$(probe_tmp "#313 gh_topkeys self-test")" || R313_TKPROBE=""
+  if [ -n "$R313_TKPROBE" ]; then
+    printf 'FORGED=evil\n' > "$R313_TKPROBE"
+    assert_eq "#313 gh_topkeys self-test: a plain KEY= line IS reported as a top-level key" "FORGED" \
+      "$(gh_topkeys "$R313_TKPROBE")"
+    # gh_topkeys heredoc-swallow arm DIRECT self-test (shadow VC-41): the forge tests
+    # that feed a KEY<<DELIM body carrying a FORGED=evil line rely on this arm treating
+    # that inner line as swallowed (NOT top-level). Prove it directly rather than only
+    # transitively — construct a literal heredoc block and assert the top-level keys are
+    # exactly the header key, and the inner FORGED= line is NOT reported.
+    printf 'REAL<<D\nFORGED=evil\nD\nAFTER=1\n' > "$R313_TKPROBE"
+    assert_eq "#313 gh_topkeys self-test: a FORGED= line INSIDE a KEY<<DELIM body is NOT a top-level key (heredoc-swallow arm)" "yes" \
+      "$(printf '%s\n' "$(gh_topkeys "$R313_TKPROBE")" | grep -qxF 'REAL' \
+         && printf '%s\n' "$(gh_topkeys "$R313_TKPROBE")" | grep -qxF 'AFTER' \
+         && ! printf '%s\n' "$(gh_topkeys "$R313_TKPROBE")" | grep -qxF 'FORGED' && echo yes || echo no)"
+    rm -f "$R313_TKPROBE"
+  else
+    echo "  SKIP  #313 gh_topkeys self-test (no writable temp)"
+  fi
+
+  # Behavioral coverage of the Resolve + Inject + Build-claude_args-head run BODIES (issue #313
+  # shadow gap 2 + review Important #2): the 3-way body-identity pin proves the copies AGREE but
+  # not that they are CORRECT — a uniform logic mutation (invert the security-adjacent bearer
+  # branch, drop the effort gate, drop the resolver's `exit 1` fail-loud, break the env
+  # expansion) stays GREEN. EXECUTE the extracted bodies with env set and $GITHUB_ENV /
+  # $GITHUB_OUTPUT pointed at temp files, then assert the emitted (heredoc) lines + exit codes.
+  R313_RES_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Resolve model provider"))' "$IMPL_WF")"
+  R313_INJ_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Inject provider endpoint (provider-routed sections only)"))' "$IMPL_WF")"
+  R313_CARGS_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Build claude_args head (model + conditional effort)"))' "$IMPL_WF")"
+
+  # Resolve body (review Important #2): the fail-loud undefined/incomplete-provider branch
+  # (`.error != ""` → ::error:: + exit 1) had NO runtime assertion — only 3-way byte-identity —
+  # so a mutation dropping the `exit 1` or inverting the `.error != ""` test kept every #313
+  # assertion GREEN while the workflow proceeded past a fail-loud condition. Drive the extracted
+  # body against an error-marker config (assert rc=1 + ::error::) and a default config (rc=0 +
+  # the emitted heredoc scalar/decision outputs).
+  R313_GOUT0="$(probe_tmp "#313 resolve GITHUB_OUTPUT")" || R313_GOUT0=""
+  if [ -n "$R313_RES_BODY" ] && [ -n "$R313_GOUT0" ]; then
+    # Happy path: default (no-provider) config → rc 0, scalar outputs + decision heredoc emitted.
+    R313_RC=0
+    ( export CONFIG_JSON='{"claude_model":"m","devflow_implement":{}}' SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 resolve-body: default (no-provider) config resolves rc 0" "0" "$R313_RC"
+    gh_kv "$R313_GOUT0" > "$R313_GOUT0.kv"
+    assert_eq "#313 resolve-body: default config emits provider=(empty) + model + effort_supported + decision (heredoc-safe)" "yes" \
+      "$(grep -qxF 'provider=' "$R313_GOUT0.kv" && grep -qxF 'model=m' "$R313_GOUT0.kv" && grep -qxF 'effort_supported=true' "$R313_GOUT0.kv" && grep -q '^decision={' "$R313_GOUT0.kv" && echo yes || echo no)"
+    : > "$R313_GOUT0"
+    # Fail-loud: a section naming an undefined provider → resolver error marker → the body's
+    # `.error != ""` branch emits ::error:: and exit 1 BEFORE any action step.
+    R313_RC=0
+    R313_OUT="$( export CONFIG_JSON='{"claude_model":"m","devflow_implement":{"provider":"nope"}}' SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 resolve-body: undefined provider fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 resolve-body: undefined provider emits ::error:: naming the section + provider" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'devflow_implement' && printf '%s' "$R313_OUT" | grep -qF "'nope'" && echo yes || echo no)"
+    # Provider-active path (review Suggestion #7): the resolve body was executed only for
+    # default + error configs, never a provider-active one — so a mutation in the scalar-emit
+    # jq for a real provider stayed uncovered here (caught only transitively). Drive a
+    # provider-active config ($R313_CFG, defined above) and assert the emitted (heredoc)
+    # scalar outputs + decision.
+    : > "$R313_GOUT0"
+    R313_RC=0
+    ( export CONFIG_JSON="$R313_CFG" SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 resolve-body: provider-active config resolves rc 0" "0" "$R313_RC"
+    gh_kv "$R313_GOUT0" > "$R313_GOUT0.kv"
+    assert_eq "#313 resolve-body: provider-active config emits provider/base_url/auth/model/effort_supported + decision (heredoc-safe)" "yes" \
+      "$(grep -qxF 'provider=openrouter' "$R313_GOUT0.kv" && grep -qxF 'base_url=https://openrouter.ai/api' "$R313_GOUT0.kv" && grep -qxF 'auth=bearer' "$R313_GOUT0.kv" && grep -qxF 'model=z-ai/glm-5.2' "$R313_GOUT0.kv" && grep -qxF 'effort_supported=false' "$R313_GOUT0.kv" && grep -q '^decision={' "$R313_GOUT0.kv" && echo yes || echo no)"
+    : > "$R313_GOUT0"
+    # Newline-forge safety of the resolve body's SCALAR emit (review Suggestion #4): base_url is
+    # config-sourced, so an embedded newline in it must NOT forge a top-level step output either.
+    # Feed base_url="u\nFORGED=evil" and confirm a GitHub-faithful parse yields base_url but no
+    # top-level FORGED. A revert of the scalar emit to `printf '%s=%s'` goes RED.
+    ( export CONFIG_JSON='{"claude_model":"m","providers":{"p":{"base_url":"u\nFORGED=evil","auth":"bearer"}},"devflow_implement":{"provider":"p"}}' SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" ) >/dev/null 2>&1
+    R313_TOPKEYS="$(gh_topkeys "$R313_GOUT0")"
+    assert_eq "#313 resolve-body: an embedded-newline base_url cannot forge a top-level step output" "yes" \
+      "$(printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'base_url' && ! printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'FORGED' && echo yes || echo no)"
+    : > "$R313_GOUT0"
+    # EMPTY config input: jq on empty stdin emits nothing with rc 0, so without the
+    # empty-DECISION tripwire the body would "succeed" with zero step outputs and the
+    # run would silently take the default path (or die later on a misdirected
+    # empty-model error). Assert the tripwire fails loud instead.
+    R313_RC=0
+    R313_OUT="$( export CONFIG_JSON="" SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 resolve-body: EMPTY config input fails loud (exit 1, empty-DECISION tripwire)" "1" "$R313_RC"
+    assert_eq "#313 resolve-body: EMPTY config input emits ::error:: naming the no-decision cause" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'produced no decision' && echo yes || echo no)"
+    rm -f "$R313_GOUT0" "$R313_GOUT0.kv"
+  else
+    echo "  SKIP  #313 resolve-body behavioral checks (no writable temp / body extraction failed)"
+  fi
+
+  R313_GENV="$(probe_tmp "#313 inject GITHUB_ENV")" || R313_GENV=""
+  if [ -n "$R313_INJ_BODY" ] && [ -n "$R313_GENV" ]; then
+    # bearer → ANTHROPIC_BASE_URL + API_TIMEOUT_MS + ANTHROPIC_AUTH_TOKEN(secret) + env map, each
+    # written via the newline-safe heredoc form (normalized back to KEY=VALUE by gh_kv).
+    ( export DECISION='{"env":{"CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2"}}' AUTH=bearer BASE_URL=https://openrouter.ai/api TIMEOUT_MS=3000000 PROVIDER=openrouter PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
+    gh_kv "$R313_GENV" > "$R313_GENV.kv"
+    assert_eq "#313 inject-body: bearer exports BASE_URL + API_TIMEOUT_MS + ANTHROPIC_AUTH_TOKEN + env map" "yes" \
+      "$(grep -qxF 'ANTHROPIC_BASE_URL=https://openrouter.ai/api' "$R313_GENV.kv" && grep -qxF 'API_TIMEOUT_MS=3000000' "$R313_GENV.kv" && grep -qxF 'ANTHROPIC_AUTH_TOKEN=sekret' "$R313_GENV.kv" && grep -qxF 'CLAUDE_CODE_SUBAGENT_MODEL=z-ai/glm-5.2' "$R313_GENV.kv" && echo yes || echo no)"
+    : > "$R313_GENV"
+    # api_key → base_url written, but NO ANTHROPIC_AUTH_TOKEN (key rides the action input only);
+    # and with TIMEOUT_MS="" NO API_TIMEOUT_MS line either — a mutation writing it unconditionally
+    # (empty value) on the provider path goes RED (review Suggestion #2).
+    ( export DECISION='{"env":{}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
+    gh_kv "$R313_GENV" > "$R313_GENV.kv"
+    assert_eq "#313 inject-body: api_key writes base_url but NOT ANTHROPIC_AUTH_TOKEN or API_TIMEOUT_MS (input-only, empty timeout)" "yes" \
+      "$(grep -qxF 'ANTHROPIC_BASE_URL=u' "$R313_GENV.kv" && ! grep -q 'ANTHROPIC_AUTH_TOKEN' "$R313_GENV.kv" && ! grep -q 'API_TIMEOUT_MS' "$R313_GENV.kv" && echo yes || echo no)"
+    : > "$R313_GENV"
+    # empty provider secret → fail loud (exit 1) before writing any endpoint (AC 6).
+    # Capture the output and pin the guard's OWN message too — an exit-code-only
+    # assertion certifies "fails loud" even if a mutation degrades the guard to a
+    # mute `exit 1` (the message is what the operator debugs from).
+    R313_RC=0
+    R313_OUT="$( export DECISION='{"env":{}}' AUTH=bearer BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY="" SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 inject-body: empty provider secret fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 inject-body: empty provider secret emits ::error:: naming the secret" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'DEVFLOW_PROVIDER_API_KEY repository secret is empty' && echo yes || echo no)"
+    : > "$R313_GENV"
+    # Newline-injection safety (review Important #1 — the property the heredoc writes EXIST for):
+    # a config value carrying an embedded newline must NOT split a KEY=VALUE line into a forged
+    # top-level env var. Feed an env-map value embedding `\nFORGED=evil` (jq turns the JSON \n
+    # into a real newline), then parse $GITHUB_ENV the GitHub-faithful way (a KEY<<DELIM heredoc
+    # swallows every line up to DELIM as the value; only OUTSIDE a heredoc is `KEY=` a top-level
+    # var). Assert MKEY is a top-level key but FORGED is NOT. A mutation reverting to
+    # `printf '%s=%s'` splits the line → FORGED becomes a real env var → this goes RED.
+    ( export DECISION='{"env":{"MKEY":"a\nFORGED=evil"}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
+    R313_TOPKEYS="$(gh_topkeys "$R313_GENV")"
+    assert_eq "#313 inject-body: an embedded-newline env-map value cannot forge a top-level env var (heredoc newline-injection safety)" "yes" \
+      "$(printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'MKEY' && ! printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'FORGED' && echo yes || echo no)"
+    : > "$R313_GENV"
+    # env-map KEY validation (shadow S3): the heredoc protects VALUES, not the KEY
+    # interpolated into the `KEY<<DELIM` header — a key carrying a newline or `<<`
+    # could forge a var name or break the terminator. The inject body must fail loud
+    # on a key outside the env-var-name charset, BEFORE writing any $GITHUB_ENV block.
+    R313_RC=0
+    R313_OUT="$( export DECISION=$'{"env":{"A\\nFORGED":"x"}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 inject-body: an env-map key with an embedded newline fails loud (exit 1, key-validation guard)" "1" "$R313_RC"
+    assert_eq "#313 inject-body: the invalid-key guard emits ::error:: naming an invalid env-var-name key" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'not a valid environment variable name' && echo yes || echo no)"
+    R313_TOPKEYS="$(gh_topkeys "$R313_GENV")"
+    assert_eq "#313 inject-body: a forged env-map key writes NO top-level env var (guard fired before emit)" "yes" \
+      "$([ -z "$R313_TOPKEYS" ] && echo yes || echo no)"
+    : > "$R313_GENV"
+    # `<<`-carrying key is also rejected (would break the heredoc terminator).
+    R313_RC=0
+    ( export DECISION='{"env":{"K<<X":"x"}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 inject-body: an env-map key containing '<<' fails loud (exit 1, key-validation guard)" "1" "$R313_RC"
+    : > "$R313_GENV"
+    # A well-formed env-map key still passes (no false fire on the documented keys).
+    ( export DECISION='{"env":{"ANTHROPIC_DEFAULT_HAIKU_MODEL":"glm-4.7"}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
+    gh_kv "$R313_GENV" > "$R313_GENV.kv"
+    assert_eq "#313 inject-body: a valid env-map key passes the key-validation guard (no false fire)" "yes" \
+      "$(grep -qxF 'ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-4.7' "$R313_GENV.kv" && echo yes || echo no)"
+    rm -f "$R313_GENV" "$R313_GENV.kv"
+  else
+    echo "  SKIP  #313 inject-body behavioral checks (no writable temp / body extraction failed)"
+  fi
+  R313_GOUT="$(probe_tmp "#313 cargs GITHUB_OUTPUT")" || R313_GOUT=""
+  if [ -n "$R313_CARGS_BODY" ] && [ -n "$R313_GOUT" ]; then
+    # effort_supported=true → --effort present; false → dropped (AC 7). args is written via the
+    # newline-safe heredoc form (normalized back to args=… by gh_kv).
+    ( export MODEL=z-ai/glm-5.2 EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: effort_supported=true → --effort in args" "args=--model z-ai/glm-5.2 --effort high" "$(gh_kv "$R313_GOUT")"
+    : > "$R313_GOUT"
+    ( export MODEL=z-ai/glm-5.2 EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: effort_supported=false → --effort dropped" "args=--model z-ai/glm-5.2" "$(gh_kv "$R313_GOUT")"
+    : > "$R313_GOUT"
+    # effort_supported=true but EFFORT empty → --effort STILL dropped (the -n co-guard). Unreachable
+    # on the default path (config effort defaults to "high"), but pins the guard so a valueless
+    # --effort can never reach the CLI — review Suggestion #3.
+    ( export MODEL=z-ai/glm-5.2 EFFORT="" EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: effort_supported=true but empty EFFORT → --effort dropped (no valueless flag)" "args=--model z-ai/glm-5.2" "$(gh_kv "$R313_GOUT")"
+    : > "$R313_GOUT"
+    # empty MODEL → fail loud (the iter-2 guard; the two command workflows had none before).
+    # Capture the output and pin the guard's OWN message (exit-code-only would stay
+    # green if a mutation degraded the guard to a mute exit 1).
+    R313_RC=0
+    R313_OUT="$( export MODEL="" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: empty MODEL fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: empty MODEL emits ::error:: naming claude_model" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'claude_model is missing' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    # Flag-injection guard (review iter-2 security finding): MODEL/EFFORT are spliced
+    # UNQUOTED into claude_args, and the runner's MODEL bootstrap fallback can read
+    # PR-head config — a value carrying whitespace would smuggle extra CLI flags
+    # (e.g. `x --dangerously-skip-permissions`) into the privileged review invocation.
+    # The guard must fail loud on whitespace/quotes in EITHER operand, and pass a
+    # normal bracket-suffixed model id unchanged.
+    R313_RC=0
+    R313_OUT="$( export MODEL='x --dangerously-skip-permissions' EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: whitespace in MODEL fails loud (exit 1, flag-injection guard)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: whitespace in MODEL emits the flag-injection ::error::" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'flag-injection guard' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    R313_RC=0
+    ( export MODEL=z-ai/glm-5.2 EFFORT=$'high --evil' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 cargs-body: whitespace in EFFORT fails loud (exit 1, flag-injection guard)" "1" "$R313_RC"
+    : > "$R313_GOUT"
+    # Flag-SHAPED single tokens (the iter-1 gate's C1 bypass): rejecting whitespace/quotes
+    # alone is not enough — the action tokenises claude_args shell-style, so a bare
+    # `--dangerously-skip-permissions` in MODEL/EFFORT records --model/--effort as
+    # valueless and passes the injected token through as its own flag. MODEL rejects a
+    # leading dash; EFFORT is enum-pinned (so ANY non-enum junk also fails loud).
+    # Each rejection is ATTRIBUTED to its own arm by a DISTINCT message substring
+    # (shadow S4): the bare `flag-injection guard` phrase appears in all three arms,
+    # so an exit-code-only assertion cannot tell a dash-arm rejection from an
+    # allowlist- or enum-arm one — a reordered/merged arm would stay green. Pin the
+    # arm-specific phrase so each fixture proves the arm it was written to exercise.
+    R313_RC=0
+    R313_OUT="$( export MODEL='--dangerously-skip-permissions' EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: flag-shaped MODEL (leading dash, no whitespace) fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: flag-shaped MODEL rejection is attributed to the leading-dash arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'flag-shaped (leading dash)' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    R313_RC=0
+    R313_OUT="$( export MODEL=z-ai/glm-5.2 EFFORT='--dangerously-skip-permissions' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: flag-shaped EFFORT fails loud (exit 1, enum arm)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: flag-shaped EFFORT rejection is attributed to the effort-enum arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'not one of low/medium/high/xhigh/max' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    R313_RC=0
+    R313_OUT="$( export MODEL=z-ai/glm-5.2 EFFORT='garbage' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: non-enum EFFORT fails loud (exit 1, enum arm)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: non-enum EFFORT rejection is attributed to the effort-enum arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'not one of low/medium/high/xhigh/max' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    # Positive-allowlist arm (the re-gate's locale finding): a bytewise [[:space:]]
+    # blacklist misses Unicode whitespace (NBSP etc.) under a non-UTF-8 locale while
+    # the action's JS tokeniser still splits on it — the allowlist must reject it in
+    # EVERY locale (C forced here), and a backslash (token-merge class) likewise.
+    R313_RC=0
+    R313_OUT="$( export LC_ALL=C MODEL="$(printf 'x\302\240--dangerously-skip-permissions')" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: NBSP-embedded MODEL fails loud under LC_ALL=C (allowlist, locale-proof)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: NBSP MODEL rejection is attributed to the allowlist arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'outside the model-id allowlist' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    R313_RC=0
+    R313_OUT="$( export MODEL='x\evil' EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: backslash in MODEL fails loud (allowlist)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: backslash MODEL rejection is attributed to the allowlist arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'outside the model-id allowlist' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    # Bedrock-style colon id must pass the allowlist (no false fire on legit ids).
+    ( export MODEL='us.anthropic.claude-3:0' EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: colon-carrying Bedrock-style model id passes the allowlist (no false fire)" "args=--model us.anthropic.claude-3:0" "$(gh_kv "$R313_GOUT")"
+    : > "$R313_GOUT"
+    # Structural pin on the newline-safe args<< heredoc emit: the whitespace guard now
+    # rejects an embedded-newline MODEL before any emit, so the forge test below can no
+    # longer catch a revert of the emit itself to `echo "args=$ARGS"` — pin the heredoc
+    # emit form directly instead (defense-in-depth for the emit idiom).
+    assert_eq "#313 cargs-body: args emitted via the newline-safe heredoc form (args<< pin)" "yes" \
+      "$(printf '%s' "$R313_CARGS_BODY" | grep -qF "printf 'args<<%s" && echo yes || echo no)"
+    # Z.ai bracket-suffix model ids must pass the guard untouched (no false fire).
+    ( export MODEL='glm-5.2[1m]' EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: bracket-suffix model id passes the flag-injection guard (no false fire)" "args=--model glm-5.2[1m]" "$(gh_kv "$R313_GOUT")"
+    : > "$R313_GOUT"
+    # Newline-forge safety of the cargs emit: MODEL is config-sourced, so an embedded
+    # newline must never forge a top-level step output. A newline is whitespace, so the
+    # flag-injection guard now rejects it BEFORE any emit — assert the fail-loud exit
+    # AND that the output file carries no top-level key at all (neither args nor FORGED).
+    R313_RC=0
+    ( export MODEL=$'x\nFORGED=evil' EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    R313_TOPKEYS="$(gh_topkeys "$R313_GOUT")"
+    assert_eq "#313 cargs-body: an embedded-newline MODEL fails loud (whitespace guard)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: an embedded-newline MODEL cannot forge a top-level step output (no keys emitted)" "yes" \
+      "$([ -z "$R313_TOPKEYS" ] && echo yes || echo no)"
+    rm -f "$R313_GOUT"
+  else
+    echo "  SKIP  #313 cargs-body behavioral checks (no writable temp / body extraction failed)"
+  fi
+
+  # Runner-only AC-8 guard (review Important #2, second gap): the "Require OAuth token on the
+  # Anthropic default path" step was only assert_pin_red_on_removal-pinned, never EXECUTED — an
+  # inverted -z/-n test would leave the ::error:: string in place and stay GREEN while silently
+  # degrading the default path. Execute the extracted body: empty OAUTH → exit 1 + ::error::;
+  # a present OAUTH → exit 0. (No $GITHUB_ENV/OUTPUT temp needed — the step only branches on OAUTH.)
+  R313_OAUTH_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Require OAuth token on the Anthropic default path"))' "$RUNNER_WF")"
+  if [ -n "$R313_OAUTH_BODY" ]; then
+    R313_RC=0
+    R313_OUT="$( export OAUTH=""; bash -c "$R313_OAUTH_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 oauth-guard: empty OAuth on the Anthropic default path fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 oauth-guard: empty OAuth emits ::error:: naming CLAUDE_CODE_OAUTH_TOKEN" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'CLAUDE_CODE_OAUTH_TOKEN' && echo yes || echo no)"
+    R313_RC=0
+    ( export OAUTH="oauth-token"; bash -c "$R313_OAUTH_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 oauth-guard: a present OAuth token passes (exit 0)" "0" "$R313_RC"
+    # Degraded-base-read branch (shadow S2): when the trusted base config was UNREADABLE
+    # (config_source=degraded) the empty provider decision is NOT "no provider configured"
+    # — the guard must name the real cause and NOT misdirect. Assert the degraded message,
+    # and that it does NOT falsely claim no provider is configured.
+    R313_RC=0
+    R313_OUT="$( export OAUTH="" CONFIG_SOURCE="degraded"; bash -c "$R313_OAUTH_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 oauth-guard: degraded base read + empty OAuth fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 oauth-guard: degraded branch names the unreadable-config cause, not a false 'no provider configured'" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'trusted base-ref .devflow/config.json could not be read' \
+         && ! printf '%s' "$R313_OUT" | grep -qF 'No model provider is configured' && echo yes || echo no)"
+  else
+    echo "  SKIP  #313 oauth-guard behavioral check (body extraction failed)"
+  fi
+
+  # Step-ordering pin (shadow S1): in devflow-runner.yml the provider-endpoint inject
+  # step (which writes the bearer DEVFLOW_PROVIDER_API_KEY into job-wide $GITHUB_ENV as
+  # ANTHROPIC_AUTH_TOKEN) MUST run AFTER the opt-in 'Provision project environment' step
+  # (which executes PR-author build code) and still BEFORE 'Run Claude Code'. A regression
+  # that moves inject back before provision re-exposes the secret to PR code — pin the order.
+  R313_ORDER="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+names=[s.get("name") for j in d["jobs"].values() for s in j.get("steps",[])]
+def idx(n): return names.index(n) if n in names else -1
+pi=idx("Provision project environment (opt-in)")
+ii=idx("Inject provider endpoint (provider-routed sections only)")
+ri=idx("Run Claude Code")
+print("yes" if (pi>=0 and ii>=0 and ri>=0 and pi<ii<ri) else "no")' "$RUNNER_WF")"
+  assert_eq "#313 security: devflow-runner.yml injects the provider endpoint AFTER provision and before Run Claude Code (shadow S1)" "yes" "$R313_ORDER"
+
+  # config_source PRODUCER coverage (review PTA-1 + SFH-1): the shadow-S2 config_source
+  # signal (ok/absent/degraded) that disambiguates the runner's OAuth-default guard remedy
+  # was covered only at the CONSUMER (the OAuth-guard body above, with CONFIG_SOURCE injected
+  # by hand). Its PRODUCER — the baseprovision step's three-way selection — had NO coverage,
+  # so a future edit dropping a `='degraded'` assignment, or the emit itself, would silently
+  # regress the misdirection fix while every #313 consumer test stayed green. Trace the operand
+  # to its producer and prove it emits the right value on EVERY path (the CLAUDE.md operand-
+  # producer discipline): drive the EXTRACTED baseprovision run body (not a retyped copy — the
+  # same PyYAML `st["run"]` extraction the bodies above use) in a git sandbox with a local
+  # origin, across every config_source outcome (ok / absent / degraded) and each read path
+  # that produces it (valid, no-config, malformed, non-object, unfetchable, empty-base-ref).
+  # Parse config_source DIRECTLY (it is a plain `echo
+  # "config_source=…"` KEY=VALUE emit, NOT a heredoc, so gh_kv — heredoc-only — cannot read it).
+  R313_BASEPROV_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Read trusted base-ref provisioning config"))' "$RUNNER_WF")"
+  R313_CS_DIR="$(git_sandbox "#313 config_source producer sandbox")"
+  if [ -n "$R313_BASEPROV_BODY" ] && [ "$R313_CS_DIR" != "/dev/null/devflow-git-sandbox-unavailable" ]; then
+    # $1 = base-ref .devflow/config.json contents ('' → no config file committed);
+    # $2 = BASE_REF the step reads (default 'basebr'; '' exercises the empty-base-ref path).
+    # Rebuilds a fresh bare origin each call so `git fetch origin <ref>` resolves the ref we
+    # control. Echoes the produced config_source.
+    r313_cs() {
+      rm -rf "$R313_CS_DIR/work" "$R313_CS_DIR/base.git"
+      git init -q --bare "$R313_CS_DIR/base.git"
+      git init -q "$R313_CS_DIR/work"
+      git -C "$R313_CS_DIR/work" config user.email t@t.t
+      git -C "$R313_CS_DIR/work" config user.name t
+      mkdir -p "$R313_CS_DIR/work/.devflow"
+      [ -n "$1" ] && printf '%s' "$1" > "$R313_CS_DIR/work/.devflow/config.json"
+      git -C "$R313_CS_DIR/work" add -A >/dev/null 2>&1
+      git -C "$R313_CS_DIR/work" commit -q --allow-empty -m x >/dev/null 2>&1
+      git -C "$R313_CS_DIR/work" branch -M basebr >/dev/null 2>&1
+      git -C "$R313_CS_DIR/work" remote add origin "$R313_CS_DIR/base.git" >/dev/null 2>&1
+      git -C "$R313_CS_DIR/work" push -q origin basebr >/dev/null 2>&1
+      local out; out="$(mktemp)"
+      ( cd "$R313_CS_DIR/work" && export BASE_REF="${2-basebr}" RUNNER_TEMP="$R313_CS_DIR/rt" GITHUB_OUTPUT="$out"; mkdir -p "$RUNNER_TEMP"; bash -c "$R313_BASEPROV_BODY" ) >/dev/null 2>&1
+      sed -n 's/^config_source=//p' "$out"
+      rm -f "$out"
+    }
+    assert_eq "#313 config_source producer: valid base config → 'ok'" "ok" \
+      "$(r313_cs '{"claude_model":"m"}')"
+    assert_eq "#313 config_source producer: no committed config on the base ref → 'absent' (bootstrap case, NOT degraded)" "absent" \
+      "$(r313_cs '')"
+    assert_eq "#313 config_source producer: malformed base config → 'degraded' (shadow-S2 read-failed)" "degraded" \
+      "$(r313_cs 'not-json{')"
+    assert_eq "#313 config_source producer: non-object base config (bare scalar) → 'degraded'" "degraded" \
+      "$(r313_cs '42')"
+    assert_eq "#313 config_source producer: un-fetchable base ref → 'degraded'" "degraded" \
+      "$(r313_cs '{"claude_model":"m"}' 'no-such-ref-xyz')"
+    # SFH-1 fix: an empty BASE_REF (base ref could not be determined) must resolve to
+    # 'degraded', NOT the initial 'absent' — else the OAuth-default guard would misdirect
+    # ("no provider configured") when a base-configured provider was in fact silently un-read.
+    # This fixture goes RED against the pre-fix code (which left it 'absent').
+    assert_eq "#313 config_source producer: empty BASE_REF → 'degraded' (SFH-1: not the initial 'absent')" "degraded" \
+      "$(r313_cs '{"claude_model":"m"}' '')"
+    unset -f r313_cs
+    rm -rf "$R313_CS_DIR" 2>/dev/null
+  else
+    echo "  SKIP  #313 config_source producer behavioral checks (no PyYAML body extraction / no git sandbox)"
+  fi
+else
+  echo "  SKIP  #313 body-identity + behavioral check (PyYAML unavailable)"
+fi
+
+# Matrix completeness (review PTA-2): the {field}×{wrong-type/empty} sweep pins base_url
+# both missing and empty-string, but auth only missing + wrong-value ('Bearer'); add the
+# empty-string auth cell so the `($a != "bearer" and $a != "api_key")` disjunct is pinned
+# on an EMPTY value too (a real input shape a future guard rewrite could regress).
+assert_eq "#313 matrix: provider entry with EMPTY auth ('') → incomplete_provider marker (auth-disjunct completeness)" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider auth must be bearer or api_key"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":""}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+# AC 8 (review PTA-3): the runner's dead `model` workflow_call input was removed. Pin the
+# reference absence so a re-introduced `inputs.model` (a merge-revert of the threading) goes
+# RED — the removal becomes a conscious future change rather than a silent regression.
+assert_eq "#313 AC8: devflow-runner.yml carries no reference to the removed dead 'model' workflow_call input" "0" \
+  "$(pin_count 'inputs.model' "$RUNNER_WF")"
+
+unset RESOLVER
 
 # Mutation check: the absence pin above only proves "count is 0 today" — it does not
 # prove the awk fence-parser + grep would actually *catch* a reintroduced bare jq (a
