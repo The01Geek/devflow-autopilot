@@ -27526,6 +27526,21 @@ assert_eq "#480 IR1 still flags a denied loop below a << that lives inside a STR
 { printf '%s\n' '```bash' "echo \"\$(printf '%s' 'see << EOF')\"" 'cd /tmp' 'EOF' '```'; } > "$E363/i-phantom-heredoc-review.md"
 assert_eq "#480 the same phantom-heredoc fail-open is closed on the REVIEW tier too (R2 still flags the leading cd)" "yes" \
   "$(python3 "$ECS" "$E363/i-phantom-heredoc-review.md" | grep -q '  R2  ' && echo yes || echo no)"
+# ── The CROSS-LINE half of the same class, and the more reachable one: a shell string spans
+# ── newlines, so an ordinary `--body "…prose…"` argument leaves its MIDDLE lines inside the
+# ── string — and a per-line mask (which restarts empty on every line) reads that prose as
+# ── top-level CODE. A `<<` in it opened a phantom heredoc whose tag matched a real terminator
+# ── further down, blanking every statement between: a denied shape in there shipped GREEN on
+# ── BOTH tiers. Blanking is the one act that DELETES code from the scan, so it now requires the
+# ── per-line and carry-state masks to AGREE (the intersection — unlike the loop scan, which
+# ── unions). Pin both tiers: an author adding a multi-line --body is the most ordinary edit
+# ── these fences take, and the failure is invisible (green suite, green CI, silent cloud denial).
+{ printf '%s\n' '```bash' 'gh pr comment 1 --body "Some prose about the docs.' 'Never write cmd << EOF inside a fence.' '"' 'for l in a b; do .devflow/vendor/devflow/scripts/apply-labels.sh 1 "$l"; done' "cat <<'EOF'" 'hi' 'EOF' '```'; } > "$E363/i-phantom-multiline.md"
+assert_eq "#480 IR1 still flags a denied loop below a << inside a MULTI-LINE string (no cross-line phantom heredoc)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-phantom-multiline.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'gh pr comment 1 --body "prose.' 'Never write cmd << EOF here.' '"' 'cd /tmp' "cat <<'EOF'" 'hi' 'EOF' '```'; } > "$E363/i-phantom-multiline-review.md"
+assert_eq "#480 the cross-line phantom is closed on the REVIEW tier too (R2 still flags the leading cd)" "yes" \
+  "$(python3 "$ECS" "$E363/i-phantom-multiline-review.md" | grep -q '  R2  ' && echo yes || echo no)"
 # ── The OTHER two fail-closed sentinels (#480 review). The whole "no output ⇒ the harness refused
 # ── it" design rests on three printed sentinels, and only 4.0.5's was pinned — delete or rename
 # ── either of the other two and the suite stayed green while the phase prose still routed on it,
@@ -27535,6 +27550,33 @@ assert_eq "#480 phase 4.0's create fence prints its unconditional sentinel (the 
   "$(grep -qF 'echo "phase 4.0 create fence ran; create=[${CREATE_STATE}]"' "$I480_P4" && echo yes || echo no)"
 assert_eq "#480 phase 3.1 prints the draft PR number sentinel (the comparand its routing reads)" "yes" \
   "$(grep -qF 'draft PR number: [' "$IMPL_DIR/phases/phase-3-review.md" && echo yes || echo no)"
+# The design rests on more than the three fence sentinels: the label channels' routing tables also
+# literal-match these printed lines, and each is the comparand of a fail-closed exit. Unpinned,
+# renaming or dropping any of them leaves the phases routing on a line the fence no longer prints
+# (#480 review). Pin each by its emitted literal.
+for lit in 'deferred labels to apply: [' 'docs labels to apply: [' 'docs PR number: ['; do
+  assert_eq "#480 phase-4 prints the routed comparand '$lit'" "yes" \
+    "$(grep -qF "$lit" "$I480_P4" && echo yes || echo no)"
+done
+# The ensure-label quoting pin must be a COUNT, not an existential: `grep -qF` over the bundle is
+# satisfied by ANY one of the three call sites, so unquoting just the docs-label site (whose
+# default `Documented` is one word, but whose configured value need not be) slipped through
+# GREEN — the same vacuity class the arg-slip pins were re-attributed to close (#480 review).
+assert_eq "#480 ALL THREE ensure-label call sites quote the label arg (a count pin — an existential one missed a single-site regression)" "3" \
+  "$(grep -cF 'ensure-label.sh "<label>"' "$I480_P4" || true)"
+assert_eq "#480 no UNQUOTED 'ensure-label.sh <label>' survives anywhere in the implement skill bundle" "0" \
+  "$(grep -cF 'ensure-label.sh <label>' "$IMPL_SKILL_BUNDLE" || true)"
+# The masker's paren-depth arithmetic inside a code frame had no nested fixture.
+{ printf '%s\n' '```bash' "gh issue create --body \"\$(cat <<'EOF'" 'prose $(echo nested) more' 'EOF' ')"' 'for n in 1 2; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done' '```'; } > "$E363/i-nested-subst.md"
+assert_eq "#480 a NESTED substitution inside the heredoc body does not unbalance the masker (the loop after it still flags IR1)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-nested-subst.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# Escaped-backslash quote parity: `echo \\"a << EOF"` is NOT a heredoc to bash (the `\\` is an
+# escaped backslash, so the `"` really opens a string). Reading `prev == "\\"` as "escaped" flipped
+# the mask's parity, exposed the `<<` as code, opened a phantom heredoc, and blanked the denied
+# shape below it (#480 review).
+{ printf '%s\n' '```bash' 'echo \\"a << EOF"' 'cd /tmp' 'EOF' '```'; } > "$E363/i-esc-parity.md"
+assert_eq "#480 an ESCAPED backslash before a quote does not flip the mask's parity (R2 still flags the leading cd)" "yes" \
+  "$(python3 "$ECS" "$E363/i-esc-parity.md" | grep -q '  R2  ' && echo yes || echo no)"
 # ── matcher-probe's EXTRAS is claimed to mirror the config VERBATIM; the IMPLEMENT half of that
 # ── mirror is pinned but EXTRAS was not, so a future config edit would silently make the
 # ── evidence-of-record probe measure a profile the repo does not ship (#480 review).

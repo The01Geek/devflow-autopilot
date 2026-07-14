@@ -196,17 +196,50 @@ def _preprocess(block: str, carry_comments: bool = False) -> tuple[list[str], li
         out.append(_cleaned)
         _q = _q_out
     expanding: list[int] = []
+    # Quote state CARRIED across lines, for the second of the two opener probes below. A shell
+    # string spans newlines, so a `--body "…"` argument that opens on one line and closes on a
+    # later one leaves its middle lines inside the string — and a per-line mask, which restarts
+    # with an empty stack on every line, reads that prose as top-level CODE.
+    carry_stack: list[list] = []
     i = 0
     while i < n:
         cleaned = out[i]
+        # BLANK ONLY ON AGREEMENT between the per-line mask and the carry-state mask. Blanking is
+        # the one preprocessing act that DELETES code from the scan, so its false-positive
+        # direction is a silent GREEN on every rule downstream (R1-R4, IR1-IR3) — the worst
+        # failure this file can have. The two masks are each blind where the other sees, so for
+        # blanking the fail-closed combination is their INTERSECTION, not their union (the loop
+        # scan, whose miss only hides a loop keyword, correctly unions instead):
+        #
+        #   * per-line alone: a `<<` inside a MULTI-LINE string is unmasked on the continuation
+        #     lines and opens a PHANTOM heredoc whose tag matches a real terminator further down,
+        #     blanking every statement between — a denied shape in there shipped GREEN, on both
+        #     tiers (the #480 review; the ordinary `gh pr comment --body "…prose…"` shape these
+        #     prose-heavy fences are full of).
+        #   * carried alone: one unbalanced apostrophe in prose opens a span that never closes and
+        #     suppresses every later opener — a real heredoc body would then be scanned as shell.
+        #
+        # Requiring both to see the SAME opener means a genuine `--body "$(cat <<'EOF'` (balanced
+        # at that point in the fence) still blanks its body, while prose inside an open string
+        # never opens anything. The residual is an over-report (a string's lines scanned as
+        # shell), which is the direction this file elects everywhere else.
+        #
         # Masking preserves length, so the probe's offset is valid in `cleaned`; re-search
         # the ORIGINAL there to read the real tag (a quoted tag, `<<'EOF'`, is itself
         # masked, so the probe's own group(2) cannot be trusted).
-        probe = _HEREDOC.search(_mask_quoted(cleaned))
+        per_line = _HEREDOC.search(_mask_quoted(cleaned))
+        carried_masked, carry_next = _mask_quoted_stateful(cleaned, carry_stack)
+        carried = _HEREDOC.search(carried_masked)
+        agree = per_line and carried and per_line.start() == carried.start()
+        probe = per_line if agree else None
         match = _HEREDOC.search(cleaned, probe.start()) if probe else None
         if not match:
+            carry_stack = carry_next  # not an opener: the string state flows to the next line
             i += 1
             continue
+        # An opener consumes the rest of the logical command, so quote state does not carry past
+        # it — the body is data and the terminator restarts ordinary parsing.
+        carry_stack = []
         tag = match.group(2)
         close = next(
             (j for j in range(i + 1, n) if raw_lines[j].strip() == tag), None
@@ -533,6 +566,20 @@ def find_violations(text: str) -> list[tuple[int, str, str]]:
 #    line on its own, so a capture whose `$(` opens on one body line and whose helper name sits
 #    on the NEXT is not flagged. (A multi-line capture in ordinary code IS caught — the statement
 #    splitter joins it; this limit is specific to the heredoc-body rescan.) No fence writes it.
+#  * The STATEMENT SPLITTER (shared with the #363 head extractor) reads a `\` inside `'…'` as an
+#    escape, but the shell honours no escapes in single quotes. So a line ending `'…\'` leaves the
+#    splitter's quote parity open, and a following statement can be absorbed into that phantom
+#    string and never scanned. The heredoc-opener MASK no longer has this bug (an escaped `\\`
+#    before a quote, and a `\` inside `'…'`, are both handled — pinned), but the splitter does,
+#    and fixing it there would move the #363 head lint as well. Disclosed, not silently missed:
+#    no fence writes a single-quoted trailing backslash, and the direction is a lost statement
+#    (a silent GREEN), so it is the one limit here worth closing next.
+#  * The mask's paren-depth counter inside a `$( … )` counts parens, not `case` syntax, so an
+#    unbalanced arm-closing `)` there (`"$(case $x in a) echo hi;; esac)"`) closes the frame early
+#    and the line's tail reads as top-level code. No fence writes a `case` inside a substitution.
+#  * A heredoc opener inside a BACKTICK substitution in double quotes (`--body "` … `cat <<'EOF'`
+#    … `"`) is masked, so its body is scanned as shell — an over-report (a false RED), never a
+#    hidden denied shape. Only `$( … )` opens a code frame in the mask.
 #
 # Probe row I1 (the unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor as a leading token) is
 # deliberately NOT a rule here: every legitimate helper call keeps the portable
@@ -695,49 +742,87 @@ def _mask_quoted(line: str) -> str:
     is unquoted code) while `'… << …'` is not (it is a string). The masked TAG is fine: the probe
     only takes an OFFSET from this line and re-reads the real tag from the original.
     """
+    return _mask_quoted_stateful(line, [])[0]
+
+
+def _mask_quoted_stateful(line: str, stack_in: list[list]) -> tuple[str, list[list]]:
+    """`_mask_quoted`'s core, with the quote/substitution state threaded IN and OUT.
+
+    A shell string spans newlines, so the heredoc-opener probe needs the state a previous line
+    left open (see `_preprocess`, which requires the per-line and carried probes to AGREE before
+    it blanks anything). `_mask_quoted` is this with an empty starting state — one implementation,
+    so the two can never disagree about what is code and what is string.
+    """
     out: list[str] = []
     # Stack of contexts: ("q", <quote char>) for a string span, ("c", <paren depth>) for the
     # interior of a `$( … )`. Empty stack = ordinary top-level code.
-    stack: list[list] = []
-    prev = ""
+    stack: list[list] = [list(frame) for frame in stack_in]
+    # ESCAPE STATE, tracked explicitly — NOT as `prev != "\\"`, which is wrong in two directions
+    # and each one flips the mask's quote parity away from the shell's, exposing unquoted `<<`
+    # text to the heredoc probe and blanking real code (the #480 review):
+    #   * a DOUBLED backslash (`echo \\"a << EOF"`) is an escaped backslash — the quote after it
+    #     is a REAL quote — but `prev == "\\"` reads it as escaped and never opens the string;
+    #   * inside `'…'` the shell honours NO escapes at all, so a trailing `\` there does not
+    #     escape the closing quote — but `prev == "\\"` says it does, and the string never closes.
+    # Both left a `<<` visible as code, opened a phantom heredoc whose tag matched a real
+    # terminator below, and the denied shape in the blanked span shipped GREEN, on both tiers.
+    esc = False
     i = 0
     n = len(line)
     while i < n:
         ch = line[i]
         top = stack[-1] if stack else None
-        if top is not None and top[0] == "q":
+        in_string = top is not None and top[0] == "q"
+        if esc:  # this character is escaped — never syntax, whatever it is
+            out.append("x" if in_string else ch)
+            esc = False
+            i += 1
+            continue
+        if in_string:
             quote = top[1]
-            # `$(` inside a DOUBLE-quoted span opens code — the string is suspended, not ended.
-            if quote == '"' and ch == "$" and prev != "\\" and i + 1 < n and line[i + 1] == "(":
-                stack.append(["c", 1])
-                out.append(ch)
-                out.append(line[i + 1])
-                prev = "("
-                i += 2
-                continue
-            if ch == quote and prev != "\\":
-                stack.pop()
-                out.append(ch)
+            if quote == "'":
+                # Single quotes are literal through and through: no escapes, no substitutions.
+                if ch == "'":
+                    stack.pop()
+                    out.append(ch)
+                else:
+                    out.append("x")
             else:
-                out.append("x")  # string content: masked
+                if ch == "\\":  # escapes ARE honoured inside double quotes
+                    esc = True
+                    out.append("x")
+                elif ch == "$" and i + 1 < n and line[i + 1] == "(":
+                    # `$(` inside a double-quoted span opens CODE — the string is suspended.
+                    stack.append(["c", 1])
+                    out.append(ch)
+                    out.append(line[i + 1])
+                    i += 2
+                    continue
+                elif ch == quote:
+                    stack.pop()
+                    out.append(ch)
+                else:
+                    out.append("x")  # string content: masked
         else:
             # Top-level code, or the interior of a `$( … )`. Quotes here are real quotes.
-            if ch in ("'", '"') and prev != "\\":
+            if ch == "\\":
+                esc = True
+                out.append(ch)
+            elif ch in ("'", '"'):
                 stack.append(["q", ch])
                 out.append(ch)
-            elif top is not None and ch == "(" and prev != "\\":
+            elif top is not None and ch == "(":
                 top[1] += 1
                 out.append(ch)
-            elif top is not None and ch == ")" and prev != "\\":
+            elif top is not None and ch == ")":
                 top[1] -= 1
                 if top[1] <= 0:
                     stack.pop()  # substitution closed — back to the enclosing string
                 out.append(ch)
             else:
                 out.append(ch)
-        prev = ch
         i += 1
-    return "".join(out)
+    return "".join(out), stack
 
 
 def _mask_quoted_lines(lines: list[str], carry: bool) -> list[str]:
