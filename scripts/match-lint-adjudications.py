@@ -43,7 +43,23 @@ an instruction to honor: it is ignored and counted.
 Match key: decoded ``(rule, path, detail)`` byte-for-byte equal to the current
 row's; the TSV line number is excluded (unrelated edits renumber a paragraph
 without changing the claim), and any change to the detail text invalidates the
-match (edited prose is re-examined fresh). Only ``STALE``-verdict current rows are
+match (edited prose is re-examined fresh).
+
+That self-invalidation is what makes carry-forward safe, and it holds ONLY because
+the count/range rules embed the OBSERVED REFERENT in their detail (R1's `reaches
+Case {maxn}`, R2's `adjacent enumeration has {c} items`, R3/R3b's `adjacent block
+has {c}`): move the code the claim counts, and the detail changes, so the old
+adjudication stops matching. **R4 (modality conflict) does NOT have that property** —
+its STALE detail is a pure function of the CLAIM line (the operator token plus an
+excerpt of the deny-absolute sentence), and says nothing about the permitting line
+that triggered it. So an R4 adjudication would keep matching after a LATER commit on
+the same PR added a genuine contradicting permit — silently demoting exactly the
+self-contradicting-diff finding the lint exists to catch. R4 rows are therefore
+EXCLUDED from carry-forward (``CARRY_FORWARD_RULES``): they are never demoted and
+never matched, and the exclusion is counted (``rows_rule_excluded``). Re-admitting R4
+requires first putting the permit referent into its detail.
+
+Only ``STALE``-verdict current rows are
 ever matched; ``VERIFIED``/``UNRESOLVABLE`` rows pass through untouched. Ambiguity
 never demotes: when two or more current STALE rows share a matched payload key, no
 row is demoted and the collision is counted — a genuine new finding is never
@@ -74,7 +90,7 @@ Output (JSON to stdout, always exit 0 when the helper itself ran):
                 "payloads_malformed": .., "payloads_outside_sentinels": ..,
                 "payloads_untrusted": .., "sentinel_tampered_comments": ..,
                 "comments_malformed": .., "rows_malformed": ..,
-                "demoted": .., "collisions": ..}
+                "rows_rule_excluded": .., "demoted": .., "collisions": ..}
     }
 
 Known limitation (bounded — a forged single pair in a sectionless trusted comment):
@@ -119,6 +135,26 @@ if sys.version_info < (3, 11):  # fail fast, before any PEP 604 annotation is ev
     sys.exit(1)
 
 STALE = "STALE"
+
+# Rules whose STALE detail does NOT embed the observed referent, and which therefore can
+# never be carried forward. Carry-forward is safe only because the count/range rules put
+# the OBSERVED referent in their detail (R1's `reaches Case {maxn}`, R2's `adjacent
+# enumeration has {c} items`, R3's `adjacent block has {c}`): move the code the claim
+# counts, and the detail changes, so a stale adjudication stops matching.
+#
+# R4 (modality conflict) breaks that property: its detail is a pure function of the CLAIM
+# line (the operator token + an excerpt of the deny-absolute sentence) and says nothing
+# about the PERMITTING line that triggered it. An R4 adjudication would therefore keep
+# matching after a LATER commit on the same PR added a genuine contradicting permit —
+# demoting exactly the self-contradicting-diff finding the lint exists to catch. So R4 is
+# never demoted and never matched; the exclusion is counted (`rows_rule_excluded`).
+# Re-admit R4 only after its detail carries the permit referent.
+#
+# COUPLED SITE: a NEW stale-prose-lint rule must be classified here before it can be
+# carried forward. lib/test/run.sh pins the lint's emitted STALE rule-id set, so adding a
+# rule turns that pin RED and forces the classification rather than letting a new
+# referent-less rule silently inherit eligibility.
+CARRY_FORWARD_EXCLUDED_RULES = frozenset({"R4"})
 
 # The run-keyed progress-comment marker (mirrors skills/review/SKILL.md's Live
 # Progress Comment section). Its `run=<id>` capture is the run_key the demotion
@@ -405,6 +441,7 @@ def main(argv=None):
         "sentinel_tampered_comments": 0,
         "comments_malformed": 0,
         "rows_malformed": 0,
+        "rows_rule_excluded": 0,
         "demoted": 0,
         "collisions": 0,
     }
@@ -425,16 +462,21 @@ def main(argv=None):
             # accounted for" holds for rows too (a silent drop left rows_in - stale_rows
             # unexplained).
             stats["rows_malformed"] += 1
-            print(
-                "match-lint-adjudications: skipping malformed row "
-                "(expected 5 TAB-separated fields)",
-                file=sys.stderr,
+            sys.stderr.write(
+                "match-lint-adjudications.py: skipping malformed row "
+                "(expected 5 TAB-separated fields)\n"
             )
             continue
         verdict, rule, path, detail = parsed
         if verdict != STALE:
             continue
         stats["stale_rows"] += 1
+        if rule in CARRY_FORWARD_EXCLUDED_RULES:
+            # A rule whose detail does not embed the observed referent (today: R4) can
+            # never be safely carried forward — see CARRY_FORWARD_EXCLUDED_RULES. It stays
+            # a finding at its severity; the exclusion is counted, never silent.
+            stats["rows_rule_excluded"] += 1
+            continue
         stale_by_key.setdefault((rule, path, detail), []).append(i)
 
     allowed_bots_raw = _config_get(".devflow.allowed_bots", "", args.config)

@@ -26148,8 +26148,8 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last changes: #441 Phase 4.5 record write collapsed to a single --persist call, then #466 Phase 0.6 adjudication-join fence added match-lint-adjudications.py + run-jq.sh + gh api --paginate + a tee)" \
-  "103" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last changes: #441 Phase 4.5 record write collapsed to a single --persist call, then #466 Phase 0.6 adjudication-join fence added match-lint-adjudications.py + run-jq.sh + gh api --paginate — the comment fetch writes via an in-workspace redirect, NOT a tee, so gh's own exit status survives)" \
+  "102" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 assert_eq "#363 the review-skill head set matches the reviewed count (33 distinct names; +match-lint-adjudications.py, +run-jq.sh, +gh api --paginate at #466)" \
@@ -31344,6 +31344,23 @@ for _v in ("VERIFIED", "UNRESOLVABLE"):
     chk(f"mla-verdict-scope {_v} alone: not demoted", "0", len(out["demoted"]))
     chk(f"mla-verdict-scope {_v} alone: not counted as a STALE row", "0", out["stats"]["stale_rows"])
 
+# mla-rule-scope (#466 shadow): an R4 row is NEVER carried forward, even against a
+# byte-identical payload. R4's detail is a pure function of the CLAIM line (operator token +
+# excerpt) and carries nothing about the PERMITTING line, so — unlike R1/R2/R3/R3b, whose
+# details embed the observed referent — an old R4 adjudication keeps matching after a later
+# commit adds a GENUINE contradicting permit, which would demote exactly the self-
+# contradicting-diff finding the lint exists to catch. Assert the exclusion's own counter,
+# not just demoted==0 (a mutant admitting R4 demotes the row -> both assertions RED).
+R4ROW = tsv("STALE", "R4", "docs/GUIDE.md", 12, "deny-absolute forbids `cd` but the same file asserts it permitted — never use `cd`")
+_, out_r4, _ = run([R4ROW], [adj_comment("devflow-reviewer[bot]", "Bot", R4ROW)])
+chk("mla-rule-scope R4 never demoted (detail carries no referent)", "0", len(out_r4["demoted"]))
+chk("mla-rule-scope R4 exclusion counted", "1", out_r4["stats"]["rows_rule_excluded"])
+# Positive control on the same shape: an R3 row (referent-bearing detail) IS carried forward,
+# so the exclusion above is rule-scoped and not a blanket "nothing demotes" regression.
+_, out_r3, _ = run([ROW], [CBOT])
+chk("mla-rule-scope R3-family row still demotes (positive control)", "1", len(out_r3["demoted"]))
+chk("mla-rule-scope R3-family row not rule-excluded", "0", out_r3["stats"]["rows_rule_excluded"])
+
 # mla-row-malformed: a column-deficient STALE row is DROPPED but COUNTED + breadcrumbed
 # (the payload side already did; the row side dropped it silently, leaving rows_in-stale_rows
 # unexplained). Assert the counter, not just the absence of a demotion.
@@ -31572,7 +31589,7 @@ MLA_HELPER="$MLA_HELPER_PATH" MLA_CFG="$MLA_CFG_FILE" python3 "$MLA_DRIVER" > "$
 MLA_DRV_RC=$?
 assert_eq "#466 mla driver ran to completion (exit 0 — a crash would silently drop every mla-* check)" "0" "$MLA_DRV_RC"
 [ "$MLA_DRV_RC" -eq 0 ] || printf '    mla driver stderr:\n%s\n' "$(sed 's/^/      /' "$MLA_DRV_ERR")"
-assert_eq "#466 mla driver emitted all 75 named checks (guards against a silent partial run)" "75" \
+assert_eq "#466 mla driver emitted all 79 named checks (guards against a silent partial run)" "79" \
   "$(grep -c . "$MLA_RESULTS")"
 while IFS="$(printf '\t')" read -r _mla_name _mla_exp _mla_act; do
   [ -n "$_mla_name" ] && assert_eq "$_mla_name" "$_mla_exp" "$_mla_act"
@@ -31632,6 +31649,32 @@ assert_pin_unique "#466 mla-neutralization: review skill Phase 4.1.7 carries the
 # pin the truncating form ABSENT so a revert to `$comments[0]` goes RED at the desk.
 assert_pin_unique "#466 mla-flatten: Phase 0.6 join flattens the concatenated --paginate pages" \
   'comments: ($comments | add // [])' "$REVIEW_SKILL"
+# The fetch must keep gh's OWN exit status (an in-workspace redirect), not tee's — a piped
+# fetch exits 0 on a failed gh, writes an empty file, and the join then reports a clean
+# `demoted: []` instead of taking the degraded arm. And it must address the repo by the
+# {owner}/{repo} placeholders: $GITHUB_REPOSITORY is EMPTY outside Actions, so the local
+# PR-mode tier would fetch `repos//issues/...` and the join would never run.
+assert_eq "#466 mla-fetch: Phase 0.6 comment fetch does not address the repo via \$GITHUB_REPOSITORY" "0" \
+  "$(grep -cF 'repos/$GITHUB_REPOSITORY/issues/' "$REVIEW_SKILL" || true)"
+assert_pin_unique "#466 mla-fetch: Phase 0.6 comment fetch uses the {owner}/{repo} placeholders" \
+  'gh api --paginate "repos/{owner}/{repo}/issues/$PR_NUMBER/comments?per_page=100"' "$REVIEW_SKILL"
+
+# #466 mla-rule-drift (coupled site): match-lint-adjudications.py excludes R4 from carry-forward
+# because R4's detail carries no referent. That exclusion is a DENY-list, so a NEW stale-prose
+# rule would silently inherit eligibility. Pin the lint's emitted STALE rule-id set: adding a
+# rule turns this RED and forces the author to classify it in CARRY_FORWARD_EXCLUDED_RULES.
+assert_eq "#466 mla-rule-drift: the lint's emitted STALE rule ids are exactly R1,R2,R3,R4 (a new rule must be classified for carry-forward)" \
+  "R1 R2 R3 R4" \
+  "$(python3 - "$LIB/../scripts/stale-prose-lint.py" <<'RULEDRIFT'
+import re, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+ids = set(re.findall(r'Row\(STALE,\s*"([^"]+)"', src))
+ids |= set(re.findall(r'_emit_count\(\s*rows,\s*"([^"]+)"', src))
+print(" ".join(sorted(ids)))
+RULEDRIFT
+)"
+assert_pin_unique "#466 mla-rule-scope: the helper excludes R4 from carry-forward by name" \
+  'CARRY_FORWARD_EXCLUDED_RULES = frozenset({"R4"})' "$LIB/../scripts/match-lint-adjudications.py"
 assert_eq "#466 mla-flatten: the page-1-only form (\$comments[0]) is absent from the review skill" "0" \
   "$(grep -cF 'comments: $comments[0]' "$REVIEW_SKILL" || true)"
 
