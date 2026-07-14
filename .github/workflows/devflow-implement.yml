@@ -664,6 +664,18 @@ jobs:
             Bash(cp:*),
             Bash(tee:*)${{ needs.config.outputs.allowed_tools_extra }}"
 
+      # Retire the detached credential refresher (issue #487). Best-effort,
+      # always() so it runs on every exit path. The kill-by-pidfile, log-tail, and
+      # defeated-refresher ::warning:: logic lives in scripts/stop-refresher.sh so
+      # the branch/message selection is suite-drivable (CLAUDE.md inline-shell-
+      # extraction convention). Vendored copy, repo-path fallback for a self-repo run.
+      - name: Stop credential refresher (optional)
+        if: ${{ always() && vars.DEVFLOW_APP_ID != '' }}
+        run: |
+          H=.devflow/vendor/devflow/scripts/stop-refresher.sh
+          [ -f "$H" ] || H=scripts/stop-refresher.sh
+          bash "$H"
+
       # Surface the claude-code-action run's execution diagnostics (run summary +
       # permission-denial detail) to the job log and $GITHUB_STEP_SUMMARY so a
       # maintainer debugging a stalled / incomplete / unexpectedly-denied cloud
@@ -677,33 +689,6 @@ jobs:
       # config-get.sh (repo-path fallback for a self-repo checkout); only the
       # exact string "false" disables it, and an empty read (config-get soft/hard
       # failure) falls safe to enabled.
-      # Retire the detached credential refresher (issue #487). Best-effort:
-      # always() so it runs on every exit path; kill by the pidfile the loop
-      # wrote so job completion never depends on process auto-cleanup.
-      - name: Stop credential refresher (optional)
-        if: ${{ always() && vars.DEVFLOW_APP_ID != '' }}
-        run: |
-          PIDFILE="$RUNNER_TEMP/devflow-refresh.pid"
-          if [ -f "$PIDFILE" ]; then
-            kill "$(cat "$PIDFILE")" 2>/dev/null || true
-            echo "signalled credential refresher (pid $(cat "$PIDFILE"))"
-          else
-            echo "no refresher pidfile at $PIDFILE; nothing to stop"
-          fi
-          # Surface the detached refresher's log. Its ::warning:: lines are inert in
-          # a background process (GHA interprets ::warning:: only on a live step's
-          # stdout), so a sustained mint failure would otherwise be invisible in the
-          # job UI. Tail the log and re-emit a real ::warning:: if it recorded any
-          # failure, so a defeated refresher is visible without log archaeology.
-          LOG="$RUNNER_TEMP/devflow-refresh.log"
-          if [ -f "$LOG" ]; then
-            echo "--- credential refresher log (tail) ---"
-            tail -n 40 "$LOG" || true
-            if grep -q 'refresh-app-credentials:' "$LOG"; then
-              echo "::warning::credential refresher recorded one or more failures this run (see the refresher log tail above); pushes/gh calls past ~60 min may have used a stale token"
-            fi
-          fi
-
       - name: Surface execution diagnostics
         if: always()
         env:

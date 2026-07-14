@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
+# stop-refresher.sh — retire the detached credential refresher and surface its
+# health at the job level (issue #487). Extracted from the workflows' inline
+# `Stop credential refresher` step so the branch selection and the composed
+# user-facing `::warning::` are drivable by the test suite (the CLAUDE.md
+# inline-shell-extraction convention; scripts/describe-denial-count.sh precedent).
+#
+# It (a) kills the refresher by the pidfile the loop wrote, (b) tails the detached
+# refresher's log into the step output — the refresher's own `::warning::` lines are
+# INERT in a background process (GitHub Actions interprets `::warning::` only on a
+# live step's stdout) — and (c) re-emits ONE real, live `::warning::` when the
+# refresher was DEFEATED, so a run that silently lost its credentials is visible in
+# the job UI without log archaeology.
+#
+# "Defeated" is decided honestly, avoiding the two failure modes a naive
+# grep-for-any-failure gate has:
+#   * never-started / crashed-before-first-cycle → the pidfile is ABSENT (the loop
+#     writes it at startup), so a missing pidfile IS the defeat signal — this
+#     catches a missing/unparseable vendored script (whose `bash: … .sh:` error the
+#     warn-prefix grep would miss) and an early crash.
+#   * sustained vs. recovered failure → read the LAST `refresh-app-credentials:`
+#     line: `cycle OK` means the most recent cycle refreshed the credentials (a
+#     transient the backoff recovered from — do NOT warn); a `::warning::` last line
+#     means the most recent cycle failed (a real stale-token risk — warn).
+#
+# Best-effort: ALWAYS exits 0 (a stop hiccup never fails the job).
+#
+# Env (all optional; defaults match the refresher + the workflow):
+#   RUNNER_TEMP                 base dir for the default pidfile/log paths
+#   DEVFLOW_REFRESH_PIDFILE     pidfile path (default $RUNNER_TEMP/devflow-refresh.pid)
+#   DEVFLOW_REFRESH_LOG         log path     (default $RUNNER_TEMP/devflow-refresh.log)
+
+set -uo pipefail
+
+PIDFILE="${DEVFLOW_REFRESH_PIDFILE:-${RUNNER_TEMP:-/tmp}/devflow-refresh.pid}"
+LOG="${DEVFLOW_REFRESH_LOG:-${RUNNER_TEMP:-/tmp}/devflow-refresh.log}"
+
+defeated=no
+reason=""
+
+if [ -f "$PIDFILE" ]; then
+  pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+  if [ -n "$pid" ]; then
+    kill "$pid" 2>/dev/null || true
+    echo "signalled credential refresher (pid $pid)"
+  else
+    echo "refresher pidfile '$PIDFILE' is empty; nothing to signal"
+  fi
+else
+  # The loop writes its pidfile at startup, so an absent pidfile (in a run where
+  # the refresher was supposed to start) means it never started or crashed early.
+  echo "no refresher pidfile at $PIDFILE"
+  defeated=yes
+  reason="the refresher did not start or crashed before writing its pidfile"
+fi
+
+if [ -f "$LOG" ]; then
+  echo "--- credential refresher log (tail) ---"
+  tail -n 40 "$LOG" 2>/dev/null || true
+  # Only consult the log for the sustained-vs-recovered decision when the pidfile
+  # was present (an absent pidfile already decided defeat above, and its cause is
+  # more fundamental than any log line).
+  if [ "$defeated" = no ]; then
+    last="$(grep -E 'refresh-app-credentials:' "$LOG" 2>/dev/null | tail -n1)"
+    case "$last" in
+      *"cycle OK"*) : ;;                    # most recent cycle succeeded → creds fresh
+      *"::warning::"*) defeated=yes; reason="the most recent refresh cycle failed" ;;
+      *) : ;;                               # no cycle outcome logged yet → nothing to assert
+    esac
+  fi
+fi
+
+if [ "$defeated" = yes ]; then
+  echo "::warning::credential refresher may not have kept credentials fresh ($reason); git push / gh calls past ~60 min may have used a stale token — see the refresher log tail above"
+fi
+
+exit 0

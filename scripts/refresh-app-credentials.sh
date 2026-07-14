@@ -27,11 +27,15 @@
 #           TERM to exit 0, and NEVER exits non-zero — the job's conclusion never
 #           rides on background-step failure semantics.
 #
-# Key hygiene (AC "Key hygiene"): the PEM private key is read from stdin into
-# shell memory only; it is NEVER exported into an environment variable, NEVER
-# passed as a process argument, and NEVER written to disk (openssl signs with the
-# key handed over a file descriptor via process substitution, a /dev/fd path, not
-# a real file).
+# Key hygiene (AC "Key hygiene"): THIS SCRIPT reads the PEM private key from stdin
+# into shell memory only; it never re-exports that value into an environment
+# variable, never passes it as a process argument, and never writes it to disk
+# (openssl signs with the key handed over a file descriptor via process
+# substitution, a /dev/fd path, not a real file). Scope note: the *workflow* Start
+# step does pass the key as its own step-level `DEVFLOW_APP_PRIVATE_KEY` env and
+# pipes it to this script's stdin — so the key is in the trusted refresher process's
+# own environment, but NEVER in the separate `claude` agent step's env (the AC's
+# "not visible to the agent session" guarantee), and never on disk.
 #
 # Testability: the mint honors a DEVFLOW_-prefixed override that wins verbatim
 # and is never probed (the lib/resolve-bin.sh DEVFLOW_<TOOL> stub contract), and
@@ -122,8 +126,16 @@ real_mint() {
   inst_id="$(printf '%s' "$inst_json" | "$DEVFLOW_JQ" -r '.id // empty' 2>/dev/null)"
   [ -n "$inst_id" ] || { warn "mint: installation id missing from response"; return 1; }
 
+  # Scope the minted token to THIS repository only (least privilege), matching the
+  # job-start token's default scope. actions/create-github-app-token@v3 mints
+  # current-repo-only by default; a bodyless POST here would instead mint an
+  # installation token carrying ALL installation permissions across ALL repos the
+  # App is installed on — a strictly larger blast radius for the credential we write
+  # into the extraheader and the token file. Restrict it to the repo name.
+  local repo_name="${repo##*/}"
   tok_json="$(curl -fsS -X POST -H "Authorization: Bearer $jwt" \
     -H "Accept: application/vnd.github+json" \
+    -d "{\"repositories\":[\"${repo_name}\"]}" \
     "$API_URL/app/installations/$inst_id/access_tokens" 2>/dev/null)" \
     || { warn "mint: access-token POST failed"; return 1; }
   token="$(printf '%s' "$tok_json" | "$DEVFLOW_JQ" -r '.token // empty' 2>/dev/null)"
@@ -192,6 +204,12 @@ run_cycle() {
   chmod 600 "$tmp" 2>/dev/null || true
   mv -f "$tmp" "$TOKEN_FILE" \
     || { warn "cycle: renaming the token file into place ('$TOKEN_FILE') failed"; rm -f "$tmp" 2>/dev/null; return 1; }
+  # Positive success breadcrumb (stdout → the same log the workflow redirects). The
+  # Stop step's scripts/stop-refresher.sh reads the LAST refresh-app-credentials:
+  # line to tell a recovered transient (last line = this OK) from a sustained failure
+  # (last line = a ::warning::) — so its job-level alert never over-fires on a
+  # transient that the backoff already recovered from.
+  printf 'refresh-app-credentials: cycle OK (credentials refreshed)\n'
   return 0
 }
 

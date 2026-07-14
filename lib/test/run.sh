@@ -33500,6 +33500,37 @@ _a12_err="$(GH_TOKEN='SOMETHING' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_F
 assert_eq "#487 arm12: unestablished fingerprint comparison emits a breadcrumb (not a silent defer)" "yes" \
   "$(printf '%s' "$_a12_err" | grep -qF 'could not establish the job-start fingerprint comparison' && echo yes || echo no)"
 
+# ── stop-refresher.sh arms (13–16): the retirement step's defeated-refresher signal
+# is honest — it must NOT over-fire on a recovered transient, and it MUST fire on the
+# never-started/crash case (absent pidfile) and the sustained-failure case (log's last
+# cycle line is a ::warning::). Asserts on the helper's OWN message literal so a tailed
+# fixture ::warning:: line is not miscounted.
+STOP_SH="$LIB/../scripts/stop-refresher.sh"
+_defeat487() { printf '%s' "$1" | grep -qF 'credential refresher may not have kept credentials fresh' && echo yes || echo no; }
+assert_eq "#487 stop-refresher exists (extracted from the workflow Stop step)" "yes" \
+  "$([ -f "$STOP_SH" ] && echo yes || echo no)"
+
+# Arm 13 — pidfile present + last cycle OK → recovered transient → NO defeated warning.
+echo 999999 > "$D487/pidA"; printf 'refresh-app-credentials: cycle OK (credentials refreshed)\n' > "$D487/logA"
+_s13="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidA" DEVFLOW_REFRESH_LOG="$D487/logA" bash "$STOP_SH" 2>&1)"; _s13_rc=$?
+assert_eq "#487 arm13: recovered transient (last cycle OK) does NOT warn defeated" "no" "$(_defeat487 "$_s13")"
+assert_eq "#487 arm13: stop-refresher always exits 0" "0" "$_s13_rc"
+
+# Arm 14 — pidfile absent → never-started/crash → defeated warning.
+_s14="$(DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm14: absent pidfile (never started/crashed) warns defeated" "yes" "$(_defeat487 "$_s14")"
+
+# Arm 15 — pidfile present + last log line is a ::warning:: → sustained failure → warn.
+echo 999999 > "$D487/pidC"
+printf 'refresh-app-credentials: cycle OK\n::warning::refresh-app-credentials: cycle: mint arm failed\n' > "$D487/logC"
+_s15="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidC" DEVFLOW_REFRESH_LOG="$D487/logC" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm15: sustained failure (last log line a ::warning::) warns defeated" "yes" "$(_defeat487 "$_s15")"
+
+# Arm 16 — pidfile present + no log yet → nothing to assert → NO defeated warning.
+echo 999999 > "$D487/pidD"
+_s16="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidD" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm16: pidfile present + no log does NOT warn defeated" "no" "$(_defeat487 "$_s16")"
+
 rm -rf "$D487"
 
 # ── Workflow wiring (issue #487): both writer jobs gain the refresher + wrapper
@@ -33514,6 +33545,10 @@ for _wf487 in devflow-implement devflow; do
     "$(grep -cF 'name: Install fresh-gh wrapper (optional)' "$_WFF487")"
   assert_eq "#487 wiring: $_wf487.yml retires the refresher (pidfile-kill, if: always())" "1" \
     "$(grep -cF 'name: Stop credential refresher (optional)' "$_WFF487")"
+  # The Stop step delegates its branch/message logic to the extracted helper
+  # (inline-shell-extraction convention) rather than carrying it inline.
+  assert_eq "#487 wiring: $_wf487.yml Stop step invokes the vendored stop-refresher.sh helper" "1" \
+    "$(grep -cF '.devflow/vendor/devflow/scripts/stop-refresher.sh' "$_WFF487")"
   assert_eq "#487 wiring: $_wf487.yml invokes the vendored refresher via nohup (detached, not background:)" "1" \
     "$(grep -cF 'nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop' "$_WFF487")"
   # No `background:` step key anywhere (would break actionlint).
