@@ -3017,24 +3017,24 @@ assert_pin_unique "#462 ext: live create-issue extension carries the consolidate
 # ── issue #467: four create-issue authoring-discipline hardenings (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
 #    IS the operative contract sentence itself, so assert_pin_unique is the honest primitive
-#    (the #312 item-2 coupled-pair pattern). The template<->Step-3.5 coupled pairs for the B1
+#    (the #312 coupled-pair pattern). The template<->Step-3.5 coupled pairs for the B1
 #    occurrence-count and C1 conditional-path premise classes are pinned on BOTH sides so a
 #    one-sided edit goes RED.
 # Cluster A — universal-claim rule (template AC guidance + checklist), Step 3.5 sweep + zero arm,
-# Step 3.6 dimension sharpening (generic checklist held at 8 bullets).
+# Step 3.6 dimension sharpening (generic checklist size guard-locked below).
 assert_pin_unique "#467 A1: template AC guidance carries the universal-claim rule" \
   'about the system under change is grounded' "$CI312_TMPL"
 assert_pin_unique "#467 A1: universal-claim rule carries the claim-level positive-control obligation" \
   'positive-control obligation** on the' "$CI312_TMPL"
 assert_pin_unique "#467 A1: quality-checklist mirror for the universal-claim rule" \
-  'Every universal quantifier ("never/always/each/every/all/both/cannot")' "$CI312_TMPL"
+  'Every universal quantifier ("never/always/each/every/all/cannot")' "$CI312_TMPL"
 assert_pin_unique "#467 A2: Step 3.5 runs the universal-quantifier sweep (same carve-out)" \
   'Universal-quantifier sweep (mandatory' "$CI312_SKILL"
 assert_pin_unique "#467 A2: Step 3.5 item-6 summary states the falsifiable zero arm" \
   'the draft carries no ungrounded universal quantifier' "$CI312_SKILL"
 assert_pin_unique "#467 A3: Step 3.6 Load-bearing-assumptions dimension names universal quantifiers" \
   'including any **universal quantifier** the draft asserts' "$CI312_SKILL"
-# A3 count guard — the generic dimension checklist block stays 8 bullets (dimension-growth policy).
+# A3 count guard — the generic dimension checklist size is guard-locked (dimension-growth policy).
 assert_eq "#467 A3: Step 3.6 generic dimension checklist remains 8 bullets" "8" \
   "$(sed -n '/^\*\*Generic dimension checklist/,/^\*\*Dimension-list growth policy/p' "$CI312_SKILL" | grep -c '^- \*\*')"
 # Cluster B — occurrence-count premise class (coupled template<->Step-3.5) + checklist mirror; AC
@@ -3049,7 +3049,7 @@ assert_pin_unique "#467 B2: Step 3.5 carries the AC mutual-consistency check" \
   'AC mutual-consistency check (mandatory)' "$CI312_SKILL"
 assert_pin_unique "#467 B2: quality-checklist mirror for the AC mutual-consistency check" \
   'the ACs are mutually consistent' "$CI312_TMPL"
-# Cluster C — conditional-path (coupled template<->Step-3.5), stated-but-unbound (Step 3.5 item 4),
+# Cluster C — conditional-path (coupled template<->Step-3.5), stated-but-unbound (Step 3.5's item-4 clause),
 # trust-boundary closure (template AC guidance + Step 3.5 omission hunt).
 assert_pin_unique "#467 C1 (coupled/template): template premise method includes the gates on the path to X" \
   'Verifying "the code does X" includes the gates on the path to X' "$CI312_TMPL"

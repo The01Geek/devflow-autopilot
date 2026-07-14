@@ -246,7 +246,7 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   `/devflow:implement` run Blocked for a probe the drafter could have run locally.
 - **Every universal quantifier the body asserts about the system under change is grounded,
   or it does not ship.** A universal quantifier — "never", "always", "each", "every", "all",
-  "both", "cannot" — asserted anywhere outside `## 🚫 Blocked` (in Desired Behavior, an
+  "cannot" — asserted anywhere outside `## 🚫 Blocked` (in Desired Behavior, an
   acceptance criterion, Technical Context, or the Testing Strategy) is grounded one of three
   decided ways: **(a) pinned** — a named AC or assertion covers each arm or element the
   quantifier ranges over, and an **accepted-loss / suppression** claim ("X is silently
@@ -438,7 +438,7 @@ incomplete issues.
 - [ ] For a user-visible UI change, the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec (screenshot preferred, verbal verification an accepted substitute); non-UI issues omit the section entirely
 - [ ] Acceptance criteria are measurable, testable, and unconditional
 - [ ] Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms, grounded by a boundary-covering probe (exercising the type-boundary fixture the comparison distinguishes) or a named implementer obligation carrying its execution-tier constraint — adjective-only or probe-silent-on-the-axis comparison language is non-conforming
-- [ ] Every universal quantifier ("never/always/each/every/all/both/cannot") the body asserts about the system under change, outside `## 🚫 Blocked`, is grounded — pinned per-arm/per-element (an accepted-loss/suppression claim pinned by a fixture in which the suppressed input is present), scoped to the mechanism's supported form, or removed — with only mandated-verbatim boilerplate and rule-text-shipped-as-artifact-content exempt, and a detector-coverage claim additionally carrying a planted-defect positive-control obligation
+- [ ] Every universal quantifier ("never/always/each/every/all/cannot") the body asserts about the system under change, outside `## 🚫 Blocked`, is grounded — pinned per-arm/per-element (an accepted-loss/suppression claim pinned by a fixture in which the suppressed input is present), scoped to the mechanism's supported form, or removed — with only mandated-verbatim boilerplate and rule-text-shipped-as-artifact-content exempt, and detector-coverage claims additionally carrying a planted-defect positive-control obligation
 - [ ] No AC forbids a surface (a path, a file class, a tier) that another AC's discharge must touch — the ACs are mutually consistent
 - [ ] An AC establishing a trust/integrity boundary over executable artifacts defines the protected set over the transitive source/exec/import closure of its entry points, or states the residual unprotected surface explicitly
 - [ ] A Testing Strategy that enumerates an input-shape/case matrix for a convention-governed surface carries the full convention matrix (or an explicit named-and-justified narrowing) and a `governing conventions consulted:` discharge line bounded to `CLAUDE.md`, `CONTRIBUTING.md`, and the configured internal-docs path
