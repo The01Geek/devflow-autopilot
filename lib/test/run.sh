@@ -18950,6 +18950,41 @@ assert_eq "489/AC4: a non-numeric cap override falls back to the default (clean 
 assert_eq "489/AC4: an absent artifact dir is inert (rc 0, nothing staged)" "0|no" \
   "$(_489_run_val "$_489_A/does-not-exist" "$_489_A/absent-out")"
 
+# (12) MAX_BYTES non-numeric override fails CLOSED to the default (does NOT disable the cap):
+# the sibling of test (10), covering the more security-relevant byte cap.
+assert_eq "489/AC4: a non-numeric MAX_BYTES override falls back to the default (clean record still admits)" "0|yes" \
+  "$(_489_run_val "$_489_A/ok" "$_489_A/ok-out3" DEVFLOW_TELEMETRY_MAX_BYTES=notanumber)"
+
+# (13) all-or-nothing is EXPLICIT: one valid record + one hostile entry drops the valid one too.
+# `staged=no` already proves it, but assert the known-valid sibling is specifically absent so a
+# future incremental-copy refactor can't regress behind a lucky directory layout.
+mkdir -p "$_489_A/mix/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"keep"}\n' > "$_489_A/mix/.devflow/logs/efficiency/keep-run-1.json"
+printf 'malformed{' > "$_489_A/mix/.devflow/logs/efficiency/evil-run-1.json"
+_489_run_val "$_489_A/mix" "$_489_A/mix-out" >/dev/null
+assert_eq "489/AC4: all-or-nothing — the VALID sibling is dropped alongside the hostile entry" "no" \
+  "$([ -f "$_489_A/mix-out/.devflow/logs/efficiency/keep-run-1.json" ] && echo yes || echo no)"
+
+# (14) Direct unit tests of the pure path predicates (sourced via DVT_LIB_ONLY). AC4 names
+# `..` traversal and absolute paths explicitly, but those arms are UNREACHABLE through the
+# filesystem walk (a file literally named `..` cannot exist; rel is always artifact-relative),
+# so a direct call is their only honest coverage.
+_489_pathsafe() {  # rel -> "safe"/"unsafe" via _dvt_path_safe
+  ( DVT_LIB_ONLY=1; . "$_489_VAL"; _dvt_path_safe "$1" && echo safe || echo unsafe )
+}
+_489_admitted() {  # rel -> "admit"/"deny" via _dvt_admitted
+  ( DVT_LIB_ONLY=1; . "$_489_VAL"; _dvt_admitted "$1" && echo admit || echo deny )
+}
+assert_eq "489/AC4: _dvt_path_safe rejects a '..' traversal component (AC4 names it)" "unsafe" "$(_489_pathsafe '.devflow/logs/review/a/b/../c.json')"
+assert_eq "489/AC4: _dvt_path_safe rejects an absolute path (AC4 names it)" "unsafe" "$(_489_pathsafe '/abs/path.json')"
+assert_eq "489/AC4: _dvt_path_safe rejects a bare '.' component" "unsafe" "$(_489_pathsafe 'a/./b.json')"
+assert_eq "489/AC4: _dvt_path_safe rejects an empty path" "unsafe" "$(_489_pathsafe '')"
+assert_eq "489/AC4: _dvt_path_safe accepts a normal relative path" "safe" "$(_489_pathsafe '.devflow/logs/efficiency/x-1.json')"
+assert_eq "489/AC4: _dvt_admitted admits a valid efficiency path" "admit" "$(_489_admitted '.devflow/logs/efficiency/slug-run-1.json')"
+assert_eq "489/AC4: _dvt_admitted admits a valid review path" "admit" "$(_489_admitted '.devflow/logs/review/slug/run-1/iter-1.json')"
+assert_eq "489/AC4: _dvt_admitted denies a path outside .devflow/logs" "deny" "$(_489_admitted 'foo/bar.json')"
+assert_eq "489/AC4: _dvt_admitted denies an over-deep review path" "deny" "$(_489_admitted '.devflow/logs/review/a/b/c/d.json')"
+
 # --- AC3/AC4: end-to-end — a hostile artifact leaves the telemetry branch UNCHANGED, a clean
 # one lands, and an empty one is inert. Drive the trusted pusher against a fixture repo. ---
 _489_BARE="$(git_sandbox "489 e2e bare remote")"; git init -q --bare "$_489_BARE"

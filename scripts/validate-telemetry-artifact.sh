@@ -12,8 +12,11 @@
 # unvalidated") requires it be validated BEFORE any of it is staged for a branch push.
 #
 # Contract (ALL-OR-NOTHING — the whole artifact is dropped on ANY violation):
-#   - Walk <artifact_dir> with bash BUILTINS only (the admit/reject SELECTION never
-#     routes through a non-preflight PATH tool per CLAUDE.md's guard-class-2 rule).
+#   - Walk <artifact_dir> with bash BUILTINS only (no PATH tool decides which entries the
+#     walk visits). The two derived selection values that DO consult a non-preflight tool —
+#     the size cap via `wc` and the JSON type-check via `jq` (a preflight prerequisite) —
+#     each fail CLOSED per CLAUDE.md's guard-class-2 carve-out: a `wc`/`jq` that is absent or
+#     errors rejects the whole artifact rather than admitting an unsized/unparsed entry.
 #   - Reject the whole artifact (::warning:: naming the reason, exit 1, write NOTHING to
 #     <out_staging_root>) if ANY entry is: a symlink; an absolute path; a `..` traversal
 #     component; a path not admitted by the allowlist below; a `*.json` that is not a
@@ -38,6 +41,48 @@
 # on rejection. Exit 0 = admitted (possibly empty); exit 1 = dropped whole.
 
 set -uo pipefail
+
+# ── Pure path predicates (defined first so the suite can source this file and unit-test
+# them directly — the `..`/absolute traversal arms are unreachable through the filesystem
+# walk below, so a direct unit call is their only honest coverage). ─────────────────────
+
+# Path-component safety: reject an absolute path, an empty component, or a `.`/`..`
+# component. Operates on the artifact-relative path (rel), which is what would become
+# the store-relative path on the branch.
+_dvt_path_safe() {  # rel -> rc 0 if safe, 1 otherwise
+  local rel="$1" IFS=/ comp
+  case "$rel" in /*) return 1 ;; esac        # absolute
+  # Disable pathname expansion around the IFS split so a component containing a glob
+  # metacharacter (`*`/`?`) cannot expand against cwd before the `.`/`..`/empty check
+  # (defense-in-depth; _dvt_admitted's allowlist already rejects such names).
+  set -f
+  # shellcheck disable=SC2086
+  set -- $rel
+  set +f
+  for comp in "$@"; do
+    case "$comp" in ''|.|..) return 1 ;; esac
+  done
+  # A leading/trailing/double slash produces an empty positional above; also reject a
+  # bare empty rel.
+  [ -n "$rel" ] || return 1
+  return 0
+}
+
+# Path admission allowlist. `slug`, `run-id`, and the review filename are each a single
+# `[A-Za-z0-9._-]+` segment; the `.`/`..` segments are already excluded by _dvt_path_safe.
+_dvt_admitted() {  # rel -> rc 0 if the path shape is admitted
+  local rel="$1"
+  local seg='[A-Za-z0-9._-]+'
+  if [[ "$rel" =~ ^\.devflow/logs/review/${seg}/${seg}/${seg}\.json$ ]]; then return 0; fi
+  if [[ "$rel" =~ ^\.devflow/logs/efficiency/${seg}\.json$ ]]; then return 0; fi
+  return 1
+}
+
+# Sourced for unit testing (DVT_LIB_ONLY set) → stop here with the predicates defined,
+# before any arg parsing or main work runs. Never set on the real CLI path.
+if [ -n "${DVT_LIB_ONLY:-}" ]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 ARTIFACT_DIR="${1:-}"
 OUT_ROOT="${2:-}"
@@ -120,34 +165,8 @@ if [ "${#_entries[@]}" -gt "$MAX_ENTRIES" ]; then
   reject "entry count ${#_entries[@]} exceeds the cap of ${MAX_ENTRIES}"
 fi
 
-# Path-component safety: reject an absolute path, an empty component, or a `.`/`..`
-# component. Operates on the artifact-relative path (rel), which is what would become
-# the store-relative path on the branch.
-_dvt_path_safe() {  # rel -> rc 0 if safe, 1 otherwise
-  local rel="$1" IFS=/ comp
-  case "$rel" in /*) return 1 ;; esac        # absolute
-  # shellcheck disable=SC2086
-  set -- $rel
-  for comp in "$@"; do
-    case "$comp" in ''|.|..) return 1 ;; esac
-  done
-  # A leading/trailing/double slash produces an empty positional above; also reject a
-  # bare empty rel.
-  [ -n "$rel" ] || return 1
-  return 0
-}
-
-# Path admission allowlist. `slug`, `run-id`, and the review filename are each a single
-# `[A-Za-z0-9._-]+` segment; the `.`/`..` segments are already excluded by _dvt_path_safe.
-_dvt_admitted() {  # rel -> rc 0 if the path shape is admitted
-  local rel="$1"
-  local seg='[A-Za-z0-9._-]+'
-  if [[ "$rel" =~ ^\.devflow/logs/review/${seg}/${seg}/${seg}\.json$ ]]; then return 0; fi
-  if [[ "$rel" =~ ^\.devflow/logs/efficiency/${seg}\.json$ ]]; then return 0; fi
-  return 1
-}
-
 # Pass 1: validate every entry. Any failure drops the whole artifact (nothing copied).
+# (_dvt_path_safe / _dvt_admitted are defined at the top of the file.)
 _total_bytes=0
 _admitted_rel=()
 for e in ${_entries[@]+"${_entries[@]}"}; do

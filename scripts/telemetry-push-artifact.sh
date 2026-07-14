@@ -78,6 +78,12 @@ fi
 # shellcheck source=../lib/telemetry-branch.sh
 . "$LIB_DIR/telemetry-branch.sh" \
   || { echo "::error::telemetry-push-artifact: could not source lib/telemetry-branch.sh — the telemetry write path is unavailable; refusing to silently drop telemetry" >&2; exit 1; }
+# Verify the OUTCOME, not just the source-command exit status (guard-class-1): a file that
+# sources cleanly (rc 0) but does not define the write function — a truncated/partial file, or
+# a future refactor that moves the definition behind a conditional — would otherwise fall
+# through to a best-effort no-op, the exact silent drop the "fail loud" contract above forbids.
+declare -F devflow_telemetry_persist_tree >/dev/null 2>&1 \
+  || { echo "::error::telemetry-push-artifact: lib/telemetry-branch.sh sourced but devflow_telemetry_persist_tree is undefined — the telemetry write path is unavailable; refusing to silently drop telemetry" >&2; exit 1; }
 
 # The affirmative push operand: this IS the trusted, contents:write tier the staging-only
 # review tier deferred to. Without it, devflow_telemetry_persist_tree returns 2 (staging-only)

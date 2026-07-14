@@ -30,10 +30,17 @@ fi
 rm -rf "$DEST" 2>/dev/null || true
 mkdir -p "$DEST" || { echo "::warning::collect-staged-telemetry: could not create dest '$DEST'; nothing collected" >&2; exit 0; }
 
+# `saw_stage` records that a staging tree with records existed; `found` records that at
+# least one was actually copied. Keeping them distinct lets the caller tell "there was
+# genuinely nothing staged" apart from "records existed but every copy failed" — the two
+# must not collapse to one "nothing to upload" message (a copy failure is telemetry loss,
+# not an empty run).
+saw_stage=
 found=
 for stage in "$ROOT"/.devflow/tmp/telemetry-stage-*/; do
   [ -d "$stage" ] || continue                 # unmatched glob: the literal path is not a dir
   [ -d "${stage}.devflow/logs" ] || continue  # a staging root that produced no records
+  saw_stage=1
   # Merge this stage's .devflow/logs subtree into the consolidated dest (records from multiple
   # retained staging roots land under one tree; same-named files simply overwrite).
   if mkdir -p "$DEST/.devflow/logs" && cp -R "${stage}.devflow/logs/." "$DEST/.devflow/logs/"; then
@@ -43,5 +50,11 @@ for stage in "$ROOT"/.devflow/tmp/telemetry-stage-*/; do
   fi
 done
 
-[ -n "$found" ] && printf '1\n'
+if [ -n "$found" ]; then
+  printf '1\n'   # the caller's "something to upload" signal
+elif [ -n "$saw_stage" ]; then
+  # Staged records existed but none could be collected — name that distinctly, so the
+  # caller's "nothing to upload" path never misreports a copy failure as an empty run.
+  echo "::warning::collect-staged-telemetry: staged telemetry records existed but none could be copied into the upload tree (see the copy warnings above); nothing uploaded this run — the records were NOT staged empty, the collection failed" >&2
+fi
 exit 0

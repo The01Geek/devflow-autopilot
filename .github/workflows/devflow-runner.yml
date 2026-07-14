@@ -1492,7 +1492,10 @@ jobs:
           if [ -n "$(scripts/collect-staged-telemetry.sh "$GITHUB_WORKSPACE" "$dest")" ]; then
             echo "path=$dest" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::no staged telemetry artifacts to upload (writable tier pushed directly, or nothing was staged this run)."
+            # No upload tree. The helper emits its OWN distinct ::warning:: when records
+            # existed but every copy failed, so this generic notice must NOT assert
+            # "nothing was staged" as fact — it covers only the true no-op cases.
+            echo "::notice::no telemetry artifact to upload this run (writable tier pushed directly, nothing was staged, or the helper reported a collection failure above)."
           fi
 
       - name: Upload staged telemetry artifacts
