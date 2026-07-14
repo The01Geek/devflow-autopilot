@@ -3016,7 +3016,8 @@ assert_pin_unique "#462 ext: live create-issue extension carries the consolidate
 
 # ── issue #464: create-issue adversarial-input dimension + enumerated-AC-list floor rule.
 #    Reuses the #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT) and adds
-#    the overview doc var. Each pinned literal IS the new contract sentence itself. These are all
+#    the overview doc var. Each pinned literal is a verbatim fragment of the new contract prose
+#    (a bullet header or an on-line span of the rule sentence, not a synthetic marker). These are all
 #    SURFACE-PRESENCE contract pins (plain assert_pin_unique on new prose) — the exact class the
 #    new extension mutation-evidence dimension EXCLUDES (this issue is that distinction's worked
 #    example), so no assert_pin_red_under mutation obligation applies. Wrapped-literal hazard
@@ -3043,6 +3044,14 @@ assert_pin_unique "#464 AC3: template AC rules require every enumerated AC list 
   'Every enumerated test/case/example list inside an AC declares its closure' "$CI312_TMPL"
 assert_pin_unique "#464 AC3: Move 2 writes the coverage-sweep output back as closed AC items before filing" \
   "writes the sweep's output back as additional closed AC items before filing" "$CI312_TMPL"
+# AC2/AC3 second mirror site — the template's final self-review quality-checklist (the drafter's
+# actual self-check surface). Pinned on BOTH halves of each rule per the coupled-mirror discipline
+# (#462 quality-checklist-mirror pattern), so the guidance-prose site and the checklist site cannot
+# silently drift out of agreement.
+assert_pin_unique "#464 AC2: quality-checklist mirror line for the judgment-surface guard rule" \
+  'carries the input-is-data guard AC paired with a hostile-input' "$CI312_TMPL"
+assert_pin_unique "#464 AC3: quality-checklist mirror line for the enumerated-AC-list closure rule" \
+  'each floor-marked list has had Move 2' "$CI312_TMPL"
 # AC5 — extension gains the mutation-evidence dimension, scoping surface-presence pins OUT.
 assert_pin_unique "#464 AC5: extension gains the mutation-evidence dimension for behavioral-fix pins" \
   'Mutation evidence for behavioral-fix pins (issue #464)' "$CI443_EXT"
