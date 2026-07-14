@@ -212,8 +212,9 @@ jobs:
             Shape 10 — pipe into tee (Bash):
             printf 'probe10\n' | tee /tmp/probe-10.txt
 
-            Shape 11 — plainly granted single command, positive control (Bash):
-            grep -c . /etc/hosts
+            Shape 11 — plainly granted single command, positive control (Bash),
+            reading an in-workspace file present in the checkout:
+            grep -c . README.md
 
             Shape 12 — helper invocation, repo-relative vendored literal as the
             leading token (Bash, CONTROL — this is the form the allowlist grants):
@@ -313,6 +314,20 @@ jobs:
           tooluse_text = "\n".join(tool_uses)
 
           # (num, description, marker, sidefile-or-None)
+          # The positive-control marker (row 11) MUST match the file its Shape 11
+          # prompt command greps — an in-workspace file (README.md), NOT a system
+          # file like /etc/hosts: the sandbox blocks an out-of-workspace read even
+          # with the Bash(grep:*) grant, and this verdict counts a permission_denials
+          # match ("denied", checked ahead of tool_use below) as DENIED — so a
+          # /etc/hosts read makes THIS control read DENIED (issue #477). Change the
+          # command literal and this marker in lockstep.
+          # (Scope note — #477 touches ONLY this row and the implement-probe row 7.
+          # The file's other /etc/hosts positive controls — schedulewakeup-probe,
+          # execfile-shape-probe, hook-probe — are intentionally left unchanged and
+          # are unaffected: none scores its control DENIED off permission_denials the
+          # way this denied-first verdict does. schedulewakeup keys on tool_use
+          # PRESENCE (a denied read still records a tool_use, so its control still
+          # reads "ran"); execfile/hook don't verdict-score their control at all.)
           rows = [
               (1,  "heredoc write, granted head (`cat > f <<'EOF'`)",        "probe-01", "/tmp/probe-01.txt"),
               (2,  "assignment-led compound, granted head (`M=…`; printf)",   "probe-02", "/tmp/probe-02.txt"),
@@ -324,7 +339,7 @@ jobs:
               (8,  "Write tool under `Write(/tmp/**)`",                       "probe-08", "/tmp/probe-08.txt"),
               (9,  "Write tool under `Write(.devflow/tmp/**)`",               "probe-09", ".devflow/tmp/probe-09.txt"),
               (10, "pipe into tee (`printf … | tee f`)",                      "probe-10", "/tmp/probe-10.txt"),
-              (11, "plainly granted single command (positive control)",       "/etc/hosts", None),
+              (11, "plainly granted single command (positive control)",       "README.md", None),
               (12, "helper: repo-relative vendored literal (leading token, CONTROL)", "hprobe12ok", None),
               (13, "helper: absolute-path form (leading token)",               "hprobe13abs", None),
               (14, "helper: repo-root `scripts/…` form (leading token)",       "hprobe14root", None),
@@ -531,8 +546,9 @@ jobs:
             explicit-granted apply-labels.sh. Dummy issue 9999, dummy label:
             LBL_ERR="$(.devflow/vendor/devflow/scripts/apply-labels.sh 9999 iprobe06capture 2>&1)"
 
-            Shape 7 — plainly granted single command, positive control (Bash):
-            grep -c . /etc/hosts
+            Shape 7 — plainly granted single command, positive control (Bash),
+            reading an in-workspace file present in the checkout:
+            grep -c . README.md
 
             Shape 8 — `VAR=$(…)` capture of a NON-LABEL granted helper (Bash). This is
             the DISAMBIGUATOR for shape 6: shape 6 confounds three things at once (a
@@ -648,6 +664,20 @@ jobs:
           # `while read`, and the vendored paths are unescaped and match verbatim. The
           # control row (7) needs no shape check. No on-disk side-effect check: label
           # helpers are best-effort exit-0 and the run is matcher-only by design.
+          # The positive-control marker (row 7) MUST match the file its Shape 7 prompt
+          # command greps — an in-workspace file (README.md), NOT a system file like
+          # /etc/hosts: the sandbox blocks an out-of-workspace read even with the
+          # Bash(grep:*) grant, and this verdict counts a permission_denials match
+          # ("denied", checked ahead of tool_use below) as DENIED — so a /etc/hosts
+          # read makes THIS control read DENIED (issue #477). Change the command
+          # literal and this marker in lockstep.
+          # (Scope note — #477 touches ONLY this row and the review-profile row 11.
+          # The file's other /etc/hosts positive controls — schedulewakeup-probe,
+          # execfile-shape-probe, hook-probe — are intentionally left unchanged and
+          # are unaffected: none scores its control DENIED off permission_denials the
+          # way this denied-first verdict does. schedulewakeup keys on tool_use
+          # PRESENCE (a denied read still records a tool_use, so its control still
+          # reads "ran"); execfile/hook don't verdict-score their control at all.)
           rows = [
               (1, "unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor leading token (ensure-label.sh)", "iprobe01anchor",  "${CLAUDE_SKILL_DIR"),
               (2, "vendored-literal leading token, apply-labels.sh (explicit form, shipped)",    "iprobe02explicit", ".devflow/vendor/devflow/scripts/apply-labels.sh"),
@@ -655,7 +685,7 @@ jobs:
               (4, "`for …; do helper; done` compound wrapping a granted helper",                 "iprobe04for",      "for L in"),
               (5, "piped `while read` loop wrapping a granted helper",                           "iprobe05while",    "while read"),
               (6, "`VAR=\"$(helper …)\"` capture of a granted helper (apply-labels.sh, with `2>&1`)", "iprobe06capture", "$("),
-              (7, "plainly granted single command (positive control)",                           "/etc/hosts",       None),
+              (7, "plainly granted single command (positive control)",                           "README.md",       None),
               (8, "`VAR=$(helper …)` capture of a NON-LABEL helper (config-get.sh) — shape-6 disambiguator", "iprobe08nonlabel", "$("),
               (9, "redirect-free `VAR=\"$(helper …)\"` capture of a label helper — shape-6 disambiguator", "iprobe09nofd", "$("),
           ]
