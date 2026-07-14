@@ -9910,8 +9910,16 @@ assert_eq "ensure-label: non-already_exists 422 is NOT swallowed as already-exis
 # #480: empty/missing <name> arg-slip guard. A set-but-EMPTY argument (the shape a
 # label call site emits when a configured list normalizes to blank) must warn to
 # stderr and still exit 0 — NOT abort with a raw bash usage line + rc 1 (the retired
-# `${1:?}` behavior). Mirrors apply-labels.sh's `NOT a harness denial` pin; the `gh`
-# stub aborts non-zero if ever reached, proving the guard fires BEFORE any gh call.
+# `${1:?}` behavior). ensure-label.sh ALWAYS exits 0, so the rc==0 assertions pin only
+# the best-effort contract — on their own they are vacuous against a guard-DELETION
+# mutation (drop `if [ -z "$NAME" ]`, keep `${1:-}`, and control falls through to gh yet
+# still exits 0). The load-bearing attribution is the `NOT a harness denial` breadcrumb,
+# emitted ONLY by this guard (and apply-labels.sh's): the `gh_never` stub aborts non-zero
+# if reached, so a mutant that dropped the guard falls through to gh and breadcrumbs
+# `could not ensure label ''` INSTEAD — which lacks the phrase, flipping the breadcrumb
+# assertions RED. So BOTH the empty-name and the zero-args capture assert the breadcrumb,
+# not just the exit code — the exit-3 stub is not what proves the guard fired; the
+# breadcrumb is (mirrors apply-labels.sh's marker-probe lesson, run.sh #480 block).
 cat > "$EL_TMP/gh_never" <<'STUB'
 #!/usr/bin/env bash
 echo "ensure-label: gh must not be reached on an empty name" >&2; exit 3
@@ -9923,6 +9931,8 @@ assert_eq "ensure-label: empty-name breadcrumb names the arg-slip (NOT a harness
   "$(printf '%s' "$EL_E5" | grep -qF 'NOT a harness denial' && echo yes || echo no)"
 EL_E6="$(DEVFLOW_GH="$EL_TMP/gh_never" bash "$LIB/../scripts/ensure-label.sh" 2>&1 >/dev/null)"; EL_R6=$?
 assert_eq "ensure-label: zero-args arg-slip still exits 0 (best-effort, no abort)" "0" "$EL_R6"
+assert_eq "ensure-label: zero-args breadcrumb names the arg-slip (NOT a harness denial)" "yes" \
+  "$(printf '%s' "$EL_E6" | grep -qF 'NOT a harness denial' && echo yes || echo no)"
 rm -rf "$EL_TMP"
 
 # ── apply-labels.sh: REST label-apply helper (best-effort, always exit 0) ─────

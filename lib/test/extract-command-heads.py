@@ -266,7 +266,7 @@ def _join_continuations(block: str) -> str:
       the previous line as an argument, so that command's head is dropped from the head set
       entirely and an ungranted head there would ship green. This is the one direction in
       which over-joining loses a signal, and it is why the shape is called out rather than
-      waved through. A guard must not lie about what it accepts (the #480 review review).
+      waved through. A guard must not lie about what it accepts (the #480 review).
     """
     return re.sub(r"\\\n", "", block)
 
