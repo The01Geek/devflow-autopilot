@@ -1,16 +1,75 @@
 {
   "iter": 1,
-  "fix_commit_sha": "63e905844630603ce820a608507edad21133aa20",
-  "fix_files": [
-    ".devflow/config.schema.json",
-    ".github/workflows/devflow-implement.yml",
-    ".github/workflows/devflow-runner.yml",
-    ".github/workflows/devflow.yml",
-    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
-    "docs/cloud-setup.md",
-    "docs/external/release-notes.md",
-    "lib/test/run.sh"
-  ],
+  "source": "review-and-fix",
+  "started_at": "2026-07-14T16:51:37Z",
+  "fix_commit_sha": "4b98009a",
+  "fix_files": [".github/workflows/devflow-runner.yml", "lib/test/run.sh"],
   "loop_role": "fix",
-  "synthesized": true
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": false,
+    "checklist_skipped": null
+  },
+  "checklist_summary": {
+    "total": 46,
+    "batches": 2,
+    "pass": 46,
+    "fail": 0,
+    "inconclusive": 0,
+    "note": "batch1=30 (workflows/schema/docs) + batch2=16 (test code). Lite probes all PASS; VC-20 (devflow-implement.yml 'sync with devflow.yml literal list' comment) PASS — devflow.yml line 544 carries the literal TOOLS list; VC-21 (section 14/17 cross-refs) PASS — bidirectional and consistent with sibling config-table rows; behavioral claims corroborated by the 116 passing #313 assertions + Phase-3 agents."
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "empty BASE_REF leaves config_source='absent' (should be 'degraded') — OAuth-guard message misdirection; fail-closed, near-unreachable", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [243, 316], "kind": "logic_error"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "config_source producer branches (baseprovision step) untested — only the OAuth-guard consumer was covered", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [233, 319], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "empty-string auth has no dedicated matrix row (transitively covered)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [24353, 24358], "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "AC8 dead 'model' input removal has no explicit pin", "defect_signature": {"file": "lib/test/run.sh", "line_range": null, "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "docs/cloud-setup.md 'exported unfiltered' — env-map keys are in fact charset-validated (fail-loud); wording defensible in intended sense (no semantic denylist), not a documented_falsehood", "defect_signature": {"file": "docs/cloud-setup.md", "line_range": [1160, 1166], "kind": "comment_drift"}, "corroboration_count": 1, "fix_decision": "advisory"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "env-map key validation is charset-only; a valid-charset-but-dangerous name (PATH, GITHUB_TOKEN) would export job-wide. Trusted (base-ref/default-branch) input; documented-only posture is defensible", "defect_signature": {"file": ".github/workflows/devflow-implement.yml", "line_range": [236, 239], "kind": "security"}, "corroboration_count": 1, "fix_decision": "pushed_back"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "runner MODEL fallback comment frames only the bootstrap case; provider-active+no-model also lets head config pick the model NAME (endpoint/auth/key stay base-trusted; flag-injection guard constrains). Narrow, human-merge advisory", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [594, 605], "kind": "security"}, "corroboration_count": 1, "fix_decision": "pushed_back"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "SFH-1", "decision": "applied", "commit": "4b98009a"},
+    {"finding_id": "PTA-1", "decision": "applied", "commit": "4b98009a"},
+    {"finding_id": "PTA-2", "decision": "applied", "commit": "4b98009a"},
+    {"finding_id": "PTA-3", "decision": "applied", "commit": "4b98009a"},
+    {"finding_id": "CA-1", "decision": "advisory", "source_file": "docs/cloud-setup.md", "claim_text": "env-map keys 'exported unfiltered'", "skip_category": "claim-quality", "evidence": "The word 'unfiltered' is accurate in its intended sense — there is no SEMANTIC denylist of well-formed dangerous names; the very next doc clause warns 'do not name a runtime-sensitive variable here (PATH, GITHUB_TOKEN, ...)'. comment-analyzer explicitly declined to grade it a documented_falsehood. Not a self-contradicting diff."},
+    {"finding_id": "RCR-1", "decision": "pushed_back", "source_file": ".github/workflows/devflow-implement.yml", "claim_text": "add a runtime denylist for dangerous env-map key names", "skip_category": "uncategorized", "evidence": "The env map is read only from maintainer/base-ref-controlled TRUSTED config (base-ref for the runner; trusted default-branch checkout for the command workflows). The final-pass reviewer graded it Suggestion and stated 'the current state is safe under the trusted-config assumption' and 'the documented-only posture is a defensible choice'. Adding a denylist is an optional design decision the author deliberately made (documented in cloud-setup.md); not applied per receiving-code-review (don't blindly implement an optional hardening on trusted input)."},
+    {"finding_id": "RCR-2", "decision": "pushed_back", "source_file": ".github/workflows/devflow-runner.yml", "claim_text": "MODEL fallback comment should note the provider-active+no-model case hands the model NAME to head config", "skip_category": "uncategorized", "evidence": "The comment already states the fallback fires 'whenever the base-resolved model is empty — from ANY cause' (not only bootstrap), so it is not false. Security impact is narrow: only the model NAME (not endpoint/auth/key, all base-trusted) can be head-selected, and only when base config names a provider but sets no model anywhere (unusual); the flag-injection guard constrains the value and a human still merges. Suggestion-tier advisory; comment is accurate."}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 111,
+    "critical_important_code_fixes": 1,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "tally": "6801 passed, 0 failed, 0 skipped",
+    "duration_s": null,
+    "skipped_checks": []
+  },
+  "stale_prose_check": {
+    "result": "clean",
+    "rows": "0 STALE; 2 UNRESOLVABLE R3 (recognition-only count claims in pre-existing test comments, informational, never gate). Post-fix on committed HEAD: #434 self-scan PASS (no stale counted-prose in the fix additions; the 'five outcomes' comment was reworded drift-proof before commit)."
+  },
+  "telemetry": {
+    "phase_1":  {"calls": 2, "tokens": null, "wall_clock_s": null},
+    "phase_2":  {"calls": 0, "tokens": 0, "wall_clock_s": null, "note": "lite probes + orchestrator-direct verification; no verifier subagents dispatched (cheap-path)"},
+    "phase_3":  {"calls": 5, "tokens": null, "wall_clock_s": null},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": null, "webfetches": 0, "note": "no external-tool single-source claims requiring web verification"},
+    "step_3_5": {"calls": 1, "tokens": null, "wall_clock_s": null},
+    "step_2_6": {"calls": 5, "tokens": null, "wall_clock_s": null, "note": "early shadow trigger (engine_self_modifying)"}
+  }
 }
