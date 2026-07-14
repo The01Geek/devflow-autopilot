@@ -24,8 +24,9 @@
 #     that same job-start mint), and
 #   * DEFERS untouched when env GH_TOKEN's hash DIFFERS from the fingerprint (a
 #     deliberately fresh mint: the #287 stall/review backstops).
-# It DEGRADES to a plain invocation when the token file is absent, and on a
-# bad-credential failure (whichever path) appends one distinctive diagnostic line
+# It DEGRADES to a plain invocation — with a stderr breadcrumb, never silently —
+# when the substitute decision was taken but the token file is absent/empty, and on
+# a bad-credential failure (whichever path) appends one distinctive diagnostic line
 # to stderr naming the expired-credential cause — a compaction-immune signal the
 # fail-fast rule keys on — while preserving the real gh exit code.
 #
@@ -101,8 +102,19 @@ main() {
   }
 
   local token=""
-  if decide && [ -f "$TOKEN_FILE" ]; then
-    token="$(cat "$TOKEN_FILE" 2>/dev/null || true)"
+  if decide; then
+    if [ -f "$TOKEN_FILE" ]; then
+      token="$(cat "$TOKEN_FILE" 2>/dev/null || true)"
+    fi
+    # The SUBSTITUTE decision was taken but the refresher-maintained token file is
+    # absent, unreadable, or empty (e.g. the refresher was defeated at startup and
+    # never wrote it). Degrading to the plain invocation is right, but never
+    # silently — every call from here rides the ambient (possibly expiring
+    # job-start) token, the exact state this wrapper exists to prevent. Mirrors
+    # decide()'s could-not-establish breadcrumb.
+    if [ -z "$token" ]; then
+      printf 'devflow-gh-fresh: token file %s is absent or empty (was the refresher defeated at startup?); degrading to the plain invocation on the ambient token — if that is the expired job-start token, gh will 401 and the fail-fast rule applies.\n' "$TOKEN_FILE" >&2
+    fi
   fi
 
   # Run the real gh, capturing stderr (to scan for the bad-credential signature)

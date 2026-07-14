@@ -20,6 +20,12 @@
 #     writes it at startup), so a missing pidfile IS the defeat signal — this
 #     catches a missing/unparseable vendored script (whose `bash: … .sh:` error the
 #     warn-prefix grep would miss) and an early crash.
+#   * died mid-run → the pidfile EXISTS but its pid is no longer running (`kill -0`
+#     fails; same-user runner processes, so a liveness probe never EPERMs): a
+#     refresher that logged `cycle OK` and then died (OOM-killed, reaped, crashed)
+#     left the credentials going stale from that moment — defeat, regardless of the
+#     last log line. An EMPTY pidfile is the same unverifiable-liveness class
+#     (the loop writes its PID at startup, so an empty file is anomalous) — defeat.
 #   * sustained vs. recovered failure → read the LAST `refresh-app-credentials:`
 #     line: `cycle OK` means the most recent cycle refreshed the credentials (a
 #     transient the backoff recovered from — do NOT warn); a `::warning::` last line
@@ -51,11 +57,23 @@ reason=""
 
 if [ -f "$PIDFILE" ]; then
   pid="$(cat "$PIDFILE" 2>/dev/null || true)"
-  if [ -n "$pid" ]; then
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     kill "$pid" 2>/dev/null || true
     echo "signalled credential refresher (pid $pid)"
+  elif [ -n "$pid" ]; then
+    # Pidfile present but the process is GONE: the refresher died after startup
+    # (OOM-killed, reaped, crashed). Its last logged `cycle OK` proves nothing about
+    # the window between that cycle and now — the credentials have been going stale
+    # since the death. Genuine defeat; do NOT let a stale `cycle OK` mask it below.
+    echo "refresher pidfile present but pid $pid is not running"
+    defeated=yes
+    reason="the refresher process died before job end (pidfile present, process gone)"
   else
+    # Same unverifiable-liveness class: the loop writes its PID at startup, so an
+    # empty pidfile is anomalous and the refresher's health cannot be confirmed.
     echo "refresher pidfile '$PIDFILE' is empty; nothing to signal"
+    defeated=yes
+    reason="the refresher pidfile is empty, so its health could not be verified"
   fi
 elif [ "$STARTED" != skipped ] && [ "$STARTED" != cancelled ]; then
   # The Start step actually RAN (success OR failure — a hard Start-step failure means
@@ -77,9 +95,9 @@ fi
 if [ -f "$LOG" ]; then
   echo "--- credential refresher log (tail) ---"
   tail -n 40 "$LOG" 2>/dev/null || true
-  # Only consult the log for the sustained-vs-recovered decision when the pidfile
-  # was present (an absent pidfile already decided defeat above, and its cause is
-  # more fundamental than any log line).
+  # Only consult the log for the sustained-vs-recovered decision when nothing has
+  # decided defeat above (an absent pidfile, a dead pid, or an empty pidfile is a
+  # more fundamental cause than any log line — a stale `cycle OK` must not mask it).
   if [ "$defeated" = no ]; then
     last="$(grep -E 'refresh-app-credentials:' "$LOG" 2>/dev/null | tail -n1)"
     case "$last" in

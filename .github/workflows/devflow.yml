@@ -710,10 +710,12 @@ jobs:
       # Retire the detached credential refresher (issue #487). Best-effort,
       # always() so it runs on every exit path. Gated with the SAME /devflow:review
       # exclusion as the start step: on the review path the refresher was never
-      # started, so this step must not run (else stop-refresher.sh would read the
-      # absent pidfile as a defeated refresher and falsely warn). The kill/log/
-      # ::warning:: logic lives in scripts/stop-refresher.sh so the branch/message
-      # selection is suite-drivable (CLAUDE.md inline-shell-extraction convention).
+      # started, so there is nothing to retire and the step would be a pointless
+      # no-op. (A false defeat warning is prevented by the DEVFLOW_REFRESH_STARTED
+      # guard below — steps.refresher.outcome is `skipped` there — not by this
+      # exclusion.) The kill/log/::warning:: logic lives in scripts/stop-refresher.sh
+      # so the branch/message selection is suite-drivable (CLAUDE.md
+      # inline-shell-extraction convention).
       - name: Stop credential refresher (optional)
         if: ${{ always() && vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
         env:

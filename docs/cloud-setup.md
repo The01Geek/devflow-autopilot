@@ -265,16 +265,25 @@ failed, and warns-and-continues. Because a background process's `::warning::` li
 inert in the Actions UI, an `if: always()` **Stop credential refresher** step
 (`scripts/stop-refresher.sh`) retires the refresher by pidfile, tails its detached log
 into the step output, and re-emits **one** live `::warning::` when the refresher was
-actually defeated (never started/crashed before its first cycle, or its most recent
-cycle failed) — so a run that silently lost its credentials is visible without log
-archaeology.
+actually defeated (never started/crashed before its first cycle, died mid-run — the
+pidfile's pid no longer running, so a stale `cycle OK` in the log does not mask a death
+after that cycle — or its most recent cycle failed) — so a run that silently lost its
+credentials is visible without log archaeology. The agent-side wrapper degrades loudly
+too: a substitute decision that finds no token file (a refresher defeated at startup
+never writes one) emits a stderr breadcrumb before riding the ambient token.
 
 **Disclosed residual.** This refresher keeps DevFlow's own `git push` and `gh` calls
 fresh, but `claude-code-action`'s **own internal API calls** still ride the static
 `github_token` input passed to the action, which is not refreshed. That is an upstream
 limitation tracked at `anthropics/claude-code-action#716`; until it lands, an extremely
 long run can still see the action's internal calls fail on the expired token even
-though DevFlow's push/gh surfaces stay fresh.
+though DevFlow's push/gh surfaces stay fresh. A second assumption to re-probe on any
+`claude-code-action` **major** upgrade: the wrapper's fingerprint discrimination relies
+on the action exporting its `github_token` input **byte-identical** as `GH_TOKEN`
+(verified against `src/entrypoints/run.ts` at drafting time). If a future version
+exports a differently-derived token, every wrapped call takes the defer path and the
+agent-side freshness fix goes silently inert (safe — the fail-fast rule still catches
+the 401 — but ineffective).
 
 ### The dedicated DevFlow-Reviewer app (review identity)
 

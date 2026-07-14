@@ -33553,11 +33553,23 @@ _a7="$(GH_TOKEN='FRESH_287_MINT' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_F
   DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
 assert_eq "#487 arm7: deliberately-fresh token (hash differs) → defers untouched" "GH_TOKEN_SEEN=FRESH_287_MINT ARGS=api x" "$_a7"
 
-# Arm 8 — substitute path but token file absent → degrade to plain invocation.
+# Arm 8 — substitute path but token file absent → degrade to plain invocation, with a
+# stderr breadcrumb (never a silent ride on the possibly-expiring ambient token — e.g.
+# a refresher defeated at startup never writes the token file).
 rm -f "$TOK487"
 _a8="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
   DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
 assert_eq "#487 arm8: token file absent → degrades to plain invocation (no token)" "GH_TOKEN_SEEN=<none> ARGS=api x" "$_a8"
+_a8_err="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#487 arm8: absent-token-file degrade emits a breadcrumb (not silent)" "yes" \
+  "$(printf '%s' "$_a8_err" | grep -qF 'token file' && printf '%s' "$_a8_err" | grep -qF 'absent or empty' && echo yes || echo no)"
+# Negative control: the breadcrumb belongs to the SUBSTITUTE decision only — a defer
+# (hash differs, #287 fresh mint) with the same absent token file stays breadcrumb-free.
+_a8_def_err="$(GH_TOKEN='FRESH_287_MINT' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#487 arm8: defer path with the same absent token file does NOT emit the degrade breadcrumb" "no" \
+  "$(printf '%s' "$_a8_def_err" | grep -qF 'absent or empty' && echo yes || echo no)"
 
 # Arm 9 — bad-credential failure appends the diagnostic on BOTH substitute and defer paths.
 printf 'FRESH' > "$TOK487"
@@ -33604,21 +33616,30 @@ _a12_err="$(GH_TOKEN='SOMETHING' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_F
 assert_eq "#487 arm12: unestablished fingerprint comparison emits a breadcrumb (not a silent defer)" "yes" \
   "$(printf '%s' "$_a12_err" | grep -qF 'could not establish the job-start fingerprint comparison' && echo yes || echo no)"
 
-# ── stop-refresher.sh arms (13–16): the retirement step's defeated-refresher signal
-# is honest — it must NOT over-fire on a recovered transient, and it MUST fire on the
-# never-started/crash case (absent pidfile) and the sustained-failure case (log's last
-# cycle line is a ::warning::). Asserts on the helper's OWN message literal so a tailed
-# fixture ::warning:: line is not miscounted.
+# ── stop-refresher.sh arms (13–16, 19–20): the retirement step's defeated-refresher
+# signal is honest — it must NOT over-fire on a recovered transient, and it MUST fire on
+# the never-started/crash case (absent pidfile), the died-mid-run case (pidfile present
+# but the pid no longer runs — a stale `cycle OK` must not mask a death after that
+# cycle), and the sustained-failure case (log's last cycle line is a ::warning::).
+# Asserts on the helper's OWN message literal so a tailed fixture ::warning:: line is
+# not miscounted. Live-refresher fixtures spawn a real `sleep` child (the liveness probe
+# demands a running pid); stop-refresher.sh itself retires it via the pidfile.
 STOP_SH="$LIB/../scripts/stop-refresher.sh"
 _defeat487() { printf '%s' "$1" | grep -qF 'credential refresher may not have kept credentials fresh' && echo yes || echo no; }
 assert_eq "#487 stop-refresher exists (extracted from the workflow Stop step)" "yes" \
   "$([ -f "$STOP_SH" ] && echo yes || echo no)"
 
-# Arm 13 — pidfile present + last cycle OK → recovered transient → NO defeated warning.
-echo 999999 > "$D487/pidA"; printf 'refresh-app-credentials: cycle OK (credentials refreshed)\n' > "$D487/logA"
+# Arm 13 — pidfile present (live process) + last cycle OK → recovered transient → NO
+# defeated warning. The live pid is the positive control the died-mid-run arm 19 needs:
+# same fixture shape, only liveness differs.
+sleep 300 & _live13=$!
+echo "$_live13" > "$D487/pidA"; printf 'refresh-app-credentials: cycle OK (credentials refreshed)\n' > "$D487/logA"
 _s13="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidA" DEVFLOW_REFRESH_LOG="$D487/logA" bash "$STOP_SH" 2>&1)"; _s13_rc=$?
-assert_eq "#487 arm13: recovered transient (last cycle OK) does NOT warn defeated" "no" "$(_defeat487 "$_s13")"
+assert_eq "#487 arm13: recovered transient (live pid, last cycle OK) does NOT warn defeated" "no" "$(_defeat487 "$_s13")"
 assert_eq "#487 arm13: stop-refresher always exits 0" "0" "$_s13_rc"
+assert_eq "#487 arm13: a live refresher is signalled (kill by pidfile)" "yes" \
+  "$(printf '%s' "$_s13" | grep -qF "signalled credential refresher (pid $_live13)" && echo yes || echo no)"
+kill "$_live13" 2>/dev/null; wait "$_live13" 2>/dev/null || true
 
 # Arm 14 — pidfile absent AND the Start step ran (STARTED=success) → genuine defeat → warn.
 _s14="$(DEVFLOW_REFRESH_STARTED=success DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
@@ -33634,16 +33655,45 @@ assert_eq "#487 arm17: absent pidfile + Start skipped (upstream abort) does NOT 
 _s18="$(DEVFLOW_REFRESH_STARTED=failure DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
 assert_eq "#487 arm18: absent pidfile + Start ran-and-failed warns defeated (ran, not succeeded)" "yes" "$(_defeat487 "$_s18")"
 
-# Arm 15 — pidfile present + last log line is a ::warning:: → sustained failure → warn.
-echo 999999 > "$D487/pidC"
+# Arm 15 — pidfile present (live) + last log line is a ::warning:: → sustained failure
+# → warn, attributed to the LOG arm (not the liveness arm — the pid is alive).
+sleep 300 & _live15=$!
+echo "$_live15" > "$D487/pidC"
 printf 'refresh-app-credentials: cycle OK\n::warning::refresh-app-credentials: cycle: mint arm failed\n' > "$D487/logC"
 _s15="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidC" DEVFLOW_REFRESH_LOG="$D487/logC" bash "$STOP_SH" 2>&1)"
-assert_eq "#487 arm15: sustained failure (last log line a ::warning::) warns defeated" "yes" "$(_defeat487 "$_s15")"
+assert_eq "#487 arm15: sustained failure (live pid, last log line a ::warning::) warns defeated" "yes" "$(_defeat487 "$_s15")"
+assert_eq "#487 arm15: the warning is attributed to the failed cycle, not liveness" "yes" \
+  "$(printf '%s' "$_s15" | grep -qF 'the most recent refresh cycle failed' && echo yes || echo no)"
+kill "$_live15" 2>/dev/null; wait "$_live15" 2>/dev/null || true
 
-# Arm 16 — pidfile present + no log yet → nothing to assert → NO defeated warning.
-echo 999999 > "$D487/pidD"
+# Arm 16 — pidfile present (live) + no log yet → nothing to assert → NO defeated warning.
+sleep 300 & _live16=$!
+echo "$_live16" > "$D487/pidD"
 _s16="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidD" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
-assert_eq "#487 arm16: pidfile present + no log does NOT warn defeated" "no" "$(_defeat487 "$_s16")"
+assert_eq "#487 arm16: pidfile present (live) + no log does NOT warn defeated" "no" "$(_defeat487 "$_s16")"
+kill "$_live16" 2>/dev/null; wait "$_live16" 2>/dev/null || true
+
+# Arm 19 — pidfile present but the pid is DEAD + last cycle OK → the refresher died
+# after its last good cycle (OOM-killed/reaped); the stale `cycle OK` must NOT mask the
+# death → warn, attributed to the died-mid-run liveness arm. Positive control: arm 13 is
+# byte-identical except the pid is alive, and it does NOT warn — so this rejection is
+# attributable to liveness alone.
+sleep 0.01 & _dead19=$!
+wait "$_dead19" 2>/dev/null || true   # guarantee the pid is gone before the probe runs
+echo "$_dead19" > "$D487/pidE"; printf 'refresh-app-credentials: cycle OK (credentials refreshed)\n' > "$D487/logE"
+_s19="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidE" DEVFLOW_REFRESH_LOG="$D487/logE" bash "$STOP_SH" 2>&1)"; _s19_rc=$?
+assert_eq "#487 arm19: dead pid + last cycle OK warns defeated (stale cycle OK does not mask a death)" "yes" "$(_defeat487 "$_s19")"
+assert_eq "#487 arm19: the warning is attributed to the died-before-job-end liveness probe" "yes" \
+  "$(printf '%s' "$_s19" | grep -qF 'died before job end (pidfile present, process gone)' && echo yes || echo no)"
+assert_eq "#487 arm19: stop-refresher still exits 0 on the dead-pid arm" "0" "$_s19_rc"
+
+# Arm 20 — EMPTY pidfile → same unverifiable-liveness class (the loop writes its PID at
+# startup, so an empty file is anomalous) → warn, attributed to the empty-pidfile arm.
+: > "$D487/pidF"
+_s20="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidF" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm20: empty pidfile warns defeated (health unverifiable)" "yes" "$(_defeat487 "$_s20")"
+assert_eq "#487 arm20: the warning is attributed to the empty pidfile" "yes" \
+  "$(printf '%s' "$_s20" | grep -qF 'pidfile is empty, so its health could not be verified' && echo yes || echo no)"
 
 rm -rf "$D487"
 
@@ -33678,11 +33728,12 @@ done
 # devflow.yml's gate additionally excludes /devflow:review (read-only, never pushes).
 assert_eq "#487 wiring: devflow.yml refresher start excludes /devflow:review commands" "1" \
   "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
-# The Stop step's review-exclusion ASYMMETRY is the design's load-bearing invariant:
-# devflow.yml's Stop step MUST carry the /devflow:review negation (else the review path,
-# where the refresher was never started, takes stop-refresher.sh's absent-pidfile defeat
-# arm and falsely warns), while devflow-implement.yml's Stop step must NOT (it always
-# starts the refresher). Pin both directions so a dropped or mis-copied gate goes RED.
+# The Stop step's review-exclusion ASYMMETRY keeps the Stop gate symmetric with Start:
+# devflow.yml's Stop step MUST carry the /devflow:review negation (on the review path the
+# refresher was never started, so the step would be a pointless no-op; a false defeat
+# warning there is prevented by the DEVFLOW_REFRESH_STARTED=skipped guard — arm17 — not
+# by this exclusion), while devflow-implement.yml's Stop step must NOT carry it (it
+# always starts the refresher). Pin both directions so a dropped or mis-copied gate goes RED.
 assert_eq "#487 wiring: devflow.yml Stop step carries the /devflow:review exclusion" "1" \
   "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
 assert_eq "#487 wiring: devflow-implement.yml Stop step does NOT carry a /devflow:review exclusion" "0" \
