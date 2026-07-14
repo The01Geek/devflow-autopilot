@@ -1,0 +1,77 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-14T06:20:00Z",
+  "fix_commit_sha": "f0030515d9059558073b39f273ac59d8e795c661",
+  "fix_files": [],
+  "loop_role": "fix",
+  "checklist": [
+    {"id": "VC-1", "claim": "each of the 8 pinned literals occurs exactly once in skills/receiving-code-review/SKILL.md", "file": "lib/test/run.sh", "verification_mode": "lite", "claim_signature": "api_contract:run.sh:479-pins-present-unique", "verdict": "PASS", "evidence": "grep -c returned 1 for all 8 literals", "reused_from_iter_prev": false},
+    {"id": "VC-2", "claim": "each sed -E mutation substring occurs in the pinned literal so the mutation re-introduces the bug (non-vacuous)", "file": "lib/test/run.sh", "verification_mode": "lite", "claim_signature": "api_contract:run.sh:479-mutations-nonvacuous", "verdict": "PASS", "evidence": "all 7 mutation substrings present once in SKILL.md; five reviewers x2 passes confirmed PASS->FAIL flip", "reused_from_iter_prev": false},
+    {"id": "VC-3", "claim": "the #479 pin block is placed after assert_pin_red_under's definition and RECV_SKILL declaration (no command-not-found no-op)", "file": "lib/test/run.sh", "verification_mode": "lite", "claim_signature": "api_contract:run.sh:479-placement", "verdict": "PASS", "evidence": "helper def line 2036, RECV_SKILL line 2178, pins line 2302", "reused_from_iter_prev": false},
+    {"id": "VC-4", "claim": "added SKILL.md prose is repo-agnostic (no repo test path/CI job name/test-helper name/DevFlow step number)", "file": "skills/receiving-code-review/SKILL.md", "verification_mode": "lite", "claim_signature": "api_contract:recv-skill:repo-agnostic", "verdict": "PASS", "evidence": "grep of added lines found no repo-specific tokens; whole-file #379(AC8) negatives green", "reused_from_iter_prev": false},
+    {"id": "VC-5", "claim": "changeset frontmatter valid (bump: patch, type: Fixed) and PR-cited", "file": ".changeset/issue-479-receiving-review-reception-fixes.md", "verification_mode": "lite", "claim_signature": "api_contract:changeset:frontmatter", "verdict": "PASS", "evidence": "bump: patch, type: Fixed; (#486) is the PR number per PR-cited convention (confirmed by shadow via gh pr list)", "reused_from_iter_prev": false},
+    {"id": "VC-6", "claim": "full suite passes with no new skipped checks", "file": "lib/test/run.sh", "verification_mode": "lite", "claim_signature": "api_contract:suite:green", "verdict": "PASS", "evidence": "6601 passed, 0 failed, 0 skipped observed in-env at HEAD f003051", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "route (b) permits mutating the working-tree file in place, a deliberate changeset-documented tradeoff; guarded by the restore-verification invariant that fails closed", "defect_signature": {"file": "skills/receiving-code-review/SKILL.md", "line_range": [61, 62], "kind": "prompt_instruction_guard"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "changeset body cites (#486) while filename/header cite #479 — provenance note", "defect_signature": {"file": ".changeset/issue-479-receiving-review-reception-fixes.md", "line_range": [6, 6], "kind": "traceability"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "advisory"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "AC1's invariant sentence has two clauses; the mutation strips only the first — acceptable, second clause restates pinned-elsewhere concept", "defect_signature": {"file": "lib/test/run.sh", "line_range": [2302, 2304], "kind": "test_coverage_partial_clause"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "advisory", "source_file": "skills/receiving-code-review/SKILL.md", "claim_text": "route (b) in-place mutation drops the old copy-only safety guarantee", "skip_category": "advisory-parked", "evidence": "deliberate changeset-documented tradeoff; guarded by fail-closed restore verification before any completion claim; below fix threshold (Suggestion)"},
+    {"finding_id": "F-2", "decision": "advisory", "source_file": ".changeset/issue-479-receiving-review-reception-fixes.md", "claim_text": "changeset cites (#486) not #479", "skip_category": "advisory-parked", "evidence": "refuted: repo convention is PR-cited (CHANGELOG cites #476/#465 PR numbers); (#486) is the correct PR number for issue #479 — correct as written; shadow confirmed via gh pr list"},
+    {"finding_id": "F-3", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "AC1 mutation strips only the first of two clauses", "skip_category": "advisory-parked", "evidence": "acceptable per pr-test-analyzer: whole-sentence presence still required, second clause is pinned-elsewhere concept; below fix threshold (Suggestion)"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 90,
+    "skipped_checks": []
+  },
+  "shadow": {
+    "ran_at": "2026-07-14T06:50:00Z",
+    "reviewed_sha": "f0030515d9059558073b39f273ac59d8e795c661",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "route (b) could note the transient interruption window between mutation and restore; wording nicety, implicitly covered by last-resort framing + restore-verification gate; not a defect", "defect_signature": {"file": "skills/receiving-code-review/SKILL.md", "line_range": [62, 62], "kind": "prompt_wording"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 4,
+      "overlap_with_iter_N": 3,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false,
+    "park_calibration": "park-calibration gate clean: no parked finding matched (route-b tradeoff is guarded prose, (#486) refuted/correct, AC1 partial-clause acceptable, shadow's route-b transient-window Suggestion is inherent-and-covered — none is a fail-open guard hole, breadcrumb overclaim, or unhonorable deferral; none re-raised at Important)"
+  }
+}
