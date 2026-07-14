@@ -2277,6 +2277,63 @@ assert_pin_unique "over-grade: severity-calibrated record carries no skip_catego
   'it is a calibration record, not a skip' "$MAXI_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#479: receiving-code-review — two-route mutation-check recipe + over-grade-annotation rule"
+# ────────────────────────────────────────────────────────────────────────────
+# Two prose-only reception fixes in the vendored receiving-code-review skill (issue #479):
+#   (1) the mutation-check recipe now states an invariant + two satisfiable routes (a copy-based
+#       route and a working-tree-in-place-then-restore route) instead of the single "on a copy"
+#       recipe that was unsatisfiable for fixed-path / fixed-module-path suites;
+#   (2) the Symmetric Severity Calibration section now has a rule for a review that annotates its
+#       own finding as a suspected over-grade — advisory input, never on its own a reason to skip.
+# Each contract sentence is a BEHAVIORAL-FIX pin (removing the operative clause re-introduces the
+# named defect: an unsatisfiable/incomplete recipe, or a missing counter-rule), so each is routed
+# through assert_pin_red_under with a `sed -E` mutation that strips ONLY the operative clause and
+# is observed RED under it — not a whole-line-removal pin (which cannot tell operative from framing).
+# Placed AFTER assert_pin_red_under's definition (above) so the behavioral pins actually run — a
+# call sited before the helper's definition would silently no-op (command-not-found), the exact
+# vacuous-guard trap the mutation-check discipline exists to prevent.
+# The additions stay repo-agnostic; the whole-file #379(AC8) negatives already cover the new text
+# (no repo test path, no CI job name), so they are extended, not duplicated, here.
+RCV479="$LIB/../skills/receiving-code-review/SKILL.md"
+# AC1 — the mutation-check invariant (never left behind; observed RED for the reason the test pins).
+assert_pin_red_under "#479(AC1): mutation-check invariant (no mutation left behind; RED for the pinned reason)" \
+  'the mutation is never left behind in the working tree, and the suite is observed RED for the reason the test pins' \
+  's/is never left behind in the working tree//' "$RCV479"
+# AC2 — route (a): mutate a copy (for a redirectable suite / assertion that takes the target as an arg).
+assert_pin_red_under "#479(AC2): route (a) mutate-a-copy for a redirectable suite" \
+  'whose assertion accepts the target file as an argument, mutate the copy' \
+  's/mutate the copy and run the assertion against it//' "$RCV479"
+# AC3 — route (b) action: mutate the working-tree file in place, run the suite, restore.
+assert_pin_red_under "#479(AC3): route (b) mutate-in-place-run-restore for a non-redirectable suite" \
+  'mutate the working-tree file in place, run the suite, confirm it goes RED, and then restore it' \
+  's/mutate the working-tree file in place, run the suite//' "$RCV479"
+# AC3 (condition wording): route (b)'s trigger — fixed paths / fixed module paths, cannot be redirected.
+assert_pin_unique "#479(AC3): route (b) names the fixed-path / fixed-module-path non-redirectable trigger" \
+  'reads fixed paths, or imports the module under test through fixed module paths' "$RCV479"
+# AC4 — route (b) requires an explicit restore verification (reverted + tree re-verified clean).
+assert_pin_red_under "#479(AC4): route (b) explicit restore verification before any completion claim" \
+  'the mutation is reverted and the tree re-verified clean before any completion claim' \
+  's/the tree re-verified clean before any completion claim//' "$RCV479"
+# AC5 — route (b) chosen only when redirection is genuinely impossible; route (a) stays the default.
+assert_pin_red_under "#479(AC5): route (b) is last resort; route (a) remains the default" \
+  'Choose route (b) only when redirection is genuinely impossible, so route (a) remains the default' \
+  's/only when redirection is genuinely impossible//' "$RCV479"
+# AC6 — over-grade annotation is advisory input, never on its own a reason to skip the finding.
+assert_pin_red_under "#479(AC6): over-grade annotation is advisory, never permission to skip" \
+  'advisory input to severity calibration, never on its own a reason to skip the finding' \
+  's/never on its own a reason to skip the finding//' "$RCV479"
+# AC7 — an annotated finding at or above the configured re-open threshold is still fixed.
+assert_pin_red_under "#479(AC7): annotated finding at/above the re-open threshold is still fixed" \
+  'an annotated finding at or above the configured re-open threshold is still fixed' \
+  's/at or above the configured re-open threshold is still fixed//' "$RCV479"
+# AC8 (repo-agnostic) — extend, do not duplicate: the whole-file #379(AC8) negatives already assert
+# no repo test path / no CI job name across the entire body, so they cover these additions. Add only
+# a non-vacuity control anchored on a NEW #479 sentence, so a moved/emptied file cannot vacuously
+# pass those negatives for the added surface.
+assert_eq "#479(AC8): repo-agnostic non-vacuity control (a new #479 sentence is present)" "yes" \
+  "$(grep -qF 'the mutation is never left behind in the working tree, and the suite is observed RED for the reason the test pins' "$RCV479" && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "deterministic in-code-comment cap (shape 2 refinement, Phase 4.1.5) (#291)"
 # ────────────────────────────────────────────────────────────────────────────
 # #291 refines shape 2's IN-CODE-COMMENT sub-case from advisory-only into a
