@@ -26400,8 +26400,8 @@ assert_pin_red_under "#401 grounding: deleting the two-denials-switch rule from 
 # job; evidence of record on issues #450/#455): a `for` / piped-`while read` loop or a
 # `VAR="$(…)"` capture WRAPPING a label helper (rows I4/I5/I6). `extract-command-shapes.py
 # --profile implement` is the desk-time pin for that class over the implement skill files;
-# the Phase 4.0/4.0.5 label applies are reworked to agent-level single-leading-token calls
-# that lint clean. (Row I1 — the unexpanded anchor leading token — is prose-discipline, not
+# all four label channels (Phase 3.1 provenance, 4.0/4.0.5 deferred, 4.1 docs) are reworked to
+# agent-level single-leading-token calls that lint clean. (Row I1 — the unexpanded anchor leading token — is prose-discipline, not
 # lint-pinnable, since every legitimate helper call keeps the portable anchor in source.)
 IMPL_DIR="$LIB/../skills/implement"
 # Contract: SKILL.md + every phase file teaches NO implement-tier denied shape (exit 0, empty).
@@ -26595,10 +26595,67 @@ assert_eq "#455 behavioral: that reintroduced 4.0.5 regression is ALSO named IR3
 # ── "applied" and "denied" are byte-identical to a caller reading the tool result, and the
 # ── skill's "record a failure when the stderr names one" guard has no comparand in the denial
 # ── case). Pin all three outcomes are distinguishable.
-assert_eq "#455 apply-labels.sh prints a SUCCESS breadcrumb (so a silent harness denial is distinguishable)" "yes" \
-  "$(grep -qF "devflow: applied label(s)" "$LIB/../scripts/apply-labels.sh" && echo yes || echo no)"
-assert_eq "#455 apply-labels.sh still prints its FAILURE breadcrumb" "yes" \
-  "$(grep -qF "could not apply label(s)" "$LIB/../scripts/apply-labels.sh" && echo yes || echo no)"
+# ── FAIL-OPEN controls, round 5 (the #480 iteration-4 review). Quote tracking is the guard's
+# ── hardest part, and BOTH spellings of it are blind somewhere: masking per-line hides a loop
+# ── opener after a multi-line quoted argument's closing quote; carrying state across lines lets
+# ── ONE unbalanced apostrophe (`echo the config didn't resolve`) mask the whole rest of the
+# ── fence. The scan therefore runs BOTH ways and unions the hits. Pin both directions, plus the
+# ── case-arm opener the sibling head extractor needed for #392.
+{ printf '%s\n' '```bash' "echo Note: the config didn't resolve any deferred labels" 'for L in $C; do' '  .devflow/vendor/devflow/scripts/apply-labels.sh 1 "$L"' 'done' '```'; } > "$E363/i-fo-apostrophe.md"
+assert_eq "#455 no fail-open: an UNBALANCED apostrophe above a label loop does not mask it away (still IR1)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-apostrophe.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'gh issue comment 5 -b "Doesn'"'"'t matter: $(.devflow/vendor/devflow/scripts/apply-labels.sh 5 DevFlow 2>&1)"' '```'; } > "$E363/i-fo-apos-capture.md"
+assert_eq "#455 no fail-open: an apostrophe INSIDE a double-quoted arg does not hide the capture after it (still IR3)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-apos-capture.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'gh issue comment 5 -b "context line' '  # applied: $(.devflow/vendor/devflow/scripts/apply-labels.sh 5 DevFlow)"' '```'; } > "$E363/i-fo-hash-in-string.md"
+assert_eq "#455 no fail-open: a '#'-leading line INSIDE a multi-line quoted arg is argument text, not a comment (still IR3)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-hash-in-string.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'case "$x" in' '  a) for n in $N; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" X; done ;;' 'esac' '```'; } > "$E363/i-fo-casearm.md"
+assert_eq "#455 no fail-open: a one-line CASE-ARM loop around a label helper is still flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-casearm.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'case "$x" in' '  a) while read -r n; do .devflow/vendor/devflow/scripts/ensure-label.sh "$n"; done < f ;;' 'esac' '```'; } > "$E363/i-fo-casearm-while.md"
+assert_eq "#455 no fail-open: a one-line CASE-ARM while-loop around a label helper is still flagged IR2" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-casearm-while.md" | grep -q '  IR2  ' && echo yes || echo no)"
+# ── Third behavioral mutation: #455 removed THREE shapes. The two above cover 4.0's for+capture
+# ── and 4.0.5's piped while+capture; the ensure-label per-label piped loop had only a synthetic
+# ── fixture. Reintroduce it verbatim on the real file so every removed shape is proven caught.
+I455_MUT3="$E363/i-mut3.md"; cp "$IMPL_DIR/phases/phase-4-documentation.md" "$I455_MUT3"
+{ printf '%s\n' '```bash' 'echo "$CLEAN_DEFERRED_LABELS" | tr '"'"','"'"' '"'"'\n'"'"' | while IFS= read -r lbl; do' '  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh "$lbl"' 'done' '```'; } >> "$I455_MUT3"
+assert_eq "#455 behavioral: reintroducing the removed per-label ensure-label piped loop flips the lint RED (IR2)" "yes" \
+  "$(python3 "$ECS" --profile implement "$I455_MUT3" | grep -q '  IR2  ' && echo yes || echo no)"
+# ── Scope pin: the lint reads only ```bash fences, so a ```sh-tagged fence would be invisible and
+# ── the contract loop's "teaches no proven-denied shape" claim would pass VACUOUSLY over it. Keep
+# ── the claim's reach equal to its wording — the guarded files must use no other shell fence tag.
+for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md; do
+  assert_eq "#455 scope: $(basename "$f") uses no non-bash shell fence tag (the lint reads only \`\`\`bash)" "0" \
+    "$(grep -cE '^\s*```(sh|shell|zsh|console)\s*$' "$f" || true)"
+done
+# BEHAVIORAL (not a source grep — a grep stays green if the echo is moved into a branch that
+# never fires). Drive the helper against a stubbed gh and assert each outcome is what the four
+# call sites' new routing rule reads: success line / failure line / SILENCE on an empty set.
+# The silence case is what makes "no output at all ⇒ the harness refused" a SOUND inference —
+# if an empty label set ever printed a success line, every channel would read a fabricated
+# success; if it printed anything at all, a real denial would be indistinguishable from it.
+I455_STUB="$E363/ghstub"; mkdir -p "$I455_STUB"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$I455_STUB/gh_ok"; chmod +x "$I455_STUB/gh_ok"
+printf '#!/usr/bin/env bash\necho "HTTP 403" >&2\nexit 1\n' > "$I455_STUB/gh_fail"; chmod +x "$I455_STUB/gh_fail"
+assert_eq "#455 apply-labels.sh: SUCCESS emits the applied breadcrumb (so a silent denial is distinguishable)" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 " DevFlow , Deferred " 2>&1 | grep -qF "devflow: applied label(s) 'DevFlow,Deferred' to #42" && echo yes || echo no)"
+assert_eq "#455 apply-labels.sh: API FAILURE emits the warning breadcrumb" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_fail" bash "$LIB/../scripts/apply-labels.sh" 42 DevFlow 2>&1 | grep -qF "could not apply label(s) 'DevFlow' to #42" && echo yes || echo no)"
+assert_eq "#455 apply-labels.sh: an EMPTY label set is SILENT (this is what makes 'no output ⇒ denial' sound)" "" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 "  " 2>&1)"
+assert_eq "#455 apply-labels.sh: a label containing a space survives normalization" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 "needs review,DevFlow" 2>&1 | grep -qF "'needs review,DevFlow'" && echo yes || echo no)"
+# Guard-class 2: the label derivation must NOT depend on a non-preflight PATH tool. It decides
+# BOTH the selection (which labels are POSTed) and an emitted result (whether the breadcrumb
+# fires) — and with a `tr | sed | grep` pipeline a host missing `tr` yields an empty set, the
+# helper exits SILENTLY, and the caller records a harness denial that never happened while the
+# label is silently dropped. Pin the pipeline out of the derivation.
+# (Comment-aware: the block's own comment NAMES the old `tr | sed | grep` derivation it replaced,
+# so a raw scan would match the prose that documents the fix rather than any surviving code.)
+assert_eq "#455 apply-labels.sh derives its label list with BUILTINS (no tr/sed/grep in the selection path)" "0" \
+  "$(sed -n '/^LABELS=()/,/^fi$/p' "$LIB/../scripts/apply-labels.sh" | grep -v '^[[:space:]]*#' | grep -cE '\| *(tr|sed|grep|paste|awk) ' || true)"
 # ── UNGRANTED-HEAD pin (#480 review): a grant is per-HEAD across the WHOLE pipeline, not
 # ── just the leading token, so ONE ungranted head in a tail refuses the entire statement.
 # ── `paste` is granted in NO allowlist (baked TOOLS, config.json, config.example.json) —

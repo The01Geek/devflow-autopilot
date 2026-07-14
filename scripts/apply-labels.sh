@@ -40,19 +40,43 @@ set -uo pipefail
 NUMBER="${1:?Usage: apply-labels.sh <issue-or-pr-number> <label…>}"
 shift
 
-# Normalize the args into a clean label list using the same split-on-commas / trim /
-# drop-empties pipeline the `docs.labels` / `deferred.labels` consumers use. Accepts
-# both `DevFlow Retrospective` (separate args) and `"DevFlow,Deferred"` (one
-# comma-separated arg), or a mix: `printf '%s\n' "$@"` already puts each arg on its
-# own line, so one pipe handles every arg.
+# Normalize the args into a clean label list — split on commas, trim, drop empties.
+# Accepts `DevFlow Retrospective` (separate args), `"DevFlow,Deferred"` (one
+# comma-separated arg), or a mix.
+#
+# BASH BUILTINS ONLY — deliberately not the `tr | sed | grep` pipeline the config-reading
+# call sites use. This derivation decides BOTH which labels get POSTed (a selection) AND
+# whether the breadcrumb below fires (an emitted result), and CLAUDE.md's guard-class 2 is
+# explicit: such a value must not be derived through a non-preflight PATH tool. `lib/preflight.sh`
+# guarantees git/gh/jq/python3 — NOT tr/sed/grep. With the pipeline, a host missing `tr`
+# silently yields an EMPTY label set, the helper exits 0 printing nothing, and the caller —
+# which now reads "no output at all" as a harness denial — records a denial that never
+# happened while the label is silently dropped.
 LABELS=()
-while IFS= read -r _lbl; do
-    LABELS+=("$_lbl")
-done < <(printf '%s\n' "$@" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$')
+for _raw in "$@"; do
+    _rest="$_raw"
+    while [ -n "$_rest" ]; do
+        case "$_rest" in
+            *,*) _part="${_rest%%,*}"; _rest="${_rest#*,}" ;;
+            *)   _part="$_rest";       _rest="" ;;
+        esac
+        # Trim leading/trailing whitespace with parameter expansion (no external tool).
+        _part="${_part#"${_part%%[![:space:]]*}"}"
+        _part="${_part%"${_part##*[![:space:]]}"}"
+        [ -n "$_part" ] && LABELS+=("$_part")
+    done
+done
 
-# Empty/whitespace-only label set → apply nothing (no POST), exit 0. This mirrors
-# the `[ -n "$CLEAN_LABELS" ] && …` guard the docs.labels/deferred.labels call
-# sites already use, kept here so every caller gets it for free.
+# Empty label set → apply nothing (no POST), exit 0, SILENTLY. This mirrors the
+# `[ -n "$CLEAN_LABELS" ]` guard the docs.labels/deferred.labels call sites already use.
+#
+# The silence is only sound because the derivation above is BUILTIN-ONLY: the set can now be
+# empty *only* when the caller genuinely passed no label content (no argument, or only
+# whitespace/commas). It can no longer be emptied by a missing PATH tool — which matters,
+# because a silent exit here is byte-identical to a harness refusal, and the call sites route
+# "no output at all" to a `dropped-failed` denial reflection. With the old `tr | sed | grep`
+# derivation a host without `tr` would have produced exactly that false denial while silently
+# dropping a real label. Callers still gate on a non-empty list before calling.
 if [ "${#LABELS[@]}" -eq 0 ]; then
     exit 0
 fi

@@ -61,11 +61,11 @@ EOF
 )"
 ```
 
-**Apply the deferred-issue labels.** As you create each follow-up issue above, **capture its number** from the `gh issue create` output (the command prints the new issue URL; the trailing path segment is the number) into `DEFERRED_ISSUE_NUMBERS` — a space-separated list you assemble from the issues you actually filed (e.g. `DEFERRED_ISSUE_NUMBERS="201 202"`). Then apply the configured `deferred.labels` to every filed issue. The labels are read from config (default `DevFlow,Deferred`) and normalized with the **same** split/trim/drop-empties idiom Phase 4.1 uses for `docs.labels`, so an empty or whitespace-only value applies no labels. Ensure each label exists first (best-effort), then apply them through the shared REST `apply-labels.sh` helper (`POST .../issues/{n}/labels` — repo-scope only, unlike `gh issue edit --add-label`'s org-scoped GraphQL resolution) per filed issue — best-effort and post-creation, so a label hiccup can never block or unwind the filing.
+**Apply the deferred-issue labels.** As you create each follow-up issue above, **capture its number** from the `gh issue create` output (the command prints the new issue URL; the trailing path segment is the number) and keep the numbers **in your own working notes** — an agent-level list, not a shell variable. Do **not** write it as a shell assignment: a shell variable does not survive into the separate command that applies the labels below (and a leading `VAR=value` assignment is itself a denied shape on this tier). Then apply the configured `deferred.labels` to every filed issue. The labels are read from config (default `DevFlow,Deferred`) and normalized with the **same** split/trim/drop-empties idiom Phase 4.1 uses for `docs.labels`, so an empty or whitespace-only value applies no labels. Ensure each label exists first (best-effort), then apply them through the shared REST `apply-labels.sh` helper (`POST .../issues/{n}/labels` — repo-scope only, unlike `gh issue edit --add-label`'s org-scoped GraphQL resolution) per filed issue — best-effort and post-creation, so a label hiccup can never block or unwind the filing.
 
 **Cloud-emission discipline (label helpers): iterate at the agent level, never in a shell loop or a capture — see the *Cloud command-shape discipline* section in `skills/implement/SKILL.md`.** The cloud implement matcher **denies** a `for`/piped-`while read` loop wrapping a label helper (`ensure-label.sh` / `apply-labels.sh`) and a `VAR="$(label-helper …)"` output capture — the implement-tier probe rows I4/I5/I6 (`.github/workflows/matcher-probe.yml`, evidence of record on issues #450/#455). So do **not** wrap the label helpers in a shell loop or capture their output into a variable: emit **one single-statement, leading-token call per label and per issue**, iterating over the labels/numbers yourself.
 
-**What the probe did and did not prove (do not over-read it).** The `config-get` capture below is used on the *inference* that the matcher descends into `$(…)` for a **non-label** helper — that is carried over from the review tier and is **not** measured on the implement tier (rows 8/9 exist to settle it; until a dispatch records them, treat it as an inference). Phase 4.1's docs-label call is **also not a bare leading-token call** — it is emitted inside an `if` compound, a shape **no probe row measured**. Neither is known-denied; both are simply **unproven**, so the fences below fail **closed** on a config read that produces no output rather than treating a possible denial as "no labels configured".
+**What the probe did and did not prove (do not over-read it).** The `config-get` capture below is used on the *inference* that the matcher descends into `$(…)` for a **non-label** helper — that is carried over from the review tier and is **not** measured on the implement tier (rows 8/9 exist to settle it; until a dispatch records them, treat it as an inference). Phase 4.1's docs-label channel rests on the same unproven captures (`config-get.sh`, and a `gh pr view` read for the PR number). Neither is known-denied; both are simply **unproven**, so every fence below fails **closed** on a read that produces no output rather than treating a possible denial as "no labels configured".
 
 First resolve and **print** the clean label list — a `config-get` capture is permitted, and printing it lets you read the resolved value for the per-issue calls below (a shell variable set here does not survive into a later separate command on the cloud runner):
 
@@ -94,7 +94,7 @@ echo "deferred.labels raw: [$DEFERRED_LABELS]"
 echo "deferred labels to apply: [$CLEAN_DEFERRED_LABELS]"
 ```
 
-If you filed follow-up work above but captured **no** issue numbers into `DEFERRED_ISSUE_NUMBERS`, that is a real capture gap (not a benign no-op) — record it durably and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."`
+If you filed follow-up work above but captured **no** issue numbers, that is a real capture gap (not a benign no-op) — record it durably and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."`
 
 **Read the two printed lines together — three outcomes, and only one is a benign no-op:**
 
@@ -108,7 +108,7 @@ Otherwise, read the printed `CLEAN_DEFERRED_LABELS` value and apply the labels w
   ```bash
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh <label>
   ```
-- For **each** number in `DEFERRED_ISSUE_NUMBERS`, apply the whole comma-list with one call — the helper path is the leading token, the issue number and the resolved label list substituted as literals:
+- For **each** filed issue number in your working notes (**not** a live `$DEFERRED_ISSUE_NUMBERS` shell variable — it does not survive into this separate command), apply the whole comma-list with one call — the helper path is the leading token, the issue number and the resolved label list substituted as literals:
   ```bash
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh <filed-issue-number> "<deferred-labels>"
   ```
@@ -221,11 +221,15 @@ if [ -n "$AGG" ] && [ -s "$AGG" ]; then
     if [ -n "${FILED_NUMBERS:-}" ]; then
         NUMBERS_CSV=$(echo "$FILED_NUMBERS" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, #/g')
         workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred review findings: #${NUMBERS_CSV}"
-        echo "filed deferred-finding issues: [$NUMBERS_CSV]"
-    else
-        echo "filed deferred-finding issues: []"
     fi
 fi
+# UNCONDITIONAL sentinel — OUTSIDE the aggregate guard, so it prints on every path this fence
+# can take. Inside the guard, "there was no aggregate to file" and "the fence was refused by
+# the harness" would BOTH reach you as no line at all — and this phase teaches you to read
+# "no output" as a denial. The sentinel makes the three states distinct: no line => refused;
+# manifest=[] => nothing to file (the clean no-op); manifest=[…] with an empty filed list =>
+# the real capture gap.
+echo "phase 4.0.5 filing fence ran; manifest=[${AGG:-}] filed deferred-finding issues=[${NUMBERS_CSV:-}]"
 ```
 
 The helper groups manifest entries by `file` (one issue per source file), files each issue with a repo-agnostic title/body template (`<area>: deferred review findings in <file> (carried from #<source_issue>)` and a body containing the verbatim findings plus the `PR #<pr_number>` substring that the verdict matcher's mutual-cross-link guard validates against), then rewrites the manifest in place with `id: dfr-<6-hex>` (deterministic hash of `file + symbol + kind + summary`) and `follow_up: {issue, url, filed_at, filed_by}` populated per entry. Filed issue numbers are printed to stdout, one per line.
@@ -258,10 +262,11 @@ echo "deferred labels to apply: [$CLEAN_DEFERRED_LABELS]"
 
 **A non-empty `raw` with an empty `to apply`** is a broken normalizer (a missing/denied `tr`/`sed`/`grep`), **not** an empty config — record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 resolved deferred.labels to a non-empty value but the normalizer produced an empty list (a missing/denied tr|sed|grep in the pipeline); deferred review-finding issues were filed WITHOUT labels."`
 
-Three further exits before any label is applied — the same fail-closed set Phase 4.0 carries (a rework must not lose them):
+Four further exits before any label is applied — the same fail-closed set Phase 4.0 carries (a rework must not lose them). They are read off the **sentinel** the filing fence prints unconditionally:
 
-- **No issues filed** — the printed `filed deferred-finding issues:` line is `[]`. Nothing was filed, so there is nothing to label: apply nothing. This is the clean no-op.
-- **Issues filed but no numbers readable** — deferrals *were* filed above (the manifest was hydrated) yet you can read no filed issue numbers. That is a real capture gap, not a benign no-op: record it durably and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 filed deferred review-finding issues but could not read their numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."`
+- **No `phase 4.0.5 filing fence ran` sentinel at all.** The fence was refused, not answered — do **not** read it as "nothing was filed". Record it and apply nothing: `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5's filing fence produced no output at all (likely a harness denial, not an empty aggregate); no deferred review-finding issues were filed or labelled this run."`
+- **Sentinel present, `manifest=[]`** — there was no hydrated aggregate, so nothing was filed and there is nothing to label: apply nothing. This is the clean no-op.
+- **Sentinel present with a manifest, but `filed deferred-finding issues=[]`** — deferrals *were* filed yet you can read no filed issue numbers. That is a real capture gap, not a benign no-op: record it durably and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 filed deferred review-finding issues but could not read their numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."`
 - **The config read produced no output at all** — you received no `deferred labels to apply: [...]` line whatsoever. The command was refused, not answered: do **not** read that as "no labels configured" (the capture shape is unproven on this tier — see the discipline note above). Record it and apply nothing — `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not resolve deferred.labels — the config-get command produced no output at all (likely a harness denial, not an empty config); deferred review-finding issues were filed WITHOUT labels."`
 
 If the printed `CLEAN_DEFERRED_LABELS` is present but empty (config resolved to no labels), apply nothing. Otherwise, read it and apply the labels with **single granted-literal leading-token calls, iterating at the agent level** (the label helpers must never be wrapped in a shell loop or an output capture):

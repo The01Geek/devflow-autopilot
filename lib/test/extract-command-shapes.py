@@ -98,10 +98,17 @@ _INTERPRETERS = frozenset({"python3", "python", "node"})
 _REDIR = re.compile(r"^&?[0-9]*(>>|>)(.*)$")
 
 
-def _strip_line_comment(line: str) -> str:
-    """Drop a quote-aware `#` comment from one line, keeping everything before it."""
+def _strip_line_comment(line: str, quote: str | None = None) -> tuple[str, str | None]:
+    """Drop a quote-aware `#` comment from one line. Returns `(cleaned, quote_state_out)`.
+
+    `quote` carries the open-quote state IN from the previous line. A shell string spans
+    lines, so a `#`-leading line INSIDE a multi-line double-quoted argument is argument
+    text, not a comment — stripping it would hide any capture on it. But carrying state is
+    not safe alone either (one unbalanced apostrophe would stop every later comment being
+    stripped), so `_preprocess` is run BOTH ways and the hits are unioned — see
+    `_mask_quoted_lines`, which makes the same trade for the loop scan.
+    """
     kept: list[str] = []
-    quote: str | None = None
     prev = ""
     for ch in line:
         if quote:
@@ -116,7 +123,7 @@ def _strip_line_comment(line: str) -> str:
         else:
             kept.append(ch)
         prev = ch
-    return "".join(kept)
+    return "".join(kept), quote
 
 
 def _shape_preprocess_lines(block: str) -> list[str]:
@@ -140,10 +147,10 @@ def _shape_preprocess_lines(block: str) -> list[str]:
       DOCUMENTATION fences this lint exists to scan — would blank the rest of the fence
       and let a denied shape below it ship green.
     """
-    return _preprocess(block)[0]
+    return _preprocess(block, carry_comments=False)[0]
 
 
-def _preprocess(block: str) -> tuple[list[str], list[int]]:
+def _preprocess(block: str, carry_comments: bool = False) -> tuple[list[str], list[int]]:
     """The single heredoc/comment scan. Returns `(cleaned_lines, expanding_body_offsets)`,
     where the second element lists the body lines of an UNQUOTED heredoc.
 
@@ -157,7 +164,12 @@ def _preprocess(block: str) -> tuple[list[str], list[int]]:
     """
     raw_lines = block.split("\n")
     n = len(raw_lines)
-    out = [_strip_line_comment(line) for line in raw_lines]
+    out: list[str] = []
+    _q: str | None = None
+    for _line in raw_lines:
+        _cleaned, _q_out = _strip_line_comment(_line, _q if carry_comments else None)
+        out.append(_cleaned)
+        _q = _q_out
     expanding: list[int] = []
     i = 0
     while i < n:
@@ -204,7 +216,13 @@ def _shape_preprocess(block: str) -> str:
 
 def _statements(block: str) -> list[str]:
     """Every logical statement of a fence block, substitutions descended into."""
-    cleaned = _heads._strip_case_patterns(_shape_preprocess(block))
+    return _statements_from_lines(_shape_preprocess_lines(block))
+
+
+def _statements_from_lines(clean_lines: list[str]) -> list[str]:
+    """`_statements`, from lines a caller already preprocessed (so the implement-tier scan
+    can union two different comment-strippings without re-deriving them)."""
+    cleaned = _heads._strip_case_patterns("\n".join(clean_lines))
     joined = _heads._join_continuations(cleaned)
     result: list[str] = []
     _collect_statements(joined, result)
@@ -470,8 +488,9 @@ def find_violations(text: str) -> list[tuple[int, str, str]]:
 # on issues #450/#455). The label helpers ensure-label.sh / apply-labels.sh ARE
 # granted as vendored literals, but the matcher denies WRAPPING them in a `for` /
 # piped-`while read` loop or a `VAR="$(…)"` output capture (probe rows I4/I5/I6). The
-# rules below pin exactly those wrappers AROUND A LABEL HELPER, so the Phase
-# 4.0/4.0.5 agent-level rework cannot silently regress.
+# rules below pin exactly those wrappers AROUND A LABEL HELPER, so the agent-level rework of
+# all four label channels (Phase 3.1's provenance apply, 4.0/4.0.5's deferred applies, 4.1's
+# docs apply) cannot silently regress.
 #
 # SCOPE BOUNDARY — and it rests on an INFERENCE, not a measurement. A loop or capture
 # of any OTHER command (config-get.sh, gh) is NOT flagged, because the implement skill
@@ -490,11 +509,16 @@ def find_violations(text: str) -> list[tuple[int, str, str]]:
 # a config read that produces no output (a denied command and an empty value must not
 # look the same to the agent).
 #
-# NON-GOAL (stated, not accidental): the rules match the helper by NAME, so a label helper
-# reached through a VARIABLE (`H=…/apply-labels.sh; for n in …; do "$H" "$n"; done`) is not
-# flagged. That is inherent to a name-literal desk lint — resolving it would need dataflow —
-# and the skill files never write that form. Stated here so a reader does not mistake the
-# limit for coverage; the same disclosure discipline as the I1 carve-out below.
+# NON-GOALS (stated, not accidental — a limit mistaken for coverage is how a guard lies):
+#  * The rules match the helper by NAME, so a label helper reached through a VARIABLE
+#    (`H=…/apply-labels.sh; for n in …; do "$H" "$n"; done`) is not flagged. Inherent to a
+#    name-literal desk lint — resolving it needs dataflow — and the skill files never write it.
+#  * A LOOP-EQUIVALENT per-item wrapper by another head — `… | xargs -I{} …/apply-labels.sh {} X`,
+#    `find … -exec …/apply-labels.sh …` — is not flagged either. It has the same "the helper is
+#    not the leading token" property the probe measured for I4/I5/I6, and `xargs` IS granted, so
+#    whether the matcher permits it is precisely UNMEASURED. Not flagged on no evidence; disclosed
+#    rather than silently missing. A probe row would settle it.
+#  * `select … in` is not matched (never probed, never written here).
 #
 # Probe row I1 (the unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor as a leading token) is
 # deliberately NOT a rule here: every legitimate helper call keeps the portable
@@ -519,9 +543,10 @@ def _substitution_bodies(value: str) -> list[str]:
     `"$(cmd)"` is a real substitution, and it is the exact form the denied shape uses.
     Masking preserves length, so offsets into `value` stay valid.
     """
-    # SINGLE-only mask: see `_mask_quoted`. Masking double quotes here would blank the
-    # `"$(…)"` capture that IS the denied shape — one apostrophe in the value would hide it.
-    masked = _mask_quoted(value, single_only=True)
+    # Mask SINGLE-quoted spans only, double-quote-aware (see `_mask_single_quoted`): inside
+    # `"…"` a `$(…)` IS a substitution — it is the denied shape's own spelling — and a `'`
+    # there is just an apostrophe, not a quote opener.
+    masked = _mask_single_quoted(value)
     bodies: list[str] = []
     i = 0
     n = len(value)
@@ -575,14 +600,15 @@ def _label_capture_violation(statement: str) -> bool:
 
 
 # A loop keyword only OPENS a loop in COMMAND POSITION — at the start of a statement,
-# or right after a separator (`;` `|` `&&` `||` `(` `{`), a negation/wrapper (`!`, `time`),
+# or right after a separator (`;` `|` `&&` `||` `(` `{`) or a case-arm `)` , a
+# negation/wrapper (`!`, `time`),
 # or an opening keyword (`do`/`then`/`else`). A bare `\bwhile\b` line match instead fires
 # on the word `while` anywhere — including inside a command ARGUMENT (`echo "wait a
 # while"`) — and, paired with the span rule below, swallowed every later label call in
 # the fence. Callers pass COMMENT-STRIPPED, QUOTE-MASKED lines, so neither a `#` comment
 # nor a quoted argument can supply a phantom separator or keyword.
 _LOOP_OPENER = re.compile(
-    r"(?:^|[;|&({]|\b(?:do|then|else|time)\b|!)\s*(for|while|until)\b"
+    r"(?:^|[;|&({)]|\b(?:do|then|else|time)\b|!)\s*(for|while|until)\b"
 )
 # `do` / `done` in command position, used to DEPTH-COUNT the span. Counting is what makes
 # a NESTED loop safe: taking the first `done` after the opener let an inner one-line loop
@@ -637,21 +663,32 @@ def _mask_quoted(line: str, single_only: bool = False) -> str:
     return "".join(out)
 
 
-def _mask_quoted_lines(lines: list[str]) -> list[str]:
-    """`_mask_quoted` over a block, CARRYING quote state across line boundaries.
+def _mask_quoted_lines(lines: list[str], carry: bool) -> list[str]:
+    """`_mask_quoted` over a block. `carry` selects whether quote state crosses newlines.
 
-    Masking each line independently resets the quote state at every newline, so a
-    double-quoted argument that OPENS on one line and CLOSES on a later one inverts the
-    parity of that closing line: the masker reads the closing `"` as an *opening* quote and
-    masks everything after it — including a loop opener chained on the same line. The loop
-    then has no opener, no span is scanned, and the denied loop ships GREEN. That is a real
-    fail-open, not a theoretical one: `phase-4-documentation.md` already writes multi-line
-    double-quoted arguments (`gh issue create --body "$(cat <<'EOF' … )"`) right around the
-    code the removed label loop lived in. A shell string spans lines; so must the mask.
+    NEITHER setting is safe alone, which is why `_loop_violations` scans BOTH and unions
+    the hits (a loop opener visible under *either* masking is a hit — fail-closed):
+
+    * `carry=False` (per-line): a double-quoted argument that OPENS on one line and CLOSES
+      on a later one inverts the closing line's parity — the masker reads the closing `"`
+      as an *opening* quote and masks the rest of that line, hiding a loop opener chained
+      after it. `phase-4-documentation.md` already writes such arguments
+      (`--body "$(cat <<'EOF' … )"`) around the code the removed label loop lived in.
+    * `carry=True` (stateful): an UNBALANCED quote — an apostrophe in an ordinary word
+      (`echo "the config didn't resolve"` written unquoted, a stray `'` — routine in the
+      prose-heavy fences this lint scans) — opens a span that never closes, masking every
+      line below it and hiding every loop opener in the rest of the fence.
+
+    Each masking is blind exactly where the other sees, so the union is what actually fails
+    closed. The residual cost is a possible spurious RED when a loop keyword AND a label
+    helper both sit inside a multi-line quoted string (the per-line pass reads the string's
+    later lines as code). That is the safe direction, and no fence writes that shape.
     """
     out: list[str] = []
     quote: str | None = None
     for line in lines:
+        if not carry:
+            quote = None
         kept: list[str] = []
         prev = ""
         for ch in line:
@@ -671,6 +708,44 @@ def _mask_quoted_lines(lines: list[str]) -> list[str]:
     return out
 
 
+def _mask_single_quoted(text: str) -> str:
+    """Mask the content of `'…'` spans ONLY, tracking double-quote state so a `'` INSIDE a
+    double-quoted string is not mistaken for a quote opener.
+
+    This is what `_substitution_bodies` needs, and getting it wrong is a fail-open: with a
+    naive single-quote-only scan, an apostrophe inside a double-quoted argument — `gh issue
+    comment -b "Doesn't matter: $(apply-labels.sh …)"`, and an English message body
+    routinely has one — opens a phantom single-quoted span that never closes, masking the
+    `$(` so IR3 never sees the capture. Inside `"…"` a `$(…)` IS a substitution and a `'` is
+    just a character; inside `'…'` neither is. Length is preserved (callers slice by offset).
+    """
+    out: list[str] = []
+    in_s = False
+    in_d = False
+    prev = ""
+    for ch in text:
+        if in_s:
+            if ch == "'":
+                in_s = False
+                out.append(ch)
+            else:
+                out.append("x")
+        elif in_d:
+            out.append(ch)
+            if ch == '"' and prev != "\\":
+                in_d = False
+        elif ch == "'":
+            in_s = True
+            out.append(ch)
+        elif ch == '"':
+            in_d = True
+            out.append(ch)
+        else:
+            out.append(ch)
+        prev = ch
+    return "".join(out)
+
+
 def _loop_violations(lines: list[str]) -> list[tuple[int, str]]:
     """IR1/IR2: a `for` loop — any spelling, incl. C-style `for ((…))` (IR1) — or a
     `while` / `until` loop (IR2) whose do…done span invokes a label helper (probe rows
@@ -687,17 +762,25 @@ def _loop_violations(lines: list[str]) -> list[tuple[int, str]]:
     (that made every later label call in the block a phantom hit of a loop that does not
     exist).
     """
-    hits: list[tuple[int, str]] = []
-    n = len(lines)
     # SHELL STRUCTURE (loop openers, `done`) is read from the QUOTE-MASKED lines, so a
     # separator or keyword inside a quoted argument cannot fake a loop. The LABEL-HELPER
     # search runs over the UNMASKED lines, because a real denied call routinely sits
     # inside quotes — the removed Phase 4.0 shape was `LBL_ERR="$(… apply-labels.sh …)"`,
     # whose helper name lives inside a double-quoted capture. Masking both would blind
     # IR1/IR2 to precisely the shape they exist to catch. Same length, so offsets align.
-    # The mask CARRIES quote state across lines (see `_mask_quoted_lines`) — resetting it
-    # per line let a multi-line quoted argument hide a loop opener on its closing line.
-    masked = _mask_quoted_lines(lines)
+    # BOTH maskings are scanned and the hits UNIONED — each is blind exactly where the
+    # other sees (see `_mask_quoted_lines`), so only the union fails closed.
+    hits_seen: set[tuple[int, str]] = set()
+    for masked in (_mask_quoted_lines(lines, carry=True), _mask_quoted_lines(lines, carry=False)):
+        for hit in _scan_loops(lines, masked):
+            hits_seen.add(hit)
+    return sorted(hits_seen)
+
+
+def _scan_loops(lines: list[str], masked: list[str]) -> list[tuple[int, str]]:
+    """One loop scan over one masking of `lines` (see `_loop_violations`, which unions two)."""
+    hits: list[tuple[int, str]] = []
+    n = len(lines)
     i = 0
     while i < n:
         opener = _LOOP_OPENER.search(masked[i])
@@ -736,24 +819,29 @@ def find_implement_violations(text: str) -> list[tuple[int, str, str]]:
     hits: list[tuple[int, str, str]] = []
     for start, block in _fence_line_offsets(text):
         block_lines = block.split("\n")
-        # Comment-stripped, heredoc-blanked, LINE-ALIGNED with block_lines — the same
-        # cleaning `_statements()` (and every review-tier rule) applies. Scanning raw
-        # lines here made a `#` comment mentioning `while`/`for … in` a false hit.
-        clean_lines, expanding = _preprocess(block)
-        for statement in _statements(block):
-            if not _label_capture_violation(statement):
-                continue
-            lineno = _attribute_line(statement, start, len(block_lines), lines)
-            hits.append((lineno, "IR3", statement.strip()))
-        # IR3 in an UNQUOTED heredoc body: blanked above (its text is data, not commands),
-        # but the shell still EXPANDS a `$(…)` there — so a label-helper capture written in
-        # `gh issue comment -F - <<EOF … $(apply-labels.sh …) … EOF` really executes, and
-        # blanking alone would hide the denied shape. Re-scan just those lines.
-        for off in expanding:
-            if _label_capture_violation(block_lines[off]):
-                hits.append((start + off, "IR3", block_lines[off].strip()))
-        for off, rule in _loop_violations(clean_lines):
-            hits.append((start + off, rule, block_lines[off].strip()))
+        seen: set[tuple[int, str, str]] = set()
+        # Preprocess BOTH ways and union the hits. The comment stripper has the same
+        # per-line-vs-carried quote dilemma the loop mask does: a `#`-leading line INSIDE a
+        # multi-line double-quoted argument is argument text (carried is right), but one
+        # unbalanced apostrophe would stop every later comment being stripped (per-line is
+        # right). Each is blind exactly where the other sees, so only the union fails closed.
+        for carry in (False, True):
+            clean_lines, expanding = _preprocess(block, carry_comments=carry)
+            for statement in _statements_from_lines(clean_lines):
+                if not _label_capture_violation(statement):
+                    continue
+                lineno = _attribute_line(statement, start, len(block_lines), lines)
+                seen.add((lineno, "IR3", statement.strip()))
+            # IR3 in an UNQUOTED heredoc body: blanked above (its text is data, not
+            # commands), but the shell still EXPANDS a `$(…)` there — so a label-helper
+            # capture in `gh issue comment -F - <<EOF … $(apply-labels.sh …) … EOF` really
+            # executes, and blanking alone would hide the denied shape. Re-scan those lines.
+            for off in expanding:
+                if _label_capture_violation(block_lines[off]):
+                    seen.add((start + off, "IR3", block_lines[off].strip()))
+            for off, rule in _loop_violations(clean_lines):
+                seen.add((start + off, rule, block_lines[off].strip()))
+        hits.extend(sorted(seen))
     return hits
 
 
