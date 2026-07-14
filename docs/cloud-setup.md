@@ -218,6 +218,64 @@ restore the default-token behavior. The read-only review run has the same fail-l
 contract, but under its own `DEVFLOW_REVIEWER_APP_ID` (unset *that* to restore the
 review run's default token) — see the DevFlow-Reviewer section below.
 
+### Keeping writer-job credentials fresh past the token's 60-minute lifetime
+
+A GitHub App installation token expires **exactly one hour** after it is minted and
+cannot be renewed — only replaced by a fresh mint. DevFlow's writer jobs mint one
+token at job start and ride it for the whole run, so a `/devflow:implement` or
+`/devflow:review-and-fix` run that **outlives that hour** used to spend its remainder
+with dead credentials: the agent's `git push` and every agent-side `gh` call both
+`401`. The two writer jobs (`devflow-implement.yml`'s `claude` job and `devflow.yml`'s
+`command` job) fix this with a **long-run credential refresher**, gated on the **same**
+`vars.DEVFLOW_APP_ID != ''` condition as the App-token mint above — when the App is
+unconfigured, every step below is skipped and behavior is **byte-identical** to today.
+(The refresher is also excluded on the read-only `/devflow:review` path, which uses the
+downscoped reviewer token and never pushes.)
+
+**What it does.** After checkout — and before the `claude` step — the job starts
+`scripts/refresh-app-credentials.sh loop` as a **detached `nohup` background process**
+(deliberately *not* a `background:` step, a keyword `actionlint` rejects). The
+refresher holds the App credentials and, on a **45-minute cadence** (dropping to a
+**2-minute backoff** after a failed cycle until one succeeds), re-mints a fresh
+installation token and rewrites the two repo-controlled credential surfaces in place:
+
+1. the checkout-persisted `http.<server>/.extraheader` credential every in-run
+   `git push` authenticates with (it *rewrites* that credential of record — it never
+   replaces the push mechanism), and
+2. a mode-0600 token file that the agent-side `gh` wrapper (`scripts/gh-fresh.sh`)
+   reads at call time. The wrapper is wired both as `DEVFLOW_GH` (DevFlow's own
+   gh-callers resolve `gh` through that seam) and ahead of the real `gh` on `PATH`, so
+   direct `gh` calls resolve the fresh token too. It discriminates the ambient
+   job-start token from a deliberately-fresh backstop mint by fingerprint, so it only
+   substitutes the refreshed token where the ambient (expiring) one would be used.
+
+**Key handling.** The App's PEM private key is piped to the refresher's **stdin** — it
+is never re-exported into an environment variable visible to the agent session, never
+passed as a process argument, and never written to disk (the JWT is signed with the
+key handed to `openssl` over a file descriptor). The key lives only in the trusted
+refresher process's own environment.
+
+**Least privilege.** Each re-minted token is **scoped to this repository only**
+(`repositories: [<repo>]`), matching the job-start token's default scope rather than
+minting an installation-wide token across every repo the App is installed on.
+
+**Loud degrade.** The refresher is best-effort and never fails the job: a failed cycle
+leaves the previous credential in place, emits a per-arm `::warning::` naming what
+failed, and warns-and-continues. Because a background process's `::warning::` lines are
+inert in the Actions UI, an `if: always()` **Stop credential refresher** step
+(`scripts/stop-refresher.sh`) retires the refresher by pidfile, tails its detached log
+into the step output, and re-emits **one** live `::warning::` when the refresher was
+actually defeated (never started/crashed before its first cycle, or its most recent
+cycle failed) — so a run that silently lost its credentials is visible without log
+archaeology.
+
+**Disclosed residual.** This refresher keeps DevFlow's own `git push` and `gh` calls
+fresh, but `claude-code-action`'s **own internal API calls** still ride the static
+`github_token` input passed to the action, which is not refreshed. That is an upstream
+limitation tracked at `anthropics/claude-code-action#716`; until it lands, an extremely
+long run can still see the action's internal calls fail on the expired token even
+though DevFlow's push/gh surfaces stay fresh.
+
 ### The dedicated DevFlow-Reviewer app (review identity)
 
 GitHub forbids **requesting changes on — or approving — your own pull request**.
