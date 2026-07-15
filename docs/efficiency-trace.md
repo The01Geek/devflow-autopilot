@@ -125,7 +125,11 @@ discriminator that scopes the workpad directory), **not** a fresh `date` timesta
 refs/heads/<branch>:.devflow/logs/efficiency/<slug>-<run-id>.json` — the fully-qualified ref the
 code actually probes, not a bare-name lookup) and never re-derives an existing record, so a
 re-run is a clean no-op (no new branch commit, `generated_at` unchanged) and a run is never recorded
-twice. The record carries:
+twice. **The one exception is the harness-cost floor's merge arm (Layer 4, issue #475):** on a
+cooperative run it adds a single `harness_cost` key to this run's already-persisted record — one
+extra branch commit that byte-preserves `generated_at` and every other field. A record that already
+carries `harness_cost` is left untouched, so re-running the backstop is still a clean no-op ending at
+the tree-equality guard, and every OTHER path stays strictly per-run-immutable. The record carries:
 
 - `schema_version`, `slug`, `generated_at`, `iterations`, and `synthesized` — record-level `true`
   when **any** iteration was reconstructed by `--persist`'s synthesis floor rather than written by
@@ -162,6 +166,15 @@ twice. The record carries:
   wall-clock) lifted out of each workpad, so cost data is no longer lost with `.devflow/tmp/`.
   Each entry's `phases` mirrors the workpad's `telemetry` block **verbatim** (unnormalized; `null`
   when the workpad recorded none) — it is a pass-through, not a versioned sub-schema.
+- `harness_cost` — the **harness-side cost floor** (Layer 4, issue #475), added by `--persist`'s
+  merge arm from `claude-code-action`'s `execution_file` when the cloud backstop supplies it. A
+  distinct top-level object `{cost_source: "execution-file", engine_version, workflow, command,
+  scope: "whole-job", cost_usd, tokens, model_usage, num_turns, duration_ms}`. It is **whole-JOB**
+  cost, not per-phase: `scope`/`workflow` mark that so analyses segment by `workflow` and never
+  compare it to per-phase `telemetry` figures as like-for-like. It is deliberately **invisible** to
+  `_run_cost`/`_telemetry_complete` (neither reads `harness_cost` — `_run_cost` sums only
+  `telemetry`, and `_telemetry_complete` reads only `telemetry` and `synthesized`), so per-phase
+  aggregates are unchanged by its presence. Absent on records from a run whose execution file the floor never saw.
 
 A run with zero readable iterations (catastrophic early failure) writes **no record at all** rather
 than a contentless skeleton — symmetric with the flag-off contract.
@@ -300,9 +313,10 @@ design.** The **effectiveness** data — findings-per-agent, dispatch counts, ve
 is in the agent's context during *any* run, including a hand-run; it is lost only because the
 `iter-<N>.json` write was optional, so it is made recoverable by turning that write into a
 **non-optional obligation** (see Layer 1). The **token/wall-clock cost** half is captured *live* by
-the running loop; when a loop is abandoned, no backstop DevFlow currently ships reconstructs it, so
-the emit-obligation guarantees the effectiveness half but does **not** promise the cost half — keep
-the loop running live to protect it. Whether an *agent-independent* floor **could** reconstruct the
+the running loop; when a loop is abandoned, the **cloud** tier's Layer-4 harness-side cost floor
+(#475, below) reconstructs the cost from `claude-code-action`'s `execution_file`, but the **local**
+tier ships no such backstop, so there the emit-obligation guarantees the effectiveness half but does
+**not** promise the cost half — keep the loop running live to protect it. Whether an *agent-independent* floor **could** reconstruct the
 cost half from the harness's own output — `claude-code-action`'s `execution_file` and the `Stop`-hook
 transcript — was long asserted here as settled fact ("no backstop can reconstruct it"), but that
 assertion was never measured. Issue #437 replaced the assertion with a re-runnable probe
@@ -329,11 +343,13 @@ parity; the cloud row is a full field sweep, the local row is a token-realness c
 So *"no backstop **can** reconstruct the cost half"* is **not true**, and repeating it steered three
 issues' worth of work (#170, #381, #426) into building ever-more-elaborate floors fed by operands the
 agent had to volunteer, while the harness was emitting the same data, deterministically, the whole
-time. The honest statement is the weaker one: **no backstop DevFlow currently *ships* reconstructs
-it** — a gap in what we built, not a law of the platform. An agent-independent (class-(c)) cost floor
-is **buildable on both tiers** — on the cloud tier from the full observed field set above, on the
-local tier from the transcript's real token counts (wall-clock and the dispatch roster were *not*
-measured there, so a local floor's phase attribution is an open question, not an observed fact); see
+time. The honest statement was the weaker one: **no backstop DevFlow *shipped* reconstructed it** — a
+gap in what we built, not a law of the platform. An agent-independent (class-(c)) cost floor is
+**buildable on both tiers**, and **#475 builds the cloud half** (the Layer-4 harness-side cost floor,
+below): on the cloud tier `--persist` now reconstructs cost from the full observed field set above.
+The **local** tier remains buildable-but-unbuilt — from the transcript's real token counts (wall-clock
+and the dispatch roster were *not* measured there, so a local floor's phase attribution is an open
+question, not an observed fact); see
 [`docs/execution-file-shape.md`](execution-file-shape.md) for the observed shape and the run URL, and
 build against that record rather than this paragraph.
 
@@ -466,6 +482,14 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
       bash "$HELPER" --persist
       exit 0
   ```
+
+  **Issue #475 extends this step (both workflows) with the harness-cost floor glue** (the actual
+  workflow YAML is the source of truth — this doc snippet is the pre-#475 core it builds on): the
+  step now sets `EXECUTION_FILE` / `DEVFLOW_COMMAND` / `DEVFLOW_CANDIDATE_NUMBER` / `GH_TOKEN` in its
+  `env:`, runs `scripts/prepare-harness-floor.sh` (guarded by the same `[ -f ]` pattern as `$HELPER`,
+  with a named `::warning::` when a vendored tree pinned to an older `devflow_version` lacks it), and
+  passes the resulting `DEVFLOW_EXECUTION_COST` / `DEVFLOW_EXECUTION_PR` / `DEVFLOW_COMMAND_CLASS` on
+  the `bash "$HELPER" --persist` line. See **Layer 4** above.
 
 - *`/devflow:implement` Phase 3.3 inline backstop (agent-executed).* `/devflow:implement` drives
   `/devflow:review-and-fix` **inline in the orchestrator's own context** (Phase 3.3), so its Loop Exit
@@ -611,13 +635,22 @@ self-check warning maximize capture, but it remains irreducibly agent-dependent)
 `--persist` carries a second, narrower synthesis floor for the **shadow** block, sibling to the
 iter floor above. The shadow pass (`/devflow:review-and-fix` Step 2.6) appends a `shadow` block to
 the triggering iter's workpad, but that block can drop entirely (the issue-304 drop shape), leaving
-a promotion with no record of the shadow that produced it. When an `iter-<N>.json` carries **no
-`shadow` block** but the run holds **promotion evidence** — an `iter-<N+1>.json` with
-`loop_role: "promoted"`, meaning iteration N's shadow promoted new findings into iteration N+1 —
-`synthesize_shadow_markers` writes a minimal marker into `iter-<N>.json`'s `shadow` field:
+a promotion with no record of whether a predecessor shadow ran. A promoted successor now carries
+`promotion_provenance`, which separates shadow precedence from the broader `loop_role`:
 
-- *Synthesized shadow-marker shape.* Exactly `shadow_synthesized: true` and
-  `promoted_to_iter_next: true` (the promotion linkage). `--self-check` validates a
+- `shadow` recovers a dropped block with `promoted_to_iter_next: true`;
+- `park-calibration-post-shadow` recovers one with `promoted_to_iter_next: false`;
+- `park-calibration-pre-shadow` writes nothing because no predecessor shadow ran;
+- any other non-empty string writes nothing and warns; absent, null, empty, or non-string values
+  recover the legacy floor with `provenance_unestablished: true` and hedged warning text.
+
+Park-gate promotion credit lives only in provenance and never changes a surviving predecessor
+shadow block. Future promotion producers must choose a defined value to opt into drop recovery; an
+unknown string defaults to no synthesis, with a breadcrumb.
+
+- *Synthesized shadow-marker shape.* Established `shadow` and post-shadow markers contain exactly
+  `shadow_synthesized` and `promoted_to_iter_next`; the post-shadow value is false. The hedged legacy
+  arm adds only `provenance_unestablished: true`. `--self-check` validates a
   `shadow_synthesized: true` block against this minimal set (`SHADOW_SYNTH_EXPECTED_FIELDS`) as a
   recognized degraded class — a truncated synthesized marker still warns, exactly like a truncated
   synthesized iter record; a real (agent-written) shadow block carries no `shadow_synthesized` key
@@ -633,8 +666,7 @@ a promotion with no record of the shadow that produced it. When an `iter-<N>.jso
   own errno (read-only mount, `ENOSPC`) — rather than discarding it, so a floor that could not write
   is diagnosable rather than merely reported. On either failure the source `iter-<N>.json` is left
   untouched and the temp file is removed: no half-written marker, no orphaned `.shadowtmp`.
-- *Stated limitation — promoted shadows only.* The floor recovers a dropped shadow block **only**
-  when promotion evidence survives. A clean outcome-1 shadow whose block dropped leaves no promotion
+- *Stated limitation — provenance-licensed shadows only.* A clean outcome-1 shadow whose block dropped leaves no promotion
   evidence to synthesize from, so it is unrecoverable here — the fused Step 2.6 emit (mandatory on
   both termination paths, authored with the Write tool) is the primary fix and this floor is its
   backstop, not its equal. Like the iter floor, it recovers **attribution, not cost**: the
@@ -643,6 +675,49 @@ a promotion with no record of the shadow that produced it. When an `iter-<N>.jso
   floor is no longer asserted here as settled — it was **measured by the #437 probe**, with the
   observed result recorded in [`docs/execution-file-shape.md`](execution-file-shape.md).
   Older records without the marker remain valid.
+
+**Layer 4 — harness-side cost floor (issue #475): the FIRST floor NOT fed by an agent-volunteered
+operand.** Every layer above reconstructs a record from artifacts the agent authored (workpads, fix
+commits). This floor's operand is `claude-code-action`'s `execution_file` — written **harness-side**,
+independent of anything the agent volunteers — so a cloud run that dropped every telemetry emit still
+contributes a **cost** record. That closes the specific gap the layers above leave open: they recover
+*structure* but never the *cost* half, because that half was only ever in the agent's live context.
+The #437 probe ([`docs/execution-file-shape.md`](execution-file-shape.md)) established the execution
+file carries cost directly (`costUSD`/`total_cost_usd`, per-model `modelUsage`, per-message `usage`),
+so the floor is buildable on the cloud tier without the agent's cooperation.
+
+- *Reader (`scripts/extract-execution-cost.py`).* A stdlib-only, slurp-tolerant (object / array /
+  JSONL) normalizer that prints `{cost_usd, tokens{…}, model_usage, num_turns, duration_ms}`, with
+  every absent figure `null` (never `0` — unknown-is-not-zero). Best-effort exit-0 over the full
+  adversarial input matrix. It is **never** exec'd from `lib/efficiency-trace.sh` — that would add a
+  `python3` exec edge to a Stop-hook trusted-closure entry (the #458 constraint) — so the glue helper
+  runs it and passes the normalized JSON in via the environment.
+- *Glue (`scripts/prepare-harness-floor.sh`).* The backstop-step branch selector (extracted per the
+  `describe-denial-count.sh` inline-shell convention, so every branch is suite-drivable): it runs the
+  reader, resolves/verifies the run's PR via `gh` (`lib/resolve-gh.sh`), and emits the floor env
+  values. Each non-happy branch (execution file absent, not-a-PR, lookup failed, `pr-description`
+  class) leaves a specific `::warning::` so a skipped skeleton/inert floor is auditable in the step log.
+- *Writer (`--persist`, `apply_harness_floor`).* Gated exactly like record derivation
+  (`efficiency_telemetry_enabled`). It attaches `harness_cost` to **exactly** the record whose run-id
+  equals this run's `${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}` identity — via a **merge arm** (a
+  record derived this pass, or one already on the branch read back with `devflow_telemetry_show_blob`
+  and re-staged add-if-absent, byte-preserving `generated_at`) or a **skeleton arm** (a minimal
+  `{schema_version:1, slug: pr-<N>, generated_at, source: null, synthesized: true, iterations: 0,
+  per_iteration: [], telemetry: [], harness_cost}` when no record for the run-id exists and the
+  command class derives records; `pr-description` takes a no-record-by-design breadcrumb instead).
+  With the floor env unset, `--persist` is byte-identical to before and silent about the floor.
+- *Race safety.* The floor makes the store's first path **mutation**, so the push-retry union
+  (`commit_union_on`) is now **merge-aware** (base-wins by default; a path this run did not stage
+  never overwrites the base side; a staged efficiency record present on base re-applies the
+  add-if-absent `harness_cost` onto the fetched base version) — so a stale local snapshot does not
+  revert another writer's `harness_cost` on the normal jq-available merge path (a jq-unavailable or
+  empty-blob fallback to a plain local-wins overlay remains possible and is disclosed by a named
+  `::warning::` — the "narrows, never closes" posture, not an absolute).
+- *Coverage boundaries (explicit, so `harness_cost` presence is never read as complete cloud-cost
+  coverage).* A hard-death run that never produced an execution file stays uncovered (a named inert
+  breadcrumb in the backstop log, never silent). The read-only auto-review tier
+  (`devflow-runner.yml`) is **cost-unmeasured** by this floor — it has no persist step (following-up
+  scope, once #469's artifact-staged pusher lands).
 
 ## The unified experiment record (`experiment-records.jsonl`)
 
@@ -675,7 +750,9 @@ joined fields:
   per-run `cost` (never newest-wins, since discarding earlier runs' cost corrupts a cost-vs-outcome
   experiment). Both slug families are resolved: `pr-<N>` directly, and the branch slug from the
   retrospective entry's `branch` field (with a `gh` lookup fallback). Each entry also carries
-  `synthesized`, `iterations`, `run_id`, `config_fingerprint`, and `telemetry_complete`.
+  `synthesized`, `iterations`, `run_id`, `config_fingerprint`, `telemetry_complete`, and
+  `harness_cost` (issue #475 — the Layer-4 floor's whole-job cost, passed through verbatim by
+  `_efficiency_entry`; `null` when the run has none, and deliberately NOT summed into `cost`).
 - **`telemetry_complete`** (per efficiency run) — `true` **only** when the record is not synthesized,
   every iteration carries non-null token telemetry, and no degradation breadcrumb is present. Analyses
   exclude degraded records **by this flag** rather than silently averaging them in.

@@ -7017,8 +7017,12 @@ assert_pin_unique "#350: Phase 2.5 guard keys on the same cloud + DEVFLOW_APP_ID
   'the same condition Pass 5 keys on: cloud tier (`GITHUB_ACTIONS=true`) with `DEVFLOW_APP_ID` empty/unset' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#350 (Important-1): Phase 2.5 guard reverts files coupled to a reverted workflow (else CI-red)" \
   'revert every file coupled to it in the same step' "$IMPL_PHASES_DIR/phase-2-implement.md"
-assert_pin_unique "#350: devflow-implement.yml exports DEVFLOW_APP_ID into the agent env (Pass 5's observable signal)" \
-  'DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}' "$IMPL_YML"
+# Presence (not uniqueness): the export appears in the Run Claude Code step AND, since
+# issue #487, a second legitimate copy in the 'Start credential refresher' step env
+# (which feeds the same vars.DEVFLOW_APP_ID to the refresher's mint). The load-bearing
+# guard is the structural check below, which confirms it sits in the Run Claude Code step.
+assert_eq "#350: devflow-implement.yml exports DEVFLOW_APP_ID into the agent env (Pass 5's observable signal)" "yes" \
+  "$(grep -qF 'DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}' "$IMPL_YML" && echo yes || echo no)"
 # Structurally confirm the export sits inside the 'Run Claude Code' step (between its
 # `name:` and its `with:`), so the /devflow:implement agent actually reads it — a bare
 # count could pass on a line stranded in the wrong step.
@@ -14849,9 +14853,11 @@ assert_eq "review-identity: devflow.yml command github_token is the review-condi
 assert_eq "review-identity: devflow.yml review branch selects reviewer-token, primary app token only in the else" "1" \
   "$(grep -cF "startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.reviewer-token.outputs.token" "$WF/devflow.yml")"
 # The primary-app mint in devflow.yml is now SKIPPED on the review command, so it
-# can never author the review — pin the negated startsWith on its if:.
+# can never author the review — pin the negated startsWith on its if:. Scoped to the
+# mint step's block (mint_blk): since issue #487 the same gate also guards the
+# refresher/wrapper-install steps, so a whole-file count is no longer 1.
 assert_eq "review-identity: devflow.yml primary app-token mint is skipped on /devflow:review" "1" \
-  "$(grep -cF "vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ')" "$WF/devflow.yml")"
+  "$(printf '%s\n' "$(mint_blk 'Mint workflow-capable token (optional)' "$WF/devflow.yml")" | grep -cF "vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ')")"
 # Conversely, devflow.yml's reviewer mint fires ONLY on the review command — pin the
 # positive startsWith conjunct on its if: so dropping it (which would mint the reviewer
 # token on /devflow:pr-description too) goes RED, keeping the mint scoped to /devflow:review.
@@ -16506,6 +16512,777 @@ assert_eq "et-persist: targeted --slug-absent → slug from parent dir name (on 
   "$(_et_on_branch "$ETPT_REPO" ".devflow/logs/efficiency/pr-23-run-u.json")"
 rm -rf "$ETPT_REPO"
 
+# ── issue #475: harness-side cost floor — merge the execution_file's cost into
+# per-run efficiency records through --persist (reader + merge/skeleton arms +
+# merge-aware union + glue) ───────────────────────────────────────────────────
+echo "harness-side cost floor (issue #475)"
+HC_READER="$LIB/../scripts/extract-execution-cost.py"
+HC_GLUE="$LIB/../scripts/prepare-harness-floor.sh"
+# The reader's normalized JSON, as the glue would hand it to --persist.
+HC_COST='{"cost_usd":0.42,"tokens":{"input_tokens":150,"output_tokens":5,"cache_read_input_tokens":null,"cache_creation_input_tokens":null,"total_tokens":105},"model_usage":{"m":{"x":1}},"num_turns":9,"duration_ms":8000}'
+
+# ── A1/A2: the reader over the full adversarial input matrix ──────────────────
+HC_FX="$(git_sandbox "hc reader fixtures")"
+# valid-falsy boundary (AC1): costUSD:0 → cost_usd:0 ; key absent → cost_usd:null.
+printf '%s' '{"type":"result","costUSD":0,"num_turns":3,"duration_ms":12}' > "$HC_FX/cost0.json"
+assert_eq "hc-reader(A1): costUSD:0 → cost_usd:0 (valid-falsy, never coerced to null)" "0" \
+  "$(python3 "$HC_READER" "$HC_FX/cost0.json" 2>/dev/null | jq -c '.cost_usd')"
+printf '%s' '{"type":"result","num_turns":3}' > "$HC_FX/costabsent.json"
+assert_eq "hc-reader(A1): cost key absent → cost_usd:null (unknown-is-not-zero)" "null" \
+  "$(python3 "$HC_READER" "$HC_FX/costabsent.json" 2>/dev/null | jq -c '.cost_usd')"
+# array shape + per-message usage accumulation.
+printf '%s' '[{"usage":{"input_tokens":100,"total_tokens":105}},{"usage":{"input_tokens":50,"cache_read_input_tokens":7}},{"type":"result","total_cost_usd":1.5,"num_turns":9}]' > "$HC_FX/arr.json"
+assert_eq "hc-reader(A2): array shape → cost from result event" "1.5" \
+  "$(python3 "$HC_READER" "$HC_FX/arr.json" 2>/dev/null | jq -c '.cost_usd')"
+assert_eq "hc-reader(A2): per-message usage input_tokens summed across events" "150" \
+  "$(python3 "$HC_READER" "$HC_FX/arr.json" 2>/dev/null | jq -c '.tokens.input_tokens')"
+assert_eq "hc-reader(A2): a token never seen stays null (not 0)" "null" \
+  "$(python3 "$HC_READER" "$HC_FX/arr.json" 2>/dev/null | jq -c '.tokens.output_tokens')"
+# A2 (token double-count, issue #475 review): when the file carries BOTH per-message
+# `usage` AND a result-summary cumulative `usage`, the reader must take the AUTHORITATIVE
+# result total — NOT sum per-message + result (the double-count bug). Here per-message sums
+# to 300 but the result cumulative is 500 (cache accounting differs), so the three possible
+# impls are distinguishable: correct(prefer-result)=500, old-bug(sum-all)=800,
+# fallback-only(sum-per-message)=300. Pinning ==500 fails RED against both wrong impls.
+printf '%s' '[{"type":"assistant","message":{"usage":{"input_tokens":100}}},{"type":"assistant","message":{"usage":{"input_tokens":200}}},{"type":"result","total_cost_usd":3,"usage":{"input_tokens":500,"output_tokens":42}}]' > "$HC_FX/dualusage.json"
+assert_eq "hc-reader(A2): result-summary usage is authoritative (no per-message double-count)" "500" \
+  "$(python3 "$HC_READER" "$HC_FX/dualusage.json" 2>/dev/null | jq -c '.tokens.input_tokens')"
+assert_eq "hc-reader(A2): a token present only on the result-summary usage is read (output=42)" "42" \
+  "$(python3 "$HC_READER" "$HC_FX/dualusage.json" 2>/dev/null | jq -c '.tokens.output_tokens')"
+# JSONL shape.
+printf '%s\n%s\n' '{"usage":{"input_tokens":9}}' '{"type":"result","total_cost_usd":2}' > "$HC_FX/lines.json"
+assert_eq "hc-reader(A2): JSONL shape tolerated → cost read" "2" \
+  "$(python3 "$HC_READER" "$HC_FX/lines.json" 2>/dev/null | jq -c '.cost_usd')"
+# scalar: parses but no figures → all-null object printed, exit 0.
+printf '42' > "$HC_FX/scalar.json"
+assert_eq "hc-reader(A2): scalar parses but lacks figures → prints an all-null object" "null" \
+  "$(python3 "$HC_READER" "$HC_FX/scalar.json" 2>/dev/null | jq -c '.cost_usd')"
+HC_SCALAR_ERR="$(python3 "$HC_READER" "$HC_FX/scalar.json" 2>&1 1>/dev/null)"
+assert_eq "hc-reader(A2): scalar shape → a specific stderr breadcrumb" "yes" \
+  "$(printf '%s' "$HC_SCALAR_ERR" | grep -qF 'scalar' && echo yes || echo no)"
+# wrong-type fields: each is treated as absent while a sibling numeric value still reads.
+printf '%s' '[{"type":"result","costUSD":"abc","duration_ms":900}]' > "$HC_FX/wrong.json"
+assert_eq "hc-reader(A2): wrong-type cost field → null (treated as absent)" "null" \
+  "$(python3 "$HC_READER" "$HC_FX/wrong.json" 2>/dev/null | jq -c '.cost_usd')"
+assert_eq "hc-reader(A2): a sibling numeric field is still read past a wrong-type one" "900" \
+  "$(python3 "$HC_READER" "$HC_FX/wrong.json" 2>/dev/null | jq -c '.duration_ms')"
+# AC2 breadcrumb-specificity: every abnormal shape must draw its OWN specific breadcrumb
+# (the never-silent discipline), not merely exit 0 — a swapped/dropped breadcrumb string
+# on any arm would otherwise ship green.
+assert_eq "hc-reader(A2): wrong-type field → its specific 'not a numeric figure' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_FX/wrong.json" 2>&1 1>/dev/null | grep -qF 'not a numeric figure' && echo yes || echo no)"
+# missing file → cannot parse at all → prints NOTHING, exit 0.
+assert_eq "hc-reader(A2): missing file → prints nothing (cannot parse at all)" "" \
+  "$(python3 "$HC_READER" "$HC_FX/does-not-exist.json" 2>/dev/null)"
+HC_MISS_RC=0; python3 "$HC_READER" "$HC_FX/does-not-exist.json" >/dev/null 2>&1 || HC_MISS_RC=$?
+assert_eq "hc-reader(A2): missing file → still exit 0 (best-effort)" "0" "$HC_MISS_RC"
+assert_eq "hc-reader(A2): missing file → its specific 'could not be read' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_FX/does-not-exist.json" 2>&1 1>/dev/null | grep -qF 'could not be read' && echo yes || echo no)"
+# empty file → distinct arm (prints nothing, its own 'is empty' breadcrumb, exit 0).
+printf '' > "$HC_FX/empty.json"
+assert_eq "hc-reader(A2): empty file → prints nothing" "" \
+  "$(python3 "$HC_READER" "$HC_FX/empty.json" 2>/dev/null)"
+assert_eq "hc-reader(A2): empty file → its specific 'is empty' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_FX/empty.json" 2>&1 1>/dev/null | grep -qF 'is empty' && echo yes || echo no)"
+# garbage (not JSON, not JSONL) → prints nothing, exit 0.
+printf '%s' 'not json { [ oops' > "$HC_FX/garbage.json"
+assert_eq "hc-reader(A2): unparseable garbage → prints nothing" "" \
+  "$(python3 "$HC_READER" "$HC_FX/garbage.json" 2>/dev/null)"
+assert_eq "hc-reader(A2): unparseable garbage → its specific 'could not be parsed' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_FX/garbage.json" 2>&1 1>/dev/null | grep -qF 'could not be parsed as JSON or JSONL' && echo yes || echo no)"
+rm -rf "$HC_FX"
+
+# ── Shared scratch repo for the --persist floor arms ─────────────────────────
+# $1 = a label; echoes the repo path. Seeds a repo with a bare remote so the
+# branch write + push land somewhere real (mirrors the #441 et-persist harness).
+_hc_repo() {
+  local bare repo
+  bare="$(git_sandbox "$1 bare")"; git -C "$bare" init --bare -q
+  repo="$(git_sandbox "$1 repo")"; git -C "$repo" init -q
+  git -C "$repo" config user.email t@e.com; git -C "$repo" config user.name t
+  git -C "$repo" remote add origin "$bare"
+  mkdir -p "$repo/.devflow"; printf 'tmp/\n' > "$repo/.devflow/.gitignore"
+  git -C "$repo" add -A; git -C "$repo" commit -qm seed; git -C "$repo" branch -M main
+  git -C "$repo" push -q -u origin main
+  printf '%s\n' "$repo"
+}
+HC_ITER='{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":1,"tokens":10,"wall_clock_s":1}}}'
+
+# ── A3: run-id targeting + merge arm (a, staged this pass) ────────────────────
+# Two run dirs with DISTINCT run-ids; only the one matching the env identity (999-1)
+# gains harness_cost. The non-matching record's filename (pr-11-888-2.json) is chosen to
+# sort ALPHABETICALLY BEFORE the matching one (pr-77-999-1.json) — load-bearing, do NOT
+# renumber it back: the merge arm attaches to the FIRST glob match then returns, so if the
+# glob were broadened to `*.json`, the FIRST match would be the non-matching pr-11 and the
+# "matching gained harness_cost" assertion would fail RED. Were the matching record to sort
+# first instead, a broadened-glob regression would still attach to it and the behavioral
+# test would pass vacuously (issue #475 review, pr-test-analyzer) — the run-id targeting pin
+# below catches the literal change, and this ordering makes the behavioral test catch it too.
+HC_T="$(_hc_repo "hc target")"
+mkdir -p "$HC_T/.devflow/tmp/review/pr-77/999-1" "$HC_T/.devflow/tmp/review/pr-11/888-2"
+printf '%s' "$HC_ITER" > "$HC_T/.devflow/tmp/review/pr-77/999-1/iter-1.json"
+printf '%s' "$HC_ITER" > "$HC_T/.devflow/tmp/review/pr-11/888-2/iter-1.json"
+( cd "$HC_T" && GITHUB_RUN_ID=999 GITHUB_RUN_ATTEMPT=1 GITHUB_WORKFLOW_REF="o/r/.github/workflows/devflow.yml@refs/heads/main" \
+    DEVFLOW_EXECUTION_COST="$HC_COST" DEVFLOW_COMMAND_CLASS=review-and-fix \
+    bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "hc-merge(A3): the record matching the run-id identity gained harness_cost" "execution-file" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost.cost_source')"
+assert_eq "hc-merge(A3): a record with a DIFFERENT run-id (sorting first) was NOT touched" "null" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-11-888-2.json" | jq -c '.harness_cost')"
+# AC4: harness_cost carries exactly the required fields.
+assert_eq "hc-merge(A4): harness_cost carries the required metadata + figures" \
+  "command cost_source cost_usd duration_ms engine_version model_usage num_turns scope tokens workflow" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost | keys | join(" ")')"
+assert_eq "hc-merge(A4): scope is whole-job" "whole-job" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost.scope')"
+assert_eq "hc-merge(A4): command class recorded" "review-and-fix" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost.command')"
+assert_eq "hc-merge(A4): workflow identity recorded from GITHUB_WORKFLOW_REF" "o/r/.github/workflows/devflow.yml@refs/heads/main" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost.workflow')"
+assert_eq "hc-merge(A4): engine_version resolved from plugin.json beside the helper (a string)" "string" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost.engine_version | type')"
+# AC4 (spread join): the reader's OWN figures must land in harness_cost verbatim — the
+# A4 key-set assertion above proves the keys exist but NOT that the values map through, so
+# a mislabelled spread (e.g. cost_usd wired to .num_turns) would still pass it. HC_COST
+# carries cost_usd:0.42, num_turns:9, duration_ms:8000, tokens.input_tokens:150.
+assert_eq "hc-merge(A4): the reader's figures land in harness_cost verbatim (cost_usd/num_turns/duration_ms/tokens.input_tokens)" \
+  '[0.42,9,8000,150]' \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -c '[.harness_cost.cost_usd,.harness_cost.num_turns,.harness_cost.duration_ms,.harness_cost.tokens.input_tokens]')"
+# AC9 (read side): _run_cost/_telemetry_complete unchanged by harness_cost; it is
+# passed through verbatim as an entry key.
+HC_RS="$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | python3 -c 'import importlib.util,sys,json
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+r=json.load(sys.stdin); e=m._efficiency_entry(r,"999-1")
+print(json.dumps([e["harness_cost"]["cost_source"], m._run_cost(r), m._telemetry_complete(r)]))' "$LIB/../scripts/build-experiment-records.py" 2>/dev/null)"
+assert_eq "hc-readside(A9): _efficiency_entry passes harness_cost through; _run_cost ignores it (reads only telemetry)" \
+  '["execution-file", {"tokens": 10, "calls": 1, "wall_clock_s": 1}, true]' "$HC_RS"
+rm -rf "$HC_T"
+
+# ── A5: merge arm (b, already-persisted branch record) + byte-preservation ────
+HC_M="$(_hc_repo "hc merge-branch")"
+mkdir -p "$HC_M/.devflow/tmp/review/pr-5/777-1"
+printf '%s' "$HC_ITER" > "$HC_M/.devflow/tmp/review/pr-5/777-1/iter-1.json"
+# First persist WITHOUT the floor env → the record lands on the branch WITHOUT harness_cost.
+( cd "$HC_M" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+HC_M_BEFORE="$(_et_show "$HC_M" ".devflow/logs/efficiency/pr-5-777-1.json")"
+HC_M_GEN="$(printf '%s' "$HC_M_BEFORE" | jq -r '.generated_at')"
+assert_eq "hc-merge-b(A5): pre-floor record has no harness_cost" "null" \
+  "$(printf '%s' "$HC_M_BEFORE" | jq -c '.harness_cost')"
+# Second persist WITH the floor env → persist_one skips re-derivation (record already
+# on the branch), so the floor's merge arm (b) reads it back and adds harness_cost.
+( cd "$HC_M" && GITHUB_RUN_ID=777 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+HC_M_AFTER="$(_et_show "$HC_M" ".devflow/logs/efficiency/pr-5-777-1.json")"
+assert_eq "hc-merge-b(A5): already-persisted record gains harness_cost via read-back" "execution-file" \
+  "$(printf '%s' "$HC_M_AFTER" | jq -r '.harness_cost.cost_source')"
+assert_eq "hc-merge-b(A5): generated_at byte-preserved (not re-derived)" "$HC_M_GEN" \
+  "$(printf '%s' "$HC_M_AFTER" | jq -r '.generated_at')"
+assert_eq "hc-merge-b(A5): everything OUTSIDE harness_cost is byte-identical to the original" "yes" \
+  "$(diff <(printf '%s' "$HC_M_AFTER" | jq 'del(.harness_cost)') <(printf '%s' "$HC_M_BEFORE" | jq .) >/dev/null 2>&1 && echo yes || echo no)"
+# Re-run idempotency: a THIRD persist (record already carries harness_cost) makes no new commit.
+HC_M_BC="$(_et_branch_count "$HC_M")"
+( cd "$HC_M" && GITHUB_RUN_ID=777 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "hc-merge-b(A5): re-run over an already-harness_cost record is a tree-equality no-op" \
+  "$HC_M_BC" "$(_et_branch_count "$HC_M")"
+rm -rf "$HC_M"
+
+# Merge-arm-(a) degradation coverage: drive the real _floor_merge_staged function
+# directly so its already-present, jq-failure, and mv-failure branches are attributable.
+HC_FMS="$(git_sandbox "hc floor-merge-staged")"
+awk '/^_floor_merge_staged\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' \
+  "$LIB/efficiency-trace.sh" > "$HC_FMS/invoke.sh"
+cat >> "$HC_FMS/invoke.sh" <<'FMSEOF'
+DEVFLOW_JQ="${DEVFLOW_JQ:-jq}"
+_floor_merge_staged "$1" "$2" "fixture record"
+FMSEOF
+HC_FMS_PRESENT='{"schema_version":1,"harness_cost":{"cost_usd":1}}'
+printf '%s' "$HC_FMS_PRESENT" > "$HC_FMS/present.json"
+HC_FMS_PRESENT_ERR="$(bash "$HC_FMS/invoke.sh" "$HC_FMS/present.json" '{"cost_usd":2}' 2>&1 1>/dev/null)"
+assert_eq "hc-merge-a(A5): already-carries short-circuit leaves the staged record byte-identical" \
+  "$HC_FMS_PRESENT" "$(cat "$HC_FMS/present.json")"
+assert_eq "hc-merge-a(A5): already-carries short-circuit emits its named breadcrumb" "yes" \
+  "$(printf '%s' "$HC_FMS_PRESENT_ERR" | grep -qF 'already carries harness_cost; left untouched' && echo yes || echo no)"
+printf '#!/usr/bin/env bash\nexit 7\n' > "$HC_FMS/jq-fail"; chmod +x "$HC_FMS/jq-fail"
+printf '%s' '{"schema_version":1}' > "$HC_FMS/jq.json"
+HC_FMS_JQ_ERR="$(DEVFLOW_JQ="$HC_FMS/jq-fail" bash "$HC_FMS/invoke.sh" "$HC_FMS/jq.json" '{"cost_usd":2}' 2>&1 1>/dev/null)"
+assert_eq "hc-merge-a(A5): jq failure leaves the staged record byte-identical" \
+  '{"schema_version":1}' "$(cat "$HC_FMS/jq.json")"
+assert_eq "hc-merge-a(A5): jq failure emits its named merge breadcrumb" "yes" \
+  "$(printf '%s' "$HC_FMS_JQ_ERR" | grep -qF 'could not merge harness_cost' && echo yes || echo no)"
+HC_REAL_MV="$(command -v mv)"
+cat > "$HC_FMS/mv" <<MVEOF
+#!/usr/bin/env bash
+case "\${1:-}" in *.harnesstmp) exit 1 ;; esac
+exec "$HC_REAL_MV" "\$@"
+MVEOF
+chmod +x "$HC_FMS/mv"
+printf '%s' '{"schema_version":1}' > "$HC_FMS/mv.json"
+HC_FMS_MV_ERR="$(PATH="$HC_FMS:$PATH" bash "$HC_FMS/invoke.sh" "$HC_FMS/mv.json" '{"cost_usd":2}' 2>&1 1>/dev/null)"
+assert_eq "hc-merge-a(A5): mv failure leaves the staged record byte-identical" \
+  '{"schema_version":1}' "$(cat "$HC_FMS/mv.json")"
+assert_eq "hc-merge-a(A5): mv failure emits its named move breadcrumb" "yes" \
+  "$(printf '%s' "$HC_FMS_MV_ERR" | grep -qF 'could not move the merged fixture record into place' && echo yes || echo no)"
+assert_eq "hc-merge-a(A5): jq/mv failure temp files are cleaned" "no" \
+  "$([ -e "$HC_FMS/jq.json.harnesstmp" ] || [ -e "$HC_FMS/mv.json.harnesstmp" ] && echo yes || echo no)"
+rm -rf "$HC_FMS"
+
+# ── A3 (env-absent): --persist byte-identical + silent when the floor env is unset ─
+HC_E="$(_hc_repo "hc env-absent")"
+mkdir -p "$HC_E/.devflow/tmp/review/pr-9/111-1"
+printf '%s' "$HC_ITER" > "$HC_E/.devflow/tmp/review/pr-9/111-1/iter-1.json"
+HC_E_ERR="$( ( cd "$HC_E" && GITHUB_RUN_ID=111 GITHUB_RUN_ATTEMPT=1 bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-env(A3): floor unset → record carries NO harness_cost" "null" \
+  "$(_et_show "$HC_E" ".devflow/logs/efficiency/pr-9-111-1.json" | jq -c '.harness_cost')"
+assert_eq "hc-env(A3): floor unset → the helper stays SILENT about the floor" "yes" \
+  "$(printf '%s' "$HC_E_ERR" | grep -q 'harness cost floor' && echo no || echo yes)"
+rm -rf "$HC_E"
+
+# ── A6: skeleton arm (no record for this run-id) ─────────────────────────────
+HC_SK="$(_hc_repo "hc skeleton")"
+HC_SK_ERR="$( ( cd "$HC_SK" && GITHUB_RUN_ID=555 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-skeleton(A6): no record + PR + record-deriving class → a pr-<N> skeleton is written" "yes" \
+  "$(_et_on_branch "$HC_SK" ".devflow/logs/efficiency/pr-42-555-1.json")"
+assert_eq "hc-skeleton(A6): skeleton shape — schema_version/source/synthesized/iterations/per_iteration/telemetry" \
+  '[1,null,true,0,[],[]]' \
+  "$(_et_show "$HC_SK" ".devflow/logs/efficiency/pr-42-555-1.json" | jq -c '[.schema_version,.source,.synthesized,.iterations,.per_iteration,.telemetry]')"
+assert_eq "hc-skeleton(A6): skeleton slug is pr-<N> and carries harness_cost" "pr-42 execution-file" \
+  "$(_et_show "$HC_SK" ".devflow/logs/efficiency/pr-42-555-1.json" | jq -r '.slug + " " + .harness_cost.cost_source')"
+# AC9: a floor-only skeleton indexes (slug-bearing) with cost:None, telemetry_complete:false, source:None.
+HC_SK_RS="$(_et_show "$HC_SK" ".devflow/logs/efficiency/pr-42-555-1.json" | python3 -c 'import importlib.util,sys,json
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+r=json.load(sys.stdin); e=m._efficiency_entry(r,"555-1")
+print(json.dumps([e is not None, e["cost"], e["telemetry_complete"], e["source"]]))' "$LIB/../scripts/build-experiment-records.py" 2>/dev/null)"
+assert_eq "hc-skeleton(A9): floor-only skeleton indexes with cost:None, telemetry_complete:false, source:None" \
+  '[true, null, false, null]' "$HC_SK_RS"
+rm -rf "$HC_SK"
+# pr-description class → NO skeleton (no-record-by-design breadcrumb).
+HC_PD="$(_hc_repo "hc pr-description")"
+HC_PD_ERR="$( ( cd "$HC_PD" && GITHUB_RUN_ID=666 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=pr-description bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-skeleton(A6): pr-description class writes NO skeleton" "no" \
+  "$(_et_on_branch "$HC_PD" ".devflow/logs/efficiency/pr-42-666-1.json")"
+assert_eq "hc-skeleton(A6): pr-description → a named 'no record by design' breadcrumb" "yes" \
+  "$(printf '%s' "$HC_PD_ERR" | grep -qF 'no record by design' && echo yes || echo no)"
+rm -rf "$HC_PD"
+# Empty PR → skeleton skipped with a specific breadcrumb.
+HC_NP="$(_hc_repo "hc no-pr")"
+HC_NP_ERR="$( ( cd "$HC_NP" && GITHUB_RUN_ID=444 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-skeleton(A6): empty PR → skeleton skipped with a specific breadcrumb" "yes" \
+  "$(printf '%s' "$HC_NP_ERR" | grep -qF 'DEVFLOW_EXECUTION_PR is empty' && echo yes || echo no)"
+rm -rf "$HC_NP"
+
+# ── A8: gate off → no floor write ────────────────────────────────────────────
+HC_G="$(_hc_repo "hc gate-off")"
+printf '{"devflow_review_and_fix":{"efficiency_telemetry_enabled":false}}' > "$HC_G/.devflow/off.json"
+HC_G_ERR="$( ( cd "$HC_G" && DEVFLOW_CONFIG_FILE="$HC_G/.devflow/off.json" GITHUB_RUN_ID=222 GITHUB_RUN_ATTEMPT=1 \
+    DEVFLOW_EXECUTION_COST="$HC_COST" DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=review-and-fix \
+    bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-gate(A8): telemetry disabled → no skeleton/floor record written" "no" \
+  "$(_et_on_branch "$HC_G" ".devflow/logs/efficiency/pr-42-222-1.json")"
+assert_eq "hc-gate(A8): telemetry disabled → a specific 'disabled' breadcrumb" "yes" \
+  "$(printf '%s' "$HC_G_ERR" | grep -qF 'efficiency telemetry is disabled' && echo yes || echo no)"
+rm -rf "$HC_G"
+# Malformed DEVFLOW_EXECUTION_COST → one breadcrumb, no floor write.
+HC_BAD="$(_hc_repo "hc malformed")"
+mkdir -p "$HC_BAD/.devflow/tmp/review/pr-3/333-1"
+printf '%s' "$HC_ITER" > "$HC_BAD/.devflow/tmp/review/pr-3/333-1/iter-1.json"
+HC_BAD_ERR="$( ( cd "$HC_BAD" && GITHUB_RUN_ID=333 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST='not json' \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-malformed(A3): non-object DEVFLOW_EXECUTION_COST → record carries no harness_cost" "null" \
+  "$(_et_show "$HC_BAD" ".devflow/logs/efficiency/pr-3-333-1.json" | jq -c '.harness_cost')"
+assert_eq "hc-malformed(A3): non-object value → a specific breadcrumb" "yes" \
+  "$(printf '%s' "$HC_BAD_ERR" | grep -qF 'not a JSON object' && echo yes || echo no)"
+# Valid-JSON-but-not-an-object (a JSON array): the `type == "object"` operand guard exists
+# precisely so a non-object never reaches `jq --argjson`; the 'not json' case above fails the
+# jq PARSE, whereas '[1,2]' PARSES yet is not an object — a DISTINCT arm of the writer's
+# adversarial matrix. Must draw the same "not a JSON object" breadcrumb and no floor write.
+HC_ARR="$(_hc_repo "hc arr-cost")"
+mkdir -p "$HC_ARR/.devflow/tmp/review/pr-3/334-1"
+printf '%s' "$HC_ITER" > "$HC_ARR/.devflow/tmp/review/pr-3/334-1/iter-1.json"
+HC_ARR_ERR="$( ( cd "$HC_ARR" && GITHUB_RUN_ID=334 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST='[1,2]' \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-malformed(A3): valid-JSON-but-non-object (array) → record carries no harness_cost" "null" \
+  "$(_et_show "$HC_ARR" ".devflow/logs/efficiency/pr-3-334-1.json" | jq -c '.harness_cost')"
+assert_eq "hc-malformed(A3): valid-JSON-but-non-object (array) → the 'not a JSON object' breadcrumb" "yes" \
+  "$(printf '%s' "$HC_ARR_ERR" | grep -qF 'not a JSON object' && echo yes || echo no)"
+rm -rf "$HC_ARR"
+# GITHUB_RUN_ID unset (AC3 fail-closed): cost set + valid object + telemetry enabled, but the
+# run cannot be identified, so the floor DECLINES rather than attach to an arbitrary swept
+# record. Every other HC merge test sets GITHUB_RUN_ID, so this fail-closed guard was unexercised.
+HC_RU="$(_hc_repo "hc runid-unset")"
+mkdir -p "$HC_RU/.devflow/tmp/review/pr-4/iddir-1"
+printf '%s' "$HC_ITER" > "$HC_RU/.devflow/tmp/review/pr-4/iddir-1/iter-1.json"
+HC_RU_ERR="$( ( cd "$HC_RU" && unset GITHUB_RUN_ID; DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-runid(A3): GITHUB_RUN_ID unset → no harness_cost attached to any swept record" "null" \
+  "$(_et_show "$HC_RU" ".devflow/logs/efficiency/pr-4-iddir-1.json" | jq -c '.harness_cost')"
+assert_eq "hc-runid(A3): GITHUB_RUN_ID unset → a specific 'cannot be identified' breadcrumb (fail-closed, not silent)" "yes" \
+  "$(printf '%s' "$HC_RU_ERR" | grep -qF 'GITHUB_RUN_ID is unset' && echo yes || echo no)"
+rm -rf "$HC_RU"
+
+# ── A5a: two-writer union race — a stale local snapshot must NOT revert another
+# writer's harness_cost on the push-rejection re-parent (mirrors the #441
+# offline-accum fixture, with a MUTATED record path instead of a fresh one) ────
+HC_RC_BARE="$(git_sandbox "hc race bare")"; git -C "$HC_RC_BARE" init --bare -q
+HC_RC="$(git_sandbox "hc race repo")"; git -C "$HC_RC" init -q
+git -C "$HC_RC" config user.email t@e.com; git -C "$HC_RC" config user.name t
+git -C "$HC_RC" remote add origin "$HC_RC_BARE"
+mkdir -p "$HC_RC/.devflow"; printf 'tmp/\n' > "$HC_RC/.devflow/.gitignore"
+git -C "$HC_RC" add -A; git -C "$HC_RC" commit -qm seed; git -C "$HC_RC" branch -M main
+git -C "$HC_RC" push -q -u origin main
+# Writer B (this repo) builds a LOCAL telemetry tip holding a STALE snapshot of a
+# shared record R (no harness_cost) while the remote is down.
+HC_RC_REC='{"schema_version":1,"slug":"pr-6","generated_at":"2026-01-01T00:00:00Z","source":"review-and-fix","iterations":1,"telemetry":[]}'
+mv "$HC_RC_BARE" "${HC_RC_BARE}.down"
+HC_RC_IDX="$HC_RC/.git/rcidx"
+HC_RC_SB="$(printf '%s' "$HC_RC_REC" | git -C "$HC_RC" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_RC_IDX" git -C "$HC_RC" update-index --add --cacheinfo "100644,${HC_RC_SB},.devflow/logs/efficiency/pr-6-run-r.json"
+HC_RC_ST="$(GIT_INDEX_FILE="$HC_RC_IDX" git -C "$HC_RC" write-tree)"; rm -f "$HC_RC_IDX"
+HC_RC_SN="$(GIT_AUTHOR_NAME=b GIT_AUTHOR_EMAIL=b@y GIT_COMMITTER_NAME=b GIT_COMMITTER_EMAIL=b@y git -C "$HC_RC" commit-tree "$HC_RC_ST" -m b)"
+git -C "$HC_RC" update-ref refs/heads/devflow-telemetry "$HC_RC_SN"
+mv "${HC_RC_BARE}.down" "$HC_RC_BARE"
+# Writer A (a second clone) MERGES harness_cost into the SAME record R and pushes it.
+HC_RC_A="$(git_sandbox "hc race writerA")"; git clone -q "$HC_RC_BARE" "$HC_RC_A" 2>/dev/null
+HC_RC_AREC="$(printf '%s' "$HC_RC_REC" | jq -c '.harness_cost={cost_source:"execution-file",cost_usd:9}')"
+HC_RC_AIDX="$HC_RC_A/.git/aidx"
+HC_RC_AB="$(printf '%s' "$HC_RC_AREC" | git -C "$HC_RC_A" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_RC_AIDX" git -C "$HC_RC_A" update-index --add --cacheinfo "100644,${HC_RC_AB},.devflow/logs/efficiency/pr-6-run-r.json"
+HC_RC_AT="$(GIT_INDEX_FILE="$HC_RC_AIDX" git -C "$HC_RC_A" write-tree)"; rm -f "$HC_RC_AIDX"
+HC_RC_AN="$(GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@y GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@y git -C "$HC_RC_A" commit-tree "$HC_RC_AT" -m a)"
+git -C "$HC_RC_A" update-ref refs/heads/devflow-telemetry "$HC_RC_AN"
+git -C "$HC_RC_A" push -q origin devflow-telemetry
+# Writer B now persists a NEW, unrelated run (its own record) — its push is rejected
+# (remote diverged), so it fetches A's tip and re-parents the UNION. B did NOT stage
+# R this pass, so the merge-aware union must keep A's harness_cost on R (base-wins),
+# NOT revert it to B's stale local snapshot.
+mkdir -p "$HC_RC/.devflow/tmp/review/pr-6/run-b"
+printf '%s' "$HC_ITER" > "$HC_RC/.devflow/tmp/review/pr-6/run-b/iter-1.json"
+( cd "$HC_RC" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+git -C "$HC_RC" fetch -q origin devflow-telemetry:refs/remotes/origin/rc 2>/dev/null
+assert_eq "hc-race(A5a): the concurrently-merged record R still carries writer A's harness_cost (stale snapshot did NOT revert it)" "9" \
+  "$(git -C "$HC_RC" show "refs/remotes/origin/rc:.devflow/logs/efficiency/pr-6-run-r.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
+assert_eq "hc-race(A5a): writer B's own new record is also present on the remote after the union" "yes" \
+  "$(git -C "$HC_RC" cat-file -e "refs/remotes/origin/rc:.devflow/logs/efficiency/pr-6-run-b.json" >/dev/null 2>&1 && echo yes || echo no)"
+rm -rf "$HC_RC" "$HC_RC_BARE" "$HC_RC_A"
+
+# ── A5a (STAGED branch): the fixture above exercises the UNSTAGED base-wins arm (B did not
+# stage R). This one exercises the merge-aware union's *staged efficiency-record* arm
+# (telemetry-branch.sh's `.devflow/logs/efficiency/*.json` case) — AC5a's "re-parent re-applies
+# THIS run's harness_cost merge onto the fetched base-side version of its target path." Here B
+# DOES stage R: the floor env drives merge-arm-b (ident=run-r) to read B's STALE local R
+# (no harness_cost) back and re-stage it with B's OWN harness_cost (cost_usd=5). Writer A
+# concurrently merged a DIFFERENT harness_cost (cost_usd=9) onto R and pushed. On the rejected
+# push the re-parent must keep A's harness_cost on base (base already carries one → base-wins),
+# NOT overwrite it with B's staged stale copy — a blanket local-wins overlay would revert it to 5.
+HC_SR_BARE="$(git_sandbox "hc staged-remerge bare")"; git -C "$HC_SR_BARE" init --bare -q
+HC_SR="$(git_sandbox "hc staged-remerge repo")"; git -C "$HC_SR" init -q
+git -C "$HC_SR" config user.email t@e.com; git -C "$HC_SR" config user.name t
+git -C "$HC_SR" remote add origin "$HC_SR_BARE"
+mkdir -p "$HC_SR/.devflow"; printf 'tmp/\n' > "$HC_SR/.devflow/.gitignore"
+git -C "$HC_SR" add -A; git -C "$HC_SR" commit -qm seed; git -C "$HC_SR" branch -M main
+git -C "$HC_SR" push -q -u origin main
+# B's stale LOCAL telemetry tip holds R WITHOUT harness_cost (the snapshot merge-arm-b re-stages).
+HC_SR_REC='{"schema_version":1,"slug":"pr-6","generated_at":"2026-01-01T00:00:00Z","source":"review-and-fix","iterations":1,"telemetry":[]}'
+mv "$HC_SR_BARE" "${HC_SR_BARE}.down"
+HC_SR_IDX="$HC_SR/.git/sridx"
+HC_SR_SB="$(printf '%s' "$HC_SR_REC" | git -C "$HC_SR" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_SR_IDX" git -C "$HC_SR" update-index --add --cacheinfo "100644,${HC_SR_SB},.devflow/logs/efficiency/pr-6-run-r.json"
+HC_SR_ST="$(GIT_INDEX_FILE="$HC_SR_IDX" git -C "$HC_SR" write-tree)"; rm -f "$HC_SR_IDX"
+HC_SR_SN="$(GIT_AUTHOR_NAME=b GIT_AUTHOR_EMAIL=b@y GIT_COMMITTER_NAME=b GIT_COMMITTER_EMAIL=b@y git -C "$HC_SR" commit-tree "$HC_SR_ST" -m b)"
+git -C "$HC_SR" update-ref refs/heads/devflow-telemetry "$HC_SR_SN"
+mv "${HC_SR_BARE}.down" "$HC_SR_BARE"
+# Writer A MERGES harness_cost (cost_usd=9) into the SAME record R and pushes it.
+HC_SR_A="$(git_sandbox "hc staged-remerge writerA")"; git clone -q "$HC_SR_BARE" "$HC_SR_A" 2>/dev/null
+HC_SR_AREC="$(printf '%s' "$HC_SR_REC" | jq -c '.harness_cost={cost_source:"execution-file",cost_usd:9}')"
+HC_SR_AIDX="$HC_SR_A/.git/aidx"
+HC_SR_AB="$(printf '%s' "$HC_SR_AREC" | git -C "$HC_SR_A" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_SR_AIDX" git -C "$HC_SR_A" update-index --add --cacheinfo "100644,${HC_SR_AB},.devflow/logs/efficiency/pr-6-run-r.json"
+HC_SR_AT="$(GIT_INDEX_FILE="$HC_SR_AIDX" git -C "$HC_SR_A" write-tree)"; rm -f "$HC_SR_AIDX"
+HC_SR_AN="$(GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@y GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@y git -C "$HC_SR_A" commit-tree "$HC_SR_AT" -m a)"
+git -C "$HC_SR_A" update-ref refs/heads/devflow-telemetry "$HC_SR_AN"
+git -C "$HC_SR_A" push -q origin devflow-telemetry
+# Writer B persists with the floor env (ident=run-r matches R's filename → merge-arm-b re-stages
+# R with cost_usd=5) plus its own new run dir; the push is rejected (remote diverged) and the
+# re-parent runs the STAGED efficiency-record union arm over R.
+mkdir -p "$HC_SR/.devflow/tmp/review/pr-6/run-b"
+printf '%s' "$HC_ITER" > "$HC_SR/.devflow/tmp/review/pr-6/run-b/iter-1.json"
+( cd "$HC_SR" && GITHUB_RUN_ID=run GITHUB_RUN_ATTEMPT=r \
+    DEVFLOW_EXECUTION_COST='{"cost_usd":5,"tokens":{},"model_usage":null,"num_turns":null,"duration_ms":null}' \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+git -C "$HC_SR" fetch -q origin devflow-telemetry:refs/remotes/origin/sr 2>/dev/null
+assert_eq "hc-race(A5a staged): the staged re-merge keeps base-side (writer A) harness_cost cost_usd=9, NOT this run's stale cost_usd=5" "9" \
+  "$(git -C "$HC_SR" show "refs/remotes/origin/sr:.devflow/logs/efficiency/pr-6-run-r.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
+rm -rf "$HC_SR" "$HC_SR_BARE" "$HC_SR_A"
+
+# ── A7: prepare-harness-floor.sh — every branch, under a stubbed gh ───────────
+HC_GD="$(git_sandbox "hc glue")"
+printf '{"type":"result","total_cost_usd":1}' > "$HC_GD/exec.json"
+# gh stub: `api …/pulls/<n>` echoes <n> iff it is in STUB_PRS; `pr list` echoes STUB_PR_LIST.
+cat > "$HC_GD/gh" <<'GHEOF'
+#!/usr/bin/env bash
+case "$1" in
+  api)  n="${2##*/pulls/}"; case ",${STUB_PRS:-}," in *",$n,"*) echo "$n" ;; *) exit 1 ;; esac ;;
+  pr)   printf '%s' "${STUB_PR_LIST:-}" ;;
+  *)    exit 1 ;;
+esac
+GHEOF
+chmod +x "$HC_GD/gh"
+# happy review-and-fix: candidate 50 is a real PR → PR=50 + cost written.
+HC_G_OUT="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:review-and-fix" 50 "$HC_GD/cost.json" 2>/dev/null)"
+assert_eq "hc-glue(A7): happy path → DEVFLOW_EXECUTION_PR set to the verified PR" "yes" \
+  "$(printf '%s' "$HC_G_OUT" | grep -qF "DEVFLOW_EXECUTION_PR='50'" && echo yes || echo no)"
+assert_eq "hc-glue(A7): happy path → command class emitted" "yes" \
+  "$(printf '%s' "$HC_G_OUT" | grep -qF "DEVFLOW_COMMAND_CLASS='review-and-fix'" && echo yes || echo no)"
+assert_eq "hc-glue(A7): happy path → cost JSON written to the out file" "1" \
+  "$(jq -c '.cost_usd' "$HC_GD/cost.json" 2>/dev/null)"
+# explicit-number command overrides the raw context number (never the comment-context number).
+HC_G_EXP="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:review-and-fix 50" 999 "$HC_GD/c2.json" 2>/dev/null)"
+assert_eq "hc-glue(A7): an explicit-number command uses the target (50), not the context number (999)" "yes" \
+  "$(printf '%s' "$HC_G_EXP" | grep -qF "DEVFLOW_EXECUTION_PR='50'" && echo yes || echo no)"
+# inert: execution file absent → named inert breadcrumb, empty PR, empty cost file.
+HC_G_INERT="$(DEVFLOW_GH="$HC_GD/gh" bash "$HC_GLUE" "$HC_GD/nope.json" "/devflow:review-and-fix" 50 "$HC_GD/c3.json" 2>"$HC_GD/inert.err")"
+assert_eq "hc-glue(A7): inert (execution file absent) → the named inert breadcrumb" "yes" \
+  "$(grep -qF 'harness cost floor inert this run: execution file absent' "$HC_GD/inert.err" && echo yes || echo no)"
+assert_eq "hc-glue(A7): inert → DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_INERT" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+# Parsed-but-figureless: the reader prints a non-empty normalized object by contract, but
+# the glue must not turn its all-null payload into false cost coverage or a cost skeleton.
+printf '%s' '{"type":"result"}' > "$HC_GD/all-null.json"
+HC_G_NULL="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/all-null.json" "/devflow:review-and-fix" 50 "$HC_GD/c-null.json" 2>"$HC_GD/null.err")"
+assert_eq "hc-glue(A7): all-null reader object leaves DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_NULL" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): all-null reader object leaves the cost handoff empty" "no" \
+  "$([ -s "$HC_GD/c-null.json" ] && echo yes || echo no)"
+assert_eq "hc-glue(A7): all-null reader object emits a named no-figures inert breadcrumb" "yes" \
+  "$(grep -qF 'execution file carried no cost or usage figures' "$HC_GD/null.err" && echo yes || echo no)"
+# not-a-PR / lookup-failed: candidate 999 is not in the PR set → empty PR + breadcrumb.
+HC_G_NAP="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:review-and-fix" 999 "$HC_GD/c4.json" 2>"$HC_GD/nap.err")"
+assert_eq "hc-glue(A7): candidate not a real PR → DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_NAP" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): not-a-PR → a specific breadcrumb naming the skipped skeleton" "yes" \
+  "$(grep -qF 'does not name a real PR' "$HC_GD/nap.err" && echo yes || echo no)"
+# pr-description class → no PR, no-record-by-design breadcrumb.
+HC_G_PD="$(DEVFLOW_GH="$HC_GD/gh" bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:pr-description" 50 "$HC_GD/c5.json" 2>"$HC_GD/pd.err")"
+assert_eq "hc-glue(A7): pr-description → DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_PD" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): pr-description → the no-record-by-design breadcrumb" "yes" \
+  "$(grep -qF 'no record by design' "$HC_GD/pd.err" && echo yes || echo no)"
+# implement class → resolve the PR that closes the issue (via pr list stub).
+HC_G_IMP="$(DEVFLOW_GH="$HC_GD/gh" STUB_PR_LIST=70 bash "$HC_GLUE" "$HC_GD/exec.json" "implement" 7 "$HC_GD/c6.json" 2>/dev/null)"
+assert_eq "hc-glue(A7): implement class → the PR opened for the issue is resolved" "yes" \
+  "$(printf '%s' "$HC_G_IMP" | grep -qF "DEVFLOW_EXECUTION_PR='70'" && echo yes || echo no)"
+assert_eq "hc-glue(A7): implement class label emitted" "yes" \
+  "$(printf '%s' "$HC_G_IMP" | grep -qF "DEVFLOW_COMMAND_CLASS='implement'" && echo yes || echo no)"
+# implement class, LOOKUP-FAILED (AC7-named branch): empty STUB_PR_LIST → _resolve_pr_for_issue
+# finds no closing PR → empty PR + the specific "could not resolve the PR opened for issue"
+# breadcrumb (distinct from not-a-PR and inert). Its OWN breadcrumb attributes the skip.
+HC_G_ILF="$(DEVFLOW_GH="$HC_GD/gh" STUB_PR_LIST='' bash "$HC_GLUE" "$HC_GD/exec.json" "implement" 7 "$HC_GD/c7.json" 2>"$HC_GD/ilf.err")"
+assert_eq "hc-glue(A7): implement lookup-failed → DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_ILF" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): implement lookup-failed → the specific 'could not resolve the PR opened for issue' breadcrumb" "yes" \
+  "$(grep -qF 'could not resolve the PR opened for issue' "$HC_GD/ilf.err" && echo yes || echo no)"
+# reader PARSE-FAIL inert: a PRESENT, non-empty execution file the reader cannot parse
+# (garbage) → COST empty → the distinct "could not be parsed for cost" breadcrumb (NOT the
+# absent-file "execution file absent" one). Positive control: a real reader ran (the file
+# exists and is non-empty), so the branch is attributed to a parse failure, not an absent file.
+printf 'not json at all {{{' > "$HC_GD/garbage.json"
+HC_G_PF="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/garbage.json" "/devflow:review-and-fix" 50 "$HC_GD/c8.json" 2>"$HC_GD/pf.err")"
+assert_eq "hc-glue(A7): reader parse-fail → DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_PF" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): reader parse-fail → the 'could not be parsed for cost' breadcrumb (not the absent-file one)" "yes" \
+  "$(grep -qF 'could not be parsed for cost' "$HC_GD/pf.err" && ! grep -qF 'execution file absent' "$HC_GD/pf.err" && echo yes || echo no)"
+# review class, EMPTY-NUM: no explicit number in the command AND an empty candidate →
+# NUM empty → the specific "no PR number resolved" breadcrumb (distinct from not-a-PR).
+HC_G_EN="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:review-and-fix" "" "$HC_GD/c9.json" 2>"$HC_GD/en.err")"
+assert_eq "hc-glue(A7): review empty-NUM → DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_EN" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): review empty-NUM → the specific 'no PR number resolved' breadcrumb" "yes" \
+  "$(grep -qF 'no PR number resolved' "$HC_GD/en.err" && echo yes || echo no)"
+# unrecognized command class → CLASS sanitized to "" → the `*)` arm's "unrecognized command"
+# breadcrumb, empty PR and empty class.
+HC_G_UC="$(DEVFLOW_GH="$HC_GD/gh" bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:frobnicate 9" 9 "$HC_GD/c10.json" 2>"$HC_GD/uc.err")"
+assert_eq "hc-glue(A7): unrecognized class → DEVFLOW_EXECUTION_PR empty and class empty" "yes" \
+  "$(printf '%s' "$HC_G_UC" | grep -qF "DEVFLOW_EXECUTION_PR=''" && printf '%s' "$HC_G_UC" | grep -qF "DEVFLOW_COMMAND_CLASS=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): unrecognized class → the 'unrecognized command' breadcrumb" "yes" \
+  "$(grep -qF 'unrecognized command' "$HC_GD/uc.err" && echo yes || echo no)"
+rm -rf "$HC_GD"
+
+# ── Reader result-event precedence (_ordered_dicts): a type=="result" summary cost must win
+# over a competing costUSD on a NON-result (streamed message) dict. Every other reader fixture
+# has the cost only on the result event, so the ordering itself was unexercised — reorder to
+# `others + results` and the suite would otherwise stay green.
+HC_ORD="$(git_sandbox "hc reader ordering")"
+printf '%s' '[{"costUSD":0.11},{"type":"result","total_cost_usd":0.99}]' > "$HC_ORD/ord.json"
+assert_eq "hc-reader(A2): a result-event cost wins over a competing non-result costUSD (_ordered_dicts precedence)" "0.99" \
+  "$(python3 "$HC_READER" "$HC_ORD/ord.json" 2>/dev/null | jq -c '.cost_usd')"
+rm -rf "$HC_ORD"
+
+# ── engine_version:null (AC4 fail-closed): an unreadable/malformed plugin.json → engine_version
+# is null WITH a breadcrumb, never fabricated. Every other HC test runs the helper beside the
+# real repo's plugin.json (a valid string .version), so this fail-closed arm was unexercised.
+# Relocate the helper into a scratch lib/ whose sibling .claude-plugin/plugin.json has a
+# NON-STRING .version, so the `(.version|type)=="string"` guard fails. Drive the SKELETON arm
+# (no iter dir → no record-derivation/config_fingerprint dependency), which builds harness_cost
+# via the SAME engine_version resolution and writes it into the skeleton.
+HC_EV_ROOT="$(git_sandbox "hc engine-version-null root")"
+mkdir -p "$HC_EV_ROOT/lib" "$HC_EV_ROOT/.claude-plugin"
+cp "$LIB"/*.sh "$LIB"/*.jq "$HC_EV_ROOT/lib/" 2>/dev/null
+printf '%s' '{"version": 123}' > "$HC_EV_ROOT/.claude-plugin/plugin.json"   # .version is a NUMBER, not a string
+HC_EV="$(_hc_repo "hc ev record")"
+HC_EV_ERR="$( ( cd "$HC_EV" && GITHUB_RUN_ID=ev GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_EXECUTION_PR=1 DEVFLOW_COMMAND_CLASS=review-and-fix bash "$HC_EV_ROOT/lib/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-engineversion(A4): malformed plugin.json (.version not a string) → engine_version is null (never fabricated)" "null" \
+  "$(_et_show "$HC_EV" ".devflow/logs/efficiency/pr-1-ev-1.json" | jq -c '.harness_cost.engine_version')"
+assert_eq "hc-engineversion(A4): the floor still attaches harness_cost (only engine_version degrades)" "execution-file" \
+  "$(_et_show "$HC_EV" ".devflow/logs/efficiency/pr-1-ev-1.json" | jq -r '.harness_cost.cost_source')"
+assert_eq "hc-engineversion(A4): a specific 'engine_version recorded as null' breadcrumb (never silent)" "yes" \
+  "$(printf '%s' "$HC_EV_ERR" | grep -qF 'engine_version recorded as null' && echo yes || echo no)"
+rm -rf "$HC_EV" "$HC_EV_ROOT"
+
+# ── Union MIDDLE arm (base LACKS harness_cost, this run's staged copy HAS it → add-local's-hc
+# onto base). The A5a-staged fixture makes writer A merge harness_cost onto R BEFORE the union,
+# so base already carries it (the base-wins FIRST jq arm). The ordinary concurrent case — this
+# run is the only writer that added harness_cost and must LAND it onto a base copy that lacks it
+# — is the middle `elif ($local.harness_cost != null)` arm, otherwise undriven. Base holds R
+# WITHOUT harness_cost; a concurrent writer pushes an UNRELATED record (diverging the remote so
+# B's push is rejected); B stages R with harness_cost cost_usd=5 (merge-arm-b ident=run-m re-stages
+# the stale local R with B's own cost); the re-parent union must ADD B's harness_cost onto base R.
+HC_MA_BARE="$(git_sandbox "hc midarm bare")"; git -C "$HC_MA_BARE" init --bare -q
+HC_MA="$(git_sandbox "hc midarm repo")"; git -C "$HC_MA" init -q
+git -C "$HC_MA" config user.email t@e.com; git -C "$HC_MA" config user.name t
+git -C "$HC_MA" remote add origin "$HC_MA_BARE"
+mkdir -p "$HC_MA/.devflow"; printf 'tmp/\n' > "$HC_MA/.devflow/.gitignore"
+git -C "$HC_MA" add -A; git -C "$HC_MA" commit -qm seed; git -C "$HC_MA" branch -M main
+git -C "$HC_MA" push -q -u origin main
+HC_MA_REC='{"schema_version":1,"slug":"pr-6","generated_at":"2026-01-01T00:00:00Z","source":"review-and-fix","iterations":1,"telemetry":[]}'
+# B's stale LOCAL telemetry tip holds R WITHOUT harness_cost (what merge-arm-b re-stages).
+mv "$HC_MA_BARE" "${HC_MA_BARE}.down"
+HC_MA_IDX="$HC_MA/.git/maidx"
+HC_MA_SB="$(printf '%s' "$HC_MA_REC" | git -C "$HC_MA" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_MA_IDX" git -C "$HC_MA" update-index --add --cacheinfo "100644,${HC_MA_SB},.devflow/logs/efficiency/pr-6-run-m.json"
+HC_MA_ST="$(GIT_INDEX_FILE="$HC_MA_IDX" git -C "$HC_MA" write-tree)"; rm -f "$HC_MA_IDX"
+HC_MA_SN="$(GIT_AUTHOR_NAME=b GIT_AUTHOR_EMAIL=b@y GIT_COMMITTER_NAME=b GIT_COMMITTER_EMAIL=b@y git -C "$HC_MA" commit-tree "$HC_MA_ST" -m b)"
+git -C "$HC_MA" update-ref refs/heads/devflow-telemetry "$HC_MA_SN"
+mv "${HC_MA_BARE}.down" "$HC_MA_BARE"
+# Writer A seeds R (NO harness_cost) on base AND an UNRELATED record, then pushes → the remote
+# tip diverges from B's local tip so B's push is rejected, forcing the re-parent union over R.
+HC_MA_A="$(git_sandbox "hc midarm writerA")"; git clone -q "$HC_MA_BARE" "$HC_MA_A" 2>/dev/null
+HC_MA_AIDX="$HC_MA_A/.git/aidx"
+HC_MA_ASB="$(printf '%s' "$HC_MA_REC" | git -C "$HC_MA_A" hash-object -w --stdin)"
+HC_MA_AOTH="$(printf '%s' '{"schema_version":1,"slug":"pr-9","generated_at":"2026-01-01T00:00:00Z","source":"review","iterations":1,"telemetry":[]}' | git -C "$HC_MA_A" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_MA_AIDX" git -C "$HC_MA_A" update-index --add --cacheinfo "100644,${HC_MA_ASB},.devflow/logs/efficiency/pr-6-run-m.json"
+GIT_INDEX_FILE="$HC_MA_AIDX" git -C "$HC_MA_A" update-index --add --cacheinfo "100644,${HC_MA_AOTH},.devflow/logs/efficiency/pr-9-run-other.json"
+HC_MA_AT="$(GIT_INDEX_FILE="$HC_MA_AIDX" git -C "$HC_MA_A" write-tree)"; rm -f "$HC_MA_AIDX"
+HC_MA_AN="$(GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@y GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@y git -C "$HC_MA_A" commit-tree "$HC_MA_AT" -m a)"
+git -C "$HC_MA_A" update-ref refs/heads/devflow-telemetry "$HC_MA_AN"
+git -C "$HC_MA_A" push -q origin devflow-telemetry
+# B persists with the floor env (ident=run-m matches R's filename → merge-arm-b re-stages R with
+# cost_usd=5) plus its own new run dir; the push is rejected (remote diverged) and the re-parent
+# runs the STAGED efficiency-record union arm over R — base R lacks harness_cost, local R has it.
+mkdir -p "$HC_MA/.devflow/tmp/review/pr-6/run-b"
+printf '%s' "$HC_ITER" > "$HC_MA/.devflow/tmp/review/pr-6/run-b/iter-1.json"
+( cd "$HC_MA" && GITHUB_RUN_ID=run GITHUB_RUN_ATTEMPT=m \
+    DEVFLOW_EXECUTION_COST='{"cost_usd":5,"tokens":{},"model_usage":null,"num_turns":null,"duration_ms":null}' \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+git -C "$HC_MA" fetch -q origin devflow-telemetry:refs/remotes/origin/ma 2>/dev/null
+assert_eq "hc-race(A5a middle): base R lacked harness_cost, this run's staged copy had it → the union ADDS it (cost_usd=5)" "5" \
+  "$(git -C "$HC_MA" show "refs/remotes/origin/ma:.devflow/logs/efficiency/pr-6-run-m.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
+assert_eq "hc-race(A5a middle): the concurrent writer's UNRELATED record is preserved on base (base-wins for an unstaged path)" "yes" \
+  "$(git -C "$HC_MA" cat-file -e "refs/remotes/origin/ma:.devflow/logs/efficiency/pr-9-run-other.json" >/dev/null 2>&1 && echo yes || echo no)"
+rm -rf "$HC_MA" "$HC_MA_BARE" "$HC_MA_A"
+
+# ── Finding #475-review-5: the reader's modelUsage extraction, secondary wrong-type
+# breadcrumbs (num_turns/duration_ms), and the arg-count guard were untested (every prior
+# wrong-type fixture drove only the cost field). ──
+HC_RM="$(git_sandbox "hc reader misc")"
+# modelUsage: a dict is surfaced verbatim as model_usage (the first dict wins).
+printf '%s' '{"type":"result","modelUsage":{"claude-x":{"in":5,"out":2}},"total_cost_usd":1}' > "$HC_RM/mu.json"
+assert_eq "hc-reader(A2): a modelUsage object is surfaced verbatim as model_usage" '{"claude-x":{"in":5,"out":2}}' \
+  "$(python3 "$HC_READER" "$HC_RM/mu.json" 2>/dev/null | jq -c '.model_usage')"
+# modelUsage present but NOT a dict → model_usage null + its specific wrong-type breadcrumb.
+printf '%s' '{"type":"result","modelUsage":"not-a-dict","total_cost_usd":1}' > "$HC_RM/muw.json"
+assert_eq "hc-reader(A2): a non-object modelUsage → model_usage null (never a scalar)" "null" \
+  "$(python3 "$HC_READER" "$HC_RM/muw.json" 2>/dev/null | jq -c '.model_usage')"
+assert_eq "hc-reader(A2): a non-object modelUsage → its breadcrumb names 'modelUsage'" "yes" \
+  "$(python3 "$HC_READER" "$HC_RM/muw.json" 2>&1 1>/dev/null | grep -qF "field 'modelUsage'" && echo yes || echo no)"
+# secondary wrong-type: num_turns/duration_ms non-numeric → null + their OWN breadcrumbs.
+printf '%s' '{"type":"result","num_turns":"nope","duration_ms":[1],"total_cost_usd":1}' > "$HC_RM/nt.json"
+assert_eq "hc-reader(A2): non-numeric num_turns → null" "null" \
+  "$(python3 "$HC_READER" "$HC_RM/nt.json" 2>/dev/null | jq -c '.num_turns')"
+assert_eq "hc-reader(A2): non-numeric duration_ms → null" "null" \
+  "$(python3 "$HC_READER" "$HC_RM/nt.json" 2>/dev/null | jq -c '.duration_ms')"
+assert_eq "hc-reader(A2): num_turns wrong-type → its own 'field num_turns' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_RM/nt.json" 2>&1 1>/dev/null | grep -qF "field 'num_turns'" && echo yes || echo no)"
+assert_eq "hc-reader(A2): duration_ms wrong-type → its own 'field duration_ms' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_RM/nt.json" 2>&1 1>/dev/null | grep -qF "field 'duration_ms'" && echo yes || echo no)"
+# arg-count guard: zero args and two args → the "expected exactly one argument" breadcrumb,
+# exit 0, and NOTHING on stdout (best-effort; never a stack trace).
+HC_RM_A0="$(python3 "$HC_READER" 2>"$HC_RM/a0.err"; echo "rc=$?")"
+assert_eq "hc-reader(A2): zero args → exit 0, no stdout" "rc=0" "$HC_RM_A0"
+assert_eq "hc-reader(A2): zero args → the arg-count breadcrumb" "yes" \
+  "$(grep -qF 'expected exactly one argument' "$HC_RM/a0.err" && echo yes || echo no)"
+HC_RM_A2="$(python3 "$HC_READER" "$HC_RM/mu.json" extra 2>"$HC_RM/a2.err"; echo "rc=$?")"
+assert_eq "hc-reader(A2): two args → exit 0, no stdout" "rc=0" "$HC_RM_A2"
+assert_eq "hc-reader(A2): two args → the arg-count breadcrumb" "yes" \
+  "$(grep -qF 'expected exactly one argument' "$HC_RM/a2.err" && echo yes || echo no)"
+# A parsed file can lack cost_usd while still carrying another usable figure such as
+# num_turns. The reader names that absence; A7 separately proves the glue refuses a
+# truly all-null payload instead of staging it as cost coverage.
+printf '%s' '{"type":"result","num_turns":3}' > "$HC_RM/nocost.json"
+assert_eq "hc-reader(A2): parsed-but-no-cost → the 'carried no cost figure' summary breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_RM/nocost.json" 2>&1 1>/dev/null | grep -qF 'carried no cost figure' && echo yes || echo no)"
+# The fallback token accumulation must NOT sum `total_tokens` (a summary figure): summing a
+# possibly-cumulative field would over-count, so it stays null on the per-message path while the
+# per-message components (input_tokens) still sum (issue #475 review finding 1, unknown-is-not-zero).
+printf '%s' '[{"usage":{"input_tokens":100,"total_tokens":105}},{"usage":{"input_tokens":50,"total_tokens":60}}]' > "$HC_RM/ttok.json"
+assert_eq "hc-reader(A2): fallback path sums per-message input_tokens (150)" "150" \
+  "$(python3 "$HC_READER" "$HC_RM/ttok.json" 2>/dev/null | jq -c '.tokens.input_tokens')"
+assert_eq "hc-reader(A2): fallback path does NOT sum total_tokens — stays null (no over-count)" "null" \
+  "$(python3 "$HC_READER" "$HC_RM/ttok.json" 2>/dev/null | jq -c '.tokens.total_tokens')"
+# But the AUTHORITATIVE result-summary path still reads total_tokens as-is (the run total).
+printf '%s' '[{"type":"result","usage":{"input_tokens":500,"total_tokens":600}}]' > "$HC_RM/ttok2.json"
+assert_eq "hc-reader(A2): result-summary path reads total_tokens verbatim (600)" "600" \
+  "$(python3 "$HC_READER" "$HC_RM/ttok2.json" 2>/dev/null | jq -c '.tokens.total_tokens')"
+rm -rf "$HC_RM"
+
+# ── Finding #475-review-2: the merge-aware union's jq-unavailable / empty-blob LOCAL-WINS FALLBACK
+# branch (telemetry-branch.sh) was untested — every union-race fixture ran with jq available, so the
+# load-bearing "a concurrent base-side harness_cost may be reverted" ::warning:: never executed.
+# Reproduce the A5a-staged race but point DEVFLOW_JQ at a wrapper that fails ONLY the union merge
+# program (identified by its unique `elif ($local.harness_cost` text) and delegates everything else
+# to real jq — so the floor still stages R with cost_usd=5, but the union's jq fails and takes the
+# local-wins fallback (R → 5, NOT the base-wins 9 the working union keeps). ──
+HC_UF_BARE="$(git_sandbox "hc unionfb bare")"; git -C "$HC_UF_BARE" init --bare -q
+HC_UF="$(git_sandbox "hc unionfb repo")"; git -C "$HC_UF" init -q
+git -C "$HC_UF" config user.email t@e.com; git -C "$HC_UF" config user.name t
+git -C "$HC_UF" remote add origin "$HC_UF_BARE"
+mkdir -p "$HC_UF/.devflow"; printf 'tmp/\n' > "$HC_UF/.devflow/.gitignore"
+git -C "$HC_UF" add -A; git -C "$HC_UF" commit -qm seed; git -C "$HC_UF" branch -M main
+git -C "$HC_UF" push -q -u origin main
+HC_UF_REC='{"schema_version":1,"slug":"pr-6","generated_at":"2026-01-01T00:00:00Z","source":"review-and-fix","iterations":1,"telemetry":[]}'
+mv "$HC_UF_BARE" "${HC_UF_BARE}.down"
+HC_UF_IDX="$HC_UF/.git/ufidx"
+HC_UF_SB="$(printf '%s' "$HC_UF_REC" | git -C "$HC_UF" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_UF_IDX" git -C "$HC_UF" update-index --add --cacheinfo "100644,${HC_UF_SB},.devflow/logs/efficiency/pr-6-run-r.json"
+HC_UF_ST="$(GIT_INDEX_FILE="$HC_UF_IDX" git -C "$HC_UF" write-tree)"; rm -f "$HC_UF_IDX"
+HC_UF_SN="$(GIT_AUTHOR_NAME=b GIT_AUTHOR_EMAIL=b@y GIT_COMMITTER_NAME=b GIT_COMMITTER_EMAIL=b@y git -C "$HC_UF" commit-tree "$HC_UF_ST" -m b)"
+git -C "$HC_UF" update-ref refs/heads/devflow-telemetry "$HC_UF_SN"
+mv "${HC_UF_BARE}.down" "$HC_UF_BARE"
+HC_UF_A="$(git_sandbox "hc unionfb writerA")"; git clone -q "$HC_UF_BARE" "$HC_UF_A" 2>/dev/null
+HC_UF_AREC="$(printf '%s' "$HC_UF_REC" | jq -c '.harness_cost={cost_source:"execution-file",cost_usd:9}')"
+HC_UF_AIDX="$HC_UF_A/.git/aidx"
+HC_UF_AB="$(printf '%s' "$HC_UF_AREC" | git -C "$HC_UF_A" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_UF_AIDX" git -C "$HC_UF_A" update-index --add --cacheinfo "100644,${HC_UF_AB},.devflow/logs/efficiency/pr-6-run-r.json"
+HC_UF_AT="$(GIT_INDEX_FILE="$HC_UF_AIDX" git -C "$HC_UF_A" write-tree)"; rm -f "$HC_UF_AIDX"
+HC_UF_AN="$(GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@y GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@y git -C "$HC_UF_A" commit-tree "$HC_UF_AT" -m a)"
+git -C "$HC_UF_A" update-ref refs/heads/devflow-telemetry "$HC_UF_AN"
+git -C "$HC_UF_A" push -q origin devflow-telemetry
+# Selective jq wrapper: fail ONLY the union merge program, delegate all else to real jq.
+printf '%s\n' '#!/usr/bin/env bash' 'for a in "$@"; do case "$a" in *"elif (\$local.harness_cost"*) exit 1 ;; esac; done' 'exec jq "$@"' > "$HC_UF/jqsel"
+chmod +x "$HC_UF/jqsel"
+mkdir -p "$HC_UF/.devflow/tmp/review/pr-6/run-b"
+printf '%s' "$HC_ITER" > "$HC_UF/.devflow/tmp/review/pr-6/run-b/iter-1.json"
+HC_UF_ERR="$( ( cd "$HC_UF" && GITHUB_RUN_ID=run GITHUB_RUN_ATTEMPT=r DEVFLOW_JQ="$HC_UF/jqsel" \
+    DEVFLOW_EXECUTION_COST='{"cost_usd":5,"tokens":{},"model_usage":null,"num_turns":null,"duration_ms":null}' \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+git -C "$HC_UF" fetch -q origin devflow-telemetry:refs/remotes/origin/uf 2>/dev/null
+assert_eq "hc-race(A5a fallback): union jq failed → LOCAL-WINS fallback (R reverts to this run's staged cost_usd=5, not base-wins 9)" "5" \
+  "$(git -C "$HC_UF" show "refs/remotes/origin/uf:.devflow/logs/efficiency/pr-6-run-r.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
+assert_eq "hc-race(A5a fallback): the fallback emits the 'fell back to local-wins' ::warning:: (never silent)" "yes" \
+  "$(printf '%s' "$HC_UF_ERR" | grep -qF 'fell back to local-wins' && echo yes || echo no)"
+rm -rf "$HC_UF" "$HC_UF_BARE" "$HC_UF_A"
+
+# ── Finding #475-review-3: the skeleton-overwrite guard had only a line-presence mutation pin (A10)
+# — no POSITIVE behavioral fixture proving it declines when a real record already occupies the
+# skeleton's filename. Seed a real record on the branch at the skeleton path, then force merge-arm-b
+# to MISS it (patch the copied telemetry-branch.sh so list_blobs returns empty while blob_exists still
+# finds it — the exact "swallowed git failure" ambiguity the guard defends). The guard must decline
+# and leave the real record intact rather than overwrite it with an iterations:0 skeleton. ──
+HC_SO_ROOT="$(git_sandbox "hc skel-overwrite root")"
+mkdir -p "$HC_SO_ROOT/lib" "$HC_SO_ROOT/.claude-plugin"
+cp "$LIB"/*.sh "$LIB"/*.jq "$HC_SO_ROOT/lib/" 2>/dev/null
+cp "$LIB/../.claude-plugin/plugin.json" "$HC_SO_ROOT/.claude-plugin/" 2>/dev/null
+# Redefine list_blobs to always-empty (last def wins on source); blob_exists stays real.
+printf '\ndevflow_telemetry_list_blobs() { return 0; }\n' >> "$HC_SO_ROOT/lib/telemetry-branch.sh"
+HC_SO="$(_hc_repo "hc skel-overwrite")"
+# Seed a REAL, populated record on the telemetry branch at the skeleton's own filename.
+HC_SO_REC='{"schema_version":1,"slug":"pr-42","generated_at":"2026-01-01T00:00:00Z","source":"review-and-fix","iterations":7,"real_marker":true,"telemetry":[]}'
+HC_SO_IDX="$HC_SO/.git/soidx"
+HC_SO_SB="$(printf '%s' "$HC_SO_REC" | git -C "$HC_SO" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_SO_IDX" git -C "$HC_SO" update-index --add --cacheinfo "100644,${HC_SO_SB},.devflow/logs/efficiency/pr-42-555-1.json"
+HC_SO_ST="$(GIT_INDEX_FILE="$HC_SO_IDX" git -C "$HC_SO" write-tree)"; rm -f "$HC_SO_IDX"
+HC_SO_SN="$(GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@e GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@e git -C "$HC_SO" commit-tree "$HC_SO_ST" -m seed-record)"
+git -C "$HC_SO" update-ref refs/heads/devflow-telemetry "$HC_SO_SN"
+# Run --persist with the SKELETON env (no iter dir → skeleton arm) via the PATCHED lib.
+HC_SO_ERR="$( ( cd "$HC_SO" && GITHUB_RUN_ID=555 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=review-and-fix bash "$HC_SO_ROOT/lib/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-skeleton(A6+): guard declines → the real branch record is NOT overwritten (iterations still 7, not the skeleton's 0)" "7" \
+  "$(git -C "$HC_SO" show "refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-42-555-1.json" 2>/dev/null | jq -c '.iterations')"
+assert_eq "hc-skeleton(A6+): guard declines → the real record's marker survives (skeleton never written over it)" "true" \
+  "$(git -C "$HC_SO" show "refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-42-555-1.json" 2>/dev/null | jq -c '.real_marker')"
+assert_eq "hc-skeleton(A6+): guard declines → the specific 'declining to overwrite it with a cost skeleton' breadcrumb" "yes" \
+  "$(printf '%s' "$HC_SO_ERR" | grep -qF 'declining to overwrite it with a cost skeleton' && echo yes || echo no)"
+rm -rf "$HC_SO" "$HC_SO_ROOT"
+
+# ── A10: behavioral-fix pins (each with a recorded mutation run) ─────────────
+# The AC5a merge-aware union rests on the "unstaged path never overwrites base"
+# branch; mutating its guard so the branch is never taken reverts the store to the
+# pre-#475 unconditional local-wins overlay (the exact race the pin guards).
+assert_pin_red_under "hc-pin(A10): union base-wins guard for unstaged paths" \
+  '[ "$_u_staged" -eq 0 ]' \
+  's/_u_staged" -eq 0/_u_staged" -eq 999/' \
+  "$LIB/telemetry-branch.sh"
+# The run-id targeting glob is what scopes the merge to THIS run's record; broadening
+# it to `*.json` attaches harness_cost to any swept record (the AC3 defect).
+assert_pin_red_under "hc-pin(A10): merge-arm run-id targeting glob" \
+  '"$eff_dir"/*-"$ident".json' \
+  's@\*-"\$ident"\.json@*.json@' \
+  "$LIB/efficiency-trace.sh"
+# The env-unset early return is the byte-identical/silent guard (AC3). The mutation
+# neutralizes the early return (`|| return 0` → `|| :`) so an unset run no longer
+# short-circuits: it falls through to the ENABLED check and its breadcrumbs — no longer
+# silent/byte-identical, the exact regression this guard prevents. (Flipping
+# `return 0`→`return 1` would NOT reintroduce it — the run would still short-circuit, so
+# that earlier mutation was vacuous; `|| :` removes the short-circuit outright.)
+assert_pin_red_under "hc-pin(A10): env-unset silent no-op guard" \
+  '[ -n "${DEVFLOW_EXECUTION_COST:-}" ] || return 0' \
+  's/DEVFLOW_EXECUTION_COST:-\}" \] \|\| return 0/DEVFLOW_EXECUTION_COST:-}" ] || :/' \
+  "$LIB/efficiency-trace.sh"
+# The skeleton-overwrite guard (issue #475 review): merge-arm-b's empty-list signal is ambiguous
+# (no record vs. a swallowed git failure), so before writing a skeleton the floor re-checks the
+# branch blob and declines if a real record already occupies the skeleton's filename. Mutating the
+# guard's condition to always-false (`false && …`) makes it never fire, re-introducing the
+# skeleton-overwrites-a-real-record data-loss path this guard closes. The hc-skeleton(A6)
+# exact-filename fixture above supplies the positive behavioral path; mutation observed RED.
+assert_pin_red_under "hc-pin(A10): skeleton-overwrite guard re-checks the branch blob before writing" \
+  'if [ -n "$ref" ] && devflow_telemetry_blob_exists' \
+  's/if \[ -n "\$ref" \] && devflow_telemetry_blob_exists/if false \&\& devflow_telemetry_blob_exists/' \
+  "$LIB/efficiency-trace.sh"
+# The reader must PREFER the result-summary event's cumulative `usage` over summing every
+# per-message `usage` (issue #475 review — double-count). The operative line is the
+# result-preference early return in _accumulate_tokens; neutering it (→ `pass`) drops the
+# reader back to the per-message fallback and mis-reports the run's tokens, the exact
+# regression the hc-reader(A2) dual-usage behavioral test asserts RED. Mutation observed RED.
+assert_pin_red_under "hc-pin(A10): reader prefers the result-summary usage (no per-message token double-count)" \
+  'return _read_usage(usage, wrong_type, accumulate=False)' \
+  's/return _read_usage\(usage, wrong_type, accumulate=False\)/pass/' \
+  "$LIB/../scripts/extract-execution-cost.py"
+# Fallback total_tokens cannot be summed truthfully because the undocumented streamed
+# value may be cumulative. Disabling the guard makes hc-reader(A2) report 165, not null.
+assert_pin_red_under "hc-pin(A10): fallback total_tokens remains unknown instead of being summed" \
+  'if accumulate and k == "total_tokens":' \
+  's/if accumulate and k == "total_tokens":/if False:/' \
+  "$LIB/../scripts/extract-execution-cost.py"
+# A parsed all-null object is valid reader output but no cost coverage. Disabling the
+# guard makes hc-glue(A7) emit PR=50 and a non-empty cost handoff for that fixture.
+assert_pin_red_under "hc-pin(A10): glue rejects a parsed all-null cost object" \
+  'if ! _cost_has_figures "$COST"; then' \
+  's/if ! _cost_has_figures "\$COST"; then/if false \&\& ! _cost_has_figures "$COST"; then/' \
+  "$LIB/../scripts/prepare-harness-floor.sh"
+
 # ── issue #381: synthesis floor — --persist reconstructs a minimal iteration
 # record from the branch's fix commits when a run left ZERO iter-*.json ────────
 echo "efficiency-trace.sh synthesis floor (issue #381)"
@@ -16755,7 +17532,7 @@ git -C "$SHF_REPO" commit --allow-empty -qm "feat: work"
 SHF_A="$SHF_REPO/.devflow/tmp/review/pr-1/run-a"
 mkdir -p "$SHF_A"
 printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_A/iter-1.json"
-printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_A/iter-2.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted","promotion_provenance":"shadow"}' > "$SHF_A/iter-2.json"
 ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_A" --slug pr-1 ) >/dev/null 2>&1
 assert_eq "et-shadow-floor(a): promotion evidence + no shadow block → synthesized marker written" "true" \
   "$(jq -r '.shadow.shadow_synthesized' "$SHF_A/iter-1.json" 2>/dev/null)"
@@ -16766,6 +17543,81 @@ assert_eq "et-shadow-floor(a): synthesized marker carries the promotion linkage"
 SHF_A_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_A" --slug pr-1 ) 2>&1 )"
 assert_eq "et-shadow-floor(a): --self-check accepts the synthesized marker (no missing-field warning)" "no" \
   "$(printf '%s' "$SHF_A_SC" | grep -qF 'synthesized shadow marker missing expected field' && echo yes || echo no)"
+# (a2) A Step-4.5 park-calibration promotion happened before any predecessor
+# shadow ran. Provenance must suppress both synthesis and the dropped-shadow warning.
+SHF_A2="$SHF_REPO/.devflow/tmp/review/pr-1/run-a2"
+mkdir -p "$SHF_A2"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_A2/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted","promotion_provenance":"park-calibration-pre-shadow"}' > "$SHF_A2/iter-2.json"
+SHF_A2_BEFORE="$(cat "$SHF_A2/iter-1.json")"
+SHF_A2_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_A2" --slug pr-1 ) 2>&1 >/dev/null )"
+assert_eq "et-shadow-floor(a2): pre-shadow park promotion leaves predecessor byte-identical" "$SHF_A2_BEFORE" \
+  "$(cat "$SHF_A2/iter-1.json")"
+assert_eq "et-shadow-floor(a2): pre-shadow park promotion emits no warning for predecessor" "no" \
+  "$(printf '%s' "$SHF_A2_ERR" | grep -qF 'iter-1.json' && echo yes || echo no)"
+assert_pin_red_under "et-shadow-floor(a2): restoring synthesis on the pre-shadow arm flips the suppression pin RED" \
+  'preshadow) continue ;;' \
+  's/preshadow\) continue ;;/preshadow) marker_filter='"'"'.shadow = {shadow_synthesized: true, promoted_to_iter_next: true}'"'"' ;;/' \
+  "$LIB/efficiency-trace.sh"
+# (a3) A post-shadow park promotion licenses drop recovery but never shadow credit.
+SHF_A3="$SHF_REPO/.devflow/tmp/review/pr-1/run-a3"
+mkdir -p "$SHF_A3"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_A3/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted","promotion_provenance":"park-calibration-post-shadow"}' > "$SHF_A3/iter-2.json"
+SHF_A3_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_A3" --slug pr-1 ) 2>&1 >/dev/null )"
+assert_eq "et-shadow-floor(a3): post-shadow park drop is recovered" "true" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_A3/iter-1.json")"
+assert_eq "et-shadow-floor(a3): park-driven promotion receives no shadow credit" "false" \
+  "$(jq -r '.shadow.promoted_to_iter_next' "$SHF_A3/iter-1.json")"
+assert_eq "et-shadow-floor(a3): exact post-shadow warning is emitted" \
+  "::warning::efficiency-trace.sh --persist: synthesized a shadow marker on iter-1.json — its shadow block was dropped (iter-2.json records a park-calibration-post-shadow promotion, so a shadow ran here); promoted_to_iter_next is false because the promotion was park-gate-driven, not shadow-driven (attribution only — cost figures are unrecoverable after the fact)" \
+  "$(printf '%s\n' "$SHF_A3_ERR" | grep -F 'synthesized a shadow marker on iter-1.json')"
+# (a4) Unknown producer values fail closed to no synthesis and stay loud.
+SHF_A4="$SHF_REPO/.devflow/tmp/review/pr-1/run-a4"
+mkdir -p "$SHF_A4"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_A4/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted","promotion_provenance":"future-gate"}' > "$SHF_A4/iter-2.json"
+SHF_A4_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_A4" --slug pr-1 ) 2>&1 >/dev/null )"
+assert_eq "et-shadow-floor(a4): unrecognized provenance writes no marker" "null" \
+  "$(jq -r '.shadow' "$SHF_A4/iter-1.json")"
+assert_eq "et-shadow-floor(a4): unrecognized provenance breadcrumb names the value" "yes" \
+  "$(printf '%s' "$SHF_A4_ERR" | grep -qF "unrecognized promotion_provenance value 'future-gate'" && echo yes || echo no)"
+SHF_A4_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_A4" --slug pr-1 ) 2>&1 )"
+assert_eq "et-shadow-floor(a4): self-check names the unrecognized producer value" "yes" \
+  "$(printf '%s' "$SHF_A4_SC" | grep -qF "has unrecognized promotion_provenance 'future-gate'" && echo yes || echo no)"
+# (a5) Every non-established JSON shape gets the hedged legacy marker and advisory.
+for _shf_shape in absent null empty number boolean object array; do
+  SHF_A5="$SHF_REPO/.devflow/tmp/review/pr-1/run-a5-$_shf_shape"
+  mkdir -p "$SHF_A5"
+  printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_A5/iter-1.json"
+  case "$_shf_shape" in
+    absent)  _shf_prov='' ;;
+    null)    _shf_prov=',"promotion_provenance":null' ;;
+    empty)   _shf_prov=',"promotion_provenance":""' ;;
+    number)  _shf_prov=',"promotion_provenance":7' ;;
+    boolean) _shf_prov=',"promotion_provenance":false' ;;
+    object)  _shf_prov=',"promotion_provenance":{}' ;;
+    array)   _shf_prov=',"promotion_provenance":[]' ;;
+  esac
+  printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"%s}' "$_shf_prov" > "$SHF_A5/iter-2.json"
+  SHF_A5_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_A5" --slug pr-1 ) 2>&1 >/dev/null )"
+  assert_eq "et-shadow-floor(a5 $_shf_shape): hedged marker synthesized" "true true true" \
+    "$(jq -r '[.shadow.shadow_synthesized,.shadow.promoted_to_iter_next,.shadow.provenance_unestablished] | join(" ")' "$SHF_A5/iter-1.json")"
+  assert_eq "et-shadow-floor(a5 $_shf_shape): hedged warning names ambiguity" "yes" \
+    "$(printf '%s' "$SHF_A5_ERR" | grep -qF 'shadow block was either dropped or this promotion never ran one' && echo yes || echo no)"
+  SHF_A5_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_A5" --slug pr-1 ) 2>&1 )"
+  assert_eq "et-shadow-floor(a5 $_shf_shape): self-check advises on producer provenance gap" "yes" \
+    "$(printf '%s' "$SHF_A5_SC" | grep -qF 'has unreadable or absent promotion_provenance' && echo yes || echo no)"
+done
+# Defined values are all accepted by the producer advisory.
+for _shf_known in shadow park-calibration-post-shadow park-calibration-pre-shadow; do
+  SHF_KNOWN="$SHF_REPO/.devflow/tmp/review/pr-1/run-known-$_shf_known"
+  mkdir -p "$SHF_KNOWN"
+  printf '{"iter":1,"source":"review-and-fix","loop_role":"promoted","promotion_provenance":"%s"}' "$_shf_known" > "$SHF_KNOWN/iter-1.json"
+  SHF_KNOWN_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_KNOWN" --slug pr-1 ) 2>&1 )"
+  assert_eq "et-shadow-floor self-check: defined $_shf_known provenance emits no provenance advisory" "no" \
+    "$(printf '%s' "$SHF_KNOWN_SC" | grep -qF 'promotion_provenance' && echo yes || echo no)"
+done
 # A TRUNCATED synthesized shadow marker still warns — the flag buys no total exemption.
 mkdir -p "$SHF_REPO/.devflow/tmp/review/pr-1/run-trunc"
 printf '{"iter":1,"source":"review-and-fix","loop_role":"fix","shadow":{"shadow_synthesized":true}}' \
@@ -17023,6 +17875,14 @@ assert_pin_red_under "et-shadow-floor(l): discarding mv's stderr again flips the
 # greppable single-line assignment in efficiency-trace.sh (its self-check reads it).
 assert_pin_unique "et-shadow-floor: efficiency-trace.sh carries the SHADOW_SYNTH_EXPECTED_FIELDS constant" \
   'SHADOW_SYNTH_EXPECTED_FIELDS="shadow_synthesized promoted_to_iter_next"' "$LIB/efficiency-trace.sh"
+assert_pin_unique "et-shadow-floor #501: consumer classifies shadow provenance" \
+  'elif .promotion_provenance == "shadow" then "shadow"' "$LIB/efficiency-trace.sh"
+assert_pin_unique "et-shadow-floor #501: consumer classifies post-shadow park provenance" \
+  'elif .promotion_provenance == "park-calibration-post-shadow" then "postshadow"' "$LIB/efficiency-trace.sh"
+assert_pin_unique "et-shadow-floor #501: producer stages shadow provenance at the early handoff" \
+  'Step 0.9 short-circuits and stages `promotion_provenance: "shadow"` beside `prior_phase3_findings`' "$MAXI_SKILL"
+assert_pin_unique "et-shadow-floor #501: producer stages both park-gate provenance values" \
+  'Stage `"park-calibration-post-shadow"` when the gate fires before Decide outcome 1' "$MAXI_SKILL"
 rm -rf "$SHF_REPO"
 
 # ── issue #426 prose pins: Phase 1 slice handoff + shadow telemetry (T1–T4) ──
@@ -17689,11 +18549,12 @@ rm -rf "$LR_SC_REPO"
 # (5) Single-source field set ↔ SKILL.md schema divergence guard (AC #6).
 #     ITER_EXPECTED_FIELDS in efficiency-trace.sh is the ONE place the expected
 #     iter-field set is defined; it MUST equal the iter-<N>.json schema's
-#     top-level fields in SKILL.md minus `shadow` (appended later by Step 2.6,
-#     legitimately absent). FAILs if a field is added/removed on either side.
+#     unconditional top-level fields in SKILL.md minus `shadow` (appended later)
+#     and `promotion_provenance` (conditional on promoted iterations). FAILs if
+#     an unconditional field is added/removed on either side.
 LR_CONST="$(grep -E '^ITER_EXPECTED_FIELDS=' "$LIB/efficiency-trace.sh" | sed -E 's/^ITER_EXPECTED_FIELDS=//; s/"//g' | tr ' ' '\n' | grep -v '^$' | sort -u)"
-LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -v '^shadow$' | sort -u)"
-assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md schema top-level minus shadow" \
+LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|promotion_provenance)$' | sort -u)"
+assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md unconditional schema fields" \
   "$LR_SCHEMA" "$LR_CONST"
 
 # (6) --self-check NEVER ABORTS on an unparseable iter file (issue #170 AC: every
@@ -35512,6 +36373,978 @@ assert_eq "#466 mla-extension-pins: receiving-code-review carries the config-der
   "$(grep -qF 'CLAUDE.md six-shape adversarial matrix' "$LIB/../.devflow/prompt-extensions/receiving-code-review.md" && echo yes || echo no)"
 assert_eq "#466 mla-extension-pins: review-and-fix carries the config-derivation six-shape rule" "yes" \
   "$(grep -qF 'CLAUDE.md six-shape adversarial matrix' "$LIB/../.devflow/prompt-extensions/review-and-fix.md" && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
+# Long-run credential refresh (issue #487): the refresher + gh wrapper. Drives the
+# nine arms the "Suite coverage" AC enumerates — gh-stubbed, no network, no real
+# key. The mint honors the verbatim, never-probed DEVFLOW_REFRESH_MINT override
+# (the lib/resolve-bin.sh DEVFLOW_<TOOL> stub contract), and the credential-surface
+# targets + sleep are overridable, so every arm runs at the desk.
+# ────────────────────────────────────────────────────────────────────────────
+REFRESH_SH="$LIB/../scripts/refresh-app-credentials.sh"
+GHFRESH_SH="$LIB/../scripts/gh-fresh.sh"
+
+assert_eq "#487 refresher: scripts/refresh-app-credentials.sh exists (single-cycle logic)" "yes" \
+  "$([ -f "$REFRESH_SH" ] && echo yes || echo no)"
+assert_eq "#487 wrapper: scripts/gh-fresh.sh exists (tracked gh wrapper)" "yes" \
+  "$([ -f "$GHFRESH_SH" ] && echo yes || echo no)"
+# The refresher must source resolve-jq.sh (the new-jq-caller pin) and never call bare jq.
+assert_eq "#487 refresher: sources lib/resolve-jq.sh (routes jq through the resolver)" "yes" \
+  "$(grep -qE '^\. .*resolve-jq\.sh' "$REFRESH_SH" && echo yes || echo no)"
+
+# sha256 helper matching the wrapper's own (sha256sum on Linux, shasum on macOS).
+_d487_sha() {
+  if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$1" | sha256sum | awk '{print $1}'
+  else printf '%s' "$1" | shasum -a 256 | awk '{print $1}'; fi
+}
+
+D487=$(mktemp -d)
+CFG487="$D487/cred.config"
+TOK487="$D487/tokfile"
+git config --file "$CFG487" "http.https://github.com/.extraheader" \
+  "AUTHORIZATION: basic $(printf 'x-access-token:TOKEN_A' | openssl base64 -A)" 2>/dev/null
+# Decode the fixture extraheader back to its raw `x-access-token:<token>` payload
+# (used by arms 2/3/4 to assert which token the refresher wrote).
+_a487_hdr() { git config --file "$CFG487" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null; }
+
+# Arm 1 — missing inputs → clean exit 0 with a stderr breadcrumb.
+_a1_err="$(DEVFLOW_REFRESH_CONFIG_FILE="$D487/none" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 1>/dev/null)"; _a1_rc=$?
+assert_eq "#487 arm1: missing inputs exits 0" "0" "$_a1_rc"
+assert_eq "#487 arm1: emits the SPECIFIC guard ::warning:: (DEVFLOW_APP_ID empty), not just any breadcrumb" "yes" \
+  "$(printf '%s' "$_a1_err" | grep -qF 'mint: DEVFLOW_APP_ID empty' && echo yes || echo no)"
+
+# Arm 2 — mint success → extraheader rewritten and mode-0600 token file written.
+DEVFLOW_REFRESH_MINT='printf TOKEN_B' DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1
+assert_eq "#487 arm2: mint success rewrites the extraheader to the fresh token" "x-access-token:TOKEN_B" \
+  "$(_a487_hdr)"
+assert_eq "#487 arm2: token file written with the fresh token" "TOKEN_B" "$(cat "$TOK487" 2>/dev/null)"
+assert_eq "#487 arm2: token file is mode 0600" "600" \
+  "$(stat -c '%a' "$TOK487" 2>/dev/null || stat -f '%Lp' "$TOK487" 2>/dev/null)"
+
+# Arm 3 — mint failure → previous credential intact and a ::warning:: emitted.
+_a3_err="$(DEVFLOW_REFRESH_MINT='false' DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 1>/dev/null)"
+assert_eq "#487 arm3: mint failure leaves the previous credential intact (still TOKEN_B)" "x-access-token:TOKEN_B" \
+  "$(_a487_hdr)"
+assert_eq "#487 arm3: mint failure emits a ::warning::" "yes" \
+  "$(printf '%s' "$_a3_err" | grep -qF '::warning::' && echo yes || echo no)"
+
+# Arm 4 — failed-then-succeeding cycle sequence → backoff retry recovers, cred ends fresh.
+# A recording sleep stub captures each sleep's duration so the FAILED cycle is proven to
+# take the BACKOFF branch and the SUCCESSFUL cycle the INTERVAL branch (distinguishable
+# via distinct override values), and the pidfile write (the retirement path's sole handle)
+# is asserted.
+CNT487="$D487/cnt"; echo 0 > "$CNT487"
+SLEEPLOG487="$D487/sleeps"; : > "$SLEEPLOG487"
+SLEEPSTUB487="$D487/sleepstub"
+{ printf '#!/usr/bin/env bash\n'; printf 'printf "%%s\\n" "$1" >> "%s"\n' "$SLEEPLOG487"; } > "$SLEEPSTUB487"
+chmod +x "$SLEEPSTUB487"
+_mint4='n=$(cat '"$CNT487"'); n=$((n+1)); echo $n > '"$CNT487"'; if [ "$n" -lt 2 ]; then exit 1; else printf TOKEN_FRESH; fi'
+DEVFLOW_REFRESH_MINT="$_mint4" DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_REFRESH_SLEEP="$SLEEPSTUB487" DEVFLOW_REFRESH_INTERVAL=99 DEVFLOW_REFRESH_BACKOFF=11 \
+  DEVFLOW_REFRESH_MAX_CYCLES=2 DEVFLOW_REFRESH_PIDFILE="$D487/pid" \
+  GITHUB_SERVER_URL="https://github.com" bash "$REFRESH_SH" loop </dev/null >/dev/null 2>&1
+_a4_rc=$?
+assert_eq "#487 arm4: loop never exits non-zero" "0" "$_a4_rc"
+assert_eq "#487 arm4: backoff retry recovers — credential ends fresh (TOKEN_FRESH)" "x-access-token:TOKEN_FRESH" \
+  "$(_a487_hdr)"
+assert_eq "#487 arm4: loop writes its PID to the pidfile (the retirement handle)" "yes" \
+  "$([ -s "$D487/pid" ] && grep -qE '^[0-9]+$' "$D487/pid" && echo yes || echo no)"
+assert_eq "#487 arm4: failed cycle takes the BACKOFF branch then success takes the INTERVAL branch" "11 99" \
+  "$(tr '\n' ' ' < "$SLEEPLOG487" | sed 's/ *$//')"
+
+# Arm 4b — belt-and-suspenders child-env scrub (PR #491). read_key_from_stdin
+# `unset`s DEVFLOW_APP_PRIVATE_KEY from bash's in-memory environment table so that
+# any child the refresher spawns afterward (openssl/curl/git) can never inherit the
+# PEM in its own environment. NOTE: this is NOT the /proc/<pid>/environ mitigation —
+# that vector is closed at the WORKFLOW launch with `env -u DEVFLOW_APP_PRIVATE_KEY`
+# (pinned below), because /proc/<pid>/environ snapshots the exec-time environment and
+# a later `unset` does not rewrite it (proc(5)). This arm exercises only the child-
+# inheritance scrub: read_key_from_stdin runs BEFORE mint_token's `eval`, so a mint
+# override that echoes the env var observes the POST-unset bash environment — a
+# leaked var surfaces in the written token, an unset one reads `<unset>`.
+_a4b_tok="$D487/tok4b"
+DEVFLOW_APP_PRIVATE_KEY='SECRET_PEM_MATERIAL' \
+  DEVFLOW_REFRESH_MINT='printf "envval=[${DEVFLOW_APP_PRIVATE_KEY:-<unset>}]"' \
+  DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" DEVFLOW_REFRESH_TOKEN_FILE="$_a4b_tok" \
+  GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1
+assert_eq "#487 arm4b: read_key_from_stdin unsets DEVFLOW_APP_PRIVATE_KEY from bash's env (child-inheritance scrub)" "envval=[<unset>]" \
+  "$(cat "$_a4b_tok" 2>/dev/null)"
+# Removal pin: deleting the `unset` line re-exposes the PEM to child processes the
+# refresher spawns, so it must flip the pin RED.
+assert_pin_red_under "#487 arm4b-pin: DEVFLOW_APP_PRIVATE_KEY unset present (deleting it re-exposes the PEM to children)" \
+  'unset DEVFLOW_APP_PRIVATE_KEY' '/unset DEVFLOW_APP_PRIVATE_KEY/d' "$REFRESH_SH"
+
+# Arm 4c — SIGTERM teardown of a LIVE loop (PR #491 Suggestion 1). The loop sleeps in
+# the BACKGROUND and `wait`s on it so the TERM trap retires the process PROMPTLY; a
+# regression to a foreground `sleep "$INTERVAL"` would defer the trap until the full
+# interval elapses (up to 45 min in production), silently breaking the stop-refresher.sh
+# retirement contract on which the whole retirement design rests. Start a real loop with
+# a 20s interval, TERM it, and assert it dies well within that interval.
+CFG4C="$D487/cred4c.config"
+git config --file "$CFG4C" "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD4C" 2>/dev/null
+PIDF4C="$D487/pid4c"; rm -f "$PIDF4C"
+DEVFLOW_REFRESH_MINT='printf TOKEN_4C' DEVFLOW_REFRESH_CONFIG_FILE="$CFG4C" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok4c" DEVFLOW_REFRESH_PIDFILE="$PIDF4C" \
+  DEVFLOW_REFRESH_INTERVAL=20 DEVFLOW_REFRESH_BACKOFF=20 \
+  GITHUB_SERVER_URL="https://github.com" bash "$REFRESH_SH" loop </dev/null >/dev/null 2>&1 &
+_loop4c_bg=$!
+# Wait (bounded) for the loop to record its PID (cmd_loop writes it before the first
+# sleep), then send it SIGTERM.
+_i=0; while [ ! -s "$PIDF4C" ] && [ "$_i" -lt 50 ]; do sleep 0.1; _i=$((_i+1)); done
+_pid4c="$(cat "$PIDF4C" 2>/dev/null)"
+kill -TERM "$_pid4c" 2>/dev/null || true
+# Poll up to ~5s for exit. Background-sleep + TERM trap → sub-second; a foreground-sleep
+# regression stays alive here (interval is 20s), flipping this assertion RED.
+_i=0; while kill -0 "$_pid4c" 2>/dev/null && [ "$_i" -lt 50 ]; do sleep 0.1; _i=$((_i+1)); done
+assert_eq "#487 arm4c: SIGTERM retires a live loop promptly (background-sleep + TERM trap, not a foreground sleep)" "dead" \
+  "$(kill -0 "$_pid4c" 2>/dev/null && echo alive || echo dead)"
+wait "$_loop4c_bg" 2>/dev/null || true
+
+# Arm 4d — surface-2 (token-file) write failure AFTER surface-1 success leaves the two
+# credential surfaces DIVERGED (PR #491 shadow Finding B). run_cycle rewrites surface 1
+# (the extraheader) BEFORE writing surface 2 (the token file), so a surface-2 failure
+# leaves the push credential fresh while the gh token file is stale. Point the token file
+# under a regular FILE so its parent dir cannot be created and the temp-write fails, while
+# surface 1 succeeds. Assert surface 1 IS fresh, the divergence warning fires, surface 2
+# was not written. (This authored error branch had zero coverage — every other arm is a
+# full-success or a mint/locate failure that leaves BOTH surfaces on the previous value.)
+CFG4D="$D487/cred4d.config"
+git config --file "$CFG4D" "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD4D" 2>/dev/null
+_blocker4d="$D487/blocker4d"; : > "$_blocker4d"      # a regular file …
+_tokpath4d="$_blocker4d/sub/tok"                       # … used as a dir component → mkdir/write fail
+_stderr4d="$(DEVFLOW_REFRESH_MINT='printf TOKEN_DIV4D' DEVFLOW_REFRESH_CONFIG_FILE="$CFG4D" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$_tokpath4d" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"
+assert_eq "#487 arm4d: surface-2 write failure still leaves surface 1 (extraheader) FRESH" "x-access-token:TOKEN_DIV4D" \
+  "$(git config --file "$CFG4D" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+assert_eq "#487 arm4d: the surface-1-fresh/surface-2-stale divergence warning fires" "yes" \
+  "$(printf '%s' "$_stderr4d" | grep -qF 'surface 1) IS fresh but the gh token file (surface 2) is now stale' && echo yes || echo no)"
+assert_eq "#487 arm4d: surface 2 (the token file) was NOT written (stale)" "yes" \
+  "$([ ! -e "$_tokpath4d" ] && echo yes || echo no)"
+# Pin the shared divergence phrase in BOTH surface-2 failure branches (temp-write + rename),
+# two near-identical unpinned literals a reword could silently rot.
+assert_eq "#487 arm4d-pin: both surface-2 failure warnings carry the divergence phrase" "2" \
+  "$(grep -cF 'surface 1) IS fresh but the gh token file (surface 2) is now stale' "$REFRESH_SH")"
+
+# Arm 4e — unknown subcommand warns naming the expected subcommands and exits 0 (best-effort,
+# never fails the job), PR #491 shadow Finding C.
+_stderr4e="$(bash "$REFRESH_SH" bogus </dev/null 2>&1 >/dev/null)"; _rc4e=$?
+assert_eq "#487 arm4e: unknown subcommand exits 0 (best-effort)" "0" "$_rc4e"
+assert_eq "#487 arm4e: unknown subcommand warns naming the offending subcommand" "yes" \
+  "$(printf '%s' "$_stderr4e" | grep -qF "unknown subcommand 'bogus'" && echo yes || echo no)"
+
+# Arm 4f (PR #491 SUG-1) — cmd_loop pidfile-write FAILURE emits the distinctive
+# retirement-handle breadcrumb (naming the false-defeat consequence) AND keeps running:
+# the cycle still refreshes the credential. Force the write to fail with a pidfile path
+# under /dev/null (ENOTDIR) that `mkdir -p` cannot create either. One cycle only, instant
+# sleep, mint via the printf override.
+CFG4F="$D487/cred4f.config"
+git config --file "$CFG4F" "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD4F"
+_a4f_err="$(DEVFLOW_REFRESH_MINT='printf TOK4F' DEVFLOW_REFRESH_CONFIG_FILE="$CFG4F" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok4f" DEVFLOW_REFRESH_PIDFILE="/dev/null/nope/refresh.pid" \
+  DEVFLOW_REFRESH_MAX_CYCLES=1 DEVFLOW_REFRESH_SLEEP=true GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" loop </dev/null 2>&1 >/dev/null)"; _a4f_rc=$?
+assert_eq "#491 arm4f: loop with an unwritable pidfile still exits 0" "0" "$_a4f_rc"
+assert_eq "#491 arm4f: pidfile-write failure emits the retirement-handle breadcrumb" "yes" \
+  "$(printf '%s' "$_a4f_err" | grep -qF 'has no retirement handle' && echo yes || echo no)"
+assert_eq "#491 arm4f: the loop still ran its cycle despite the pidfile failure (credential refreshed)" "x-access-token:TOK4F" \
+  "$(git config --file "$CFG4F" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# ── Wrapper arms (5–9). A stub real gh prints the token it sees; a bad-cred stub 401s.
+GHSTUB487="$D487/gh"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "GH_TOKEN_SEEN=${GH_TOKEN:-<none>} ARGS=$*"\n'; } > "$GHSTUB487"
+chmod +x "$GHSTUB487"
+GHBAD487="$D487/ghbad"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "gh: Bad credentials (HTTP 401)" >&2\n'; printf 'exit 1\n'; } > "$GHBAD487"
+chmod +x "$GHBAD487"
+FP487="$D487/fp"
+_d487_sha 'JOBSTART_TOKEN' > "$FP487"
+
+# Arm 5 — env GH_TOKEN absent → substitute, reading the token file at CALL time
+# (two calls observe two different tokens).
+printf 'FRESH1' > "$TOK487"
+_a5_1="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+printf 'FRESH2' > "$TOK487"
+_a5_2="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#487 arm5: env GH_TOKEN absent → substitutes token file (call 1 reads FRESH1)" "GH_TOKEN_SEEN=FRESH1 ARGS=api x" "$_a5_1"
+assert_eq "#487 arm5: token file read at CALL time (call 2 reads FRESH2)" "GH_TOKEN_SEEN=FRESH2 ARGS=api x" "$_a5_2"
+
+# Arm 6 — env GH_TOKEN present, hash MATCHES fingerprint → substitute.
+printf 'FRESHX' > "$TOK487"
+_a6="$(GH_TOKEN='JOBSTART_TOKEN' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#487 arm6: ambient job-start token (hash matches) → substitutes fresh token" "GH_TOKEN_SEEN=FRESHX ARGS=api x" "$_a6"
+
+# Arm 7 — env GH_TOKEN present, hash DIFFERS → defer untouched (fresh #287 mint).
+_a7="$(GH_TOKEN='FRESH_287_MINT' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#487 arm7: deliberately-fresh token (hash differs) → defers untouched" "GH_TOKEN_SEEN=FRESH_287_MINT ARGS=api x" "$_a7"
+
+# Arm 8 — substitute path but token file absent → degrade to plain invocation, with a
+# stderr breadcrumb (never a silent ride on the possibly-expiring ambient token — e.g.
+# a refresher defeated at startup never writes the token file).
+rm -f "$TOK487"
+_a8="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#487 arm8: token file absent → degrades to plain invocation (no token)" "GH_TOKEN_SEEN=<none> ARGS=api x" "$_a8"
+_a8_err="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#487 arm8: absent-token-file degrade emits a breadcrumb (not silent)" "yes" \
+  "$(printf '%s' "$_a8_err" | grep -qF 'token file' && printf '%s' "$_a8_err" | grep -qF 'absent or empty' && echo yes || echo no)"
+# Negative control: the breadcrumb belongs to the SUBSTITUTE decision only — a defer
+# (hash differs, #287 fresh mint) with the same absent token file stays breadcrumb-free.
+_a8_def_err="$(GH_TOKEN='FRESH_287_MINT' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#487 arm8: defer path with the same absent token file does NOT emit the degrade breadcrumb" "no" \
+  "$(printf '%s' "$_a8_def_err" | grep -qF 'absent or empty' && echo yes || echo no)"
+
+# Arm 9 — bad-credential failure appends the diagnostic on BOTH substitute and defer paths.
+printf 'FRESH' > "$TOK487"
+_a9_sub="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHBAD487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"; _a9_sub_rc=$?
+assert_eq "#487 arm9: bad-cred on substitute path appends the expired-credential diagnostic" "yes" \
+  "$(printf '%s' "$_a9_sub" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+assert_eq "#487 arm9: substitute path preserves the real gh exit code" "1" "$_a9_sub_rc"
+_a9_def="$(GH_TOKEN='FRESH_287_MINT' DEVFLOW_GH_REAL="$GHBAD487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#487 arm9: bad-cred on defer path also appends the diagnostic" "yes" \
+  "$(printf '%s' "$_a9_def" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+
+# Arm 10 — the PRODUCTION extraheader locator (no DEVFLOW_REFRESH_CONFIG_FILE override):
+# seed a real git repo whose LOCAL config carries the extraheader, run the cycle from
+# inside it, and assert locate_extraheader_file() found and rewrote that real config file
+# (exercises the `git config --show-origin … | sed` parse the override otherwise bypasses).
+REPO10="$D487/repo10"; mkdir -p "$REPO10"; ( cd "$REPO10" && git init -q )
+( cd "$REPO10" && git config "http.https://ex10.test/.extraheader" \
+    "AUTHORIZATION: basic $(printf 'x-access-token:OLD10' | openssl base64 -A)" )
+( cd "$REPO10" && DEVFLOW_REFRESH_MINT='printf NEW10' DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok10" \
+    GITHUB_SERVER_URL="https://ex10.test" bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1 )
+assert_eq "#487 arm10: production locate_extraheader_file finds+rewrites the real git config" "x-access-token:NEW10" \
+  "$(cd "$REPO10" && git config --get 'http.https://ex10.test/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arm 11 — the wrapper's resolve_real_gh PATH fallback + self-exclusion (no DEVFLOW_GH_REAL):
+# place a stub `gh` on PATH AND a copy of the wrapper named `gh` ahead of it, then invoke
+# through that wrapper-named-gh. resolve_real_gh must SKIP itself and resolve the stub —
+# proving the recursion guard (a self-match would infinite-loop in production, where the
+# wrapper is installed ahead of the real gh on PATH).
+BIN11A="$D487/bin11a"; BIN11B="$D487/bin11b"; mkdir -p "$BIN11A" "$BIN11B"
+cp "$GHFRESH_SH" "$BIN11A/gh"; chmod +x "$BIN11A/gh"   # the wrapper, named gh, first on PATH
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "REAL11 ARGS=$*"\n'; } > "$BIN11B/gh"; chmod +x "$BIN11B/gh"
+_a11="$(env -u GH_TOKEN -u DEVFLOW_GH_REAL PATH="$BIN11A:$BIN11B:$PATH" \
+  DEVFLOW_GH_TOKEN_FILE="$D487/none11" DEVFLOW_GH_FINGERPRINT_FILE="$D487/none11fp" \
+  "$BIN11A/gh" x 2>/dev/null)"
+assert_eq "#487 arm11: resolve_real_gh skips the wrapper itself and resolves the real gh on PATH" "REAL11 ARGS=x" "$_a11"
+
+# Arm 11b — resolve_real_gh: DEVFLOW_GH_REAL SET but NON-EXECUTABLE (e.g. a stale/removed
+# path) must NOT be used verbatim — the `[ -x "$REAL_GH" ]` guard fails and resolve_real_gh
+# falls through to the PATH walk, resolving the real gh there (SUG-5 coverage, PR #491).
+BIN11C="$D487/bin11c"; mkdir -p "$BIN11C"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "REAL11C ARGS=$*"\n'; } > "$BIN11C/gh"; chmod +x "$BIN11C/gh"
+_a11b="$(env -u GH_TOKEN PATH="$BIN11C:$PATH" DEVFLOW_GH_REAL="$D487/nonexistent-real-gh" \
+  DEVFLOW_GH_TOKEN_FILE="$D487/none11b" DEVFLOW_GH_FINGERPRINT_FILE="$D487/none11bfp" \
+  bash "$GHFRESH_SH" x 2>/dev/null)"
+assert_eq "#487 arm11b: DEVFLOW_GH_REAL set-but-non-executable falls through to the PATH walk" "REAL11C ARGS=x" "$_a11b"
+
+# Arm 12 — decide() must NOT silently defer when it cannot establish the fingerprint
+# comparison (GH_TOKEN present but fingerprint file absent): it emits a breadcrumb and
+# defers (fail toward not clobbering a fresh #287 mint), never a silent stale-token ride.
+_a12_err="$(GH_TOKEN='SOMETHING' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$D487/tok12" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/absent12" bash "$GHFRESH_SH" x 2>&1 1>/dev/null)"
+assert_eq "#487 arm12: unestablished fingerprint comparison emits a breadcrumb (not a silent defer)" "yes" \
+  "$(printf '%s' "$_a12_err" | grep -qF 'could not establish the job-start fingerprint comparison' && echo yes || echo no)"
+
+# Arm 21 — the extraheader rewrite uses `git config --replace-all`: seed a fixture
+# config carrying TWO values for the key, run a cycle, and assert the cycle collapses
+# them to the single fresh value (a plain `set` would fail on the multi-value key and
+# leave the credential stale).
+CFG21="$D487/cred21.config"
+git config --file "$CFG21" --add "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD_A"
+git config --file "$CFG21" --add "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD_B"
+DEVFLOW_REFRESH_MINT='printf TOKEN_21' DEVFLOW_REFRESH_CONFIG_FILE="$CFG21" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok21" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1
+assert_eq "#487 arm21: multi-value extraheader collapses to ONE value after the cycle" "1" \
+  "$(git config --file "$CFG21" --get-all 'http.https://github.com/.extraheader' | wc -l | tr -d ' ')"
+assert_eq "#487 arm21: the surviving value is the fresh token" "x-access-token:TOKEN_21" \
+  "$(git config --file "$CFG21" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arm 21b — IMP-1 (PR #491 review): the extraheader key set in MORE THAN ONE distinct
+# config file is anomalous (actions/checkout persists exactly one). The PRODUCTION
+# locator (no DEVFLOW_REFRESH_CONFIG_FILE override) must FAIL CLOSED — warn and leave
+# the previous credential intact — rather than silently rewrite just the first file
+# while `git push` reads a higher-precedence stale value elsewhere and the cycle still
+# prints `cycle OK`. Seed a real repo whose LOCAL config carries the key AND an
+# include.path'd config that also carries it → `git config --show-origin --get-all`
+# returns two DISTINCT files. Distinct from arm21 (multi-VALUE in ONE file → collapses
+# via --replace-all → succeeds).
+REPO21B="$D487/repo21b"; mkdir -p "$REPO21B"; ( cd "$REPO21B" && git init -q )
+INC21B="$REPO21B/included.config"
+git config --file "$INC21B" "http.https://ex21b.test/.extraheader" \
+  "AUTHORIZATION: basic $(printf 'x-access-token:INCVAL21B' | openssl base64 -A)"
+( cd "$REPO21B" \
+  && git config "http.https://ex21b.test/.extraheader" "AUTHORIZATION: basic $(printf 'x-access-token:OLD21B' | openssl base64 -A)" \
+  && git config include.path "$INC21B" )   # ABSOLUTE — a relative include.path resolves against .git/, not the repo root
+_a21b_err="$(cd "$REPO21B" && DEVFLOW_REFRESH_MINT='printf TOKEN_21B' DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok21b" \
+  GITHUB_SERVER_URL="https://ex21b.test" bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _a21b_rc=$?
+assert_eq "#487 arm21b: multi-FILE extraheader fails closed (exits 0, best-effort)" "0" "$_a21b_rc"
+assert_eq "#487 arm21b: multi-FILE extraheader emits the more-than-one-config-file ::warning::" "yes" \
+  "$(printf '%s' "$_a21b_err" | grep -qF 'MORE THAN ONE config file' && echo yes || echo no)"
+assert_eq "#487 arm21b: multi-FILE extraheader leaves the LOCAL credential intact (OLD21B, not rewritten)" "x-access-token:OLD21B" \
+  "$(cd "$REPO21B" && git config --file .git/config --get 'http.https://ex21b.test/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+assert_eq "#487 arm21b: multi-FILE extraheader did NOT write the token file (mint fresh but push credential not rewritten)" "yes" \
+  "$([ ! -e "$D487/tok21b" ] && echo yes || echo no)"
+# Behavioral-fix pin (IMP-1): the mutation FLIPS the multi-file detection off in a way that
+# keeps the script parseable — `s/multi=yes/multi=no/` makes the assignment a no-op, so
+# locate_extraheader_file never warns and falls through to rewrite only the FIRST config
+# file: the actual silent-stale-credential regression (a higher-precedence stale credential
+# wins elsewhere). A line-DELETING mutation (`/multi=yes/d`) is deliberately NOT used — it
+# leaves `elif …; then` immediately before `fi`, a bash PARSE error that would flip the pin
+# RED because the whole script crashes rather than because the guard was behaviorally
+# disabled (the removal-pin vacuity the behavioral-fix-pin rule exists to reject). Must flip RED.
+assert_pin_red_under "#487 arm21b-pin: multi-file extraheader detection present (disabling it re-opens the silent-stale-credential path)" \
+  'multi=yes' 's/multi=yes/multi=no/' "$REFRESH_SH"
+
+# Arm 22 — the REAL mint path (no DEVFLOW_REFRESH_MINT override), desk-tested with a
+# stub `curl` (no network) and real `openssl`/`jq`: assert (a) the RS256 JWT header +
+# claims decode correctly, (b) the access-token POST body scopes to THIS repo only
+# ({"repositories":["<repo_name>"]}), and (c) a real token is minted+written. This
+# converts issue #487's least-privilege key AC from attestation to evidence.
+RSAKEY22="$(openssl genrsa 2048 2>/dev/null)"
+CURLDIR22="$D487/curlbin22"; mkdir -p "$CURLDIR22"
+BEARERF22="$D487/bearer22"; BODYF22="$D487/body22"
+cat > "$CURLDIR22/curl" <<EOF22
+#!/usr/bin/env bash
+prev=""; body=""
+for a in "\$@"; do
+  case "\$a" in "Authorization: Bearer "*) printf '%s' "\${a#Authorization: Bearer }" > "$BEARERF22" ;; esac
+  [ "\$prev" = "-d" ] && body="\$a"
+  prev="\$a"
+done
+case "\$*" in
+  *access_tokens*) printf '%s' "\$body" > "$BODYF22"; printf '{"token":"MINTED22"}' ;;
+  *installation*)  printf '{"id":9999}' ;;
+esac
+EOF22
+chmod +x "$CURLDIR22/curl"
+CFG22="$D487/cred22.config"
+git config --file "$CFG22" "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD22"
+printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR22:$PATH" DEVFLOW_APP_ID=APPID22 \
+  GITHUB_REPOSITORY="owner/myrepo22" DEVFLOW_REFRESH_CONFIG_FILE="$CFG22" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok22" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle >/dev/null 2>&1
+# b64url-decode helper for the captured JWT.
+_b64url_dec22() { local s="$1"; s="${s//-/+}"; s="${s//_//}"; case $(( ${#s} % 4 )) in 2) s="$s==";; 3) s="$s=";; esac; printf '%s' "$s" | openssl base64 -d -A 2>/dev/null; }
+_jwt22="$(cat "$BEARERF22" 2>/dev/null)"
+_jhdr22="${_jwt22%%.*}"; _jrest22="${_jwt22#*.}"; _jpay22="${_jrest22%%.*}"
+assert_eq "#487 arm22a: minted JWT header decodes to the RS256 alg" '{"alg":"RS256","typ":"JWT"}' \
+  "$(_b64url_dec22 "$_jhdr22")"
+assert_eq "#487 arm22a: minted JWT claims carry the app id as iss" "yes" \
+  "$(_b64url_dec22 "$_jpay22" | grep -qF '"iss":"APPID22"' && echo yes || echo no)"
+assert_eq "#487 arm22b: access-token POST body scopes to THIS repo only (least privilege)" '{"repositories":["myrepo22"]}' \
+  "$(cat "$BODYF22" 2>/dev/null)"
+assert_eq "#487 arm22c: real mint writes the fresh token to the token file" "MINTED22" \
+  "$(cat "$D487/tok22" 2>/dev/null)"
+assert_eq "#487 arm22c: real mint rewrites the extraheader to the fresh token" "x-access-token:MINTED22" \
+  "$(git config --file "$CFG22" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arm 23 — real mint returns an empty token (POST responds without a .token) →
+# previous credential intact + a ::warning::, never a stale/empty overwrite.
+CURLDIR23="$D487/curlbin23"; mkdir -p "$CURLDIR23"
+cat > "$CURLDIR23/curl" <<'EOF23'
+#!/usr/bin/env bash
+case "$*" in
+  *access_tokens*) printf '{"token":""}' ;;
+  *installation*)  printf '{"id":9999}' ;;
+esac
+EOF23
+chmod +x "$CURLDIR23/curl"
+CFG23="$D487/cred23.config"
+git config --file "$CFG23" "http.https://github.com/.extraheader" "AUTHORIZATION: basic $(printf 'x-access-token:PREV23' | openssl base64 -A)"
+_a23_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23:$PATH" DEVFLOW_APP_ID=APPID23 \
+  GITHUB_REPOSITORY="owner/myrepo23" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23_rc=$?
+assert_eq "#487 arm23: empty minted token exits 0 (best-effort cycle)" "0" "$_a23_rc"
+assert_eq "#487 arm23: empty minted token emits the SPECIFIC guard ::warning:: (access token missing from response)" "yes" \
+  "$(printf '%s' "$_a23_err" | grep -qF 'mint: access token missing from response' && echo yes || echo no)"
+assert_eq "#487 arm23: empty minted token leaves the previous credential intact (PREV23)" "x-access-token:PREV23" \
+  "$(git config --file "$CFG23" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arms 23b–23g — real_mint intermediate-failure branches (SUG-5 coverage, PR #491
+# review). Each drives ONE undriven guard of the real (no-override) mint path with the
+# real RSA key from arm22 (RSAKEY22) and a stubbed `curl` (no network). Every branch
+# must exit 0 (best-effort) and emit its SPECIFIC ::warning:: naming the failed arm,
+# leaving the previous credential untouched.
+CFG23B="$D487/cred23b.config"
+git config --file "$CFG23B" "http.https://github.com/.extraheader" "AUTHORIZATION: basic PREV23B"
+
+# 23b — installation-id GET fails (curl exits non-zero for the installation URL).
+CURLDIR23B="$D487/curlbin23b"; mkdir -p "$CURLDIR23B"
+cat > "$CURLDIR23B/curl" <<'EOF23B'
+#!/usr/bin/env bash
+case "$*" in *installation*) exit 22 ;; esac
+EOF23B
+chmod +x "$CURLDIR23B/curl"
+_a23b_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23B:$PATH" DEVFLOW_APP_ID=APPID23B \
+  GITHUB_REPOSITORY="owner/myrepo23b" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23b" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23b_rc=$?
+assert_eq "#487 arm23b: installation GET failure exits 0" "0" "$_a23b_rc"
+assert_eq "#487 arm23b: installation GET failure warns 'could not resolve installation id'" "yes" \
+  "$(printf '%s' "$_a23b_err" | grep -qF 'could not resolve installation id' && echo yes || echo no)"
+# Per-arm credential-intactness (PR #491 SUG-4): assert intact after EACH arm (not only
+# collectively at the end) so a regression that rewrites the credential on one failure
+# branch is localized to that arm instead of surfacing on a shared final assertion.
+assert_eq "#491 arm23b: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# 23c — installation response missing `.id` (jq yields empty).
+CURLDIR23C="$D487/curlbin23c"; mkdir -p "$CURLDIR23C"
+cat > "$CURLDIR23C/curl" <<'EOF23C'
+#!/usr/bin/env bash
+case "$*" in *installation*) printf '{}' ;; esac
+EOF23C
+chmod +x "$CURLDIR23C/curl"
+_a23c_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23C:$PATH" DEVFLOW_APP_ID=APPID23C \
+  GITHUB_REPOSITORY="owner/myrepo23c" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23c" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23c_rc=$?
+assert_eq "#487 arm23c: missing installation .id exits 0" "0" "$_a23c_rc"
+assert_eq "#487 arm23c: missing installation .id warns 'installation id missing'" "yes" \
+  "$(printf '%s' "$_a23c_err" | grep -qF 'installation id missing' && echo yes || echo no)"
+assert_eq "#491 arm23c: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# 23d — access-token POST fails (installation resolves, the POST curl exits non-zero).
+CURLDIR23D="$D487/curlbin23d"; mkdir -p "$CURLDIR23D"
+cat > "$CURLDIR23D/curl" <<'EOF23D'
+#!/usr/bin/env bash
+case "$*" in
+  *access_tokens*) exit 22 ;;
+  *installation*)  printf '{"id":9999}' ;;
+esac
+EOF23D
+chmod +x "$CURLDIR23D/curl"
+_a23d_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23D:$PATH" DEVFLOW_APP_ID=APPID23D \
+  GITHUB_REPOSITORY="owner/myrepo23d" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23d" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23d_rc=$?
+assert_eq "#487 arm23d: access-token POST failure exits 0" "0" "$_a23d_rc"
+assert_eq "#487 arm23d: access-token POST failure warns 'access-token POST failed'" "yes" \
+  "$(printf '%s' "$_a23d_err" | grep -qF 'access-token POST failed' && echo yes || echo no)"
+assert_eq "#491 arm23d: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# 23e — JWT signing fails: feed a BOGUS (non-PEM) key on stdin so `openssl dgst -sign`
+# cannot load it. No curl is reached (signing precedes the API calls).
+_a23e_err="$(printf 'NOT-A-VALID-PEM-KEY' | env DEVFLOW_APP_ID=APPID23E \
+  GITHUB_REPOSITORY="owner/myrepo23e" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23e" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23e_rc=$?
+assert_eq "#487 arm23e: JWT signing failure exits 0" "0" "$_a23e_rc"
+assert_eq "#487 arm23e: bad private key warns on the JWT signing arm" "yes" \
+  "$(printf '%s' "$_a23e_err" | grep -qF 'JWT signing' && echo yes || echo no)"
+assert_eq "#491 arm23e: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# 23f — GITHUB_REPOSITORY empty: the mint cannot resolve an installation → the specific
+# guard fires (signing never runs; the guard precedes it).
+_a23f_err="$(printf '%s' "$RSAKEY22" | env DEVFLOW_APP_ID=APPID23F \
+  GITHUB_REPOSITORY= DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23f" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23f_rc=$?
+assert_eq "#487 arm23f: empty GITHUB_REPOSITORY exits 0" "0" "$_a23f_rc"
+assert_eq "#487 arm23f: empty GITHUB_REPOSITORY warns it cannot resolve the installation" "yes" \
+  "$(printf '%s' "$_a23f_err" | grep -qF 'GITHUB_REPOSITORY empty' && echo yes || echo no)"
+assert_eq "#491 arm23f: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# 23g — a required tool is missing: point PATH at a dir with ONLY `openssl` (the
+# tool-presence loop checks openssl THEN curl, before any signing), so `curl` is absent
+# and the missing-tool guard fires with its specific ::warning::. env is given an
+# ABSOLUTE bash so it can start with PATH pointed away from the system bindir.
+BINDIR23G="$D487/toolbin23g"; mkdir -p "$BINDIR23G"
+ln -s "$(command -v openssl)" "$BINDIR23G/openssl"
+BASH23G="$(command -v bash)"
+_a23g_err="$(printf '%s' "$RSAKEY22" | env "PATH=$BINDIR23G" DEVFLOW_APP_ID=APPID23G \
+  GITHUB_REPOSITORY="owner/myrepo23g" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23g" GITHUB_SERVER_URL="https://github.com" \
+  "$BASH23G" "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23g_rc=$?
+assert_eq "#487 arm23g: missing required tool exits 0" "0" "$_a23g_rc"
+assert_eq "#487 arm23g: missing curl warns about the required tool not found on PATH" "yes" \
+  "$(printf '%s' "$_a23g_err" | grep -qF "required tool 'curl' not found" && echo yes || echo no)"
+assert_eq "#491 arm23g: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+# Collective belt (retained alongside the per-arm asserts above): all six failure
+# branches leave the previous credential UNTOUCHED (mint failed before the git-config
+# rewrite), so CFG23B still carries its seeded value verbatim.
+assert_eq "#487 arm23b-g: mint-failure branches leave the previous credential intact (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# Arm 24 — locate_extraheader_file failure (no override, no extraheader anywhere): a
+# successful mint but no config file to rewrite → warn, no crash, exit 0.
+REPO24="$D487/repo24"; mkdir -p "$REPO24"; ( cd "$REPO24" && git init -q )
+_a24_err="$(cd "$REPO24" && DEVFLOW_REFRESH_MINT='printf TOKEN_24' DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok24" \
+  GITHUB_SERVER_URL="https://nomatch24.test" bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _a24_rc=$?
+assert_eq "#487 arm24: absent extraheader locator failure exits 0 (no crash)" "0" "$_a24_rc"
+assert_eq "#487 arm24: absent extraheader emits the could-not-locate ::warning::" "yes" \
+  "$(printf '%s' "$_a24_err" | grep -qF 'could not locate the persisted' && echo yes || echo no)"
+
+# Arm i3 (PR #491 IMP-3) — run_cycle's surface-1 rewrite FAILURE branch: the mint succeeds
+# but `git config --file` cannot write (the located config's PARENT dir does not exist), so
+# `--replace-all` fails deterministically regardless of uid → warn, surface 2 (token file)
+# NOT reached/written, exit 0. Point the locate override at a path under a nonexistent dir.
+_ai3_err="$(DEVFLOW_REFRESH_MINT='printf TOKI3' \
+  DEVFLOW_REFRESH_CONFIG_FILE="$D487/nonexistent-i3-dir/cred.config" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/toki3" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _ai3_rc=$?
+assert_eq "#491 arm-i3: surface-1 extraheader rewrite failure exits 0 (best-effort)" "0" "$_ai3_rc"
+assert_eq "#491 arm-i3: surface-1 rewrite failure warns 'rewriting the extraheader … failed'" "yes" \
+  "$(printf '%s' "$_ai3_err" | grep -qF 'rewriting the extraheader' && echo yes || echo no)"
+assert_eq "#491 arm-i3: surface-1 rewrite failure did NOT write the token file (surface 2 not reached)" "yes" \
+  "$([ ! -e "$D487/toki3" ] && echo yes || echo no)"
+
+# Arm i3b (PR #491 IMP-3) — run_cycle's base64-encode FAILURE branch: shadow `openssl` with
+# a stub that exits 1. The mint uses the printf override (no openssl), so the ONLY openssl
+# call reached is the token base64 → it fails → warn, surface 2 NOT reached, exit 0.
+FAKEOSSL_I3B="$D487/fakeossl-i3b"; mkdir -p "$FAKEOSSL_I3B"
+{ printf '#!/usr/bin/env bash\n'; printf 'exit 1\n'; } > "$FAKEOSSL_I3B/openssl"; chmod +x "$FAKEOSSL_I3B/openssl"
+_ai3b_err="$(env "PATH=$FAKEOSSL_I3B:$PATH" DEVFLOW_REFRESH_MINT='printf TOKI3B' \
+  DEVFLOW_REFRESH_CONFIG_FILE="$D487/credi3b.config" DEVFLOW_REFRESH_TOKEN_FILE="$D487/toki3b" \
+  GITHUB_SERVER_URL="https://github.com" bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _ai3b_rc=$?
+assert_eq "#491 arm-i3b: base64-encode failure exits 0 (best-effort)" "0" "$_ai3b_rc"
+assert_eq "#491 arm-i3b: base64-encode failure warns 'base64 encode … failed'" "yes" \
+  "$(printf '%s' "$_ai3b_err" | grep -qF 'base64 encode' && echo yes || echo no)"
+assert_eq "#491 arm-i3b: base64-encode failure did NOT write the token file (surface 2 not reached)" "yes" \
+  "$([ ! -e "$D487/toki3b" ] && echo yes || echo no)"
+
+# Arm i-empty (PR #491 review) — run_cycle's empty-token guard: a mint that exits 0 with
+# EMPTY stdout (unreachable via real_mint, which always returns non-zero on an empty token —
+# so this is a defensive branch) must hit the DISTINCT 'mint returned an empty token' guard
+# (not the 'mint arm failed' one), leave the previous credential intact, and exit 0. Drive it
+# with the `true` override (exits 0, prints nothing).
+CFG_EMPTY="$D487/cred_empty.config"
+git config --file "$CFG_EMPTY" "http.https://github.com/.extraheader" "AUTHORIZATION: basic PREVEMPTY"
+_aempty_err="$(DEVFLOW_REFRESH_MINT='true' DEVFLOW_REFRESH_CONFIG_FILE="$CFG_EMPTY" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok_empty" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _aempty_rc=$?
+assert_eq "#491 arm-empty: empty-token mint exits 0 (best-effort)" "0" "$_aempty_rc"
+assert_eq "#491 arm-empty: empty-token mint hits the specific 'mint returned an empty token' guard" "yes" \
+  "$(printf '%s' "$_aempty_err" | grep -qF 'mint returned an empty token' && echo yes || echo no)"
+assert_eq "#491 arm-empty: empty-token mint leaves the previous credential intact (PREVEMPTY)" "AUTHORIZATION: basic PREVEMPTY" \
+  "$(git config --file "$CFG_EMPTY" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# Arm-nokey (PR #491 shadow review) — real_mint's 'no private key on stdin' guard: with
+# DEVFLOW_APP_ID set (so the app-id guard passes) but an EMPTY stdin key and no mint override,
+# the KEY-empty guard fires (it precedes the tool-presence and GITHUB_REPOSITORY guards) with
+# its specific ::warning::, exits 0. The one real_mint guard previously undriven.
+_anokey_err="$(DEVFLOW_APP_ID=APPIDNK DEVFLOW_REFRESH_CONFIG_FILE="$D487/crednk.config" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/toknk" GITHUB_REPOSITORY="o/r" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _anokey_rc=$?
+assert_eq "#491 arm-nokey: empty stdin key exits 0 (best-effort)" "0" "$_anokey_rc"
+assert_eq "#491 arm-nokey: empty stdin key hits the specific 'no private key on stdin' guard" "yes" \
+  "$(printf '%s' "$_anokey_err" | grep -qF 'no private key on stdin' && echo yes || echo no)"
+
+# Arm 25 — gh-fresh.sh resolve_real_gh returns 127 when no gh resolves (no
+# DEVFLOW_GH_REAL and no gh on PATH) → the breadcrumb, and rc 127.
+EMPTY25="$D487/emptybin25"; mkdir -p "$EMPTY25"
+# Give env an ABSOLUTE bash path — with PATH pointed at an empty dir, env could not
+# otherwise resolve `bash` itself (the point is only that the SCRIPT's internal PATH
+# has no `gh`, so resolve_real_gh's walk fails).
+BASH25="$(command -v bash)"
+_a25_err="$(env -u GH_TOKEN -u DEVFLOW_GH_REAL "PATH=$EMPTY25" "$BASH25" "$GHFRESH_SH" api x 2>&1 1>/dev/null)"; _a25_rc=$?
+assert_eq "#487 arm25: resolve_real_gh failure returns 127" "127" "$_a25_rc"
+assert_eq "#487 arm25: resolve_real_gh failure emits the could-not-resolve breadcrumb" "yes" \
+  "$(printf '%s' "$_a25_err" | grep -qF 'could not resolve the real gh binary' && echo yes || echo no)"
+
+# Arm 26 — the wrapper's bad-credential scan also matches the `Authentication failed`
+# regex alternative (arm9 only exercised `Bad credentials`).
+GHAUTHFAIL26="$D487/ghauthfail26"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "fatal: Authentication failed for '\''https://github.com/x'\''" >&2\n'; printf 'exit 1\n'; } > "$GHAUTHFAIL26"
+chmod +x "$GHAUTHFAIL26"
+printf 'FRESH26' > "$D487/tok26"; _d487_sha 'JOBSTART26' > "$D487/fp26"
+_a26="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHAUTHFAIL26" DEVFLOW_GH_TOKEN_FILE="$D487/tok26" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp26" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#487 arm26: 'Authentication failed' also triggers the expired-credential diagnostic" "yes" \
+  "$(printf '%s' "$_a26" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+# Arm 26b (PR #491 SUG-2) — the anchored regex still REJECTS a bare `Authentication failed`
+# that is NOT git's `fatal: Authentication failed for …` line: a non-token failure whose
+# stderr merely contains those two words must NOT get the expired-credential DIAG_LINE
+# (else it could trip the two-strikes abort). Negative control for the anchor.
+GHBAREAUTH26B="$D487/ghbareauth26b"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "error: Authentication failed due to 2FA policy" >&2\n'; printf 'exit 1\n'; } > "$GHBAREAUTH26B"
+chmod +x "$GHBAREAUTH26B"
+printf 'FRESH26B' > "$D487/tok26b"; _d487_sha 'JOBSTART26B' > "$D487/fp26b"
+_a26b="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHBAREAUTH26B" DEVFLOW_GH_TOKEN_FILE="$D487/tok26b" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp26b" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#491 arm26b: a bare (non-git) 'Authentication failed' does NOT get the expired-credential diagnostic" "no" \
+  "$(printf '%s' "$_a26b" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+
+# Arm 27 (PR #491 A-SUG-2) — the bad-credential scan reads the COMBINED stream: a real gh
+# that emits its 401 signature on STDOUT (not stderr) still gets the compaction-immune
+# DIAG_LINE appended (the pre-fix stderr-only scan would miss it). Stub gh prints the
+# signature to STDOUT and exits 1.
+GHOUT401_27="$D487/ghout401_27"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "gh: Bad credentials (HTTP 401)"\n'; printf 'exit 1\n'; } > "$GHOUT401_27"
+chmod +x "$GHOUT401_27"
+printf 'FRESH27' > "$D487/tok27"; _d487_sha 'JOBSTART27' > "$D487/fp27"
+_a27="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHOUT401_27" DEVFLOW_GH_TOKEN_FILE="$D487/tok27" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp27" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#491 arm27: 401 on STDOUT (not stderr) still appends the expired-credential diagnostic" "yes" \
+  "$(printf '%s' "$_a27" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+
+# Arm 28 (PR #491 IMP-2 coverage) — resolve_real_gh's self-exclusion is canonicalized
+# (pwd -P + BASH_SOURCE), so the wrapper reached via a SYMLINKED PATH entry is still
+# recognized as itself and skipped, resolving the real gh. NOTE: this is COVERAGE of the
+# canonicalization path, not a RED-flip behavioral pin — the pre-fix code self-heals via
+# one extra re-exec (once it re-execs the wrapper by an absolute path, $0 matches and it
+# resolves the real gh), so both forms end at the SAME output; the fix removes the wasted
+# re-exec and hardens the symlink/relative case, which has no distinguishable unit output.
+W28="$D487/wrap28"; R28="$D487/real28"; mkdir -p "$W28" "$R28"
+cp "$GHFRESH_SH" "$W28/gh"; chmod +x "$W28/gh"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "REAL28 ARGS=$*"\n'; } > "$R28/gh"; chmod +x "$R28/gh"
+WLINK28="$D487/wraplink28"; ln -s "$W28" "$WLINK28"
+_a28="$(env -u GH_TOKEN -u DEVFLOW_GH_REAL PATH="$WLINK28:$R28:$PATH" \
+  DEVFLOW_GH_TOKEN_FILE="$D487/none28" DEVFLOW_GH_FINGERPRINT_FILE="$D487/none28fp" \
+  "$W28/gh" x 2>/dev/null)"
+assert_eq "#491 arm28: resolve_real_gh skips the wrapper reached via a symlinked PATH entry and resolves the real gh" "REAL28 ARGS=x" "$_a28"
+
+# Arm 29 (PR #491 review) — the mktemp-UNAVAILABLE fallback in main(): shadow `mktemp` with a
+# stub that exits 1 so outcap="" and the else branch runs (stderr-only scan, no tee, the
+# `2>&1 1>&3` invocation). Every other wrapper arm runs with mktemp present, so this branch —
+# real agent-facing code that duplicates the substitute/degrade invocation + redirection — was
+# untested. Assert (a) a bad-cred on STDERR still appends the diagnostic and preserves gh's rc,
+# and (b) stdout still streams live through the fallback.
+FAILMKTEMP29="$D487/failmktemp29"; mkdir -p "$FAILMKTEMP29"
+{ printf '#!/usr/bin/env bash\n'; printf 'exit 1\n'; } > "$FAILMKTEMP29/mktemp"; chmod +x "$FAILMKTEMP29/mktemp"
+printf 'FRESH29' > "$D487/tok29"; _d487_sha 'JOBSTART29' > "$D487/fp29"
+_a29_err="$(env -u GH_TOKEN "PATH=$FAILMKTEMP29:$PATH" DEVFLOW_GH_REAL="$GHBAD487" DEVFLOW_GH_TOKEN_FILE="$D487/tok29" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp29" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"; _a29_rc=$?
+assert_eq "#491 arm29: mktemp-unavailable fallback still appends the diagnostic on a stderr bad-cred" "yes" \
+  "$(printf '%s' "$_a29_err" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+assert_eq "#491 arm29: mktemp-unavailable fallback preserves the real gh exit code" "1" "$_a29_rc"
+_a29_out="$(env -u GH_TOKEN "PATH=$FAILMKTEMP29:$PATH" DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$D487/tok29" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp29" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#491 arm29: mktemp-unavailable fallback still streams stdout live (substitutes FRESH29)" "GH_TOKEN_SEEN=FRESH29 ARGS=api x" "$_a29_out"
+
+# Arm 30 (PR #491 shadow review) — NEGATIVE control pinning the `[ "$rc" -ne 0 ]` conjunct of
+# the diagnostic-append guard: a SUCCESSFUL (rc 0) gh call whose OUTPUT merely CONTAINS the
+# bad-cred signature (e.g. an issue title / JSON body) must NOT get the expired-credential
+# DIAG_LINE. arm27 pins the positive direction (rc≠0 + signature → DIAG); this pins the
+# rc-guard (deleting `[ "$rc" -ne 0 ]` would append the compaction-immune diagnostic on a
+# healthy call → RED).
+GHOK401_30="$D487/ghok401_30"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "issue #12: fix Bad credentials (HTTP 401) error handling"\n'; printf 'exit 0\n'; } > "$GHOK401_30"
+chmod +x "$GHOK401_30"
+printf 'FRESH30' > "$D487/tok30"; _d487_sha 'JOBSTART30' > "$D487/fp30"
+_a30_err="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHOK401_30" DEVFLOW_GH_TOKEN_FILE="$D487/tok30" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp30" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"; _a30_rc=$?
+assert_eq "#491 arm30: a SUCCESSFUL (rc 0) call whose output contains the signature does NOT get the diagnostic" "no" \
+  "$(printf '%s' "$_a30_err" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+assert_eq "#491 arm30: the successful call preserves rc 0" "0" "$_a30_rc"
+
+# ── stop-refresher.sh arms (13–16, 19–20): the retirement step's defeated-refresher
+# signal is honest — it must NOT over-fire on a recovered transient, and it MUST fire on
+# the never-started/crash case (absent pidfile), the died-mid-run case (pidfile present
+# but the pid no longer runs — a stale `cycle OK` must not mask a death after that
+# cycle), and the sustained-failure case (log's last cycle line is a ::warning::).
+# Asserts on the helper's OWN message literal so a tailed fixture ::warning:: line is
+# not miscounted. Live-refresher fixtures spawn a real `sleep` child (the liveness probe
+# demands a running pid); stop-refresher.sh itself retires it via the pidfile.
+STOP_SH="$LIB/../scripts/stop-refresher.sh"
+_defeat487() { printf '%s' "$1" | grep -qF 'credential refresher may not have kept credentials fresh' && echo yes || echo no; }
+assert_eq "#487 stop-refresher exists (extracted from the workflow Stop step)" "yes" \
+  "$([ -f "$STOP_SH" ] && echo yes || echo no)"
+
+# Arm 13 — pidfile present (live process) + last cycle OK → recovered transient → NO
+# defeated warning. The live pid is the positive control the died-mid-run arm 19 needs:
+# same fixture shape, only liveness differs.
+sleep 300 & _live13=$!
+echo "$_live13" > "$D487/pidA"; printf 'refresh-app-credentials: cycle OK (credentials refreshed)\n' > "$D487/logA"
+_s13="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidA" DEVFLOW_REFRESH_LOG="$D487/logA" bash "$STOP_SH" 2>&1)"; _s13_rc=$?
+assert_eq "#487 arm13: recovered transient (live pid, last cycle OK) does NOT warn defeated" "no" "$(_defeat487 "$_s13")"
+assert_eq "#487 arm13: stop-refresher always exits 0" "0" "$_s13_rc"
+assert_eq "#487 arm13: a live refresher is signalled (kill by pidfile)" "yes" \
+  "$(printf '%s' "$_s13" | grep -qF "signalled credential refresher (pid $_live13)" && echo yes || echo no)"
+kill "$_live13" 2>/dev/null; wait "$_live13" 2>/dev/null || true
+
+# Arm 14 — pidfile absent AND the Start step ran (STARTED=success) → genuine defeat → warn.
+_s14="$(DEVFLOW_REFRESH_STARTED=success DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm14: absent pidfile + Start ran (never started/crashed) warns defeated" "yes" "$(_defeat487 "$_s14")"
+
+# Arm 17 — pidfile absent BUT the Start step did NOT run (job aborted upstream:
+# STARTED=skipped) → missing pidfile is expected → NO false defeated warning.
+_s17="$(DEVFLOW_REFRESH_STARTED=skipped DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm17: absent pidfile + Start skipped (upstream abort) does NOT warn defeated" "no" "$(_defeat487 "$_s17")"
+
+# Arm 18 — pidfile absent AND the Start step RAN-AND-FAILED (STARTED=failure) → the
+# refresher genuinely never started → warn (keys on "ran", not "succeeded").
+_s18="$(DEVFLOW_REFRESH_STARTED=failure DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm18: absent pidfile + Start ran-and-failed warns defeated (ran, not succeeded)" "yes" "$(_defeat487 "$_s18")"
+
+# Arm 15 — pidfile present (live) + last log line is a ::warning:: → sustained failure
+# → warn, attributed to the LOG arm (not the liveness arm — the pid is alive).
+sleep 300 & _live15=$!
+echo "$_live15" > "$D487/pidC"
+printf 'refresh-app-credentials: cycle OK\n::warning::refresh-app-credentials: cycle: mint arm failed\n' > "$D487/logC"
+_s15="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidC" DEVFLOW_REFRESH_LOG="$D487/logC" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm15: sustained failure (live pid, last log line a ::warning::) warns defeated" "yes" "$(_defeat487 "$_s15")"
+assert_eq "#487 arm15: the warning is attributed to the failed cycle, not liveness" "yes" \
+  "$(printf '%s' "$_s15" | grep -qF 'the most recent refresh cycle failed' && echo yes || echo no)"
+kill "$_live15" 2>/dev/null; wait "$_live15" 2>/dev/null || true
+
+# Arm 16 — pidfile present (live) + no log yet → nothing to assert → NO defeated warning.
+sleep 300 & _live16=$!
+echo "$_live16" > "$D487/pidD"
+_s16="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidD" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm16: pidfile present (live) + no log does NOT warn defeated" "no" "$(_defeat487 "$_s16")"
+kill "$_live16" 2>/dev/null; wait "$_live16" 2>/dev/null || true
+
+# Arm 16b — pidfile present (live) + a log that EXISTS but carries NO
+# `refresh-app-credentials:` cycle line (unrelated content only) → the grep matches
+# nothing → `last` is empty → the `*)` default arm → nothing to assert → NO defeated
+# warning (SUG-5 coverage of the log-present-but-no-cycle-line default, PR #491).
+sleep 300 & _live16b=$!
+echo "$_live16b" > "$D487/pidG"
+printf 'some unrelated log noise\nanother line without the marker\n' > "$D487/logG"
+_s16b="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidG" DEVFLOW_REFRESH_LOG="$D487/logG" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm16b: live pid + log present but no cycle line (default arm) does NOT warn defeated" "no" "$(_defeat487 "$_s16b")"
+kill "$_live16b" 2>/dev/null; wait "$_live16b" 2>/dev/null || true
+
+# Arm 19 — pidfile present but the pid is DEAD + last cycle OK → the refresher died
+# after its last good cycle (OOM-killed/reaped); the stale `cycle OK` must NOT mask the
+# death → warn, attributed to the died-mid-run liveness arm. Positive control: arm 13 is
+# byte-identical except the pid is alive, and it does NOT warn — so this rejection is
+# attributable to liveness alone.
+# Sentinel PID far above any live-process range (exceeds PID_MAX on Linux/macOS), so
+# `kill -0` deterministically reports it dead with NO PID-reuse race and stop-refresher's
+# `kill "$pid"` cannot signal an unrelated same-uid process (PR #491 shadow review — a
+# reaped-child PID is correct only until the kernel recycles that number).
+_dead19=2147483647
+echo "$_dead19" > "$D487/pidE"; printf 'refresh-app-credentials: cycle OK (credentials refreshed)\n' > "$D487/logE"
+_s19="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidE" DEVFLOW_REFRESH_LOG="$D487/logE" bash "$STOP_SH" 2>&1)"; _s19_rc=$?
+assert_eq "#487 arm19: dead pid + last cycle OK warns defeated (stale cycle OK does not mask a death)" "yes" "$(_defeat487 "$_s19")"
+assert_eq "#487 arm19: the warning is attributed to the died-before-job-end liveness probe" "yes" \
+  "$(printf '%s' "$_s19" | grep -qF 'died before job end (pidfile present, process gone)' && echo yes || echo no)"
+assert_eq "#487 arm19: stop-refresher still exits 0 on the dead-pid arm" "0" "$_s19_rc"
+
+# Arm 20 — EMPTY pidfile → same unverifiable-liveness class (the loop writes its PID at
+# startup, so an empty file is anomalous) → warn, attributed to the empty-pidfile arm.
+: > "$D487/pidF"
+_s20="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidF" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm20: empty pidfile warns defeated (health unverifiable)" "yes" "$(_defeat487 "$_s20")"
+assert_eq "#487 arm20: the warning is attributed to the empty pidfile" "yes" \
+  "$(printf '%s' "$_s20" | grep -qF 'pidfile is empty, so its health could not be verified' && echo yes || echo no)"
+
+# Arm 20b (PR #491 shadow review) — surface-2-ONLY divergence: the cycle refreshed git push
+# (surface 1) but failed to write the gh token file (surface 2). A LIVE pid (so no more
+# fundamental pidfile-based defeat fires first) + a log whose last refresh-app-credentials:
+# line is run_cycle's divergence warning → still a defeat (the gh surface is stale until the
+# backoff re-converges), but the impact clause is NARROWED to gh-only rather than the generic
+# "git push may be stale" over-claim (push in fact stayed fresh). Pins stop-refresher's new
+# divergence case arm (removing it drops the last line to the generic ::warning:: arm → RED).
+sleep 300 & _live20b=$!
+echo "$_live20b" > "$D487/pid20b"
+printf 'refresh-app-credentials: cycle OK\n::warning::refresh-app-credentials: cycle: renaming the token file into place failed — push credential (surface 1) IS fresh but the gh token file (surface 2) is now stale\n' > "$D487/log20b"
+_s20b="$(DEVFLOW_REFRESH_PIDFILE="$D487/pid20b" DEVFLOW_REFRESH_LOG="$D487/log20b" bash "$STOP_SH" 2>&1)"; _s20b_rc=$?
+kill "$_live20b" 2>/dev/null || true
+assert_eq "#491 arm20b: surface-2-only divergence still warns defeated (gh surface stale)" "yes" "$(_defeat487 "$_s20b")"
+assert_eq "#491 arm20b: the divergence impact clause narrows to gh-only (git push stayed fresh)" "yes" \
+  "$(printf '%s' "$_s20b" | grep -qF 'git push stayed fresh' && echo yes || echo no)"
+assert_eq "#491 arm20b: the divergence case does NOT emit the generic both-surfaces-stale impact" "no" \
+  "$(printf '%s' "$_s20b" | grep -qF 'git push / gh calls past ~60 min may have used a stale token' && echo yes || echo no)"
+assert_eq "#491 arm20b: stop-refresher still exits 0 on the divergence arm" "0" "$_s20b_rc"
+
+rm -rf "$D487"
+
+# ── Workflow wiring (issue #487): both writer jobs gain the refresher + wrapper
+# install + pidfile-kill steps, gated on the same DEVFLOW_APP_ID condition as
+# their app-token mint. Deliberately NOT a `background:` step (actionlint rejects
+# the keyword) — a detached `nohup … &` process instead.
+for _wf487 in devflow-implement devflow; do
+  _WFF487="$WF/$_wf487.yml"
+  assert_eq "#487 wiring: $_wf487.yml starts the credential refresher" "1" \
+    "$(grep -cF 'name: Start credential refresher (optional)' "$_WFF487")"
+  assert_eq "#487 wiring: $_wf487.yml installs the fresh-gh wrapper" "1" \
+    "$(grep -cF 'name: Install fresh-gh wrapper (optional)' "$_WFF487")"
+  assert_eq "#487 wiring: $_wf487.yml retires the refresher (pidfile-kill, if: always())" "1" \
+    "$(grep -cF 'name: Stop credential refresher (optional)' "$_WFF487")"
+  # The Stop step delegates its branch/message logic to the extracted helper
+  # (inline-shell-extraction convention) rather than carrying it inline.
+  assert_eq "#487 wiring: $_wf487.yml Stop step invokes the vendored stop-refresher.sh helper" "1" \
+    "$(grep -cF '.devflow/vendor/devflow/scripts/stop-refresher.sh' "$_WFF487")"
+  assert_eq "#487 wiring: $_wf487.yml invokes the vendored refresher via nohup (detached, not background:)" "1" \
+    "$(grep -cF 'nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop' "$_WFF487")"
+  # ── /proc/<pid>/environ mitigation (PR #491). The Start step exports the PEM as a
+  # step-level env var (to pipe it to the refresher's stdin); that var is inherited
+  # into the detached refresher's exec-time environment, where the concurrent same-uid
+  # claude step could read the raw PEM via /proc/<pid>/environ (which snapshots the
+  # environment at execve and is NOT cleared by an in-process `unset` — proc(5)). The
+  # ACTUAL mitigation is launching the refresher with `env -u DEVFLOW_APP_PRIVATE_KEY`,
+  # so the long-lived process's environ never holds the PEM. Removal reopens the leak.
+  _startblk487="$(mint_blk 'Start credential refresher (optional)' "$_WFF487")"
+  _envu_ln="$(printf '%s\n' "$_startblk487" | grep -nF 'env -u DEVFLOW_APP_PRIVATE_KEY' | head -1 | cut -d: -f1)"
+  _nohup_ln="$(printf '%s\n' "$_startblk487" | grep -nF 'nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop' | head -1 | cut -d: -f1)"
+  assert_eq "#487 wiring: $_wf487.yml launches the refresher with env -u DEVFLOW_APP_PRIVATE_KEY BEFORE nohup (closes the /proc PEM leak)" "yes" \
+    "$([ -n "$_envu_ln" ] && [ -n "$_nohup_ln" ] && [ "$_envu_ln" -lt "$_nohup_ln" ] && echo yes || echo no)"
+  # Behavioral-fix pin: deleting the `env -u DEVFLOW_APP_PRIVATE_KEY` line reintroduces
+  # the /proc/<pid>/environ PEM exposure, so it must flip the pin RED.
+  assert_pin_red_under "#487 wiring: $_wf487.yml env -u DEVFLOW_APP_PRIVATE_KEY present (deleting it reopens the /proc PEM leak)" \
+    'env -u DEVFLOW_APP_PRIVATE_KEY' '/env -u DEVFLOW_APP_PRIVATE_KEY/d' "$_WFF487"
+  # No `background:` step key anywhere (would break actionlint).
+  assert_eq "#487 wiring: $_wf487.yml uses no 'background:' step key (actionlint-safe)" "0" \
+    "$(grep -cE '^[[:space:]]*background:[[:space:]]*true' "$_WFF487")"
+  # The refresher/install steps are gated on DEVFLOW_APP_ID (unconfigured no-op).
+  assert_eq "#487 wiring: $_wf487.yml refresher start is gated on vars.DEVFLOW_APP_ID" "1" \
+    "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$_WFF487")" | grep -cF "vars.DEVFLOW_APP_ID != ''")"
+  # The install step records the job-start fingerprint and prepends the wrapper to PATH.
+  assert_eq "#487 wiring: $_wf487.yml install step prepends the wrapper dir to GITHUB_PATH" "1" \
+    "$(printf '%s\n' "$(mint_blk 'Install fresh-gh wrapper (optional)' "$_WFF487")" | grep -cF 'GITHUB_PATH')"
+  # ── Step ORDERING (PR #491 Suggestion 2): load-bearing but previously unpinned.
+  # (a) The refresher and the wrapper install must both precede the claude step, so the
+  # agent's >60-min run is already push-/gh-fresh from the start; a reordering that put
+  # either after the agent step would leave the run unprotected yet still pass the
+  # presence pins above. Compare 1-indexed line numbers within the workflow file.
+  _claude_ln="$(grep -nF 'name: Run Claude Code' "$_WFF487" | head -1 | cut -d: -f1)"
+  _start_ln="$(grep -nF 'name: Start credential refresher (optional)' "$_WFF487" | head -1 | cut -d: -f1)"
+  _inst_ln="$(grep -nF 'name: Install fresh-gh wrapper (optional)' "$_WFF487" | head -1 | cut -d: -f1)"
+  assert_eq "#487 wiring: $_wf487.yml starts the refresher BEFORE the claude step" "yes" \
+    "$([ -n "$_start_ln" ] && [ -n "$_claude_ln" ] && [ "$_start_ln" -lt "$_claude_ln" ] && echo yes || echo no)"
+  assert_eq "#487 wiring: $_wf487.yml installs the fresh-gh wrapper BEFORE the claude step" "yes" \
+    "$([ -n "$_inst_ln" ] && [ -n "$_claude_ln" ] && [ "$_inst_ln" -lt "$_claude_ln" ] && echo yes || echo no)"
+  # (a2) The refresher must also start AFTER checkout (PR #491 IMP-4): the refresher
+  # rewrites the checkout-PERSISTED http.*/.extraheader credential, so that credential
+  # must already exist when the first cycle fires. A reorder that put Start above the
+  # checkout would leave the first cycle with nothing to rewrite yet still pass the
+  # before-claude pins above. Pin `checkout < start`.
+  _checkout_ln="$(grep -nF 'name: Checkout repository' "$_WFF487" | head -1 | cut -d: -f1)"
+  assert_eq "#491 wiring: $_wf487.yml starts the refresher AFTER checkout (the persisted extraheader must exist to rewrite)" "yes" \
+    "$([ -n "$_checkout_ln" ] && [ -n "$_start_ln" ] && [ "$_checkout_ln" -lt "$_start_ln" ] && echo yes || echo no)"
+  # (b) Intra-step: the real gh's ABSOLUTE path must be captured BEFORE the wrapper dir
+  # is appended to GITHUB_PATH — otherwise a later name-based `gh` lookup recurses into
+  # the wrapper. Pin the two lines' order within the install step block.
+  _instblk="$(mint_blk 'Install fresh-gh wrapper (optional)' "$_WFF487")"
+  _cap_ln="$(printf '%s\n' "$_instblk" | grep -nF 'REAL_GH="$(command -v gh)"' | head -1 | cut -d: -f1)"
+  _path_ln="$(printf '%s\n' "$_instblk" | grep -nF 'GITHUB_PATH' | head -1 | cut -d: -f1)"
+  assert_eq "#487 wiring: $_wf487.yml captures REAL_GH before prepending the wrapper to GITHUB_PATH" "yes" \
+    "$([ -n "$_cap_ln" ] && [ -n "$_path_ln" ] && [ "$_cap_ln" -lt "$_path_ln" ] && echo yes || echo no)"
+done
+# devflow.yml's gate additionally excludes /devflow:review (read-only, never pushes).
+assert_eq "#487 wiring: devflow.yml refresher start excludes /devflow:review commands" "1" \
+  "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
+# The Stop step's review-exclusion ASYMMETRY keeps the Stop gate symmetric with Start:
+# devflow.yml's Stop step MUST carry the /devflow:review negation (on the review path the
+# refresher was never started, so the step would be a pointless no-op; a false defeat
+# warning there is prevented by the DEVFLOW_REFRESH_STARTED=skipped guard — arm17 — not
+# by this exclusion), while devflow-implement.yml's Stop step must NOT carry it (it
+# always starts the refresher). Pin both directions so a dropped or mis-copied gate goes RED.
+assert_eq "#487 wiring: devflow.yml Stop step carries the /devflow:review exclusion" "1" \
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
+assert_eq "#487 wiring: devflow-implement.yml Stop step does NOT carry a /devflow:review exclusion" "0" \
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow-implement.yml")" | grep -cF "/devflow:review")"
+# Both Stop steps pass the Start step's outcome so stop-refresher.sh can tell a genuine
+# never-started defeat from an upstream early-abort (absent pidfile is expected there).
+assert_eq "#487 wiring: devflow.yml Stop step passes steps.refresher.outcome as DEVFLOW_REFRESH_STARTED" "1" \
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow.yml")" | grep -cF 'DEVFLOW_REFRESH_STARTED: ${{ steps.refresher.outcome }}')"
+assert_eq "#487 wiring: devflow-implement.yml Stop step passes steps.refresher.outcome as DEVFLOW_REFRESH_STARTED" "1" \
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow-implement.yml")" | grep -cF 'DEVFLOW_REFRESH_STARTED: ${{ steps.refresher.outcome }}')"
+# Coupled literal: the refresher EMITS `cycle OK` and stop-refresher.sh MATCHES it to tell
+# a recovered transient from a sustained failure — a reworded producer breadcrumb would
+# silently break the consumer's discrimination. Pin the shared marker in both files.
+assert_eq "#487 coupled-literal: refresh-app-credentials.sh emits the 'cycle OK' success marker" "1" \
+  "$(grep -cF "printf 'refresh-app-credentials: cycle OK" "$LIB/../scripts/refresh-app-credentials.sh")"
+assert_eq "#487 coupled-literal: stop-refresher.sh matches the 'cycle OK' marker in its operative case arm" "1" \
+  "$(grep -cF '*"cycle OK"*)' "$LIB/../scripts/stop-refresher.sh")"
+
+# ── #491 coupled production-DEFAULT paths (shadow Finding A). Each credential surface is
+# written by one file and read by another, and the workflows pass NO override — production
+# works ONLY because two independently-defaulted RUNNER_TEMP/<basename> literals agree. Every
+# test arm injects matching DEVFLOW_* overrides on both sides, so a one-sided rename of a
+# DEFAULT ships green (gh-fresh reads no token / never matches the fingerprint, stop-refresher
+# false-fires a defeat). Pin the default BASENAMES agree across writer<->reader — the same
+# coupled-literal hazard as the 'cycle OK' marker above, one level down in the wiring.
+# Extract-and-compare (not substring grep) so a suffix-append rename is caught too.
+_dfbn() { grep -E "$2" "$1" 2>/dev/null | grep -oE 'devflow-[a-zA-Z0-9._-]+' | head -1; }
+_w_tok491="$(_dfbn "$LIB/../scripts/refresh-app-credentials.sh" '^TOKEN_FILE=')"
+_r_tok491="$(_dfbn "$LIB/../scripts/gh-fresh.sh" '^TOKEN_FILE=')"
+assert_eq "#491 coupled-default: token-file default basename agrees (refresh-app-credentials.sh writer <-> gh-fresh.sh reader) [$_w_tok491]" "yes" \
+  "$([ -n "$_w_tok491" ] && [ "$_w_tok491" = "$_r_tok491" ] && echo yes || echo no)"
+_w_pid491="$(_dfbn "$LIB/../scripts/refresh-app-credentials.sh" '^PIDFILE=')"
+_r_pid491="$(_dfbn "$LIB/../scripts/stop-refresher.sh" '^PIDFILE=')"
+assert_eq "#491 coupled-default: pidfile default basename agrees (refresh-app-credentials.sh writer <-> stop-refresher.sh reader) [$_w_pid491]" "yes" \
+  "$([ -n "$_w_pid491" ] && [ "$_w_pid491" = "$_r_pid491" ] && echo yes || echo no)"
+# fingerprint + log defaults are written by the WORKFLOWS (redirect / install-step write) and
+# read by gh-fresh.sh / stop-refresher.sh. Assert each reader's default basename appears as an
+# exact RUNNER_TEMP/<basename> token the workflow writes (space-bounded, so a suffix-append on
+# either side breaks the match), in BOTH workflows.
+_r_fp491="$(_dfbn "$LIB/../scripts/gh-fresh.sh" '^FINGERPRINT_FILE=')"
+_r_log491="$(_dfbn "$LIB/../scripts/stop-refresher.sh" '^LOG=')"
+for _wf491 in devflow-implement devflow; do
+  _wfbns491=" $(grep -oE 'RUNNER_TEMP/devflow-[a-zA-Z0-9._-]+' "$WF/$_wf491.yml" | sed 's#RUNNER_TEMP/##' | sort -u | tr '\n' ' ')"
+  assert_eq "#491 coupled-default: $_wf491.yml writes the fingerprint basename gh-fresh.sh reads [$_r_fp491]" "yes" \
+    "$([ -n "$_r_fp491" ] && printf '%s' "$_wfbns491" | grep -qF " $_r_fp491 " && echo yes || echo no)"
+  assert_eq "#491 coupled-default: $_wf491.yml writes the log basename stop-refresher.sh reads [$_r_log491]" "yes" \
+    "$([ -n "$_r_log491" ] && printf '%s' "$_wfbns491" | grep -qF " $_r_log491 " && echo yes || echo no)"
+done
+
+# Fail-fast prose rule (surface-presence class, per the issue's Testing Strategy): the
+# two-strikes bad-credential rule is present in both skill files. Pinned via
+# assert_pin_unique (the sanctioned unique-literal guard, not a raw echo-driven grep).
+assert_pin_unique "#487 fail-fast prose: skills/implement/SKILL.md carries the expired-credential two-strikes rule" \
+  'Expired-credential fail-fast (two strikes' "$LIB/../skills/implement/SKILL.md"
+assert_pin_unique "#487 fail-fast prose: skills/review-and-fix/SKILL.md carries the expired-credential two-strikes rule" \
+  'Expired-credential fail-fast (two strikes' "$LIB/../skills/review-and-fix/SKILL.md"
+# The compaction-immune sibling signal (the wrapper diagnostic literal) is named in the prose.
+assert_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
+  'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"
+
+# ── #497 shadow prompt-composition attestation pins ──────────────────────────
+I497_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+I497_SHADOW_DOC="$LIB/../docs/shadow-review.md"
+I497_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+
+assert_pin_unique "#497 AC1 skill names topic-priming as a distinct leak channel" \
+  'Topic-priming is a second leak channel, distinct from prior-findings leakage.' "$I497_RAF"
+assert_pin_unique "#497 AC1 skill carries the exhaustive shadow prompt composition rule" \
+  'Every shadow-pass subagent prompt the parent composes uses the engine' "$I497_RAF"
+assert_pin_unique "#497 AC2 skill requires both shallow-safe extension provenance checks" \
+  'Extension text is provenance-clean only when both shallow-clone-safe checks are successfully established and pass' "$I497_RAF"
+assert_pin_unique "#497 AC2 unresolved provenance operands fail closed" \
+  'An error or unreadable input never defaults to provenance-clean.' "$I497_RAF"
+assert_pin_unique "#497 AC3 skill pins shadow artifacts to engine-produced full-diff outputs" \
+  'The permitted diff artifacts are the shadow engine' "$I497_RAF"
+assert_pin_unique "#497 AC5 schema example carries the nullable prompt_addenda field" \
+  '"prompt_addenda": null,' "$I497_RAF"
+assert_pin_unique "#497 AC5 emit example carries the clean prompt_addenda attestation" \
+  '"prompt_addenda": "none",' "$I497_RAF"
+assert_pin_red_under "#497 AC6 outcome 1 requires the positive prompt_addenda equality" \
+  'Outcome 1 requires `prompt_addenda` to equal the JSON string literal `"none"` in both memory and the persisted shadow block.' \
+  's/ Outcome 1 requires `prompt_addenda` to equal the JSON string literal `"none"` in both memory and the persisted shadow block\.//' "$I497_RAF"
+assert_pin_red_under "#497 AC7 promotion is never gated and coverage is never changed by attestation" \
+  'The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass promotes these findings unchanged and preserves any non-`"none"` attestation on the block.' \
+  's/ The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass promotes these findings unchanged and preserves any non-`"none"` attestation on the block\.//' "$I497_RAF"
+assert_pin_unique "#497 AC10 skill clean render requires both persisted operands" \
+  'The exact clean-agreement string requires both persisted operands' "$I497_RAF"
+assert_pin_unique "#497 AC10 Coverage handles every present noncanonical attestation value" \
+  'Any other present attestation value is not attested.' "$I497_RAF"
+assert_pin_unique "#497 AC11 skill red flag names all three steering channels" \
+  'append focus/prioritize/scope clauses to a shadow prompt, hand it regenerated or subsetted diff artifacts, or write steering into its prompt-extension file' "$I497_RAF"
+assert_pin_unique "#497 AC12 shadow doc mirrors the widened prompt composition rule" \
+  'Every shadow-pass subagent prompt the parent composes uses the engine' "$I497_SHADOW_DOC"
+assert_pin_unique "#497 AC12 shadow doc mirrors the separate attestation operand" \
+  'Prompt composition is fail-closed as a separate operand' "$I497_SHADOW_DOC"
+assert_pin_unique "#497 AC12 overview names topic-priming" \
+  'Topic-priming is a second, distinct leak channel' "$I497_OVERVIEW"
+assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda" \
+  'a **prompt-composition attestation**' "$I497_OVERVIEW"
 
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

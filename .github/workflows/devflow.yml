@@ -610,6 +610,57 @@ jobs:
           delim="PROMPT_EOF_$(date +%s%N)_$$"
           { printf 'prompt<<%s\n' "$delim"; printf '%s\n' "$PROMPT"; printf '%s\n' "$delim"; } >> "$GITHUB_OUTPUT"
 
+      # ── Long-run credential refresh (issue #487) ──────────────────────────
+      # Keep this /devflow:implement- or /devflow:review-and-fix-driven command
+      # run push- and gh-capable past the App installation token's 60-minute
+      # lifetime. Gated on the SAME condition as this job's app-token mint —
+      # vars.DEVFLOW_APP_ID != '' AND not a /devflow:review command (the
+      # read-only review path uses the downscoped reviewer token and never
+      # pushes). DELIBERATELY a DETACHED process, not a `background:` step:
+      # actionlint rejects the unrecognized `background:` step key, so the refresher
+      # is spawned with `nohup … &` and survives into the claude step. Key piped to
+      # stdin (never argv, never disk); the detached refresher is launched with
+      # `env -u` (dropping the key var) so its exec-time environment — hence
+      # /proc/<pid>/environ, readable by the concurrent same-uid claude step —
+      # never holds the PEM (the step-level env var exists only so this short-lived
+      # launcher shell can pipe it; an in-process `unset` alone would NOT scrub the
+      # long-lived refresher's /proc environ, which snapshots exec time — proc(5)).
+      # The loop traps TERM/exits 0; the `if: always()` pidfile-kill step retires it.
+      # Kept in sync with devflow-implement.yml. See docs/cloud-setup.md.
+      - name: Start credential refresher (optional)
+        id: refresher
+        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        env:
+          DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}
+          DEVFLOW_APP_PRIVATE_KEY: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          # No scripts/… self-repo fallback here (unlike the always() Stop step): this
+          # step runs right after `vendor-plugin` on the same sequential job, so the
+          # vendored path is always present — a fallback would be dead code. Do NOT add
+          # one in a wrong-direction "reconcile" with the Stop step.
+          printf '%s' "$DEVFLOW_APP_PRIVATE_KEY" \
+            | env -u DEVFLOW_APP_PRIVATE_KEY \
+                nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop \
+                >"$RUNNER_TEMP/devflow-refresh.log" 2>&1 &
+          disown || true
+          echo "credential refresher started (detached); log: $RUNNER_TEMP/devflow-refresh.log"
+
+      - name: Install fresh-gh wrapper (optional)
+        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          REAL_GH="$(command -v gh)"
+          WRAPDIR="$RUNNER_TEMP/devflow-gh-bin"
+          mkdir -p "$WRAPDIR"
+          cp .devflow/vendor/devflow/scripts/gh-fresh.sh "$WRAPDIR/gh"
+          chmod +x "$WRAPDIR/gh"
+          ( umask 077; printf '%s' "$APP_TOKEN" | sha256sum | awk '{print $1}' \
+              > "$RUNNER_TEMP/devflow-gh-fingerprint" )
+          { echo "DEVFLOW_GH=$WRAPDIR/gh"; echo "DEVFLOW_GH_REAL=$REAL_GH"; } >> "$GITHUB_ENV"
+          echo "$WRAPDIR" >> "$GITHUB_PATH"
       # ── Third-party model provider resolution (issue #313) ─────────────────
       # Resolve this section's (devflow) provider decision from .devflow/config.json
       # via the single-sourced inline jq RESOLVER below. The RESOLVER program is
@@ -863,6 +914,32 @@ jobs:
             ${{ steps.cargs.outputs.args }}
             --allowed-tools "${{ steps.tools.outputs.tools }}"
 
+      # Retire the detached credential refresher (issue #487). Best-effort,
+      # always() so it runs on every exit path. Gated with the SAME /devflow:review
+      # exclusion as the start step: on the review path the refresher was never
+      # started, so there is nothing to retire and the step would be a pointless
+      # no-op. (A false defeat warning is prevented by the DEVFLOW_REFRESH_STARTED
+      # guard below — steps.refresher.outcome is `skipped` there — not by this
+      # exclusion.) The kill/log/::warning:: logic lives in scripts/stop-refresher.sh
+      # so the branch/message selection is suite-drivable (CLAUDE.md
+      # inline-shell-extraction convention).
+      - name: Stop credential refresher (optional)
+        if: ${{ always() && vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        env:
+          # The Start step's outcome. stop-refresher.sh treats the launcher as having
+          # RAN when this is `success` OR `failure` (a ran-and-failed launcher is still
+          # a genuine never-started defeat — arm18), and as NOT run when `skipped` OR
+          # `cancelled` (an upstream early-abort), where a missing pidfile is expected
+          # rather than a defeat. (In practice the Start step's run: ends on a bare echo
+          # and never waits on its backgrounded nohup, so it realistically only yields
+          # success or skipped/cancelled — but the contract handed to the helper is the
+          # broader four-way one above.)
+          DEVFLOW_REFRESH_STARTED: ${{ steps.refresher.outcome }}
+        run: |
+          H=.devflow/vendor/devflow/scripts/stop-refresher.sh
+          [ -f "$H" ] || H=scripts/stop-refresher.sh
+          bash "$H"
+
       # Surface the claude-code-action run's execution diagnostics (run summary +
       # permission-denial detail) to the job log and $GITHUB_STEP_SUMMARY so a
       # maintainer debugging a stalled / incomplete / unexpectedly-denied cloud
@@ -1037,15 +1114,51 @@ jobs:
 
       - name: Persist review-and-fix observability artifacts (backstop)
         if: ${{ always() }}
+        env:
+          # Harness-side cost floor inputs (issue #475). DEVFLOW_COMMAND is the gate's
+          # RESOLVED command (`/devflow:<class> <n>` — resolve-command-trigger.sh always
+          # appends the number); prepare-harness-floor.sh parses the class and the explicit
+          # trailing PR number from it and PREFERS that number. DEVFLOW_CANDIDATE_NUMBER is
+          # only the fallback context number used when the command carries none — written
+          # with the workflow-wide `issue.number || pull_request.number` idiom so it also
+          # resolves on the issue_comment trigger (where github.event.pull_request is absent).
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          DEVFLOW_COMMAND: ${{ needs.gate.outputs.command }}
+          DEVFLOW_CANDIDATE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          # Job-lifetime-valid token for the floor's gh PR verification: the job-start
+          # App token can already be past its ~60-minute lifetime by backstop time (#287).
+          GH_TOKEN: ${{ github.token }}
         run: |
           set +e
           HELPER=.devflow/vendor/devflow/lib/efficiency-trace.sh
           [ -f "$HELPER" ] || { echo "::warning::observability backstop: $HELPER missing; skipped"; exit 0; }
+          # Harness-side cost floor (issue #475): the glue helper runs the execution-file
+          # reader, verifies the PR, and emits the floor env values consumed by --persist.
+          # Guard its existence exactly like $HELPER: a vendored tree pinned to an OLDER
+          # devflow_version lacks it, and that must draw a NAMED ::warning:: (floor inert),
+          # never a raw `No such file` under `set +e`.
+          FLOOR=.devflow/vendor/devflow/scripts/prepare-harness-floor.sh
+          DEVFLOW_EXECUTION_COST=""
+          DEVFLOW_EXECUTION_PR=""
+          DEVFLOW_COMMAND_CLASS=""
+          if [ -f "$FLOOR" ]; then
+            COST_FILE="${RUNNER_TEMP:-/tmp}/devflow-harness-cost-$$.json"
+            # The glue prints two eval-able env assignments (PR + class) to stdout and
+            # writes the cost JSON to $COST_FILE; its breadcrumbs go to the step log.
+            eval "$(bash "$FLOOR" "${EXECUTION_FILE:-}" "${DEVFLOW_COMMAND:-}" "${DEVFLOW_CANDIDATE_NUMBER:-}" "$COST_FILE")"
+            [ -s "$COST_FILE" ] && DEVFLOW_EXECUTION_COST="$(cat "$COST_FILE")"
+            rm -f "$COST_FILE"
+          else
+            echo "::warning::harness cost floor inert: $FLOOR missing (a vendored tree pinned to an older devflow_version); the cost floor is skipped this run"
+          fi
           # --persist derives each run's record + durable workpad copy and writes them to
           # the dedicated telemetry branch via git plumbing, then pushes with a fetch/
-          # re-parent retry loop — all inside the helper, which sets its own committer
-          # identity. It never touches HEAD or the TRACKED working tree, so the former before/after-
-          # HEAD gate and the bare `git push` are gone (issue #441): the helper owns the
-          # targeted, retry-looped push to the telemetry branch. Best-effort/exit-0.
-          bash "$HELPER" --persist
+          # re-parent retry loop — all inside the helper. With the floor env set it ALSO
+          # merge-fills harness_cost into this run's record (or writes a minimal cost
+          # skeleton); unset, it is byte-identical to before (issue #441/#475). It never
+          # touches HEAD or the TRACKED working tree. Best-effort/exit-0.
+          DEVFLOW_EXECUTION_COST="$DEVFLOW_EXECUTION_COST" \
+          DEVFLOW_EXECUTION_PR="$DEVFLOW_EXECUTION_PR" \
+          DEVFLOW_COMMAND_CLASS="$DEVFLOW_COMMAND_CLASS" \
+            bash "$HELPER" --persist
           exit 0

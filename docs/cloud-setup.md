@@ -219,6 +219,83 @@ restore the default-token behavior. The read-only review run has the same fail-l
 contract, but under its own `DEVFLOW_REVIEWER_APP_ID` (unset *that* to restore the
 review run's default token) — see the DevFlow-Reviewer section below.
 
+### Keeping writer-job credentials fresh past the token's 60-minute lifetime
+
+A GitHub App installation token expires **exactly one hour** after it is minted and
+cannot be renewed — only replaced by a fresh mint. DevFlow's writer jobs mint one
+token at job start and ride it for the whole run, so a `/devflow:implement` or
+`/devflow:review-and-fix` run that **outlives that hour** used to spend its remainder
+with dead credentials: the agent's `git push` and every agent-side `gh` call both
+`401`. The two writer jobs (`devflow-implement.yml`'s `claude` job and `devflow.yml`'s
+`command` job) fix this with a **long-run credential refresher**, gated on the **same**
+`vars.DEVFLOW_APP_ID != ''` condition as the App-token mint above — when the App is
+unconfigured, every step below is skipped and behavior is **byte-identical** to today.
+(The refresher is also excluded on the read-only `/devflow:review` path, which uses the
+downscoped reviewer token and never pushes.)
+
+**What it does.** After checkout — and before the `claude` step — the job starts
+`scripts/refresh-app-credentials.sh loop` as a **detached `nohup` background process**
+(deliberately *not* a `background:` step, a keyword `actionlint` rejects). The
+refresher holds the App credentials and, on a **45-minute cadence** (dropping to a
+**2-minute backoff** after a failed cycle until one succeeds), re-mints a fresh
+installation token and rewrites the two repo-controlled credential surfaces in place:
+
+1. the checkout-persisted `http.<server>/.extraheader` credential every in-run
+   `git push` authenticates with (it *rewrites* that credential of record — it never
+   replaces the push mechanism), and
+2. a mode-0600 token file that the agent-side `gh` wrapper (`scripts/gh-fresh.sh`)
+   reads at call time. The wrapper is wired both as `DEVFLOW_GH` (DevFlow's own
+   gh-callers resolve `gh` through that seam) and ahead of the real `gh` on `PATH`, so
+   direct `gh` calls resolve the fresh token too. It discriminates the ambient
+   job-start token from a deliberately-fresh backstop mint by fingerprint, so it only
+   substitutes the refreshed token where the ambient (expiring) one would be used.
+
+**Key handling.** The App's PEM private key is piped to the refresher's **stdin** — it
+is never passed as a process argument and never written to disk (the JWT is signed with
+the key handed to `openssl` over a file descriptor). The workflow's Start step exports
+the key as a step-level env var only so that short-lived launcher shell can pipe it; the
+**detached refresher is launched with `env -u DEVFLOW_APP_PRIVATE_KEY`**, so the raw PEM
+is absent from the long-lived refresher's exec-time environment and therefore never
+readable via its `/proc/<pid>/environ` by the concurrent same-uid `claude` agent step
+(`/proc/<pid>/environ` snapshots the environment at `execve` time and is not updated by a
+later `unset` — proc(5), so `env -u` at launch, not an in-process `unset`, is what closes
+that vector). The key then lives only in the refresher's shell memory.
+
+**Least privilege.** Each re-minted token is **scoped to this repository only**
+(`repositories: [<repo>]`), matching the job-start token's default scope rather than
+minting an installation-wide token across every repo the App is installed on.
+
+**Loud degrade.** The refresher is best-effort and never fails the job: a failed cycle
+emits a per-arm `::warning::` naming what failed and warns-and-continues. Almost every
+failure arm leaves the previous credential in place, with one disclosed exception — if
+the push credential (surface 1, the checkout extraheader) has already been rewritten to
+the fresh token and only the gh token file (surface 2) then fails to write, the two
+surfaces diverge (surface 1 fresh, surface 2 stale); the cycle warns naming that
+divergence and the next 2-minute backoff retry re-converges them. Because a background process's `::warning::` lines are
+inert in the Actions UI, an `if: always()` **Stop credential refresher** step
+(`scripts/stop-refresher.sh`) retires the refresher by pidfile, tails its detached log
+into the step output, and re-emits **one** live `::warning::` when the refresher was
+actually defeated (never started/crashed before its first cycle, died mid-run — the
+pidfile's pid no longer running, so a stale `cycle OK` in the log does not mask a death
+after that cycle; the pidfile present but empty — the loop could not record its PID, so
+its liveness cannot be verified — or its most recent cycle failed) — so a run that silently lost its
+credentials is visible without log archaeology. The agent-side wrapper degrades loudly
+too: a substitute decision that finds no token file (a refresher defeated at startup
+never writes one) emits a stderr breadcrumb before riding the ambient token.
+
+**Disclosed residual.** This refresher keeps DevFlow's own `git push` and `gh` calls
+fresh, but `claude-code-action`'s **own internal API calls** still ride the static
+`github_token` input passed to the action, which is not refreshed. That is an upstream
+limitation tracked at `anthropics/claude-code-action#716`; until it lands, an extremely
+long run can still see the action's internal calls fail on the expired token even
+though DevFlow's push/gh surfaces stay fresh. A second assumption to re-probe on any
+`claude-code-action` **major** upgrade: the wrapper's fingerprint discrimination relies
+on the action exporting its `github_token` input **byte-identical** as `GH_TOKEN`
+(verified against `src/entrypoints/run.ts` at drafting time). If a future version
+exports a differently-derived token, every wrapped call takes the defer path and the
+agent-side freshness fix goes silently inert (safe — the fail-fast rule still catches
+the 401 — but ineffective).
+
 ### The dedicated DevFlow-Reviewer app (review identity)
 
 GitHub forbids **requesting changes on — or approving — your own pull request**.
@@ -732,15 +809,16 @@ matter for the cloud tier:
   `efficiency-trace.sh`, `workpad.py`, and `config-get.sh` are all allow-listed, so the loop is
   navigable, not blocked. This guarantees the **effectiveness** half of the telemetry
   (dispatch counts, findings, verdicts, fix decisions) is captured even on a degraded run. The
-  **token/wall-clock cost** half is captured *live* by the loop, and **no backstop DevFlow currently
-  ships reconstructs it** once the loop is abandoned — so today it has **no deterministic guarantee**
-  and keeping the loop live is its only (probabilistic) protection. That is a gap in what is built,
-  **not** a limit of the platform: issue #437 observed that the cloud `execution_file` carries the
-  tokens, wall-clock, the dispatch roster, and cost with zero agent cooperation, and that the local
+  **token/wall-clock cost** half is captured *live* by the loop; on the **cloud** tier, issue #475's
+  Layer-4 harness-side cost floor now reconstructs it deterministically from `claude-code-action`'s
+  `execution_file` once the loop is abandoned, while the **local** tier still ships no such backstop,
+  so there keeping the loop live is its only (probabilistic) protection. That closed a gap in what was
+  built, **not** a limit of the platform: issue #437 observed that the cloud `execution_file` carries
+  the tokens, wall-clock, the dispatch roster, and cost with zero agent cooperation, and that the local
   `Stop` transcript's per-message token counts are **real** figures rather than streaming
   placeholders (wall-clock and the dispatch roster were *not* measured on the local tier — see
   [`docs/execution-file-shape.md`](execution-file-shape.md)), so an agent-independent cost floor is
-  buildable — it has simply not been built yet.
+  buildable — and #475 built the cloud half.
 - **Implement-vs-runner `--permission-mode` asymmetry.** The read-only `review` runner
   (`devflow-runner.yml`) launches Claude with `--permission-mode acceptEdits`; the
   `/devflow:implement` job (`devflow-implement.yml`) deliberately does **not**. So the implement seam

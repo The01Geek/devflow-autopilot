@@ -4,6 +4,64 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.8] — 2026-07-15
+
+### Added
+- **Harness-side cost floor: cloud runs now record cost even when telemetry is dropped.** On both
+  writable cloud workflows, the `--persist` backstop reads `claude-code-action`'s harness-written
+  `execution_file` (via the new stdlib-only `scripts/extract-execution-cost.py` and the suite-drivable
+  `scripts/prepare-harness-floor.sh`) and merge-fills its cost into the run's efficiency record as a
+  distinct top-level `harness_cost` object — creating a minimal slug-bearing cost skeleton when a
+  record-deriving run left no record at all. This is the first efficiency-pipeline floor NOT fed by an
+  agent-volunteered operand, so the abnormal runs that drop telemetry — precisely the ones the
+  retrospective and experiment analyses most need cost data for — now contribute a deterministic cost
+  record. `harness_cost` is whole-job cost (segmentable by `workflow`/`command`, invisible to the
+  per-phase `_run_cost`/`telemetry_complete` aggregates), and the telemetry-branch push-retry union is
+  now merge-aware so a concurrent writer's `harness_cost` is not reverted on the normal jq-available
+  merge path (a jq-unavailable/empty-blob fallback to local-wins remains possible and is disclosed by a
+  named `::warning::`). Best-effort and exit-0
+  throughout; inert and byte-identical to before when the execution file is absent or the floor env is
+  unset. (#475)
+
+## [2.13.7] — 2026-07-15
+
+### Fixed
+- **Gate shadow synthesis on promotion provenance.** Distinguish shadow-driven, post-shadow park-calibration, pre-shadow park-calibration, and unestablished promotion records so telemetry recovers genuine drops without fabricating shadow attribution or warning on legitimate pre-shadow promotions. (#508)
+
+## [2.13.6] — 2026-07-15
+
+### Fixed
+- **Fail shadow review closed on topic-primed prompts.** Clean convergence now requires a persisted prompt-composition attestation alongside full reviewer coverage, while real findings still promote unchanged. (#509)
+
+## [2.13.5] — 2026-07-15
+
+### Added
+- **Keep writer-job push and gh credentials fresh past the App token's 60-minute lifetime.**
+  A GitHub App installation token expires one hour after minting and cannot be renewed, so a
+  `/devflow:implement` or `/devflow:review-and-fix` cloud run that outlives that hour used to
+  spend its remainder fighting dead credentials (`git push` and agent-side `gh` both 401). Both
+  writer jobs now start a detached background credential refresher (`scripts/refresh-app-credentials.sh`,
+  45-minute cadence with a 2-minute backoff) that re-mints a fresh installation token and rewrites
+  the checkout-persisted `http.<server>/.extraheader` credential and a mode-0600 token file in
+  place; a `gh` wrapper (`scripts/gh-fresh.sh`, installed as `DEVFLOW_GH` and ahead of `gh` on
+  `PATH`) resolves the token at call time, discriminating the ambient job-start token from a
+  deliberately-fresh `#287` backstop mint by fingerprint. A two-strikes bad-credential fail-fast
+  rule stops long runs from burning budget on dead credentials. With no App configured
+  (`vars.DEVFLOW_APP_ID` empty) everything is a no-op, byte-identical to today. (#487)
+- **Fail closed when the persisted `http.<server>/.extraheader` credential lives in more than
+  one config file.** `actions/checkout` persists exactly one, but if the config chain ever
+  held the key across multiple distinct files the refresher now warns and leaves the previous
+  credential in place rather than silently rewriting only the first file (which `git push`
+  might not read as the highest-precedence value) — preserving the loud-degrade design. (#491)
+- **Refresher/wrapper robustness hardening (review follow-ups).** Mint-failure warnings now
+  carry curl's exit code and diagnostic; the `gh` wrapper resolves its own path via a
+  canonicalized (`pwd -P`) self-exclusion, scans the combined stdout+stderr stream for the
+  bad-credential signature, and anchors the git alternative to `fatal: Authentication failed
+  for` (shrinking false positives while keeping git-shelling coverage); the loop ensures the
+  pidfile's parent dir exists and names the false-defeat consequence when it still cannot
+  write it; and `stop-refresher.sh` briefly waits for the signalled process to exit before
+  tailing its log. (#491)
+
 ## [2.13.4] — 2026-07-15
 
 ### Added
