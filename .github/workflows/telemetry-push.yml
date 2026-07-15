@@ -82,6 +82,17 @@ jobs:
           REF=""
           if [ -f .devflow/config.json ]; then
             REF=$(jq -r '.devflow_version // empty' .devflow/config.json 2>/dev/null || true)
+            # A present-but-unreadable config.json (malformed JSON, or devflow_version
+            # absent/empty) collapses to an empty ref, which makes vendor-plugin fail
+            # (continue-on-error swallows its die) and the push step below then warns
+            # "vendor did not materialize" — misattributing a CONFIG fault as a vendoring
+            # fault (issue #502 AC3: don't emit a misleading consumer ::warning::). Name
+            # the real cause here so the operator fixes devflow_version, not the vendor
+            # path. Scoped to config-present: a config-less repo is a different state the
+            # push step's own warning already describes acceptably.
+            if [ -z "$REF" ]; then
+              echo "::warning::telemetry-push: .devflow/config.json is present but devflow_version could not be read (malformed JSON or key absent/empty) — vendor-plugin will fail on the empty ref and nothing will be pushed this run; set devflow_version to restore the relay." >&2
+            fi
           fi
           echo "devflow_version=$REF" >> "$GITHUB_OUTPUT"
       - id: vendor
