@@ -72,7 +72,9 @@ jobs:
       # consumers and the push step red-lined rc 127). continue-on-error: the relay is
       # best-effort observability, so a vendor hiccup must not red-line this trusted writer
       # — the push step's own existence check warns and skips on a missing helper. Mirrors
-      # the vendor-plugin pattern in devflow-review.yml's finalize_check job.
+      # the pin + vendor-plugin steps from devflow-review.yml's finalize_check job; the
+      # vendor-failure warning is folded into the push step's existence check below rather
+      # than a separate warn step (avoids redundancy with the missing-helper warning).
       - id: pin
         shell: bash
         run: |
