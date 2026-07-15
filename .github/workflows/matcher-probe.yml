@@ -1035,3 +1035,37 @@ jobs:
             bash scripts/describe-hook-probe.sh "$MARKER"
             echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # issue #498 — cancel-probe: records what value a cancelled-but-still-finishing
+  # job presents to an always() step's `env:` at evaluation time. The GitHub docs
+  # state `always()` runs even when canceled and that `job.status` is one of
+  # success/failure/cancelled, but do NOT state which value a cancelled job
+  # delivers to an always() step's `env:` (the transition-timing fact issue #498
+  # keys its cancel exclusion on). This job settles it empirically: an operator
+  # dispatches it from the PR branch (`gh workflow run matcher-probe.yml --ref
+  # <branch>` — matcher-probe.yml already exists on main with workflow_dispatch,
+  # so that executes the PR branch's file), cancels the run mid-sleep, and the
+  # captured `job_status=cancelled` log line from the always() step is the
+  # recorded pre-merge evidence for issue #498's AC2 — an operator-performed
+  # probe, exactly how matcher-probe evidence rows are produced today (the
+  # executing implement run cannot dispatch-and-cancel itself: `gh run cancel` is
+  # granted in no allowlist). Repo-internal; NOT shipped by install.sh. No
+  # claude-code-action step and no secrets — just runner minutes — so a normal
+  # (uncancelled) run costs only a 10-min sleep and prints `job_status=success`.
+  cancel-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Long sleep (cancel this run mid-sleep)
+        run: |
+          echo "cancel-probe: sleeping 10 minutes — cancel this run now to capture the always() step's job.status"
+          sleep 600
+
+      - name: Record job.status (always)
+        if: always()
+        env:
+          # The documented job-context string (issue #498), deliberately not a
+          # status-check function (the docs scope those to `if:` conditionals).
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          echo "cancel-probe: job_status=${JOB_STATUS}"

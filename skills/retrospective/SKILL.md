@@ -77,7 +77,7 @@ Schema of `.devflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | `review_comments_count` | number | Total inline review comments |
 | `post_bot_commits` | number | Substantive commits by a human AFTER the bot's last commit — pure merge commits (`Merge branch 'main'` etc.) are not counted |
 | `ci_failures_during_pr` | number | Non-success check-runs on the head SHA |
-| `workpad_final_status` | string | Parsed Status line from the workpad, e.g. `"Complete"`, `"Blocked"`, `""` |
+| `workpad_final_status` | string | Parsed Status line from the workpad, e.g. `"Complete"`, `"Blocked"`, `"Cancelled"`, `""` |
 | `ttm_hours` | number | Time from PR creation to merge, in decimal hours |
 | `review_reject_outstanding` | boolean | True when the chronologically-last `/devflow:review` verdict is REJECT |
 
@@ -89,9 +89,7 @@ and you treat its three facets as primary analysis input:
   and let it drive the verdict, categories, and descriptors** — a run that left
   even one reflection is, by construction, not a frictionless run (the clean-gate
   already forces it into analysis for exactly this reason).
-- `signals.workpad_final_status` — the bot's final Status (`Complete` / `Blocked` / `Failed`
-  / an interim state); it bounds the verdict (see below). `Failed` is the cloud stall
-  backstop's dead-run flip: the run died mid-lifecycle rather than deciding an outcome.
+- `signals.workpad_final_status` — the bot's final Status (`Complete` / `Blocked` / `Failed` / `Cancelled` / an interim state); it bounds the verdict (see below). `Failed` is the cloud stall backstop's dead-run flip: the run died mid-lifecycle rather than deciding an outcome. `Cancelled` is the cloud stall backstop's cancelled-run flip (issue #498): the run was deliberately cancelled (an operator stop, or a platform-initiated teardown), not a quality signal.
 - `workpad_body` — the full workpad, including the `## Progress` notes nested
   under each phase. Mine its append-only notes for the moment-to-moment story.
 
@@ -123,6 +121,13 @@ handled those mechanically.)
 `Implementing`, `Reviewing`, `Documenting`) mean the run never reached Phase 4
 — it is an incomplete run, not a quality issue. If `workpad_final_status` is one
 of those, print `{"error": "incomplete run — workpad_final_status is <status>; skipping"}` and stop.
+
+A **`Cancelled`** final status is a deliberate stop, not a quality issue — the run
+was cancelled (an operator stop or a platform-initiated teardown, issue #498), not
+abandoned mid-task. It takes a defined skip mirroring the interim error-skip: print
+`{"error": "operator-cancelled run — workpad_final_status is Cancelled; a deliberate stop, not a quality signal; skipping"}`
+and stop. A deliberate cancel is never improvised into a `blocked` verdict feeding
+the pattern loop.
 
 ### categories
 

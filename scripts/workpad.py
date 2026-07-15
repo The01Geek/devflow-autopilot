@@ -335,19 +335,22 @@ def _is_recognized_status_word(word: str) -> bool:
     for its write-path callers but would let a corrupted word like
     'Completely wrong' or 'Blockeddependency' pass this recognition check —
     exactly the fail-open this function exists to close. No independent
-    hardcoded word list: 'blocked' and 'failed' are the only two literals not
-    already sourced from `_STATUS_TO_PROGRESS_PHASE` — both are terminal words
-    that map has no phase for (see `_progress_phase_for_status`); 'failed' is
-    the workflow-level stall-backstop "died" status (💥, issue #356)."""
+    hardcoded word list: 'blocked', 'failed', and 'cancelled' are the only
+    literals not already sourced from `_STATUS_TO_PROGRESS_PHASE` — all three are
+    terminal words that map has no phase for (see `_progress_phase_for_status`);
+    'failed' is the workflow-level stall-backstop "died" status (💥, issue #356),
+    and 'cancelled' is the workflow-level stall-backstop "cancelled" status (🛑,
+    issue #498)."""
     s = word.strip().lower()
-    return s in _STATUS_TO_PROGRESS_PHASE or s in ('blocked', 'failed')
+    return s in _STATUS_TO_PROGRESS_PHASE or s in ('blocked', 'failed', 'cancelled')
 
 
 def cmd_status(args):
     """Print the workpad Status as `CLASS GLYPH WORD` (e.g. 'interim 🚀 Reviewing').
 
-    CLASS is 'terminal' for a Complete (🎉), Blocked (👎), or Failed (💥) status,
-    else 'interim'. The glyph and classification come from `_status_glyph` — the same
+    CLASS is 'terminal' for a Complete (🎉), Blocked (👎), Failed (💥), or
+    Cancelled (🛑) status, else 'interim'. The glyph and classification come from
+    `_status_glyph` — the same
     single source of truth the update path uses — so no caller re-parses the
     glyph vocabulary ad hoc. Exit codes let a caller fail closed:
       0  status printed
@@ -391,7 +394,8 @@ def cmd_status(args):
         sys.exit(1)
     if not _is_recognized_status_word(word):
         recognized = '/'.join(
-            [w.capitalize() for w in _STATUS_TO_PROGRESS_PHASE] + ['Blocked', 'Failed']
+            [w.capitalize() for w in _STATUS_TO_PROGRESS_PHASE]
+            + ['Blocked', 'Failed', 'Cancelled']
         )
         sys.stderr.write(
             f"workpad.py status: workpad Status word {word!r} is not a "
@@ -400,7 +404,7 @@ def cmd_status(args):
         )
         sys.exit(1)
     glyph = _status_glyph(word)
-    cls = 'terminal' if glyph in ('🎉', '👎', '💥') else 'interim'
+    cls = 'terminal' if glyph in ('🎉', '👎', '💥', '🛑') else 'interim'
     print(f"{cls} {glyph} {word}")
 
 
@@ -583,15 +587,17 @@ _CHECKBOX_ROW_RE = re.compile(r'^(\s*[-*]\s+)(\[[ xX]\])(\s+)(.*)$')
 
 # Canonical status glyphs. The Status line always begins with one;
 # `_status_glyph` derives it from the status word so the orchestrator passes a
-# bare status ("Setup", "Complete", "Blocked", "Failed") and the helper is the
-# single source of truth for the glyph vocabulary. 🚀=running (any in-progress
-# phase), 🎉=Complete, 👎=Blocked, 💥=Failed. The first three are
-# reaction-compatible — they match the triggering-comment reactions
+# bare status ("Setup", "Complete", "Blocked", "Failed", "Cancelled") and the
+# helper is the single source of truth for the glyph vocabulary. 🚀=running (any
+# in-progress phase), 🎉=Complete, 👎=Blocked, 💥=Failed, 🛑=Cancelled. The first
+# three are reaction-compatible — they match the triggering-comment reactions
 # (rocket / hooray / -1) the implement skill emits. 💥 (the workflow-level
-# stall-backstop "died" flip, issue #356) is the carve-out: it is a workpad-only
-# terminal glyph with NO triggering-comment reaction equivalent — the cloud
-# backstop writes it when a run dead-ends, but emits no outcome reaction for it.
-_STATUS_GLYPHS = ('🚀', '🎉', '👎', '💥')
+# stall-backstop "died" flip, issue #356) and 🛑 (the workflow-level
+# stall-backstop "cancelled" flip, issue #498) are the carve-outs: each is a
+# workpad-only terminal glyph with NO triggering-comment reaction equivalent —
+# the cloud backstop writes them when a run dead-ends (💥) or is cancelled (🛑),
+# but emits no outcome reaction for either.
+_STATUS_GLYPHS = ('🚀', '🎉', '👎', '💥', '🛑')
 
 
 def _strip_status_glyph(status: str) -> str:
@@ -613,6 +619,8 @@ def _status_glyph(status: str) -> str:
         return '👎'
     if s.startswith('failed'):
         return '💥'
+    if s.startswith('cancelled'):
+        return '🛑'
     return '🚀'
 
 
@@ -1945,8 +1953,9 @@ def main():
     )
     u.add_argument('issue', type=int)
     u.add_argument('--status', help='Replace the Status line value. A canonical '
-                   'glyph (🚀 running / 🎉 Complete / 👎 Blocked / 💥 Failed) is '
-                   'derived from the status word and prepended automatically.')
+                   'glyph (🚀 running / 🎉 Complete / 👎 Blocked / 💥 Failed / '
+                   '🛑 Cancelled) is derived from the status word and prepended '
+                   'automatically.')
     u.add_argument('--branch', help='Replace the Branch line value.')
     u.add_argument('--run-link', metavar='VALUE',
                    help='Set the Run front-matter line to VALUE (markdown ok). '

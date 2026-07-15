@@ -12,7 +12,7 @@
 # YAML so lib/test/run.sh can drive every branch deterministically with stubbed
 # inputs — it does NO I/O (no gh/jq/workpad.py), just maps inputs to a decision.
 #
-# Usage: stall-backstop-decide.sh ENABLED CLASS ATTEMPTS MAX
+# Usage: stall-backstop-decide.sh ENABLED CLASS ATTEMPTS MAX [JOB_STATUS]
 #   ENABLED   The resolved `stall_backstop.enabled` config value. Only the exact
 #             string "false" disables the backstop; every other value (empty,
 #             "true", an unrecognized string) resolves to enabled — the safe,
@@ -39,6 +39,12 @@
 #   MAX       The resolved `stall_backstop.max_resume_attempts` cap. A negative
 #             or non-integer value resolves to the default 2. 0 is honored
 #             verbatim (detect-and-fail-loud only, no auto-resume).
+#   JOB_STATUS The job's status (issue #498), typically `${{ job.status }}` —
+#             one of `success` / `failure` / `cancelled`. Absent (a four-arg
+#             caller) or any value other than the exact string `cancelled` leaves
+#             the decision table byte-identical to the pre-#498 behavior (fail
+#             toward resume, so an un-upgraded caller never suppresses a resume).
+#             Only `cancelled` selects the cancellation-exclusion path below.
 #
 # Prints exactly one decision token to stdout and exits 0:
 #   skip             backstop disabled            → do nothing, job stays green
@@ -50,17 +56,51 @@
 #   fail-auth        gh-api/transport/auth failure → auth-specific comment + fail
 #                    (fails loud WITHOUT consuming a resume attempt; never
 #                    mislabeled 'unreadable')
+#   flip-cancelled   JOB_STATUS=cancelled + interim → workflow flips the workpad
+#                    to 🛑 Cancelled, posts no comment, consumes no resume
+#                    attempt, exits 0 (issue #498: a cancel is a decided end)
+#   skip-cancelled   JOB_STATUS=cancelled + unreadable/auth-failure/unknown →
+#                    log + exit 0, no fail-loud diagnostic comment (issue #498)
 set -uo pipefail
 
 enabled="${1-}"
 cls="${2-}"
 attempts="${3-}"
 max="${4-}"
+job_status="${5-}"
 
 # Disabled only on the exact literal "false"; anything else (missing key handed a
 # default by config-get, "true", or an unrecognized string) resolves to enabled.
 if [ "$enabled" = "false" ]; then
   echo skip
+  exit 0
+fi
+
+# Cancelled-run exclusion (issue #498): a cancelled run is a decided ending, not
+# a stall. Only the exact string "cancelled" selects this path; every other value
+# (absent, empty, "success", "failure", any other token) falls through to the
+# existing decision table byte-identical — so an un-upgraded caller (four args,
+# or a non-cancelled job status) never suppresses a resume. The mapping (six
+# rows, complete by construction — the unknown-class fold closes the class
+# space): terminal → noop; interim → flip-cancelled (the workflow flips the
+# workpad to 🛑 Cancelled); unreadable/auth-failure/unknown → skip-cancelled
+# (log + green, no fail-loud diagnostic on a cancel). The master switch above
+# already returned `skip` for ENABLED=false, so it wins before this path.
+if [ "$job_status" = "cancelled" ]; then
+  case "$cls" in
+    terminal)
+      echo noop
+      ;;
+    interim)
+      echo flip-cancelled
+      ;;
+    *)
+      # unreadable, auth-failure, and any unknown class all take skip-cancelled
+      # (inheriting the unreadable|* fold below — an unknown class is treated as
+      # unreadable). No resume attempt is consumed; the workflow logs and exits 0.
+      echo skip-cancelled
+      ;;
+  esac
   exit 0
 fi
 
