@@ -29471,8 +29471,8 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last changes: #441 Phase 4.5 record write collapsed to a single --persist call, then #466 Phase 0.6 adjudication-join fence added match-lint-adjudications.py + run-jq.sh + gh api --paginate, then #503 Phase 0.2 current-branch fence added a config-get.sh capture + breadcrumb echo — the comment fetch writes via an in-workspace redirect, NOT a tee, so gh's own exit status survives)" \
-  "104" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last changes: #503 rejected-review hardening added empty-base handling plus the checked head-override candidate/promote producer — the comment fetch still writes via an in-workspace redirect, NOT a tee, so gh's own exit status survives)" \
+  "127" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 assert_eq "#363 the review-skill head set matches the reviewed count (33 distinct names; +match-lint-adjudications.py, +run-jq.sh, +gh api --paginate at #466)" \
@@ -31952,7 +31952,7 @@ assert_eq "#423 T8 fix-loop Step 3 invokes the same helper (references it, not a
 assert_eq "#424 (item 6a) fence references no undefined \$BASE_REF (the VC-12 silent-no-op var)" "0" "$(grep -c 'BASE_REF' "$SP_RAF")"
 assert_pin_unique "#424 (item 6a) fence binds the base to the PR's own base ref origin/\$PR_BASE_BRANCH (PR mode) / config \$BASE (current-branch), not the stale run-start baseRefOid (three-dot)" \
   'git diff "origin/${PR_BASE_BRANCH:-$BASE}...HEAD"' "$SP_RAF"
-assert_pin_unique "#424 (item 6a) skill DEFINES \$PR_BASE_SHA (names it the base the engine's Phase 0.2 resolved this iteration)" \
+assert_pin_unique "#424 (item 6a) skill names the base contract without claiming stale \$PR_BASE_SHA is the active operand" \
   'against the base the engine'\''s Phase 0.2 resolved this iteration' "$SP_RAF"
 assert_pin_unique "#424 (item 6a) recomputes at the POST-fix HEAD, not the cached pre-fix diff.patch" \
   'not** reading the pre-fix `diff.patch` Phase 0.2 cached' "$SP_RAF"
@@ -31972,6 +31972,8 @@ assert_pin_red_under "#424 (item 6a): dropping the producer/helper-failure note 
 # leaks base-only content into the OLD three-dot binding "$baseRefOid...HEAD"
 # (base pinned to the stale run-start SHA) but NOT into the corrected
 # "origin/<base>...HEAD" (base = current fetched tip of the PR's own base ref).
+# This fixture proves the git three-dot semantics; the removal-proof skill pins
+# below couple those semantics to the actual Phase 0.2 and item-6a fences.
 # The fixture materializes refs/remotes/origin/main via `git update-ref` so the
 # corrected binding resolves offline (gh-stubbed, no network) — a plain local
 # `main` branch is NOT refs/remotes/origin/main. Three-dot is preserved in both:
@@ -32008,14 +32010,239 @@ assert_eq "#503 Scenario-B CORRECTED binding retains the PR's 'feature work' (no
   "1" "$( ( cd "$SP503" && git diff 'origin/main...HEAD' | grep -c '^+feature work' ) )"
 
 # #503 AC 8: current-branch coupled base — Phase 0.2 and item 6a resolve the
-# SAME configured base_branch (via the proven guarded config-get .base_branch main
-# capture, fail-closed to main), not a hardcoded origin/main. Both sites route
-# the current-branch base through that one capture, so the two resolved bases are
-# byte-identical by construction (config-get is single-sourced).
-assert_pin_unique "#503 AC8 Phase 0.2 current-branch resolves configured base_branch via the guarded config-get .base_branch main capture (not hardcoded origin/main)" \
-  'config-get.sh .base_branch main' "$SP_REVIEW"
-assert_pin_unique "#503 AC8 item 6a current-branch fallback resolves the SAME configured base_branch (guarded config-get .base_branch main)" \
-  'config-get.sh .base_branch main' "$SP_RAF"
+# SAME configured base_branch key and default (via the proven guarded config-get
+# .base_branch main capture, fail-closed to main), not a hardcoded origin/main.
+# The helper contract is single-sourced; the pins below prove both consumers call
+# it explicitly, and the extracted-fence matrix below compares their runtime operands.
+assert_eq "#503 AC8 Phase 0.2 has one operative guarded base_branch resolver" \
+  "1" "$(grep -Fc 'config-get.sh .base_branch main' "$SP_REVIEW")"
+assert_eq "#503 AC8 item 6a documents and executes the same guarded base_branch resolver" \
+  "2" "$(grep -Fc 'config-get.sh .base_branch main' "$SP_RAF")"
+
+# #503 rejected-review hardening: the review-side copy of the contract must be
+# executable and removal-proof, not a prose-only promise that can drift while the
+# item-6a mirror stays green.
+assert_pin_red_under "#503 review producer stages the filtered diff before promoting it to diff.patch" \
+  'if git diff "$HEAD_OVERRIDE_BASE...HEAD" > .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate; then' \
+  '/if git diff "\$HEAD_OVERRIDE_BASE\.\.\.HEAD" > \.devflow\/tmp\/review\/<slug>\/<run-id>\/diff\.raw-candidate; then/d' "$SP_REVIEW"
+assert_pin_red_under "#503 review producer records the stdout-publication failure before cleanup" \
+  'CAT_RC=$?' '/CAT_RC=\$?/d' "$SP_REVIEW"
+assert_pin_red_under "#503 retargeted-PR residual compares the PR base with the configured checkpoint base" \
+  'test "$PR_BASE_BRANCH" = "$BASE"' \
+  '/test "\$PR_BASE_BRANCH" = "\$BASE"/d' "$SP_REVIEW"
+assert_pin_red_under "#503 item-6a current-branch path executes the guarded base_branch capture" \
+  'if ! BASE=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .base_branch main); then' \
+  '/if ! BASE=.*config-get\.sh \.base_branch main/d' "$SP_RAF"
+assert_pin_red_under "#503 head-override normal arm keeps the PR base explicit-refspec refresh" \
+  'git fetch origin "+refs/heads/$PR_BASE_BRANCH:refs/remotes/origin/$PR_BASE_BRANCH"' \
+  's/git fetch origin/git fetch-missing origin/' "$SP_REVIEW"
+assert_pin_red_under "#503 head-override shallow arm keeps the one-shot unshallow retry" \
+  'git fetch --unshallow origin "+refs/heads/$PR_BASE_BRANCH:refs/remotes/origin/$PR_BASE_BRANCH"' \
+  's/git fetch --unshallow/git fetch --shallow/' "$SP_REVIEW"
+assert_pin_red_under "#503 deleted-base fallback requires an authoritative remote-ref absence probe" \
+  'git ls-remote --exit-code --heads origin "refs/heads/$PR_BASE_BRANCH"' \
+  's/git ls-remote --exit-code/git ls-remote/' "$SP_REVIEW"
+assert_pin_red_under "#503 deleted-base arm keeps the immutable baseRefOid fallback operand" \
+  'HEAD_OVERRIDE_BASE=$(printf '\''%s'\'' "$PR_BASE_SHA")' \
+  's/PR_BASE_SHA/PR_BASE_SHA_MISSING/g' "$SP_REVIEW"
+assert_pin_red_under "#503 producer checks the filtered candidate promotion write" \
+  'if sed -n '\''p'\'' .devflow/tmp/review/<slug>/<run-id>/diff.candidate > .devflow/tmp/review/<slug>/<run-id>/diff.patch; then' \
+  '/if sed -n '\''p'\'' \.devflow\/tmp\/review\/<slug>\/<run-id>\/diff\.candidate > \.devflow\/tmp\/review\/<slug>\/<run-id>\/diff\.patch; then/d' "$SP_REVIEW"
+assert_pin_red_under "#503 producer checks that the published cache can be emitted" \
+  'if cat .devflow/tmp/review/<slug>/<run-id>/diff.patch; then' \
+  '/if cat \.devflow\/tmp\/review\/<slug>\/<run-id>\/diff\.patch; then/d' "$SP_REVIEW"
+assert_pin_red_under "#503 producer records the observed git-diff rc" \
+  'DIFF_RC=$?' '/DIFF_RC=\$?/d' "$SP_REVIEW"
+assert_pin_red_under "#503 producer failure remains wired to implement Blocked and standalone stop-and-report" \
+  'The wrapping `/devflow:implement` run records an observed stop as **Blocked**; a standalone run stops and reports it.' \
+  's/records an observed stop as/records a stop as/' "$SP_REVIEW"
+assert_pin_red_under "#503 head-override git-fetch dependency is granted in the implement workflow" \
+  'Bash(git fetch:*),' 's/git fetch:/git fetch-missing:/' "$LIB/../.github/workflows/devflow-implement.yml"
+assert_pin_red_under "#503 head-override git-fetch dependency is granted in the manual command workflow" \
+  'Bash(git fetch:*),' 's/git fetch:/git fetch-missing:/' "$LIB/../.github/workflows/devflow.yml"
+assert_pin_red_under "#503 remote-ref probe is granted in the implement workflow" \
+  'Bash(git ls-remote:*),' 's/git ls-remote:/git ls-remote-missing:/' "$LIB/../.github/workflows/devflow-implement.yml"
+assert_pin_red_under "#503 remote-ref probe is granted in the manual command workflow" \
+  'Bash(git ls-remote:*),' 's/git ls-remote:/git ls-remote-missing:/' "$LIB/../.github/workflows/devflow.yml"
+assert_pin_red_under "#503 remote-ref probe is granted in the read-only review workflow" \
+  'Bash(git ls-remote:*),' 's/git ls-remote:/git ls-remote-missing:/' "$LIB/../.github/workflows/devflow-runner.yml"
+
+# Execute the exact checked cache fence rendered in the review skill. Command
+# shims let each producer boundary fail independently; every failure must remove
+# a stale prior cache and both candidates, while success publishes exactly once.
+SP503_FENCE_DIR="$(mktemp -d)"
+SP503_FENCE_CACHE="$SP503_FENCE_DIR/cache"
+SP503_FENCE_BIN="$SP503_FENCE_DIR/bin"
+mkdir -p "$SP503_FENCE_CACHE" "$SP503_FENCE_BIN"
+awk '/^# HEAD_OVERRIDE_BASE was mechanically selected/{capture=1; next} capture && /^```/{exit} capture' "$SP_REVIEW" \
+  | sed "s#\.devflow/tmp/review/<slug>/<run-id>#$SP503_FENCE_CACHE#g" > "$SP503_FENCE_DIR/fence.sh"
+tee "$SP503_FENCE_BIN/git" >/dev/null <<'EOF'
+#!/usr/bin/env bash
+if test "${1:-}" = diff; then
+  printf '%s\n' 'diff --git a/feature b/feature' '+review payload'
+  exit "${MOCK_DIFF_RC:-0}"
+fi
+exit 64
+EOF
+tee "$SP503_FENCE_BIN/awk" >/dev/null <<'EOF'
+#!/usr/bin/env bash
+test "${MOCK_AWK_RC:-0}" -eq 0 || exit "$MOCK_AWK_RC"
+exec /usr/bin/awk "$@"
+EOF
+tee "$SP503_FENCE_BIN/sed" >/dev/null <<'EOF'
+#!/usr/bin/env bash
+if test "${MOCK_PROMOTE_RC:-0}" -ne 0; then
+  test "${MOCK_PROMOTE_PARTIAL:-0}" -eq 0 || printf '%s\n' partial-promotion
+  exit "$MOCK_PROMOTE_RC"
+fi
+exec /usr/bin/sed "$@"
+EOF
+tee "$SP503_FENCE_BIN/cat" >/dev/null <<'EOF'
+#!/usr/bin/env bash
+test "${MOCK_CAT_RC:-0}" -eq 0 || exit "$MOCK_CAT_RC"
+exec /bin/cat "$@"
+EOF
+chmod +x "$SP503_FENCE_BIN/git" "$SP503_FENCE_BIN/awk" "$SP503_FENCE_BIN/sed" "$SP503_FENCE_BIN/cat"
+
+SP503_FENCE_OUT="$(PATH="$SP503_FENCE_BIN:$PATH" HEAD_OVERRIDE_BASE=origin/main bash "$SP503_FENCE_DIR/fence.sh" 2>&1)"
+SP503_FENCE_RC=$?
+assert_eq "#503 checked cache fence success exits zero" "0" "$SP503_FENCE_RC"
+assert_eq "#503 checked cache fence success publishes and emits identical bytes" \
+  "$(/bin/cat "$SP503_FENCE_CACHE/diff.patch")" "$SP503_FENCE_OUT"
+assert_eq "#503 checked cache fence success removes raw and filtered candidates" \
+  "0" "$(test ! -e "$SP503_FENCE_CACHE/diff.raw-candidate" && test ! -e "$SP503_FENCE_CACHE/diff.candidate"; echo $?)"
+
+for SP503_FAIL_STAGE in DIFF AWK PROMOTE CAT; do
+  printf '%s\n' stale-cache > "$SP503_FENCE_CACHE/diff.patch"
+  MOCK_DIFF_RC=0 MOCK_AWK_RC=0 MOCK_PROMOTE_RC=0 MOCK_PROMOTE_PARTIAL=0 MOCK_CAT_RC=0
+  case "$SP503_FAIL_STAGE" in
+    DIFF) MOCK_DIFF_RC=23 ;;
+    AWK) MOCK_AWK_RC=24 ;;
+    PROMOTE) MOCK_PROMOTE_RC=25; MOCK_PROMOTE_PARTIAL=1 ;;
+    CAT) MOCK_CAT_RC=26 ;;
+  esac
+  PATH="$SP503_FENCE_BIN:$PATH" HEAD_OVERRIDE_BASE=origin/main \
+    MOCK_DIFF_RC="$MOCK_DIFF_RC" MOCK_AWK_RC="$MOCK_AWK_RC" \
+    MOCK_PROMOTE_RC="$MOCK_PROMOTE_RC" MOCK_PROMOTE_PARTIAL="$MOCK_PROMOTE_PARTIAL" MOCK_CAT_RC="$MOCK_CAT_RC" \
+    bash "$SP503_FENCE_DIR/fence.sh" >/dev/null 2>&1
+  SP503_FENCE_RC=$?
+  assert_eq "#503 checked cache fence $SP503_FAIL_STAGE failure preserves its observed rc" \
+    "$(case "$SP503_FAIL_STAGE" in DIFF) echo 23;; AWK) echo 24;; PROMOTE) echo 25;; CAT) echo 26;; esac)" "$SP503_FENCE_RC"
+  assert_eq "#503 checked cache fence $SP503_FAIL_STAGE failure removes stale cache and candidates" \
+    "0" "$(test ! -e "$SP503_FENCE_CACHE/diff.patch" && test ! -e "$SP503_FENCE_CACHE/diff.raw-candidate" && test ! -e "$SP503_FENCE_CACHE/diff.candidate"; echo $?)"
+done
+rm -rf "$SP503_FENCE_DIR"
+
+# Execute the skill's exact base-resolution fence as well. The observer appended
+# after extraction reports the held operand without replacing any branch logic.
+SP503_BASE_DIR="$(mktemp -d)"
+SP503_BASE_BIN="$SP503_BASE_DIR/bin"
+SP503_BASE_CACHE="$SP503_BASE_DIR/cache"
+mkdir -p "$SP503_BASE_BIN" "$SP503_BASE_CACHE"
+awk '/BEGIN HEAD_OVERRIDE_BASE_RESOLUTION/{capture=1; next} /END HEAD_OVERRIDE_BASE_RESOLUTION/{exit} capture' "$SP_REVIEW" \
+  | sed "s#\.devflow/tmp/review/<slug>/<run-id>#$SP503_BASE_CACHE#g" > "$SP503_BASE_DIR/resolve.sh"
+printf '%s\n' 'printf "operand=%s\n" "$HEAD_OVERRIDE_BASE"' >> "$SP503_BASE_DIR/resolve.sh"
+tee "$SP503_BASE_BIN/git" >/dev/null <<'EOF'
+#!/usr/bin/env bash
+if test "${1:-}" = fetch && test "${2:-}" = --unshallow; then
+  case "${MOCK_BASE_MODE:-normal}" in retry_fail|unshallow_noise) exit 33;; esac
+  exit 0
+fi
+if test "${1:-}" = fetch; then
+  case "${MOCK_BASE_MODE:-normal}" in deleted|deleted_unreachable|transient|probe_error) exit 31;; esac
+  exit 0
+fi
+if test "${1:-}" = ls-remote; then
+  case "${MOCK_BASE_MODE:-normal}" in
+    deleted|deleted_unreachable) exit 2 ;;
+    probe_error) exit 128 ;;
+    *) exit 0 ;;
+  esac
+fi
+if test "${1:-}" = merge-base; then
+  COUNT=0
+  test -f "$MOCK_BASE_STATE" && COUNT="$(/bin/cat "$MOCK_BASE_STATE")"
+  COUNT=$((COUNT + 1))
+  printf '%s\n' "$COUNT" > "$MOCK_BASE_STATE"
+  case "${MOCK_BASE_MODE:-normal}" in
+    shallow|unshallow_noise) test "$COUNT" -gt 1 && exit 0; exit 32 ;;
+    deleted_unreachable) exit 32 ;;
+    unreachable|retry_fail) exit 32 ;;
+    *) exit 0 ;;
+  esac
+fi
+exit 64
+EOF
+chmod +x "$SP503_BASE_BIN/git"
+
+SP503_BASE_RUN() {
+  : > "$SP503_BASE_DIR/state"
+  PATH="$SP503_BASE_BIN:$PATH" MOCK_BASE_MODE="$1" MOCK_BASE_STATE="$SP503_BASE_DIR/state" \
+    PR_BASE_BRANCH="$2" PR_BASE_SHA=retained-sha BASE="$3" bash "$SP503_BASE_DIR/resolve.sh" 2>&1
+}
+SP503_BASE_OUT="$(SP503_BASE_RUN normal main main)"; SP503_BASE_RC=$?
+assert_eq "#503 base fence normal arm selects the refreshed PR base" "operand=origin/main" "$SP503_BASE_OUT"
+assert_eq "#503 base fence normal arm exits zero" "0" "$SP503_BASE_RC"
+SP503_BASE_OUT="$(SP503_BASE_RUN shallow release/2.0 release/2.0)"; SP503_BASE_RC=$?
+assert_eq "#503 base fence shallow arm retries and retains the named PR base" "operand=origin/release/2.0" "$SP503_BASE_OUT"
+assert_eq "#503 base fence shallow retry exits zero after the second merge-base succeeds" "0" "$SP503_BASE_RC"
+SP503_BASE_OUT="$(SP503_BASE_RUN unshallow_noise main main)"; SP503_BASE_RC=$?
+assert_eq "#503 base fence treats an unshallow rc as noise and still probes merge-base again" \
+  "1" "$(printf '%s\n' "$SP503_BASE_OUT" | grep -c 'unshallow fetch returned rc=33')"
+assert_eq "#503 base fence succeeds when the post-noise merge-base probe succeeds" "0" "$SP503_BASE_RC"
+SP503_BASE_OUT="$(SP503_BASE_RUN deleted vanished vanished)"; SP503_BASE_RC=$?
+assert_eq "#503 deleted-base fence selects the retained immutable SHA" \
+  "1" "$(printf '%s\n' "$SP503_BASE_OUT" | grep -c 'operand=retained-sha')"
+assert_eq "#503 deleted-base fence reports confirmed ref absence and the fallback operand" \
+  "1" "$(printf '%s\n' "$SP503_BASE_OUT" | grep -c "PR base ref 'vanished' is absent on origin; using retained base SHA 'retained-sha'")"
+assert_eq "#503 deleted-base fallback exits zero when its merge-base is reachable" "0" "$SP503_BASE_RC"
+SP503_BASE_OUT="$(SP503_BASE_RUN normal stacked main)"; SP503_BASE_RC=$?
+assert_eq "#503 divergence fence names both the PR and configured checkpoint bases" \
+  "1" "$(printf '%s\n' "$SP503_BASE_OUT" | grep -c "PR base 'stacked' differs from configured checkpoint base 'main'")"
+assert_eq "#503 divergence warning does not replace the selected PR-base operand" \
+  "1" "$(printf '%s\n' "$SP503_BASE_OUT" | grep -c 'operand=origin/stacked')"
+
+for SP503_BASE_FAIL_MODE in unreachable retry_fail deleted_unreachable transient probe_error; do
+  printf '%s\n' stale-cache > "$SP503_BASE_CACHE/diff.patch"
+  SP503_BASE_RUN "$SP503_BASE_FAIL_MODE" main main >/dev/null 2>&1
+  SP503_BASE_RC=$?
+  case "$SP503_BASE_FAIL_MODE" in transient|probe_error) SP503_BASE_EXPECT_RC=31;; *) SP503_BASE_EXPECT_RC=32;; esac
+  assert_eq "#503 base fence $SP503_BASE_FAIL_MODE preserves the terminal rc" \
+    "$SP503_BASE_EXPECT_RC" "$SP503_BASE_RC"
+  assert_eq "#503 base fence $SP503_BASE_FAIL_MODE removes stale and candidate caches" \
+    "0" "$(test ! -e "$SP503_BASE_CACHE/diff.patch" && test ! -e "$SP503_BASE_CACHE/diff.raw-candidate" && test ! -e "$SP503_BASE_CACHE/diff.candidate"; echo $?)"
+done
+rm -rf "$SP503_BASE_DIR"
+
+# AC8 coupled-site matrix: extract and execute the two actual current-branch
+# capture fences, then compare the observed diff operands for a custom base and
+# both fail-closed fallback shapes.
+SP503_CAPTURE_DIR="$(mktemp -d)"
+mkdir -p "$SP503_CAPTURE_DIR/a/b" "$SP503_CAPTURE_DIR/scripts"
+awk '/BEGIN CURRENT_BRANCH_BASE_CAPTURE/{capture=1; next} /END CURRENT_BRANCH_BASE_CAPTURE/{exit} capture' "$SP_REVIEW" \
+  > "$SP503_CAPTURE_DIR/review-capture.sh"
+awk '/BEGIN CURRENT_BRANCH_BASE_CAPTURE/{capture=1; next} /END CURRENT_BRANCH_BASE_CAPTURE/{exit} capture' "$SP_RAF" \
+  > "$SP503_CAPTURE_DIR/raf-capture.sh"
+printf '%s\n' 'printf "origin/%s\n" "$BASE"' >> "$SP503_CAPTURE_DIR/review-capture.sh"
+printf '%s\n' 'printf "origin/%s\n" "$BASE"' >> "$SP503_CAPTURE_DIR/raf-capture.sh"
+tee "$SP503_CAPTURE_DIR/scripts/config-get.sh" >/dev/null <<'EOF'
+#!/usr/bin/env bash
+test "${MOCK_CONFIG_RC:-0}" -eq 0 || exit "$MOCK_CONFIG_RC"
+printf '%s\n' "${MOCK_CONFIG_VALUE:-}"
+EOF
+chmod +x "$SP503_CAPTURE_DIR/scripts/config-get.sh"
+for SP503_CAPTURE_SHAPE in custom empty failure; do
+  case "$SP503_CAPTURE_SHAPE" in
+    custom) MOCK_CONFIG_VALUE=develop; MOCK_CONFIG_RC=0; SP503_CAPTURE_EXPECT=origin/develop ;;
+    empty) MOCK_CONFIG_VALUE=; MOCK_CONFIG_RC=0; SP503_CAPTURE_EXPECT=origin/main ;;
+    failure) MOCK_CONFIG_VALUE=ignored; MOCK_CONFIG_RC=9; SP503_CAPTURE_EXPECT=origin/main ;;
+  esac
+  SP503_REVIEW_BASE="$(CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" MOCK_CONFIG_VALUE="$MOCK_CONFIG_VALUE" MOCK_CONFIG_RC="$MOCK_CONFIG_RC" bash "$SP503_CAPTURE_DIR/review-capture.sh" 2>/dev/null | tail -1)"
+  SP503_RAF_BASE="$(CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" PR_BASE_BRANCH= MOCK_CONFIG_VALUE="$MOCK_CONFIG_VALUE" MOCK_CONFIG_RC="$MOCK_CONFIG_RC" bash "$SP503_CAPTURE_DIR/raf-capture.sh" 2>/dev/null | tail -1)"
+  assert_eq "#503 AC8 $SP503_CAPTURE_SHAPE Phase0.2 resolves the expected current-branch operand" "$SP503_CAPTURE_EXPECT" "$SP503_REVIEW_BASE"
+  assert_eq "#503 AC8 $SP503_CAPTURE_SHAPE item6a resolves byte-identically to Phase0.2" "$SP503_REVIEW_BASE" "$SP503_RAF_BASE"
+done
+rm -rf "$SP503_CAPTURE_DIR"
 
 # T10 → Phase 0.6 degradation arms (fail-safe, never fail-silent), pinned on the
 # rendered file surface (#375). All four arms present; the harness-refused remedy is

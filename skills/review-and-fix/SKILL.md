@@ -723,6 +723,18 @@ Apply the `devflow:receiving-code-review` principles — including the **share-t
 
    **6a. Stale counted-prose pre-check (the same helper the engine runs in Phase 0.6).** Immediately after capturing `fix_commit_sha`, run the *same* `stale-prose-lint.py` the shared review engine runs in its **Phase 0.6** — here as a fast local pre-check that **recomputes the full branch diff at the just-committed (post-fix) `HEAD`** against the base the engine's Phase 0.2 resolved this iteration: in PR mode the fetched tip of `origin/$PR_BASE_BRANCH` (the PR's own base ref — not the stale run-start `baseRefOid`/`$PR_BASE_SHA`; issue #503: pinning the base to `baseRefOid` made an in-loop Checkpoint-3 merge attribute base content to the PR as added); in current-branch mode `$PR_BASE_BRANCH` is unset, so resolve `$BASE` via the guarded `config-get.sh .base_branch main` capture (fail-closed to `main` — the same shape Phase 0.2's current-branch fence and `scripts/update-branch-checkpoint.sh` use) and substitute that value. The diff remains three-dot, so it is the branch's own changes since it diverged from the base. Substitute the resolved base value into the fence (the same carry-the-resolved-value convention Phase 0.2 uses for `<slug>`/`<run-id>`): in PR mode `origin/<baseRefName>`, in current-branch mode `origin/<base_branch>` — **never** the stale run-start `baseRefOid`. Recomputing at the post-fix `HEAD` — **not** reading the pre-fix `diff.patch` Phase 0.2 cached before this iteration's fix commit — is what puts a stale claim *this iteration's fix* just introduced into scope, including the PR #328 shape (a claim falsified under a header added by an **earlier** branch commit: that earlier-added header is still present as an added line in the full-branch `origin/$PR_BASE_BRANCH...HEAD` diff, so it is examined even though this iteration's fix touched only the block line under it). A fix-introduced stale counted claim is thus reconciled **within the same iteration**, before it costs a full engine pass to detect. The helper reads the diff on stdin and resolves referents at `--rev HEAD`; it never derives the diff range itself — the fence supplies the range:
    ```bash
+   # BEGIN CURRENT_BRANCH_BASE_CAPTURE
+   if test -z "${PR_BASE_BRANCH:-}"; then
+     if ! BASE=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .base_branch main); then
+       echo "::warning::devflow review-and-fix: could not read .base_branch (config-get.sh rc≠0); falling back to 'main'" >&2
+       BASE=main
+     fi
+     if test -z "$BASE"; then
+       echo "::warning::devflow review-and-fix: .base_branch resolved empty; falling back to 'main'" >&2
+       BASE=main
+     fi
+   fi
+   # END CURRENT_BRANCH_BASE_CAPTURE
    set -o pipefail
    git diff "origin/${PR_BASE_BRANCH:-$BASE}...HEAD" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/stale-prose-lint.py --rev HEAD
    ```
