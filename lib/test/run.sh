@@ -6215,12 +6215,14 @@ print("SYNCED" if bt==pt else "DRIFT")
 # ────────────────────────────────────────────────────────────────────────────
 echo "implement-profile head guard (#484)"
 # ────────────────────────────────────────────────────────────────────────────
-# Phase 3 runs the review engine INLINE in the implement context, so every fenced
-# head in skills/implement/**, skills/review*/**, and the dispatched
-# skills/requesting-code-review/** final pass executes under the
-# devflow-implement.yml baked --allowed-tools allowlist — NOT the review one. A
-# head that allowlist does not grant is silently refused (#363). This block drives
-# the head extractor over that fenced-command surface and fails when a fenced head
+# Phase 3 runs the review engine INLINE in the implement context. This guard audits
+# every fenced head in skills/implement/**, skills/review*/**, and the dispatched
+# skills/requesting-code-review/** final pass against the devflow-implement.yml baked
+# --allowed-tools allowlist — NOT the review one. The scan deliberately over-approximates
+# reachability: shared-source standalone-only fences (notably review Phase 4.4) remain in
+# the audited set even though normal inline control flow stops after Phase 4.3. A head
+# the inline flow reaches but the allowlist does not grant is silently refused (#363).
+# This block fails when an audited fenced head
 # is neither granted nor exactly withheld. A separate removal pin below protects
 # the instruction that inline bare-workpad source shorthand expands before emission.
 # The allowlist is assembled from
@@ -6383,6 +6385,13 @@ assert_pin_red_on_removal "#484 install guide distinguishes standalone dismissal
   'inline implement review stops after Phase 4.3' "$LIB/../docs/install.md"
 assert_pin_red_on_removal "#484 changeset distinguishes standalone dismissal from inline runtime helpers" \
   'inline implement review stops after Phase 4.3' "$LIB/../.changeset/issue-484-implement-profile-grants.md"
+for capability_mirror in \
+  "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" \
+  "$LIB/../docs/install.md" \
+  "$LIB/../.changeset/issue-484-implement-profile-grants.md"; do
+  assert_pin_red_on_removal "#484 dismissal mirror states the granted inline capability: $capability_mirror" \
+    'grant makes the capability available to the inline session' "$capability_mirror"
+done
 
 E484_PHASE4="$LIB/../skills/implement/phases/phase-4-documentation.md"
 assert_pin_red_on_removal "#484 docs staging consumes all four observed config results" \
