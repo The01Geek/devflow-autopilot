@@ -559,11 +559,20 @@ def implement_allowlist_block(text: str) -> str:
         raise SystemExit(
             "devflow: `--allowed-tools` value must begin with a quote on its next non-empty line"
         )
-    joined = "\n".join(value_lines)
+    value_indent = len(value_lines[0]) - len(value_lines[0].lstrip())
+    scalar_lines: list[str] = []
+    for line in value_lines:
+        indent = len(line) - len(line.lstrip())
+        if line.strip() and indent < value_indent:
+            break
+        scalar_lines.append(line)
+    joined = "\n".join(scalar_lines)
     q_start = joined.find('"')
     q_end = joined.find('"', q_start + 1)
     if q_end == -1:
         raise SystemExit("devflow: `--allowed-tools` block has no closing quote")
+    if joined[q_end + 1 :].strip():
+        raise SystemExit("devflow: unexpected content follows the `--allowed-tools` closing quote")
     return joined[q_start : q_end + 1]
 
 

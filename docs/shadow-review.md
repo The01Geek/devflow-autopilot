@@ -87,8 +87,8 @@ compliance, the shared engine snapshots the tree with `git status --porcelain -z
 **before** the Phase 3.1 batch (into a temp file — `-z` output carries NUL bytes a bash `$(...)`
 variable cannot hold). The snapshot is a fixed repo-local `.devflow/tmp/` file so it survives
 the Agent-tool boundary without an unavailable `mktemp` capture. The engine compares it **after**
-the batch returns. Before each fixed-path write it removes the prior path object, validates a
-regular non-symlink result, and rc-checks path-set extraction; any failure skips restoration rather
+the batch returns. Before each snapshot write it removes the prior path object, validates a
+regular non-symlink result, and retains its object ID only in orchestrator state. Restore scratch is removed before reuse; truncated NUL records and failed path writes skip restoration rather
 than treating an empty set as permission to clobber existing edits. On divergence it records an Important
 finding with an attributable breadcrumb (never silently discarded) and **restores only the snapshot
 delta** — paths clean at snapshot time that became dirty during the dispatch window — computed *by

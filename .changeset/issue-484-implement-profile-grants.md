@@ -12,7 +12,7 @@ bump: patch
 - Rework `phase-4-documentation.md` §4.1's docs-commit fence so configured doc/release paths reach an explicit `git add` through validated printed tool output, not a `VAR=` read across a fence boundary; config-read failures block rather than masquerading as a clean no-change pass.
 - Keep the inline final-pass reviewer read-only on commands available to every execution profile; unavailable `git worktree add`/`mktemp` mutation recipes now route to an attributable verification limitation.
 - Move the shared Phase 3 dirty-tree snapshots and restore scratch from matcher-refused `mktemp` captures to fixed repo-local `.devflow/tmp/` files that survive the Agent-tool boundary, so the mandatory backstop executes on the implement profile.
-- Harden those fixed paths against stale symlinks and fail closed when snapshot path extraction cannot be completed, so recovery never treats an empty or untrusted baseline as authorization to restore.
+- Harden those fixed paths against stale symlinks, authenticate the baseline with an orchestrator-held object ID, and fail closed on truncated NUL records or path-write errors.
 
 ### Removed
 - Inert `*/`-prefixed grant globs from `.devflow/config.json`'s `devflow.allowed_tools` and `devflow_implement.allowed_tools` — a `*/basename` glob does not match the vendored multi-segment leading token the matcher grants.

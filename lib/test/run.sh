@@ -4033,6 +4033,10 @@ assert_pin_red_on_removal "#484 backstop: deleting the after-snapshot symlink re
   '[ -L "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}" ]' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#484 backstop: deleting the post-dispatch before-snapshot tamper guard turns its pin RED" \
   'possible scratch tampering, nothing auto-restored' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the orchestrator-held snapshot digest check turns its pin RED" \
+  'scratch integrity failure, nothing auto-restored' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the external digest handoff contract turns its pin RED" \
+  'Record the single object ID printed by `git hash-object` as `{GIT_SNAP_BEFORE_OID}` in orchestrator state' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the attributable dirty-tree breadcrumb turns its pin RED" \
   'a Phase 3.1 review-agent dispatch modified the working tree' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the snapshot-delta-scoped restore turns its pin RED" \
@@ -4085,7 +4089,7 @@ assert_pin_red_on_removal "#216 backstop: deleting the empty-restore-set branch 
 assert_pin_red_on_removal "#192 backstop: deleting the fail-closed before-snapshot disable turns its pin RED" \
   'dirty-tree backstop DISABLED for this dispatch' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the after-snapshot fail-distinct breadcrumb turns its pin RED" \
-  'could not snapshot the working tree after the Phase 3.1 dispatch' "$REVIEW_SKILL"
+  'could not create a regular working-tree snapshot after the Phase 3.1 dispatch' "$REVIEW_SKILL"
 # Pin the EXECUTABLE restore action (restore from HEAD, not the INDEX) and the post-restore
 # tree-state RE-CHECK (trust the tree, not the exit code) — deleting either downgrades the
 # backstop from "detect AND restore (verified)" to "detect only" while every prose pin stays GREEN.
@@ -4196,6 +4200,23 @@ if [ -d "$DT_D" ]; then
   assert_eq "#216 backstop: a newly-dirtied path (dirtied DURING the window) IS restored to HEAD" \
     "plain" "$(cat "$DT_D/plain.txt" 2>/dev/null)"
   rm -rf "$DT_D" "$DT_D_B" "$DT_D_AF"
+fi
+# Case E — a truncated non-NUL BEFORE record must fail closed. Without the explicit leftover-
+# record check, `read -d ''` reaches EOF, the loop reports success, and the empty membership
+# set misclassifies the orchestrator's already-dirty path as agent-introduced.
+DT_E="$(dt_make_repo)"
+if [ -d "$DT_E" ]; then
+  DT_E_B="$(probe_tmp "#484 case-E before")"; DT_E_AF="$(probe_tmp "#484 case-E after")"
+  printf ' M my file.txt' > "$DT_E_B"                 # deliberately missing the required NUL
+  printf 'concurrent edit' > "$DT_E/my file.txt"      # must never be restored from HEAD
+  printf 'agent edit' > "$DT_E/plain.txt"
+  git -C "$DT_E" status --porcelain -z > "$DT_E_AF"
+  ( cd "$DT_E" && GIT_SNAP_BEFORE="$DT_E_B" GIT_SNAP_AFTER="$DT_E_AF" bash "$DT_REGION" ) >/dev/null 2>&1
+  assert_eq "#484 backstop: truncated BEFORE snapshot fails closed without clobbering an existing edit" \
+    "concurrent edit" "$(cat "$DT_E/my file.txt" 2>/dev/null)"
+  assert_eq "#484 backstop: truncated BEFORE snapshot skips all restoration" \
+    "agent edit" "$(cat "$DT_E/plain.txt" 2>/dev/null)"
+  rm -rf "$DT_E" "$DT_E_B" "$DT_E_AF"
 fi
 rm -f "$DT_REGION"
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
@@ -6325,6 +6346,9 @@ assert_eq "#484 duplicate --allowed-tools markers fail the implement contract gu
 { printf '%s\n' '--allowed-tools' '"Read,Bash(echo:*)'; } > "$E484/unterminated-quote.yml"
 assert_eq "#484 an unterminated --allowed-tools quote fails the implement contract guard closed" \
   "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/unterminated-quote.yml" implement-block)"
+{ printf '%s\n' 'claude_args: >-' '  --allowed-tools' '  "Read,' '  Bash(make:*)' '# dedented later prose says "oops"'; } > "$E484/unterminated-before-later-quote.yml"
+assert_eq "#484 a dedented later quote cannot close an unterminated allowlist scalar" \
+  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/unterminated-before-later-quote.yml" implement-block)"
 { printf '%s\n' '--allowed-tools' 'not-a-quoted-value' '# later prose cites "Read,Bash(make:*)"'; } > "$E484/detached-quote.yml"
 assert_eq "#484 a detached later quote cannot masquerade as the allowlist value" \
   "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/detached-quote.yml" implement-block)"
@@ -29739,12 +29763,12 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; #484 hardens fixed-path snapshot creation and removes unchecked sort pipelines)" \
-  "105" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; #484 authenticates fixed-path snapshots and rejects truncated records)" \
+  "108" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
-assert_eq "#363 the review-skill head set matches the reviewed count (31 distinct names; #484 removes ungranted touch and unchecked sort heads from the shared review engine)" \
-  "31" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names; #484 adds granted git hash-object while removing touch and sort)" \
+  "32" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 
@@ -30464,7 +30488,7 @@ RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
 REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 DDC_SH="$LIB/../scripts/describe-denial-count.sh"
-for _g363 in 'Bash(mkdir:*)' 'Bash(tee:*)' 'Bash(git cat-file:*)' 'Bash(git checkout:*)' \
+for _g363 in 'Bash(mkdir:*)' 'Bash(tee:*)' 'Bash(git cat-file:*)' 'Bash(git hash-object:*)' 'Bash(git checkout:*)' \
              'Bash(mktemp:*)' 'Bash(cmp:*)' 'Bash(rm -f:*)'; do
   assert_pin_unique "#363 review profile grants $_g363" "$_g363" "$RUNNER_YML"
 done

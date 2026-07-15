@@ -810,7 +810,8 @@ mkdir -p .devflow/tmp
 if rm -f "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" ".devflow/tmp/review-dirty-tree-disabled" 2>/dev/null &&
    git status --porcelain -z > "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" &&
    [ -f "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" ] &&
-   [ ! -L "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" ]; then
+   [ ! -L "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" ] &&
+   git hash-object "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}"; then
   : # Snapshot captured to a NUL-delimited (`-z`) temp FILE. `-z` emits UNQUOTED paths, so a
     # spaced/special filename is a real pathspec the Phase 3.2 restore can act on (plain
     # `--porcelain` C-quotes such a path — `"my file.txt"` — which `git checkout` then cannot
@@ -829,6 +830,8 @@ else
   printf '%s\n' disabled > ".devflow/tmp/review-dirty-tree-disabled"
 fi
 ```
+
+Record the single object ID printed by `git hash-object` as `{GIT_SNAP_BEFORE_OID}` in orchestrator state (not in a workspace file), and do not include it in any review-agent prompt. Phase 3.2 substitutes that exact value below. If no single object ID was established, treat the before-snapshot as failed and leave the sentinel in place; never invent or recover the value from agent-writable scratch after dispatch.
 
 This scopes the assertion to the agent-dispatch window only, so it never flags the orchestrator's own legitimate edits made outside it. (Under `/devflow:review` the agents are contractually read-only and normally leave matching snapshots; the backstop earns its keep whenever that contract is violated and in the write-enabled `/devflow:review-and-fix` and `/devflow:implement` tiers, where it also runs verbatim — including the Step 2.6 shadow pass, which re-executes these same Phases 0–4.3.)
 
@@ -964,13 +967,15 @@ if [ -f ".devflow/tmp/review-dirty-tree-disabled" ]; then
 elif [ ! -f "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" ] ||
      [ -L "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" ]; then
   echo "::warning::devflow review: the before-dispatch snapshot is missing or no longer a regular non-symlink file; dirty-tree verification SKIPPED this dispatch — possible scratch tampering, nothing auto-restored" >&2
+elif [ "$(git hash-object "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" 2>/dev/null)" != "{GIT_SNAP_BEFORE_OID}" ]; then
+  echo "::warning::devflow review: the before-dispatch snapshot no longer matches its orchestrator-held object ID; dirty-tree verification SKIPPED this dispatch — scratch integrity failure, nothing auto-restored" >&2
 elif ! rm -f "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}" 2>/dev/null ||
      ! git status --porcelain -z > "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}" ||
      [ ! -f "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}" ] ||
      [ -L "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}" ]; then
   # After-snapshot failed. Do NOT misattribute a git failure as an agent mutation, and do NOT
   # run any restore off an empty AFTER — surface a DISTINCT, attributable breadcrumb instead.
-  echo "::warning::devflow review: could not snapshot the working tree after the Phase 3.1 dispatch (git status failed); dirty-tree verification SKIPPED this dispatch — this is NOT an agent mutation" >&2
+  echo "::warning::devflow review: could not create a regular working-tree snapshot after the Phase 3.1 dispatch (stale-path removal, git status, or regular-file validation failed); dirty-tree verification SKIPPED this dispatch — this is NOT an agent mutation" >&2
   rm -f "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}" 2>/dev/null
 else
   # Compare the two NUL-delimited (`-z`) snapshots. `cmp` rc: 0 identical, 1 differ, >=2 ERROR.
@@ -1014,6 +1019,7 @@ else
       #    delimited. `read -r -d ''` reads NUL records so a spaced/special path never splits.
       before_extract_rc=0
       before_orig=0
+      rec=
       while IFS= read -r -d '' rec; do
         if [ "$before_orig" = 1 ]; then
           before_orig=0
@@ -1023,6 +1029,7 @@ else
         case "${rec:0:1}" in [RC]) before_orig=1 ;; esac   # index column (X) only: the two-record shape is emitted iff X is R/C
         printf '%s\0' "${rec:3}" >> ".devflow/tmp/review-dirty-tree-before-paths" || { before_extract_rc=$?; break; }
       done < "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" || before_extract_rc=$?
+      [ -z "$rec" ] || before_extract_rc=65
       if [ "$before_extract_rc" -ne 0 ]; then
         echo "::warning::devflow review: could not extract the before-snapshot path set (rc=$before_extract_rc); dirty-tree restore SKIPPED this dispatch — nothing auto-restored" >&2
       else
@@ -1037,6 +1044,7 @@ else
         #    live edits — the direction this guard protects.)
         after_extract_rc=0
         after_orig=0
+        rec=
         while IFS= read -r -d '' rec; do
           if [ "$after_orig" = 1 ]; then after_orig=0; continue; fi
           case "${rec:0:1}" in   # index column (X) only: a rename/copy (X = R/C) emits the two-record shape
@@ -1053,6 +1061,7 @@ else
             fi
           fi
         done < "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}" || after_extract_rc=$?
+        [ -z "$rec" ] || after_extract_rc=65
         if [ "$after_extract_rc" -ne 0 ]; then
           echo "::warning::devflow review: could not extract the after-snapshot restore set (rc=$after_extract_rc); dirty-tree restore SKIPPED this dispatch — nothing auto-restored" >&2
         else
