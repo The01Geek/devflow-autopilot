@@ -36281,9 +36281,9 @@ done
 printf 'null' > "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-7.json"
 printf '{"keep":true}' > "$T499_P/.devflow/tmp/review/pr-499/run-matrix/deferrals.json"
 T499_SRC_BEFORE="$(find "$T499_P/.devflow/tmp/review/pr-499/run-matrix" -type f -exec shasum {} + | sort)"
-T499_P_ERR="$( ( cd "$T499_P" && bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+T499_P_ERR="$( ( cd "$T499_P" && env -u GITHUB_ACTIONS bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
 T499_TIP1="$(git -C "$T499_P" rev-parse devflow-telemetry)"
-( cd "$T499_P" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+( cd "$T499_P" && env -u GITHUB_ACTIONS bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
 T499_TIP2="$(git -C "$T499_P" rev-parse devflow-telemetry)"
 assert_eq "#499 persist: M3 absent is stamped" "unavailable" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-3.json' | jq -r '.telemetry')"
 assert_eq "#499 persist: M4 null is stamped" "unavailable" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-4.json' | jq -r '.telemetry')"
@@ -36295,12 +36295,12 @@ assert_eq "#499 persist: source run directory is byte-identical" "$T499_SRC_BEFO
 assert_eq "#499 persist: second run is a telemetry-branch no-op" "$T499_TIP1" "$T499_TIP2"
 # Established telemetry paths remain eligible for ordinary metadata refreshes.
 jq '.later_metadata = true' "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-2.json" > "$T499_P/iter.tmp" && mv "$T499_P/iter.tmp" "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-2.json"
-( cd "$T499_P" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+( cd "$T499_P" && env -u GITHUB_ACTIONS bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
 assert_eq "#499 persist: established telemetry path still carries later metadata" "true" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-2.json' | jq -r '.later_metadata')"
 # A prior unavailable marker is provisional: real telemetry established later
 # must upgrade it rather than being overwritten by the historical marker.
 jq '.telemetry = false' "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-3.json" > "$T499_P/iter.tmp" && mv "$T499_P/iter.tmp" "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-3.json"
-( cd "$T499_P" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+( cd "$T499_P" && env -u GITHUB_ACTIONS bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
 assert_eq "#499 persist: prior marker upgrades to newly established false" "false" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-3.json' | jq -r '.telemetry')"
 rm -rf "$T499_P"
 
@@ -36326,12 +36326,12 @@ printf '%s' '{"iter":1,"phase3_findings":[]}' > "$T499_B/seed/.devflow/logs/revi
 printf '%s' '{"telemetry":[{"iter":1,"phases":null},{"iter":2}]}' > "$T499_B/seed/.devflow/logs/efficiency/selected.json"
 printf '%s' '{"telemetry":"wrong"}' > "$T499_B/seed/.devflow/logs/efficiency/wrong.json"
 printf '%s' '{"telemetry":[false]}' > "$T499_B/seed/.devflow/logs/efficiency/nonobject.json"
-( cd "$T499_B" && . ./lib/config-source.sh && . ./lib/telemetry-branch.sh && devflow_telemetry_persist_tree "$T499_B" "$T499_B/seed" ) >/dev/null 2>&1
+( cd "$T499_B" && unset GITHUB_ACTIONS && . ./lib/config-source.sh && . ./lib/telemetry-branch.sh && devflow_telemetry_persist_tree "$T499_B" "$T499_B/seed" ) >/dev/null 2>&1
 T499_B_BEFORE_WRONG="$(_et_show "$T499_B" '.devflow/logs/efficiency/wrong.json')"
 T499_B_BEFORE_NONOBJ="$(_et_show "$T499_B" '.devflow/logs/efficiency/nonobject.json')"
-T499_B_ERR="$( ( cd "$T499_B" && bash ./scripts/backfill-telemetry-unavailable.sh ) 2>&1 1>/dev/null )"
+T499_B_ERR="$( ( cd "$T499_B" && env -u GITHUB_ACTIONS bash ./scripts/backfill-telemetry-unavailable.sh ) 2>&1 1>/dev/null )"
 T499_B_TIP1="$(git -C "$T499_B" rev-parse devflow-telemetry)"
-( cd "$T499_B" && bash ./scripts/backfill-telemetry-unavailable.sh ) >/dev/null 2>&1
+( cd "$T499_B" && env -u GITHUB_ACTIONS bash ./scripts/backfill-telemetry-unavailable.sh ) >/dev/null 2>&1
 T499_B_TIP2="$(git -C "$T499_B" rev-parse devflow-telemetry)"
 assert_eq "#499 backfill: populated M3 iter gains marker" "unavailable" "$(_et_show "$T499_B" '.devflow/logs/review/pr-499/run-b/iter-1.json' | jq -r '.telemetry')"
 assert_eq "#499 backfill: R1 null phases gains marker" "unavailable" "$(_et_show "$T499_B" '.devflow/logs/efficiency/selected.json' | jq -r '.telemetry[0].phases')"
