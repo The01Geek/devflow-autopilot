@@ -456,6 +456,10 @@ jobs:
           DEVFLOW_APP_PRIVATE_KEY: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
+          # No scripts/… self-repo fallback here (unlike the always() Stop step): this
+          # step runs right after `vendor-plugin` on the same sequential job, so the
+          # vendored path is always present — a fallback would be dead code. Do NOT add
+          # one in a wrong-direction "reconcile" with the Stop step.
           printf '%s' "$DEVFLOW_APP_PRIVATE_KEY" \
             | env -u DEVFLOW_APP_PRIVATE_KEY \
                 nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop \

@@ -34928,6 +34928,23 @@ assert_eq "#487 arm4e: unknown subcommand exits 0 (best-effort)" "0" "$_rc4e"
 assert_eq "#487 arm4e: unknown subcommand warns naming the offending subcommand" "yes" \
   "$(printf '%s' "$_stderr4e" | grep -qF "unknown subcommand 'bogus'" && echo yes || echo no)"
 
+# Arm 4f (PR #491 SUG-1) — cmd_loop pidfile-write FAILURE emits the distinctive
+# retirement-handle breadcrumb (naming the false-defeat consequence) AND keeps running:
+# the cycle still refreshes the credential. Force the write to fail with a pidfile path
+# under /dev/null (ENOTDIR) that `mkdir -p` cannot create either. One cycle only, instant
+# sleep, mint via the printf override.
+CFG4F="$D487/cred4f.config"
+git config --file "$CFG4F" "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD4F"
+_a4f_err="$(DEVFLOW_REFRESH_MINT='printf TOK4F' DEVFLOW_REFRESH_CONFIG_FILE="$CFG4F" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok4f" DEVFLOW_REFRESH_PIDFILE="/dev/null/nope/refresh.pid" \
+  DEVFLOW_REFRESH_MAX_CYCLES=1 DEVFLOW_REFRESH_SLEEP=true GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" loop </dev/null 2>&1 >/dev/null)"; _a4f_rc=$?
+assert_eq "#491 arm4f: loop with an unwritable pidfile still exits 0" "0" "$_a4f_rc"
+assert_eq "#491 arm4f: pidfile-write failure emits the retirement-handle breadcrumb" "yes" \
+  "$(printf '%s' "$_a4f_err" | grep -qF 'has no retirement handle' && echo yes || echo no)"
+assert_eq "#491 arm4f: the loop still ran its cycle despite the pidfile failure (credential refreshed)" "x-access-token:TOK4F" \
+  "$(git config --file "$CFG4F" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
 # ── Wrapper arms (5–9). A stub real gh prints the token it sees; a bad-cred stub 401s.
 GHSTUB487="$D487/gh"
 { printf '#!/usr/bin/env bash\n'; printf 'echo "GH_TOKEN_SEEN=${GH_TOKEN:-<none>} ARGS=$*"\n'; } > "$GHSTUB487"
@@ -35172,6 +35189,11 @@ _a23b_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23B:$PATH" DEVFLOW_APP_
 assert_eq "#487 arm23b: installation GET failure exits 0" "0" "$_a23b_rc"
 assert_eq "#487 arm23b: installation GET failure warns 'could not resolve installation id'" "yes" \
   "$(printf '%s' "$_a23b_err" | grep -qF 'could not resolve installation id' && echo yes || echo no)"
+# Per-arm credential-intactness (PR #491 SUG-4): assert intact after EACH arm (not only
+# collectively at the end) so a regression that rewrites the credential on one failure
+# branch is localized to that arm instead of surfacing on a shared final assertion.
+assert_eq "#491 arm23b: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
 
 # 23c — installation response missing `.id` (jq yields empty).
 CURLDIR23C="$D487/curlbin23c"; mkdir -p "$CURLDIR23C"
@@ -35187,6 +35209,8 @@ _a23c_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23C:$PATH" DEVFLOW_APP_
 assert_eq "#487 arm23c: missing installation .id exits 0" "0" "$_a23c_rc"
 assert_eq "#487 arm23c: missing installation .id warns 'installation id missing'" "yes" \
   "$(printf '%s' "$_a23c_err" | grep -qF 'installation id missing' && echo yes || echo no)"
+assert_eq "#491 arm23c: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
 
 # 23d — access-token POST fails (installation resolves, the POST curl exits non-zero).
 CURLDIR23D="$D487/curlbin23d"; mkdir -p "$CURLDIR23D"
@@ -35205,6 +35229,8 @@ _a23d_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23D:$PATH" DEVFLOW_APP_
 assert_eq "#487 arm23d: access-token POST failure exits 0" "0" "$_a23d_rc"
 assert_eq "#487 arm23d: access-token POST failure warns 'access-token POST failed'" "yes" \
   "$(printf '%s' "$_a23d_err" | grep -qF 'access-token POST failed' && echo yes || echo no)"
+assert_eq "#491 arm23d: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
 
 # 23e — JWT signing fails: feed a BOGUS (non-PEM) key on stdin so `openssl dgst -sign`
 # cannot load it. No curl is reached (signing precedes the API calls).
@@ -35215,6 +35241,8 @@ _a23e_err="$(printf 'NOT-A-VALID-PEM-KEY' | env DEVFLOW_APP_ID=APPID23E \
 assert_eq "#487 arm23e: JWT signing failure exits 0" "0" "$_a23e_rc"
 assert_eq "#487 arm23e: bad private key warns on the JWT signing arm" "yes" \
   "$(printf '%s' "$_a23e_err" | grep -qF 'JWT signing' && echo yes || echo no)"
+assert_eq "#491 arm23e: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
 
 # 23f — GITHUB_REPOSITORY empty: the mint cannot resolve an installation → the specific
 # guard fires (signing never runs; the guard precedes it).
@@ -35225,6 +35253,8 @@ _a23f_err="$(printf '%s' "$RSAKEY22" | env DEVFLOW_APP_ID=APPID23F \
 assert_eq "#487 arm23f: empty GITHUB_REPOSITORY exits 0" "0" "$_a23f_rc"
 assert_eq "#487 arm23f: empty GITHUB_REPOSITORY warns it cannot resolve the installation" "yes" \
   "$(printf '%s' "$_a23f_err" | grep -qF 'GITHUB_REPOSITORY empty' && echo yes || echo no)"
+assert_eq "#491 arm23f: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
 
 # 23g — a required tool is missing: point PATH at a dir with ONLY `openssl` (the
 # tool-presence loop checks openssl THEN curl, before any signing), so `curl` is absent
@@ -35240,8 +35270,11 @@ _a23g_err="$(printf '%s' "$RSAKEY22" | env "PATH=$BINDIR23G" DEVFLOW_APP_ID=APPI
 assert_eq "#487 arm23g: missing required tool exits 0" "0" "$_a23g_rc"
 assert_eq "#487 arm23g: missing curl warns about the required tool not found on PATH" "yes" \
   "$(printf '%s' "$_a23g_err" | grep -qF "required tool 'curl' not found" && echo yes || echo no)"
-# All six failure branches must leave the previous credential UNTOUCHED (mint failed
-# before the git-config rewrite), so CFG23B still carries its seeded value verbatim.
+assert_eq "#491 arm23g: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+# Collective belt (retained alongside the per-arm asserts above): all six failure
+# branches leave the previous credential UNTOUCHED (mint failed before the git-config
+# rewrite), so CFG23B still carries its seeded value verbatim.
 assert_eq "#487 arm23b-g: mint-failure branches leave the previous credential intact (PREV23B)" "AUTHORIZATION: basic PREV23B" \
   "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
 
@@ -35253,6 +35286,34 @@ _a24_err="$(cd "$REPO24" && DEVFLOW_REFRESH_MINT='printf TOKEN_24' DEVFLOW_REFRE
 assert_eq "#487 arm24: absent extraheader locator failure exits 0 (no crash)" "0" "$_a24_rc"
 assert_eq "#487 arm24: absent extraheader emits the could-not-locate ::warning::" "yes" \
   "$(printf '%s' "$_a24_err" | grep -qF 'could not locate the persisted' && echo yes || echo no)"
+
+# Arm i3 (PR #491 IMP-3) — run_cycle's surface-1 rewrite FAILURE branch: the mint succeeds
+# but `git config --file` cannot write (the located config's PARENT dir does not exist), so
+# `--replace-all` fails deterministically regardless of uid → warn, surface 2 (token file)
+# NOT reached/written, exit 0. Point the locate override at a path under a nonexistent dir.
+_ai3_err="$(DEVFLOW_REFRESH_MINT='printf TOKI3' \
+  DEVFLOW_REFRESH_CONFIG_FILE="$D487/nonexistent-i3-dir/cred.config" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/toki3" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _ai3_rc=$?
+assert_eq "#491 arm-i3: surface-1 extraheader rewrite failure exits 0 (best-effort)" "0" "$_ai3_rc"
+assert_eq "#491 arm-i3: surface-1 rewrite failure warns 'rewriting the extraheader … failed'" "yes" \
+  "$(printf '%s' "$_ai3_err" | grep -qF 'rewriting the extraheader' && echo yes || echo no)"
+assert_eq "#491 arm-i3: surface-1 rewrite failure did NOT write the token file (surface 2 not reached)" "yes" \
+  "$([ ! -e "$D487/toki3" ] && echo yes || echo no)"
+
+# Arm i3b (PR #491 IMP-3) — run_cycle's base64-encode FAILURE branch: shadow `openssl` with
+# a stub that exits 1. The mint uses the printf override (no openssl), so the ONLY openssl
+# call reached is the token base64 → it fails → warn, surface 2 NOT reached, exit 0.
+FAKEOSSL_I3B="$D487/fakeossl-i3b"; mkdir -p "$FAKEOSSL_I3B"
+{ printf '#!/usr/bin/env bash\n'; printf 'exit 1\n'; } > "$FAKEOSSL_I3B/openssl"; chmod +x "$FAKEOSSL_I3B/openssl"
+_ai3b_err="$(env "PATH=$FAKEOSSL_I3B:$PATH" DEVFLOW_REFRESH_MINT='printf TOKI3B' \
+  DEVFLOW_REFRESH_CONFIG_FILE="$D487/credi3b.config" DEVFLOW_REFRESH_TOKEN_FILE="$D487/toki3b" \
+  GITHUB_SERVER_URL="https://github.com" bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _ai3b_rc=$?
+assert_eq "#491 arm-i3b: base64-encode failure exits 0 (best-effort)" "0" "$_ai3b_rc"
+assert_eq "#491 arm-i3b: base64-encode failure warns 'base64 encode … failed'" "yes" \
+  "$(printf '%s' "$_ai3b_err" | grep -qF 'base64 encode' && echo yes || echo no)"
+assert_eq "#491 arm-i3b: base64-encode failure did NOT write the token file (surface 2 not reached)" "yes" \
+  "$([ ! -e "$D487/toki3b" ] && echo yes || echo no)"
 
 # Arm 25 — gh-fresh.sh resolve_real_gh returns 127 when no gh resolves (no
 # DEVFLOW_GH_REAL and no gh on PATH) → the breadcrumb, and rc 127.
@@ -35276,6 +35337,47 @@ _a26="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHAUTHFAIL26" DEVFLOW_GH_TOKEN_FILE="$
   DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp26" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
 assert_eq "#487 arm26: 'Authentication failed' also triggers the expired-credential diagnostic" "yes" \
   "$(printf '%s' "$_a26" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+# Arm 26b (PR #491 SUG-2) — the anchored regex still REJECTS a bare `Authentication failed`
+# that is NOT git's `fatal: Authentication failed for …` line: a non-token failure whose
+# stderr merely contains those two words must NOT get the expired-credential DIAG_LINE
+# (else it could trip the two-strikes abort). Negative control for the anchor.
+GHBAREAUTH26B="$D487/ghbareauth26b"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "error: Authentication failed due to 2FA policy" >&2\n'; printf 'exit 1\n'; } > "$GHBAREAUTH26B"
+chmod +x "$GHBAREAUTH26B"
+printf 'FRESH26B' > "$D487/tok26b"; _d487_sha 'JOBSTART26B' > "$D487/fp26b"
+_a26b="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHBAREAUTH26B" DEVFLOW_GH_TOKEN_FILE="$D487/tok26b" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp26b" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#491 arm26b: a bare (non-git) 'Authentication failed' does NOT get the expired-credential diagnostic" "no" \
+  "$(printf '%s' "$_a26b" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+
+# Arm 27 (PR #491 A-SUG-2) — the bad-credential scan reads the COMBINED stream: a real gh
+# that emits its 401 signature on STDOUT (not stderr) still gets the compaction-immune
+# DIAG_LINE appended (the pre-fix stderr-only scan would miss it). Stub gh prints the
+# signature to STDOUT and exits 1.
+GHOUT401_27="$D487/ghout401_27"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "gh: Bad credentials (HTTP 401)"\n'; printf 'exit 1\n'; } > "$GHOUT401_27"
+chmod +x "$GHOUT401_27"
+printf 'FRESH27' > "$D487/tok27"; _d487_sha 'JOBSTART27' > "$D487/fp27"
+_a27="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHOUT401_27" DEVFLOW_GH_TOKEN_FILE="$D487/tok27" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp27" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#491 arm27: 401 on STDOUT (not stderr) still appends the expired-credential diagnostic" "yes" \
+  "$(printf '%s' "$_a27" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+
+# Arm 28 (PR #491 IMP-2 coverage) — resolve_real_gh's self-exclusion is canonicalized
+# (pwd -P + BASH_SOURCE), so the wrapper reached via a SYMLINKED PATH entry is still
+# recognized as itself and skipped, resolving the real gh. NOTE: this is COVERAGE of the
+# canonicalization path, not a RED-flip behavioral pin — the pre-fix code self-heals via
+# one extra re-exec (once it re-execs the wrapper by an absolute path, $0 matches and it
+# resolves the real gh), so both forms end at the SAME output; the fix removes the wasted
+# re-exec and hardens the symlink/relative case, which has no distinguishable unit output.
+W28="$D487/wrap28"; R28="$D487/real28"; mkdir -p "$W28" "$R28"
+cp "$GHFRESH_SH" "$W28/gh"; chmod +x "$W28/gh"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "REAL28 ARGS=$*"\n'; } > "$R28/gh"; chmod +x "$R28/gh"
+WLINK28="$D487/wraplink28"; ln -s "$W28" "$WLINK28"
+_a28="$(env -u GH_TOKEN -u DEVFLOW_GH_REAL PATH="$WLINK28:$R28:$PATH" \
+  DEVFLOW_GH_TOKEN_FILE="$D487/none28" DEVFLOW_GH_FINGERPRINT_FILE="$D487/none28fp" \
+  "$W28/gh" x 2>/dev/null)"
+assert_eq "#491 arm28: resolve_real_gh skips the wrapper reached via a symlinked PATH entry and resolves the real gh" "REAL28 ARGS=x" "$_a28"
 
 # ── stop-refresher.sh arms (13–16, 19–20): the retirement step's defeated-refresher
 # signal is honest — it must NOT over-fire on a recovered transient, and it MUST fire on
@@ -35424,6 +35526,14 @@ for _wf487 in devflow-implement devflow; do
     "$([ -n "$_start_ln" ] && [ -n "$_claude_ln" ] && [ "$_start_ln" -lt "$_claude_ln" ] && echo yes || echo no)"
   assert_eq "#487 wiring: $_wf487.yml installs the fresh-gh wrapper BEFORE the claude step" "yes" \
     "$([ -n "$_inst_ln" ] && [ -n "$_claude_ln" ] && [ "$_inst_ln" -lt "$_claude_ln" ] && echo yes || echo no)"
+  # (a2) The refresher must also start AFTER checkout (PR #491 IMP-4): the refresher
+  # rewrites the checkout-PERSISTED http.*/.extraheader credential, so that credential
+  # must already exist when the first cycle fires. A reorder that put Start above the
+  # checkout would leave the first cycle with nothing to rewrite yet still pass the
+  # before-claude pins above. Pin `checkout < start`.
+  _checkout_ln="$(grep -nF 'name: Checkout repository' "$_WFF487" | head -1 | cut -d: -f1)"
+  assert_eq "#491 wiring: $_wf487.yml starts the refresher AFTER checkout (the persisted extraheader must exist to rewrite)" "yes" \
+    "$([ -n "$_checkout_ln" ] && [ -n "$_start_ln" ] && [ "$_checkout_ln" -lt "$_start_ln" ] && echo yes || echo no)"
   # (b) Intra-step: the real gh's ABSOLUTE path must be captured BEFORE the wrapper dir
   # is appended to GITHUB_PATH — otherwise a later name-based `gh` lookup recurses into
   # the wrapper. Pin the two lines' order within the install step block.

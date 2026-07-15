@@ -59,6 +59,16 @@ if [ -f "$PIDFILE" ]; then
   pid="$(cat "$PIDFILE" 2>/dev/null || true)"
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     kill "$pid" 2>/dev/null || true
+    # Briefly wait for the signalled process to actually exit before tailing its log, so
+    # an in-flight cycle's final lines land in the tail rather than racing it (no
+    # correctness impact on the defeat decision — that already used the PRE-kill liveness
+    # probe + last log line). Bounded (~5s) so a wedged process never stalls this
+    # best-effort stop; the refresher's TERM trap exits it promptly in practice.
+    _wait=0
+    while [ "$_wait" -lt 50 ] && kill -0 "$pid" 2>/dev/null; do
+      sleep 0.1
+      _wait=$((_wait + 1))
+    done
     echo "signalled credential refresher (pid $pid)"
   elif [ -n "$pid" ]; then
     # Pidfile present but the process is GONE: the refresher died after startup

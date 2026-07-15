@@ -20,3 +20,11 @@ type: Added
   held the key across multiple distinct files the refresher now warns and leaves the previous
   credential in place rather than silently rewriting only the first file (which `git push`
   might not read as the highest-precedence value) — preserving the loud-degrade design. (#491)
+- **Refresher/wrapper robustness hardening (review follow-ups).** Mint-failure warnings now
+  carry curl's exit code and diagnostic; the `gh` wrapper resolves its own path via a
+  canonicalized (`pwd -P`) self-exclusion, scans the combined stdout+stderr stream for the
+  bad-credential signature, and anchors the git alternative to `fatal: Authentication failed
+  for` (shrinking false positives while keeping git-shelling coverage); the loop ensures the
+  pidfile's parent dir exists and names the false-defeat consequence when it still cannot
+  write it; and `stop-refresher.sh` briefly waits for the signalled process to exit before
+  tailing its log. (#491)

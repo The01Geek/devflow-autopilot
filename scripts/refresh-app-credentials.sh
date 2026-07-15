@@ -148,11 +148,18 @@ real_mint() {
   # bounded only by the 9-min exp, still a far smaller blast radius than the permanent
   # raw PEM. Passing the header on argv is standard curl usage; if this ever needs
   # hardening, move the header to a stdin curl-config (-K -).
-  local inst_json inst_id tok_json token
+  # Capture curl's own diagnostic (stderr merged via 2>&1) and exit code so a persistent
+  # mint failure (wrong app id, revoked PEM, 404, rate-limit) surfaces an ACTIONABLE
+  # ::warning::, not just a generic arm name. Under `-fsS`, a SUCCESS writes only the JSON
+  # body to stdout (nothing to stderr); a FAILURE writes only curl's short diagnostic to
+  # stderr and NO body (so the merged capture is the diagnostic, and no response body —
+  # in particular no token, since `-f` suppresses the error body — is ever logged).
+  local inst_json inst_rc inst_id tok_json tok_rc token
   inst_json="$(curl -fsS -H "Authorization: Bearer $jwt" \
     -H "Accept: application/vnd.github+json" \
-    "$API_URL/repos/$repo/installation" 2>/dev/null)" \
-    || { warn "mint: could not resolve installation id (GET /repos/$repo/installation failed)"; return 1; }
+    "$API_URL/repos/$repo/installation" 2>&1)"; inst_rc=$?
+  [ "$inst_rc" -eq 0 ] \
+    || { warn "mint: could not resolve installation id (GET /repos/$repo/installation failed; curl exit $inst_rc: $inst_json)"; return 1; }
   inst_id="$(printf '%s' "$inst_json" | "$DEVFLOW_JQ" -r '.id // empty' 2>/dev/null)"
   [ -n "$inst_id" ] || { warn "mint: installation id missing from response"; return 1; }
 
@@ -166,8 +173,9 @@ real_mint() {
   tok_json="$(curl -fsS -X POST -H "Authorization: Bearer $jwt" \
     -H "Accept: application/vnd.github+json" \
     -d "{\"repositories\":[\"${repo_name}\"]}" \
-    "$API_URL/app/installations/$inst_id/access_tokens" 2>/dev/null)" \
-    || { warn "mint: access-token POST failed"; return 1; }
+    "$API_URL/app/installations/$inst_id/access_tokens" 2>&1)"; tok_rc=$?
+  [ "$tok_rc" -eq 0 ] \
+    || { warn "mint: access-token POST failed (curl exit $tok_rc: $tok_json)"; return 1; }
   token="$(printf '%s' "$tok_json" | "$DEVFLOW_JQ" -r '.token // empty' 2>/dev/null)"
   [ -n "$token" ] || { warn "mint: access token missing from response"; return 1; }
   printf '%s' "$token"
@@ -282,7 +290,15 @@ cmd_loop() {
   read_key_from_stdin
   # Record our PID so the workflow's `if: always()` step can kill us by pidfile —
   # job completion never depends on background-step auto-cancel semantics.
-  printf '%s' "$$" > "$PIDFILE" 2>/dev/null || warn "loop: could not write pidfile '$PIDFILE'"
+  # Ensure the pidfile's parent dir exists first (the most common write-failure cause),
+  # so a running refresher is not misreported by stop-refresher.sh as a never-started
+  # defeat for want of its retirement handle. If the write STILL fails (a genuinely
+  # unwritable path), the refresher keeps running but has no handle: name that
+  # consequence in the breadcrumb, since stop-refresher.sh — with no pidfile to probe —
+  # will then report a false "did not start" defeat it cannot distinguish from the real one.
+  mkdir -p "$(dirname "$PIDFILE")" 2>/dev/null || true
+  printf '%s' "$$" > "$PIDFILE" 2>/dev/null \
+    || warn "loop: could not write pidfile '$PIDFILE' — the refresher is running but has no retirement handle; stop-refresher.sh may report a false 'did not start' defeat"
   trap 'exit 0' TERM
   local count=0
   while :; do
