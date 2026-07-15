@@ -24249,8 +24249,17 @@ SP_PAT_NS="superpowers"":"
 # documentation surface, not a runtime dependency, so the zero-companion-dependency
 # claim is unaffected. The narrow scope (only docs/superpowers/specs) keeps the net
 # closed on any OTHER stray superpowers: id in an operative surface.
-assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings/design-specs excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!.devflow/learnings' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!docs/superpowers/specs' ':!lib/test' ':!CLAUDE.md')"
+# .devflow/prompt-extensions is excepted for the SAME reason as CLAUDE.md and
+# docs/superpowers/specs (#506): this repo's own prompt extensions (implement.md's
+# prompt-surface edit routing rule, review-and-fix.md/review.md's evidence-gate criterion)
+# legitimately NAME the external dev-time `superpowers:writing-skills` authoring discipline
+# they route edits through. These are repo-internal policy surfaces (the live `.md`
+# extensions are NOT shipped to consumers — install.sh ships the `.example` templates), so
+# like CLAUDE.md's carried reference the zero-companion-dependency claim is unaffected. The
+# residual (a stray NON-writing-skills superpowers: id could slip in an extension) matches the
+# CLAUDE.md/docs-specs exception's residual and is mitigated by the same maintainer review.
+assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings/design-specs/prompt-extensions excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!.devflow/learnings' ':!.devflow/prompt-extensions' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!docs/superpowers/specs' ':!lib/test' ':!CLAUDE.md')"
 
 # (2/2b/2c) Per-skill vendoring + structural validity. For each of the two skills the file
 # exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so
@@ -24293,6 +24302,65 @@ assert_eq "#142 config schema declares the devflow:requesting-code-review overri
   "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/.devflow/config.schema.json" && echo yes || echo no)"
 assert_eq "#142 fix-loop skill applies devflow:receiving-code-review principles (call-site rewired)" \
   "yes" "$(grep -qF 'devflow:receiving-code-review' "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'devflow:receiving-code-review' appears twice in the target SKILL
+
+# ── #506 prompt-surface edit routing evidence gate ───────────────────────────
+# Repo policy (extension-not-engine): editing a prompt-surface file (SKILL.md, an implement
+# phase file, or a prompt extension) must go through the superpowers:writing-skills RED/GREEN
+# discipline, routed via an Agent-subagent at edit time (implement.md) and backstopped by a
+# review-gate criterion (review-and-fix.md + review.md, byte-identical). These are
+# surface-presence contract pins — removing the pinned text does NOT re-introduce a NAMED prior
+# regression — so assert_pin_unique + assert_pin_red_on_removal apply and no assert_pin_red_under
+# mutation obligation attaches (per issue #506 AC). The trigger-glob list and the
+# `Writing-skills evidence:` marker are coupled sites, pinned in lockstep across the extensions.
+WSR_IMPL="$FDROOT/.devflow/prompt-extensions/implement.md"
+WSR_RAF="$FDROOT/.devflow/prompt-extensions/review-and-fix.md"
+WSR_REV="$FDROOT/.devflow/prompt-extensions/review.md"
+WSR_CLAUDE="$FDROOT/CLAUDE.md"
+# The canonical trigger-glob list literal — must be byte-identical across all three extensions.
+WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `.devflow/prompt-extensions/*.md`'
+# The evidence marker literal the routing evidence-contract writes and the gate criterion matches.
+WSR_MARK='Writing-skills evidence:'
+
+# (a) implement.md routing-rule operative sentence.
+assert_pin_unique "#506 implement.md carries the prompt-surface routing operative sentence" \
+  'the orchestrator dispatches a context-isolated Agent-tool subagent whose prompt instructs' "$WSR_IMPL"
+assert_pin_red_on_removal "#506 routing operative sentence pin is removal-proof" \
+  'the orchestrator dispatches a context-isolated Agent-tool subagent whose prompt instructs' "$WSR_IMPL"
+
+# (b) the gate criterion present in BOTH review extensions, plus byte-identity of the two texts.
+assert_pin_unique "#506 review-and-fix.md carries the routing evidence-gate criterion" \
+  'the review reports a **FAIL** finding naming' "$WSR_RAF"
+assert_pin_red_on_removal "#506 review-and-fix.md gate-criterion pin is removal-proof" \
+  'the review reports a **FAIL** finding naming' "$WSR_RAF"
+assert_pin_unique "#506 review.md carries the routing evidence-gate criterion" \
+  'the review reports a **FAIL** finding naming' "$WSR_REV"
+assert_pin_red_on_removal "#506 review.md gate-criterion pin is removal-proof" \
+  'the review reports a **FAIL** finding naming' "$WSR_REV"
+# Byte-identity: the gate criterion (its `## ` heading → EOF) is identical in both review files.
+WSR_GATE_RAF="$(sed -n '/^## Prompt-surface edit routing evidence gate/,$p' "$WSR_RAF")"
+WSR_GATE_REV="$(sed -n '/^## Prompt-surface edit routing evidence gate/,$p' "$WSR_REV")"
+assert_eq "#506 the two gate-criterion texts are byte-identical (review-and-fix.md == review.md)" \
+  "$WSR_GATE_REV" "$WSR_GATE_RAF"
+
+# (c) the amended CLAUDE.md 'Editing any skill file' bullet's autonomous-run sentence.
+assert_pin_unique "#506 CLAUDE.md carries the autonomous-run routing sentence" \
+  'Autonomous `/devflow:implement` runs satisfy this mandate differently' "$WSR_CLAUDE"
+assert_pin_red_on_removal "#506 CLAUDE.md autonomous-run sentence pin is removal-proof" \
+  'Autonomous `/devflow:implement` runs satisfy this mandate differently' "$WSR_CLAUDE"
+
+# (d) lockstep — the trigger-glob list literal is present-and-unique (hence identical) in all three.
+assert_pin_unique "#506 trigger-glob list present-and-unique in implement.md" "$WSR_TGL" "$WSR_IMPL"
+assert_pin_unique "#506 trigger-glob list present-and-unique in review-and-fix.md" "$WSR_TGL" "$WSR_RAF"
+assert_pin_unique "#506 trigger-glob list present-and-unique in review.md" "$WSR_TGL" "$WSR_REV"
+assert_eq "#506 trigger-glob list is identical across all three extensions (lockstep)" \
+  "yes|yes|yes" \
+  "$(grep_present "$WSR_TGL" "$WSR_IMPL")|$(grep_present "$WSR_TGL" "$WSR_RAF")|$(grep_present "$WSR_TGL" "$WSR_REV")"
+
+# (e) lockstep — the `Writing-skills evidence:` marker literal in the evidence contract matches the
+# one the gate text names (present in implement.md's contract AND both review files' gate text).
+assert_eq "#506 Writing-skills evidence marker is present in the contract and both gate copies (lockstep)" \
+  "yes|yes|yes" \
+  "$(grep_present "$WSR_MARK" "$WSR_IMPL")|$(grep_present "$WSR_MARK" "$WSR_RAF")|$(grep_present "$WSR_MARK" "$WSR_REV")"
 
 # (3b) Property-based vendoring invariant (the skills-tree twin of the #139 agents/*.md loop):
 # EVERY file under the two vendored skill dirs must NOT carry the first-party `2026 Daniel Radman`
