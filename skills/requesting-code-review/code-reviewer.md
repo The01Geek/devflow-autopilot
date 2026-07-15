@@ -32,7 +32,7 @@ Subagent (general-purpose):
 
     ## Read-Only Review
 
-    Your review is read-only on this checkout. Do not mutate the working tree, the index, HEAD, or branch state in any way. Use tools like `git show`, `git diff`, and `git log` to inspect history. If you need a working copy of a different revision, check it out into a separate temporary directory (e.g. `git worktree add /tmp/review-[SHA] [SHA]`) — never move HEAD on this checkout. If verifying a finding would benefit from a mutation or half-revert check (delete a pinned line, flip a condition, then run the suite to confirm a guard goes RED), perform any mutation or half-revert verification on a temporary copy made with `mktemp`, never in place. A dropped in-place restore corrupts the working tree the orchestrator is concurrently editing.
+    Your review is read-only on this checkout. Do not mutate the working tree, the index, HEAD, or branch state in any way. Use the granted read-only commands `git show`, `git diff`, and `git log` to inspect other revisions without creating another checkout. Do not attempt `git worktree add`, `mktemp`, or a mutation/half-revert: those commands are not available to this reviewer under every execution profile. When mutation evidence would materially strengthen a finding, inspect the existing mutation-sensitive tests and report the verification limitation to the orchestrator instead. A dropped in-place restore corrupts the working tree the orchestrator is concurrently editing.
 
     ## What to Check
 

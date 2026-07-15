@@ -10,6 +10,7 @@ bump: patch
 - Rework the `react-to-trigger.sh` emission in `skills/implement/SKILL.md` to a leading-token form with CLI args (a leading `VAR=` env prefix was a denied matcher shape) and use `--report-failure` so the fence can record a failed reaction rather than swallowing it; the workflow's env-var path keeps its default best-effort exit-zero behavior.
 - `load-prompt-extension.sh`'s guard distinguishes a matcher refusal from "no consumer extension" and queues the refusal note until Phase 1.3 has created or resumed the workpad.
 - Rework `phase-4-documentation.md` §4.1's docs-commit fence so configured doc/release paths reach an explicit `git add` through validated printed tool output, not a `VAR=` read across a fence boundary; config-read failures block rather than masquerading as a clean no-change pass.
+- Keep the inline final-pass reviewer read-only on commands available to every execution profile; unavailable `git worktree add`/`mktemp` mutation recipes now route to an attributable verification limitation.
 
 ### Removed
 - Inert `*/`-prefixed grant globs from `.devflow/config.json`'s `devflow.allowed_tools` and `devflow_implement.allowed_tools` — a `*/basename` glob does not match the vendored multi-segment leading token the matcher grants.

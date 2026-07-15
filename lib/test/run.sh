@@ -3988,8 +3988,9 @@ assert_pin_red_on_removal "#296 phase-3.3: deleting the 'denial != local classif
 #   (2) skills/review/SKILL.md's shared Phase 3.1/3.2 dirty-tree backstop snapshots the
 #       tree before dispatch, compares after, surfaces the divergence as a finding with an
 #       attributable breadcrumb, and restores only the snapshot delta.
-# The operative agent-mandate literal is identical across all six definition files, so the
-# same literal pins each (assert_pin_unique requires it appear exactly once PER FILE).
+# The five first-party agent definitions share the temporary-copy mandate. The final-pass
+# template runs under a narrower profile and is pinned separately to refuse unavailable
+# mutation helpers while preserving the same no-in-place-mutation outcome.
 REVIEW_AGENT_MANDATE='on a temporary copy made with `mktemp`, never in place'
 # The PRIMARY write-prohibition (AC1's core contract) is a distinct operative sentence from
 # the mktemp clause — pin it too, else the prohibition could be deleted while the mktemp pin
@@ -4002,8 +4003,8 @@ for review_agent in code-reviewer silent-failure-hunter comment-analyzer type-de
   assert_pin_red_on_removal "#192 agent-mandate: deleting the primary write-prohibition from $review_agent turns its pin RED" \
     "$REVIEW_AGENT_PROHIBITION" "$LIB/../agents/$review_agent.md"
 done
-assert_pin_red_on_removal "#192 agent-mandate: deleting the never-mutate/mktemp-copy mandate from the requesting-code-review final-pass turns its pin RED" \
-  "$REVIEW_AGENT_MANDATE" "$LIB/../skills/requesting-code-review/code-reviewer.md"
+assert_pin_red_on_removal "#192 agent-mandate: deleting the unavailable-mutation refusal from the requesting-code-review final-pass turns its pin RED" \
+  'Do not attempt `git worktree add`, `mktemp`, or a mutation/half-revert' "$LIB/../skills/requesting-code-review/code-reviewer.md"
 assert_pin_red_on_removal "#192 agent-mandate: deleting the primary write-prohibition from the requesting-code-review final-pass turns its pin RED" \
   'Do not mutate the working tree, the index, HEAD, or branch state in any way' "$LIB/../skills/requesting-code-review/code-reviewer.md"
 # Backstop operative sentences — one pin per operative directive (operative-vs-framing rule).
@@ -6367,6 +6368,28 @@ assert_pin_red_on_removal "#484 prompt-extension refusal preserves the exact pen
   'load-prompt-extension.sh was refused by the matcher; the consumer prompt extension could not be loaded' "$E484_IMPL_SKILL"
 assert_pin_red_on_removal "#484 prompt-extension refusal is flushed only after Phase 1.3 creates the workpad" \
   'Immediately after Phase 1.3 has created or resumed the workpad' "$E484_IMPL_SKILL"
+
+E484_FINAL_PASS="$LIB/../skills/requesting-code-review/code-reviewer.md"
+assert_pin_red_on_removal "#484 final-pass reviewer does not emit unavailable worktree/mktemp recovery commands" \
+  'Do not attempt `git worktree add`, `mktemp`, or a mutation/half-revert' "$E484_FINAL_PASS"
+assert_pin_red_on_removal "#484 final-pass reviewer reports a mutation-evidence limitation instead of silently retrying" \
+  'report the verification limitation to the orchestrator instead' "$E484_FINAL_PASS"
+
+E484_PHASE4="$LIB/../skills/implement/phases/phase-4-documentation.md"
+assert_pin_red_on_removal "#484 docs staging consumes all four observed config results" \
+  'read the four tool results and substitute non-empty values as literals below' "$E484_PHASE4"
+assert_pin_red_on_removal "#484 docs config failures retry then block" \
+  'retry that read once, then mark the workpad `Blocked`' "$E484_PHASE4"
+assert_pin_red_on_removal "#484 docs staging inspects unfiltered status" \
+  'Inspect unfiltered `git status --short` after the docs subagent returns' "$E484_PHASE4"
+assert_pin_red_on_removal "#484 docs staging builds an explicit complete artifact list" \
+  'Build the explicit staging list from every documentation artifact that dispatch changed' "$E484_PHASE4"
+assert_pin_red_on_removal "#484 docs no-change arm requires clean subagent output plus unfiltered status" \
+  'Only when the subagent returned cleanly and unfiltered status confirms it produced no documentation artifact' "$E484_PHASE4"
+for docs_key in .docs.internal .docs.external .docs.release_notes_file .docs.changelog_file; do
+  assert_pin_red_on_removal "#484 docs staging reads configured key $docs_key" \
+    "config-get.sh $docs_key" "$E484_PHASE4"
+done
 
 # Behavioral-fix pin: removing the stale-prose-lint.py grant from devflow-implement.yml
 # must turn the guard RED — the guard catches the re-introduced silent denial, not
@@ -14448,6 +14471,19 @@ rm -f "$REACT_REC"
 react EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=9 REACTION=eyes
 assert_eq "react: REACTION env overrides default content" \
   "1" "$(grep -c 'content=eyes' "$REACT_REC")"
+rm -f "$REACT_REC"
+
+# 5b. The implement skill cannot use an env-assignment prefix, so its emitted
+# leading-token call supplies every selector through CLI options. Conflicting
+# environment values prove the CLI path is operative and has precedence.
+REACT_REC="$(mktemp)"
+DEVFLOW_GH="$RT_STUB/gh" PATH="$RT_STUB:$PATH" REACT_REC="$REACT_REC" GH_TOKEN=x \
+  EVENT_NAME=pull_request_review REPO=wrong/repo COMMENT_ID=1 REACTION=confused \
+  bash "$RT" --repo o/r --event issue_comment --comment 17 --reaction eyes >/dev/null 2>&1
+assert_eq "react: CLI selectors override conflicting environment values" \
+  "1" "$(grep -c 'repos/o/r/issues/comments/17/reactions.*content=eyes' "$REACT_REC")"
+assert_eq "react: CLI selector path makes exactly one api call" \
+  "1" "$(wc -l < "$REACT_REC" | tr -d ' ')"
 rm -f "$REACT_REC"
 
 # 6. gh failure (e.g. HTTP 403 from a missing write scope) must NOT fail the
