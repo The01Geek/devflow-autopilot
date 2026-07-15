@@ -29472,7 +29472,7 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
 assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last changes: #503 rejected-review hardening added empty-base handling plus the checked head-override candidate/promote producer — the comment fetch still writes via an in-workspace redirect, NOT a tee, so gh's own exit status survives)" \
-  "127" "$(python3 -c 'import importlib.util,sys
+  "128" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 assert_eq "#363 the review-skill head set matches the reviewed count (33 distinct names; +match-lint-adjudications.py, +run-jq.sh, +gh api --paginate at #466)" \
@@ -31950,15 +31950,22 @@ assert_eq "#423 T8 fix-loop Step 3 invokes the same helper (references it, not a
 # item-6a fence references only a skill-defined base var, and prove the undefined-var
 # regression cannot silently return.
 assert_eq "#424 (item 6a) fence references no undefined \$BASE_REF (the VC-12 silent-no-op var)" "0" "$(grep -c 'BASE_REF' "$SP_RAF")"
-assert_pin_unique "#424 (item 6a) fence binds the base to the PR's own base ref origin/\$PR_BASE_BRANCH (PR mode) / config \$BASE (current-branch), not the stale run-start baseRefOid (three-dot)" \
-  'git diff "origin/${PR_BASE_BRANCH:-$BASE}...HEAD"' "$SP_RAF"
-assert_pin_unique "#424 (item 6a) skill names the base contract without claiming stale \$PR_BASE_SHA is the active operand" \
-  'against the base the engine'\''s Phase 0.2 resolved this iteration' "$SP_RAF"
+assert_pin_unique "#424 (item 6a) fence consumes the exact Phase-0.2-selected operand (three-dot)" \
+  'git diff "$REVIEW_DIFF_BASE...HEAD"' "$SP_RAF"
+assert_pin_unique "#424 (item 6a) PR mode carries Phase 0.2's live-ref or deleted-base-fallback operand" \
+  'REVIEW_DIFF_BASE=$HEAD_OVERRIDE_BASE' "$SP_RAF"
+assert_pin_unique "#424 (item 6a) current-branch mode carries the configured base operand" \
+  'REVIEW_DIFF_BASE=origin/$BASE' "$SP_RAF"
+assert_pin_unique "#424 (item 6a) skill names the exact Phase-0.2-selected operand contract" \
+  'against the exact base operand the engine'\''s Phase 0.2 resolved this iteration' "$SP_RAF"
 assert_pin_unique "#424 (item 6a) recomputes at the POST-fix HEAD, not the cached pre-fix diff.patch" \
   'not** reading the pre-fix `diff.patch` Phase 0.2 cached' "$SP_RAF"
 assert_pin_red_under "#424 (item 6a): reverting the base to the stale run-start \$PR_BASE_SHA re-introduces the base-content leak" \
-  'git diff "origin/${PR_BASE_BRANCH:-$BASE}...HEAD"' \
-  's#origin/\$\{PR_BASE_BRANCH:-\$BASE\}#${PR_BASE_SHA:-origin/main}#' "$SP_RAF"
+  'git diff "$REVIEW_DIFF_BASE...HEAD"' \
+  's#\$REVIEW_DIFF_BASE#${PR_BASE_SHA:-origin/main}#' "$SP_RAF"
+assert_pin_red_under "#503 item-6a refuses to reconstruct a deleted PR base after Phase 0.2 selected the retained SHA" \
+  'if test -z "${HEAD_OVERRIDE_BASE:-}"; then' \
+  '/if test -z "\${HEAD_OVERRIDE_BASE:-}"; then/d' "$SP_RAF"
 # Producer-failure detection (#424 review Suggestion 1): a failing `git diff` must not
 # pipe empty stdout into the helper and read as a clean pass.
 assert_pin_unique "#424 (item 6a) fence sets pipefail so a producer/helper failure is not read as clean" \
@@ -32023,8 +32030,12 @@ assert_eq "#503 AC8 item 6a documents and executes the same guarded base_branch 
 # executable and removal-proof, not a prose-only promise that can drift while the
 # item-6a mirror stays green.
 assert_pin_red_under "#503 review producer stages the filtered diff before promoting it to diff.patch" \
-  'if git diff "$HEAD_OVERRIDE_BASE...HEAD" > .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate; then' \
-  '/if git diff "\$HEAD_OVERRIDE_BASE\.\.\.HEAD" > \.devflow\/tmp\/review\/<slug>\/<run-id>\/diff\.raw-candidate; then/d' "$SP_REVIEW"
+  'if git diff "$LOCAL_DIFF_BASE...HEAD" > .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate; then' \
+  '/if git diff "\$LOCAL_DIFF_BASE\.\.\.HEAD" > \.devflow\/tmp\/review\/<slug>\/<run-id>\/diff\.raw-candidate; then/d' "$SP_REVIEW"
+assert_pin_red_under "#503 current-branch name-only fence consumes the configured base" \
+  'git diff "origin/$BASE...HEAD" --name-only' 's/git diff "origin\/\$BASE\.\.\.HEAD" --name-only/git diff "origin\/main...HEAD" --name-only/' "$SP_REVIEW"
+assert_pin_red_under "#503 current-branch cache producer carries the same configured base" \
+  'LOCAL_DIFF_BASE=origin/$BASE' 's/LOCAL_DIFF_BASE=origin\/\$BASE/LOCAL_DIFF_BASE=origin\/main/' "$SP_REVIEW"
 assert_pin_red_under "#503 review producer records the stdout-publication failure before cleanup" \
   'CAT_RC=$?' '/CAT_RC=\$?/d' "$SP_REVIEW"
 assert_pin_red_under "#503 retargeted-PR residual compares the PR base with the configured checkpoint base" \
@@ -32064,8 +32075,10 @@ assert_pin_red_under "#503 remote-ref probe is granted in the implement workflow
   'Bash(git ls-remote:*),' 's/git ls-remote:/git ls-remote-missing:/' "$LIB/../.github/workflows/devflow-implement.yml"
 assert_pin_red_under "#503 remote-ref probe is granted in the manual command workflow" \
   'Bash(git ls-remote:*),' 's/git ls-remote:/git ls-remote-missing:/' "$LIB/../.github/workflows/devflow.yml"
-assert_pin_red_under "#503 remote-ref probe is granted in the read-only review workflow" \
-  'Bash(git ls-remote:*),' 's/git ls-remote:/git ls-remote-missing:/' "$LIB/../.github/workflows/devflow-runner.yml"
+assert_eq "#503 wrapper-only fetch is not granted in the read-only review workflow" \
+  "0" "$(grep -cF 'Bash(git fetch:*)' "$LIB/../.github/workflows/devflow-runner.yml")"
+assert_eq "#503 wrapper-only remote probe is not granted in the read-only review workflow" \
+  "0" "$(grep -cF 'Bash(git ls-remote:*)' "$LIB/../.github/workflows/devflow-runner.yml")"
 
 # Execute the exact checked cache fence rendered in the review skill. Command
 # shims let each producer boundary fail independently; every failure must remove
@@ -32074,7 +32087,7 @@ SP503_FENCE_DIR="$(mktemp -d)"
 SP503_FENCE_CACHE="$SP503_FENCE_DIR/cache"
 SP503_FENCE_BIN="$SP503_FENCE_DIR/bin"
 mkdir -p "$SP503_FENCE_CACHE" "$SP503_FENCE_BIN"
-awk '/^# HEAD_OVERRIDE_BASE was mechanically selected/{capture=1; next} capture && /^```/{exit} capture' "$SP_REVIEW" \
+awk '/^# LOCAL_DIFF_BASE is either/{capture=1; next} capture && /^```/{exit} capture' "$SP_REVIEW" \
   | sed "s#\.devflow/tmp/review/<slug>/<run-id>#$SP503_FENCE_CACHE#g" > "$SP503_FENCE_DIR/fence.sh"
 tee "$SP503_FENCE_BIN/git" >/dev/null <<'EOF'
 #!/usr/bin/env bash
@@ -32104,7 +32117,7 @@ exec /bin/cat "$@"
 EOF
 chmod +x "$SP503_FENCE_BIN/git" "$SP503_FENCE_BIN/awk" "$SP503_FENCE_BIN/sed" "$SP503_FENCE_BIN/cat"
 
-SP503_FENCE_OUT="$(PATH="$SP503_FENCE_BIN:$PATH" HEAD_OVERRIDE_BASE=origin/main bash "$SP503_FENCE_DIR/fence.sh" 2>&1)"
+SP503_FENCE_OUT="$(PATH="$SP503_FENCE_BIN:$PATH" LOCAL_DIFF_BASE=origin/main bash "$SP503_FENCE_DIR/fence.sh" 2>&1)"
 SP503_FENCE_RC=$?
 assert_eq "#503 checked cache fence success exits zero" "0" "$SP503_FENCE_RC"
 assert_eq "#503 checked cache fence success publishes and emits identical bytes" \
@@ -32121,7 +32134,7 @@ for SP503_FAIL_STAGE in DIFF AWK PROMOTE CAT; do
     PROMOTE) MOCK_PROMOTE_RC=25; MOCK_PROMOTE_PARTIAL=1 ;;
     CAT) MOCK_CAT_RC=26 ;;
   esac
-  PATH="$SP503_FENCE_BIN:$PATH" HEAD_OVERRIDE_BASE=origin/main \
+  PATH="$SP503_FENCE_BIN:$PATH" LOCAL_DIFF_BASE=origin/main \
     MOCK_DIFF_RC="$MOCK_DIFF_RC" MOCK_AWK_RC="$MOCK_AWK_RC" \
     MOCK_PROMOTE_RC="$MOCK_PROMOTE_RC" MOCK_PROMOTE_PARTIAL="$MOCK_PROMOTE_PARTIAL" MOCK_CAT_RC="$MOCK_CAT_RC" \
     bash "$SP503_FENCE_DIR/fence.sh" >/dev/null 2>&1
