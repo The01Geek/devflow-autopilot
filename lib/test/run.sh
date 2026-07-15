@@ -36235,6 +36235,32 @@ assert_pin_unique "#487 fail-fast prose: skills/review-and-fix/SKILL.md carries 
 assert_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
   'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"
 
+# ── issue #499: unavailable telemetry is explicit and falsy-safe ───────────
+T499_DIR="$(probe_tmp '#499 telemetry normalization fixture')"
+rm -f "$T499_DIR"
+mkdir -p "$T499_DIR"
+printf '%s' '{"iter":1,"phase3_dispatched":[],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":false}' > "$T499_DIR/iter-1.json"
+printf '%s' '{"iter":2,"phase3_dispatched":[],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0}}' > "$T499_DIR/iter-2.json"
+printf '%s' '{"iter":3,"phase3_dispatched":[],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' > "$T499_DIR/iter-3.json"
+printf '%s' '{"iter":4,"phase3_dispatched":[],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{}}' > "$T499_DIR/iter-4.json"
+T499_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$T499_DIR" --slug issue-499 --mode record)"
+assert_eq "#499 record: boolean false is established and preserved" "false" "$(printf '%s' "$T499_REC" | jq -r '.telemetry[0].phases')"
+assert_eq "#499 record: absent telemetry becomes unavailable" "unavailable" "$(printf '%s' "$T499_REC" | jq -r '.telemetry[1].phases')"
+assert_eq "#499 record: null telemetry becomes unavailable" "unavailable" "$(printf '%s' "$T499_REC" | jq -r '.telemetry[2].phases')"
+assert_eq "#499 record: explicit empty object is established and preserved" "object" "$(printf '%s' "$T499_REC" | jq -r '.telemetry[3].phases | type')"
+assert_pin_red_under "#499 falsy-safe telemetry predicate rejects a // regression" \
+  'has("telemetry") and .telemetry != null' 's/has\("telemetry"\) and \.telemetry != null/.telemetry \/\/ "unavailable"/' "$LIB/efficiency-trace.jq"
+assert_pin_red_under "#499 whole-file-null gate rejects predicate collapse" \
+  "type == \"object\"' \"\$staged_iter\"" '/type == "object"/d' "$LIB/efficiency-trace.sh"
+T499_EMPTY="$(probe_tmp '#499 absent telemetry branch fixture')"
+rm -f "$T499_EMPTY"
+mkdir -p "$T499_EMPTY"
+printf '%s\n' '{"telemetry":{"branch":"issue-499-definitely-absent"}}' > "$T499_EMPTY/config.json"
+T499_ERR="$(DEVFLOW_CONFIG_FILE="$T499_EMPTY/config.json" bash "$LIB/../scripts/backfill-telemetry-unavailable.sh" 2>&1)"; T499_RC=$?
+assert_eq "#499 backfill: absent telemetry branch is best-effort exit 0" "0" "$T499_RC"
+assert_eq "#499 backfill: absent telemetry branch has a named breadcrumb" "yes" "$(printf '%s' "$T499_ERR" | grep -qF 'telemetry ref is absent or unresolvable' && echo yes || echo no)"
+rm -rf "$T499_DIR" "$T499_EMPTY"
+
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)

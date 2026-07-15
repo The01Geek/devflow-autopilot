@@ -195,7 +195,7 @@ def iter_view:
             verdict: verdict_for([$findings[] | select(finding_agent == $agent)]; ($it.source == "review"))
           }
       ],
-      telemetry: ($it.telemetry // null),
+      telemetry: ($it | if (type == "object" and has("telemetry") and .telemetry != null) then .telemetry else "unavailable" end),
       # Which skill produced this iteration: "review" (standalone /devflow:review)
       # vs the default review-and-fix loop. Carried so a cross-run analyzer can
       # segment effectiveness by originating skill (both write into the same
@@ -303,7 +303,7 @@ def iter_view:
       })),
       # Cost telemetry carried forward from each workpad so it is no longer lost
       # when .devflow/tmp/ is destroyed at GH-runner teardown. `phases` mirrors
-      # the workpad's `telemetry` block verbatim (unnormalized; null when absent).
+      # established workpad value verbatim, or the explicit unavailable marker.
       telemetry: ($iters | map({iter: .iter, phases: .telemetry}))
     }
     end

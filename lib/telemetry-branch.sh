@@ -498,13 +498,14 @@ devflow_telemetry_persist_tree() {
     # data-loss fix). The plain `commit_on "$remote_tip"` re-applied only THIS run's
     # staged files, which would DROP any offline-accumulated local record present on
     # the local ref but absent from the fetched remote tip — real data loss on the
-    # exact reconnect path the retry loop exists to protect. Per-run filenames are
-    # unique, so overlaying every blob from the local tip onto the remote-tip base is
-    # a pure union (this run's staged files are already committed into the local tip,
-    # so they come along too). Echoes the new commit sha, `NOOP` when the union tree
+    # exact reconnect path the retry loop exists to protect. Most collisions remain
+    # local-wins. Marker migrations are monotonic: an unstamped legacy blob from a
+    # stale local ref may not overwrite an already-normalized remote blob.
+    # Echoes the new commit sha, `NOOP` when the union tree
     # equals the remote tip's tree (our content already there), or empty on failure.
     commit_union_on() {  # $1 = remote tip (parent), $2 = local tip to overlay
-      local base="$1" overlay="$2" tree ptree meta path mode sha overlay_out
+      local base="$1" overlay="$2" tree ptree meta path mode sha overlay_out remote_sha local_selected remote_selected jq_bin
+      jq_bin="${DEVFLOW_JQ:-jq}"
       # Read the OVERLAY's listing (and its rc) BEFORE building the tree, and fail closed.
       #
       # This was the one git call in this file whose rc was discarded, and it was the most
@@ -538,6 +539,19 @@ devflow_telemetry_persist_tree() {
         while IFS="$(printf '\t')" read -r meta path; do
           [ -n "$path" ] || continue
           mode="${meta%% *}"; sha="${meta##* }"
+          remote_sha="$(git -C "$root" rev-parse --verify --quiet "${base}:${path}" 2>/dev/null)" || remote_sha=""
+          if [ -n "$remote_sha" ]; then
+            local_selected=no; remote_selected=no
+            case "$path" in
+              .devflow/logs/review/*/iter-*.json)
+                git -C "$root" cat-file blob "$sha" 2>/dev/null | "$jq_bin" -e 'type == "object" and ((has("telemetry") | not) or .telemetry == null)' >/dev/null 2>&1 && local_selected=yes
+                git -C "$root" cat-file blob "$remote_sha" 2>/dev/null | "$jq_bin" -e 'type == "object" and ((has("telemetry") | not) or .telemetry == null)' >/dev/null 2>&1 && remote_selected=yes ;;
+              .devflow/logs/efficiency/*.json)
+                git -C "$root" cat-file blob "$sha" 2>/dev/null | "$jq_bin" -e 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)' >/dev/null 2>&1 && local_selected=yes
+                git -C "$root" cat-file blob "$remote_sha" 2>/dev/null | "$jq_bin" -e 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)' >/dev/null 2>&1 && remote_selected=yes ;;
+            esac
+            [ "$local_selected" = yes ] && [ "$remote_selected" != yes ] && continue
+          fi
           git -C "$root" update-index --add --cacheinfo "${mode},${sha},${path}" 2>/dev/null || exit 1
         done < <(printf '%s\n' "$overlay_out")
         git -C "$root" write-tree 2>/dev/null || exit 1

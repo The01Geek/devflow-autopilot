@@ -707,7 +707,7 @@ persist_one() {
       echo "::warning::efficiency-trace.sh --persist: run dir '${dir}' carries an unsubstituted '<placeholder>' identity (a verbatim '<slug>/<run-id>' directory left by a non-substituting run?); refusing to persist or synthesize under it — remove or rename the directory to recover" >&2
       return 0 ;;
   esac
-  local durable record out jq_rc cp_err
+  local durable record out jq_rc cp_err ref rel_iter staged_iter stamp_tmp stamp_err
   local iters=("$dir"/iter-*.json)
   if [ ! -e "${iters[0]}" ]; then
     # No per-iteration workpad. Layer-3+ synthesis floor (issue #381): reconstruct
@@ -810,6 +810,37 @@ persist_one() {
   durable="${_TELEMETRY_STAGE}/.devflow/logs/review/${slug}/${run_id}"
   if ! cp_err="$( { mkdir -p "$durable" && cp -p "$dir"/*.json "$durable"/; } 2>&1 )"; then
     echo "::warning::efficiency-trace.sh --persist: durable workpad copy failed (${dir} -> ${durable}): ${cp_err:-unknown}; best-effort, continuing" >&2
+  else
+    ref="$(devflow_telemetry_ref)"
+    for staged_iter in "$durable"/iter-*.json; do
+      [ -e "$staged_iter" ] || continue
+      rel_iter="${staged_iter#"${_TELEMETRY_STAGE}/"}"
+      if devflow_telemetry_blob_exists "$root" "$ref" "$rel_iter"; then
+        # Existing legacy absent/null blobs are exclusively backfill territory.
+        # A path already normalized by a prior post-change persist is different:
+        # reapply its marker to the staged copy so the source run dir can remain
+        # byte-identical while a second persist stays tree-idempotent. This also
+        # lets unrelated later shadow-marker enrichment flow without regressing
+        # the telemetry marker.
+        devflow_telemetry_show_blob "$root" "$ref" "$rel_iter" \
+          | "$DEVFLOW_JQ" -e '.telemetry == "unavailable"' >/dev/null 2>&1 || continue
+      fi
+      if ! "$DEVFLOW_JQ" -e 'type == "object"' "$staged_iter" >/dev/null 2>&1; then
+        echo "::warning::efficiency-trace.sh --persist: staged iter workpad '${rel_iter}' is malformed JSON or a valid non-object; copied byte-verbatim and telemetry was not fabricated" >&2
+        continue
+      fi
+      if "$DEVFLOW_JQ" -e 'has("telemetry") and (.telemetry != null)' "$staged_iter" >/dev/null 2>&1; then
+        continue
+      fi
+      stamp_tmp="${staged_iter}.telemetry-tmp"
+      stamp_err=""
+      if stamp_err="$("$DEVFLOW_JQ" '.telemetry = "unavailable"' "$staged_iter" 2>&1 > "$stamp_tmp")" && mv "$stamp_tmp" "$staged_iter"; then
+        :
+      else
+        rm -f "$stamp_tmp" 2>/dev/null || true
+        echo "::warning::efficiency-trace.sh --persist: could not stamp unestablished telemetry in staged iter workpad '${rel_iter}' (${stamp_err:-write/move failed}); staged copy retained best-effort" >&2
+      fi
+    done
   fi
 
   # Effectiveness record — telemetry-gated, presence-based idempotency tested ON
@@ -819,8 +850,8 @@ persist_one() {
   # commit, defeating the no-op-on-re-run contract. A record already on the branch
   # (a prior --persist) is left untouched: staged for neither derivation nor write.
   if [ "$ENABLED" = "true" ]; then
-    local ref rel_record
-    ref="$(devflow_telemetry_ref)"
+    local rel_record
+    [ -n "${ref:-}" ] || ref="$(devflow_telemetry_ref)"
     rel_record=".devflow/logs/efficiency/${slug}-${run_id}.json"
     if ! devflow_telemetry_blob_exists "$root" "$ref" "$rel_record"; then
       record="${_TELEMETRY_STAGE}/${rel_record}"

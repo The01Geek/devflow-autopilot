@@ -97,14 +97,14 @@ than printing a bare "0 verifiers":
 | `none-recorded` | no skip reason and zero items recorded | "Checklist verifiers: none recorded for this iteration." (the one posture that flags a genuine instrumentation gap) |
 
 `/devflow:review-and-fix` now writes the `checklist[]` array (with each item's `verification_mode`)
-and the `telemetry` block to every `iter-<N>.json` workpad whenever Phase 1+2 ran — the writer gap
-that previously left these unpopulated is closed. As a result `none-recorded` and a null
-`telemetry[].phases` are reachable **only** in genuinely degraded cases (no checklist ran, or
-telemetry truly uncaptured), never on a normal full-engine run; a `none-recorded` posture on a run
+and the `telemetry` key to every `iter-<N>.json` workpad whenever Phase 1+2 ran. When no phase
+figures were established, the writer emits the literal string `"unavailable"`; it never omits the
+key or writes JSON null. The persistence backstop applies the same marker to absent/null keys on
+new durable paths. As a result `none-recorded` is reachable **only** in genuinely degraded cases;
+a `none-recorded` posture on a run
 where Phase 1+2 ran is now a real regression worth investigating, not the expected steady state. The
 fields remain best-effort and non-fatal: a single missing `<usage>` block is skipped per-source
-without dropping the whole `telemetry` block, and a wholly-absent field still degrades gracefully
-rather than aborting the loop.
+without dropping the whole `telemetry` block. Legacy readers continue tolerating absent/null data.
 
 ## The rendered trace
 
@@ -761,6 +761,30 @@ there is no exit 1.
 whose slug never produced a merged PR (an abandoned branch) contributes **no cost row** — the cost side
 therefore carries a documented survivorship bias (abandoned-run cost is invisible to the join). This is
 deliberate: the experiment measures cost-vs-outcome for PRs that shipped.
+
+## Migrating legacy unavailable telemetry
+
+The persist backstop normalizes only a new durable workpad path. It first copies the run bytes,
+then classifies staged `iter-*.json` with two gates: the file must parse as a JSON object, and only
+an absent or null `telemetry` key is stamped. Established empty, false, zero, wrong-type, and
+already-marked values remain byte-identical; malformed and non-object inputs remain untouched with
+a warning. Existing durable paths are reserved for the migration, so an old Stop-hook discovery
+cannot rewrite history opportunistically. Derived run records use `phases: "unavailable"` for the
+same absent/null inputs.
+
+After the stamping code lands, maintainers should refresh old writers, upgrade consumer vendored
+`devflow_version` pins, let in-flight writes drain, and invalidate diverged local telemetry refs
+that could retain pre-migration snapshots. Then run `scripts/backfill-telemetry-unavailable.sh`.
+It rewrites absent/null iter blocks and only present `telemetry[].phases: null` entries in run
+records, using the shared telemetry-branch CAS/push path. It is intentionally re-runnable: a second
+run selects nothing, while later stale-writer pollution can be converged by running it again. The
+drafting baseline was 43 of 111 telemetry-branch iter blobs and 25 of 56 run records; the expected
+post-run counts are zero selected blobs in both families. Readers still tolerate legacy shapes in
+clones, forks, and branches produced by pre-change code.
+
+The push-retry union is marker-monotonic on collisions. A stale local absent/null iter blob or
+null-phases run record cannot overwrite a normalized remote blob; every other collision retains
+the historical local-wins behavior.
 
 ## Out of scope (tracked as follow-up)
 
