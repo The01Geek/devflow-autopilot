@@ -57,6 +57,12 @@ ALLOWED_TOOLS="${ALLOWED_TOOLS//\`/}"
 # fence early — so strip them here too, exactly like CI_SUMMARY/ALLOWED_TOOLS.
 # A value of backticks only strips to empty and renders no section (AC4).
 HARDENED_PATHS="${HARDENED_PATHS//\`/}"
+# HEAD_SHA is interpolated into inline-code spans in both the CI section (`(\`${HEAD_SHA}\`)`)
+# and the displaced-paths section (`git show __HEAD_SHA__:<path>`). It is a resolved git SHA
+# today (backtick-free), but — like the slots above — containment is made a property of THIS
+# renderer, not the caller: strip backticks so a backtick-bearing value cannot close an
+# inline-code span, rather than relying on the caller only ever passing a real SHA.
+HEAD_SHA="${HEAD_SHA//\`/}"
 
 # An empty CI summary must read as UNKNOWN, never as "no problems found". The
 # caller normally supplies summarize-ci-checks.sh's own fail-closed literal; this
@@ -94,9 +100,11 @@ if [ -n "${HARDENED_PATHS//[[:space:]]/}" ]; then
 ${HARDENED_PATHS}
 PATHS_EOF
   # Quoted heredoc: backticks and $ are literal (no command substitution), so the
-  # section's inline-code commands and $PR_BASE_SHA survive verbatim. The head
-  # SHA is substituted into a placeholder token via parameter expansion (not
-  # tr/sed) so a backtick-bearing SHA cannot break out of an inline-code span.
+  # section's inline-code commands and $PR_BASE_SHA survive verbatim. The head SHA
+  # is carried as a placeholder token here and substituted below via parameter
+  # expansion (not tr/sed) so the literal $PR_BASE_SHA text is not itself expanded.
+  # Backtick containment for the SHA does NOT rest on this substitution (it does
+  # not strip backticks) — it rests on the top-of-file HEAD_SHA backtick strip.
   _DISP_PROSE=$(cat <<'__DISP_PROSE_EOF__'
 > **5. Stop-hook-floor displacement (issue #458).** The working-tree files listed
 > below were deliberately replaced with trusted base-ref copies (or fail-closed

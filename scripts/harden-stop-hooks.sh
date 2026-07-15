@@ -52,7 +52,7 @@
 #
 # ── STUB vs TRUSTED-COPY per file class (issue #458 REJECT caveat) ───────────────
 # A no-op `exit 0` stub is correct for an ENTRY (skipping the hook is safe). But a
-# SOURCED library (resolve-jq.sh, config-source.sh, resolve-bin.sh) runs INLINE in
+# SOURCED library (resolve-jq.sh, config-source.sh, resolve-bin.sh, telemetry-branch.sh) runs INLINE in
 # the sourcing script, so an `exit 0` stub would exit the SOURCING ENTRY mid-run and
 # BREAK the legitimate base hook. So the fail-closed treatment differs by class:
 #   * ENTRY (HOOK_ENTRY_TARGETS)   — trusted base copy, else `exit 0` stub. Safe:

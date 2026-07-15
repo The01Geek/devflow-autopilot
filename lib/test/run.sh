@@ -30976,6 +30976,23 @@ assert_eq "#504 AC4 unset renders byte-identical to empty" "" \
 # AC3: the listed-paths-fully-in-scope sentence is operative (mutation-backed).
 assert_pin_red_under "#504 AC3 fully-in-scope operative sentence (removing it re-opens the wrong-REJECT risk)" \
   "remain FULLY" "s/remain FULLY//" "$RGB_SH"
+# AC3 effect-level (not mere section-presence): the __HEAD_SHA__ placeholder is
+# substituted with the real head — a regression shipping the literal placeholder
+# in the routing line (`git show __HEAD_SHA__:<path>`) would pass a presence test.
+assert_eq "#504 AC3 no literal __HEAD_SHA__ placeholder survives into the rendered displaced prose" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -c '__HEAD_SHA__')"
+assert_eq "#504 AC3 the real head SHA is substituted into the git show routing line" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'git show deadbeef:<path>' && echo yes || echo no)"
+# AC3 effect-level: a backtick-bearing path strips to a SINGLE clean list entry
+# wrapped only in the renderer's own backticks — not `` ``lib/…`` `` (raw input
+# backticks would double the pair and could close the inline-code span).
+assert_eq "#504 AC3 backtick-bearing path strips to a single clean list entry" "> - \`lib/efficiency-trace.sh\`" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' '`lib/efficiency-trace.sh`' | grep -F 'efficiency-trace.sh')"
+# AC3 effect-level: two paths separated by a blank interior line render EXACTLY
+# two list entries — the blank line is collapsed (continue'd), never a bogus
+# empty `> - `` `` entry.
+assert_eq "#504 AC3 two paths + blank interior line -> exactly two list entries (blank collapsed)" "2" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' $'lib/efficiency-trace.sh\n\nlib/resolve-jq.sh' | grep -cE '^> - `')"
 
 # ── #504 workflow plumbing (AC1/AC5). ci_summary runs before harden_hooks
 # ── (summarize-ci-checks.sh sources lib/resolve-jq.sh, a closure member),
@@ -30992,7 +31009,7 @@ assert_pin_unique "#504 AC1 harden publishes disposition=displaced" "disposition
 assert_pin_unique "#504 AC1 harden publishes disposition=skipped" "disposition=skipped" "$RUNNER_YML"
 assert_pin_unique "#504 AC1 harden publishes displaced_paths heredoc" "displaced_paths<<" "$RUNNER_YML"
 # AC5 side-effect: summarize is called in exactly one step now (ci_summary), not compose.
-assert_pin_unique "#504 AC5 summarize called in exactly one step (ci_summary, removed from compose)" 'CI_SUMMARY=$(bash "$SCC")' "$RUNNER_YML"
+assert_pin_unique "#504 AC5 summarize called in exactly one step (ci_summary, removed from compose)" 'CI_SUMMARY=$(HEAD_SHA="$HEAD_SHA" bash "$SCC")' "$RUNNER_YML"
 assert_pin_unique "#504 AC5 compose forwards HARDENED_PATHS from harden" 'HARDENED_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}' "$RUNNER_YML"
 
 # ── #504 AC6 routing rule on the 7 claim-verification surfaces.

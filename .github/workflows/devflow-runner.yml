@@ -813,6 +813,10 @@ jobs:
           # review), so it is deliberately not used here.
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          # summarize-ci-checks.sh excludes DevFlow's own workflow run from the CI
+          # signal set by this name; without it the summarizer falls back to a
+          # hard-coded literal and stops excluding the reviewer's own run.
+          SELF_WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           set -euo pipefail
           # AC5 (#504): this step computes HEAD_SHA + CI_SUMMARY BEFORE
@@ -830,7 +834,12 @@ jobs:
           SCC=.devflow/vendor/devflow/scripts/summarize-ci-checks.sh
           [ -f "$SCC" ] || SCC=scripts/summarize-ci-checks.sh
           if [ -f "$SCC" ]; then
-            CI_SUMMARY=$(bash "$SCC") || CI_SUMMARY="CI status unavailable"
+            # HEAD_SHA is a run:-local variable (computed above), NOT a step env:
+            # entry, so it is passed to the summarizer subprocess inline — the
+            # summarizer reads HEAD_SHA from its environment and fail-closes to
+            # `CI status unavailable` if it is empty, so without this the CI
+            # ground-truth section (issue #363) would regress on every run.
+            CI_SUMMARY=$(HEAD_SHA="$HEAD_SHA" bash "$SCC") || CI_SUMMARY="CI status unavailable"
           else
             echo "::warning::devflow: summarize-ci-checks.sh not found at either the vendored or repo path — the review prompt's CI section will report it unavailable" >&2
             CI_SUMMARY="CI status unavailable"
