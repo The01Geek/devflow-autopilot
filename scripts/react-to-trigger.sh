@@ -45,6 +45,22 @@ set -euo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-gh.sh"
 : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
 
+# CLI flag args (preferred for the skill fence's leading-token emission, #484/#490:
+# a leading VAR=value env prefix is a denied matcher shape, so the skill fence passes
+# the values as CLI args instead). They override the env vars the workflow `env:`
+# block sets; the workflow passes no args, so its env-var path is unchanged.
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo) REPO="${2-}"; shift 2 ;;
+    --event) EVENT_NAME="${2-}"; shift 2 ;;
+    --comment) COMMENT_ID="${2-}"; shift 2 ;;
+    --issue) ISSUE_NUMBER="${2-}"; shift 2 ;;
+    --reaction) REACTION="${2-}"; shift 2 ;;
+    --) shift; break ;;
+    *) echo "::warning::react: ignoring unknown argument '$1'" >&2; shift ;;
+  esac
+done
+
 reaction="${REACTION:-rocket}"
 repo="${REPO:-}"
 event="${EVENT_NAME:-}"

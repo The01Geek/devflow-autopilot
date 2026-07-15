@@ -99,7 +99,7 @@ Steps when scoping down:
 1. Write the narrowed AC list (only in-scope checkboxes, verbatim) to a temp file, e.g. `/tmp/narrowed-acs-${ISSUE_NUMBER}.md`.
 2. Apply the change atomically:
    ```bash
-   workpad.py update $ISSUE_NUMBER \
+   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER \
        --replace-acs-file /tmp/narrowed-acs-${ISSUE_NUMBER}.md \
        --note "scope decision: {which subset this PR delivers}. Deferred (verbatim): {list}. Will be tracked in follow-up issue(s) filed in Phase 4.0."
    ```
@@ -114,7 +114,7 @@ Some ACs name specific identifiers (job names, file paths, function names, comma
 
 Reconciliation steps:
 ```bash
-workpad.py update $ISSUE_NUMBER \
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER \
     --rewrite-ac "{OLD AC substring}" "{NEW AC text}" \
     --note "AC rewrite: {old verbatim} → {new}. Motivated by: {structural change}"
 ```

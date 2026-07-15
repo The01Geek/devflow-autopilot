@@ -294,6 +294,8 @@ own in-env suite/lint results** for the current HEAD — never a CI conclusion. 
 runner is a separate, unchanged case: its wait-for-CI-then-review posture is the correct *post-PR*
 sequence.)
 
+**Inline-engine grant coupling.** Because Phase 3 executes the shared review engine inline under the implement allowlist (not the review one), a helper added to `skills/review*/SKILL.md` needs a grant on the implement profile (`devflow-implement.yml`) as well as the review profile and `devflow.yml` — otherwise it is silently refused on every cloud implement run (#363). The `lib/test/run.sh` #484 head guard enforces this: it drives the head extractor over `skills/implement/**` and `skills/review*/**` and fails when any emitted head is ungranted on the implement profile (assembled from the workflow's baked literal alone, with a withheld list for deliberately-ungranted heads).
+
 **Documentation-AC deferral (Phase-4.1-owned, distinct from `(post-merge)`).** A criterion whose
 satisfaction is a *documentation edit that Phase 4.1's `devflow:docs` subagent owns* — a `docs/…`
 deliverable that pass authors, rather than a `skills/`/`scripts/`/`lib/`/test change this phase can make

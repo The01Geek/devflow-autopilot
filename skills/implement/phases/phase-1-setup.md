@@ -59,14 +59,14 @@ WORKPAD_ID=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner rep
   # Add --no-reproduction when the 1.1 classification is non-bug so the bug-only
   # "reproduction captured" sub-item isn't rendered; omit the flag when it is
   # bug-report. Decide from the CLASSIFICATION (1.1), not the label.
-  workpad.py new-body $ISSUE_NUMBER --run-link "[View run]($RUN_URL)" > "$BODY"   # + --no-reproduction when the 1.1 classification is non-bug; omit --run-link for a local run
-  workpad.py create $ISSUE_NUMBER "$BODY"
-  workpad.py update $ISSUE_NUMBER --replace-acs-file /tmp/acs-${ARGUMENTS}.md
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py new-body $ISSUE_NUMBER --run-link "[View run]($RUN_URL)" > "$BODY"   # + --no-reproduction when the 1.1 classification is non-bug; omit --run-link for a local run
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py create $ISSUE_NUMBER "$BODY"
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --replace-acs-file /tmp/acs-${ARGUMENTS}.md
   ```
   `new-body` seeds `**Status:** 🚀 Setup`, the `**Branch:** _(creating…)_` placeholder (filled in 1.4 the instant the branch exists), the friendly `Last updated`, the `## Progress` checklist (the bug-only `reproduction captured` sub-item is rendered only when `--no-reproduction` is omitted) with the `/devflow:implement run started` note nested under Setup, a placeholder `## Plan` (filled in 2.2), a placeholder `## Acceptance Criteria` (you replace it above), and an empty `## Devflow Reflection` `<details>` block. The `## Reproduction` section is added later in 2.1.5 if applicable.
 - **`WORKPAD_ID` non-empty (resume — the normal cloud path, since `gate` pre-created it; or a re-run)** → Read the live body with `workpad.py body $WORKPAD_ID`. Treat its `## Progress` notes and `Devflow Reflection` as load-bearing context (see Workpad Reference). Reset for this run **and populate the Acceptance Criteria** (a `gate`-created workpad carries only a placeholder AC section, so always replace it):
   ```bash
-  workpad.py update $ISSUE_NUMBER \
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER \
       --status Setup \
       --run-link "[View run]($RUN_URL)" \
       --replace-acs-file /tmp/acs-${ARGUMENTS}.md \
@@ -80,13 +80,13 @@ After this step, every later phase boundary touches the workpad via `workpad.py 
 
 - **Fresh run** (`WORKPAD_ID` was empty), **or a resume that finds no `classification: ` note** (a gate-created skeleton that only carries the run-started note, or a prior run that died before recording), **or a re-trigger after a *terminal* workpad `Status`** (🎉/👎/💥 — the operator's correction channel is editing the issue and re-triggering) → **classify now** (per 1.1, from the issue's *current* content and labels) and **record** it, which also supersedes any stale note from a prior verdict:
   ```bash
-  workpad.py update $ISSUE_NUMBER --record-classification {bug-report|non-bug} "{one-line rationale}"
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --record-classification {bug-report|non-bug} "{one-line rationale}"
   ```
 - **In-flight resume** (a non-terminal `Status`, and a `classification: ` note is already present) → **do NOT re-classify**; read the recorded `classification: ` note from the body (fetched above) and use its verdict as-is.
 
 Then, in **both** cases, reconcile the skeleton to the (recorded or read) classification — idempotent, so it is safe on every entry and a no-op when the skeleton already matches:
 ```bash
-workpad.py update $ISSUE_NUMBER --reconcile-reproduction {bug-report|non-bug}
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reconcile-reproduction {bug-report|non-bug}
 ```
 (The two `update` calls may be combined into one when recording — `--record-classification … --reconcile-reproduction …` — since both mutate `## Progress`.) A non-bug verdict never deletes a **ticked** "reproduction captured" row or a populated `## Reproduction` section — those stay as historical evidence, annotated by the superseding `classification: ` note; reconciliation only removes the *unticked* bug-only row when the classification is non-bug, and adds it when bug-report and absent.
 
@@ -290,15 +290,15 @@ if [ -n "$USE_CURRENT" ]; then
     # it proves freshness was checked, not assumed.
     BEHIND=$(git rev-list --count "HEAD..origin/$BASE" 2>/dev/null) || BEHIND=""
     if [ -z "$BEHIND" ]; then
-      workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "freshness (adopted branch '$CUR'): fetched origin/$BASE but could not derive behind-by (git rev-list failed) — tree freshness unverified; 1.6/2.1 verification reads target origin/$BASE"
+      "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "freshness (adopted branch '$CUR'): fetched origin/$BASE but could not derive behind-by (git rev-list failed) — tree freshness unverified; 1.6/2.1 verification reads target origin/$BASE"
     elif [ "$BEHIND" -eq 0 ]; then
-      workpad.py update $ISSUE_NUMBER --note "freshness (adopted branch '$CUR'): behind origin/$BASE by 0 commits — tree is up to date with the base"
+      "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --note "freshness (adopted branch '$CUR'): behind origin/$BASE by 0 commits — tree is up to date with the base"
     else
-      workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "freshness (adopted branch '$CUR'): behind origin/$BASE by $BEHIND commit(s) — per the read-target rule, 1.6/2.1 verification reads that adjudicate shipped-work claims target origin/$BASE state, not the fork point"
+      "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "freshness (adopted branch '$CUR'): behind origin/$BASE by $BEHIND commit(s) — per the read-target rule, 1.6/2.1 verification reads that adjudicate shipped-work claims target origin/$BASE state, not the fork point"
     fi
   else
     # Fetch failed: record freshness-unverified and continue (never exit 1 on this arm).
-    workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "freshness (adopted branch '$CUR'): could not fetch origin/$BASE (network/auth) — tree freshness UNVERIFIED; the run continues with the tree marked unvouched, and 1.6/2.1 verification reads unconditionally target origin/$BASE"
+    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "freshness (adopted branch '$CUR'): could not fetch origin/$BASE (network/auth) — tree freshness UNVERIFIED; the run continues with the tree marked unvouched, and 1.6/2.1 verification reads unconditionally target origin/$BASE"
   fi
 fi
 ```
@@ -340,7 +340,7 @@ fi
 
 **Immediately fill the workpad's `Branch` line** (so the placeholder from 1.3 is never left on a completed run):
 ```bash
-workpad.py update $ISSUE_NUMBER --branch "$(git branch --show-current)"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --branch "$(git branch --show-current)"
 ```
 
 ### 1.5 Push Branch
@@ -351,7 +351,7 @@ git push -u origin HEAD
 
 Then tick the Setup phase in the workpad's `## Progress` checklist:
 ```bash
-workpad.py update $ISSUE_NUMBER --tick-progress "branch & workpad"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --tick-progress "branch & workpad"
 ```
 
 ### 1.6 Issue-Claim Audit

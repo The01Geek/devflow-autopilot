@@ -86,7 +86,7 @@ First resolve and **print** the clean label list — a `config-get` capture is p
 # leave empty) and is exempt from `set -e`.
 if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then
   DEFERRED_LABELS=""
-  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred follow-up issues filed WITHOUT labels."
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred follow-up issues filed WITHOUT labels."
 fi
 # Normalize with GRANTED heads only. `paste` is granted in NO allowlist (baked TOOLS,
 # config.json, config.example.json), so a `| paste -sd, -` tail makes the WHOLE pipeline
@@ -194,7 +194,7 @@ if [ -n "$MANIFESTS" ]; then
         # intact, do NOT file from a half-merged temp, and surface the gap rather than
         # silently falling through to the filing guard with a stale aggregate.
         rm -f "${AGG}.tmp"
-        workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 deferrals merge (jq) failed over: ${MANIFESTS}; deferrals NOT filed this run — inspect the run-scoped manifests."
+        "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 deferrals merge (jq) failed over: ${MANIFESTS}; deferrals NOT filed this run — inspect the run-scoped manifests."
         AGG=""   # make the filing guard below unambiguously false
     fi
 fi
@@ -234,15 +234,15 @@ if [ -n "$AGG" ] && [ -s "$AGG" ]; then
         # exits 0. Surface that so the dropped findings (which won't reach the PR's
         # Scope-Acknowledged block) leave a breadcrumb instead of vanishing silently.
         grep -q 'were dropped from manifest' /tmp/devflow-fd.err && \
-            workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py filed partially (rc=0): $(cat /tmp/devflow-fd.err); dropped groups will NOT appear in the PR's Scope-Acknowledged Findings block."
+            "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py filed partially (rc=0): $(cat /tmp/devflow-fd.err); dropped groups will NOT appear in the PR's Scope-Acknowledged Findings block."
     elif grep -q 'already has follow_up' /tmp/devflow-fd.err; then
         FILED_STATE=idempotent
-        workpad.py update $ISSUE_NUMBER --note "Deferrals already filed on a prior run (idempotent re-run) — nothing new to file; the hydrated aggregate stands."
+        "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --note "Deferrals already filed on a prior run (idempotent re-run) — nothing new to file; the hydrated aggregate stands."
     elif grep -q 'no deferrals' /tmp/devflow-fd.err; then
         FILED_STATE=none
-        workpad.py update $ISSUE_NUMBER --note "Aggregate held no deferrals to file — nothing to do."
+        "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --note "Aggregate held no deferrals to file — nothing to do."
     else
-        workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py failed (rc≠0): $(cat /tmp/devflow-fd.err); no follow-up issues filed this run."
+        "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py failed (rc≠0): $(cat /tmp/devflow-fd.err); no follow-up issues filed this run."
     fi
     # Record the filed numbers AND print them — IN THIS FENCE, because this is the only
     # place `FILED_NUMBERS` exists. A shell variable does not survive into a later separate
@@ -252,7 +252,7 @@ if [ -n "$AGG" ] && [ -s "$AGG" ]; then
     # channel that carries the numbers to the agent-level label calls further down.
     if [ -n "${FILED_NUMBERS:-}" ]; then
         NUMBERS_CSV=$(echo "$FILED_NUMBERS" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, #/g')
-        workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred review findings: #${NUMBERS_CSV}"
+        "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred review findings: #${NUMBERS_CSV}"
     fi
 fi
 # UNCONDITIONAL sentinel — OUTSIDE the aggregate guard, so it prints on every path this fence
@@ -304,7 +304,7 @@ Then apply the configured `deferred.labels` to each filed issue — the **same**
 # python3) leaves DEFERRED_LABELS empty AND a breadcrumb.
 if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then
     DEFERRED_LABELS=""
-    workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred review-finding issues filed WITHOUT labels."
+    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred review-finding issues filed WITHOUT labels."
 fi
 # GRANTED heads only — `paste` is granted in no allowlist, so a `| paste -sd, -` tail makes
 # the whole pipeline refused and the capture silently empty (see Phase 4.0's note).
@@ -360,12 +360,12 @@ The rc handling above distinguishes three cases: a clean filing (rc 0), the beni
 # substituted inline in the path exactly as in the gh command — no new cross-statement value.)
 if ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>/tmp/devflow-docgate-gh.err \
    && ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>/tmp/devflow-docgate-gh.err; then
-  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
   # then emit the 👎 outcome reaction (see the Workpad Reference) and STOP the run.
 fi
 if ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt) \
    && ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt); then
-  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: the Documentation Needed extractor failed (token scan error); the deliverable cross-check could not run — retry"
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: the Documentation Needed extractor failed (token scan error); the deliverable cross-check could not run — retry"
   # then emit the 👎 outcome reaction and STOP the run.
 fi
 ```
@@ -376,19 +376,23 @@ These paths are the required deliverables. Stage 2 re-runs the **same helper** r
 
 Spawn a **subagent** (using the Agent tool) and instruct it to invoke the `devflow:docs` skill. Compose the dispatch instruction: begin with "Invoke the `devflow:docs` skill to update all documentation (internal docs, external docs, release notes). The issue context is provided for release notes generation." If `DOC_NEEDED_PATHS` is non-empty, append: " The issue requires the following files to be updated; treat each as a mandatory deliverable: `<path1>`, `<path2>`, …" Send this composed instruction along with the issue title, body, and number to the subagent.
 
-After the subagent completes, commit any documentation changes. Read the docs paths from `.devflow/config.json`:
+After the subagent completes, commit any documentation changes. Read the docs paths from `.devflow/config.json` — `config-get.sh` **prints** each path, so read the two printed values and substitute them as literals for `<internal-path>` / `<external-path>` below. (A `VAR=$(…)` capture does not survive across Bash tool calls on the cloud runner — both expand empty and `git add "" ""` fails with `fatal: empty string is not a valid pathspec`; #484/#490.)
 
 ```bash
-DOCS_INTERNAL=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/)
-DOCS_EXTERNAL=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/)
-git status -- "$DOCS_INTERNAL" "$DOCS_EXTERNAL"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/
 ```
 
-If there are changes:
+If `git status -- "<internal-path>" "<external-path>"` shows changes, stage and commit them:
 ```bash
-git add "$DOCS_INTERNAL" "$DOCS_EXTERNAL"
+git add "<internal-path>" "<external-path>"
 git commit -m "docs: update documentation for issue #$ARGUMENTS"
 git push
+```
+
+If nothing staged (no documentation changes), record it rather than ticking `Documentation` complete — an empty docs pass is not a completed one:
+```bash
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --note "Phase 4.1: no documentation changes to commit (docs subagent ran clean / made no changes)"
 ```
 
 Then decide whether the docs pass succeeded: it succeeded if the docs subagent actually ran — either it produced changes (committed above) or it returned cleanly with no changes needed. If instead the docs subagent failed, returned no useful output, or was unable to run, that is actionable: add a `--reflection-kind dropped-failed --reflection "…"` bullet to the workpad and do **not** apply the post-docs labels at all (now or later). The post-docs labels signal "the docs pass ran and was reviewed", but they are **not** applied here — application is deferred to the end of Stage 2 so that a PR which routes to Blocked for an undelivered deliverable never carries them (the label resolution is shown there). (Downstream docs automation, if the adopter runs any, can key off these labels to avoid double-processing the PR.)
@@ -404,12 +408,12 @@ Then decide whether the docs pass succeeded: it succeeded if the docs subagent a
 # fail CLOSED to Blocked; an rc-0 EMPTY extraction stays the genuine no-op signal.
 if ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>/tmp/devflow-docgate-gh.err \
    && ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>/tmp/devflow-docgate-gh.err; then
-  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
   # then emit the 👎 outcome reaction and STOP the run.
 fi
 if ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt) \
    && ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt); then
-  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: the Documentation Needed extractor failed (token scan error); the deliverable cross-check could not run — retry"
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: the Documentation Needed extractor failed (token scan error); the deliverable cross-check could not run — retry"
   # then emit the 👎 outcome reaction and STOP the run.
 fi
 ```
@@ -427,7 +431,7 @@ fi
    # check below reads it as the genuine "touched none of these files" signal.
    if ! DIFF_OUT=$(git diff --name-only "origin/$BASE...HEAD") \
       && { git fetch origin "$BASE" >/dev/null 2>&1; ! DIFF_OUT=$(git diff --name-only "origin/$BASE...HEAD"); }; then
-     workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not compute the cumulative diff for the Documentation Needed gate (git diff / base-fetch failed — offline, auth, or wrong trunk); never falling through to a path-absent verdict on a broken command"
+     "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not compute the cumulative diff for the Documentation Needed gate (git diff / base-fetch failed — offline, auth, or wrong trunk); never falling through to a path-absent verdict on a broken command"
      # then emit the 👎 outcome reaction and STOP the run.
    fi
    ```
@@ -444,7 +448,7 @@ Once every named path is satisfied (or Stage 1 found no paths), apply the deferr
 # the whole pipeline refused and the capture silently empty (the same trap Phase 4.0 notes).
 if ! DOCS_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.labels Documented); then
   DOCS_LABELS=""
-  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not read docs.labels (config-get rc≠0 — corrupt config.json or python3 missing); the PR carries none of the configured docs labels."
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not read docs.labels (config-get rc≠0 — corrupt config.json or python3 missing); the PR carries none of the configured docs labels."
 fi
 CLEAN_LABELS=$(echo "$DOCS_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | tr '\n' ',' | sed 's/,$//')
 DOCS_PR_NUM=$(gh pr view --json number --jq '.number')
@@ -591,7 +595,7 @@ Then finalize the workpad — tick the final `## Progress` item and flip `Status
 #       i.e. AC-mirroring never ran — only prints a non-blocking warning and the finalize still
 #       succeeds. If that AC-placeholder warning fires, the self-record was never populated from
 #       the issue: investigate the mirroring, do not just re-run the finalize.)
-workpad.py update $ISSUE_NUMBER \
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER \
     --status Complete \
     --tick-progress "PR marked ready" \
     --note "{PR_OUTCOME-specific note above}" \

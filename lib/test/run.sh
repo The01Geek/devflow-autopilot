@@ -6209,6 +6209,103 @@ pt=[t.strip() for t in p.group(1).split(",") if t.strip()]
 print("SYNCED" if bt==pt else "DRIFT")
 ' "$IMPL_YML" "$MPROBE_YML")"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "implement-profile head guard (#484)"
+# ────────────────────────────────────────────────────────────────────────────
+# Phase 3 runs the review engine INLINE in the implement context, so every head
+# skills/implement/** and skills/review*/SKILL.md emits executes under the
+# devflow-implement.yml baked --allowed-tools allowlist — NOT the review one. A
+# head that allowlist does not grant is silently refused (#363). This block drives
+# the head extractor over that whole executed surface and fails when any emitted
+# head is ungranted. The allowlist is assembled from the workflow's baked block
+# ALONE (implement-block mode), never from .devflow/config.json — a consumer repo
+# does not carry this repo's config extras, so a head reachable only via config is
+# reported ungranted here (the fail-closed direction). The extractor prints
+# ungranted heads and exits 0 either way, so the guard keys on the printed output
+# being EMPTY, never on the exit status.
+ECH="$LIB/test/extract-command-heads.py"
+E484="$(mktemp -d)" || { echo "FAIL  #484: mktemp -d failed"; exit 1; }
+trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484"' EXIT
+
+# Heads deliberately left ungranted on the implement profile, each with a rationale:
+#   gh pr checkout — the inline engine is already on the branch; checking out a PR
+#     head would move the tree under Phase 3's fix loop and Phase 4's doc pass.
+#   git rev-list — shallow-clone hazard at fetch-depth 50 (rev-list --count across
+#     the graft boundary can return a plausible-but-wrong number read targets key on).
+#   mktemp — invoked only from leading VAR=$(…) capture shapes the matcher refuses
+#     regardless of a head grant; granting it would be a no-op greening the guard
+#     on a still-denied path.
+WITHHELD_IMPL=$'gh pr checkout\ngit rev-list\nmktemp'
+# Shell builtins + extractor parse artifacts (leaked case-arm fragments) emitted
+# alongside real heads. EXACT-match only (grep -xF): a head that merely begins with
+# a suppressed entry (set-something.sh) is still reported ungranted.
+SUPPRESS_IMPL=$'true\nset\nsetopt\nclaude/issue-*\nissue-*)\nnon-bug}'
+
+# True iff HEAD is an EXACT member of the suppression or withheld set (grep -xF:
+# fixed-string, whole-line; never a prefix match).
+_impl_suppressed() {  # <head> -> 0 if suppressed/withheld, 1 otherwise
+  { printf '%s\n' "$SUPPRESS_IMPL"; printf '%s\n' "$WITHHELD_IMPL"; } | grep -qxF "$1"
+}
+
+# Real ungranted heads from one skill file: extractor output minus suppressed/withheld.
+_impl_ungranted() {  # <skill-file>
+  local h
+  python3 "$ECH" ungranted "$1" "$IMPL_YML" implement-block 2>"$E484/err" \
+    | while IFS= read -r h; do _impl_suppressed "$h" || printf '%s\n' "$h"; done
+}
+
+# AC: a Bash(...) spec cited only in a YAML comment is NOT a grant — implement-block
+# scopes to the --allowed-tools quoted block, so the cited spec is unreachable. This
+# is the fail-OPEN shape (a whole-file parse reading a comment as a grant) the guard
+# exists to eliminate.
+printf '%s\n' '```bash' 'make build' '```' > "$E484/cited.md"
+{ printf '%s\n' 'steps:' '  - run: |' '      # Emits ",Bash(make:*),"' '      --allowed-tools' '      "Read,Bash(echo:*)"'; } > "$E484/cited.yml"
+assert_eq "#484 a Bash(...) spec cited in a YAML comment is not a grant (implement-block scopes to the quoted block)" \
+  "make" "$(python3 "$ECH" ungranted "$E484/cited.md" "$E484/cited.yml" implement-block)"
+
+# AC: an absent/unreadable workflow is a FAILURE, not zero findings (fail-closed —
+# never the empty allowlist the default mode would silently yield).
+assert_eq "#484 an absent workflow file is reported, not read as zero findings (fail-closed)" "yes" \
+  "$(python3 "$ECH" ungranted "$E484/cited.md" "$E484/does-not-exist.yml" implement-block >/dev/null 2>&1 && echo no || echo yes)"
+
+# AC: a head that merely begins with a suppressed builtin survives (exact, not prefix).
+printf '%s\n' '```bash' 'set-something.sh --x' '```' > "$E484/prefix.md"
+assert_eq "#484 set-something.sh survives the suppression list (exact-match, not prefix)" \
+  "set-something.sh" "$(python3 "$ECH" ungranted "$E484/prefix.md" "$E484/cited.yml" implement-block)"
+
+# AC: the withheld list is exactly {gh pr checkout, git rev-list, mktemp} — it cannot
+# silently grow into a suppression that hollows the guard out.
+assert_eq "#484 withheld list is exactly gh pr checkout, git rev-list, mktemp" \
+  "gh pr checkout git rev-list mktemp" "$(printf '%s\n' "$WITHHELD_IMPL" | sort | tr '\n' ' ' | sed 's/ *$//')"
+
+# AC: the contract — zero ungranted real heads across the whole implement-executed
+# surface (implement + the two review engines Phase 3 runs inline). Keys on the
+# extractor's printed output being empty, not its exit status.
+_impl_files="$LIB/../skills/implement/SKILL.md $LIB/../skills/implement/phases/phase-1-setup.md $LIB/../skills/implement/phases/phase-2-implement.md $LIB/../skills/implement/phases/phase-3-review.md $LIB/../skills/implement/phases/phase-4-documentation.md $LIB/../skills/review/SKILL.md $LIB/../skills/review-and-fix/SKILL.md"
+assert_eq "#484 every implement-tier head is granted or withheld (zero ungranted real heads)" "" \
+  "$(for f in $_impl_files; do _impl_ungranted "$f"; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+
+# AC: review-and-fix/SKILL.md against devflow.yml's hoisted TOOLS — gh pr checkout is
+# granted there (the manual /devflow:review-and-fix path checks out the PR head), so
+# every head it emits is granted or suppressed.
+assert_eq "#484 every review-and-fix head is granted by devflow.yml TOOLS (gh pr checkout granted there)" "" \
+  "$(python3 "$ECH" ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../.github/workflows/devflow.yml" tools-line 2>/dev/null \
+    | while IFS= read -r h; do _impl_suppressed "$h" || printf '%s\n' "$h"; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+
+# Behavioral-fix pin: removing the stale-prose-lint.py grant from devflow-implement.yml
+# must turn the guard RED — the guard catches the re-introduced silent denial, not
+# merely its own line vanishing. assert_pin_red_under mutates a scratch copy and
+# confirms the grant literal flips present→absent; a direct guard-behavior check
+# follows (drop the grant from a scratch workflow, confirm the extractor reports the
+# head ungranted over review/SKILL.md).
+assert_pin_red_under "#484 pin: the stale-prose-lint.py grant is removal-proof (deleting it turns the guard RED)" \
+  'Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)' \
+  '/Bash\(\.devflow\/vendor\/devflow\/scripts\/stale-prose-lint\.py:\*\)/d' \
+  "$IMPL_YML"
+sed -E '/Bash\(\.devflow\/vendor\/devflow\/scripts\/stale-prose-lint\.py:\*\)/d' "$IMPL_YML" > "$E484/impl-no-spl.yml"
+assert_eq "#484 guard-behavior: with the stale-prose-lint.py grant removed the extractor reports it ungranted over review/SKILL.md" \
+  "yes" "$(python3 "$ECH" ungranted "$LIB/../skills/review/SKILL.md" "$E484/impl-no-spl.yml" implement-block 2>/dev/null | grep -qF 'stale-prose-lint.py' && echo yes || echo no)"
+
 # Implement flip: the function + each of its fail-loud call sites (at least the four
 # pinned below), guarded on interim. Each pin quotes that site's unique cause string,
 # so deleting the call goes RED; a fifth site added later never falsifies this prose.
@@ -31682,11 +31779,12 @@ assert_eq "#423 T9 severity array → default important"               "importan
 assert_eq "#423 T9 severity number → default important"              "important" "$(sp_resolve_sev '{"devflow_review":{"stale_prose":{"severity":5}}}')"
 assert_eq "#423 T9 severity unknown string → default important"      "important" "$(sp_resolve_sev '{"devflow_review":{"stale_prose":{"severity":"blocker"}}}')"
 
-# T7 → both cloud allowlists grant the helper (vendored literal), plus config grants.
+# T7 → both review-tier cloud allowlists grant the helper (vendored literal). The
+# inert config globs were removed in #484 (a */basename glob does not match the
+# vendored leading token); the implement profile grants the helper as a vendored
+# literal in its baked block instead, pinned by the #484 head guard below.
 assert_pin_unique "#423 T7 devflow-runner review TOOLS grants the lint (vendored literal)" 'Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)' "$SP_RUNNER_YML"
 assert_pin_unique "#423 T7 devflow.yml hoisted TOOLS grants the lint (vendored literal)" 'Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)' "$SP_DEVFLOW_YML"
-assert_eq "#423 T7 config devflow_implement.allowed_tools grants the lint" "yes" "$(jq -e '.devflow_implement.allowed_tools | index("Bash(*/stale-prose-lint.py:*)")' "$SP_CONFIG" >/dev/null && echo yes || echo no)"
-assert_eq "#423 T7 config devflow.allowed_tools grants the lint" "yes" "$(jq -e '.devflow.allowed_tools | index("Bash(*/stale-prose-lint.py:*)")' "$SP_CONFIG" >/dev/null && echo yes || echo no)"
 
 # T8 → engine-sharing invariant: Phase 0.6 lives ONLY in the engine skill; the fix-loop
 # skill invokes the same helper but adds no rule paraphrase (references the step only).
@@ -36146,9 +36244,11 @@ assert_eq "#466 mla-grants: devflow-runner.yml review profile grants match-lint-
   "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*)' "$MLA_RUNNER_YML")"
 assert_eq "#466 mla-grants: devflow.yml hoisted TOOLS grants match-lint-adjudications.py" "1" \
   "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*)' "$MLA_DEVFLOW_YML")"
-# devflow-implement.yml deliberately grants neither stale-prose-lint.py nor this helper (AC scoping).
-assert_eq "#466 mla-grants: devflow-implement.yml does NOT grant match-lint-adjudications.py (inert-tier scoping)" "0" \
-  "$(grep -cF 'match-lint-adjudications.py' "$LIB/../.github/workflows/devflow-implement.yml")"
+# devflow-implement.yml grants match-lint-adjudications.py because Phase 3 runs the
+# review engine inline under the implement allowlist (#484) — the implement profile
+# is no longer inert for review-engine helpers.
+assert_eq "#466 mla-grants: devflow-implement.yml grants match-lint-adjudications.py (Phase 3 runs the engine inline, #484)" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*)' "$LIB/../.github/workflows/devflow-implement.yml")"
 
 # mla-extension-pins (Extension rule): the six-shape phrase is present in both extension files.
 # (The $SIXSHAPE_SET lockstep block above already assert_pin_unique's the exact literal in both;
