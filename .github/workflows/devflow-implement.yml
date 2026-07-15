@@ -863,6 +863,12 @@ jobs:
           # devflow.yml's literal list (devflow-runner.yml intentionally uses a computed
           # steps.tools.outputs.tools profile string, not a literal list).
           # allowed_tools_extra splices inside the closing quote.
+          # Reachable bundled helpers from skills/review*/SKILL.md are granted here as
+          # vendored literals because Phase 3 runs the review engine INLINE under this
+          # allowlist (#484) — otherwise the engine silently refuses them (#363). The
+          # lib/test/run.sh #484 guard deliberately audits all shared fenced source,
+          # including standalone-only Phase 4.4, so every audited head is granted or
+          # withheld with rationale even when normal inline control flow cannot reach it.
           claude_args: >-
             ${{ steps.cargs.outputs.args }}
             --allowed-tools
@@ -889,6 +895,7 @@ jobs:
             Bash(git diff:*),
             Bash(git log:*),
             Bash(git show:*),
+            Bash(git hash-object:*),
             Bash(git checkout:*),
             Bash(git branch:*),
             Bash(git stash:*),
@@ -940,6 +947,12 @@ jobs:
             Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*),
             Bash(.devflow/vendor/devflow/scripts/ensure-label.sh:*),
             Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),
+            Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*),
+            Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),
+            Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*),
+            Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),
+            Bash(.devflow/vendor/devflow/scripts/react-to-trigger.sh:*),
+            Bash(.devflow/vendor/devflow/scripts/extract-doc-needed-paths.sh:*),
             Bash(pip install:*),
             Bash(pip:*),
             Bash(python:*),
@@ -963,6 +976,7 @@ jobs:
             Bash(awk:*),
             Bash(sed:*),
             Bash(diff:*),
+            Bash(cmp:*),
             Bash(comm:*),
             Bash(cat:*),
             Bash(head:*),

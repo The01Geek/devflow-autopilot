@@ -294,6 +294,8 @@ own in-env suite/lint results** for the current HEAD — never a CI conclusion. 
 runner is a separate, unchanged case: its wait-for-CI-then-review posture is the correct *post-PR*
 sequence.)
 
+**Inline-engine grant coupling.** Because Phase 3 executes the shared review engine inline under the implement allowlist (not the review one), every helper the normal inline flow can reach needs a grant on the implement profile (`devflow-implement.yml`) as well as the review profile and `devflow.yml` — otherwise that reachable call is silently refused on cloud implement runs (#363). The `lib/test/run.sh` #484 head guard deliberately over-approximates the runtime surface: it audits all fenced source in `skills/implement/**`, `skills/review*/**`, and the dispatched `skills/requesting-code-review/**` final pass, including standalone-only review Phase 4.4. It fails when an audited fenced head is neither granted on the implement profile nor named in the exact deliberately-withheld list; the allowlist is assembled from the workflow's baked literal alone. A separate removal-proof contract requires inline `workpad.py` source shorthand to expand to the portable granted helper path before emission.
+
 **Documentation-AC deferral (Phase-4.1-owned, distinct from `(post-merge)`).** A criterion whose
 satisfaction is a *documentation edit that Phase 4.1's `devflow:docs` subagent owns* — a `docs/…`
 deliverable that pass authors, rather than a `skills/`/`scripts/`/`lib/`/test change this phase can make
