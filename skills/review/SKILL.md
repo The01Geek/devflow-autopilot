@@ -400,7 +400,7 @@ Use `$BASE` from the guarded capture at the start of Phase 0.2, never a hardcode
 
 Use the diff output for Phase 1. The current branch is the review target.
 
-For the checked cache producer below, hold `LOCAL_DIFF_BASE=origin/$BASE`. In PR head-override mode hold `LOCAL_DIFF_BASE=$HEAD_OVERRIDE_BASE` instead. Standalone PR mode does not set `LOCAL_DIFF_BASE` and remains on the unchanged `gh pr diff` path.
+For the checked cache producer below, render `<resolved-local-diff-base>` before executing the fence: substitute `origin/$BASE` in current-branch mode or the mechanically selected `$HEAD_OVERRIDE_BASE` value in PR head-override mode. This is a required non-shell placeholder, not an environment variable: if a runner drops the substitution, the literal is not a valid ref and `git diff` fails closed instead of collapsing an unset variable to the valid-but-empty `...HEAD` range. Standalone PR mode remains on the unchanged `gh pr diff` path and does not execute this fence.
 
 If the diff is empty, report: "No changes to review. Branch is identical to $BASE." and stop.
 
@@ -419,10 +419,10 @@ gh pr diff $ARGUMENTS | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !
 # or, in current-branch mode ($BASE from the guarded config-get capture above):
 # git diff "origin/$BASE...HEAD" | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
 # In either local-diff mode, use this checked candidate/promote form.
-# LOCAL_DIFF_BASE is either the mechanically selected HEAD_OVERRIDE_BASE (PR
-# head override) or origin/$BASE (current branch). Remove stale authority first.
+# Render <resolved-local-diff-base> as the mechanically selected HEAD_OVERRIDE_BASE
+# value (PR head override) or origin/$BASE (current branch). Remove stale authority first.
 rm -f .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate .devflow/tmp/review/<slug>/<run-id>/diff.candidate .devflow/tmp/review/<slug>/<run-id>/diff.patch
-if git diff "$LOCAL_DIFF_BASE...HEAD" > .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate; then
+if git diff "<resolved-local-diff-base>...HEAD" > .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate; then
   if awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate > .devflow/tmp/review/<slug>/<run-id>/diff.candidate; then
     if sed -n 'p' .devflow/tmp/review/<slug>/<run-id>/diff.candidate > .devflow/tmp/review/<slug>/<run-id>/diff.patch; then
       if cat .devflow/tmp/review/<slug>/<run-id>/diff.patch; then

@@ -32030,12 +32030,13 @@ assert_eq "#503 AC8 item 6a documents and executes the same guarded base_branch 
 # executable and removal-proof, not a prose-only promise that can drift while the
 # item-6a mirror stays green.
 assert_pin_red_under "#503 review producer stages the filtered diff before promoting it to diff.patch" \
-  'if git diff "$LOCAL_DIFF_BASE...HEAD" > .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate; then' \
-  '/if git diff "\$LOCAL_DIFF_BASE\.\.\.HEAD" > \.devflow\/tmp\/review\/<slug>\/<run-id>\/diff\.raw-candidate; then/d' "$SP_REVIEW"
+  'if git diff "<resolved-local-diff-base>...HEAD" > .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate; then' \
+  '/if git diff "<resolved-local-diff-base>\.\.\.HEAD" > \.devflow\/tmp\/review\/<slug>\/<run-id>\/diff\.raw-candidate; then/d' "$SP_REVIEW"
 assert_pin_red_under "#503 current-branch name-only fence consumes the configured base" \
   'git diff "origin/$BASE...HEAD" --name-only' 's/git diff "origin\/\$BASE\.\.\.HEAD" --name-only/git diff "origin\/main...HEAD" --name-only/' "$SP_REVIEW"
-assert_pin_red_under "#503 current-branch cache producer carries the same configured base" \
-  'LOCAL_DIFF_BASE=origin/$BASE' 's/LOCAL_DIFF_BASE=origin\/\$BASE/LOCAL_DIFF_BASE=origin\/main/' "$SP_REVIEW"
+assert_pin_red_under "#503 local cache producer requires a rendered base placeholder" \
+  'render `<resolved-local-diff-base>` before executing the fence' \
+  's/render `<resolved-local-diff-base>` before executing the fence/hold the base before executing the fence/' "$SP_REVIEW"
 assert_pin_red_under "#503 review producer records the stdout-publication failure before cleanup" \
   'CAT_RC=$?' '/CAT_RC=\$?/d' "$SP_REVIEW"
 assert_pin_red_under "#503 retargeted-PR residual compares the PR base with the configured checkpoint base" \
@@ -32087,8 +32088,9 @@ SP503_FENCE_DIR="$(mktemp -d)"
 SP503_FENCE_CACHE="$SP503_FENCE_DIR/cache"
 SP503_FENCE_BIN="$SP503_FENCE_DIR/bin"
 mkdir -p "$SP503_FENCE_CACHE" "$SP503_FENCE_BIN"
-awk '/^# LOCAL_DIFF_BASE is either/{capture=1; next} capture && /^```/{exit} capture' "$SP_REVIEW" \
-  | sed "s#\.devflow/tmp/review/<slug>/<run-id>#$SP503_FENCE_CACHE#g" > "$SP503_FENCE_DIR/fence.sh"
+awk '/^# Render <resolved-local-diff-base>/{capture=1; next} capture && /^```/{exit} capture' "$SP_REVIEW" \
+  | sed "s#\.devflow/tmp/review/<slug>/<run-id>#$SP503_FENCE_CACHE#g" > "$SP503_FENCE_DIR/fence-unresolved.sh"
+sed 's#<resolved-local-diff-base>#origin/main#g' "$SP503_FENCE_DIR/fence-unresolved.sh" > "$SP503_FENCE_DIR/fence.sh"
 tee "$SP503_FENCE_BIN/git" >/dev/null <<'EOF'
 #!/usr/bin/env bash
 if test "${1:-}" = diff; then
@@ -32117,7 +32119,7 @@ exec /bin/cat "$@"
 EOF
 chmod +x "$SP503_FENCE_BIN/git" "$SP503_FENCE_BIN/awk" "$SP503_FENCE_BIN/sed" "$SP503_FENCE_BIN/cat"
 
-SP503_FENCE_OUT="$(PATH="$SP503_FENCE_BIN:$PATH" LOCAL_DIFF_BASE=origin/main bash "$SP503_FENCE_DIR/fence.sh" 2>&1)"
+SP503_FENCE_OUT="$(PATH="$SP503_FENCE_BIN:$PATH" bash "$SP503_FENCE_DIR/fence.sh" 2>&1)"
 SP503_FENCE_RC=$?
 assert_eq "#503 checked cache fence success exits zero" "0" "$SP503_FENCE_RC"
 assert_eq "#503 checked cache fence success publishes and emits identical bytes" \
@@ -32134,7 +32136,7 @@ for SP503_FAIL_STAGE in DIFF AWK PROMOTE CAT; do
     PROMOTE) MOCK_PROMOTE_RC=25; MOCK_PROMOTE_PARTIAL=1 ;;
     CAT) MOCK_CAT_RC=26 ;;
   esac
-  PATH="$SP503_FENCE_BIN:$PATH" LOCAL_DIFF_BASE=origin/main \
+  PATH="$SP503_FENCE_BIN:$PATH" \
     MOCK_DIFF_RC="$MOCK_DIFF_RC" MOCK_AWK_RC="$MOCK_AWK_RC" \
     MOCK_PROMOTE_RC="$MOCK_PROMOTE_RC" MOCK_PROMOTE_PARTIAL="$MOCK_PROMOTE_PARTIAL" MOCK_CAT_RC="$MOCK_CAT_RC" \
     bash "$SP503_FENCE_DIR/fence.sh" >/dev/null 2>&1
@@ -32144,6 +32146,15 @@ for SP503_FAIL_STAGE in DIFF AWK PROMOTE CAT; do
   assert_eq "#503 checked cache fence $SP503_FAIL_STAGE failure removes stale cache and candidates" \
     "0" "$(test ! -e "$SP503_FENCE_CACHE/diff.patch" && test ! -e "$SP503_FENCE_CACHE/diff.raw-candidate" && test ! -e "$SP503_FENCE_CACHE/diff.candidate"; echo $?)"
 done
+
+# A dropped renderer substitution must itself fail closed. Use real git here:
+# the literal placeholder is an invalid ref, so no authoritative cache can appear.
+printf '%s\n' stale-cache > "$SP503_FENCE_CACHE/diff.patch"
+( cd "$SP503" && bash "$SP503_FENCE_DIR/fence-unresolved.sh" ) >/dev/null 2>&1
+SP503_UNRESOLVED_RC=$?
+assert_eq "#503 unresolved local-base placeholder fails nonzero" "128" "$SP503_UNRESOLVED_RC"
+assert_eq "#503 unresolved local-base placeholder publishes no authoritative cache" \
+  "0" "$(test ! -e "$SP503_FENCE_CACHE/diff.patch"; echo $?)"
 rm -rf "$SP503_FENCE_DIR"
 
 # Execute the skill's exact base-resolution fence as well. The observer appended
