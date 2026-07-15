@@ -327,6 +327,7 @@ Use the PR diff output for Phase 1. Store the head branch name, `baseRefOid` as 
 **If no argument (review current branch):**
 ```bash
 if ! BASE=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .base_branch main); then
+  echo "::warning::devflow review: could not read .base_branch (config-get.sh rc≠0); falling back to 'main'" >&2
   BASE=main
 fi
 git diff "origin/$BASE...HEAD"
