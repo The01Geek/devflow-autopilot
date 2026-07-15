@@ -7494,6 +7494,15 @@ assert_pin_red_under "#478 AC2 read-protocol: a sweep is never executed from rec
 assert_pin_red_under "#478 AC2 read-protocol: unreadable §2.3 source records sweeps: unrunnable and continues (never stall, never silent skip)" \
   'sweeps: unrunnable (phase-2 source unreadable at <path>)' \
   '/phase-2 source unreadable at/d'
+# AC2 record-schema consumer (#478 compatibility review): item 7 calls itself the authoritative
+# iter-N record shape, so the read protocol's durable fields must be enumerated there too. Without
+# these pins, item 3b can require evidence that the authoritative writer silently omits.
+assert_pin_red_under "#478 AC2 record shape: item 7 persists sweep_defs_read in the authoritative iter-N schema" \
+  '`sweep_defs_read` (the Phase 2.3 source path plus the sweep identifiers read)' \
+  's/`sweep_defs_read` (the Phase 2\.3 source path plus the sweep identifiers read)//'
+assert_pin_red_under "#478 AC2 record shape: item 7 persists sweep evidence including degraded unreadable-source outcomes" \
+  '`sweep_evidence` (the item 3b sweep outcomes, including any `sweeps: unrunnable` degradation record)' \
+  's/`sweep_evidence` (the item 3b sweep outcomes, including any `sweeps: unrunnable` degradation record)//'
 
 # AC4 — the drift-guarded fix-loop mapping table. Pin the drift-guard operative sentence.
 assert_pin_red_under "#478 AC4 mapping-table: the lint goes RED when a marker appears in a sweep body the table has no row for" \
