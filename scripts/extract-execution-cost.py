@@ -38,7 +38,7 @@ preference-ordered rather than a brittle single-shape parse.
 import json
 import sys
 
-# The five per-message token figures, in the order the normalized object emits them.
+# Four per-message token components plus the total_tokens summary, in normalized order.
 _TOKEN_KEYS = (
     "input_tokens",
     "output_tokens",
@@ -108,6 +108,12 @@ def _read_usage(usage, wrong_type, accumulate):
 def _fold_usage(usage, sums, wrong_type, accumulate):
     for k in _TOKEN_KEYS:
         if k not in usage:
+            continue
+        # The undocumented execution-file schema does not establish whether a streamed
+        # message's total_tokens is a per-message delta or a cumulative run summary. A
+        # fallback sum could therefore double-count a cumulative value. Keep it unknown;
+        # result-summary usage remains authoritative and may supply total_tokens directly.
+        if accumulate and k == "total_tokens":
             continue
         v = usage[k]
         if _is_number(v):

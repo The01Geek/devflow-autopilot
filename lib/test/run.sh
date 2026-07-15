@@ -16320,6 +16320,8 @@ assert_eq "hc-reader(A2): array shape → cost from result event" "1.5" \
   "$(python3 "$HC_READER" "$HC_FX/arr.json" 2>/dev/null | jq -c '.cost_usd')"
 assert_eq "hc-reader(A2): per-message usage input_tokens summed across events" "150" \
   "$(python3 "$HC_READER" "$HC_FX/arr.json" 2>/dev/null | jq -c '.tokens.input_tokens')"
+assert_eq "hc-reader(A2): fallback total_tokens stays null because per-message values may be cumulative summaries" "null" \
+  "$(python3 "$HC_READER" "$HC_FX/arr.json" 2>/dev/null | jq -c '.tokens.total_tokens')"
 assert_eq "hc-reader(A2): a token never seen stays null (not 0)" "null" \
   "$(python3 "$HC_READER" "$HC_FX/arr.json" 2>/dev/null | jq -c '.tokens.output_tokens')"
 # A2 (token double-count, issue #475 review): when the file carries BOTH per-message
@@ -16344,8 +16346,13 @@ assert_eq "hc-reader(A2): scalar parses but lacks figures → prints an all-null
 HC_SCALAR_ERR="$(python3 "$HC_READER" "$HC_FX/scalar.json" 2>&1 1>/dev/null)"
 assert_eq "hc-reader(A2): scalar shape → a specific stderr breadcrumb" "yes" \
   "$(printf '%s' "$HC_SCALAR_ERR" | grep -qF 'scalar' && echo yes || echo no)"
-# wrong-type field: costUSD non-numeric → treated as absent (null), duration still read.
-printf '%s' '{"type":"result","costUSD":"abc","duration_ms":900}' > "$HC_FX/wrong.json"
+# modelUsage is passed through verbatim from the first result-summary object that carries it.
+printf '%s' '{"type":"result","modelUsage":{"claude-opus-4":{"inputTokens":12,"costUSD":0.2}}}' > "$HC_FX/model.json"
+assert_eq "hc-reader(A1): result-summary modelUsage is extracted verbatim" \
+  '{"claude-opus-4":{"inputTokens":12,"costUSD":0.2}}' \
+  "$(python3 "$HC_READER" "$HC_FX/model.json" 2>/dev/null | jq -c '.model_usage')"
+# wrong-type fields: each is treated as absent while a sibling numeric value still reads.
+printf '%s' '[{"type":"result","costUSD":"abc","num_turns":"many","duration_ms":true},{"duration_ms":900}]' > "$HC_FX/wrong.json"
 assert_eq "hc-reader(A2): wrong-type cost field → null (treated as absent)" "null" \
   "$(python3 "$HC_READER" "$HC_FX/wrong.json" 2>/dev/null | jq -c '.cost_usd')"
 assert_eq "hc-reader(A2): a sibling numeric field is still read past a wrong-type one" "900" \
@@ -16355,6 +16362,18 @@ assert_eq "hc-reader(A2): a sibling numeric field is still read past a wrong-typ
 # on any arm would otherwise ship green.
 assert_eq "hc-reader(A2): wrong-type field → its specific 'not a numeric figure' breadcrumb" "yes" \
   "$(python3 "$HC_READER" "$HC_FX/wrong.json" 2>&1 1>/dev/null | grep -qF 'not a numeric figure' && echo yes || echo no)"
+HC_WRONG_ERR="$(python3 "$HC_READER" "$HC_FX/wrong.json" 2>&1 1>/dev/null)"
+assert_eq "hc-reader(A2): wrong-type num_turns gets its field-specific breadcrumb" "yes" \
+  "$(printf '%s' "$HC_WRONG_ERR" | grep -qF "field 'num_turns'" && echo yes || echo no)"
+assert_eq "hc-reader(A2): wrong-type duration_ms gets its field-specific breadcrumb" "yes" \
+  "$(printf '%s' "$HC_WRONG_ERR" | grep -qF "field 'duration_ms'" && echo yes || echo no)"
+# Arg-count guard: both missing and surplus operands remain best-effort exit-0 and named.
+HC_ARG0_ERR="$(python3 "$HC_READER" 2>&1 1>/dev/null)"; HC_ARG0_RC=$?
+HC_ARG2_ERR="$(python3 "$HC_READER" "$HC_FX/cost0.json" extra 2>&1 1>/dev/null)"; HC_ARG2_RC=$?
+assert_eq "hc-reader(A2): missing execution-file argument exits 0" "0" "$HC_ARG0_RC"
+assert_eq "hc-reader(A2): surplus argument exits 0" "0" "$HC_ARG2_RC"
+assert_eq "hc-reader(A2): arg-count breadcrumb reports the observed counts" "yes" \
+  "$(printf '%s\n%s' "$HC_ARG0_ERR" "$HC_ARG2_ERR" | grep -qF 'got 0' && printf '%s\n%s' "$HC_ARG0_ERR" "$HC_ARG2_ERR" | grep -qF 'got 2' && echo yes || echo no)"
 # missing file → cannot parse at all → prints NOTHING, exit 0.
 assert_eq "hc-reader(A2): missing file → prints nothing (cannot parse at all)" "" \
   "$(python3 "$HC_READER" "$HC_FX/does-not-exist.json" 2>/dev/null)"
@@ -16389,6 +16408,19 @@ _hc_repo() {
   git -C "$repo" add -A; git -C "$repo" commit -qm seed; git -C "$repo" branch -M main
   git -C "$repo" push -q -u origin main
   printf '%s\n' "$repo"
+}
+# Seed one record directly onto a scratch repo's orphan telemetry branch and remote.
+_hc_seed_telemetry_record() { # $1 repo, $2 relative path, $3 JSON
+  local repo="$1" path="$2" json="$3" idx blob tree commit
+  idx="$repo/.git/hc-seed-index-$RANDOM"
+  blob="$(printf '%s' "$json" | git -C "$repo" hash-object -w --stdin)"
+  GIT_INDEX_FILE="$idx" git -C "$repo" read-tree --empty
+  GIT_INDEX_FILE="$idx" git -C "$repo" update-index --add --cacheinfo "100644,${blob},${path}"
+  tree="$(GIT_INDEX_FILE="$idx" git -C "$repo" write-tree)"; rm -f "$idx"
+  commit="$(GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@y GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@y \
+    git -C "$repo" commit-tree "$tree" -m seed-telemetry)"
+  git -C "$repo" update-ref refs/heads/devflow-telemetry "$commit"
+  git -C "$repo" push -q origin devflow-telemetry
 }
 HC_ITER='{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":1,"tokens":10,"wall_clock_s":1}}}'
 
@@ -16471,6 +16503,46 @@ assert_eq "hc-merge-b(A5): re-run over an already-harness_cost record is a tree-
   "$HC_M_BC" "$(_et_branch_count "$HC_M")"
 rm -rf "$HC_M"
 
+# Merge-arm-(a) degradation coverage: drive the real _floor_merge_staged function
+# directly so its already-present, jq-failure, and mv-failure branches are attributable.
+HC_FMS="$(git_sandbox "hc floor-merge-staged")"
+awk '/^_floor_merge_staged\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' \
+  "$LIB/efficiency-trace.sh" > "$HC_FMS/invoke.sh"
+cat >> "$HC_FMS/invoke.sh" <<'FMSEOF'
+DEVFLOW_JQ="${DEVFLOW_JQ:-jq}"
+_floor_merge_staged "$1" "$2" "fixture record"
+FMSEOF
+HC_FMS_PRESENT='{"schema_version":1,"harness_cost":{"cost_usd":1}}'
+printf '%s' "$HC_FMS_PRESENT" > "$HC_FMS/present.json"
+HC_FMS_PRESENT_ERR="$(bash "$HC_FMS/invoke.sh" "$HC_FMS/present.json" '{"cost_usd":2}' 2>&1 1>/dev/null)"
+assert_eq "hc-merge-a(A5): already-carries short-circuit leaves the staged record byte-identical" \
+  "$HC_FMS_PRESENT" "$(cat "$HC_FMS/present.json")"
+assert_eq "hc-merge-a(A5): already-carries short-circuit emits its named breadcrumb" "yes" \
+  "$(printf '%s' "$HC_FMS_PRESENT_ERR" | grep -qF 'already carries harness_cost; left untouched' && echo yes || echo no)"
+printf '#!/usr/bin/env bash\nexit 7\n' > "$HC_FMS/jq-fail"; chmod +x "$HC_FMS/jq-fail"
+printf '%s' '{"schema_version":1}' > "$HC_FMS/jq.json"
+HC_FMS_JQ_ERR="$(DEVFLOW_JQ="$HC_FMS/jq-fail" bash "$HC_FMS/invoke.sh" "$HC_FMS/jq.json" '{"cost_usd":2}' 2>&1 1>/dev/null)"
+assert_eq "hc-merge-a(A5): jq failure leaves the staged record byte-identical" \
+  '{"schema_version":1}' "$(cat "$HC_FMS/jq.json")"
+assert_eq "hc-merge-a(A5): jq failure emits its named merge breadcrumb" "yes" \
+  "$(printf '%s' "$HC_FMS_JQ_ERR" | grep -qF 'could not merge harness_cost' && echo yes || echo no)"
+HC_REAL_MV="$(command -v mv)"
+cat > "$HC_FMS/mv" <<MVEOF
+#!/usr/bin/env bash
+case "\${1:-}" in *.harnesstmp) exit 1 ;; esac
+exec "$HC_REAL_MV" "\$@"
+MVEOF
+chmod +x "$HC_FMS/mv"
+printf '%s' '{"schema_version":1}' > "$HC_FMS/mv.json"
+HC_FMS_MV_ERR="$(PATH="$HC_FMS:$PATH" bash "$HC_FMS/invoke.sh" "$HC_FMS/mv.json" '{"cost_usd":2}' 2>&1 1>/dev/null)"
+assert_eq "hc-merge-a(A5): mv failure leaves the staged record byte-identical" \
+  '{"schema_version":1}' "$(cat "$HC_FMS/mv.json")"
+assert_eq "hc-merge-a(A5): mv failure emits its named move breadcrumb" "yes" \
+  "$(printf '%s' "$HC_FMS_MV_ERR" | grep -qF 'could not move the merged fixture record into place' && echo yes || echo no)"
+assert_eq "hc-merge-a(A5): jq/mv failure temp files are cleaned" "no" \
+  "$([ -e "$HC_FMS/jq.json.harnesstmp" ] || [ -e "$HC_FMS/mv.json.harnesstmp" ] && echo yes || echo no)"
+rm -rf "$HC_FMS"
+
 # ── A3 (env-absent): --persist byte-identical + silent when the floor env is unset ─
 HC_E="$(_hc_repo "hc env-absent")"
 mkdir -p "$HC_E/.devflow/tmp/review/pr-9/111-1"
@@ -16501,6 +16573,31 @@ print(json.dumps([e is not None, e["cost"], e["telemetry_complete"], e["source"]
 assert_eq "hc-skeleton(A9): floor-only skeleton indexes with cost:None, telemetry_complete:false, source:None" \
   '[true, null, false, null]' "$HC_SK_RS"
 rm -rf "$HC_SK"
+# Positive behavioral fixture for the skeleton-overwrite guard: seed a REAL record at
+# the skeleton's exact filename, then make only list_blobs fail. The explicit blob probe
+# must keep the real record intact instead of replacing it with iterations:0.
+HC_SG="$(_hc_repo "hc skeleton guard")"
+HC_SG_PATH='.devflow/logs/efficiency/pr-42-556-1.json'
+HC_SG_REAL='{"schema_version":1,"slug":"pr-42","generated_at":"2026-01-01T00:00:00Z","source":"review-and-fix","iterations":7,"telemetry":[{"phase":"real"}]}'
+_hc_seed_telemetry_record "$HC_SG" "$HC_SG_PATH" "$HC_SG_REAL"
+HC_SG_BIN="$(git_sandbox "hc skeleton guard git")"; HC_REAL_GIT="$(command -v git)"
+cat > "$HC_SG_BIN/git" <<GITEOF
+#!/usr/bin/env bash
+# Fail only list_blobs' prefix-scoped read. The later verify_store call uses the same
+# ls-tree flags without `-- <prefix>` and must stay healthy, otherwise even a disabled
+# overwrite guard cannot persist the mutant skeleton and the fixture would pass vacuously.
+case " \$* " in *" -- .devflow/logs/efficiency/ "*) exit 1 ;; esac
+exec "$HC_REAL_GIT" "\$@"
+GITEOF
+chmod +x "$HC_SG_BIN/git"
+HC_SG_ERR="$( ( cd "$HC_SG" && PATH="$HC_SG_BIN:$PATH" GITHUB_RUN_ID=556 GITHUB_RUN_ATTEMPT=1 \
+    DEVFLOW_EXECUTION_COST="$HC_COST" DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=review-and-fix \
+    bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-skeleton(A6): exact-filename real record survives a failed merge-arm listing" \
+  "$HC_SG_REAL" "$(_et_show "$HC_SG" "$HC_SG_PATH")"
+assert_eq "hc-skeleton(A6): overwrite refusal is attributed to the explicit blob re-check" "yes" \
+  "$(printf '%s' "$HC_SG_ERR" | grep -qF 'declining to overwrite it with a cost skeleton' && echo yes || echo no)"
+rm -rf "$HC_SG" "$HC_SG_BIN"
 # pr-description class → NO skeleton (no-record-by-design breadcrumb).
 HC_PD="$(_hc_repo "hc pr-description")"
 HC_PD_ERR="$( ( cd "$HC_PD" && GITHUB_RUN_ID=666 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
@@ -16659,7 +16756,27 @@ printf '%s' "$HC_ITER" > "$HC_SR/.devflow/tmp/review/pr-6/run-b/iter-1.json"
 git -C "$HC_SR" fetch -q origin devflow-telemetry:refs/remotes/origin/sr 2>/dev/null
 assert_eq "hc-race(A5a staged): the staged re-merge keeps base-side (writer A) harness_cost cost_usd=9, NOT this run's stale cost_usd=5" "9" \
   "$(git -C "$HC_SR" show "refs/remotes/origin/sr:.devflow/logs/efficiency/pr-6-run-r.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
-rm -rf "$HC_SR" "$HC_SR_BARE" "$HC_SR_A"
+# Replay the same deterministic race with only the union's `--argjson local` jq call
+# forced to fail. The bounded degradation is deliberately local-wins, and its warning
+# must execute so a possible base-side harness_cost reversion is never silent.
+git -C "$HC_SR" update-ref refs/heads/devflow-telemetry "$HC_SR_SN"
+git -C "$HC_SR_BARE" update-ref refs/heads/devflow-telemetry "$HC_SR_AN"
+HC_SR_JQDIR="$(git_sandbox "hc staged-remerge jq-fail")"; HC_REAL_JQ="$(command -v jq)"
+cat > "$HC_SR_JQDIR/jq" <<JQEOF
+#!/usr/bin/env bash
+case " \$* " in *" --argjson local "*) exit 9 ;; esac
+exec "$HC_REAL_JQ" "\$@"
+JQEOF
+chmod +x "$HC_SR_JQDIR/jq"
+HC_SR_FB_ERR="$( ( cd "$HC_SR" && DEVFLOW_JQ="$HC_SR_JQDIR/jq" GITHUB_RUN_ID=run GITHUB_RUN_ATTEMPT=r \
+    DEVFLOW_EXECUTION_COST='{"cost_usd":5,"tokens":{},"model_usage":null,"num_turns":null,"duration_ms":null}' \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+git -C "$HC_SR" fetch -q origin devflow-telemetry:refs/remotes/origin/sr-fallback 2>/dev/null
+assert_eq "hc-race(A5a fallback): jq-unavailable merge degrades to the documented local-wins value" "5" \
+  "$(git -C "$HC_SR" show "refs/remotes/origin/sr-fallback:.devflow/logs/efficiency/pr-6-run-r.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
+assert_eq "hc-race(A5a fallback): local-wins degradation emits the load-bearing reversion warning" "yes" \
+  "$(printf '%s' "$HC_SR_FB_ERR" | grep -qF 'fell back to local-wins' && printf '%s' "$HC_SR_FB_ERR" | grep -qF 'concurrent base-side harness_cost may be reverted' && echo yes || echo no)"
+rm -rf "$HC_SR" "$HC_SR_BARE" "$HC_SR_A" "$HC_SR_JQDIR"
 
 # ── A7: prepare-harness-floor.sh — every branch, under a stubbed gh ───────────
 HC_GD="$(git_sandbox "hc glue")"
@@ -16692,6 +16809,16 @@ assert_eq "hc-glue(A7): inert (execution file absent) → the named inert breadc
   "$(grep -qF 'harness cost floor inert this run: execution file absent' "$HC_GD/inert.err" && echo yes || echo no)"
 assert_eq "hc-glue(A7): inert → DEVFLOW_EXECUTION_PR empty" "yes" \
   "$(printf '%s' "$HC_G_INERT" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+# Parsed-but-figureless: the reader prints a non-empty normalized object by contract, but
+# the glue must not turn its all-null payload into false cost coverage or a cost skeleton.
+printf '%s' '{"type":"result"}' > "$HC_GD/all-null.json"
+HC_G_NULL="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/all-null.json" "/devflow:review-and-fix" 50 "$HC_GD/c-null.json" 2>"$HC_GD/null.err")"
+assert_eq "hc-glue(A7): all-null reader object leaves DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_NULL" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): all-null reader object leaves the cost handoff empty" "no" \
+  "$([ -s "$HC_GD/c-null.json" ] && echo yes || echo no)"
+assert_eq "hc-glue(A7): all-null reader object emits a named no-figures inert breadcrumb" "yes" \
+  "$(grep -qF 'execution file carried no cost or usage figures' "$HC_GD/null.err" && echo yes || echo no)"
 # not-a-PR / lookup-failed: candidate 999 is not in the PR set → empty PR + breadcrumb.
 HC_G_NAP="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:review-and-fix" 999 "$HC_GD/c4.json" 2>"$HC_GD/nap.err")"
 assert_eq "hc-glue(A7): candidate not a real PR → DEVFLOW_EXECUTION_PR empty" "yes" \
@@ -16856,7 +16983,8 @@ assert_pin_red_under "hc-pin(A10): env-unset silent no-op guard" \
 # (no record vs. a swallowed git failure), so before writing a skeleton the floor re-checks the
 # branch blob and declines if a real record already occupies the skeleton's filename. Mutating the
 # guard's condition to always-false (`false && …`) makes it never fire, re-introducing the
-# skeleton-overwrites-a-real-record data-loss path this guard closes. Mutation observed RED.
+# skeleton-overwrites-a-real-record data-loss path this guard closes. The hc-skeleton(A6)
+# exact-filename fixture above supplies the positive behavioral path; mutation observed RED.
 assert_pin_red_under "hc-pin(A10): skeleton-overwrite guard re-checks the branch blob before writing" \
   'if [ -n "$ref" ] && devflow_telemetry_blob_exists' \
   's/if \[ -n "\$ref" \] && devflow_telemetry_blob_exists/if false \&\& devflow_telemetry_blob_exists/' \
@@ -16870,6 +16998,18 @@ assert_pin_red_under "hc-pin(A10): reader prefers the result-summary usage (no p
   'return _read_usage(usage, wrong_type, accumulate=False)' \
   's/return _read_usage\(usage, wrong_type, accumulate=False\)/pass/' \
   "$LIB/../scripts/extract-execution-cost.py"
+# Fallback total_tokens cannot be summed truthfully because the undocumented streamed
+# value may be cumulative. Disabling the guard makes hc-reader(A2) report 105, not null.
+assert_pin_red_under "hc-pin(A10): fallback total_tokens remains unknown instead of being summed" \
+  'if accumulate and k == "total_tokens":' \
+  's/if accumulate and k == "total_tokens":/if False:/' \
+  "$LIB/../scripts/extract-execution-cost.py"
+# A parsed all-null object is valid reader output but no cost coverage. Disabling the
+# guard makes hc-glue(A7) emit PR=50 and a non-empty cost handoff for that fixture.
+assert_pin_red_under "hc-pin(A10): glue rejects a parsed all-null cost object" \
+  'if ! _cost_has_figures "$COST"; then' \
+  's/if ! _cost_has_figures "\$COST"; then/if false \&\& ! _cost_has_figures "$COST"; then/' \
+  "$LIB/../scripts/prepare-harness-floor.sh"
 
 # ── issue #381: synthesis floor — --persist reconstructs a minimal iteration
 # record from the branch's fix commits when a run left ZERO iter-*.json ────────

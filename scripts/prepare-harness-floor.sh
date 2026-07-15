@@ -59,6 +59,27 @@ _emit() {
   exit 0
 }
 
+# The reader intentionally prints a normalized all-null object for a parsed file with no
+# figures (AC2). That object is valid reader output but is not cost coverage. Consume the
+# reader's normalized JSON contract directly and succeed only when at least one top-level
+# figure, per-token figure, or model-usage object is established.
+_cost_has_figures() {
+  printf '%s' "$1" | python3 -c '
+import json
+import sys
+
+value = json.load(sys.stdin)
+tokens = value.get("tokens")
+has_figure = any(
+    value.get(key) is not None
+    for key in ("cost_usd", "model_usage", "num_turns", "duration_ms")
+)
+if isinstance(tokens, dict):
+    has_figure = has_figure or any(item is not None for item in tokens.values())
+raise SystemExit(0 if has_figure else 1)
+' 2>/dev/null
+}
+
 # ── Normalize the command to a class + optional explicit PR number ───────────
 CMD="${COMMAND#/devflow:}"          # strip a leading /devflow: if present
 CLASS="${CMD%% *}"                  # first token
@@ -89,6 +110,11 @@ fi
 COST="$(python3 "$READER" "$EXEC_FILE" || true)"
 if [ -z "$COST" ]; then
   echo "::warning::prepare-harness-floor: harness cost floor inert this run: execution file could not be parsed for cost (see the reader's breadcrumb above)" >&2
+  [ -n "$COST_OUT" ] && : > "$COST_OUT" 2>/dev/null || true
+  _emit "" "$CLASS"
+fi
+if ! _cost_has_figures "$COST"; then
+  echo "::warning::prepare-harness-floor: harness cost floor inert this run: execution file carried no cost or usage figures; refusing to stage an all-null harness_cost" >&2
   [ -n "$COST_OUT" ] && : > "$COST_OUT" 2>/dev/null || true
   _emit "" "$CLASS"
 fi
