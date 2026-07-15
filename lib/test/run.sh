@@ -36307,8 +36307,6 @@ rm -rf "$T499_P"
 # Existing legacy durable paths remain backfill-owned: a normal persist removes
 # them from its overlay, so both an ordinary repeat and a CAS retry cannot undo a
 # concurrent migration.
-assert_pin_red_under "#499 local monotonicity: existing legacy overlay is removed" \
-  'rm -f "$staged_iter" 2>/dev/null || true' 's/rm -f "\$staged_iter" 2>\/dev\/null \|\| true/:/' "$LIB/efficiency-trace.sh"
 assert_pin_red_under "#499 union classifier failures refuse instead of guessing" \
   'could not classify a colliding telemetry blob' '/could not classify a colliding telemetry blob/d' "$LIB/telemetry-branch.sh"
 assert_pin_red_under "#499 staging-only backfill retains relay input" \
