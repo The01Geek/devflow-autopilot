@@ -1,0 +1,93 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-15T00:22:00Z",
+  "fix_commit_sha": "1b679946d740b957debbdaed7d751d7184968d0f",
+  "fix_files": [
+    "docs/cloud-setup.md"
+  ],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "(promoted from iter-1 early shadow) docs/cloud-setup.md absolute 'a failed cycle leaves the previous credential in place' contradicted by surface-1/surface-2 divergence code. Fixed.",
+      "defect_signature": {
+        "file": "docs/cloud-setup.md",
+        "line_range": [
+          268,
+          269
+        ],
+        "kind": "overstated-absolute"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "S-1",
+      "decision": "applied",
+      "commit": "1b679946d740b957debbdaed7d751d7184968d0f"
+    },
+    {
+      "finding_id": "S-1",
+      "decision": "severity-calibrated",
+      "source_file": "docs/cloud-setup.md",
+      "claim_text": "absolute 'failed cycle leaves previous credential in place' contradicts surface-divergence code",
+      "original_severity": "Important",
+      "calibrated_severity": "Important",
+      "evidence": "Over-grade calibration gate: does NOT match an over-grade shape — customer-facing shipped-doc claim contradicting the PR's own code (self-contradicting diff in ADDED prose, so the in-code-comment cap does not apply; not fail-closed/diagnostic-only). Verified against refresh-app-credentials.sh:253-265. Important is correct; promoted at Important."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 7,
+    "new_corroborated_critical_count": 0,
+    "counting_code_fixes": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "base_checkpoint": {
+    "token": "UP_TO_DATE",
+    "behind_by": null
+  },
+  "stale_prose_check": {
+    "stale": 0,
+    "unresolvable": 3,
+    "rows": [
+      "UNRESOLVABLE R3 docs/DEVFLOW_SYSTEM_OVERVIEW.md:554 count-locked two-item (pre-existing)",
+      "UNRESOLVABLE R3 lib/test/run.sh:34796 count-locked recognition-only (pre-existing)",
+      "UNRESOLVABLE R3 lib/test/run.sh:35058 count-locked recognition-only (arm21b adjacent-fixture comment, informational)"
+    ]
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 120,
+    "skipped_checks": []
+  },
+  "fix_delta_gate": "clean (blinded general-purpose reviewer verified the reworded prose accurate against refresh-app-credentials.sh run_cycle; [])",
+  "telemetry": {
+    "step_3_5": {
+      "calls": 1,
+      "tokens": 48856,
+      "wall_clock_s": 52
+    }
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
+}

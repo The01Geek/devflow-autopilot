@@ -1,0 +1,151 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-15T00:00:13Z",
+  "fix_commit_sha": "ad9cf644538cb56a61d44f3fba7ca2c2dfc5e469",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "failure"
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "arm21b mutation pin used /multi=yes/d which deletes the multi=yes line, leaving elif...then immediately before fi (bash parse error). Pin flipped RED because the script crashed at parse time, not because multi-file detection was behaviorally disabled — degenerated behavioral-fix pin into a removal pin.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [34989, 34990], "kind": "vacuous-mutation-pin"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "arm23 empty-token asserted only the generic ::warning::refresh-app-credentials prefix, not the guard's own message 'mint: access token missing from response' — weak guard signal (shape-3 sibling of the Important pin).",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [35053, 35054], "kind": "weak-guard-signal"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "gh-fresh.sh buffers the wrapped gh call's stderr and replays it only after the child exits; removes live stderr diagnostics for a slow/hanging gh call. Partly by-design (buffer needed to scan for 401).",
+      "defect_signature": {"file": "scripts/gh-fresh.sh", "line_range": [124, 138], "kind": "stderr-buffering-debuggability"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "Start step launches refresher only via vendored path with no repo-path fallback (unlike Stop step) and logs 'started' unconditionally; on a self-repo run where the vendored copy is absent the refresher silently never launches. Bounded loud degrade (absent pidfile -> stop-refresher warns, gh-fresh degrades).",
+      "defect_signature": {"file": ".github/workflows/devflow-implement.yml", "line_range": [461, 464], "kind": "start-stop-fallback-asymmetry"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "gh-fresh.sh header lines 29-30 two-way SUBSTITUTE/DEFER summary omits decide()'s third defer branch (could-not-establish-comparison). Authoritative inline docstring documents it; only the header summary is incomplete.",
+      "defect_signature": {"file": "scripts/gh-fresh.sh", "line_range": [29, 30], "kind": "incomplete-enumeration"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "gh-fresh.sh bad-credential scan tags any 401/Bad credentials/Authentication failed as expired-credential; a genuine non-expiry permission 401 also gets tagged, which can steer the two-strikes fail-fast prose to a misdiagnosed terminal status. Reasoned tradeoff in the comment.",
+      "defect_signature": {"file": "scripts/gh-fresh.sh", "line_range": [148, 150], "kind": "broad-auth-failure-misattribution"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "A few defensive real_mint guards remain unexercised (empty-app_id, empty-KEY, empty-signature, surface-2 rename-failure branch). Low value; app_id guard unreachable in production.",
+      "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [1373, 1374], "kind": "untested-guard-branch"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "ad9cf644538cb56a61d44f3fba7ca2c2dfc5e469"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "ad9cf644538cb56a61d44f3fba7ca2c2dfc5e469"},
+    {"finding_id": "F-3", "decision": "advisory", "source_file": "scripts/gh-fresh.sh", "claim_text": "stderr buffered-then-replayed for every wrapped gh call", "skip_category": "advisory-parked", "evidence": "Suggestion severity (below fix threshold 'important'); partly by-design — stderr must be captured to scan for the 401 signature. Parked for human review."},
+    {"finding_id": "F-4", "decision": "advisory", "source_file": ".github/workflows/devflow-implement.yml", "claim_text": "Start step lacks the Stop step's repo-path fallback + optimistic launch log", "skip_category": "advisory-parked", "evidence": "Suggestion severity; bounded loud degrade (absent pidfile -> stop-refresher defeat warning, gh-fresh breadcrumb). Parked."},
+    {"finding_id": "F-5", "decision": "advisory", "source_file": "scripts/gh-fresh.sh", "claim_text": "header DEFER enumeration omits third branch", "skip_category": "advisory-parked", "evidence": "Suggestion severity; authoritative inline decide() docstring documents all three branches. Parked."},
+    {"finding_id": "F-6", "decision": "advisory", "source_file": "scripts/gh-fresh.sh", "claim_text": "broad auth-failure misattribution of non-expiry 401", "skip_category": "advisory-parked", "evidence": "Suggestion severity; reasoned tradeoff in the comment (favor not missing a real expiry). Parked."},
+    {"finding_id": "F-7", "decision": "advisory", "source_file": "scripts/refresh-app-credentials.sh", "claim_text": "defensive real_mint guards unexercised", "skip_category": "advisory-parked", "evidence": "Suggestion severity; guards are defensive/unreachable-in-production. Parked."}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 12,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UPDATED", "behind_by": 8},
+  "stale_prose_check": {
+    "stale": 0,
+    "unresolvable": 3,
+    "rows": [
+      "UNRESOLVABLE R3 docs/DEVFLOW_SYSTEM_OVERVIEW.md:553 count-locked two-item claim (pre-existing, cloud-reviewer noted)",
+      "UNRESOLVABLE R3 lib/test/run.sh:34706 count-locked recognition-only 4 assert (pre-existing)",
+      "UNRESOLVABLE R3 lib/test/run.sh:34968 count-locked recognition-only 2 files (arm21b adjacent-fixture comment, informational)"
+    ]
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 120,
+    "skipped_checks": [
+      {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (this check grades committed HEAD); runs live in CI with full history"}
+    ]
+  },
+  "telemetry": {
+    "phase_3": {"calls": 5, "tokens": 619410, "wall_clock_s": 326},
+    "step_2_6": {"calls": 5, "tokens": 641966, "wall_clock_s": 489}
+  },
+  "shadow": {
+    "ran_at": "2026-07-15T00:20:00Z",
+    "reviewed_sha": "32c28c199777c842d91f191f3b83d69803b0f925",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "trigger": "early (engine_self_modifying, after iteration 1)",
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "docs/cloud-setup.md:268-269 absolute claim 'a failed cycle leaves the previous credential in place' is contradicted by the PR's own surface-1/surface-2 divergence code (refresh-app-credentials.sh:253-265): on a surface-2 write/rename failure, surface-1 is already fresh, so the surfaces diverge. NEW finding — not raised in iter-1.", "defect_signature": {"file": "docs/cloud-setup.md", "line_range": [268, 269], "kind": "overstated-absolute"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "arm1 asserts only the generic ::warning::refresh-app-credentials prefix, not the specific 'DEVFLOW_APP_ID empty' guard message; loose assertion (shape-3 sibling). NEW.", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [118, 118], "kind": "loose-assertion"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "untested defensive branches: real_mint no-stdin-key guard (119), run_cycle empty-token guard (231), surface-2 rename-failure branch (264-265, only count-pinned), pidfile-write-failure warning (285). Overlaps iter-1 F-7.", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [119, 285], "kind": "untested-branch"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "gh-fresh.sh buffers wrapped-gh stderr, replays after exit (overlaps iter-1 F-3).", "defect_signature": {"file": "scripts/gh-fresh.sh", "line_range": [127, 138], "kind": "stderr-buffering"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "gh-fresh.sh header DEFER enumeration omits third branch (overlaps iter-1 F-5).", "defect_signature": {"file": "scripts/gh-fresh.sh", "line_range": [29, 30], "kind": "incomplete-enumeration"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 9,
+      "overlap_with_iter_N": 3,
+      "new": 3,
+      "new_critical": 0,
+      "new_important": 1
+    },
+    "promoted_to_iter_next": true
+  }
+}
