@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.7] — 2026-07-15
+
+### Fixed
+- **Gate shadow synthesis on promotion provenance.** Distinguish shadow-driven, post-shadow park-calibration, pre-shadow park-calibration, and unestablished promotion records so telemetry recovers genuine drops without fabricating shadow attribution or warning on legitimate pre-shadow promotions. (#508)
+
 ## [2.13.6] — 2026-07-15
 
 ### Fixed
