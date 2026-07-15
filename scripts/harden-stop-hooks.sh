@@ -26,12 +26,13 @@
 # source/exec/python3 closure of the three entries. The verified edges (each an
 # actual source/exec/interpreter reference, comment mentions excluded) are:
 #   lib/efficiency-trace.sh     -> lib/resolve-jq.sh, lib/config-source.sh,
-#                                  scripts/config_fingerprint.py
+#                                  scripts/config_fingerprint.py, lib/telemetry-branch.sh
 #   lib/implement-stop-guard.sh -> lib/config-source.sh, scripts/workpad.py
 #   scripts/stop-hook-probe.sh  -> lib/resolve-jq.sh
 #   lib/resolve-jq.sh           -> lib/resolve-bin.sh
 #   lib/config-source.sh        -> scripts/config-get.sh
 #   lib/resolve-bin.sh          -> (leaf: only external tool probes)
+#   lib/telemetry-branch.sh     -> lib/config-source.sh
 #   scripts/config-get.sh       -> (leaf: inline python3 -c, git, no repo files)
 #   scripts/config_fingerprint.py -> (leaf: stdlib only)
 #   scripts/workpad.py          -> (leaf: git/gh subprocesses only, no repo files)
@@ -51,7 +52,7 @@
 #
 # ── STUB vs TRUSTED-COPY per file class (issue #458 REJECT caveat) ───────────────
 # A no-op `exit 0` stub is correct for an ENTRY (skipping the hook is safe). But a
-# SOURCED library (resolve-jq.sh, config-source.sh, resolve-bin.sh) runs INLINE in
+# SOURCED library (resolve-jq.sh, config-source.sh, resolve-bin.sh, telemetry-branch.sh) runs INLINE in
 # the sourcing script, so an `exit 0` stub would exit the SOURCING ENTRY mid-run and
 # BREAK the legitimate base hook. So the fail-closed treatment differs by class:
 #   * ENTRY (HOOK_ENTRY_TARGETS)   — trusted base copy, else `exit 0` stub. Safe:
@@ -77,7 +78,7 @@
 # So the executed script is either the base-branch version or a stub that does
 # nothing; the PR-head version never runs. (An unedited PR yields byte-identical base
 # copy CONTENTS; the unconditional `chmod +x` may still surface a mode-only delta on a
-# target tracked non-executable — lib/resolve-jq.sh and lib/resolve-bin.sh are 100644 —
+# target tracked non-executable — lib/resolve-jq.sh, lib/resolve-bin.sh, and lib/telemetry-branch.sh are 100644 —
 # under core.fileMode=true. That delta is inert: the review job is read-only, so it is
 # never committed, and the exec bit is not load-bearing anyway — entries run as
 # `bash <path>`, libs are `source`d, Python deps run as `python3 <path>`.)

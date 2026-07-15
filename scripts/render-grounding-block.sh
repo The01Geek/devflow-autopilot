@@ -25,6 +25,7 @@ set -u
 HEAD_SHA="${HEAD_SHA:-}"
 CI_SUMMARY="${CI_SUMMARY:-}"
 ALLOWED_TOOLS="${ALLOWED_TOOLS:-}"
+HARDENED_PATHS="${HARDENED_PATHS:-}"
 
 # Defense in depth for the fences below. CI_SUMMARY carries check names, which are
 # attacker-controlled text entering a `pull_request_target` prompt; a backtick in one
@@ -49,6 +50,19 @@ ALLOWED_TOOLS="${ALLOWED_TOOLS:-}"
 # fail-closed literals instead.
 CI_SUMMARY="${CI_SUMMARY//\`/}"
 ALLOWED_TOOLS="${ALLOWED_TOOLS//\`/}"
+# HARDENED_PATHS carries the #458-displaced Stop-hook closure paths (newline-
+# separated repo-relative paths). They are maintainer-controlled today (the
+# HOOK_TARGETS closure literal in trusted workflow shell), but containment is a
+# property of THIS renderer, not the caller — a backtick in one would close a
+# fence early — so strip them here too, exactly like CI_SUMMARY/ALLOWED_TOOLS.
+# A value of backticks only strips to empty and renders no section (AC4).
+HARDENED_PATHS="${HARDENED_PATHS//\`/}"
+# HEAD_SHA is interpolated into inline-code spans in both the CI section (`(\`${HEAD_SHA}\`)`)
+# and the displaced-paths section (`git show __HEAD_SHA__:<path>`). It is a resolved git SHA
+# today (backtick-free), but — like the slots above — containment is made a property of THIS
+# renderer, not the caller: strip backticks so a backtick-bearing value cannot close an
+# inline-code span, rather than relying on the caller only ever passing a real SHA.
+HEAD_SHA="${HEAD_SHA//\`/}"
 
 # An empty CI summary must read as UNKNOWN, never as "no problems found". The
 # caller normally supplies summarize-ci-checks.sh's own fail-closed literal; this
@@ -57,6 +71,70 @@ ALLOWED_TOOLS="${ALLOWED_TOOLS//\`/}"
 # An empty allowed-tools string renders a block that grants nothing and still
 # states the denial rule — the engine must not read "empty" as "unrestricted".
 [ -n "$ALLOWED_TOOLS" ] || ALLOWED_TOOLS="(no commands are granted to this run)"
+
+# Build the displaced-paths section (AC3) only when HARDENED_PATHS carries at
+# least one non-whitespace path. Unset, empty, and whitespace-only all collapse
+# to "no section" (AC4): unset and empty are byte-identical because
+# ${HARDENED_PATHS:-} above resolves both to the empty string before this point,
+# and whitespace-only fails the non-whitespace test below. Pure bash — the
+# presence test and the per-path loop use parameter expansion and a `read` loop,
+# never `tr`/`sed` (guard-class 2: a value that decides whether a section is
+# emitted must not be derived through a non-preflight PATH tool, which would
+# silently drop the section on a host where the displacement is real). A missing
+# section here degrades to today's behavior (no displaced-paths ground truth),
+# never to a wrong claim.
+DISPLACED_SECTION=''
+if [ -n "${HARDENED_PATHS//[[:space:]]/}" ]; then
+  # Format the newline-separated paths as a markdown bullet list of inline-code
+  # paths. Blank interior lines and whitespace-only lines collapse to nothing; a
+  # backtick-bearing path already had its backticks stripped above, so it cannot
+  # break the ```text fences of sections 1 and 2. The `|| [ -n "$_p" ]` arm
+  # handles a final path with no trailing newline (read returns non-zero but
+  # still sets $_p to the partial line).
+  DISPLACED_LIST=''
+  while IFS= read -r _p || [ -n "$_p" ]; do
+    [ -n "${_p//[[:space:]]/}" ] || continue
+    DISPLACED_LIST="${DISPLACED_LIST}> - \`${_p}\`
+"
+  done <<PATHS_EOF
+${HARDENED_PATHS}
+PATHS_EOF
+  # Quoted heredoc: backticks and $ are literal (no command substitution), so the
+  # section's inline-code commands and $PR_BASE_SHA survive verbatim. The head SHA
+  # is carried as a placeholder token here and substituted below via parameter
+  # expansion (not tr/sed) so the literal $PR_BASE_SHA text is not itself expanded.
+  # Backtick containment for the SHA does NOT rest on this substitution (it does
+  # not strip backticks) — it rests on the top-of-file HEAD_SHA backtick strip.
+  _DISP_PROSE=$(cat <<'__DISP_PROSE_EOF__'
+> **5. Stop-hook-floor displacement (issue #458).** The working-tree files listed
+> below were deliberately replaced with trusted base-ref copies (or fail-closed
+> stubs) by the Stop-hook trusted-source floor before this session started, so
+> their working-tree bytes and file modes do not reflect the reviewed head. The
+> working-tree copy is NEVER consulted for any content claim about a listed path
+> — head or base alike — because the published list carries no per-path
+> provenance and on the stub arms the working-tree bytes are a no-op stub, not
+> base bytes. A claim about a listed path's content at HEAD is verified via
+> `git show __HEAD_SHA__:<path>` and the Phase 0.2 cached diff; a base-state
+> claim routes the same way through `git show $PR_BASE_SHA:<path>`. The
+> displacement is never graded as a defect of the PR. Listed paths remain FULLY
+> in review scope — their committed changes are reviewed from the Phase 0.2
+> cached diff and the `git show` reads at full depth; the displacement changes
+> the read CHANNEL, never the depth of review. If the routed `git show` errors
+> and the cached diff does not evidence the path as deleted at head, probe with
+> `git cat-file -e __HEAD_SHA__:<path>` and grade the claim INCONCLUSIVE with
+> this displacement attribution — never fall back to the working-tree read, and
+> never attempt `git fetch` (it is not granted on the review tier; a local tier
+> whose allowlist permits it may fetch-then-retry before the INCONCLUSIVE). A
+> claim about a listed path is graded INCONCLUSIVE only through this stated fail
+> direction, never because the routed channel is extra effort.
+>
+> Displaced paths this run:
+__DISP_PROSE_EOF__
+)
+  _DISP_PROSE="${_DISP_PROSE//__HEAD_SHA__/${HEAD_SHA:-unknown}}"
+  DISPLACED_SECTION="${_DISP_PROSE}
+${DISPLACED_LIST}>"
+fi
 
 cat <<EOF
 > [!IMPORTANT]
@@ -122,7 +200,7 @@ ${ALLOWED_TOOLS}
 > UNAVAILABLE (their "you'll be re-invoked" promise is false under \`claude -p\`);
 > keep the turn alive by polling for the pending results instead, so the run reaches
 > a verdict rather than dying success-with-no-verdict.
-
+${DISPLACED_SECTION}
 ---
 EOF
 exit 0

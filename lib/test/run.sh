@@ -21717,7 +21717,7 @@ assert_eq "#460 workflow: harden self-copy is gated by the plugin.json-name disc
 # ── #460 review (FP1): consumer relevance gate — harden ONLY when the TRUSTED base
 # .claude/settings.json wires these Stop hooks. devflow-runner.yml ships to consumers,
 # but DevFlow's own Stop hooks do not; without this gate a consumer review stubs/creates
-# the nine DevFlow-layout paths over same-named files (a wrong verdict).
+# the ten DevFlow-layout paths over same-named files (a wrong verdict).
 assert_eq "#460 workflow: relevance gate reads the TRUSTED base .claude/settings.json" "1" \
   "$(grep -cF 'git show "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
 assert_eq "#460 workflow: relevance gate keys on the three entry hooks" "1" \
@@ -21835,7 +21835,7 @@ raise SystemExit("harden_hooks step not found")
 PY
   HH_FIX="$(git_sandbox '#460 errexit fixture')"
   # The trusted "origin": base tracks the REAL .claude/settings.json (wires the three
-  # Stop hooks), the vendored helper, and all nine closure targets — the same shapes
+  # Stop hooks), the vendored helper, and all ten closure targets — the same shapes
   # main carries — and deliberately does NOT track .claude/settings.local.json.
   mkdir -p "$HH_FIX/origin/.claude" "$HH_FIX/origin/.devflow/vendor/devflow/scripts"
   cp "$LIB/../.claude/settings.json" "$HH_FIX/origin/.claude/settings.json" 2>/dev/null
@@ -21852,7 +21852,12 @@ PY
   # Simulate the PR-head edit this floor exists to displace.
   printf 'MALICIOUS\n' > "$HH_FIX/ws/lib/efficiency-trace.sh"
   HH_RT="$(git_sandbox '#460 errexit RUNNER_TEMP')"
-  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" \
+  # GITHUB_OUTPUT is always exported by GitHub Actions for a `run:` step; the #504
+  # harden outputs (disposition / displaced_paths) append to it, so the fixture must
+  # supply it too — else the step's terminal `>> "$GITHUB_OUTPUT"` write hits
+  # `GITHUB_OUTPUT: unbound variable` (set -u) and the step exits 1 in a local run
+  # (masked in CI, where the var is set — the exact env-dependent-test trap).
+  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" GITHUB_OUTPUT="$HH_FIX/gh_out.txt" \
       bash -e "$HH_SCRIPT" ) >"$HH_FIX/out.log" 2>&1
   assert_eq "#460 errexit: the harden step survives GitHub's default \`bash -e {0}\` shell with settings.local.json absent at base (the live-repro shape)" \
     "0" "$?"
@@ -21863,6 +21868,19 @@ PY
     "$(grep -c 'nothing to harden' "$HH_FIX/out.log" || true)"
   assert_eq "#460 errexit: positive control — the PR-head-edited entry hook was displaced (MALICIOUS gone)" "0" \
     "$(grep -c 'MALICIOUS' "$HH_FIX/ws/lib/efficiency-trace.sh" || true)"
+  # AC1 CONTENT (#504): the fixture now runs the step through the terminal AC1 publish
+  # block, so assert what it actually WROTE to $GITHUB_OUTPUT — the workflow-side
+  # `printf '%s\n' $TARGETS` word-split is exercised nowhere else (the renderer tests feed
+  # HARDENED_PATHS directly). A regression that QUOTED $TARGETS would collapse the ten
+  # paths onto ONE line (rendering one bogus displaced-path bullet) and an emptied TARGETS
+  # would publish zero — both pass every other assertion green. The ten paths each start
+  # with lib/ or scripts/; the disposition/heredoc-delimiter lines do not, so the count is
+  # exactly ten on the correct (word-split) publish, 1 under the quoted-regression, 0 under
+  # an emptied one.
+  assert_eq "#504 AC1 errexit fixture: harden published disposition=displaced to GITHUB_OUTPUT" "1" \
+    "$(grep -c '^disposition=displaced$' "$HH_FIX/gh_out.txt" || true)"
+  assert_eq "#504 AC1 errexit fixture: harden published the ten displaced paths (word-split, one per line)" "10" \
+    "$(grep -cE '^(lib|scripts)/' "$HH_FIX/gh_out.txt" || true)"
   # MUTATION control: strip the errexit-off line from a COPY and re-run — the inherited
   # `-e` must kill it with git's 128 again, proving this test pins the exact regression
   # (a future edit dropping the line), not merely its own green path. It doubles as a
@@ -21871,7 +21889,11 @@ PY
   # turn this RED instead of leaving the suite vacuously green.
   HH_MUT="$(probe_tmp '#460 errexit mutant script')"
   grep -v '^set +e$' "$HH_SCRIPT" > "$HH_MUT"
-  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" \
+  # GITHUB_OUTPUT set here too (as in the real run above): under the mutant's inherited
+  # `-e` the step dies at the earlier settings.local.json `git show` (rc 128) before
+  # ever reaching the terminal output write, so this does not change the asserted rc —
+  # it just keeps the two invocations identical except for the stripped errexit-off line.
+  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" GITHUB_OUTPUT="$HH_FIX/gh_out.txt" \
       bash -e "$HH_MUT" ) >/dev/null 2>&1
   assert_eq "#460 errexit MUTATION: without the errexit-off line the inherited -e kills the step at the settings.local.json read (rc 128)" \
     "128" "$?"
@@ -31152,8 +31174,13 @@ for _b363 in "$RUNNER_YML" "$DEVFLOW_YML"; do
     '[ -n "$CI_SUMMARY" ] || CI_SUMMARY="CI status unavailable"' "$_b363"
   assert_pin_unique "#363 $_w renders the block through the shared renderer (no hand-copied prose)" \
     'RGB=.devflow/vendor/devflow/scripts/render-grounding-block.sh' "$_b363"
+  # Pin the common render-call prefix through ALLOWED_TOOLS: devflow-runner.yml additionally
+  # forwards HARDENED_PATHS after it (issue #504), so the two files' GROUNDING lines diverge
+  # past this point — the shared, byte-identical prefix is what proves both pass the resolved
+  # allowed-tools string into the renderer. The runner's HARDENED_PATHS forwarding is pinned
+  # separately by the #504 AC5 assertion below.
   assert_pin_unique "#363 $_w passes the resolved allowed-tools string into the renderer" \
-    'GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" bash "$RGB") || GROUNDING=""' "$_b363"
+    'GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" ' "$_b363"
   # Guard-class shape 1 (existence-vs-sourceability): `[ -f "$RGB" ]` proves the path
   # exists, never that the renderer produced a block. A truncated vendored copy that
   # exits 0 printing nothing would silently strip the injection defense from the prompt.
@@ -31184,6 +31211,129 @@ assert_pin_unique "#363 devflow.yml falls back to the bare command when no block
 
 # ── Renderer behavior (unit-tested once, rather than twice through YAML).
 _rgb() { HEAD_SHA="${1-}" CI_SUMMARY="${2-}" ALLOWED_TOOLS="${3-}" bash "$RGB_SH"; }
+
+# ── #504 renderer displaced-paths section (AC3/AC4). HARDENED_PATHS renders a
+# ── displaced-paths section ONLY when it carries a non-whitespace path;
+# ── unset/empty/whitespace-only collapse to "no section" (unset ≡ empty,
+# ── byte-identical — AC4). rc 0 always (always-exit-0 contract).
+_rgbh() { HEAD_SHA="${1-}" CI_SUMMARY="${2-}" ALLOWED_TOOLS="${3-}" HARDENED_PATHS="${4-}" bash "$RGB_SH"; }
+assert_eq "#504 renderer rc 0 with HARDENED_PATHS unset (always-exit-0)" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' >/dev/null 2>&1; echo $?)"
+assert_eq "#504 AC4 HARDENED_PATHS unset -> no displaced section" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' | grep -c 'Stop-hook-floor displacement')"
+assert_eq "#504 AC4 HARDENED_PATHS empty -> no displaced section" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' '' | grep -c 'Stop-hook-floor displacement')"
+assert_eq "#504 AC4 HARDENED_PATHS whitespace-only -> no displaced section" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' '   ' | grep -c 'Stop-hook-floor displacement')"
+assert_eq "#504 AC3 one path -> displaced section present" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'Stop-hook-floor displacement' && echo yes || echo no)"
+assert_eq "#504 AC3 one path -> the path is listed" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'lib/efficiency-trace.sh' && echo yes || echo no)"
+assert_eq "#504 AC3 several paths with a blank interior line -> section present" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' $'lib/efficiency-trace.sh\n\nlib/resolve-jq.sh' | grep -qF 'Stop-hook-floor displacement' && echo yes || echo no)"
+assert_eq "#504 AC3 backtick-bearing path -> section present (backticks stripped)" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' $'`lib/efficiency-trace.sh`' | grep -qF 'Stop-hook-floor displacement' && echo yes || echo no)"
+# AC4: unset renders byte-identical to empty (cmp).
+assert_eq "#504 AC4 unset renders byte-identical to empty" "" \
+  "$(diff <(_rgbh deadbeef 'lint: success' 'Read') <(_rgbh deadbeef 'lint: success' 'Read' ''))"
+# AC3: the listed-paths-fully-in-scope sentence is operative (mutation-backed).
+# The "remain FULLY" pin below proves the sentence is PRESENT, but deleting only that
+# emphasis leaves the operative promise ("changes the read CHANNEL, never the depth of
+# review") intact — so it is a presence pin, not a true operative guard (issue #375
+# framing-vs-operative discipline). The companion pin under it targets that operative
+# clause: removing "never the depth of review" re-opens the reduce-depth-on-displaced
+# risk (a listed path graded INCONCLUSIVE merely for being displaced), which is the
+# regression the AC3 fully-in-scope guarantee exists to prevent.
+assert_pin_red_under "#504 AC3 fully-in-scope operative sentence (removing it re-opens the wrong-REJECT risk)" \
+  "remain FULLY" "s/remain FULLY//" "$RGB_SH"
+assert_pin_red_under "#504 AC3 fully-in-scope OPERATIVE clause (removing 'never the depth of review' re-opens the reduce-depth-on-displaced risk)" \
+  "never the depth of review" "s/never the depth of review//" "$RGB_SH"
+# AC3 effect-level (not mere section-presence): the __HEAD_SHA__ placeholder is
+# substituted with the real head — a regression shipping the literal placeholder
+# in the routing line (`git show __HEAD_SHA__:<path>`) would pass a presence test.
+assert_eq "#504 AC3 no literal __HEAD_SHA__ placeholder survives into the rendered displaced prose" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -c '__HEAD_SHA__')"
+assert_eq "#504 AC3 the real head SHA is substituted into the git show routing line" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'git show deadbeef:<path>' && echo yes || echo no)"
+# AC3 effect-level: a backtick-bearing path strips to a SINGLE clean list entry
+# wrapped only in the renderer's own backticks — not `` ``lib/…`` `` (raw input
+# backticks would double the pair and could close the inline-code span).
+assert_eq "#504 AC3 backtick-bearing path strips to a single clean list entry" "> - \`lib/efficiency-trace.sh\`" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' '`lib/efficiency-trace.sh`' | grep -F 'efficiency-trace.sh')"
+# AC3 effect-level: two paths separated by a blank interior line render EXACTLY
+# two list entries — the blank line is collapsed (continue'd), never a bogus
+# empty `> - `` `` entry.
+assert_eq "#504 AC3 two paths + blank interior line -> exactly two list entries (blank collapsed)" "2" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' $'lib/efficiency-trace.sh\n\nlib/resolve-jq.sh' | grep -cE '^> - `')"
+
+# ── #504 workflow plumbing (AC1/AC5). ci_summary runs before harden_hooks
+# ── (summarize-ci-checks.sh sources lib/resolve-jq.sh, a closure member),
+# ── harden_hooks before Compose review prompt (a not-yet-run step's output
+# ── resolves to empty, so the HARDENED_PATHS forwarding ships permanently
+# ── inert without the reorder).
+_504_ci=$(grep -nE '^[[:space:]]*id: ci_summary$' "$RUNNER_YML" | head -1 | cut -d: -f1)
+_504_hh=$(grep -nE '^[[:space:]]*id: harden_hooks$' "$RUNNER_YML" | head -1 | cut -d: -f1)
+_504_co=$(grep -nE '^[[:space:]]*id: compose$' "$RUNNER_YML" | head -1 | cut -d: -f1)
+assert_eq "#504 AC5 ci_summary step exists" "1" "$([ -n "$_504_ci" ] && echo 1 || echo 0)"
+assert_eq "#504 AC5 ci_summary precedes harden_hooks" "1" "$([ -n "$_504_ci" ] && [ -n "$_504_hh" ] && [ "$_504_ci" -lt "$_504_hh" ] && echo 1 || echo 0)"
+assert_eq "#504 AC5 harden_hooks precedes Compose review prompt" "1" "$([ -n "$_504_hh" ] && [ -n "$_504_co" ] && [ "$_504_hh" -lt "$_504_co" ] && echo 1 || echo 0)"
+assert_pin_unique "#504 AC1 harden publishes disposition=displaced" "disposition=displaced" "$RUNNER_YML"
+assert_pin_unique "#504 AC1 harden publishes disposition=skipped" "disposition=skipped" "$RUNNER_YML"
+assert_pin_unique "#504 AC1 harden publishes displaced_paths heredoc" "displaced_paths<<" "$RUNNER_YML"
+# AC5 side-effect: summarize is called in exactly one step now (ci_summary), not compose.
+assert_pin_unique "#504 AC5 summarize called in exactly one step (ci_summary, removed from compose)" 'CI_SUMMARY=$(HEAD_SHA="$HEAD_SHA" bash "$SCC")' "$RUNNER_YML"
+assert_pin_unique "#504 AC5 compose forwards HARDENED_PATHS from harden" 'HARDENED_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}' "$RUNNER_YML"
+
+# ── #504 AC6 routing rule on the 7 claim-verification surfaces.
+assert_pin_unique "#504 AC6 SKILL defect_signature routing" "Displaced-path routing (issue #504)" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 SKILL Phase 4.1.6 routing" "displaced-path routing (this sweep)" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 SKILL Phase 2.1a lite-probe routing" "grep the \`git show <head>:<path>\` output" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 SKILL Phase 2.1b dispatch routing" "displaced-path routing: for any referenced file" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 code-reviewer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/code-reviewer.md"
+assert_pin_unique "#504 AC6 comment-analyzer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/comment-analyzer.md"
+assert_pin_unique "#504 AC6 checklist-verifier agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/checklist-verifier.md"
+# AC12 (#504): the agent-mirror routing pins above assert only the bold HEADER; AC12
+# requires the operative "route via git show, never a working-tree read" clause to be
+# mutation-backed, so a meaning-inverting edit (routing back to a working-tree read —
+# the exact regression this PR exists to prevent) turns the pin RED. Each agent file
+# carries the operative clause exactly once.
+assert_pin_red_under "#504 AC6 code-reviewer mirror operative clause (removing 'never a working-tree read' re-opens the wrong-REJECT risk)" \
+  "never a working-tree read" "s/never a working-tree read//" "$LIB/../agents/code-reviewer.md"
+assert_pin_red_under "#504 AC6 comment-analyzer mirror operative clause (removing 'never a working-tree read' re-opens the wrong-REJECT risk)" \
+  "never a working-tree read" "s/never a working-tree read//" "$LIB/../agents/comment-analyzer.md"
+assert_pin_red_under "#504 AC6 checklist-verifier mirror operative clause (removing 'never a working-tree read' re-opens the wrong-REJECT risk)" \
+  "never a working-tree read" "s/never a working-tree read//" "$LIB/../agents/checklist-verifier.md"
+# AC6 (#504): the DISPATCHED surfaces (the three agent mirrors + the Phase-3
+# truthfulness-contract paragraph + the 2.1b checklist-verifier dispatch prompt) never
+# receive the orchestrator's engine-ground-truth block, so the routing rule alone cannot
+# tell them WHICH paths are displaced. They must read the run's displaced list from the
+# Phase 0.1.5 scratch file. Pin that each dispatched surface names the scratch file —
+# dropping the reference leaves the routing inert on exactly the surfaces that produce
+# the false documented_falsehood findings this PR exists to stop.
+assert_pin_unique "#504 AC6 code-reviewer mirror reads the displaced scratch file" ".devflow/tmp/displaced-paths.txt" "$LIB/../agents/code-reviewer.md"
+assert_pin_unique "#504 AC6 comment-analyzer mirror reads the displaced scratch file" ".devflow/tmp/displaced-paths.txt" "$LIB/../agents/comment-analyzer.md"
+assert_pin_unique "#504 AC6 checklist-verifier mirror reads the displaced scratch file" ".devflow/tmp/displaced-paths.txt" "$LIB/../agents/checklist-verifier.md"
+assert_pin_unique "#504 AC6 Phase-3 truthfulness-contract dispatch reads the displaced scratch file" \
+  "you receive this contract, not the orchestrator's engine-ground-truth block" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 Phase 2.1b dispatch reads the displaced scratch file" \
+  "you receive this dispatch prompt, not the orchestrator's engine-ground-truth block" "$LIB/../skills/review/SKILL.md"
+# AC7: Phase 0.1 attribution + Phase 0.1.5 scratch persistence.
+assert_pin_unique "#504 AC7 Phase 0.1 displaced-path attribution" "#504 displaced-path attribution" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 Phase 0.1.5 scratch persistence" "Persist the displaced-path list" "$LIB/../skills/review/SKILL.md"
+
+# ── #504 AC10 stale-prose corrections.
+assert_pin_unique "#504 AC10 devflow-runner relevance-gate says ten" "ten DevFlow-layout paths would clobber" "$RUNNER_YML"
+assert_pin_unique "#504 AC10 devflow-runner FP-S1 warning says ten" "ten DevFlow-layout paths are stubbed" "$RUNNER_YML"
+# This pin's TARGET is run.sh itself, so the literal necessarily appears twice — once in the
+# real FP1 comment (the prose this corrects nine->ten) and once here as the pin's own argument.
+# assert_pin_unique cannot express a same-file self-pin (it demands exactly 1), so assert on the
+# self-inclusive count of 2: reverting the comment to "nine" drops it to 1 (this line alone) -> FAIL.
+assert_eq "#504 AC10 run.sh #460 FP1 says ten" "2" \
+  "$(pin_count 'ten DevFlow-layout paths over same-named' "$LIB/test/run.sh")"
+assert_eq "#504 AC10 CHANGELOG keeps the historical nine" "1" "$(pin_count 'nine DevFlow-layout' "$LIB/../CHANGELOG.md")"
+assert_pin_unique "#504 AC10 harden header efficiency-trace -> telemetry-branch edge" "scripts/config_fingerprint.py, lib/telemetry-branch.sh" "$LIB/../scripts/harden-stop-hooks.sh"
+assert_pin_unique "#504 AC10 harden header telemetry-branch -> config-source row" "lib/telemetry-branch.sh     -> lib/config-source.sh" "$LIB/../scripts/harden-stop-hooks.sh"
+assert_pin_unique "#504 AC10 harden header mode-delta names all three 100644" "lib/resolve-jq.sh, lib/resolve-bin.sh, and lib/telemetry-branch.sh are 100644" "$LIB/../scripts/harden-stop-hooks.sh"
 assert_eq "#363 renderer interpolates the reviewed HEAD SHA" "yes" \
   "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'reviewed commit (`deadbeef`)' && echo yes || echo no)"
 assert_eq "#363 renderer renders an absent HEAD SHA as 'unknown', never as blank" "yes" \
@@ -31234,6 +31384,17 @@ assert_pin_unique "#363 renderer strips CI_SUMMARY backticks with a bash builtin
   'CI_SUMMARY="${CI_SUMMARY//\`/}"' "$RGB_SH"
 assert_pin_unique "#363 renderer strips ALLOWED_TOOLS backticks too (containment is the renderer's property, not its caller's)" \
   'ALLOWED_TOOLS="${ALLOWED_TOOLS//\`/}"' "$RGB_SH"
+# #504: HEAD_SHA is the third value interpolated into inline-code spans (the CI section's
+# `(`${HEAD_SHA}`)` and the displaced-paths `git show <head>:<path>` line). Same containment
+# discipline as the two slots above — the strip is the renderer's property, not the caller's —
+# so pin the builtin strip AND prove behaviorally that a backtick-bearing head cannot close
+# the span. A raw backtick would render `reviewed commit (`dead`beef`)`, opening a stray span.
+assert_pin_unique "#504 renderer strips HEAD_SHA backticks too (containment is the renderer's property, not its caller's)" \
+  'HEAD_SHA="${HEAD_SHA//\`/}"' "$RGB_SH"
+assert_eq "#504 renderer lets no backtick from HEAD_SHA reach the CI-section inline-code span" "yes" \
+  "$(_rgb $'dead\x60beef' 'lint: success' 'Read' | grep -qF 'reviewed commit (`deadbeef`)' && echo yes || echo no)"
+assert_eq "#504 renderer lets no backtick from HEAD_SHA reach the displaced git-show routing line" "yes" \
+  "$(_rgbh $'dead\x60beef' 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'git show deadbeef:<path>' && echo yes || echo no)"
 # Valid-falsy row of the input-shape matrix, and the reason the strips must precede the
 # empty-value defaults: a value of ONLY backticks strips to "". Stripped first, it routes
 # into the fail-closed literal; stripped after the default, it would render an EMPTY fence —

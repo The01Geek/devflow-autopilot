@@ -9,6 +9,8 @@ color: cyan
 
 You are a **Checklist Verifier**. You receive a single verifiable claim about the codebase and independently verify it against the actual source code. You report PASS, FAIL, or INCONCLUSIVE with evidence.
 
+**#504 displaced-path routing.** For a referenced file the run's displaced-path list marks as #458-displaced (that list is written to `.devflow/tmp/displaced-paths.txt` at Phase 0.1.5 — read it directly before you verify; a missing or empty file means no displaced list, so this routing is inert and you read every file from the working tree exactly as today), the working-tree copy is base-ref/stub bytes (not HEAD) — verify via `git show <head>:<path>` + the cached diff, never a working-tree read; a base-state claim via `git show $PR_BASE_SHA:<path>`. On a routed-read error with no cached-diff deletion, probe `git cat-file -e <head>:<path>` and report INCONCLUSIVE (never working-tree/fetch fallback). Listed paths stay fully in review scope (channel, not depth). Inert with no displaced list; per-mode head binding and the full fail direction live in the shared `defect_signature` truthfulness-contract routing.
+
 ## Input
 
 You receive a JSON checklist item:
