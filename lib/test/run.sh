@@ -21627,6 +21627,19 @@ PY
     "$(grep -c 'nothing to harden' "$HH_FIX/out.log" || true)"
   assert_eq "#460 errexit: positive control — the PR-head-edited entry hook was displaced (MALICIOUS gone)" "0" \
     "$(grep -c 'MALICIOUS' "$HH_FIX/ws/lib/efficiency-trace.sh" || true)"
+  # AC1 CONTENT (#504): the fixture now runs the step through the terminal AC1 publish
+  # block, so assert what it actually WROTE to $GITHUB_OUTPUT — the workflow-side
+  # `printf '%s\n' $TARGETS` word-split is exercised nowhere else (the renderer tests feed
+  # HARDENED_PATHS directly). A regression that QUOTED $TARGETS would collapse the ten
+  # paths onto ONE line (rendering one bogus displaced-path bullet) and an emptied TARGETS
+  # would publish zero — both pass every other assertion green. The ten paths each start
+  # with lib/ or scripts/; the disposition/heredoc-delimiter lines do not, so the count is
+  # exactly ten on the correct (word-split) publish, 1 under the quoted-regression, 0 under
+  # an emptied one.
+  assert_eq "#504 AC1 errexit fixture: harden published disposition=displaced to GITHUB_OUTPUT" "1" \
+    "$(grep -c '^disposition=displaced$' "$HH_FIX/gh_out.txt" || true)"
+  assert_eq "#504 AC1 errexit fixture: harden published the ten displaced paths (word-split, one per line)" "10" \
+    "$(grep -cE '^(lib|scripts)/' "$HH_FIX/gh_out.txt" || true)"
   # MUTATION control: strip the errexit-off line from a COPY and re-run — the inherited
   # `-e` must kill it with git's 128 again, proving this test pins the exact regression
   # (a future edit dropping the line), not merely its own green path. It doubles as a
@@ -30983,8 +30996,17 @@ assert_eq "#504 AC3 backtick-bearing path -> section present (backticks stripped
 assert_eq "#504 AC4 unset renders byte-identical to empty" "" \
   "$(diff <(_rgbh deadbeef 'lint: success' 'Read') <(_rgbh deadbeef 'lint: success' 'Read' ''))"
 # AC3: the listed-paths-fully-in-scope sentence is operative (mutation-backed).
+# The "remain FULLY" pin below proves the sentence is PRESENT, but deleting only that
+# emphasis leaves the operative promise ("changes the read CHANNEL, never the depth of
+# review") intact — so it is a presence pin, not a true operative guard (issue #375
+# framing-vs-operative discipline). The companion pin under it targets that operative
+# clause: removing "never the depth of review" re-opens the reduce-depth-on-displaced
+# risk (a listed path graded INCONCLUSIVE merely for being displaced), which is the
+# regression the AC3 fully-in-scope guarantee exists to prevent.
 assert_pin_red_under "#504 AC3 fully-in-scope operative sentence (removing it re-opens the wrong-REJECT risk)" \
   "remain FULLY" "s/remain FULLY//" "$RGB_SH"
+assert_pin_red_under "#504 AC3 fully-in-scope OPERATIVE clause (removing 'never the depth of review' re-opens the reduce-depth-on-displaced risk)" \
+  "never the depth of review" "s/never the depth of review//" "$RGB_SH"
 # AC3 effect-level (not mere section-presence): the __HEAD_SHA__ placeholder is
 # substituted with the real head — a regression shipping the literal placeholder
 # in the routing line (`git show __HEAD_SHA__:<path>`) would pass a presence test.
