@@ -681,6 +681,122 @@ jobs:
           adelim="OUT_EOF_$(date +%s%N)_$$"
           { printf 'args<<%s\n' "$adelim"; printf '%s\n' "$ARGS"; printf '%s\n' "$adelim"; } >> "$GITHUB_OUTPUT"
 
+      # Compose the plugins/plugin_marketplaces inputs (issue #505): the baked
+      # baseline (byte-identical across the three call sites — run.sh pins it)
+      # PLUS the entries this repo's trusted default-branch .claude/settings.json
+      # declares (enabledPlugins=true; github-kind extraKnownMarketplaces), so a
+      # consumer repo's cloud plugin surface matches what its local team sees —
+      # "commit the settings file once, every tier honors it." This write tier's
+      # checkout IS the default branch (issue_comment checks out the default), so
+      # .claude/settings.json is maintainer-committed, trusted. The single-line
+      # `printf '%s\n' <args>` baseline form avoids the YAML-indent-corrupts-
+      # multiline-literals gotcha and is grep-pinnable for the sync invariant.
+      - name: Compose plugin inputs (baseline + settings-declared)
+        id: plugins
+        run: |
+          set -euo pipefail
+          BAKED_PLUGINS="$(printf '%s\n' code-review@claude-plugins-official claude-md-management@claude-plugins-official devflow@devflow-marketplace)"
+          BAKED_MARKETPLACES="$(printf '%s\n' https://github.com/anthropics/claude-plugins-official.git ./)"
+          SETTINGS=.claude/settings.json
+          HELPER=.devflow/vendor/devflow/scripts/resolve-extra-plugins.sh
+          COMPOSE=.devflow/vendor/devflow/scripts/describe-plugin-compose.sh
+          EX_P="$(mktemp)"; EX_M="$(mktemp)"; ERR_P="$(mktemp)"; ERR_M="$(mktemp)"; ENTRIES="$(mktemp)"
+          trap 'rm -f "$EX_P" "$EX_M" "$ERR_P" "$ERR_M" "$ENTRIES"' EXIT
+          if [ ! -f "$HELPER" ]; then
+            # Skew arm (issue #455 two-halves; inline + grep-pinned by run.sh): the
+            # helper is absent at the vendored path — a consumer whose pinned
+            # devflow_version predates issue #505 running an upgraded workflow.
+            # Proceed with the baked baseline; one ::warning:: names devflow_version
+            # as the remedy. This arm fires precisely when describe-plugin-compose.sh
+            # (absent alongside it) cannot be invoked, so the warning stays inline
+            # rather than routed through the helper.
+            echo "::warning::devflow resolve-extra-plugins.sh not found at $HELPER — a pinned devflow_version predating issue #505 running an upgraded workflow; proceeding with the baked plugin baseline. Bump devflow_version in .devflow/config.json to compose settings-declared plugins."
+            : > "$EX_P"; : > "$EX_M"; : > "$ERR_P"; : > "$ERR_M"
+          else
+            bash "$HELPER" plugins "$SETTINGS" > "$EX_P" 2>"$ERR_P" || true
+            bash "$HELPER" marketplaces "$SETTINGS" > "$EX_M" 2>"$ERR_M" || true
+          fi
+          # Join breadcrumbs into one defect string (bash builtins; guard-class 2 —
+          # the joined value that decides the degraded-arm message is not derived
+          # through cat/tr/sed, non-preflight PATH tools).
+          DEFECT=""
+          for f in "$ERR_P" "$ERR_M"; do
+            while IFS= read -r line || [ -n "$line" ]; do
+              [ -z "$line" ] && continue
+              if [ -z "$DEFECT" ]; then DEFECT="$line"; else DEFECT="$DEFECT; $line"; fi
+            done < "$f"
+          done
+          # Spliced entries (extras beyond baseline) for the splice ::notice::.
+          : > "$ENTRIES"
+          for f in "$EX_P" "$EX_M"; do
+            while IFS= read -r line || [ -n "$line" ]; do
+              [ -z "$line" ] && continue
+              printf '%s\n' "$line" >> "$ENTRIES"
+            done < "$f"
+          done
+          # Dedupe baseline + extras, keeping the first occurrence (bash builtins;
+          # guard-class 2 — no tr/sed/wc/cut/head for the emitted list). The `|`
+          # separator never occurs in a plugin@marketplace entry or a marketplace URL.
+          dedupe() {
+            local baseline="$1" extras="$2" seen="" line out=""
+            while IFS= read -r line || [ -n "$line" ]; do
+              [ -z "$line" ] && continue
+              case "$seen" in *"|$line|"*) ;; *) seen="$seen|$line|"; out="${out:+$out$'\n'}$line" ;; esac
+            done <<< "$baseline"
+            if [ -f "$extras" ]; then
+              while IFS= read -r line || [ -n "$line" ]; do
+                [ -z "$line" ] && continue
+                case "$seen" in *"|$line|"*) ;; *) seen="$seen|$line|"; out="${out:+$out$'\n'}$line" ;; esac
+              done < "$extras"
+            fi
+            printf '%s\n' "$out"
+          }
+          COMBINED_PLUGINS="$(dedupe "$BAKED_PLUGINS" "$EX_P")"
+          COMBINED_MK="$(dedupe "$BAKED_MARKETPLACES" "$EX_M")"
+          pdelim="PLG_EOF_$(date +%s%N)_$$"
+          { printf 'plugins<<%s\n' "$pdelim"; printf '%s\n' "$COMBINED_PLUGINS"; printf '%s\n' "$pdelim"; } >> "$GITHUB_OUTPUT"
+          mdelim="MKT_EOF_$(date +%s%N)_$$"
+          { printf 'plugin_marketplaces<<%s\n' "$mdelim"; printf '%s\n' "$COMBINED_MK"; printf '%s\n' "$mdelim"; } >> "$GITHUB_OUTPUT"
+          # Annotation — arm classification lives in describe-plugin-compose.sh (the
+          # describe-denial-count.sh extraction convention; run.sh drives every arm).
+          # Inline fallback for the partial-vendor skew (HELPER present, COMPOSE
+          # absent): the helper ran and may have set DEFECT (a degraded settings
+          # entry) AND/OR emitted valid extras into ENTRIES (which were already
+          # spliced into the credentialed runner's plugin surface unconditionally
+          # above). DEFECT and a splice can COEXIST (PR #513) — a degraded entry
+          # must NOT suppress the splice ::notice:: for the valid extras. Without
+          # COMPOSE to render the annotation, mirror the helper's arms inline and
+          # emit each independently, so a spliced entry is never added without an
+          # audit line (docs/cloud-setup.md: every spliced entry logged, never silent).
+          if [ -f "$COMPOSE" ]; then
+            # Capture the renderer's status rather than `|| true`-swallowing it: the
+            # extras were already spliced above, so a non-zero renderer must still
+            # leave an audit line (PR #513 "never silent"). The run is never
+            # broken — the failure is caught, not propagated.
+            if ! bash "$COMPOSE" ok "$ENTRIES" "$DEFECT"; then
+              echo "::warning::describe-plugin-compose.sh failed (rc≠0); extras (if any) were composed but the audit annotation could not be rendered."
+            fi
+          else
+            # Join the spliced entries via a bash-builtin loop (guard-class 2 — no
+            # cat/tr/sed for the emitted list), mirroring describe-plugin-compose.sh's
+            # splice ::notice::.
+            _splice=""
+            if [ -s "$ENTRIES" ]; then
+              while IFS= read -r line || [ -n "$line" ]; do
+                [ -z "$line" ] && continue
+                if [ -z "$_splice" ]; then _splice="$line"; else _splice="$_splice, $line"; fi
+              done < "$ENTRIES"
+            fi
+            if [ -n "$DEFECT" ] && [ -n "$_splice" ]; then
+              echo "::warning::.claude/settings.json has degraded entries ($DEFECT); those are skipped, the valid extras below are composed."
+              echo "::notice::Composed plugin/marketplace entries beyond the baked baseline (describe-plugin-compose.sh unavailable): $_splice"
+            elif [ -n "$DEFECT" ]; then
+              echo "::warning::.claude/settings.json is degraded ($DEFECT); proceeding with the baked plugin baseline."
+            elif [ -n "$_splice" ]; then
+              echo "::notice::Composed plugin/marketplace entries beyond the baked baseline (describe-plugin-compose.sh unavailable): $_splice"
+            fi
+          fi
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -725,23 +841,20 @@ jobs:
           additional_permissions: |
             actions: read
 
-          # Keep plugin_marketplaces, plugins, and claude_args in sync
-          # with devflow.yml — both listeners must expose the same skill
-          # surface so that whether a flow hits the light or heavy path
-          # is invisible to users invoking /devflow:* commands.
-          plugin_marketplaces: |
-            https://github.com/anthropics/claude-plugins-official.git
-            ./
+          # Composed by the `Compose plugin inputs` step above (issue #505): the
+          # baked baseline (byte-identical across the three call sites — run.sh
+          # pins it) PLUS the entries .claude/settings.json declares. Kept in sync
+          # with devflow.yml so both listeners expose the same skill surface.
+          plugin_marketplaces: ${{ steps.plugins.outputs.plugin_marketplaces }}
 
           # code-review@ and claude-md-management@ are ambient-command conveniences (the
           # /code-review and /revise-claude-md slash commands), NOT engine dependencies —
           # DevFlow's engine dispatches neither. The "zero companion-plugin dependencies"
           # claim is scoped to the consumer install + what the engine dispatches; see
-          # docs/DEVFLOW_SYSTEM_OVERVIEW.md §6. devflow@ is DevFlow itself.
-          plugins: |
-            code-review@claude-plugins-official
-            claude-md-management@claude-plugins-official
-            devflow@devflow-marketplace
+          # docs/DEVFLOW_SYSTEM_OVERVIEW.md §6. devflow@ is DevFlow itself. The baked
+          # baseline three are composed by the step above; settings-declared extras are
+          # appended beyond them.
+          plugins: ${{ steps.plugins.outputs.plugins }}
 
           base_branch: ${{ needs.config.outputs.base_branch }}
           # claude_args head is a COMPUTED string (steps.cargs): --model always,
