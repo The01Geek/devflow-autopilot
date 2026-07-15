@@ -7552,6 +7552,15 @@ assert_pin_red_under "#478 AC6 verify-half: item 3b verifies the gate's durable 
 assert_pin_red_under "#478 AC6 gate-time producer: Step 3 records the gate's call durably at gate time" \
   'call durably at gate time' \
   's/call durably at gate time//'
+assert_pin_red_under "#478 AC6 standalone gate operand: the producer names its exact run-scoped scratch path" \
+  'iter-<N>-gate-evidence.json' \
+  's/iter-<N>-gate-evidence\.json//g'
+assert_pin_red_under "#478 AC6 authoritative schema: item 7 persists standalone gate evidence under test_first_gate" \
+  'Also write `test_first_gate`' \
+  's/Also write `test_first_gate`//'
+assert_pin_red_under "#478 AC2 no-fix schema: authoritative sweep fields use an explicit not-run representation" \
+  'sweep_evidence: {"status":"not-run","reason":"no fixes applied"}' \
+  's/sweep_evidence: {"status":"not-run","reason":"no fixes applied"}//'
 # AC7 no-automated-test arm (#478 Phase-3 review): the operative constraint is that the fixer runs
 # the dry-trace itself and does NOT delegate it to the blinded Step 3.5 gate (which would defeat the
 # gate's independence). The dry-trace pin below covers only the positive action, not this
@@ -7591,8 +7600,16 @@ assert_pin_red_under "#478 AC10 step-4.5 clause: the recorded grade tallies unde
 # when one is not. GREEN arm: the real files. RED arm: a scratch SKILL copy with every
 # '## Devflow Reflection' line stripped (including its mapping-table row) while the marker stays in
 # the sweep bodies → RED.
-P478_MARKERS=( 'workpad.py' '$ISSUE_NUMBER' 'Phase 3.4' 'Phase 4.1' '(post-merge)' '--rewrite-ac' '## Devflow Reflection' 'lib/test/run.sh' )
-p478_sweep_bodies() { awk '/Sweep selection/{f=1} /### 2.4 Test/{f=0} f' "$1"; }
+P478_MARKERS=( 'workpad.py' '$ISSUE_NUMBER' 'Phase 3.4' 'Phase 4.1' '(post-merge)' '--rewrite-ac' '## Devflow Reflection' 'lib/test/run.sh' 'CLAUDE.md' )
+P478_DESTINATIONS=( "The loop's own evidence sink" "The loop's own evidence sink" 'An item-5 pushback/advisory record' 'Fix-now, or record through' 'An item-5 pushback/advisory record' 'An item-5 pushback/advisory record' "The loop's evidence sink" 'No equivalent backstop exists' "The repo's stated conventions" )
+p478_sweep_bodies() {
+  awk '
+    $0 == "**Sweep selection (run first).**" { starts++; f=1; next }
+    $0 == "### 2.4 Test" { ends++; f=0; next }
+    f { buf = buf $0 "\n" }
+    END { if (starts == 1 && ends == 1) printf "%s", buf }
+  ' "$1"
+}
 # p478_maptable is FAIL-CLOSED on its END anchor (#478 Phase-3 review): it buffers the BEGIN..END
 # region and emits it ONLY once the matching END anchor is seen. A renamed/removed END anchor yields
 # EMPTY output (the region never closes) rather than a run-to-EOF over-wide table — so the routing
@@ -7607,12 +7624,16 @@ p478_maptable() {
   ' "$1"
 }
 p478_routing_lint() {  # skill_file phase2_file -> echoes GREEN or RED
-  local bodies table mk
+  local bodies table mk dest idx rows
   bodies="$(p478_sweep_bodies "$2")"
   table="$(p478_maptable "$1")"
-  for mk in "${P478_MARKERS[@]}"; do
+  for idx in "${!P478_MARKERS[@]}"; do
+    mk="${P478_MARKERS[$idx]}"
+    dest="${P478_DESTINATIONS[$idx]}"
     if printf '%s\n' "$bodies" | grep -qF -- "$mk"; then
-      printf '%s\n' "$table" | grep -qF -- "$mk" || { echo RED; return; }
+      rows="$(printf '%s\n' "$table" | grep -F -- "$mk")"
+      [ -n "$rows" ] || { echo RED; return; }
+      printf '%s\n' "$rows" | grep -qF -- "$dest" || { echo RED; return; }
     fi
   done
   echo GREEN
@@ -7639,6 +7660,12 @@ grep -vF -- '## Devflow Reflection' "$MAXI_SKILL" > "$P478_MUT"
 assert_eq "#478 AC5 routing lint RED: deleting a mapping-table row while its marker stays in the sweep bodies flips the lint RED" \
   "RED" "$(p478_routing_lint "$P478_MUT" "$P478_P2")"
 rm -f "$P478_MUT"
+# Destination-only RED arm: retaining the marker while blanking its mapped destination must fail.
+P478_MUT_DEST="$(probe_tmp '#478 AC5 routing lint destination RED-arm setup')"
+sed 's#| No equivalent backstop exists — the hand-run obligation is the sole discharge (never "the project'"'"'s test suite", which does not carry DevFlow'"'"'s desk lints).#| # ' "$MAXI_SKILL" > "$P478_MUT_DEST"
+assert_eq "#478 AC5 routing lint RED: blanking a mapping destination while retaining its marker flips the lint RED" \
+  "RED" "$(p478_routing_lint "$P478_MUT_DEST" "$P478_P2")"
+rm -f "$P478_MUT_DEST"
 # Fail-closed boundary arm (#478 Phase-3 review): a scratch SKILL copy with the END anchor line
 # removed makes p478_maptable emit nothing (the buffered region never closes), so every marker reads
 # unmapped -> RED. This proves the routing lint's own END boundary fails LOUD on a rename/removal
