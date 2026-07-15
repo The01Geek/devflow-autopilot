@@ -355,7 +355,7 @@ JSON
 # 3. Workflows (only those the primary repo actually ships).
 log "installing workflows + composite actions"
 mkdir -p .github/workflows .github/actions
-for w in devflow devflow-runner devflow-implement devflow-review; do
+for w in devflow devflow-runner devflow-implement devflow-review telemetry-push; do
   [ -f "$SRC/.github/workflows/$w.yml" ] && cp "$SRC/.github/workflows/$w.yml" ".github/workflows/$w.yml"
 done
 # devflow-review.yml's CI-completion re-trigger (issue #304) re-fires a review

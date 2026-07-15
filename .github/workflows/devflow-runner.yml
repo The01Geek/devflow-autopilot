@@ -1566,9 +1566,20 @@ jobs:
           # a further helper): it is precisely the collect helper's OWN non-existence it detects, so
           # it cannot itself be delegated to a script that could be equally absent.
           _collect_rc=0
-          _collect_out="$(scripts/collect-staged-telemetry.sh "$GITHUB_WORKSPACE" "$dest")" || _collect_rc=$?
+          # Prefer the vendored collect helper (materialized by the vendor-plugin step
+          # above at .devflow/vendor/devflow/); fall back to the repo-root path for a
+          # self-repo checkout — mirrors parse-engine-error.sh's vendored-or-repo
+          # resolution. A consumer repo has no repo-root scripts/, so the bare
+          # repo-relative path was absent there and this step hit rc 127 on every
+          # consumer auto-review — the spurious "deployment fault" ::warning:: below
+          # (issue #502). Preferring the vendored path fixes that; the rc-126/127 guard
+          # now fires only on a genuine double-absence (a real vendor fault). Direct
+          # exec (not `bash`) keeps rc 126 reachable, matching the S1 rc-capture contract.
+          _collect_helper=.devflow/vendor/devflow/scripts/collect-staged-telemetry.sh
+          [ -f "$_collect_helper" ] || _collect_helper=scripts/collect-staged-telemetry.sh
+          _collect_out="$("$_collect_helper" "$GITHUB_WORKSPACE" "$dest")" || _collect_rc=$?
           if [ "$_collect_rc" = 126 ] || [ "$_collect_rc" = 127 ]; then
-            echo "::warning::collect staged telemetry: scripts/collect-staged-telemetry.sh could not be executed (rc $_collect_rc — not found or not executable, a partial or path-skewed deployment); NO telemetry uploaded this run. This is a deployment fault, not an empty run — do NOT read it as 'nothing was staged'."
+            echo "::warning::collect staged telemetry: the collect helper ($_collect_helper) could not be executed (rc $_collect_rc — not found or not executable, a partial or path-skewed deployment); NO telemetry uploaded this run. This is a deployment fault, not an empty run — do NOT read it as 'nothing was staged'."
           elif [ -n "$_collect_out" ]; then
             echo "path=$dest" >> "$GITHUB_OUTPUT"
           else
