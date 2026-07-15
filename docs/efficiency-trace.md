@@ -195,8 +195,33 @@ surfaces as the push rejection) — so it never commits onto a same-named branch
 something else, on either the local-append or the push-reconcile path. The ref advance is a compare-and-swap that
 re-reads the tip and rebuilds on it when a sibling worktree/process advanced it first, so two
 parallel local worktrees sharing `.git/refs` both survive with no lost commit. The read-only
-cloud `review` profile (`devflow-runner.yml`, `contents: read`) never runs `--persist`, so it is
-gated out entirely.
+cloud `review` profile (`devflow-runner.yml`, `contents: read`) **does** run `--persist` — the
+base-branch `.claude/settings.json` Stop hook is restored into every `claude-code-action` job (this
+rests on the same **unverified platform premise** the writable-tier workflow-env comments flag: that
+`claude-code-action` fires the restored Stop hook and propagates the job env into its subprocess; on
+this read-only tier the fail direction is safe either way — if the hook does not fire, nothing is
+staged and nothing is lost) — but
+in **staging-only** mode: the workflow does not set the push operand `DEVFLOW_TELEMETRY_PUSH`, so
+under `GITHUB_ACTIONS` `--persist` fails closed (issue #469 AC5), staging the run's artifacts under
+`.devflow/tmp/` and writing **no new** telemetry-branch records and doing **no** push. (The
+best-effort fetch-before-exclusion step `do_persist` runs on *every* tier may fast-forward the
+**local** `refs/heads/devflow-telemetry` ref to mirror already-published remote records — a read
+that leaves the tracked tree, `HEAD`, the current branch, and the **remote** ref all byte-unchanged;
+it appends no record and pushes nothing.) The read-only tier therefore leaves the remote
+`devflow-telemetry` ref untouched by its own action. Landing those staged records on the branch is
+the job of a separate **trusted telemetry-push relay**, which now ships (issue #489):
+`.github/workflows/telemetry-push.yml` — a job that does **not** check out the PR head, mints a
+write-capable App token above its checkout, downloads the review run's uploaded artifact, and
+validates the staged artifacts as untrusted PR-influenced input (`scripts/validate-telemetry-artifact.sh`,
+all-or-nothing) before pushing them through `lib/telemetry-branch.sh`. To make those records
+reachable across the workflow boundary, the auto-review tier now **uploads** its staged tree as a
+workflow artifact (`scripts/collect-staged-telemetry.sh`, with `include-hidden-files: true` since the
+tree is under the dot-prefixed `.devflow/`); the relay is triggered off the auto-review workflow's
+`workflow_run` completion and pushes the validated records. On the ephemeral cloud runner the staged
+tree does **not** survive job teardown, so **the cloud-tier recovery path for a degraded persist is
+that uploaded workflow artifact, not on-disk retention** — the runner filesystem is gone by the time
+any later step could read it, so on-disk retention cannot help there. A degraded persist's on-disk
+staging-root retention (below) helps a **local** run, where the filesystem persists.
 
 **Headless persistence.** `/devflow:review-and-fix` invokes `config-get.sh` and
 `efficiency-trace.sh` **directly** (resolving to a `.devflow/vendor/devflow/…` path), the same way
@@ -491,10 +516,17 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   every conceivable `--persist` failure surface. **The uncovered surface is the telemetry-branch
   write/push itself** (`::warning::telemetry-branch: …` — a non-conforming store, a lost CAS, an
   unwritable `.devflow/tmp`), which the detector's two literals do not match. Note what that costs:
-  post-#441 the record is staged under gitignored `.devflow/tmp/` and that staging root is
-  `rm -rf`'d after the branch write returns, so a failed branch write loses the run's record
-  **entirely** — it is *not* "written to disk, just not yet committed", and this is therefore a
-  record-*losing* gap, not a lower-priority one. It is surfaced only by the helper's own stderr
+  post-#441 the record is staged under gitignored `.devflow/tmp/`, and post-#469 a **degraded**
+  branch write (or a CI staging-only run) **retains** that staging root instead of deleting it — only
+  a *clean* write (pushed / idempotent no-op / nothing staged, `persist_tree` rc 0) deletes the
+  scratch, so `git status` stays byte-unchanged on the success path. A degraded write emits one
+  `::warning::` naming the staging root's **absolute path** so the run's only copy is recoverable, and
+  a bounded newest-N prune (`_DEVFLOW_TELEMETRY_STAGE_KEEP`, default 8) at the start of the next
+  `--persist` keeps retained roots from accumulating. On a **local** filesystem this makes a failed
+  branch write recoverable; on an **ephemeral CI runner** the filesystem does not survive teardown, so
+  on-disk retention is moot there — the trusted telemetry-push relay (`telemetry-push.yml`, issue
+  #489) is the cloud recovery path, consuming the **uploaded workflow artifact** the auto-review tier
+  stages and uploads rather than any on-disk copy the ephemeral runner cannot retain. This uncovered surface is still surfaced only by the helper's own stderr
   breadcrumb, which Phase 3.3 captures but does not currently grep for. And because the `APPROVE WITH UNRESOLVED
   SHADOW FINDINGS` path can drive a **second**, separate inline `review-and-fix` invocation (the
   bounded re-review), Phase 3.3 re-runs the whole snapshot-then-backstop procedure — a fresh

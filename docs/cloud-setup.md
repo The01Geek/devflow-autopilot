@@ -120,10 +120,11 @@ variables → Actions**:
 
 | Secret | Used for | Notes |
 |---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates the Claude Code action (`/devflow:implement`, `/devflow:review` runners) | From your Anthropic account. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates the Claude Code action (`/devflow:implement`, `/devflow:review` runners) on the Anthropic default path | From your Anthropic account. Optional only if **every** active workflow section routes through a third-party `provider`. |
 | `GITHUB_TOKEN` | (built in — no action needed) | Provided automatically to workflows. |
+| `DEVFLOW_PROVIDER_API_KEY` | (optional) API key for a third-party model provider, consumed when a `devflow` / `devflow_implement` / `devflow_runner` section sets `provider` | Only needed if you opt into third-party model routing — see [Third-party model providers](#third-party-model-providers-opt-in-best-effort). One fixed secret name regardless of provider count. |
 
-That's the whole default — **no GitHub App is required**. (Earlier versions needed
+That's the whole default — **no GitHub App is required** and `CLAUDE_CODE_OAUTH_TOKEN` is the only secret. Opting a workflow section into a third-party model provider (below) adds exactly one more, `DEVFLOW_PROVIDER_API_KEY`. (Earlier versions needed
 one purely so a bot-authored "implement this" comment could re-trigger the
 workflow; a human `/devflow:implement <#>` comment is itself a native user event,
 so that need is gone.)
@@ -748,6 +749,197 @@ matter for the cloud tier:
   grant. `acceptEdits` would not help here anyway: it auto-approves `Edit`/`Write` plus some
   filesystem `Bash`, not the piped/compound `.sh` forms that were the primary denial.
 
+## Third-party model providers (opt-in, best-effort)
+
+By default every cloud workflow authenticates to Anthropic with
+`CLAUDE_CODE_OAUTH_TOKEN` and runs a Claude model. You can instead route an
+individual workflow section — the light command path (`devflow`),
+`/devflow:implement` (`devflow_implement`), or the automated reviewer
+(`devflow_runner`) — through any **Anthropic-compatible** endpoint (OpenRouter,
+Z.ai, Kimi/Moonshot, MiniMax, a LiteLLM gateway, …) via a `providers` map in
+`.devflow/config.json` plus one fixed repo secret, `DEVFLOW_PROVIDER_API_KEY`.
+Each section picks its own provider and model independently; with no provider
+configured the cloud tier matches the Anthropic-OAuth default (unchanged for a
+given `claude_model`; the reviewer's default-path model now resolves from
+base-ref config).
+
+> **Anthropic does not support routing Claude Code to non-Claude models, so this
+> integration is best-effort.** It relies on the officially documented
+> `ANTHROPIC_BASE_URL` gateway mechanism (code.claude.com/docs/en/llm-gateway-connect),
+> but non-Claude models behind a gateway can behave differently from Claude, and a
+> gateway or model update can break a run at any time. Keep the review/runner path
+> on Claude if review quality matters (this repo does).
+
+**Not to be confused with the `provision-auto-mode` provider detection.** The
+`CLAUDE_CODE_USE_BEDROCK` / `_VERTEX` / `_FOUNDRY` "provider detection" mentioned
+under *Install* and in `scripts/provision-auto-mode.sh` is a **local-tier**
+concern — it only gates whether the selectable `auto` permission mode is offered
+on those first-party clouds. The config `providers` map here is a **cloud-tier**
+model-routing feature and is unrelated to that detection.
+
+### How it wires up
+
+- **`base_url`** is exported as `ANTHROPIC_BASE_URL` into the job environment
+  (consumed by the action step), only when the section is provider-routed.
+- **`auth`** decides how `DEVFLOW_PROVIDER_API_KEY` is presented:
+  - `bearer` (most gateways, incl. OpenRouter): the key rides **both** as the
+    action's `anthropic_api_key` input **and** as `ANTHROPIC_AUTH_TOKEN` (the
+    `Authorization: Bearer` header). This two-slot pass is the *officially
+    documented recipe* — `claude-code-action`'s launch check reads
+    `anthropic_api_key` (not `ANTHROPIC_AUTH_TOKEN`), while the endpoint's real
+    auth comes from the bearer header. The claude process consequently sees the
+    key in both `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN`; that is expected
+    and must **not** be "fixed" (the action overwrites `ANTHROPIC_API_KEY` from
+    its input, so blanking it via env is a no-op, and bearer gateways such as
+    OpenRouter ignore the `x-api-key` copy).
+  - `api_key`: the key is passed as the `anthropic_api_key` input only (`x-api-key`).
+- **`timeout_ms`** is exported as `API_TIMEOUT_MS` (raise it for slow gateway routes).
+- **`effort_supported`** (default `false`): DevFlow passes `--effort` on the
+  Anthropic default path (for any schema-valid effort), but drops it for a provider
+  unless this is `true` — many gateways reject unknown params with HTTP 400.
+- **`env`** is a map of extra environment variables exported verbatim into the
+  job environment (consumed by the action step). Set at least the small/fast-model
+  mappings (below) for every third-party provider. The keys are exported
+  **unfiltered** — this map is read only from maintainer-controlled config
+  (base-ref for the runner, the trusted default-branch checkout for the command
+  workflows), so do not name a runtime-sensitive variable here (`PATH`,
+  `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, …); a stray such key would shadow the
+  environment of every later step in the job, not just the action step.
+- **The empty-secret guard:** if a section names a provider while
+  `DEVFLOW_PROVIDER_API_KEY` is empty at run time, the job fails loud with a
+  `::error::` naming the section and provider, before the action runs. (The secret
+  name is a fixed literal on purpose — dynamic secret indexing resolves a missing
+  key silently to an empty string, which would fail *open*.)
+
+**Haiku-tier (background) and subagent models — required.** Claude Code fires
+haiku-tier background calls and dispatches subagents; if the `env` map omits
+`ANTHROPIC_DEFAULT_HAIKU_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL`, those calls hit a
+Claude model ID the gateway won't serve and fail. Always map them to a real model
+the endpoint serves (you may point the haiku slot at a smaller/cheaper model the
+gateway offers to save on background calls; the examples use `glm-5.2` for simplicity).
+
+**Context window — a gateway model defaults to 200K, NOT its real window.** Claude Code
+cannot verify a gateway model's context length, so it budgets **200K** and auto-compacts
+at that boundary — even when the model is natively 1M (GLM-5.2, MiniMax-M3, Qwen3.7-Plus, …).
+Left alone you silently lose most of the window you are paying for, and long runs compact
+repeatedly. Lift it by setting **`CLAUDE_CODE_MAX_CONTEXT_TOKENS`** in the `env` map to the
+model's real window:
+
+```json
+"CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000"
+```
+
+Claude Code's context resolver honors this variable **only for model ids that do not begin
+with `claude-`** — i.e. it exists precisely for third-party gateway models, which is exactly
+this path. Verified: with it set, `/context` reports a **1,000,000**-token window against
+`z-ai/glm-5.2` on OpenRouter instead of 200,000.
+
+> **Undocumented — load-bearing but fragile.** `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is not in
+> Anthropic's published env-var reference. Re-verify after a Claude Code upgrade (`/context`
+> should still report your value). Do **not** substitute the `CLAUDE_CODE_EXTRA_BODY` +
+> `opus[1m]` trick circulating as an alternative: it force-injects a `model` override into
+> **every** request, which clobbers `ANTHROPIC_DEFAULT_HAIKU_MODEL` /
+> `CLAUDE_CODE_SUBAGENT_MODEL` and collapses every role onto a single model.
+
+**Gateway 400s — two *separate* failure modes, do not conflate them:**
+
+- `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` (shipped by default in the example
+  below) strips `anthropic-beta` headers / beta tool-schema fields, avoiding
+  "Extra inputs are not permitted"-class 400s on gateways.
+- 400s that name `thinking` / `adaptive` parameters are a **different** failure mode, and the
+  beta-header toggle does **not** address them. Note that `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1`
+  is **hard-scoped to the Opus/Sonnet 4.6 family** and is therefore **inert for a third-party
+  gateway model** — the lever that actually drops the `thinking` field for any model is
+  `CLAUDE_CODE_DISABLE_THINKING=1`. Reach for it only if you actually see such a 400: some
+  gateways serve `thinking` fine (OpenRouter/GLM-5.2 does), and disabling it can cost output
+  quality.
+
+**Prompt caching.** `CLAUDE_CODE_ATTRIBUTION_HEADER=0` (shipped by default below)
+omits the attribution block Claude Code otherwise prepends to the system prompt;
+its per-request prompt fingerprint would defeat prompt caching through a gateway.
+(On a direct Anthropic connection caching is unaffected either way.)
+
+### OpenRouter setup
+
+Add a `providers.openrouter` entry and point `devflow_implement` at it (routing
+only `/devflow:implement`, leaving review/command on Claude):
+
+```json
+{
+  "claude_model": "claude-opus-4-8",
+  "providers": {
+    "openrouter": {
+      "base_url": "https://openrouter.ai/api",
+      "auth": "bearer",
+      "timeout_ms": 3000000,
+      "env": {
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "z-ai/glm-5.2",
+        "CLAUDE_CODE_SUBAGENT_MODEL": "z-ai/glm-5.2",
+        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000"
+      }
+    }
+  },
+  "devflow_implement": {
+    "provider": "openrouter",
+    "claude_model": "z-ai/glm-5.2"
+  }
+}
+```
+
+Then set the repo secret `DEVFLOW_PROVIDER_API_KEY` to your OpenRouter key.
+`effort_supported` is omitted (defaults `false`), so `--effort` is dropped for this
+provider. The review and command paths keep no `provider`, so they stay on Claude.
+
+### OpenRouter privacy-hardening checklist
+
+OpenRouter forwards your prompts to the upstream provider you select, so before the
+first run:
+
+1. At **openrouter.ai/settings/privacy**, disable **both** "may train on your data"
+   toggles.
+2. Leave **prompt logging off**.
+3. Bind the `DEVFLOW_PROVIDER_API_KEY` key to an OpenRouter **guardrail whose
+   provider allowlist contains only the upstream provider you selected** (Z.AI in
+   the worked example above), so your prompts can only ever be routed to that one
+   upstream — never a random cheapest-wins provider.
+4. Record **your selected upstream's data policy** (Z.AI's, in the example) from
+   OpenRouter's provider-privacy documentation.
+   (The `GET openrouter.ai/api/v1/models/z-ai/glm-5.2/endpoints` API is useful for
+   pricing/uptime but carries **no** data-policy fields — read the provider-privacy
+   docs, not that endpoint, for the data policy.)
+
+### Z.ai-direct setup
+
+To talk to Z.ai without OpenRouter in the middle, use the Anthropic-compatible
+base URL and Z.AI's own bracket-suffixed model IDs:
+
+```json
+{
+  "providers": {
+    "zai": {
+      "base_url": "https://api.z.ai/api/anthropic",
+      "auth": "bearer",
+      "timeout_ms": 3000000,
+      "env": {
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.2",
+        "CLAUDE_CODE_SUBAGENT_MODEL": "glm-5.2[1m]",
+        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000"
+      }
+    }
+  },
+  "devflow_implement": { "provider": "zai", "claude_model": "glm-5.2[1m]" }
+}
+```
+
+Notes for Z.ai-direct: the `[1m]` **bracket suffix** on `glm-5.2[1m]` selects the
+1M-context variant — keep it on both `claude_model` and `CLAUDE_CODE_SUBAGENT_MODEL`
+if you want it; the haiku slot uses **`glm-5.2`** (no bracket). Set
+`DEVFLOW_PROVIDER_API_KEY` to your Z.AI key.
+
 ## Workflow inventory
 
 | Workflow | Purpose | Needs |
@@ -757,6 +949,11 @@ matter for the cloud tier:
 | `devflow-runner.yml` | Reusable runner (`workflow_call`) — one read-only job called by `devflow-review.yml`; lives apart from `devflow.yml` so its permission ceiling stays a subset of the caller's grant | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-implement.yml` | Runs `/devflow:implement` on a bare command in an issue comment (issues-only; PR comments never fire it) | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs (calls `devflow-runner.yml`). Its `workflow_run` re-trigger — which re-fires a review deferred behind the `devflow_review.require_up_to_date` / `require_ci_green` preconditions (issue #304) — **must name your repo's CI workflows** in its `workflows:` list (ships as `[CI]`; a GitHub platform requirement, no wildcards) — edit that list when installing. External non-Actions CI is covered by `check_suite`, and legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the `status` trigger — both need no naming | `CLAUDE_CODE_OAUTH_TOKEN` |
+
+The **Needs** column lists the default (Anthropic-OAuth) secret. Each of the three
+model-running workflows (`devflow.yml`, `devflow-runner.yml`, `devflow-implement.yml`)
+**additionally** consumes the optional `DEVFLOW_PROVIDER_API_KEY` when its section opts
+into a third-party `provider` (see [Third-party model providers](#third-party-model-providers-opt-in-best-effort)); with no provider configured that secret is unused and the OAuth token alone is required.
 
 DevFlow never creates or overwrites `claude.yml` — that file belongs to
 Anthropic's Claude GitHub App, which owns plain `@claude` mentions, Q&A, and

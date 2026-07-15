@@ -4,6 +4,103 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.4] — 2026-07-15
+
+### Added
+- **Auto-review telemetry now reaches the `devflow-telemetry` branch via a trusted cross-workflow
+  relay.** The read-only auto-review tier (the merge-gating judge, and the most frequent cloud run)
+  stages its observability artifacts but has no write credential to push them, so they were
+  discarded at runner teardown. Now `devflow-runner.yml` uploads the staged records as a workflow
+  artifact, and a new trusted `telemetry-push.yml` job — triggered via `workflow_run`, minting a
+  write-capable App token above its checkout and never checking out the PR head — downloads,
+  validates, and pushes them through the existing `lib/telemetry-branch.sh` write path. The
+  downloaded artifact is treated as untrusted PR-influenced input: `scripts/validate-telemetry-artifact.sh`
+  gates it all-or-nothing (rejecting symlinks, absolute/traversal paths, disallowed paths,
+  over-cap entry-count/size, and non-record-shape JSON) before anything is staged, so a hostile
+  artifact is dropped whole with a `::warning::` and the branch is never mutated. A failed
+  cross-run artifact download now surfaces a `::warning::` (rather than silently going green) so a
+  genuine telemetry loss is visible in the run log, and the validator short-circuits its walk once
+  the entry-count cap is crossed so a hostile file-count bounds work, not just admission. The
+  collect step now distinguishes an exec fault of its collection helper (rc 126/127 — a partial or
+  path-skewed deployment where the helper cannot run) from a benign no-op, so a real drop is named
+  distinctly rather than laundered into the "nothing to upload" notice. (#495)
+
+## [2.13.3] — 2026-07-14
+
+### Added
+- **Refresh the draft PR's `View run` link on `/devflow:implement` resume.** On a
+  resumed cloud run that reaches the §1.4 Resume pre-check and finds an existing
+  open PR, the draft PR body's `[View run](...)` line (written once at Phase 3.1
+  and previously never touched again) is now rewritten to the resumed run's URL
+  via a best-effort REST `gh api` PATCH, mirroring the gate job's workpad
+  `Run:`-link refresh contract. It is cloud-only (`GITHUB_RUN_ID` non-empty),
+  idempotent (the Phase 3.1-placed line is replaced in place, never appended),
+  and never blocks the resume — every failure path emits a `::warning::`
+  breadcrumb naming the step and continues. Only the `[View run]` line
+  immediately following the `Resolves #` line is rewritten; a human-added one
+  elsewhere is preserved byte-for-byte. The single-line rewrite is a
+  deterministic, fixture-tested helper (`scripts/refresh-pr-run-link.py`), and
+  its output is captured and guarded non-empty before the PATCH so a crashed
+  transform can never blank the PR description; both the read and the write use
+  repo-scoped REST `gh api`. (#494)
+
+## [2.13.2] — 2026-07-14
+
+### Fixed
+- **Third-party model providers: document how to get the model's real context window.** Claude Code
+  cannot verify a gateway model's context length, so it budgets **200K** and auto-compacts there —
+  even for a natively-1M model (GLM-5.2, MiniMax-M3, Qwen3.7-Plus, …), silently costing most of the
+  window you are paying for. `docs/cloud-setup.md` now documents `CLAUDE_CODE_MAX_CONTEXT_TOKENS`
+  (honored only for model ids that do not begin with `claude-`, i.e. purpose-built for gateway
+  models) and both worked examples set it to `1000000`. Verified: `/context` reports a 1,000,000-token
+  window against `z-ai/glm-5.2` on OpenRouter instead of 200,000. Flagged as undocumented/upgrade-fragile,
+  with an explicit warning against the `CLAUDE_CODE_EXTRA_BODY` + `opus[1m]` workaround, which injects a
+  `model` override into every request and collapses the haiku/subagent roles onto a single model.
+- **Corrected a wrong gateway-400 remedy.** The docs advised `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1`
+  for `thinking`/`adaptive` 400s, but that flag is hard-scoped to the Opus/Sonnet **4.6** family and is
+  therefore **inert for a third-party gateway model** — exactly the audience of that section. The lever
+  that actually drops the `thinking` field for any model is `CLAUDE_CODE_DISABLE_THINKING=1`.
+
+## [2.13.1] — 2026-07-14
+
+### Fixed
+- **Cloud `/devflow:implement` runs now apply their best-effort labels instead of silently dropping them.** On the read-write implement tier the phase-4 deferred-label loops emitted command shapes the matcher refuses (a `for`/piped-`while read` loop or a `VAR="$(…)"` capture wrapping a label helper) and the label helpers were granted only via a config `*/basename` glob the matcher does not match against a vendored-literal leading token — so the `DevFlow` provenance, `Documented`, and configured `deferred.labels` applies were denied with no error. `devflow-implement.yml` now grants `apply-labels.sh`/`ensure-label.sh` in the explicit vendored-literal leading-token form the implement-probe table proved PERMITTED, and **all four** label call sites — Phase 3.1's `DevFlow` provenance apply, Phase 4.0 and 4.0.5's `deferred.labels` applies, and Phase 4.1's `Documented` apply — are reworked to agent-level single-leading-token calls that read their inputs from printed tool output rather than from shell variables that do not survive into a later command. The label-normalizing pipelines no longer end in `paste`, which is granted in **no** allowlist: that tail would have refused the normalizer statement outright, leaving the raw config value resolved but the normalized label list empty, so the applies silently did nothing. Each of the four channels now fails **closed**: a command that produced no output is recorded as a possible denial, never read as "no labels configured" — and `apply-labels.sh` now breadcrumbs on **success** as well as failure, so a silently-refused apply (which prints nothing) is distinguishable from one that landed. A new `extract-command-shapes.py --profile implement` desk lint (rules IR1/IR2/IR3) turns a re-introduced denied shape in the implement skill files RED at the desk. **One caveat, stated rather than hidden:** each channel opens with a **non-label command substitution** — an `if ! VAR=$(config-get.sh …)` read in Phase 4.0/4.0.5/4.1, and a `VAR=$(gh pr view …)` read in Phase 3.1 — a shape **no implement-tier probe row has measured** — the label helpers' own grants are probe-proven, but the config read rests on the inference that the matcher descends into a non-label `$(…)`. Probe rows 8/9 exist to settle it and are human-dispatch-only. If that inference is wrong, the channels fail closed with a durable breadcrumb rather than silently dropping labels, which is the point of the rework — but they would still apply nothing until the read is granted. **Upgrade coupling:** the workflow grants arrive by re-running `install.sh` and the skill rework arrives by bumping `devflow_version` — take both halves together, or the applies stay silently denied. (#455)
+
+## [2.13.0] — 2026-07-14
+
+### Added
+- **Opt-in third-party model providers for the cloud tier.** Each cloud workflow section
+  (`devflow`, `devflow_implement`, `devflow_runner`) can now route through any
+  Anthropic-compatible endpoint (OpenRouter, Z.ai, Kimi/Moonshot, LiteLLM gateways, …) via a
+  new `providers` map in `.devflow/config.json` plus per-section `provider`/`claude_model`
+  keys and one fixed repo secret, `DEVFLOW_PROVIDER_API_KEY`. A single-sourced inline jq
+  resolver — byte-identical across the three workflows — emits the per-section endpoint/auth/
+  model decision; a `run:` step injects `ANTHROPIC_BASE_URL`/`API_TIMEOUT_MS`/the provider
+  `env` map into `$GITHUB_ENV` only when a provider is active, with a fail-loud guard when the
+  secret is empty, and `--effort` is dropped for providers that reject it. With no provider
+  configured, cloud behavior matches the Anthropic-OAuth default — the feature is strictly
+  opt-in and best-effort (Anthropic does not support routing Claude Code to non-Claude models).
+  (The reusable runner's default-path `--model` now resolves from the trusted base-ref config
+  rather than PR-head — a deliberate security hardening — so for a given `claude_model` the
+  rendered invocation is unchanged.) The reusable runner's dead `model` input is removed and its `CLAUDE_CODE_OAUTH_TOKEN`
+  secret is now optional (still fail-loud on the Anthropic default path). See the new
+  "Third-party model providers" section in `docs/cloud-setup.md`. (#315)
+
+## [2.12.4] — 2026-07-14
+
+### Changed
+- **Harden `/devflow:create-issue` authoring against the four dominant review-REJECT seed classes.** The issue template and Step 3.5 steelman gain a universal-claim rule (every "never/always/each/every/all/cannot" is grounded — pinned per-arm, scoped, or removed — with a claim-level positive-control obligation for detector-coverage claims), an executed-enumeration premise class (occurrence counts and coupled-site lists are grounded by a cited whitespace-normalized search or the specific evidence records, never recall) plus an AC mutual-consistency check, deeper premise verification (conditional-path gates/defaults, stated-but-unbound input binding, trust-boundary transitive-closure), and a Move 2a *introduction* trigger requiring a malformed/boundary matrix for any newly-introduced reader of repo-external input. The best-effort-parser convention is widened at its three lockstep sites (`CLAUDE.md`, implement Phase 2.4, review-and-fix fix-delta gate) and the create-issue prompt extension to name parsers over agent/human-mutable markdown and readers of new external structured formats as governed surfaces, the six-shape set staying the config-JSON matrix. Consumer-generic rules ship in the skill and template; DevFlow-specific sharpenings stay in the extension, `CLAUDE.md`, and the two enforcement-mirror skills. (#472)
+
+## [2.12.3] — 2026-07-14
+
+### Fixed
+- **Telemetry `--persist` no longer loses records it says it keeps, and the auto-review tier stages instead of futile-pushing.** Under `GITHUB_ACTIONS`, `--persist` now pushes only when the workflow affirmatively sets the `DEVFLOW_TELEMETRY_PUSH` operand; absent/empty/non-affirmative it fails closed to **staging-only** (no branch write, no push) and breadcrumbs the absent operand — so the read-only `review` profile stops attempting a push its `contents: read` token can never complete. Off CI the existing push-by-default behavior is unchanged. The writable tiers (`devflow-implement.yml`, `devflow.yml`) set the operand at job level so they keep pushing. `do_persist` now performs a best-effort, non-forced fetch of the telemetry branch (verified as a real telemetry store before advancing the local ref) before `recorded_fix_shas` computes the fix-commit exclusion set, so prior records are visible and a commit is never double-counted; an absent ref is reported as an *unestablished* absence (not an established empty) when the fetch did not succeed. A degraded telemetry-branch write now **retains** its staging root (bounded by a newest-N cleanup policy) and names its absolute path, instead of the old unconditional `rm -rf` that silently deleted the run's only copy. `git status`, `HEAD`, and the current branch stay byte-for-byte unchanged on every tier, including staging-only. The three docs/comment surfaces that claimed the `review` profile "never runs `--persist`" now describe what actually runs, and `build-experiment-records.py`'s `_telemetry_branch` docstring correctly states that a malformed config degrades with a breadcrumb while a missing/unreadable one degrades silently. The cross-workflow artifact upload + trusted telemetry-push relay that lands the staged records on the branch is tracked as a follow-up. (#469)
+
+## [2.12.2] — 2026-07-14
+
+### Fixed
+- **Fixed two reception defects in the vendored `receiving-code-review` skill.** The mutation-check recipe previously offered only a copy-based route ("on a copy of the file, never the working-tree file in place"), which is unsatisfiable for a suite that reads fixed paths or imports the module under test through fixed module paths — the majority case in consumer repos. It now states the invariant (the mutation is never left behind in the working tree, and the suite is observed RED for the reason the test pins) plus two routes: (a) mutate a copy where the suite can be redirected, and (b) mutate the working-tree file, run the suite, and restore — with an explicit restore verification — where it cannot, choosing (b) only when redirection is genuinely impossible. Separately, the *Symmetric Severity Calibration* section now has a rule for a review that annotates its own finding as a suspected over-grade: the annotation is advisory input to severity calibration, never on its own a reason to skip the finding, and an annotated finding at or above the configured re-open threshold is still fixed. (#486)
+
 ## [2.12.1] — 2026-07-14
 
 ### Added
