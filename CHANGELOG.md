@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.12] — 2026-07-15
+
+### Fixed
+- **Run class-generalization checks over parked findings before shadow review.** The fix loop now discovers and registers actionable sibling findings even when convergence has no fix-triggered sweep, while preserving fail-closed calibration, bounded dispatch, and current-iteration accounting. (#510)
+
 ## [2.13.11] — 2026-07-15
 
 ### Fixed
