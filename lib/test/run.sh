@@ -30663,8 +30663,13 @@ for _b363 in "$RUNNER_YML" "$DEVFLOW_YML"; do
     '[ -n "$CI_SUMMARY" ] || CI_SUMMARY="CI status unavailable"' "$_b363"
   assert_pin_unique "#363 $_w renders the block through the shared renderer (no hand-copied prose)" \
     'RGB=.devflow/vendor/devflow/scripts/render-grounding-block.sh' "$_b363"
+  # Pin the common render-call prefix through ALLOWED_TOOLS: devflow-runner.yml additionally
+  # forwards HARDENED_PATHS after it (issue #504), so the two files' GROUNDING lines diverge
+  # past this point — the shared, byte-identical prefix is what proves both pass the resolved
+  # allowed-tools string into the renderer. The runner's HARDENED_PATHS forwarding is pinned
+  # separately by the #504 AC5 assertion below.
   assert_pin_unique "#363 $_w passes the resolved allowed-tools string into the renderer" \
-    'GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" bash "$RGB") || GROUNDING=""' "$_b363"
+    'GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" ' "$_b363"
   # Guard-class shape 1 (existence-vs-sourceability): `[ -f "$RGB" ]` proves the path
   # exists, never that the renderer produced a block. A truncated vendored copy that
   # exits 0 printing nothing would silently strip the injection defense from the prompt.
@@ -30757,7 +30762,12 @@ assert_pin_unique "#504 AC6 Phase 0.1.5 scratch persistence" "Persist the displa
 # ── #504 AC10 stale-prose corrections.
 assert_pin_unique "#504 AC10 devflow-runner relevance-gate says ten" "ten DevFlow-layout paths would clobber" "$RUNNER_YML"
 assert_pin_unique "#504 AC10 devflow-runner FP-S1 warning says ten" "ten DevFlow-layout paths are stubbed" "$RUNNER_YML"
-assert_pin_unique "#504 AC10 run.sh #460 FP1 says ten" "ten DevFlow-layout paths over same-named" "$LIB/test/run.sh"
+# This pin's TARGET is run.sh itself, so the literal necessarily appears twice — once in the
+# real FP1 comment (the prose this corrects nine->ten) and once here as the pin's own argument.
+# assert_pin_unique cannot express a same-file self-pin (it demands exactly 1), so assert on the
+# self-inclusive count of 2: reverting the comment to "nine" drops it to 1 (this line alone) -> FAIL.
+assert_eq "#504 AC10 run.sh #460 FP1 says ten" "2" \
+  "$(pin_count 'ten DevFlow-layout paths over same-named' "$LIB/test/run.sh")"
 assert_eq "#504 AC10 CHANGELOG keeps the historical nine" "1" "$(pin_count 'nine DevFlow-layout' "$LIB/../CHANGELOG.md")"
 assert_pin_unique "#504 AC10 harden header efficiency-trace -> telemetry-branch edge" "scripts/config_fingerprint.py, lib/telemetry-branch.sh" "$LIB/../scripts/harden-stop-hooks.sh"
 assert_pin_unique "#504 AC10 harden header telemetry-branch -> config-source row" "lib/telemetry-branch.sh     -> lib/config-source.sh" "$LIB/../scripts/harden-stop-hooks.sh"
