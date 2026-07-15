@@ -4007,6 +4007,8 @@ assert_pin_red_on_removal "#192 agent-mandate: deleting the unavailable-mutation
   'Do not attempt `git worktree add`, `mktemp`, or a mutation/half-revert' "$LIB/../skills/requesting-code-review/code-reviewer.md"
 assert_pin_red_on_removal "#192 agent-mandate: deleting the primary write-prohibition from the requesting-code-review final-pass turns its pin RED" \
   'Do not mutate the working tree, the index, HEAD, or branch state in any way' "$LIB/../skills/requesting-code-review/code-reviewer.md"
+assert_pin_red_on_removal "#192 shadow-review docs distinguish the final-pass read-only limitation from fan-out mutation copies" \
+  'it uses granted read-only history commands and reports the verification limitation' "$LIB/../docs/shadow-review.md"
 # Backstop operative sentences — one pin per operative directive (operative-vs-framing rule).
 # The Phase 3.1/3.2 backstop now snapshots with `git status --porcelain -z` into temp FILES
 # (NUL-delimited, UNQUOTED paths — a bash $(...) var cannot hold the NUL bytes), so a
@@ -6219,8 +6221,9 @@ echo "implement-profile head guard (#484)"
 # devflow-implement.yml baked --allowed-tools allowlist — NOT the review one. A
 # head that allowlist does not grant is silently refused (#363). This block drives
 # the head extractor over that fenced-command surface and fails when a fenced head
-# is neither granted nor exactly withheld. A separate negative guard below rejects
-# the known inline bare-workpad shorthand class. The allowlist is assembled from
+# is neither granted nor exactly withheld. A separate removal pin below protects
+# the instruction that inline bare-workpad source shorthand expands before emission.
+# The allowlist is assembled from
 # the workflow's baked block
 # ALONE (implement-block mode), never from .devflow/config.json — a consumer repo
 # does not carry this repo's config extras, so a head reachable only via config is

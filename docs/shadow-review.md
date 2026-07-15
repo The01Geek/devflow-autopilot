@@ -73,11 +73,14 @@ orchestrator's tree silently corrupted, which can flip the orchestrator's *own* 
 checks to a phantom RED (the failure observed in the `/devflow:implement 186` run). Two coupled
 layers close that hole.
 
-**The contract.** Every first-party review/analysis agent definition — `code-reviewer`,
-`silent-failure-hunter`, `comment-analyzer`, `type-design-analyzer`, `pr-test-analyzer`, and the
-vendored `requesting-code-review` final pass — states the agent must never modify working-tree
-source files, the index, HEAD, or branch state, and that any mutation/half-revert verification is
-done **on a temporary copy made with `mktemp`, never in place**.
+**The contract.** Every first-party review/analysis agent definition states that the agent must
+never modify working-tree source files, the index, HEAD, or branch state. The five fan-out agents
+— `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `type-design-analyzer`, and
+`pr-test-analyzer` — perform any mutation/half-revert verification **on a temporary copy made with
+`mktemp`, never in place**. The vendored `requesting-code-review` final pass runs under profiles
+where `mktemp` and `git worktree add` are not uniformly available, so it does not attempt mutation
+verification; it uses granted read-only history commands and reports the verification limitation
+to the orchestrator instead.
 
 **The deterministic backstop (`skills/review/SKILL.md` Phase 3.1/3.2).** Independently of agent
 compliance, the shared engine snapshots the tree with `git status --porcelain -z` immediately
