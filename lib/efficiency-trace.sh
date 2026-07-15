@@ -273,9 +273,11 @@ emit_jq() {
 
 # Single source of truth for the iter-<N>.json expected field set (issue #170).
 # Kept in sync with the iter-<N>.json schema block in skills/review-and-fix/SKILL.md;
-# a lib/test/run.sh assertion FAILs if the two diverge. `shadow` is intentionally
-# excluded — Step 2.6 appends it later, so it is legitimately absent on iters that
-# ran no shadow pass. --self-check warns (best-effort) when any of these is missing
+# a lib/test/run.sh assertion FAILs if the two diverge. `shadow` and
+# `parked_class_sweep` are intentionally excluded — convergence appends them later,
+# so they are legitimately absent on iterations that ran neither convergence emit.
+# `promotion_provenance` is conditional on promoted iterations. --self-check warns
+# (best-effort) when any of these unconditional fields is missing
 # from a persisted iter workpad. Plain (non-readonly) single-line assignment so the
 # run.sh divergence guard can grep `^ITER_EXPECTED_FIELDS=` to extract it.
 ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role checklist phase3_dispatched diff_profile phase3_findings fix_decisions convergence_inputs cap_drops telemetry"

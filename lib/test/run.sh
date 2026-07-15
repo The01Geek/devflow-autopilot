@@ -2123,6 +2123,21 @@ assert_pin_red_under "#500: missing threshold promotion route goes RED" \
 assert_pin_red_under "#500: missing phase3_findings registration goes RED" \
   'Append every discovered sibling to the triggering iteration’s `phase3_findings` with its assigned severity and full `defect_signature` before the shadow runs.' \
   '/Append every discovered sibling to the triggering iteration.*`phase3_findings`/d' "$ST_RAF"
+assert_pin_red_under "#510 review: schema example excludes the refuted seed" \
+  '"source_finding_ids": ["F-16"],' \
+  '/"source_finding_ids": \["F-16"\],/d' "$ST_RAF"
+assert_pin_red_under "#510 review: capacity truncation fails closed" \
+  'A non-null `truncation` is incomplete coverage: record `parked-class sweep not verified: capacity truncation ({details})` and take the not-verified fallthrough.' \
+  '/A non-null `truncation` is incomplete coverage/d' "$ST_RAF"
+assert_pin_red_under "#510 review: sweep-at-cap headline selects current iteration" \
+  'a sweep-at-cap verdict reads the current iteration'"'"'s block whose `parked_class_sweep` registered the unresolved sibling' \
+  '/a sweep-at-cap verdict reads the current iteration.*`parked_class_sweep`/d' "$ST_RAF"
+assert_pin_red_under "#510 review: site overlap remains the cross-producer identity" \
+  'Treat `kind` as a matching input, never as cross-producer identity, because free-text labels drift' \
+  '/Treat `kind` as a matching input, never as cross-producer identity/d' "$ST_RAF"
+assert_pin_red_under "#510 review: terminal dispatch failure cannot read clean" \
+  'If it still fails, record the distinct Reflection bullet `parked-class sweep not verified: {cause}`, set `dispatch: "not_verified"`, and take the completeness gate'"'"'s not-verified fallthrough; never convert it into a clean run.' \
+  '/If it still fails, record the distinct Reflection bullet `parked-class sweep not verified/d' "$ST_RAF"
 # #425 shadow-not-scoped behavioral-fix pin (placed here, below the assert_pin_red_under
 # definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
@@ -17591,8 +17606,9 @@ rm -rf "$LR_SC_REPO"
 # (5) Single-source field set ↔ SKILL.md schema divergence guard (AC #6).
 #     ITER_EXPECTED_FIELDS in efficiency-trace.sh is the ONE place the expected
 #     iter-field set is defined; it MUST equal the iter-<N>.json schema's
-#     unconditional top-level fields in SKILL.md minus `shadow` (appended later)
-#     and `promotion_provenance` (conditional on promoted iterations). FAILs if
+#     unconditional top-level fields in SKILL.md minus `shadow` and
+#     `parked_class_sweep` (convergence-only), plus `promotion_provenance`
+#     (conditional on promoted iterations). FAILs if
 #     an unconditional field is added/removed on either side.
 LR_CONST="$(grep -E '^ITER_EXPECTED_FIELDS=' "$LIB/efficiency-trace.sh" | sed -E 's/^ITER_EXPECTED_FIELDS=//; s/"//g' | tr ' ' '\n' | grep -v '^$' | sort -u)"
 LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|promotion_provenance|parked_class_sweep)$' | sort -u)"
