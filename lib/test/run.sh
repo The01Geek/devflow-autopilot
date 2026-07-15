@@ -6248,9 +6248,9 @@ _impl_suppressed() {  # <head> -> 0 if suppressed/withheld, 1 otherwise
 }
 
 # Real ungranted heads from one skill file: extractor output minus suppressed/withheld.
-_impl_ungranted() {  # <skill-file>
+_impl_ungranted() {  # <skill-file> <allowlist> <mode>
   local h
-  python3 "$ECH" ungranted "$1" "$IMPL_YML" implement-block 2>"$E484/err" \
+  python3 "$ECH" ungranted "$1" "$2" "$3" 2>"$E484/err" \
     | while IFS= read -r h; do _impl_suppressed "$h" || printf '%s\n' "$h"; done
 }
 
@@ -6283,14 +6283,13 @@ assert_eq "#484 withheld list is exactly gh pr checkout, git rev-list, mktemp" \
 # extractor's printed output being empty, not its exit status.
 _impl_files="$LIB/../skills/implement/SKILL.md $LIB/../skills/implement/phases/phase-1-setup.md $LIB/../skills/implement/phases/phase-2-implement.md $LIB/../skills/implement/phases/phase-3-review.md $LIB/../skills/implement/phases/phase-4-documentation.md $LIB/../skills/review/SKILL.md $LIB/../skills/review-and-fix/SKILL.md"
 assert_eq "#484 every implement-tier head is granted or withheld (zero ungranted real heads)" "" \
-  "$(for f in $_impl_files; do _impl_ungranted "$f"; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+  "$(for f in $_impl_files; do _impl_ungranted "$f" "$IMPL_YML" implement-block; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
 
 # AC: review-and-fix/SKILL.md against devflow.yml's hoisted TOOLS — gh pr checkout is
 # granted there (the manual /devflow:review-and-fix path checks out the PR head), so
 # every head it emits is granted or suppressed.
 assert_eq "#484 every review-and-fix head is granted by devflow.yml TOOLS (gh pr checkout granted there)" "" \
-  "$(python3 "$ECH" ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../.github/workflows/devflow.yml" tools-line 2>/dev/null \
-    | while IFS= read -r h; do _impl_suppressed "$h" || printf '%s\n' "$h"; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+  "$(_impl_ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../.github/workflows/devflow.yml" tools-line | sort -u | tr '\n' ' ' | sed 's/ *$//')"
 
 # Behavioral-fix pin: removing the stale-prose-lint.py grant from devflow-implement.yml
 # must turn the guard RED — the guard catches the re-introduced silent denial, not
