@@ -36235,6 +36235,46 @@ assert_pin_unique "#487 fail-fast prose: skills/review-and-fix/SKILL.md carries 
 assert_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
   'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"
 
+# ── #497 shadow prompt-composition attestation pins ──────────────────────────
+I497_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+I497_SHADOW_DOC="$LIB/../docs/shadow-review.md"
+I497_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+
+assert_pin_unique "#497 AC1 skill names topic-priming as a distinct leak channel" \
+  'Topic-priming is a second leak channel, distinct from prior-findings leakage.' "$I497_RAF"
+assert_pin_unique "#497 AC1 skill carries the exhaustive shadow prompt composition rule" \
+  'Every shadow-pass subagent prompt the parent composes uses the engine' "$I497_RAF"
+assert_pin_unique "#497 AC2 skill requires both shallow-safe extension provenance checks" \
+  'Extension text is provenance-clean only when both shallow-clone-safe checks are successfully established and pass' "$I497_RAF"
+assert_pin_unique "#497 AC2 unresolved provenance operands fail closed" \
+  'An error or unreadable input never defaults to provenance-clean.' "$I497_RAF"
+assert_pin_unique "#497 AC3 skill pins shadow artifacts to engine-produced full-diff outputs" \
+  'The permitted diff artifacts are the shadow engine' "$I497_RAF"
+assert_pin_unique "#497 AC5 schema example carries the nullable prompt_addenda field" \
+  '"prompt_addenda": null,' "$I497_RAF"
+assert_pin_unique "#497 AC5 emit example carries the clean prompt_addenda attestation" \
+  '"prompt_addenda": "none",' "$I497_RAF"
+assert_pin_red_under "#497 AC6 outcome 1 requires the positive prompt_addenda equality" \
+  'Outcome 1 requires `prompt_addenda` to equal the JSON string literal `"none"` in both memory and the persisted shadow block.' \
+  's/ Outcome 1 requires `prompt_addenda` to equal the JSON string literal `"none"` in both memory and the persisted shadow block\.//' "$I497_RAF"
+assert_pin_red_under "#497 AC7 promotion is never gated and coverage is never changed by attestation" \
+  'The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass promotes these findings unchanged and preserves any non-`"none"` attestation on the block.' \
+  's/ The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass promotes these findings unchanged and preserves any non-`"none"` attestation on the block\.//' "$I497_RAF"
+assert_pin_unique "#497 AC10 skill clean render requires both persisted operands" \
+  'The exact clean-agreement string requires both persisted operands' "$I497_RAF"
+assert_pin_unique "#497 AC10 Coverage handles every present noncanonical attestation value" \
+  'Any other present attestation value is not attested.' "$I497_RAF"
+assert_pin_unique "#497 AC11 skill red flag names all three steering channels" \
+  'append focus/prioritize/scope clauses to a shadow prompt, hand it regenerated or subsetted diff artifacts, or write steering into its prompt-extension file' "$I497_RAF"
+assert_pin_unique "#497 AC12 shadow doc mirrors the widened prompt composition rule" \
+  'Every shadow-pass subagent prompt the parent composes uses the engine' "$I497_SHADOW_DOC"
+assert_pin_unique "#497 AC12 shadow doc mirrors the separate attestation operand" \
+  'Prompt composition is fail-closed as a separate operand' "$I497_SHADOW_DOC"
+assert_pin_unique "#497 AC12 overview names topic-priming" \
+  'Topic-priming is a second, distinct leak channel' "$I497_OVERVIEW"
+assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda" \
+  'a **prompt-composition attestation**' "$I497_OVERVIEW"
+
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)

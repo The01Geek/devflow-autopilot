@@ -1,5 +1,9 @@
 # Release Notes
 
+## July 14, 2026
+
+- **Fix — Shadow review now attests prompt composition before reporting clean independent coverage** — DevFlow's review-and-fix loop now records prompt composition separately from reviewer-roster coverage. A shadow pass reports clean agreement only when its full reviewer roster ran and its prompts used the attested composition; provenance failures and unauthorized prompt additions remain visible without suppressing real findings that should trigger another review iteration. (#509)
+
 ## July 13, 2026
 
 - **Improvement — `/devflow:create-issue` now reconciles a multi-state contract stated in more than one form before you see the draft** — The self-steelman step that stress-tests each draft gains a new hunt target: when an issue describes a multi-state contract (a set of outcome tokens, error or exit codes, a status enum, or a state machine) in more than one form — for example a summary or table alongside detailed per-state acceptance criteria — the skill now verifies the forms agree, so no summary or table lists fewer causes for a state than the detailed criteria collectively specify. Any disagreement is fixed by revising the draft, not surfaced to you as a question. The check is a within-draft comparison only and makes no claim to catch a state that a not-yet-written implementation will emit. (#471)
