@@ -2129,6 +2129,18 @@ assert_pin_red_under "#510 review round 4: unestablished parked-finding count fa
 assert_pin_red_under "#510 review round 4: capacity-truncated sweep is never a clean pass" \
   'a truncated sweep is never a clean pass' \
   's/a truncated sweep is never a clean pass/a truncated sweep is a clean pass/' "$ST_RAF"
+# #510 review round 5: the not-re-swept dedup ledger keys on BOTH dispatch==verified AND
+# truncation==null, so a capacity-truncated-but-dispatch-verified block is carried forward and
+# re-examined at re-convergence, never stranded as already-swept. Mutation drops the truncation
+# conjunct, re-opening the strand-a-truncated-block fail-open.
+assert_pin_red_under "#510 review round 5: dedup ledger re-sweeps a truncated-but-verified block" \
+  'whose `dispatch` was `verified` and whose `truncation` was `null`' \
+  's/ and whose `truncation` was `null`//' "$ST_RAF"
+# #510 review round 5: the completeness gate reads dispatch directly (symmetry with truncation),
+# so a clean bullet written over a not_verified dispatch cannot satisfy it. Mutation flips the rule.
+assert_pin_red_under "#510 review round 5: a non-verified sweep is never a clean pass either" \
+  'a non-verified sweep is never a clean pass either' \
+  's/a non-verified sweep is never a clean pass either/a non-verified sweep is a clean pass either/' "$ST_RAF"
 assert_pin_red_under "#500: missing threshold promotion route goes RED" \
   'A discovered sibling at or above `$FIX_THRESHOLD` enters Step 2.5 → Step 3 as a promoted iteration using the same machinery as Decide outcome 2.' \
   's/A discovered sibling at or above `\$FIX_THRESHOLD` enters/A discovered sibling below `\$FIX_THRESHOLD` enters/' "$ST_RAF"
