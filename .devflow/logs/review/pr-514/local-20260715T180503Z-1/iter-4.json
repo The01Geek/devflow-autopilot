@@ -1,7 +1,7 @@
 {
   "iter": 4,
   "started_at": "2026-07-15T22:39:49Z",
-  "fix_commit_sha": "d78dd483a0a0893f9cae3e2d0f324a7d25dc66ed",
+  "fix_commit_sha": "ab72ecbb99351349d0cb3428bc70a702550464ff",
   "fix_files": [
     ".changeset/issue-484-implement-profile-grants.md",
     ".github/workflows/devflow-implement.yml",
@@ -45,12 +45,12 @@
   ],
   "sweep_defs_read": ["skills/implement/phases/phase-2-implement.md:2.3"],
   "sweep_evidence": {"status":"pass","shape":"permission profiles, parser boundaries, snapshot integrity, documentation mirrors","sweeps":["API boundary","permission denial","filesystem integrity","removal proof","coupled prose"]},
-  "verification_evidence": {"command":"lib/test/run.sh","result":"pass","duration_s":242,"skipped_checks":[]},
+  "verification_evidence": {"command":"lib/test/run.sh","result":"pass","duration_s":281,"skipped_checks":[]},
   "stale_prose_check": {"status":"pass","evidence":"#434 committed-HEAD stale-prose self-scan passed in the 7563-test final run"},
   "telemetry": "unavailable",
   "shadow": {
-    "ran_at": "2026-07-15T22:39:49Z",
-    "reviewed_sha": "d78dd483a0a0893f9cae3e2d0f324a7d25dc66ed",
+    "ran_at": "2026-07-15T22:52:28Z",
+    "reviewed_sha": "ab72ecbb99351349d0cb3428bc70a702550464ff",
     "verdict": "APPROVE",
     "coverage": "full",
     "prompt_addenda": "none",
