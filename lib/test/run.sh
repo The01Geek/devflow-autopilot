@@ -7506,10 +7506,10 @@ assert_pin_red_under "#478 AC2 read-protocol: a truncated or marker-incomplete r
 # these pins, item 3b can require evidence that the authoritative writer silently omits.
 assert_pin_red_under "#478 AC2 record shape: item 7 persists sweep_defs_read in the authoritative iter-N schema" \
   '`sweep_defs_read` (the Phase 2.3 source path plus the sweep identifiers read)' \
-  's/`sweep_defs_read` (the Phase 2\.3 source path plus the sweep identifiers read)//'
+  's/`sweep_defs_read` \(the Phase 2\.3 source path plus the sweep identifiers read\)//'
 assert_pin_red_under "#478 AC2 record shape: item 7 persists sweep evidence including degraded unreadable-source outcomes" \
   '`sweep_evidence` (the item 3b sweep outcomes, including any `sweeps: unrunnable` degradation record)' \
-  's/`sweep_evidence` (the item 3b sweep outcomes, including any `sweeps: unrunnable` degradation record)//'
+  's/`sweep_evidence` \(the item 3b sweep outcomes, including any `sweeps: unrunnable` degradation record\)//'
 
 # AC4 — the drift-guarded fix-loop mapping table. Pin the drift-guard operative sentence.
 assert_pin_red_under "#478 AC4 mapping-table: the lint goes RED when a marker appears in a sweep body the table has no row for" \
@@ -7557,14 +7557,14 @@ assert_pin_red_under "#478 AC6 gate-time producer: Step 3 records the gate's cal
   'call durably at gate time' \
   's/call durably at gate time//'
 assert_pin_red_under "#478 AC6 standalone gate operand: the producer names its exact run-scoped scratch path" \
-  'iter-<N>-gate-evidence.json' \
-  's/iter-<N>-gate-evidence\.json//g'
+  'iter-<N>-gate-evidence.json` as a JSON array' \
+  's/iter-<N>-gate-evidence\.json` as a JSON array//'
 assert_pin_red_under "#478 AC6 authoritative schema: item 7 persists standalone gate evidence under test_first_gate" \
   'Also write `test_first_gate`' \
   's/Also write `test_first_gate`//'
 assert_pin_red_under "#478 AC2 no-fix schema: authoritative sweep fields use an explicit not-run representation" \
   'sweep_evidence: {"status":"not-run","reason":"no fixes applied"}' \
-  's/sweep_evidence: {"status":"not-run","reason":"no fixes applied"}//'
+  's/sweep_evidence: \{"status":"not-run","reason":"no fixes applied"\}//'
 # AC7 no-automated-test arm (#478 Phase-3 review): the operative constraint is that the fixer runs
 # the dry-trace itself and does NOT delegate it to the blinded Step 3.5 gate (which would defeat the
 # gate's independence). The dry-trace pin below covers only the positive action, not this
@@ -7608,7 +7608,7 @@ P478_MARKERS=( 'workpad.py' '$ISSUE_NUMBER' 'Phase 3.4' 'Phase 4.1' '(post-merge
 P478_DESTINATIONS=( "The loop's own evidence sink" "The loop's own evidence sink" 'An item-5 pushback/advisory record' 'Fix-now, or record through' 'An item-5 pushback/advisory record' 'An item-5 pushback/advisory record' "The loop's evidence sink" 'No equivalent backstop exists' "The repo's stated conventions" )
 p478_sweep_bodies() {
   awk '
-    $0 == "**Sweep selection (run first).**" { starts++; f=1; next }
+    /^\*\*Sweep selection \(run first\)\.\*\*/ { starts++; f=1; next }
     $0 == "### 2.4 Test" { ends++; f=0; next }
     f { buf = buf $0 "\n" }
     END { if (starts == 1 && ends == 1) printf "%s", buf }
