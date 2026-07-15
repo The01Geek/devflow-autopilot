@@ -30695,6 +30695,73 @@ assert_pin_unique "#363 devflow.yml falls back to the bare command when no block
 
 # ── Renderer behavior (unit-tested once, rather than twice through YAML).
 _rgb() { HEAD_SHA="${1-}" CI_SUMMARY="${2-}" ALLOWED_TOOLS="${3-}" bash "$RGB_SH"; }
+
+# ── #504 renderer displaced-paths section (AC3/AC4). HARDENED_PATHS renders a
+# ── displaced-paths section ONLY when it carries a non-whitespace path;
+# ── unset/empty/whitespace-only collapse to "no section" (unset ≡ empty,
+# ── byte-identical — AC4). rc 0 always (always-exit-0 contract).
+_rgbh() { HEAD_SHA="${1-}" CI_SUMMARY="${2-}" ALLOWED_TOOLS="${3-}" HARDENED_PATHS="${4-}" bash "$RGB_SH"; }
+assert_eq "#504 renderer rc 0 with HARDENED_PATHS unset (always-exit-0)" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' >/dev/null 2>&1; echo $?)"
+assert_eq "#504 AC4 HARDENED_PATHS unset -> no displaced section" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' | grep -c 'Stop-hook-floor displacement')"
+assert_eq "#504 AC4 HARDENED_PATHS empty -> no displaced section" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' '' | grep -c 'Stop-hook-floor displacement')"
+assert_eq "#504 AC4 HARDENED_PATHS whitespace-only -> no displaced section" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' '   ' | grep -c 'Stop-hook-floor displacement')"
+assert_eq "#504 AC3 one path -> displaced section present" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'Stop-hook-floor displacement' && echo yes || echo no)"
+assert_eq "#504 AC3 one path -> the path is listed" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'lib/efficiency-trace.sh' && echo yes || echo no)"
+assert_eq "#504 AC3 several paths with a blank interior line -> section present" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' $'lib/efficiency-trace.sh\n\nlib/resolve-jq.sh' | grep -qF 'Stop-hook-floor displacement' && echo yes || echo no)"
+assert_eq "#504 AC3 backtick-bearing path -> section present (backticks stripped)" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' $'`lib/efficiency-trace.sh`' | grep -qF 'Stop-hook-floor displacement' && echo yes || echo no)"
+# AC4: unset renders byte-identical to empty (cmp).
+assert_eq "#504 AC4 unset renders byte-identical to empty" "" \
+  "$(diff <(_rgbh deadbeef 'lint: success' 'Read') <(_rgbh deadbeef 'lint: success' 'Read' ''))"
+# AC3: the listed-paths-fully-in-scope sentence is operative (mutation-backed).
+assert_pin_red_under "#504 AC3 fully-in-scope operative sentence (removing it re-opens the wrong-REJECT risk)" \
+  "remain FULLY" "s/remain FULLY//" "$RGB_SH"
+
+# ── #504 workflow plumbing (AC1/AC5). ci_summary runs before harden_hooks
+# ── (summarize-ci-checks.sh sources lib/resolve-jq.sh, a closure member),
+# ── harden_hooks before Compose review prompt (a not-yet-run step's output
+# ── resolves to empty, so the HARDENED_PATHS forwarding ships permanently
+# ── inert without the reorder).
+_504_ci=$(grep -nE '^[[:space:]]*id: ci_summary$' "$RUNNER_YML" | head -1 | cut -d: -f1)
+_504_hh=$(grep -nE '^[[:space:]]*id: harden_hooks$' "$RUNNER_YML" | head -1 | cut -d: -f1)
+_504_co=$(grep -nE '^[[:space:]]*id: compose$' "$RUNNER_YML" | head -1 | cut -d: -f1)
+assert_eq "#504 AC5 ci_summary step exists" "1" "$([ -n "$_504_ci" ] && echo 1 || echo 0)"
+assert_eq "#504 AC5 ci_summary precedes harden_hooks" "1" "$([ -n "$_504_ci" ] && [ -n "$_504_hh" ] && [ "$_504_ci" -lt "$_504_hh" ] && echo 1 || echo 0)"
+assert_eq "#504 AC5 harden_hooks precedes Compose review prompt" "1" "$([ -n "$_504_hh" ] && [ -n "$_504_co" ] && [ "$_504_hh" -lt "$_504_co" ] && echo 1 || echo 0)"
+assert_pin_unique "#504 AC1 harden publishes disposition=displaced" "disposition=displaced" "$RUNNER_YML"
+assert_pin_unique "#504 AC1 harden publishes disposition=skipped" "disposition=skipped" "$RUNNER_YML"
+assert_pin_unique "#504 AC1 harden publishes displaced_paths heredoc" "displaced_paths<<" "$RUNNER_YML"
+# AC5 side-effect: summarize is called in exactly one step now (ci_summary), not compose.
+assert_pin_unique "#504 AC5 summarize called in exactly one step (ci_summary, removed from compose)" 'CI_SUMMARY=$(bash "$SCC")' "$RUNNER_YML"
+assert_pin_unique "#504 AC5 compose forwards HARDENED_PATHS from harden" 'HARDENED_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}' "$RUNNER_YML"
+
+# ── #504 AC6 routing rule on the 7 claim-verification surfaces.
+assert_pin_unique "#504 AC6 SKILL defect_signature routing" "Displaced-path routing (issue #504)" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 SKILL Phase 4.1.6 routing" "displaced-path routing (this sweep)" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 SKILL Phase 2.1a lite-probe routing" "grep the \`git show <head>:<path>\` output" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 SKILL Phase 2.1b dispatch routing" "displaced-path routing: for any referenced file" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 code-reviewer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/code-reviewer.md"
+assert_pin_unique "#504 AC6 comment-analyzer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/comment-analyzer.md"
+assert_pin_unique "#504 AC6 checklist-verifier agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/checklist-verifier.md"
+# AC7: Phase 0.1 attribution + Phase 0.1.5 scratch persistence.
+assert_pin_unique "#504 AC7 Phase 0.1 displaced-path attribution" "#504 displaced-path attribution" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 Phase 0.1.5 scratch persistence" "Persist the displaced-path list" "$LIB/../skills/review/SKILL.md"
+
+# ── #504 AC10 stale-prose corrections.
+assert_pin_unique "#504 AC10 devflow-runner relevance-gate says ten" "ten DevFlow-layout paths would clobber" "$RUNNER_YML"
+assert_pin_unique "#504 AC10 devflow-runner FP-S1 warning says ten" "ten DevFlow-layout paths are stubbed" "$RUNNER_YML"
+assert_pin_unique "#504 AC10 run.sh #460 FP1 says ten" "ten DevFlow-layout paths over same-named" "$LIB/test/run.sh"
+assert_eq "#504 AC10 CHANGELOG keeps the historical nine" "1" "$(pin_count 'nine DevFlow-layout' "$LIB/../CHANGELOG.md")"
+assert_pin_unique "#504 AC10 harden header efficiency-trace -> telemetry-branch edge" "scripts/config_fingerprint.py, lib/telemetry-branch.sh" "$LIB/../scripts/harden-stop-hooks.sh"
+assert_pin_unique "#504 AC10 harden header telemetry-branch -> config-source row" "lib/telemetry-branch.sh     -> lib/config-source.sh" "$LIB/../scripts/harden-stop-hooks.sh"
+assert_pin_unique "#504 AC10 harden header mode-delta names all three 100644" "lib/resolve-jq.sh, lib/resolve-bin.sh, and lib/telemetry-branch.sh are 100644" "$LIB/../scripts/harden-stop-hooks.sh"
 assert_eq "#363 renderer interpolates the reviewed HEAD SHA" "yes" \
   "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'reviewed commit (`deadbeef`)' && echo yes || echo no)"
 assert_eq "#363 renderer renders an absent HEAD SHA as 'unknown', never as blank" "yes" \
