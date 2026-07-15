@@ -179,9 +179,10 @@ gitignored `.devflow/tmp/`; post-#469 a **degraded** branch write (or a CI stagi
 next `--persist`; a *degraded* write additionally emits one `::warning::` naming its **absolute
 path**, while a staging-only run retains silently, so on a **local**
 filesystem a failed branch write is recoverable rather than lost. On an **ephemeral CI runner** the
-staging tree does not survive teardown, so recovery there awaits the forthcoming trusted
-telemetry-push relay (follow-up to #469); until it lands a cloud runner's degraded/staged records are
-not recoverable (coupled with `skills/implement/phases/phase-3-review.md` and
+staging tree does not survive teardown, so the cloud recovery path is the **uploaded workflow
+artifact** the auto-review tier stages and uploads, which the trusted telemetry-push relay
+(`telemetry-push.yml`, issue #489) downloads, validates, and pushes — not any on-disk copy the
+ephemeral runner cannot retain (coupled with `skills/implement/phases/phase-3-review.md` and
 `docs/efficiency-trace.md`, which say the same). If the stderr capture itself can't be allocated
 (`mktemp` fails), the backstop degrades to discarding `--persist`'s stderr entirely rather than
 aborting — this disables the record-write-failure check for that run (the no-inputs case still

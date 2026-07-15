@@ -372,10 +372,11 @@ phase boundary; Phase 4.5 finalizes it).
   `.devflow/tmp/`, writes no new branch records, and does no push (a best-effort
   fetch may fast-forward the *local* `devflow-telemetry` ref to mirror the remote;
   that leaves the tree and the *remote* ref untouched), so this runner leaves the
-  remote `devflow-telemetry` ref untouched by its own action. Landing those staged records on the
-  branch is the job of a forthcoming trusted telemetry-push relay (which does not
-  check out the PR head; tracked as follow-up work to issue #469) — see
-  [`efficiency-trace.md`](efficiency-trace.md).
+  remote `devflow-telemetry` ref untouched by its own action. To carry those staged records across
+  the workflow boundary the runner **uploads** them as a workflow artifact, and a separate trusted
+  telemetry-push relay (`telemetry-push.yml`, issue #489 — which does not check out the PR head,
+  mints a write-capable token above its checkout, and validates the artifact as untrusted input)
+  downloads and pushes them to the branch — see [`efficiency-trace.md`](efficiency-trace.md).
 - Gating: `devflow_review.live_progress_comment_enabled = false` skips the live
   comment (the report is produced once at the end, as before); in non-PR /
   current-branch mode there is no comment surface and the narrative goes to chat.
