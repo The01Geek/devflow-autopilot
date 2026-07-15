@@ -19448,8 +19448,20 @@ assert_pin_red_under "489/AC2(S1): collect step captures the helper's EXIT STATU
   '|| _collect_rc=$?' 's/ \|\| _collect_rc=\$\?//' "$_489_WF/devflow-runner.yml"
 assert_pin_red_under "489/AC2(S1): collect step distinguishes the rc-126 exec fault (deployment fault, not empty run)" \
   '[ "$_collect_rc" = 126 ]' 's/= 126/= 999/' "$_489_WF/devflow-runner.yml"
+# The rc-127 (not-found) half is the MORE common path-skewed-deployment fault and must be pinned
+# independently of rc-126: a mutation dropping the `|| [ … = 127 ]` clause (narrowing the guard to
+# 126 alone) would let a genuinely ABSENT helper fall through to the benign no-op notice — the exact
+# real-drop-laundered-as-no-op this branch exists to prevent (matching the efficiency-trace.sh
+# `126|127)` precedent pinned elsewhere in this suite).
+assert_pin_red_under "489/AC2(F1): collect step ALSO distinguishes the rc-127 exec fault (narrowing the guard to 126 alone goes RED)" \
+  '[ "$_collect_rc" = 127 ]' 's/ \|\| \[ "\$_collect_rc" = 127 \]//' "$_489_WF/devflow-runner.yml"
 assert_pin_unique "489/AC2(S1): the exec-fault branch names it a deployment fault distinctly" \
   'could not be executed (rc $_collect_rc' "$_489_WF/devflow-runner.yml"
+# Sibling arm: the trusted pusher's own validator-exec-fault case must cover BOTH rc 126 AND 127.
+# The behavioral test (d) above exercises only rc 126 (chmod -x); a mutation narrowing the arm to
+# `126)` alone — so an ABSENT validator (rc 127) falls through — goes RED here.
+assert_pin_red_under "489/AC4(F1): the pusher's validator-exec-fault arm covers BOTH rc 126 and 127 (narrowing to 126) goes RED)" \
+  '126|127)' 's/126\|127\)/126)/' "$_489_PUSH"
 
 # S2(a) — the download-failure warning (this PR's fix for making a genuine cross-run download fault
 # visible) gates on outcome == 'failure'. Content pin + a behavioral pin (flipping the gate to
@@ -19479,6 +19491,15 @@ assert_eq "489/AC2(S2c): the upload step gates on a non-empty collected path" "1
   "$(grep -cF "if: always() && steps.collect_telemetry.outputs.path != ''" "$_489_WF/devflow-runner.yml" || true)"
 assert_pin_red_under "489/AC2(S2c): the upload path-non-empty gate is operative (inverting to == '' goes RED)" \
   "steps.collect_telemetry.outputs.path != ''" 's/collect_telemetry.outputs.path != /collect_telemetry.outputs.path == /' "$_489_WF/devflow-runner.yml"
+
+# F2 — the collect step's HAPPY PATH: the non-empty-stdout arm wires the collected tree's path into
+# GITHUB_OUTPUT, which the S2c upload gate above then reads. The S2c pin covers the DOWNSTREAM gate;
+# nothing covered the UPSTREAM `path=` emission. Breaking the output key (so `outputs.path` stays
+# empty and the gate never fires) would make the relay upload ZERO telemetry with no error — the
+# silent-transfer-nothing class the `include-hidden-files` comment nearby also guards. A mutation
+# renaming the `path=` key goes RED.
+assert_pin_red_under "489/AC2(F2): the collect step's non-empty-stdout arm emits the collected path into GITHUB_OUTPUT (renaming the output key goes RED)" \
+  'echo "path=$dest" >> "$GITHUB_OUTPUT"' 's/path=\$dest/path_BROKEN=\$dest/' "$_489_WF/devflow-runner.yml"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow-runner.yml: opt-in environment provisioning (issues #18, #21)"
