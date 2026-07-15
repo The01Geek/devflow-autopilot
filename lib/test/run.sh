@@ -29223,8 +29223,8 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last changes: #441 Phase 4.5 record write collapsed to a single --persist call, then #466 Phase 0.6 adjudication-join fence added match-lint-adjudications.py + run-jq.sh + gh api --paginate — the comment fetch writes via an in-workspace redirect, NOT a tee, so gh's own exit status survives)" \
-  "102" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last changes: #441 Phase 4.5 record write collapsed to a single --persist call, then #466 Phase 0.6 adjudication-join fence added match-lint-adjudications.py + run-jq.sh + gh api --paginate, then #503 Phase 0.2 current-branch fence added a config-get.sh capture — the comment fetch writes via an in-workspace redirect, NOT a tee, so gh's own exit status survives)" \
+  "103" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 assert_eq "#363 the review-skill head set matches the reviewed count (33 distinct names; +match-lint-adjudications.py, +run-jq.sh, +gh api --paginate at #466)" \
@@ -31702,15 +31702,15 @@ assert_eq "#423 T8 fix-loop Step 3 invokes the same helper (references it, not a
 # item-6a fence references only a skill-defined base var, and prove the undefined-var
 # regression cannot silently return.
 assert_eq "#424 (item 6a) fence references no undefined \$BASE_REF (the VC-12 silent-no-op var)" "0" "$(grep -c 'BASE_REF' "$SP_RAF")"
-assert_pin_unique "#424 (item 6a) fence binds the base to the engine-resolved \$PR_BASE_SHA (defined, three-dot, current-branch fallback)" \
-  'git diff "${PR_BASE_SHA:-origin/main}...HEAD"' "$SP_RAF"
+assert_pin_unique "#424 (item 6a) fence binds the base to the PR's own base ref origin/\$PR_BASE_BRANCH (PR mode) / config \$BASE (current-branch), not the stale run-start baseRefOid (three-dot)" \
+  'git diff "origin/${PR_BASE_BRANCH:-$BASE}...HEAD"' "$SP_RAF"
 assert_pin_unique "#424 (item 6a) skill DEFINES \$PR_BASE_SHA (names it the base the engine's Phase 0.2 resolved this iteration)" \
   'against the base the engine'\''s Phase 0.2 resolved this iteration' "$SP_RAF"
 assert_pin_unique "#424 (item 6a) recomputes at the POST-fix HEAD, not the cached pre-fix diff.patch" \
   'not** reading the pre-fix `diff.patch` Phase 0.2 cached' "$SP_RAF"
-assert_pin_red_under "#424 (item 6a): reverting the base binding to an undefined var re-introduces the VC-12 silent no-op" \
-  'git diff "${PR_BASE_SHA:-origin/main}...HEAD"' \
-  's#PR_BASE_SHA:-origin/main#BASE_REF#' "$SP_RAF"
+assert_pin_red_under "#424 (item 6a): reverting the base to the stale run-start \$PR_BASE_SHA re-introduces the base-content leak" \
+  'git diff "origin/${PR_BASE_BRANCH:-$BASE}...HEAD"' \
+  's#origin/\$\{PR_BASE_BRANCH:-\$BASE\}#${PR_BASE_SHA:-origin/main}#' "$SP_RAF"
 # Producer-failure detection (#424 review Suggestion 1): a failing `git diff` must not
 # pipe empty stdout into the helper and read as a clean pass.
 assert_pin_unique "#424 (item 6a) fence sets pipefail so a producer/helper failure is not read as clean" \
@@ -31718,6 +31718,56 @@ assert_pin_unique "#424 (item 6a) fence sets pipefail so a producer/helper failu
 assert_pin_red_under "#424 (item 6a): dropping the producer/helper-failure note re-introduces the empty-diff-reads-clean hole" \
   'stale-prose pre-check: producer/helper failed (rc=<code>)' \
   '/stale-prose pre-check: producer\/helper failed/d' "$SP_RAF"
+
+# #503 Scenario-B regression (AC 2): a base that advanced past the captured
+# baseRefOid, then merged into the feature head by an in-loop Checkpoint-3,
+# leaks base-only content into the OLD three-dot binding "$baseRefOid...HEAD"
+# (base pinned to the stale run-start SHA) but NOT into the corrected
+# "origin/<base>...HEAD" (base = current fetched tip of the PR's own base ref).
+# The fixture materializes refs/remotes/origin/main via `git update-ref` so the
+# corrected binding resolves offline (gh-stubbed, no network) — a plain local
+# `main` branch is NOT refs/remotes/origin/main. Three-dot is preserved in both:
+# merge-base(baseRefOid,HEAD)==baseRefOid once the merge makes it an ancestor, so
+# the old binding degenerates to baseRefOid..HEAD and sweeps in every base commit
+# in (baseRefOid, base-tip].
+SP503="$(git_sandbox '#503 scenario-B base-advanced')"
+git -C "$SP503" init -q >/dev/null 2>&1
+git -C "$SP503" -c user.email=t@t -c user.name=t checkout -q -b main >/dev/null 2>&1
+printf 'base v1\n' > "$SP503/base.txt"
+git -C "$SP503" -c user.email=t@t -c user.name=t add base.txt >/dev/null 2>&1
+git -C "$SP503" -c user.email=t@t -c user.name=t commit -qm 'base v1' >/dev/null 2>&1
+SP503_BASE_OID="$(git -C "$SP503" rev-parse HEAD)"   # captured run-start baseRefOid (= $PR_BASE_SHA)
+git -C "$SP503" -c user.email=t@t -c user.name=t checkout -q -b feature >/dev/null 2>&1
+printf 'feature work\n' > "$SP503/feature.txt"        # the PR's true contribution
+git -C "$SP503" -c user.email=t@t -c user.name=t add feature.txt >/dev/null 2>&1
+git -C "$SP503" -c user.email=t@t -c user.name=t commit -qm 'feature work' >/dev/null 2>&1
+# the BASE ADVANCES: a commit lands on main AFTER baseRefOid was captured
+git -C "$SP503" -c user.email=t@t -c user.name=t checkout -q main >/dev/null 2>&1
+printf 'base v1\nbase v2 advanced (base-only content)\n' > "$SP503/base.txt"
+git -C "$SP503" -c user.email=t@t -c user.name=t commit -qam 'base advances' >/dev/null 2>&1
+SP503_BASE_TIP="$(git -C "$SP503" rev-parse HEAD)"
+# Checkpoint-3 merges the advanced main into the feature head
+git -C "$SP503" -c user.email=t@t -c user.name=t checkout -q feature >/dev/null 2>&1
+git -C "$SP503" -c user.email=t@t -c user.name=t merge -q --no-edit main >/dev/null 2>&1
+# materialize refs/remotes/origin/main at the advanced base tip so the corrected
+# "origin/main...HEAD" binding resolves offline (no network, no mock)
+git -C "$SP503" update-ref refs/remotes/origin/main "$SP503_BASE_TIP"
+assert_eq "#503 Scenario-B OLD binding \$baseRefOid...HEAD leaks base-only 'base v2 advanced' (the defect, RED vs today's fence)" \
+  "1" "$( ( cd "$SP503" && git diff "$SP503_BASE_OID...HEAD" | grep -c '^+base v2 advanced' ) )"
+assert_eq "#503 Scenario-B CORRECTED binding origin/main...HEAD excludes the base-only line (fixed, GREEN)" \
+  "0" "$( ( cd "$SP503" && git diff 'origin/main...HEAD' | grep -c '^+base v2 advanced' ) )"
+assert_eq "#503 Scenario-B CORRECTED binding retains the PR's 'feature work' (no over-exclusion)" \
+  "1" "$( ( cd "$SP503" && git diff 'origin/main...HEAD' | grep -c '^+feature work' ) )"
+
+# #503 AC 8: current-branch coupled base — Phase 0.2 and item 6a resolve the
+# SAME configured base_branch (via the proven guarded config-get .base_branch main
+# capture, fail-closed to main), not a hardcoded origin/main. Both sites route
+# the current-branch base through that one capture, so the two resolved bases are
+# byte-identical by construction (config-get is single-sourced).
+assert_pin_unique "#503 AC8 Phase 0.2 current-branch resolves configured base_branch via the guarded config-get .base_branch main capture (not hardcoded origin/main)" \
+  'config-get.sh .base_branch main' "$SP_REVIEW"
+assert_pin_unique "#503 AC8 item 6a current-branch fallback resolves the SAME configured base_branch (guarded config-get .base_branch main)" \
+  'config-get.sh .base_branch main' "$SP_RAF"
 
 # T10 → Phase 0.6 degradation arms (fail-safe, never fail-silent), pinned on the
 # rendered file surface (#375). All four arms present; the harness-refused remedy is

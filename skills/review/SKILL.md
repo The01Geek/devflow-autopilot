@@ -71,7 +71,7 @@ If the invocation fails because the helper path does not exist (`No such file`, 
 - Not for PRs you want auto-fixed — use `/devflow:review-and-fix` instead.
 - Not for general code Q&A or learning the codebase — this skill is verdict-driven, not exploratory.
 - Not for reviewing uncommitted local changes — commit to a branch first (Phase 0.1 will warn either way).
-- Not for first-time review of a multi-PR feature branch — review the most-recent PR in isolation; the engine compares against `origin/main` (or the PR base) and a long-lived branch diff will swamp Phase 1 with stale items.
+- Not for first-time review of a multi-PR feature branch — review the most-recent PR in isolation; the engine compares against the configured `base_branch` (or the PR base) and a long-lived branch diff will swamp Phase 1 with stale items.
 
 ---
 
@@ -302,13 +302,20 @@ If there is output, warn: "You have uncommitted changes that will not be include
 **If `$ARGUMENTS` is a PR number:**
 ```bash
 gh pr diff $ARGUMENTS
-gh pr view $ARGUMENTS --json headRefName,baseRefOid,headRefOid --jq '.'
+gh pr view $ARGUMENTS --json headRefName,baseRefName,baseRefOid,headRefOid --jq '.'
 ```
 If either command fails (non-zero exit code), stop immediately and report: "Failed to retrieve diff. Verify the PR number exists and you have required permissions."
 
-Use the PR diff output for Phase 1. Store the head branch name, `baseRefOid` as `$PR_BASE_SHA`, and `headRefOid` as `$PR_HEAD_SHA` — the head-override diff (below), Phase 0.3.6's blocker-recheck fast path, and Phase 4's `Reviewed HEAD` line all need them. (Phase 1.1 no longer per-file-slices via `git diff` — it slices the already-cached `diff.patch` with `awk` — so it is not among the consumers of these SHAs.)
+Use the PR diff output for Phase 1. Store the head branch name, `baseRefOid` as `$PR_BASE_SHA`, `baseRefName` as `$PR_BASE_BRANCH` (the PR's own base ref — used by the head-override diff below; the name avoids the `BASE_REF` substring the `lib/test/run.sh` #424 grep-c pin forbids, mirroring how `lib/fetch-pr-context.sh` already exposes this field), and `headRefOid` as `$PR_HEAD_SHA` — the head-override diff (below), Phase 0.3.6's blocker-recheck fast path, and Phase 4's `Reviewed HEAD` line all need them. `$PR_BASE_SHA` (the immutable run-start `baseRefOid`) is retained as the deleted-base fallback (below) and the reviewer-prompt `Base SHA:` line. (Phase 1.1 no longer per-file-slices via `git diff` — it slices the already-cached `diff.patch` with `awk` — so it is not among the consumers of these SHAs.)
 
-**Caller head-override (fix-loop reuse).** A wrapping skill (currently `/devflow:review-and-fix`) may pass `head_override = local`. When set, take the PR's head from the local working tree instead of the API: set `$PR_HEAD_SHA=$(git rev-parse HEAD)` and fetch the diff with `git diff "$PR_BASE_SHA...HEAD"` instead of `gh pr diff $ARGUMENTS`. This lets a fix loop review commits it has made locally but not yet pushed — the remote `headRefOid` would otherwise lag behind and the loop would re-review pre-fix code. It requires the PR's head branch to be the checked-out branch; the caller guarantees this (review-and-fix does so in its Step 0.5). When `head_override` is absent — standalone `/devflow:review`, the default — use the API head exactly as above; do **not** diff against local `HEAD`, since a standalone review must reflect the pushed PR state, not a dirty or stale local checkout.
+**Caller head-override (fix-loop reuse).** A wrapping skill (currently `/devflow:review-and-fix`) may pass `head_override = local`. When set, take the PR's head from the local working tree instead of the API: set `$PR_HEAD_SHA=$(git rev-parse HEAD)` and fetch the diff with `git diff "origin/$PR_BASE_BRANCH...HEAD"` (three-dot) instead of `gh pr diff $ARGUMENTS`. **The base is the PR's own base ref `$PR_BASE_BRANCH` (its current fetched tip), not the run-start `$PR_BASE_SHA`** — matching the semantics `gh pr diff` gives the non-override path, so a base commit an in-loop Checkpoint-3 (`scripts/update-branch-checkpoint.sh`) merges into the PR head mid-loop is excluded rather than attributed to the PR as added content (issue #503: with the stale run-start `baseRefOid`, `merge-base(baseRefOid, HEAD)` collapsed to `baseRefOid` once the merge made it an ancestor, degenerating the three-dot diff to `baseRefOid..HEAD` and sweeping in every base commit newer than `baseRefOid` as PR-added). This lets a fix loop review commits it has made locally but not yet pushed — the remote `headRefOid` would otherwise lag behind and the loop would re-review pre-fix code. It requires the PR's head branch to be the checked-out branch; the caller guarantees this (review-and-fix does so in its Step 0.5). When `head_override` is absent — standalone `/devflow:review`, the default — use the API head exactly as above; do **not** diff against local `HEAD`, since a standalone review must reflect the pushed PR state, not a dirty or stale local checkout.
+
+**Resolve the head-override base ref before diffing (mirrors `scripts/update-branch-checkpoint.sh`).** Before the diff, refresh `origin/$PR_BASE_BRANCH` with the same explicit refspec the checkpoint helper uses — `+refs/heads/$PR_BASE_BRANCH:refs/remotes/origin/$PR_BASE_BRANCH` — so the remote-tracking ref is current regardless of the checkout's configured refspec (invoke git fetch origin with that refspec, exactly as the checkpoint does; it handles a base name with `/`, e.g. `release/2.0`). Three boundary behaviors, each distinct:
+- **Base branch deleted/renamed after PR open** (`origin/$PR_BASE_BRANCH` unfetchable): fall back to the stored immutable `$PR_BASE_SHA` (`baseRefOid`) — the base the PR opened against, and what `gh pr diff` itself uses server-side. This fallback is **leak-equivalent to the pre-fix binding** when the base advanced (base content newer than `baseRefOid` re-enters the diff); accepted only because base deletion is rare and matches `gh pr diff`'s retained-SHA semantics.
+- **Merge-base unreachable on a shallow clone** (base ref present, history too shallow for `git merge-base`): mirror the checkpoint helper's one-shot `--unshallow` retry on that same refspec (invoke git fetch --unshallow origin with it; `--unshallow` on a complete repo exits non-zero — expected noise, not a failure); if the merge-base is still unreachable, take the fail-closed producer path below.
+- **PR base ref ≠ configured `base_branch`** (a retargeted/stacked PR): the diff bases on `$PR_BASE_BRANCH` while Checkpoint-3 merges the config `base_branch`, so the merged content can re-enter the diff. Detect and record this divergence as a degraded/warning note (an observable residual, never a silent leak); `--push-each-iteration` on such a PR carries a known residual leak (making the checkpoint merge `baseRefName` instead is a separate, deferred concern).
+
+**Fail-closed at the producer (before the cache write).** The head-override `tee` pipeline (below) runs under `set -o pipefail` and its exit code is checked: a `git diff` that could not resolve the base (rc=128 on an unresolved ref / detached-HEAD edge, or an unreachable merge-base after the `--unshallow` retry) must **not** cache an empty `diff.patch` — an empty cached diff is reviewed by the Phase 1–3 agents as "nothing to flag" and yields `APPROVE` (the empty-diff-is-clean verdict hazard). On such a failure, record a degraded stop and surface it to the wrapping run: inside `/devflow:implement` as a **Blocked** outcome (mirroring the Checkpoint-3 Blocked hard-stop contract, `skills/review-and-fix/SKILL.md` Step 3), and to a standalone run as stop-and-report — never a silent no-verdict. (Phase 0.6's degraded note does **not** gate the agents' verdict, so the guard must sit here at the producer, before the cache write.)
 
 **Caller run-id (run-scoped scratch).** All of this run's scratch under `.devflow/tmp/review/<slug>/` is nested one level deeper under a per-run `<run-id>` so concurrent or repeated reviews of the same PR never clobber each other (the same isolation the per-run progress-comment marker provides). Resolve `<run-id>` **once** at the start of Phase 0.2 and hold the literal for the whole run:
 
@@ -319,14 +326,17 @@ Use the PR diff output for Phase 1. Store the head branch name, `baseRefOid` as 
 
 **If no argument (review current branch):**
 ```bash
-git diff origin/main...HEAD
-git diff origin/main...HEAD --name-only
+if ! BASE=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .base_branch main); then
+  BASE=main
+fi
+git diff "origin/$BASE...HEAD"
+git diff "origin/$BASE...HEAD" --name-only
 ```
-If either command fails (non-zero exit code), stop immediately and report: "Failed to retrieve diff. Verify origin/main is reachable and you are on a valid branch."
+Resolve the configured `base_branch` via the proven guarded `config-get.sh` capture (fail-closed to `main` on a read failure or an empty/absent key — the same shape `scripts/update-branch-checkpoint.sh` and the Phase 0.6 config gate use), never a hardcoded `origin/main`, so a consumer whose trunk is `master`/`develop` diffs against the right base. If either command fails (non-zero exit code), stop immediately and report: "Failed to retrieve diff. Verify origin/$BASE is reachable and you are on a valid branch."
 
 Use the diff output for Phase 1. The current branch is the review target.
 
-If the diff is empty, report: "No changes to review. Branch is identical to main." and stop.
+If the diff is empty, report: "No changes to review. Branch is identical to $BASE." and stop.
 
 **Cache the diff to disk.** Write the diff fetched above to `.devflow/tmp/review/<slug>/<run-id>/diff.patch` — **fetch once, do not re-run `gh pr diff` / `git diff`**. Compute `<slug>` as:
 
@@ -340,10 +350,10 @@ Combine the initial fetch with the cache write in one shot using `tee` so the di
 ```bash
 mkdir -p .devflow/tmp/review/<slug>/<run-id>
 gh pr diff $ARGUMENTS | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
-# or, in current-branch mode:
-# git diff origin/main...HEAD | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
-# or, in PR mode with head_override=local (fix-loop reuse — see "Caller head-override"):
-# git diff "$PR_BASE_SHA...HEAD" | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
+# or, in current-branch mode ($BASE from the guarded config-get capture above):
+# git diff "origin/$BASE...HEAD" | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
+# or, in PR mode with head_override=local (fix-loop reuse — see "Caller head-override"; fail-closed under pipefail):
+# set -o pipefail; git diff "origin/$PR_BASE_BRANCH...HEAD" | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
 ```
 
 **Why the `awk` filter — and why here.** As of issue #441 DevFlow persists durable telemetry to a dedicated **telemetry branch** (via git plumbing that never touches the feature branch), so a normal DevFlow run leaves **no** `.devflow/logs/` hunk in the PR diff and this filter is a no-op on it. The filter is **retained as a defensive guard** for the case it still matters: a **pre-#441 legacy branch** that already carried `chore: persist review-and-fix observability artifacts` commits on the feature branch, or a consumer that commits `.devflow/logs/` to the feature branch for some other reason. Any such `.devflow/logs/` hunks are **DevFlow telemetry artifacts, not code-review subjects** — but they would still appear as hunks in the PR diff, where Phase 1/2/3 agents would otherwise flag them as accreting hygiene artifacts with stale line ranges. The filter strips them once, at the single cache-write point every downstream phase reads from, so agents never see a hunk they should not review. The `awk` program sets `in_logs` on each `diff --git` header (true when the header's path **starts with** `.devflow/logs/` — the regex is anchored to the `a/`/`b/` diff-prefix boundary (` [ab]/.devflow/logs/`) so it matches only paths *rooted* at `.devflow/logs/`, never a non-telemetry path that merely contains that substring elsewhere, e.g. `tests/fixtures/.devflow/logs/…`) and suppresses every line while `in_logs` holds — so all of a logs file's hunk lines are dropped together, and the next non-logs header resets `in_logs` to visible. A logs-only diff filters the cached `diff.patch` to empty — note the upstream "No changes to review" stop tests the *raw* fetched diff (before this filter), so it does **not** fire here; instead every downstream phase reads the now-empty `diff.patch` and finds nothing reviewable (Phase 0.3 derives an empty changed-file list, and the Phase 3 agents receive an empty diff), so a telemetry-only PR is correctly reviewed as having nothing to flag. A mixed diff keeps its real code hunks in their original order. The telemetry commits themselves remain on the branch unchanged — only the review engine's view of the diff is filtered. The `awk` stage rides the allow-listed `gh pr diff` / `git diff` leading token (no standalone `mv`/`tee` head), so the read-only `review` profile permits it without any workflow allowlist change.
@@ -850,7 +860,7 @@ The following findings were raised by a prior review pass on this same code and 
 </prior_findings>
 ```
 
-**Diff path:** Substitute the cached diff path computed in Phase 0.2 (`.devflow/tmp/review/<slug>/<run-id>/diff.patch`) into `{DIFF_PATH}` in the prompts below. Phase 3 agents Read this file directly via their `Read` tool — no shell command, no `gh` API call, no redundant re-fetches across the 4–5 parallel agents. The previous `{DIFF_CMD}` substitution (which had every agent re-run `gh pr diff $ARGUMENTS` or `git diff origin/main...HEAD`) is superseded.
+**Diff path:** Substitute the cached diff path computed in Phase 0.2 (`.devflow/tmp/review/<slug>/<run-id>/diff.patch`) into `{DIFF_PATH}` in the prompts below. Phase 3 agents Read this file directly via their `Read` tool — no shell command, no `gh` API call, no redundant re-fetches across the 4–5 parallel agents. The previous `{DIFF_CMD}` substitution (which had every agent re-run `gh pr diff $ARGUMENTS` or a fresh `git diff <base>...HEAD`) is superseded.
 
 **Required `defect_signature` block.** Every Phase-3 finding from every Phase-3 review-agent — both the ones listed below AND any added by future maintainers — MUST carry a `defect_signature` object so corroboration (Phase 3.2) is mechanical, not interpretive. Append this paragraph verbatim to every Phase-3 review-agent prompt so the corroboration contract rides on the dispatch itself, independent of each agent's own frontmatter — applying uniformly to the first-party `devflow:` review agents and the first-party `devflow:requesting-code-review` final pass alike:
 
@@ -913,7 +923,7 @@ Invoke the `/devflow:requesting-code-review` skill to perform a final-pass code 
 
 - Description: {one-line summary — "PR #<N>: <title>" or "Current branch <name> vs main"}
 - Plan / Requirements: {the PR body if available, else the originating issue body from Phase 0.4, else "No spec available — review against general project standards from CLAUDE.md"}
-- Base SHA: {PR_BASE_SHA or origin/main HEAD}
+- Base SHA: {the fetched tip of origin/$PR_BASE_BRANCH (PR mode) or origin/$BASE (current-branch) — the base the cached diff.patch is scoped to; falls back to $PR_BASE_SHA (baseRefOid) if the base ref was deleted/renamed}
 - Head SHA: {PR_HEAD_SHA or current HEAD}
 - Diff path: `{DIFF_PATH}` (the full diff, cached to disk by Phase 0.2 — Read it directly rather than re-fetching)
 - Prior-iteration findings (already considered, look for new): {iter-(N-1) phase3_findings JSON if fix-loop iteration N≥2, else "none"}
