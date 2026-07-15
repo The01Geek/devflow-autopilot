@@ -393,6 +393,13 @@ The `devflow_review.agent_overrides` config maps any of the **nine** review suba
 
 **Cost.** The shadow roughly **doubles** a converging run's cost (a full extra engine pass that yields no fixes when it agrees). Two 2026-07-11 R3-driven changes make that cost *measurable* and shave one component of it (the R3 baseline to re-measure against: **12.43M recorded shadow tokens; 115 shadow-attributable applied fixes across 32 of 69 runs; ~366k tokens per shadow-attributable Critical/Important fix**): (1) writing the shadow workpad block (with its `step_2_6` telemetry) is now a **single non-optional obligation fused to the pass's termination, covering both termination paths** — Parse-and-compare completion and the honest-degradation fail-safe (an outcome-3 pass writes its `not_verified` block before taking outcome 3), authored with the Write tool with the same force as the `iter-<N>.json` Layer-1 fused emit; and `lib/efficiency-trace.sh --persist` gains a **shadow floor** that synthesizes a minimal `shadow_synthesized: true` + promotion-linkage marker when promotion evidence survives with no `shadow` block (recovering **promoted** shadows only — attribution, not cost — never overwriting an agent-written block); (2) Phase 1's checklist-generator diff handoff moved **inline → by file reference** (see Phase 1 above), removing the redundant per-pass context transit the shadow re-paid on every iteration. Both narrow the cost/observability gap; neither closes it.
 
+Issue #501 narrows that floor with `promotion_provenance`: `shadow` and
+`park-calibration-post-shadow` license recovery with true and false linkage,
+`park-calibration-pre-shadow` suppresses the pre-shadow false positive, unknown strings breadcrumb
+without synthesis, and unestablished legacy values get a hedged marker. Park-gate promotion credit
+never changes a surviving predecessor block; future producers must choose a defined provenance value
+to opt into recovery.
+
 ---
 
 ## 10. Deep dive: the docs suite

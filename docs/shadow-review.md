@@ -518,11 +518,14 @@ Two changes make both sides of that ledger recordable instead of reconstructed:
   anything — the issue-304 drop shape). It is authored with the Write tool and carries the same
   "mandatory on every pass regardless of how the loop was executed" force as the `iter-<N>.json`
   Layer-1 fused emit. The Decide outcome-1 block-presence read-back gate is unchanged.
-- **`lib/efficiency-trace.sh --persist` gains a shadow floor.** When promotion evidence survives
-  (an `iter-<N+1>.json` with `loop_role: "promoted"`) but the `iter-<N>.json` carries no `shadow`
-  block, the floor synthesizes a minimal marker (`shadow_synthesized: true` + `promoted_to_iter_next`
-  linkage), which `--self-check` validates as a recognized degraded class, and which it never writes
-  over an agent-written block. **Stated limitation:** the floor recovers *promoted* shadows only — a
+- **`lib/efficiency-trace.sh --persist` gains a provenance-gated shadow floor.** A promoted
+  successor records `promotion_provenance`: `shadow` recovers a dropped predecessor block with
+  promotion credit, `park-calibration-post-shadow` recovers it without promotion credit,
+  `park-calibration-pre-shadow` is silent because no predecessor shadow ran, and an unrecognized
+  string writes no marker but breadcrumbs the producer typo. Legacy/degraded values retain the floor
+  with a hedged `provenance_unestablished` marker. A park-gate promotion never changes a surviving
+  predecessor block; future producers must select a defined value to license recovery. The floor
+  never writes over an agent-written block. **Stated limitation:** a
   clean outcome-1 shadow whose block dropped leaves no promotion evidence to synthesize from. The
   fused emit is the primary fix and the floor is its backstop, not its equal; the floor recovers
   *attribution*, not cost (this floor recovers no token/wall figures — those are captured live by the
