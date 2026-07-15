@@ -266,8 +266,12 @@ that vector). The key then lives only in the refresher's shell memory.
 minting an installation-wide token across every repo the App is installed on.
 
 **Loud degrade.** The refresher is best-effort and never fails the job: a failed cycle
-leaves the previous credential in place, emits a per-arm `::warning::` naming what
-failed, and warns-and-continues. Because a background process's `::warning::` lines are
+emits a per-arm `::warning::` naming what failed and warns-and-continues. Almost every
+failure arm leaves the previous credential in place, with one disclosed exception — if
+the push credential (surface 1, the checkout extraheader) has already been rewritten to
+the fresh token and only the gh token file (surface 2) then fails to write, the two
+surfaces diverge (surface 1 fresh, surface 2 stale); the cycle warns naming that
+divergence and the next 2-minute backoff retry re-converges them. Because a background process's `::warning::` lines are
 inert in the Actions UI, an `if: always()` **Stop credential refresher** step
 (`scripts/stop-refresher.sh`) retires the refresher by pidfile, tails its detached log
 into the step output, and re-emits **one** live `::warning::` when the refresher was
