@@ -2117,6 +2117,12 @@ assert_pin_unique "#500: system overview mirrors parked-class sweep" \
 assert_pin_red_under "#500: missing parked-class completeness gate goes RED" \
   'An in-scope APPROVE-family conclusion with parked findings but no parked-class sweep evidence is non-convergence.' \
   's/parked-class sweep evidence is non-convergence/parked-class sweep evidence is convergence/' "$ST_RAF"
+# #510 review round 4: the completeness gate arms an UNKNOWN parked-finding count as a trip,
+# never collapsing it onto a genuine zero (the "Unknown is not zero" fail-open). Mutation drops
+# the fail-closed "do not collapse" instruction, re-admitting an unestablished-count skip.
+assert_pin_red_under "#510 review round 4: unestablished parked-finding count fails closed" \
+  'do not collapse that unknown onto zero and skip the bullet' \
+  's/do not collapse that unknown onto zero and skip the bullet/collapse that unknown onto zero and skip the bullet/' "$ST_RAF"
 assert_pin_red_under "#500: missing threshold promotion route goes RED" \
   'A discovered sibling at or above `$FIX_THRESHOLD` enters Step 2.5 → Step 3 as a promoted iteration using the same machinery as Decide outcome 2.' \
   's/A discovered sibling at or above `\$FIX_THRESHOLD` enters/A discovered sibling below `\$FIX_THRESHOLD` enters/' "$ST_RAF"
@@ -2138,9 +2144,9 @@ assert_pin_red_under "#510 review: site overlap remains the cross-producer ident
 assert_pin_red_under "#510 review: terminal dispatch failure cannot read clean" \
   'If it still fails, record the distinct Reflection bullet `parked-class sweep not verified: {cause}`, set `dispatch: "not_verified"`, and take the completeness gate'"'"'s not-verified fallthrough; never convert it into a clean run.' \
   's/take the completeness gate'"'"'s not-verified fallthrough; never convert it into a clean run/take the completeness gate'"'"'s not-verified fallthrough; convert it into a clean run/' "$ST_RAF"
-assert_pin_red_under "#510 review round 2: below-threshold category is registered" \
-  '| `below-threshold-parked` | Written by Step 2'"'"'s below-threshold parking arm.' \
-  '/\| `below-threshold-parked` \| Written by Step 2/d' "$ST_RAF"
+assert_pin_red_under "#510 review round 2: below-threshold category is a non-REJECT-trigger sweep-only producer row" \
+  '**N/A** — sweep-only producer rows are not REJECT triggers and are excluded from existing advisory verdict/report operands.' \
+  's/sweep-only producer rows are not REJECT triggers and are excluded/sweep-only producer rows are REJECT triggers and are included/' "$ST_RAF"
 assert_pin_red_under "#510 review round 2: semantic empty result requires affirmative completion" \
   'Only a well-formed result envelope with `status: "complete"` may contribute an empty sibling set or a clean sentinel.' \
   's/Only a well-formed result envelope with `status: "complete"` may contribute/Any result envelope may contribute/' "$ST_RAF"
@@ -18421,9 +18427,10 @@ rm -rf "$LR_SC_REPO"
 #     ITER_EXPECTED_FIELDS in efficiency-trace.sh is the ONE place the expected
 #     iter-field set is defined; it MUST equal the iter-<N>.json schema's
 #     unconditional top-level fields in SKILL.md minus `shadow` and
-#     `parked_class_sweep` (convergence-only), plus `promotion_provenance`
-#     (conditional on promoted iterations). FAILs if
-#     an unconditional field is added/removed on either side.
+#     `parked_class_sweep` (convergence-only) and `promotion_provenance`
+#     (conditional on promoted iterations) — all three are subtracted by the
+#     `-Ev` filter below. FAILs if an unconditional field is
+#     added/removed on either side.
 LR_CONST="$(grep -E '^ITER_EXPECTED_FIELDS=' "$LIB/efficiency-trace.sh" | sed -E 's/^ITER_EXPECTED_FIELDS=//; s/"//g' | tr ' ' '\n' | grep -v '^$' | sort -u)"
 LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|promotion_provenance|parked_class_sweep)$' | sort -u)"
 assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md unconditional schema fields" \
