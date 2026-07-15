@@ -114,7 +114,7 @@ SHA `install.sh` pins). The fetch branch refuses to run without a pinned
 > claude-code-action's own allowlist profile and consumes no `~/.claude/settings.json`
 > (the user-global file, where `CLAUDE_CODE_ENABLE_AUTO_MODE` must live). The cloud tier
 > *does* honor the **project** `.claude/settings.json`'s `enabledPlugins`/`extraKnownMarketplaces`
-> — see [Honoring `.claude/settings.json` in cloud runs](#honoring-claude-settingsjson-in-cloud-runs) below.
+> — see [Honoring `.claude/settings.json` in cloud runs](#honoring-claudesettingsjson-in-cloud-runs) below.
 
 ## Honoring `.claude/settings.json` in cloud runs
 

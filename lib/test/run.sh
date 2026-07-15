@@ -35983,6 +35983,16 @@ assert_eq "#505 dpc(#513): defect-only (no entries) still emits the baseline-onl
 _505_dpc failed "" "defect"
 assert_eq "#505 dpc: arm order — failed outranks degraded (failed+defect → 'could not read')" "yes" \
   "$(printf '%s' "$_OUT" | grep -qi 'could not read' && echo yes || echo no)"
+# unknown read-outcome (the `*` case arm): a caller bug (only "failed"/"ok" are valid)
+# must surface a ::warning:: naming the unknown outcome, NOT silently emit nothing — a
+# silent no-op here would hide the caller bug (the helper always exits 0). This is the
+# one arm the "run.sh drives every arm" convention left undriven; a sed mutation
+# collapsing the `*` arm to `:` (silent) would ship green without this pin.
+_505_dpc badoutcome $'a@x' "defect"
+assert_eq "#505 dpc: unknown read-outcome arm emits a ::warning:: naming the unknown outcome" "yes" \
+  "$(printf '%s' "$_OUT" | grep -q '::warning::' && printf '%s' "$_OUT" | grep -qi 'unknown read-outcome' && printf '%s' "$_OUT" | grep -q 'badoutcome' && echo yes || echo no)"
+assert_eq "#505 dpc: unknown read-outcome arm emits NO ::notice:: (does not compose on a caller bug)" "no" \
+  "$(printf '%s' "$_OUT" | grep -q '::notice::' && echo yes || echo no)"
 rm -f "$_505_DPC_E"
 
 # ── #505 workflow-wiring pins (AC4 + review-tier trusted-source ACs) ────────────

@@ -239,3 +239,8 @@ if mode == "marketplaces":
                  + " (only github is mapped to a URL); not emitted")
     sys.exit(0)
 '
+# Make the "ALWAYS exits 0" header literally true: every MODELED python path calls
+# sys.exit(0), but an unmodeled interpreter crash would otherwise propagate a non-zero
+# status. This trailing exit 0 pins the script's own exit status to 0 regardless, so the
+# compose step never breaks on it even if the interpreter dies unexpectedly.
+exit 0
