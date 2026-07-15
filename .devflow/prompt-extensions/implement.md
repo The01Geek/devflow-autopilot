@@ -244,7 +244,13 @@ entry**: when the branch diff already touches a trigger glob and the workpad car
 `Writing-skills evidence:` marker, route the existing edits through the subagent for RED/GREEN
 verification — recording the marker — before the run proceeds. These two always-reached anchors
 make the arm fire even on a resumed or compacted run whose remaining work touches no trigger
-path, the exact state the arm exists for.
+path, the exact state the arm exists for. **Fail closed on an unresolvable operand:** the
+trigger-glob operand is produced by reading the branch diff (`git diff` against the base) — if
+that read **fails or cannot be resolved** (an unfetched/empty base ref, a git error), treat the
+trigger-glob condition as **unknown → fire the arm**, never as "no trigger touched"; and an
+unreadable workpad likewise reads as "no marker" (fire the arm). Both operands fail toward
+*extra* verification, so a degraded read on the resumed/compacted state this arm protects can
+never silently skip the RED/GREEN discipline.
 
 **The fallback clause.** The subagent checks `writing-skills` against its available-skills list
 **before** editing and quotes that check's outcome in its returned evidence. When the check

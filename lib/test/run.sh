@@ -24254,12 +24254,17 @@ SP_PAT_NS="superpowers"":"
 # prompt-surface edit routing rule, review-and-fix.md/review.md's evidence-gate criterion)
 # legitimately NAME the external dev-time `superpowers:writing-skills` authoring discipline
 # they route edits through. These are repo-internal policy surfaces (the live `.md`
-# extensions are NOT shipped to consumers — install.sh ships the `.example` templates), so
+# extensions are NOT shipped to consumers — install.sh's scaffolder (scripts/scaffold-config.sh)
+# ships the `.example` templates), so
 # like CLAUDE.md's carried reference the zero-companion-dependency claim is unaffected. The
 # residual (a stray NON-writing-skills superpowers: id could slip in an extension) matches the
 # CLAUDE.md/docs-specs exception's residual and is mitigated by the same maintainer review.
-assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings/design-specs/prompt-extensions excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!.devflow/learnings' ':!.devflow/prompt-extensions' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!docs/superpowers/specs' ':!lib/test' ':!CLAUDE.md')"
+# .changeset is excepted symmetrically with CHANGELOG.md (#506): a changeset's prose is
+# changelog content that consolidate-changesets.py prepends verbatim into the already-excepted
+# CHANGELOG.md on merge, so a changeset that legitimately names `superpowers:writing-skills`
+# (this issue's own does) is exactly as sanctioned as the CHANGELOG entry it becomes.
+assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings/design-specs/prompt-extensions/changeset excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!.devflow/learnings' ':!.devflow/prompt-extensions' ':!.changeset' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!docs/superpowers/specs' ':!lib/test' ':!CLAUDE.md')"
 
 # (2/2b/2c) Per-skill vendoring + structural validity. For each of the two skills the file
 # exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so
@@ -24336,6 +24341,15 @@ assert_pin_unique "#506 review.md carries the routing evidence-gate criterion" \
   'the review reports a **FAIL** finding naming' "$WSR_REV"
 assert_pin_red_on_removal "#506 review.md gate-criterion pin is removal-proof" \
   'the review reports a **FAIL** finding naming' "$WSR_REV"
+# The byte-identity check extracts each gate section by its `## ` heading; if that heading were
+# renamed/removed in BOTH files the two sed extracts would both be empty and the assert_eq below
+# would PASS vacuously (empty == empty) while the body pins above stay green — a fail-open the
+# coupling guard exists to prevent. Pin the heading present-and-unique in each file first, so a
+# heading rename turns RED here rather than silently disarming the byte-identity anchor (#506).
+assert_pin_unique "#506 gate-criterion heading present in review-and-fix.md (anchors byte-identity)" \
+  '## Prompt-surface edit routing evidence gate' "$WSR_RAF"
+assert_pin_unique "#506 gate-criterion heading present in review.md (anchors byte-identity)" \
+  '## Prompt-surface edit routing evidence gate' "$WSR_REV"
 # Byte-identity: the gate criterion (its `## ` heading → EOF) is identical in both review files.
 WSR_GATE_RAF="$(sed -n '/^## Prompt-surface edit routing evidence gate/,$p' "$WSR_RAF")"
 WSR_GATE_REV="$(sed -n '/^## Prompt-surface edit routing evidence gate/,$p' "$WSR_REV")"
