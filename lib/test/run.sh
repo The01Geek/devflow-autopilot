@@ -35315,6 +35315,22 @@ assert_eq "#491 arm-i3b: base64-encode failure warns 'base64 encode … failed'"
 assert_eq "#491 arm-i3b: base64-encode failure did NOT write the token file (surface 2 not reached)" "yes" \
   "$([ ! -e "$D487/toki3b" ] && echo yes || echo no)"
 
+# Arm i-empty (PR #491 review) — run_cycle's empty-token guard: a mint that exits 0 with
+# EMPTY stdout (unreachable via real_mint, which always returns non-zero on an empty token —
+# so this is a defensive branch) must hit the DISTINCT 'mint returned an empty token' guard
+# (not the 'mint arm failed' one), leave the previous credential intact, and exit 0. Drive it
+# with the `true` override (exits 0, prints nothing).
+CFG_EMPTY="$D487/cred_empty.config"
+git config --file "$CFG_EMPTY" "http.https://github.com/.extraheader" "AUTHORIZATION: basic PREVEMPTY"
+_aempty_err="$(DEVFLOW_REFRESH_MINT='true' DEVFLOW_REFRESH_CONFIG_FILE="$CFG_EMPTY" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok_empty" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _aempty_rc=$?
+assert_eq "#491 arm-empty: empty-token mint exits 0 (best-effort)" "0" "$_aempty_rc"
+assert_eq "#491 arm-empty: empty-token mint hits the specific 'mint returned an empty token' guard" "yes" \
+  "$(printf '%s' "$_aempty_err" | grep -qF 'mint returned an empty token' && echo yes || echo no)"
+assert_eq "#491 arm-empty: empty-token mint leaves the previous credential intact (PREVEMPTY)" "AUTHORIZATION: basic PREVEMPTY" \
+  "$(git config --file "$CFG_EMPTY" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
 # Arm 25 — gh-fresh.sh resolve_real_gh returns 127 when no gh resolves (no
 # DEVFLOW_GH_REAL and no gh on PATH) → the breadcrumb, and rc 127.
 EMPTY25="$D487/emptybin25"; mkdir -p "$EMPTY25"
@@ -35378,6 +35394,24 @@ _a28="$(env -u GH_TOKEN -u DEVFLOW_GH_REAL PATH="$WLINK28:$R28:$PATH" \
   DEVFLOW_GH_TOKEN_FILE="$D487/none28" DEVFLOW_GH_FINGERPRINT_FILE="$D487/none28fp" \
   "$W28/gh" x 2>/dev/null)"
 assert_eq "#491 arm28: resolve_real_gh skips the wrapper reached via a symlinked PATH entry and resolves the real gh" "REAL28 ARGS=x" "$_a28"
+
+# Arm 29 (PR #491 review) — the mktemp-UNAVAILABLE fallback in main(): shadow `mktemp` with a
+# stub that exits 1 so outcap="" and the else branch runs (stderr-only scan, no tee, the
+# `2>&1 1>&3` invocation). Every other wrapper arm runs with mktemp present, so this branch —
+# real agent-facing code that duplicates the substitute/degrade invocation + redirection — was
+# untested. Assert (a) a bad-cred on STDERR still appends the diagnostic and preserves gh's rc,
+# and (b) stdout still streams live through the fallback.
+FAILMKTEMP29="$D487/failmktemp29"; mkdir -p "$FAILMKTEMP29"
+{ printf '#!/usr/bin/env bash\n'; printf 'exit 1\n'; } > "$FAILMKTEMP29/mktemp"; chmod +x "$FAILMKTEMP29/mktemp"
+printf 'FRESH29' > "$D487/tok29"; _d487_sha 'JOBSTART29' > "$D487/fp29"
+_a29_err="$(env -u GH_TOKEN "PATH=$FAILMKTEMP29:$PATH" DEVFLOW_GH_REAL="$GHBAD487" DEVFLOW_GH_TOKEN_FILE="$D487/tok29" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp29" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"; _a29_rc=$?
+assert_eq "#491 arm29: mktemp-unavailable fallback still appends the diagnostic on a stderr bad-cred" "yes" \
+  "$(printf '%s' "$_a29_err" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+assert_eq "#491 arm29: mktemp-unavailable fallback preserves the real gh exit code" "1" "$_a29_rc"
+_a29_out="$(env -u GH_TOKEN "PATH=$FAILMKTEMP29:$PATH" DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$D487/tok29" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp29" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#491 arm29: mktemp-unavailable fallback still streams stdout live (substitutes FRESH29)" "GH_TOKEN_SEEN=FRESH29 ARGS=api x" "$_a29_out"
 
 # ── stop-refresher.sh arms (13–16, 19–20): the retirement step's defeated-refresher
 # signal is honest — it must NOT over-fire on a recovered transient, and it MUST fire on

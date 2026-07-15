@@ -153,7 +153,13 @@ main() {
   # otherwise slip the compaction-immune signal). If mktemp is unavailable, fall back
   # to the stderr-only scan (stdout still streams live via fd 3).
   # `set -o pipefail` (top of file) makes the `gh | tee` pipeline's status the real gh's,
-  # so a failing gh keeps its exit code through the tee.
+  # so a failing gh keeps its exit code through the tee. The reverse coupling is
+  # deliberate and fail-CLOSED: if `tee` itself fails (e.g. the temp copy becomes
+  # unwritable mid-call), pipefail flips an otherwise-successful gh into a non-zero
+  # wrapper exit — the caller sees a (spurious) failure and retries, which is the SAFE
+  # direction. It never masks a real gh failure as success (capturing gh's rc separately
+  # to dodge this would fail OPEN — an unwritable rc-sink would default a failed call to
+  # rc 0 — the wrong trade for a credential wrapper), so the coupling stands as-is.
   local err rc outcap="" SIG='HTTP 401|Bad credentials|fatal: Authentication failed for'
   outcap="$(mktemp "${TMPDIR:-/tmp}/devflow-gh-fresh-out.XXXXXX" 2>/dev/null)" || outcap=""
   exec 3>&1

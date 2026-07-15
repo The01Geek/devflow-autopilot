@@ -202,8 +202,7 @@ locate_extraheader_file() {
   # extension BSD sed does not honor). Strip the `file:` prefix, then strip from the
   # first TAB onward — all builtins. This is the external git-credentials-<UUID>.config
   # checkout wrote.
-  raw="$(git config --show-origin --get-all "$key" 2>/dev/null)" || return 1
-  [ -n "$raw" ] || return 1
+  raw="$(git config --show-origin --get-all "$key" 2>/dev/null)"
   # Walk EVERY match, not just the first line (IMP-1 / PR #491 review). A single file
   # holding MULTIPLE values is fine — run_cycle's `--replace-all` collapses them to the
   # one fresh value (the #487 arm21 design). But matches spanning MORE THAN ONE distinct
@@ -223,9 +222,17 @@ locate_extraheader_file() {
       multi=yes
     fi
   done <<<"$raw"
-  [ -n "$first" ] || return 1
   if [ "$multi" = yes ]; then
     warn "cycle: http.*/.extraheader is set in MORE THAN ONE config file — refusing to rewrite just one (git push would read a higher-precedence stale value); push credential NOT rewritten"
+    return 1
+  fi
+  # Not found anywhere (git config failed, or no match). locate_extraheader_file owns the
+  # specific reason on EVERY failure path so its caller does NOT add a second, contradictory
+  # `::warning::` (PR #491 review: on the multi-file branch above, run_cycle's old generic
+  # "could not locate" line falsely claimed the file was unlocatable when it was in fact
+  # found in several places). One accurate breadcrumb per failure mode.
+  if [ -z "$first" ]; then
+    warn "cycle: could not locate the persisted http.${SERVER_URL}/.extraheader config file — push credential NOT rewritten"
     return 1
   fi
   printf '%s' "$first"
@@ -239,8 +246,10 @@ run_cycle() {
   [ -n "$token" ] || { warn "cycle: mint returned an empty token — previous credential left in place"; return 1; }
 
   # Surface 1: the checkout-persisted extraheader (the git-push credential).
-  cfg="$(locate_extraheader_file)" \
-    || { warn "cycle: could not locate the persisted http.*/.extraheader config file — push credential NOT rewritten"; return 1; }
+  # locate_extraheader_file emits the specific failure reason itself (not-found vs.
+  # multi-file), so do NOT add a second breadcrumb here — a generic "could not locate"
+  # contradicts the callee's accurate multi-file warning (PR #491 review).
+  cfg="$(locate_extraheader_file)" || return 1
   b64="$(printf 'x-access-token:%s' "$token" | openssl base64 -A 2>/dev/null)" \
     || { warn "cycle: base64 encode of the token failed — push credential NOT rewritten"; return 1; }
   header="AUTHORIZATION: basic ${b64}"
