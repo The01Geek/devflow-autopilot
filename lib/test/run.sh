@@ -36296,6 +36296,11 @@ assert_eq "#499 persist: second run is a telemetry-branch no-op" "$T499_TIP1" "$
 jq '.later_metadata = true' "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-2.json" > "$T499_P/iter.tmp" && mv "$T499_P/iter.tmp" "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-2.json"
 ( cd "$T499_P" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
 assert_eq "#499 persist: established telemetry path still carries later metadata" "true" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-2.json' | jq -r '.later_metadata')"
+# A prior unavailable marker is provisional: real telemetry established later
+# must upgrade it rather than being overwritten by the historical marker.
+jq '.telemetry = false' "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-3.json" > "$T499_P/iter.tmp" && mv "$T499_P/iter.tmp" "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-3.json"
+( cd "$T499_P" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "#499 persist: prior marker upgrades to newly established false" "false" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-3.json' | jq -r '.telemetry')"
 rm -rf "$T499_P"
 
 # Existing legacy durable paths remain backfill-owned: a normal persist removes

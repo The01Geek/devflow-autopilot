@@ -814,7 +814,6 @@ persist_one() {
     ref="$(devflow_telemetry_ref)"
     for staged_iter in "$durable"/iter-*.json; do
       [ -e "$staged_iter" ] || continue
-      force_marker=no
       rel_iter="${staged_iter#"${_TELEMETRY_STAGE}/"}"
       if devflow_telemetry_blob_exists "$root" "$ref" "$rel_iter"; then
         # Existing legacy absent/null blobs are exclusively backfill territory.
@@ -838,13 +837,12 @@ persist_one() {
           rm -f "$staged_iter" 2>/dev/null || true
           continue
         fi
-        [ "$existing_class" = marker ] && force_marker=yes
       fi
       if ! "$DEVFLOW_JQ" -e 'type == "object"' "$staged_iter" >/dev/null 2>&1; then
         echo "::warning::efficiency-trace.sh --persist: staged iter workpad '${rel_iter}' is malformed JSON or a valid non-object; copied byte-verbatim and telemetry was not fabricated" >&2
         continue
       fi
-      if [ "$force_marker" != yes ] && "$DEVFLOW_JQ" -e 'has("telemetry") and (.telemetry != null)' "$staged_iter" >/dev/null 2>&1; then
+      if "$DEVFLOW_JQ" -e 'has("telemetry") and (.telemetry != null)' "$staged_iter" >/dev/null 2>&1; then
         continue
       fi
       stamp_tmp="${staged_iter}.telemetry-tmp"
