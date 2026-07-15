@@ -34800,8 +34800,8 @@ _a487_hdr() { git config --file "$CFG487" --get 'http.https://github.com/.extrah
 _a1_err="$(DEVFLOW_REFRESH_CONFIG_FILE="$D487/none" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
   bash "$REFRESH_SH" cycle </dev/null 2>&1 1>/dev/null)"; _a1_rc=$?
 assert_eq "#487 arm1: missing inputs exits 0" "0" "$_a1_rc"
-assert_eq "#487 arm1: emits a ::warning:: breadcrumb" "yes" \
-  "$(printf '%s' "$_a1_err" | grep -qF '::warning::refresh-app-credentials' && echo yes || echo no)"
+assert_eq "#487 arm1: emits the SPECIFIC guard ::warning:: (DEVFLOW_APP_ID empty), not just any breadcrumb" "yes" \
+  "$(printf '%s' "$_a1_err" | grep -qF 'mint: DEVFLOW_APP_ID empty' && echo yes || echo no)"
 
 # Arm 2 — mint success → extraheader rewritten and mode-0600 token file written.
 DEVFLOW_REFRESH_MINT='printf TOKEN_B' DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" \

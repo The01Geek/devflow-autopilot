@@ -25,14 +25,25 @@
 #   * SUBSTITUTES the token-file credential when env GH_TOKEN is absent, OR when
 #     its hash matches the recorded job-start fingerprint (the ambient
 #     agent-session case — and devflow.yml's #356 flip step, whose GH_TOKEN is
-#     that same job-start mint), and
+#     that same job-start mint),
 #   * DEFERS untouched when env GH_TOKEN's hash DIFFERS from the fingerprint (a
-#     deliberately fresh mint: the #287 stall/review backstops).
+#     deliberately fresh mint: the #287 stall/review backstops), and
+#   * also DEFERS — with a breadcrumb, never silently — when the comparison cannot
+#     be established (the fingerprint file is unreadable, or no sha256 tool is on
+#     PATH), failing toward not clobbering a deliberately-fresh backstop mint.
 # It DEGRADES to a plain invocation — with a stderr breadcrumb, never silently —
 # when the substitute decision was taken but the token file is absent/empty, and on
 # a bad-credential failure (whichever path) appends one distinctive diagnostic line
 # to stderr naming the expired-credential cause — a compaction-immune signal the
 # fail-fast rule keys on — while preserving the real gh exit code.
+#
+# Output handling: the real gh's stdout streams through LIVE (via fd 3); its stderr
+# is CAPTURED for the run and re-emitted verbatim after the call returns (so the
+# bad-credential signature above can be scanned). For DevFlow's short, non-interactive
+# REST `gh api`/`gh pr` calls this is invisible, but note two consequences: a
+# long-running gh call's stderr is not shown live until it completes, and a caller
+# that merges streams with `2>&1` sees all stderr after all stdout rather than
+# interleaved. Exit code and normal-exit stderr content are always faithfully preserved.
 #
 # The real gh is invoked by an ABSOLUTE path captured at install time (env
 # DEVFLOW_GH_REAL) — a name-based lookup would recurse into this wrapper, which
