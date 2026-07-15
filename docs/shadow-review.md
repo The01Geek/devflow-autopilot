@@ -73,8 +73,8 @@ orchestrator's tree silently corrupted, which can flip the orchestrator's *own* 
 checks to a phantom RED (the failure observed in the `/devflow:implement 186` run). Two coupled
 layers close that hole.
 
-**The contract.** Every first-party review/analysis agent definition states that the agent must
-never modify working-tree source files, the index, HEAD, or branch state. The five fan-out agents
+**The contract.** Every Phase 3 reviewer covered by this dirty-tree contract must never modify
+working-tree source files, the index, HEAD, or branch state. The five fan-out agents
 — `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `type-design-analyzer`, and
 `pr-test-analyzer` — perform any mutation/half-revert verification **on a temporary copy made with
 `mktemp`, never in place**. The vendored `requesting-code-review` final pass runs under profiles

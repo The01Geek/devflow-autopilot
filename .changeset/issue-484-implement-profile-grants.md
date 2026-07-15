@@ -3,7 +3,7 @@ bump: patch
 ---
 
 ### Added
-- Grant the bundled helpers used by cloud implement runs on the implement profile (`devflow-implement.yml`). Phase 3's inline review engine uses `stale-prose-lint.py`, `dismiss-stale-rejections.sh`, `match-lint-adjudications.py`, and `load-prompt-extension.sh`; the implement-owned surfaces use `react-to-trigger.sh` in the trigger-reaction fence and `extract-doc-needed-paths.sh` in Phase 4.1. Grant `cmp` for the inline review engine and `gh pr checkout` in `devflow.yml` for the manual `/devflow:review-and-fix` path (#363).
+- Grant the bundled helper set required by issue #484 on the implement profile (`devflow-implement.yml`). Phase 3's inline review engine calls `stale-prose-lint.py`, `match-lint-adjudications.py`, and `load-prompt-extension.sh`; the implement-owned surfaces call `react-to-trigger.sh` in the trigger-reaction fence and `extract-doc-needed-paths.sh` in Phase 4.1. The exact grant set also contains `dismiss-stale-rejections.sh`, whose call is in standalone-only review Phase 4.4; inline implement review stops after Phase 4.3, so that grant satisfies the issue's source-guard contract without enabling an inline call. Grant `cmp` for the inline review engine and `gh pr checkout` in `devflow.yml` for the manual `/devflow:review-and-fix` path (#363).
 
 ### Changed
 - Anchor bare `workpad.py` fences in `skills/implement/phases/*.md` to the portable inline-anchor form the granted vendored literal covers.

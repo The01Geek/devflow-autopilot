@@ -6377,6 +6377,12 @@ assert_pin_red_on_removal "#484 final-pass reviewer does not emit unavailable wo
   'Do not attempt `git worktree add`, `mktemp`, or a mutation/half-revert' "$E484_FINAL_PASS"
 assert_pin_red_on_removal "#484 final-pass reviewer reports a mutation-evidence limitation instead of silently retrying" \
   'report the verification limitation to the orchestrator instead' "$E484_FINAL_PASS"
+assert_pin_red_on_removal "#484 overview distinguishes standalone dismissal from inline runtime helpers" \
+  'inline implement runs skip after Phase 4.3' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_pin_red_on_removal "#484 install guide distinguishes standalone dismissal from inline runtime helpers" \
+  'inline implement review stops after Phase 4.3' "$LIB/../docs/install.md"
+assert_pin_red_on_removal "#484 changeset distinguishes standalone dismissal from inline runtime helpers" \
+  'inline implement review stops after Phase 4.3' "$LIB/../.changeset/issue-484-implement-profile-grants.md"
 
 E484_PHASE4="$LIB/../skills/implement/phases/phase-4-documentation.md"
 assert_pin_red_on_removal "#484 docs staging consumes all four observed config results" \
