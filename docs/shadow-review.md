@@ -132,7 +132,7 @@ for. This is the **inverse** of the loop's normal iter-N≥2 fix-delta handoff:
   purpose** — reintroducing it turns the audit back into a self-check.
 
 Every shadow-pass subagent prompt the parent composes uses the engine's verbatim per-agent prompt,
-plus consumer prompt-extension text whose provenance is classified at load time, plus only the
+plus consumer prompt-extension text whose provenance is classified before any shadow dispatch, plus only the
 shadow engine's own run-scoped full-diff artifacts and permitted repository paths. Provenance-clean
 extension text is permitted composition; extension text that fails either check remains loaded but
 is recorded as an addendum, so it cannot produce an attested clean result. This covers Phase 1 checklist-generators, the
