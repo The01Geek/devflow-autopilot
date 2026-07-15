@@ -19383,6 +19383,22 @@ assert_pin_unique "489/AC2: devflow-runner.yml collects the staged telemetry tre
   'Collect staged telemetry artifacts' "$_489_WF/devflow-runner.yml"
 assert_pin_unique "489/AC2: devflow-runner.yml uploads the staged telemetry artifact" \
   'name: devflow-telemetry-stage-${{ github.run_id }}-${{ github.run_attempt }}' "$_489_WF/devflow-runner.yml"
+# F-c — the DOWNLOAD side of the relay was unpinned. The consumer names the artifact via the
+# workflow_run context, where workflow_run.id/.run_attempt resolve to the triggering run's
+# run_id/run_attempt — i.e. the exact values the upload names by. Pin the download name too, so a
+# drift on the CONSUMER side (mistyped stem, dropped -<attempt> segment, swapped id/attempt order)
+# is caught rather than making download-artifact match nothing and the relay transfer ZERO telemetry
+# with only the indistinguishable benign-no-artifact warning (the same silent-zero-transfer class the
+# upload-side F2/S2c pins guard).
+assert_pin_unique "489/AC3(F-c): telemetry-push.yml downloads the artifact by the run-scoped stage name" \
+  'name: devflow-telemetry-stage-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}' "$_489_WF/telemetry-push.yml"
+# Coupled invariant (producer↔consumer): BOTH files must carry the byte-identical
+# `devflow-telemetry-stage-` stem. A rename on either side alone breaks the join; asserting the stem
+# is present in each file catches that skew (each side pinned independently, so the failing side names itself).
+assert_eq "489/AC3(F-c): the UPLOAD side carries the devflow-telemetry-stage- artifact-name stem" "1" \
+  "$(grep -cF 'name: devflow-telemetry-stage-' "$_489_WF/devflow-runner.yml")"
+assert_eq "489/AC3(F-c): the DOWNLOAD side carries the SAME devflow-telemetry-stage- stem (producer↔consumer coupling)" "1" \
+  "$(grep -cF 'name: devflow-telemetry-stage-' "$_489_WF/telemetry-push.yml")"
 assert_pin_unique "489/AC2: the collect step calls the suite-tested collect helper (not inline shell)" \
   'scripts/collect-staged-telemetry.sh "$GITHUB_WORKSPACE" "$dest"' "$_489_WF/devflow-runner.yml"
 
