@@ -32428,6 +32428,23 @@ assert_eq "#503 AC8 Phase 0.2 has one operative guarded base_branch resolver" \
 assert_eq "#503 AC8 item 6a documents and executes the same guarded base_branch resolver" \
   "2" "$(grep -Fc 'config-get.sh .base_branch main' "$SP_RAF")"
 
+# #503 operand-producer coverage: $PR_BASE_BRANCH — the single operand EVERY
+# head-override base-resolution arm reads (the explicit-refspec fetch, the
+# ls-remote deleted-base probe, the retargeting divergence check) — is produced
+# solely by Phase 0.2's `gh pr view --json …baseRefName…` field and its storage
+# instruction. Dropping baseRefName from the --json list silently empties
+# $PR_BASE_BRANCH → the fetch refspec collapses to `+refs/heads/:refs/remotes/
+# origin/` (malformed) and the whole fence breaks, while a --json-field-only edit
+# would otherwise leave the suite green. This is exactly CLAUDE.md's "trace every
+# operand back to its producer and prove the producer emits it" gotcha — pin both
+# the producing field (removal-proof: a mutation dropping it goes RED) and the
+# storage binding that names $PR_BASE_BRANCH.
+assert_pin_red_under "#503 Phase 0.2 --json list produces the \$PR_BASE_BRANCH operand (baseRefName field)" \
+  '--json headRefName,baseRefName,baseRefOid,headRefOid' \
+  's/,baseRefName//' "$SP_REVIEW"
+assert_pin_unique "#503 Phase 0.2 stores baseRefName as \$PR_BASE_BRANCH (the head-override base operand)" \
+  '`baseRefName` as `$PR_BASE_BRANCH`' "$SP_REVIEW"
+
 # #503 rejected-review hardening: the review-side copy of the contract must be
 # executable and removal-proof, not a prose-only promise that can drift while the
 # item-6a mirror stays green.

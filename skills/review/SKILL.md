@@ -8,7 +8,7 @@ argument-hint: pr-number
 
 You are the review engine orchestrator. Run a four-phase review and present an APPROVE/REJECT verdict.
 
-**Input:** Optional PR number as `$ARGUMENTS`. If omitted, review current branch vs main.
+**Input:** Optional PR number as `$ARGUMENTS`. If omitted, review current branch vs its configured `base_branch`.
 
 **Engine sharing.** Phases 0 through 4.3 of this skill are also executed verbatim by `/devflow:review-and-fix` (which wraps them in a fix loop and skips Phase 4.4 entirely — no GitHub post; its final report is emitted to chat only). When modifying engine behavior here — Phase 3 agent prompts, Phase 1 batching, Phase 0.5 classification, Phase 4 verdict criteria — verify `/devflow:review-and-fix` still produces the same findings; that's where divergence has historically slipped in. `/devflow:review-and-fix`'s SKILL.md deliberately keeps no paraphrase of these phases, so changes here propagate automatically as long as the file is reachable at the path `**/devflow/skills/review/SKILL.md`.
 
@@ -1030,7 +1030,7 @@ Prompt:
 ```
 Invoke the `/devflow:requesting-code-review` skill to perform a final-pass code review. Pass the following context into the skill:
 
-- Description: {one-line summary — "PR #<N>: <title>" or "Current branch <name> vs main"}
+- Description: {one-line summary — "PR #<N>: <title>" or "Current branch <name> vs <base_branch>"}
 - Plan / Requirements: {the PR body if available, else the originating issue body from Phase 0.4, else "No spec available — review against general project standards from CLAUDE.md"}
 - Base SHA: {head_override PR mode: $HEAD_OVERRIDE_BASE (the fetched origin/$PR_BASE_BRANCH tip, or $PR_BASE_SHA after confirmed deletion); standalone PR mode: $PR_BASE_SHA/baseRefOid paired with the unchanged gh pr diff result; current-branch mode: origin/$BASE — always the base the cached diff.patch is scoped to}
 - Head SHA: {PR_HEAD_SHA or current HEAD}
