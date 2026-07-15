@@ -21236,7 +21236,7 @@ assert_eq "#460 workflow: harden self-copy is gated by the plugin.json-name disc
 # ── #460 review (FP1): consumer relevance gate — harden ONLY when the TRUSTED base
 # .claude/settings.json wires these Stop hooks. devflow-runner.yml ships to consumers,
 # but DevFlow's own Stop hooks do not; without this gate a consumer review stubs/creates
-# the nine DevFlow-layout paths over same-named files (a wrong verdict).
+# the ten DevFlow-layout paths over same-named files (a wrong verdict).
 assert_eq "#460 workflow: relevance gate reads the TRUSTED base .claude/settings.json" "1" \
   "$(grep -cF 'git show "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
 assert_eq "#460 workflow: relevance gate keys on the three entry hooks" "1" \
@@ -21354,7 +21354,7 @@ raise SystemExit("harden_hooks step not found")
 PY
   HH_FIX="$(git_sandbox '#460 errexit fixture')"
   # The trusted "origin": base tracks the REAL .claude/settings.json (wires the three
-  # Stop hooks), the vendored helper, and all nine closure targets — the same shapes
+  # Stop hooks), the vendored helper, and all ten closure targets — the same shapes
   # main carries — and deliberately does NOT track .claude/settings.local.json.
   mkdir -p "$HH_FIX/origin/.claude" "$HH_FIX/origin/.devflow/vendor/devflow/scripts"
   cp "$LIB/../.claude/settings.json" "$HH_FIX/origin/.claude/settings.json" 2>/dev/null

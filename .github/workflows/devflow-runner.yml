@@ -1001,7 +1001,7 @@ jobs:
             # devflow-runner.yml to consumer repos, but DevFlow's own .claude/settings.json
             # Stop hooks do NOT ship. In a consumer whose TRUSTED base settings.json does
             # not wire these hooks there is nothing to harden — and stubbing/creating the
-            # nine DevFlow-layout paths would clobber a same-named consumer file (a wrong
+            # ten DevFlow-layout paths would clobber a same-named consumer file (a wrong
             # verdict). So harden ONLY when the trusted base settings.json wires an entry
             # hook. DECIDE VIA THE TRUSTED HELPER'S --wired-check MODE — the single,
             # lib/test/run.sh-driven source of truth for this selection — falling back to
@@ -1082,7 +1082,7 @@ jobs:
               done
             fi
           else
-            echo "::warning::harden-stop-hooks: could not fetch base ref '${BASE_REF:-}' to materialize trusted Stop-hook copies; failing closed (no-op stubs for every hook target). NOTE (issue #460 review, FP-S1): in a CONSUMER repo a base-ref fetch failure means the relevance gate cannot run, so the nine DevFlow-layout paths are stubbed/created over any same-named consumer files during this (read-only) review — a deliberate fail-closed-over-consumer-fidelity trade, disclosed in docs/DEVFLOW_SYSTEM_OVERVIEW.md."
+            echo "::warning::harden-stop-hooks: could not fetch base ref '${BASE_REF:-}' to materialize trusted Stop-hook copies; failing closed (no-op stubs for every hook target). NOTE (issue #460 review, FP-S1): in a CONSUMER repo a base-ref fetch failure means the relevance gate cannot run, so the ten DevFlow-layout paths are stubbed/created over any same-named consumer files during this (read-only) review — a deliberate fail-closed-over-consumer-fidelity trade, disclosed in docs/DEVFLOW_SYSTEM_OVERVIEW.md."
           fi
           # RELEVANCE GATE early-out (issue #460 review, FP1): the trusted base ref
           # demonstrably does not wire these Stop hooks, so there is nothing to harden
