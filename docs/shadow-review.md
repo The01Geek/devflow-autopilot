@@ -557,7 +557,7 @@ Two changes make both sides of that ledger recordable instead of reconstructed:
   clean outcome-1 shadow whose block dropped leaves no promotion evidence to synthesize from. The
   fused emit is the primary fix and the floor is its backstop, not its equal; the floor recovers
   *attribution*, not shadow-specific cost (this floor recovers no token/wall figures — those are
-  captured live by the loop, while the Layer-4 execution-file floor records whole-job
+  captured live by the loop; issue #475's separate Layer-4 execution-file floor records whole-job
   `harness_cost` for writable cloud runs but cannot attribute that cost to the shadow phase). So this
   narrows-the-gap, it does not close it — the shadow still audits its own audit with honest
   calibration.

@@ -38,7 +38,9 @@ preference-ordered rather than a brittle single-shape parse.
 import json
 import sys
 
-# Four per-message token components plus the total_tokens summary, in normalized order.
+# The five token figures, in the order the normalized object emits them. The first four
+# are per-message figures (summable on the per-message fallback path); `total_tokens` is
+# a summary figure and is NOT summed on that path — see _fold_usage.
 _TOKEN_KEYS = (
     "input_tokens",
     "output_tokens",
@@ -109,14 +111,15 @@ def _fold_usage(usage, sums, wrong_type, accumulate):
     for k in _TOKEN_KEYS:
         if k not in usage:
             continue
-        # The undocumented execution-file schema does not establish whether a streamed
-        # message's total_tokens is a per-message delta or a cumulative run summary. A
-        # fallback sum could therefore double-count a cumulative value. Keep it unknown;
-        # result-summary usage remains authoritative and may supply total_tokens directly.
-        if accumulate and k == "total_tokens":
-            continue
         v = usage[k]
         if _is_number(v):
+            if accumulate and k == "total_tokens":
+                # `total_tokens` is a summary figure, not a per-message component. On the
+                # per-message fallback path we cannot know whether the file emits it
+                # per-message or cumulatively, and summing a cumulative field over-counts.
+                # Leave it null here (unknown-is-not-zero) rather than publish a possibly
+                # inflated total; the authoritative result-summary path reads it as-is.
+                continue
             sums[k] = v if not accumulate else (sums[k] or 0) + v
         else:
             wrong_type.setdefault("usage." + k, v)
@@ -223,6 +226,15 @@ def main(argv):
         sys.stderr.write(
             "devflow: extract-execution-cost.py: field '%s' is present but not a "
             "numeric figure (%r); treated as absent (null)\n" % (key, val)
+        )
+
+    # A parsed file can carry useful non-cost figures (turns, duration, or tokens) while
+    # cost_usd remains unknown. Name that state here; the glue independently refuses a
+    # truly all-null payload so it cannot masquerade as cost coverage.
+    if cost_usd is None:
+        sys.stderr.write(
+            "devflow: extract-execution-cost.py: execution file parsed but carried no "
+            "cost figure (cost_usd null); any staged harness_cost records no cost this run\n"
         )
 
     normalized = {
