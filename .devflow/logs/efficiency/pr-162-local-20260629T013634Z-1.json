@@ -230,23 +230,23 @@
   "telemetry": [
     {
       "iter": 1,
-      "phases": null
+      "phases": "unavailable"
     },
     {
       "iter": 2,
-      "phases": null
+      "phases": "unavailable"
     },
     {
       "iter": 3,
-      "phases": null
+      "phases": "unavailable"
     },
     {
       "iter": 4,
-      "phases": null
+      "phases": "unavailable"
     },
     {
       "iter": 5,
-      "phases": null
+      "phases": "unavailable"
     }
   ]
 }
