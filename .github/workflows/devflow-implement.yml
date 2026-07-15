@@ -428,6 +428,69 @@ jobs:
         with:
           config_json: ${{ steps.cfg.outputs.json }}
 
+      # ── Long-run credential refresh (issue #487) ──────────────────────────
+      # A GitHub App installation token expires 60 minutes after minting and
+      # cannot be renewed. The two steps below keep a writer-job run push- and
+      # gh-capable past that hour when the opt-in App is configured (gated on the
+      # SAME vars.DEVFLOW_APP_ID != '' condition as the app-token mint above, so
+      # an unconfigured consumer's behavior is byte-identical to today).
+      #
+      # DELIBERATELY a DETACHED process, not a `background:` step: actionlint
+      # (CI's raven-actions/actionlint@v2) rejects the unrecognized `background:`
+      # step key, so the refresher is spawned with `nohup … &` in a normal step
+      # that survives into the claude step. The private key is piped to the
+      # refresher's stdin (never argv, never disk — a pipe, not a here-string),
+      # and the detached refresher is launched with `env -u` (dropping the key var)
+      # so its exec-time environment — hence /proc/<pid>/environ, readable by the
+      # concurrent same-uid (prompt-injectable) claude step — never holds the PEM.
+      # The step-level env var exists ONLY so THIS short-lived launcher shell (gone
+      # before the claude step) can pipe it; an in-process `unset` alone would NOT
+      # scrub the long-lived refresher's /proc environ, which snapshots exec time
+      # (proc(5)). The loop traps TERM/exits 0, so the job conclusion never rides on
+      # it; the `if: always()` pidfile-kill step retires it. See docs/cloud-setup.md.
+      - name: Start credential refresher (optional)
+        id: refresher
+        if: ${{ vars.DEVFLOW_APP_ID != '' }}
+        env:
+          DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}
+          DEVFLOW_APP_PRIVATE_KEY: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          # No scripts/… self-repo fallback here (unlike the always() Stop step): this
+          # step runs right after `vendor-plugin` on the same sequential job, so the
+          # vendored path is always present — a fallback would be dead code. Do NOT add
+          # one in a wrong-direction "reconcile" with the Stop step.
+          printf '%s' "$DEVFLOW_APP_PRIVATE_KEY" \
+            | env -u DEVFLOW_APP_PRIVATE_KEY \
+                nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop \
+                >"$RUNNER_TEMP/devflow-refresh.log" 2>&1 &
+          disown || true
+          echo "credential refresher started (detached); log: $RUNNER_TEMP/devflow-refresh.log"
+
+      # Install scripts/gh-fresh.sh as a `gh` wrapper so agent-side gh resolves
+      # its token at call time from the refresher-maintained token file. Wired
+      # BOTH as DEVFLOW_GH (DevFlow's own gh-callers resolve gh through this seam)
+      # and ahead of the real gh on PATH via GITHUB_PATH (direct skill-fence gh
+      # calls + post-claude steps). The real gh's ABSOLUTE path is captured HERE,
+      # before the GITHUB_PATH prepend takes effect in later steps — a name-based
+      # lookup would otherwise recurse into the wrapper.
+      - name: Install fresh-gh wrapper (optional)
+        if: ${{ vars.DEVFLOW_APP_ID != '' }}
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          REAL_GH="$(command -v gh)"
+          WRAPDIR="$RUNNER_TEMP/devflow-gh-bin"
+          mkdir -p "$WRAPDIR"
+          cp .devflow/vendor/devflow/scripts/gh-fresh.sh "$WRAPDIR/gh"
+          chmod +x "$WRAPDIR/gh"
+          # Record the job-start token fingerprint (mode 0600) so the wrapper can
+          # tell the ambient token from a deliberately-fresh #287 backstop mint.
+          ( umask 077; printf '%s' "$APP_TOKEN" | sha256sum | awk '{print $1}' \
+              > "$RUNNER_TEMP/devflow-gh-fingerprint" )
+          { echo "DEVFLOW_GH=$WRAPDIR/gh"; echo "DEVFLOW_GH_REAL=$REAL_GH"; } >> "$GITHUB_ENV"
+          echo "$WRAPDIR" >> "$GITHUB_PATH"
       # ── Third-party model provider resolution (issue #313) ─────────────────
       # Resolve this section's (devflow_implement) provider decision from
       # .devflow/config.json via the single-sourced inline jq RESOLVER below.
@@ -813,6 +876,28 @@ jobs:
             Bash(mv:*),
             Bash(cp:*),
             Bash(tee:*)${{ needs.config.outputs.allowed_tools_extra }}"
+
+      # Retire the detached credential refresher (issue #487). Best-effort,
+      # always() so it runs on every exit path. The kill-by-pidfile, log-tail, and
+      # defeated-refresher ::warning:: logic lives in scripts/stop-refresher.sh so
+      # the branch/message selection is suite-drivable (CLAUDE.md inline-shell-
+      # extraction convention). Vendored copy, repo-path fallback for a self-repo run.
+      - name: Stop credential refresher (optional)
+        if: ${{ always() && vars.DEVFLOW_APP_ID != '' }}
+        env:
+          # The Start step's outcome. stop-refresher.sh treats the launcher as having
+          # RAN when this is `success` OR `failure` (a ran-and-failed launcher is still
+          # a genuine never-started defeat — arm18), and as NOT run when `skipped` OR
+          # `cancelled` (an upstream early-abort), where a missing pidfile is expected
+          # rather than a defeat. (In practice the Start step's run: ends on a bare echo
+          # and never waits on its backgrounded nohup, so it realistically only yields
+          # success or skipped/cancelled — but the contract handed to the helper is the
+          # broader four-way one above.)
+          DEVFLOW_REFRESH_STARTED: ${{ steps.refresher.outcome }}
+        run: |
+          H=.devflow/vendor/devflow/scripts/stop-refresher.sh
+          [ -f "$H" ] || H=scripts/stop-refresher.sh
+          bash "$H"
 
       # Surface the claude-code-action run's execution diagnostics (run summary +
       # permission-denial detail) to the job log and $GITHUB_STEP_SUMMARY so a
