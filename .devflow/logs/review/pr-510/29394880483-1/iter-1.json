@@ -1,0 +1,56 @@
+{
+  "iter": 1,
+  "source": "review",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {"verification_mode": "lite", "verdict": "PASS"},
+    {"verification_mode": "lite", "verdict": "PASS"},
+    {"verification_mode": "lite", "verdict": "PASS"},
+    {"verification_mode": "lite", "verdict": "PASS"},
+    {"verification_mode": "lite", "verdict": "PASS"},
+    {"verification_mode": "lite", "verdict": "PASS"},
+    {"verification_mode": "lite", "verdict": "PASS"},
+    {"verification_mode": "lite", "verdict": "PASS"},
+    {"verification_mode": "lite", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "FAIL"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:code-reviewer", "corroboration_count": 2, "contributed_to_verdict": true},
+    {"agent": "devflow:comment-analyzer", "corroboration_count": 2, "contributed_to_verdict": true},
+    {"agent": "devflow:silent-failure-hunter", "corroboration_count": 1, "contributed_to_verdict": false},
+    {"agent": "devflow:pr-test-analyzer", "corroboration_count": 1, "contributed_to_verdict": false},
+    {"agent": "devflow:pr-test-analyzer", "corroboration_count": 1, "contributed_to_verdict": false},
+    {"agent": "devflow:pr-test-analyzer", "corroboration_count": 1, "contributed_to_verdict": false},
+    {"agent": "devflow:requesting-code-review", "corroboration_count": 1, "contributed_to_verdict": false}
+  ],
+  "telemetry": {
+    "phase_0_5": {"engine_self_modifying": true, "detect_all_audit": true},
+    "phase_1": {"items_generated": 20},
+    "phase_2": {"pass": 19, "fail": 1, "inconclusive": 0},
+    "phase_3": {"agents_dispatched": 5, "agents_returned": 5, "findings": 6}
+  }
+}
