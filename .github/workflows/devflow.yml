@@ -930,12 +930,25 @@ jobs:
           # describe-denial-count.sh extraction convention; run.sh drives every arm).
           # Inline fallback for the partial-vendor skew (HELPER present, COMPOSE
           # absent): the helper ran and may have set DEFECT (a degraded settings
-          # file); without COMPOSE to render the degraded ::warning::, surface it
-          # inline so a degraded file is never silently dropped to the baseline.
+          # file) OR emitted valid extras into ENTRIES (which were already spliced
+          # into the credentialed runner's plugin surface unconditionally above).
+          # Without COMPOSE to render the annotation, surface BOTH cases inline —
+          # a degraded file (::warning::) AND a silent splice (::notice::) — so a
+          # spliced entry is never added without an audit line (docs/cloud-setup.md:
+          # every spliced entry logged, never silent).
           if [ -f "$COMPOSE" ]; then
             bash "$COMPOSE" ok "$ENTRIES" "$DEFECT" || true
           elif [ -n "$DEFECT" ]; then
             echo "::warning::.claude/settings.json is degraded ($DEFECT); proceeding with the baked plugin baseline."
+          elif [ -s "$ENTRIES" ]; then
+            # Join via a bash-builtin loop (guard-class 2 — no cat/tr/sed for the
+            # emitted list), mirroring describe-plugin-compose.sh's splice ::notice::.
+            _splice=""
+            while IFS= read -r line || [ -n "$line" ]; do
+              [ -z "$line" ] && continue
+              if [ -z "$_splice" ]; then _splice="$line"; else _splice="$_splice, $line"; fi
+            done < "$ENTRIES"
+            echo "::notice::Composed plugin/marketplace entries beyond the baked baseline (describe-plugin-compose.sh unavailable): $_splice"
           fi
 
       - name: Run Claude Code

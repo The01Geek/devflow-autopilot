@@ -35738,6 +35738,16 @@ assert_eq "#505 AC skew: devflow-implement.yml skew arm names devflow_version" "
   "$(grep -qF 'Bump devflow_version' "$_505_WF/devflow-implement.yml" && echo yes || echo no)"
 assert_eq "#505 AC skew: devflow.yml skew arm names devflow_version" "yes" \
   "$(grep -qF 'Bump devflow_version' "$_505_WF/devflow.yml" && echo yes || echo no)"
+# The write-tier inline annotation fallback (HELPER present, COMPOSE absent) must
+# surface a SILENT SPLICE too, not only a degraded file: valid extras were composed
+# unconditionally, so a partial-vendor skew that drops describe-plugin-compose.sh must
+# still emit the audit ::notice:: (docs/cloud-setup.md: every spliced entry logged,
+# never silent). Without this arm the extras splice into the credentialed runner with
+# no audit line. Grep-pin the splice-notice fallback on both write tiers.
+for _f in devflow-implement devflow; do
+  assert_eq "#505 AC skew: $_f.yml inline fallback emits a splice ::notice:: for valid extras (never silent)" "yes" \
+    "$(grep -qF 'Composed plugin/marketplace entries beyond the baked baseline (describe-plugin-compose.sh unavailable):' "$_505_WF/$_f.yml" && echo yes || echo no)"
+done
 # (b) review-tier trusted-source pins
 _RYML="$_505_WF/devflow-runner.yml"
 assert_eq "#505 AC review: exactly one Compose plugin inputs step in devflow-runner.yml" "1" \

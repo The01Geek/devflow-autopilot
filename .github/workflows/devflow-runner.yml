@@ -332,9 +332,12 @@ jobs:
               # executed as the compose helper. Best-effort: any failure leaves
               # COMPOSE_HELPER_DIR empty and the compose step falls to rank 2 (vendored
               # on vendor_source==fetch) or fails closed (baseline + trusted-source-rule
-              # warning). The settings read is distinguished absent-vs-degraded via
-              # `git cat-file -e` on an empty read (the harden-stop-hooks discipline) so
-              # a present-but-unreadable file is not silently treated as "absent".
+              # warning). The settings-read classification keys on git show's EXIT
+              # STATUS, not on whether the read was empty: only when `git show` FAILS is
+              # `git cat-file -e` consulted to tell a present-but-git-show-unreadable
+              # object ('degraded') from a genuinely absent one ('absent') — the
+              # harden-stop-hooks discipline, so an unreadable file is not silently
+              # treated as "absent".
               if mkdir -p "$RUNNER_TEMP/devflow-trusted-compose" 2>/dev/null; then
                 _compose_ok=1
                 for _h in resolve-extra-plugins.sh describe-plugin-compose.sh; do
@@ -364,9 +367,13 @@ jobs:
                 fi
                 # Materialize the trusted base-ref .claude/settings.json. The compose
                 # step consumes ONLY this path — never a workspace-relative
-                # .claude/settings.json (run.sh negatively pins that). absent-on-base
-                # → 'absent' (the silent baseline); present → 'ok'; an empty read of a
-                # present file → 'degraded' (trusted-read-failed).
+                # .claude/settings.json (run.sh negatively pins that). Classification
+                # keys on git show's EXIT STATUS: git-show succeeds (any present blob,
+                # INCLUDING a 0-byte one) → 'ok' (a 0-byte/whitespace-only file is then
+                # caught downstream as invalid JSON by the helper's own breadcrumb, arm
+                # 2 — not reclassified here); git-show fails but the object exists
+                # (git cat-file -e) → 'degraded' (trusted-read-failed); neither → 'absent'
+                # (the silent baseline).
                 if _s_raw=$(git show "FETCH_HEAD:.claude/settings.json" 2>/dev/null); then
                   if printf '%s\n' "$_s_raw" > "$RUNNER_TEMP/devflow-trusted-compose/settings.json" 2>/dev/null; then
                     COMPOSE_SETTINGS="$RUNNER_TEMP/devflow-trusted-compose/settings.json"
