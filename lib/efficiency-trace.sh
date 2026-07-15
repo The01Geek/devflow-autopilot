@@ -822,8 +822,15 @@ persist_one() {
         # byte-identical while a second persist stays tree-idempotent. This also
         # lets unrelated later shadow-marker enrichment flow without regressing
         # the telemetry marker.
-        devflow_telemetry_show_blob "$root" "$ref" "$rel_iter" \
-          | "$DEVFLOW_JQ" -e '.telemetry == "unavailable"' >/dev/null 2>&1 || continue
+        if ! devflow_telemetry_show_blob "$root" "$ref" "$rel_iter" \
+          | "$DEVFLOW_JQ" -e '.telemetry == "unavailable"' >/dev/null 2>&1; then
+          # Do not carry an existing legacy blob in this run's overlay at all.
+          # Besides keeping history in the backfill's ownership, this prevents a
+          # local CAS retry from reapplying stale bytes after a concurrent
+          # backfill advanced the telemetry ref with the normalized marker.
+          rm -f "$staged_iter" 2>/dev/null || true
+          continue
+        fi
       fi
       if ! "$DEVFLOW_JQ" -e 'type == "object"' "$staged_iter" >/dev/null 2>&1; then
         echo "::warning::efficiency-trace.sh --persist: staged iter workpad '${rel_iter}' is malformed JSON or a valid non-object; copied byte-verbatim and telemetry was not fabricated" >&2

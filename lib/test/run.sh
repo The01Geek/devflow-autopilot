@@ -36261,6 +36261,49 @@ assert_eq "#499 backfill: absent telemetry branch is best-effort exit 0" "0" "$T
 assert_eq "#499 backfill: absent telemetry branch has a named breadcrumb" "yes" "$(printf '%s' "$T499_ERR" | grep -qF 'telemetry ref is absent or unresolvable' && echo yes || echo no)"
 rm -rf "$T499_DIR" "$T499_EMPTY"
 
+# Persist integration: exercise the full iter boundary at the durable-copy seam,
+# including byte preservation, sibling exclusion from stamping, source immutability,
+# and the second-run tree no-op.
+T499_P="$(git_sandbox '#499 persist matrix repo')"
+git -C "$T499_P" init -q
+git -C "$T499_P" config user.email t@e.com; git -C "$T499_P" config user.name t
+mkdir -p "$T499_P/.devflow/tmp/review/pr-499/run-matrix"
+for row in \
+  '1|{"iter":1,"phase3_dispatched":[],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"x":1}}' \
+  '2|{"iter":2,"phase3_dispatched":[],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":false}' \
+  '3|{"iter":3,"phase3_dispatched":[],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0}}' \
+  '4|{"iter":4,"phase3_dispatched":[],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  '5|{"iter":5,"phase3_dispatched":[],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{}}' \
+  '6|{"iter":6,"phase3_dispatched":[],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":"legacy"}'; do
+  n="${row%%|*}"; printf '%s' "${row#*|}" > "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-$n.json"
+done
+printf 'null' > "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-7.json"
+printf '{"keep":true}' > "$T499_P/.devflow/tmp/review/pr-499/run-matrix/deferrals.json"
+T499_SRC_BEFORE="$(find "$T499_P/.devflow/tmp/review/pr-499/run-matrix" -type f -exec shasum {} + | sort)"
+T499_P_ERR="$( ( cd "$T499_P" && bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+T499_TIP1="$(git -C "$T499_P" rev-parse devflow-telemetry)"
+( cd "$T499_P" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+T499_TIP2="$(git -C "$T499_P" rev-parse devflow-telemetry)"
+assert_eq "#499 persist: M3 absent is stamped" "unavailable" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-3.json' | jq -r '.telemetry')"
+assert_eq "#499 persist: M4 null is stamped" "unavailable" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-4.json' | jq -r '.telemetry')"
+assert_eq "#499 persist: established false survives" "false" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-2.json' | jq -r '.telemetry')"
+assert_eq "#499 persist: whole-file null stays byte-verbatim" "null" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-7.json')"
+assert_eq "#499 persist: non-object warning is named" "yes" "$(printf '%s' "$T499_P_ERR" | grep -qF 'valid non-object' && echo yes || echo no)"
+assert_eq "#499 persist: sibling JSON is copied but never stamped" '{"keep":true}' "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/deferrals.json')"
+assert_eq "#499 persist: source run directory is byte-identical" "$T499_SRC_BEFORE" "$(find "$T499_P/.devflow/tmp/review/pr-499/run-matrix" -type f -exec shasum {} + | sort)"
+assert_eq "#499 persist: second run is a telemetry-branch no-op" "$T499_TIP1" "$T499_TIP2"
+rm -rf "$T499_P"
+
+# Existing legacy durable paths remain backfill-owned: a normal persist removes
+# them from its overlay, so both an ordinary repeat and a CAS retry cannot undo a
+# concurrent migration.
+assert_pin_red_under "#499 local monotonicity: existing legacy overlay is removed" \
+  'rm -f "$staged_iter" 2>/dev/null || true' 's/rm -f "\$staged_iter" 2>\/dev\/null \|\| true/:/' "$LIB/efficiency-trace.sh"
+assert_pin_red_under "#499 union classifier failures refuse instead of guessing" \
+  'could not classify a colliding telemetry blob' '/could not classify a colliding telemetry blob/d' "$LIB/telemetry-branch.sh"
+assert_pin_red_under "#499 staging-only backfill retains relay input" \
+  '2) trap - EXIT;' 's/2\) trap - EXIT;/2) :;/' "$LIB/../scripts/backfill-telemetry-unavailable.sh"
+
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)

@@ -70,7 +70,7 @@ fi
 rc=0; devflow_telemetry_persist_tree "$root" "$stage" || rc=$?
 case "$rc" in
   0) echo "backfill-telemetry-unavailable: migrated $selected blob(s)" >&2 ;;
-  2) echo "::warning::backfill-telemetry-unavailable: $selected rewrite(s) staged only; CI push operand is unavailable" >&2 ;;
+  2) trap - EXIT; echo "::warning::backfill-telemetry-unavailable: $selected rewrite(s) staged only at '$stage'; CI push operand is unavailable" >&2 ;;
   *) echo "::warning::backfill-telemetry-unavailable: telemetry write degraded (rc=$rc); rerun after resolving the preceding breadcrumb" >&2 ;;
 esac
 exit 0

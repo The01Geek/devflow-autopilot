@@ -533,6 +533,13 @@ devflow_telemetry_persist_tree() {
       tree="$(
         export GIT_INDEX_FILE="$idx"
         git -C "$root" read-tree "$base" 2>/dev/null || exit 1
+        classify_migration_blob() { # $1=sha $2=jq predicate; prints yes/no
+          local blob rc
+          blob="$(git -C "$root" cat-file blob "$1" 2>/dev/null)" || return 2
+          printf '%s' "$blob" | "$jq_bin" -e "$2" >/dev/null 2>&1
+          rc=$?
+          case "$rc" in 0) printf 'yes\n' ;; 1) printf 'no\n' ;; *) return 2 ;; esac
+        }
         # This loop assembles tree CONTENT (a union), not a selection decision, so iterating
         # the listing is appropriate. Format is `<mode> <type> <sha>\t<path>`; split the tab,
         # then take the first/last fields. Fed from the ALREADY-VALIDATED capture above.
@@ -544,18 +551,21 @@ devflow_telemetry_persist_tree() {
             local_selected=no; remote_selected=no
             case "$path" in
               .devflow/logs/review/*/iter-*.json)
-                git -C "$root" cat-file blob "$sha" 2>/dev/null | "$jq_bin" -e 'type == "object" and ((has("telemetry") | not) or .telemetry == null)' >/dev/null 2>&1 && local_selected=yes
-                git -C "$root" cat-file blob "$remote_sha" 2>/dev/null | "$jq_bin" -e 'type == "object" and ((has("telemetry") | not) or .telemetry == null)' >/dev/null 2>&1 && remote_selected=yes ;;
+                local_selected="$(classify_migration_blob "$sha" 'type == "object" and ((has("telemetry") | not) or .telemetry == null)')" || exit 2
+                remote_selected="$(classify_migration_blob "$remote_sha" 'type == "object" and ((has("telemetry") | not) or .telemetry == null)')" || exit 2 ;;
               .devflow/logs/efficiency/*.json)
-                git -C "$root" cat-file blob "$sha" 2>/dev/null | "$jq_bin" -e 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)' >/dev/null 2>&1 && local_selected=yes
-                git -C "$root" cat-file blob "$remote_sha" 2>/dev/null | "$jq_bin" -e 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)' >/dev/null 2>&1 && remote_selected=yes ;;
+                local_selected="$(classify_migration_blob "$sha" 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)')" || exit 2
+                remote_selected="$(classify_migration_blob "$remote_sha" 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)')" || exit 2 ;;
             esac
             [ "$local_selected" = yes ] && [ "$remote_selected" != yes ] && continue
           fi
           git -C "$root" update-index --add --cacheinfo "${mode},${sha},${path}" 2>/dev/null || exit 1
         done < <(printf '%s\n' "$overlay_out")
         git -C "$root" write-tree 2>/dev/null || exit 1
-      )" || return 1
+      )" || {
+        echo "::warning::telemetry-branch: could not classify a colliding telemetry blob while building the monotonic union; refusing the union rather than guessing which side is normalized$(_devflow_telemetry_retention_note)" >&2
+        return 1
+      }
       [ -n "$tree" ] || return 1
       ptree="$(git -C "$root" rev-parse --verify --quiet "${base}^{tree}" 2>/dev/null)"
       [ "$tree" = "$ptree" ] && { printf 'NOOP\n'; return 0; }
