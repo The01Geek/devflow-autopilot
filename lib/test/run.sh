@@ -35331,6 +35331,17 @@ assert_eq "#491 arm-empty: empty-token mint hits the specific 'mint returned an 
 assert_eq "#491 arm-empty: empty-token mint leaves the previous credential intact (PREVEMPTY)" "AUTHORIZATION: basic PREVEMPTY" \
   "$(git config --file "$CFG_EMPTY" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
 
+# Arm-nokey (PR #491 shadow review) — real_mint's 'no private key on stdin' guard: with
+# DEVFLOW_APP_ID set (so the app-id guard passes) but an EMPTY stdin key and no mint override,
+# the KEY-empty guard fires (it precedes the tool-presence and GITHUB_REPOSITORY guards) with
+# its specific ::warning::, exits 0. The one real_mint guard previously undriven.
+_anokey_err="$(DEVFLOW_APP_ID=APPIDNK DEVFLOW_REFRESH_CONFIG_FILE="$D487/crednk.config" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/toknk" GITHUB_REPOSITORY="o/r" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _anokey_rc=$?
+assert_eq "#491 arm-nokey: empty stdin key exits 0 (best-effort)" "0" "$_anokey_rc"
+assert_eq "#491 arm-nokey: empty stdin key hits the specific 'no private key on stdin' guard" "yes" \
+  "$(printf '%s' "$_anokey_err" | grep -qF 'no private key on stdin' && echo yes || echo no)"
+
 # Arm 25 — gh-fresh.sh resolve_real_gh returns 127 when no gh resolves (no
 # DEVFLOW_GH_REAL and no gh on PATH) → the breadcrumb, and rc 127.
 EMPTY25="$D487/emptybin25"; mkdir -p "$EMPTY25"
@@ -35413,6 +35424,22 @@ _a29_out="$(env -u GH_TOKEN "PATH=$FAILMKTEMP29:$PATH" DEVFLOW_GH_REAL="$GHSTUB4
   DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp29" bash "$GHFRESH_SH" api x 2>/dev/null)"
 assert_eq "#491 arm29: mktemp-unavailable fallback still streams stdout live (substitutes FRESH29)" "GH_TOKEN_SEEN=FRESH29 ARGS=api x" "$_a29_out"
 
+# Arm 30 (PR #491 shadow review) — NEGATIVE control pinning the `[ "$rc" -ne 0 ]` conjunct of
+# the diagnostic-append guard: a SUCCESSFUL (rc 0) gh call whose OUTPUT merely CONTAINS the
+# bad-cred signature (e.g. an issue title / JSON body) must NOT get the expired-credential
+# DIAG_LINE. arm27 pins the positive direction (rc≠0 + signature → DIAG); this pins the
+# rc-guard (deleting `[ "$rc" -ne 0 ]` would append the compaction-immune diagnostic on a
+# healthy call → RED).
+GHOK401_30="$D487/ghok401_30"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "issue #12: fix Bad credentials (HTTP 401) error handling"\n'; printf 'exit 0\n'; } > "$GHOK401_30"
+chmod +x "$GHOK401_30"
+printf 'FRESH30' > "$D487/tok30"; _d487_sha 'JOBSTART30' > "$D487/fp30"
+_a30_err="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHOK401_30" DEVFLOW_GH_TOKEN_FILE="$D487/tok30" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp30" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"; _a30_rc=$?
+assert_eq "#491 arm30: a SUCCESSFUL (rc 0) call whose output contains the signature does NOT get the diagnostic" "no" \
+  "$(printf '%s' "$_a30_err" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+assert_eq "#491 arm30: the successful call preserves rc 0" "0" "$_a30_rc"
+
 # ── stop-refresher.sh arms (13–16, 19–20): the retirement step's defeated-refresher
 # signal is honest — it must NOT over-fire on a recovered transient, and it MUST fire on
 # the never-started/crash case (absent pidfile), the died-mid-run case (pidfile present
@@ -35486,8 +35513,11 @@ kill "$_live16b" 2>/dev/null; wait "$_live16b" 2>/dev/null || true
 # death → warn, attributed to the died-mid-run liveness arm. Positive control: arm 13 is
 # byte-identical except the pid is alive, and it does NOT warn — so this rejection is
 # attributable to liveness alone.
-sleep 0.01 & _dead19=$!
-wait "$_dead19" 2>/dev/null || true   # guarantee the pid is gone before the probe runs
+# Sentinel PID far above any live-process range (exceeds PID_MAX on Linux/macOS), so
+# `kill -0` deterministically reports it dead with NO PID-reuse race and stop-refresher's
+# `kill "$pid"` cannot signal an unrelated same-uid process (PR #491 shadow review — a
+# reaped-child PID is correct only until the kernel recycles that number).
+_dead19=2147483647
 echo "$_dead19" > "$D487/pidE"; printf 'refresh-app-credentials: cycle OK (credentials refreshed)\n' > "$D487/logE"
 _s19="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidE" DEVFLOW_REFRESH_LOG="$D487/logE" bash "$STOP_SH" 2>&1)"; _s19_rc=$?
 assert_eq "#487 arm19: dead pid + last cycle OK warns defeated (stale cycle OK does not mask a death)" "yes" "$(_defeat487 "$_s19")"
@@ -35502,6 +35532,25 @@ _s20="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidF" DEVFLOW_REFRESH_LOG="$D487/absentlo
 assert_eq "#487 arm20: empty pidfile warns defeated (health unverifiable)" "yes" "$(_defeat487 "$_s20")"
 assert_eq "#487 arm20: the warning is attributed to the empty pidfile" "yes" \
   "$(printf '%s' "$_s20" | grep -qF 'pidfile is empty, so its health could not be verified' && echo yes || echo no)"
+
+# Arm 20b (PR #491 shadow review) — surface-2-ONLY divergence: the cycle refreshed git push
+# (surface 1) but failed to write the gh token file (surface 2). A LIVE pid (so no more
+# fundamental pidfile-based defeat fires first) + a log whose last refresh-app-credentials:
+# line is run_cycle's divergence warning → still a defeat (the gh surface is stale until the
+# backoff re-converges), but the impact clause is NARROWED to gh-only rather than the generic
+# "git push may be stale" over-claim (push in fact stayed fresh). Pins stop-refresher's new
+# divergence case arm (removing it drops the last line to the generic ::warning:: arm → RED).
+sleep 300 & _live20b=$!
+echo "$_live20b" > "$D487/pid20b"
+printf 'refresh-app-credentials: cycle OK\n::warning::refresh-app-credentials: cycle: renaming the token file into place failed — push credential (surface 1) IS fresh but the gh token file (surface 2) is now stale\n' > "$D487/log20b"
+_s20b="$(DEVFLOW_REFRESH_PIDFILE="$D487/pid20b" DEVFLOW_REFRESH_LOG="$D487/log20b" bash "$STOP_SH" 2>&1)"; _s20b_rc=$?
+kill "$_live20b" 2>/dev/null || true
+assert_eq "#491 arm20b: surface-2-only divergence still warns defeated (gh surface stale)" "yes" "$(_defeat487 "$_s20b")"
+assert_eq "#491 arm20b: the divergence impact clause narrows to gh-only (git push stayed fresh)" "yes" \
+  "$(printf '%s' "$_s20b" | grep -qF 'git push stayed fresh' && echo yes || echo no)"
+assert_eq "#491 arm20b: the divergence case does NOT emit the generic both-surfaces-stale impact" "no" \
+  "$(printf '%s' "$_s20b" | grep -qF 'git push / gh calls past ~60 min may have used a stale token' && echo yes || echo no)"
+assert_eq "#491 arm20b: stop-refresher still exits 0 on the divergence arm" "0" "$_s20b_rc"
 
 rm -rf "$D487"
 

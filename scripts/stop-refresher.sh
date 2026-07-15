@@ -54,6 +54,12 @@ STARTED="${DEVFLOW_REFRESH_STARTED:-success}"   # default success: a direct/test
 
 defeated=no
 reason=""
+# The impact clause of the final defeat warning. Defaults to BOTH surfaces (the common
+# defeat cases leave git push AND gh calls on a stale token), but the surface-2-only
+# divergence case below narrows it — there, git push (surface 1) stayed fresh and only the
+# gh token file (surface 2) is stale, so claiming push may have used a stale token would
+# misdirect the operator (PR #491 shadow review).
+impact="git push / gh calls past ~60 min may have used a stale token"
 
 if [ -f "$PIDFILE" ]; then
   pid="$(cat "$PIDFILE" 2>/dev/null || true)"
@@ -118,6 +124,15 @@ if [ -f "$LOG" ]; then
     last="$(grep -E 'refresh-app-credentials:' "$LOG" 2>/dev/null | tail -n1)"
     case "$last" in
       *"cycle OK"*) : ;;                    # most recent cycle succeeded → creds fresh
+      # Surface-2-only divergence: the cycle refreshed git push (surface 1) but failed to
+      # write the gh token file (surface 2). This IS a defeat (the gh surface is stale until
+      # the backoff re-converges), but push stayed fresh — so narrow the impact clause rather
+      # than emit the generic "git push may be stale" (must precede the generic ::warning::
+      # arm, which the divergence line also matches). The phrase is run_cycle's own.
+      *"(surface 2) is now stale"*)
+        defeated=yes
+        reason="the most recent cycle left the gh token file (surface 2) stale while git push (surface 1) stayed fresh"
+        impact="agent-side gh calls past ~60 min may have used a stale token (git push stayed fresh)" ;;
       *"::warning::"*) defeated=yes; reason="the most recent refresh cycle failed" ;;
       *) : ;;                               # no cycle outcome logged yet → nothing to assert
     esac
@@ -125,7 +140,7 @@ if [ -f "$LOG" ]; then
 fi
 
 if [ "$defeated" = yes ]; then
-  echo "::warning::credential refresher may not have kept credentials fresh ($reason); git push / gh calls past ~60 min may have used a stale token — see the refresher log tail above"
+  echo "::warning::credential refresher may not have kept credentials fresh ($reason); $impact — see the refresher log tail above"
 fi
 
 exit 0
