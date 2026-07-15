@@ -21611,7 +21611,12 @@ PY
   # Simulate the PR-head edit this floor exists to displace.
   printf 'MALICIOUS\n' > "$HH_FIX/ws/lib/efficiency-trace.sh"
   HH_RT="$(git_sandbox '#460 errexit RUNNER_TEMP')"
-  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" \
+  # GITHUB_OUTPUT is always exported by GitHub Actions for a `run:` step; the #504
+  # harden outputs (disposition / displaced_paths) append to it, so the fixture must
+  # supply it too — else the step's terminal `>> "$GITHUB_OUTPUT"` write hits
+  # `GITHUB_OUTPUT: unbound variable` (set -u) and the step exits 1 in a local run
+  # (masked in CI, where the var is set — the exact env-dependent-test trap).
+  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" GITHUB_OUTPUT="$HH_FIX/gh_out.txt" \
       bash -e "$HH_SCRIPT" ) >"$HH_FIX/out.log" 2>&1
   assert_eq "#460 errexit: the harden step survives GitHub's default \`bash -e {0}\` shell with settings.local.json absent at base (the live-repro shape)" \
     "0" "$?"
@@ -21630,7 +21635,11 @@ PY
   # turn this RED instead of leaving the suite vacuously green.
   HH_MUT="$(probe_tmp '#460 errexit mutant script')"
   grep -v '^set +e$' "$HH_SCRIPT" > "$HH_MUT"
-  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" \
+  # GITHUB_OUTPUT set here too (as in the real run above): under the mutant's inherited
+  # `-e` the step dies at the earlier settings.local.json `git show` (rc 128) before
+  # ever reaching the terminal output write, so this does not change the asserted rc —
+  # it just keeps the two invocations identical except for the stripped errexit-off line.
+  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" GITHUB_OUTPUT="$HH_FIX/gh_out.txt" \
       bash -e "$HH_MUT" ) >/dev/null 2>&1
   assert_eq "#460 errexit MUTATION: without the errexit-off line the inherited -e kills the step at the settings.local.json read (rc 128)" \
     "128" "$?"
@@ -31020,6 +31029,31 @@ assert_pin_unique "#504 AC6 SKILL Phase 2.1b dispatch routing" "displaced-path r
 assert_pin_unique "#504 AC6 code-reviewer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/code-reviewer.md"
 assert_pin_unique "#504 AC6 comment-analyzer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/comment-analyzer.md"
 assert_pin_unique "#504 AC6 checklist-verifier agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/checklist-verifier.md"
+# AC12 (#504): the agent-mirror routing pins above assert only the bold HEADER; AC12
+# requires the operative "route via git show, never a working-tree read" clause to be
+# mutation-backed, so a meaning-inverting edit (routing back to a working-tree read —
+# the exact regression this PR exists to prevent) turns the pin RED. Each agent file
+# carries the operative clause exactly once.
+assert_pin_red_under "#504 AC6 code-reviewer mirror operative clause (removing 'never a working-tree read' re-opens the wrong-REJECT risk)" \
+  "never a working-tree read" "s/never a working-tree read//" "$LIB/../agents/code-reviewer.md"
+assert_pin_red_under "#504 AC6 comment-analyzer mirror operative clause (removing 'never a working-tree read' re-opens the wrong-REJECT risk)" \
+  "never a working-tree read" "s/never a working-tree read//" "$LIB/../agents/comment-analyzer.md"
+assert_pin_red_under "#504 AC6 checklist-verifier mirror operative clause (removing 'never a working-tree read' re-opens the wrong-REJECT risk)" \
+  "never a working-tree read" "s/never a working-tree read//" "$LIB/../agents/checklist-verifier.md"
+# AC6 (#504): the DISPATCHED surfaces (the three agent mirrors + the Phase-3
+# truthfulness-contract paragraph + the 2.1b checklist-verifier dispatch prompt) never
+# receive the orchestrator's engine-ground-truth block, so the routing rule alone cannot
+# tell them WHICH paths are displaced. They must read the run's displaced list from the
+# Phase 0.1.5 scratch file. Pin that each dispatched surface names the scratch file —
+# dropping the reference leaves the routing inert on exactly the surfaces that produce
+# the false documented_falsehood findings this PR exists to stop.
+assert_pin_unique "#504 AC6 code-reviewer mirror reads the displaced scratch file" ".devflow/tmp/displaced-paths.txt" "$LIB/../agents/code-reviewer.md"
+assert_pin_unique "#504 AC6 comment-analyzer mirror reads the displaced scratch file" ".devflow/tmp/displaced-paths.txt" "$LIB/../agents/comment-analyzer.md"
+assert_pin_unique "#504 AC6 checklist-verifier mirror reads the displaced scratch file" ".devflow/tmp/displaced-paths.txt" "$LIB/../agents/checklist-verifier.md"
+assert_pin_unique "#504 AC6 Phase-3 truthfulness-contract dispatch reads the displaced scratch file" \
+  "you receive this contract, not the orchestrator's engine-ground-truth block" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 Phase 2.1b dispatch reads the displaced scratch file" \
+  "you receive this dispatch prompt, not the orchestrator's engine-ground-truth block" "$LIB/../skills/review/SKILL.md"
 # AC7: Phase 0.1 attribution + Phase 0.1.5 scratch persistence.
 assert_pin_unique "#504 AC7 Phase 0.1 displaced-path attribution" "#504 displaced-path attribution" "$LIB/../skills/review/SKILL.md"
 assert_pin_unique "#504 AC6 Phase 0.1.5 scratch persistence" "Persist the displaced-path list" "$LIB/../skills/review/SKILL.md"
