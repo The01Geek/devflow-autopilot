@@ -62,5 +62,28 @@
     "phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
     "step_3_5": {"calls": 1, "tokens": 55000, "wall_clock_s": 95}
   },
-  "shadow": null
+  "shadow": {
+    "ran_at": "2026-07-15T21:20:00Z",
+    "reviewed_sha": "af1e162f",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "SECOND (line-wrapped) 'arm 2' cross-reference at devflow-runner.yml baseprovision comment — a degraded-no-entries file routes to arm 3; diff-added comment false against HEAD (documented_falsehood / self-contradicting diff). MISSED in iter-2 because the phrase wraps across a #-prefixed continuation, defeating line/ws-normalized grep.", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [372, 374], "kind": "documented_falsehood"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "grep-derived helper-trust discriminator ('name':'devflow') is a guard-class-2 selection via a non-preflight tool", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [347, 347], "kind": "api_misuse"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "computed baseline output has no in-step fallback — a mid-step mktemp abort drops all plugins incl devflow@ (fails LOUD)", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [1307, 1307], "kind": "logic_error"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "bash $HELPER || true can swallow a stderr-less exec failure without an audit line", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [356, 357], "kind": "silent_failure"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "inline workflow compose-routing branch-selection only grep-pinned (overlap with iter-2 deferred; reviewer: 'not a blocker, accepted limitation')", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [340, 422], "kind": "test_gap"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "undriven arg-guard arm, marketplaces-mode 'missing' fallback, failed-arm no-defect branch (coverage tail)", "defect_signature": {"file": "scripts/resolve-extra-plugins.sh", "line_range": [73, 81], "kind": "test_gap"}},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "describe-plugin-compose.sh lacks a guard-class-2 grep pin", "defect_signature": {"file": "lib/test/run.sh", "line_range": [898, 949], "kind": "test_gap"}},
+      {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "write-tier comment names only issue_comment trigger (confidence ~40, below threshold)", "defect_signature": {"file": ".github/workflows/devflow.yml", "line_range": [859, 859], "kind": "comment_drift"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 9, "overlap_with_iter_N": 1, "new": 8, "new_critical": 1, "new_important": 2},
+    "promoted_to_iter_next": true
+  }
 }
