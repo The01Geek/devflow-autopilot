@@ -16296,6 +16296,777 @@ assert_eq "et-persist: targeted --slug-absent → slug from parent dir name (on 
   "$(_et_on_branch "$ETPT_REPO" ".devflow/logs/efficiency/pr-23-run-u.json")"
 rm -rf "$ETPT_REPO"
 
+# ── issue #475: harness-side cost floor — merge the execution_file's cost into
+# per-run efficiency records through --persist (reader + merge/skeleton arms +
+# merge-aware union + glue) ───────────────────────────────────────────────────
+echo "harness-side cost floor (issue #475)"
+HC_READER="$LIB/../scripts/extract-execution-cost.py"
+HC_GLUE="$LIB/../scripts/prepare-harness-floor.sh"
+# The reader's normalized JSON, as the glue would hand it to --persist.
+HC_COST='{"cost_usd":0.42,"tokens":{"input_tokens":150,"output_tokens":5,"cache_read_input_tokens":null,"cache_creation_input_tokens":null,"total_tokens":105},"model_usage":{"m":{"x":1}},"num_turns":9,"duration_ms":8000}'
+
+# ── A1/A2: the reader over the full adversarial input matrix ──────────────────
+HC_FX="$(git_sandbox "hc reader fixtures")"
+# valid-falsy boundary (AC1): costUSD:0 → cost_usd:0 ; key absent → cost_usd:null.
+printf '%s' '{"type":"result","costUSD":0,"num_turns":3,"duration_ms":12}' > "$HC_FX/cost0.json"
+assert_eq "hc-reader(A1): costUSD:0 → cost_usd:0 (valid-falsy, never coerced to null)" "0" \
+  "$(python3 "$HC_READER" "$HC_FX/cost0.json" 2>/dev/null | jq -c '.cost_usd')"
+printf '%s' '{"type":"result","num_turns":3}' > "$HC_FX/costabsent.json"
+assert_eq "hc-reader(A1): cost key absent → cost_usd:null (unknown-is-not-zero)" "null" \
+  "$(python3 "$HC_READER" "$HC_FX/costabsent.json" 2>/dev/null | jq -c '.cost_usd')"
+# array shape + per-message usage accumulation.
+printf '%s' '[{"usage":{"input_tokens":100,"total_tokens":105}},{"usage":{"input_tokens":50,"cache_read_input_tokens":7}},{"type":"result","total_cost_usd":1.5,"num_turns":9}]' > "$HC_FX/arr.json"
+assert_eq "hc-reader(A2): array shape → cost from result event" "1.5" \
+  "$(python3 "$HC_READER" "$HC_FX/arr.json" 2>/dev/null | jq -c '.cost_usd')"
+assert_eq "hc-reader(A2): per-message usage input_tokens summed across events" "150" \
+  "$(python3 "$HC_READER" "$HC_FX/arr.json" 2>/dev/null | jq -c '.tokens.input_tokens')"
+assert_eq "hc-reader(A2): a token never seen stays null (not 0)" "null" \
+  "$(python3 "$HC_READER" "$HC_FX/arr.json" 2>/dev/null | jq -c '.tokens.output_tokens')"
+# A2 (token double-count, issue #475 review): when the file carries BOTH per-message
+# `usage` AND a result-summary cumulative `usage`, the reader must take the AUTHORITATIVE
+# result total — NOT sum per-message + result (the double-count bug). Here per-message sums
+# to 300 but the result cumulative is 500 (cache accounting differs), so the three possible
+# impls are distinguishable: correct(prefer-result)=500, old-bug(sum-all)=800,
+# fallback-only(sum-per-message)=300. Pinning ==500 fails RED against both wrong impls.
+printf '%s' '[{"type":"assistant","message":{"usage":{"input_tokens":100}}},{"type":"assistant","message":{"usage":{"input_tokens":200}}},{"type":"result","total_cost_usd":3,"usage":{"input_tokens":500,"output_tokens":42}}]' > "$HC_FX/dualusage.json"
+assert_eq "hc-reader(A2): result-summary usage is authoritative (no per-message double-count)" "500" \
+  "$(python3 "$HC_READER" "$HC_FX/dualusage.json" 2>/dev/null | jq -c '.tokens.input_tokens')"
+assert_eq "hc-reader(A2): a token present only on the result-summary usage is read (output=42)" "42" \
+  "$(python3 "$HC_READER" "$HC_FX/dualusage.json" 2>/dev/null | jq -c '.tokens.output_tokens')"
+# JSONL shape.
+printf '%s\n%s\n' '{"usage":{"input_tokens":9}}' '{"type":"result","total_cost_usd":2}' > "$HC_FX/lines.json"
+assert_eq "hc-reader(A2): JSONL shape tolerated → cost read" "2" \
+  "$(python3 "$HC_READER" "$HC_FX/lines.json" 2>/dev/null | jq -c '.cost_usd')"
+# scalar: parses but no figures → all-null object printed, exit 0.
+printf '42' > "$HC_FX/scalar.json"
+assert_eq "hc-reader(A2): scalar parses but lacks figures → prints an all-null object" "null" \
+  "$(python3 "$HC_READER" "$HC_FX/scalar.json" 2>/dev/null | jq -c '.cost_usd')"
+HC_SCALAR_ERR="$(python3 "$HC_READER" "$HC_FX/scalar.json" 2>&1 1>/dev/null)"
+assert_eq "hc-reader(A2): scalar shape → a specific stderr breadcrumb" "yes" \
+  "$(printf '%s' "$HC_SCALAR_ERR" | grep -qF 'scalar' && echo yes || echo no)"
+# wrong-type fields: each is treated as absent while a sibling numeric value still reads.
+printf '%s' '[{"type":"result","costUSD":"abc","duration_ms":900}]' > "$HC_FX/wrong.json"
+assert_eq "hc-reader(A2): wrong-type cost field → null (treated as absent)" "null" \
+  "$(python3 "$HC_READER" "$HC_FX/wrong.json" 2>/dev/null | jq -c '.cost_usd')"
+assert_eq "hc-reader(A2): a sibling numeric field is still read past a wrong-type one" "900" \
+  "$(python3 "$HC_READER" "$HC_FX/wrong.json" 2>/dev/null | jq -c '.duration_ms')"
+# AC2 breadcrumb-specificity: every abnormal shape must draw its OWN specific breadcrumb
+# (the never-silent discipline), not merely exit 0 — a swapped/dropped breadcrumb string
+# on any arm would otherwise ship green.
+assert_eq "hc-reader(A2): wrong-type field → its specific 'not a numeric figure' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_FX/wrong.json" 2>&1 1>/dev/null | grep -qF 'not a numeric figure' && echo yes || echo no)"
+# missing file → cannot parse at all → prints NOTHING, exit 0.
+assert_eq "hc-reader(A2): missing file → prints nothing (cannot parse at all)" "" \
+  "$(python3 "$HC_READER" "$HC_FX/does-not-exist.json" 2>/dev/null)"
+HC_MISS_RC=0; python3 "$HC_READER" "$HC_FX/does-not-exist.json" >/dev/null 2>&1 || HC_MISS_RC=$?
+assert_eq "hc-reader(A2): missing file → still exit 0 (best-effort)" "0" "$HC_MISS_RC"
+assert_eq "hc-reader(A2): missing file → its specific 'could not be read' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_FX/does-not-exist.json" 2>&1 1>/dev/null | grep -qF 'could not be read' && echo yes || echo no)"
+# empty file → distinct arm (prints nothing, its own 'is empty' breadcrumb, exit 0).
+printf '' > "$HC_FX/empty.json"
+assert_eq "hc-reader(A2): empty file → prints nothing" "" \
+  "$(python3 "$HC_READER" "$HC_FX/empty.json" 2>/dev/null)"
+assert_eq "hc-reader(A2): empty file → its specific 'is empty' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_FX/empty.json" 2>&1 1>/dev/null | grep -qF 'is empty' && echo yes || echo no)"
+# garbage (not JSON, not JSONL) → prints nothing, exit 0.
+printf '%s' 'not json { [ oops' > "$HC_FX/garbage.json"
+assert_eq "hc-reader(A2): unparseable garbage → prints nothing" "" \
+  "$(python3 "$HC_READER" "$HC_FX/garbage.json" 2>/dev/null)"
+assert_eq "hc-reader(A2): unparseable garbage → its specific 'could not be parsed' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_FX/garbage.json" 2>&1 1>/dev/null | grep -qF 'could not be parsed as JSON or JSONL' && echo yes || echo no)"
+rm -rf "$HC_FX"
+
+# ── Shared scratch repo for the --persist floor arms ─────────────────────────
+# $1 = a label; echoes the repo path. Seeds a repo with a bare remote so the
+# branch write + push land somewhere real (mirrors the #441 et-persist harness).
+_hc_repo() {
+  local bare repo
+  bare="$(git_sandbox "$1 bare")"; git -C "$bare" init --bare -q
+  repo="$(git_sandbox "$1 repo")"; git -C "$repo" init -q
+  git -C "$repo" config user.email t@e.com; git -C "$repo" config user.name t
+  git -C "$repo" remote add origin "$bare"
+  mkdir -p "$repo/.devflow"; printf 'tmp/\n' > "$repo/.devflow/.gitignore"
+  git -C "$repo" add -A; git -C "$repo" commit -qm seed; git -C "$repo" branch -M main
+  git -C "$repo" push -q -u origin main
+  printf '%s\n' "$repo"
+}
+HC_ITER='{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":1,"tokens":10,"wall_clock_s":1}}}'
+
+# ── A3: run-id targeting + merge arm (a, staged this pass) ────────────────────
+# Two run dirs with DISTINCT run-ids; only the one matching the env identity (999-1)
+# gains harness_cost. The non-matching record's filename (pr-11-888-2.json) is chosen to
+# sort ALPHABETICALLY BEFORE the matching one (pr-77-999-1.json) — load-bearing, do NOT
+# renumber it back: the merge arm attaches to the FIRST glob match then returns, so if the
+# glob were broadened to `*.json`, the FIRST match would be the non-matching pr-11 and the
+# "matching gained harness_cost" assertion would fail RED. Were the matching record to sort
+# first instead, a broadened-glob regression would still attach to it and the behavioral
+# test would pass vacuously (issue #475 review, pr-test-analyzer) — the run-id targeting pin
+# below catches the literal change, and this ordering makes the behavioral test catch it too.
+HC_T="$(_hc_repo "hc target")"
+mkdir -p "$HC_T/.devflow/tmp/review/pr-77/999-1" "$HC_T/.devflow/tmp/review/pr-11/888-2"
+printf '%s' "$HC_ITER" > "$HC_T/.devflow/tmp/review/pr-77/999-1/iter-1.json"
+printf '%s' "$HC_ITER" > "$HC_T/.devflow/tmp/review/pr-11/888-2/iter-1.json"
+( cd "$HC_T" && GITHUB_RUN_ID=999 GITHUB_RUN_ATTEMPT=1 GITHUB_WORKFLOW_REF="o/r/.github/workflows/devflow.yml@refs/heads/main" \
+    DEVFLOW_EXECUTION_COST="$HC_COST" DEVFLOW_COMMAND_CLASS=review-and-fix \
+    bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "hc-merge(A3): the record matching the run-id identity gained harness_cost" "execution-file" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost.cost_source')"
+assert_eq "hc-merge(A3): a record with a DIFFERENT run-id (sorting first) was NOT touched" "null" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-11-888-2.json" | jq -c '.harness_cost')"
+# AC4: harness_cost carries exactly the required fields.
+assert_eq "hc-merge(A4): harness_cost carries the required metadata + figures" \
+  "command cost_source cost_usd duration_ms engine_version model_usage num_turns scope tokens workflow" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost | keys | join(" ")')"
+assert_eq "hc-merge(A4): scope is whole-job" "whole-job" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost.scope')"
+assert_eq "hc-merge(A4): command class recorded" "review-and-fix" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost.command')"
+assert_eq "hc-merge(A4): workflow identity recorded from GITHUB_WORKFLOW_REF" "o/r/.github/workflows/devflow.yml@refs/heads/main" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost.workflow')"
+assert_eq "hc-merge(A4): engine_version resolved from plugin.json beside the helper (a string)" "string" \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -r '.harness_cost.engine_version | type')"
+# AC4 (spread join): the reader's OWN figures must land in harness_cost verbatim — the
+# A4 key-set assertion above proves the keys exist but NOT that the values map through, so
+# a mislabelled spread (e.g. cost_usd wired to .num_turns) would still pass it. HC_COST
+# carries cost_usd:0.42, num_turns:9, duration_ms:8000, tokens.input_tokens:150.
+assert_eq "hc-merge(A4): the reader's figures land in harness_cost verbatim (cost_usd/num_turns/duration_ms/tokens.input_tokens)" \
+  '[0.42,9,8000,150]' \
+  "$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | jq -c '[.harness_cost.cost_usd,.harness_cost.num_turns,.harness_cost.duration_ms,.harness_cost.tokens.input_tokens]')"
+# AC9 (read side): _run_cost/_telemetry_complete unchanged by harness_cost; it is
+# passed through verbatim as an entry key.
+HC_RS="$(_et_show "$HC_T" ".devflow/logs/efficiency/pr-77-999-1.json" | python3 -c 'import importlib.util,sys,json
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+r=json.load(sys.stdin); e=m._efficiency_entry(r,"999-1")
+print(json.dumps([e["harness_cost"]["cost_source"], m._run_cost(r), m._telemetry_complete(r)]))' "$LIB/../scripts/build-experiment-records.py" 2>/dev/null)"
+assert_eq "hc-readside(A9): _efficiency_entry passes harness_cost through; _run_cost ignores it (reads only telemetry)" \
+  '["execution-file", {"tokens": 10, "calls": 1, "wall_clock_s": 1}, true]' "$HC_RS"
+rm -rf "$HC_T"
+
+# ── A5: merge arm (b, already-persisted branch record) + byte-preservation ────
+HC_M="$(_hc_repo "hc merge-branch")"
+mkdir -p "$HC_M/.devflow/tmp/review/pr-5/777-1"
+printf '%s' "$HC_ITER" > "$HC_M/.devflow/tmp/review/pr-5/777-1/iter-1.json"
+# First persist WITHOUT the floor env → the record lands on the branch WITHOUT harness_cost.
+( cd "$HC_M" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+HC_M_BEFORE="$(_et_show "$HC_M" ".devflow/logs/efficiency/pr-5-777-1.json")"
+HC_M_GEN="$(printf '%s' "$HC_M_BEFORE" | jq -r '.generated_at')"
+assert_eq "hc-merge-b(A5): pre-floor record has no harness_cost" "null" \
+  "$(printf '%s' "$HC_M_BEFORE" | jq -c '.harness_cost')"
+# Second persist WITH the floor env → persist_one skips re-derivation (record already
+# on the branch), so the floor's merge arm (b) reads it back and adds harness_cost.
+( cd "$HC_M" && GITHUB_RUN_ID=777 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+HC_M_AFTER="$(_et_show "$HC_M" ".devflow/logs/efficiency/pr-5-777-1.json")"
+assert_eq "hc-merge-b(A5): already-persisted record gains harness_cost via read-back" "execution-file" \
+  "$(printf '%s' "$HC_M_AFTER" | jq -r '.harness_cost.cost_source')"
+assert_eq "hc-merge-b(A5): generated_at byte-preserved (not re-derived)" "$HC_M_GEN" \
+  "$(printf '%s' "$HC_M_AFTER" | jq -r '.generated_at')"
+assert_eq "hc-merge-b(A5): everything OUTSIDE harness_cost is byte-identical to the original" "yes" \
+  "$(diff <(printf '%s' "$HC_M_AFTER" | jq 'del(.harness_cost)') <(printf '%s' "$HC_M_BEFORE" | jq .) >/dev/null 2>&1 && echo yes || echo no)"
+# Re-run idempotency: a THIRD persist (record already carries harness_cost) makes no new commit.
+HC_M_BC="$(_et_branch_count "$HC_M")"
+( cd "$HC_M" && GITHUB_RUN_ID=777 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "hc-merge-b(A5): re-run over an already-harness_cost record is a tree-equality no-op" \
+  "$HC_M_BC" "$(_et_branch_count "$HC_M")"
+rm -rf "$HC_M"
+
+# Merge-arm-(a) degradation coverage: drive the real _floor_merge_staged function
+# directly so its already-present, jq-failure, and mv-failure branches are attributable.
+HC_FMS="$(git_sandbox "hc floor-merge-staged")"
+awk '/^_floor_merge_staged\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' \
+  "$LIB/efficiency-trace.sh" > "$HC_FMS/invoke.sh"
+cat >> "$HC_FMS/invoke.sh" <<'FMSEOF'
+DEVFLOW_JQ="${DEVFLOW_JQ:-jq}"
+_floor_merge_staged "$1" "$2" "fixture record"
+FMSEOF
+HC_FMS_PRESENT='{"schema_version":1,"harness_cost":{"cost_usd":1}}'
+printf '%s' "$HC_FMS_PRESENT" > "$HC_FMS/present.json"
+HC_FMS_PRESENT_ERR="$(bash "$HC_FMS/invoke.sh" "$HC_FMS/present.json" '{"cost_usd":2}' 2>&1 1>/dev/null)"
+assert_eq "hc-merge-a(A5): already-carries short-circuit leaves the staged record byte-identical" \
+  "$HC_FMS_PRESENT" "$(cat "$HC_FMS/present.json")"
+assert_eq "hc-merge-a(A5): already-carries short-circuit emits its named breadcrumb" "yes" \
+  "$(printf '%s' "$HC_FMS_PRESENT_ERR" | grep -qF 'already carries harness_cost; left untouched' && echo yes || echo no)"
+printf '#!/usr/bin/env bash\nexit 7\n' > "$HC_FMS/jq-fail"; chmod +x "$HC_FMS/jq-fail"
+printf '%s' '{"schema_version":1}' > "$HC_FMS/jq.json"
+HC_FMS_JQ_ERR="$(DEVFLOW_JQ="$HC_FMS/jq-fail" bash "$HC_FMS/invoke.sh" "$HC_FMS/jq.json" '{"cost_usd":2}' 2>&1 1>/dev/null)"
+assert_eq "hc-merge-a(A5): jq failure leaves the staged record byte-identical" \
+  '{"schema_version":1}' "$(cat "$HC_FMS/jq.json")"
+assert_eq "hc-merge-a(A5): jq failure emits its named merge breadcrumb" "yes" \
+  "$(printf '%s' "$HC_FMS_JQ_ERR" | grep -qF 'could not merge harness_cost' && echo yes || echo no)"
+HC_REAL_MV="$(command -v mv)"
+cat > "$HC_FMS/mv" <<MVEOF
+#!/usr/bin/env bash
+case "\${1:-}" in *.harnesstmp) exit 1 ;; esac
+exec "$HC_REAL_MV" "\$@"
+MVEOF
+chmod +x "$HC_FMS/mv"
+printf '%s' '{"schema_version":1}' > "$HC_FMS/mv.json"
+HC_FMS_MV_ERR="$(PATH="$HC_FMS:$PATH" bash "$HC_FMS/invoke.sh" "$HC_FMS/mv.json" '{"cost_usd":2}' 2>&1 1>/dev/null)"
+assert_eq "hc-merge-a(A5): mv failure leaves the staged record byte-identical" \
+  '{"schema_version":1}' "$(cat "$HC_FMS/mv.json")"
+assert_eq "hc-merge-a(A5): mv failure emits its named move breadcrumb" "yes" \
+  "$(printf '%s' "$HC_FMS_MV_ERR" | grep -qF 'could not move the merged fixture record into place' && echo yes || echo no)"
+assert_eq "hc-merge-a(A5): jq/mv failure temp files are cleaned" "no" \
+  "$([ -e "$HC_FMS/jq.json.harnesstmp" ] || [ -e "$HC_FMS/mv.json.harnesstmp" ] && echo yes || echo no)"
+rm -rf "$HC_FMS"
+
+# ── A3 (env-absent): --persist byte-identical + silent when the floor env is unset ─
+HC_E="$(_hc_repo "hc env-absent")"
+mkdir -p "$HC_E/.devflow/tmp/review/pr-9/111-1"
+printf '%s' "$HC_ITER" > "$HC_E/.devflow/tmp/review/pr-9/111-1/iter-1.json"
+HC_E_ERR="$( ( cd "$HC_E" && GITHUB_RUN_ID=111 GITHUB_RUN_ATTEMPT=1 bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-env(A3): floor unset → record carries NO harness_cost" "null" \
+  "$(_et_show "$HC_E" ".devflow/logs/efficiency/pr-9-111-1.json" | jq -c '.harness_cost')"
+assert_eq "hc-env(A3): floor unset → the helper stays SILENT about the floor" "yes" \
+  "$(printf '%s' "$HC_E_ERR" | grep -q 'harness cost floor' && echo no || echo yes)"
+rm -rf "$HC_E"
+
+# ── A6: skeleton arm (no record for this run-id) ─────────────────────────────
+HC_SK="$(_hc_repo "hc skeleton")"
+HC_SK_ERR="$( ( cd "$HC_SK" && GITHUB_RUN_ID=555 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-skeleton(A6): no record + PR + record-deriving class → a pr-<N> skeleton is written" "yes" \
+  "$(_et_on_branch "$HC_SK" ".devflow/logs/efficiency/pr-42-555-1.json")"
+assert_eq "hc-skeleton(A6): skeleton shape — schema_version/source/synthesized/iterations/per_iteration/telemetry" \
+  '[1,null,true,0,[],[]]' \
+  "$(_et_show "$HC_SK" ".devflow/logs/efficiency/pr-42-555-1.json" | jq -c '[.schema_version,.source,.synthesized,.iterations,.per_iteration,.telemetry]')"
+assert_eq "hc-skeleton(A6): skeleton slug is pr-<N> and carries harness_cost" "pr-42 execution-file" \
+  "$(_et_show "$HC_SK" ".devflow/logs/efficiency/pr-42-555-1.json" | jq -r '.slug + " " + .harness_cost.cost_source')"
+# AC9: a floor-only skeleton indexes (slug-bearing) with cost:None, telemetry_complete:false, source:None.
+HC_SK_RS="$(_et_show "$HC_SK" ".devflow/logs/efficiency/pr-42-555-1.json" | python3 -c 'import importlib.util,sys,json
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+r=json.load(sys.stdin); e=m._efficiency_entry(r,"555-1")
+print(json.dumps([e is not None, e["cost"], e["telemetry_complete"], e["source"]]))' "$LIB/../scripts/build-experiment-records.py" 2>/dev/null)"
+assert_eq "hc-skeleton(A9): floor-only skeleton indexes with cost:None, telemetry_complete:false, source:None" \
+  '[true, null, false, null]' "$HC_SK_RS"
+rm -rf "$HC_SK"
+# pr-description class → NO skeleton (no-record-by-design breadcrumb).
+HC_PD="$(_hc_repo "hc pr-description")"
+HC_PD_ERR="$( ( cd "$HC_PD" && GITHUB_RUN_ID=666 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=pr-description bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-skeleton(A6): pr-description class writes NO skeleton" "no" \
+  "$(_et_on_branch "$HC_PD" ".devflow/logs/efficiency/pr-42-666-1.json")"
+assert_eq "hc-skeleton(A6): pr-description → a named 'no record by design' breadcrumb" "yes" \
+  "$(printf '%s' "$HC_PD_ERR" | grep -qF 'no record by design' && echo yes || echo no)"
+rm -rf "$HC_PD"
+# Empty PR → skeleton skipped with a specific breadcrumb.
+HC_NP="$(_hc_repo "hc no-pr")"
+HC_NP_ERR="$( ( cd "$HC_NP" && GITHUB_RUN_ID=444 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-skeleton(A6): empty PR → skeleton skipped with a specific breadcrumb" "yes" \
+  "$(printf '%s' "$HC_NP_ERR" | grep -qF 'DEVFLOW_EXECUTION_PR is empty' && echo yes || echo no)"
+rm -rf "$HC_NP"
+
+# ── A8: gate off → no floor write ────────────────────────────────────────────
+HC_G="$(_hc_repo "hc gate-off")"
+printf '{"devflow_review_and_fix":{"efficiency_telemetry_enabled":false}}' > "$HC_G/.devflow/off.json"
+HC_G_ERR="$( ( cd "$HC_G" && DEVFLOW_CONFIG_FILE="$HC_G/.devflow/off.json" GITHUB_RUN_ID=222 GITHUB_RUN_ATTEMPT=1 \
+    DEVFLOW_EXECUTION_COST="$HC_COST" DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=review-and-fix \
+    bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-gate(A8): telemetry disabled → no skeleton/floor record written" "no" \
+  "$(_et_on_branch "$HC_G" ".devflow/logs/efficiency/pr-42-222-1.json")"
+assert_eq "hc-gate(A8): telemetry disabled → a specific 'disabled' breadcrumb" "yes" \
+  "$(printf '%s' "$HC_G_ERR" | grep -qF 'efficiency telemetry is disabled' && echo yes || echo no)"
+rm -rf "$HC_G"
+# Malformed DEVFLOW_EXECUTION_COST → one breadcrumb, no floor write.
+HC_BAD="$(_hc_repo "hc malformed")"
+mkdir -p "$HC_BAD/.devflow/tmp/review/pr-3/333-1"
+printf '%s' "$HC_ITER" > "$HC_BAD/.devflow/tmp/review/pr-3/333-1/iter-1.json"
+HC_BAD_ERR="$( ( cd "$HC_BAD" && GITHUB_RUN_ID=333 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST='not json' \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-malformed(A3): non-object DEVFLOW_EXECUTION_COST → record carries no harness_cost" "null" \
+  "$(_et_show "$HC_BAD" ".devflow/logs/efficiency/pr-3-333-1.json" | jq -c '.harness_cost')"
+assert_eq "hc-malformed(A3): non-object value → a specific breadcrumb" "yes" \
+  "$(printf '%s' "$HC_BAD_ERR" | grep -qF 'not a JSON object' && echo yes || echo no)"
+# Valid-JSON-but-not-an-object (a JSON array): the `type == "object"` operand guard exists
+# precisely so a non-object never reaches `jq --argjson`; the 'not json' case above fails the
+# jq PARSE, whereas '[1,2]' PARSES yet is not an object — a DISTINCT arm of the writer's
+# adversarial matrix. Must draw the same "not a JSON object" breadcrumb and no floor write.
+HC_ARR="$(_hc_repo "hc arr-cost")"
+mkdir -p "$HC_ARR/.devflow/tmp/review/pr-3/334-1"
+printf '%s' "$HC_ITER" > "$HC_ARR/.devflow/tmp/review/pr-3/334-1/iter-1.json"
+HC_ARR_ERR="$( ( cd "$HC_ARR" && GITHUB_RUN_ID=334 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST='[1,2]' \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-malformed(A3): valid-JSON-but-non-object (array) → record carries no harness_cost" "null" \
+  "$(_et_show "$HC_ARR" ".devflow/logs/efficiency/pr-3-334-1.json" | jq -c '.harness_cost')"
+assert_eq "hc-malformed(A3): valid-JSON-but-non-object (array) → the 'not a JSON object' breadcrumb" "yes" \
+  "$(printf '%s' "$HC_ARR_ERR" | grep -qF 'not a JSON object' && echo yes || echo no)"
+rm -rf "$HC_ARR"
+# GITHUB_RUN_ID unset (AC3 fail-closed): cost set + valid object + telemetry enabled, but the
+# run cannot be identified, so the floor DECLINES rather than attach to an arbitrary swept
+# record. Every other HC merge test sets GITHUB_RUN_ID, so this fail-closed guard was unexercised.
+HC_RU="$(_hc_repo "hc runid-unset")"
+mkdir -p "$HC_RU/.devflow/tmp/review/pr-4/iddir-1"
+printf '%s' "$HC_ITER" > "$HC_RU/.devflow/tmp/review/pr-4/iddir-1/iter-1.json"
+HC_RU_ERR="$( ( cd "$HC_RU" && unset GITHUB_RUN_ID; DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-runid(A3): GITHUB_RUN_ID unset → no harness_cost attached to any swept record" "null" \
+  "$(_et_show "$HC_RU" ".devflow/logs/efficiency/pr-4-iddir-1.json" | jq -c '.harness_cost')"
+assert_eq "hc-runid(A3): GITHUB_RUN_ID unset → a specific 'cannot be identified' breadcrumb (fail-closed, not silent)" "yes" \
+  "$(printf '%s' "$HC_RU_ERR" | grep -qF 'GITHUB_RUN_ID is unset' && echo yes || echo no)"
+rm -rf "$HC_RU"
+
+# ── A5a: two-writer union race — a stale local snapshot must NOT revert another
+# writer's harness_cost on the push-rejection re-parent (mirrors the #441
+# offline-accum fixture, with a MUTATED record path instead of a fresh one) ────
+HC_RC_BARE="$(git_sandbox "hc race bare")"; git -C "$HC_RC_BARE" init --bare -q
+HC_RC="$(git_sandbox "hc race repo")"; git -C "$HC_RC" init -q
+git -C "$HC_RC" config user.email t@e.com; git -C "$HC_RC" config user.name t
+git -C "$HC_RC" remote add origin "$HC_RC_BARE"
+mkdir -p "$HC_RC/.devflow"; printf 'tmp/\n' > "$HC_RC/.devflow/.gitignore"
+git -C "$HC_RC" add -A; git -C "$HC_RC" commit -qm seed; git -C "$HC_RC" branch -M main
+git -C "$HC_RC" push -q -u origin main
+# Writer B (this repo) builds a LOCAL telemetry tip holding a STALE snapshot of a
+# shared record R (no harness_cost) while the remote is down.
+HC_RC_REC='{"schema_version":1,"slug":"pr-6","generated_at":"2026-01-01T00:00:00Z","source":"review-and-fix","iterations":1,"telemetry":[]}'
+mv "$HC_RC_BARE" "${HC_RC_BARE}.down"
+HC_RC_IDX="$HC_RC/.git/rcidx"
+HC_RC_SB="$(printf '%s' "$HC_RC_REC" | git -C "$HC_RC" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_RC_IDX" git -C "$HC_RC" update-index --add --cacheinfo "100644,${HC_RC_SB},.devflow/logs/efficiency/pr-6-run-r.json"
+HC_RC_ST="$(GIT_INDEX_FILE="$HC_RC_IDX" git -C "$HC_RC" write-tree)"; rm -f "$HC_RC_IDX"
+HC_RC_SN="$(GIT_AUTHOR_NAME=b GIT_AUTHOR_EMAIL=b@y GIT_COMMITTER_NAME=b GIT_COMMITTER_EMAIL=b@y git -C "$HC_RC" commit-tree "$HC_RC_ST" -m b)"
+git -C "$HC_RC" update-ref refs/heads/devflow-telemetry "$HC_RC_SN"
+mv "${HC_RC_BARE}.down" "$HC_RC_BARE"
+# Writer A (a second clone) MERGES harness_cost into the SAME record R and pushes it.
+HC_RC_A="$(git_sandbox "hc race writerA")"; git clone -q "$HC_RC_BARE" "$HC_RC_A" 2>/dev/null
+HC_RC_AREC="$(printf '%s' "$HC_RC_REC" | jq -c '.harness_cost={cost_source:"execution-file",cost_usd:9}')"
+HC_RC_AIDX="$HC_RC_A/.git/aidx"
+HC_RC_AB="$(printf '%s' "$HC_RC_AREC" | git -C "$HC_RC_A" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_RC_AIDX" git -C "$HC_RC_A" update-index --add --cacheinfo "100644,${HC_RC_AB},.devflow/logs/efficiency/pr-6-run-r.json"
+HC_RC_AT="$(GIT_INDEX_FILE="$HC_RC_AIDX" git -C "$HC_RC_A" write-tree)"; rm -f "$HC_RC_AIDX"
+HC_RC_AN="$(GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@y GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@y git -C "$HC_RC_A" commit-tree "$HC_RC_AT" -m a)"
+git -C "$HC_RC_A" update-ref refs/heads/devflow-telemetry "$HC_RC_AN"
+git -C "$HC_RC_A" push -q origin devflow-telemetry
+# Writer B now persists a NEW, unrelated run (its own record) — its push is rejected
+# (remote diverged), so it fetches A's tip and re-parents the UNION. B did NOT stage
+# R this pass, so the merge-aware union must keep A's harness_cost on R (base-wins),
+# NOT revert it to B's stale local snapshot.
+mkdir -p "$HC_RC/.devflow/tmp/review/pr-6/run-b"
+printf '%s' "$HC_ITER" > "$HC_RC/.devflow/tmp/review/pr-6/run-b/iter-1.json"
+( cd "$HC_RC" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+git -C "$HC_RC" fetch -q origin devflow-telemetry:refs/remotes/origin/rc 2>/dev/null
+assert_eq "hc-race(A5a): the concurrently-merged record R still carries writer A's harness_cost (stale snapshot did NOT revert it)" "9" \
+  "$(git -C "$HC_RC" show "refs/remotes/origin/rc:.devflow/logs/efficiency/pr-6-run-r.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
+assert_eq "hc-race(A5a): writer B's own new record is also present on the remote after the union" "yes" \
+  "$(git -C "$HC_RC" cat-file -e "refs/remotes/origin/rc:.devflow/logs/efficiency/pr-6-run-b.json" >/dev/null 2>&1 && echo yes || echo no)"
+rm -rf "$HC_RC" "$HC_RC_BARE" "$HC_RC_A"
+
+# ── A5a (STAGED branch): the fixture above exercises the UNSTAGED base-wins arm (B did not
+# stage R). This one exercises the merge-aware union's *staged efficiency-record* arm
+# (telemetry-branch.sh's `.devflow/logs/efficiency/*.json` case) — AC5a's "re-parent re-applies
+# THIS run's harness_cost merge onto the fetched base-side version of its target path." Here B
+# DOES stage R: the floor env drives merge-arm-b (ident=run-r) to read B's STALE local R
+# (no harness_cost) back and re-stage it with B's OWN harness_cost (cost_usd=5). Writer A
+# concurrently merged a DIFFERENT harness_cost (cost_usd=9) onto R and pushed. On the rejected
+# push the re-parent must keep A's harness_cost on base (base already carries one → base-wins),
+# NOT overwrite it with B's staged stale copy — a blanket local-wins overlay would revert it to 5.
+HC_SR_BARE="$(git_sandbox "hc staged-remerge bare")"; git -C "$HC_SR_BARE" init --bare -q
+HC_SR="$(git_sandbox "hc staged-remerge repo")"; git -C "$HC_SR" init -q
+git -C "$HC_SR" config user.email t@e.com; git -C "$HC_SR" config user.name t
+git -C "$HC_SR" remote add origin "$HC_SR_BARE"
+mkdir -p "$HC_SR/.devflow"; printf 'tmp/\n' > "$HC_SR/.devflow/.gitignore"
+git -C "$HC_SR" add -A; git -C "$HC_SR" commit -qm seed; git -C "$HC_SR" branch -M main
+git -C "$HC_SR" push -q -u origin main
+# B's stale LOCAL telemetry tip holds R WITHOUT harness_cost (the snapshot merge-arm-b re-stages).
+HC_SR_REC='{"schema_version":1,"slug":"pr-6","generated_at":"2026-01-01T00:00:00Z","source":"review-and-fix","iterations":1,"telemetry":[]}'
+mv "$HC_SR_BARE" "${HC_SR_BARE}.down"
+HC_SR_IDX="$HC_SR/.git/sridx"
+HC_SR_SB="$(printf '%s' "$HC_SR_REC" | git -C "$HC_SR" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_SR_IDX" git -C "$HC_SR" update-index --add --cacheinfo "100644,${HC_SR_SB},.devflow/logs/efficiency/pr-6-run-r.json"
+HC_SR_ST="$(GIT_INDEX_FILE="$HC_SR_IDX" git -C "$HC_SR" write-tree)"; rm -f "$HC_SR_IDX"
+HC_SR_SN="$(GIT_AUTHOR_NAME=b GIT_AUTHOR_EMAIL=b@y GIT_COMMITTER_NAME=b GIT_COMMITTER_EMAIL=b@y git -C "$HC_SR" commit-tree "$HC_SR_ST" -m b)"
+git -C "$HC_SR" update-ref refs/heads/devflow-telemetry "$HC_SR_SN"
+mv "${HC_SR_BARE}.down" "$HC_SR_BARE"
+# Writer A MERGES harness_cost (cost_usd=9) into the SAME record R and pushes it.
+HC_SR_A="$(git_sandbox "hc staged-remerge writerA")"; git clone -q "$HC_SR_BARE" "$HC_SR_A" 2>/dev/null
+HC_SR_AREC="$(printf '%s' "$HC_SR_REC" | jq -c '.harness_cost={cost_source:"execution-file",cost_usd:9}')"
+HC_SR_AIDX="$HC_SR_A/.git/aidx"
+HC_SR_AB="$(printf '%s' "$HC_SR_AREC" | git -C "$HC_SR_A" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_SR_AIDX" git -C "$HC_SR_A" update-index --add --cacheinfo "100644,${HC_SR_AB},.devflow/logs/efficiency/pr-6-run-r.json"
+HC_SR_AT="$(GIT_INDEX_FILE="$HC_SR_AIDX" git -C "$HC_SR_A" write-tree)"; rm -f "$HC_SR_AIDX"
+HC_SR_AN="$(GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@y GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@y git -C "$HC_SR_A" commit-tree "$HC_SR_AT" -m a)"
+git -C "$HC_SR_A" update-ref refs/heads/devflow-telemetry "$HC_SR_AN"
+git -C "$HC_SR_A" push -q origin devflow-telemetry
+# Writer B persists with the floor env (ident=run-r matches R's filename → merge-arm-b re-stages
+# R with cost_usd=5) plus its own new run dir; the push is rejected (remote diverged) and the
+# re-parent runs the STAGED efficiency-record union arm over R.
+mkdir -p "$HC_SR/.devflow/tmp/review/pr-6/run-b"
+printf '%s' "$HC_ITER" > "$HC_SR/.devflow/tmp/review/pr-6/run-b/iter-1.json"
+( cd "$HC_SR" && GITHUB_RUN_ID=run GITHUB_RUN_ATTEMPT=r \
+    DEVFLOW_EXECUTION_COST='{"cost_usd":5,"tokens":{},"model_usage":null,"num_turns":null,"duration_ms":null}' \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+git -C "$HC_SR" fetch -q origin devflow-telemetry:refs/remotes/origin/sr 2>/dev/null
+assert_eq "hc-race(A5a staged): the staged re-merge keeps base-side (writer A) harness_cost cost_usd=9, NOT this run's stale cost_usd=5" "9" \
+  "$(git -C "$HC_SR" show "refs/remotes/origin/sr:.devflow/logs/efficiency/pr-6-run-r.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
+rm -rf "$HC_SR" "$HC_SR_BARE" "$HC_SR_A"
+
+# ── A7: prepare-harness-floor.sh — every branch, under a stubbed gh ───────────
+HC_GD="$(git_sandbox "hc glue")"
+printf '{"type":"result","total_cost_usd":1}' > "$HC_GD/exec.json"
+# gh stub: `api …/pulls/<n>` echoes <n> iff it is in STUB_PRS; `pr list` echoes STUB_PR_LIST.
+cat > "$HC_GD/gh" <<'GHEOF'
+#!/usr/bin/env bash
+case "$1" in
+  api)  n="${2##*/pulls/}"; case ",${STUB_PRS:-}," in *",$n,"*) echo "$n" ;; *) exit 1 ;; esac ;;
+  pr)   printf '%s' "${STUB_PR_LIST:-}" ;;
+  *)    exit 1 ;;
+esac
+GHEOF
+chmod +x "$HC_GD/gh"
+# happy review-and-fix: candidate 50 is a real PR → PR=50 + cost written.
+HC_G_OUT="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:review-and-fix" 50 "$HC_GD/cost.json" 2>/dev/null)"
+assert_eq "hc-glue(A7): happy path → DEVFLOW_EXECUTION_PR set to the verified PR" "yes" \
+  "$(printf '%s' "$HC_G_OUT" | grep -qF "DEVFLOW_EXECUTION_PR='50'" && echo yes || echo no)"
+assert_eq "hc-glue(A7): happy path → command class emitted" "yes" \
+  "$(printf '%s' "$HC_G_OUT" | grep -qF "DEVFLOW_COMMAND_CLASS='review-and-fix'" && echo yes || echo no)"
+assert_eq "hc-glue(A7): happy path → cost JSON written to the out file" "1" \
+  "$(jq -c '.cost_usd' "$HC_GD/cost.json" 2>/dev/null)"
+# explicit-number command overrides the raw context number (never the comment-context number).
+HC_G_EXP="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:review-and-fix 50" 999 "$HC_GD/c2.json" 2>/dev/null)"
+assert_eq "hc-glue(A7): an explicit-number command uses the target (50), not the context number (999)" "yes" \
+  "$(printf '%s' "$HC_G_EXP" | grep -qF "DEVFLOW_EXECUTION_PR='50'" && echo yes || echo no)"
+# inert: execution file absent → named inert breadcrumb, empty PR, empty cost file.
+HC_G_INERT="$(DEVFLOW_GH="$HC_GD/gh" bash "$HC_GLUE" "$HC_GD/nope.json" "/devflow:review-and-fix" 50 "$HC_GD/c3.json" 2>"$HC_GD/inert.err")"
+assert_eq "hc-glue(A7): inert (execution file absent) → the named inert breadcrumb" "yes" \
+  "$(grep -qF 'harness cost floor inert this run: execution file absent' "$HC_GD/inert.err" && echo yes || echo no)"
+assert_eq "hc-glue(A7): inert → DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_INERT" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+# Parsed-but-figureless: the reader prints a non-empty normalized object by contract, but
+# the glue must not turn its all-null payload into false cost coverage or a cost skeleton.
+printf '%s' '{"type":"result"}' > "$HC_GD/all-null.json"
+HC_G_NULL="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/all-null.json" "/devflow:review-and-fix" 50 "$HC_GD/c-null.json" 2>"$HC_GD/null.err")"
+assert_eq "hc-glue(A7): all-null reader object leaves DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_NULL" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): all-null reader object leaves the cost handoff empty" "no" \
+  "$([ -s "$HC_GD/c-null.json" ] && echo yes || echo no)"
+assert_eq "hc-glue(A7): all-null reader object emits a named no-figures inert breadcrumb" "yes" \
+  "$(grep -qF 'execution file carried no cost or usage figures' "$HC_GD/null.err" && echo yes || echo no)"
+# not-a-PR / lookup-failed: candidate 999 is not in the PR set → empty PR + breadcrumb.
+HC_G_NAP="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:review-and-fix" 999 "$HC_GD/c4.json" 2>"$HC_GD/nap.err")"
+assert_eq "hc-glue(A7): candidate not a real PR → DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_NAP" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): not-a-PR → a specific breadcrumb naming the skipped skeleton" "yes" \
+  "$(grep -qF 'does not name a real PR' "$HC_GD/nap.err" && echo yes || echo no)"
+# pr-description class → no PR, no-record-by-design breadcrumb.
+HC_G_PD="$(DEVFLOW_GH="$HC_GD/gh" bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:pr-description" 50 "$HC_GD/c5.json" 2>"$HC_GD/pd.err")"
+assert_eq "hc-glue(A7): pr-description → DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_PD" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): pr-description → the no-record-by-design breadcrumb" "yes" \
+  "$(grep -qF 'no record by design' "$HC_GD/pd.err" && echo yes || echo no)"
+# implement class → resolve the PR that closes the issue (via pr list stub).
+HC_G_IMP="$(DEVFLOW_GH="$HC_GD/gh" STUB_PR_LIST=70 bash "$HC_GLUE" "$HC_GD/exec.json" "implement" 7 "$HC_GD/c6.json" 2>/dev/null)"
+assert_eq "hc-glue(A7): implement class → the PR opened for the issue is resolved" "yes" \
+  "$(printf '%s' "$HC_G_IMP" | grep -qF "DEVFLOW_EXECUTION_PR='70'" && echo yes || echo no)"
+assert_eq "hc-glue(A7): implement class label emitted" "yes" \
+  "$(printf '%s' "$HC_G_IMP" | grep -qF "DEVFLOW_COMMAND_CLASS='implement'" && echo yes || echo no)"
+# implement class, LOOKUP-FAILED (AC7-named branch): empty STUB_PR_LIST → _resolve_pr_for_issue
+# finds no closing PR → empty PR + the specific "could not resolve the PR opened for issue"
+# breadcrumb (distinct from not-a-PR and inert). Its OWN breadcrumb attributes the skip.
+HC_G_ILF="$(DEVFLOW_GH="$HC_GD/gh" STUB_PR_LIST='' bash "$HC_GLUE" "$HC_GD/exec.json" "implement" 7 "$HC_GD/c7.json" 2>"$HC_GD/ilf.err")"
+assert_eq "hc-glue(A7): implement lookup-failed → DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_ILF" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): implement lookup-failed → the specific 'could not resolve the PR opened for issue' breadcrumb" "yes" \
+  "$(grep -qF 'could not resolve the PR opened for issue' "$HC_GD/ilf.err" && echo yes || echo no)"
+# reader PARSE-FAIL inert: a PRESENT, non-empty execution file the reader cannot parse
+# (garbage) → COST empty → the distinct "could not be parsed for cost" breadcrumb (NOT the
+# absent-file "execution file absent" one). Positive control: a real reader ran (the file
+# exists and is non-empty), so the branch is attributed to a parse failure, not an absent file.
+printf 'not json at all {{{' > "$HC_GD/garbage.json"
+HC_G_PF="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/garbage.json" "/devflow:review-and-fix" 50 "$HC_GD/c8.json" 2>"$HC_GD/pf.err")"
+assert_eq "hc-glue(A7): reader parse-fail → DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_PF" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): reader parse-fail → the 'could not be parsed for cost' breadcrumb (not the absent-file one)" "yes" \
+  "$(grep -qF 'could not be parsed for cost' "$HC_GD/pf.err" && ! grep -qF 'execution file absent' "$HC_GD/pf.err" && echo yes || echo no)"
+# review class, EMPTY-NUM: no explicit number in the command AND an empty candidate →
+# NUM empty → the specific "no PR number resolved" breadcrumb (distinct from not-a-PR).
+HC_G_EN="$(DEVFLOW_GH="$HC_GD/gh" STUB_PRS=50 bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:review-and-fix" "" "$HC_GD/c9.json" 2>"$HC_GD/en.err")"
+assert_eq "hc-glue(A7): review empty-NUM → DEVFLOW_EXECUTION_PR empty" "yes" \
+  "$(printf '%s' "$HC_G_EN" | grep -qF "DEVFLOW_EXECUTION_PR=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): review empty-NUM → the specific 'no PR number resolved' breadcrumb" "yes" \
+  "$(grep -qF 'no PR number resolved' "$HC_GD/en.err" && echo yes || echo no)"
+# unrecognized command class → CLASS sanitized to "" → the `*)` arm's "unrecognized command"
+# breadcrumb, empty PR and empty class.
+HC_G_UC="$(DEVFLOW_GH="$HC_GD/gh" bash "$HC_GLUE" "$HC_GD/exec.json" "/devflow:frobnicate 9" 9 "$HC_GD/c10.json" 2>"$HC_GD/uc.err")"
+assert_eq "hc-glue(A7): unrecognized class → DEVFLOW_EXECUTION_PR empty and class empty" "yes" \
+  "$(printf '%s' "$HC_G_UC" | grep -qF "DEVFLOW_EXECUTION_PR=''" && printf '%s' "$HC_G_UC" | grep -qF "DEVFLOW_COMMAND_CLASS=''" && echo yes || echo no)"
+assert_eq "hc-glue(A7): unrecognized class → the 'unrecognized command' breadcrumb" "yes" \
+  "$(grep -qF 'unrecognized command' "$HC_GD/uc.err" && echo yes || echo no)"
+rm -rf "$HC_GD"
+
+# ── Reader result-event precedence (_ordered_dicts): a type=="result" summary cost must win
+# over a competing costUSD on a NON-result (streamed message) dict. Every other reader fixture
+# has the cost only on the result event, so the ordering itself was unexercised — reorder to
+# `others + results` and the suite would otherwise stay green.
+HC_ORD="$(git_sandbox "hc reader ordering")"
+printf '%s' '[{"costUSD":0.11},{"type":"result","total_cost_usd":0.99}]' > "$HC_ORD/ord.json"
+assert_eq "hc-reader(A2): a result-event cost wins over a competing non-result costUSD (_ordered_dicts precedence)" "0.99" \
+  "$(python3 "$HC_READER" "$HC_ORD/ord.json" 2>/dev/null | jq -c '.cost_usd')"
+rm -rf "$HC_ORD"
+
+# ── engine_version:null (AC4 fail-closed): an unreadable/malformed plugin.json → engine_version
+# is null WITH a breadcrumb, never fabricated. Every other HC test runs the helper beside the
+# real repo's plugin.json (a valid string .version), so this fail-closed arm was unexercised.
+# Relocate the helper into a scratch lib/ whose sibling .claude-plugin/plugin.json has a
+# NON-STRING .version, so the `(.version|type)=="string"` guard fails. Drive the SKELETON arm
+# (no iter dir → no record-derivation/config_fingerprint dependency), which builds harness_cost
+# via the SAME engine_version resolution and writes it into the skeleton.
+HC_EV_ROOT="$(git_sandbox "hc engine-version-null root")"
+mkdir -p "$HC_EV_ROOT/lib" "$HC_EV_ROOT/.claude-plugin"
+cp "$LIB"/*.sh "$LIB"/*.jq "$HC_EV_ROOT/lib/" 2>/dev/null
+printf '%s' '{"version": 123}' > "$HC_EV_ROOT/.claude-plugin/plugin.json"   # .version is a NUMBER, not a string
+HC_EV="$(_hc_repo "hc ev record")"
+HC_EV_ERR="$( ( cd "$HC_EV" && GITHUB_RUN_ID=ev GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_EXECUTION_PR=1 DEVFLOW_COMMAND_CLASS=review-and-fix bash "$HC_EV_ROOT/lib/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-engineversion(A4): malformed plugin.json (.version not a string) → engine_version is null (never fabricated)" "null" \
+  "$(_et_show "$HC_EV" ".devflow/logs/efficiency/pr-1-ev-1.json" | jq -c '.harness_cost.engine_version')"
+assert_eq "hc-engineversion(A4): the floor still attaches harness_cost (only engine_version degrades)" "execution-file" \
+  "$(_et_show "$HC_EV" ".devflow/logs/efficiency/pr-1-ev-1.json" | jq -r '.harness_cost.cost_source')"
+assert_eq "hc-engineversion(A4): a specific 'engine_version recorded as null' breadcrumb (never silent)" "yes" \
+  "$(printf '%s' "$HC_EV_ERR" | grep -qF 'engine_version recorded as null' && echo yes || echo no)"
+rm -rf "$HC_EV" "$HC_EV_ROOT"
+
+# ── Union MIDDLE arm (base LACKS harness_cost, this run's staged copy HAS it → add-local's-hc
+# onto base). The A5a-staged fixture makes writer A merge harness_cost onto R BEFORE the union,
+# so base already carries it (the base-wins FIRST jq arm). The ordinary concurrent case — this
+# run is the only writer that added harness_cost and must LAND it onto a base copy that lacks it
+# — is the middle `elif ($local.harness_cost != null)` arm, otherwise undriven. Base holds R
+# WITHOUT harness_cost; a concurrent writer pushes an UNRELATED record (diverging the remote so
+# B's push is rejected); B stages R with harness_cost cost_usd=5 (merge-arm-b ident=run-m re-stages
+# the stale local R with B's own cost); the re-parent union must ADD B's harness_cost onto base R.
+HC_MA_BARE="$(git_sandbox "hc midarm bare")"; git -C "$HC_MA_BARE" init --bare -q
+HC_MA="$(git_sandbox "hc midarm repo")"; git -C "$HC_MA" init -q
+git -C "$HC_MA" config user.email t@e.com; git -C "$HC_MA" config user.name t
+git -C "$HC_MA" remote add origin "$HC_MA_BARE"
+mkdir -p "$HC_MA/.devflow"; printf 'tmp/\n' > "$HC_MA/.devflow/.gitignore"
+git -C "$HC_MA" add -A; git -C "$HC_MA" commit -qm seed; git -C "$HC_MA" branch -M main
+git -C "$HC_MA" push -q -u origin main
+HC_MA_REC='{"schema_version":1,"slug":"pr-6","generated_at":"2026-01-01T00:00:00Z","source":"review-and-fix","iterations":1,"telemetry":[]}'
+# B's stale LOCAL telemetry tip holds R WITHOUT harness_cost (what merge-arm-b re-stages).
+mv "$HC_MA_BARE" "${HC_MA_BARE}.down"
+HC_MA_IDX="$HC_MA/.git/maidx"
+HC_MA_SB="$(printf '%s' "$HC_MA_REC" | git -C "$HC_MA" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_MA_IDX" git -C "$HC_MA" update-index --add --cacheinfo "100644,${HC_MA_SB},.devflow/logs/efficiency/pr-6-run-m.json"
+HC_MA_ST="$(GIT_INDEX_FILE="$HC_MA_IDX" git -C "$HC_MA" write-tree)"; rm -f "$HC_MA_IDX"
+HC_MA_SN="$(GIT_AUTHOR_NAME=b GIT_AUTHOR_EMAIL=b@y GIT_COMMITTER_NAME=b GIT_COMMITTER_EMAIL=b@y git -C "$HC_MA" commit-tree "$HC_MA_ST" -m b)"
+git -C "$HC_MA" update-ref refs/heads/devflow-telemetry "$HC_MA_SN"
+mv "${HC_MA_BARE}.down" "$HC_MA_BARE"
+# Writer A seeds R (NO harness_cost) on base AND an UNRELATED record, then pushes → the remote
+# tip diverges from B's local tip so B's push is rejected, forcing the re-parent union over R.
+HC_MA_A="$(git_sandbox "hc midarm writerA")"; git clone -q "$HC_MA_BARE" "$HC_MA_A" 2>/dev/null
+HC_MA_AIDX="$HC_MA_A/.git/aidx"
+HC_MA_ASB="$(printf '%s' "$HC_MA_REC" | git -C "$HC_MA_A" hash-object -w --stdin)"
+HC_MA_AOTH="$(printf '%s' '{"schema_version":1,"slug":"pr-9","generated_at":"2026-01-01T00:00:00Z","source":"review","iterations":1,"telemetry":[]}' | git -C "$HC_MA_A" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_MA_AIDX" git -C "$HC_MA_A" update-index --add --cacheinfo "100644,${HC_MA_ASB},.devflow/logs/efficiency/pr-6-run-m.json"
+GIT_INDEX_FILE="$HC_MA_AIDX" git -C "$HC_MA_A" update-index --add --cacheinfo "100644,${HC_MA_AOTH},.devflow/logs/efficiency/pr-9-run-other.json"
+HC_MA_AT="$(GIT_INDEX_FILE="$HC_MA_AIDX" git -C "$HC_MA_A" write-tree)"; rm -f "$HC_MA_AIDX"
+HC_MA_AN="$(GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@y GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@y git -C "$HC_MA_A" commit-tree "$HC_MA_AT" -m a)"
+git -C "$HC_MA_A" update-ref refs/heads/devflow-telemetry "$HC_MA_AN"
+git -C "$HC_MA_A" push -q origin devflow-telemetry
+# B persists with the floor env (ident=run-m matches R's filename → merge-arm-b re-stages R with
+# cost_usd=5) plus its own new run dir; the push is rejected (remote diverged) and the re-parent
+# runs the STAGED efficiency-record union arm over R — base R lacks harness_cost, local R has it.
+mkdir -p "$HC_MA/.devflow/tmp/review/pr-6/run-b"
+printf '%s' "$HC_ITER" > "$HC_MA/.devflow/tmp/review/pr-6/run-b/iter-1.json"
+( cd "$HC_MA" && GITHUB_RUN_ID=run GITHUB_RUN_ATTEMPT=m \
+    DEVFLOW_EXECUTION_COST='{"cost_usd":5,"tokens":{},"model_usage":null,"num_turns":null,"duration_ms":null}' \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+git -C "$HC_MA" fetch -q origin devflow-telemetry:refs/remotes/origin/ma 2>/dev/null
+assert_eq "hc-race(A5a middle): base R lacked harness_cost, this run's staged copy had it → the union ADDS it (cost_usd=5)" "5" \
+  "$(git -C "$HC_MA" show "refs/remotes/origin/ma:.devflow/logs/efficiency/pr-6-run-m.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
+assert_eq "hc-race(A5a middle): the concurrent writer's UNRELATED record is preserved on base (base-wins for an unstaged path)" "yes" \
+  "$(git -C "$HC_MA" cat-file -e "refs/remotes/origin/ma:.devflow/logs/efficiency/pr-9-run-other.json" >/dev/null 2>&1 && echo yes || echo no)"
+rm -rf "$HC_MA" "$HC_MA_BARE" "$HC_MA_A"
+
+# ── Finding #475-review-5: the reader's modelUsage extraction, secondary wrong-type
+# breadcrumbs (num_turns/duration_ms), and the arg-count guard were untested (every prior
+# wrong-type fixture drove only the cost field). ──
+HC_RM="$(git_sandbox "hc reader misc")"
+# modelUsage: a dict is surfaced verbatim as model_usage (the first dict wins).
+printf '%s' '{"type":"result","modelUsage":{"claude-x":{"in":5,"out":2}},"total_cost_usd":1}' > "$HC_RM/mu.json"
+assert_eq "hc-reader(A2): a modelUsage object is surfaced verbatim as model_usage" '{"claude-x":{"in":5,"out":2}}' \
+  "$(python3 "$HC_READER" "$HC_RM/mu.json" 2>/dev/null | jq -c '.model_usage')"
+# modelUsage present but NOT a dict → model_usage null + its specific wrong-type breadcrumb.
+printf '%s' '{"type":"result","modelUsage":"not-a-dict","total_cost_usd":1}' > "$HC_RM/muw.json"
+assert_eq "hc-reader(A2): a non-object modelUsage → model_usage null (never a scalar)" "null" \
+  "$(python3 "$HC_READER" "$HC_RM/muw.json" 2>/dev/null | jq -c '.model_usage')"
+assert_eq "hc-reader(A2): a non-object modelUsage → its breadcrumb names 'modelUsage'" "yes" \
+  "$(python3 "$HC_READER" "$HC_RM/muw.json" 2>&1 1>/dev/null | grep -qF "field 'modelUsage'" && echo yes || echo no)"
+# secondary wrong-type: num_turns/duration_ms non-numeric → null + their OWN breadcrumbs.
+printf '%s' '{"type":"result","num_turns":"nope","duration_ms":[1],"total_cost_usd":1}' > "$HC_RM/nt.json"
+assert_eq "hc-reader(A2): non-numeric num_turns → null" "null" \
+  "$(python3 "$HC_READER" "$HC_RM/nt.json" 2>/dev/null | jq -c '.num_turns')"
+assert_eq "hc-reader(A2): non-numeric duration_ms → null" "null" \
+  "$(python3 "$HC_READER" "$HC_RM/nt.json" 2>/dev/null | jq -c '.duration_ms')"
+assert_eq "hc-reader(A2): num_turns wrong-type → its own 'field num_turns' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_RM/nt.json" 2>&1 1>/dev/null | grep -qF "field 'num_turns'" && echo yes || echo no)"
+assert_eq "hc-reader(A2): duration_ms wrong-type → its own 'field duration_ms' breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_RM/nt.json" 2>&1 1>/dev/null | grep -qF "field 'duration_ms'" && echo yes || echo no)"
+# arg-count guard: zero args and two args → the "expected exactly one argument" breadcrumb,
+# exit 0, and NOTHING on stdout (best-effort; never a stack trace).
+HC_RM_A0="$(python3 "$HC_READER" 2>"$HC_RM/a0.err"; echo "rc=$?")"
+assert_eq "hc-reader(A2): zero args → exit 0, no stdout" "rc=0" "$HC_RM_A0"
+assert_eq "hc-reader(A2): zero args → the arg-count breadcrumb" "yes" \
+  "$(grep -qF 'expected exactly one argument' "$HC_RM/a0.err" && echo yes || echo no)"
+HC_RM_A2="$(python3 "$HC_READER" "$HC_RM/mu.json" extra 2>"$HC_RM/a2.err"; echo "rc=$?")"
+assert_eq "hc-reader(A2): two args → exit 0, no stdout" "rc=0" "$HC_RM_A2"
+assert_eq "hc-reader(A2): two args → the arg-count breadcrumb" "yes" \
+  "$(grep -qF 'expected exactly one argument' "$HC_RM/a2.err" && echo yes || echo no)"
+# A parsed file can lack cost_usd while still carrying another usable figure such as
+# num_turns. The reader names that absence; A7 separately proves the glue refuses a
+# truly all-null payload instead of staging it as cost coverage.
+printf '%s' '{"type":"result","num_turns":3}' > "$HC_RM/nocost.json"
+assert_eq "hc-reader(A2): parsed-but-no-cost → the 'carried no cost figure' summary breadcrumb" "yes" \
+  "$(python3 "$HC_READER" "$HC_RM/nocost.json" 2>&1 1>/dev/null | grep -qF 'carried no cost figure' && echo yes || echo no)"
+# The fallback token accumulation must NOT sum `total_tokens` (a summary figure): summing a
+# possibly-cumulative field would over-count, so it stays null on the per-message path while the
+# per-message components (input_tokens) still sum (issue #475 review finding 1, unknown-is-not-zero).
+printf '%s' '[{"usage":{"input_tokens":100,"total_tokens":105}},{"usage":{"input_tokens":50,"total_tokens":60}}]' > "$HC_RM/ttok.json"
+assert_eq "hc-reader(A2): fallback path sums per-message input_tokens (150)" "150" \
+  "$(python3 "$HC_READER" "$HC_RM/ttok.json" 2>/dev/null | jq -c '.tokens.input_tokens')"
+assert_eq "hc-reader(A2): fallback path does NOT sum total_tokens — stays null (no over-count)" "null" \
+  "$(python3 "$HC_READER" "$HC_RM/ttok.json" 2>/dev/null | jq -c '.tokens.total_tokens')"
+# But the AUTHORITATIVE result-summary path still reads total_tokens as-is (the run total).
+printf '%s' '[{"type":"result","usage":{"input_tokens":500,"total_tokens":600}}]' > "$HC_RM/ttok2.json"
+assert_eq "hc-reader(A2): result-summary path reads total_tokens verbatim (600)" "600" \
+  "$(python3 "$HC_READER" "$HC_RM/ttok2.json" 2>/dev/null | jq -c '.tokens.total_tokens')"
+rm -rf "$HC_RM"
+
+# ── Finding #475-review-2: the merge-aware union's jq-unavailable / empty-blob LOCAL-WINS FALLBACK
+# branch (telemetry-branch.sh) was untested — every union-race fixture ran with jq available, so the
+# load-bearing "a concurrent base-side harness_cost may be reverted" ::warning:: never executed.
+# Reproduce the A5a-staged race but point DEVFLOW_JQ at a wrapper that fails ONLY the union merge
+# program (identified by its unique `elif ($local.harness_cost` text) and delegates everything else
+# to real jq — so the floor still stages R with cost_usd=5, but the union's jq fails and takes the
+# local-wins fallback (R → 5, NOT the base-wins 9 the working union keeps). ──
+HC_UF_BARE="$(git_sandbox "hc unionfb bare")"; git -C "$HC_UF_BARE" init --bare -q
+HC_UF="$(git_sandbox "hc unionfb repo")"; git -C "$HC_UF" init -q
+git -C "$HC_UF" config user.email t@e.com; git -C "$HC_UF" config user.name t
+git -C "$HC_UF" remote add origin "$HC_UF_BARE"
+mkdir -p "$HC_UF/.devflow"; printf 'tmp/\n' > "$HC_UF/.devflow/.gitignore"
+git -C "$HC_UF" add -A; git -C "$HC_UF" commit -qm seed; git -C "$HC_UF" branch -M main
+git -C "$HC_UF" push -q -u origin main
+HC_UF_REC='{"schema_version":1,"slug":"pr-6","generated_at":"2026-01-01T00:00:00Z","source":"review-and-fix","iterations":1,"telemetry":[]}'
+mv "$HC_UF_BARE" "${HC_UF_BARE}.down"
+HC_UF_IDX="$HC_UF/.git/ufidx"
+HC_UF_SB="$(printf '%s' "$HC_UF_REC" | git -C "$HC_UF" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_UF_IDX" git -C "$HC_UF" update-index --add --cacheinfo "100644,${HC_UF_SB},.devflow/logs/efficiency/pr-6-run-r.json"
+HC_UF_ST="$(GIT_INDEX_FILE="$HC_UF_IDX" git -C "$HC_UF" write-tree)"; rm -f "$HC_UF_IDX"
+HC_UF_SN="$(GIT_AUTHOR_NAME=b GIT_AUTHOR_EMAIL=b@y GIT_COMMITTER_NAME=b GIT_COMMITTER_EMAIL=b@y git -C "$HC_UF" commit-tree "$HC_UF_ST" -m b)"
+git -C "$HC_UF" update-ref refs/heads/devflow-telemetry "$HC_UF_SN"
+mv "${HC_UF_BARE}.down" "$HC_UF_BARE"
+HC_UF_A="$(git_sandbox "hc unionfb writerA")"; git clone -q "$HC_UF_BARE" "$HC_UF_A" 2>/dev/null
+HC_UF_AREC="$(printf '%s' "$HC_UF_REC" | jq -c '.harness_cost={cost_source:"execution-file",cost_usd:9}')"
+HC_UF_AIDX="$HC_UF_A/.git/aidx"
+HC_UF_AB="$(printf '%s' "$HC_UF_AREC" | git -C "$HC_UF_A" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_UF_AIDX" git -C "$HC_UF_A" update-index --add --cacheinfo "100644,${HC_UF_AB},.devflow/logs/efficiency/pr-6-run-r.json"
+HC_UF_AT="$(GIT_INDEX_FILE="$HC_UF_AIDX" git -C "$HC_UF_A" write-tree)"; rm -f "$HC_UF_AIDX"
+HC_UF_AN="$(GIT_AUTHOR_NAME=a GIT_AUTHOR_EMAIL=a@y GIT_COMMITTER_NAME=a GIT_COMMITTER_EMAIL=a@y git -C "$HC_UF_A" commit-tree "$HC_UF_AT" -m a)"
+git -C "$HC_UF_A" update-ref refs/heads/devflow-telemetry "$HC_UF_AN"
+git -C "$HC_UF_A" push -q origin devflow-telemetry
+# Selective jq wrapper: fail ONLY the union merge program, delegate all else to real jq.
+printf '%s\n' '#!/usr/bin/env bash' 'for a in "$@"; do case "$a" in *"elif (\$local.harness_cost"*) exit 1 ;; esac; done' 'exec jq "$@"' > "$HC_UF/jqsel"
+chmod +x "$HC_UF/jqsel"
+mkdir -p "$HC_UF/.devflow/tmp/review/pr-6/run-b"
+printf '%s' "$HC_ITER" > "$HC_UF/.devflow/tmp/review/pr-6/run-b/iter-1.json"
+HC_UF_ERR="$( ( cd "$HC_UF" && GITHUB_RUN_ID=run GITHUB_RUN_ATTEMPT=r DEVFLOW_JQ="$HC_UF/jqsel" \
+    DEVFLOW_EXECUTION_COST='{"cost_usd":5,"tokens":{},"model_usage":null,"num_turns":null,"duration_ms":null}' \
+    DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+git -C "$HC_UF" fetch -q origin devflow-telemetry:refs/remotes/origin/uf 2>/dev/null
+assert_eq "hc-race(A5a fallback): union jq failed → LOCAL-WINS fallback (R reverts to this run's staged cost_usd=5, not base-wins 9)" "5" \
+  "$(git -C "$HC_UF" show "refs/remotes/origin/uf:.devflow/logs/efficiency/pr-6-run-r.json" 2>/dev/null | jq -c '.harness_cost.cost_usd')"
+assert_eq "hc-race(A5a fallback): the fallback emits the 'fell back to local-wins' ::warning:: (never silent)" "yes" \
+  "$(printf '%s' "$HC_UF_ERR" | grep -qF 'fell back to local-wins' && echo yes || echo no)"
+rm -rf "$HC_UF" "$HC_UF_BARE" "$HC_UF_A"
+
+# ── Finding #475-review-3: the skeleton-overwrite guard had only a line-presence mutation pin (A10)
+# — no POSITIVE behavioral fixture proving it declines when a real record already occupies the
+# skeleton's filename. Seed a real record on the branch at the skeleton path, then force merge-arm-b
+# to MISS it (patch the copied telemetry-branch.sh so list_blobs returns empty while blob_exists still
+# finds it — the exact "swallowed git failure" ambiguity the guard defends). The guard must decline
+# and leave the real record intact rather than overwrite it with an iterations:0 skeleton. ──
+HC_SO_ROOT="$(git_sandbox "hc skel-overwrite root")"
+mkdir -p "$HC_SO_ROOT/lib" "$HC_SO_ROOT/.claude-plugin"
+cp "$LIB"/*.sh "$LIB"/*.jq "$HC_SO_ROOT/lib/" 2>/dev/null
+cp "$LIB/../.claude-plugin/plugin.json" "$HC_SO_ROOT/.claude-plugin/" 2>/dev/null
+# Redefine list_blobs to always-empty (last def wins on source); blob_exists stays real.
+printf '\ndevflow_telemetry_list_blobs() { return 0; }\n' >> "$HC_SO_ROOT/lib/telemetry-branch.sh"
+HC_SO="$(_hc_repo "hc skel-overwrite")"
+# Seed a REAL, populated record on the telemetry branch at the skeleton's own filename.
+HC_SO_REC='{"schema_version":1,"slug":"pr-42","generated_at":"2026-01-01T00:00:00Z","source":"review-and-fix","iterations":7,"real_marker":true,"telemetry":[]}'
+HC_SO_IDX="$HC_SO/.git/soidx"
+HC_SO_SB="$(printf '%s' "$HC_SO_REC" | git -C "$HC_SO" hash-object -w --stdin)"
+GIT_INDEX_FILE="$HC_SO_IDX" git -C "$HC_SO" update-index --add --cacheinfo "100644,${HC_SO_SB},.devflow/logs/efficiency/pr-42-555-1.json"
+HC_SO_ST="$(GIT_INDEX_FILE="$HC_SO_IDX" git -C "$HC_SO" write-tree)"; rm -f "$HC_SO_IDX"
+HC_SO_SN="$(GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@e GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@e git -C "$HC_SO" commit-tree "$HC_SO_ST" -m seed-record)"
+git -C "$HC_SO" update-ref refs/heads/devflow-telemetry "$HC_SO_SN"
+# Run --persist with the SKELETON env (no iter dir → skeleton arm) via the PATCHED lib.
+HC_SO_ERR="$( ( cd "$HC_SO" && GITHUB_RUN_ID=555 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=review-and-fix bash "$HC_SO_ROOT/lib/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "hc-skeleton(A6+): guard declines → the real branch record is NOT overwritten (iterations still 7, not the skeleton's 0)" "7" \
+  "$(git -C "$HC_SO" show "refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-42-555-1.json" 2>/dev/null | jq -c '.iterations')"
+assert_eq "hc-skeleton(A6+): guard declines → the real record's marker survives (skeleton never written over it)" "true" \
+  "$(git -C "$HC_SO" show "refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-42-555-1.json" 2>/dev/null | jq -c '.real_marker')"
+assert_eq "hc-skeleton(A6+): guard declines → the specific 'declining to overwrite it with a cost skeleton' breadcrumb" "yes" \
+  "$(printf '%s' "$HC_SO_ERR" | grep -qF 'declining to overwrite it with a cost skeleton' && echo yes || echo no)"
+rm -rf "$HC_SO" "$HC_SO_ROOT"
+
+# ── A10: behavioral-fix pins (each with a recorded mutation run) ─────────────
+# The AC5a merge-aware union rests on the "unstaged path never overwrites base"
+# branch; mutating its guard so the branch is never taken reverts the store to the
+# pre-#475 unconditional local-wins overlay (the exact race the pin guards).
+assert_pin_red_under "hc-pin(A10): union base-wins guard for unstaged paths" \
+  '[ "$_u_staged" -eq 0 ]' \
+  's/_u_staged" -eq 0/_u_staged" -eq 999/' \
+  "$LIB/telemetry-branch.sh"
+# The run-id targeting glob is what scopes the merge to THIS run's record; broadening
+# it to `*.json` attaches harness_cost to any swept record (the AC3 defect).
+assert_pin_red_under "hc-pin(A10): merge-arm run-id targeting glob" \
+  '"$eff_dir"/*-"$ident".json' \
+  's@\*-"\$ident"\.json@*.json@' \
+  "$LIB/efficiency-trace.sh"
+# The env-unset early return is the byte-identical/silent guard (AC3). The mutation
+# neutralizes the early return (`|| return 0` → `|| :`) so an unset run no longer
+# short-circuits: it falls through to the ENABLED check and its breadcrumbs — no longer
+# silent/byte-identical, the exact regression this guard prevents. (Flipping
+# `return 0`→`return 1` would NOT reintroduce it — the run would still short-circuit, so
+# that earlier mutation was vacuous; `|| :` removes the short-circuit outright.)
+assert_pin_red_under "hc-pin(A10): env-unset silent no-op guard" \
+  '[ -n "${DEVFLOW_EXECUTION_COST:-}" ] || return 0' \
+  's/DEVFLOW_EXECUTION_COST:-\}" \] \|\| return 0/DEVFLOW_EXECUTION_COST:-}" ] || :/' \
+  "$LIB/efficiency-trace.sh"
+# The skeleton-overwrite guard (issue #475 review): merge-arm-b's empty-list signal is ambiguous
+# (no record vs. a swallowed git failure), so before writing a skeleton the floor re-checks the
+# branch blob and declines if a real record already occupies the skeleton's filename. Mutating the
+# guard's condition to always-false (`false && …`) makes it never fire, re-introducing the
+# skeleton-overwrites-a-real-record data-loss path this guard closes. The hc-skeleton(A6)
+# exact-filename fixture above supplies the positive behavioral path; mutation observed RED.
+assert_pin_red_under "hc-pin(A10): skeleton-overwrite guard re-checks the branch blob before writing" \
+  'if [ -n "$ref" ] && devflow_telemetry_blob_exists' \
+  's/if \[ -n "\$ref" \] && devflow_telemetry_blob_exists/if false \&\& devflow_telemetry_blob_exists/' \
+  "$LIB/efficiency-trace.sh"
+# The reader must PREFER the result-summary event's cumulative `usage` over summing every
+# per-message `usage` (issue #475 review — double-count). The operative line is the
+# result-preference early return in _accumulate_tokens; neutering it (→ `pass`) drops the
+# reader back to the per-message fallback and mis-reports the run's tokens, the exact
+# regression the hc-reader(A2) dual-usage behavioral test asserts RED. Mutation observed RED.
+assert_pin_red_under "hc-pin(A10): reader prefers the result-summary usage (no per-message token double-count)" \
+  'return _read_usage(usage, wrong_type, accumulate=False)' \
+  's/return _read_usage\(usage, wrong_type, accumulate=False\)/pass/' \
+  "$LIB/../scripts/extract-execution-cost.py"
+# Fallback total_tokens cannot be summed truthfully because the undocumented streamed
+# value may be cumulative. Disabling the guard makes hc-reader(A2) report 165, not null.
+assert_pin_red_under "hc-pin(A10): fallback total_tokens remains unknown instead of being summed" \
+  'if accumulate and k == "total_tokens":' \
+  's/if accumulate and k == "total_tokens":/if False:/' \
+  "$LIB/../scripts/extract-execution-cost.py"
+# A parsed all-null object is valid reader output but no cost coverage. Disabling the
+# guard makes hc-glue(A7) emit PR=50 and a non-empty cost handoff for that fixture.
+assert_pin_red_under "hc-pin(A10): glue rejects a parsed all-null cost object" \
+  'if ! _cost_has_figures "$COST"; then' \
+  's/if ! _cost_has_figures "\$COST"; then/if false \&\& ! _cost_has_figures "$COST"; then/' \
+  "$LIB/../scripts/prepare-harness-floor.sh"
+
 # ── issue #381: synthesis floor — --persist reconstructs a minimal iteration
 # record from the branch's fix commits when a run left ZERO iter-*.json ────────
 echo "efficiency-trace.sh synthesis floor (issue #381)"
