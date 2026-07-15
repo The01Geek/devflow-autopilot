@@ -2095,7 +2095,7 @@ assert_eq "#375 assert_pin_red_under: a pinned literal carrying regex+sed-delimi
   "PASS" "$(probe_assert assert_pin_red_under 'meta' 'a.c/[x]' '/a\.c/d' "$PRU_META")"
 rm -f "$PRU_META"
 # Issue #500 parked-class sweep contract pins. These stay below the
-# assert_pin_red_under definition so the three behavioral mutations execute.
+# assert_pin_red_under definition so the behavioral mutations below execute.
 assert_pin_unique "#500: parked-class sweep contract heading is present" \
   '### Parked-class sweep (pre-shadow convergence gate)' "$ST_RAF"
 assert_pin_unique "#500: below-threshold producer decision is present" \
@@ -2111,7 +2111,7 @@ assert_pin_unique "#500: parked-class sweep schema block is present" \
 assert_pin_unique "#500: parked-class Reflection evidence contract is present" \
   'per-class results when siblings exist, `parked-class sweep clean: no new siblings` when none exist' "$ST_RAF"
 assert_pin_unique "#500: shadow-review documentation mirrors parked-class sweep" \
-  'Parked-class sweep' "$LIB/../docs/shadow-review.md"
+  '**Parked-class sweep (fix loop — convergence entries).**' "$LIB/../docs/shadow-review.md"
 assert_pin_unique "#500: system overview mirrors parked-class sweep" \
   '**Pre-shadow parked-class sweep:**' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_pin_red_under "#500: missing parked-class completeness gate goes RED" \
@@ -2138,6 +2138,21 @@ assert_pin_red_under "#510 review: site overlap remains the cross-producer ident
 assert_pin_red_under "#510 review: terminal dispatch failure cannot read clean" \
   'If it still fails, record the distinct Reflection bullet `parked-class sweep not verified: {cause}`, set `dispatch: "not_verified"`, and take the completeness gate'"'"'s not-verified fallthrough; never convert it into a clean run.' \
   '/If it still fails, record the distinct Reflection bullet `parked-class sweep not verified/d' "$ST_RAF"
+assert_pin_red_under "#510 review round 2: below-threshold category is registered" \
+  '| `below-threshold-parked` | Written by Step 2'"'"'s below-threshold parking arm.' \
+  '/\| `below-threshold-parked` \| Written by Step 2/d' "$ST_RAF"
+assert_pin_red_under "#510 review round 2: semantic empty result requires affirmative completion" \
+  'Only a well-formed result envelope with `status: "complete"` may contribute an empty sibling set or a clean sentinel.' \
+  '/Only a well-formed result envelope with `status: "complete"`/d' "$ST_RAF"
+assert_pin_red_under "#510 review round 2: Step 2 advisory split excludes producer rows" \
+  'For this Step 2 split, advisory findings exclude `decision: "below-threshold"` rows.' \
+  '/For this Step 2 split, advisory findings exclude/d' "$ST_RAF"
+assert_pin_red_under "#510 review round 2: Loop Exit advisory trigger excludes producer rows" \
+  'For this Loop Exit trigger, advisory findings exclude `decision: "below-threshold"` rows.' \
+  '/For this Loop Exit trigger, advisory findings exclude/d' "$ST_RAF"
+assert_pin_red_under "#510 review round 2: headline advisory count excludes producer rows" \
+  'The headline advisory count excludes `decision: "below-threshold"` rows.' \
+  '/The headline advisory count excludes/d' "$ST_RAF"
 # #425 shadow-not-scoped behavioral-fix pin (placed here, below the assert_pin_red_under
 # definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
