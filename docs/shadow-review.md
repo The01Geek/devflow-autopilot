@@ -141,9 +141,11 @@ and tripwire-widened late dispatches under either shadow trigger. The parent add
 prioritization, or scoping clause. The Step 3.5 fix-delta gate and Loop Exit post-shadow delta-review
 are explicitly delta-scoped by design, so their delta scope is not an addendum.
 
-Extension provenance is checked without a base-ref read: the extension path must have empty
-`git status --porcelain -- <path>` output and must be absent from the run's cached changed-file list.
-The extension is still loaded when either check fails, but the failure is named in `prompt_addenda`.
+Extension provenance is checked without a base-ref read: `git status --porcelain -- <path>` must
+exit successfully with empty output, and the readable run-cached changed-file list must omit the
+extension path. The extension is still loaded when either check fails or either operand cannot be
+established, but the local-status, reviewed-diff, or provenance-not-established failure is named in
+`prompt_addenda`. An error or unreadable input never defaults to provenance-clean.
 Likewise, the only permitted diff files are Phase 0.2's `diff.patch` and Phase 1's batch slices as the
 shadow engine produced them for the full diff. A regenerated, filtered, or subsetted artifact set is
 topic steering moved to another channel and is recorded as an addendum.

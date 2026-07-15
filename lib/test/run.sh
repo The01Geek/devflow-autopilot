@@ -36245,7 +36245,9 @@ assert_pin_unique "#497 AC1 skill names topic-priming as a distinct leak channel
 assert_pin_unique "#497 AC1 skill carries the exhaustive shadow prompt composition rule" \
   'Every shadow-pass subagent prompt the parent composes uses the engine' "$I497_RAF"
 assert_pin_unique "#497 AC2 skill requires both shallow-safe extension provenance checks" \
-  'Extension text is provenance-clean only when both shallow-clone-safe checks pass' "$I497_RAF"
+  'Extension text is provenance-clean only when both shallow-clone-safe checks are successfully established and pass' "$I497_RAF"
+assert_pin_unique "#497 AC2 unresolved provenance operands fail closed" \
+  'An error or unreadable input never defaults to provenance-clean.' "$I497_RAF"
 assert_pin_unique "#497 AC3 skill pins shadow artifacts to engine-produced full-diff outputs" \
   'The permitted diff artifacts are the shadow engine' "$I497_RAF"
 assert_pin_unique "#497 AC5 schema example carries the nullable prompt_addenda field" \
@@ -36254,10 +36256,10 @@ assert_pin_unique "#497 AC5 emit example carries the clean prompt_addenda attest
   '"prompt_addenda": "none",' "$I497_RAF"
 assert_pin_red_under "#497 AC6 outcome 1 requires the positive prompt_addenda equality" \
   'Outcome 1 requires `prompt_addenda` to equal the JSON string literal `"none"` in both memory and the persisted shadow block.' \
-  '/Outcome 1 requires `prompt_addenda` to equal the JSON string literal/d' "$I497_RAF"
+  's/ Outcome 1 requires `prompt_addenda` to equal the JSON string literal `"none"` in both memory and the persisted shadow block\.//' "$I497_RAF"
 assert_pin_red_under "#497 AC7 promotion is never gated and coverage is never changed by attestation" \
-  'The prompt-addenda attestation never gates outcome 2 and never changes `coverage`' \
-  '/The prompt-addenda attestation never gates outcome 2/d' "$I497_RAF"
+  'The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass promotes these findings unchanged and preserves any non-`"none"` attestation on the block.' \
+  's/ The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass promotes these findings unchanged and preserves any non-`"none"` attestation on the block\.//' "$I497_RAF"
 assert_pin_unique "#497 AC10 skill clean render requires both persisted operands" \
   'The exact clean-agreement string requires both persisted operands' "$I497_RAF"
 assert_pin_unique "#497 AC10 Coverage handles every present noncanonical attestation value" \
