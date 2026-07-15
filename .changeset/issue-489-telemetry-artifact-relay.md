@@ -16,4 +16,7 @@ type: Added
   artifact is dropped whole with a `::warning::` and the branch is never mutated. A failed
   cross-run artifact download now surfaces a `::warning::` (rather than silently going green) so a
   genuine telemetry loss is visible in the run log, and the validator short-circuits its walk once
-  the entry-count cap is crossed so a hostile file-count bounds work, not just admission. (#495)
+  the entry-count cap is crossed so a hostile file-count bounds work, not just admission. The
+  collect step now distinguishes an exec fault of its collection helper (rc 126/127 — a partial or
+  path-skewed deployment where the helper cannot run) from a benign no-op, so a real drop is named
+  distinctly rather than laundered into the "nothing to upload" notice. (#495)

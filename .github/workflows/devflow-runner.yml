@@ -1491,7 +1491,22 @@ jobs:
           dest="${RUNNER_TEMP:-/tmp}/devflow-telemetry-artifact"
           # The collection logic lives in a suite-tested helper (best-effort; the trusted pusher
           # re-validates every entry all-or-nothing, so a collection miss cannot reach the branch).
-          if [ -n "$(scripts/collect-staged-telemetry.sh "$GITHUB_WORKSPACE" "$dest")" ]; then
+          # Capture the helper's stdout AND its exit status in the SAME statement (the `_collect_rc`
+          # capture below): the helper is contracted to ALWAYS exit 0, so a non-zero rc is a genuine EXEC FAULT —
+          # rc 126 (present but not executable) / 127 (not found), i.e. a partial or path-skewed
+          # deployment where the helper itself could not run — NOT an empty result. That fault must
+          # be named distinctly (mirroring the sibling telemetry-push-artifact.sh's rc-126/127
+          # discipline), never laundered into the benign no-op notice: gating on stdout alone would
+          # make a real telemetry drop indistinguishable from a clean no-op (the notice even claims
+          # to cover "the helper reported a collection failure above," which an exec fault — the
+          # helper never running — can never reach). This rc dispatch must stay INLINE here (not in
+          # a further helper): it is precisely the collect helper's OWN non-existence it detects, so
+          # it cannot itself be delegated to a script that could be equally absent.
+          _collect_rc=0
+          _collect_out="$(scripts/collect-staged-telemetry.sh "$GITHUB_WORKSPACE" "$dest")" || _collect_rc=$?
+          if [ "$_collect_rc" = 126 ] || [ "$_collect_rc" = 127 ]; then
+            echo "::warning::collect staged telemetry: scripts/collect-staged-telemetry.sh could not be executed (rc $_collect_rc — not found or not executable, a partial or path-skewed deployment); NO telemetry uploaded this run. This is a deployment fault, not an empty run — do NOT read it as 'nothing was staged'."
+          elif [ -n "$_collect_out" ]; then
             echo "path=$dest" >> "$GITHUB_OUTPUT"
           else
             # No upload tree. The helper emits its OWN distinct ::warning:: when records

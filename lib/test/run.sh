@@ -19432,6 +19432,54 @@ assert_pin_unique "489/AC3: pusher invokes the validate+push helper" \
 assert_eq "489/AC3(endpoint↔permission): pusher adds no inline gh api call needing an undeclared permission" "0" \
   "$(pin_count 'gh api' "$_489_WF/telemetry-push.yml")"
 
+# ── PR #495 round-4 review notes: S1 collect-step exit-status + S2 workflow-condition coverage ──
+# These close the YAML-condition coverage gaps the reviewer named. The rc-capture dispatch below
+# MUST stay inline in the collect step (it detects the collect helper's OWN non-existence, so it
+# cannot be delegated to a further script that could be equally absent) — hence it is verified by
+# pinning the workflow surface, with the behavioral pins routed through assert_pin_red_under so a
+# mutation re-introducing the exact regression goes RED (not merely the pinned line vanishing).
+#
+# S1 — the collect step gates on the helper's EXIT STATUS, not stdout alone. The helper is
+# contracted to always exit 0, so a non-zero rc is a genuine exec fault (rc 126 not-executable /
+# 127 not-found — a partial/path-skewed deployment where collect-staged-telemetry.sh cannot run),
+# yielding empty stdout; gating on stdout alone would launder that real telemetry drop into the
+# benign no-op notice (mirrors the sibling telemetry-push-artifact.sh's rc-126/127 discipline).
+assert_pin_red_under "489/AC2(S1): collect step captures the helper's EXIT STATUS in the same statement" \
+  '|| _collect_rc=$?' 's/ \|\| _collect_rc=\$\?//' "$_489_WF/devflow-runner.yml"
+assert_pin_red_under "489/AC2(S1): collect step distinguishes the rc-126 exec fault (deployment fault, not empty run)" \
+  '[ "$_collect_rc" = 126 ]' 's/= 126/= 999/' "$_489_WF/devflow-runner.yml"
+assert_pin_unique "489/AC2(S1): the exec-fault branch names it a deployment fault distinctly" \
+  'could not be executed (rc $_collect_rc' "$_489_WF/devflow-runner.yml"
+
+# S2(a) — the download-failure warning (this PR's fix for making a genuine cross-run download fault
+# visible) gates on outcome == 'failure'. Content pin + a behavioral pin (flipping the gate to
+# 'success' — warn on success, never on the real failure — goes RED).
+assert_eq "489/AC3(S2a): the Warn-on-download-failure step gates on outcome == 'failure'" "1" \
+  "$(grep -cF "if: \${{ steps.download.outcome == 'failure' }}" "$_489_WF/telemetry-push.yml" || true)"
+assert_pin_red_under "489/AC3(S2a): the download-failure gate is operative (failure→success goes RED)" \
+  "steps.download.outcome == 'failure'" 's/(outcome == .)failure/\1success/' "$_489_WF/telemetry-push.yml"
+assert_pin_unique "489/AC3(S2a): the download-failure warning names the outcome=failure cause" \
+  'download failed (outcome=failure)' "$_489_WF/telemetry-push.yml"
+
+# S2(b) — the relay is DELIBERATELY un-gated on the triggering run's conclusion: the review tier's
+# collect + upload steps run `if: always()`, so a review run that concluded FAILURE (the engine hit
+# a fatal/permission cut-off) may still have staged telemetry worth relaying. Pin that NO conclusion
+# gate exists, so a future edit adding `workflow_run.conclusion == 'success'` — which would silently
+# drop telemetry from errored review runs — is caught. The push job's ONLY gate is the App floor.
+assert_eq "489/AC3(S2b): the relay does NOT gate on the triggering run's conclusion (relays on all completions)" "0" \
+  "$(pin_count 'workflow_run.conclusion' "$_489_WF/telemetry-push.yml")"
+assert_eq "489/AC3(S2b): ...and carries no bare 'conclusion ==' gate either" "0" \
+  "$(pin_count 'conclusion ==' "$_489_WF/telemetry-push.yml")"
+assert_eq "489/AC3(S2b): the push job's ONLY gate is the App-configured floor" "1" \
+  "$(grep -cF "if: \${{ vars.DEVFLOW_APP_ID != '' }}" "$_489_WF/telemetry-push.yml" || true)"
+
+# S2(c) — the upload step gates on a non-empty collected path. Content pin + a behavioral pin
+# (inverting `!= ''` to `== ''` — upload only when nothing was collected — goes RED).
+assert_eq "489/AC2(S2c): the upload step gates on a non-empty collected path" "1" \
+  "$(grep -cF "if: always() && steps.collect_telemetry.outputs.path != ''" "$_489_WF/devflow-runner.yml" || true)"
+assert_pin_red_under "489/AC2(S2c): the upload path-non-empty gate is operative (inverting to == '' goes RED)" \
+  "steps.collect_telemetry.outputs.path != ''" 's/collect_telemetry.outputs.path != /collect_telemetry.outputs.path == /' "$_489_WF/devflow-runner.yml"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow-runner.yml: opt-in environment provisioning (issues #18, #21)"
 # ────────────────────────────────────────────────────────────────────────────
