@@ -6212,12 +6212,15 @@ print("SYNCED" if bt==pt else "DRIFT")
 # ────────────────────────────────────────────────────────────────────────────
 echo "implement-profile head guard (#484)"
 # ────────────────────────────────────────────────────────────────────────────
-# Phase 3 runs the review engine INLINE in the implement context, so every head
-# skills/implement/** and skills/review*/SKILL.md emits executes under the
+# Phase 3 runs the review engine INLINE in the implement context, so every fenced
+# head in skills/implement/**, skills/review*/**, and the dispatched
+# skills/requesting-code-review/** final pass executes under the
 # devflow-implement.yml baked --allowed-tools allowlist — NOT the review one. A
 # head that allowlist does not grant is silently refused (#363). This block drives
-# the head extractor over that whole executed surface and fails when any emitted
-# head is ungranted. The allowlist is assembled from the workflow's baked block
+# the head extractor over that fenced-command surface and fails when a fenced head
+# is neither granted nor exactly withheld. A separate negative guard below rejects
+# the known inline bare-workpad shorthand class. The allowlist is assembled from
+# the workflow's baked block
 # ALONE (implement-block mode), never from .devflow/config.json — a consumer repo
 # does not carry this repo's config extras, so a head reachable only via config is
 # reported ungranted here (the fail-closed direction). The extractor prints
@@ -6262,6 +6265,22 @@ _impl_ungranted() {  # <skill-file> <allowlist> <mode>
     | while IFS= read -r h; do _impl_suppressed "$h" || printf '%s\n' "$h"; done
 }
 
+# Manual review-and-fix runs under devflow.yml, where gh pr checkout must be a
+# real grant. Filter parser artifacts only: the implement profile's deliberately
+# withheld heads are not exemptions on this separate profile.
+_manual_ungranted() {  # <skill-file> <allowlist> <mode>
+  local h output
+  if ! output="$(python3 "$ECH" ungranted "$1" "$2" "$3" 2>"$E484/err")"; then
+    printf '%s\n' '__extractor_error__'
+    return 0
+  fi
+  [ -n "$output" ] || return 0
+  printf '%s\n' "$output" \
+    | while IFS= read -r h; do
+        printf '%s\n' "$SUPPRESS_IMPL" | grep -qxF "$h" || printf '%s\n' "$h"
+      done
+}
+
 # AC: a Bash(...) spec cited only in a YAML comment is NOT a grant — implement-block
 # scopes to the --allowed-tools quoted block, so the cited spec is unreachable. This
 # is the fail-OPEN shape (a whole-file parse reading a comment as a grant) the guard
@@ -6275,6 +6294,10 @@ assert_eq "#484 a Bash(...) spec cited in a YAML comment is not a grant (impleme
 # never the empty allowlist the default mode would silently yield).
 assert_eq "#484 an absent workflow file is reported, not read as zero findings (fail-closed)" "yes" \
   "$(python3 "$ECH" ungranted "$E484/cited.md" "$E484/does-not-exist.yml" implement-block >/dev/null 2>&1 && echo no || echo yes)"
+
+printf '%s\n' 'name: marker-free workflow' > "$E484/no-marker.yml"
+assert_eq "#484 a readable workflow with no --allowed-tools marker fails closed" \
+  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/no-marker.yml" implement-block)"
 
 # Malformed-but-present workflows must also make the contract guard visibly RED.
 # These exercise the two parser failures that previously vanished through the
@@ -6302,25 +6325,48 @@ assert_eq "#484 withheld list is exactly gh pr checkout, git rev-list, mktemp" \
   "gh pr checkout git rev-list mktemp" "$(printf '%s\n' "$WITHHELD_IMPL" | sort | tr '\n' ' ' | sed 's/ *$//')"
 
 # AC: the contract — zero ungranted real heads across the whole implement-executed
-# surface (implement + the review engines Phase 3 runs inline). Derive this roster
+# surface (implement + the review engines Phase 3 runs inline, including the
+# dispatched requesting-code-review final pass). Derive this roster
 # recursively so a newly-added phase/reference cannot sit outside a frozen list
-# while the guard still claims skills/implement/** + skills/review*/** coverage.
+# while the guard still claims those recursive roots as coverage.
 # A failed/empty find becomes a sentinel path, which `_impl_ungranted` turns into
 # `__extractor_error__`; roster discovery can never masquerade as zero heads.
-if ! _impl_files="$(find "$LIB/../skills/implement" "$LIB/../skills"/review* -type f -name '*.md' -print 2>"$E484/roster.err")" \
+if ! _impl_files="$(find "$LIB/../skills/implement" "$LIB/../skills"/review* "$LIB/../skills/requesting-code-review" -type f -name '*.md' -print 2>"$E484/roster.err")" \
    || [ -z "$_impl_files" ]; then
   _impl_files="$E484/__roster_error__"
 fi
 assert_eq "#484 recursive roster includes nested implement phase files" "yes" \
   "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/implement/phases/phase-4-documentation.md" && echo yes || echo no)"
+assert_eq "#484 recursive roster includes the dispatched requesting-code-review skill" "yes" \
+  "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/requesting-code-review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: roster membership assertion is scoped to the extractor input
 assert_eq "#484 every implement-tier head is granted or withheld (zero ungranted real heads)" "" \
   "$(for f in $_impl_files; do _impl_ungranted "$f" "$IMPL_YML" implement-block; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+
+assert_pin_red_on_removal "#484 inline workpad shorthand must expand to the portable anchor before emission" \
+  'Every inline backtick instruction beginning with `workpad.py` in the phase references must be expanded before tool use' \
+  "$LIB/../skills/implement/SKILL.md"
 
 # AC: review-and-fix/SKILL.md against devflow.yml's hoisted TOOLS — gh pr checkout is
 # granted there (the manual /devflow:review-and-fix path checks out the PR head), so
 # every head it emits is granted or suppressed.
 assert_eq "#484 every review-and-fix head is granted by devflow.yml TOOLS (gh pr checkout granted there)" "" \
-  "$(_impl_ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../.github/workflows/devflow.yml" tools-line | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+  "$(_manual_ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../.github/workflows/devflow.yml" tools-line | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+sed -E 's/, Bash\(gh pr checkout:\*\)//' "$LIB/../.github/workflows/devflow.yml" > "$E484/manual-no-checkout.yml"
+assert_eq "#484 manual gh pr checkout grant is removal-proof" "yes" \
+  "$(_manual_ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$E484/manual-no-checkout.yml" tools-line | grep -qxF 'gh pr checkout' && echo yes || echo no)"
+
+# Skill-level recovery contracts: unit tests prove the helper behavior, while
+# these removal pins prove the orchestrator still requests a failure signal,
+# records it durably, and defers the pre-workpad refusal note to Phase 1.3.
+E484_IMPL_SKILL="$LIB/../skills/implement/SKILL.md"
+assert_pin_red_on_removal "#484 outcome reaction requests a reportable helper failure" \
+  '--reaction "$REACTION" --report-failure' "$E484_IMPL_SKILL"
+assert_pin_red_on_removal "#484 outcome reaction preserves the durable fallback note" \
+  'outcome reaction: react-to-trigger.sh exited non-zero (best-effort; the run continues)' "$E484_IMPL_SKILL"
+assert_pin_red_on_removal "#484 prompt-extension refusal preserves the exact pending note" \
+  'load-prompt-extension.sh was refused by the matcher; the consumer prompt extension could not be loaded' "$E484_IMPL_SKILL"
+assert_pin_red_on_removal "#484 prompt-extension refusal is flushed only after Phase 1.3 creates the workpad" \
+  'Immediately after Phase 1.3 has created or resumed the workpad' "$E484_IMPL_SKILL"
 
 # Behavioral-fix pin: removing the stale-prose-lint.py grant from devflow-implement.yml
 # must turn the guard RED — the guard catches the re-introduced silent denial, not
