@@ -4219,6 +4219,76 @@ if [ -d "$DT_E" ]; then
   rm -rf "$DT_E" "$DT_E_B" "$DT_E_AF"
 fi
 rm -f "$DT_REGION"
+# #484: exercise the COMPLETE Phase 3.2 wrapper, including regular-file/OID authentication.
+# The older region above intentionally starts after those guards and cannot prove their behavior.
+DT_COMPARE="$(probe_tmp "#484 dirty-tree compare wrapper extraction")"
+DT_COMPARE_RUN="$(probe_tmp "#484 dirty-tree compare wrapper substituted")"
+DT_COMPARE_BEGIN="devflow:dirty-tree-compare ""BEGIN"
+DT_COMPARE_END="devflow:dirty-tree-compare ""END"
+region_lines "$REVIEW_SKILL" "$DT_COMPARE_BEGIN" "$DT_COMPARE_END" > "$DT_COMPARE"
+assert_eq "#484 backstop: complete authenticated compare wrapper extracted" "yes" \
+  "$([ -s "$DT_COMPARE" ] && echo yes || echo no)"
+
+# Case F — positive control: the authentic baseline + substituted external OID proceeds into
+# restore, preserving an already-dirty path while restoring the agent-introduced path.
+DT_F="$(dt_make_repo)"
+if [ -d "$DT_F" ]; then
+  DT_F_B="$(probe_tmp "#484 case-F before")"; DT_F_AF="$(probe_tmp "#484 case-F after")"
+  printf 'concurrent edit' > "$DT_F/my file.txt"
+  git -C "$DT_F" status --porcelain -z > "$DT_F_B"
+  DT_F_OID="$(git hash-object "$DT_F_B")"
+  printf 'agent edit' > "$DT_F/plain.txt"
+  sed "s/{GIT_SNAP_BEFORE_OID}/$DT_F_OID/g" "$DT_COMPARE" > "$DT_COMPARE_RUN"
+  ( cd "$DT_F" && GIT_SNAP_BEFORE="$DT_F_B" GIT_SNAP_AFTER="$DT_F_AF" bash "$DT_COMPARE_RUN" ) >/dev/null 2>&1
+  assert_eq "#484 backstop auth positive control: authentic OID preserves the pre-existing edit" \
+    "concurrent edit" "$(cat "$DT_F/my file.txt" 2>/dev/null)"
+  assert_eq "#484 backstop auth positive control: authentic OID permits snapshot-delta restore" \
+    "plain" "$(cat "$DT_F/plain.txt" 2>/dev/null)"
+  rm -rf "$DT_F" "$DT_F_B" "$DT_F_AF"
+fi
+
+# Case G — replace the captured baseline with a different regular file after recording its OID.
+# Without the digest guard (or with a reversed comparison), the empty forged baseline authorizes
+# checkout of BOTH dirty paths. Correct behavior emits the integrity breadcrumb and restores none.
+DT_G="$(dt_make_repo)"
+if [ -d "$DT_G" ]; then
+  DT_G_B="$(probe_tmp "#484 case-G before")"; DT_G_AF="$(probe_tmp "#484 case-G after")"
+  DT_G_ERR="$(probe_tmp "#484 case-G stderr")"
+  printf 'concurrent edit' > "$DT_G/my file.txt"
+  git -C "$DT_G" status --porcelain -z > "$DT_G_B"
+  DT_G_OID="$(git hash-object "$DT_G_B")"
+  printf 'agent edit' > "$DT_G/plain.txt"
+  printf '' > "$DT_G_B"  # forged regular-file baseline
+  sed "s/{GIT_SNAP_BEFORE_OID}/$DT_G_OID/g" "$DT_COMPARE" > "$DT_COMPARE_RUN"
+  ( cd "$DT_G" && GIT_SNAP_BEFORE="$DT_G_B" GIT_SNAP_AFTER="$DT_G_AF" bash "$DT_COMPARE_RUN" ) >/dev/null 2>"$DT_G_ERR"
+  assert_eq "#484 backstop auth: forged regular baseline cannot clobber the pre-existing edit" \
+    "concurrent edit" "$(cat "$DT_G/my file.txt" 2>/dev/null)"
+  assert_eq "#484 backstop auth: forged regular baseline skips all restoration" \
+    "agent edit" "$(cat "$DT_G/plain.txt" 2>/dev/null)"
+  assert_eq "#484 backstop auth: forged regular baseline emits the integrity breadcrumb" "yes" \
+    "$(grep -qF 'scratch integrity failure, nothing auto-restored' "$DT_G_ERR" && echo yes || echo no)"
+  rm -rf "$DT_G" "$DT_G_B" "$DT_G_AF" "$DT_G_ERR"
+fi
+
+# Case H — a symlink baseline is rejected before hashing/comparison and its target is untouched.
+DT_H="$(dt_make_repo)"
+if [ -d "$DT_H" ]; then
+  DT_H_TARGET="$(probe_tmp "#484 case-H symlink target")"; DT_H_B="$DT_H/before-link"
+  DT_H_AF="$(probe_tmp "#484 case-H after")"; DT_H_ERR="$(probe_tmp "#484 case-H stderr")"
+  printf 'target sentinel' > "$DT_H_TARGET"; ln -s "$DT_H_TARGET" "$DT_H_B"
+  DT_H_OID="$(git hash-object "$DT_H_TARGET")"
+  printf 'agent edit' > "$DT_H/plain.txt"
+  sed "s/{GIT_SNAP_BEFORE_OID}/$DT_H_OID/g" "$DT_COMPARE" > "$DT_COMPARE_RUN"
+  ( cd "$DT_H" && GIT_SNAP_BEFORE="$DT_H_B" GIT_SNAP_AFTER="$DT_H_AF" bash "$DT_COMPARE_RUN" ) >/dev/null 2>"$DT_H_ERR"
+  assert_eq "#484 backstop auth: symlink baseline skips restoration" \
+    "agent edit" "$(cat "$DT_H/plain.txt" 2>/dev/null)"
+  assert_eq "#484 backstop auth: symlink baseline target is never modified" \
+    "target sentinel" "$(cat "$DT_H_TARGET" 2>/dev/null)"
+  assert_eq "#484 backstop auth: symlink baseline emits the tamper breadcrumb" "yes" \
+    "$(grep -qF 'possible scratch tampering, nothing auto-restored' "$DT_H_ERR" && echo yes || echo no)"
+  rm -rf "$DT_H" "$DT_H_TARGET" "$DT_H_AF" "$DT_H_ERR"
+fi
+rm -f "$DT_COMPARE" "$DT_COMPARE_RUN"
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
 # into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
 # docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.
