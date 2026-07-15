@@ -493,16 +493,30 @@ devflow_telemetry_persist_tree() {
         git -C "$root" commit-tree "$tree" ${parent_arg[@]+"${parent_arg[@]}"} -m "$_DEVFLOW_TELEMETRY_COMMIT_MSG" 2>/dev/null
     }
 
-    # Re-parent for the PUSH retry: build a tree that is the UNION of the fetched
-    # remote tip's tree and the LOCAL tip's whole tree (issue #441 review — offline
-    # data-loss fix). The plain `commit_on "$remote_tip"` re-applied only THIS run's
-    # staged files, which would DROP any offline-accumulated local record present on
-    # the local ref but absent from the fetched remote tip — real data loss on the
-    # exact reconnect path the retry loop exists to protect. Most collisions remain
-    # local-wins. Marker migrations are monotonic: an unstamped legacy blob from a
-    # stale local ref may not overwrite an already-normalized remote blob.
-    # Echoes the new commit sha, `NOOP` when the union tree
-    # equals the remote tip's tree (our content already there), or empty on failure.
+    # Re-parent for the PUSH retry: build a MERGE-AWARE union of the fetched remote
+    # tip's tree (`base`) and the LOCAL tip's tree (`overlay`) — issue #441's offline
+    # data-loss fix, made merge-aware by issue #475. History (why not a pure overlay):
+    # `commit_on "$remote_tip"` re-applied only THIS run's staged files, DROPPING any
+    # offline-accumulated local record — real data loss on the reconnect path. So #441
+    # overlaid the WHOLE local tip local-wins. That was a *pure* union only while the
+    # store was strictly append-only (per-run filenames unique ⇒ any shared path is
+    # byte-identical ⇒ local-wins == base-wins). Issue #475's harness-cost floor makes
+    # the store's FIRST path MUTATION (it adds `harness_cost` to an existing record), so
+    # a blanket local-wins overlay would let a STALE local snapshot of a record another
+    # writer concurrently merged REVERT that writer's `harness_cost`. The union is now
+    # per-path:
+    #   - base-wins by DEFAULT (start from the fetched remote tree) — a path this run
+    #     did NOT stage never overwrites the base side (AC5a); when the base lacks it,
+    #     the local copy is added (offline-accumulation preservation, unchanged).
+    #   - a path this run STAGED is applied local-wins (its intended write lands) —
+    #     EXCEPT a staged efficiency RECORD that also exists on base, where this run's
+    #     only change is the add-if-absent `harness_cost`: re-apply THAT merge onto the
+    #     fetched base-side version so a concurrent base-side change is preserved (AC5a).
+    # For the pre-#475 append-only case this is behavior-identical (a shared path is
+    # byte-equal, so base-wins == the old local-wins). Marker migrations add one more
+    # constraint: a staged legacy blob may not overwrite a normalized remote blob.
+    # Echoes the new commit sha, `NOOP`
+    # when the union tree equals the remote tip's tree, or empty on failure.
     commit_union_on() {  # $1 = remote tip (parent), $2 = local tip to overlay
       local base="$1" overlay="$2" tree ptree meta path mode sha overlay_out remote_sha local_selected remote_selected jq_bin
       jq_bin="${DEVFLOW_JQ:-jq}"
@@ -532,6 +546,8 @@ devflow_telemetry_persist_tree() {
       rm -f "$idx" 2>/dev/null || true
       tree="$(
         export GIT_INDEX_FILE="$idx"
+        # Start from BASE (the fetched remote tree): base-wins is the default, so a path
+        # this run did not stage keeps the base side (AC5a).
         git -C "$root" read-tree "$base" 2>/dev/null || exit 1
         classify_migration_blob() { # $1=sha $2=jq predicate; prints yes/no
           local blob rc
@@ -546,19 +562,71 @@ devflow_telemetry_persist_tree() {
         while IFS="$(printf '\t')" read -r meta path; do
           [ -n "$path" ] || continue
           mode="${meta%% *}"; sha="${meta##* }"
-          remote_sha="$(git -C "$root" rev-parse --verify --quiet "${base}:${path}" 2>/dev/null)" || remote_sha=""
-          if [ -n "$remote_sha" ]; then
-            local_selected=no; remote_selected=no
-            case "$path" in
-              .devflow/logs/review/*/iter-*.json)
-                local_selected="$(classify_migration_blob "$sha" 'type == "object" and ((has("telemetry") | not) or .telemetry == null)')" || exit 2
-                remote_selected="$(classify_migration_blob "$remote_sha" 'type == "object" and ((has("telemetry") | not) or .telemetry == null)')" || exit 2 ;;
-              .devflow/logs/efficiency/*.json)
-                local_selected="$(classify_migration_blob "$sha" 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)')" || exit 2
-                remote_selected="$(classify_migration_blob "$remote_sha" 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)')" || exit 2 ;;
-            esac
-            [ "$local_selected" = yes ] && [ "$remote_selected" != yes ] && continue
-          fi
+          # Was this path STAGED by THIS run? Only staged paths overwrite the base side.
+          # `staged_rel` (the conforming set) is in the enclosing function's scope. The set
+          # is small (a run stages a few files), so a linear membership test is fine — and
+          # it stays a bash builtin (no non-preflight PATH tool decides this selection).
+          _u_staged=0
+          for _u_s in ${staged_rel[@]+"${staged_rel[@]}"}; do
+            [ "$_u_s" = "$path" ] && { _u_staged=1; break; }
+          done
+           if [ "$_u_staged" -eq 0 ]; then
+            # Not staged this run: base-wins. If base already has it, read-tree already
+            # placed it, so do nothing. If base LACKS it, add the local copy (offline-
+            # accumulation preservation — the #441 case this union was born for).
+            if ! git -C "$root" cat-file -e "${base}:${path}" 2>/dev/null; then
+              git -C "$root" update-index --add --cacheinfo "${mode},${sha},${path}" 2>/dev/null || exit 1
+            fi
+             continue
+           fi
+           remote_sha="$(git -C "$root" rev-parse --verify --quiet "${base}:${path}" 2>/dev/null)" || remote_sha=""
+           if [ -n "$remote_sha" ]; then
+             local_selected=no; remote_selected=no
+             case "$path" in
+               .devflow/logs/review/*/iter-*.json)
+                 local_selected="$(classify_migration_blob "$sha" 'type == "object" and ((has("telemetry") | not) or .telemetry == null)')" || exit 2
+                 remote_selected="$(classify_migration_blob "$remote_sha" 'type == "object" and ((has("telemetry") | not) or .telemetry == null)')" || exit 2 ;;
+               .devflow/logs/efficiency/*.json)
+                 local_selected="$(classify_migration_blob "$sha" 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)')" || exit 2
+                 remote_selected="$(classify_migration_blob "$remote_sha" 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)')" || exit 2 ;;
+             esac
+             [ "$local_selected" = yes ] && [ "$remote_selected" != yes ] && continue
+           fi
+          # Staged this run. A staged efficiency RECORD that ALSO exists on base is the
+          # harness-cost merge target (issue #475): this run's only change to it is the
+          # add-if-absent `harness_cost`, so re-apply THAT onto the fetched base version
+          # rather than overwriting it with our possibly-stale full copy (AC5a). Every
+          # OTHER staged path (a fresh record, a skeleton, a durable workpad copy, or a
+          # record absent from base) applies local-wins.
+          case "$path" in
+            .devflow/logs/efficiency/*.json)
+              if git -C "$root" cat-file -e "${base}:${path}" 2>/dev/null; then
+                _u_base="$(git -C "$root" show "${base}:${path}" 2>/dev/null)"
+                _u_local="$(git -C "$root" show "${overlay}:${path}" 2>/dev/null)"
+                # jq is a preflight prerequisite (resolve-jq set DEVFLOW_JQ when this file
+                # was sourced by efficiency-trace.sh; a standalone source falls back to
+                # bare `jq`). Add our harness_cost onto base ONLY when base lacks it AND the
+                # local copy actually carries one (a base that already carries one — another
+                # writer got there first — wins; never write a `harness_cost: null` key — the
+                # staged record IS a merge-arm target so it carries one, but guard the
+                # operand rather than assume it).
+                if _u_merged="$(printf '%s' "$_u_base" | "${DEVFLOW_JQ:-jq}" -c --argjson local "$_u_local" \
+                      'if has("harness_cost") then . elif ($local.harness_cost != null) then (. + {harness_cost: $local.harness_cost}) else . end' 2>/dev/null)" \
+                   && [ -n "$_u_merged" ]; then
+                  _u_blob="$(printf '%s\n' "$_u_merged" | git -C "$root" hash-object -w --stdin 2>/dev/null)" || exit 1
+                  git -C "$root" update-index --add --cacheinfo "${mode},${_u_blob},${path}" 2>/dev/null || exit 1
+                  continue
+                fi
+                # jq unavailable/failed (or an empty base/local blob from an object-store
+                # read race): fall through to a plain local-wins overlay (the pre-#475
+                # behavior) rather than dropping the record — best-effort. Emit a NAMED
+                # breadcrumb so this degradation is auditable rather than silent (the
+                # floor's never-silent discipline): a stale local copy overwriting base
+                # here could revert a concurrent writer's harness_cost (issue #475).
+                echo "::warning::telemetry-branch: harness-cost merge for '${path}' fell back to local-wins — jq unavailable/failed, or an empty base/local blob; a concurrent base-side harness_cost may be reverted this push" >&2
+              fi
+              ;;
+           esac
           git -C "$root" update-index --add --cacheinfo "${mode},${sha},${path}" 2>/dev/null || exit 1
         done < <(printf '%s\n' "$overlay_out")
         git -C "$root" write-tree 2>/dev/null || exit 1

@@ -1114,15 +1114,51 @@ jobs:
 
       - name: Persist review-and-fix observability artifacts (backstop)
         if: ${{ always() }}
+        env:
+          # Harness-side cost floor inputs (issue #475). DEVFLOW_COMMAND is the gate's
+          # RESOLVED command (`/devflow:<class> <n>` — resolve-command-trigger.sh always
+          # appends the number); prepare-harness-floor.sh parses the class and the explicit
+          # trailing PR number from it and PREFERS that number. DEVFLOW_CANDIDATE_NUMBER is
+          # only the fallback context number used when the command carries none — written
+          # with the workflow-wide `issue.number || pull_request.number` idiom so it also
+          # resolves on the issue_comment trigger (where github.event.pull_request is absent).
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          DEVFLOW_COMMAND: ${{ needs.gate.outputs.command }}
+          DEVFLOW_CANDIDATE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          # Job-lifetime-valid token for the floor's gh PR verification: the job-start
+          # App token can already be past its ~60-minute lifetime by backstop time (#287).
+          GH_TOKEN: ${{ github.token }}
         run: |
           set +e
           HELPER=.devflow/vendor/devflow/lib/efficiency-trace.sh
           [ -f "$HELPER" ] || { echo "::warning::observability backstop: $HELPER missing; skipped"; exit 0; }
+          # Harness-side cost floor (issue #475): the glue helper runs the execution-file
+          # reader, verifies the PR, and emits the floor env values consumed by --persist.
+          # Guard its existence exactly like $HELPER: a vendored tree pinned to an OLDER
+          # devflow_version lacks it, and that must draw a NAMED ::warning:: (floor inert),
+          # never a raw `No such file` under `set +e`.
+          FLOOR=.devflow/vendor/devflow/scripts/prepare-harness-floor.sh
+          DEVFLOW_EXECUTION_COST=""
+          DEVFLOW_EXECUTION_PR=""
+          DEVFLOW_COMMAND_CLASS=""
+          if [ -f "$FLOOR" ]; then
+            COST_FILE="${RUNNER_TEMP:-/tmp}/devflow-harness-cost-$$.json"
+            # The glue prints two eval-able env assignments (PR + class) to stdout and
+            # writes the cost JSON to $COST_FILE; its breadcrumbs go to the step log.
+            eval "$(bash "$FLOOR" "${EXECUTION_FILE:-}" "${DEVFLOW_COMMAND:-}" "${DEVFLOW_CANDIDATE_NUMBER:-}" "$COST_FILE")"
+            [ -s "$COST_FILE" ] && DEVFLOW_EXECUTION_COST="$(cat "$COST_FILE")"
+            rm -f "$COST_FILE"
+          else
+            echo "::warning::harness cost floor inert: $FLOOR missing (a vendored tree pinned to an older devflow_version); the cost floor is skipped this run"
+          fi
           # --persist derives each run's record + durable workpad copy and writes them to
           # the dedicated telemetry branch via git plumbing, then pushes with a fetch/
-          # re-parent retry loop — all inside the helper, which sets its own committer
-          # identity. It never touches HEAD or the TRACKED working tree, so the former before/after-
-          # HEAD gate and the bare `git push` are gone (issue #441): the helper owns the
-          # targeted, retry-looped push to the telemetry branch. Best-effort/exit-0.
-          bash "$HELPER" --persist
+          # re-parent retry loop — all inside the helper. With the floor env set it ALSO
+          # merge-fills harness_cost into this run's record (or writes a minimal cost
+          # skeleton); unset, it is byte-identical to before (issue #441/#475). It never
+          # touches HEAD or the TRACKED working tree. Best-effort/exit-0.
+          DEVFLOW_EXECUTION_COST="$DEVFLOW_EXECUTION_COST" \
+          DEVFLOW_EXECUTION_PR="$DEVFLOW_EXECUTION_PR" \
+          DEVFLOW_COMMAND_CLASS="$DEVFLOW_COMMAND_CLASS" \
+            bash "$HELPER" --persist
           exit 0
