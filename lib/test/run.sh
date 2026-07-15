@@ -2256,6 +2256,29 @@ assert_pin_red_under "#510 review round 3: false-established class excluded as a
 assert_pin_red_under "#510 review round 3: producer marker never qualifies for the carve-out" \
   'The producer marker `parked-origin: below-threshold` never qualifies.' \
   's/The producer marker `parked-origin: below-threshold` never qualifies/The producer marker `parked-origin: below-threshold` qualifies/' "$ST_RAF"
+# #510 final review: every Step 2 APPROVE-family convergence entry routes parked state through
+# the sweep before shadow, instead of relying on the Loop Exit completeness backstop. These
+# firing-site pins complement the registration-level ordering pin above.
+assert_pin_red_under "#510 final review: clean APPROVE firing site runs a parked sweep before shadow" \
+  'When parked findings exist on this clean-APPROVE arm, run the parked-class sweep before **Step 2.6: Shadow review**; otherwise go directly to Step 2.6.' \
+  's/run the parked-class sweep before \*\*Step 2.6: Shadow review\*\*/run the parked-class sweep after **Step 2.6: Shadow review**/' "$ST_RAF"
+assert_pin_red_under "#510 final review: advisory APPROVE firing site runs the sweep before shadow" \
+  'Go to the parked-class sweep before **Step 2.6: Shadow review**.' \
+  's/Go to the parked-class sweep before \*\*Step 2.6: Shadow review\*\*/Go to **Step 2.6: Shadow review** before the parked-class sweep/' "$ST_RAF"
+assert_pin_red_under "#510 final review: coverage-caveat firing site runs a parked sweep before shadow" \
+  'If parked findings exist on this coverage-caveat arm, run the parked-class sweep before **Step 2.6: Shadow review**; otherwise go directly to Step 2.6.' \
+  's/run the parked-class sweep before \*\*Step 2.6: Shadow review\*\*/run the parked-class sweep after **Step 2.6: Shadow review**/' "$ST_RAF"
+# #510 final review: pin both fail-closed boundaries on the corroboration relaxation. Broadening
+# the severity band or removing the readable-comparand fallback must turn the suite red.
+assert_pin_red_under "#510 final review: corroboration carve-out is bounded at parked severity" \
+  'the shadow re-raises at or below its recorded parked severity counts as corroboration' \
+  's/at or below its recorded parked severity/at or above its recorded parked severity/' "$ST_RAF"
+assert_pin_red_under "#510 final review: corroboration carve-out fails closed without its comparand" \
+  'If neither the sibling id nor a readable parked-severity comparand exists, fail closed to the ordinary mis-grade rule' \
+  's/fail closed to the ordinary mis-grade rule/fall through to the corroboration carve-out/' "$ST_RAF"
+assert_pin_red_under "#510 final review: overview names the three-surface guard as lock-step" \
+  'a **render-time lock-step assertion** that keeps the `APPROVE WITH UNRESOLVED SHADOW FINDINGS`' \
+  's/render-time lock-step assertion/render-time dual-operand assertion/' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 # #425 shadow-not-scoped behavioral-fix pin (placed here, below the assert_pin_red_under
 # definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
