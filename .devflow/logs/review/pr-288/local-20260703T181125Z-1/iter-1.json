@@ -1,1 +1,20 @@
-{"iter":1,"loop_role":"fix","fix_commit_sha":"37bafa9fb8ce843bd961a28f22964f5011ecbb2e","diff_profile":{"engine_self_modifying":true,"has_new_types":false,"config_only":false,"small_diff":false,"checklist_skipped":null},"phase3_dispatched":["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:pr-test-analyzer","devflow:requesting-code-review"]}
+{
+  "iter": 1,
+  "loop_role": "fix",
+  "fix_commit_sha": "37bafa9fb8ce843bd961a28f22964f5011ecbb2e",
+  "diff_profile": {
+    "engine_self_modifying": true,
+    "has_new_types": false,
+    "config_only": false,
+    "small_diff": false,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "telemetry": "unavailable"
+}

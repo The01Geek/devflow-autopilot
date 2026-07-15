@@ -2,37 +2,161 @@
   "iter": 1,
   "started_at": "2026-07-04T04:00:00Z",
   "fix_commit_sha": "5945dc6",
-  "fix_files": ["scripts/config-get.sh", "scripts/load-prompt-extension.sh", "scripts/workpad.py", "scripts/match-deferrals.py", "lib/test/run.sh"],
+  "fix_files": [
+    "scripts/config-get.sh",
+    "scripts/load-prompt-extension.sh",
+    "scripts/workpad.py",
+    "scripts/match-deferrals.py",
+    "lib/test/run.sh"
+  ],
   "loop_role": "fix",
-  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
-  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer"],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
   "phase3_findings": [
-    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "Four .devflow/ readers reclassify any non-zero git rev-parse (safe.directory/dubious-ownership, git absent) as 'not in a git repo' and discard git's stderr; breadcrumb misdirects.", "defect_signature": {"file": "scripts/config-get.sh", "line_range": [77, 82], "kind": "misdirected-breadcrumb-and-discarded-stderr"}, "corroboration_count": 2, "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Gap 1: match-deferrals explicit config_path (config_path is None guard) untested.", "defect_signature": {"file": "scripts/match-deferrals.py", "line_range": [151, 153], "kind": "untested-guard-branch"}, "corroboration_count": 1, "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Gaps 2-5: argparse default=None e2e, non-git pwd-fallback for 3 readers, cwd==root for python readers, safe.directory branch untested.", "defect_signature": {"file": "scripts/match-deferrals.py", "line_range": [374, 374], "kind": "coverage-completeness"}, "corroboration_count": 1, "fix_decision": "deferred"}
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "Four .devflow/ readers reclassify any non-zero git rev-parse (safe.directory/dubious-ownership, git absent) as 'not in a git repo' and discard git's stderr; breadcrumb misdirects.",
+      "defect_signature": {
+        "file": "scripts/config-get.sh",
+        "line_range": [
+          77,
+          82
+        ],
+        "kind": "misdirected-breadcrumb-and-discarded-stderr"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Gap 1: match-deferrals explicit config_path (config_path is None guard) untested.",
+      "defect_signature": {
+        "file": "scripts/match-deferrals.py",
+        "line_range": [
+          151,
+          153
+        ],
+        "kind": "untested-guard-branch"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Gaps 2-5: argparse default=None e2e, non-git pwd-fallback for 3 readers, cwd==root for python readers, safe.directory branch untested.",
+      "defect_signature": {
+        "file": "scripts/match-deferrals.py",
+        "line_range": [
+          374,
+          374
+        ],
+        "kind": "coverage-completeness"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "F-1", "decision": "applied", "commit": "5945dc6"},
-    {"finding_id": "F-gap1", "decision": "applied", "commit": "5945dc6"},
-    {"finding_id": "F-gap2-5", "decision": "deferred", "source_file": "scripts/match-deferrals.py", "claim_text": "argparse default=None e2e + reader-symmetry coverage completeness", "skip_category": "uncategorized", "evidence": "Suggestion-tier completeness (shadow graded sev-6/3); AC4 e2e read already pins the config_path=None->root behavioral wiring at the _config_get consumer; full argparse-main() e2e needs gh/PR scaffolding disproportionate to residual revert risk. Gap 1 (sev-8, the one revert-green guard hole) WAS fixed via AC8b."}
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "5945dc6"
+    },
+    {
+      "finding_id": "F-gap1",
+      "decision": "applied",
+      "commit": "5945dc6"
+    },
+    {
+      "finding_id": "F-gap2-5",
+      "decision": "deferred",
+      "source_file": "scripts/match-deferrals.py",
+      "claim_text": "argparse default=None e2e + reader-symmetry coverage completeness",
+      "skip_category": "uncategorized",
+      "evidence": "Suggestion-tier completeness (shadow graded sev-6/3); AC4 e2e read already pins the config_path=None->root behavioral wiring at the _config_get consumer; full argparse-main() e2e needs gh/PR scaffolding disproportionate to residual revert risk. Gap 1 (sev-8, the one revert-green guard hole) WAS fixed via AC8b."
+    }
   ],
-  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 57, "new_corroborated_critical_count": 0},
-  "cap_drops": {"count": 0, "by_category": {}},
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 57,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
   "shadow": {
     "ran_at": "2026-07-04T04:05:00Z",
     "reviewed_sha": "5945dc6",
     "verdict": "APPROVE",
     "coverage": "full",
-    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
-    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
     "reason": null,
     "checklist_skipped": null,
     "phase3_findings": [
-      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "workpad._git_root_error_suffix takes r.stderr unconditionally, unlike match-deferrals sibling gating on rc!=0 — misattributes benign stderr when 2nd git call succeeds.", "defect_signature": {"file": "scripts/workpad.py", "line_range": [120, 133], "kind": "coupled-pair-inconsistency"}},
-      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "workpad._git_root_error_suffix docstring says returns '' when git cannot run, but body surfaces OSError text (documented falsehood); 'Never raises' over-claimed (UnicodeDecodeError uncaught).", "defect_signature": {"file": "scripts/workpad.py", "line_range": [120, 133], "kind": "docstring-contradicts-behavior"}}
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "workpad._git_root_error_suffix takes r.stderr unconditionally, unlike match-deferrals sibling gating on rc!=0 — misattributes benign stderr when 2nd git call succeeds.",
+        "defect_signature": {
+          "file": "scripts/workpad.py",
+          "line_range": [
+            120,
+            133
+          ],
+          "kind": "coupled-pair-inconsistency"
+        }
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Important",
+        "description": "workpad._git_root_error_suffix docstring says returns '' when git cannot run, but body surfaces OSError text (documented falsehood); 'Never raises' over-claimed (UnicodeDecodeError uncaught).",
+        "defect_signature": {
+          "file": "scripts/workpad.py",
+          "line_range": [
+            120,
+            133
+          ],
+          "kind": "docstring-contradicts-behavior"
+        }
+      }
     ],
     "phase2_fails": [],
-    "comparison": {"shadow_total": 2, "overlap_with_iter_N": 0, "new": 2, "new_critical": 0, "new_important": 2},
+    "comparison": {
+      "shadow_total": 2,
+      "overlap_with_iter_N": 0,
+      "new": 2,
+      "new_critical": 0,
+      "new_important": 2
+    },
     "promoted_to_iter_next": true
-  }
+  },
+  "telemetry": "unavailable"
 }

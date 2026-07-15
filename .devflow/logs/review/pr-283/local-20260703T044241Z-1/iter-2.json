@@ -2,27 +2,87 @@
   "iter": 2,
   "loop_role": "promoted",
   "phase3_findings": [
-    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "write path (cmd_update --status) not validated", "defect_signature": {"file": "scripts/workpad.py", "line_range": [1210, 1217], "kind": "logic_error"}, "corroboration_count": 1, "fix_decision": "pushed_back"}
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "write path (cmd_update --status) not validated",
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          1210,
+          1217
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "F-3", "decision": "pushed_back", "source_file": "scripts/workpad.py", "claim_text": "workpad.py update --status should validate its input the same way as cmd_status", "skip_category": "claim-quality", "evidence": "issue #281's own 'Scope of the broadened audit' section explicitly excludes the write path ('these run on the write path with an orchestrator-supplied status, not on untrusted read input, and rely on _status_glyph's best-effort fallback intentionally') and AC6 requires it stay unchanged"},
-    {"finding_id": "F-4", "decision": "applied", "commit": "5936126"},
-    {"finding_id": "F-5", "decision": "applied", "commit": "5936126"}
+    {
+      "finding_id": "F-3",
+      "decision": "pushed_back",
+      "source_file": "scripts/workpad.py",
+      "claim_text": "workpad.py update --status should validate its input the same way as cmd_status",
+      "skip_category": "claim-quality",
+      "evidence": "issue #281's own 'Scope of the broadened audit' section explicitly excludes the write path ('these run on the write path with an orchestrator-supplied status, not on untrusted read input, and rely on _status_glyph's best-effort fallback intentionally') and AC6 requires it stay unchanged"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "5936126"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "5936126"
+    }
   ],
   "shadow": {
     "ran_at": "2026-07-03T05:10:00Z",
     "reviewed_sha": "5936126524168a4e9eb220c56d3982aa61798ab5",
     "verdict": "APPROVE",
     "coverage": "full",
-    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
-    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
     "reason": null,
     "checklist_skipped": null,
     "phase3_findings": [
-      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "write path not validated (re-raised, same defect_signature as iter2's pushed-back finding)", "defect_signature": {"file": "scripts/workpad.py", "line_range": [1210, 1217], "kind": "logic_error"}}
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "write path not validated (re-raised, same defect_signature as iter2's pushed-back finding)",
+        "defect_signature": {
+          "file": "scripts/workpad.py",
+          "line_range": [
+            1210,
+            1217
+          ],
+          "kind": "logic_error"
+        }
+      }
     ],
     "phase2_fails": [],
-    "comparison": {"shadow_total": 1, "overlap_with_iter_N": 1, "new": 0, "new_critical": 0, "new_important": 0},
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_N": 1,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
     "promoted_to_iter_next": false
-  }
+  },
+  "telemetry": "unavailable"
 }
