@@ -37143,6 +37143,9 @@ T499_TIP2="$(git -C "$T499_P" rev-parse devflow-telemetry)"
 assert_eq "#499 persist: M3 absent is stamped" "unavailable" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-3.json' | jq -r '.telemetry')"
 assert_eq "#499 persist: M4 null is stamped" "unavailable" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-4.json' | jq -r '.telemetry')"
 assert_eq "#499 persist: established false survives" "false" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-2.json' | jq -r '.telemetry')"
+assert_eq "#499 persist: populated object survives" '{"x":1}' "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-1.json' | jq -c '.telemetry')"
+assert_eq "#499 persist: established empty object survives" '{}' "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-5.json' | jq -c '.telemetry')"
+assert_eq "#499 persist: established wrong-type string survives" 'legacy' "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-6.json' | jq -r '.telemetry')"
 assert_eq "#499 persist: whole-file null stays byte-verbatim" "null" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-7.json')"
 assert_eq "#499 persist: non-object warning is named" "yes" "$(printf '%s' "$T499_P_ERR" | grep -qF 'valid non-object' && echo yes || echo no)"
 assert_eq "#499 persist: sibling JSON is copied but never stamped" '{"keep":true}' "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/deferrals.json')"
@@ -37164,6 +37167,25 @@ jq 'del(.telemetry) | .later_metadata = "stale-source"' "$T499_P/.devflow/tmp/re
 assert_eq "#499 persist: established durable telemetry rejects a staged absent-key downgrade" "false" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-2.json' | jq -r '.telemetry')"
 rm -rf "$T499_P"
 
+# Pre-existing legacy and non-object durable paths remain backfill-owned, and a
+# malformed staged copy cannot replace an established durable object.
+T499_O="$(git_sandbox '#499 existing durable collision repo')"
+git -C "$T499_O" init -q; git -C "$T499_O" config user.email t@e.com; git -C "$T499_O" config user.name t
+mkdir -p "$T499_O/seed/.devflow/logs/review/pr-499/run-existing" "$T499_O/.devflow/tmp/review/pr-499/run-existing"
+printf '%s' '{"iter":1}' > "$T499_O/seed/.devflow/logs/review/pr-499/run-existing/iter-1.json"
+printf '%s' 'null' > "$T499_O/seed/.devflow/logs/review/pr-499/run-existing/iter-2.json"
+printf '%s' '{"iter":3,"telemetry":{"calls":1}}' > "$T499_O/seed/.devflow/logs/review/pr-499/run-existing/iter-3.json"
+( cd "$T499_O" && unset GITHUB_ACTIONS && . "$LIB/config-source.sh" && . "$LIB/telemetry-branch.sh" && devflow_telemetry_persist_tree "$T499_O" "$T499_O/seed" ) >/dev/null 2>&1
+printf '%s' '{"iter":1,"telemetry":{"calls":2}}' > "$T499_O/.devflow/tmp/review/pr-499/run-existing/iter-1.json"
+printf '%s' '{"iter":2,"telemetry":{"calls":2}}' > "$T499_O/.devflow/tmp/review/pr-499/run-existing/iter-2.json"
+printf '%s' 'null' > "$T499_O/.devflow/tmp/review/pr-499/run-existing/iter-3.json"
+T499_O_ERR="$( ( cd "$T499_O" && env -u GITHUB_ACTIONS bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "#499 persist: existing legacy durable blob remains byte-verbatim" '{"iter":1}' "$(_et_show "$T499_O" '.devflow/logs/review/pr-499/run-existing/iter-1.json')"
+assert_eq "#499 persist: existing non-object durable blob remains byte-verbatim" 'null' "$(_et_show "$T499_O" '.devflow/logs/review/pr-499/run-existing/iter-2.json')"
+assert_eq "#499 persist: malformed staged copy cannot replace established durable blob" '{"calls":1}' "$(_et_show "$T499_O" '.devflow/logs/review/pr-499/run-existing/iter-3.json' | jq -c '.telemetry')"
+assert_eq "#499 persist: every dropped collision has a named breadcrumb" "yes" "$(printf '%s' "$T499_O_ERR" | grep -qF 'backfill-owned historical blob' && printf '%s' "$T499_O_ERR" | grep -qF 'could not be safely classified' && printf '%s' "$T499_O_ERR" | grep -qF 'leaving the established durable blob untouched' && echo yes || echo no)"
+rm -rf "$T499_O"
+
 # Existing legacy durable paths remain backfill-owned: a normal persist removes
 # them from its overlay, so both an ordinary repeat and a CAS retry cannot undo a
 # concurrent migration.
@@ -37183,12 +37205,14 @@ mkdir -p "$T499_B/lib" "$T499_B/scripts" "$T499_B/seed/.devflow/logs/review/pr-4
 cp "$LIB/resolve-jq.sh" "$LIB/config-source.sh" "$LIB/telemetry-branch.sh" "$T499_B/lib/"
 cp "$LIB/../scripts/config-get.sh" "$LIB/../scripts/backfill-telemetry-unavailable.sh" "$T499_B/scripts/"
 printf '%s' '{"iter":1,"phase3_findings":[]}' > "$T499_B/seed/.devflow/logs/review/pr-499/run-b/iter-1.json"
+printf '%s' 'null' > "$T499_B/seed/.devflow/logs/review/pr-499/run-b/iter-7.json"
 printf '%s' '{"telemetry":[{"iter":1,"phases":null},{"iter":2}]}' > "$T499_B/seed/.devflow/logs/efficiency/selected.json"
 printf '%s' '{"telemetry":"wrong"}' > "$T499_B/seed/.devflow/logs/efficiency/wrong.json"
 printf '%s' '{"telemetry":[false]}' > "$T499_B/seed/.devflow/logs/efficiency/nonobject.json"
 ( cd "$T499_B" && unset GITHUB_ACTIONS && . ./lib/config-source.sh && . ./lib/telemetry-branch.sh && devflow_telemetry_persist_tree "$T499_B" "$T499_B/seed" ) >/dev/null 2>&1
 T499_B_BEFORE_WRONG="$(_et_show "$T499_B" '.devflow/logs/efficiency/wrong.json')"
 T499_B_BEFORE_NONOBJ="$(_et_show "$T499_B" '.devflow/logs/efficiency/nonobject.json')"
+T499_B_BEFORE_M7="$(_et_show "$T499_B" '.devflow/logs/review/pr-499/run-b/iter-7.json')"
 T499_B_ERR="$( ( cd "$T499_B" && env -u GITHUB_ACTIONS bash ./scripts/backfill-telemetry-unavailable.sh ) 2>&1 1>/dev/null )"
 T499_B_TIP1="$(git -C "$T499_B" rev-parse devflow-telemetry)"
 ( cd "$T499_B" && env -u GITHUB_ACTIONS bash ./scripts/backfill-telemetry-unavailable.sh ) >/dev/null 2>&1
@@ -37198,9 +37222,45 @@ assert_eq "#499 backfill: R1 null phases gains marker" "unavailable" "$(_et_show
 assert_eq "#499 backfill: R2 missing phases remains absent" "false" "$(_et_show "$T499_B" '.devflow/logs/efficiency/selected.json' | jq -r '.telemetry[1] | has("phases")')"
 assert_eq "#499 backfill: wrong-type record is byte-verbatim" "$T499_B_BEFORE_WRONG" "$(_et_show "$T499_B" '.devflow/logs/efficiency/wrong.json')"
 assert_eq "#499 backfill: non-object entry record is byte-verbatim" "$T499_B_BEFORE_NONOBJ" "$(_et_show "$T499_B" '.devflow/logs/efficiency/nonobject.json')"
-assert_eq "#499 backfill: malformed family breadcrumbs are named" "yes" "$(printf '%s' "$T499_B_ERR" | grep -qF '(R4)' && printf '%s' "$T499_B_ERR" | grep -qF '(R5)' && echo yes || echo no)"
+assert_eq "#499 backfill: non-object iter is byte-verbatim" "$T499_B_BEFORE_M7" "$(_et_show "$T499_B" '.devflow/logs/review/pr-499/run-b/iter-7.json')"
+assert_eq "#499 backfill: malformed family breadcrumbs are named" "yes" "$(printf '%s' "$T499_B_ERR" | grep -qF '(M7)' && printf '%s' "$T499_B_ERR" | grep -qF '(R4)' && printf '%s' "$T499_B_ERR" | grep -qF '(R5)' && echo yes || echo no)"
 assert_eq "#499 backfill: rerun is a branch no-op" "$T499_B_TIP1" "$T499_B_TIP2"
+
+# Backfill operational-degradation arms are behavioral contracts, not merely
+# message pins: staging-only retains relay input, and a generic writer failure
+# names degradation while preserving the script's best-effort exit-0 surface.
+mkdir -p "$T499_B/seed-more/.devflow/logs/review/pr-499/run-b"
+printf '%s' '{"iter":2}' > "$T499_B/seed-more/.devflow/logs/review/pr-499/run-b/iter-2.json"
+( cd "$T499_B" && unset GITHUB_ACTIONS && . ./lib/config-source.sh && . ./lib/telemetry-branch.sh && devflow_telemetry_persist_tree "$T499_B" "$T499_B/seed-more" ) >/dev/null 2>&1
+T499_B_STAGE_ERR="$( ( cd "$T499_B" && GITHUB_ACTIONS=true env -u DEVFLOW_TELEMETRY_PUSH bash ./scripts/backfill-telemetry-unavailable.sh ) 2>&1 1>/dev/null )"
+assert_eq "#499 backfill: CI staging-only arm is behaviorally breadcrumbed" "yes" "$(printf '%s' "$T499_B_STAGE_ERR" | grep -qF 'staged only at' && echo yes || echo no)"
+assert_eq "#499 backfill: CI staging-only arm retains a relay tree" "yes" "$(find "$T499_B/.devflow/tmp" -type f -path '*/telemetry-stage-backfill-*/*/iter-2.json' -print -quit | grep -q . && echo yes || echo no)"
+printf '\ndevflow_telemetry_persist_tree() { return 1; }\n' >> "$T499_B/lib/telemetry-branch.sh"
+T499_B_DEG_ERR="$( ( cd "$T499_B" && env -u GITHUB_ACTIONS bash ./scripts/backfill-telemetry-unavailable.sh ) 2>&1 1>/dev/null )"
+assert_eq "#499 backfill: generic writer failure is behaviorally breadcrumbed" "yes" "$(printf '%s' "$T499_B_DEG_ERR" | grep -qF 'telemetry write degraded (rc=1)' && echo yes || echo no)"
 rm -rf "$T499_B"
+
+# Each early dependency/staging failure stays attributable and best-effort.
+T499_E="$(git_sandbox '#499 backfill early failures repo')"
+git -C "$T499_E" init -q; git -C "$T499_E" config user.email t@e.com; git -C "$T499_E" config user.name t
+mkdir -p "$T499_E/lib" "$T499_E/scripts" "$T499_E/seed/.devflow/logs/review/pr-499/run-e"
+cp "$LIB/resolve-jq.sh" "$LIB/config-source.sh" "$LIB/telemetry-branch.sh" "$T499_E/lib/"
+cp "$LIB/../scripts/config-get.sh" "$LIB/../scripts/backfill-telemetry-unavailable.sh" "$T499_E/scripts/"
+printf '%s' '{"iter":1}' > "$T499_E/seed/.devflow/logs/review/pr-499/run-e/iter-1.json"
+( cd "$T499_E" && unset GITHUB_ACTIONS && . ./lib/config-source.sh && . ./lib/telemetry-branch.sh && devflow_telemetry_persist_tree "$T499_E" "$T499_E/seed" ) >/dev/null 2>&1
+mv "$T499_E/lib/resolve-jq.sh" "$T499_E/lib/resolve-jq.off"
+T499_E_JQ="$( ( cd "$T499_E" && bash ./scripts/backfill-telemetry-unavailable.sh ) 2>&1 1>/dev/null )"
+mv "$T499_E/lib/resolve-jq.off" "$T499_E/lib/resolve-jq.sh"
+mv "$T499_E/lib/config-source.sh" "$T499_E/lib/config-source.off"
+T499_E_CFG="$( ( cd "$T499_E" && bash ./scripts/backfill-telemetry-unavailable.sh ) 2>&1 1>/dev/null )"
+mv "$T499_E/lib/config-source.off" "$T499_E/lib/config-source.sh"
+mv "$T499_E/lib/telemetry-branch.sh" "$T499_E/lib/telemetry-branch.off"
+T499_E_TB="$( ( cd "$T499_E" && bash ./scripts/backfill-telemetry-unavailable.sh ) 2>&1 1>/dev/null )"
+mv "$T499_E/lib/telemetry-branch.off" "$T499_E/lib/telemetry-branch.sh"
+rm -rf "$T499_E/.devflow/tmp"; printf '%s' blocked > "$T499_E/.devflow/tmp"
+T499_E_MK="$( ( cd "$T499_E" && bash ./scripts/backfill-telemetry-unavailable.sh ) 2>&1 1>/dev/null )"
+assert_eq "#499 backfill: dependency and staging early exits are specifically breadcrumbed" "yes" "$(printf '%s' "$T499_E_JQ" | grep -qF 'could not resolve jq' && printf '%s' "$T499_E_CFG" | grep -qF 'could not source config support' && printf '%s' "$T499_E_TB" | grep -qF 'could not source telemetry-branch support' && printf '%s' "$T499_E_MK" | grep -qF 'could not create staging root' && echo yes || echo no)"
+rm -rf "$T499_E"
 
 # Remote retry union integration. Writer B and C retain the same stale local
 # snapshot while writer A migrates the remote. B must preserve the normalized

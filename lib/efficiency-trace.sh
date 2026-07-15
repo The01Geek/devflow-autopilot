@@ -882,6 +882,7 @@ persist_one() {
           # Besides keeping history in the backfill's ownership, this prevents a
           # local CAS retry from reapplying stale bytes after a concurrent
           # backfill advanced the telemetry ref with the normalized marker.
+          echo "::warning::efficiency-trace.sh --persist: existing durable iter '${rel_iter}' still has unestablished telemetry; leaving the backfill-owned historical blob untouched" >&2
           rm -f "$staged_iter" 2>/dev/null || true
           continue
         fi
@@ -892,6 +893,11 @@ persist_one() {
         fi
       fi
       if ! "$DEVFLOW_JQ" -e 'type == "object"' "$staged_iter" >/dev/null 2>&1; then
+        if [ "${existing_class:-}" = established ]; then
+          echo "::warning::efficiency-trace.sh --persist: staged iter workpad '${rel_iter}' is malformed JSON or a valid non-object; leaving the established durable blob untouched" >&2
+          rm -f "$staged_iter" 2>/dev/null || true
+          continue
+        fi
         echo "::warning::efficiency-trace.sh --persist: staged iter workpad '${rel_iter}' is malformed JSON or a valid non-object; copied byte-verbatim and telemetry was not fabricated" >&2
         continue
       fi
@@ -901,6 +907,7 @@ persist_one() {
         # telemetry to the unavailable marker. Leave the whole historical blob
         # untouched; a later source carrying established telemetry may still
         # update this path normally.
+        echo "::warning::efficiency-trace.sh --persist: staged iter workpad '${rel_iter}' has unestablished telemetry; leaving the established durable blob untouched" >&2
         rm -f "$staged_iter" 2>/dev/null || true
         continue
       fi

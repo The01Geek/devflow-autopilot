@@ -518,7 +518,7 @@ devflow_telemetry_persist_tree() {
     # Echoes the new commit sha, `NOOP`
     # when the union tree equals the remote tip's tree, or empty on failure.
     commit_union_on() {  # $1 = remote tip (parent), $2 = local tip to overlay
-      local base="$1" overlay="$2" tree ptree meta path mode sha overlay_out remote_sha local_selected remote_selected jq_bin
+      local base="$1" overlay="$2" tree tree_rc ptree meta path mode sha overlay_out remote_sha local_selected remote_selected jq_bin
       jq_bin="${DEVFLOW_JQ:-jq}"
       # Read the OVERLAY's listing (and its rc) BEFORE building the tree, and fail closed.
       #
@@ -544,6 +544,7 @@ devflow_telemetry_persist_tree() {
         return 1
       fi
       rm -f "$idx" 2>/dev/null || true
+      tree_rc=0
       tree="$(
         export GIT_INDEX_FILE="$idx"
         # Start from BASE (the fetched remote tree): base-wins is the default, so a path
@@ -630,10 +631,15 @@ devflow_telemetry_persist_tree() {
           git -C "$root" update-index --add --cacheinfo "${mode},${sha},${path}" 2>/dev/null || exit 1
         done < <(printf '%s\n' "$overlay_out")
         git -C "$root" write-tree 2>/dev/null || exit 1
-      )" || {
-        echo "::warning::telemetry-branch: could not classify a colliding telemetry blob while building the monotonic union; refusing the union rather than guessing which side is normalized$(_devflow_telemetry_retention_note)" >&2
+      )" || tree_rc=$?
+      if [ "$tree_rc" -ne 0 ]; then
+        if [ "$tree_rc" -eq 2 ]; then
+          echo "::warning::telemetry-branch: could not classify a colliding telemetry blob while building the monotonic union; refusing the union rather than guessing which side is normalized$(_devflow_telemetry_retention_note)" >&2
+        else
+          echo "::warning::telemetry-branch: git plumbing failed while building the telemetry union; refusing the union because its tree could not be established$(_devflow_telemetry_retention_note)" >&2
+        fi
         return 1
-      }
+      fi
       [ -n "$tree" ] || return 1
       ptree="$(git -C "$root" rev-parse --verify --quiet "${base}^{tree}" 2>/dev/null)"
       [ "$tree" = "$ptree" ] && { printf 'NOOP\n'; return 0; }
