@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.0] — 2026-07-15
+
+### Added
+- **Cloud-tier plugin parity: honor `.claude/settings.json` `enabledPlugins` from a trusted ref in all three claude-code-action call sites.** Each call site (`devflow-implement.yml` `claude` job, `devflow.yml` `command` job, `devflow-runner.yml` `run` job) now composes its `plugins`/`plugin_marketplaces` action inputs as the baked baseline (byte-identical across the three, run.sh-pinned) plus the entries the repo's trusted `.claude/settings.json` declares — `enabledPlugins` keys whose value is boolean `true`, and `extraKnownMarketplaces` entries with a `github`-kind source — so a consumer repo's cloud plugin surface matches what its local team already sees ("commit the settings file once, every tier honors it"). New `scripts/resolve-extra-plugins.sh` (python3-backed, modes `plugins`/`marketplaces`, every emitted value derived via `python3` per guard-class 2) emits the extras and a specific stderr breadcrumb per degraded shape; `scripts/describe-plugin-compose.sh` renders the workflow annotation(s) the outcome earns (a `::notice::` listing spliced entries and/or a `::warning::` for a degraded/trusted-read-failed file — a degraded *entry* never suppresses the splice `::notice::` for the valid extras that were composed, so every spliced entry is logged, never silent), driven by `lib/test/run.sh` across the full input-shape matrix. The review tier reads the settings exclusively from the trusted base ref via the `baseprovision` step (`git show FETCH_HEAD:.claude/settings.json` into `$RUNNER_TEMP`, never the PR-head checkout) and runs the helper only from a trusted source (base-ref materialized, or the vendored copy only when `vendor_source == "fetch"`); an absent settings file is the silent baseline. The security posture (unpinned marketplace content executing with runner credentials) is the decided parity trade, stated as a named decision in `docs/cloud-setup.md`. (#505)
+
 ## [2.13.13] — 2026-07-15
 
 ### Fixed
