@@ -68,5 +68,28 @@
     "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2, "webfetches": 0},
     "step_3_5": {"calls": 1, "tokens": 55099, "wall_clock_s": 95}
   },
-  "shadow": null
+  "shadow": {
+    "ran_at": "2026-07-15T20:55:00Z",
+    "reviewed_sha": "9db65ccd",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "devflow-runner.yml comment says 'arm 2' but degraded-no-entries routes to arm 3 (documented_falsehood — false cross-reference in diff-added comment)", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [1365, 1365], "kind": "documented_falsehood"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "review-tier settings classification/routing inline shell only grep-pinned (extract-into-helper convention)", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [321, 398], "kind": "test_gap"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "undriven except Exception read-error arm", "defect_signature": {"file": "scripts/resolve-extra-plugins.sh", "line_range": [1202, 1206], "kind": "test_gap"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "undriven 'missing' source-kind fallback", "defect_signature": {"file": "scripts/resolve-extra-plugins.sh", "line_range": [1294, 1298], "kind": "test_gap"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "annotation || true swallows describe failure -> unlogged splice (recommends inline fallback warning, not dropping || true)", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [391, 398], "kind": "logic_error"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "review-tier source=ok but file vanished -> collapses to silent baseline", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [334, 351], "kind": "logic_error"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "duplicate breadcrumb on wholly-degraded file (cosmetic)", "defect_signature": {"file": ".github/workflows/devflow-implement.yml", "line_range": [60, 65], "kind": "style"}},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "cloud-setup.md:125 unverified probe-evidence provenance claim", "defect_signature": {"file": "docs/cloud-setup.md", "line_range": [125, 125], "kind": "unverified-assumption"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 8, "overlap_with_iter_N": 1, "new": 7, "new_critical": 0, "new_important": 1},
+    "promoted_to_iter_next": true
+  }
 }

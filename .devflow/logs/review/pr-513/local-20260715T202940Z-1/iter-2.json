@@ -1,0 +1,66 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-15T20:56:00Z",
+  "fix_commit_sha": "af1e162f",
+  "fix_files": [
+    ".github/workflows/devflow-runner.yml",
+    ".github/workflows/devflow.yml",
+    ".github/workflows/devflow-implement.yml",
+    "docs/cloud-setup.md",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": false,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "annotation || true swallows describe failure -> unlogged splice (promoted from iter-1 shadow)", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [391, 398], "kind": "logic_error"}, "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "review-tier source=ok but file vanished -> silent baseline (promoted)", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [334, 351], "kind": "logic_error"}, "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "arm 2 -> arm 3 comment cross-reference (documented_falsehood)", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [1365, 1365], "kind": "documented_falsehood"}, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "undriven except Exception read-error arm", "defect_signature": {"file": "scripts/resolve-extra-plugins.sh", "line_range": [1202, 1206], "kind": "test_gap"}, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "undriven 'missing' source-kind fallback", "defect_signature": {"file": "scripts/resolve-extra-plugins.sh", "line_range": [1294, 1298], "kind": "test_gap"}, "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "cloud-setup.md:125 unverified probe-evidence provenance claim", "defect_signature": {"file": "docs/cloud-setup.md", "line_range": [125, 125], "kind": "unverified-assumption"}, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "review-tier settings classification/routing inline shell only grep-pinned (extract-into-helper convention)", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [321, 398], "kind": "test_gap"}, "fix_decision": "deferred"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "duplicate breadcrumb on wholly-degraded file (cosmetic)", "defect_signature": {"file": ".github/workflows/devflow-implement.yml", "line_range": [60, 65], "kind": "style"}, "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F2-annotation-fallback", "decision": "applied", "commit": "af1e162f"},
+    {"finding_id": "F2-vanished-arm", "decision": "applied", "commit": "af1e162f"},
+    {"finding_id": "F2-arm-ref", "decision": "applied", "commit": "af1e162f"},
+    {"finding_id": "F2-except-fixture", "decision": "applied", "commit": "af1e162f"},
+    {"finding_id": "F2-missing-fixture", "decision": "applied", "commit": "af1e162f"},
+    {"finding_id": "F2-provenance-soften", "decision": "applied", "commit": "af1e162f"},
+    {"finding_id": "F2-inline-classification-extract", "decision": "severity-calibrated", "source_file": ".github/workflows/devflow-runner.yml", "claim_text": "review-tier settings ok/degraded/absent classification + compose-routing is inline branch-selecting shell, only grep-pinned; convention says extract into a scripts/*.sh helper the suite can drive per-arm", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "over-grade shape 3 (uncorroborated single-source from empirical over-grader pr-test-analyzer; not raised by any other of the 5 shadow agents, no Phase-2 FAIL). Technical evaluation: the finding is REAL (the classification IS inline and grep-only pinned) but (a) the current behavior is verified-correct by all 5 reviewers across two passes; (b) the security-load-bearing invariant (review tier never reads PR-head settings) already has a behavioral NEGATIVE pin; (c) the classification is git-materialization-coupled (git show / git cat-file -e against FETCH_HEAD), so a faithful extraction is a scope-expanding test-architecture refactor (a new scripts/classify-compose-read.sh + git_sandbox tests) better tracked as its own follow-up issue than grown unboundedly inside this PR. Recorded as a DEFERRED follow-up, not auto-fixed. Not a self-contradicting-diff carve-out (it is a coverage/testability finding, not a false claim), so it is deferrable."},
+    {"finding_id": "F2-duplicate-breadcrumb", "decision": "advisory", "source_file": ".github/workflows/devflow-implement.yml", "claim_text": "duplicate breadcrumb text on a wholly-degraded settings file", "skip_category": "uncategorized", "evidence": "cosmetic (the defect is still surfaced, just doubled); Suggestion, below fix threshold. Optional dedupe not worth a fix-loop iteration."}
+  ],
+  "convergence_inputs": {"fixes_applied": 6, "fix_diff_lines": 40, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 205,
+    "skipped_checks": [
+      {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD) — resolves post-commit / runs in CI"}
+    ]
+  },
+  "stale_prose_check": {"result": "clean", "rows": "no STALE rows at post-iter-2 HEAD"},
+  "test_first_gate": [
+    {"decision": "coverage-add for existing behavior (read-error arm + 'missing' fallback)", "command": "direct helper invocation with directory path and no-source-kind fixture", "result": "pass", "evidence": "directory path -> 'could not be read ([Errno 21] Is a directory)' and NOT 'not valid JSON'; no-source-kind -> 'non-github source kind missing'. Both asserted breadcrumbs confirmed live."},
+    {"decision": "behavioral pins for new inline arms (renderer-failure fallback + vanished-settings)", "command": "grep-pins (inline workflow shell not helper-extractable) + negative pin that '|| true' on the COMPOSE call is gone", "result": "pass", "evidence": "suite 7675 passed incl. the new pins; negative pin correctly does not match the legitimate bash \"$HELPER\" ... || true lines"}
+  ],
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status": "run", "note": "fix delta = workflow-shell arms + doc + test coverage; §2.3 always-on coupled-mirror sweep applied — the annotation-fallback change is mirrored across all three tiers (verified byte-consistent), the arm-ref comment fix is single-site, and the run.sh pins cover the new arms"},
+  "telemetry": {
+    "step_2_6": {"calls": 5, "tokens": 478200, "wall_clock_s": 200},
+    "phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_3_5": {"calls": 1, "tokens": 55000, "wall_clock_s": 95}
+  },
+  "shadow": null
+}
