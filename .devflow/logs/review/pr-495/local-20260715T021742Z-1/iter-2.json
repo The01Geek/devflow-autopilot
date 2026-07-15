@@ -1,0 +1,12 @@
+{
+  "iter": 2,
+  "fix_commit_sha": "eb502d0e9522c92eb3f54a61e03d80e157b74796",
+  "fix_files": [
+    ".github/workflows/devflow-runner.yml",
+    ".github/workflows/telemetry-push.yml",
+    "lib/test/run.sh",
+    "scripts/validate-telemetry-artifact.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}
