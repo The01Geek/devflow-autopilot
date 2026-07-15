@@ -2156,6 +2156,57 @@ assert_pin_red_under "#510 review: capacity truncation fails closed" \
 assert_pin_red_under "#510 review: sweep-at-cap headline selects current iteration" \
   'a sweep-at-cap verdict reads the current iteration'"'"'s block whose `parked_class_sweep` registered the unresolved sibling' \
   's/a sweep-at-cap verdict reads the current iteration/a sweep-at-cap verdict reads the one-iter-back iteration/' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: persistence note selects the sweep-at-cap current iteration" \
+  'a parked-class sweep finding discovered at the cap lives on the current triggering iteration instead' \
+  's/lives on the current triggering iteration instead/lives one iter back instead/' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: Coverage fallback selects the sweep-at-cap current iteration" \
+  'If `APPROVE WITH UNRESOLVED SHADOW FINDINGS` lacks its selected current-iter or one-iter-back full-coverage block' \
+  's/selected current-iter or one-iter-back/one-iter-back/' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: shadow-review mirror selects the sweep-at-cap current iteration" \
+  'a parked-class sweep finding discovered at the cap reads the current triggering iteration' \
+  's/reads the current triggering iteration/reads the promotion-triggering iteration one iter back/' "$LIB/../docs/shadow-review.md"
+assert_pin_red_under "#510 review round 6: every parked seed receives a disposition even without kind" \
+  'Every union member must receive a class disposition before a clean sentinel is legal.' \
+  's/must receive a class disposition/may be dropped before class disposition/' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: missing kind fails closed after the bounded retry" \
+  'parked-class sweep not verified: missing defect_signature.kind for {finding_id}' \
+  's/parked-class sweep not verified: missing defect_signature.kind/parked-class sweep clean: missing defect_signature.kind/' "$ST_RAF"
+assert_pin_red_under "#510 review round 7: empty findings cannot hide an undisposed seed" \
+  'an empty `findings` array alone never proves that the seed was examined' \
+  's/never proves/proves/' "$ST_RAF"
+assert_pin_red_under "#510 review round 7: semantic envelope requires an exact seed-disposition join" \
+  'Only a well-formed result envelope with `status: "complete"` and the exact disposition join may contribute an empty sibling set or a clean sentinel.' \
+  's/and the exact disposition join//' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: ledger identity is site-only" \
+  'The not-re-swept ledger keys cross-producer identity on site overlap alone; `kind_literal` remains enumeration input and recorded metadata, never ledger identity.' \
+  's/site overlap alone/site overlap plus `kind_literal`/' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: sweep-at-cap renders the registered sibling population" \
+  'source `{K}` and the unresolved list from the current iteration’s unfixed `parked_class_sweep.new_siblings` at or above `$FIX_THRESHOLD`' \
+  's/current iteration’s unfixed `parked_class_sweep.new_siblings`/shadow'"'"'s new findings/' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: sweep-at-cap report uses a distinct unresolved section" \
+  'in a distinct `## Unresolved Parked-Class Sweep Findings` section; those siblings were registered before shadow' \
+  's/in a distinct `## Unresolved Parked-Class Sweep Findings` section; those siblings were registered before shadow/in the ordinary unresolved section/' "$ST_RAF"
+assert_pin_red_under "#510 review round 7: caller contract selects the arm-specific unresolved section" \
+  'The unresolved population reaches the caller only via chat plus the arm-specific report section' \
+  's/arm-specific report section/`## Unresolved Shadow Findings` report section/' "$ST_RAF"
+assert_pin_red_under "#510 review round 8: iteration-cap trigger includes pre-shadow sweep overlap" \
+  'OR the iteration-cap sweep has an unfixed at-or-above-threshold `parked_class_sweep.new_siblings` row' \
+  's/OR the iteration-cap sweep has an unfixed at-or-above-threshold `parked_class_sweep.new_siblings` row//' "$ST_RAF"
+assert_pin_red_under "#510 review round 9: sweep-at-cap predicate is independent of shadow novelty" \
+  'The final predicate is intentionally independent of shadow novelty' \
+  's/independent of shadow novelty/dependent on shadow novelty/' "$ST_RAF"
+assert_pin_red_under "#510 review round 8: sweep-at-cap severity follows the configured threshold" \
+  'any non-Critical severity at or above `$FIX_THRESHOLD` on the sweep-at-cap arm' \
+  's/any non-Critical severity at or above `\$FIX_THRESHOLD`/Important severity/' "$ST_RAF"
+assert_pin_red_under "#510 review round 7: shadow-review mirrors both unresolved sections" \
+  'arm-specific section: `## Unresolved Shadow Findings` for an ordinary shadow promotion, or' \
+  's/arm-specific section: `## Unresolved Shadow Findings` for an ordinary shadow promotion, or/`## Unresolved Shadow Findings` section;/' "$LIB/../docs/shadow-review.md"
+assert_pin_red_under "#510 review round 8: shadow-review mirrors suggestion-threshold sweep-at-cap" \
+  'include Suggestion when that threshold is configured' \
+  's/include Suggestion/exclude Suggestion/' "$LIB/../docs/shadow-review.md"
+assert_pin_red_under "#510 review round 6: shadow-review uses the configured fix threshold" \
+  'Siblings at or above `$FIX_THRESHOLD` enter a counted promoted iteration; below-threshold siblings remain visible with a distinct sweep marker.' \
+  's/at or above `\$FIX_THRESHOLD`/graded Important/' "$LIB/../docs/shadow-review.md"
 assert_pin_red_under "#510 review: site overlap remains the cross-producer identity" \
   'Treat `kind` as a matching input, never as cross-producer identity, because free-text labels drift' \
   's/Treat `kind` as a matching input, never as cross-producer identity/Treat `kind` as a matching input, and as cross-producer identity/' "$ST_RAF"
@@ -2166,8 +2217,8 @@ assert_pin_red_under "#510 review round 2: below-threshold category is a non-REJ
   '**N/A** — sweep-only producer rows are not REJECT triggers and are excluded from existing advisory verdict/report operands.' \
   's/sweep-only producer rows are not REJECT triggers and are excluded/sweep-only producer rows are REJECT triggers and are included/' "$ST_RAF"
 assert_pin_red_under "#510 review round 2: semantic empty result requires affirmative completion" \
-  'Only a well-formed result envelope with `status: "complete"` may contribute an empty sibling set or a clean sentinel.' \
-  's/Only a well-formed result envelope with `status: "complete"` may contribute/Any result envelope may contribute/' "$ST_RAF"
+  'Envelope `status` is `"complete"` only after the assigned batch was fully examined' \
+  's/only after the assigned batch was fully examined/before the assigned batch was fully examined/' "$ST_RAF"
 assert_pin_red_under "#510 review round 2: Step 2 advisory split excludes producer rows" \
   'For this Step 2 split, advisory findings exclude `decision: "below-threshold"` rows.' \
   's/For this Step 2 split, advisory findings exclude/For this Step 2 split, advisory findings include/' "$ST_RAF"
@@ -37677,8 +37728,8 @@ assert_pin_red_under "#497 AC6 outcome 1 requires the positive prompt_addenda eq
   'Outcome 1 requires `prompt_addenda` to equal the JSON string literal `"none"` in both memory and the persisted shadow block.' \
   's/ Outcome 1 requires `prompt_addenda` to equal the JSON string literal `"none"` in both memory and the persisted shadow block\.//' "$I497_RAF"
 assert_pin_red_under "#497 AC7 promotion is never gated and coverage is never changed by attestation" \
-  'The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass promotes these findings unchanged and preserves any non-`"none"` attestation on the block.' \
-  's/ The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass promotes these findings unchanged and preserves any non-`"none"` attestation on the block\.//' "$I497_RAF"
+  'The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass preserves any non-`"none"` attestation on the block.' \
+  's/ The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass preserves any non-`"none"` attestation on the block\.//' "$I497_RAF"
 assert_pin_unique "#497 AC10 skill clean render requires both persisted operands" \
   'The exact clean-agreement string requires both persisted operands' "$I497_RAF"
 assert_pin_unique "#497 AC10 Coverage handles every present noncanonical attestation value" \

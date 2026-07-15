@@ -298,19 +298,22 @@ never overclaims relative to its own parenthetical). The separate
 `APPROVE WITH UNRESOLVED SHADOW FINDINGS` verdict — outcome 2 hitting the iteration cap — *normally*
 carries `coverage: "full"` (the shadow ran fully and *disagreed*) and uses its own dedicated line; it
 is never routed through the `{shadow status}` template. That dedicated line carries its own
-render-time coverage assertion: the full-coverage block it reads lives "one iter back" (the
-promotion-triggering iter) and was written by the same best-effort append that can be lost, so when
-that block is absent or not `"full"` the line falls back to a not-verified rendering rather than
-asserting a shadow result the persisted record can't back. An addenda array or absent attestation on
-that promotion block adds a caveat to the dedicated line and Coverage entry without changing the
-verdict. The headline and the report's Coverage
-section both pin to *that same* one-iter-back block (never an earlier iter's block) and evaluate the
-lost-write branch before the `"full"` branch, so a lost promotion-triggering block can't make the
-report read "full coverage" while the headline reads "not verified."
+render-time coverage assertion: an ordinary shadow promotion reads the promotion-triggering block
+one iteration back, while a parked-class sweep finding discovered at the cap reads the current triggering iteration.
+The selected block was written by the same best-effort append that can be lost, so when it is absent
+or not `"full"` the line falls back to a not-verified rendering rather than asserting a shadow result
+the persisted record can't back. An addenda array or absent attestation on the selected block adds a
+caveat to the dedicated line and Coverage entry without changing the verdict. The headline and the
+report's Coverage section both pin to that same selected block (never an earlier iteration's block)
+and evaluate the lost-write branch before the `"full"` branch, so a lost selected block can't make
+the report read "full coverage" while the headline reads "not verified."
 
 `APPROVE WITH UNRESOLVED SHADOW FINDINGS` is terminal *for the loop* — it is at the iteration cap and
-will not re-review itself, and its unresolved Important findings surface only in chat and the report's
-`## Unresolved Shadow Findings` section. A wrapping orchestrator (e.g. `/devflow:implement`) that
+will not re-review itself. The ordinary shadow-promotion arm carries unresolved Important findings;
+the sweep-at-cap arm carries unresolved non-Critical siblings at or above `$FIX_THRESHOLD` (which can
+include Suggestion when that threshold is configured). They surface only in chat and the report's
+arm-specific section: `## Unresolved Shadow Findings` for an ordinary shadow promotion, or
+`## Unresolved Parked-Class Sweep Findings` for sweep-at-cap. A wrapping orchestrator (e.g. `/devflow:implement`) that
 chooses to *fix* those findings must re-establish independent coverage by re-running the loop once
 over the fix delta; it must not resolve them with an unreviewed final commit. Otherwise the very edit
 that answers the shadow ships with no independent eyes on it — the gap this contract closes.
@@ -494,7 +497,7 @@ PR #164 converged to a clean in-loop self-APPROVE, and a later standalone `/devf
 
 *Guarantee scope.* The re-sweep covers comments describing the **changed** mechanism within the **touched** files. **It is not a repo-wide comment audit:** it does not catch drift in files the fix never touched, nor a claim that names no shared identifier. It closes the "spot-checked the fix's own hunks and missed a stale comment elsewhere in the same file" gap — nothing wider.
 
-**Parked-class sweep (fix loop — convergence entries).** The fix-triggered class generalization above cannot help when every finding is parked and no fix occurs. Before the convergence-time shadow, the fix loop now derives parked classes from its advisory decisions, unactioned Suggestion/Minor findings, and Yes-downgrade deferrals; it excludes recorded false claims, generalizes the remaining findings by `defect_signature.kind`, and scans only the PR diff plus fix-touched files. Every sibling is registered in the triggering iteration's `phase3_findings` before shadow comparison. Important siblings enter a counted promoted iteration, while advisory siblings remain visible with a distinct sweep marker. Site overlap—not free-text kind equality—deduplicates cross-producer results.
+**Parked-class sweep (fix loop — convergence entries).** The fix-triggered class generalization above cannot help when every finding is parked and no fix occurs. Before the convergence-time shadow, the fix loop now derives parked classes from its advisory decisions, unactioned Suggestion/Minor findings, and Yes-downgrade deferrals; it excludes recorded false claims, generalizes the remaining findings by `defect_signature.kind` (routing a missing kind through a bounded `unknown-kind` semantic batch), and scans only the PR diff plus fix-touched files. Every sibling is registered in the triggering iteration's `phase3_findings` before shadow comparison. Siblings at or above `$FIX_THRESHOLD` enter a counted promoted iteration; below-threshold siblings remain visible with a distinct sweep marker. Site overlap—not free-text kind equality—deduplicates cross-producer results.
 
 *Guarantee scope.* This is a class-primed enumeration over known parked classes, not a second independent review. Semantic enumeration is bounded and batched; a failed dispatch is retried once and then reported as not verified. A per-class, clean, not-verified, or downgrade-path-not-applicable Reflection sentinel makes a skipped sweep fail closed at Loop Exit. Running before shadow is deliberate: the blinded pass judges the registered post-sweep population instead of rediscovering siblings one at a time.
 
