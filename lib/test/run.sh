@@ -32859,7 +32859,7 @@ assert_pin_unique "#503 Phase 0.2 stores baseRefName as \$PR_BASE_BRANCH (the he
 # #503 rejected-review hardening: the review-side copy of the contract must be
 # executable and removal-proof, not a prose-only promise that can drift while the
 # item-6a mirror stays green.
-assert_pin_red_under "#503 review producer stages the filtered diff before promoting it to diff.patch" \
+assert_pin_red_under "#503 review producer stages the raw diff to diff.raw-candidate before filtering+promoting it to diff.patch" \
   'if git diff "<resolved-local-diff-base>...HEAD" > .devflow/tmp/review/<slug>/<run-id>/diff.raw-candidate; then' \
   '/if git diff "<resolved-local-diff-base>\.\.\.HEAD" > \.devflow\/tmp\/review\/<slug>\/<run-id>\/diff\.raw-candidate; then/d' "$SP_REVIEW"
 assert_pin_red_under "#503 current-branch name-only fence consumes the configured base" \
@@ -33096,6 +33096,26 @@ for SP503_CAPTURE_SHAPE in custom empty failure; do
   assert_eq "#503 AC8 $SP503_CAPTURE_SHAPE Phase0.2 resolves the expected current-branch operand" "$SP503_CAPTURE_EXPECT" "$SP503_REVIEW_BASE"
   assert_eq "#503 AC8 $SP503_CAPTURE_SHAPE item6a resolves byte-identically to Phase0.2" "$SP503_REVIEW_BASE" "$SP503_RAF_BASE"
 done
+# #503 N2 (shadow-promoted, corroborated x3): the item-6a PR-mode arm of
+# CURRENT_BRANCH_BASE_CAPTURE — the exit-65 fail-closed guard and the
+# REVIEW_DIFF_BASE=$HEAD_OVERRIDE_BASE assignment — was covered only by a presence pin
+# plus a whole-line-deletion mutation, so a guard inversion (test -z→test -n) or an
+# exit-65→exit-0 edit stayed GREEN. Execute the PR-mode (if) arm behaviorally, both ways.
+# raf-capture.sh probes $BASE (set only in the current-branch else arm); the PR-mode arm
+# sets REVIEW_DIFF_BASE from $HEAD_OVERRIDE_BASE and never touches $BASE, so probe
+# REVIEW_DIFF_BASE here. config-get is in the else arm only — not reached in PR mode.
+SP503_RAF_PRMODE="$SP503_CAPTURE_DIR/raf-prmode.sh"
+awk '/BEGIN CURRENT_BRANCH_BASE_CAPTURE/{capture=1; next} /END CURRENT_BRANCH_BASE_CAPTURE/{exit} capture' "$SP_RAF" \
+  > "$SP503_RAF_PRMODE"
+printf '%s\n' 'printf "REVIEW_DIFF_BASE=%s\n" "${REVIEW_DIFF_BASE:-}"' >> "$SP503_RAF_PRMODE"
+# (a) operand carried across the block boundary → REVIEW_DIFF_BASE=$HEAD_OVERRIDE_BASE, no exit 65.
+SP503_RAF_PR_OK="$(CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" PR_BASE_BRANCH=main HEAD_OVERRIDE_BASE=origin/main bash "$SP503_RAF_PRMODE" 2>/dev/null | tail -1)"
+assert_eq "#503 N2 item6a PR-mode arm honors the carried HEAD_OVERRIDE_BASE operand (REVIEW_DIFF_BASE=\$HEAD_OVERRIDE_BASE)" \
+  "REVIEW_DIFF_BASE=origin/main" "$SP503_RAF_PR_OK"
+# (b) operand NOT threaded (empty) → fail closed with exit 65 before any diff base is set.
+CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" PR_BASE_BRANCH=main HEAD_OVERRIDE_BASE= bash "$SP503_RAF_PRMODE" >/dev/null 2>&1
+assert_eq "#503 N2 item6a PR-mode arm fails closed (exit 65) when Phase 0.2's HEAD_OVERRIDE_BASE operand was not carried" \
+  "65" "$?"
 rm -rf "$SP503_CAPTURE_DIR"
 
 # T10 → Phase 0.6 degradation arms (fail-safe, never fail-silent), pinned on the
