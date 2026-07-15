@@ -1,0 +1,29 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-15T23:47:00Z",
+  "fix_commit_sha": "f1fb1621fd262b16b581515c930e39d472ccdb03",
+  "fix_files": [".devflow/prompt-extensions/review.md", ".devflow/prompt-extensions/review-and-fix.md"],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "review-gate read-mechanism failure asymmetry (promoted from iter-1 shadow)", "defect_signature": {"file": ".devflow/prompt-extensions/review-and-fix.md", "line_range": [100, 112], "kind": "policy-without-mechanism"}, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "S-1", "decision": "severity-calibrated", "source_file": ".devflow/prompt-extensions/review-and-fix.md", "claim_text": "gate routes value-shape but not read-mechanism failures — fail-open on gh read hiccup", "original_severity": "Important", "calibrated_severity": "Important", "evidence": "genuine fail-open (gate silently opens when a gh read fails), not an over-grade: fails OPEN not closed; Important (discipline backstop, not data-loss; edit-time routing is the primary prevention). Confirmed and applied."}
+  ],
+  "convergence_inputs": {"fixes_applied": 1, "fix_diff_lines": 8, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 150, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (green in CI)"}]},
+  "stale_prose_check": "clean (exit 0)",
+  "telemetry": "unavailable",
+  "post_shadow_delta_review": {
+    "reviewed_range": "05042b8..f1fb162",
+    "reviewers": ["devflow:silent-failure-hunter", "devflow:requesting-code-review"],
+    "verdict": "clean",
+    "new_critical": 0,
+    "new_important": 0,
+    "note": "Loop Exit post-shadow edit gate: the iter-2 gate read-failure fix landed after the early shadow; blinded delta-review of 05042b8..HEAD returned clean/APPROVE, byte-identity preserved. reviewed_sha advanced to HEAD."
+  }
+}
