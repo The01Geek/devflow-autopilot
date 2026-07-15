@@ -55,5 +55,6 @@
   "cap_drops": {
     "count": 0,
     "by_category": {}
-  }
+  },
+  "telemetry": "unavailable"
 }

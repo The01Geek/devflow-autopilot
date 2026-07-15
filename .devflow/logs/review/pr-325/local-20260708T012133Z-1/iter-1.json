@@ -2,7 +2,10 @@
   "iter": 1,
   "started_at": "2026-07-08T01:21:00Z",
   "fix_commit_sha": "edf37d6afcad0e94a7022e7babc9f4c6047c76db",
-  "fix_files": ["lib/test/run.sh", ".changeset/issue-322-devflow-review-workflow-hardening.md"],
+  "fix_files": [
+    "lib/test/run.sh",
+    ".changeset/issue-322-devflow-review-workflow-hardening.md"
+  ],
   "loop_role": "fix",
   "checklist": [],
   "phase3_dispatched": [
@@ -20,37 +23,201 @@
     "checklist_skipped": null
   },
   "phase3_findings": [
-    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "New dedup query-failure breadcrumb has no coupling pin", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [772, 781], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "reuse-lookup breadcrumb is the one hardened breadcrumb with no coupling pin", "defect_signature": {"file": "lib/test/run.sh", "line_range": [9570, 9700], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "bash read-order (title column first) not pinned; column-order contract consumer half open", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [776, 777], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "changeset 'cancelled-conclusion exclusion-filter' phrasing invites backwards reading", "defect_signature": {"file": ".changeset/issue-322-devflow-review-workflow-hardening.md", "line_range": [22, 24], "kind": "doc_drift"}, "corroboration_count": 1, "fix_decision": "deferred"},
-    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "devflow_review_run_count swallows gh stderr and speculates cause", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [319, 323], "kind": "silent_failure"}, "corroboration_count": 2, "fix_decision": "deferred"}
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "New dedup query-failure breadcrumb has no coupling pin",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-review.yml",
+        "line_range": [
+          772,
+          781
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "reuse-lookup breadcrumb is the one hardened breadcrumb with no coupling pin",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          9570,
+          9700
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "bash read-order (title column first) not pinned; column-order contract consumer half open",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-review.yml",
+        "line_range": [
+          776,
+          777
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "changeset 'cancelled-conclusion exclusion-filter' phrasing invites backwards reading",
+      "defect_signature": {
+        "file": ".changeset/issue-322-devflow-review-workflow-hardening.md",
+        "line_range": [
+          22,
+          24
+        ],
+        "kind": "doc_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "devflow_review_run_count swallows gh stderr and speculates cause",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-review.yml",
+        "line_range": [
+          319,
+          323
+        ],
+        "kind": "silent_failure"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "deferred"
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "F-1", "decision": "applied", "commit": "edf37d6", "evidence": "added structural -B1 breadcrumb-on-else-arm pin (strengthened from presence after fix-delta gate note)"},
-    {"finding_id": "F-2", "decision": "applied", "commit": "edf37d6", "evidence": "same pin as F-1 (corroborated)"},
-    {"finding_id": "F-3", "decision": "applied", "commit": "edf37d6", "evidence": "added grep -A1 read-order anchor (title var _rt first, compared to $TITLE)"},
-    {"finding_id": "F-4", "decision": "deferred", "source_file": ".changeset/issue-322-devflow-review-workflow-hardening.md", "claim_text": "cancelled-conclusion phrasing", "skip_category": "uncategorized", "evidence": "cosmetic release-note phrasing; fixture itself correct; below important threshold"},
-    {"finding_id": "F-5", "decision": "deferred", "source_file": ".github/workflows/devflow-review.yml", "claim_text": "run_count swallows gh stderr, speculates cause", "skip_category": "out-of-scope", "evidence": "pre-existing line from an earlier commit (#311 script half), not touched by this PR's delta; fails closed (return 1); below important threshold"}
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "edf37d6",
+      "evidence": "added structural -B1 breadcrumb-on-else-arm pin (strengthened from presence after fix-delta gate note)"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "edf37d6",
+      "evidence": "same pin as F-1 (corroborated)"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "edf37d6",
+      "evidence": "added grep -A1 read-order anchor (title var _rt first, compared to $TITLE)"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "deferred",
+      "source_file": ".changeset/issue-322-devflow-review-workflow-hardening.md",
+      "claim_text": "cancelled-conclusion phrasing",
+      "skip_category": "uncategorized",
+      "evidence": "cosmetic release-note phrasing; fixture itself correct; below important threshold"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "deferred",
+      "source_file": ".github/workflows/devflow-review.yml",
+      "claim_text": "run_count swallows gh stderr, speculates cause",
+      "skip_category": "out-of-scope",
+      "evidence": "pre-existing line from an earlier commit (#311 script half), not touched by this PR's delta; fails closed (return 1); below important threshold"
+    }
   ],
-  "convergence_inputs": {"fixes_applied": 3, "fix_diff_lines": 22, "new_corroborated_critical_count": 0},
-  "cap_drops": {"count": 0, "by_category": {}},
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 22,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
   "shadow": {
     "ran_at": "2026-07-08T01:40:00Z",
     "reviewed_sha": "edf37d6afcad0e94a7022e7babc9f4c6047c76db",
     "verdict": "APPROVE with notes",
     "coverage": "full",
-    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
-    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
     "reason": null,
     "checklist_skipped": null,
     "phase3_findings": [
-      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "successful-PATCH exit 0 unanchored (presence-pin only) — dropping it double-posts, stays green", "defect_signature": {"file": "lib/test/run.sh", "line_range": [710, 713], "kind": "vacuous_test"}},
-      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "retry-arm pre=\"\" conditionality not arm-anchored — count pin can't tell clear-on-failure from clear-always", "defect_signature": {"file": "lib/test/run.sh", "line_range": [667, 668], "kind": "vacuous_test"}},
-      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "'process substitution' terminology (pushed back — pre-edit form was genuine < <() process substitution)", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [763, 764], "kind": "other"}}
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "successful-PATCH exit 0 unanchored (presence-pin only) — dropping it double-posts, stays green",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            710,
+            713
+          ],
+          "kind": "vacuous_test"
+        }
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "retry-arm pre=\"\" conditionality not arm-anchored — count pin can't tell clear-on-failure from clear-always",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            667,
+            668
+          ],
+          "kind": "vacuous_test"
+        }
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "'process substitution' terminology (pushed back — pre-edit form was genuine < <() process substitution)",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-review.yml",
+          "line_range": [
+            763,
+            764
+          ],
+          "kind": "other"
+        }
+      }
     ],
     "phase2_fails": [],
-    "comparison": {"shadow_total": 3, "overlap_with_iter_N": 0, "new": 3, "new_critical": 0, "new_important": 2},
+    "comparison": {
+      "shadow_total": 3,
+      "overlap_with_iter_N": 0,
+      "new": 3,
+      "new_critical": 0,
+      "new_important": 2
+    },
     "promoted_to_iter_next": true
-  }
+  },
+  "telemetry": "unavailable"
 }

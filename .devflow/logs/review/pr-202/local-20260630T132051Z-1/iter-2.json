@@ -174,5 +174,6 @@
         "devflow:requesting-code-review"
       ]
     }
-  }
+  },
+  "telemetry": "unavailable"
 }

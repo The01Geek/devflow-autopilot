@@ -1,11 +1,100 @@
-{"iter":1,"fix_commit_sha":"dc807c0","fix_files":["docs/DEVFLOW_SYSTEM_OVERVIEW.md","lib/test/run.sh"],
-"phase3_dispatched":["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:pr-test-analyzer","devflow:requesting-code-review"],
-"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
-"phase3_findings":[
- {"agent":"devflow:requesting-code-review","severity":"Important","description":"DEVFLOW_SYSTEM_OVERVIEW.md says Phase 0.5 has four flags","defect_signature":{"file":"docs/DEVFLOW_SYSTEM_OVERVIEW.md","line_range":[269,273],"kind":"comment_drift"},"fix_decision":"applied"},
- {"agent":"devflow:pr-test-analyzer","severity":"Important","description":"AC3 no-paraphrase guard catches only exact heading","defect_signature":{"file":"lib/test/run.sh","line_range":[98,99],"kind":"test_gap"},"fix_decision":"applied"},
- {"agent":"devflow:silent-failure-hunter","severity":"Suggestion","description":"assert_pin_red_on_removal accepts FAIL vacuously for never-present literal","defect_signature":{"file":"lib/test/run.sh","line_range":[873,878],"kind":"test_gap"},"fix_decision":"applied"},
- {"agent":"devflow:pr-test-analyzer","severity":"Suggestion","description":"AC2 superset framing not pinned","defect_signature":{"file":"skills/review/SKILL.md","line_range":[665,665],"kind":"test_gap"},"fix_decision":"applied"},
- {"agent":"devflow:requesting-code-review","severity":"Suggestion","description":"detect_all_audit not persisted into diff_profile (efficiency-trace blind)","defect_signature":{"file":"skills/review-and-fix/SKILL.md","line_range":[209,209],"kind":"test_gap"},"fix_decision":"deferred"}
-],
-"convergence_inputs":{"fixes_applied":4,"fix_diff_lines":60,"new_corroborated_critical_count":0}}
+{
+  "iter": 1,
+  "fix_commit_sha": "dc807c0",
+  "fix_files": [
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/run.sh"
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "DEVFLOW_SYSTEM_OVERVIEW.md says Phase 0.5 has four flags",
+      "defect_signature": {
+        "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+        "line_range": [
+          269,
+          273
+        ],
+        "kind": "comment_drift"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "AC3 no-paraphrase guard catches only exact heading",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          98,
+          99
+        ],
+        "kind": "test_gap"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "assert_pin_red_on_removal accepts FAIL vacuously for never-present literal",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          873,
+          878
+        ],
+        "kind": "test_gap"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "AC2 superset framing not pinned",
+      "defect_signature": {
+        "file": "skills/review/SKILL.md",
+        "line_range": [
+          665,
+          665
+        ],
+        "kind": "test_gap"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "detect_all_audit not persisted into diff_profile (efficiency-trace blind)",
+      "defect_signature": {
+        "file": "skills/review-and-fix/SKILL.md",
+        "line_range": [
+          209,
+          209
+        ],
+        "kind": "test_gap"
+      },
+      "fix_decision": "deferred"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 60,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": "unavailable"
+}
