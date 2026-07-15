@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.9] — 2026-07-15
+
+### Changed
+Persist explicit `"unavailable"` telemetry markers, provide a re-runnable durable-store backfill, and prevent stale telemetry refs from undoing the migration ([#507](https://github.com/The01Geek/devflow-autopilot/pull/507)).
+
 ## [2.13.8] — 2026-07-15
 
 ### Added

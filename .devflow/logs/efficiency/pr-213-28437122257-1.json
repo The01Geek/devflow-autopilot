@@ -151,15 +151,15 @@
   "telemetry": [
     {
       "iter": 1,
-      "phases": null
+      "phases": "unavailable"
     },
     {
       "iter": 2,
-      "phases": null
+      "phases": "unavailable"
     },
     {
       "iter": 3,
-      "phases": null
+      "phases": "unavailable"
     }
   ]
 }

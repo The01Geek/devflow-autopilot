@@ -2,7 +2,11 @@
   "iter": 1,
   "started_at": "2026-07-13T00:00:00Z",
   "fix_commit_sha": "68cec902eb081fa6356b35e3cf22ddcf8679f752",
-  "fix_files": ["lib/test/run.sh", "lib/test/test_python_scripts.py", "skills/implement/SKILL.md"],
+  "fix_files": [
+    "lib/test/run.sh",
+    "lib/test/test_python_scripts.py",
+    "skills/implement/SKILL.md"
+  ],
   "loop_role": "fix",
   "diff_profile": {
     "small_diff": false,
@@ -23,7 +27,14 @@
       "agent": "devflow:code-reviewer",
       "severity": "Important",
       "description": "Three stale `bug`-labelled reproduce-gate mirror sites left in skills/implement/SKILL.md (lines 101/135/239)",
-      "defect_signature": {"file": "skills/implement/SKILL.md", "line_range": [101, 239], "kind": "convention-violation"},
+      "defect_signature": {
+        "file": "skills/implement/SKILL.md",
+        "line_range": [
+          101,
+          239
+        ],
+        "kind": "convention-violation"
+      },
       "corroboration_count": 2,
       "step25_classification": "codebase",
       "fix_decision": "applied"
@@ -32,15 +43,30 @@
       "agent": "devflow:pr-test-analyzer",
       "severity": "Important",
       "description": "Coverage gaps: multi-line rationale guard, no-Implement-anchor raise, and combined record+reconcile call untested",
-      "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [1806, 1812], "kind": "test-coverage"},
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          1806,
+          1812
+        ],
+        "kind": "test-coverage"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "applied"
     }
   ],
   "fix_decisions": [
-    {"finding_id": "F-1", "decision": "applied", "commit": "68cec902eb081fa6356b35e3cf22ddcf8679f752"},
-    {"finding_id": "F-2", "decision": "applied", "commit": "68cec902eb081fa6356b35e3cf22ddcf8679f752"}
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "68cec902eb081fa6356b35e3cf22ddcf8679f752"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "68cec902eb081fa6356b35e3cf22ddcf8679f752"
+    }
   ],
   "verification_evidence": {
     "command": "bash lib/test/run.sh (via python3 subprocess wrapper) + python3 lib/test/test_python_scripts.py",
@@ -52,13 +78,29 @@
     "reviewed_sha": "68cec902eb081fa6356b35e3cf22ddcf8679f752",
     "verdict": "APPROVE",
     "coverage": "not_verified",
-    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:requesting-code-review"],
-    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review"],
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:requesting-code-review"
+    ],
     "reason": "shadow ran 3 of 4 always-on blinded reviewers (comment-analyzer axis covered by iteration-1's clean pass, not re-dispatched in shadow); all dispatched shadow reviewers returned APPROVE with zero new findings",
     "checklist_skipped": null,
     "phase3_findings": [],
     "phase2_fails": [],
-    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
     "promoted_to_iter_next": false
-  }
+  },
+  "telemetry": "unavailable"
 }

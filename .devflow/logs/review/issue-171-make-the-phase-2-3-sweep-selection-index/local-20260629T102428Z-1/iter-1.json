@@ -4,45 +4,201 @@
   "started_at": "2026-06-29T10:24:28Z",
   "fix_commit_sha": "92b3133",
   "fix_files": [],
-  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
   "checklist": [
-    {"id": "VC-1", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:changelog.md:version-bump-matches-changelog"},
-    {"id": "VC-2", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:changelog.md:pr-issue-number-ref"},
-    {"id": "VC-3", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "test_mock_alignment:run.sh:pin-literal-target-unique"},
-    {"id": "VC-4", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "test_mock_alignment:run.sh:pin-matches-skill-source"},
-    {"id": "VC-5", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "convention:run.sh:pin-literal-apostrophe-free"},
-    {"id": "VC-6", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:skill.md:referenced-sweeps-exist"},
-    {"id": "VC-7", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:skill.md:no-2.3.0b-reference"},
-    {"id": "VC-8", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:implement-skill.md:doc-mirror-matches-skill"},
-    {"id": "VC-9", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:changelog.md:entry-matches-diff"},
-    {"id": "VC-10", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "test_mock_alignment:run.sh:assert-pin-unique-signature"}
+    {
+      "id": "VC-1",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:changelog.md:version-bump-matches-changelog"
+    },
+    {
+      "id": "VC-2",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:changelog.md:pr-issue-number-ref"
+    },
+    {
+      "id": "VC-3",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:run.sh:pin-literal-target-unique"
+    },
+    {
+      "id": "VC-4",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:run.sh:pin-matches-skill-source"
+    },
+    {
+      "id": "VC-5",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "convention:run.sh:pin-literal-apostrophe-free"
+    },
+    {
+      "id": "VC-6",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:skill.md:referenced-sweeps-exist"
+    },
+    {
+      "id": "VC-7",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:skill.md:no-2.3.0b-reference"
+    },
+    {
+      "id": "VC-8",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:implement-skill.md:doc-mirror-matches-skill"
+    },
+    {
+      "id": "VC-9",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:changelog.md:entry-matches-diff"
+    },
+    {
+      "id": "VC-10",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:run.sh:assert-pin-unique-signature"
+    }
   ],
-  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
   "phase3_findings": [
-    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "run.sh comment frames assert_pin_unique as count-0 detector; helper is count==1", "defect_signature": {"file": "lib/test/run.sh", "line_range": [50, 60], "kind": "comment_drift"}, "corroboration_count": 1, "contributed_to_verdict": true},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "docs/implement-skill.md mirror unpinned (low at iter-1)", "defect_signature": {"file": "docs/implement-skill.md", "line_range": [11, 11], "kind": "test_gap"}, "corroboration_count": 1, "contributed_to_verdict": true}
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "run.sh comment frames assert_pin_unique as count-0 detector; helper is count==1",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          50,
+          60
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "docs/implement-skill.md mirror unpinned (low at iter-1)",
+      "defect_signature": {
+        "file": "docs/implement-skill.md",
+        "line_range": [
+          11,
+          11
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "F1-1", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "comment count-0 vs count==1", "skip_category": "advisory-parked", "evidence": "Suggestion; fixed in iter-2"},
-    {"finding_id": "F1-2", "decision": "advisory", "source_file": "docs/implement-skill.md", "claim_text": "docs mirror unpinned", "skip_category": "advisory-parked", "evidence": "low at iter-1; elevated by shadow-1 to Important and fixed in iter-2"}
+    {
+      "finding_id": "F1-1",
+      "decision": "advisory",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "comment count-0 vs count==1",
+      "skip_category": "advisory-parked",
+      "evidence": "Suggestion; fixed in iter-2"
+    },
+    {
+      "finding_id": "F1-2",
+      "decision": "advisory",
+      "source_file": "docs/implement-skill.md",
+      "claim_text": "docs mirror unpinned",
+      "skip_category": "advisory-parked",
+      "evidence": "low at iter-1; elevated by shadow-1 to Important and fixed in iter-2"
+    }
   ],
-  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
-  "cap_drops": {"count": 0, "by_category": {}},
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
   "shadow": {
     "ran_at": "2026-06-29T10:40:00Z",
     "reviewed_sha": "92b3133",
     "verdict": "REJECT",
     "coverage": "full",
-    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
-    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
     "reason": null,
     "checklist_skipped": null,
     "phase3_findings": [
-      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "SKILL.md parenthetical 'entirely about prose mirror sites' is factually wrong (CLAUDE.md rule spans code sites) and self-undercutting", "defect_signature": {"file": "skills/implement/SKILL.md", "line_range": [439, 439], "kind": "comment_drift"}, "original_severity": "Critical", "calibrated_severity": "Important"},
-      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "docs mirror unpinned — coupled-invariant half-revert gap", "defect_signature": {"file": "lib/test/run.sh", "line_range": [981, 991], "kind": "test_gap"}}
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Important",
+        "description": "SKILL.md parenthetical 'entirely about prose mirror sites' is factually wrong (CLAUDE.md rule spans code sites) and self-undercutting",
+        "defect_signature": {
+          "file": "skills/implement/SKILL.md",
+          "line_range": [
+            439,
+            439
+          ],
+          "kind": "comment_drift"
+        },
+        "original_severity": "Critical",
+        "calibrated_severity": "Important"
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "docs mirror unpinned — coupled-invariant half-revert gap",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            981,
+            991
+          ],
+          "kind": "test_gap"
+        }
+      }
     ],
     "phase2_fails": [],
-    "comparison": {"shadow_total": 6, "overlap_with_iter_N": 1, "new": 5, "new_critical": 0, "new_important": 2},
+    "comparison": {
+      "shadow_total": 6,
+      "overlap_with_iter_N": 1,
+      "new": 5,
+      "new_critical": 0,
+      "new_important": 2
+    },
     "promoted_to_iter_next": true
-  }
+  },
+  "telemetry": "unavailable"
 }

@@ -4,17 +4,73 @@
   "promoted_from_shadow": true,
   "fix_commit_sha": null,
   "fix_files": [],
-  "diff_profile": {"small_diff": false, "config_only": true, "has_new_types": false, "engine_self_modifying": false, "checklist_skipped": "intentional"},
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": "intentional"
+  },
   "phase3_dispatched": [],
   "checklist": [],
   "phase3_findings": [
-    {"agent":"pr-review-toolkit:silent-failure-hunter","severity":"Important","description":"git push failure + idempotent persist = permanent loss","defect_signature":{"file":".github/workflows/devflow.yml","line_range":[497,499],"kind":"logic_error"},"step25_classification":"web_refuted","fix_decision":"advisory"},
-    {"agent":"pr-review-toolkit:silent-failure-hunter","severity":"Important","description":"git push no refspec detached-HEAD","defect_signature":{"file":".github/workflows/devflow.yml","line_range":[495,498],"kind":"api_misuse"},"step25_classification":"codebase","fix_decision":"advisory"}
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "git push failure + idempotent persist = permanent loss",
+      "defect_signature": {
+        "file": ".github/workflows/devflow.yml",
+        "line_range": [
+          497,
+          499
+        ],
+        "kind": "logic_error"
+      },
+      "step25_classification": "web_refuted",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "git push no refspec detached-HEAD",
+      "defect_signature": {
+        "file": ".github/workflows/devflow.yml",
+        "line_range": [
+          495,
+          498
+        ],
+        "kind": "api_misuse"
+      },
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
   ],
   "fix_decisions": [
-    {"finding_id":"S-1","decision":"advisory","source_file":".github/workflows/devflow.yml","claim_text":"push failure + idempotency = permanent silent loss","skip_category":"advisory-parked","evidence":"refuted on cloud-execution-model boundary: runners ephemeral, records run-id-keyed, failed-push commit discarded at teardown; next run starts from fresh checkout (record absent) and re-derives+pushes. Reduces to one-run best-effort loss WITH breadcrumb = documented contract. Also verbatim-from-docs artifact (out of scope to change here)"},
-    {"finding_id":"S-2","decision":"advisory","source_file":".github/workflows/devflow.yml","claim_text":"bare git push no refspec","skip_category":"advisory-parked","evidence":"verbatim-from-docs #101 artifact; best-effort by design (failure -> ::warning::, exit 0); changing desyncs docs/efficiency-trace.md. Surfaced for a possible docs-hardening follow-up"}
+    {
+      "finding_id": "S-1",
+      "decision": "advisory",
+      "source_file": ".github/workflows/devflow.yml",
+      "claim_text": "push failure + idempotency = permanent silent loss",
+      "skip_category": "advisory-parked",
+      "evidence": "refuted on cloud-execution-model boundary: runners ephemeral, records run-id-keyed, failed-push commit discarded at teardown; next run starts from fresh checkout (record absent) and re-derives+pushes. Reduces to one-run best-effort loss WITH breadcrumb = documented contract. Also verbatim-from-docs artifact (out of scope to change here)"
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "advisory",
+      "source_file": ".github/workflows/devflow.yml",
+      "claim_text": "bare git push no refspec",
+      "skip_category": "advisory-parked",
+      "evidence": "verbatim-from-docs #101 artifact; best-effort by design (failure -> ::warning::, exit 0); changing desyncs docs/efficiency-trace.md. Surfaced for a possible docs-hardening follow-up"
+    }
   ],
-  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
-  "cap_drops": {"count": 0, "by_category": {}}
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": "unavailable"
 }

@@ -1,101 +1,102 @@
 {
- "iter": 3,
- "fix_commit_sha": "64b2cbf61271e8b9b21fa7dbfa0540207a44125d",
- "fix_files": [
-  "lib/test/run.sh"
- ],
- "diff_profile": {
-  "small_diff": false,
-  "config_only": false,
-  "has_new_types": false,
-  "engine_self_modifying": true,
-  "checklist_skipped": null
- },
- "phase3_dispatched": [
-  "devflow:code-reviewer",
-  "devflow:silent-failure-hunter",
-  "devflow:comment-analyzer",
-  "devflow:pr-test-analyzer",
-  "devflow:requesting-code-review"
- ],
- "phase3_findings": [
-  {
-   "agent": "devflow:pr-test-analyzer",
-   "severity": "Important",
-   "description": "at-cap carry-forward clause unpinned (fail-closed boundary)",
-   "defect_signature": {
-    "file": "skills/review-and-fix/SKILL.md",
-    "line_range": [
-     574,
-     574
-    ],
-    "kind": "test_gap"
-   },
-   "fix_decision": "applied"
-  },
-  {
-   "agent": "devflow:code-reviewer",
-   "severity": "Important",
-   "description": "claims fix-delta not verified occurs 2x not 3x",
-   "defect_signature": {
-    "file": "lib/test/run.sh",
-    "line_range": [
-     156,
-     159
-    ],
-    "kind": "comment_drift"
-   },
-   "fix_decision": "pushed_back"
-  }
- ],
- "fix_decisions": [
-  {
-   "finding_id": "i3-F1",
-   "decision": "applied",
-   "commit": "64b2cbf61271e8b9b21fa7dbfa0540207a44125d"
-  },
-  {
-   "finding_id": "i3-F2",
-   "decision": "pushed_back",
-   "source_file": "lib/test/run.sh",
-   "claim_text": "fix-delta not verified occurs 2x not 3x",
-   "skip_category": "claim-quality",
-   "evidence": "line 577 contains the literal twice + line 579 once = 3 (grep -oF count=3); comment-analyzer and final-pass reviewer both independently verified 3x; code-reviewer counted matching lines (2) not occurrences"
-  }
- ],
- "convergence_inputs": {
-  "fixes_applied": 1,
-  "fix_diff_lines": 10,
-  "new_corroborated_critical_count": 0
- },
- "shadow": {
-  "ran_at": "2026-06-29T01:50:00Z",
-  "reviewed_sha": "64b2cbf61271e8b9b21fa7dbfa0540207a44125d",
-  "verdict": "APPROVE",
-  "coverage": "full",
-  "reviewers_dispatched": [
-   "devflow:code-reviewer",
-   "devflow:silent-failure-hunter",
-   "devflow:comment-analyzer",
-   "devflow:pr-test-analyzer",
-   "devflow:requesting-code-review"
+  "iter": 3,
+  "fix_commit_sha": "64b2cbf61271e8b9b21fa7dbfa0540207a44125d",
+  "fix_files": [
+    "lib/test/run.sh"
   ],
-  "expected_reviewers": [
-   "devflow:code-reviewer",
-   "devflow:silent-failure-hunter",
-   "devflow:comment-analyzer",
-   "devflow:pr-test-analyzer",
-   "devflow:requesting-code-review"
-  ],
-  "reason": null,
-  "checklist_skipped": null,
-  "comparison": {
-   "shadow_total": 7,
-   "overlap_with_iter_N": 0,
-   "new": 6,
-   "new_critical": 0,
-   "new_important": 3
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
   },
-  "promoted_to_iter_next": true
- }
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "at-cap carry-forward clause unpinned (fail-closed boundary)",
+      "defect_signature": {
+        "file": "skills/review-and-fix/SKILL.md",
+        "line_range": [
+          574,
+          574
+        ],
+        "kind": "test_gap"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "claims fix-delta not verified occurs 2x not 3x",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          156,
+          159
+        ],
+        "kind": "comment_drift"
+      },
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "i3-F1",
+      "decision": "applied",
+      "commit": "64b2cbf61271e8b9b21fa7dbfa0540207a44125d"
+    },
+    {
+      "finding_id": "i3-F2",
+      "decision": "pushed_back",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "fix-delta not verified occurs 2x not 3x",
+      "skip_category": "claim-quality",
+      "evidence": "line 577 contains the literal twice + line 579 once = 3 (grep -oF count=3); comment-analyzer and final-pass reviewer both independently verified 3x; code-reviewer counted matching lines (2) not occurrences"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 10,
+    "new_corroborated_critical_count": 0
+  },
+  "shadow": {
+    "ran_at": "2026-06-29T01:50:00Z",
+    "reviewed_sha": "64b2cbf61271e8b9b21fa7dbfa0540207a44125d",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "comparison": {
+      "shadow_total": 7,
+      "overlap_with_iter_N": 0,
+      "new": 6,
+      "new_critical": 0,
+      "new_important": 3
+    },
+    "promoted_to_iter_next": true
+  },
+  "telemetry": "unavailable"
 }
