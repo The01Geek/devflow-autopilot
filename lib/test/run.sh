@@ -6224,14 +6224,17 @@ echo "implement-profile head guard (#484)"
 # ungranted heads and exits 0 either way, so the guard keys on the printed output
 # being EMPTY, never on the exit status.
 ECH="$LIB/test/extract-command-heads.py"
+E363=
+E484=
 E484="$(mktemp -d)" || { echo "FAIL  #484: mktemp -d failed"; exit 1; }
 trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484"' EXIT
 
 # Heads deliberately left ungranted on the implement profile, each with a rationale:
 #   gh pr checkout — the inline engine is already on the branch; checking out a PR
 #     head would move the tree under Phase 3's fix loop and Phase 4's doc pass.
-#   git rev-list — shallow-clone hazard at fetch-depth 50 (rev-list --count across
-#     the graft boundary can return a plausible-but-wrong number read targets key on).
+#   git rev-list — the Phase 1 behind-by capture is refused and degrades gracefully;
+#     granting this head alone would not make that capture executable, and at
+#     fetch-depth 50 its count can be plausible-but-wrong across the graft boundary.
 #   mktemp — invoked only from leading VAR=$(…) capture shapes the matcher refuses
 #     regardless of a head grant; granting it would be a no-op greening the guard
 #     on a still-denied path.
@@ -6249,8 +6252,13 @@ _impl_suppressed() {  # <head> -> 0 if suppressed/withheld, 1 otherwise
 
 # Real ungranted heads from one skill file: extractor output minus suppressed/withheld.
 _impl_ungranted() {  # <skill-file> <allowlist> <mode>
-  local h
-  python3 "$ECH" ungranted "$1" "$2" "$3" 2>"$E484/err" \
+  local h output
+  if ! output="$(python3 "$ECH" ungranted "$1" "$2" "$3" 2>"$E484/err")"; then
+    printf '%s\n' '__extractor_error__'
+    return 0
+  fi
+  [ -n "$output" ] || return 0
+  printf '%s\n' "$output" \
     | while IFS= read -r h; do _impl_suppressed "$h" || printf '%s\n' "$h"; done
 }
 
@@ -6267,6 +6275,16 @@ assert_eq "#484 a Bash(...) spec cited in a YAML comment is not a grant (impleme
 # never the empty allowlist the default mode would silently yield).
 assert_eq "#484 an absent workflow file is reported, not read as zero findings (fail-closed)" "yes" \
   "$(python3 "$ECH" ungranted "$E484/cited.md" "$E484/does-not-exist.yml" implement-block >/dev/null 2>&1 && echo no || echo yes)"
+
+# Malformed-but-present workflows must also make the contract guard visibly RED.
+# These exercise the two parser failures that previously vanished through the
+# `_impl_ungranted` pipeline and masqueraded as an empty ungranted-head set.
+{ printf '%s\n' '--allowed-tools' '"Read"' '--allowed-tools' '"Write"'; } > "$E484/duplicate-marker.yml"
+assert_eq "#484 duplicate --allowed-tools markers fail the implement contract guard closed" \
+  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/duplicate-marker.yml" implement-block)"
+{ printf '%s\n' '--allowed-tools' '"Read,Bash(echo:*)'; } > "$E484/unterminated-quote.yml"
+assert_eq "#484 an unterminated --allowed-tools quote fails the implement contract guard closed" \
+  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/unterminated-quote.yml" implement-block)"
 
 # AC: a head that merely begins with a suppressed builtin survives (exact, not prefix).
 printf '%s\n' '```bash' 'set-something.sh --x' '```' > "$E484/prefix.md"
@@ -29398,7 +29416,7 @@ echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
 # is worth: it must cover EVERY prose-invoked head, or the audit is green over a gap.
 ECH="$LIB/test/extract-command-heads.py"
 E363="$(mktemp -d)" || { echo "FAIL  #363: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363"' EXIT
+trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484"' EXIT
 
 assert_eq "#363 extractor helper exists" "yes" "$([ -f "$ECH" ] && echo yes || echo no)"
 
@@ -30480,7 +30498,7 @@ echo "#363 scripts/summarize-ci-checks.sh (adversarial input-shape matrix, gh st
 # extraction would silently coerce into a passing result (the #312 bug class).
 SCC="$LIB/../scripts/summarize-ci-checks.sh"
 S363="$(mktemp -d)" || { echo "FAIL  #363 scc: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$S363"' EXIT
+trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484" "$S363"' EXIT
 
 assert_eq "#363 summarize-ci-checks.sh exists and is executable" "yes" \
   "$([ -x "$SCC" ] && echo yes || echo no)"
@@ -30711,7 +30729,7 @@ echo "#363 observability: ::warning:: on denials + permission_denials_count plum
 # ────────────────────────────────────────────────────────────────────────────
 SED_SH="$LIB/../scripts/surface-execution-diagnostics.sh"
 D363="$(mktemp -d)" || { echo "FAIL  #363 diag: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$S363" "$D363"' EXIT
+trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
 
 _diag_run() {  # execution-file-json -> stdout+stderr; GITHUB_OUTPUT at $D363/out
   : > "$D363/out"
