@@ -804,82 +804,56 @@ jobs:
       # seven of fourteen denials were it trying, seven ways, to run the test suite —
       # and can consume an entire run without producing a verdict. This block is
       # prepended on EVERY review run, independently of health_summary.
-      - name: Compose review prompt
-        id: compose
+      - name: Compose CI summary (pre-displacement)
+        id: ci_summary
         env:
-          BASE_PROMPT: ${{ inputs.prompt }}
-          HEALTH_SUMMARY: ${{ steps.provision.outputs.health_summary }}
-          ALLOWED_TOOLS: ${{ steps.tools.outputs.tools }}
           # The job's own GITHUB_TOKEN, whose `permissions:` block declares the
-          # `checks: read` + `actions: read` the CI queries need. The downscoped
-          # DevFlow-Reviewer token is minted LATER (it posts the review), so it is
-          # deliberately not used here.
+          # `checks: read` + `actions: read` the CI check-runs query needs. The
+          # downscoped DevFlow-Reviewer token is minted LATER (it posts the
+          # review), so it is deliberately not used here.
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          # summarize-ci-checks.sh excludes DevFlow's own workflow run from the CI
+          # signal set by this name; without it the summarizer falls back to a
+          # hard-coded literal and stops excluding the reviewer's own run.
           SELF_WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           set -euo pipefail
+          # AC5 (#504): this step computes HEAD_SHA + CI_SUMMARY BEFORE
+          # harden_hooks, because summarize-ci-checks.sh sources lib/resolve-jq.sh
+          # — a HOOK_TARGETS closure member — so on a stub arm post-displacement
+          # the exit-0 stub would terminate the summarizer and the block would
+          # read "CI status unavailable" on a head whose API conclusions are
+          # green. The Compose review prompt step (after harden) consumes these
+          # outputs and runs only the renderer (which sources nothing).
           # The reviewed head is the commit `actions/checkout` put in the worktree.
           HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
-          export HEAD_SHA
           # summarize-ci-checks.sh always exits 0, printing `CI status unavailable`
           # when it cannot determine the CI state — so the block is present even when
           # the query fails, and an absent result never renders as a passing one.
           SCC=.devflow/vendor/devflow/scripts/summarize-ci-checks.sh
           [ -f "$SCC" ] || SCC=scripts/summarize-ci-checks.sh
           if [ -f "$SCC" ]; then
-            CI_SUMMARY=$(bash "$SCC") || CI_SUMMARY="CI status unavailable"
+            # HEAD_SHA is a run:-local variable (computed above), NOT a step env:
+            # entry, so it is passed to the summarizer subprocess inline — the
+            # summarizer reads HEAD_SHA from its environment and fail-closes to
+            # `CI status unavailable` if it is empty, so without this the CI
+            # ground-truth section (issue #363) would regress on every run.
+            CI_SUMMARY=$(HEAD_SHA="$HEAD_SHA" bash "$SCC") || CI_SUMMARY="CI status unavailable"
           else
             echo "::warning::devflow: summarize-ci-checks.sh not found at either the vendored or repo path — the review prompt's CI section will report it unavailable" >&2
             CI_SUMMARY="CI status unavailable"
           fi
           [ -n "$CI_SUMMARY" ] || CI_SUMMARY="CI status unavailable"
-
-          RGB=.devflow/vendor/devflow/scripts/render-grounding-block.sh
-          [ -f "$RGB" ] || RGB=scripts/render-grounding-block.sh
-          if [ -f "$RGB" ]; then
-            GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" bash "$RGB") || GROUNDING=""
-          else
-            echo "::warning::devflow: render-grounding-block.sh not found at either the vendored or repo path — the review prompt carries no engine-ground-truth block this run" >&2
-            GROUNDING=""
-          fi
-          # Verify the OUTCOME, not the file's existence: a present-but-truncated
-          # renderer that exits 0 printing nothing would silently strip the block's
-          # prompt-injection defense from the prompt with no breadcrumb.
-          [ -n "$GROUNDING" ] || echo "::warning::devflow: render-grounding-block.sh produced no output — the review prompt carries no engine-ground-truth block this run (the engine will rediscover its tool boundary by trial and denial)" >&2
-          # The grounding block is ALWAYS present. When the infra-health block is also
-          # present, both are prepended — grounding first, then health, then the base
-          # prompt — so neither displaces the other.
-          if [ -n "$HEALTH_SUMMARY" ]; then
-            PROMPT="${GROUNDING}
-          > [!IMPORTANT]
-          > **Infrastructure status: one or more service containers did not come up.**
-          > This reviewer environment was provisioned (\`provision_env\` is on), but
-          > the following services are degraded:
-          >
-          ${HEALTH_SUMMARY}
-          >
-          > If any build, test, or verify command below fails because it could not
-          > reach one of these services, attribute that failure to the degraded
-          > infrastructure above — NOT to a defect in this pull request. Review the
-          > rest of the change normally.
-
-          ---
-
-          ${BASE_PROMPT}"
-          else
-            PROMPT="${GROUNDING}
-          ${BASE_PROMPT}"
-          fi
-          # Heredoc transport with a unique, timestamped delimiter: the prompt is
-          # full of markdown/backticks, so a fixed sentinel could collide with its
-          # content and prematurely terminate the output. The same pattern guards
-          # the other multiline outputs in this workflow.
-          delim="PROMPT_EOF_$(date +%s%N)_$$"
+          # Publish HEAD_SHA (single-line) and CI_SUMMARY (multi-line, heredoc
+          # with a timestamped delimiter — the summary carries check names that can
+          # hold backticks/markdown) as step outputs the compose step consumes.
+          printf 'HEAD_SHA=%s\n' "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          _cs_d="CI_SUMMARY_EOF_$(date +%s%N)_$$"
           {
-            printf 'prompt<<%s\n' "$delim"
-            printf '%s\n' "$PROMPT"
-            printf '%s\n' "$delim"
+            printf 'CI_SUMMARY<<%s\n' "$_cs_d"
+            printf '%s\n' "$CI_SUMMARY"
+            printf '%s\n' "$_cs_d"
           } >> "$GITHUB_OUTPUT"
 
       # Optional, opt-in: mint a DEDICATED DevFlow-Reviewer GitHub App
@@ -1001,7 +975,7 @@ jobs:
             # devflow-runner.yml to consumer repos, but DevFlow's own .claude/settings.json
             # Stop hooks do NOT ship. In a consumer whose TRUSTED base settings.json does
             # not wire these hooks there is nothing to harden — and stubbing/creating the
-            # nine DevFlow-layout paths would clobber a same-named consumer file (a wrong
+            # ten DevFlow-layout paths would clobber a same-named consumer file (a wrong
             # verdict). So harden ONLY when the trusted base settings.json wires an entry
             # hook. DECIDE VIA THE TRUSTED HELPER'S --wired-check MODE — the single,
             # lib/test/run.sh-driven source of truth for this selection — falling back to
@@ -1082,7 +1056,7 @@ jobs:
               done
             fi
           else
-            echo "::warning::harden-stop-hooks: could not fetch base ref '${BASE_REF:-}' to materialize trusted Stop-hook copies; failing closed (no-op stubs for every hook target). NOTE (issue #460 review, FP-S1): in a CONSUMER repo a base-ref fetch failure means the relevance gate cannot run, so the nine DevFlow-layout paths are stubbed/created over any same-named consumer files during this (read-only) review — a deliberate fail-closed-over-consumer-fidelity trade, disclosed in docs/DEVFLOW_SYSTEM_OVERVIEW.md."
+            echo "::warning::harden-stop-hooks: could not fetch base ref '${BASE_REF:-}' to materialize trusted Stop-hook copies; failing closed (no-op stubs for every hook target). NOTE (issue #460 review, FP-S1): in a CONSUMER repo a base-ref fetch failure means the relevance gate cannot run, so the ten DevFlow-layout paths are stubbed/created over any same-named consumer files during this (read-only) review — a deliberate fail-closed-over-consumer-fidelity trade, disclosed in docs/DEVFLOW_SYSTEM_OVERVIEW.md."
           fi
           # RELEVANCE GATE early-out (issue #460 review, FP1): the trusted base ref
           # demonstrably does not wire these Stop hooks, so there is nothing to harden
@@ -1091,6 +1065,11 @@ jobs:
           # fail-closed path so DevFlow's own protection is never dropped on a transient
           # base-ref fetch error.)
           if [ "$SKIP_HARDEN" -eq 1 ]; then
+            # AC1 (#504): the relevance gate skipped hardening — publish empty
+            # displaced_paths + "skipped" so the compose step forwards an empty
+            # HARDENED_PATHS (the renderer renders no displaced-paths section).
+            printf 'disposition=skipped\n' >> "$GITHUB_OUTPUT"
+            printf 'displaced_paths=\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Rank 2: the vendored helper, ONLY on a fresh fetch this run (never the
@@ -1154,6 +1133,99 @@ jobs:
               exit 1
             fi
           fi
+
+          # AC1 (#504): publish the displaced-path set + disposition. Reached only
+          # on a displacement arm (trusted base-copy success OR inline-stub success)
+          # — the stub_failed arm exited 1 above, so the job never reaches here when
+          # a target was wholly unwritable. The paths value is this step's own
+          # TARGETS literal, newline-separated via printf word-splitting on the
+          # space-separated literal (no tr/sed — guard-class 2: a value deciding an
+          # emitted result must not be derived through a non-preflight PATH tool).
+          # Exact because displacement is all-or-nothing: the helper displaces every
+          # target on exit 0, else the inline arm stubs all ten, else the job failed
+          # before this point. The compose step (after this one) forwards this as
+          # HARDENED_PATHS to the renderer, which routes listed-path HEAD verification
+          # through `git show`.
+          printf 'disposition=displaced\n' >> "$GITHUB_OUTPUT"
+          _df_d="DISPLACED_EOF_$(date +%s%N)_$$"
+          {
+            printf 'displaced_paths<<%s\n' "$_df_d"
+            printf '%s\n' $TARGETS
+            printf '%s\n' "$_df_d"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compose review prompt
+        id: compose
+        env:
+          BASE_PROMPT: ${{ inputs.prompt }}
+          HEALTH_SUMMARY: ${{ steps.provision.outputs.health_summary }}
+          ALLOWED_TOOLS: ${{ steps.tools.outputs.tools }}
+          # AC5 (#504): CI_SUMMARY + HEAD_SHA are computed in the pre-displacement
+          # ci_summary step (summarize-ci-checks.sh sources a HOOK_TARGETS closure
+          # member, so it must run before harden_hooks stubs it). HARDENED_PATHS is
+          # the displaced-path set harden_hooks published this run (empty when the
+          # relevance gate skipped hardening); the renderer renders a displaced-paths
+          # ground-truth section only when it is non-empty.
+          CI_SUMMARY: ${{ steps.ci_summary.outputs.CI_SUMMARY }}
+          HEAD_SHA: ${{ steps.ci_summary.outputs.HEAD_SHA }}
+          HARDENED_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}
+          # The job's own GITHUB_TOKEN, whose `permissions:` block declares the
+          # `checks: read` + `actions: read` the CI queries need. The downscoped
+          # DevFlow-Reviewer token is minted LATER (it posts the review), so it is
+          # deliberately not used here.
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SELF_WORKFLOW_NAME: ${{ github.workflow }}
+        run: |
+          set -euo pipefail
+          # The renderer runs post-displacement (this step is after harden_hooks)
+          # and sources nothing, so the stubbed closure members do not affect it.
+          RGB=.devflow/vendor/devflow/scripts/render-grounding-block.sh
+          [ -f "$RGB" ] || RGB=scripts/render-grounding-block.sh
+          if [ -f "$RGB" ]; then
+            GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" HARDENED_PATHS="$HARDENED_PATHS" bash "$RGB") || GROUNDING=""
+          else
+            echo "::warning::devflow: render-grounding-block.sh not found at either the vendored or repo path — the review prompt carries no engine-ground-truth block this run" >&2
+            GROUNDING=""
+          fi
+          # Verify the OUTCOME, not the file's existence: a present-but-truncated
+          # renderer that exits 0 printing nothing would silently strip the block's
+          # prompt-injection defense from the prompt with no breadcrumb.
+          [ -n "$GROUNDING" ] || echo "::warning::devflow: render-grounding-block.sh produced no output — the review prompt carries no engine-ground-truth block this run (the engine will rediscover its tool boundary by trial and denial)" >&2
+          # The grounding block is ALWAYS present. When the infra-health block is also
+          # present, both are prepended — grounding first, then health, then the base
+          # prompt — so neither displaces the other.
+          if [ -n "$HEALTH_SUMMARY" ]; then
+            PROMPT="${GROUNDING}
+          > [!IMPORTANT]
+          > **Infrastructure status: one or more service containers did not come up.**
+          > This reviewer environment was provisioned (\`provision_env\` is on), but
+          > the following services are degraded:
+          >
+          ${HEALTH_SUMMARY}
+          >
+          > If any build, test, or verify command below fails because it could not
+          > reach one of these services, attribute that failure to the degraded
+          > infrastructure above — NOT to a defect in this pull request. Review the
+          > rest of the change normally.
+
+          ---
+
+          ${BASE_PROMPT}"
+          else
+            PROMPT="${GROUNDING}
+          ${BASE_PROMPT}"
+          fi
+          # Heredoc transport with a unique, timestamped delimiter: the prompt is
+          # full of markdown/backticks, so a fixed sentinel could collide with its
+          # content and prematurely terminate the output. The same pattern guards
+          # the other multiline outputs in this workflow.
+          delim="PROMPT_EOF_$(date +%s%N)_$$"
+          {
+            printf 'prompt<<%s\n' "$delim"
+            printf '%s\n' "$PROMPT"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
 
       # SECURITY (issue #313 shadow S1): this step writes the provider endpoint —
       # including, for bearer auth, the DEVFLOW_PROVIDER_API_KEY secret as
