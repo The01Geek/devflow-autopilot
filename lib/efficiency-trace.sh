@@ -1131,8 +1131,8 @@ do_persist() {
     0) rm -rf "$_TELEMETRY_STAGE" 2>/dev/null || true ;;   # clean (pushed / no-op / nothing staged): delete is gated to rc 0 ONLY so `git status`, HEAD, and the current branch stay byte-for-byte unchanged (#469 AC13, #441 AC2), and no non-clean result can reach it (#469 AC8, fail-closed)
     2)
       # Staging-only (AC5): the operand breadcrumb already fired in telemetry-branch.sh.
-      # RETAIN the staged tree (a forthcoming trusted telemetry-push relay — follow-up to
-      # #469 — uploads+pushes it); do not delete and do not emit a second warning — the
+      # RETAIN the staged tree (the trusted telemetry-push relay — telemetry-push.yml, issue
+      # #489 — uploads+pushes it); do not delete and do not emit a second warning — the
       # intended read-only-review posture, not a degradation.
       : ;;
     *)
@@ -1144,10 +1144,10 @@ do_persist() {
       # retention for every value that is not an explicit clean 0). One ::warning:: names
       # the absolute path; bounded by the newest-N prune at the top of do_persist, so
       # retained roots cannot accumulate without limit. On an ephemeral CI runner the
-      # filesystem does not survive teardown, so on-disk retention is moot there — a
-      # forthcoming trusted telemetry-push relay (follow-up to #469) is the cloud recovery
-      # path; until it lands the records are not recoverable from a cloud runner (see docs).
-      echo "::warning::efficiency-trace.sh --persist: the telemetry-branch write DEGRADED — RETAINING the staged records at '${_TELEMETRY_STAGE}' so they are recoverable (delete once recovered; a bounded newest-${_keep} prune runs each --persist). On an ephemeral CI runner the filesystem does not survive teardown, so recovery there is not on-disk — a forthcoming trusted telemetry-push relay (follow-up to #469) will push the staged records; until it lands they are not recoverable from a cloud runner." >&2 ;;
+      # filesystem does not survive teardown, so on-disk retention is moot there — the
+      # trusted telemetry-push relay (telemetry-push.yml, issue #489) is the cloud recovery
+      # path, pushing the uploaded workflow artifact rather than any on-disk copy (see docs).
+      echo "::warning::efficiency-trace.sh --persist: the telemetry-branch write DEGRADED — RETAINING the staged records at '${_TELEMETRY_STAGE}' so they are recoverable (delete once recovered; a bounded newest-${_keep} prune runs each --persist). On an ephemeral CI runner the filesystem does not survive teardown, so recovery there is not on-disk — the trusted telemetry-push relay (telemetry-push.yml, issue #489) pushes the staged records from the uploaded workflow artifact." >&2 ;;
   esac
   return 0
 }

@@ -417,8 +417,10 @@ jobs:
               # the LOCAL devflow-telemetry ref to mirror already-published remote records (a
               # read — no record append, no push), leaving the tracked tree read-only and the
               # REMOTE devflow-telemetry ref untouched by this job. Landing the staged artifacts
-              # on the branch is the job of a forthcoming trusted telemetry-push relay
-              # (never this PR-head, secrets-bearing job; follow-up to issue #469). So the
+              # on the branch is the job of the trusted telemetry-push relay (telemetry-push.yml,
+              # issue #489): this job uploads them as a workflow artifact (the "Upload staged
+              # telemetry artifacts" step below) and the workflow_run-triggered relay downloads,
+              # validates, and pushes them — never this PR-head, secrets-bearing job. So the
               # grant stays read-only-safe.
               # Command heads the review skill actually invokes are pinned against this
               # string by lib/test/run.sh (issue #363): a head the skill runs but this
@@ -1469,4 +1471,63 @@ jobs:
           name: claude-execution-transcript-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.scrub_transcript.outputs.path }}
           retention-days: 7
+          if-no-files-found: ignore
+
+      # Issue #489 (AC2): hand the read-only review tier's STAGED telemetry to the trusted
+      # pusher. On this `contents: read` PR-head job, `--persist` runs staging-only (it left
+      # its records under gitignored `.devflow/tmp/telemetry-stage-*/.devflow/logs/…` and
+      # pushed nothing — see the TOOLS comment above). This job cannot push them (no write
+      # credential, and it must not gain one — it checks out the PR head). So it CONSOLIDATES
+      # every staged `.devflow/logs` subtree into one deterministic dir and uploads it as a
+      # workflow artifact; the trusted `telemetry-push.yml` job (triggered via `workflow_run`)
+      # downloads it, validates it as untrusted input, and pushes it. The step is naturally
+      # scoped to the staging-only tier: a writable tier's `--persist` returns clean (rc 0)
+      # and DELETES its staging root, so there is nothing to collect there.
+      - name: Collect staged telemetry artifacts
+        id: collect_telemetry
+        if: always()
+        run: |
+          set -uo pipefail
+          dest="${RUNNER_TEMP:-/tmp}/devflow-telemetry-artifact"
+          # The collection logic lives in a suite-tested helper (best-effort; the trusted pusher
+          # re-validates every entry all-or-nothing, so a collection miss cannot reach the branch).
+          # Capture the helper's stdout AND its exit status in the SAME statement (the `_collect_rc`
+          # capture below): the helper is contracted to ALWAYS exit 0, so a non-zero rc is a genuine EXEC FAULT —
+          # rc 126 (present but not executable) / 127 (not found), i.e. a partial or path-skewed
+          # deployment where the helper itself could not run — NOT an empty result. That fault must
+          # be named distinctly (mirroring the sibling telemetry-push-artifact.sh's rc-126/127
+          # discipline), never laundered into the benign no-op notice: gating on stdout alone would
+          # make a real telemetry drop indistinguishable from a clean no-op (the notice even claims
+          # to cover "the helper reported a collection failure above," which an exec fault — the
+          # helper never running — can never reach). This rc dispatch must stay INLINE here (not in
+          # a further helper): it is precisely the collect helper's OWN non-existence it detects, so
+          # it cannot itself be delegated to a script that could be equally absent.
+          _collect_rc=0
+          _collect_out="$(scripts/collect-staged-telemetry.sh "$GITHUB_WORKSPACE" "$dest")" || _collect_rc=$?
+          if [ "$_collect_rc" = 126 ] || [ "$_collect_rc" = 127 ]; then
+            echo "::warning::collect staged telemetry: scripts/collect-staged-telemetry.sh could not be executed (rc $_collect_rc — not found or not executable, a partial or path-skewed deployment); NO telemetry uploaded this run. This is a deployment fault, not an empty run — do NOT read it as 'nothing was staged'."
+          elif [ -n "$_collect_out" ]; then
+            echo "path=$dest" >> "$GITHUB_OUTPUT"
+          else
+            # No upload tree. The helper emits its OWN distinct ::warning:: when records
+            # existed but every copy failed, so this generic notice must NOT assert
+            # "nothing was staged" as fact — it covers only the true no-op cases.
+            echo "::notice::no telemetry artifact to upload this run (writable tier pushed directly, nothing was staged, or the helper reported a collection failure above)."
+          fi
+
+      - name: Upload staged telemetry artifacts
+        if: always() && steps.collect_telemetry.outputs.path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          # A stable, run-scoped name the trusted pusher downloads by run id via `workflow_run`.
+          name: devflow-telemetry-stage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.collect_telemetry.outputs.path }}
+          # LOAD-BEARING: the entire collected tree lives under the DOT-prefixed `.devflow/`,
+          # and actions/upload-artifact@v4 EXCLUDES hidden files by default (include-hidden-files
+          # defaults to 'false' since v4.4.0). Without this the upload would match nothing and the
+          # whole relay would silently transfer zero telemetry (a no-op with no error). The store-
+          # relative `.devflow/logs/…` paths are load-bearing for the validator allowlist and
+          # telemetry-branch.sh, so keeping the hidden root + this flag is the correct fix.
+          include-hidden-files: true
+          retention-days: 3
           if-no-files-found: ignore
