@@ -2,7 +2,11 @@
   "iter": 1,
   "source": "review-and-fix",
   "fix_commit_sha": "d62def51ec218b9a828f5d0fd18824ce563fea5d",
-  "fix_files": ["skills/implement/SKILL.md", "lib/test/run.sh", "CHANGELOG.md"],
+  "fix_files": [
+    "skills/implement/SKILL.md",
+    "lib/test/run.sh",
+    "CHANGELOG.md"
+  ],
   "diff_profile": {
     "small_diff": false,
     "config_only": false,
@@ -11,19 +15,97 @@
     "checklist_skipped": null
   },
   "checklist": [
-    {"id": "VC-1", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:run.sh:cur-show-current-token-pin", "reused_from_iter_prev": false},
-    {"id": "VC-2", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:run.sh:git-common-dir-token-pin", "reused_from_iter_prev": false},
-    {"id": "VC-3", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:run.sh:git-dir-token-pin", "reused_from_iter_prev": false},
-    {"id": "VC-4", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:run.sh:cur-ne-base-token-pin", "reused_from_iter_prev": false},
-    {"id": "VC-5", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:run.sh:linked-worktree-token-pin", "reused_from_iter_prev": false},
-    {"id": "VC-6", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:run.sh:cloud-name-case-token-pin", "reused_from_iter_prev": false},
-    {"id": "VC-7", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "test_mock_alignment:run.sh:decide-branch-mirrors-skill", "reused_from_iter_prev": false},
-    {"id": "VC-8", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:SKILL.md:git-common-dir-differs-in-worktree", "reused_from_iter_prev": false},
-    {"id": "VC-9", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:SKILL.md:base-resolved-before-worktree-check", "reused_from_iter_prev": false},
-    {"id": "VC-10", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:SKILL.md:use-current-skips-create-block", "reused_from_iter_prev": false},
-    {"id": "VC-11", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:plugin.json:version-changelog-coupled", "reused_from_iter_prev": false},
-    {"id": "VC-12", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:SKILL.md:base-branch-fail-closed-config-aware", "reused_from_iter_prev": false},
-    {"id": "VC-13", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:SKILL.md:detached-head-fail-closed", "reused_from_iter_prev": false}
+    {
+      "id": "VC-1",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:run.sh:cur-show-current-token-pin",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:run.sh:git-common-dir-token-pin",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:run.sh:git-dir-token-pin",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:run.sh:cur-ne-base-token-pin",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-5",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:run.sh:linked-worktree-token-pin",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-6",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:run.sh:cloud-name-case-token-pin",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-7",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:run.sh:decide-branch-mirrors-skill",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-8",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:SKILL.md:git-common-dir-differs-in-worktree",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-9",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:SKILL.md:base-resolved-before-worktree-check",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-10",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:SKILL.md:use-current-skips-create-block",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-11",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:plugin.json:version-changelog-coupled",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-12",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:SKILL.md:base-branch-fail-closed-config-aware",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-13",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:SKILL.md:detached-head-fail-closed",
+      "reused_from_iter_prev": false
+    }
   ],
   "phase3_dispatched": [
     "devflow:code-reviewer",
@@ -33,25 +115,180 @@
     "devflow:requesting-code-review"
   ],
   "phase3_findings": [
-    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "Signal 2 (cloud-tier name match) has no CUR != BASE guard; a base branch named issue-* would reuse trunk, defeating AC4.", "defect_signature": {"file": "skills/implement/SKILL.md", "line_range": [286, 289], "kind": "logic_error"}, "corroboration_count": 2, "fix_decision": "applied"},
-    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "Signal 2 name match can override the trunk guard when base is named issue-*; fold the base guard before both signals.", "defect_signature": {"file": "skills/implement/SKILL.md", "line_range": [287, 289], "kind": "logic_error"}, "corroboration_count": 2, "fix_decision": "applied"},
-    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "git rev-parse exit status discarded; a hard git failure yields empty/empty and falls to the create path with no breadcrumb.", "defect_signature": {"file": "skills/implement/SKILL.md", "line_range": [282, 282], "kind": "unhandled_exception"}, "corroboration_count": 1, "fix_decision": "applied"},
-    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "Raw-stdout comparison of --git-common-dir vs --git-dir is form-sensitive; an injected GIT_DIR/GIT_COMMON_DIR could false-positive a worktree and reuse the wrong branch.", "defect_signature": {"file": "skills/implement/SKILL.md", "line_range": [282, 282], "kind": "logic_error"}, "corroboration_count": 1, "fix_decision": "applied"},
-    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "decide_branch takes pre-resolved args; no matrix row exercises the rev-parse-failure -> create path.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [1070, 1106], "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
-    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "Prose presents --git-common-dir vs --git-dir equality as a semantic guarantee when it is byte-identical-output; '# Keep byte-aligned' overstates the mirror relationship.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [56, 58], "kind": "comment_drift"}, "corroboration_count": 1, "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "No assertion for the worktree+name-match overlap (both signals true).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [1083, 1098], "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "decide_branch mirror can drift on a non-!= predicate change without token pins catching it; acceptable as-is, noted as coupled-invariant.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [1070, 1082], "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "advisory"}
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "Signal 2 (cloud-tier name match) has no CUR != BASE guard; a base branch named issue-* would reuse trunk, defeating AC4.",
+      "defect_signature": {
+        "file": "skills/implement/SKILL.md",
+        "line_range": [
+          286,
+          289
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "Signal 2 name match can override the trunk guard when base is named issue-*; fold the base guard before both signals.",
+      "defect_signature": {
+        "file": "skills/implement/SKILL.md",
+        "line_range": [
+          287,
+          289
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "git rev-parse exit status discarded; a hard git failure yields empty/empty and falls to the create path with no breadcrumb.",
+      "defect_signature": {
+        "file": "skills/implement/SKILL.md",
+        "line_range": [
+          282,
+          282
+        ],
+        "kind": "unhandled_exception"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "Raw-stdout comparison of --git-common-dir vs --git-dir is form-sensitive; an injected GIT_DIR/GIT_COMMON_DIR could false-positive a worktree and reuse the wrong branch.",
+      "defect_signature": {
+        "file": "skills/implement/SKILL.md",
+        "line_range": [
+          282,
+          282
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "decide_branch takes pre-resolved args; no matrix row exercises the rev-parse-failure -> create path.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          1070,
+          1106
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "Prose presents --git-common-dir vs --git-dir equality as a semantic guarantee when it is byte-identical-output; '# Keep byte-aligned' overstates the mirror relationship.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          56,
+          58
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "No assertion for the worktree+name-match overlap (both signals true).",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          1083,
+          1098
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "decide_branch mirror can drift on a non-!= predicate change without token pins catching it; acceptable as-is, noted as coupled-invariant.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          1070,
+          1082
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "F-1", "decision": "applied", "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"},
-    {"finding_id": "F-2", "decision": "applied", "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"},
-    {"finding_id": "F-3", "decision": "applied", "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"},
-    {"finding_id": "F-4", "decision": "applied", "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"},
-    {"finding_id": "F-5", "decision": "applied", "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"},
-    {"finding_id": "F-6", "decision": "applied", "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"},
-    {"finding_id": "F-7", "decision": "applied", "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"},
-    {"finding_id": "F-8", "decision": "deferred", "source_file": "lib/test/run.sh", "claim_text": "decide_branch mirror could drift on a future non-!= predicate change", "skip_category": "uncategorized", "evidence": "Inherent to a hand-maintained behavioral mirror coupled to prose; mitigated by the operator/flag token pins. Noted as a coupled-invariant per CLAUDE.md; no action this PR."}
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "applied",
+      "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "applied",
+      "commit": "d62def51ec218b9a828f5d0fd18824ce563fea5d"
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "decide_branch mirror could drift on a future non-!= predicate change",
+      "skip_category": "uncategorized",
+      "evidence": "Inherent to a hand-maintained behavioral mirror coupled to prose; mitigated by the operator/flag token pins. Noted as a coupled-invariant per CLAUDE.md; no action this PR."
+    }
   ],
-  "convergence_inputs": {"fixes_applied": 7, "fix_diff_lines": 70, "new_corroborated_critical_count": 0},
-  "cap_drops": {"count": 0, "by_category": {}}
+  "convergence_inputs": {
+    "fixes_applied": 7,
+    "fix_diff_lines": 70,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": "unavailable"
 }

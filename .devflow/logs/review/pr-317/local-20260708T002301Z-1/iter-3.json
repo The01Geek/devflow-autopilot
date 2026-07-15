@@ -2,25 +2,71 @@
   "iter": 3,
   "started_at": "2026-07-08T00:35:00Z",
   "fix_commit_sha": "c06df08",
-  "fix_files": ["lib/test/run.sh"],
-  "loop_role": "promoted",
-  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
-  "phase3_dispatched": ["devflow:comment-analyzer"],
-  "phase3_findings": [
-    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "Case 16 comment calls Case 14 a 'paraphrase' but the bullet is byte-identical; below Important threshold, not self-contradicting-diff", "defect_signature": {"file": "lib/test/run.sh", "line_range": [4147, 4149], "kind": "inaccurate-comment"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  "fix_files": [
+    "lib/test/run.sh"
   ],
-  "fix_decisions": [{"finding_id": "F-4", "decision": "applied", "commit": "c06df08"}],
-  "convergence_inputs": {"fixes_applied": 1, "fix_diff_lines": 4, "new_corroborated_critical_count": 0},
+  "loop_role": "promoted",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:comment-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "Case 16 comment calls Case 14 a 'paraphrase' but the bullet is byte-identical; below Important threshold, not self-contradicting-diff",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          4147,
+          4149
+        ],
+        "kind": "inaccurate-comment"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "c06df08"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 4,
+    "new_corroborated_critical_count": 0
+  },
   "shadow": {
     "ran_at": "2026-07-08T00:34:00Z",
     "reviewed_sha": "1b7f2e6",
     "verdict": "APPROVE with notes",
     "coverage": "full",
-    "reviewers_dispatched": ["devflow:comment-analyzer"],
-    "expected_reviewers": ["devflow:comment-analyzer"],
+    "reviewers_dispatched": [
+      "devflow:comment-analyzer"
+    ],
+    "expected_reviewers": [
+      "devflow:comment-analyzer"
+    ],
     "reason": null,
     "checklist_skipped": null,
-    "comparison": {"shadow_total": 1, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
     "promoted_to_iter_next": false
-  }
+  },
+  "telemetry": "unavailable"
 }
