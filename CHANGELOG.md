@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.13] — 2026-07-15
+
+### Fixed
+- **Surface the #458-displaced Stop-hook paths as review-engine ground truth and route their HEAD verification through `git show`.** The cloud review tier's `Harden Stop-hook script sources` step (issue #458) reverts the ten Stop-hook closure files to trusted base-ref copies (or fail-closed stubs) before the engine reads them, so the review engine — which verifies diff-added claims via working-tree reads — manufactured false non-demotable `documented_falsehood` Critical findings against wording correct at HEAD (observed on PR #495). This ships the refinement §15 named as residual (3): the harden step publishes the displaced-path set (the ten `HOOK_TARGETS` members) plus a disposition token; a new pre-displacement `Compose CI summary` step computes `CI_SUMMARY` (so `summarize-ci-checks.sh` runs before its closure-member `lib/resolve-jq.sh` is stubbed); the slimmed `Compose review prompt` step runs after harden, forwarding the displaced paths to `scripts/render-grounding-block.sh` as `HARDENED_PATHS`, which renders a displaced-paths ground-truth section. The engine's seven claim-verification surfaces (Phase 2.1a lite-probe, 2.1b `checklist-verifier` dispatch, the shared `defect_signature` truthfulness contract, Phase 4.1.6 sweep, and the `code-reviewer`/`comment-analyzer`/`checklist-verifier` agent mirrors) route HEAD verification of listed paths through `git show <head>:<path>` (+ the cached diff), never the working tree, with a fetch-free `git cat-file -e` → INCONCLUSIVE fail direction; Phase 0.1 attributes displaced-path dirt (content and mode-only deltas) to the floor. Inert with no displaced list (every local tier, the manual path, a consumer relevance-gate skip, fix-loop iterations) — never a wrong claim. Zero new tool grants. (#504)
+
 ## [2.13.12] — 2026-07-15
 
 ### Fixed
