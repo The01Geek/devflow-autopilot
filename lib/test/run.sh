@@ -2116,43 +2116,71 @@ assert_pin_unique "#500: system overview mirrors parked-class sweep" \
   '**Pre-shadow parked-class sweep:**' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_pin_red_under "#500: missing parked-class completeness gate goes RED" \
   'An in-scope APPROVE-family conclusion with parked findings but no parked-class sweep evidence is non-convergence.' \
-  '/An in-scope APPROVE-family conclusion with parked findings but no parked-class sweep evidence is non-convergence\./d' "$ST_RAF"
+  's/parked-class sweep evidence is non-convergence/parked-class sweep evidence is convergence/' "$ST_RAF"
 assert_pin_red_under "#500: missing threshold promotion route goes RED" \
   'A discovered sibling at or above `$FIX_THRESHOLD` enters Step 2.5 → Step 3 as a promoted iteration using the same machinery as Decide outcome 2.' \
-  '/A discovered sibling at or above `\$FIX_THRESHOLD` enters Step 2\.5/d' "$ST_RAF"
+  's/A discovered sibling at or above `\$FIX_THRESHOLD` enters/A discovered sibling below `\$FIX_THRESHOLD` enters/' "$ST_RAF"
 assert_pin_red_under "#500: missing phase3_findings registration goes RED" \
   'Append every discovered sibling to the triggering iteration’s `phase3_findings` with its assigned severity and full `defect_signature` before the shadow runs.' \
-  '/Append every discovered sibling to the triggering iteration.*`phase3_findings`/d' "$ST_RAF"
+  's/with its assigned severity and full `defect_signature` before the shadow runs/with its assigned severity and full `defect_signature` after the shadow runs/' "$ST_RAF"
 assert_pin_red_under "#510 review: schema example excludes the refuted seed" \
   '"source_finding_ids": ["F-16"],' \
-  '/"source_finding_ids": \["F-16"\],/d' "$ST_RAF"
+  's/"source_finding_ids": \["F-16"\]/"source_finding_ids": ["F-15"]/' "$ST_RAF"
 assert_pin_red_under "#510 review: capacity truncation fails closed" \
   'A non-null `truncation` is incomplete coverage: record `parked-class sweep not verified: capacity truncation ({details})` and take the not-verified fallthrough.' \
-  '/A non-null `truncation` is incomplete coverage/d' "$ST_RAF"
+  's/A non-null `truncation` is incomplete coverage/A non-null `truncation` is complete coverage/' "$ST_RAF"
 assert_pin_red_under "#510 review: sweep-at-cap headline selects current iteration" \
   'a sweep-at-cap verdict reads the current iteration'"'"'s block whose `parked_class_sweep` registered the unresolved sibling' \
-  '/a sweep-at-cap verdict reads the current iteration.*`parked_class_sweep`/d' "$ST_RAF"
+  's/a sweep-at-cap verdict reads the current iteration/a sweep-at-cap verdict reads the one-iter-back iteration/' "$ST_RAF"
 assert_pin_red_under "#510 review: site overlap remains the cross-producer identity" \
   'Treat `kind` as a matching input, never as cross-producer identity, because free-text labels drift' \
-  '/Treat `kind` as a matching input, never as cross-producer identity/d' "$ST_RAF"
+  's/Treat `kind` as a matching input, never as cross-producer identity/Treat `kind` as a matching input, and as cross-producer identity/' "$ST_RAF"
 assert_pin_red_under "#510 review: terminal dispatch failure cannot read clean" \
   'If it still fails, record the distinct Reflection bullet `parked-class sweep not verified: {cause}`, set `dispatch: "not_verified"`, and take the completeness gate'"'"'s not-verified fallthrough; never convert it into a clean run.' \
-  '/If it still fails, record the distinct Reflection bullet `parked-class sweep not verified/d' "$ST_RAF"
+  's/take the completeness gate'"'"'s not-verified fallthrough; never convert it into a clean run/take the completeness gate'"'"'s not-verified fallthrough; convert it into a clean run/' "$ST_RAF"
 assert_pin_red_under "#510 review round 2: below-threshold category is registered" \
   '| `below-threshold-parked` | Written by Step 2'"'"'s below-threshold parking arm.' \
   '/\| `below-threshold-parked` \| Written by Step 2/d' "$ST_RAF"
 assert_pin_red_under "#510 review round 2: semantic empty result requires affirmative completion" \
   'Only a well-formed result envelope with `status: "complete"` may contribute an empty sibling set or a clean sentinel.' \
-  '/Only a well-formed result envelope with `status: "complete"`/d' "$ST_RAF"
+  's/Only a well-formed result envelope with `status: "complete"` may contribute/Any result envelope may contribute/' "$ST_RAF"
 assert_pin_red_under "#510 review round 2: Step 2 advisory split excludes producer rows" \
   'For this Step 2 split, advisory findings exclude `decision: "below-threshold"` rows.' \
-  '/For this Step 2 split, advisory findings exclude/d' "$ST_RAF"
+  's/For this Step 2 split, advisory findings exclude/For this Step 2 split, advisory findings include/' "$ST_RAF"
 assert_pin_red_under "#510 review round 2: Loop Exit advisory trigger excludes producer rows" \
   'For this Loop Exit trigger, advisory findings exclude `decision: "below-threshold"` rows.' \
-  '/For this Loop Exit trigger, advisory findings exclude/d' "$ST_RAF"
+  's/For this Loop Exit trigger, advisory findings exclude/For this Loop Exit trigger, advisory findings include/' "$ST_RAF"
 assert_pin_red_under "#510 review round 2: headline advisory count excludes producer rows" \
   'The headline advisory count excludes `decision: "below-threshold"` rows.' \
-  '/The headline advisory count excludes/d' "$ST_RAF"
+  's/The headline advisory count excludes/The headline advisory count includes/' "$ST_RAF"
+# #510 review round 3: the not-re-swept dedup ledger gates on a `verified` dispatch, so a
+# not_verified/truncated sweep is re-examined and a failed dispatch is never laundered into
+# permanent silence. Mutation drops the "NOT treated as already-swept" carry-forward — the exact
+# laundering regression.
+assert_pin_red_under "#510 review round 3: not-re-swept dedup re-examines a non-verified prior sweep" \
+  'sites recorded under a `not_verified` (or capacity-truncated) prior sweep are NOT treated as already-swept' \
+  's/prior sweep are NOT treated as already-swept/prior sweep are treated as already-swept/' "$ST_RAF"
+# #510 review round 3: the downgrade-path conclusion satisfies the completeness gate via its
+# sanctioned not-applicable sentinel. Mutation flips the recognition so the sentinel no longer
+# satisfies the gate.
+assert_pin_red_under "#510 review round 3: downgrade-path sentinel satisfies the completeness gate" \
+  'The REJECT-downgrade conclusion satisfies this rule with `parked-class sweep not applicable: downgrade-path conclusion`.' \
+  's/The REJECT-downgrade conclusion satisfies this rule with/The REJECT-downgrade conclusion does not satisfy this rule with/' "$ST_RAF"
+# #510 review round 3: the sweep-at-cap Decide-outcome-1 bar. Mutation flips barred->permitted,
+# re-admitting a clean-approve while an unfixed at-or-above-threshold sibling exists.
+assert_pin_red_under "#510 review round 3: sweep-at-cap bars Decide outcome 1" \
+  'Decide outcome 1 is barred while any unfixed at-or-above-threshold sweep-registered sibling exists.' \
+  's/Decide outcome 1 is barred while/Decide outcome 1 is permitted while/' "$ST_RAF"
+# #510 review round 3: a false-established class is excluded as an enumeration seed. Mutation
+# flips exclude->include, priming the sweep on a refuted class.
+assert_pin_red_under "#510 review round 3: false-established class excluded as a sweep seed" \
+  'Exclude a finding when its recorded evidence establishes the claim false' \
+  's/Exclude a finding when its recorded evidence establishes the claim false/Include a finding when its recorded evidence establishes the claim false/' "$ST_RAF"
+# #510 review round 3: the producer marker never qualifies for the corroboration carve-out.
+# Mutation drops "never", letting a below-threshold producer row self-corroborate.
+assert_pin_red_under "#510 review round 3: producer marker never qualifies for the carve-out" \
+  'The producer marker `parked-origin: below-threshold` never qualifies.' \
+  's/The producer marker `parked-origin: below-threshold` never qualifies/The producer marker `parked-origin: below-threshold` qualifies/' "$ST_RAF"
 # #425 shadow-not-scoped behavioral-fix pin (placed here, below the assert_pin_red_under
 # definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
