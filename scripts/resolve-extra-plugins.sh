@@ -108,31 +108,28 @@ if not isinstance(data, dict):
     sys.exit(0)
 
 # Pre-compute the marketplace index once (used by both modes): the names declared in
-# extraKnownMarketplaces, and the subset of those that are github-kind (the only kind
-# the compose maps to a URL, and a known-marketplace suffix for plugins mode).
+# extraKnownMarketplaces, the github-kind subset (the only kind the compose maps to a
+# URL, and a known-marketplace suffix for plugins mode), and a per-entry string source
+# kind (for the declared-but-unsupported-kind breadcrumb — built here so the breadcrumb
+# does not re-derive extra[name].source.source a second time).
 extra = data.get("extraKnownMarketplaces")
 if isinstance(extra, dict):
     declared_market_names = set(extra.keys())
     github_market_names = set()
+    market_kinds = {}
     for nm, val in extra.items():
         if isinstance(val, dict):
             src = val.get("source")
-            if isinstance(src, dict) and src.get("source") == "github":
-                github_market_names.add(nm)
+            if isinstance(src, dict):
+                k = src.get("source")
+                if isinstance(k, str):
+                    market_kinds[nm] = k
+                if k == "github":
+                    github_market_names.add(nm)
 else:
     declared_market_names = set()
     github_market_names = set()
-
-
-def market_kind(name):
-    v = extra.get(name) if isinstance(extra, dict) else None
-    if not isinstance(v, dict):
-        return None
-    s = v.get("source")
-    if not isinstance(s, dict):
-        return None
-    k = s.get("source")
-    return k if isinstance(k, str) else None
+    market_kinds = {}
 
 
 BAKED_PLUGINS = frozenset((
@@ -140,8 +137,9 @@ BAKED_PLUGINS = frozenset((
     "claude-md-management@claude-plugins-official",
     "devflow@devflow-marketplace",
 ))
+# The baked-baseline marketplace names — used both as the plugins-mode known set and the
+# marketplaces-mode silent-skip set; the two concepts are the same two baseline names.
 BASE_MARKETPLACES = frozenset(("claude-plugins-official", "devflow-marketplace"))
-SKIP_MARKET_NAMES = frozenset(("claude-plugins-official", "devflow-marketplace"))
 
 if mode == "plugins":
     ep = data.get("enabledPlugins")
@@ -174,8 +172,7 @@ if mode == "plugins":
             continue
         if market not in known:
             if market in declared_market_names:
-                k = market_kind(market)
-                kstr = k if k else "missing"
+                kstr = market_kinds.get(market) or "missing"
                 warn("enabledPlugins entry " + repr(key) + " marketplace " + repr(market)
                      + " is declared in extraKnownMarketplaces but with non-github source kind "
                      + repr(kstr) + " (scope boundary: only github-kind marketplaces are mapped); not emitted")
@@ -193,7 +190,7 @@ if mode == "marketplaces":
         warn("extraKnownMarketplaces is not an object (" + type(extra).__name__ + "); emitting nothing")
         sys.exit(0)
     for name, val in extra.items():
-        if name in SKIP_MARKET_NAMES:
+        if name in BASE_MARKETPLACES:
             continue
         if not isinstance(val, dict):
             warn("extraKnownMarketplaces entry " + repr(name) + " is not an object (" + type(val).__name__ + "); not emitted")
