@@ -35840,6 +35840,16 @@ _505_run plugins '{not json'
 assert_eq "#505 AC: invalid JSON exit 0" "0" "$_RC"
 assert_eq "#505 AC: invalid JSON empty stdout" "" "$_OUT"
 assert_eq "#505 AC: invalid JSON breadcrumb names the defect" "yes" "$(_505_grep_err 'not valid JSON')"
+# read error (NOT a JSON defect): a directory path exercises the `except Exception`
+# arm, whose breadcrumb must say "could not be read" and NOT misdirect to the
+# "not valid JSON" message (accurate-diagnosis discipline — the two arms are distinct).
+_505_DIR="$(mktemp -d)"
+_505_dir_out="$(bash "$REP" plugins "$_505_DIR" 2>"$_505_ERR")"; _505_dir_rc=$?; _505_dir_err="$(cat "$_505_ERR")"
+rmdir "$_505_DIR"
+assert_eq "#505 AC: unreadable (directory) settings path → exit 0" "0" "$_505_dir_rc"
+assert_eq "#505 AC: unreadable settings path → empty stdout" "" "$_505_dir_out"
+assert_eq "#505 AC: unreadable settings path → 'could not be read' breadcrumb (not the JSON-defect message)" "yes" \
+  "$(printf '%s' "$_505_dir_err" | grep -qi 'could not be read' && ! printf '%s' "$_505_dir_err" | grep -qi 'not valid JSON' && echo yes || echo no)"
 _505_run plugins '[1,2,3]'
 assert_eq "#505 AC: top-level array breadcrumb" "yes" "$(_505_grep_err 'not an object')"
 _505_run plugins '"hello"'
@@ -35867,6 +35877,12 @@ assert_eq "#505 AC: unknown-marketplace suffix breadcrumb" "yes" "$(_505_grep_er
 _505_run plugins '{"enabledPlugins":{"plug@custom-market":true},"extraKnownMarketplaces":{"custom-market":{"source":{"source":"url","repo":"x"}}}}'
 assert_eq "#505 AC: declared-unsupported-kind breadcrumb names the kind" "yes" "$(_505_grep_err 'non-github source kind')"
 assert_eq "#505 AC: declared-unsupported-kind breadcrumb names the scope boundary" "yes" "$(_505_grep_err 'scope boundary')"
+# declared market whose source object has NO .source key → market_kinds.get()=None →
+# the "missing" fallback string renders in the breadcrumb (the branch a real string
+# kind like "url" above never reaches). Drives `market_kinds.get(market) or "missing"`.
+_505_run plugins '{"enabledPlugins":{"plug@custom-market":true},"extraKnownMarketplaces":{"custom-market":{"source":{"foo":1}}}}'
+assert_eq "#505 AC: declared market with no source-kind → 'missing' fallback in breadcrumb" "yes" \
+  "$(printf '%s' "$_ERR" | grep -qi 'non-github source kind' && printf '%s' "$_ERR" | grep -q "'missing'" && echo yes || echo no)"
 # github-kind declared custom market IS emitted (known set includes github-kind extra names)
 _505_run plugins '{"enabledPlugins":{"plug@custom-market":true},"extraKnownMarketplaces":{"custom-market":{"source":{"source":"github","repo":"o/r"}}}}'
 assert_eq "#505 AC: github-kind custom-market plugin emitted" "plug@custom-market" "$_OUT"
@@ -36050,6 +36066,24 @@ assert_eq "#505 AC review: NO helper invocation consumes a workspace .claude/set
   "$(grep -cE 'bash "\$HELPER".*\.claude/settings\.json' "$_RYML")"
 assert_eq "#505 AC review: fail-closed arm names the trusted-source rule" "yes" \
   "$(grep -qF 'trusted-source rule' "$_RYML" && echo yes || echo no)"
+# The renderer-failure fallback (issue #513 "never silent"): the annotation renderer is
+# invoked with its status CAPTURED (`if ! bash "$COMPOSE" …`), NOT `|| true`-swallowed, so
+# a non-zero renderer (corrupt/partial COMPOSE copy) still leaves an audit ::warning:: after
+# the extras were already spliced. Pin the fallback literal on all three tiers, and pin that
+# the old swallow form is gone (a reintroduced `|| true` on the COMPOSE call turns this RED).
+for _f in devflow-implement devflow devflow-runner; do
+  assert_eq "#513 AC: $_f.yml captures the renderer status and emits a fallback ::warning:: (not '|| true')" "yes" \
+    "$(grep -qF 'the audit annotation could not be rendered' "$_505_WF/$_f.yml" && echo yes || echo no)"
+  assert_eq "#513 AC: $_f.yml no longer swallows the COMPOSE renderer with '|| true' (negative)" "0" \
+    "$(grep -cE 'bash "\$COMPOSE".*\|\| true' "$_505_WF/$_f.yml")"
+done
+# Review-tier fail-closed arm for a materialized-but-vanished settings file: baseprovision
+# classified the read 'ok' yet the file is absent at compose time → route to the
+# trusted-read-failed arm (a ::warning::), NEVER collapse onto the silent 'absent' baseline
+# ("unknown is not zero"). Pin the arm's defect literal so a regression that drops it (or
+# collapses it to silence) turns RED.
+assert_eq "#505 AC review: materialized-but-vanished settings file fails closed (not silent baseline)" "yes" \
+  "$(grep -qF 'vanished before compose' "$_RYML" && echo yes || echo no)"
 
 
 # ── #456 skip tally, summary renderer, and the NOTE-emit meta-assertion ───────────────

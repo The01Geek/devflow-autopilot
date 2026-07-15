@@ -769,7 +769,13 @@ jobs:
           # emit each independently, so a spliced entry is never added without an
           # audit line (docs/cloud-setup.md: every spliced entry logged, never silent).
           if [ -f "$COMPOSE" ]; then
-            bash "$COMPOSE" ok "$ENTRIES" "$DEFECT" || true
+            # Capture the renderer's status rather than `|| true`-swallowing it: the
+            # extras were already spliced above, so a non-zero renderer must still
+            # leave an audit line (issue #513 "never silent"). The run is never
+            # broken — the failure is caught, not propagated.
+            if ! bash "$COMPOSE" ok "$ENTRIES" "$DEFECT"; then
+              echo "::warning::describe-plugin-compose.sh failed (rc≠0); extras (if any) were composed but the audit annotation could not be rendered."
+            fi
           else
             # Join the spliced entries via a bash-builtin loop (guard-class 2 — no
             # cat/tr/sed for the emitted list), mirroring describe-plugin-compose.sh's

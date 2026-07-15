@@ -1362,8 +1362,9 @@ jobs:
           elif [ "${COMPOSE_SETTINGS_SOURCE:-degraded}" = "degraded" ]; then
             # The trusted base-ref settings read FAILED (fetch failure / git-show
             # error / unreadable file) — distinct from a DEGRADED FILE the helper
-            # DID read (arm 2): here the trusted read never produced a file to
-            # classify. Route to the trusted-read-failed arm.
+            # DID read (describe-plugin-compose.sh arm 3, degraded-only): here the
+            # trusted read never produced a file to classify. Route to the
+            # trusted-read-failed arm.
             READ_OUTCOME=failed
             DEFECT="trusted base-ref .claude/settings.json read failed (fetch or git-show error)"
           elif [ -n "${COMPOSE_SETTINGS:-}" ] && [ -f "$COMPOSE_SETTINGS" ]; then
@@ -1371,6 +1372,15 @@ jobs:
             # the materialized path ONLY (never a workspace .claude/settings.json).
             bash "$HELPER" plugins "$COMPOSE_SETTINGS" > "$EX_P" 2>"$ERR_P" || true
             bash "$HELPER" marketplaces "$COMPOSE_SETTINGS" > "$EX_M" 2>"$ERR_M" || true
+          elif [ "${COMPOSE_SETTINGS_SOURCE:-}" = "ok" ]; then
+            # baseprovision classified the read 'ok' (the file WAS materialized) but
+            # it is not present now (RUNNER_TEMP cleanup, an interleaving step, a
+            # race). Do NOT collapse this onto the silent 'absent' baseline below —
+            # that would discard the fail-closed intent baseprovision was careful to
+            # draw via git cat-file -e (unknown is not zero). Fail closed to the
+            # trusted-read-failed arm so the ::warning:: fires instead of silence.
+            READ_OUTCOME=failed
+            DEFECT="materialized base-ref .claude/settings.json vanished before compose (classified 'ok' but not present)"
           fi
           # 'absent' on base ref (COMPOSE_SETTINGS empty, source 'absent') falls
           # through every branch above: EX_* stay empty, READ_OUTCOME=ok, DEFECT=""
@@ -1411,8 +1421,16 @@ jobs:
           mdelim="MKT_EOF_$(date +%s%N)_$$"
           { printf 'plugin_marketplaces<<%s\n' "$mdelim"; printf '%s\n' "$COMBINED_MK"; printf '%s\n' "$mdelim"; } >> "$GITHUB_OUTPUT"
           # Annotation — arm classification lives in describe-plugin-compose.sh.
+          # The extras were already spliced into $GITHUB_OUTPUT above, so if the
+          # renderer exits non-zero (a corrupt/partial COMPOSE copy, a future
+          # set -u regression inside it) do NOT swallow it with `|| true`: capture
+          # the status and emit an inline fallback ::warning:: so a composed entry
+          # is never shipped without SOME audit line (issue #513 "never silent";
+          # the run is still never broken — the failure is caught, not propagated).
           if [ -n "$COMPOSE" ] && [ -f "$COMPOSE" ]; then
-            bash "$COMPOSE" "$READ_OUTCOME" "$ENTRIES" "$DEFECT" || true
+            if ! bash "$COMPOSE" "$READ_OUTCOME" "$ENTRIES" "$DEFECT"; then
+              echo "::warning::describe-plugin-compose.sh failed (rc≠0); extras (if any) were composed into the runner's plugin surface but the audit annotation could not be rendered."
+            fi
           elif [ "$READ_OUTCOME" = "failed" ]; then
             # describe-plugin-compose.sh unavailable (no trusted helper) AND the
             # trusted read failed — emit the trusted-read-failed warning inline so
