@@ -1498,7 +1498,7 @@ jobs:
           # renderer exits non-zero (a corrupt/partial COMPOSE copy, a future
           # set -u regression inside it) do NOT swallow it with `|| true`: capture
           # the status and emit an inline fallback ::warning:: so a composed entry
-          # is never shipped without SOME audit line (issue #513 "never silent";
+          # is never shipped without SOME audit line (PR #513 "never silent";
           # the run is still never broken — the failure is caught, not propagated).
           if [ -n "$COMPOSE" ] && [ -f "$COMPOSE" ]; then
             if ! bash "$COMPOSE" "$READ_OUTCOME" "$ENTRIES" "$DEFECT"; then

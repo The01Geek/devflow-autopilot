@@ -199,7 +199,12 @@ if mode == "plugins":
                      + " is github-kind in extraKnownMarketplaces but its repo is missing, empty, or"
                      + " non-string, so its marketplace URL cannot be registered; not emitted")
             elif market in declared_market_names:
-                kstr = market_kinds.get(market) or "missing"
+                # dict.get with a default (not `get(...) or`): an EMPTY-STRING source
+                # kind is a real observed value the breadcrumb must report as '' —
+                # the `or` idiom would mislabel it "missing" (it is present, just
+                # empty). "missing" is only for an absent or non-string kind (the
+                # non-string case matches the marketplaces-mode sibling below).
+                kstr = market_kinds.get(market, "missing")
                 warn("enabledPlugins entry " + repr(key) + " marketplace " + repr(market)
                      + " is declared in extraKnownMarketplaces but with non-github source kind "
                      + repr(kstr) + " (scope boundary: only github-kind marketplaces are mapped); not emitted")

@@ -34,7 +34,7 @@
 #   2. read-outcome == ok + defect + entries -> ::warning:: AND ::notice:: — a degraded
 #                                               ENTRY never suppresses the splice audit
 #                                               line for the valid extras that WERE
-#                                               composed (issue #513). Both are emitted.
+#                                               composed (PR #513). Both are emitted.
 #   3. read-outcome == ok + defect only      -> ::warning::  degraded-shape (names the defect)
 #   4. read-outcome == ok + entries only     -> ::notice::   splice (lists every entry)
 #   5. else (ok, no defect, no entries)      -> silent       (absent/clean baseline)
@@ -87,7 +87,7 @@ case "$read_outcome" in
             # VALID extras WERE composed into the credentialed runner's plugin surface.
             # Emit BOTH — the ::warning:: names the skipped-entry defect, the ::notice::
             # lists what was composed — so a degraded entry never suppresses the splice
-            # audit line (issue #513: every spliced entry is logged, never silent).
+            # audit line (PR #513: every spliced entry is logged, never silent).
             printf '::warning::.claude/settings.json has degraded entries (%s); those are skipped, the valid extras below are composed.\n' "$defect"
             printf '::notice::Composed plugin/marketplace entries beyond the baked baseline: %s\n' "$entries"
         elif [ -n "$defect" ]; then
