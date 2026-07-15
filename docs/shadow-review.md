@@ -73,16 +73,23 @@ orchestrator's tree silently corrupted, which can flip the orchestrator's *own* 
 checks to a phantom RED (the failure observed in the `/devflow:implement 186` run). Two coupled
 layers close that hole.
 
-**The contract.** Every first-party review/analysis agent definition — `code-reviewer`,
-`silent-failure-hunter`, `comment-analyzer`, `type-design-analyzer`, `pr-test-analyzer`, and the
-vendored `requesting-code-review` final pass — states the agent must never modify working-tree
-source files, the index, HEAD, or branch state, and that any mutation/half-revert verification is
-done **on a temporary copy made with `mktemp`, never in place**.
+**The contract.** Every Phase 3 reviewer covered by this dirty-tree contract must never modify
+working-tree source files, the index, HEAD, or branch state. The five fan-out agents
+— `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `type-design-analyzer`, and
+`pr-test-analyzer` — perform any mutation/half-revert verification **on a temporary copy made with
+`mktemp`, never in place**. The vendored `requesting-code-review` final pass runs under profiles
+where `mktemp` and `git worktree add` are not uniformly available, so it does not attempt mutation
+verification; it uses granted read-only history commands and reports the verification limitation
+to the orchestrator instead.
 
 **The deterministic backstop (`skills/review/SKILL.md` Phase 3.1/3.2).** Independently of agent
 compliance, the shared engine snapshots the tree with `git status --porcelain -z` immediately
 **before** the Phase 3.1 batch (into a temp file — `-z` output carries NUL bytes a bash `$(...)`
-variable cannot hold) and compares **after** it returns. On divergence it records an Important
+variable cannot hold). The snapshot is a fixed repo-local `.devflow/tmp/` file so it survives
+the Agent-tool boundary without an unavailable `mktemp` capture. The engine compares it **after**
+the batch returns. Before each snapshot write it removes the prior path object, validates a
+regular non-symlink result, and retains its object ID only in orchestrator state. Restore scratch is removed before reuse; truncated NUL records and failed path writes skip restoration rather
+than treating an empty set as permission to clobber existing edits. On divergence it records an Important
 finding with an attributable breadcrumb (never silently discarded) and **restores only the snapshot
 delta** — paths clean at snapshot time that became dirty during the dispatch window — computed *by
 path column* (status prefix stripped from each `-z` record), so a path the orchestrator had already
@@ -104,8 +111,8 @@ snapshot read loops consume the bare orig-path continuation rather than mis-pars
 **disables** the backstop for that dispatch (it never restores off an empty baseline, which would
 authorize `git checkout` against the orchestrator's own live edits), and a failed after-snapshot is
 surfaced as a *distinct* breadcrumb rather than misattributed as an agent mutation. In the read-only
-`/devflow:review` profile the agents have **no write tools**, so the snapshots match and the restore
-never fires; the backstop earns its keep in the write-enabled `/devflow:review-and-fix` and
+`/devflow:review` profile the agents are **contractually read-only** and normally leave matching
+snapshots; the backstop still detects a contract violation and also earns its keep in the write-enabled `/devflow:review-and-fix` and
 `/devflow:implement` tiers — including the shadow pass, which re-runs these phases verbatim.
 
 **Residuals it does NOT auto-restore.** (1) A **true rename/copy** (status `R`/`C`) — undoing a

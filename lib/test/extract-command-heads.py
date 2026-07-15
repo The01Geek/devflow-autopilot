@@ -34,14 +34,19 @@ Claude Code's own matching behavior, which this models:
 CLI:
     extract-command-heads.py heads FILE
         -> one extracted head per line, sorted and deduped.
-    extract-command-heads.py ungranted FILE ALLOWLIST_FILE [tools-line]
+    extract-command-heads.py ungranted FILE ALLOWLIST_FILE [tools-line | implement-block]
         -> one head per line that no rule in ALLOWLIST_FILE grants.
        By default every `Bash(<spec>:*)` rule anywhere in ALLOWLIST_FILE grants —
        including one merely CITED inside a comment. Pass the literal `tools-line`
        to parse only a workflow's real `TOOLS='...'` allowlist line; both workflows
        carry cited specs in their deny-floor commentary, so `tools-line` is the only
-       correct form to use against them.
+       correct form to use against them. Pass `implement-block` to parse only the
+       multi-line `--allowed-tools "..."` block of devflow-implement.yml (which has
+       no `TOOLS='...'` line and cites `Bash(...)` specs inside comments).
 Both subcommands exit 0; `ungranted` prints nothing when everything is granted.
+`tools-line` and `implement-block` raise SystemExit (non-zero) when their marker is
+absent/duplicated/malformed rather than yielding an empty allowlist, so a guard
+keying on the printed output being empty never reads a parse failure as "all granted".
 """
 
 from __future__ import annotations
@@ -513,6 +518,64 @@ def tools_allowlist_line(text: str) -> str:
     return matches[0]
 
 
+def implement_allowlist_block(text: str) -> str:
+    """Return the multi-line `--allowed-tools "..."` allowlist block from
+    devflow-implement.yml.
+
+    devflow-implement.yml has NO `TOOLS='...'` line (unlike devflow.yml and
+    devflow-runner.yml): its allowlist is a multi-line `--allowed-tools "..."`
+    argument inside the `claude_args` folded scalar. `tools_allowlist_line`
+    therefore cannot read it, and the default whole-file parse would fail OPEN
+    — the workflow cites `Bash(...)` specs inside comments (the config job's
+    `# Emits a leading-comma string (",Bash(make:*),…")`), which a whole-file
+    parse reads as grants, so the pin would pass on a head nothing grants. This
+    mode reads ONLY the `--allowed-tools` argument's quoted value, so a spec
+    cited solely in a comment is never a grant.
+
+    The block is a `--allowed-tools` token on its own line (the YAML folded
+    scalar puts each argv token on its own line) followed by a `"`-delimited
+    value spanning many lines. A `# --allowed-tools` comment is not a marker
+    (its stripped line is `# --allowed-tools`, not `--allowed-tools`).
+
+    Fails closed (SystemExit) on: no marker, more than one marker, or a marker
+    whose opening or closing `"` cannot be resolved — never the empty allowlist
+    the default mode would silently yield. Failing closed here is the whole
+    point: an absent/unreadable workflow must report a failure, not zero
+    findings (the fail-open shape the #484 guard exists to eliminate).
+    """
+    lines = text.splitlines()
+    markers = [i for i, ln in enumerate(lines) if ln.strip() == "--allowed-tools"]
+    if not markers:
+        raise SystemExit("devflow: no `--allowed-tools` allowlist block found")
+    if len(markers) > 1:
+        raise SystemExit(
+            f"devflow: {len(markers)} `--allowed-tools` markers found; expected exactly one. "
+            "Refusing to guess which block grants the implement profile's commands."
+        )
+    value_lines = lines[markers[0] + 1 :]
+    while value_lines and not value_lines[0].strip():
+        value_lines.pop(0)
+    if not value_lines or not value_lines[0].lstrip().startswith('"'):
+        raise SystemExit(
+            "devflow: `--allowed-tools` value must begin with a quote on its next non-empty line"
+        )
+    value_indent = len(value_lines[0]) - len(value_lines[0].lstrip())
+    scalar_lines: list[str] = []
+    for line in value_lines:
+        indent = len(line) - len(line.lstrip())
+        if line.strip() and indent < value_indent:
+            break
+        scalar_lines.append(line)
+    joined = "\n".join(scalar_lines)
+    q_start = joined.find('"')
+    q_end = joined.find('"', q_start + 1)
+    if q_end == -1:
+        raise SystemExit("devflow: `--allowed-tools` block has no closing quote")
+    if joined[q_end + 1 :].strip():
+        raise SystemExit("devflow: unexpected content follows the `--allowed-tools` closing quote")
+    return joined[q_start : q_end + 1]
+
+
 def parse_allowlist(text: str) -> set[tuple[str, ...]]:
     """Granted command-position specs, as word tuples, from `Bash(spec:*)` rules."""
     granted: set[tuple[str, ...]] = set()
@@ -562,6 +625,10 @@ def main(argv: list[str]) -> int:
             allowlist = handle.read()
         if len(argv) >= 5 and argv[4] == "tools-line":
             allowlist = tools_allowlist_line(allowlist)
+        elif len(argv) >= 5 and argv[4] == "implement-block":
+            allowlist = implement_allowlist_block(allowlist)
+        elif len(argv) >= 5:
+            raise SystemExit(f"devflow: unknown allowlist parse mode: {argv[4]}")
         granted = parse_allowlist(allowlist)
         for name in sorted(
             {name_of(h) for h in heads if not is_granted(h, granted)}
@@ -570,7 +637,7 @@ def main(argv: list[str]) -> int:
         return 0
     print(
         "usage: extract-command-heads.py heads FILE\n"
-        "       extract-command-heads.py ungranted FILE ALLOWLIST_FILE [tools-line]",
+        "       extract-command-heads.py ungranted FILE ALLOWLIST_FILE [tools-line | implement-block]",
         file=sys.stderr,
     )
     return 2

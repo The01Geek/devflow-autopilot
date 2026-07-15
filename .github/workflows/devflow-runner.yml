@@ -240,6 +240,18 @@ jobs:
           # fails closed — never to the PR-head checkout.
           FLOOR_HELPER=''
           FLOOR_SOURCE='absent'
+          # Plugin-parity compose (issue #505) trusted-materialization state.
+          # Initialized to fail-closed defaults so the fetch-failed / empty-base-ref
+          # branches below (which skip the materialization in the fetch-success
+          # branch) leave these SET rather than unset under `set -u`. A fetch failure
+          # or empty base ref means the trusted settings read FAILED →
+          # COMPOSE_SETTINGS_SOURCE='degraded' (trusted-read-failed → ::warning::);
+          # only a successful fetch whose tree genuinely lacks .claude/settings.json
+          # is the 'absent' silent baseline (set in the fetch-success branch).
+          COMPOSE_HELPER_DIR=''
+          COMPOSE_HELPER_SOURCE='absent'
+          COMPOSE_SETTINGS=''
+          COMPOSE_SETTINGS_SOURCE='degraded'
           if [ -n "$BASE_REF" ]; then
             # origin is the upstream repo (fork-PR commits live under upstream
             # refs), so the base tip is the maintainer-controlled config, not the
@@ -309,6 +321,77 @@ jobs:
                   FLOOR_SOURCE='absent'
                 fi
               fi
+              # Plugin-parity compose (issue #505): materialize the trusted base-ref
+              # .claude/settings.json AND the compose helpers (resolve-extra-plugins.sh,
+              # describe-plugin-compose.sh) from the SAME FETCH_HEAD tip (still the base
+              # ref inside this fetch-success branch) into RUNNER_TEMP, outside the
+              # PR-writable workspace. Same rank-1 candidate logic as the deny-floor
+              # above: committed vendor copy first, then the repo's own scripts/ copy
+              # ONLY when the base ref IS the DevFlow plugin repo (plugin.json name
+              # discriminator), so a consumer's unrelated like-named script is never
+              # executed as the compose helper. Best-effort: any failure leaves
+              # COMPOSE_HELPER_DIR empty and the compose step falls to rank 2 (vendored
+              # on vendor_source==fetch) or fails closed (baseline + trusted-source-rule
+              # warning). The settings-read classification keys on git show's EXIT
+              # STATUS, not on whether the read was empty: only when `git show` FAILS is
+              # `git cat-file -e` consulted to tell a present-but-git-show-unreadable
+              # object ('degraded') from a genuinely absent one ('absent') — the
+              # harden-stop-hooks discipline, so an unreadable file is not silently
+              # treated as "absent".
+              if mkdir -p "$RUNNER_TEMP/devflow-trusted-compose" 2>/dev/null; then
+                _compose_ok=1
+                for _h in resolve-extra-plugins.sh describe-plugin-compose.sh; do
+                  _h_raw=''
+                  if _h_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/$_h" 2>/dev/null); then
+                    :
+                  elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq '"name"[[:space:]]*:[[:space:]]*"devflow"' \
+                    && _h_raw=$(git show "FETCH_HEAD:scripts/$_h" 2>/dev/null); then
+                    :
+                  else
+                    _h_raw=''
+                  fi
+                  if [ -n "$_h_raw" ]; then
+                    if ! printf '%s\n' "$_h_raw" > "$RUNNER_TEMP/devflow-trusted-compose/$_h" 2>/dev/null; then
+                      rm -f "$RUNNER_TEMP/devflow-trusted-compose/$_h" 2>/dev/null || true
+                      _compose_ok=0
+                    fi
+                  else
+                    _compose_ok=0
+                  fi
+                done
+                if [ "$_compose_ok" -eq 1 ] \
+                  && [ -f "$RUNNER_TEMP/devflow-trusted-compose/resolve-extra-plugins.sh" ] \
+                  && [ -f "$RUNNER_TEMP/devflow-trusted-compose/describe-plugin-compose.sh" ]; then
+                  COMPOSE_HELPER_DIR="$RUNNER_TEMP/devflow-trusted-compose"
+                  COMPOSE_HELPER_SOURCE='base-ref'
+                fi
+                # Materialize the trusted base-ref .claude/settings.json. The compose
+                # step consumes ONLY this path — never a workspace-relative
+                # .claude/settings.json (run.sh negatively pins that). Classification
+                # keys on git show's EXIT STATUS: git-show succeeds (any present blob,
+                # INCLUDING a 0-byte one) → 'ok' (a 0-byte/whitespace-only file is then
+                # caught downstream as invalid JSON by resolve-extra-plugins.sh's own
+                # breadcrumb, which describe-plugin-compose.sh renders as arm 3
+                # (degraded-only) — not reclassified here); git-show fails but the object exists
+                # (git cat-file -e) → 'degraded' (trusted-read-failed); neither → 'absent'
+                # (the silent baseline).
+                if _s_raw=$(git show "FETCH_HEAD:.claude/settings.json" 2>/dev/null); then
+                  if printf '%s\n' "$_s_raw" > "$RUNNER_TEMP/devflow-trusted-compose/settings.json" 2>/dev/null; then
+                    COMPOSE_SETTINGS="$RUNNER_TEMP/devflow-trusted-compose/settings.json"
+                    COMPOSE_SETTINGS_SOURCE='ok'
+                  else
+                    COMPOSE_SETTINGS_SOURCE='degraded'
+                    echo "::warning::devflow plugin-parity: could not write the base-ref .claude/settings.json into RUNNER_TEMP; the compose step will proceed with the baked baseline (trusted-read-failed)."
+                  fi
+                else
+                  if git cat-file -e "FETCH_HEAD:.claude/settings.json" 2>/dev/null; then
+                    COMPOSE_SETTINGS_SOURCE='degraded'
+                    echo "::warning::devflow plugin-parity: a base-ref .claude/settings.json exists but read back empty after a successful fetch; the compose step will proceed with the baked baseline (trusted-read-failed)."
+                  else
+                    COMPOSE_SETTINGS_SOURCE='absent'
+                  fi
+                fi
+              fi
             else
               CONFIG_SOURCE='degraded'
               echo "::warning::Could not fetch base ref '$BASE_REF'; defaulting to provision_env=false (read-only review) AND ignoring any devflow_runner.provider routing (review falls back to the Anthropic default this run)."
@@ -329,6 +412,12 @@ jobs:
             echo "config_source=$CONFIG_SOURCE"
             echo "floor_helper=$FLOOR_HELPER"
             echo "floor_source=$FLOOR_SOURCE"
+            # Plugin-parity compose (issue #505) — materialized by the fetch-success
+            # branch above; empty/degraded on a fetch failure or empty base ref.
+            echo "compose_settings=$COMPOSE_SETTINGS"
+            echo "compose_settings_source=$COMPOSE_SETTINGS_SOURCE"
+            echo "compose_helper_dir=$COMPOSE_HELPER_DIR"
+            echo "compose_helper_source=$COMPOSE_HELPER_SOURCE"
           } >> "$GITHUB_OUTPUT"
           # Freeform reviewer build allowlist, read from the SAME trusted base ref
           # as provision_env above (so a PR cannot grant itself tools). Emitted as
@@ -430,7 +519,7 @@ jobs:
               # `git checkout`/`mktemp`/`cmp`/`rm -f` back Phase 3.1's dirty-tree backstop.
               # `git checkout` mutates the worktree, which is exactly what that backstop
               # restores; the reviewer's `contents: read` token still makes a push impossible.
-              TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Write(.devflow/tmp/**)'
+              TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git hash-object:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Write(.devflow/tmp/**)'
               # When the trusted base config opted into provisioning, the runner
               # has a built env (setup-project-env ran below), so grant the
               # freeform build/verify commands the maintainer listed in
@@ -1288,6 +1377,140 @@ jobs:
           edelim="ENV_EOF_$(date +%s%N)_$$"
           printf '%s' "$DECISION" | jq -r --arg d "$edelim" '.env | to_entries[] | "\(.key)<<\($d)", "\(.value)", $d' >> "$GITHUB_ENV"
 
+      # Compose the plugins/plugin_marketplaces inputs (issue #505): the baked
+      # baseline (byte-identical across the three call sites — run.sh pins it)
+      # PLUS the entries the TRUSTED base-ref .claude/settings.json declares. This
+      # review tier checks out the PR HEAD, so the settings file is materialized
+      # from the trusted base ref by the baseprovision step into RUNNER_TEMP
+      # (compose_settings) — the helper NEVER reads a workspace-relative
+      # .claude/settings.json (run.sh negatively pins that). The helper itself
+      # runs only from a trusted source (rank 1: base-ref materialized by
+      # baseprovision; rank 2: the vendored copy ONLY when vendor_source==fetch,
+      # never a committed/self PR-head copy; else fail-closed — baseline +
+      # ::warning:: naming the trusted-source rule), per the same rank rules
+      # filter-runner-tools.sh follows today.
+      - name: Compose plugin inputs (baseline + trusted-base-ref settings-declared)
+        id: plugins
+        env:
+          COMPOSE_SETTINGS: ${{ steps.baseprovision.outputs.compose_settings }}
+          COMPOSE_SETTINGS_SOURCE: ${{ steps.baseprovision.outputs.compose_settings_source }}
+          COMPOSE_HELPER_DIR: ${{ steps.baseprovision.outputs.compose_helper_dir }}
+          COMPOSE_HELPER_SOURCE: ${{ steps.baseprovision.outputs.compose_helper_source }}
+          VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
+        run: |
+          set -euo pipefail
+          BAKED_PLUGINS="$(printf '%s\n' code-review@claude-plugins-official claude-md-management@claude-plugins-official devflow@devflow-marketplace)"
+          BAKED_MARKETPLACES="$(printf '%s\n' https://github.com/anthropics/claude-plugins-official.git ./)"
+          _REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+          # Resolve the trusted compose-helper copy, in rank order (mirroring the
+          # deny-floor's filter-runner-tools.sh ranks):
+          #   1. COMPOSE_HELPER_DIR — base-ref materialized by baseprovision into
+          #      RUNNER_TEMP (outside the PR-writable workspace);
+          #   2. the vendored copy, ONLY when vendor_source==fetch (a fresh clone at
+          #      the pinned devflow_version — never a committed/self PR-head copy);
+          #   3. else fail-closed (no trusted helper → baseline + trusted-source-rule
+          #      ::warning::, no compose). The PR-head checkout's own copy is
+          #      deliberately never consulted.
+          HELPER=''
+          COMPOSE=''
+          if [ -n "${COMPOSE_HELPER_DIR:-}" ] && [ -f "$COMPOSE_HELPER_DIR/resolve-extra-plugins.sh" ] && [ -f "$COMPOSE_HELPER_DIR/describe-plugin-compose.sh" ]; then
+            HELPER="$COMPOSE_HELPER_DIR/resolve-extra-plugins.sh"
+            COMPOSE="$COMPOSE_HELPER_DIR/describe-plugin-compose.sh"
+            echo "plugin-parity compose helper source: trusted base ref (${COMPOSE_HELPER_SOURCE:-base-ref})"
+          elif [ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f "$_REPO_ROOT/.devflow/vendor/devflow/scripts/resolve-extra-plugins.sh" ] && [ -f "$_REPO_ROOT/.devflow/vendor/devflow/scripts/describe-plugin-compose.sh" ]; then
+            HELPER="$_REPO_ROOT/.devflow/vendor/devflow/scripts/resolve-extra-plugins.sh"
+            COMPOSE="$_REPO_ROOT/.devflow/vendor/devflow/scripts/describe-plugin-compose.sh"
+            echo "plugin-parity compose helper source: runtime-fetched vendored copy (pinned devflow_version)"
+          fi
+          EX_P="$(mktemp)"; EX_M="$(mktemp)"; ERR_P="$(mktemp)"; ERR_M="$(mktemp)"; ENTRIES="$(mktemp)"
+          trap 'rm -f "$EX_P" "$EX_M" "$ERR_P" "$ERR_M" "$ENTRIES"' EXIT
+          : > "$EX_P"; : > "$EX_M"; : > "$ERR_P"; : > "$ERR_M"
+          READ_OUTCOME=ok
+          DEFECT=""
+          if [ -z "$HELPER" ]; then
+            # Fail-closed (no TRUSTED compose helper): emit the baseline only + one
+            # ::warning:: naming the trusted-source rule. describe-plugin-compose.sh
+            # is absent with the helper, so the warning stays inline.
+            echo "::warning::devflow resolve-extra-plugins.sh not found at any TRUSTED source — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned devflow_version (vendor_source='${VENDOR_SOURCE:-unknown}'); the PR-head checkout's own copy is deliberately not consulted, because the compose helper must not be PR-editable. Proceeding with the baked plugin baseline. Land the DevFlow re-vendor on the BASE branch (or use a thin install with a pinned devflow_version) so a trusted helper is available (the trusted-source rule, mirroring filter-runner-tools.sh)."
+          elif [ "${COMPOSE_SETTINGS_SOURCE:-degraded}" = "degraded" ]; then
+            # The trusted base-ref settings read FAILED (fetch failure / git-show
+            # error / unreadable file) — distinct from a DEGRADED FILE the helper
+            # DID read (describe-plugin-compose.sh arm 3, degraded-only): here the
+            # trusted read never produced a file to classify. Route to the
+            # trusted-read-failed arm.
+            READ_OUTCOME=failed
+            DEFECT="trusted base-ref .claude/settings.json read failed (fetch or git-show error)"
+          elif [ -n "${COMPOSE_SETTINGS:-}" ] && [ -f "$COMPOSE_SETTINGS" ]; then
+            # Trusted settings read succeeded. Run the helper in BOTH modes against
+            # the materialized path ONLY (never a workspace .claude/settings.json).
+            bash "$HELPER" plugins "$COMPOSE_SETTINGS" > "$EX_P" 2>"$ERR_P" || true
+            bash "$HELPER" marketplaces "$COMPOSE_SETTINGS" > "$EX_M" 2>"$ERR_M" || true
+          elif [ "${COMPOSE_SETTINGS_SOURCE:-}" = "ok" ]; then
+            # baseprovision classified the read 'ok' (the file WAS materialized) but
+            # it is not present now (RUNNER_TEMP cleanup, an interleaving step, a
+            # race). Do NOT collapse this onto the silent 'absent' baseline below —
+            # that would discard the fail-closed intent baseprovision was careful to
+            # draw via git cat-file -e (unknown is not zero). Fail closed to the
+            # trusted-read-failed arm so the ::warning:: fires instead of silence.
+            READ_OUTCOME=failed
+            DEFECT="materialized base-ref .claude/settings.json vanished before compose (classified 'ok' but not present)"
+          fi
+          # 'absent' on base ref (COMPOSE_SETTINGS empty, source 'absent') falls
+          # through every branch above: EX_* stay empty, READ_OUTCOME=ok, DEFECT=""
+          # → the silent baseline (composed inputs equal the baked baseline, no
+          # ::warning::) — the normal consumer case.
+          # Join breadcrumbs (bash builtins; guard-class 2 — no cat/tr/sed).
+          for f in "$ERR_P" "$ERR_M"; do
+            while IFS= read -r line || [ -n "$line" ]; do
+              [ -z "$line" ] && continue
+              if [ -z "$DEFECT" ]; then DEFECT="$line"; else DEFECT="$DEFECT; $line"; fi
+            done < "$f"
+          done
+          : > "$ENTRIES"
+          for f in "$EX_P" "$EX_M"; do
+            while IFS= read -r line || [ -n "$line" ]; do
+              [ -z "$line" ] && continue
+              printf '%s\n' "$line" >> "$ENTRIES"
+            done < "$f"
+          done
+          dedupe() {
+            local baseline="$1" extras="$2" seen="" line out=""
+            while IFS= read -r line || [ -n "$line" ]; do
+              [ -z "$line" ] && continue
+              case "$seen" in *"|$line|"*) ;; *) seen="$seen|$line|"; out="${out:+$out$'\n'}$line" ;; esac
+            done <<< "$baseline"
+            if [ -f "$extras" ]; then
+              while IFS= read -r line || [ -n "$line" ]; do
+                [ -z "$line" ] && continue
+                case "$seen" in *"|$line|"*) ;; *) seen="$seen|$line|"; out="${out:+$out$'\n'}$line" ;; esac
+              done < "$extras"
+            fi
+            printf '%s\n' "$out"
+          }
+          COMBINED_PLUGINS="$(dedupe "$BAKED_PLUGINS" "$EX_P")"
+          COMBINED_MK="$(dedupe "$BAKED_MARKETPLACES" "$EX_M")"
+          pdelim="PLG_EOF_$(date +%s%N)_$$"
+          { printf 'plugins<<%s\n' "$pdelim"; printf '%s\n' "$COMBINED_PLUGINS"; printf '%s\n' "$pdelim"; } >> "$GITHUB_OUTPUT"
+          mdelim="MKT_EOF_$(date +%s%N)_$$"
+          { printf 'plugin_marketplaces<<%s\n' "$mdelim"; printf '%s\n' "$COMBINED_MK"; printf '%s\n' "$mdelim"; } >> "$GITHUB_OUTPUT"
+          # Annotation — arm classification lives in describe-plugin-compose.sh.
+          # The extras were already spliced into $GITHUB_OUTPUT above, so if the
+          # renderer exits non-zero (a corrupt/partial COMPOSE copy, a future
+          # set -u regression inside it) do NOT swallow it with `|| true`: capture
+          # the status and emit an inline fallback ::warning:: so a composed entry
+          # is never shipped without SOME audit line (PR #513 "never silent";
+          # the run is still never broken — the failure is caught, not propagated).
+          if [ -n "$COMPOSE" ] && [ -f "$COMPOSE" ]; then
+            if ! bash "$COMPOSE" "$READ_OUTCOME" "$ENTRIES" "$DEFECT"; then
+              echo "::warning::describe-plugin-compose.sh failed (rc≠0); extras (if any) were composed into the runner's plugin surface but the audit annotation could not be rendered."
+            fi
+          elif [ "$READ_OUTCOME" = "failed" ]; then
+            # describe-plugin-compose.sh unavailable (no trusted helper) AND the
+            # trusted read failed — emit the trusted-read-failed warning inline so
+            # the observable-output arm is not silently dropped.
+            echo "::warning::Could not read the trusted base-ref .claude/settings.json; base-declared plugins were not composed this run — proceeding with the baked baseline."
+          fi
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -1320,24 +1543,22 @@ jobs:
 
           prompt: ${{ steps.compose.outputs.prompt }}
 
-          # Marketplaces and plugin install list are kept verbatim in sync with
-          # devflow.yml's `command` job and devflow-implement.yml so the
-          # bare-command path and this automated runner path resolve identical
-          # skill/plugin versions. Drift between them must be a deliberate
-          # separate change.
-          plugin_marketplaces: |
-            https://github.com/anthropics/claude-plugins-official.git
-            ./
+          # Composed by the `Compose plugin inputs` step above (issue #505): the
+          # baked baseline (byte-identical across the three call sites — run.sh
+          # pins it; kept in sync with devflow.yml's `command` job and
+          # devflow-implement.yml so the bare-command and automated-runner paths
+          # resolve identical skill/plugin versions) PLUS the entries the trusted
+          # base-ref .claude/settings.json declares.
+          plugin_marketplaces: ${{ steps.plugins.outputs.plugin_marketplaces }}
 
           # code-review@ and claude-md-management@ are ambient-command conveniences (the
           # /code-review and /revise-claude-md slash commands), NOT engine dependencies —
           # DevFlow's engine dispatches neither. The "zero companion-plugin dependencies"
           # claim is scoped to the consumer install + what the engine dispatches; see
-          # docs/DEVFLOW_SYSTEM_OVERVIEW.md §6. devflow@ is DevFlow itself.
-          plugins: |
-            code-review@claude-plugins-official
-            claude-md-management@claude-plugins-official
-            devflow@devflow-marketplace
+          # docs/DEVFLOW_SYSTEM_OVERVIEW.md §6. devflow@ is DevFlow itself. The baked
+          # baseline three are composed by the step above; settings-declared extras are
+          # appended beyond them.
+          plugins: ${{ steps.plugins.outputs.plugins }}
 
           # --permission-mode acceptEdits does NOT widen an explicit --allowed-tools
           # list: the allowlist is a separate, stricter gate, and a command absent
