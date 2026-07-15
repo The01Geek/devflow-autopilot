@@ -38,7 +38,9 @@ preference-ordered rather than a brittle single-shape parse.
 import json
 import sys
 
-# The five per-message token figures, in the order the normalized object emits them.
+# The five token figures, in the order the normalized object emits them. The first four
+# are per-message figures (summable on the per-message fallback path); `total_tokens` is
+# a summary figure and is NOT summed on that path — see _fold_usage.
 _TOKEN_KEYS = (
     "input_tokens",
     "output_tokens",
@@ -111,6 +113,13 @@ def _fold_usage(usage, sums, wrong_type, accumulate):
             continue
         v = usage[k]
         if _is_number(v):
+            if accumulate and k == "total_tokens":
+                # `total_tokens` is a summary figure, not a per-message component. On the
+                # per-message fallback path we cannot know whether the file emits it
+                # per-message or cumulatively, and summing a cumulative field over-counts.
+                # Leave it null here (unknown-is-not-zero) rather than publish a possibly
+                # inflated total; the authoritative result-summary path reads it as-is.
+                continue
             sums[k] = v if not accumulate else (sums[k] or 0) + v
         else:
             wrong_type.setdefault("usage." + k, v)
@@ -217,6 +226,17 @@ def main(argv):
         sys.stderr.write(
             "devflow: extract-execution-cost.py: field '%s' is present but not a "
             "numeric figure (%r); treated as absent (null)\n" % (key, val)
+        )
+
+    # The glue's `[ -z "$COST" ]` inert-gate only fires when NOTHING is printed; a file
+    # that parses yet carries no cost figure still prints a (cost_usd:null) object, which
+    # the glue stages as harness_cost. Emit a single summary breadcrumb here so that
+    # all-null-cost stage is auditable in the step log rather than reading as cost
+    # coverage — cost_usd:null itself already preserves unknown-is-not-zero downstream.
+    if cost_usd is None:
+        sys.stderr.write(
+            "devflow: extract-execution-cost.py: execution file parsed but carried no "
+            "cost figure (cost_usd null); any staged harness_cost records no cost this run\n"
         )
 
     normalized = {

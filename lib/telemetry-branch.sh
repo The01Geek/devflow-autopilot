@@ -600,7 +600,7 @@ devflow_telemetry_persist_tree() {
                 # breadcrumb so this degradation is auditable rather than silent (the
                 # floor's never-silent discipline): a stale local copy overwriting base
                 # here could revert a concurrent writer's harness_cost (issue #475).
-                echo "::warning::telemetry-branch: harness-cost merge for '${path}' fell back to local-wins (jq unavailable/failed, or an empty base/local blob); a concurrent base-side harness_cost may be reverted this push" >&2
+                echo "::warning::telemetry-branch: harness-cost merge for '${path}' fell back to local-wins — jq unavailable/failed, or an empty base/local blob; a concurrent base-side harness_cost may be reverted this push" >&2
               fi
               ;;
           esac

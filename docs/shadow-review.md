@@ -557,6 +557,8 @@ Two changes make both sides of that ledger recordable instead of reconstructed:
   clean outcome-1 shadow whose block dropped leaves no promotion evidence to synthesize from. The
   fused emit is the primary fix and the floor is its backstop, not its equal; the floor recovers
   *attribution*, not cost (this floor recovers no token/wall figures — those are captured live by the
-  loop, and by nothing else DevFlow currently ships; issue #437 established the harness itself *does*
-  carry them, so a floor that reads them is buildable, but none exists today). So this narrows-the-gap, it does not close it — the shadow still audits its own audit with
+  loop; issue #437 established the harness itself *does* carry them, and issue #475 now ships the
+  harness-side cost floor that reads the `execution_file` and merges its cost/token/duration figures
+  into the per-run record via `--persist` on the cloud tier — but that is a *separate* floor from this
+  shadow-attribution one, which still recovers no token/wall figures of its own). So this narrows-the-gap, it does not close it — the shadow still audits its own audit with
   honest calibration.
