@@ -2290,6 +2290,49 @@ assert_pin_red_under "#510 final review round 2: Step 4.5 early exit sweeps befo
 assert_pin_red_under "#510 final review round 2: sweep-at-cap post-shadow edit gate reads current iteration" \
   'read the current iteration'"'"'s shadow block instead; no promoted successor exists in this arm' \
   's/read the current iteration'"'"'s shadow block instead/read the one-iter-back shadow block instead/' "$ST_RAF"
+# #510 final review round 3: cover the remaining sweep-at-cap severity source, record
+# precedence, and scoped-corroboration lookup order. Each mutation opens the exact advisory gap.
+assert_pin_red_under "#510 final review round 3: Critical sweep-at-cap population comes from registered siblings" \
+  'the shadow'"'"'s new findings on the ordinary arm, or the current iteration'"'"'s unfixed `parked_class_sweep.new_siblings` on the sweep-at-cap arm' \
+  's/, or the current iteration'"'"'s unfixed `parked_class_sweep.new_siblings` on the sweep-at-cap arm//' "$ST_RAF"
+assert_pin_red_under "#510 final review round 3: truncation overrides per-class result recording" \
+  'A non-null `truncation` overrides the per-class-results branch' \
+  's/A non-null `truncation` overrides/A null `truncation` overrides/' "$ST_RAF"
+assert_pin_red_under "#510 final review round 3: corroboration carve-out identifies by sibling id before marker fallback" \
+  'Identify it first by a finding id in the current convergence'"'"'s `parked_class_sweep.new_siblings`; only when that block is unavailable may you fall back to an advisory row carrying the exact sibling marker `parked-sibling: class-sweep`.' \
+  's/only when that block is unavailable may you fall back/always fall back/' "$ST_RAF"
+# #510 final self-audit: exhaust the remaining fail-open boundaries adjacent to the reviewed
+# findings so a later edit cannot silently narrow inputs, scope, visibility, or cap handling.
+assert_pin_red_under "#510 final self-audit: sweep input union includes unactioned findings and downgrade deferrals" \
+  'every unactioned Suggestion/Minor finding derived from recorded `phase3_findings` minus `applied` dispositions (including mixed-severity iterations); and Yes-downgrade deferrals' \
+  's/; and Yes-downgrade deferrals//' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: enumeration scans the complete changed surface" \
+  'scan exactly Step 3 item 3'"'"'s changed surface: the PR diff plus fix-touched files, never pre-existing untouched code' \
+  's/the PR diff plus fix-touched files/the PR diff only/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: missing kind remains in the bounded semantic batch" \
+  'a missing or malformed `defect_signature.kind` enters the bounded semantic batch under the literal `unknown-kind`; it is never dropped from the union' \
+  's/it is never dropped from the union/it is dropped from the union/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: sibling severity inherits from its source by default" \
+  'A sibling inherits its source finding'"'"'s original engine severity by default' \
+  's/inherits its source finding'"'"'s original engine severity/defaults to Suggestion/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: below-threshold siblings stay visibly parked" \
+  'A below-threshold sibling is parked in `## Advisory Findings` and the final report' \
+  's/is parked in `## Advisory Findings` and the final report/is discarded before the final report/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: ambiguous corroboration markers receive no carve-out" \
+  'A missing or ambiguous marker, including a row equally matching the producer shape, receives no carve-out.' \
+  's/receives no carve-out/receives the carve-out/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: a shadow re-raise above parked severity remains a mis-grade" \
+  'A shadow re-raise above the parked severity remains a mis-grade unchanged.' \
+  's/remains a mis-grade unchanged/becomes corroboration/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: iteration-cap sweep remains inside the shadow trigger" \
+  'At the iteration cap the sweep still runs and registers every sibling, and the tentative verdict remains inside the convergence-time trigger'"'"'s enumerated list so the shadow runs normally.' \
+  's/remains inside the convergence-time trigger'"'"'s enumerated list/remains outside the convergence-time trigger'"'"'s enumerated list/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: iteration-cap branch is evaluated before promotion" \
+  'Evaluate the iteration-cap branch first' \
+  's/Evaluate the iteration-cap branch first/Evaluate the promotion branch first/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: caller fixes require another independent review" \
+  'that elects to *fix* these findings must re-establish independent coverage over the fix delta' \
+  's/must re-establish independent coverage over the fix delta/may ship the fix delta without independent coverage/' "$ST_RAF"
 # #425 shadow-not-scoped behavioral-fix pin (placed here, below the assert_pin_red_under
 # definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
