@@ -2181,8 +2181,8 @@ assert_pin_red_under "#510 review round 6: ledger identity is site-only" \
   'The not-re-swept ledger keys cross-producer identity on site overlap alone; `kind_literal` remains enumeration input and recorded metadata, never ledger identity.' \
   's/site overlap alone/site overlap plus `kind_literal`/' "$ST_RAF"
 assert_pin_red_under "#510 review round 6: sweep-at-cap renders the registered sibling population" \
-  'source `{K}` and the unresolved list from the current iteration’s unfixed `parked_class_sweep.new_siblings` at or above `$FIX_THRESHOLD`' \
-  's/current iteration’s unfixed `parked_class_sweep.new_siblings`/shadow'"'"'s new findings/' "$ST_RAF"
+  'unfixed `parked_class_sweep.new_siblings` at or above `$FIX_THRESHOLD`, not from the shadow'"'"'s new-finding count' \
+  's/unfixed `parked_class_sweep.new_siblings` at or above `\$FIX_THRESHOLD`/the shadow'"'"'s new findings/' "$ST_RAF"
 assert_pin_red_under "#510 review round 6: sweep-at-cap report uses a distinct unresolved section" \
   'in a distinct `## Unresolved Parked-Class Sweep Findings` section; those siblings were registered before shadow' \
   's/in a distinct `## Unresolved Parked-Class Sweep Findings` section; those siblings were registered before shadow/in the ordinary unresolved section/' "$ST_RAF"
@@ -2279,6 +2279,17 @@ assert_pin_red_under "#510 final review: corroboration carve-out fails closed wi
 assert_pin_red_under "#510 final review: overview names the three-surface guard as lock-step" \
   'a **render-time lock-step assertion** that keeps the `APPROVE WITH UNRESOLVED SHADOW FINDINGS`' \
   's/render-time lock-step assertion/render-time dual-operand assertion/' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# #510 final review round 2: pin both convergence-entry declarations and the sweep-at-cap
+# post-shadow selector. Each mutation reintroduces an ordering or wrong-iteration regression.
+assert_pin_red_under "#510 final review round 2: gate declaration covers both convergence entries" \
+  'Run this gate at both convergence entries: after Step 2 forms any tentative non-REJECT final verdict and on Step 4.5'"'"'s non-REJECT early-exit path.' \
+  's/at both convergence entries: after Step 2 forms any tentative non-REJECT final verdict and on Step 4.5'"'"'s non-REJECT early-exit path/only after Step 2 forms a tentative non-REJECT final verdict/' "$ST_RAF"
+assert_pin_red_under "#510 final review round 2: Step 4.5 early exit sweeps before shadow" \
+  'when it is non-REJECT and parked findings exist, **run the parked-class sweep before the shadow**' \
+  's/run the parked-class sweep before the shadow/run the parked-class sweep after the shadow/' "$ST_RAF"
+assert_pin_red_under "#510 final review round 2: sweep-at-cap post-shadow edit gate reads current iteration" \
+  'read the current iteration'"'"'s shadow block instead; no promoted successor exists in this arm' \
+  's/read the current iteration'"'"'s shadow block instead/read the one-iter-back shadow block instead/' "$ST_RAF"
 # #425 shadow-not-scoped behavioral-fix pin (placed here, below the assert_pin_red_under
 # definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
