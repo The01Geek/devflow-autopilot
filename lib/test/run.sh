@@ -34983,11 +34983,16 @@ assert_eq "#487 arm21b: multi-FILE extraheader leaves the LOCAL credential intac
   "$(cd "$REPO21B" && git config --file .git/config --get 'http.https://ex21b.test/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
 assert_eq "#487 arm21b: multi-FILE extraheader did NOT write the token file (mint fresh but push credential not rewritten)" "yes" \
   "$([ ! -e "$D487/tok21b" ] && echo yes || echo no)"
-# Behavioral-fix removal pin (IMP-1): deleting the multi-file detection (`multi=yes`)
-# re-opens the silent-stale-credential path — the cycle would rewrite only the first
-# config file while a higher-precedence stale credential wins elsewhere. Must flip RED.
-assert_pin_red_under "#487 arm21b-pin: multi-file extraheader detection present (deleting it re-opens the silent-stale-credential path)" \
-  'multi=yes' '/multi=yes/d' "$REFRESH_SH"
+# Behavioral-fix pin (IMP-1): the mutation FLIPS the multi-file detection off in a way that
+# keeps the script parseable — `s/multi=yes/multi=no/` makes the assignment a no-op, so
+# locate_extraheader_file never warns and falls through to rewrite only the FIRST config
+# file: the actual silent-stale-credential regression (a higher-precedence stale credential
+# wins elsewhere). A line-DELETING mutation (`/multi=yes/d`) is deliberately NOT used — it
+# leaves `elif …; then` immediately before `fi`, a bash PARSE error that would flip the pin
+# RED because the whole script crashes rather than because the guard was behaviorally
+# disabled (the removal-pin vacuity the behavioral-fix-pin rule exists to reject). Must flip RED.
+assert_pin_red_under "#487 arm21b-pin: multi-file extraheader detection present (disabling it re-opens the silent-stale-credential path)" \
+  'multi=yes' 's/multi=yes/multi=no/' "$REFRESH_SH"
 
 # Arm 22 — the REAL mint path (no DEVFLOW_REFRESH_MINT override), desk-tested with a
 # stub `curl` (no network) and real `openssl`/`jq`: assert (a) the RS256 JWT header +
@@ -35050,8 +35055,8 @@ _a23_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23:$PATH" DEVFLOW_APP_ID
   DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23" GITHUB_SERVER_URL="https://github.com" \
   bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23_rc=$?
 assert_eq "#487 arm23: empty minted token exits 0 (best-effort cycle)" "0" "$_a23_rc"
-assert_eq "#487 arm23: empty minted token emits a ::warning::" "yes" \
-  "$(printf '%s' "$_a23_err" | grep -qF '::warning::refresh-app-credentials' && echo yes || echo no)"
+assert_eq "#487 arm23: empty minted token emits the SPECIFIC guard ::warning:: (access token missing from response)" "yes" \
+  "$(printf '%s' "$_a23_err" | grep -qF 'mint: access token missing from response' && echo yes || echo no)"
 assert_eq "#487 arm23: empty minted token leaves the previous credential intact (PREV23)" "x-access-token:PREV23" \
   "$(git config --file "$CFG23" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
 
