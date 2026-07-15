@@ -94,9 +94,11 @@ case "$read_outcome" in
         fi
         ;;
     *)
-        # Unknown read-outcome: fail safe to silent rather than emit a misleading
-        # annotation. The composing step passes only "failed" or "ok".
-        :
+        # Unknown read-outcome: a bug in the composing step (the only callers pass
+        # "failed" or "ok"). Surface it rather than silently emit nothing — a silent
+        # no-op here would hide the caller bug (the helper always exits 0, so no
+        # higher-level handler catches the miss).
+        printf '::warning::describe-plugin-compose: unknown read-outcome %s (expected: failed | ok); no annotation emitted.\n' "$read_outcome"
         ;;
 esac
 exit 0

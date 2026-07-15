@@ -759,8 +759,14 @@ jobs:
           { printf 'plugin_marketplaces<<%s\n' "$mdelim"; printf '%s\n' "$COMBINED_MK"; printf '%s\n' "$mdelim"; } >> "$GITHUB_OUTPUT"
           # Annotation — arm classification lives in describe-plugin-compose.sh (the
           # describe-denial-count.sh extraction convention; run.sh drives every arm).
+          # Inline fallback for the partial-vendor skew (HELPER present, COMPOSE
+          # absent): the helper ran and may have set DEFECT (a degraded settings
+          # file); without COMPOSE to render the degraded ::warning::, surface it
+          # inline so a degraded file is never silently dropped to the baseline.
           if [ -f "$COMPOSE" ]; then
             bash "$COMPOSE" ok "$ENTRIES" "$DEFECT" || true
+          elif [ -n "$DEFECT" ]; then
+            echo "::warning::.claude/settings.json is degraded ($DEFECT); proceeding with the baked plugin baseline."
           fi
 
       - name: Run Claude Code

@@ -99,8 +99,14 @@ if not os.path.exists(settings_path):
 try:
     with open(settings_path, encoding="utf-8") as f:
         data = json.load(f)
-except Exception as exc:
+except json.JSONDecodeError as exc:
+    # A parse failure: the file read, but is not valid JSON.
     warn(settings_path + " is not valid JSON (" + str(exc) + "); emitting nothing")
+    sys.exit(0)
+except Exception as exc:
+    # Any other failure (a read/permission/encoding error) is NOT a JSON defect —
+    # name it accurately so a consumer is not misdirected to "fix the JSON syntax".
+    warn(settings_path + " could not be read (" + str(exc) + "); emitting nothing")
     sys.exit(0)
 
 if not isinstance(data, dict):
