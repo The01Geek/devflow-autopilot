@@ -19171,6 +19171,50 @@ assert_eq "489/AC4(Sug#1): the count cap short-circuits the walk (names it)" "ye
 _489_noglob_restore() { ( DVT_LIB_ONLY=1; . "$_489_VAL"; set -f; _dvt_path_safe '.devflow/logs/efficiency/x-1.json' >/dev/null; case "$-" in *f*) echo on ;; *) echo off ;; esac ); }
 assert_eq "489/AC4(Sug#5): _dvt_path_safe restores a glob-OFF caller's noglob state" "on" "$(_489_noglob_restore)"
 
+# (23) a special file (FIFO) is neither a regular file nor a directory → drop whole, naming that
+# distinct disposition (the one enumerated reject arm otherwise uncovered). `mkfifo` is POSIX;
+# skip cleanly if it is unavailable on the host rather than failing the suite.
+if command -v mkfifo >/dev/null 2>&1; then
+  mkdir -p "$_489_A/fifo/.devflow/logs/efficiency"
+  mkfifo "$_489_A/fifo/.devflow/logs/efficiency/pipe-1.json" 2>/dev/null || true
+  if [ -p "$_489_A/fifo/.devflow/logs/efficiency/pipe-1.json" ]; then
+    assert_eq "489/AC4: a FIFO special file drops the whole artifact (rc 1, nothing staged)" "1|no" \
+      "$(_489_run_val "$_489_A/fifo" "$_489_A/fifo-out")"
+    # Attribute the rejection to the special-file arm (not a precondition) by its distinct message.
+    assert_eq "489/AC4: ...naming the 'neither a regular file nor a directory' disposition" "yes" \
+      "$(grep -qF 'neither a regular file nor a directory' "$_489_A/fifo-out.err" && echo yes || echo no)"
+  fi
+fi
+
+# (24) Sug#1: the DIRECTORY-count cap short-circuits the walk (bounds the directory dimension of
+# work, not just file admission). A wide all-empty-directories tree under the cap of 1 rejects
+# mid-walk naming the directory short-circuit — the file-count guard alone never fires here (no
+# regular files exist), so this proves the separate directory bound.
+mkdir -p "$_489_A/widedirs/.devflow/logs/review/a/b" "$_489_A/widedirs/.devflow/logs/review/c/d"
+_489_run_val "$_489_A/widedirs" "$_489_A/widedirs-out" DEVFLOW_TELEMETRY_MAX_ENTRIES=1 >/dev/null
+assert_eq "489/AC4(Sug#1): the directory-count cap short-circuits the walk (names it)" "yes" \
+  "$(grep -qF 'directory count exceeds the cap' "$_489_A/widedirs-out.err" && echo yes || echo no)"
+
+# (25) Sug#2: the per-entry `_dvt_filesize` unreadable reject NAMES the specific entry (the size
+# derivation gates admission and fails closed). Drive it via the wc-fail stub against a
+# single-entry artifact so the reject is reached per-entry and its entry-naming message is pinned
+# (test 16b proves the drop; this pins the distinct per-entry attribution).
+mkdir -p "$_489_A/onesize/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"one"}' > "$_489_A/onesize/.devflow/logs/efficiency/one-1.json"
+_489_run_val "$_489_A/onesize" "$_489_A/onesize-out" "PATH=$_489_WCROOT/bin:$PATH" >/dev/null
+assert_eq "489/AC4(Sug#2): the per-entry unreadable reject names the specific entry" "yes" \
+  "$(grep -qF "entry '.devflow/logs/efficiency/one-1.json' could not be sized (unreadable)" "$_489_A/onesize-out.err" && echo yes || echo no)"
+
+# (26) Sug#3: the pass-2 `cp` failure reject arm — a validated artifact whose per-entry copy
+# fails drops whole (rc 1) naming the copy failure. This cannot admit a bad artifact (pass-1
+# already passed); it only refuses to stage a good one, so fail-closed here is correct. Driven
+# by the injected-cp-stub technique the collect test (17) already uses.
+_489_CPROOT="$(git_sandbox "489 validator cp-fail")"; mkdir -p "$_489_CPROOT/bin"
+printf '#!/bin/sh\nexit 1\n' > "$_489_CPROOT/bin/cp"; chmod +x "$_489_CPROOT/bin/cp"
+_489_run_val "$_489_A/ok" "$_489_A/ok-cpfail" "PATH=$_489_CPROOT/bin:$PATH" >/dev/null
+assert_eq "489/AC4(Sug#3): a pass-2 cp failure drops the whole artifact naming the copy failure" "yes" \
+  "$(grep -qF 'could not copy admitted entry' "$_489_A/ok-cpfail.err" && echo yes || echo no)"
+
 # (17) collect helper's copy-failure branch (saw_stage set, found not → the distinct 'records
 # existed but none could be copied' warning). Driven deterministically by pointing DEST_PARENT
 # read-only is not reachable (the top mkdir would abort first), and a chmod-000 source is

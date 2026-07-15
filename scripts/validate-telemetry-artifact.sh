@@ -146,6 +146,7 @@ _dvt_filesize() {  # path -> echoes byte count (rc 0) or rc 1 if underivable
 # handled. bash 3.2 aborts on "${arr[@]}" when empty under set -u, so every expansion
 # uses the ${arr[@]+"${arr[@]}"} guarded form.
 _entries=()
+_dircount=0
 _dvt_walk() {
   local d="$1" e
   for e in "$d"/* "$d"/.[!.]* "$d"/..?*; do
@@ -153,6 +154,16 @@ _dvt_walk() {
     if [ -L "$e" ]; then
       reject "entry '${e#"$ARTIFACT_DIR"/}' is a symlink (symlinks are never admitted)"
     elif [ -d "$e" ]; then
+      # Bound the DIRECTORY dimension of the walk too: the entry-count short-circuit above
+      # counts only regular files, so an all-empty-directories artifact (deep OR wide) would
+      # otherwise recurse the whole tree before any file-count/depth check runs. Capping the
+      # number of directories recursed at the same MAX_ENTRIES bound makes total walk work
+      # ≤ 2·MAX_ENTRIES regardless of nesting shape. (A directory beyond that cannot hold an
+      # admitted file anyway — the allowlist is a fixed depth — so rejecting whole is safe.)
+      _dircount=$((_dircount + 1))
+      if [ "$_dircount" -gt "$MAX_ENTRIES" ]; then
+        reject "directory count exceeds the cap of ${MAX_ENTRIES} (walk short-circuited before recursing further)"
+      fi
       _dvt_walk "$e"
     elif [ -f "$e" ]; then
       _entries+=("$e")
