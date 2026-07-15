@@ -1,0 +1,53 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-15T19:04:00Z",
+  "fix_commit_sha": "c13f14ff",
+  "fix_files": [
+    ".changeset/issue-484-implement-profile-grants.md",
+    "CLAUDE.md",
+    "docs/implement-skill.md",
+    "lib/test/run.sh",
+    "skills/implement/SKILL.md"
+  ],
+  "loop_role": "fix",
+  "checklist": [
+    {"id":"VC-MANUAL","claim":"manual gh pr checkout grant is removal-proof","file":"lib/test/run.sh","verification_mode":"agent","claim_signature":"test_coverage:manual-checkout-removal","verdict":"PASS","evidence":"profile-specific filter plus token-removal fixture reports gh pr checkout","reused_from_iter_prev":false},
+    {"id":"VC-ROSTER","claim":"inline review roster includes dispatched final pass","file":"lib/test/run.sh","verification_mode":"agent","claim_signature":"test_coverage:requesting-review-roster","verdict":"PASS","evidence":"recursive requesting-code-review root and membership pin","reused_from_iter_prev":false},
+    {"id":"VC-REACTION","claim":"reaction failure wiring is removal-proof","file":"lib/test/run.sh","verification_mode":"agent","claim_signature":"dependency_interaction:reaction-wiring","verdict":"PASS","evidence":"--report-failure and durable fallback note removal pins","reused_from_iter_prev":false},
+    {"id":"VC-PROMPT","claim":"pre-workpad prompt refusal note is removal-proof","file":"lib/test/run.sh","verification_mode":"agent","claim_signature":"producer_consumer:prompt-refusal-note","verdict":"PASS","evidence":"exact note and post-Phase-1.3 flush removal pins","reused_from_iter_prev":false},
+    {"id":"VC-INLINE","claim":"inline workpad shorthand expands before emission","file":"skills/implement/SKILL.md","verification_mode":"agent","claim_signature":"permission_shape:inline-workpad-expansion","verdict":"PASS","evidence":"operative expansion instruction is removal-pinned","reused_from_iter_prev":false}
+  ],
+  "phase3_dispatched": ["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:pr-test-analyzer"],
+  "diff_profile": {"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
+  "phase3_findings": [
+    {"agent":"devflow:code-reviewer","severity":"Important","description":"manual checkout grant was exempted by the implement withheld list","defect_signature":{"file":"lib/test/run.sh","line_range":[6319,6323],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"devflow:code-reviewer","severity":"Important","description":"guard documentation omitted exact withheld exceptions","defect_signature":{"file":"docs/implement-skill.md","line_range":[297,297],"kind":"documented_falsehood"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"devflow:pr-test-analyzer","severity":"Important","description":"requesting-code-review final pass omitted from recursive roster","defect_signature":{"file":"lib/test/run.sh","line_range":[6304,6317],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"devflow:pr-test-analyzer","severity":"Important","description":"reaction and prompt-refusal skill wiring lacked mutation pins","defect_signature":{"file":"lib/test/run.sh","line_range":[6213,6337],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"devflow:pr-test-analyzer","severity":"Suggestion","description":"marker-free readable workflow branch lacked direct malformed-shape coverage","defect_signature":{"file":"lib/test/run.sh","line_range":[6274,6292],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"devflow:silent-failure-hunter","severity":"Important","description":"inline workpad shorthand was outside the fenced-head extractor","defect_signature":{"file":"lib/test/run.sh","line_range":[6215,6317],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id":"S1","decision":"applied","commit":"c13f14ff"},
+    {"finding_id":"S2","decision":"applied","commit":"c13f14ff"},
+    {"finding_id":"S3","decision":"applied","commit":"c13f14ff"},
+    {"finding_id":"S4","decision":"applied","commit":"c13f14ff"},
+    {"finding_id":"S5","decision":"applied","commit":"c13f14ff"},
+    {"finding_id":"S6","decision":"applied","commit":"c13f14ff"}
+  ],
+  "convergence_inputs": {"fixes_applied":6,"fix_diff_lines":76,"new_corroborated_critical_count":0},
+  "cap_drops": {"count":0,"by_category":{}},
+  "test_first_gate": [{"decision":"shadow regression guards","command":"bash lib/test/run.sh","result":"red-then-green","evidence":"initial normalization exposed 36 coupled failures; corrected contract and variable isolation reached 7520 passed, 0 failed"}],
+  "sweep_defs_read": ["skills/implement/phases/phase-2-implement.md:2.3"],
+  "sweep_evidence": {"status":"pass","shape":"permission guards and documentation mirrors","sweeps":["removal proof","recursive roster","malformed input matrix","coupled prose"]},
+  "verification_evidence": {"command":"bash lib/test/run.sh","result":"pass","duration_s":250,"skipped_checks":[{"check":"#434 stale-prose self-scan","kind":"blocking-gate","reason":"working tree dirty before fix commit"}]},
+  "stale_prose_check": {"status":"pass","command":"git diff origin/main...HEAD | python3 scripts/stale-prose-lint.py --rev HEAD"},
+  "telemetry": "unavailable",
+  "shadow": {
+    "reviewed_sha":"c13f14ff",
+    "coverage":"not_verified",
+    "reason":"three-role blinded pass found actionable findings; promotion is unconditional and the full five-role convergence shadow will run after the successor fix",
+    "promoted_to_iter_next":true,
+    "prompt_addenda":null
+  }
+}

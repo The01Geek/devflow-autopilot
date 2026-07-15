@@ -1,0 +1,66 @@
+{
+  "iter": 4,
+  "started_at": "2026-07-15T22:39:49Z",
+  "fix_commit_sha": "d78dd483a0a0893f9cae3e2d0f324a7d25dc66ed",
+  "fix_files": [
+    ".changeset/issue-484-implement-profile-grants.md",
+    ".github/workflows/devflow-implement.yml",
+    ".github/workflows/devflow-runner.yml",
+    ".github/workflows/devflow.yml",
+    ".github/workflows/matcher-probe.yml",
+    "CLAUDE.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "docs/implement-skill.md",
+    "docs/install.md",
+    "docs/shadow-review.md",
+    "lib/test/extract-command-heads.py",
+    "lib/test/run.sh",
+    "skills/review/SKILL.md"
+  ],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "checklist": [],
+  "checklist_skipped": "intentional",
+  "phase3_dispatched": ["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:requesting-code-review","devflow:pr-test-analyzer"],
+  "diff_profile": {"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":"intentional"},
+  "phase3_findings": [
+    {"agent":"devflow:silent-failure-hunter","severity":"Important","description":"mandatory dirty-tree backstop used matcher-refused mktemp captures and shell state that could not cross the Agent boundary","defect_signature":{"file":"skills/review/SKILL.md","line_range":[806,1080],"kind":"logic_error"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"devflow:code-reviewer","severity":"Important","description":"predictable scratch paths and a writable unauthenticated baseline allowed clobbering or bypass","defect_signature":{"file":"skills/review/SKILL.md","line_range":[809,980],"kind":"security"},"corroboration_count":2,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"devflow:silent-failure-hunter","severity":"Important","description":"unchecked extraction pipelines and truncated NUL records could fail open","defect_signature":{"file":"skills/review/SKILL.md","line_range":[1000,1060],"kind":"logic_error"},"corroboration_count":2,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"devflow:silent-failure-hunter","severity":"Important","description":"unterminated allowlist could consume a later dedented quote and misclassify grants","defect_signature":{"file":"lib/test/extract-command-heads.py","line_range":[555,575],"kind":"logic_error"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"devflow:pr-test-analyzer","severity":"Important","description":"snapshot authentication was literal-pinned but not behaviorally exercised by the integration harness","defect_signature":{"file":"lib/test/run.sh","line_range":[4026,4221],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id":"SF-BACKSTOP","decision":"applied","commit":"43224a88"},
+    {"finding_id":"CR-SCRATCH","decision":"applied","commit":"f9e4816c"},
+    {"finding_id":"SF-PARSER-INTEGRITY","decision":"applied","commit":"88cf9206"},
+    {"finding_id":"DOC-GRANTS","decision":"applied","commit":"0295bdd7"},
+    {"finding_id":"TEST-AUTH-WRAPPER","decision":"applied","commit":"d78dd483"}
+  ],
+  "convergence_inputs": {"fixes_applied":5,"fix_diff_lines":null,"new_corroborated_critical_count":0},
+  "cap_drops": {"count":0,"by_category":{}},
+  "test_first_gate": [
+    {"decision":"authenticate baseline outside agent-writable state","command":"complete Phase 3.2 wrapper fixtures with authentic, forged, and symlink baselines","result":"green","evidence":"authentic OID permits scoped restore; forged and symlink baselines preserve edits and emit integrity breadcrumbs"},
+    {"decision":"bound allowlist parsing to YAML scalar indentation","command":"dedented-later-quote adversarial parser fixture","result":"green","evidence":"unterminated scalar fails closed before later quoted prose"}
+  ],
+  "sweep_defs_read": ["skills/implement/phases/phase-2-implement.md:2.3"],
+  "sweep_evidence": {"status":"pass","shape":"permission profiles, parser boundaries, snapshot integrity, documentation mirrors","sweeps":["API boundary","permission denial","filesystem integrity","removal proof","coupled prose"]},
+  "verification_evidence": {"command":"lib/test/run.sh","result":"pass","duration_s":242,"skipped_checks":[]},
+  "stale_prose_check": {"status":"pass","evidence":"#434 committed-HEAD stale-prose self-scan passed in the 7563-test final run"},
+  "telemetry": "unavailable",
+  "shadow": {
+    "ran_at": "2026-07-15T22:39:49Z",
+    "reviewed_sha": "d78dd483a0a0893f9cae3e2d0f324a7d25dc66ed",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:requesting-code-review","devflow:pr-test-analyzer"],
+    "expected_reviewers": ["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:requesting-code-review","devflow:pr-test-analyzer"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total":0,"overlap_with_iter_N":0,"new":0,"new_critical":0,"new_important":0},
+    "promoted_to_iter_next": false
+  }
+}
