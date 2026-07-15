@@ -285,8 +285,9 @@ ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role checkli
 # but NOT from its own — a truncated synthesized record must still warn).
 ITER_SYNTH_EXPECTED_FIELDS="iter fix_commit_sha fix_files loop_role synthesized"
 # The synthesized SHADOW-marker minimal field set (issue #426): what
-# synthesize_shadow_markers writes into an iter's `shadow` block when the block
-# was dropped but promotion evidence survives, and what --self-check validates a
+# synthesize_shadow_markers writes into an iter's `shadow` block when provenance
+# establishes that a shadow ran (or leaves that fact unestablished for a legacy
+# record), and what --self-check validates a
 # `shadow_synthesized: true` block against (a recognized degraded class, exempt
 # from a real shadow block's full shape but NOT from its own minimal set — a
 # truncated synthesized shadow marker must still warn). Plain single-line
@@ -529,13 +530,12 @@ synthesize_iter_workpads() {
   return 2
 }
 
-# Shadow synthesis floor (Layer 3+, issue #426): when an iter-<N>.json carries no
-# `shadow` block but the run holds promotion evidence that iteration N's shadow
-# promoted — iter-<N+1>.json exists with loop_role "promoted" — the shadow block
-# was dropped (the issue-304 drop shape). Synthesize a minimal marker
-# {shadow_synthesized: true, promoted_to_iter_next: true} into iter-<N>.json so
-# the promotion is not left silently unattributable. Best-effort, always returns
-# 0 (a floor failure never aborts --persist). Two guards keep it faithful: it
+# Shadow synthesis floor (Layer 3+, issues #426/#501): a promoted successor's
+# `promotion_provenance` establishes whether its predecessor ran a shadow. The
+# floor recovers dropped shadow blocks for shadow and post-shadow park promotions,
+# suppresses pre-shadow/non-shadow promotions, and preserves legacy ambiguity in
+# a `provenance_unestablished` marker. Best-effort, always returns 0 (a floor
+# failure never aborts --persist). Two guards keep it faithful: it
 # NEVER overwrites an existing `shadow` block (agent-written or already
 # synthesized — the read gates on `.shadow` absence), and it writes at most one
 # marker per promotion-evidenced iter (no double-count — a second --persist pass
@@ -544,7 +544,7 @@ synthesize_iter_workpads() {
 # promotion evidence to synthesize from; the fused Step 2.6 emit is the primary
 # fix and this floor is its backstop, not its equal.
 synthesize_shadow_markers() {
-  local dir="$1" iter n next has_shadow promoted jq_err mv_err
+  local dir="$1" iter n next has_shadow promoted provenance provenance_value marker_filter warning jq_err mv_err
   for iter in "$dir"/iter-*.json; do
     [ -e "$iter" ] || continue
     # Parse N from the filename with bash builtins only — this DECIDES whether a
@@ -580,12 +580,49 @@ synthesize_shadow_markers() {
       continue
     fi
     [ "$promoted" = "yes" ] || continue
+    # Classify the producer-written provenance inside jq and branch only on the
+    # resulting token. The two synthesis-licensing literals are a coupled
+    # producer/consumer contract pinned by lib/test/run.sh.
+    if ! provenance="$("$DEVFLOW_JQ" -r '
+      if ((.promotion_provenance | type) != "string") or ((.promotion_provenance | length) == 0) then "unknown"
+      elif .promotion_provenance == "shadow" then "shadow"
+      elif .promotion_provenance == "park-calibration-post-shadow" then "postshadow"
+      elif .promotion_provenance == "park-calibration-pre-shadow" then "preshadow"
+      else "nonshadow"
+      end' "$next" 2>/dev/null)"; then
+      echo "::warning::efficiency-trace.sh --persist: could not read '.promotion_provenance' from $(basename "$next") (unreadable or malformed workpad); cannot classify shadow precedence for $(basename "$iter")" >&2
+      continue
+    fi
+    case "$provenance" in
+      shadow)
+        marker_filter='.shadow = {shadow_synthesized: true, promoted_to_iter_next: true}'
+        warning="::warning::efficiency-trace.sh --persist: synthesized a minimal shadow marker on $(basename "$iter") — its shadow block was dropped but iter-$((10#$n + 1)).json is a promoted iter, so the promotion linkage is recovered (cost figures are unrecoverable after the fact — attribution only, per the floor's promoted-shadows-only limitation)"
+        ;;
+      postshadow)
+        marker_filter='.shadow = {shadow_synthesized: true, promoted_to_iter_next: false}'
+        warning="::warning::efficiency-trace.sh --persist: synthesized a shadow marker on $(basename "$iter") — its shadow block was dropped ($(basename "$next") records a park-calibration-post-shadow promotion, so a shadow ran here); promoted_to_iter_next is false because the promotion was park-gate-driven, not shadow-driven (attribution only — cost figures are unrecoverable after the fact)"
+        ;;
+      preshadow) continue ;;
+      nonshadow)
+        provenance_value="$("$DEVFLOW_JQ" -r '.promotion_provenance' "$next" 2>/dev/null)" || provenance_value="<unreadable>"
+        echo "::warning::efficiency-trace.sh --persist: $(basename "$next") carries unrecognized promotion_provenance value '$provenance_value' — treating it as a non-shadow promotion (no marker synthesized on $(basename "$iter")); an unrecognized value here can hide a genuine drop" >&2
+        continue
+        ;;
+      unknown)
+        marker_filter='.shadow = {shadow_synthesized: true, promoted_to_iter_next: true, provenance_unestablished: true}'
+        warning="::warning::efficiency-trace.sh --persist: synthesized a minimal shadow marker on $(basename "$iter") — $(basename "$next") is a promoted iter whose promotion provenance is unreadable or absent (a record predating promotion_provenance, or a degraded write), so the shadow block was either dropped or this promotion never ran one; marked provenance_unestablished (attribution only — cost figures are unrecoverable after the fact)"
+        ;;
+      *)
+        echo "::warning::efficiency-trace.sh --persist: internal promotion provenance classifier returned '$provenance' for $(basename "$next"); no marker synthesized on $(basename "$iter")" >&2
+        continue
+        ;;
+    esac
     # Merge the marker in via a temp file + mv (jq cannot edit in place; a direct
     # `> "$iter"` would truncate the source before jq reads it). A failed jq
     # leaves the original untouched with a breadcrumb — never a silent drop.
-    if jq_err="$("$DEVFLOW_JQ" '.shadow = {shadow_synthesized: true, promoted_to_iter_next: true}' "$iter" 2>&1 > "$iter.shadowtmp")"; then
+    if jq_err="$("$DEVFLOW_JQ" "$marker_filter" "$iter" 2>&1 > "$iter.shadowtmp")"; then
       if mv_err="$(mv "$iter.shadowtmp" "$iter" 2>&1)"; then
-        echo "::warning::efficiency-trace.sh --persist: synthesized a minimal shadow marker on $(basename "$iter") — its shadow block was dropped but iter-$((10#$n + 1)).json is a promoted iter, so the promotion linkage is recovered (cost figures are unrecoverable after the fact — attribution only, per the floor's promoted-shadows-only limitation)" >&2
+        echo "$warning" >&2
       else
         # Surface mv's own errno text (read-only mount, ENOSPC, …) rather than
         # discarding it to /dev/null — symmetric with the jq branch's $jq_err, and
@@ -649,7 +686,7 @@ do_self_check() {
   #       and skips — otherwise a wrong-shape workpad masquerades as complete.
   # An object yields its missing-field names; field names are bare identifiers, so
   # the `for field in $missing` word-split is safe (and emits one warning line each).
-  local iter field missing shadow_missing
+  local iter field missing shadow_missing provenance_state provenance_value
   for iter in "$WORKPAD_DIR"/iter-*.json; do
     [ -e "$iter" ] || continue
     # A synthesized record (issue #381) is a recognized degraded class — it
@@ -672,6 +709,23 @@ do_self_check() {
     for field in $missing; do
       echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is missing expected field '${field}'" >&2
     done
+    # Producer-drop advisory (issue #501): provenance is conditional, so it does
+    # not belong in ITER_EXPECTED_FIELDS. Validate it only on non-synthesized
+    # promoted records and stay advisory for legacy data.
+    if provenance_state="$("$DEVFLOW_JQ" -r '
+      if (.synthesized == true) or (.loop_role != "promoted") then "skip"
+      elif ((.promotion_provenance | type) != "string") or ((.promotion_provenance | length) == 0) then "unknown"
+      elif (.promotion_provenance as $p | ["shadow", "park-calibration-post-shadow", "park-calibration-pre-shadow"] | index($p)) != null then "known"
+      else "unrecognized"
+      end' "$iter" 2>/dev/null)"; then
+      case "$provenance_state" in
+        unknown)
+          echo "::warning::devflow review-and-fix self-check: promoted iter workpad '$(basename "$iter")' has unreadable or absent promotion_provenance — legacy data and a producer drop are indistinguishable; verify the promotion handoff" >&2 ;;
+        unrecognized)
+          provenance_value="$("$DEVFLOW_JQ" -r '.promotion_provenance' "$iter" 2>/dev/null)" || provenance_value="<unreadable>"
+          echo "::warning::devflow review-and-fix self-check: promoted iter workpad '$(basename "$iter")' has unrecognized promotion_provenance '$provenance_value' — verify the promotion producer" >&2 ;;
+      esac
+    fi
     # Synthesized shadow marker validation (issue #426): a `shadow` block carrying
     # `shadow_synthesized: true` is a recognized degraded class — validate it
     # against its own minimal set (SHADOW_SYNTH_EXPECTED_FIELDS), so a truncated

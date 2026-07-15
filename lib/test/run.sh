@@ -16545,7 +16545,7 @@ git -C "$SHF_REPO" commit --allow-empty -qm "feat: work"
 SHF_A="$SHF_REPO/.devflow/tmp/review/pr-1/run-a"
 mkdir -p "$SHF_A"
 printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_A/iter-1.json"
-printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"}' > "$SHF_A/iter-2.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted","promotion_provenance":"shadow"}' > "$SHF_A/iter-2.json"
 ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_A" --slug pr-1 ) >/dev/null 2>&1
 assert_eq "et-shadow-floor(a): promotion evidence + no shadow block → synthesized marker written" "true" \
   "$(jq -r '.shadow.shadow_synthesized' "$SHF_A/iter-1.json" 2>/dev/null)"
@@ -16556,6 +16556,81 @@ assert_eq "et-shadow-floor(a): synthesized marker carries the promotion linkage"
 SHF_A_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_A" --slug pr-1 ) 2>&1 )"
 assert_eq "et-shadow-floor(a): --self-check accepts the synthesized marker (no missing-field warning)" "no" \
   "$(printf '%s' "$SHF_A_SC" | grep -qF 'synthesized shadow marker missing expected field' && echo yes || echo no)"
+# (a2) A Step-4.5 park-calibration promotion happened before any predecessor
+# shadow ran. Provenance must suppress both synthesis and the dropped-shadow warning.
+SHF_A2="$SHF_REPO/.devflow/tmp/review/pr-1/run-a2"
+mkdir -p "$SHF_A2"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_A2/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted","promotion_provenance":"park-calibration-pre-shadow"}' > "$SHF_A2/iter-2.json"
+SHF_A2_BEFORE="$(cat "$SHF_A2/iter-1.json")"
+SHF_A2_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_A2" --slug pr-1 ) 2>&1 >/dev/null )"
+assert_eq "et-shadow-floor(a2): pre-shadow park promotion leaves predecessor byte-identical" "$SHF_A2_BEFORE" \
+  "$(cat "$SHF_A2/iter-1.json")"
+assert_eq "et-shadow-floor(a2): pre-shadow park promotion emits no warning for predecessor" "no" \
+  "$(printf '%s' "$SHF_A2_ERR" | grep -qF 'iter-1.json' && echo yes || echo no)"
+assert_pin_red_under "et-shadow-floor(a2): restoring synthesis on the pre-shadow arm flips the suppression pin RED" \
+  'preshadow) continue ;;' \
+  's/preshadow\) continue ;;/preshadow) marker_filter='"'"'.shadow = {shadow_synthesized: true, promoted_to_iter_next: true}'"'"' ;;/' \
+  "$LIB/efficiency-trace.sh"
+# (a3) A post-shadow park promotion licenses drop recovery but never shadow credit.
+SHF_A3="$SHF_REPO/.devflow/tmp/review/pr-1/run-a3"
+mkdir -p "$SHF_A3"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_A3/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted","promotion_provenance":"park-calibration-post-shadow"}' > "$SHF_A3/iter-2.json"
+SHF_A3_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_A3" --slug pr-1 ) 2>&1 >/dev/null )"
+assert_eq "et-shadow-floor(a3): post-shadow park drop is recovered" "true" \
+  "$(jq -r '.shadow.shadow_synthesized' "$SHF_A3/iter-1.json")"
+assert_eq "et-shadow-floor(a3): park-driven promotion receives no shadow credit" "false" \
+  "$(jq -r '.shadow.promoted_to_iter_next' "$SHF_A3/iter-1.json")"
+assert_eq "et-shadow-floor(a3): exact post-shadow warning is emitted" \
+  "::warning::efficiency-trace.sh --persist: synthesized a shadow marker on iter-1.json — its shadow block was dropped (iter-2.json records a park-calibration-post-shadow promotion, so a shadow ran here); promoted_to_iter_next is false because the promotion was park-gate-driven, not shadow-driven (attribution only — cost figures are unrecoverable after the fact)" \
+  "$(printf '%s\n' "$SHF_A3_ERR" | grep -F 'synthesized a shadow marker on iter-1.json')"
+# (a4) Unknown producer values fail closed to no synthesis and stay loud.
+SHF_A4="$SHF_REPO/.devflow/tmp/review/pr-1/run-a4"
+mkdir -p "$SHF_A4"
+printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_A4/iter-1.json"
+printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted","promotion_provenance":"future-gate"}' > "$SHF_A4/iter-2.json"
+SHF_A4_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_A4" --slug pr-1 ) 2>&1 >/dev/null )"
+assert_eq "et-shadow-floor(a4): unrecognized provenance writes no marker" "null" \
+  "$(jq -r '.shadow' "$SHF_A4/iter-1.json")"
+assert_eq "et-shadow-floor(a4): unrecognized provenance breadcrumb names the value" "yes" \
+  "$(printf '%s' "$SHF_A4_ERR" | grep -qF "unrecognized promotion_provenance value 'future-gate'" && echo yes || echo no)"
+SHF_A4_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_A4" --slug pr-1 ) 2>&1 )"
+assert_eq "et-shadow-floor(a4): self-check names the unrecognized producer value" "yes" \
+  "$(printf '%s' "$SHF_A4_SC" | grep -qF "has unrecognized promotion_provenance 'future-gate'" && echo yes || echo no)"
+# (a5) Every non-established JSON shape gets the hedged legacy marker and advisory.
+for _shf_shape in absent null empty number boolean object array; do
+  SHF_A5="$SHF_REPO/.devflow/tmp/review/pr-1/run-a5-$_shf_shape"
+  mkdir -p "$SHF_A5"
+  printf '{"iter":1,"source":"review-and-fix","loop_role":"fix"}' > "$SHF_A5/iter-1.json"
+  case "$_shf_shape" in
+    absent)  _shf_prov='' ;;
+    null)    _shf_prov=',"promotion_provenance":null' ;;
+    empty)   _shf_prov=',"promotion_provenance":""' ;;
+    number)  _shf_prov=',"promotion_provenance":7' ;;
+    boolean) _shf_prov=',"promotion_provenance":false' ;;
+    object)  _shf_prov=',"promotion_provenance":{}' ;;
+    array)   _shf_prov=',"promotion_provenance":[]' ;;
+  esac
+  printf '{"iter":2,"source":"review-and-fix","loop_role":"promoted"%s}' "$_shf_prov" > "$SHF_A5/iter-2.json"
+  SHF_A5_ERR="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$SHF_A5" --slug pr-1 ) 2>&1 >/dev/null )"
+  assert_eq "et-shadow-floor(a5 $_shf_shape): hedged marker synthesized" "true true true" \
+    "$(jq -r '[.shadow.shadow_synthesized,.shadow.promoted_to_iter_next,.shadow.provenance_unestablished] | join(" ")' "$SHF_A5/iter-1.json")"
+  assert_eq "et-shadow-floor(a5 $_shf_shape): hedged warning names ambiguity" "yes" \
+    "$(printf '%s' "$SHF_A5_ERR" | grep -qF 'shadow block was either dropped or this promotion never ran one' && echo yes || echo no)"
+  SHF_A5_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_A5" --slug pr-1 ) 2>&1 )"
+  assert_eq "et-shadow-floor(a5 $_shf_shape): self-check advises on producer provenance gap" "yes" \
+    "$(printf '%s' "$SHF_A5_SC" | grep -qF 'has unreadable or absent promotion_provenance' && echo yes || echo no)"
+done
+# Defined values are all accepted by the producer advisory.
+for _shf_known in shadow park-calibration-post-shadow park-calibration-pre-shadow; do
+  SHF_KNOWN="$SHF_REPO/.devflow/tmp/review/pr-1/run-known-$_shf_known"
+  mkdir -p "$SHF_KNOWN"
+  printf '{"iter":1,"source":"review-and-fix","loop_role":"promoted","promotion_provenance":"%s"}' "$_shf_known" > "$SHF_KNOWN/iter-1.json"
+  SHF_KNOWN_SC="$( ( cd "$SHF_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$SHF_KNOWN" --slug pr-1 ) 2>&1 )"
+  assert_eq "et-shadow-floor self-check: defined $_shf_known provenance emits no provenance advisory" "no" \
+    "$(printf '%s' "$SHF_KNOWN_SC" | grep -qF 'promotion_provenance' && echo yes || echo no)"
+done
 # A TRUNCATED synthesized shadow marker still warns — the flag buys no total exemption.
 mkdir -p "$SHF_REPO/.devflow/tmp/review/pr-1/run-trunc"
 printf '{"iter":1,"source":"review-and-fix","loop_role":"fix","shadow":{"shadow_synthesized":true}}' \
@@ -16813,6 +16888,14 @@ assert_pin_red_under "et-shadow-floor(l): discarding mv's stderr again flips the
 # greppable single-line assignment in efficiency-trace.sh (its self-check reads it).
 assert_pin_unique "et-shadow-floor: efficiency-trace.sh carries the SHADOW_SYNTH_EXPECTED_FIELDS constant" \
   'SHADOW_SYNTH_EXPECTED_FIELDS="shadow_synthesized promoted_to_iter_next"' "$LIB/efficiency-trace.sh"
+assert_pin_unique "et-shadow-floor #501: consumer classifies shadow provenance" \
+  'elif .promotion_provenance == "shadow" then "shadow"' "$LIB/efficiency-trace.sh"
+assert_pin_unique "et-shadow-floor #501: consumer classifies post-shadow park provenance" \
+  'elif .promotion_provenance == "park-calibration-post-shadow" then "postshadow"' "$LIB/efficiency-trace.sh"
+assert_pin_unique "et-shadow-floor #501: producer stages shadow provenance at the early handoff" \
+  'Step 0.9 short-circuits and stages `promotion_provenance: "shadow"` beside `prior_phase3_findings`' "$MAXI_SKILL"
+assert_pin_unique "et-shadow-floor #501: producer stages both park-gate provenance values" \
+  'Stage `"park-calibration-post-shadow"` when the gate fires before Decide outcome 1' "$MAXI_SKILL"
 rm -rf "$SHF_REPO"
 
 # ── issue #426 prose pins: Phase 1 slice handoff + shadow telemetry (T1–T4) ──
@@ -17479,11 +17562,12 @@ rm -rf "$LR_SC_REPO"
 # (5) Single-source field set ↔ SKILL.md schema divergence guard (AC #6).
 #     ITER_EXPECTED_FIELDS in efficiency-trace.sh is the ONE place the expected
 #     iter-field set is defined; it MUST equal the iter-<N>.json schema's
-#     top-level fields in SKILL.md minus `shadow` (appended later by Step 2.6,
-#     legitimately absent). FAILs if a field is added/removed on either side.
+#     unconditional top-level fields in SKILL.md minus `shadow` (appended later)
+#     and `promotion_provenance` (conditional on promoted iterations). FAILs if
+#     an unconditional field is added/removed on either side.
 LR_CONST="$(grep -E '^ITER_EXPECTED_FIELDS=' "$LIB/efficiency-trace.sh" | sed -E 's/^ITER_EXPECTED_FIELDS=//; s/"//g' | tr ' ' '\n' | grep -v '^$' | sort -u)"
-LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -v '^shadow$' | sort -u)"
-assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md schema top-level minus shadow" \
+LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|promotion_provenance)$' | sort -u)"
+assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md unconditional schema fields" \
   "$LR_SCHEMA" "$LR_CONST"
 
 # (6) --self-check NEVER ABORTS on an unparseable iter file (issue #170 AC: every
@@ -36341,6 +36425,45 @@ assert_eq "#499 backfill: non-object entry record is byte-verbatim" "$T499_B_BEF
 assert_eq "#499 backfill: malformed family breadcrumbs are named" "yes" "$(printf '%s' "$T499_B_ERR" | grep -qF '(R4)' && printf '%s' "$T499_B_ERR" | grep -qF '(R5)' && echo yes || echo no)"
 assert_eq "#499 backfill: rerun is a branch no-op" "$T499_B_TIP1" "$T499_B_TIP2"
 rm -rf "$T499_B"
+# ── #497 shadow prompt-composition attestation pins ──────────────────────────
+I497_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+I497_SHADOW_DOC="$LIB/../docs/shadow-review.md"
+I497_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+
+assert_pin_unique "#497 AC1 skill names topic-priming as a distinct leak channel" \
+  'Topic-priming is a second leak channel, distinct from prior-findings leakage.' "$I497_RAF"
+assert_pin_unique "#497 AC1 skill carries the exhaustive shadow prompt composition rule" \
+  'Every shadow-pass subagent prompt the parent composes uses the engine' "$I497_RAF"
+assert_pin_unique "#497 AC2 skill requires both shallow-safe extension provenance checks" \
+  'Extension text is provenance-clean only when both shallow-clone-safe checks are successfully established and pass' "$I497_RAF"
+assert_pin_unique "#497 AC2 unresolved provenance operands fail closed" \
+  'An error or unreadable input never defaults to provenance-clean.' "$I497_RAF"
+assert_pin_unique "#497 AC3 skill pins shadow artifacts to engine-produced full-diff outputs" \
+  'The permitted diff artifacts are the shadow engine' "$I497_RAF"
+assert_pin_unique "#497 AC5 schema example carries the nullable prompt_addenda field" \
+  '"prompt_addenda": null,' "$I497_RAF"
+assert_pin_unique "#497 AC5 emit example carries the clean prompt_addenda attestation" \
+  '"prompt_addenda": "none",' "$I497_RAF"
+assert_pin_red_under "#497 AC6 outcome 1 requires the positive prompt_addenda equality" \
+  'Outcome 1 requires `prompt_addenda` to equal the JSON string literal `"none"` in both memory and the persisted shadow block.' \
+  's/ Outcome 1 requires `prompt_addenda` to equal the JSON string literal `"none"` in both memory and the persisted shadow block\.//' "$I497_RAF"
+assert_pin_red_under "#497 AC7 promotion is never gated and coverage is never changed by attestation" \
+  'The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass promotes these findings unchanged and preserves any non-`"none"` attestation on the block.' \
+  's/ The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass promotes these findings unchanged and preserves any non-`"none"` attestation on the block\.//' "$I497_RAF"
+assert_pin_unique "#497 AC10 skill clean render requires both persisted operands" \
+  'The exact clean-agreement string requires both persisted operands' "$I497_RAF"
+assert_pin_unique "#497 AC10 Coverage handles every present noncanonical attestation value" \
+  'Any other present attestation value is not attested.' "$I497_RAF"
+assert_pin_unique "#497 AC11 skill red flag names all three steering channels" \
+  'append focus/prioritize/scope clauses to a shadow prompt, hand it regenerated or subsetted diff artifacts, or write steering into its prompt-extension file' "$I497_RAF"
+assert_pin_unique "#497 AC12 shadow doc mirrors the widened prompt composition rule" \
+  'Every shadow-pass subagent prompt the parent composes uses the engine' "$I497_SHADOW_DOC"
+assert_pin_unique "#497 AC12 shadow doc mirrors the separate attestation operand" \
+  'Prompt composition is fail-closed as a separate operand' "$I497_SHADOW_DOC"
+assert_pin_unique "#497 AC12 overview names topic-priming" \
+  'Topic-priming is a second, distinct leak channel' "$I497_OVERVIEW"
+assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda" \
+  'a **prompt-composition attestation**' "$I497_OVERVIEW"
 
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
