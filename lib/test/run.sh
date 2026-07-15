@@ -20596,8 +20596,8 @@ assert_eq "489/AC3(F-c): the UPLOAD side carries the devflow-telemetry-stage- ar
   "$(grep -cF 'name: devflow-telemetry-stage-' "$_489_WF/devflow-runner.yml")"
 assert_eq "489/AC3(F-c): the DOWNLOAD side carries the SAME devflow-telemetry-stage- stem (producer↔consumer coupling)" "1" \
   "$(grep -cF 'name: devflow-telemetry-stage-' "$_489_WF/telemetry-push.yml")"
-assert_pin_unique "489/AC2: the collect step calls the suite-tested collect helper (not inline shell)" \
-  'scripts/collect-staged-telemetry.sh "$GITHUB_WORKSPACE" "$dest"' "$_489_WF/devflow-runner.yml"
+assert_pin_unique "489/AC2/#502: the collect step resolves the vendored collect helper first (consumer portability — bare repo-relative scripts/ path was absent in consumers)" \
+  '.devflow/vendor/devflow/scripts/collect-staged-telemetry.sh' "$_489_WF/devflow-runner.yml"
 
 # AC2 collect helper (extracted from the workflow so the suite can drive it): consolidates every
 # staged .devflow/logs subtree into <dest>, prints "1" iff it collected something, best-effort.
@@ -20638,8 +20638,8 @@ assert_pin_unique "489/AC3: pusher downloads the triggering run's artifact by ru
   'run-id: ${{ github.event.workflow_run.id }}' "$_489_WF/telemetry-push.yml"
 assert_pin_unique "489/AC3: pusher checks out the DEFAULT branch, never the PR head" \
   'ref: ${{ github.event.repository.default_branch }}' "$_489_WF/telemetry-push.yml"
-assert_pin_unique "489/AC3: pusher invokes the validate+push helper" \
-  'scripts/telemetry-push-artifact.sh' "$_489_WF/telemetry-push.yml"
+assert_pin_unique "489/AC3/#502: pusher resolves the vendored validate+push helper first (consumer portability — bare repo-relative scripts/ path was absent in consumers)" \
+  '.devflow/vendor/devflow/scripts/telemetry-push-artifact.sh' "$_489_WF/telemetry-push.yml"
 # Endpoint↔permission: the pusher makes NO inline `gh api` call (git push via App token +
 # download-artifact via github.token/actions:read), so no additional token permission is owed.
 assert_eq "489/AC3(endpoint↔permission): pusher adds no inline gh api call needing an undeclared permission" "0" \
@@ -22383,9 +22383,17 @@ assert_eq "vendor: composite action runs the shared slice script" "1" \
 # workflows reference it, so a missing copy breaks every cloud run.
 assert_eq "vendor: install.sh copies the vendor-plugin composite action" "1" \
   "$(grep -cE 'for a in .*vendor-plugin' "$REPO_ROOT/install.sh" || true)"
+# #502: install.sh's workflow copy loop must include telemetry-push so consumer
+# repos receive the trusted telemetry-push.yml RELAY (not only the producer steps
+# in devflow-runner.yml). A behavioral-fix pin — removing telemetry-push from the
+# loop re-introduces the #502 regression (consumers get the producer but never the
+# consumer) and goes RED under the mutation.
+assert_pin_red_under "#502: install.sh's workflow copy loop includes telemetry-push (consumer relay)" \
+  'for w in devflow devflow-runner devflow-implement devflow-review telemetry-push' \
+  's/ telemetry-push//' "$REPO_ROOT/install.sh"
 # AC8 placement drift-guard: the vendor-plugin composite action reads files at
 # ./.github/actions/…, so the repo must be checked out BEFORE it runs in every
-# plugin-using job (seven across the four workflows). Scan each workflow, reset the
+# plugin-using job (eight across the five workflows). Scan each workflow, reset the
 # "checkout seen" flag at each 2-space job/section boundary, and tally each
 # vendor-plugin use as ok only if an actions/checkout preceded it in the same job.
 VP_PLACEMENT="$(awk '
@@ -22395,7 +22403,7 @@ VP_PLACEMENT="$(awk '
   /uses:[[:space:]]*\.\/\.github\/actions\/vendor-plugin/ { if (seen) ok++; else bad++ }
   END { print (ok+0)"/"(bad+0) }
 ' "$REPO_ROOT"/.github/workflows/*.yml)"
-assert_eq "vendor: vendor-plugin runs after checkout in all seven plugin jobs" "7/0" "$VP_PLACEMENT"
+assert_eq "vendor: vendor-plugin runs after checkout in all eight plugin jobs" "8/0" "$VP_PLACEMENT"
 
 # AC3 finalize_check drift-guard: the dismiss call must be preceded by an
 # explicit executability check so a vendoring miss (absent script, exit 127)
