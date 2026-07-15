@@ -557,6 +557,13 @@ def _efficiency_entry(record, run_id):
         "cost": _run_cost(record),
         "telemetry_complete": _telemetry_complete(record),
         "config_fingerprint": record.get("config_fingerprint"),
+        # Harness-side cost floor (issue #475): pass the top-level `harness_cost`
+        # object through VERBATIM as a new entry key. It is deliberately NOT summed
+        # into `cost` — `_run_cost` reads only `record["telemetry"]`, so per-phase
+        # aggregates and `telemetry_complete` are unchanged by its presence — and it
+        # is whole-JOB cost (see `harness_cost.scope`/`workflow`), never like-for-like
+        # with per-phase `telemetry`. `None` when the record carries no floor data.
+        "harness_cost": record.get("harness_cost"),
     }
 
 
