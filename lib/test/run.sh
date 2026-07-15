@@ -4023,6 +4023,16 @@ assert_pin_red_on_removal "#216 backstop: deleting the after-dispatch -z snapsho
   'git status --porcelain -z > "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}"' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: deleting the cmp-based compare-after divergence trigger turns its pin RED" \
   'cmp -s "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}"' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the pre-snapshot stale-path removal turns its pin RED" \
+  'if rm -f "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" ".devflow/tmp/review-dirty-tree-disabled"' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the before-snapshot symlink rejection turns its pin RED" \
+  '[ ! -L "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" ]' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the after-snapshot stale-path removal turns its pin RED" \
+  'elif ! rm -f "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}"' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the after-snapshot symlink rejection turns its pin RED" \
+  '[ -L "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}" ]' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the post-dispatch before-snapshot tamper guard turns its pin RED" \
+  'possible scratch tampering, nothing auto-restored' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the attributable dirty-tree breadcrumb turns its pin RED" \
   'a Phase 3.1 review-agent dispatch modified the working tree' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the snapshot-delta-scoped restore turns its pin RED" \
@@ -4058,6 +4068,10 @@ assert_pin_red_on_removal "#216 backstop: deleting the temp-alloc-failure fail-c
   'could not allocate repo-local scratch files for the dirty-tree restore' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: deleting the cmp-error fail-closed breadcrumb turns its pin RED" \
   'dirty-tree comparison SKIPPED this dispatch' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the before-extraction fail-closed breadcrumb turns its pin RED" \
+  'could not extract the before-snapshot path set' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the after-extraction fail-closed breadcrumb turns its pin RED" \
+  'could not extract the after-snapshot restore set' "$REVIEW_SKILL"
 # Rename/copy two-path `-z` entries are surfaced-not-restored — routed to a separate file,
 # never into the auto-restore set. Deleting the routing or the breadcrumb silently drops them.
 assert_pin_red_on_removal "#216 backstop: deleting the rename surfaced-not-restored routing turns its pin RED" \
@@ -4089,14 +4103,14 @@ assert_pin_red_on_removal "#216 backstop: deleting the empty-delta no-single-cau
 # to a literal that appears more than once by design):
 #  - the pathname-safe NUL read loop `IFS= read -r -d ''` at all THREE sites (BEFORE extract,
 #    AFTER extract, restore loop) — a regression to a newline `read -r` at any site drops the count;
-#  - the `sort -z` operand at BOTH extraction sorts — dropping `-z` collapses NUL data to one line;
+#  - no unchecked `sort -z` pipeline remains — records append directly and each write is rc-checked;
 #  - the fixed repo-local fail-closed sentinel PATH at all FOUR sites (success cleanup, failure
 #    producer, 3.2 short-circuit read, final cleanup). This file survives the Agent boundary;
 #    a shell variable would not.
 assert_eq "#216 backstop: the pathname-safe NUL read loop is present at all three sites" "yes" \
   "$([ "$(grep -cF 'IFS= read -r -d' "$REVIEW_SKILL")" -eq 3 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==3 NUL read loops (BEFORE/AFTER extract + restore)
-assert_eq "#216 backstop: the sort -z operand is present at both extraction sorts" "yes" \
-  "$([ "$(grep -cF 'sort -z' "$REVIEW_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 sort -z operands
+assert_eq "#484 backstop: no unchecked sort -z extraction pipeline remains" "yes" \
+  "$([ "$(grep -cF 'sort -z' "$REVIEW_SKILL")" -eq 0 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==0 unchecked sort -z pipelines
 assert_eq "#216 backstop: the fixed fail-closed sentinel path stays coupled across its four sites" "yes" \
   "$([ "$(grep -cF '.devflow/tmp/review-dirty-tree-disabled' "$REVIEW_SKILL")" -eq 4 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==4 occurrences (success cleanup + failure producer + 3.2 read + final cleanup)
 # ── #216: dirty-tree backstop -z rework — git_sandbox integration proof ────────────────
@@ -29725,12 +29739,12 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; #484 replaces two unavailable touch sites with four granted printf allocations)" \
-  "103" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; #484 hardens fixed-path snapshot creation and removes unchecked sort pipelines)" \
+  "105" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
-assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names; #484 removes the ungranted touch head from the shared review engine)" \
-  "32" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (31 distinct names; #484 removes ungranted touch and unchecked sort heads from the shared review engine)" \
+  "31" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 

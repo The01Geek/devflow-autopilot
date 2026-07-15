@@ -87,7 +87,9 @@ compliance, the shared engine snapshots the tree with `git status --porcelain -z
 **before** the Phase 3.1 batch (into a temp file — `-z` output carries NUL bytes a bash `$(...)`
 variable cannot hold). The snapshot is a fixed repo-local `.devflow/tmp/` file so it survives
 the Agent-tool boundary without an unavailable `mktemp` capture. The engine compares it **after**
-the batch returns. On divergence it records an Important
+the batch returns. Before each fixed-path write it removes the prior path object, validates a
+regular non-symlink result, and rc-checks path-set extraction; any failure skips restoration rather
+than treating an empty set as permission to clobber existing edits. On divergence it records an Important
 finding with an attributable breadcrumb (never silently discarded) and **restores only the snapshot
 delta** — paths clean at snapshot time that became dirty during the dispatch window — computed *by
 path column* (status prefix stripped from each `-z` record), so a path the orchestrator had already
@@ -109,8 +111,8 @@ snapshot read loops consume the bare orig-path continuation rather than mis-pars
 **disables** the backstop for that dispatch (it never restores off an empty baseline, which would
 authorize `git checkout` against the orchestrator's own live edits), and a failed after-snapshot is
 surfaced as a *distinct* breadcrumb rather than misattributed as an agent mutation. In the read-only
-`/devflow:review` profile the agents have **no write tools**, so the snapshots match and the restore
-never fires; the backstop earns its keep in the write-enabled `/devflow:review-and-fix` and
+`/devflow:review` profile the agents are **contractually read-only** and normally leave matching
+snapshots; the backstop still detects a contract violation and also earns its keep in the write-enabled `/devflow:review-and-fix` and
 `/devflow:implement` tiers — including the shadow pass, which re-runs these phases verbatim.
 
 **Residuals it does NOT auto-restore.** (1) A **true rename/copy** (status `R`/`C`) — undoing a
