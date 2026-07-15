@@ -35,5 +35,11 @@ issue workpad or PR body to read), so the gate is a no-op there.
 2. Otherwise, the **PR description** **contains** the marker literal `Writing-skills evidence:` —
    the discharge surface for interactive/human PRs and for a linked issue that has no workpad.
 
-When **no** checked surface contains the marker, the review reports a **FAIL** finding naming
-this rule (fail **closed** — an absent, malformed, or misspelled marker all read as absent).
+A discharge-surface read that **fails or cannot be resolved** — a `gh` comment-fetch error
+(network/auth/rate-limit), or an unresolvable/empty `closingIssuesReferences` — reads as
+*marker-absent on that surface*, **never** as *checked-and-clean*; the gate fails toward the
+FAIL finding, matching `implement.md`'s repair-arm read-failure handling. When **no** checked
+surface can be confirmed to contain the marker — whether because it was genuinely absent or
+because the read could not be established — the review reports a **FAIL** finding naming this
+rule (fail **closed** — an absent, malformed, or misspelled marker, and an unestablished read,
+all read as absent).
