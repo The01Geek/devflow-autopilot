@@ -2123,6 +2123,12 @@ assert_pin_red_under "#500: missing parked-class completeness gate goes RED" \
 assert_pin_red_under "#510 review round 4: unestablished parked-finding count fails closed" \
   'do not collapse that unknown onto zero and skip the bullet' \
   's/do not collapse that unknown onto zero and skip the bullet/collapse that unknown onto zero and skip the bullet/' "$ST_RAF"
+# #510 review round 4: the completeness gate reads parked_class_sweep.truncation DIRECTLY, so a
+# capacity-truncated sweep that still found siblings cannot ride out a clean-looking per-class
+# bullet. Mutation flips the fail-closed rule, re-admitting a truncated sweep as a clean pass.
+assert_pin_red_under "#510 review round 4: capacity-truncated sweep is never a clean pass" \
+  'a truncated sweep is never a clean pass' \
+  's/a truncated sweep is never a clean pass/a truncated sweep is a clean pass/' "$ST_RAF"
 assert_pin_red_under "#500: missing threshold promotion route goes RED" \
   'A discovered sibling at or above `$FIX_THRESHOLD` enters Step 2.5 → Step 3 as a promoted iteration using the same machinery as Decide outcome 2.' \
   's/A discovered sibling at or above `\$FIX_THRESHOLD` enters/A discovered sibling below `\$FIX_THRESHOLD` enters/' "$ST_RAF"
