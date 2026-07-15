@@ -2,24 +2,128 @@
   "iter": 2,
   "started_at": "2026-07-12T00:30:00Z",
   "fix_commit_sha": "2cf6cb3",
-  "fix_files": ["scripts/extract-execution-shape.sh", ".changeset/issue-437-execution-file-shape-probe.md", "lib/test/run.sh", "lib/test/fixtures/exec-shape-result-nullfields.json", "lib/test/fixtures/exec-shape-scalar.json"],
+  "fix_files": [
+    "scripts/extract-execution-shape.sh",
+    ".changeset/issue-437-execution-file-shape-probe.md",
+    "lib/test/run.sh",
+    "lib/test/fixtures/exec-shape-result-nullfields.json",
+    "lib/test/fixtures/exec-shape-scalar.json"
+  ],
   "loop_role": "promoted",
-  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
   "phase3_dispatched": [],
   "phase3_findings": [
-    {"agent": "shadow:comment-analyzer", "severity": "Important", "description": "changeset over-claimed 'with evidence' while record is pending first dispatch", "defect_signature": {"file": ".changeset/issue-437-execution-file-shape-probe.md", "line_range": [18, 18], "kind": "self-authored-claim-contradiction"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "shadow:pr-test-analyzer", "severity": "Important", "description": "valid-falsy null-fields adversarial row untested", "defect_signature": {"file": "lib/test/run.sh", "line_range": [475, 475], "kind": "test-coverage-gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "shadow:pr-test-analyzer", "severity": "Important", "description": "scalar top-level parse branch uncovered", "defect_signature": {"file": "lib/test/run.sh", "line_range": [539, 539], "kind": "test-coverage-gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "shadow:silent-failure-hunter", "severity": "Suggestion", "description": "permission_denials lacked !=null guard the other four fields carry", "defect_signature": {"file": "scripts/extract-execution-shape.sh", "line_range": [157, 157], "kind": "consistency"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+    {
+      "agent": "shadow:comment-analyzer",
+      "severity": "Important",
+      "description": "changeset over-claimed 'with evidence' while record is pending first dispatch",
+      "defect_signature": {
+        "file": ".changeset/issue-437-execution-file-shape-probe.md",
+        "line_range": [
+          18,
+          18
+        ],
+        "kind": "self-authored-claim-contradiction"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "shadow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "valid-falsy null-fields adversarial row untested",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          475,
+          475
+        ],
+        "kind": "test-coverage-gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "shadow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "scalar top-level parse branch uncovered",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          539,
+          539
+        ],
+        "kind": "test-coverage-gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "shadow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "permission_denials lacked !=null guard the other four fields carry",
+      "defect_signature": {
+        "file": "scripts/extract-execution-shape.sh",
+        "line_range": [
+          157,
+          157
+        ],
+        "kind": "consistency"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "S-1", "decision": "applied", "commit": "2cf6cb3"},
-    {"finding_id": "S-2", "decision": "applied", "commit": "2cf6cb3"},
-    {"finding_id": "S-3", "decision": "applied", "commit": "2cf6cb3"},
-    {"finding_id": "S-4", "decision": "applied", "commit": "2cf6cb3"}
+    {
+      "finding_id": "S-1",
+      "decision": "applied",
+      "commit": "2cf6cb3"
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "applied",
+      "commit": "2cf6cb3"
+    },
+    {
+      "finding_id": "S-3",
+      "decision": "applied",
+      "commit": "2cf6cb3"
+    },
+    {
+      "finding_id": "S-4",
+      "decision": "applied",
+      "commit": "2cf6cb3"
+    }
   ],
-  "convergence_inputs": {"fixes_applied": 4, "fix_diff_lines": 76, "new_corroborated_critical_count": 0},
-  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 60},
-  "cap_drops": {"count": 0, "by_category": {}},
-  "fix_delta_gate": {"result": "clean", "reviewed_range": "2cd993a..2cf6cb3", "verdict": "no new Critical or Important findings"}
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 76,
+    "new_corroborated_critical_count": 0
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 60
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "fix_delta_gate": {
+    "result": "clean",
+    "reviewed_range": "2cd993a..2cf6cb3",
+    "verdict": "no new Critical or Important findings"
+  },
+  "telemetry": "unavailable"
 }

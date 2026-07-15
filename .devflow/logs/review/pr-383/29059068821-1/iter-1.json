@@ -2,7 +2,10 @@
   "iter": 1,
   "started_at": "2026-07-10T00:00:00Z",
   "fix_commit_sha": "a9dc944",
-  "fix_files": ["lib/test/run.sh", ".changeset/issue-374-pin-count-option-safety.md"],
+  "fix_files": [
+    "lib/test/run.sh",
+    ".changeset/issue-374-pin-count-option-safety.md"
+  ],
   "loop_role": "fix",
   "diff_profile": {
     "small_diff": true,
@@ -19,26 +22,89 @@
     "devflow:requesting-code-review"
   ],
   "phase3_findings": [
-    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "AC3(a4) comment states mutated count 'not 2' but fixture yields 3", "defect_signature": {"file": "lib/test/run.sh", "line_range": [1627, 1627], "kind": "documented_falsehood"}, "corroboration_count": 2, "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "grep_present and assert_pin_red_on_removal -- guards not exercised by a dash-leading literal (defensive, no live caller)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [164, 1742], "kind": "test_coverage_gap"}, "corroboration_count": 2, "fix_decision": "advisory"}
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "AC3(a4) comment states mutated count 'not 2' but fixture yields 3",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          1627,
+          1627
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "grep_present and assert_pin_red_on_removal -- guards not exercised by a dash-leading literal (defensive, no live caller)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          164,
+          1742
+        ],
+        "kind": "test_coverage_gap"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "advisory"
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "F-1", "decision": "applied", "commit": "a9dc944"},
-    {"finding_id": "F-2", "decision": "applied", "commit": "a9dc944", "note": "changeset citation #383->#374"},
-    {"finding_id": "F-3", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "sibling -- guards untested", "skip_category": "advisory-parked", "evidence": "correct-by-construction (identical grep -F -- semantics to mutation-proven pin_count); no current caller passes a dash-leading literal; graded Suggestion by 2 independent reviewers; assert_pin_red_on_removal's grep -vF -- cannot be discriminated through the helper (both guarded and unguarded yield after=FAIL)"}
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "a9dc944"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "a9dc944",
+      "note": "changeset citation #383->#374"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "advisory",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "sibling -- guards untested",
+      "skip_category": "advisory-parked",
+      "evidence": "correct-by-construction (identical grep -F -- semantics to mutation-proven pin_count); no current caller passes a dash-leading literal; graded Suggestion by 2 independent reviewers; assert_pin_red_on_removal's grep -vF -- cannot be discriminated through the helper (both guarded and unguarded yield after=FAIL)"
+    }
   ],
   "shadow": {
     "ran_at": "2026-07-10T00:00:00Z",
     "reviewed_sha": "a9dc944",
     "verdict": "APPROVE",
     "coverage": "full",
-    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
-    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
     "reason": null,
     "checklist_skipped": null,
     "phase3_findings": [],
     "phase2_fails": [],
-    "comparison": {"shadow_total": 2, "overlap_with_iter_N": 2, "new": 0, "new_critical": 0, "new_important": 0},
+    "comparison": {
+      "shadow_total": 2,
+      "overlap_with_iter_N": 2,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
     "promoted_to_iter_next": false
-  }
+  },
+  "telemetry": "unavailable"
 }

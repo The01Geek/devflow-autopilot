@@ -513,10 +513,13 @@ devflow_telemetry_persist_tree() {
     #     only change is the add-if-absent `harness_cost`: re-apply THAT merge onto the
     #     fetched base-side version so a concurrent base-side change is preserved (AC5a).
     # For the pre-#475 append-only case this is behavior-identical (a shared path is
-    # byte-equal, so base-wins == the old local-wins). Echoes the new commit sha, `NOOP`
+    # byte-equal, so base-wins == the old local-wins). Marker migrations add one more
+    # constraint: a staged legacy blob may not overwrite a normalized remote blob.
+    # Echoes the new commit sha, `NOOP`
     # when the union tree equals the remote tip's tree, or empty on failure.
     commit_union_on() {  # $1 = remote tip (parent), $2 = local tip to overlay
-      local base="$1" overlay="$2" tree ptree meta path mode sha overlay_out
+      local base="$1" overlay="$2" tree tree_rc ptree meta path mode sha overlay_out remote_sha local_selected remote_selected jq_bin
+      jq_bin="${DEVFLOW_JQ:-jq}"
       # Read the OVERLAY's listing (and its rc) BEFORE building the tree, and fail closed.
       #
       # This was the one git call in this file whose rc was discarded, and it was the most
@@ -541,11 +544,19 @@ devflow_telemetry_persist_tree() {
         return 1
       fi
       rm -f "$idx" 2>/dev/null || true
+      tree_rc=0
       tree="$(
         export GIT_INDEX_FILE="$idx"
         # Start from BASE (the fetched remote tree): base-wins is the default, so a path
         # this run did not stage keeps the base side (AC5a).
         git -C "$root" read-tree "$base" 2>/dev/null || exit 1
+        classify_migration_blob() { # $1=sha $2=jq predicate; prints yes/no
+          local blob rc
+          blob="$(git -C "$root" cat-file blob "$1" 2>/dev/null)" || return 2
+          printf '%s' "$blob" | "$jq_bin" -e "$2" >/dev/null 2>&1
+          rc=$?
+          case "$rc" in 0) printf 'yes\n' ;; 1) printf 'no\n' ;; *) return 2 ;; esac
+        }
         # This loop assembles tree CONTENT (a union), not a selection decision, so iterating
         # the listing is appropriate. Format is `<mode> <type> <sha>\t<path>`; split the tab,
         # then take the first/last fields. Fed from the ALREADY-VALIDATED capture above.
@@ -560,15 +571,28 @@ devflow_telemetry_persist_tree() {
           for _u_s in ${staged_rel[@]+"${staged_rel[@]}"}; do
             [ "$_u_s" = "$path" ] && { _u_staged=1; break; }
           done
-          if [ "$_u_staged" -eq 0 ]; then
+           if [ "$_u_staged" -eq 0 ]; then
             # Not staged this run: base-wins. If base already has it, read-tree already
             # placed it, so do nothing. If base LACKS it, add the local copy (offline-
             # accumulation preservation — the #441 case this union was born for).
             if ! git -C "$root" cat-file -e "${base}:${path}" 2>/dev/null; then
               git -C "$root" update-index --add --cacheinfo "${mode},${sha},${path}" 2>/dev/null || exit 1
             fi
-            continue
-          fi
+             continue
+           fi
+           remote_sha="$(git -C "$root" rev-parse --verify --quiet "${base}:${path}" 2>/dev/null)" || remote_sha=""
+           if [ -n "$remote_sha" ]; then
+             local_selected=no; remote_selected=no
+             case "$path" in
+               .devflow/logs/review/*/iter-*.json)
+                 local_selected="$(classify_migration_blob "$sha" 'type == "object" and ((has("telemetry") | not) or .telemetry == null)')" || exit 2
+                 remote_selected="$(classify_migration_blob "$remote_sha" 'type == "object" and ((has("telemetry") | not) or .telemetry == null)')" || exit 2 ;;
+               .devflow/logs/efficiency/*.json)
+                 local_selected="$(classify_migration_blob "$sha" 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)')" || exit 2
+                 remote_selected="$(classify_migration_blob "$remote_sha" 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)')" || exit 2 ;;
+             esac
+             [ "$local_selected" = yes ] && [ "$remote_selected" != yes ] && continue
+           fi
           # Staged this run. A staged efficiency RECORD that ALSO exists on base is the
           # harness-cost merge target (issue #475): this run's only change to it is the
           # add-if-absent `harness_cost`, so re-apply THAT onto the fetched base version
@@ -603,11 +627,19 @@ devflow_telemetry_persist_tree() {
                 echo "::warning::telemetry-branch: harness-cost merge for '${path}' fell back to local-wins — jq unavailable/failed, or an empty base/local blob; a concurrent base-side harness_cost may be reverted this push" >&2
               fi
               ;;
-          esac
+           esac
           git -C "$root" update-index --add --cacheinfo "${mode},${sha},${path}" 2>/dev/null || exit 1
         done < <(printf '%s\n' "$overlay_out")
         git -C "$root" write-tree 2>/dev/null || exit 1
-      )" || return 1
+      )" || tree_rc=$?
+      if [ "$tree_rc" -ne 0 ]; then
+        if [ "$tree_rc" -eq 2 ]; then
+          echo "::warning::telemetry-branch: could not classify a colliding telemetry blob while building the monotonic union; refusing the union rather than guessing which side is normalized$(_devflow_telemetry_retention_note)" >&2
+        else
+          echo "::warning::telemetry-branch: git plumbing failed while building the telemetry union; refusing the union because its tree could not be established$(_devflow_telemetry_retention_note)" >&2
+        fi
+        return 1
+      fi
       [ -n "$tree" ] || return 1
       ptree="$(git -C "$root" rev-parse --verify --quiet "${base}^{tree}" 2>/dev/null)"
       [ "$tree" = "$ptree" ] && { printf 'NOOP\n'; return 0; }

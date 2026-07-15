@@ -1,9 +1,86 @@
-{"iter":1,"fix_commit_sha":"6e587e6898c5e13d2148ef456cfd895017224c69","fix_files":["skills/review-and-fix/SKILL.md","lib/test/run.sh"],
-"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
-"phase3_dispatched":["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:pr-test-analyzer","devflow:requesting-code-review"],
-"phase3_findings":[
- {"agent":"devflow:pr-test-analyzer","severity":"Important","description":"gate-failure pin not mutation-checked (fix-delta not verified non-unique)","defect_signature":{"file":"lib/test/run.sh","line_range":[136,137],"kind":"test_gap"},"fix_decision":"applied"},
- {"agent":"devflow:pr-test-analyzer","severity":"Suggestion","description":"blinding mechanism unpinned","defect_signature":{"file":"lib/test/run.sh","line_range":[118,139],"kind":"test_gap"},"fix_decision":"applied"},
- {"agent":"devflow:comment-analyzer","severity":"Important","description":"every-iteration-unconditionally does not address zero-fix iteration","defect_signature":{"file":"skills/review-and-fix/SKILL.md","line_range":[563,565],"kind":"comment_drift"},"fix_decision":"applied"},
- {"agent":"devflow:silent-failure-hunter","severity":"Important","description":"gate-failure rule overclaims transient/structural mirroring","defect_signature":{"file":"skills/review-and-fix/SKILL.md","line_range":[575,575],"kind":"logic_error"},"fix_decision":"applied"}],
-"convergence_inputs":{"fixes_applied":4,"fix_diff_lines":40,"new_corroborated_critical_count":0}}
+{
+  "iter": 1,
+  "fix_commit_sha": "6e587e6898c5e13d2148ef456cfd895017224c69",
+  "fix_files": [
+    "skills/review-and-fix/SKILL.md",
+    "lib/test/run.sh"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "gate-failure pin not mutation-checked (fix-delta not verified non-unique)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          136,
+          137
+        ],
+        "kind": "test_gap"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "blinding mechanism unpinned",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          118,
+          139
+        ],
+        "kind": "test_gap"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "every-iteration-unconditionally does not address zero-fix iteration",
+      "defect_signature": {
+        "file": "skills/review-and-fix/SKILL.md",
+        "line_range": [
+          563,
+          565
+        ],
+        "kind": "comment_drift"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "gate-failure rule overclaims transient/structural mirroring",
+      "defect_signature": {
+        "file": "skills/review-and-fix/SKILL.md",
+        "line_range": [
+          575,
+          575
+        ],
+        "kind": "logic_error"
+      },
+      "fix_decision": "applied"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 40,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": "unavailable"
+}

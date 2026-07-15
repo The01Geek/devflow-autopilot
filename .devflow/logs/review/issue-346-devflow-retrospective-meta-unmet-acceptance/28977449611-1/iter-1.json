@@ -29,7 +29,14 @@
       "agent": "devflow:requesting-code-review",
       "severity": "Critical",
       "description": "Missing required .changeset/*.md (AC8) — engine-surface change carries no changeset; Phase 3 gate would FAIL.",
-      "defect_signature": {"file": ".changeset/", "line_range": [0, 0], "kind": "missing-required-artifact"},
+      "defect_signature": {
+        "file": ".changeset/",
+        "line_range": [
+          0,
+          0
+        ],
+        "kind": "missing-required-artifact"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "applied"
@@ -38,7 +45,14 @@
       "agent": "devflow:silent-failure-hunter",
       "severity": "Important",
       "description": "Pass 5 detection references 'the diff the plan will produce' which does not exist at Phase 1.6, so it fails open for implementation-surfaced workflow-residence.",
-      "defect_signature": {"file": "skills/implement/phases/phase-1-setup.md", "line_range": [234, 248], "kind": "policy-without-mechanism"},
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          234,
+          248
+        ],
+        "kind": "policy-without-mechanism"
+      },
       "corroboration_count": 2,
       "step25_classification": "codebase",
       "fix_decision": "applied"
@@ -47,7 +61,14 @@
       "agent": "devflow:comment-analyzer",
       "severity": "Suggestion",
       "description": "run.sh pin-block header enumerates operative contracts as an exhaustive-looking list that omits the local-tier arm (mirror-fact enumeration drift risk).",
-      "defect_signature": {"file": "lib/test/run.sh", "line_range": [3846, 3849], "kind": "stale-enumeration-comment"},
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          3846,
+          3849
+        ],
+        "kind": "stale-enumeration-comment"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "applied"
@@ -56,22 +77,52 @@
       "agent": "devflow:silent-failure-hunter",
       "severity": "Suggestion",
       "description": "Tier misdetection defaults to local (never block); deliberate/correct tradeoff, blast radius is revert-to-prior behavior.",
-      "defect_signature": {"file": "skills/implement/phases/phase-1-setup.md", "line_range": [240, 246], "kind": "fail-open-default"},
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "line_range": [
+          240,
+          246
+        ],
+        "kind": "fail-open-default"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "advisory"
     }
   ],
   "fix_decisions": [
-    {"finding_id": "F-1", "decision": "applied", "commit": "406771522f4e3cd035b5ed6d4f25299c92ddc336"},
-    {"finding_id": "F-2", "decision": "applied", "commit": "406771522f4e3cd035b5ed6d4f25299c92ddc336"},
-    {"finding_id": "F-3", "decision": "applied", "commit": "406771522f4e3cd035b5ed6d4f25299c92ddc336"},
-    {"finding_id": "F-4", "decision": "advisory", "source_file": "skills/implement/phases/phase-1-setup.md", "claim_text": "tier misdetection defaults to local (never block)", "skip_category": "advisory-parked", "evidence": "deliberate correct tradeoff; GITHUB_ACTIONS=true is reliably set; defaulting the other way would spuriously block every local workflow-editing run; blast radius is revert-to-prior push-time behavior, not corruption"}
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "406771522f4e3cd035b5ed6d4f25299c92ddc336"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "406771522f4e3cd035b5ed6d4f25299c92ddc336"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "406771522f4e3cd035b5ed6d4f25299c92ddc336"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "advisory",
+      "source_file": "skills/implement/phases/phase-1-setup.md",
+      "claim_text": "tier misdetection defaults to local (never block)",
+      "skip_category": "advisory-parked",
+      "evidence": "deliberate correct tradeoff; GITHUB_ACTIONS=true is reliably set; defaulting the other way would spuriously block every local workflow-editing run; blast radius is revert-to-prior push-time behavior, not corruption"
+    }
   ],
   "convergence_inputs": {
     "fixes_applied": 3,
     "fix_diff_lines": 30,
     "new_corroborated_critical_count": 0
   },
-  "cap_drops": {"count": 0, "by_category": {}}
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": "unavailable"
 }
