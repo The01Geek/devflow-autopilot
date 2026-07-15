@@ -1,0 +1,13 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "fc6c0de7b972eab2bbaf838d154420c8b3a61093",
+  "fix_files": [
+    ".github/workflows/devflow-implement.yml",
+    ".github/workflows/devflow.yml",
+    "lib/test/run.sh",
+    "scripts/gh-fresh.sh",
+    "scripts/refresh-app-credentials.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}
