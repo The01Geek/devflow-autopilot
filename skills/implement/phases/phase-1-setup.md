@@ -141,6 +141,72 @@ CO_ERR=$( { git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"; } 2>&1 1>/
 LANDED=no; [ -n "$HEAD_REF" ] && [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$HEAD_REF" ] && LANDED=yes
 ```
 
+**PR-body run-link refresh (best-effort, cloud resume only — runs when `LANDED` is `yes`).** The gate job refreshes the *issue workpad's* `Run:` link to the current run on every resume, but the draft PR body's `[View run](...)` line is written once at PR creation (Phase 3.1) and never touched again — so a reviewer who arrives at the resumed run via the **PR** (not the issue) clicks a link to the original, now-stale run's logs. This rewrites that one line to the resumed run, mirroring the gate job's best-effort, `::warning::`-and-continue, never-blocks-the-resume contract. It runs only when the checkout landed (`LANDED=yes`) and only on a cloud run (`$GITHUB_RUN_ID` non-empty); a local-tier resume has no run URL and the outer guard leaves the body unchanged, never inserting a broken `[View run]()` line. The whole block is best-effort: any failure to derive the PR number, read the PR body, or PATCH it emits a `::warning::` breadcrumb naming the step and the run continues — it never fails the claude job or blocks the resume. The refresh runs **at most once per resume** (a single pass in the `LANDED=yes` path) and is **idempotent**: the `[View run](...)` line is *replaced in place*, not appended, so a second resume of the same run rewrites the same line to the same URL with no duplication and no body corruption.
+
+```bash
+if [ "$LANDED" = yes ] && [ -n "${GITHUB_RUN_ID:-}" ]; then
+  RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+  # Derive PR_NUMBER from the SAME PR_JSON entry the pre-check selected (it
+  # carries `number` — gh pr list --json number,headRefName,createdAt,…). Do NOT
+  # re-resolve via `gh pr view`, which resolves by the current branch and can
+  # select a different PR when multiple open PRs share the head branch; match the
+  # selected entry's headRefName (== $HEAD_REF, the bound selected branch), newest
+  # by createdAt. run-jq.sh is the preflight-guaranteed jq wrapper (never bare jq
+  # in a skill fence); `// empty` plus the empty guard route a derivation failure
+  # to the warn below, never a malformed `pulls/` PATCH path.
+  PR_NUMBER=$(printf '%s' "$PR_JSON" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -r --arg h "$HEAD_REF" '[.[] | select(.headRefName == $h)] | sort_by(.createdAt) | last | .number // empty' 2>/dev/null) || PR_NUMBER=""
+  if [ -n "$PR_NUMBER" ]; then
+    # Read the PR body via REST `gh api` (repo-scope, best-effort) — symmetric
+    # with the REST `gh api` PATCH write below, so the whole read-modify-write
+    # path uses one repo-scoped surface (never org-scoped GraphQL porcelain). A
+    # read failure (transport/auth, or the PR deleted between selection and read)
+    # is DISTINCT from a genuinely line-absent body: the `if !` reads `gh api`'s
+    # OWN exit status (never a cross-statement rc — issue #284), routing a failed
+    # read to its own breadcrumb so a reviewer debugging a stale link is not
+    # misdirected to "no [View run] line" when the body was never observed.
+    if ! PR_BODY=$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER" --jq '.body' 2>/dev/null); then
+      PR_BODY=""
+      echo "::warning::devflow resume: could not read PR #$PR_NUMBER body (gh api read failed); PR-body run-link refresh skipped" >&2
+    elif [ -n "$PR_BODY" ] && [[ $PR_BODY == *"[View run]("* ]]; then
+      # Substitute ONLY the `[View run](...)` line the
+      # Phase 3.1 template places immediately after the `Resolves #` line (its
+      # preceding line); a human-added `[View run]` elsewhere is preserved
+      # byte-for-byte. A body
+      # with no `[View run](` line at all (local-tier-stripped, human-edited-away,
+      # or a pre-existing PR predating the link feature) takes the no-op arm
+      # (warn, no PATCH, no insert). The `[[ == *"[View run]("* ]]` presence
+      # check is a bash builtin (no PATH tool — guard-class 2: a value that
+      # decides the PATCH must not be derived through a non-preflight tool like
+      # `grep`). The single-line rewrite is a deterministic, fixture-tested
+      # helper (`scripts/refresh-pr-run-link.py`) invoked as an argument to the
+      # preflight-guaranteed `python3` (never a bare `python3 -c` leading token —
+      # an unproven implement-tier shape, #401): the body is piped through stdin
+      # so its backticks and `$` never traverse shell quoting, and RUN_URL passes
+      # as argv, not interpolated. The transform output is CAPTURED and guarded
+      # non-empty before the PATCH (issue #493 empty-body hardening): the helper
+      # fails closed (empty output on empty stdin / a crash), and without
+      # `pipefail` a direct transform|PATCH pipe would let `gh api` PATCH an
+      # empty body and exit 0, silently blanking the description; the non-empty
+      # guard makes that path skip-and-warn instead. The full body (the Phase 3.1
+      # line rewritten) is PATCHed back via REST (repo-scope — `gh pr edit
+      # --body` is org-scoped GraphQL and fails under a repo-scoped token).
+      NEW_BODY=$(printf '%s' "$PR_BODY" | python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/refresh-pr-run-link.py "$RUN_URL") || NEW_BODY=""
+      if [ -n "$NEW_BODY" ]; then
+        printf '%s' "$NEW_BODY" \
+          | gh api --method PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@- 2>/dev/null \
+          || echo "::warning::devflow resume: PR-body run-link PATCH failed for PR #$PR_NUMBER; continuing" >&2
+      else
+        echo "::warning::devflow resume: PR-body run-link transform produced no output; PATCH skipped to avoid blanking PR #$PR_NUMBER body" >&2
+      fi
+    else
+      echo "::warning::devflow resume: PR #$PR_NUMBER body has no Phase 3.1 [View run] line (absent, human-edited-away, or pre-feature); run-link refresh is a no-op" >&2
+    fi
+  else
+    echo "::warning::devflow resume: could not derive PR_NUMBER from PR_JSON; PR-body run-link refresh skipped" >&2
+  fi
+fi
+```
+
 - **`LANDED` is `yes`** — the tree is on the PR's head branch. Skip branch creation and both signals entirely.
 - **`LANDED` is `no` and `$CO_ERR` matches `already used by worktree` (or the older `already checked out at`)** — the branch is live in another linked worktree. Do not force it and do not duplicate the branch: read that worktree's path from `git worktree list --porcelain` and continue in that worktree instead of duplicating the branch, noting the switch in the workpad. (If the harness already placed you in a worktree, the checkout happens **inside** it — that is simply the current working tree, so no extra step is needed.)
 - **`LANDED` is `no` for any other reason** (including an empty `HEAD_REF`) — record it and **stop**: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "resume pre-check: PR #<n> exists on branch $HEAD_REF but the checkout did not land ($CO_ERR); refusing to fall through to branch creation, which would duplicate that PR and abandon its commits"`, then emit the 👎 outcome reaction and stop the run. Falling through here is never correct: an open PR is *known* to exist, so creating a branch is a known duplication, not an unknown risk.

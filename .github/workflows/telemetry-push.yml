@@ -1,0 +1,102 @@
+name: Telemetry push (trusted relay)
+
+# Issue #489: land the read-only auto-review tier's STAGED observability artifacts onto the
+# `devflow-telemetry` branch. The auto-review job (devflow-runner.yml's `review` profile) runs
+# on the PR HEAD with `contents: read`, so it cannot push — it uploads its staged records as a
+# workflow artifact (devflow-runner.yml's "Upload staged telemetry artifacts" step) and stops.
+#
+# This workflow is the SEPARATE, TRUSTED relay. It is triggered via `workflow_run` off the
+# auto-review workflow's completion, so its own code comes from the repo's DEFAULT branch (not
+# the PR head) and it runs with repository write access — the documented GitHub-secure pattern
+# for handling data produced by a PR-triggered run. It downloads the triggering run's artifact,
+# VALIDATES it as untrusted PR-influenced input (the push helper delegates to
+# validate-telemetry-artifact.sh, all-or-nothing), and pushes the validated records via
+# lib/telemetry-branch.sh. The auto-review job NEVER gains a write credential; the write-capable
+# App token lives only here and is minted ABOVE the checkout (#357).
+#
+# Editing this file needs a `workflows`-scoped push — land it via a human/PAT or an
+# App-configured cloud run (DEVFLOW_APP_ID set). Content-pinned by lib/test/run.sh.
+on:
+  workflow_run:
+    # Must match the auto-review workflow's `name:` exactly (devflow-review.yml).
+    workflows: ["Devflow Review (auto-trigger)"]
+    types: [completed]
+
+# Least privilege: the actions-read scope lets download-artifact fetch the triggering run's
+# artifact. Both the checkout and the telemetry-branch PUSH authenticate with the seeded DevFlow
+# App token (a valid org integration / bypass actor), not this job's GITHUB_TOKEN — the
+# contents-read grant here is only a floor for the default token, not the checkout credential.
+permissions:
+  contents: read
+  actions: read
+
+# Serialize relay runs so concurrent auto-reviews don't race on the telemetry ref. The CAS
+# ref-advance + bounded fetch-and-push loop in lib/telemetry-branch.sh is the real correctness
+# guard; this just avoids redundant concurrent work. Queue (don't drop) so every run is relayed.
+concurrency:
+  group: telemetry-push
+  cancel-in-progress: false
+
+jobs:
+  push:
+    name: Push auto-review telemetry
+    runs-on: ubuntu-latest
+    # Only run where a workflow-capable DevFlow App is configured — the mint below needs it, and
+    # a bare consumer (no DEVFLOW_APP_ID) has no write-capable credential to push with anyway.
+    if: ${{ vars.DEVFLOW_APP_ID != '' }}
+    steps:
+      # Mint the write-capable App token ABOVE the checkout and seed it as the git remote
+      # credential, so the telemetry-branch push authenticates as the DevFlow App (#357).
+      - name: Mint DevFlow App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Checkout default branch (trusted — never the PR head)
+        uses: actions/checkout@v6
+        with:
+          # The trusted code is the default branch; workflow_run already checks this workflow
+          # out from there. Fetch the base ref explicitly and seed the App token so `git push`
+          # (inside telemetry-branch.sh) carries the write-capable credential.
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ steps.app-token.outputs.token }}
+
+      # Download the artifact the triggering (PR-head) review run uploaded. Cross-run download
+      # needs the actions-read scope and the run id; `continue-on-error` so an older review run that
+      # produced no telemetry artifact (name absent-or-empty) leaves nothing to relay and the job
+      # stays inert rather than failing.
+      - name: Download staged telemetry artifact
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: devflow-telemetry-stage-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/telemetry-dl
+
+      # `continue-on-error` above turns EVERY download failure green — the benign "older run
+      # produced no artifact" case AND a genuine fault (transient API/throttle error, an
+      # `actions:read` regression, artifact expiry, corruption) — after which the pusher emits
+      # only the inert "no telemetry records to push" notice, so a real telemetry loss would be
+      # indistinguishable from a normal no-op with no annotation anywhere. Surface a ::warning::
+      # whenever the download step failed so a genuine loss is at least visible in the run log.
+      # (download-artifact@v4 cannot tell the two apart, so this may fire on a benign no-artifact
+      # run too — a visible, non-fatal annotation on those is the acceptable cost of never
+      # silently swallowing a real loss.)
+      - name: Warn on telemetry download failure
+        if: ${{ steps.download.outcome == 'failure' }}
+        run: |
+          echo "::warning::telemetry-push: the staged-telemetry artifact download failed (outcome=failure). This is usually the benign 'older review run produced no artifact' case, but a genuine fault (transient API error, actions:read regression, artifact expiry/corruption) is indistinguishable here — if telemetry is unexpectedly missing on the branch, start with this run's download step."
+
+      - name: Validate and push telemetry
+        run: |
+          set -uo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The pusher is inert on an absent/empty/dropped artifact and best-effort otherwise;
+          # it exports DEVFLOW_TELEMETRY_PUSH=1 itself. Never checks out or trusts the PR head.
+          scripts/telemetry-push-artifact.sh "${RUNNER_TEMP}/telemetry-dl" "${GITHUB_WORKSPACE}"

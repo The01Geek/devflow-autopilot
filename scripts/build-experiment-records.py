@@ -440,8 +440,13 @@ def _telemetry_branch(repo_root):
     devflow-telemetry — issue #441). Read in-process from repo_root/.devflow/
     config.json rather than shelling to config-get.sh: this reader is invoked once
     per retrospective run in a known repo root, an empty/missing key resolves to
-    the default, and an unreadable/malformed config degrades to the default with a
-    breadcrumb (best-effort — the reader must not abort on a bad config).
+    the default, a MALFORMED (present-but-unparseable) config degrades to the
+    default WITH a breadcrumb, and a MISSING or UNREADABLE config degrades to the
+    default SILENTLY (the ordinary "no config" path — the OSError arm returns the
+    default with no _warn). This reader is silent on BOTH the missing and the
+    unreadable subcase; config-get.sh is silent only on a MISSING config (it
+    breadcrumbs a present-but-unreadable one, which this reader deliberately does
+    not). All best-effort — the reader must not abort on a bad config.
 
     Honors DEVFLOW_CONFIG_FILE, because the WRITER does: lib/telemetry-branch.sh
     resolves the branch through devflow_conf → lib/config-source.sh, which reads
@@ -455,8 +460,11 @@ def _telemetry_branch(repo_root):
     try:
         text = cfg.read_text(encoding="utf-8")
     except OSError:
-        # A missing/unreadable config is the ordinary "use the default" path
-        # (config-get.sh is silent here too) — not a degradation worth a breadcrumb.
+        # A missing OR unreadable config is the ordinary "use the default" path here — this
+        # reader degrades silently on BOTH subcases (see the docstring). config-get.sh is
+        # silent only on a MISSING config; it breadcrumbs a present-but-unreadable one, which
+        # this reader deliberately does not — so do not read this as "config-get.sh is silent
+        # here too" for the unreadable subcase.
         return "devflow-telemetry"
     try:
         data = json.loads(text)

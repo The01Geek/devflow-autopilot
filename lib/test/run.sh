@@ -913,7 +913,7 @@ rm -f "$DEF_CFG"
 # so the trim / drop-empties / empty-value ACs are exercised, not just asserted in
 # prose. Keep byte-aligned with the SKILL block.
 deferred_labels_normalize() {
-  echo "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -
+  echo "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | tr '\n' ',' | sed 's/,$//'
 }
 assert_eq "deferred.labels normalize: default passed through"        "DevFlow,Deferred" "$(deferred_labels_normalize 'DevFlow,Deferred')"
 assert_eq "deferred.labels normalize: trims interior spaces"         "DevFlow,Deferred" "$(deferred_labels_normalize 'DevFlow, Deferred')"
@@ -931,10 +931,10 @@ assert_eq "deferred.labels normalize: empty string → empty (no labels)"    "" 
 DEF_SKILL="$IMPL_SKILL_BUNDLE"
 assert_eq "deferred.labels: SKILL reads via config-get with the DevFlow,Deferred default" "yes" \
   "$(grep -qF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
-assert_eq "deferred.labels: SKILL ensures each label exists before applying" "yes" \
-  "$(grep -qF 'ensure-label.sh "$lbl"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
-assert_eq "deferred.labels: SKILL applies labels via best-effort REST apply-labels.sh helper" "yes" \
-  "$(grep -qF 'apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
+assert_eq "deferred.labels: SKILL ensures each label exists before applying (agent-level per-label call, #455)" "yes" \
+  "$(grep -qF 'ensure-label.sh "<label>"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5); #455 reworked the piped-while loop into an agent-level single-leading-token call. #480: the label arg is QUOTED — the retired loop passed "$lbl", and dropping the quotes made a multi-word configured label (docs.labels: "Needs Docs") create the WRONG label ('Needs') while breadcrumbing SUCCESS.
+assert_eq "deferred.labels: SKILL applies labels via best-effort REST apply-labels.sh helper (agent-level per-issue call, #455)" "yes" \
+  "$(grep -qF 'apply-labels.sh <filed-issue-number> "<deferred-labels>"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5); #455 reworked the for/while loop + VAR="$(…)" capture into an agent-level single-leading-token call
 # Both deferral channels must label: Phase 4.0 (no longer "add no --label") and Phase
 # 4.0.5. Require the resolution token to appear at least twice (once per channel).
 assert_eq "deferred.labels: SKILL resolves the labels in BOTH deferral channels (4.0 + 4.0.5)" "yes" \
@@ -950,7 +950,7 @@ assert_eq "deferred.labels: SKILL Phase 4.0 no longer instructs 'add no --label'
 # read 3 and a `>= 2` threshold would still pass if ONE deferred channel lost it. Both
 # channels (4.0 + 4.0.5) must carry the exact deferred pipeline → require EXACTLY 2.
 assert_eq "deferred.labels: SKILL keeps the exact normalization pipeline in BOTH channels" "yes" \
-  "$([ "$(grep -cF 'CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr '"'"','"'"' '"'"'\n'"'"' | sed '"'"'s/^[[:space:]]*//; s/[[:space:]]*$//'"'"' | grep -v '"'"'^$'"'"' | paste -sd, -)' "$DEF_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 occurrences (both channels), not single-presence
+  "$([ "$(grep -cF 'CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr '"'"','"'"' '"'"'\n'"'"' | sed '"'"'s/^[[:space:]]*//; s/[[:space:]]*$//'"'"' | grep -v '"'"'^$'"'"' | tr '"'"'\n'"'"' '"'"','"'"' | sed '"'"'s/,$//'"'"')' "$DEF_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 occurrences (both channels), not single-presence. #480: the tail is `tr | sed`, NOT `paste` — paste is granted in NO allowlist, so a paste tail refuses the whole pipeline and the capture comes back silently empty.
 # Pin the read-failure discrimination: a hard config-get read failure must be attributable,
 # not silently collapsed into the deliberately-empty-value path. Issue #284 moved this to a
 # single-statement `if !` that reads config-get's OWN exit status inline (no captured rc read
@@ -3081,6 +3081,110 @@ assert_pin_unique "#462 dim: Step 3.6 audit-prompt area states the finding-cap g
 assert_pin_unique "#462 ext: live create-issue extension carries the consolidated DevFlow sharpening" \
   'Authoring-discipline defects (DevFlow specifics, issue #462)' "$CI443_EXT"
 
+# ── issue #467: four create-issue authoring-discipline hardenings (prose + pins). Reuses the
+#    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
+#    is drawn verbatim from the operative contract prose (a whole sentence or a load-bearing
+#    fragment of one), so assert_pin_unique is the honest primitive — the pin catches removal or
+#    rewording of the contract prose, not a behavioral regression (the #312 coupled-pair pattern).
+#    The template<->Step-3.5 coupled pairs for the B1
+#    occurrence-count and C1 conditional-path premise classes are pinned on BOTH sides so a
+#    one-sided edit goes RED.
+# Cluster A — universal-claim rule (template AC guidance + checklist), Step 3.5 sweep + zero arm,
+# Step 3.6 dimension sharpening (generic checklist size guard-locked below).
+assert_pin_unique "#467 A1: template AC guidance carries the universal-claim rule" \
+  'about the system under change is grounded' "$CI312_TMPL"
+assert_pin_unique "#467 A1: universal-claim rule carries the claim-level positive-control obligation" \
+  'positive-control obligation** on the' "$CI312_TMPL"
+assert_pin_unique "#467 A1: quality-checklist mirror for the universal-claim rule" \
+  'Every universal quantifier ("never/always/each/every/all/cannot")' "$CI312_TMPL"
+assert_pin_unique "#467 A2: Step 3.5 runs the universal-quantifier sweep (same carve-out)" \
+  'Universal-quantifier sweep (mandatory' "$CI312_SKILL"
+assert_pin_unique "#467 A2: Step 3.5 item-6 summary states the falsifiable zero arm" \
+  'the draft carries no ungrounded universal quantifier' "$CI312_SKILL"
+assert_pin_unique "#467 A3: Step 3.6 Load-bearing-assumptions dimension names universal quantifiers" \
+  'including any **universal quantifier** the draft asserts' "$CI312_SKILL"
+# A3 count guard — the generic dimension checklist size is guard-locked (dimension-growth policy).
+# The count is 9 after issue #464 (merged) appended the "Adversarial third-party input" dimension;
+# #467 sharpened the "Load-bearing assumptions" dimension in place, adding no row (the growth-policy
+# carve-out #464 pins sanctions that single standalone addition). Pin BOTH sed anchors
+# present-and-unique so the count range stays bounded: a start-anchor drift already fails the count
+# RED (sed prints nothing -> count 0), but an *end*-anchor drift would let sed run to EOF while the
+# count coincidentally stays fixed, passing vacuously — these two pins turn either anchor's
+# rename/removal RED at the desk. The assert_pin_unique pins are UNANCHORED substring matches,
+# though, while the sed range keys on the LINE-START shape /^\*\*.../ — so a position-only drift
+# (an indent or prefix that keeps the substring but breaks ^** ) would slip the substring pins and
+# still let sed run to EOF while the count stays 9. The two assert_eq below close that residual hole
+# by binding each anchor to the exact ^** column-0 predicate sed uses, so the range can never
+# silently un-bound (rename, removal, OR position drift all go RED at the desk).
+assert_pin_unique "#467 A3: the generic-dimension-checklist sed START anchor is present and unique" \
+  '**Generic dimension checklist' "$CI312_SKILL"
+assert_pin_unique "#467 A3: the generic-dimension-checklist sed END anchor is present and unique" \
+  '**Dimension-list growth policy' "$CI312_SKILL"
+# Line-anchored anchor checks (close the position-drift hole the substring pins above cannot):
+# each heading must match the sed range's ^** column-0 shape exactly once.
+assert_eq "#467 A3: the generic-dimension-checklist sed START anchor matches at line-start exactly once" "1" \
+  "$(grep -c '^\*\*Generic dimension checklist' "$CI312_SKILL")"
+assert_eq "#467 A3: the generic-dimension-checklist sed END anchor matches at line-start exactly once" "1" \
+  "$(grep -c '^\*\*Dimension-list growth policy' "$CI312_SKILL")"
+assert_eq "#467 A3: Step 3.6 generic dimension checklist is 9 bullets (8 base + #464's dimension; #467 added none)" "9" \
+  "$(sed -n '/^\*\*Generic dimension checklist/,/^\*\*Dimension-list growth policy/p' "$CI312_SKILL" | grep -c '^- \*\*')"
+# Cluster B — occurrence-count premise class (coupled template<->Step-3.5) + checklist mirror; AC
+# mutual-consistency check (Step 3.5 + template AC guidance + checklist mirror).
+assert_pin_unique "#467 B1 (coupled/template): template names the occurrence-count/site-list premise class" \
+  'Occurrence counts and coupled-site lists are a premise class too' "$CI312_TMPL"
+assert_pin_unique "#467 B1 (coupled/SKILL): Step 3.5 mirrors the occurrence-count premise class" \
+  'Occurrence counts and coupled-site lists are checked the same way' "$CI312_SKILL"
+assert_pin_unique "#467 B1: quality-checklist mirror for the occurrence-count premise class" \
+  'Every in-repo occurrence count or coupled-site list is grounded by an executed whitespace-normalized search' "$CI312_TMPL"
+assert_pin_unique "#467 B2: Step 3.5 carries the AC mutual-consistency check" \
+  'AC mutual-consistency check (mandatory)' "$CI312_SKILL"
+assert_pin_unique "#467 B2: template AC guidance body carries the AC mutual-consistency rule" \
+  "No acceptance criterion forbids a surface another criterion's discharge must touch" "$CI312_TMPL"
+assert_pin_unique "#467 B2: quality-checklist mirror for the AC mutual-consistency check" \
+  'the ACs are mutually consistent' "$CI312_TMPL"
+# Cluster C — conditional-path (coupled template<->Step-3.5), stated-but-unbound (Step 3.5's item-4 clause),
+# trust-boundary closure (template AC guidance + Step 3.5 omission hunt).
+assert_pin_unique "#467 C1 (coupled/template): template premise method includes the gates on the path to X" \
+  'Verifying "the code does X" includes the gates on the path to X' "$CI312_TMPL"
+assert_pin_unique "#467 C1 (coupled/SKILL): Step 3.5 mirrors the conditional-path premise check" \
+  'A "code does X" premise is verified with its enclosing gates on the path to X' "$CI312_SKILL"
+assert_pin_unique "#467 C2: Step 3.5 unstated-dependency item extends to stated-but-unbound inputs" \
+  'Extend the sweep to stated-but-unbound inputs (mandatory)' "$CI312_SKILL"
+assert_pin_unique "#467 C3 (template): AC guidance carries the trust-boundary closure rule" \
+  'source / exec / import closure' "$CI312_TMPL"
+assert_pin_unique "#467 C3 (SKILL): Step 3.5 omission hunt carries the trust-boundary closure check" \
+  'trust-boundary closure check (mirroring the template' "$CI312_SKILL"
+# C1/C3 quality-checklist mirrors — pinned for parity with the A1/B1/B2 checklist-mirror pins
+# above (AC-E1: every new contract sentence in a pinned surface is presence-pinned), so a future
+# edit can no longer silently drop or reword the conditional-path / trust-boundary checklist rows
+# while their body rules stay pinned. Literals are unique to the checklist line (the C3 body pin
+# 'source / exec / import closure' is the spaced form; the checklist uses the no-space form below).
+assert_pin_unique "#467 C1: quality-checklist mirror for the conditional-path premise check" \
+  'enclosing gates/conditionals and their defaults on the path to X' "$CI312_TMPL"
+assert_pin_unique "#467 C3: quality-checklist mirror for the trust-boundary closure rule" \
+  'transitive source/exec/import closure of its entry points' "$CI312_TMPL"
+# Cluster D — Move 2a introduction trigger (template) + waiver-non-conforming clause; the
+# three-site best-effort-parser widening (CLAUDE.md, implement Phase 2.4, review-and-fix
+# fix-delta gate); extension sharpening (whole-file dimension count held at 8 — 7 base + #464's
+# dimension; #467 added none, matching the D3 guard below). The six-shape
+# SIXSHAPE_SET lockstep pins above stay green — the widening references the set, never restates it.
+assert_pin_unique "#467 D1: Move 2a carries the introduction trigger" \
+  'Move 2a also fires on *introduction*, not only on narrowing' "$CI312_TMPL"
+assert_pin_unique "#467 D1: introduction trigger names a blanket testing-scope waiver non-conforming" \
+  'blanket testing-scope waiver' "$CI312_TMPL"
+assert_pin_unique "#467 D2 (CLAUDE.md leg): best-effort-parser gotcha widened to mutable-markdown/external-format" \
+  'The governed surface is broader than config JSON' "$LIB/../CLAUDE.md"
+assert_pin_unique "#467 D2 (Phase 2.4 leg): dry-trace rule widened to mutable-markdown/external-format" \
+  'The governed surface is broader than config JSON' "$IMPL_SKILL_BUNDLE"
+assert_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mutable-markdown/external-format" \
+  'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$MAXI_SKILL"
+assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
+  'input-type analogue** for the widened surfaces' "$CI443_EXT"
+# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 8 after
+# issue #464 (merged) appended the "Mutation evidence for behavioral-fix pins" dimension; #467
+# sharpened the existing case-matrix bullet in place, adding no row.
+assert_eq "#467 D3: create-issue extension is 8 dimension bullets (7 base + #464's dimension; #467 added none)" "8" \
+  "$(grep -c '^- \*\*' "$CI443_EXT")"
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
 #    Each pin is a behavioral-fix pin: its literal IS an operative sentence whose removal
@@ -5059,6 +5163,96 @@ assert_pin_unique "#168 create-path: SKILL guards branch-for-issue.py exit statu
 assert_pin_unique "#168 create-path: SKILL guards against an empty BRANCH name" \
   '[ -n "$BRANCH" ]' "$IMPL_SKILL"
 
+# ── Issue #493: Phase 1.4 §1.4 PR-body run-link refresh (cloud resume) ──
+# On a resumed cloud run that reaches §1.4 and finds an existing open PR, the
+# draft PR body's [View run](...) line (written once at PR creation by Phase 3.1)
+# is refreshed to the resumed run — mirroring the gate job's workpad Run-link
+# refresh. The fence is skill prose, so its boundary is this prose-pinning
+# surface; the operative single-line transform, however, is extracted to a
+# deterministic helper (scripts/refresh-pr-run-link.py) and is EXECUTED here via
+# fixture assertions (issue #493 review Suggestion #1 — it was previously
+# asserted only as source text). The behavioral-fix pin (assert_pin_red_under)
+# targets the operative REST PATCH line — removing it re-introduces the
+# stale-link gap, so the pin must flip PASS->FAIL under that mutation (covers
+# AC1 + AC7). The presence pins cover: PR_JSON-not-gh-pr-view derivation (AC1),
+# only-the-Phase-3.1-line rewriting (AC2/AC3), the cloud-only local-tier guard
+# (AC4), the no-op + read-failure warn arms (AC5/AC6), the capture + non-empty
+# guard before the PATCH (issue #493 Important #1 empty-body hardening), and
+# idempotency / at-most-once (AC8). The fixture tests run the helper directly
+# for the Resolves-anchored rewrite, human-line preservation, idempotency, and
+# the fail-closed empty-stdin / missing-arg contract.
+P1_SETUP="$IMPL_PHASES_DIR/phase-1-setup.md"
+assert_pin_red_under "#493 resume: PR-body run-link refresh PATCHes via REST pulls/\$PR_NUMBER (behavioral-fix; AC1+AC7)" \
+  'gh api --method PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@-' \
+  '/gh api --method PATCH/d' "$P1_SETUP"
+assert_pin_unique "#493 resume: derives PR_NUMBER from the selected PR_JSON entry (not gh pr view; AC1)" \
+  'from the SAME PR_JSON entry' "$P1_SETUP"
+assert_pin_unique "#493 resume: states the do-not-re-resolve-via-gh-pr-view rationale (AC1)" \
+  're-resolve via' "$P1_SETUP"
+assert_pin_unique "#493 resume: rewrites only the Phase 3.1-placed [View run] line (prose; AC2)" \
+  'Phase 3.1 template places immediately after the' "$P1_SETUP"
+# The single-line transform is extracted to a deterministic, fixture-tested
+# helper (issue #493 review Suggestion #1: the inline python was asserted only
+# as source text, never executed). The fence pipes the body through it and
+# guards the output non-empty before the PATCH (issue #493 Important #1
+# empty-body hardening: a direct transform|gh-api pipe without `pipefail` would
+# let a crashed transform blank the body). Pin (a) the anchoring predicate now
+# living in the helper, (b) the fence invoking the helper, and (c) the
+# capture + non-empty guard around the PATCH.
+P493_HELPER="$LIB/../scripts/refresh-pr-run-link.py"
+assert_pin_unique "#493 resume: helper rewrites only the [View run] line following Resolves # (AC2/AC3)" \
+  'lines[i - 1].startswith("Resolves #")' "$P493_HELPER"
+assert_pin_unique "#493 resume: fence invokes the fixture-tested transform helper (Suggestion #1)" \
+  'refresh-pr-run-link.py "$RUN_URL"' "$P1_SETUP"
+assert_pin_unique "#493 resume: transform output captured and guarded non-empty before PATCH (Important #1)" \
+  'PATCH skipped to avoid blanking PR' "$P1_SETUP"
+# Executable fixture coverage of the helper (Suggestion #1 — the operative
+# AC1/AC2/AC3/AC8 behavior is now RUN, not merely source-pinned): only the
+# Resolves-anchored line is rewritten, a human-added [View run] elsewhere is
+# preserved, the transform is idempotent, and empty stdin / a missing URL arg
+# fail closed (no output + non-zero exit) so the fence guard skips the PATCH.
+# The human-added [View run] line is a STANDALONE `[View run](` line (line 6)
+# whose predecessor (`## Reviewer Notes`) is NOT `Resolves #` — so the only thing
+# protecting it is the Resolves-anchor discrimination (a `startswith("[View
+# run](")`-only guard would rewrite it too). This makes the preservation
+# assertion genuinely exercise the anchor, so dropping `lines[i-1].startswith
+# ("Resolves #")` from the helper flips it RED (mutation-verified).
+P493_IN=$'## Summary\nResolves #493\n[View run](https://x/actions/runs/OLD)\n\n## Reviewer Notes\n[View run](https://x/actions/runs/HUMAN)'
+assert_eq "#493 helper: rewrites the Resolves-anchored [View run] line to the new URL (AC1)" \
+  '[View run](https://x/actions/runs/NEW)' \
+  "$(printf '%s' "$P493_IN" | python3 "$P493_HELPER" 'https://x/actions/runs/NEW' | sed -n '3p')"
+assert_eq "#493 helper: preserves a standalone human-added [View run] line not anchored to Resolves # (AC2)" \
+  '[View run](https://x/actions/runs/HUMAN)' \
+  "$(printf '%s' "$P493_IN" | python3 "$P493_HELPER" 'https://x/actions/runs/NEW' | sed -n '6p')"
+assert_eq "#493 helper: idempotent — a second pass reproduces the same body (AC8)" \
+  "$(printf '%s' "$P493_IN" | python3 "$P493_HELPER" 'https://x/actions/runs/NEW')" \
+  "$(printf '%s' "$P493_IN" | python3 "$P493_HELPER" 'https://x/actions/runs/NEW' | python3 "$P493_HELPER" 'https://x/actions/runs/NEW')"
+assert_eq "#493 helper: empty stdin fails closed — no output (Important #1)" \
+  "" \
+  "$(printf '' | python3 "$P493_HELPER" 'https://x/actions/runs/NEW')"
+assert_eq "#493 helper: empty stdin fails closed — non-zero exit (Important #1)" \
+  "2" \
+  "$(printf '' | python3 "$P493_HELPER" 'https://x/actions/runs/NEW' >/dev/null 2>&1; echo $?)"
+assert_eq "#493 helper: missing URL arg fails closed — non-zero exit (Important #1)" \
+  "2" \
+  "$(printf 'Resolves #1\n[View run](x)' | python3 "$P493_HELPER" >/dev/null 2>&1; echo $?)"
+assert_pin_unique "#493 resume: cloud-only guard skips the refresh on a local-tier resume (AC4)" \
+  '[ -n "${GITHUB_RUN_ID:-}" ]; then' "$P1_SETUP"
+assert_pin_unique "#493 resume: presence check is a bash builtin (guard-class 2, not non-preflight grep)" \
+  '[[ $PR_BODY == *"[View run]("* ]]' "$P1_SETUP"
+assert_pin_unique "#493 resume: no-op arm warns when the body has no [View run] line (AC5)" \
+  'has no Phase 3.1 [View run] line' "$P1_SETUP"
+assert_pin_unique "#493 resume: best-effort warn on PR-body read failure (distinct from no-line; AC6)" \
+  'could not read PR' "$P1_SETUP"
+assert_pin_unique "#493 resume: best-effort warn on PATCH failure (never blocks; AC6)" \
+  'PR-body run-link PATCH failed for PR' "$P1_SETUP"
+assert_pin_unique "#493 resume: best-effort warn on PR_NUMBER derivation failure (AC6)" \
+  'could not derive PR_NUMBER from PR_JSON' "$P1_SETUP"
+assert_pin_unique "#493 resume: idempotency wording (no duplication, no corruption; AC8)" \
+  'is **idempotent**' "$P1_SETUP"
+assert_pin_unique "#493 resume: at-most-once-per-resume wording (AC8)" \
+  'at most once per resume' "$P1_SETUP"
+
 # Issue #224: Phase 3.1 (phases/phase-3-review.md) opens the draft PR against the
 # CONFIGURED base_branch, not the GitHub default branch. Because each phase's bash
 # block is a SEPARATE shell, Phase 1.4's $BASE is out of scope at 3.1, so 3.1 must
@@ -6823,8 +7017,12 @@ assert_pin_unique "#350: Phase 2.5 guard keys on the same cloud + DEVFLOW_APP_ID
   'the same condition Pass 5 keys on: cloud tier (`GITHUB_ACTIONS=true`) with `DEVFLOW_APP_ID` empty/unset' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#350 (Important-1): Phase 2.5 guard reverts files coupled to a reverted workflow (else CI-red)" \
   'revert every file coupled to it in the same step' "$IMPL_PHASES_DIR/phase-2-implement.md"
-assert_pin_unique "#350: devflow-implement.yml exports DEVFLOW_APP_ID into the agent env (Pass 5's observable signal)" \
-  'DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}' "$IMPL_YML"
+# Presence (not uniqueness): the export appears in the Run Claude Code step AND, since
+# issue #487, a second legitimate copy in the 'Start credential refresher' step env
+# (which feeds the same vars.DEVFLOW_APP_ID to the refresher's mint). The load-bearing
+# guard is the structural check below, which confirms it sits in the Run Claude Code step.
+assert_eq "#350: devflow-implement.yml exports DEVFLOW_APP_ID into the agent env (Pass 5's observable signal)" "yes" \
+  "$(grep -qF 'DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}' "$IMPL_YML" && echo yes || echo no)"
 # Structurally confirm the export sits inside the 'Run Claude Code' step (between its
 # `name:` and its `with:`), so the /devflow:implement agent actually reads it — a bare
 # count could pass on a line stranded in the wrong step.
@@ -9803,6 +10001,32 @@ EL_E4="$(DEVFLOW_GH="$EL_TMP/gh422" bash "$LIB/../scripts/ensure-label.sh" DevFl
 assert_eq "ensure-label: non-already_exists 422 still exits 0 (best-effort)" "0" "$EL_R4"
 assert_eq "ensure-label: non-already_exists 422 is NOT swallowed as already-exists" "yes" \
   "$(printf '%s' "$EL_E4" | grep -qiF 'could not ensure label' && ! printf '%s' "$EL_E4" | grep -qiF 'already exists' && echo yes || echo no)"
+# #480: empty/missing <name> arg-slip guard. A set-but-EMPTY argument (the shape a
+# label call site emits when a configured list normalizes to blank) must warn to
+# stderr and still exit 0 — NOT abort with a raw bash usage line + rc 1 (the retired
+# `${1:?}` behavior). ensure-label.sh ALWAYS exits 0, so the rc==0 assertions pin only
+# the best-effort contract — on their own they are vacuous against a guard-DELETION
+# mutation (drop `if [ -z "$NAME" ]`, keep `${1:-}`, and control falls through to gh yet
+# still exits 0). The load-bearing attribution is the `NOT a harness denial` breadcrumb,
+# emitted ONLY by this guard (and apply-labels.sh's): the `gh_never` stub aborts non-zero
+# if reached, so a mutant that dropped the guard falls through to gh and breadcrumbs
+# `could not ensure label ''` INSTEAD — which lacks the phrase, flipping the breadcrumb
+# assertions RED. So BOTH the empty-name and the zero-args capture assert the breadcrumb,
+# not just the exit code — the exit-3 stub is not what proves the guard fired; the
+# breadcrumb is (mirrors apply-labels.sh's marker-probe lesson, run.sh #480 block).
+cat > "$EL_TMP/gh_never" <<'STUB'
+#!/usr/bin/env bash
+echo "ensure-label: gh must not be reached on an empty name" >&2; exit 3
+STUB
+chmod +x "$EL_TMP/gh_never"
+EL_E5="$(DEVFLOW_GH="$EL_TMP/gh_never" bash "$LIB/../scripts/ensure-label.sh" "" 2>&1 >/dev/null)"; EL_R5=$?
+assert_eq "ensure-label: empty-name arg-slip still exits 0 (best-effort, no abort)" "0" "$EL_R5"
+assert_eq "ensure-label: empty-name breadcrumb names the arg-slip (NOT a harness denial)" "yes" \
+  "$(printf '%s' "$EL_E5" | grep -qF 'NOT a harness denial' && echo yes || echo no)"
+EL_E6="$(DEVFLOW_GH="$EL_TMP/gh_never" bash "$LIB/../scripts/ensure-label.sh" 2>&1 >/dev/null)"; EL_R6=$?
+assert_eq "ensure-label: zero-args arg-slip still exits 0 (best-effort, no abort)" "0" "$EL_R6"
+assert_eq "ensure-label: zero-args breadcrumb names the arg-slip (NOT a harness denial)" "yes" \
+  "$(printf '%s' "$EL_E6" | grep -qF 'NOT a harness denial' && echo yes || echo no)"
 rm -rf "$EL_TMP"
 
 # ── apply-labels.sh: REST label-apply helper (best-effort, always exit 0) ─────
@@ -11125,7 +11349,7 @@ assert_pin_unique "#241 pin (A3): sub-step 5a discriminates anchor-resolution fa
 assert_pin_unique "#241 pin (A3b): sub-step 5a surfaces an unresolvable anchor as an explicit degradation, not a silent skip" \
   'provenance label NOT applied' "$LIB/../skills/create-issue/SKILL.md"
 assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh "$PR_NUM" DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md)
+  "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh <draft-pr-number> DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md). #480: the PR number is a substituted LITERAL, not "$PR_NUM" — that variable is set in a previous fence and does not survive into this separate command on the cloud runner, so the old form passed an empty number and the helper refused at its arg-slip guard (the label never landed on the PR).
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh' "$LIB/meta-issue.sh" && grep -qF 'apply-labels.sh' "$LIB/meta-issue.sh" && grep -qF 'DevFlow Retrospective' "$LIB/meta-issue.sh" && echo yes || echo no)"
 assert_eq "#97 pin: init creates the reserved DevFlow provenance label" "yes" \
@@ -11149,7 +11373,7 @@ assert_eq "#228: phase-4 removed the gh issue edit --add-label deferred command"
 assert_eq "#228: phase-4 removed the gh pr edit --add-label docs-label command" "yes" \
   "$(! grep -qF 'gh pr edit --add-label "$CLEAN_LABELS"' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: absence pin — asserts the removed porcelain command literal is GONE (negated grep, not a presence pin)
 assert_eq "#228: phase-4 docs-label routes through apply-labels.sh (symmetric presence pin)" "yes" \
-  "$(grep -qF 'apply-labels.sh "$DOCS_PR_NUM" "$CLEAN_LABELS"' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: presence pin pairs with the docs-label absence pin above so a typo'd new invocation can't pass all phase-4 pins
+  "$(grep -qF 'apply-labels.sh <docs-pr-number> "<docs-labels>"' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: presence pin pairs with the docs-label absence pin above so a typo'd new invocation can't pass all phase-4 pins. #480: the PR number and label list are substituted LITERALS, not "$DOCS_PR_NUM"/"$CLEAN_LABELS" — the reworked 4.1 emits a single leading-token call (the old form nested it inside two `if` compounds, a shape no probe row measured).
 assert_eq "#228: pr-description edits the body via REST gh api PATCH, not gh pr edit --body" "yes" \
   "$(grep -qF 'api --method PATCH' "$LIB/../skills/pr-description/SKILL.md" && ! grep -qF 'gh pr edit $PR_NUMBER --body' "$LIB/../skills/pr-description/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound presence+absence pin (REST PATCH present AND old porcelain gone), not a single target-unique pin
 # Positively pin the migrated body-write SHAPE: `-F body=@-` reads the field literally
@@ -14413,9 +14637,11 @@ assert_eq "review-identity: devflow.yml command github_token is the review-condi
 assert_eq "review-identity: devflow.yml review branch selects reviewer-token, primary app token only in the else" "1" \
   "$(grep -cF "startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.reviewer-token.outputs.token" "$WF/devflow.yml")"
 # The primary-app mint in devflow.yml is now SKIPPED on the review command, so it
-# can never author the review — pin the negated startsWith on its if:.
+# can never author the review — pin the negated startsWith on its if:. Scoped to the
+# mint step's block (mint_blk): since issue #487 the same gate also guards the
+# refresher/wrapper-install steps, so a whole-file count is no longer 1.
 assert_eq "review-identity: devflow.yml primary app-token mint is skipped on /devflow:review" "1" \
-  "$(grep -cF "vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ')" "$WF/devflow.yml")"
+  "$(printf '%s\n' "$(mint_blk 'Mint workflow-capable token (optional)' "$WF/devflow.yml")" | grep -cF "vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ')")"
 # Conversely, devflow.yml's reviewer mint fires ONLY on the review command — pin the
 # positive startsWith conjunct on its if: so dropping it (which would mint the reviewer
 # token on /devflow:pr-description too) goes RED, keeping the mint scoped to /devflow:review.
@@ -15687,6 +15913,16 @@ echo "efficiency-trace.sh --persist / --self-check (issue #80)"
 #   telemetry:     {on → record, off → no record but durable copy still made}
 #   remote:        {reachable → pushed, absent → local ref only, best-effort}
 #   re-run:        {second --persist → no new branch commit (idempotent)}
+
+# Issue #469 AC5: under GITHUB_ACTIONS, --persist now PUSHES only when the workflow
+# affirmatively sets DEVFLOW_TELEMETRY_PUSH (else it fails closed to staging-only).
+# This suite runs under CI (GITHUB_ACTIONS=true), and the telemetry blocks below
+# exercise the PUSH/CAS path (branch created, records on the local ref + remote), so
+# authorize the push for the whole telemetry section. It is UNSET again after the TB
+# blocks. The new staging-only / fail-closed assertions below deliberately OVERRIDE
+# this per-invocation (DEVFLOW_TELEMETRY_PUSH='' with GITHUB_ACTIONS=1) to prove the
+# closed direction, and the off-CI default-push path is proven with env -u GITHUB_ACTIONS.
+export DEVFLOW_TELEMETRY_PUSH=1
 
 # yes/no whether path $2 exists on repo $1's telemetry branch (the branch-presence probe).
 _et_on_branch() { git -C "$1" cat-file -e "refs/heads/devflow-telemetry:$2" >/dev/null 2>&1 && echo yes || echo no; }
@@ -18062,6 +18298,14 @@ assert_eq "tb(#441 AC10): branch checked out in a worktree → ref NOT advanced 
   "$TB_WT_TIP" "$(git -C "$TB_WT_REPO" rev-parse devflow-telemetry)"
 assert_eq "tb(#441 AC10): worktree-checkout degrade is breadcrumbed" "yes" \
   "$(printf '%s' "$TB_WT_ERR" | grep -qF 'is checked out in a worktree' && echo yes || echo no)"
+# #469 AC8: the worktree-checkout arm is a DEGRADED arm (persist_tree returns 1), so do_persist
+# must RETAIN its staging root and emit the degraded RETAINING breadcrumb — not silently rm -rf
+# the run's only copy. (This arm shares the AC8 fix with CAS/unwritable but had no retention
+# assertion; a regression flipping its return 1 → return 0 would delete the copy undetected.)
+assert_eq "#469 AC8: the worktree-checkout degraded arm RETAINS its staging root" "yes" \
+  "$(compgen -G "$TB_WT_REPO/.devflow/tmp/telemetry-stage-*" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "#469 AC8: the worktree-checkout degraded arm emits the RETAINING breadcrumb" "yes" \
+  "$(printf '%s' "$TB_WT_ERR" | grep -qF 'RETAINING the staged records at' && echo yes || echo no)"
 git -C "$TB_WT_REPO" worktree remove --force "$TB_WT_LINK" 2>/dev/null; rm -rf "$TB_WT_REPO" "$(dirname "$TB_WT_LINK")"
 
 # AC12 (highest-value regression — silent dataset corruption): recorded_fix_shas
@@ -18209,6 +18453,17 @@ assert_eq "tb(#441 SFH-4a): the ref is NOT advanced when the store cannot be ver
 # breadcrumb's ABSENCE is what makes this test go RED under the fail-open mutation.
 assert_eq "tb(#441 SFH-4a): the refusal is terminal — persist never attempts the object-store write" "no" \
   "$(printf '%s' "$TB_UT_ERR" | grep -qF 'object-store write failed' && echo yes || echo no)"
+# #469 AC8 (shadow review): the verify_store-fail arm is a DEGRADED arm that produced a staging
+# root, so #469 changed its guard from `|| return 0` to `|| return 1` — do_persist must therefore
+# RETAIN the staged records (they are the run's only copy), not rm -rf them. The assertions above
+# (exit 0 / refusal breadcrumb / no ref advance / no object-store write) are all invariant to a
+# return-1→return-0 flip — that flip makes persist_tree return 0, do_persist hit its clean `0)`
+# arm, and SILENTLY DELETE the staged records (the exact #469 defect-4 regression) while every
+# assertion above stays green. So pin the retention outcome directly, which return 0 breaks.
+assert_eq "tb(#469 AC8): the verify_store-fail degraded arm RETAINS its staging root (persist_tree return 1, not 0)" "yes" \
+  "$(compgen -G "$TB_UT_REPO/.devflow/tmp/telemetry-stage-*" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "tb(#469 AC8): the verify_store-fail arm emits do_persist's degraded RETAINING breadcrumb (the only copy is kept)" "yes" \
+  "$(printf '%s' "$TB_UT_ERR" | grep -qF 'RETAINING the staged records at' && echo yes || echo no)"
 rm -rf "$TB_UT_REPO"
 
 # PR #442 review Suggestion-3: the CAS **non-race** failure arm (a held ref `.lock`, a
@@ -18822,7 +19077,10 @@ TB_EX_ERR="$( ( cd "$TB_EX_REPO" && DEVFLOW_CONFIG_FILE=/dev/null \
   DEVFLOW_TELEMETRY_RACE_HOOK="$TB_EX_REPO/racehook.sh" DEVFLOW_TELEMETRY_RACE_HOOK_TIMES=6 \
   bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_persist_tree "$2" "$3"' _ \
     "$LIB/telemetry-branch.sh" "$TB_EX_REPO" "$TB_EX_STAGE" ) 2>&1 1>/dev/null )"; TB_EX_RC=$?
-assert_eq "tb(#442 shadow-T1): CAS exhaustion → exit 0 (best-effort)" "0" "$TB_EX_RC"
+# #469 AC8: CAS exhaustion produced a staging root, so it is a DEGRADED arm —
+# persist_tree now RETURNS 1 (reports the degradation so do_persist retains the staged
+# records); --persist/the process still exits 0 (the ETP blocks assert that end-to-end).
+assert_eq "tb(#469 AC8): CAS exhaustion is a DEGRADED arm → persist_tree returns 1 (reports it; --persist still exits 0)" "1" "$TB_EX_RC"
 assert_eq "tb(#442 shadow-T1): CAS exhaustion FIRES the 'lost N races' arm (previously unreachable)" "yes" \
   "$(printf '%s' "$TB_EX_ERR" | grep -qF "lost 5 races" && echo yes || echo no)"
 assert_eq "tb(#442 shadow-T1): ...and does NOT misattribute a racing sibling to a lock/disk fault" "no" \
@@ -18875,9 +19133,15 @@ TB_UW_STAGE="$TB_UW_REPO/stage-elsewhere"
 mkdir -p "$TB_UW_STAGE/.devflow/logs/efficiency"
 printf '{"slug":"pr-uw"}\n' > "$TB_UW_STAGE/.devflow/logs/efficiency/pr-uw-run-1.json"
 printf 'not-a-directory\n' > "$TB_UW_REPO/.devflow/tmp"   # mkdir -p .devflow/tmp now fails
+# #469 AC8: the unwritable-tmp arm PRODUCED a staging root, so it is a DEGRADED arm —
+# devflow_telemetry_persist_tree now RETURNS 1 (reports the degradation to its caller so
+# do_persist retains the staged records), while --persist/the process still exits 0
+# (asserted end-to-end by the ETP blocks). This direct call sees the function return, so
+# the return code is 1, not 0. `|| TB_UW_RC=$?` captures it under the `set -e` bash -c
+# wrapper (a bare capture would let the non-zero return abort the wrapper before `$?`).
 TB_UW_ERR="$( ( cd "$TB_UW_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_persist_tree "$2" "$3"' _ \
     "$LIB/telemetry-branch.sh" "$TB_UW_REPO" "$TB_UW_STAGE" ) 2>&1 1>/dev/null )"; TB_UW_RC=$?
-assert_eq "tb(#442 shadow-T3): an unwritable .devflow/tmp → exit 0 (best-effort)" "0" "$TB_UW_RC"
+assert_eq "tb(#469 AC8): an unwritable .devflow/tmp is a DEGRADED arm → persist_tree returns 1 (reports the degradation; --persist still exits 0)" "1" "$TB_UW_RC"
 assert_eq "tb(#442 shadow-T3): ...names the DENIED .devflow/tmp write as the cause" "yes" \
   "$(printf '%s' "$TB_UW_ERR" | grep -qF "for the temp index" && echo yes || echo no)"
 assert_eq "tb(#442 shadow-T3): ...and does NOT misattribute it to 'object-store write failed'" "no" \
@@ -18913,6 +19177,926 @@ assert_eq "tb(#441 AC18): config.example.json carries the telemetry.branch defau
 # efficiency-trace.sh sources the shared telemetry-branch lib.
 assert_eq "tb(#441): efficiency-trace.sh sources lib/telemetry-branch.sh" "yes" \
   "$([ "$(pin_count 'telemetry-branch.sh' "$LIB/efficiency-trace.sh")" -ge 1 ] && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "issue #469: push-operand fail-closed, fetch-before-exclusion, degraded retention"
+# ────────────────────────────────────────────────────────────────────────────
+
+# ── AC5: _devflow_telemetry_should_push — off CI pushes; on CI only on an
+# affirmative DEVFLOW_TELEMETRY_PUSH, else fails closed to staging-only. ────────
+_i469_should_push() {  # $1=env assignments; prints "push"/"stage"
+  ( eval "$1"; . "$LIB/telemetry-branch.sh"; \
+    if _devflow_telemetry_should_push; then echo push; else echo stage; fi )
+}
+assert_eq "#469 AC5: off CI (no GITHUB_ACTIONS) → push (unchanged local default)" "push" \
+  "$(_i469_should_push 'unset GITHUB_ACTIONS; unset DEVFLOW_TELEMETRY_PUSH')"
+assert_eq "#469 AC5: off CI even with the operand unset → push" "push" \
+  "$(_i469_should_push 'unset GITHUB_ACTIONS; DEVFLOW_TELEMETRY_PUSH=')"
+assert_eq "#469 AC5: on CI + operand=1 → push" "push" \
+  "$(_i469_should_push 'GITHUB_ACTIONS=true; DEVFLOW_TELEMETRY_PUSH=1')"
+assert_eq "#469 AC5: on CI + operand=true → push" "push" \
+  "$(_i469_should_push 'GITHUB_ACTIONS=true; DEVFLOW_TELEMETRY_PUSH=true')"
+assert_eq "#469 AC5: on CI + operand UNSET → stage (fails closed)" "stage" \
+  "$(_i469_should_push 'GITHUB_ACTIONS=true; unset DEVFLOW_TELEMETRY_PUSH')"
+assert_eq "#469 AC5: on CI + operand EMPTY → stage (fails closed)" "stage" \
+  "$(_i469_should_push 'GITHUB_ACTIONS=true; DEVFLOW_TELEMETRY_PUSH=')"
+assert_eq "#469 AC5: on CI + operand=0 → stage (non-affirmative fails closed)" "stage" \
+  "$(_i469_should_push 'GITHUB_ACTIONS=true; DEVFLOW_TELEMETRY_PUSH=0')"
+assert_eq "#469 AC5: on CI + operand=garbage → stage (non-affirmative fails closed)" "stage" \
+  "$(_i469_should_push 'GITHUB_ACTIONS=true; DEVFLOW_TELEMETRY_PUSH=maybe')"
+# Behavioral-fix pin: the CI-gate keys on GITHUB_ACTIONS. Mutating the gate to
+# `return 0` unconditionally (never fail closed on CI) re-introduces the bug.
+assert_pin_red_under \
+  "#469 AC5: should_push fails CLOSED on CI (the GITHUB_ACTIONS gate is not a no-op)" \
+  '[ -n "${GITHUB_ACTIONS:-}" ] || return 0' \
+  's/-n "\$\{GITHUB_ACTIONS:-\}" \] /-n "" /' \
+  "$LIB/telemetry-branch.sh"
+
+# ── AC5 end-to-end: a CI-context --persist with NO operand STAGES and does not
+# push (the remote devflow-telemetry ref is unchanged), retains the staged tree,
+# and breadcrumbs the absent operand. A bare remote proves "unchanged". ─────────
+I469_BARE="$(git_sandbox "#469 staging-only bare remote")"; git -C "$I469_BARE" init --bare -q
+I469_REPO="$(git_sandbox "#469 staging-only repo")"; git -C "$I469_REPO" init -q
+git -C "$I469_REPO" config user.email t@e.com; git -C "$I469_REPO" config user.name t
+git -C "$I469_REPO" remote add origin "$I469_BARE"
+mkdir -p "$I469_REPO/.devflow"; printf 'tmp/\n' > "$I469_REPO/.devflow/.gitignore"
+git -C "$I469_REPO" add -A; git -C "$I469_REPO" commit -qm seed; git -C "$I469_REPO" branch -M main
+git -C "$I469_REPO" push -q -u origin main
+mkdir -p "$I469_REPO/.devflow/tmp/review/pr-so/run-so"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$I469_REPO/.devflow/tmp/review/pr-so/run-so/iter-1.json"
+I469_SO_ST0="$(git -C "$I469_REPO" status --porcelain)"; I469_SO_HD0="$(git -C "$I469_REPO" rev-parse HEAD)"; I469_SO_BR0="$(git -C "$I469_REPO" branch --show-current)"
+I469_ERR="$( ( cd "$I469_REPO" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH='' bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; I469_RC=$?
+assert_eq "#469 AC5(e2e): staging-only --persist still exits 0" "0" "$I469_RC"
+# AC13 for the NEW staging-only mode: git status / HEAD / current branch byte-unchanged.
+assert_eq "#469 AC13: staging-only leaves git status byte-for-byte unchanged" "$I469_SO_ST0" "$(git -C "$I469_REPO" status --porcelain)"
+assert_eq "#469 AC13: staging-only leaves HEAD unchanged" "$I469_SO_HD0" "$(git -C "$I469_REPO" rev-parse HEAD)"
+assert_eq "#469 AC13: staging-only leaves the current branch unchanged" "$I469_SO_BR0" "$(git -C "$I469_REPO" branch --show-current)"
+assert_eq "#469 AC5(e2e): staging-only leaves the REMOTE devflow-telemetry ref UNCHANGED (absent)" "no" \
+  "$(git -C "$I469_REPO" ls-remote --heads origin devflow-telemetry | grep -q devflow-telemetry && echo yes || echo no)"
+assert_eq "#469 AC5(e2e): staging-only performs no branch write (local ref not advanced)" "no" \
+  "$(_et_on_branch "$I469_REPO" ".devflow/logs/efficiency/pr-so-run-so.json")"
+assert_eq "#469 AC5(e2e): staging-only breadcrumbs the absent push operand" "yes" \
+  "$(printf '%s' "$I469_ERR" | grep -qF 'DEVFLOW_TELEMETRY_PUSH is unset/empty/non-affirmative' && echo yes || echo no)"
+assert_eq "#469 AC5(e2e): staging-only RETAINS the staged tree for the trusted push relay" "yes" \
+  "$(compgen -G "$I469_REPO/.devflow/tmp/telemetry-stage-*" >/dev/null 2>&1 && echo yes || echo no)"
+# Staging-only (rc 2) is the INTENDED read-only-review posture, NOT a degradation: it must
+# retain SILENTLY and must NOT emit the do_persist "…write DEGRADED…" warning (which is the
+# rc-1 arm). If do_persist folded rc 2 into the degraded arm, every read-only review run
+# would spuriously warn DEGRADED — assert the negative so that regression goes RED.
+assert_eq "#469 AC5(e2e): staging-only does NOT emit the degraded (rc 1) warning" "no" \
+  "$(printf '%s' "$I469_ERR" | grep -qF 'the telemetry-branch write DEGRADED' && echo yes || echo no)"
+# Positive control: the SAME run with the operand set DOES push (proves the fixture reaches a push path).
+git -C "$I469_REPO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && git -C "$I469_REPO" update-ref -d refs/heads/devflow-telemetry
+( cd "$I469_REPO" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "#469 AC5(e2e control): the SAME run WITH the operand set pushes to the remote" "yes" \
+  "$(git -C "$I469_REPO" ls-remote --heads origin devflow-telemetry | grep -q devflow-telemetry && echo yes || echo no)"
+rm -rf "$I469_REPO" "$I469_BARE"
+
+# ── AC7: the absent-ref arm of list_blobs distinguishes an ESTABLISHED empty
+# (fetch ok, ref still absent → silent) from an UNESTABLISHED one (fetch
+# failed/unattempted → ::warning::), keyed on _DEVFLOW_TELEMETRY_FETCH_STATUS. ──
+I469_LB="$(git_sandbox "#469 list_blobs absent-ref repo")"; git -C "$I469_LB" init -q
+git -C "$I469_LB" config user.email t@e.com; git -C "$I469_LB" config user.name t
+mkdir -p "$I469_LB/.devflow"; printf 'tmp/\n' > "$I469_LB/.devflow/.gitignore"
+git -C "$I469_LB" add -A; git -C "$I469_LB" commit -qm seed
+_i469_lb() {  # $1=fetch-status; drives list_blobs on the ABSENT telemetry ref, returns stderr
+  ( cd "$I469_LB" && DEVFLOW_CONFIG_FILE=/dev/null _DEVFLOW_TELEMETRY_FETCH_STATUS="$1" \
+    bash -c 'set -uo pipefail; . "$1"; devflow_telemetry_list_blobs "$2" refs/heads/devflow-telemetry ".devflow/logs/review/"' \
+    _ "$LIB/telemetry-branch.sh" "$I469_LB" ) 2>&1 1>/dev/null
+}
+assert_eq "#469 AC7: fetch ok + ref absent → ESTABLISHED empty, NO warning" "no" \
+  "$(printf '%s' "$(_i469_lb ok)" | grep -qF 'UNESTABLISHED' && echo yes || echo no)"
+assert_eq "#469 AC7: fetch failed + ref absent → UNESTABLISHED, warns" "yes" \
+  "$(printf '%s' "$(_i469_lb failed)" | grep -qF 'UNESTABLISHED' && echo yes || echo no)"
+assert_eq "#469 AC7: fetch unattempted + ref absent → UNESTABLISHED, warns" "yes" \
+  "$(printf '%s' "$(_i469_lb unattempted)" | grep -qF 'UNESTABLISHED' && echo yes || echo no)"
+# Behavioral-fix pin: collapsing the `ok` arm onto the warning arm (or vice-versa)
+# re-introduces the "unknown is zero"/"zero is unknown" confusion. The operative
+# text is the `ok) : ;;` silent arm; mutate it to warn and the established-empty
+# assertion above would go RED — pin the arm's silence.
+assert_pin_red_under \
+  "#469 AC7: the fetch-ok arm is SILENT (established empty is not laundered into an unestablished warning)" \
+  'case "${_DEVFLOW_TELEMETRY_FETCH_STATUS:-unattempted}" in' \
+  's|case "\$\{_DEVFLOW_TELEMETRY_FETCH_STATUS:-unattempted\}" in|case "always-warn" in|' \
+  "$LIB/telemetry-branch.sh"
+rm -rf "$I469_LB"
+
+# ── AC7 (e2e derivation, #469 review Suggestion #1): the assertions above INJECT
+# _DEVFLOW_TELEMETRY_FETCH_STATUS into list_blobs (the consumer), so the do_persist code
+# that DERIVES status=ok from a MISSING origin remote (efficiency-trace.sh's no-origin
+# else-arm) is never exercised end-to-end. Drive a real --persist in a no-origin fixture
+# and assert its stderr lacks UNESTABLISHED — a regression flipping that arm to `failed`
+# would spuriously warn on every local-only first --persist and turn this RED. ─
+I469_NO="$(git_sandbox "#469 no-origin e2e repo")"; git -C "$I469_NO" init -q
+git -C "$I469_NO" config user.email t@e.com; git -C "$I469_NO" config user.name t
+mkdir -p "$I469_NO/.devflow"; printf 'tmp/\n' > "$I469_NO/.devflow/.gitignore"
+git -C "$I469_NO" add -A; git -C "$I469_NO" commit -qm seed
+mkdir -p "$I469_NO/.devflow/tmp/review/pr-no/run-no"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$I469_NO/.devflow/tmp/review/pr-no/run-no/iter-1.json"
+# Staging-only isolates the fetch-status derivation (no push attempted); the LOCAL telemetry
+# ref is ABSENT, so list_blobs' absent-ref arm IS consulted during synthesis.
+assert_eq "#469 AC7(e2e): the no-origin fixture's LOCAL telemetry ref is ABSENT before --persist" "no" \
+  "$(git -C "$I469_NO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+# Drive the no-origin derivation BOTH under GITHUB_ACTIONS and off-CI (#469 review Suggestion #2 —
+# requirement (d)'s "with and without GITHUB_ACTIONS"): the no-origin else-arm is GITHUB_ACTIONS-
+# independent, so neither should ever emit UNESTABLISHED. (Off-CI push-by-default with no origin
+# degrades on the push — that is the rc-1 DEGRADED warning, not the list_blobs UNESTABLISHED one.)
+I469_NO_ERR="$( ( cd "$I469_NO" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH='' bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "#469 AC7(e2e, CI): a no-origin first --persist DERIVES an ESTABLISHED empty (no origin → status=ok) — stderr lacks UNESTABLISHED" "no" \
+  "$(printf '%s' "$I469_NO_ERR" | grep -qF 'UNESTABLISHED' && echo yes || echo no)"
+git -C "$I469_NO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && git -C "$I469_NO" update-ref -d refs/heads/devflow-telemetry
+I469_NO_ERR_LOCAL="$( ( cd "$I469_NO" && env -u GITHUB_ACTIONS bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "#469 AC7(e2e, off-CI): the SAME no-origin derivation off-CI also stays silent — stderr lacks UNESTABLISHED" "no" \
+  "$(printf '%s' "$I469_NO_ERR_LOCAL" | grep -qF 'UNESTABLISHED' && echo yes || echo no)"
+# Positive control on the SAME fixture: restore the absent-ref precondition, then add an
+# UNREACHABLE origin so the derivation takes the origin-present branch and the fetch FAILS →
+# status=failed → list_blobs DOES emit UNESTABLISHED. This proves the no-origin run above
+# actually REACHED list_blobs' absent-ref arm (so its silence is meaningful), rather than
+# --persist having bailed before ever consulting it.
+git -C "$I469_NO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && git -C "$I469_NO" update-ref -d refs/heads/devflow-telemetry
+git -C "$I469_NO" remote add origin /nonexistent/telemetry/remote.git
+I469_NO_CTL_ERR="$( ( cd "$I469_NO" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH='' bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "#469 AC7(e2e control): the SAME fixture WITH an unreachable origin DOES emit UNESTABLISHED (proves list_blobs' absent-ref arm is reached, so the silence above is not vacuous)" "yes" \
+  "$(printf '%s' "$I469_NO_CTL_ERR" | grep -qF 'UNESTABLISHED' && echo yes || echo no)"
+rm -rf "$I469_NO"
+
+# ── AC6 producer path (end-to-end): do_persist FETCHES the telemetry branch from origin and
+# fast-forwards the ABSENT local ref onto it, so prior remote records become visible to
+# recorded_fix_shas (the anti-double-count fix). The AC7 test above injects the STATUS and
+# drives only the CONSUMER (list_blobs); this drives the PRODUCER against a real bare remote. ─
+I469_FP_BARE="$(git_sandbox "#469 fetch-producer bare remote")"; git -C "$I469_FP_BARE" init --bare -q
+# Seed a REAL telemetry store on the remote via a first repo's pushing --persist.
+I469_FP_SEED="$(git_sandbox "#469 fetch-producer seed repo")"; git -C "$I469_FP_SEED" init -q
+git -C "$I469_FP_SEED" config user.email t@e.com; git -C "$I469_FP_SEED" config user.name t
+git -C "$I469_FP_SEED" remote add origin "$I469_FP_BARE"
+mkdir -p "$I469_FP_SEED/.devflow"; printf 'tmp/\n' > "$I469_FP_SEED/.devflow/.gitignore"
+git -C "$I469_FP_SEED" add -A; git -C "$I469_FP_SEED" commit -qm seed; git -C "$I469_FP_SEED" branch -M main; git -C "$I469_FP_SEED" push -q -u origin main
+mkdir -p "$I469_FP_SEED/.devflow/tmp/review/pr-seed/run-seed"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$I469_FP_SEED/.devflow/tmp/review/pr-seed/run-seed/iter-1.json"
+( cd "$I469_FP_SEED" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+I469_FP_TIP="$(git -C "$I469_FP_BARE" rev-parse --verify --quiet refs/heads/devflow-telemetry 2>/dev/null || true)"
+assert_eq "#469 AC6(producer): the fixture seeded a real telemetry store on the remote" "yes" \
+  "$([ -n "$I469_FP_TIP" ] && echo yes || echo no)"
+# Second repo: origin points at the seeded remote, LOCAL telemetry ref ABSENT. A --persist
+# must fetch + verify + fast-forward the local ref onto the remote tip (the producer path).
+I469_FP="$(git_sandbox "#469 fetch-producer consumer repo")"; git -C "$I469_FP" init -q
+git -C "$I469_FP" config user.email t@e.com; git -C "$I469_FP" config user.name t
+git -C "$I469_FP" remote add origin "$I469_FP_BARE"
+mkdir -p "$I469_FP/.devflow"; printf 'tmp/\n' > "$I469_FP/.devflow/.gitignore"
+git -C "$I469_FP" add -A; git -C "$I469_FP" commit -qm seed
+mkdir -p "$I469_FP/.devflow/tmp/review/pr-fp/run-fp"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$I469_FP/.devflow/tmp/review/pr-fp/run-fp/iter-1.json"
+assert_eq "#469 AC6(producer): the LOCAL telemetry ref is ABSENT before --persist" "no" \
+  "$(git -C "$I469_FP" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+# Staging-only (operand empty) so this run does not itself push — isolating the FETCH producer.
+( cd "$I469_FP" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH='' bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "#469 AC6(producer): --persist fast-forwarded the ABSENT local ref onto the fetched remote tip (prior records now visible to recorded_fix_shas)" "$I469_FP_TIP" \
+  "$(git -C "$I469_FP" rev-parse --verify --quiet refs/heads/devflow-telemetry 2>/dev/null || true)"
+rm -rf "$I469_FP" "$I469_FP_SEED" "$I469_FP_BARE"
+
+# ── AC7 producer fail-open guard (#469 review fix): when origin HAS a branch named
+# devflow-telemetry but it is NOT a readable telemetry store (a consumer's same-named branch,
+# or a corrupt tree), do_persist must NOT set status=ok before verify_store — it leaves the
+# state UNESTABLISHED (status=failed + warning) and does NOT advance the local ref, so a
+# present-but-unreadable store is never laundered into a silent established-empty. ──
+I469_VF_BARE="$(git_sandbox "#469 verify-fail bare remote")"; git -C "$I469_VF_BARE" init --bare -q
+# Push a NON-telemetry branch named devflow-telemetry (a root file → verify_store rejects it).
+I469_VF_SEED="$(git_sandbox "#469 verify-fail seed repo")"; git -C "$I469_VF_SEED" init -q
+git -C "$I469_VF_SEED" config user.email t@e.com; git -C "$I469_VF_SEED" config user.name t
+printf 'not a telemetry store\n' > "$I469_VF_SEED/random.txt"
+git -C "$I469_VF_SEED" add -A; git -C "$I469_VF_SEED" commit -qm 'not a store'
+git -C "$I469_VF_SEED" push -q "$I469_VF_BARE" HEAD:refs/heads/devflow-telemetry
+# Consumer repo: origin → that remote, local telemetry ref ABSENT.
+I469_VF="$(git_sandbox "#469 verify-fail consumer repo")"; git -C "$I469_VF" init -q
+git -C "$I469_VF" config user.email t@e.com; git -C "$I469_VF" config user.name t
+git -C "$I469_VF" remote add origin "$I469_VF_BARE"
+mkdir -p "$I469_VF/.devflow"; printf 'tmp/\n' > "$I469_VF/.devflow/.gitignore"
+git -C "$I469_VF" add -A; git -C "$I469_VF" commit -qm seed
+mkdir -p "$I469_VF/.devflow/tmp/review/pr-vf/run-vf"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$I469_VF/.devflow/tmp/review/pr-vf/run-vf/iter-1.json"
+I469_VF_ERR="$( ( cd "$I469_VF" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH='' bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "#469 AC7 fail-open fix: a present-but-unverifiable remote tip is UNESTABLISHED (do_persist warns it could not be verified), not laundered into status=ok" "yes" \
+  "$(printf '%s' "$I469_VF_ERR" | grep -qF 'could not be verified as a readable DevFlow telemetry store' && echo yes || echo no)"
+assert_eq "#469 AC7 fail-open fix: the unverifiable remote tip is NOT advanced onto the local ref" "no" \
+  "$(git -C "$I469_VF" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
+# The first assertion is itself the behavioral guard: the "could not be verified as a readable
+# DevFlow telemetry store" warning is emitted ONLY by the post-verify fail arm this fix added.
+# Reverting to the pre-fix "status=ok on bare fetch success" (no such arm) removes that warning,
+# so the assertion goes RED — no separate comment-pin needed (which would re-create the very
+# comment-anchored-pin defect the #469 review flagged for the AC8 pin).
+rm -rf "$I469_VF" "$I469_VF_SEED" "$I469_VF_BARE"
+
+# ── AC8: a DEGRADED persist RETAINS its staging root and breadcrumbs its absolute
+# path (instead of the old unconditional rm -rf). Drive an unpushable-but-CI push
+# (operand set, remote unreachable) → persist_tree returns 1 → do_persist retains. ─
+I469_DEG="$(git_sandbox "#469 degraded-retain repo")"; git -C "$I469_DEG" init -q
+git -C "$I469_DEG" config user.email t@e.com; git -C "$I469_DEG" config user.name t
+git -C "$I469_DEG" remote add origin /nonexistent/telemetry/remote.git
+mkdir -p "$I469_DEG/.devflow"; printf 'tmp/\n' > "$I469_DEG/.devflow/.gitignore"
+git -C "$I469_DEG" add -A; git -C "$I469_DEG" commit -qm seed
+mkdir -p "$I469_DEG/.devflow/tmp/review/pr-dg/run-dg"
+printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$I469_DEG/.devflow/tmp/review/pr-dg/run-dg/iter-1.json"
+# AC13 for the DEGRADED-retention path (#469 review): the degraded arm both RETAINS a staging
+# root under gitignored .devflow/tmp/ AND advances the detached local telemetry ref before the
+# push fails — assert neither dirties the tree. Capture pre-state before --persist.
+I469_DG_ST0="$(git -C "$I469_DEG" status --porcelain)"; I469_DG_HD0="$(git -C "$I469_DEG" rev-parse HEAD)"; I469_DG_BR0="$(git -C "$I469_DEG" branch --show-current)"
+I469_DEG_ERR="$( ( cd "$I469_DEG" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; I469_DEG_RC=$?
+assert_eq "#469 AC8: a degraded persist still exits 0 (best-effort, never aborts)" "0" "$I469_DEG_RC"
+assert_eq "#469 AC13: the degraded-retention path leaves git status byte-for-byte unchanged" "$I469_DG_ST0" "$(git -C "$I469_DEG" status --porcelain)"
+assert_eq "#469 AC13: the degraded-retention path leaves HEAD unchanged" "$I469_DG_HD0" "$(git -C "$I469_DEG" rev-parse HEAD)"
+assert_eq "#469 AC13: the degraded-retention path leaves the current branch unchanged" "$I469_DG_BR0" "$(git -C "$I469_DEG" branch --show-current)"
+assert_eq "#469 AC8: a degraded persist RETAINS the staging root (not rm -rf'd)" "yes" \
+  "$(compgen -G "$I469_DEG/.devflow/tmp/telemetry-stage-*" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "#469 AC8: the degraded breadcrumb names the RETAINED staging root's absolute path" "yes" \
+  "$(printf '%s' "$I469_DEG_ERR" | grep -qE 'RETAINING the staged records at .*/\.devflow/tmp/telemetry-stage-' && echo yes || echo no)"
+# Behavioral-fix pin (OPERATIVE, not a comment): the silent-deletion bug (#469 defect 4)
+# is re-introduced by letting a non-clean persist_rc reach the rm -rf. The guard is that
+# `rm -rf` is gated to the `0)` (clean) case arm ONLY. The mutation rewrites that arm's
+# label `0)` → `*)`, making the delete a catch-all that swallows the degraded rc 1 (and
+# staging-only rc 2) — the exact regression — so the degraded-RETAINS assertion above goes
+# RED. Pinning the operative one-liner (not the `the run's ONLY copy` comment the earlier
+# pin used, which a comment edit could defeat) is what makes this a real behavioral pin.
+assert_pin_red_under \
+  "#469 AC8: rm -rf is gated to the clean (rc 0) arm ONLY — a non-clean result never reaches it" \
+  '0) rm -rf "$_TELEMETRY_STAGE" 2>/dev/null || true ;;' \
+  's|0\) rm -rf|*) rm -rf|' \
+  "$LIB/efficiency-trace.sh"
+rm -rf "$I469_DEG"
+
+# ── AC8 cleanup policy: retained telemetry-stage-* roots are pruned to the newest
+# _DEVFLOW_TELEMETRY_STAGE_KEEP on each --persist so they cannot grow unbounded. ──
+I469_PR="$(git_sandbox "#469 stage-prune repo")"; git -C "$I469_PR" init -q
+git -C "$I469_PR" config user.email t@e.com; git -C "$I469_PR" config user.name t
+mkdir -p "$I469_PR/.devflow/tmp"; printf 'tmp/\n' > "$I469_PR/.devflow/.gitignore"
+git -C "$I469_PR" add -A; git -C "$I469_PR" commit -qm seed 2>/dev/null || true
+for _p in 01 02 03 04 05 06; do mkdir -p "$I469_PR/.devflow/tmp/telemetry-stage-200001010000$_p-x-y-z"; done
+# A clean --persist (no run dirs) prunes the pre-existing roots to KEEP before creating its own.
+( cd "$I469_PR" && _DEVFLOW_TELEMETRY_STAGE_KEEP=3 GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "#469 AC8: retained staging roots are pruned to the newest KEEP (bounded, not unbounded)" "yes" \
+  "$([ "$(find "$I469_PR/.devflow/tmp" -maxdepth 1 -name 'telemetry-stage-*' | wc -l | tr -d ' ')" -le 3 ] && echo yes || echo no)"
+assert_eq "#469 AC8: the prune keeps the NEWEST (highest timestamp survives)" "yes" \
+  "$([ -d "$I469_PR/.devflow/tmp/telemetry-stage-20000101000006-x-y-z" ] && echo yes || echo no)"
+# A NON-NUMERIC _DEVFLOW_TELEMETRY_STAGE_KEEP must fall back to the default 8, NOT make the
+# `-gt` arithmetic error and the prune go INERT (unbounded growth — the opposite of the bound).
+# Seed 10 roots with KEEP=abc → the fallback keeps 8 (a numeric-typo override cannot defeat the bound).
+I469_PRK="$(git_sandbox "#469 stage-prune non-numeric-keep repo")"; git -C "$I469_PRK" init -q
+git -C "$I469_PRK" config user.email t@e.com; git -C "$I469_PRK" config user.name t
+mkdir -p "$I469_PRK/.devflow/tmp"; printf 'tmp/\n' > "$I469_PRK/.devflow/.gitignore"
+git -C "$I469_PRK" add -A; git -C "$I469_PRK" commit -qm seed 2>/dev/null || true
+for _p in 01 02 03 04 05 06 07 08 09 10; do mkdir -p "$I469_PRK/.devflow/tmp/telemetry-stage-200001010000$_p-x-y-z"; done
+( cd "$I469_PRK" && _DEVFLOW_TELEMETRY_STAGE_KEEP=abc GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "#469 AC8: a non-numeric _DEVFLOW_TELEMETRY_STAGE_KEEP falls back to 8 (prune stays bounded, not inert)" "yes" \
+  "$([ "$(find "$I469_PRK/.devflow/tmp" -maxdepth 1 -name 'telemetry-stage-*' | wc -l | tr -d ' ')" -le 8 ] && echo yes || echo no)"
+# An ALL-DIGIT but LEADING-ZERO KEEP (`08`, `09`) passes the `*[!0-9]*` non-digit check yet is an
+# INVALID OCTAL literal (#469 review): before the base-10 normalization the `$(( … - _keep ))`
+# prune arithmetic aborted with "value too great for base" and — under efficiency-trace.sh's
+# `set -euo pipefail` — killed do_persist at the prune line, BEFORE the rm loop, leaving all 10
+# roots AND losing the run's telemetry. The fix normalizes with `10#`, so the prune completes and
+# the bound holds (≤8) and --persist still exits 0. Seed 10 roots with KEEP=08.
+I469_PRO="$(git_sandbox "#469 stage-prune leading-zero-octal-keep repo")"; git -C "$I469_PRO" init -q
+git -C "$I469_PRO" config user.email t@e.com; git -C "$I469_PRO" config user.name t
+mkdir -p "$I469_PRO/.devflow/tmp"; printf 'tmp/\n' > "$I469_PRO/.devflow/.gitignore"
+git -C "$I469_PRO" add -A; git -C "$I469_PRO" commit -qm seed 2>/dev/null || true
+for _p in 01 02 03 04 05 06 07 08 09 10; do mkdir -p "$I469_PRO/.devflow/tmp/telemetry-stage-200001010000$_p-x-y-z"; done
+( cd "$I469_PRO" && _DEVFLOW_TELEMETRY_STAGE_KEEP=08 GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1; I469_PRO_RC=$?
+assert_eq "#469 review: a leading-zero-octal KEEP (08) does NOT abort --persist on the invalid-octal arithmetic" "0" "$I469_PRO_RC"
+assert_eq "#469 review: a leading-zero-octal KEEP (08) prunes (base-10 normalized) — bound holds, prune not aborted" "yes" \
+  "$([ "$(find "$I469_PRO/.devflow/tmp" -maxdepth 1 -name 'telemetry-stage-*' | wc -l | tr -d ' ')" -le 8 ] && echo yes || echo no)"
+# An all-digit but >= 2^63 KEEP (#469 fix-delta review): all-digit passes the case AND the base-10
+# normalize, but `$(( 10#… ))` silently WRAPS an overflowing value to a NEGATIVE (bash integer
+# overflow does not error), which would make `_drop = count - _keep` EXCEED the staged-array length
+# and `${_stale[$_i]}` index past it under `set -u` — aborting the best-effort prune (the same
+# fail-open the bound exists to prevent, re-introduced by the normalize). The `[ "$_keep" -ge 0 ] ||
+# _keep=8` clamp catches the wrapped negative. Seed 10 roots, KEEP=2^64-1 → clamp to 8, prune to ≤8,
+# exit 0 (no unbound-variable abort).
+I469_POV="$(git_sandbox "#469 stage-prune intmax-overflow-keep repo")"; git -C "$I469_POV" init -q
+git -C "$I469_POV" config user.email t@e.com; git -C "$I469_POV" config user.name t
+mkdir -p "$I469_POV/.devflow/tmp"; printf 'tmp/\n' > "$I469_POV/.devflow/.gitignore"
+git -C "$I469_POV" add -A; git -C "$I469_POV" commit -qm seed 2>/dev/null || true
+for _p in 01 02 03 04 05 06 07 08 09 10; do mkdir -p "$I469_POV/.devflow/tmp/telemetry-stage-200001010000$_p-x-y-z"; done
+( cd "$I469_POV" && _DEVFLOW_TELEMETRY_STAGE_KEEP=18446744073709551615 GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1; I469_POV_RC=$?
+assert_eq "#469 fix-delta review: an intmax-overflow KEEP (2^64-1) does NOT abort --persist (wrapped-negative clamp)" "0" "$I469_POV_RC"
+assert_eq "#469 fix-delta review: an intmax-overflow KEEP prunes to the clamped default (bound holds, no over-index)" "yes" \
+  "$([ "$(find "$I469_POV/.devflow/tmp" -maxdepth 1 -name 'telemetry-stage-*' | wc -l | tr -d ' ')" -le 8 ] && echo yes || echo no)"
+rm -rf "$I469_PR" "$I469_PRK" "$I469_PRO" "$I469_POV"
+
+# ── Retention-note: _devflow_telemetry_retention_note reports the records LOST
+# only under GITHUB_ACTIONS (the ephemeral-runner truth), and is silent off CI. ──
+_i469_note() { ( eval "$1"; . "$LIB/telemetry-branch.sh"; _devflow_telemetry_retention_note ); }
+assert_eq "#469: retention note under GITHUB_ACTIONS reports the records LOST for this run" "yes" \
+  "$(printf '%s' "$(_i469_note 'GITHUB_ACTIONS=true')" | grep -qF 'are LOST for this run, not retained' && echo yes || echo no)"
+assert_eq "#469: retention note off CI (env -u GITHUB_ACTIONS) is EMPTY (local ref survives)" "" \
+  "$(env -u GITHUB_ACTIONS bash -c '. "$1"; _devflow_telemetry_retention_note' _ "$LIB/telemetry-branch.sh")"
+# Behavioral-fix pin: inverting/removing the GITHUB_ACTIONS key makes the note lie
+# (claim LOST off CI, or reassure on CI). Pin the operative key.
+assert_pin_red_under \
+  "#469: the retention note keys on GITHUB_ACTIONS (not emitted unconditionally / not inverted)" \
+  'if [ -n "${GITHUB_ACTIONS:-}" ]; then' \
+  's|if \[ -n "\$\{GITHUB_ACTIONS:-\}" \]; then|if [ -z "${GITHUB_ACTIONS:-}" ]; then|' \
+  "$LIB/telemetry-branch.sh"
+
+# ── Memo-seed: the check-ref-format breadcrumb fires EXACTLY ONCE per --persist on
+# an invalid telemetry.branch (a count, not presence) — do_persist seeds the branch
+# resolution in the parent before any fork, so every subshell inherits one warning. ─
+I469_MS="$(git_sandbox "#469 memo-seed repo")"; git -C "$I469_MS" init -q
+git -C "$I469_MS" config user.email t@e.com; git -C "$I469_MS" config user.name t
+mkdir -p "$I469_MS/.devflow"; printf 'tmp/\n' > "$I469_MS/.devflow/.gitignore"
+printf '{"telemetry":{"branch":"bad name with spaces"}}\n' > "$I469_MS/.devflow/config.json"
+git -C "$I469_MS" add -A; git -C "$I469_MS" commit -qm seed
+# Multiple run dirs → multiple persist_one forks; the seed must keep the count at 1.
+for _r in run-1 run-2 run-3; do
+  mkdir -p "$I469_MS/.devflow/tmp/review/pr-ms/$_r"
+  printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+    > "$I469_MS/.devflow/tmp/review/pr-ms/$_r/iter-1.json"
+done
+I469_MS_ERR="$( ( cd "$I469_MS" && GITHUB_ACTIONS=true DEVFLOW_TELEMETRY_PUSH=1 bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+assert_eq "#469: check-ref-format breadcrumb fires EXACTLY ONCE per --persist (memo seed works across forks)" "1" \
+  "$(printf '%s\n' "$I469_MS_ERR" | grep -cF "config key 'telemetry.branch'")"
+# Removal-proof pin on the do_persist seed line: deleting it re-opens the per-fork duplicate.
+assert_pin_red_on_removal \
+  "#469: do_persist seeds the telemetry-branch resolution before forking (one breadcrumb per run)" \
+  'devflow_telemetry_branch >/dev/null || true' \
+  "$LIB/efficiency-trace.sh"
+rm -rf "$I469_MS"
+
+# ── #469 review: the source-failure stub block MUST define devflow_telemetry_verify_store.
+# do_persist's fetch-before-exclusion block calls verify_store DIRECTLY and BEFORE the
+# _DEVFLOW_TELEMETRY_BRANCH_SOURCED gate, so on a source failure an un-stubbed call is
+# `command not found` (rc 127) → the else arm misattributes the source failure to "the remote
+# tip could not be verified." The fix adds the stub; deleting it re-opens the gap. Removal-proof
+# pin (the guarded behavior is the stub's presence — its removal IS the regression), matching the
+# memo-seed pin above.
+assert_pin_red_on_removal \
+  "#469 review: the source-failure stub set includes devflow_telemetry_verify_store (fetch-block call degrades cleanly)" \
+  'devflow_telemetry_verify_store() { return 1; }' \
+  "$LIB/efficiency-trace.sh"
+
+# ── AC5 tier-distinction coupled invariant (#469): the writable tiers set the push operand
+# DEVFLOW_TELEMETRY_PUSH=1 at job level so their Stop-hook --persist pushes; the read-only
+# auto-review tier (devflow-runner.yml) deliberately leaves it UNSET so --persist fails closed
+# to staging-only. This is a "kept in sync" contract across three workflows — pin BOTH sides so
+# a future edit that drops it from a writable tier (silent telemetry loss) or adds it to the
+# read-only tier (a push its contents:read token can never complete) turns the suite RED. ──
+_I469_WF="$LIB/../.github/workflows"
+assert_eq "#469 AC5: devflow-implement.yml (writable) sets DEVFLOW_TELEMETRY_PUSH so its Stop-hook --persist pushes" "1" \
+  "$(pin_count "DEVFLOW_TELEMETRY_PUSH: '1'" "$_I469_WF/devflow-implement.yml")"
+assert_eq "#469 AC5: devflow.yml command job (writable) sets DEVFLOW_TELEMETRY_PUSH so its Stop-hook --persist pushes" "1" \
+  "$(pin_count "DEVFLOW_TELEMETRY_PUSH: '1'" "$_I469_WF/devflow.yml")"
+# The read-only tier's rationale COMMENT names the operand ("...DEVFLOW_TELEMETRY_PUSH is
+# deliberately unset..."), so pin the env-KEY form (trailing colon) — present only when the
+# operand is actually SET as job env — which must be ABSENT (a comment mention has no colon).
+assert_eq "#469 AC5: devflow-runner.yml (read-only auto-review tier) does NOT set DEVFLOW_TELEMETRY_PUSH as job env (stays fail-closed to staging-only)" "0" \
+  "$(pin_count "DEVFLOW_TELEMETRY_PUSH:" "$_I469_WF/devflow-runner.yml")"
+
+# End of the telemetry section's push authorization (#469 AC5): unset so downstream
+# tests see the real ambient environment again.
+unset DEVFLOW_TELEMETRY_PUSH
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "issue #489: cross-workflow telemetry artifact relay (upload + trusted pusher + untrusted-input validation)"
+# ────────────────────────────────────────────────────────────────────────────
+_489_SC="$LIB/../scripts"
+_489_VAL="$_489_SC/validate-telemetry-artifact.sh"
+_489_PUSH="$_489_SC/telemetry-push-artifact.sh"
+_489_WF="$LIB/../.github/workflows"
+
+# --- AC4: validator unit rejections (all-or-nothing, ::warning::, non-zero, nothing staged) ---
+# Build a hostile/clean artifact dir, run the validator, and report rc + whether the out root
+# received any admitted tree. A drop-whole leaves the out root's .devflow/logs ABSENT.
+# _489_val <label> <expect-rc> <builder-fn>  — builder populates $ART (artifact) before validate.
+_489_run_val() {  # ART OUT [env...] -> echoes "rc|staged(yes/no)"
+  local art="$1" out="$2"; shift 2
+  local rc
+  env "$@" bash "$_489_VAL" "$art" "$out" >/dev/null 2>"$out.err"; rc=$?
+  printf '%s|%s\n' "$rc" "$([ -d "$out/.devflow/logs" ] && echo yes || echo no)"
+}
+
+_489_A="$(git_sandbox "489 validator artifacts")"
+
+# (1) clean happy path → admitted (rc 0, staged yes)
+mkdir -p "$_489_A/ok/.devflow/logs/review/pr-1/run-a" "$_489_A/ok/.devflow/logs/efficiency"
+printf '{"iter":1}\n' > "$_489_A/ok/.devflow/logs/review/pr-1/run-a/iter-1.json"
+printf '{"schema_version":1,"slug":"pr-1"}\n' > "$_489_A/ok/.devflow/logs/efficiency/pr-1-run-a.json"
+assert_eq "489/AC4: a clean artifact is admitted (rc 0, records staged)" "0|yes" \
+  "$(_489_run_val "$_489_A/ok" "$_489_A/ok-out")"
+
+# (2) malformed JSON → drop whole
+mkdir -p "$_489_A/bad-json/.devflow/logs/efficiency"
+printf 'not json{' > "$_489_A/bad-json/.devflow/logs/efficiency/pr-2-run-b.json"
+assert_eq "489/AC4: a malformed-JSON entry drops the WHOLE artifact (rc 1, nothing staged)" "1|no" \
+  "$(_489_run_val "$_489_A/bad-json" "$_489_A/bad-json-out")"
+assert_eq "489/AC4: ...and emits a ::warning:: naming the drop" "yes" \
+  "$(grep -qF '::warning::validate-telemetry-artifact: dropping the whole' "$_489_A/bad-json-out.err" && echo yes || echo no)"
+
+# (3) wrong top-level type (JSON array, not object) → drop whole
+mkdir -p "$_489_A/arr/.devflow/logs/efficiency"
+printf '[1,2,3]\n' > "$_489_A/arr/.devflow/logs/efficiency/pr-3-run-c.json"
+assert_eq "489/AC4: a non-object JSON entry drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/arr" "$_489_A/arr-out")"
+
+# (4) efficiency record missing the shape keys → drop whole
+mkdir -p "$_489_A/noshape/.devflow/logs/efficiency"
+printf '{"foo":"bar"}\n' > "$_489_A/noshape/.devflow/logs/efficiency/pr-4-run-d.json"
+assert_eq "489/AC4: an efficiency record without schema_version+slug drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/noshape" "$_489_A/noshape-out")"
+
+# (5) disallowed path (outside .devflow/logs) → drop whole
+mkdir -p "$_489_A/badpath/foo"
+printf '{}' > "$_489_A/badpath/foo/bar.json"
+assert_eq "489/AC4: an entry outside .devflow/logs/ drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/badpath" "$_489_A/badpath-out")"
+
+# (6) disallowed depth under review/ (extra nested dir) → drop whole
+mkdir -p "$_489_A/deep/.devflow/logs/review/pr-5/run-e/extra"
+printf '{"iter":1}' > "$_489_A/deep/.devflow/logs/review/pr-5/run-e/extra/iter-1.json"
+assert_eq "489/AC4: an over-deep review path drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/deep" "$_489_A/deep-out")"
+
+# (7) symlink entry → drop whole
+mkdir -p "$_489_A/sym/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"x"}' > "$_489_A/sym/.devflow/logs/efficiency/real-run-1.json"
+ln -s /etc/passwd "$_489_A/sym/.devflow/logs/efficiency/evil-run-1.json"
+assert_eq "489/AC4: a symlink entry drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/sym" "$_489_A/sym-out")"
+
+# (8) entry-count cap → drop whole (cap forced low via env; fail-closed on the numeric override)
+mkdir -p "$_489_A/many/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"a"}' > "$_489_A/many/.devflow/logs/efficiency/a-1.json"
+printf '{"schema_version":1,"slug":"b"}' > "$_489_A/many/.devflow/logs/efficiency/b-1.json"
+assert_eq "489/AC4: exceeding the entry-count cap drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/many" "$_489_A/many-out" DEVFLOW_TELEMETRY_MAX_ENTRIES=1)"
+
+# (9) total-size cap → drop whole
+mkdir -p "$_489_A/big/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"big","pad":"%s"}' "$(printf 'x%.0s' $(seq 1 200))" > "$_489_A/big/.devflow/logs/efficiency/big-1.json"
+assert_eq "489/AC4: exceeding the total-size cap drops the whole artifact" "1|no" \
+  "$(_489_run_val "$_489_A/big" "$_489_A/big-out" DEVFLOW_TELEMETRY_MAX_BYTES=10)"
+
+# (10) a non-numeric cap override fails CLOSED to the default (does NOT disable the cap): a
+# clean single small record still admits under a garbage MAX_ENTRIES (default 500 applies).
+assert_eq "489/AC4: a non-numeric cap override falls back to the default (clean record still admits)" "0|yes" \
+  "$(_489_run_val "$_489_A/ok" "$_489_A/ok-out2" DEVFLOW_TELEMETRY_MAX_ENTRIES=notanumber)"
+
+# (11) absent artifact dir → inert (rc 0, nothing staged) — NOT a violation
+assert_eq "489/AC4: an absent artifact dir is inert (rc 0, nothing staged)" "0|no" \
+  "$(_489_run_val "$_489_A/does-not-exist" "$_489_A/absent-out")"
+
+# (12) MAX_BYTES non-numeric override fails CLOSED to the default (does NOT disable the cap):
+# the sibling of test (10), covering the more security-relevant byte cap.
+assert_eq "489/AC4: a non-numeric MAX_BYTES override falls back to the default (clean record still admits)" "0|yes" \
+  "$(_489_run_val "$_489_A/ok" "$_489_A/ok-out3" DEVFLOW_TELEMETRY_MAX_BYTES=notanumber)"
+
+# (13) all-or-nothing is EXPLICIT: one valid record + one hostile entry drops the valid one too.
+# `staged=no` already proves it, but assert the known-valid sibling is specifically absent so a
+# future incremental-copy refactor can't regress behind a lucky directory layout.
+mkdir -p "$_489_A/mix/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"keep"}\n' > "$_489_A/mix/.devflow/logs/efficiency/keep-run-1.json"
+printf 'malformed{' > "$_489_A/mix/.devflow/logs/efficiency/evil-run-1.json"
+_489_run_val "$_489_A/mix" "$_489_A/mix-out" >/dev/null
+assert_eq "489/AC4: all-or-nothing — the VALID sibling is dropped alongside the hostile entry" "no" \
+  "$([ -f "$_489_A/mix-out/.devflow/logs/efficiency/keep-run-1.json" ] && echo yes || echo no)"
+
+# (14) Direct unit tests of the pure path predicates (sourced via DVT_LIB_ONLY). AC4 names
+# `..` traversal and absolute paths explicitly, but those arms are UNREACHABLE through the
+# filesystem walk (a file literally named `..` cannot exist; rel is always artifact-relative),
+# so a direct call is their only honest coverage.
+_489_pathsafe() {  # rel -> "safe"/"unsafe" via _dvt_path_safe
+  ( DVT_LIB_ONLY=1; . "$_489_VAL"; _dvt_path_safe "$1" && echo safe || echo unsafe )
+}
+_489_admitted() {  # rel -> "admit"/"deny" via _dvt_admitted
+  ( DVT_LIB_ONLY=1; . "$_489_VAL"; _dvt_admitted "$1" && echo admit || echo deny )
+}
+assert_eq "489/AC4: _dvt_path_safe rejects a '..' traversal component (AC4 names it)" "unsafe" "$(_489_pathsafe '.devflow/logs/review/a/b/../c.json')"
+assert_eq "489/AC4: _dvt_path_safe rejects an absolute path (AC4 names it)" "unsafe" "$(_489_pathsafe '/abs/path.json')"
+assert_eq "489/AC4: _dvt_path_safe rejects a bare '.' component" "unsafe" "$(_489_pathsafe 'a/./b.json')"
+assert_eq "489/AC4: _dvt_path_safe rejects an empty path" "unsafe" "$(_489_pathsafe '')"
+assert_eq "489/AC4: _dvt_path_safe accepts a normal relative path" "safe" "$(_489_pathsafe '.devflow/logs/efficiency/x-1.json')"
+assert_eq "489/AC4: _dvt_admitted admits a valid efficiency path" "admit" "$(_489_admitted '.devflow/logs/efficiency/slug-run-1.json')"
+assert_eq "489/AC4: _dvt_admitted admits a valid review path" "admit" "$(_489_admitted '.devflow/logs/review/slug/run-1/iter-1.json')"
+assert_eq "489/AC4: _dvt_admitted denies a path outside .devflow/logs" "deny" "$(_489_admitted 'foo/bar.json')"
+assert_eq "489/AC4: _dvt_admitted denies an over-deep review path" "deny" "$(_489_admitted '.devflow/logs/review/a/b/c/d.json')"
+
+# (15) ATTRIBUTABLE cap fail-closed: prove _dvt_num coerces a garbage/empty override to the
+# DEFAULT, not to "unlimited/off" — the distinction tests (10)/(12) cannot make with a clean
+# artifact (which admits under both correct fallback AND the bug). This is the real fail-closed
+# guarantee for both caps (they share _dvt_num).
+_489_num() { ( DVT_LIB_ONLY=1; . "$_489_VAL"; _dvt_num "$1" "$2" ); }
+assert_eq "489/AC4: _dvt_num coerces a non-numeric override to the DEFAULT (not unlimited)" "500" "$(_489_num 'notanumber' 500)"
+assert_eq "489/AC4: _dvt_num coerces an empty override to the DEFAULT" "500" "$(_489_num '' 500)"
+assert_eq "489/AC4: _dvt_num keeps a valid numeric override" "7" "$(_489_num '7' 500)"
+assert_eq "489/AC4: _dvt_num rejects a negative override, falling back to the default" "500" "$(_489_num '-3' 500)"
+
+# (16) jq fail-closed (guard-class-2, record-shape gate): a broken/absent jq must REJECT the
+# whole artifact, not silently admit an unparsed entry. Point DEVFLOW_JQ at a binary that always
+# fails and confirm the clean artifact is dropped.
+assert_eq "489/AC4: a broken jq (DEVFLOW_JQ=false) drops the whole artifact (fails closed)" "1|no" \
+  "$(_489_run_val "$_489_A/ok" "$_489_A/ok-jqfail" DEVFLOW_JQ=/usr/bin/false)"
+
+# (16b) wc fail-closed (guard-class-2, size-cap gate; sibling of (16)): _dvt_filesize's `wc -c`
+# derivation gates admission, so a broken/absent wc must REJECT the whole artifact, not silently
+# admit an unsized entry (which would bypass the size cap with a green suite). wc is not a
+# preflight-guaranteed tool, so this is a real regression surface. Driven by the PATH-stub
+# technique (17) — shadow `wc` with a stub that always fails — since wc is invoked by path lookup,
+# not via an env override.
+_489_WCROOT="$(git_sandbox "489 wc fail stub")"; mkdir -p "$_489_WCROOT/bin"
+printf '#!/bin/sh\nexit 1\n' > "$_489_WCROOT/bin/wc"; chmod +x "$_489_WCROOT/bin/wc"
+assert_eq "489/AC4: a broken wc (size derivation fails) drops the whole artifact (fails closed)" "1|no" \
+  "$(_489_run_val "$_489_A/ok" "$_489_A/ok-wcfail" "PATH=$_489_WCROOT/bin:$PATH")"
+
+# (18) a symlink to a DIRECTORY drops the whole artifact. The `[ -L ]`-before-`[ -d ]` ordering
+# in _dvt_walk is the load-bearing reject-vs-recurse decision; a reorder that let a dir-symlink
+# be recursed into (following it off-tree) would turn this RED.
+_489_symdir_tgt="$(git_sandbox "489 symlink-dir target")"; mkdir -p "$_489_symdir_tgt/x"
+mkdir -p "$_489_A/symdir/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"ok"}' > "$_489_A/symdir/.devflow/logs/efficiency/good-1.json"
+ln -s "$_489_symdir_tgt" "$_489_A/symdir/.devflow/logs/review"
+assert_eq "489/AC4: a symlinked DIRECTORY drops the whole artifact (reject before recurse)" "1|no" \
+  "$(_489_run_val "$_489_A/symdir" "$_489_A/symdir-out")"
+
+# (19) a DANGLING symlink (present link, missing target) is still SEEN and drops the artifact —
+# the walk's `[ -e ] || [ -L ]` condition exists precisely so a dangling link isn't skipped.
+mkdir -p "$_489_A/dangling/.devflow/logs/efficiency"
+ln -s /no/such/target "$_489_A/dangling/.devflow/logs/efficiency/dead-1.json"
+assert_eq "489/AC4: a DANGLING symlink drops the whole artifact (still seen, never skipped)" "1|no" \
+  "$(_489_run_val "$_489_A/dangling" "$_489_A/dangling-out")"
+
+# (20) a hostile filename containing whitespace/newline drops the whole artifact. The validator
+# header advertises NUL-safe array handling of such names; that name can only travel the reject
+# path (the allowlist's `[A-Za-z0-9._-]+` segment rejects it), which is exactly where a quoting
+# regression would misbehave — so the walk must handle it without word-splitting.
+mkdir -p "$_489_A/wsname/.devflow/logs/efficiency"
+printf '{}' > "$_489_A/wsname/.devflow/logs/efficiency/bad name.json"
+assert_eq "489/AC4: a filename with whitespace drops the whole artifact (NUL-safe walk, allowlist rejects)" "1|no" \
+  "$(_489_run_val "$_489_A/wsname" "$_489_A/wsname-out")"
+mkdir -p "$_489_A/nlname/.devflow/logs/efficiency"
+printf '{}' > "$_489_A/nlname/.devflow/logs/efficiency/$(printf 'evil\nrun').json"
+assert_eq "489/AC4: a filename with an embedded newline drops the whole artifact (NUL-safe walk)" "1|no" \
+  "$(_489_run_val "$_489_A/nlname" "$_489_A/nlname-out")"
+
+# (21) Sug#1: the entry-count cap SHORT-CIRCUITS the walk (bounds work/memory, not just
+# admission). With the cap forced to 1 and two records, the walk rejects mid-walk naming the
+# short-circuit, rather than materializing every entry before the post-walk cap trips.
+_489_run_val "$_489_A/many" "$_489_A/many-sc-out" DEVFLOW_TELEMETRY_MAX_ENTRIES=1 >/dev/null
+assert_eq "489/AC4(Sug#1): the count cap short-circuits the walk (names it)" "yes" \
+  "$(grep -qF 'walk short-circuited' "$_489_A/many-sc-out.err" && echo yes || echo no)"
+
+# (22) Sug#5: _dvt_path_safe restores the caller's noglob state — call it from a glob-OFF caller
+# (set -f) and confirm noglob is still on afterward (the predicate must be self-contained and
+# never clobber a glob-off caller; the save/restore around its IFS split is otherwise untested).
+_489_noglob_restore() { ( DVT_LIB_ONLY=1; . "$_489_VAL"; set -f; _dvt_path_safe '.devflow/logs/efficiency/x-1.json' >/dev/null; case "$-" in *f*) echo on ;; *) echo off ;; esac ); }
+assert_eq "489/AC4(Sug#5): _dvt_path_safe restores a glob-OFF caller's noglob state" "on" "$(_489_noglob_restore)"
+
+# (23) a special file (FIFO) is neither a regular file nor a directory → drop whole, naming that
+# distinct disposition (the one enumerated reject arm otherwise uncovered). `mkfifo` is POSIX;
+# skip cleanly if it is unavailable on the host rather than failing the suite.
+if command -v mkfifo >/dev/null 2>&1; then
+  mkdir -p "$_489_A/fifo/.devflow/logs/efficiency"
+  mkfifo "$_489_A/fifo/.devflow/logs/efficiency/pipe-1.json" 2>/dev/null || true
+  if [ -p "$_489_A/fifo/.devflow/logs/efficiency/pipe-1.json" ]; then
+    assert_eq "489/AC4: a FIFO special file drops the whole artifact (rc 1, nothing staged)" "1|no" \
+      "$(_489_run_val "$_489_A/fifo" "$_489_A/fifo-out")"
+    # Attribute the rejection to the special-file arm (not a precondition) by its distinct message.
+    assert_eq "489/AC4: ...naming the 'neither a regular file nor a directory' disposition" "yes" \
+      "$(grep -qF 'neither a regular file nor a directory' "$_489_A/fifo-out.err" && echo yes || echo no)"
+  fi
+fi
+
+# (24) Sug#1: the DIRECTORY-count cap short-circuits the walk (bounds the directory dimension of
+# work, not just file admission). A wide all-empty-directories tree under the cap of 1 rejects
+# mid-walk naming the directory short-circuit — the file-count guard alone never fires here (no
+# regular files exist), so this proves the separate directory bound.
+mkdir -p "$_489_A/widedirs/.devflow/logs/review/a/b" "$_489_A/widedirs/.devflow/logs/review/c/d"
+_489_run_val "$_489_A/widedirs" "$_489_A/widedirs-out" DEVFLOW_TELEMETRY_MAX_ENTRIES=1 >/dev/null
+assert_eq "489/AC4(Sug#1): the directory-count cap short-circuits the walk (names it)" "yes" \
+  "$(grep -qF 'directory count exceeds the cap' "$_489_A/widedirs-out.err" && echo yes || echo no)"
+
+# (25) Sug#2: the per-entry `_dvt_filesize` unreadable reject NAMES the specific entry (the size
+# derivation gates admission and fails closed). Drive it via the wc-fail stub against a
+# single-entry artifact so the reject is reached per-entry and its entry-naming message is pinned
+# (test 16b proves the drop; this pins the distinct per-entry attribution).
+mkdir -p "$_489_A/onesize/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"one"}' > "$_489_A/onesize/.devflow/logs/efficiency/one-1.json"
+_489_run_val "$_489_A/onesize" "$_489_A/onesize-out" "PATH=$_489_WCROOT/bin:$PATH" >/dev/null
+assert_eq "489/AC4(Sug#2): the per-entry unreadable reject names the specific entry" "yes" \
+  "$(grep -qF "entry '.devflow/logs/efficiency/one-1.json' could not be sized (unreadable)" "$_489_A/onesize-out.err" && echo yes || echo no)"
+
+# (26) Sug#3: the pass-2 `cp` failure reject arm — a validated artifact whose per-entry copy
+# fails drops whole (rc 1) naming the copy failure. This cannot admit a bad artifact (pass-1
+# already passed); it only refuses to stage a good one, so fail-closed here is correct. Driven
+# by the injected-cp-stub technique the collect test (17) already uses.
+_489_CPROOT="$(git_sandbox "489 validator cp-fail")"; mkdir -p "$_489_CPROOT/bin"
+printf '#!/bin/sh\nexit 1\n' > "$_489_CPROOT/bin/cp"; chmod +x "$_489_CPROOT/bin/cp"
+_489_run_val "$_489_A/ok" "$_489_A/ok-cpfail" "PATH=$_489_CPROOT/bin:$PATH" >/dev/null
+assert_eq "489/AC4(Sug#3): a pass-2 cp failure drops the whole artifact naming the copy failure" "yes" \
+  "$(grep -qF 'could not copy admitted entry' "$_489_A/ok-cpfail.err" && echo yes || echo no)"
+
+# (17) collect helper's copy-failure branch (saw_stage set, found not → the distinct 'records
+# existed but none could be copied' warning). Driven deterministically by pointing DEST_PARENT
+# read-only is not reachable (the top mkdir would abort first), and a chmod-000 source is
+# environment-sensitive under the suite's process context, so this branch is verified by an
+# INJECTED cp override rather than a real permission failure: shadow `cp` with a stub that
+# always fails, so the per-stage copy fails while the stage is genuinely present (saw_stage=1).
+_489_CFROOT="$(git_sandbox "489 collect copy-fail root")"
+mkdir -p "$_489_CFROOT/.devflow/tmp/telemetry-stage-x/.devflow/logs/efficiency" "$_489_CFROOT/bin"
+printf '{"schema_version":1,"slug":"a"}\n' > "$_489_CFROOT/.devflow/tmp/telemetry-stage-x/.devflow/logs/efficiency/a-1.json"
+printf '#!/bin/sh\nexit 1\n' > "$_489_CFROOT/bin/cp"; chmod +x "$_489_CFROOT/bin/cp"
+_489_CF_OUT="$(PATH="$_489_CFROOT/bin:$PATH" bash "$_489_SC/collect-staged-telemetry.sh" "$_489_CFROOT" "$_489_CFROOT/out" 2>/dev/null)"
+_489_CF_ERR="$(PATH="$_489_CFROOT/bin:$PATH" bash "$_489_SC/collect-staged-telemetry.sh" "$_489_CFROOT" "$_489_CFROOT/out" 2>&1 >/dev/null)"
+assert_eq "489/AC2: collect helper emits NO stdout signal when every copy fails" "" "$_489_CF_OUT"
+assert_eq "489/AC2: collect helper names the copy-failure distinctly (not 'nothing staged')" "yes" \
+  "$(printf '%s' "$_489_CF_ERR" | grep -qF 'records existed but none could be copied' && echo yes || echo no)"
+
+# AC2 — the upload step MUST include hidden files: the collected tree is entirely under the
+# dot-prefixed .devflow/, and upload-artifact@v4 excludes hidden files by default, so without
+# this the relay would silently transfer zero telemetry.
+assert_pin_unique "489/AC2: the telemetry upload includes hidden files (.devflow/ is dot-prefixed)" \
+  'include-hidden-files: true' "$_489_WF/devflow-runner.yml"
+
+# --- AC3/AC4: end-to-end — a hostile artifact leaves the telemetry branch UNCHANGED, a clean
+# one lands, and an empty one is inert. Drive the trusted pusher against a fixture repo. ---
+_489_BARE="$(git_sandbox "489 e2e bare remote")"; git init -q --bare "$_489_BARE"
+_489_REPO="$(git_sandbox "489 e2e repo")"
+git -C "$_489_REPO" init -q
+git -C "$_489_REPO" config user.email t@e.com; git -C "$_489_REPO" config user.name t
+git -C "$_489_REPO" remote add origin "$_489_BARE"
+mkdir -p "$_489_REPO/.devflow"; printf 'tmp/\n' > "$_489_REPO/.devflow/.gitignore"
+git -C "$_489_REPO" add -A; git -C "$_489_REPO" commit -qm seed
+git -C "$_489_REPO" push -q origin HEAD >/dev/null 2>&1 || true
+
+# Clean push lands the records.
+_489_CART="$(git_sandbox "489 clean artifact")"
+mkdir -p "$_489_CART/.devflow/logs/efficiency" "$_489_CART/.devflow/logs/review/pr-9/run-z"
+printf '{"schema_version":1,"slug":"pr-9"}\n' > "$_489_CART/.devflow/logs/efficiency/pr-9-run-z.json"
+printf '{"iter":1}\n' > "$_489_CART/.devflow/logs/review/pr-9/run-z/iter-1.json"
+( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_CART" "$_489_REPO" ) >/dev/null 2>&1
+assert_eq "489/AC3: a clean artifact's records land on the telemetry branch" "yes" \
+  "$(_et_on_branch "$_489_REPO" ".devflow/logs/efficiency/pr-9-run-z.json")"
+_489_TIP="$(git -C "$_489_REPO" rev-parse refs/heads/devflow-telemetry 2>/dev/null)"
+
+# Each hostile artifact leaves the branch tip UNCHANGED (nothing committed).
+_489_hostile_tip_unchanged() {  # label builder-cmd... — runs pusher, echoes yes/no tip-unchanged
+  local label="$1"; shift
+  ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null "$@" bash "$_489_PUSH" "$_489_HART" "$_489_REPO" ) >/dev/null 2>&1
+  [ "$(git -C "$_489_REPO" rev-parse refs/heads/devflow-telemetry 2>/dev/null)" = "$_489_TIP" ] && echo yes || echo no
+}
+
+_489_HART="$(git_sandbox "489 hostile malformed")"; mkdir -p "$_489_HART/.devflow/logs/efficiency"
+printf 'garbage{' > "$_489_HART/.devflow/logs/efficiency/evil-run-1.json"
+assert_eq "489/AC4: a malformed-JSON artifact leaves the branch UNCHANGED (nothing committed)" "yes" \
+  "$(_489_hostile_tip_unchanged malformed)"
+
+_489_HART="$(git_sandbox "489 hostile traversal")"; mkdir -p "$_489_HART/evilsub"
+printf '{}' > "$_489_HART/evilsub/x.json"
+assert_eq "489/AC4: a disallowed-path artifact leaves the branch UNCHANGED" "yes" \
+  "$(_489_hostile_tip_unchanged traversal)"
+
+_489_HART="$(git_sandbox "489 hostile symlink")"; mkdir -p "$_489_HART/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"ok"}' > "$_489_HART/.devflow/logs/efficiency/good-run-1.json"
+ln -s /etc/passwd "$_489_HART/.devflow/logs/efficiency/evil-run-1.json"
+assert_eq "489/AC4: a symlink-bearing artifact leaves the branch UNCHANGED" "yes" \
+  "$(_489_hostile_tip_unchanged symlink)"
+
+_489_HART="$(git_sandbox "489 hostile oversized")"; mkdir -p "$_489_HART/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"big","pad":"%s"}' "$(printf 'x%.0s' $(seq 1 200))" > "$_489_HART/.devflow/logs/efficiency/big-run-1.json"
+assert_eq "489/AC4: an oversized artifact leaves the branch UNCHANGED" "yes" \
+  "$(_489_hostile_tip_unchanged oversized DEVFLOW_TELEMETRY_MAX_BYTES=10)"
+
+# (Sug#5) further hostile SHAPES exercised end-to-end (branch tip unchanged), not only at the
+# validator-unit level: a non-object record, an over-deep review path, and the entry-count cap.
+_489_HART="$(git_sandbox "489 hostile non-object")"; mkdir -p "$_489_HART/.devflow/logs/efficiency"
+printf '[1,2,3]' > "$_489_HART/.devflow/logs/efficiency/arr-run-1.json"
+assert_eq "489/AC4(Sug#5): a non-object-JSON artifact leaves the branch UNCHANGED (e2e)" "yes" \
+  "$(_489_hostile_tip_unchanged nonobject)"
+_489_HART="$(git_sandbox "489 hostile over-deep")"; mkdir -p "$_489_HART/.devflow/logs/review/pr-x/run-y/extra"
+printf '{"iter":1}' > "$_489_HART/.devflow/logs/review/pr-x/run-y/extra/iter-1.json"
+assert_eq "489/AC4(Sug#5): an over-deep review-path artifact leaves the branch UNCHANGED (e2e)" "yes" \
+  "$(_489_hostile_tip_unchanged overdeep)"
+_489_HART="$(git_sandbox "489 hostile count cap")"; mkdir -p "$_489_HART/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"a"}' > "$_489_HART/.devflow/logs/efficiency/a-1.json"
+printf '{"schema_version":1,"slug":"b"}' > "$_489_HART/.devflow/logs/efficiency/b-1.json"
+assert_eq "489/AC4(Sug#5): an over-count artifact leaves the branch UNCHANGED (e2e)" "yes" \
+  "$(_489_hostile_tip_unchanged countcap DEVFLOW_TELEMETRY_MAX_ENTRIES=1)"
+
+# Inert on an EMPTY artifact (landing-order: intermediate state pushes nothing and says so).
+_489_HART="$(git_sandbox "489 empty artifact")"
+_489_EMPTY_ERR="$( ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_HART" "$_489_REPO" ) 2>&1 1>/dev/null )"
+assert_eq "489/AC3: an EMPTY artifact pushes nothing and leaves the branch UNCHANGED" "yes" \
+  "$([ "$(git -C "$_489_REPO" rev-parse refs/heads/devflow-telemetry 2>/dev/null)" = "$_489_TIP" ] && echo yes || echo no)"
+assert_eq "489/AC3: ...and says so (a 'no telemetry records to push' notice)" "yes" \
+  "$(printf '%s' "$_489_EMPTY_ERR" | grep -qF 'no telemetry records to push' && echo yes || echo no)"
+
+# Inert on an ABSENT artifact dir too (older review run with no upload).
+_489_ABSENT_ERR="$( ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_REPO/.no-such-dl" "$_489_REPO" ) 2>&1 1>/dev/null )"
+assert_eq "489/AC3: an ABSENT artifact dir leaves the branch UNCHANGED" "yes" \
+  "$([ "$(git -C "$_489_REPO" rev-parse refs/heads/devflow-telemetry 2>/dev/null)" = "$_489_TIP" ] && echo yes || echo no)"
+
+# Fail-LOUD environment guards (the trusted writer must exit 1 red, not silently no-op, on a
+# broken invocation — the contract at the file head). These arms are otherwise unexercised.
+_489_pusher_rc() { ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$@" ) >/dev/null 2>&1; echo $?; }
+assert_eq "489/AC3: the pusher fails LOUD (rc 1) on a usage error (missing operands)" "1" \
+  "$(_489_pusher_rc)"
+assert_eq "489/AC3: the pusher fails LOUD (rc 1) when repo_root is not a git working tree" "1" \
+  "$(_489_pusher_rc "$_489_CART" "$(git_sandbox '489 non-git repo_root')")"
+_489_NONGIT_ERR="$( ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_CART" "$(git_sandbox '489 non-git repo_root msg')" ) 2>&1 1>/dev/null )"
+assert_eq "489/AC3: ...naming the not-a-git-working-tree cause (::error::, fail loud)" "yes" \
+  "$(printf '%s' "$_489_NONGIT_ERR" | grep -qF 'is not a git working tree' && echo yes || echo no)"
+
+# Fail-LOUD source/guard arms (guard-class-1) + the exec-fault distinction (Sug#2). Copy the
+# pusher + validator into a sandbox with a SWAPPABLE lib/, so we can drive the source-failure
+# `exit 1` arms and — most notably — the `declare -F devflow_telemetry_persist_tree`
+# undefined-after-source guard added specifically to prevent a silent no-op. All otherwise
+# unexercised (the trusted writer's "refuse to silently drop telemetry" contract).
+_489_SBX="$(git_sandbox "489 pusher lib sandbox")"
+mkdir -p "$_489_SBX/scripts" "$_489_SBX/lib"
+cp "$_489_PUSH" "$_489_SBX/scripts/telemetry-push-artifact.sh"
+cp "$_489_VAL" "$_489_SBX/scripts/validate-telemetry-artifact.sh"
+printf '%s\n' ': "${DEVFLOW_JQ:=jq}"' > "$_489_SBX/lib/resolve-jq.sh"   # minimal working stub
+_489_SBX_REPO="$(git_sandbox "489 pusher sandbox repo")"; git -C "$_489_SBX_REPO" init -q
+_489_SBX_ART="$(git_sandbox "489 pusher sandbox artifact")"
+mkdir -p "$_489_SBX_ART/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"s"}' > "$_489_SBX_ART/.devflow/logs/efficiency/s-1.json"
+_489_sbx_pusher() {  # needle -> "rc|matched(yes/no)" for a breadcrumb the run must emit
+  local needle="$1" err rc
+  err="$( DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_SBX/scripts/telemetry-push-artifact.sh" "$_489_SBX_ART" "$_489_SBX_REPO" 2>&1 1>/dev/null )"; rc=$?
+  printf '%s|%s\n' "$rc" "$(printf '%s' "$err" | grep -qF "$needle" && echo yes || echo no)"
+}
+# (a) config-source.sh source failure → fail loud rc 1.
+printf 'return 1\n' > "$_489_SBX/lib/config-source.sh"
+printf 'devflow_telemetry_persist_tree() { return 0; }\n' > "$_489_SBX/lib/telemetry-branch.sh"
+assert_eq "489/AC3(fail-loud): a config-source.sh source failure exits 1 loud" "1|yes" \
+  "$(_489_sbx_pusher 'could not source lib/config-source.sh')"
+# (b) telemetry-branch.sh source failure → fail loud rc 1.
+printf 'return 0\n' > "$_489_SBX/lib/config-source.sh"
+printf 'return 1\n' > "$_489_SBX/lib/telemetry-branch.sh"
+assert_eq "489/AC3(fail-loud): a telemetry-branch.sh source failure exits 1 loud" "1|yes" \
+  "$(_489_sbx_pusher 'could not source lib/telemetry-branch.sh')"
+# (c) guard-class-1: telemetry-branch.sh sources cleanly but does NOT define the write function
+# → the declare -F guard fails loud rc 1 (the silent no-op this guard exists to stop).
+printf 'return 0\n' > "$_489_SBX/lib/telemetry-branch.sh"   # sources OK, defines nothing
+assert_eq "489/AC3(guard-class-1): undefined devflow_telemetry_persist_tree after source exits 1 loud" "1|yes" \
+  "$(_489_sbx_pusher 'devflow_telemetry_persist_tree is undefined')"
+# (d) Sug#2: a validator that CANNOT EXECUTE (chmod -x → rc 126) is reported as a deployment
+# fault distinctly from a legitimate content drop (still best-effort exit 0).
+chmod -x "$_489_SBX/scripts/validate-telemetry-artifact.sh"
+assert_eq "489/AC4(Sug#2): a non-executable validator (rc 126) is named a deployment fault, exit 0" "0|yes" \
+  "$(_489_sbx_pusher 'could not be executed')"
+chmod +x "$_489_SBX/scripts/validate-telemetry-artifact.sh"
+# (e/f) Sug#5: the pusher's `case "$rc"` degraded (rc=1) and staging-only (rc=2) notice arms —
+# covered only at the unit level before. Define the write function to RETURN each code and
+# confirm the matching warning fires (still best-effort exit 0). config-source.sh stays a
+# clean-source stub from arm (b); only the write function's return code varies.
+printf 'devflow_telemetry_persist_tree() { return 1; }\n' > "$_489_SBX/lib/telemetry-branch.sh"
+assert_eq "489/AC3(Sug#5): persist rc=1 → 'telemetry push degraded' warning, exit 0" "0|yes" \
+  "$(_489_sbx_pusher 'telemetry push degraded')"
+printf 'devflow_telemetry_persist_tree() { return 2; }\n' > "$_489_SBX/lib/telemetry-branch.sh"
+assert_eq "489/AC3(Sug#5): persist rc=2 → 'staging-only despite DEVFLOW_TELEMETRY_PUSH=1' warning, exit 0" "0|yes" \
+  "$(_489_sbx_pusher 'staging-only despite DEVFLOW_TELEMETRY_PUSH=1')"
+
+# --- AC2/AC3: workflow content pins ---
+# AC2 — the read-only review runner uploads its staged telemetry as a workflow artifact.
+assert_pin_unique "489/AC2: devflow-runner.yml collects the staged telemetry tree" \
+  'Collect staged telemetry artifacts' "$_489_WF/devflow-runner.yml"
+assert_pin_unique "489/AC2: devflow-runner.yml uploads the staged telemetry artifact" \
+  'name: devflow-telemetry-stage-${{ github.run_id }}-${{ github.run_attempt }}' "$_489_WF/devflow-runner.yml"
+# F-c — the DOWNLOAD side of the relay was unpinned. The consumer names the artifact via the
+# workflow_run context, where workflow_run.id/.run_attempt resolve to the triggering run's
+# run_id/run_attempt — i.e. the exact values the upload names by. Pin the download name too, so a
+# drift on the CONSUMER side (mistyped stem, dropped -<attempt> segment, swapped id/attempt order)
+# is caught rather than making download-artifact match nothing and the relay transfer ZERO telemetry
+# with only the indistinguishable benign-no-artifact warning (the same silent-zero-transfer class the
+# upload-side F2/S2c pins guard).
+assert_pin_unique "489/AC3(F-c): telemetry-push.yml downloads the artifact by the run-scoped stage name" \
+  'name: devflow-telemetry-stage-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}' "$_489_WF/telemetry-push.yml"
+# Coupled invariant (producer↔consumer): BOTH files must carry the byte-identical
+# `devflow-telemetry-stage-` stem. A rename on either side alone breaks the join; asserting the stem
+# is present in each file catches that skew (each side pinned independently, so the failing side names itself).
+assert_eq "489/AC3(F-c): the UPLOAD side carries the devflow-telemetry-stage- artifact-name stem" "1" \
+  "$(grep -cF 'name: devflow-telemetry-stage-' "$_489_WF/devflow-runner.yml")"
+assert_eq "489/AC3(F-c): the DOWNLOAD side carries the SAME devflow-telemetry-stage- stem (producer↔consumer coupling)" "1" \
+  "$(grep -cF 'name: devflow-telemetry-stage-' "$_489_WF/telemetry-push.yml")"
+assert_pin_unique "489/AC2: the collect step calls the suite-tested collect helper (not inline shell)" \
+  'scripts/collect-staged-telemetry.sh "$GITHUB_WORKSPACE" "$dest"' "$_489_WF/devflow-runner.yml"
+
+# AC2 collect helper (extracted from the workflow so the suite can drive it): consolidates every
+# staged .devflow/logs subtree into <dest>, prints "1" iff it collected something, best-effort.
+_489_COLLECT="$_489_SC/collect-staged-telemetry.sh"
+_489_CROOT="$(git_sandbox "489 collect fixture root")"
+mkdir -p "$_489_CROOT/.devflow/tmp/telemetry-stage-20260101-1/.devflow/logs/efficiency" \
+         "$_489_CROOT/.devflow/tmp/telemetry-stage-20260101-2/.devflow/logs/review/pr-7/run-q"
+printf '{"schema_version":1,"slug":"a"}\n' > "$_489_CROOT/.devflow/tmp/telemetry-stage-20260101-1/.devflow/logs/efficiency/a-1.json"
+printf '{"iter":1}\n' > "$_489_CROOT/.devflow/tmp/telemetry-stage-20260101-2/.devflow/logs/review/pr-7/run-q/iter-1.json"
+_489_CDEST="$_489_CROOT/out"
+_489_CSIG="$(bash "$_489_COLLECT" "$_489_CROOT" "$_489_CDEST" 2>/dev/null)"
+assert_eq "489/AC2: collect helper signals it collected staged telemetry" "1" "$_489_CSIG"
+assert_eq "489/AC2: collect helper merges the efficiency record into the upload tree" "yes" \
+  "$([ -f "$_489_CDEST/.devflow/logs/efficiency/a-1.json" ] && echo yes || echo no)"
+assert_eq "489/AC2: collect helper merges a review record from a SECOND staging root" "yes" \
+  "$([ -f "$_489_CDEST/.devflow/logs/review/pr-7/run-q/iter-1.json" ] && echo yes || echo no)"
+# No staged dirs → empty signal (nothing to upload), still exit 0.
+_489_CEMPTY="$(git_sandbox "489 collect empty root")"; mkdir -p "$_489_CEMPTY/.devflow/tmp"
+_489_CEMPTY_SIG="$(bash "$_489_COLLECT" "$_489_CEMPTY" "$_489_CEMPTY/out" 2>/dev/null; echo "rc=$?")"
+assert_eq "489/AC2: collect helper is empty-signal + exit 0 when nothing is staged" "rc=0" "$_489_CEMPTY_SIG"
+
+# AC3 — the trusted pusher workflow: workflow_run trigger, App-token minted ABOVE checkout,
+# cross-run download by run-id, never checks out the PR head.
+assert_eq "489/AC3: telemetry-push.yml exists" "yes" \
+  "$([ -f "$_489_WF/telemetry-push.yml" ] && echo yes || echo no)"
+assert_pin_unique "489/AC3: pusher is triggered by the auto-review workflow's completion (workflow_run)" \
+  'workflows: ["Devflow Review (auto-trigger)"]' "$_489_WF/telemetry-push.yml"
+assert_pin_unique "489/AC3: pusher declares actions:read for cross-run artifact download" \
+  'actions: read' "$_489_WF/telemetry-push.yml"
+# App token minted ABOVE checkout (#357): the mint step precedes the checkout step in the file.
+_489_MINT_LN="$(grep -n 'uses: actions/create-github-app-token@v3' "$_489_WF/telemetry-push.yml" | head -1 | cut -d: -f1)"
+_489_CO_LN="$(grep -n 'uses: actions/checkout@v6' "$_489_WF/telemetry-push.yml" | head -1 | cut -d: -f1)"
+assert_eq "489/AC3(#357): the App token is minted ABOVE the checkout" "yes" \
+  "$([ -n "$_489_MINT_LN" ] && [ -n "$_489_CO_LN" ] && [ "$_489_MINT_LN" -lt "$_489_CO_LN" ] && echo yes || echo no)"
+assert_pin_unique "489/AC3: pusher seeds the App token as the checkout credential" \
+  'token: ${{ steps.app-token.outputs.token }}' "$_489_WF/telemetry-push.yml"
+assert_pin_unique "489/AC3: pusher downloads the triggering run's artifact by run-id" \
+  'run-id: ${{ github.event.workflow_run.id }}' "$_489_WF/telemetry-push.yml"
+assert_pin_unique "489/AC3: pusher checks out the DEFAULT branch, never the PR head" \
+  'ref: ${{ github.event.repository.default_branch }}' "$_489_WF/telemetry-push.yml"
+assert_pin_unique "489/AC3: pusher invokes the validate+push helper" \
+  'scripts/telemetry-push-artifact.sh' "$_489_WF/telemetry-push.yml"
+# Endpoint↔permission: the pusher makes NO inline `gh api` call (git push via App token +
+# download-artifact via github.token/actions:read), so no additional token permission is owed.
+assert_eq "489/AC3(endpoint↔permission): pusher adds no inline gh api call needing an undeclared permission" "0" \
+  "$(pin_count 'gh api' "$_489_WF/telemetry-push.yml")"
+
+# ── PR #495 round-4 review notes: S1 collect-step exit-status + S2 workflow-condition coverage ──
+# These close the YAML-condition coverage gaps the reviewer named. The rc-capture dispatch below
+# MUST stay inline in the collect step (it detects the collect helper's OWN non-existence, so it
+# cannot be delegated to a further script that could be equally absent) — hence it is verified by
+# pinning the workflow surface, with the behavioral pins routed through assert_pin_red_under so a
+# mutation re-introducing the exact regression goes RED (not merely the pinned line vanishing).
+#
+# S1 — the collect step gates on the helper's EXIT STATUS, not stdout alone. The helper is
+# contracted to always exit 0, so a non-zero rc is a genuine exec fault (rc 126 not-executable /
+# 127 not-found — a partial/path-skewed deployment where collect-staged-telemetry.sh cannot run),
+# yielding empty stdout; gating on stdout alone would launder that real telemetry drop into the
+# benign no-op notice (mirrors the sibling telemetry-push-artifact.sh's rc-126/127 discipline).
+assert_pin_red_under "489/AC2(S1): collect step captures the helper's EXIT STATUS in the same statement" \
+  '|| _collect_rc=$?' 's/ \|\| _collect_rc=\$\?//' "$_489_WF/devflow-runner.yml"
+assert_pin_red_under "489/AC2(S1): collect step distinguishes the rc-126 exec fault (deployment fault, not empty run)" \
+  '[ "$_collect_rc" = 126 ]' 's/= 126/= 999/' "$_489_WF/devflow-runner.yml"
+# The rc-127 (not-found) half is the MORE common path-skewed-deployment fault and must be pinned
+# independently of rc-126: a mutation dropping the `|| [ … = 127 ]` clause (narrowing the guard to
+# 126 alone) would let a genuinely ABSENT helper fall through to the benign no-op notice — the exact
+# real-drop-laundered-as-no-op this branch exists to prevent (matching the efficiency-trace.sh
+# `126|127)` precedent pinned elsewhere in this suite).
+assert_pin_red_under "489/AC2(F1): collect step ALSO distinguishes the rc-127 exec fault (narrowing the guard to 126 alone goes RED)" \
+  '[ "$_collect_rc" = 127 ]' 's/ \|\| \[ "\$_collect_rc" = 127 \]//' "$_489_WF/devflow-runner.yml"
+assert_pin_unique "489/AC2(S1): the exec-fault branch names it a deployment fault distinctly" \
+  'could not be executed (rc $_collect_rc' "$_489_WF/devflow-runner.yml"
+# Sibling arm: the trusted pusher's own validator-exec-fault case must cover BOTH rc 126 AND 127.
+# The behavioral test (d) above exercises only rc 126 (chmod -x); a mutation narrowing the arm to
+# `126)` alone — so an ABSENT validator (rc 127) falls through — goes RED here.
+assert_pin_red_under "489/AC4(F1): the pusher's validator-exec-fault arm covers BOTH rc 126 and 127 (narrowing to 126) goes RED)" \
+  '126|127)' 's/126\|127\)/126)/' "$_489_PUSH"
+
+# S2(a) — the download-failure warning (this PR's fix for making a genuine cross-run download fault
+# visible) gates on outcome == 'failure'. Content pin + a behavioral pin (flipping the gate to
+# 'success' — warn on success, never on the real failure — goes RED).
+assert_eq "489/AC3(S2a): the Warn-on-download-failure step gates on outcome == 'failure'" "1" \
+  "$(grep -cF "if: \${{ steps.download.outcome == 'failure' }}" "$_489_WF/telemetry-push.yml" || true)"
+assert_pin_red_under "489/AC3(S2a): the download-failure gate is operative (failure→success goes RED)" \
+  "steps.download.outcome == 'failure'" 's/(outcome == .)failure/\1success/' "$_489_WF/telemetry-push.yml"
+assert_pin_unique "489/AC3(S2a): the download-failure warning names the outcome=failure cause" \
+  'download failed (outcome=failure)' "$_489_WF/telemetry-push.yml"
+
+# S2(b) — the relay is DELIBERATELY un-gated on the triggering run's conclusion: the review tier's
+# collect + upload steps run `if: always()`, so a review run that concluded FAILURE (the engine hit
+# a fatal/permission cut-off) may still have staged telemetry worth relaying. Pin that NO conclusion
+# gate exists, so a future edit adding `workflow_run.conclusion == 'success'` — which would silently
+# drop telemetry from errored review runs — is caught. The push job's ONLY gate is the App floor.
+assert_eq "489/AC3(S2b): the relay does NOT gate on the triggering run's conclusion (relays on all completions)" "0" \
+  "$(pin_count 'workflow_run.conclusion' "$_489_WF/telemetry-push.yml")"
+assert_eq "489/AC3(S2b): ...and carries no bare 'conclusion ==' gate either" "0" \
+  "$(pin_count 'conclusion ==' "$_489_WF/telemetry-push.yml")"
+assert_eq "489/AC3(S2b): the push job's ONLY gate is the App-configured floor" "1" \
+  "$(grep -cF "if: \${{ vars.DEVFLOW_APP_ID != '' }}" "$_489_WF/telemetry-push.yml" || true)"
+
+# S2(c) — the upload step gates on a non-empty collected path. Content pin + a behavioral pin
+# (inverting `!= ''` to `== ''` — upload only when nothing was collected — goes RED).
+assert_eq "489/AC2(S2c): the upload step gates on a non-empty collected path" "1" \
+  "$(grep -cF "if: always() && steps.collect_telemetry.outputs.path != ''" "$_489_WF/devflow-runner.yml" || true)"
+assert_pin_red_under "489/AC2(S2c): the upload path-non-empty gate is operative (inverting to == '' goes RED)" \
+  "steps.collect_telemetry.outputs.path != ''" 's/collect_telemetry.outputs.path != /collect_telemetry.outputs.path == /' "$_489_WF/devflow-runner.yml"
+
+# F2 — the collect step's HAPPY PATH: the non-empty-stdout arm wires the collected tree's path into
+# GITHUB_OUTPUT, which the S2c upload gate above then reads. The S2c pin covers the DOWNSTREAM gate;
+# nothing covered the UPSTREAM `path=` emission. Breaking the output key (so `outputs.path` stays
+# empty and the gate never fires) would make the relay upload ZERO telemetry with no error — the
+# silent-transfer-nothing class the `include-hidden-files` comment nearby also guards. A mutation
+# renaming the `path=` key goes RED.
+assert_pin_red_under "489/AC2(F2): the collect step's non-empty-stdout arm emits the collected path into GITHUB_OUTPUT (renaming the output key goes RED)" \
+  'echo "path=$dest" >> "$GITHUB_OUTPUT"' 's/path=\$dest/path_BROKEN=\$dest/' "$_489_WF/devflow-runner.yml"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow-runner.yml: opt-in environment provisioning (issues #18, #21)"
@@ -24420,6 +25604,677 @@ assert_pin_unique "#271 coupled: skills/implement/SKILL.md reaction-comment read
 assert_pin_unique "#271 coupled: phase-4-documentation.md deferrals merge invokes the run-jq.sh wrapper" \
   "scripts/run-jq.sh -s '.[0] as \$f" "$LIB/../skills/implement/phases/phase-4-documentation.md"
 
+# ── #313 third-party model provider resolver ───────────────────────────────
+# The provider resolver is an INLINE jq program embedded in all three cloud
+# workflows (devflow.yml / devflow-implement.yml / devflow-runner.yml). It cannot
+# be a scripts/*.jq file (the config-extract jobs never vendor the plugin, so no
+# helper exists on disk there), so single-sourcing is enforced HERE: extract the
+# program body from each workflow at test time, assert the three copies are
+# byte-identical, then run ONE extracted copy live — never hand-maintain a fourth.
+# IMPL_WF / RUNNER_WF / LIGHT_WF are defined in the #271 block above; reuse them.
+# region_lines already prints the lines strictly between a BEGIN/END marker pair,
+# substring-matched — reuse it rather than a bespoke awk extractor.
+R313_IMPL="$(region_lines "$IMPL_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
+R313_RUNNER="$(region_lines "$RUNNER_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
+R313_LIGHT="$(region_lines "$LIGHT_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
+# Non-empty guard: a renamed/removed sentinel would extract "" and make the
+# identity asserts vacuously PASS ("" == "") — assert extraction found a program.
+assert_eq "#313 resolver: program extracted from devflow-implement.yml is non-empty (sentinels intact)" "yes" \
+  "$([ -n "$R313_IMPL" ] && echo yes || echo no)"
+assert_eq "#313 resolver single-sourced: devflow-implement.yml vs devflow.yml byte-identical" "yes" \
+  "$([ "$R313_IMPL" = "$R313_LIGHT" ] && echo yes || echo no)"
+assert_eq "#313 resolver single-sourced: devflow-implement.yml vs devflow-runner.yml byte-identical" "yes" \
+  "$([ "$R313_IMPL" = "$R313_RUNNER" ] && echo yes || echo no)"
+
+# Behavioral coverage: eval the EMBEDDED copy (single-sourced — not a retyped
+# program) to populate $RESOLVER, then drive it against literal config fixtures.
+eval "$R313_IMPL"
+r313() { jq -c --arg section "$1" "$RESOLVER"; }
+# AC 1: config with no provider keys → the Anthropic-default decision.
+assert_eq "#313 resolver: default (no providers, no section provider) → Anthropic-default decision" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"claude-opus-4-8","env":{}}' \
+  "$(echo '{"claude_model":"claude-opus-4-8","devflow_implement":{}}' | r313 devflow_implement)"
+# ACs 3/4: implement-section decision carries openrouter fields; the runner
+# section stays default in the SAME config (per-section isolation).
+R313_CFG='{"claude_model":"m","providers":{"openrouter":{"base_url":"https://openrouter.ai/api","auth":"bearer","timeout_ms":3000000,"env":{"CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2"}}},"devflow_implement":{"provider":"openrouter","claude_model":"z-ai/glm-5.2"}}'
+assert_eq "#313 resolver: section provider selects openrouter (base_url/auth/model/env)" \
+  '{"provider":"openrouter","base_url":"https://openrouter.ai/api","auth":"bearer","timeout_ms":3000000,"effort_supported":false,"model":"z-ai/glm-5.2","env":{"CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2"}}' \
+  "$(echo "$R313_CFG" | r313 devflow_implement)"
+assert_eq "#313 resolver: unrelated section stays Anthropic-default in the same provider config (AC 4 isolation)" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"m","env":{}}' \
+  "$(echo "$R313_CFG" | r313 devflow_runner)"
+# AC 3: model precedence — section claude_model beats global; global when absent.
+assert_eq "#313 resolver: section claude_model beats global" "section-model" \
+  "$(echo '{"claude_model":"global-model","devflow_implement":{"claude_model":"section-model"}}' | r313 devflow_implement | jq -r .model)"
+assert_eq "#313 resolver: global claude_model used when section absent" "global-model" \
+  "$(echo '{"claude_model":"global-model","devflow_implement":{}}' | r313 devflow_implement | jq -r .model)"
+# AC 3: a section naming a provider ABSENT from an EXISTING providers map yields the
+# explicit error marker. (Distinct from the matrix "providers map missing" shape below:
+# here the map exists but lacks the named entry — the literal "references an undefined
+# provider name" case AC 3 describes.)
+assert_eq "#313 resolver: provider name absent from an existing map → explicit error marker" \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"nope","detail":"provider is not defined in the providers map"}' \
+  "$(echo '{"claude_model":"m","providers":{"other":{"base_url":"u","auth":"bearer"}},"devflow_implement":{"provider":"nope"}}' | r313 devflow_implement)"
+# AC 7: effort_supported false/absent → false; true → true; strict (non-boolean → false).
+assert_eq "#313 resolver: effort_supported false when provider omits it (drop --effort)" "false" \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"api_key"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -r .effort_supported)"
+assert_eq "#313 resolver: effort_supported true when provider sets it (keep --effort)" "true" \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"api_key","effort_supported":true}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -r .effort_supported)"
+# strict `== true`: a non-boolean effort_supported (string "true", number 1) resolves to
+# false so --effort is dropped (fail-closed) — pins the deliberate `== true` over bare
+# truthiness (a mutation to `(… // false)` would flip this GREEN→behavior on a gateway).
+assert_eq "#313 resolver: effort_supported non-boolean (string) → false (strict == true)" "false" \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"api_key","effort_supported":"true"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -r .effort_supported)"
+# AC 4: the provider env map (haiku/subagent/betas keys) survives intact.
+assert_eq "#313 resolver: provider env map survives into the decision intact" \
+  '{"ANTHROPIC_DEFAULT_HAIKU_MODEL":"z-ai/glm-4.7","CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2","CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS":"1"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"bearer","env":{"ANTHROPIC_DEFAULT_HAIKU_MODEL":"z-ai/glm-4.7","CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2","CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS":"1"}}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -c .env)"
+
+# AC 9: adversarial input-shape matrix — each malformed shape yields exit-0 plus its
+# SPECIFIC (not generic) documented decision/error marker. The resolver type-guards every
+# index, so NO shape crashes the workflow step (rc≠0) — the exit-0 sweep below proves it.
+assert_eq "#313 matrix: providers map missing (+ section provider) → undefined_provider marker" \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"openrouter","detail":"provider is not defined in the providers map"}' \
+  "$(echo '{"claude_model":"m","devflow_implement":{"provider":"openrouter"}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: providers wrong-type (string) → undefined_provider marker" \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"openrouter","detail":"provider is not defined in the providers map"}' \
+  "$(echo '{"claude_model":"m","providers":"nope","devflow_implement":{"provider":"openrouter"}}' | r313 devflow_implement)"
+# Provider PRESENT but incomplete → FAIL-LOUD error marker (not a silent default with an
+# empty base_url/auth): a provider-active decision must never reach the inject step with an
+# empty ANTHROPIC_BASE_URL / a non-{bearer,api_key} auth (review C1/sfh — the old fail-open).
+assert_eq "#313 matrix: provider entry present but missing base_url → incomplete_provider marker (fail-loud)" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider entry has no base_url"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+# The EMPTY-STRING base_url disjunct (distinct from the missing/wrong-type one above): a
+# present but empty base_url is also fail-loud. Pins the `== ""` half of the guard so a
+# mutation dropping it (reintroducing the empty-ANTHROPIC_BASE_URL fail-open) goes RED.
+assert_eq "#313 matrix: provider entry with EMPTY base_url → incomplete_provider marker (== \"\" disjunct)" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider entry has no base_url"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"","auth":"bearer"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: provider entry present but missing auth → incomplete_provider marker" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider auth must be bearer or api_key"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: provider auth outside {bearer,api_key} (e.g. Bearer) → incomplete_provider marker" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider auth must be bearer or api_key"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"Bearer"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: empty-string section provider → Anthropic-default decision" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"m","env":{}}' \
+  "$(echo '{"claude_model":"m","devflow_implement":{"provider":""}}' | r313 devflow_implement)"
+# Crash-class shapes (used to be jq rc=5 → set -e step abort with a raw jq error). The
+# type-guards now yield a specific marker / safe default with rc=0.
+assert_eq "#313 matrix: non-string section provider (number) → invalid_provider marker (no crash)" \
+  '{"error":"invalid_provider","section":"devflow_implement","provider":"","detail":"section provider must be a string"}' \
+  "$(echo '{"claude_model":"m","devflow_implement":{"provider":5}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: non-object section (scalar) → Anthropic-default decision (no crash)" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"m","env":{}}' \
+  "$(echo '{"claude_model":"m","devflow_implement":"oops"}' | r313 devflow_implement)"
+assert_eq "#313 matrix: non-object top-level config → Anthropic-default decision (no crash)" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"","env":{}}' \
+  "$(echo '"not-an-object"' | r313 devflow_implement)"
+assert_eq "#313 matrix: env wrong-type (string) → env:{}" "{}" \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"bearer","env":"nope"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -c .env)"
+# timeout_ms is NOT semantically type-guarded (only `// ""` for null/missing) — a wrong-type
+# value flows through verbatim (the documented, accepted defense-in-depth: config is
+# maintainer/base-ref-controlled and schema-typed). Completes the {field} x {wrong-type}
+# matrix (review Suggestion #6) — pins the pass-through so a future type-guard is a conscious
+# change, not a silent one; the inject step then writes it heredoc-safely regardless.
+assert_eq "#313 matrix: timeout_ms wrong-type (object) → passes through verbatim (documented, not type-guarded)" \
+  '{"x":1}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"bearer","timeout_ms":{"x":1}}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -c .timeout_ms)"
+# section claude_model is the one type-GUARDED field (`type == "string" and != ""`); a wrong-type
+# section value (number/object) falls through to the global claude_model — completes the matrix's
+# {type-guarded field} x {wrong-type} cell (review Suggestion #5).
+assert_eq "#313 matrix: wrong-type section claude_model (number) → falls through to global claude_model" "global-m" \
+  "$(echo '{"claude_model":"global-m","devflow_implement":{"claude_model":5}}' | r313 devflow_implement | jq -r .model)"
+assert_eq "#313 matrix: provider entry wrong-type (string, not object) → undefined_provider marker" \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"p","detail":"provider is not defined in the providers map"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":"x"},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+# Every malformed shape EXITS 0 — sweep the shapes that USED to crash jq (rc=5) before the
+# type-guards, so a regression that drops a guard (reintroducing the set -e abort) goes RED.
+for R313_BAD in \
+  '{"providers":"nope","devflow_implement":{"provider":"openrouter"}}' \
+  '{"devflow_implement":{"provider":5}}' \
+  '{"devflow_implement":"oops"}' \
+  '{"devflow_implement":["x"]}' \
+  '"not-an-object"'; do
+  echo "$R313_BAD" | r313 devflow_implement >/dev/null 2>&1
+  assert_eq "#313 matrix: malformed shape exits 0 (no jq crash): $R313_BAD" "0" "$?"
+done
+
+# AC 1 defaults-unchanged pins — anchored to the three explicit workflow paths
+# (NOT a .github/workflows glob), so the synthetic claude.yml fixture elsewhere
+# in this suite can never satisfy or trip them. Each pin targets the OPERATIVE
+# conditional (its removal alone re-breaks the default-path wiring), and the
+# claude_code_oauth_token conditional is proven removal-proof (PASS→FAIL).
+for R313_WF in "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF"; do
+  R313_TAG="$(basename "$R313_WF")"
+  # claude_code_oauth_token stays under the empty-decision (no-provider) condition.
+  assert_pin_unique "#313 defaults: $R313_TAG passes OAuth token only on the no-provider path" \
+    "steps.provider.outputs.provider == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN" "$R313_WF"
+  assert_pin_red_on_removal "#313 defaults: $R313_TAG OAuth-under-empty-decision conditional is removal-proof" \
+    "steps.provider.outputs.provider == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN" "$R313_WF"
+  # anthropic_api_key rides only on the provider-active path.
+  assert_pin_unique "#313 defaults: $R313_TAG passes anthropic_api_key only on the provider path" \
+    "steps.provider.outputs.provider != '' && secrets.DEVFLOW_PROVIDER_API_KEY" "$R313_WF"
+  # AC 6 empty-secret guard: the inject step's run body is byte-identical across the three,
+  # so a UNIFORM removal keeps the body-identity check GREEN — this per-file presence pin is
+  # what makes dropping the fail-loud guard from all three go RED (assert_pin_unique proves
+  # PASS-with → FAIL-without at each site).
+  assert_pin_unique "#313 defaults: $R313_TAG inject step fails loud on an empty provider secret (AC 6)" \
+    "DEVFLOW_PROVIDER_API_KEY repository secret is empty" "$R313_WF"
+  # ANTHROPIC_BASE_URL is written exactly once (via genv, the newline-safe heredoc
+  # writer), and only inside the provider-gated inject step — structurally proving it
+  # never leaks onto the default path.
+  assert_eq "#313 defaults: $R313_TAG writes ANTHROPIC_BASE_URL exactly once" "1" \
+    "$(pin_count 'genv ANTHROPIC_BASE_URL' "$R313_WF")"
+  # mint_blk extracts a named step's block (- name: … to the next sibling/job
+  # boundary) — reuse it instead of a bespoke awk step-extractor.
+  R313_INJECT="$(mint_blk 'Inject provider endpoint (provider-routed sections only)' "$R313_WF")"
+  assert_eq "#313 defaults: $R313_TAG inject step is gated on provider != '' AND holds the ANTHROPIC_BASE_URL write" "yes" \
+    "$(printf '%s' "$R313_INJECT" | grep -qF "steps.provider.outputs.provider != ''" \
+       && printf '%s' "$R313_INJECT" | grep -qF 'genv ANTHROPIC_BASE_URL' && echo yes || echo no)"
+  # The cargs COMPUTED string must actually be CONSUMED by the action step's
+  # claude_args (the producer→consumer wiring pin): every cargs behavior above is
+  # executed, but without this pin a merge-conflict revert of claude_args to the
+  # old literal `--model …/--effort …` head would leave every #313 test green
+  # while the provider path silently regained --effort (gateway 400s) and lost
+  # the per-section model override.
+  assert_pin_unique "#313 defaults: $R313_TAG claude_args consumes the computed cargs head" \
+    '${{ steps.cargs.outputs.args }}' "$R313_WF"
+done
+# AC 8 default-path fail-loud OAuth guard (runner-only): the runner relaxed
+# CLAUDE_CODE_OAUTH_TOKEN to an optional workflow_call secret, so it must fail loud when the
+# Anthropic default path (no provider) has no OAuth token. This step is unique to the runner
+# (not covered by the 3-way body-identity check), so pin it removal-proof.
+assert_pin_red_on_removal "#313 defaults: devflow-runner.yml fails loud on the Anthropic default path when CLAUDE_CODE_OAUTH_TOKEN is empty (AC 8, removal-proof)" \
+  "No model provider is configured for the devflow_runner section" "$RUNNER_WF"
+# The AC-8 guard's `if:` GATE (not just its body): the body is executed below (both
+# arms) and its message is pinned removal-proof, but neither catches a deleted or
+# inverted `if:` — a deleted gate makes a provider-routed, OAuth-less repo (the exact
+# deployment #313 enables) fail spuriously on every review; an inverted one silently
+# drops the default path's fail-loud. Same mint_blk idiom as the inject-step gate check.
+R313_OAUTH_BLK="$(mint_blk 'Require OAuth token on the Anthropic default path' "$RUNNER_WF")"
+assert_eq "#313 defaults: devflow-runner.yml OAuth guard step is gated on provider == '' AND reads the OAuth secret" "yes" \
+  "$(printf '%s' "$R313_OAUTH_BLK" | grep -qF "steps.provider.outputs.provider == ''" \
+     && printf '%s' "$R313_OAUTH_BLK" | grep -qF 'secrets.CLAUDE_CODE_OAUTH_TOKEN' && echo yes || echo no)"
+# Review C1: the runner resolves its provider decision from the TRUSTED BASE ref config
+# (steps.baseprovision), never PR-head steps.cfg — a PR-head-sourced base_url + secret would
+# exfiltrate DEVFLOW_PROVIDER_API_KEY to an attacker gateway. Pin it removal-proof so a revert
+# to the head-config source goes RED. devflow.yml/devflow-implement.yml read the default-branch
+# (base) checkout on issue_comment, so steps.cfg is already the trusted config for them.
+assert_pin_red_on_removal "#313 security: devflow-runner.yml resolves the provider decision from the trusted base-ref config, not PR-head (review C1, removal-proof)" \
+  "CONFIG_JSON: \${{ steps.baseprovision.outputs.config_json }}" "$RUNNER_WF"
+# The runner's MODEL head-fallback (bootstrap case: base ref carries no committed config →
+# resolver model="" → fall back to head claude_model so --model is never empty). It lives in
+# the cargs step's env: block, which the run-body-identity check excludes, so pin it directly.
+assert_pin_unique "#313 defaults: devflow-runner.yml MODEL falls back to head claude_model when the base-resolved model is empty (bootstrap)" \
+  "steps.provider.outputs.model != '' && steps.provider.outputs.model || steps.extract.outputs.claude_model" "$RUNNER_WF"
+
+# Single-sourcing widened past the jq body (issue #313 /simplify altitude finding):
+# with the section name env-parameterized, the Resolve / Inject / Build-claude_args-head
+# step `run:` BODIES are byte-identical across the three workflows too (only their `env:`
+# section value + effort source legitimately differ). Pin that so a drift in the
+# triplicated scaffolding — not just the jq program — goes RED. YAML-parse the step
+# bodies (same python+yaml idiom as the tools-step extraction above); SKIP without PyYAML.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  R313_BODY_IDENT="$(python3 - "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF" <<'PY'
+import sys, yaml
+files = sys.argv[1:]
+names = ["Resolve model provider",
+         "Inject provider endpoint (provider-routed sections only)",
+         "Build claude_args head (model + conditional effort)"]
+bodies = {n: [] for n in names}
+for f in files:
+    doc = yaml.safe_load(open(f))
+    for job in doc["jobs"].values():
+        for st in job.get("steps", []):
+            if st.get("name") in bodies and "run" in st:
+                bodies[st["name"]].append(st["run"])
+out = []
+for n in names:
+    b = bodies[n]
+    out.append("yes" if len(b) == 3 and b[0] == b[1] == b[2] else "no")
+print(",".join(out))
+PY
+)"
+  assert_eq "#313 single-sourced: Resolve/Inject/cargs run: bodies byte-identical across the 3 workflows" "yes,yes,yes" "$R313_BODY_IDENT"
+
+  # gh_kv normalizes a $GITHUB_ENV/$GITHUB_OUTPUT file written in GitHub's newline-safe
+  # multiline-heredoc form (KEY<<DELIM\nvalue\nDELIM — the form this PR now uses everywhere)
+  # back into KEY=VALUE lines for whole-line assertions. All #313 emitted values are
+  # single-line, which is all this needs to handle.
+  gh_kv() {  # file -> KEY=VALUE lines on stdout
+    awk '
+      d == "" { p = index($0, "<<"); if (p > 0) { k = substr($0, 1, p-1); d = substr($0, p+2) } next }
+      $0 == d { d = ""; next }
+      { print k "=" $0 }
+    ' "$1"
+  }
+  # gh_topkeys prints the top-level env/output KEY names GitHub itself would set from a
+  # $GITHUB_ENV/$GITHUB_OUTPUT file, heredoc-aware: a `KEY<<DELIM` block swallows every line up
+  # to DELIM as the value, so a `FORGED=evil` line INSIDE a heredoc body is NOT a top-level var.
+  # This is the GitHub-faithful check behind the newline-forge-prevention tests below.
+  gh_topkeys() {  # file -> top-level KEY names, one per line
+    python3 -c '
+import sys
+d=None
+for line in open(sys.argv[1]):
+    line=line.rstrip("\n")
+    if d is None:
+        i=line.find("<<")
+        if i>0:
+            print(line[:i]); d=line[i+2:]
+        elif "=" in line:
+            print(line.split("=",1)[0])
+    elif line==d:
+        d=None
+' "$1"
+  }
+  # gh_topkeys self-test (anti-vacuity): the three forge assertions below rely on its
+  # plain `KEY=` arm actually REPORTING a top-level key — if that arm were broken
+  # (never yielding FORGED even from a plain line), all three forge tests would pass
+  # vacuously and keep passing after the guarded regression. Prove the arm live.
+  R313_TKPROBE="$(probe_tmp "#313 gh_topkeys self-test")" || R313_TKPROBE=""
+  if [ -n "$R313_TKPROBE" ]; then
+    printf 'FORGED=evil\n' > "$R313_TKPROBE"
+    assert_eq "#313 gh_topkeys self-test: a plain KEY= line IS reported as a top-level key" "FORGED" \
+      "$(gh_topkeys "$R313_TKPROBE")"
+    # gh_topkeys heredoc-swallow arm DIRECT self-test (shadow VC-41): the forge tests
+    # that feed a KEY<<DELIM body carrying a FORGED=evil line rely on this arm treating
+    # that inner line as swallowed (NOT top-level). Prove it directly rather than only
+    # transitively — construct a literal heredoc block and assert the top-level keys are
+    # exactly the header key, and the inner FORGED= line is NOT reported.
+    printf 'REAL<<D\nFORGED=evil\nD\nAFTER=1\n' > "$R313_TKPROBE"
+    assert_eq "#313 gh_topkeys self-test: a FORGED= line INSIDE a KEY<<DELIM body is NOT a top-level key (heredoc-swallow arm)" "yes" \
+      "$(printf '%s\n' "$(gh_topkeys "$R313_TKPROBE")" | grep -qxF 'REAL' \
+         && printf '%s\n' "$(gh_topkeys "$R313_TKPROBE")" | grep -qxF 'AFTER' \
+         && ! printf '%s\n' "$(gh_topkeys "$R313_TKPROBE")" | grep -qxF 'FORGED' && echo yes || echo no)"
+    rm -f "$R313_TKPROBE"
+  else
+    echo "  SKIP  #313 gh_topkeys self-test (no writable temp)"
+  fi
+
+  # Behavioral coverage of the Resolve + Inject + Build-claude_args-head run BODIES (issue #313
+  # shadow gap 2 + review Important #2): the 3-way body-identity pin proves the copies AGREE but
+  # not that they are CORRECT — a uniform logic mutation (invert the security-adjacent bearer
+  # branch, drop the effort gate, drop the resolver's `exit 1` fail-loud, break the env
+  # expansion) stays GREEN. EXECUTE the extracted bodies with env set and $GITHUB_ENV /
+  # $GITHUB_OUTPUT pointed at temp files, then assert the emitted (heredoc) lines + exit codes.
+  R313_RES_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Resolve model provider"))' "$IMPL_WF")"
+  R313_INJ_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Inject provider endpoint (provider-routed sections only)"))' "$IMPL_WF")"
+  R313_CARGS_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Build claude_args head (model + conditional effort)"))' "$IMPL_WF")"
+
+  # Resolve body (review Important #2): the fail-loud undefined/incomplete-provider branch
+  # (`.error != ""` → ::error:: + exit 1) had NO runtime assertion — only 3-way byte-identity —
+  # so a mutation dropping the `exit 1` or inverting the `.error != ""` test kept every #313
+  # assertion GREEN while the workflow proceeded past a fail-loud condition. Drive the extracted
+  # body against an error-marker config (assert rc=1 + ::error::) and a default config (rc=0 +
+  # the emitted heredoc scalar/decision outputs).
+  R313_GOUT0="$(probe_tmp "#313 resolve GITHUB_OUTPUT")" || R313_GOUT0=""
+  if [ -n "$R313_RES_BODY" ] && [ -n "$R313_GOUT0" ]; then
+    # Happy path: default (no-provider) config → rc 0, scalar outputs + decision heredoc emitted.
+    R313_RC=0
+    ( export CONFIG_JSON='{"claude_model":"m","devflow_implement":{}}' SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 resolve-body: default (no-provider) config resolves rc 0" "0" "$R313_RC"
+    gh_kv "$R313_GOUT0" > "$R313_GOUT0.kv"
+    assert_eq "#313 resolve-body: default config emits provider=(empty) + model + effort_supported + decision (heredoc-safe)" "yes" \
+      "$(grep -qxF 'provider=' "$R313_GOUT0.kv" && grep -qxF 'model=m' "$R313_GOUT0.kv" && grep -qxF 'effort_supported=true' "$R313_GOUT0.kv" && grep -q '^decision={' "$R313_GOUT0.kv" && echo yes || echo no)"
+    : > "$R313_GOUT0"
+    # Fail-loud: a section naming an undefined provider → resolver error marker → the body's
+    # `.error != ""` branch emits ::error:: and exit 1 BEFORE any action step.
+    R313_RC=0
+    R313_OUT="$( export CONFIG_JSON='{"claude_model":"m","devflow_implement":{"provider":"nope"}}' SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 resolve-body: undefined provider fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 resolve-body: undefined provider emits ::error:: naming the section + provider" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'devflow_implement' && printf '%s' "$R313_OUT" | grep -qF "'nope'" && echo yes || echo no)"
+    # Provider-active path (review Suggestion #7): the resolve body was executed only for
+    # default + error configs, never a provider-active one — so a mutation in the scalar-emit
+    # jq for a real provider stayed uncovered here (caught only transitively). Drive a
+    # provider-active config ($R313_CFG, defined above) and assert the emitted (heredoc)
+    # scalar outputs + decision.
+    : > "$R313_GOUT0"
+    R313_RC=0
+    ( export CONFIG_JSON="$R313_CFG" SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 resolve-body: provider-active config resolves rc 0" "0" "$R313_RC"
+    gh_kv "$R313_GOUT0" > "$R313_GOUT0.kv"
+    assert_eq "#313 resolve-body: provider-active config emits provider/base_url/auth/model/effort_supported + decision (heredoc-safe)" "yes" \
+      "$(grep -qxF 'provider=openrouter' "$R313_GOUT0.kv" && grep -qxF 'base_url=https://openrouter.ai/api' "$R313_GOUT0.kv" && grep -qxF 'auth=bearer' "$R313_GOUT0.kv" && grep -qxF 'model=z-ai/glm-5.2' "$R313_GOUT0.kv" && grep -qxF 'effort_supported=false' "$R313_GOUT0.kv" && grep -q '^decision={' "$R313_GOUT0.kv" && echo yes || echo no)"
+    : > "$R313_GOUT0"
+    # Newline-forge safety of the resolve body's SCALAR emit (review Suggestion #4): base_url is
+    # config-sourced, so an embedded newline in it must NOT forge a top-level step output either.
+    # Feed base_url="u\nFORGED=evil" and confirm a GitHub-faithful parse yields base_url but no
+    # top-level FORGED. A revert of the scalar emit to `printf '%s=%s'` goes RED.
+    ( export CONFIG_JSON='{"claude_model":"m","providers":{"p":{"base_url":"u\nFORGED=evil","auth":"bearer"}},"devflow_implement":{"provider":"p"}}' SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" ) >/dev/null 2>&1
+    R313_TOPKEYS="$(gh_topkeys "$R313_GOUT0")"
+    assert_eq "#313 resolve-body: an embedded-newline base_url cannot forge a top-level step output" "yes" \
+      "$(printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'base_url' && ! printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'FORGED' && echo yes || echo no)"
+    : > "$R313_GOUT0"
+    # EMPTY config input: jq on empty stdin emits nothing with rc 0, so without the
+    # empty-DECISION tripwire the body would "succeed" with zero step outputs and the
+    # run would silently take the default path (or die later on a misdirected
+    # empty-model error). Assert the tripwire fails loud instead.
+    R313_RC=0
+    R313_OUT="$( export CONFIG_JSON="" SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 resolve-body: EMPTY config input fails loud (exit 1, empty-DECISION tripwire)" "1" "$R313_RC"
+    assert_eq "#313 resolve-body: EMPTY config input emits ::error:: naming the no-decision cause" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'produced no decision' && echo yes || echo no)"
+    rm -f "$R313_GOUT0" "$R313_GOUT0.kv"
+  else
+    echo "  SKIP  #313 resolve-body behavioral checks (no writable temp / body extraction failed)"
+  fi
+
+  R313_GENV="$(probe_tmp "#313 inject GITHUB_ENV")" || R313_GENV=""
+  if [ -n "$R313_INJ_BODY" ] && [ -n "$R313_GENV" ]; then
+    # bearer → ANTHROPIC_BASE_URL + API_TIMEOUT_MS + ANTHROPIC_AUTH_TOKEN(secret) + env map, each
+    # written via the newline-safe heredoc form (normalized back to KEY=VALUE by gh_kv).
+    ( export DECISION='{"env":{"CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2"}}' AUTH=bearer BASE_URL=https://openrouter.ai/api TIMEOUT_MS=3000000 PROVIDER=openrouter PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
+    gh_kv "$R313_GENV" > "$R313_GENV.kv"
+    assert_eq "#313 inject-body: bearer exports BASE_URL + API_TIMEOUT_MS + ANTHROPIC_AUTH_TOKEN + env map" "yes" \
+      "$(grep -qxF 'ANTHROPIC_BASE_URL=https://openrouter.ai/api' "$R313_GENV.kv" && grep -qxF 'API_TIMEOUT_MS=3000000' "$R313_GENV.kv" && grep -qxF 'ANTHROPIC_AUTH_TOKEN=sekret' "$R313_GENV.kv" && grep -qxF 'CLAUDE_CODE_SUBAGENT_MODEL=z-ai/glm-5.2' "$R313_GENV.kv" && echo yes || echo no)"
+    : > "$R313_GENV"
+    # api_key → base_url written, but NO ANTHROPIC_AUTH_TOKEN (key rides the action input only);
+    # and with TIMEOUT_MS="" NO API_TIMEOUT_MS line either — a mutation writing it unconditionally
+    # (empty value) on the provider path goes RED (review Suggestion #2).
+    ( export DECISION='{"env":{}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
+    gh_kv "$R313_GENV" > "$R313_GENV.kv"
+    assert_eq "#313 inject-body: api_key writes base_url but NOT ANTHROPIC_AUTH_TOKEN or API_TIMEOUT_MS (input-only, empty timeout)" "yes" \
+      "$(grep -qxF 'ANTHROPIC_BASE_URL=u' "$R313_GENV.kv" && ! grep -q 'ANTHROPIC_AUTH_TOKEN' "$R313_GENV.kv" && ! grep -q 'API_TIMEOUT_MS' "$R313_GENV.kv" && echo yes || echo no)"
+    : > "$R313_GENV"
+    # empty provider secret → fail loud (exit 1) before writing any endpoint (AC 6).
+    # Capture the output and pin the guard's OWN message too — an exit-code-only
+    # assertion certifies "fails loud" even if a mutation degrades the guard to a
+    # mute `exit 1` (the message is what the operator debugs from).
+    R313_RC=0
+    R313_OUT="$( export DECISION='{"env":{}}' AUTH=bearer BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY="" SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 inject-body: empty provider secret fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 inject-body: empty provider secret emits ::error:: naming the secret" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'DEVFLOW_PROVIDER_API_KEY repository secret is empty' && echo yes || echo no)"
+    : > "$R313_GENV"
+    # Newline-injection safety (review Important #1 — the property the heredoc writes EXIST for):
+    # a config value carrying an embedded newline must NOT split a KEY=VALUE line into a forged
+    # top-level env var. Feed an env-map value embedding `\nFORGED=evil` (jq turns the JSON \n
+    # into a real newline), then parse $GITHUB_ENV the GitHub-faithful way (a KEY<<DELIM heredoc
+    # swallows every line up to DELIM as the value; only OUTSIDE a heredoc is `KEY=` a top-level
+    # var). Assert MKEY is a top-level key but FORGED is NOT. A mutation reverting to
+    # `printf '%s=%s'` splits the line → FORGED becomes a real env var → this goes RED.
+    ( export DECISION='{"env":{"MKEY":"a\nFORGED=evil"}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
+    R313_TOPKEYS="$(gh_topkeys "$R313_GENV")"
+    assert_eq "#313 inject-body: an embedded-newline env-map value cannot forge a top-level env var (heredoc newline-injection safety)" "yes" \
+      "$(printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'MKEY' && ! printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'FORGED' && echo yes || echo no)"
+    : > "$R313_GENV"
+    # env-map KEY validation (shadow S3): the heredoc protects VALUES, not the KEY
+    # interpolated into the `KEY<<DELIM` header — a key carrying a newline or `<<`
+    # could forge a var name or break the terminator. The inject body must fail loud
+    # on a key outside the env-var-name charset, BEFORE writing any $GITHUB_ENV block.
+    R313_RC=0
+    R313_OUT="$( export DECISION=$'{"env":{"A\\nFORGED":"x"}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 inject-body: an env-map key with an embedded newline fails loud (exit 1, key-validation guard)" "1" "$R313_RC"
+    assert_eq "#313 inject-body: the invalid-key guard emits ::error:: naming an invalid env-var-name key" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'not a valid environment variable name' && echo yes || echo no)"
+    R313_TOPKEYS="$(gh_topkeys "$R313_GENV")"
+    assert_eq "#313 inject-body: a forged env-map key writes NO top-level env var (guard fired before emit)" "yes" \
+      "$([ -z "$R313_TOPKEYS" ] && echo yes || echo no)"
+    : > "$R313_GENV"
+    # `<<`-carrying key is also rejected (would break the heredoc terminator).
+    R313_RC=0
+    ( export DECISION='{"env":{"K<<X":"x"}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 inject-body: an env-map key containing '<<' fails loud (exit 1, key-validation guard)" "1" "$R313_RC"
+    : > "$R313_GENV"
+    # A well-formed env-map key still passes (no false fire on the documented keys).
+    ( export DECISION='{"env":{"ANTHROPIC_DEFAULT_HAIKU_MODEL":"glm-4.7"}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
+    gh_kv "$R313_GENV" > "$R313_GENV.kv"
+    assert_eq "#313 inject-body: a valid env-map key passes the key-validation guard (no false fire)" "yes" \
+      "$(grep -qxF 'ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-4.7' "$R313_GENV.kv" && echo yes || echo no)"
+    rm -f "$R313_GENV" "$R313_GENV.kv"
+  else
+    echo "  SKIP  #313 inject-body behavioral checks (no writable temp / body extraction failed)"
+  fi
+  R313_GOUT="$(probe_tmp "#313 cargs GITHUB_OUTPUT")" || R313_GOUT=""
+  if [ -n "$R313_CARGS_BODY" ] && [ -n "$R313_GOUT" ]; then
+    # effort_supported=true → --effort present; false → dropped (AC 7). args is written via the
+    # newline-safe heredoc form (normalized back to args=… by gh_kv).
+    ( export MODEL=z-ai/glm-5.2 EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: effort_supported=true → --effort in args" "args=--model z-ai/glm-5.2 --effort high" "$(gh_kv "$R313_GOUT")"
+    : > "$R313_GOUT"
+    ( export MODEL=z-ai/glm-5.2 EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: effort_supported=false → --effort dropped" "args=--model z-ai/glm-5.2" "$(gh_kv "$R313_GOUT")"
+    : > "$R313_GOUT"
+    # effort_supported=true but EFFORT empty → --effort STILL dropped (the -n co-guard). Unreachable
+    # on the default path (config effort defaults to "high"), but pins the guard so a valueless
+    # --effort can never reach the CLI — review Suggestion #3.
+    ( export MODEL=z-ai/glm-5.2 EFFORT="" EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: effort_supported=true but empty EFFORT → --effort dropped (no valueless flag)" "args=--model z-ai/glm-5.2" "$(gh_kv "$R313_GOUT")"
+    : > "$R313_GOUT"
+    # empty MODEL → fail loud (the iter-2 guard; the two command workflows had none before).
+    # Capture the output and pin the guard's OWN message (exit-code-only would stay
+    # green if a mutation degraded the guard to a mute exit 1).
+    R313_RC=0
+    R313_OUT="$( export MODEL="" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: empty MODEL fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: empty MODEL emits ::error:: naming claude_model" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'claude_model is missing' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    # Flag-injection guard (review iter-2 security finding): MODEL/EFFORT are spliced
+    # UNQUOTED into claude_args, and the runner's MODEL bootstrap fallback can read
+    # PR-head config — a value carrying whitespace would smuggle extra CLI flags
+    # (e.g. `x --dangerously-skip-permissions`) into the privileged review invocation.
+    # The guard must fail loud on whitespace/quotes in EITHER operand, and pass a
+    # normal bracket-suffixed model id unchanged.
+    R313_RC=0
+    R313_OUT="$( export MODEL='x --dangerously-skip-permissions' EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: whitespace in MODEL fails loud (exit 1, flag-injection guard)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: whitespace in MODEL emits the flag-injection ::error::" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'flag-injection guard' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    R313_RC=0
+    ( export MODEL=z-ai/glm-5.2 EFFORT=$'high --evil' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 cargs-body: whitespace in EFFORT fails loud (exit 1, flag-injection guard)" "1" "$R313_RC"
+    : > "$R313_GOUT"
+    # Flag-SHAPED single tokens (the iter-1 gate's C1 bypass): rejecting whitespace/quotes
+    # alone is not enough — the action tokenises claude_args shell-style, so a bare
+    # `--dangerously-skip-permissions` in MODEL/EFFORT records --model/--effort as
+    # valueless and passes the injected token through as its own flag. MODEL rejects a
+    # leading dash; EFFORT is enum-pinned (so ANY non-enum junk also fails loud).
+    # Each rejection is ATTRIBUTED to its own arm by a DISTINCT message substring
+    # (shadow S4): the bare `flag-injection guard` phrase appears in all three arms,
+    # so an exit-code-only assertion cannot tell a dash-arm rejection from an
+    # allowlist- or enum-arm one — a reordered/merged arm would stay green. Pin the
+    # arm-specific phrase so each fixture proves the arm it was written to exercise.
+    R313_RC=0
+    R313_OUT="$( export MODEL='--dangerously-skip-permissions' EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: flag-shaped MODEL (leading dash, no whitespace) fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: flag-shaped MODEL rejection is attributed to the leading-dash arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'flag-shaped (leading dash)' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    R313_RC=0
+    R313_OUT="$( export MODEL=z-ai/glm-5.2 EFFORT='--dangerously-skip-permissions' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: flag-shaped EFFORT fails loud (exit 1, enum arm)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: flag-shaped EFFORT rejection is attributed to the effort-enum arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'not one of low/medium/high/xhigh/max' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    R313_RC=0
+    R313_OUT="$( export MODEL=z-ai/glm-5.2 EFFORT='garbage' EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: non-enum EFFORT fails loud (exit 1, enum arm)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: non-enum EFFORT rejection is attributed to the effort-enum arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'not one of low/medium/high/xhigh/max' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    # Positive-allowlist arm (the re-gate's locale finding): a bytewise [[:space:]]
+    # blacklist misses Unicode whitespace (NBSP etc.) under a non-UTF-8 locale while
+    # the action's JS tokeniser still splits on it — the allowlist must reject it in
+    # EVERY locale (C forced here), and a backslash (token-merge class) likewise.
+    R313_RC=0
+    R313_OUT="$( export LC_ALL=C MODEL="$(printf 'x\302\240--dangerously-skip-permissions')" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: NBSP-embedded MODEL fails loud under LC_ALL=C (allowlist, locale-proof)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: NBSP MODEL rejection is attributed to the allowlist arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'outside the model-id allowlist' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    R313_RC=0
+    R313_OUT="$( export MODEL='x\evil' EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 cargs-body: backslash in MODEL fails loud (allowlist)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: backslash MODEL rejection is attributed to the allowlist arm" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'outside the model-id allowlist' && echo yes || echo no)"
+    : > "$R313_GOUT"
+    # Bedrock-style colon id must pass the allowlist (no false fire on legit ids).
+    ( export MODEL='us.anthropic.claude-3:0' EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: colon-carrying Bedrock-style model id passes the allowlist (no false fire)" "args=--model us.anthropic.claude-3:0" "$(gh_kv "$R313_GOUT")"
+    : > "$R313_GOUT"
+    # Structural pin on the newline-safe args<< heredoc emit: the whitespace guard now
+    # rejects an embedded-newline MODEL before any emit, so the forge test below can no
+    # longer catch a revert of the emit itself to `echo "args=$ARGS"` — pin the heredoc
+    # emit form directly instead (defense-in-depth for the emit idiom).
+    assert_eq "#313 cargs-body: args emitted via the newline-safe heredoc form (args<< pin)" "yes" \
+      "$(printf '%s' "$R313_CARGS_BODY" | grep -qF "printf 'args<<%s" && echo yes || echo no)"
+    # Z.ai bracket-suffix model ids must pass the guard untouched (no false fire).
+    ( export MODEL='glm-5.2[1m]' EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: bracket-suffix model id passes the flag-injection guard (no false fire)" "args=--model glm-5.2[1m]" "$(gh_kv "$R313_GOUT")"
+    : > "$R313_GOUT"
+    # Newline-forge safety of the cargs emit: MODEL is config-sourced, so an embedded
+    # newline must never forge a top-level step output. A newline is whitespace, so the
+    # flag-injection guard now rejects it BEFORE any emit — assert the fail-loud exit
+    # AND that the output file carries no top-level key at all (neither args nor FORGED).
+    R313_RC=0
+    ( export MODEL=$'x\nFORGED=evil' EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    R313_TOPKEYS="$(gh_topkeys "$R313_GOUT")"
+    assert_eq "#313 cargs-body: an embedded-newline MODEL fails loud (whitespace guard)" "1" "$R313_RC"
+    assert_eq "#313 cargs-body: an embedded-newline MODEL cannot forge a top-level step output (no keys emitted)" "yes" \
+      "$([ -z "$R313_TOPKEYS" ] && echo yes || echo no)"
+    rm -f "$R313_GOUT"
+  else
+    echo "  SKIP  #313 cargs-body behavioral checks (no writable temp / body extraction failed)"
+  fi
+
+  # Runner-only AC-8 guard (review Important #2, second gap): the "Require OAuth token on the
+  # Anthropic default path" step was only assert_pin_red_on_removal-pinned, never EXECUTED — an
+  # inverted -z/-n test would leave the ::error:: string in place and stay GREEN while silently
+  # degrading the default path. Execute the extracted body: empty OAUTH → exit 1 + ::error::;
+  # a present OAUTH → exit 0. (No $GITHUB_ENV/OUTPUT temp needed — the step only branches on OAUTH.)
+  R313_OAUTH_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Require OAuth token on the Anthropic default path"))' "$RUNNER_WF")"
+  if [ -n "$R313_OAUTH_BODY" ]; then
+    R313_RC=0
+    R313_OUT="$( export OAUTH=""; bash -c "$R313_OAUTH_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 oauth-guard: empty OAuth on the Anthropic default path fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 oauth-guard: empty OAuth emits ::error:: naming CLAUDE_CODE_OAUTH_TOKEN" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'CLAUDE_CODE_OAUTH_TOKEN' && echo yes || echo no)"
+    R313_RC=0
+    ( export OAUTH="oauth-token"; bash -c "$R313_OAUTH_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 oauth-guard: a present OAuth token passes (exit 0)" "0" "$R313_RC"
+    # Degraded-base-read branch (shadow S2): when the trusted base config was UNREADABLE
+    # (config_source=degraded) the empty provider decision is NOT "no provider configured"
+    # — the guard must name the real cause and NOT misdirect. Assert the degraded message,
+    # and that it does NOT falsely claim no provider is configured.
+    R313_RC=0
+    R313_OUT="$( export OAUTH="" CONFIG_SOURCE="degraded"; bash -c "$R313_OAUTH_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 oauth-guard: degraded base read + empty OAuth fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 oauth-guard: degraded branch names the unreadable-config cause, not a false 'no provider configured'" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF 'trusted base-ref .devflow/config.json could not be read' \
+         && ! printf '%s' "$R313_OUT" | grep -qF 'No model provider is configured' && echo yes || echo no)"
+  else
+    echo "  SKIP  #313 oauth-guard behavioral check (body extraction failed)"
+  fi
+
+  # Step-ordering pin (shadow S1): in devflow-runner.yml the provider-endpoint inject
+  # step (which writes the bearer DEVFLOW_PROVIDER_API_KEY into job-wide $GITHUB_ENV as
+  # ANTHROPIC_AUTH_TOKEN) MUST run AFTER the opt-in 'Provision project environment' step
+  # (which executes PR-author build code) and still BEFORE 'Run Claude Code'. A regression
+  # that moves inject back before provision re-exposes the secret to PR code — pin the order.
+  R313_ORDER="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+names=[s.get("name") for j in d["jobs"].values() for s in j.get("steps",[])]
+def idx(n): return names.index(n) if n in names else -1
+pi=idx("Provision project environment (opt-in)")
+ii=idx("Inject provider endpoint (provider-routed sections only)")
+ri=idx("Run Claude Code")
+print("yes" if (pi>=0 and ii>=0 and ri>=0 and pi<ii<ri) else "no")' "$RUNNER_WF")"
+  assert_eq "#313 security: devflow-runner.yml injects the provider endpoint AFTER provision and before Run Claude Code (shadow S1)" "yes" "$R313_ORDER"
+
+  # config_source PRODUCER coverage (review PTA-1 + SFH-1): the shadow-S2 config_source
+  # signal (ok/absent/degraded) that disambiguates the runner's OAuth-default guard remedy
+  # was covered only at the CONSUMER (the OAuth-guard body above, with CONFIG_SOURCE injected
+  # by hand). Its PRODUCER — the baseprovision step's three-way selection — had NO coverage,
+  # so a future edit dropping a `='degraded'` assignment, or the emit itself, would silently
+  # regress the misdirection fix while every #313 consumer test stayed green. Trace the operand
+  # to its producer and prove it emits the right value on EVERY path (the CLAUDE.md operand-
+  # producer discipline): drive the EXTRACTED baseprovision run body (not a retyped copy — the
+  # same PyYAML `st["run"]` extraction the bodies above use) in a git sandbox with a local
+  # origin, across every config_source outcome (ok / absent / degraded) and each read path
+  # that produces it (valid, no-config, malformed, non-object, unfetchable, empty-base-ref).
+  # Parse config_source DIRECTLY (it is a plain `echo
+  # "config_source=…"` KEY=VALUE emit, NOT a heredoc, so gh_kv — heredoc-only — cannot read it).
+  R313_BASEPROV_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Read trusted base-ref provisioning config"))' "$RUNNER_WF")"
+  R313_CS_DIR="$(git_sandbox "#313 config_source producer sandbox")"
+  if [ -n "$R313_BASEPROV_BODY" ] && [ "$R313_CS_DIR" != "/dev/null/devflow-git-sandbox-unavailable" ]; then
+    # $1 = base-ref .devflow/config.json contents ('' → no config file committed);
+    # $2 = BASE_REF the step reads (default 'basebr'; '' exercises the empty-base-ref path).
+    # Rebuilds a fresh bare origin each call so `git fetch origin <ref>` resolves the ref we
+    # control. Echoes the produced config_source.
+    r313_cs() {
+      rm -rf "$R313_CS_DIR/work" "$R313_CS_DIR/base.git"
+      git init -q --bare "$R313_CS_DIR/base.git"
+      git init -q "$R313_CS_DIR/work"
+      git -C "$R313_CS_DIR/work" config user.email t@t.t
+      git -C "$R313_CS_DIR/work" config user.name t
+      mkdir -p "$R313_CS_DIR/work/.devflow"
+      [ -n "$1" ] && printf '%s' "$1" > "$R313_CS_DIR/work/.devflow/config.json"
+      git -C "$R313_CS_DIR/work" add -A >/dev/null 2>&1
+      git -C "$R313_CS_DIR/work" commit -q --allow-empty -m x >/dev/null 2>&1
+      git -C "$R313_CS_DIR/work" branch -M basebr >/dev/null 2>&1
+      git -C "$R313_CS_DIR/work" remote add origin "$R313_CS_DIR/base.git" >/dev/null 2>&1
+      git -C "$R313_CS_DIR/work" push -q origin basebr >/dev/null 2>&1
+      local out; out="$(mktemp)"
+      ( cd "$R313_CS_DIR/work" && export BASE_REF="${2-basebr}" RUNNER_TEMP="$R313_CS_DIR/rt" GITHUB_OUTPUT="$out"; mkdir -p "$RUNNER_TEMP"; bash -c "$R313_BASEPROV_BODY" ) >/dev/null 2>&1
+      sed -n 's/^config_source=//p' "$out"
+      rm -f "$out"
+    }
+    assert_eq "#313 config_source producer: valid base config → 'ok'" "ok" \
+      "$(r313_cs '{"claude_model":"m"}')"
+    assert_eq "#313 config_source producer: no committed config on the base ref → 'absent' (bootstrap case, NOT degraded)" "absent" \
+      "$(r313_cs '')"
+    assert_eq "#313 config_source producer: malformed base config → 'degraded' (shadow-S2 read-failed)" "degraded" \
+      "$(r313_cs 'not-json{')"
+    assert_eq "#313 config_source producer: non-object base config (bare scalar) → 'degraded'" "degraded" \
+      "$(r313_cs '42')"
+    assert_eq "#313 config_source producer: un-fetchable base ref → 'degraded'" "degraded" \
+      "$(r313_cs '{"claude_model":"m"}' 'no-such-ref-xyz')"
+    # SFH-1 fix: an empty BASE_REF (base ref could not be determined) must resolve to
+    # 'degraded', NOT the initial 'absent' — else the OAuth-default guard would misdirect
+    # ("no provider configured") when a base-configured provider was in fact silently un-read.
+    # This fixture goes RED against the pre-fix code (which left it 'absent').
+    assert_eq "#313 config_source producer: empty BASE_REF → 'degraded' (SFH-1: not the initial 'absent')" "degraded" \
+      "$(r313_cs '{"claude_model":"m"}' '')"
+    unset -f r313_cs
+    rm -rf "$R313_CS_DIR" 2>/dev/null
+  else
+    echo "  SKIP  #313 config_source producer behavioral checks (no PyYAML body extraction / no git sandbox)"
+  fi
+else
+  echo "  SKIP  #313 body-identity + behavioral check (PyYAML unavailable)"
+fi
+
+# Matrix completeness (review PTA-2): the {field}×{wrong-type/empty} sweep pins base_url
+# both missing and empty-string, but auth only missing + wrong-value ('Bearer'); add the
+# empty-string auth cell so the `($a != "bearer" and $a != "api_key")` disjunct is pinned
+# on an EMPTY value too (a real input shape a future guard rewrite could regress).
+assert_eq "#313 matrix: provider entry with EMPTY auth ('') → incomplete_provider marker (auth-disjunct completeness)" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider auth must be bearer or api_key"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":""}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+# AC 8 (review PTA-3): the runner's dead `model` workflow_call input was removed. Pin the
+# reference absence so a re-introduced `inputs.model` (a merge-revert of the threading) goes
+# RED — the removal becomes a conscious future change rather than a silent regression.
+assert_eq "#313 AC8: devflow-runner.yml carries no reference to the removed dead 'model' workflow_call input" "0" \
+  "$(pin_count 'inputs.model' "$RUNNER_WF")"
+
+unset RESOLVER
+
 # Mutation check: the absence pin above only proves "count is 0 today" — it does not
 # prove the awk fence-parser + grep would actually *catch* a reintroduced bare jq (a
 # silently-broken fence regex would also read 0 and stay GREEN). Run the identical
@@ -27219,6 +29074,544 @@ assert_eq "#401 grounding block renders the two-denials-then-switch rule" "yes" 
 assert_pin_red_under "#401 grounding: deleting the two-denials-switch rule from the renderer flips its pin RED" \
   'after two denials of a shape, switch to a permitted alternative above' \
   '/after two denials of a shape/d' "$RGB"
+
+# ── #455 implement-tier shape lint ──────────────────────────────────────────
+# The read-write devflow-implement profile is a SEPARATE allowlist from the review
+# profile above, with its OWN probed denied shapes (matcher-probe.yml's implement-probe
+# job; evidence of record on issues #450/#455): a `for` / piped-`while read` loop or a
+# `VAR="$(…)"` capture WRAPPING a label helper (rows I4/I5/I6). `extract-command-shapes.py
+# --profile implement` is the desk-time pin for that class over the implement skill files;
+# all four label channels (Phase 3.1 provenance, 4.0/4.0.5 deferred, 4.1 docs) are reworked to
+# agent-level single-leading-token calls that lint clean. (Row I1 — the unexpanded anchor leading token — is prose-discipline, not
+# lint-pinnable, since every legitimate helper call keeps the portable anchor in source.)
+IMPL_DIR="$LIB/../skills/implement"
+# Contract: SKILL.md + every phase file teaches NO implement-tier denied shape (exit 0, empty).
+# Scope is every skill that writes the label-helper idiom, not just implement: create-issue
+# and init call ensure-label.sh/apply-labels.sh too. They are NOT governed by the implement
+# matcher today (no workflow dispatches them on that tier) — linting them keeps the idiom
+# uniform and pre-empts a future read-write tier, rather than guarding a live denial. All
+# lint clean today, so the coverage is free (#480 review).
+for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md \
+         "$LIB/../skills/create-issue/SKILL.md" "$LIB/../skills/init/SKILL.md"; do
+  assert_eq "#455 implement shape-lint: $(basename "$(dirname "$f")")/$(basename "$f") teaches no proven-denied shape" "" \
+    "$(python3 "$ECS" --profile implement "$f" 2>&1)"
+done
+# ── Anti-vacuity: each implement-tier rule flags its denied shape (fixtures under $E363).
+{ printf '%s\n' '```bash' 'for n in $NUMS; do' '  .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow' 'done' '```'; } > "$E363/i-ir1.md"
+assert_eq "#455 IR1 flags a for-loop wrapping a label helper" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir1.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'echo "$L" | while IFS= read -r lbl; do' '  .devflow/vendor/devflow/scripts/ensure-label.sh "$lbl"' 'done' '```'; } > "$E363/i-ir2.md"
+assert_eq "#455 IR2 flags a piped while-read loop wrapping a label helper" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir2.md" | grep -q '  IR2  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'LBL_ERR="$(.devflow/vendor/devflow/scripts/apply-labels.sh "$n" "$X" 2>&1)"' '```'; } > "$E363/i-ir3.md"
+assert_eq "#455 IR3 flags a VAR=\$(label-helper …) capture" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir3.md" | grep -q '  IR3  ' && echo yes || echo no)"
+# ── Discrimination: the shapes the skill actually emits are NOT flagged — a non-label
+# ── config-get/gh capture, and a bare single-leading-token label call (the reworked form).
+# ── NOTE the non-label capture carve-out is an INFERENCE (the matcher is assumed to descend
+# ── into a non-label `$(…)`), NOT a measured implement-tier row — see extract-command-shapes.py's
+# ── rule-block comment and matcher-probe.yml rows 8/9, which exist to settle it.
+{ printf '%s\n' '```bash' 'D=$(.devflow/vendor/devflow/scripts/config-get.sh .deferred.labels DevFlow,Deferred)' 'PR=$(gh pr view --json number --jq ".number")' '.devflow/vendor/devflow/scripts/ensure-label.sh <label>' '.devflow/vendor/devflow/scripts/apply-labels.sh <n> "<labels>"' '```'; } > "$E363/i-ok.md"
+assert_eq "#455 implement shape-lint does NOT flag permitted shapes (config-get/gh capture, bare label call)" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ok.md" 2>&1)"
+# ── Behavioral proof (the assert_pin_red_under analogue for a program-based guard, per the
+# ── behavioral-fix-pin rule): a mutation REINTRODUCING the shape #455 actually removed from
+# ── Phase 4.0 flips the implement lint RED. The mutation is the VERBATIM removed block — a
+# ── `for` loop wrapping a `VAR="$(…)"` capture of the label helper invoked through the #275
+# ── ANCHOR form — not a simplified variant: the anchor+capture spelling is the one that
+# ── exercises IR3's path through the quote-aware statement splitter (a nested `"$("${…}"…)"`),
+# ── so a mutation using the flat vendored-literal form would leave that path unpinned and a
+# ── future splitter/quoting regression would ship green. Both IR1 (the loop) and IR3 (the
+# ── capture) must be named — the removed code was both.
+I455_MUT="$E363/i-mut.md"; cp "$IMPL_DIR/phases/phase-4-documentation.md" "$I455_MUT"
+{ printf '%s\n' '```bash' 'for n in $DEFERRED_ISSUE_NUMBERS; do' '  LBL_ERR="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS" 2>&1)"' 'done' '```'; } >> "$I455_MUT"
+I455_OUT="$(python3 "$ECS" --profile implement "$I455_MUT" 2>&1)"; I455_RC=$?
+assert_eq "#455 behavioral: reintroducing the removed for-loop+capture around a label helper flips the implement lint RED (exit 1)" "1" "$I455_RC"
+assert_eq "#455 behavioral: that reintroduced regression is named IR1 (the loop)" "yes" \
+  "$(printf '%s\n' "$I455_OUT" | grep -q '  IR1  ' && echo yes || echo no)"
+assert_eq "#455 behavioral: that reintroduced regression is ALSO named IR3 (the anchor-form capture)" "yes" \
+  "$(printf '%s\n' "$I455_OUT" | grep -q '  IR3  ' && echo yes || echo no)"
+# ── Anti-vacuity for the two sibling SPELLINGS of the same denied shapes (a guard that knows
+# ── only one spelling of what it forbids is a hole an author falls into by accident).
+{ printf '%s\n' '```bash' 'E=`.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow`' '```'; } > "$E363/i-ir3-backtick.md"
+assert_eq "#455 IR3 flags a BACKTICK capture of a label helper (same denied shape, other spelling)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir3-backtick.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'until ok; do' '  .devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' 'done' '```'; } > "$E363/i-ir2-until.md"
+assert_eq "#455 IR2 flags an UNTIL loop wrapping a label helper (same denied shape, other spelling)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir2-until.md" | grep -q '  IR2  ' && echo yes || echo no)"
+# ── `\`-CONTINUATION spelling (#480 review — a live fail-open, not a hypothetical). A helper
+# ── name may be split MID-TOKEN by a line continuation: `…/apply\<newline>-labels.sh` is ONE
+# ── word to the shell. The joiner used to fold `\`+newline into a SPACE, reconstructing it as
+# ── `apply -labels.sh` — a token no helper-name literal matches — and the loop scan searched
+# ── raw per-line text besides, so BOTH holes hid the helper and the denied shape shipped GREEN
+# ── under the lint that exists to catch it. The joiner now REMOVES the pair (the shell's own
+# ── rule) and the loop scan searches the continuation-joined span. Pin both directions.
+{ printf '%s\n' '```bash' 'for n in $NUMS; do' '  .devflow/vendor/devflow/scripts/apply\' '-labels.sh "$n" DevFlow' 'done' '```'; } > "$E363/i-ir1-cont.md"
+assert_eq "#480 IR1 flags a loop whose label helper is split by a \\-continuation (mid-token join must not insert a space)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir1-cont.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'LBL="$(.devflow/vendor/devflow/scripts/apply\' '-labels.sh 1 DevFlow 2>&1)"' '```'; } > "$E363/i-ir3-cont.md"
+assert_eq "#480 IR3 flags a capture whose label helper is split by a \\-continuation" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-ir3-cont.md" | grep -q '  IR3  ' && echo yes || echo no)"
+# The joiner is shared with the #363 head extractor, so pin its shell-faithful contract directly:
+# a mid-token continuation must rejoin to ONE token (a space-join would silently break every
+# name-literal rule downstream), while a continuation at a token boundary must stay two tokens.
+{ printf '%s\n' '```bash' 'ap\' 'ply-labels-probe 1' '```'; } > "$E363/i-cont-token.md"
+assert_eq "#480 the continuation joiner rejoins a mid-token split into ONE head (never 'ap ply-…')" "yes" \
+  "$(python3 "$ECH" heads "$E363/i-cont-token.md" 2>/dev/null | grep -qxF 'apply-labels-probe' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'grep \' '  -q needle file' '```'; } > "$E363/i-cont-arg.md"
+assert_eq "#480 the continuation joiner keeps a token-boundary split as TWO tokens (head stays 'grep')" "yes" \
+  "$(python3 "$ECH" heads "$E363/i-cont-arg.md" 2>/dev/null | grep -qxF 'grep' && echo yes || echo no)"
+# ── FALSE-POSITIVE controls (the #480 review): the loop scan runs over COMMENT-STRIPPED,
+# ── heredoc-blanked lines and requires a real `done`, so PROSE must never turn the desk RED.
+# ── Before the fix it did: a `#` comment mentioning a loop, or the word "while" in a command
+# ── ARGUMENT, opened a bogus span that ran to end-of-fence and swallowed every later label
+# ── call — turning a fence that emits ONLY permitted shapes RED, with the diagnosis pointing
+# ── at a comment. A spurious RED on the very files this lint guards is how a guard gets
+# ── weakened or scoped out, so each of these is pinned.
+{ printf '%s\n' '```bash' '# for L in a b: never wrap a label helper in a loop' '.devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' '```'; } > "$E363/i-fp-comment-for.md"
+assert_eq "#455 no false positive: a '#' comment mentioning a for-loop + a permitted bare label call stays clean" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-comment-for.md" 2>&1)"
+{ printf '%s\n' '```bash' '# poll while the run is in progress' '.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow' '```'; } > "$E363/i-fp-comment-while.md"
+assert_eq "#455 no false positive: a '#' comment mentioning 'while' + a permitted bare label call stays clean" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-comment-while.md" 2>&1)"
+{ printf '%s\n' '```bash' 'echo "wait a while"' '.devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' '```'; } > "$E363/i-fp-arg-while.md"
+assert_eq "#455 no false positive: the word 'while' in a command ARGUMENT + a permitted bare label call stays clean" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-arg-while.md" 2>&1)"
+# ── FAIL-OPEN controls (the #480 blinded fix-delta gate). The loop scan SKIPS an opener
+# ── whose closing `done` it cannot find — so every ordinary spelling of `done` must be
+# ── recognized, or a real denied loop ships GREEN. `(…; done)`, `done>/dev/null` and a
+# ── `!`-negated opener each did exactly that before this fix. These pin the fail-OPEN
+# ── direction; the false-positive controls above pin the fail-closed one. A guard that
+# ── knows only one spelling of the shape it forbids is a hole an author falls into.
+{ printf '%s\n' '```bash' '(for n in $NUMS; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done)' '```'; } > "$E363/i-fo-subshell.md"
+assert_eq "#455 no fail-open: a SUBSHELL-closed loop '(…; done)' around a label helper is still flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-subshell.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'for n in $L; do' '  .devflow/vendor/devflow/scripts/apply-labels.sh 42 "$n"' 'done>/dev/null' '```'; } > "$E363/i-fo-redirdone.md"
+assert_eq "#455 no fail-open: a redirect-closed loop 'done>/dev/null' around a label helper is still flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-redirdone.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' '! while read -r n; do .devflow/vendor/devflow/scripts/ensure-label.sh "$n"; done < labels.txt' '```'; } > "$E363/i-fo-negated.md"
+assert_eq "#455 no fail-open: a '!'-negated while-loop around a label helper is still flagged IR2" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-negated.md" | grep -q '  IR2  ' && echo yes || echo no)"
+# ── The loop scan reads shell STRUCTURE from quote-MASKED lines, so a separator or loop
+# ── keyword inside a quoted ARGUMENT cannot fake an opener — while the LABEL search still
+# ── reads the UNMASKED line, because the denied capture's helper name lives inside quotes.
+{ printf '%s\n' '```bash' 'gh issue comment 1 -b "Deferred; while this is open, do not merge"' '.devflow/vendor/devflow/scripts/ensure-label.sh Deferred' 'for f in $FILES; do echo "$f"; done' '```'; } > "$E363/i-fp-quoted-sep.md"
+assert_eq "#455 no false positive: a ';'+'while' inside a QUOTED argument does not open a phantom loop span" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-quoted-sep.md" 2>&1)"
+# ── IR3 matches a capture OF a label helper, not a value that merely NAMES one.
+{ printf '%s\n' '```bash' 'MSG="$(date -u) applied via apply-labels.sh"' '```'; } > "$E363/i-fp-msg.md"
+assert_eq "#455 no false positive: a helper NAMED in a message string (outside any substitution) is not an IR3 capture" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-msg.md" 2>&1)"
+# ── FAIL-OPEN controls, round 2 (the #480 blinded fix-delta RE-gate). Each of these was a
+# ── real hole: a denied shape the guard silently passed. The first is the sharpest — the
+# ── quote-masking that keeps a QUOTED separator from faking a loop opener must NOT also
+# ── mask double quotes when hunting a capture, because `"$(apply-labels.sh …)"` IS the
+# ── denied shape: one apostrophe in the value (a single-quoted label list) would otherwise
+# ── blank the whole substitution and the I6 shape would ship GREEN.
+{ printf '%s\n' '```bash' "LBL=\"\$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 'DevFlow')\"" '```'; } > "$E363/i-fo-sq-capture.md"
+assert_eq "#455 no fail-open: a capture whose args carry a SINGLE-quoted label is still flagged IR3" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-sq-capture.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' '{ for n in $NUMS; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done; }' '```'; } > "$E363/i-fo-brace.md"
+assert_eq "#455 no fail-open: a BRACE-GROUP loop '{ for …; done; }' around a label helper is still flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-brace.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# A NESTED inner loop's `done` must not close the OUTER span (the label call sits after it).
+{ printf '%s\n' '```bash' 'for n in $NUMS; do' '  for x in a b; do echo "$x"; done' '  .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow' 'done' '```'; } > "$E363/i-fo-nested.md"
+assert_eq "#455 no fail-open: an inner loop's 'done' does not close the outer span (label call still flagged IR1)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-nested.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# A `<<` inside a STRING must not open a phantom heredoc that blanks (and disarms) the rest.
+{ printf '%s\n' '```bash' 'echo "see << EOF for details"' 'for n in $N; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done' '```'; } > "$E363/i-fo-phantom-heredoc.md"
+assert_eq "#455 no fail-open: a '<<' inside a quoted string does not blank the rest of the fence (loop still flagged IR1)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-phantom-heredoc.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# Control for the mask split: a backtick inside SINGLE quotes is literal text, not a capture.
+{ printf '%s\n' '```bash' "NOTE='apply-labels.sh runs \`once\`'" '```'; } > "$E363/i-fp-sq-literal.md"
+assert_eq "#455 no false positive: a backtick inside SINGLE quotes is literal text, not an IR3 capture" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-sq-literal.md" 2>&1)"
+# ── FAIL-OPEN controls, round 3 (the #480 blinded SHADOW pass). IR3 anchored on `^VAR=`,
+# ── so a capture in ARGUMENT or CONDITION position shipped green — and that is the most
+# ── natural regression there is: the shape #455 removed captured the helper's stderr IN
+# ── ORDER TO PUT IT IN A COMMENT BODY, so the obvious way to re-introduce it is to inline
+# ── the capture into the `gh issue comment -b "…"` argument, with no assignment at all.
+{ printf '%s\n' '```bash' 'gh issue comment 1 -b "$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow 2>&1)"' '```'; } > "$E363/i-fo-argcap.md"
+assert_eq "#455 no fail-open: a capture of a label helper in ARGUMENT position is flagged IR3 (no assignment)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-argcap.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'if [ -n "$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)" ]; then echo y; fi' '```'; } > "$E363/i-fo-condcap.md"
+assert_eq "#455 no fail-open: a capture of a label helper in CONDITION position is flagged IR3" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-condcap.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'export LBL=$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow)' '```'; } > "$E363/i-fo-declcap.md"
+assert_eq "#455 no fail-open: a DECLARATION-prefixed capture (export/local/readonly) is flagged IR3" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-declcap.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'for ((i=0;i<2;i++)); do' '  .devflow/vendor/devflow/scripts/ensure-label.sh X' 'done' '```'; } > "$E363/i-fo-cstyle.md"
+assert_eq "#455 no fail-open: a C-style 'for ((…))' loop around a label helper is flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-cstyle.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# An UNTERMINATED heredoc must not blank (and thereby disarm) the rest of the fence. An
+# elided body / `…` placeholder / typo is routine in the DOCUMENTATION fences this lint
+# scans, so blanking-to-EOF on a missing terminator was a reachable, invisible fail-open.
+{ printf '%s\n' '```bash' 'cat > /tmp/body.md <<EOF' 'some body text' 'for n in $NUMS; do' '  .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow' 'done' '```'; } > "$E363/i-fo-unterm-heredoc.md"
+assert_eq "#455 no fail-open: an UNTERMINATED heredoc does not blank the tail (the loop below it is still flagged IR1)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-unterm-heredoc.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# ...while a PROPERLY terminated heredoc body is still scanned as data, not shell.
+{ printf '%s\n' '```bash' "cat <<'EOF' > f" 'for n in x; do apply-labels.sh 1 y; done' 'EOF' '.devflow/vendor/devflow/scripts/ensure-label.sh DevFlow' '```'; } > "$E363/i-fp-heredoc-body.md"
+assert_eq "#455 no false positive: a terminated heredoc BODY is data, not shell (denied-looking text inside it is not a hit)" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-heredoc-body.md" 2>&1)"
+# ── ...BUT an UNQUOTED heredoc tag (`<<EOF`, not `<<'EOF'`) still EXPANDS substitutions in
+# ── its body, so a label-helper capture written there really executes — the I6 denied shape.
+# ── Blanking the body as "data" hid it from every rule. A `for` loop in the body stays inert
+# ── text (it is never executed), so only the SUBSTITUTION arm re-scans these lines.
+{ printf '%s\n' '```bash' 'gh issue comment -F - <<EOF' 'labels: $(.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow)' 'EOF' '```'; } > "$E363/i-fo-heredoc-expand.md"
+assert_eq "#455 no fail-open: a label-helper capture in an UNQUOTED heredoc body (the shell expands it) is flagged IR3" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-heredoc-expand.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' "gh issue comment -F - <<'EOF'" 'labels: $(.devflow/vendor/devflow/scripts/apply-labels.sh 1 DevFlow)' 'EOF' '```'; } > "$E363/i-fp-heredoc-quoted.md"
+assert_eq "#455 no false positive: the same text under a QUOTED tag is literal (the shell does not expand it) — not a hit" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-heredoc-quoted.md" 2>&1)"
+# ── FAIL-OPEN controls, round 4 (the #480 iteration-3 review). The loop scan masks quoted
+# ── spans so a quoted separator cannot fake an opener — but masking each line INDEPENDENTLY
+# ── resets the quote state at every newline, so a double-quoted argument that OPENS on one
+# ── line and CLOSES on a later one inverts that closing line's parity: the masker reads the
+# ── closing `"` as an OPENING quote and masks the rest of the line, hiding a loop opener
+# ── chained after it. The denied loop then ships GREEN. Not theoretical — phase-4-documentation.md
+# ── already writes multi-line double-quoted arguments (`--body "$(cat <<'EOF' … )"`) right
+# ── around the code the removed label loop lived in. A shell string spans lines; so must the mask.
+{ printf '%s\n' '```bash' 'gh issue comment 1 -b "Deferred work filed.' 'See the workpad." ; for L in $LABELS; do .devflow/vendor/devflow/scripts/apply-labels.sh 1 "$L"; done' '```'; } > "$E363/i-fo-mlquote.md"
+assert_eq "#455 no fail-open: a loop opener after a MULTI-LINE quoted argument's closing quote is still flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-mlquote.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'gh issue comment 1 -b "line one' 'line two" ; printf "%s" "$N" | while read -r n; do .devflow/vendor/devflow/scripts/ensure-label.sh "$n"; done' '```'; } > "$E363/i-fo-mlquote-while.md"
+assert_eq "#455 no fail-open: the piped-while twin of the multi-line-quote shape is still flagged IR2" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-mlquote-while.md" | grep -q '  IR2  ' && echo yes || echo no)"
+# ── The guarded file's OWN idiom: a `--body "$(cat <<'EOF' … )"` argument with a label loop
+# ── chained on. This is the exact shape phase-4-documentation.md writes today.
+{ printf '%s\n' '```bash' 'gh issue create --title "D" --body "$(cat <<'"'"'EOF'"'"'' 'Body text.' 'EOF' ')" && for L in $C; do .devflow/vendor/devflow/scripts/apply-labels.sh 1 "$L"; done' '```'; } > "$E363/i-fo-bodyheredoc.md"
+assert_eq "#455 no fail-open: a loop chained after a multi-line --body \"\$(cat <<EOF …)\" argument is still flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-bodyheredoc.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# ── Second behavioral mutation: #455 removed TWO shapes, and the proof above only
+# ── reintroduces Phase 4.0's `for`+capture. Phase 4.0.5's PIPED form (`echo "$FILED_NUMBERS" |
+# ── while IFS= read -r n; do … LBL_ERR="$(…)" … done`) had no mutation-on-the-real-file proof —
+# ── IR2 rested on a synthetic fixture alone. Reintroduce it verbatim and assert IR2 + IR3.
+I455_MUT2="$E363/i-mut2.md"; cp "$IMPL_DIR/phases/phase-4-documentation.md" "$I455_MUT2"
+{ printf '%s\n' '```bash' 'echo "$FILED_NUMBERS" | while IFS= read -r n; do' '  LBL_ERR="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS" 2>&1)"' 'done' '```'; } >> "$I455_MUT2"
+I455_OUT2="$(python3 "$ECS" --profile implement "$I455_MUT2" 2>&1)"; I455_RC2=$?
+assert_eq "#455 behavioral: reintroducing the removed 4.0.5 PIPED while-read+capture flips the implement lint RED (exit 1)" "1" "$I455_RC2"
+assert_eq "#455 behavioral: that reintroduced 4.0.5 regression is named IR2 (the piped loop)" "yes" \
+  "$(printf '%s\n' "$I455_OUT2" | grep -q '  IR2  ' && echo yes || echo no)"
+assert_eq "#455 behavioral: that reintroduced 4.0.5 regression is ALSO named IR3 (the anchor-form capture)" "yes" \
+  "$(printf '%s\n' "$I455_OUT2" | grep -q '  IR3  ' && echo yes || echo no)"
+# ── apply-labels.sh must ALWAYS breadcrumb on a non-empty label set — the SUCCESS line is what
+# ── makes a harness REFUSAL observable (a denied command prints nothing, so without it
+# ── "applied" and "denied" are byte-identical to a caller reading the tool result, and the
+# ── skill's "record a failure when the stderr names one" guard has no comparand in the denial
+# ── case). Pin all three outcomes are distinguishable.
+# ── FAIL-OPEN controls, round 5 (the #480 iteration-4 review). Quote tracking is the guard's
+# ── hardest part, and BOTH spellings of it are blind somewhere: masking per-line hides a loop
+# ── opener after a multi-line quoted argument's closing quote; carrying state across lines lets
+# ── ONE unbalanced apostrophe (`echo the config didn't resolve`) mask the whole rest of the
+# ── fence. The scan therefore runs BOTH ways and unions the hits. Pin both directions, plus the
+# ── case-arm opener the sibling head extractor needed for #392.
+{ printf '%s\n' '```bash' "echo Note: the config didn't resolve any deferred labels" 'for L in $C; do' '  .devflow/vendor/devflow/scripts/apply-labels.sh 1 "$L"' 'done' '```'; } > "$E363/i-fo-apostrophe.md"
+assert_eq "#455 no fail-open: an UNBALANCED apostrophe above a label loop does not mask it away (still IR1)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-apostrophe.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'gh issue comment 5 -b "Doesn'"'"'t matter: $(.devflow/vendor/devflow/scripts/apply-labels.sh 5 DevFlow 2>&1)"' '```'; } > "$E363/i-fo-apos-capture.md"
+assert_eq "#455 no fail-open: an apostrophe INSIDE a double-quoted arg does not hide the capture after it (still IR3)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-apos-capture.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'gh issue comment 5 -b "context line' '  # applied: $(.devflow/vendor/devflow/scripts/apply-labels.sh 5 DevFlow)"' '```'; } > "$E363/i-fo-hash-in-string.md"
+assert_eq "#455 no fail-open: a '#'-leading line INSIDE a multi-line quoted arg is argument text, not a comment (still IR3)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-hash-in-string.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'case "$x" in' '  a) for n in $N; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" X; done ;;' 'esac' '```'; } > "$E363/i-fo-casearm.md"
+assert_eq "#455 no fail-open: a one-line CASE-ARM loop around a label helper is still flagged IR1" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-casearm.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'case "$x" in' '  a) while read -r n; do .devflow/vendor/devflow/scripts/ensure-label.sh "$n"; done < f ;;' 'esac' '```'; } > "$E363/i-fo-casearm-while.md"
+assert_eq "#455 no fail-open: a one-line CASE-ARM while-loop around a label helper is still flagged IR2" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-casearm-while.md" | grep -q '  IR2  ' && echo yes || echo no)"
+# ── Third behavioral mutation: #455 removed THREE shapes. The two above cover 4.0's for+capture
+# ── and 4.0.5's piped while+capture; the ensure-label per-label piped loop had only a synthetic
+# ── fixture. Reintroduce it verbatim on the real file so every removed shape is proven caught.
+I455_MUT3="$E363/i-mut3.md"; cp "$IMPL_DIR/phases/phase-4-documentation.md" "$I455_MUT3"
+{ printf '%s\n' '```bash' 'echo "$CLEAN_DEFERRED_LABELS" | tr '"'"','"'"' '"'"'\n'"'"' | while IFS= read -r lbl; do' '  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh "$lbl"' 'done' '```'; } >> "$I455_MUT3"
+assert_eq "#455 behavioral: reintroducing the removed per-label ensure-label piped loop flips the lint RED (IR2)" "yes" \
+  "$(python3 "$ECS" --profile implement "$I455_MUT3" | grep -q '  IR2  ' && echo yes || echo no)"
+# ── Scope pin: the lint reads only ```bash fences, so a ```sh-tagged fence would be invisible and
+# ── the contract loop's "teaches no proven-denied shape" claim would pass VACUOUSLY over it. Keep
+# ── the claim's reach equal to its wording — the guarded files must use no other shell fence tag.
+for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md \
+         "$LIB/../skills/create-issue/SKILL.md" "$LIB/../skills/init/SKILL.md"; do
+  assert_eq "#455 scope: $(basename "$(dirname "$f")")/$(basename "$f") uses no non-bash shell fence tag (the lint reads only \`\`\`bash)" "0" \
+    "$(grep -cE '^\s*```(sh|shell|zsh|console)\s*$' "$f" || true)"
+done
+# ── FAIL-OPEN controls, round 6 (the #480 convergence shadow).
+# ── `do`/`done` are depth-counted to bound the loop span, and matching them after a bare
+# ── whitespace let an ARGUMENT-position word count: `echo done` inside a loop body closed the
+# ── span early, so every label call below it fell outside the scan and shipped GREEN.
+{ printf '%s\n' '```bash' 'for a in 1; do' '  echo done' '  .devflow/vendor/devflow/scripts/apply-labels.sh 1 A' 'done' '```'; } > "$E363/i-fo-argdone.md"
+assert_eq "#455 no fail-open: an argument-position 'done' (echo done) does not close the loop span early" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-argdone.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# ── Process substitution is the same denied shape spelled differently — and it is exactly how
+# ── an author told "no $( ) capture" re-introduces the capture.
+{ printf '%s\n' '```bash' 'mapfile -t OUT < <(.devflow/vendor/devflow/scripts/apply-labels.sh 42 DevFlow 2>&1)' '```'; } > "$E363/i-fo-procsub.md"
+assert_eq "#455 no fail-open: a PROCESS-SUBSTITUTION capture of a label helper is flagged IR3" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-procsub.md" | grep -q '  IR3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'gh issue comment 1 -F <(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)' '```'; } > "$E363/i-fo-procsub2.md"
+assert_eq "#455 no fail-open: a '-F <(label-helper …)' process substitution is flagged IR3" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fo-procsub2.md" | grep -q '  IR3  ' && echo yes || echo no)"
+# ── apply-labels.sh must fail CLOSED on a caller arg-slip: `apply-labels.sh DevFlow` (the
+# ── number lost to a non-surviving shell variable) would otherwise swallow the LABEL as the
+# ── number, produce an empty label set, and exit SILENTLY — which the reworked call sites now
+# ── read as a harness denial, fabricating a durable reflection that blames a refusal that
+# ── never happened.
+# ── AC4: every label call site carries a co-located Cloud-emission note anchored to SKILL.md's
+# ── discipline section. Without a pin, a future edit deletes a note and the suite stays green.
+assert_eq "#455 AC4: SKILL.md carries the Cloud command-shape discipline section" "yes" \
+  "$(grep -qF 'Cloud command-shape discipline (implement tier)' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: presence pin on the AC4 discipline section (bundle-scoped; the section heading is unique)
+assert_eq "#455 AC4: all four label call sites carry a co-located Cloud-emission discipline note" "4" \
+  "$(grep -cF 'Cloud-emission discipline (label helpers)' "$IMPL_SKILL_BUNDLE" || true)"  # raw-guard-ok: count-based: asserts ==4 co-located notes (one per label call site), not single-presence
+# BEHAVIORAL (not a source grep — a grep stays green if the echo is moved into a branch that
+# never fires). Drive the helper against a stubbed gh and assert each outcome is what the four
+# call sites' new routing rule reads: success line / failure line / SILENCE on an empty set.
+# The silence case is what makes "no output at all ⇒ the harness refused" a SOUND inference —
+# if an empty label set ever printed a success line, every channel would read a fabricated
+# success; if it printed anything at all, a real denial would be indistinguishable from it.
+I455_STUB="$E363/ghstub"; mkdir -p "$I455_STUB"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$I455_STUB/gh_ok"; chmod +x "$I455_STUB/gh_ok"
+printf '#!/usr/bin/env bash\necho "HTTP 403" >&2\nexit 1\n' > "$I455_STUB/gh_fail"; chmod +x "$I455_STUB/gh_fail"
+assert_eq "#455 apply-labels.sh: SUCCESS emits the applied breadcrumb (so a silent denial is distinguishable)" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 " DevFlow , Deferred " 2>&1 | grep -qF "devflow: applied label(s) 'DevFlow,Deferred' to #42" && echo yes || echo no)"
+assert_eq "#455 apply-labels.sh: API FAILURE emits the warning breadcrumb" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_fail" bash "$LIB/../scripts/apply-labels.sh" 42 DevFlow 2>&1 | grep -qF "could not apply label(s) 'DevFlow' to #42" && echo yes || echo no)"
+# ── NO SILENT PATH (#480 review). The four call sites route "no output at all" to a
+# ── `dropped-failed` DENIAL reflection, so every path the helper can take on a caller mistake
+# ── must breadcrumb — otherwise a caller that passes an empty label literal, or a $PR_NUM that
+# ── did not survive, is byte-identical to a harness refusal and the run fabricates a denial that
+# ── never happened. An earlier revision exited SILENTLY on an empty label set and rc 1 (a raw
+# ── bash usage line) on a missing number; both are pinned closed here. A refusal is now the ONLY
+# ── silent outcome, which is exactly what makes the callers' inference sound.
+assert_eq "#480 apply-labels.sh: an EMPTY label set breadcrumbs the arg-slip (a refusal must be the ONLY silent outcome)" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 "  " 2>&1 | grep -qF "NOT a harness denial" && echo yes || echo no)"
+assert_eq "#480 apply-labels.sh: an empty label set exits 0 (best-effort contract) and POSTs nothing" "0" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_fail" bash "$LIB/../scripts/apply-labels.sh" 42 "  " >/dev/null 2>&1; echo $?)"
+# ATTRIBUTION (#480 review): pin the ARG-SLIP guard's OWN distinct literal, and drive it with a
+# TWO-arg fixture. `NOT a harness denial` is emitted by BOTH guards, and the one-arg fixture
+# `apply-labels.sh DevFlow` leaves an empty label set, so the EMPTY-LABEL guard rejects it a step
+# later — a pin on the shared phrase stayed GREEN against a mutant with this guard deleted
+# outright. The literal below names the number it refused, so only this guard can satisfy it.
+assert_eq "#455 apply-labels.sh: a NON-NUMERIC number (a caller arg-slip) breadcrumbs loudly, never silently" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" abc DevFlow 2>&1 | grep -qF "non-numeric issue/PR number 'abc'" && echo yes || echo no)"
+assert_eq "#480 apply-labels.sh: ZERO args breadcrumbs and exits 0 (the '' arm is live — \${1:?} would abort rc 1 before it)" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 2>&1 | grep -qF "non-numeric issue/PR number ''" && echo yes || echo no)"
+assert_eq "#480 apply-labels.sh: ZERO args exits 0, never rc 1 with a raw bash usage line" "0" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" >/dev/null 2>&1; echo $?)"
+assert_eq "#480 apply-labels.sh: a QUOTED empty number (\"\$PR_NUM\" that did not survive) refuses — it never applies to issue ''" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" "" DevFlow 2>&1 | grep -qF "non-numeric issue/PR number ''" && echo yes || echo no)"
+# The arg-slip guard must make NO POST — the breadcrumb alone would still pass if a future edit
+# dropped its `exit 0` and let the REST call fire against `.../issues/DevFlow/labels`.
+#
+# The probe is a MARKER FILE, not a stderr line: `apply-labels.sh` invokes gh as
+# `ERR_OUT="$(gh api … 2>&1 >/dev/null)"`, so a stub that announces itself on stderr is
+# CAPTURED into ERR_OUT and never reaches the assertion — a stderr probe reads 0 even on a
+# successful apply where gh was unambiguously called, so it can never fire and the pin asserts
+# nothing. And the fixture must be TWO args (`abc DevFlow`): with the one-arg `DevFlow` the
+# number is consumed and the label set comes out empty, so the EMPTY-LABEL guard rejects it one
+# step later and the pin stays green even against a mutant with the arg-slip guard's `exit 0`
+# removed — the rejection must be attributable to the guard under test, not to a sibling.
+printf '#!/usr/bin/env bash\ntouch "$DEVFLOW_TEST_GH_MARKER"\nexit 0\n' > "$I455_STUB/gh_marker"; chmod +x "$I455_STUB/gh_marker"
+rm -f "$E363/gh-called"
+assert_eq "#480 apply-labels.sh: the arg-slip guard POSTs nothing (gh is never invoked — marker-file probe, two-arg fixture)" "absent" \
+  "$(DEVFLOW_TEST_GH_MARKER="$E363/gh-called" DEVFLOW_GH="$I455_STUB/gh_marker" bash "$LIB/../scripts/apply-labels.sh" abc DevFlow >/dev/null 2>&1; [ -e "$E363/gh-called" ] && echo present || echo absent)"
+rm -f "$E363/gh-called"
+assert_eq "#480 apply-labels.sh: a QUOTED empty number POSTs nothing (never POSTs to /issues//labels)" "absent" \
+  "$(DEVFLOW_TEST_GH_MARKER="$E363/gh-called" DEVFLOW_GH="$I455_STUB/gh_marker" bash "$LIB/../scripts/apply-labels.sh" "" DevFlow >/dev/null 2>&1; [ -e "$E363/gh-called" ] && echo present || echo absent)"
+rm -f "$E363/gh-called"
+assert_eq "#480 apply-labels.sh: the empty-label guard POSTs nothing (gh is never invoked)" "absent" \
+  "$(DEVFLOW_TEST_GH_MARKER="$E363/gh-called" DEVFLOW_GH="$I455_STUB/gh_marker" bash "$LIB/../scripts/apply-labels.sh" 42 "  " >/dev/null 2>&1; [ -e "$E363/gh-called" ] && echo present || echo absent)"
+# POSITIVE CONTROL — without it the three `absent` pins above are indistinguishable from a probe
+# that never works (the stderr-probe defect this replaced). On a VALID apply the marker MUST appear.
+rm -f "$E363/gh-called"
+assert_eq "#480 anti-vacuity: the marker probe DOES fire on a valid apply (the 'absent' pins above are real)" "present" \
+  "$(DEVFLOW_TEST_GH_MARKER="$E363/gh-called" DEVFLOW_GH="$I455_STUB/gh_marker" bash "$LIB/../scripts/apply-labels.sh" 42 DevFlow >/dev/null 2>&1; [ -e "$E363/gh-called" ] && echo present || echo absent)"
+rm -f "$E363/gh-called"
+assert_eq "#455 apply-labels.sh: a label containing a space survives normalization" "yes" \
+  "$(DEVFLOW_GH="$I455_STUB/gh_ok" bash "$LIB/../scripts/apply-labels.sh" 42 "needs review,DevFlow" 2>&1 | grep -qF "'needs review,DevFlow'" && echo yes || echo no)"
+# Guard-class 2: the label derivation must NOT depend on a non-preflight PATH tool. It decides
+# BOTH the selection (which labels are POSTed) and an emitted result (whether the breadcrumb
+# fires) — and with a `tr | sed | grep` pipeline a host missing `tr` yields an empty set, the
+# helper exits SILENTLY, and the caller records a harness denial that never happened while the
+# label is silently dropped. Pin the pipeline out of the derivation.
+# (Comment-aware: the block's own comment NAMES the old `tr | sed | grep` derivation it replaced,
+# so a raw scan would match the prose that documents the fix rather than any surviving code.)
+assert_eq "#455 apply-labels.sh derives its label list with BUILTINS (no tr/sed/grep in the selection path)" "0" \
+  "$(sed -n '/^LABELS=()/,/^fi$/p' "$LIB/../scripts/apply-labels.sh" | grep -v '^[[:space:]]*#' | grep -cE '\| *(tr|sed|grep|paste|awk) ' || true)"
+# ANTI-VACUITY for the pin above (#480 review): a count of 0 also passes when the sed RANGE
+# extracts nothing at all (a future edit renames `LABELS=()` or restructures the guard), so the
+# pin would stay green while a `tr`-based derivation was reintroduced under another name. Anchor
+# it: assert the extracted range really does contain the derivation it claims to be scanning.
+assert_eq "#480 the guard-class-2 sed range actually spans the label derivation (the 0-count pin is not vacuous)" "1" \
+  "$(sed -n '/^LABELS=()/,/^fi$/p' "$LIB/../scripts/apply-labels.sh" | grep -cF 'LABELS+=(' || true)"
+# ── UNGRANTED-HEAD pin (#480 review): a grant is per-HEAD across the WHOLE pipeline, not
+# ── just the leading token, so ONE ungranted head in a tail refuses the entire statement.
+# ── `paste` is granted in NO allowlist (baked TOOLS, config.json, config.example.json) — yet
+# ── the label-NORMALIZING pipelines ended in `| paste -sd, -`. That statement would have been
+# ── refused outright (the config-get read before it is a separate statement and still
+# ── resolves), so the raw label value came back fine while the normalized list came back
+# ── EMPTY, and the applies silently did nothing. The fix (#455) would have shipped not
+# ── working. Pin the class: no implement-tier fence may use `paste`, and the granted tools
+# ── its replacement depends on must actually be granted.
+for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md \
+         "$LIB/../skills/create-issue/SKILL.md" "$LIB/../skills/init/SKILL.md"; do
+  assert_eq "#455 ungranted-head: $(basename "$(dirname "$f")")/$(basename "$f") uses no 'paste' (granted in no allowlist)" "0" \
+    "$(python3 "$ECH" heads "$f" 2>/dev/null | grep -cxF 'paste' || true)"
+done
+for t in tr sed grep echo; do
+  assert_eq "#455 ungranted-head: devflow-implement.yml grants '$t' (the paste-free normalizer depends on it)" "yes" \
+    "$(grep -qF "Bash($t:*)" "$IMPL_YML" && echo yes || echo no)"
+done
+# Anti-vacuity: the paste pin must be able to go RED — prove the head extractor actually
+# reports `paste` when a fence uses it (otherwise the four pins above pass on a blind check).
+{ printf '%s\n' '```bash' "X=\$(echo \"\$L\" | tr ',' '\\n' | paste -sd, -)" '```'; } > "$E363/i-paste.md"
+assert_eq "#455 ungranted-head pin goes RED on a fence that uses paste (anti-vacuity)" "1" \
+  "$(python3 "$ECH" heads "$E363/i-paste.md" 2>/dev/null | grep -cxF 'paste' || true)"
+# ── #480 fix-delta gate: the Phase 4.0.5 sentinel must PRINT ON EVERY PATH, including the
+# ── clean no-op (no hydrated aggregate) that never enters the filing guard. Its operands are
+# ── therefore initialized OUTSIDE that guard. `${FILED_NUMBERS//$'\n'/ }` cannot carry a `:-`
+# ── default (bash forbids one in a substitution expansion), so an UNSET FILED_NUMBERS aborts
+# ── the whole `echo` under `set -u` on bash 5 — the sentinel would not print, and the reader's
+# ── rule ("no sentinel ⇒ the fence was refused") would fabricate a harness-denial reflection on
+# ── a run where nothing went wrong. Behavioral, not structural: replay the SHIPPED sentinel line
+# ── under `set -u` with only the pre-guard initializers set, exactly as the no-op path leaves it.
+I480_P4="$IMPL_DIR/phases/phase-4-documentation.md"
+I480_SENTINEL="$(grep -F 'echo "phase 4.0.5 filing fence ran;' "$I480_P4")"
+assert_eq "#480 the 4.0.5 sentinel line is present in the phase file (the pin below is not vacuous)" "1" \
+  "$(printf '%s\n' "$I480_SENTINEL" | grep -cF 'filed deferred-finding issues=[' || true)"
+assert_eq "#480 the 4.0.5 sentinel PRINTS on the clean-no-op path under 'set -u' (unset FILED_NUMBERS must not abort the echo)" "yes" \
+  "$(bash -c 'set -uo pipefail
+FILED_STATE=""
+FILED_NUMBERS=""
+PR_NUMBER=99
+MANIFEST_STATE=""
+'"$I480_SENTINEL" 2>/dev/null | grep -qF 'phase 4.0.5 filing fence ran' && echo yes || echo no)"
+# Anti-vacuity: the same sentinel WITHOUT the pre-guard initializers (the shape the fix-delta
+# gate caught) must NOT print — proving the assertion above measures the initializers, not just
+# that some echo exists.
+assert_eq "#480 anti-vacuity: that same sentinel does NOT print when FILED_NUMBERS is unset (the regression this pins)" "no" \
+  "$(bash -c 'set -uo pipefail
+PR_NUMBER=99
+MANIFEST_STATE=""
+'"$I480_SENTINEL" 2>/dev/null | grep -qF 'phase 4.0.5 filing fence ran' && echo yes || echo no)"
+# PLACEMENT is the actual regression, and the two replays above cannot see it: they SUPPLY the
+# initializers themselves, so they prove a property of the echo line, not of the file. Moving
+# `FILED_STATE=""` / `FILED_NUMBERS=""` back INSIDE the `if [ -n "$AGG" ]` guard leaves them unset
+# on the clean-no-op path, the sentinel aborts under `set -u`, and the agent's "no sentinel ⇒
+# refused" rule fabricates a harness-denial reflection on a run where nothing went wrong. Pin the
+# ORDERING against the file itself: both initializers must appear BEFORE the aggregate guard.
+assert_eq "#480 the 4.0.5 sentinel operands are initialized BEFORE the aggregate guard (placement, not just presence)" "yes" \
+  "$(python3 - "$I480_P4" <<'PY'
+import sys
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+def first(pred):
+    return next((i for i, l in enumerate(lines) if pred(l)), None)
+guard = first(lambda l: l.strip().startswith('if [ -n "$AGG" ] && [ -s "$AGG" ]; then'))
+fs = first(lambda l: l.strip() == 'FILED_STATE=""')
+fn = first(lambda l: l.strip() == 'FILED_NUMBERS=""')
+print("yes" if None not in (guard, fs, fn) and fs < guard and fn < guard else "no")
+PY
+)"
+# ── FALSE-POSITIVE control for the idiom the guarded fences actually write (#480 review):
+# ── `--body "$(cat <<'EOF' … EOF)"`. The heredoc-opener probe used to mask the whole double-quoted
+# ── span, so the `<<'EOF'` INSIDE the substitution was hidden, no heredoc was detected, the body
+# ── was never blanked, and the issue-body PROSE was scanned as shell — a follow-up-issue template
+# ── that merely MENTIONS a label helper turned the desk RED with a diagnosis pointing at
+# ── documentation text. A lint that reddens on prose is a lint that gets scoped out.
+{ printf '%s\n' '```bash' "gh issue create --body \"\$(cat <<'EOF'" 'Notes: for each n, do run apply-labels.sh on it; done' 'EOF' ')"' '```'; } > "$E363/i-fp-body-heredoc.md"
+assert_eq "#480 no false positive: prose naming a label helper inside a --body \"\$(cat <<'EOF' …)\" heredoc stays clean" "" \
+  "$(python3 "$ECS" --profile implement "$E363/i-fp-body-heredoc.md" 2>&1)"
+# …and the true positive on the same idiom must survive: a denied loop CHAINED AFTER the heredoc
+# closes is real code, not body text, so it must still flag (proving the fix did not blank the tail).
+{ printf '%s\n' '```bash' "gh issue create --body \"\$(cat <<'EOF'" 'body text' 'EOF' ')"' 'for n in 1 2; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done' '```'; } > "$E363/i-body-heredoc-then-loop.md"
+assert_eq "#480 anti-vacuity: a denied loop chained AFTER that same heredoc still flags IR1 (the body blanking did not swallow the tail)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-body-heredoc-then-loop.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# ── PHANTOM-HEREDOC FAIL-OPEN (the fix-delta gate's catch, and the worse half of the same
+# ── masking bug). A `$( … )` inside a double-quoted span suspends the string — its interior is
+# ── CODE — but the quotes INSIDE that interior are real quotes. A first pass at the fix left the
+# ── whole substitution RAW, so `'usage: cmd << EOF'` (a STRING inside the substitution) offered a
+# ── `<<` to the heredoc probe; the phantom tag then matched a real `EOF` line further down and
+# ── BLANKED every statement between — and the denied shape in there shipped GREEN, on BOTH tiers.
+# ── Over-masking loses a heredoc (a false RED on prose); under-masking loses a denied shape (a
+# ── silent GREEN). Pin both directions.
+{ printf '%s\n' '```bash' "echo \"\$(printf '%s' 'usage: cmd << EOF')\"" 'for n in 1 2; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done' 'EOF' '```'; } > "$E363/i-phantom-heredoc.md"
+assert_eq "#480 IR1 still flags a denied loop below a << that lives inside a STRING inside a \$( … ) (no phantom heredoc)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-phantom-heredoc.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' "echo \"\$(printf '%s' 'see << EOF')\"" 'cd /tmp' 'EOF' '```'; } > "$E363/i-phantom-heredoc-review.md"
+assert_eq "#480 the same phantom-heredoc fail-open is closed on the REVIEW tier too (R2 still flags the leading cd)" "yes" \
+  "$(python3 "$ECS" "$E363/i-phantom-heredoc-review.md" | grep -q '  R2  ' && echo yes || echo no)"
+# ── The CROSS-LINE half of the same class, and the more reachable one: a shell string spans
+# ── newlines, so an ordinary `--body "…prose…"` argument leaves its MIDDLE lines inside the
+# ── string — and a per-line mask (which restarts empty on every line) reads that prose as
+# ── top-level CODE. A `<<` in it opened a phantom heredoc whose tag matched a real terminator
+# ── further down, blanking every statement between: a denied shape in there shipped GREEN on
+# ── BOTH tiers. Blanking is the one act that DELETES code from the scan, so it now requires the
+# ── per-line and carry-state masks to AGREE (the intersection — unlike the loop scan, which
+# ── unions). Pin both tiers: an author adding a multi-line --body is the most ordinary edit
+# ── these fences take, and the failure is invisible (green suite, green CI, silent cloud denial).
+{ printf '%s\n' '```bash' 'gh pr comment 1 --body "Some prose about the docs.' 'Never write cmd << EOF inside a fence.' '"' 'for l in a b; do .devflow/vendor/devflow/scripts/apply-labels.sh 1 "$l"; done' "cat <<'EOF'" 'hi' 'EOF' '```'; } > "$E363/i-phantom-multiline.md"
+assert_eq "#480 IR1 still flags a denied loop below a << inside a MULTI-LINE string (no cross-line phantom heredoc)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-phantom-multiline.md" | grep -q '  IR1  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' 'gh pr comment 1 --body "prose.' 'Never write cmd << EOF here.' '"' 'cd /tmp' "cat <<'EOF'" 'hi' 'EOF' '```'; } > "$E363/i-phantom-multiline-review.md"
+assert_eq "#480 the cross-line phantom is closed on the REVIEW tier too (R2 still flags the leading cd)" "yes" \
+  "$(python3 "$ECS" "$E363/i-phantom-multiline-review.md" | grep -q '  R2  ' && echo yes || echo no)"
+# ── The OTHER two fail-closed sentinels (#480 review). The whole "no output ⇒ the harness refused
+# ── it" design rests on three printed sentinels, and only 4.0.5's was pinned — delete or rename
+# ── either of the other two and the suite stayed green while the phase prose still routed on it,
+# ── so every clean run would read "no sentinel" as a denial. They are the comparand the routing
+# ── tables literal-match, so pin the emitted literal.
+assert_eq "#480 phase 4.0's create fence prints its unconditional sentinel (the comparand its routing reads)" "yes" \
+  "$(grep -qF 'echo "phase 4.0 create fence ran; create=[${CREATE_STATE}]"' "$I480_P4" && echo yes || echo no)"
+assert_eq "#480 phase 3.1 prints the draft PR number sentinel (the comparand its routing reads)" "yes" \
+  "$(grep -qF 'draft PR number: [' "$IMPL_DIR/phases/phase-3-review.md" && echo yes || echo no)"
+# The design rests on more than the three fence sentinels: the label channels' routing tables also
+# literal-match these printed lines, and each is the comparand of a fail-closed exit. Unpinned,
+# renaming or dropping any of them leaves the phases routing on a line the fence no longer prints
+# (#480 review). Pin each by its emitted literal.
+for lit in 'deferred labels to apply: [' 'docs labels to apply: [' 'docs PR number: ['; do
+  assert_eq "#480 phase-4 prints the routed comparand '$lit'" "yes" \
+    "$(grep -qF "$lit" "$I480_P4" && echo yes || echo no)"
+done
+# The ensure-label quoting pin must be a COUNT, not an existential: `grep -qF` over the bundle is
+# satisfied by ANY one of the three call sites, so unquoting just the docs-label site (whose
+# default `Documented` is one word, but whose configured value need not be) slipped through
+# GREEN — the same vacuity class the arg-slip pins were re-attributed to close (#480 review).
+assert_eq "#480 ALL THREE ensure-label call sites quote the label arg (a count pin — an existential one missed a single-site regression)" "3" \
+  "$(grep -cF 'ensure-label.sh "<label>"' "$I480_P4" || true)"
+assert_eq "#480 no UNQUOTED 'ensure-label.sh <label>' survives anywhere in the implement skill bundle" "0" \
+  "$(grep -cF 'ensure-label.sh <label>' "$IMPL_SKILL_BUNDLE" || true)"
+# The masker's paren-depth arithmetic inside a code frame had no nested fixture.
+{ printf '%s\n' '```bash' "gh issue create --body \"\$(cat <<'EOF'" 'prose $(echo nested) more' 'EOF' ')"' 'for n in 1 2; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done' '```'; } > "$E363/i-nested-subst.md"
+assert_eq "#480 a NESTED substitution inside the heredoc body does not unbalance the masker (the loop after it still flags IR1)" "yes" \
+  "$(python3 "$ECS" --profile implement "$E363/i-nested-subst.md" | grep -q '  IR1  ' && echo yes || echo no)"
+# Escaped-backslash quote parity: `echo \\"a << EOF"` is NOT a heredoc to bash (the `\\` is an
+# escaped backslash, so the `"` really opens a string). Reading `prev == "\\"` as "escaped" flipped
+# the mask's parity, exposed the `<<` as code, opened a phantom heredoc, and blanked the denied
+# shape below it (#480 review).
+{ printf '%s\n' '```bash' 'echo \\"a << EOF"' 'cd /tmp' 'EOF' '```'; } > "$E363/i-esc-parity.md"
+assert_eq "#480 an ESCAPED backslash before a quote does not flip the mask's parity (R2 still flags the leading cd)" "yes" \
+  "$(python3 "$ECS" "$E363/i-esc-parity.md" | grep -q '  R2  ' && echo yes || echo no)"
+# ── matcher-probe's EXTRAS is claimed to mirror the config VERBATIM; the IMPLEMENT half of that
+# ── mirror is pinned but EXTRAS was not, so a future config edit would silently make the
+# ── evidence-of-record probe measure a profile the repo does not ship (#480 review).
+assert_eq "#480 matcher-probe EXTRAS mirrors .devflow/config.json devflow_implement.allowed_tools verbatim" "SYNCED" \
+  "$(python3 - "$LIB/../.github/workflows/matcher-probe.yml" "$LIB/../.devflow/config.json" <<'PY'
+import json, re, sys
+yml = open(sys.argv[1], encoding="utf-8").read()
+cfg = json.load(open(sys.argv[2], encoding="utf-8"))
+want = list(cfg.get("devflow_implement", {}).get("allowed_tools", []))
+m = re.search(r"EXTRAS='([^']*)'", yml)
+if not m:
+    print("EXTRAS-NOT-FOUND")
+else:
+    got = [t for t in m.group(1).split(",") if t]
+    print("SYNCED" if got == want else f"DRIFT: probe={got} config={want}")
+PY
+)"
+# ── Coupled-invariant: the workflow grants the two label helpers in the explicit
+# ── vendored-literal leading-token form the implement-probe table proved PERMITTED (#455).
+assert_eq "#455: devflow-implement.yml grants apply-labels.sh in the explicit vendored-literal form" "yes" \
+  "$(grep -qF 'Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*)' "$IMPL_YML" && echo yes || echo no)"
+assert_eq "#455: devflow-implement.yml grants ensure-label.sh in the explicit vendored-literal form" "yes" \
+  "$(grep -qF 'Bash(.devflow/vendor/devflow/scripts/ensure-label.sh:*)' "$IMPL_YML" && echo yes || echo no)"
 
 # ── Process wrappers are stripped before matching, exactly as Claude Code does.
 printf '%s\n' '```bash' 'timeout 300 bash x.sh' 'nice -n 5 aa' 'nohup bb' 'stdbuf -oL cc' 'xargs dd' 'time ee' '```' > "$E363/wrap.md"
@@ -33484,6 +35877,938 @@ assert_eq "#466 mla-extension-pins: receiving-code-review carries the config-der
   "$(grep -qF 'CLAUDE.md six-shape adversarial matrix' "$LIB/../.devflow/prompt-extensions/receiving-code-review.md" && echo yes || echo no)"
 assert_eq "#466 mla-extension-pins: review-and-fix carries the config-derivation six-shape rule" "yes" \
   "$(grep -qF 'CLAUDE.md six-shape adversarial matrix' "$LIB/../.devflow/prompt-extensions/review-and-fix.md" && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
+# Long-run credential refresh (issue #487): the refresher + gh wrapper. Drives the
+# nine arms the "Suite coverage" AC enumerates — gh-stubbed, no network, no real
+# key. The mint honors the verbatim, never-probed DEVFLOW_REFRESH_MINT override
+# (the lib/resolve-bin.sh DEVFLOW_<TOOL> stub contract), and the credential-surface
+# targets + sleep are overridable, so every arm runs at the desk.
+# ────────────────────────────────────────────────────────────────────────────
+REFRESH_SH="$LIB/../scripts/refresh-app-credentials.sh"
+GHFRESH_SH="$LIB/../scripts/gh-fresh.sh"
+
+assert_eq "#487 refresher: scripts/refresh-app-credentials.sh exists (single-cycle logic)" "yes" \
+  "$([ -f "$REFRESH_SH" ] && echo yes || echo no)"
+assert_eq "#487 wrapper: scripts/gh-fresh.sh exists (tracked gh wrapper)" "yes" \
+  "$([ -f "$GHFRESH_SH" ] && echo yes || echo no)"
+# The refresher must source resolve-jq.sh (the new-jq-caller pin) and never call bare jq.
+assert_eq "#487 refresher: sources lib/resolve-jq.sh (routes jq through the resolver)" "yes" \
+  "$(grep -qE '^\. .*resolve-jq\.sh' "$REFRESH_SH" && echo yes || echo no)"
+
+# sha256 helper matching the wrapper's own (sha256sum on Linux, shasum on macOS).
+_d487_sha() {
+  if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$1" | sha256sum | awk '{print $1}'
+  else printf '%s' "$1" | shasum -a 256 | awk '{print $1}'; fi
+}
+
+D487=$(mktemp -d)
+CFG487="$D487/cred.config"
+TOK487="$D487/tokfile"
+git config --file "$CFG487" "http.https://github.com/.extraheader" \
+  "AUTHORIZATION: basic $(printf 'x-access-token:TOKEN_A' | openssl base64 -A)" 2>/dev/null
+# Decode the fixture extraheader back to its raw `x-access-token:<token>` payload
+# (used by arms 2/3/4 to assert which token the refresher wrote).
+_a487_hdr() { git config --file "$CFG487" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null; }
+
+# Arm 1 — missing inputs → clean exit 0 with a stderr breadcrumb.
+_a1_err="$(DEVFLOW_REFRESH_CONFIG_FILE="$D487/none" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 1>/dev/null)"; _a1_rc=$?
+assert_eq "#487 arm1: missing inputs exits 0" "0" "$_a1_rc"
+assert_eq "#487 arm1: emits the SPECIFIC guard ::warning:: (DEVFLOW_APP_ID empty), not just any breadcrumb" "yes" \
+  "$(printf '%s' "$_a1_err" | grep -qF 'mint: DEVFLOW_APP_ID empty' && echo yes || echo no)"
+
+# Arm 2 — mint success → extraheader rewritten and mode-0600 token file written.
+DEVFLOW_REFRESH_MINT='printf TOKEN_B' DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1
+assert_eq "#487 arm2: mint success rewrites the extraheader to the fresh token" "x-access-token:TOKEN_B" \
+  "$(_a487_hdr)"
+assert_eq "#487 arm2: token file written with the fresh token" "TOKEN_B" "$(cat "$TOK487" 2>/dev/null)"
+assert_eq "#487 arm2: token file is mode 0600" "600" \
+  "$(stat -c '%a' "$TOK487" 2>/dev/null || stat -f '%Lp' "$TOK487" 2>/dev/null)"
+
+# Arm 3 — mint failure → previous credential intact and a ::warning:: emitted.
+_a3_err="$(DEVFLOW_REFRESH_MINT='false' DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 1>/dev/null)"
+assert_eq "#487 arm3: mint failure leaves the previous credential intact (still TOKEN_B)" "x-access-token:TOKEN_B" \
+  "$(_a487_hdr)"
+assert_eq "#487 arm3: mint failure emits a ::warning::" "yes" \
+  "$(printf '%s' "$_a3_err" | grep -qF '::warning::' && echo yes || echo no)"
+
+# Arm 4 — failed-then-succeeding cycle sequence → backoff retry recovers, cred ends fresh.
+# A recording sleep stub captures each sleep's duration so the FAILED cycle is proven to
+# take the BACKOFF branch and the SUCCESSFUL cycle the INTERVAL branch (distinguishable
+# via distinct override values), and the pidfile write (the retirement path's sole handle)
+# is asserted.
+CNT487="$D487/cnt"; echo 0 > "$CNT487"
+SLEEPLOG487="$D487/sleeps"; : > "$SLEEPLOG487"
+SLEEPSTUB487="$D487/sleepstub"
+{ printf '#!/usr/bin/env bash\n'; printf 'printf "%%s\\n" "$1" >> "%s"\n' "$SLEEPLOG487"; } > "$SLEEPSTUB487"
+chmod +x "$SLEEPSTUB487"
+_mint4='n=$(cat '"$CNT487"'); n=$((n+1)); echo $n > '"$CNT487"'; if [ "$n" -lt 2 ]; then exit 1; else printf TOKEN_FRESH; fi'
+DEVFLOW_REFRESH_MINT="$_mint4" DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_REFRESH_SLEEP="$SLEEPSTUB487" DEVFLOW_REFRESH_INTERVAL=99 DEVFLOW_REFRESH_BACKOFF=11 \
+  DEVFLOW_REFRESH_MAX_CYCLES=2 DEVFLOW_REFRESH_PIDFILE="$D487/pid" \
+  GITHUB_SERVER_URL="https://github.com" bash "$REFRESH_SH" loop </dev/null >/dev/null 2>&1
+_a4_rc=$?
+assert_eq "#487 arm4: loop never exits non-zero" "0" "$_a4_rc"
+assert_eq "#487 arm4: backoff retry recovers — credential ends fresh (TOKEN_FRESH)" "x-access-token:TOKEN_FRESH" \
+  "$(_a487_hdr)"
+assert_eq "#487 arm4: loop writes its PID to the pidfile (the retirement handle)" "yes" \
+  "$([ -s "$D487/pid" ] && grep -qE '^[0-9]+$' "$D487/pid" && echo yes || echo no)"
+assert_eq "#487 arm4: failed cycle takes the BACKOFF branch then success takes the INTERVAL branch" "11 99" \
+  "$(tr '\n' ' ' < "$SLEEPLOG487" | sed 's/ *$//')"
+
+# Arm 4b — belt-and-suspenders child-env scrub (PR #491). read_key_from_stdin
+# `unset`s DEVFLOW_APP_PRIVATE_KEY from bash's in-memory environment table so that
+# any child the refresher spawns afterward (openssl/curl/git) can never inherit the
+# PEM in its own environment. NOTE: this is NOT the /proc/<pid>/environ mitigation —
+# that vector is closed at the WORKFLOW launch with `env -u DEVFLOW_APP_PRIVATE_KEY`
+# (pinned below), because /proc/<pid>/environ snapshots the exec-time environment and
+# a later `unset` does not rewrite it (proc(5)). This arm exercises only the child-
+# inheritance scrub: read_key_from_stdin runs BEFORE mint_token's `eval`, so a mint
+# override that echoes the env var observes the POST-unset bash environment — a
+# leaked var surfaces in the written token, an unset one reads `<unset>`.
+_a4b_tok="$D487/tok4b"
+DEVFLOW_APP_PRIVATE_KEY='SECRET_PEM_MATERIAL' \
+  DEVFLOW_REFRESH_MINT='printf "envval=[${DEVFLOW_APP_PRIVATE_KEY:-<unset>}]"' \
+  DEVFLOW_REFRESH_CONFIG_FILE="$CFG487" DEVFLOW_REFRESH_TOKEN_FILE="$_a4b_tok" \
+  GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1
+assert_eq "#487 arm4b: read_key_from_stdin unsets DEVFLOW_APP_PRIVATE_KEY from bash's env (child-inheritance scrub)" "envval=[<unset>]" \
+  "$(cat "$_a4b_tok" 2>/dev/null)"
+# Removal pin: deleting the `unset` line re-exposes the PEM to child processes the
+# refresher spawns, so it must flip the pin RED.
+assert_pin_red_under "#487 arm4b-pin: DEVFLOW_APP_PRIVATE_KEY unset present (deleting it re-exposes the PEM to children)" \
+  'unset DEVFLOW_APP_PRIVATE_KEY' '/unset DEVFLOW_APP_PRIVATE_KEY/d' "$REFRESH_SH"
+
+# Arm 4c — SIGTERM teardown of a LIVE loop (PR #491 Suggestion 1). The loop sleeps in
+# the BACKGROUND and `wait`s on it so the TERM trap retires the process PROMPTLY; a
+# regression to a foreground `sleep "$INTERVAL"` would defer the trap until the full
+# interval elapses (up to 45 min in production), silently breaking the stop-refresher.sh
+# retirement contract on which the whole retirement design rests. Start a real loop with
+# a 20s interval, TERM it, and assert it dies well within that interval.
+CFG4C="$D487/cred4c.config"
+git config --file "$CFG4C" "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD4C" 2>/dev/null
+PIDF4C="$D487/pid4c"; rm -f "$PIDF4C"
+DEVFLOW_REFRESH_MINT='printf TOKEN_4C' DEVFLOW_REFRESH_CONFIG_FILE="$CFG4C" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok4c" DEVFLOW_REFRESH_PIDFILE="$PIDF4C" \
+  DEVFLOW_REFRESH_INTERVAL=20 DEVFLOW_REFRESH_BACKOFF=20 \
+  GITHUB_SERVER_URL="https://github.com" bash "$REFRESH_SH" loop </dev/null >/dev/null 2>&1 &
+_loop4c_bg=$!
+# Wait (bounded) for the loop to record its PID (cmd_loop writes it before the first
+# sleep), then send it SIGTERM.
+_i=0; while [ ! -s "$PIDF4C" ] && [ "$_i" -lt 50 ]; do sleep 0.1; _i=$((_i+1)); done
+_pid4c="$(cat "$PIDF4C" 2>/dev/null)"
+kill -TERM "$_pid4c" 2>/dev/null || true
+# Poll up to ~5s for exit. Background-sleep + TERM trap → sub-second; a foreground-sleep
+# regression stays alive here (interval is 20s), flipping this assertion RED.
+_i=0; while kill -0 "$_pid4c" 2>/dev/null && [ "$_i" -lt 50 ]; do sleep 0.1; _i=$((_i+1)); done
+assert_eq "#487 arm4c: SIGTERM retires a live loop promptly (background-sleep + TERM trap, not a foreground sleep)" "dead" \
+  "$(kill -0 "$_pid4c" 2>/dev/null && echo alive || echo dead)"
+wait "$_loop4c_bg" 2>/dev/null || true
+
+# Arm 4d — surface-2 (token-file) write failure AFTER surface-1 success leaves the two
+# credential surfaces DIVERGED (PR #491 shadow Finding B). run_cycle rewrites surface 1
+# (the extraheader) BEFORE writing surface 2 (the token file), so a surface-2 failure
+# leaves the push credential fresh while the gh token file is stale. Point the token file
+# under a regular FILE so its parent dir cannot be created and the temp-write fails, while
+# surface 1 succeeds. Assert surface 1 IS fresh, the divergence warning fires, surface 2
+# was not written. (This authored error branch had zero coverage — every other arm is a
+# full-success or a mint/locate failure that leaves BOTH surfaces on the previous value.)
+CFG4D="$D487/cred4d.config"
+git config --file "$CFG4D" "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD4D" 2>/dev/null
+_blocker4d="$D487/blocker4d"; : > "$_blocker4d"      # a regular file …
+_tokpath4d="$_blocker4d/sub/tok"                       # … used as a dir component → mkdir/write fail
+_stderr4d="$(DEVFLOW_REFRESH_MINT='printf TOKEN_DIV4D' DEVFLOW_REFRESH_CONFIG_FILE="$CFG4D" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$_tokpath4d" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"
+assert_eq "#487 arm4d: surface-2 write failure still leaves surface 1 (extraheader) FRESH" "x-access-token:TOKEN_DIV4D" \
+  "$(git config --file "$CFG4D" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+assert_eq "#487 arm4d: the surface-1-fresh/surface-2-stale divergence warning fires" "yes" \
+  "$(printf '%s' "$_stderr4d" | grep -qF 'surface 1) IS fresh but the gh token file (surface 2) is now stale' && echo yes || echo no)"
+assert_eq "#487 arm4d: surface 2 (the token file) was NOT written (stale)" "yes" \
+  "$([ ! -e "$_tokpath4d" ] && echo yes || echo no)"
+# Pin the shared divergence phrase in BOTH surface-2 failure branches (temp-write + rename),
+# two near-identical unpinned literals a reword could silently rot.
+assert_eq "#487 arm4d-pin: both surface-2 failure warnings carry the divergence phrase" "2" \
+  "$(grep -cF 'surface 1) IS fresh but the gh token file (surface 2) is now stale' "$REFRESH_SH")"
+
+# Arm 4e — unknown subcommand warns naming the expected subcommands and exits 0 (best-effort,
+# never fails the job), PR #491 shadow Finding C.
+_stderr4e="$(bash "$REFRESH_SH" bogus </dev/null 2>&1 >/dev/null)"; _rc4e=$?
+assert_eq "#487 arm4e: unknown subcommand exits 0 (best-effort)" "0" "$_rc4e"
+assert_eq "#487 arm4e: unknown subcommand warns naming the offending subcommand" "yes" \
+  "$(printf '%s' "$_stderr4e" | grep -qF "unknown subcommand 'bogus'" && echo yes || echo no)"
+
+# Arm 4f (PR #491 SUG-1) — cmd_loop pidfile-write FAILURE emits the distinctive
+# retirement-handle breadcrumb (naming the false-defeat consequence) AND keeps running:
+# the cycle still refreshes the credential. Force the write to fail with a pidfile path
+# under /dev/null (ENOTDIR) that `mkdir -p` cannot create either. One cycle only, instant
+# sleep, mint via the printf override.
+CFG4F="$D487/cred4f.config"
+git config --file "$CFG4F" "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD4F"
+_a4f_err="$(DEVFLOW_REFRESH_MINT='printf TOK4F' DEVFLOW_REFRESH_CONFIG_FILE="$CFG4F" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok4f" DEVFLOW_REFRESH_PIDFILE="/dev/null/nope/refresh.pid" \
+  DEVFLOW_REFRESH_MAX_CYCLES=1 DEVFLOW_REFRESH_SLEEP=true GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" loop </dev/null 2>&1 >/dev/null)"; _a4f_rc=$?
+assert_eq "#491 arm4f: loop with an unwritable pidfile still exits 0" "0" "$_a4f_rc"
+assert_eq "#491 arm4f: pidfile-write failure emits the retirement-handle breadcrumb" "yes" \
+  "$(printf '%s' "$_a4f_err" | grep -qF 'has no retirement handle' && echo yes || echo no)"
+assert_eq "#491 arm4f: the loop still ran its cycle despite the pidfile failure (credential refreshed)" "x-access-token:TOK4F" \
+  "$(git config --file "$CFG4F" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# ── Wrapper arms (5–9). A stub real gh prints the token it sees; a bad-cred stub 401s.
+GHSTUB487="$D487/gh"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "GH_TOKEN_SEEN=${GH_TOKEN:-<none>} ARGS=$*"\n'; } > "$GHSTUB487"
+chmod +x "$GHSTUB487"
+GHBAD487="$D487/ghbad"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "gh: Bad credentials (HTTP 401)" >&2\n'; printf 'exit 1\n'; } > "$GHBAD487"
+chmod +x "$GHBAD487"
+FP487="$D487/fp"
+_d487_sha 'JOBSTART_TOKEN' > "$FP487"
+
+# Arm 5 — env GH_TOKEN absent → substitute, reading the token file at CALL time
+# (two calls observe two different tokens).
+printf 'FRESH1' > "$TOK487"
+_a5_1="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+printf 'FRESH2' > "$TOK487"
+_a5_2="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#487 arm5: env GH_TOKEN absent → substitutes token file (call 1 reads FRESH1)" "GH_TOKEN_SEEN=FRESH1 ARGS=api x" "$_a5_1"
+assert_eq "#487 arm5: token file read at CALL time (call 2 reads FRESH2)" "GH_TOKEN_SEEN=FRESH2 ARGS=api x" "$_a5_2"
+
+# Arm 6 — env GH_TOKEN present, hash MATCHES fingerprint → substitute.
+printf 'FRESHX' > "$TOK487"
+_a6="$(GH_TOKEN='JOBSTART_TOKEN' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#487 arm6: ambient job-start token (hash matches) → substitutes fresh token" "GH_TOKEN_SEEN=FRESHX ARGS=api x" "$_a6"
+
+# Arm 7 — env GH_TOKEN present, hash DIFFERS → defer untouched (fresh #287 mint).
+_a7="$(GH_TOKEN='FRESH_287_MINT' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#487 arm7: deliberately-fresh token (hash differs) → defers untouched" "GH_TOKEN_SEEN=FRESH_287_MINT ARGS=api x" "$_a7"
+
+# Arm 8 — substitute path but token file absent → degrade to plain invocation, with a
+# stderr breadcrumb (never a silent ride on the possibly-expiring ambient token — e.g.
+# a refresher defeated at startup never writes the token file).
+rm -f "$TOK487"
+_a8="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#487 arm8: token file absent → degrades to plain invocation (no token)" "GH_TOKEN_SEEN=<none> ARGS=api x" "$_a8"
+_a8_err="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#487 arm8: absent-token-file degrade emits a breadcrumb (not silent)" "yes" \
+  "$(printf '%s' "$_a8_err" | grep -qF 'token file' && printf '%s' "$_a8_err" | grep -qF 'absent or empty' && echo yes || echo no)"
+# Negative control: the breadcrumb belongs to the SUBSTITUTE decision only — a defer
+# (hash differs, #287 fresh mint) with the same absent token file stays breadcrumb-free.
+_a8_def_err="$(GH_TOKEN='FRESH_287_MINT' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#487 arm8: defer path with the same absent token file does NOT emit the degrade breadcrumb" "no" \
+  "$(printf '%s' "$_a8_def_err" | grep -qF 'absent or empty' && echo yes || echo no)"
+
+# Arm 9 — bad-credential failure appends the diagnostic on BOTH substitute and defer paths.
+printf 'FRESH' > "$TOK487"
+_a9_sub="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHBAD487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"; _a9_sub_rc=$?
+assert_eq "#487 arm9: bad-cred on substitute path appends the expired-credential diagnostic" "yes" \
+  "$(printf '%s' "$_a9_sub" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+assert_eq "#487 arm9: substitute path preserves the real gh exit code" "1" "$_a9_sub_rc"
+_a9_def="$(GH_TOKEN='FRESH_287_MINT' DEVFLOW_GH_REAL="$GHBAD487" DEVFLOW_GH_TOKEN_FILE="$TOK487" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$FP487" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#487 arm9: bad-cred on defer path also appends the diagnostic" "yes" \
+  "$(printf '%s' "$_a9_def" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+
+# Arm 10 — the PRODUCTION extraheader locator (no DEVFLOW_REFRESH_CONFIG_FILE override):
+# seed a real git repo whose LOCAL config carries the extraheader, run the cycle from
+# inside it, and assert locate_extraheader_file() found and rewrote that real config file
+# (exercises the `git config --show-origin … | sed` parse the override otherwise bypasses).
+REPO10="$D487/repo10"; mkdir -p "$REPO10"; ( cd "$REPO10" && git init -q )
+( cd "$REPO10" && git config "http.https://ex10.test/.extraheader" \
+    "AUTHORIZATION: basic $(printf 'x-access-token:OLD10' | openssl base64 -A)" )
+( cd "$REPO10" && DEVFLOW_REFRESH_MINT='printf NEW10' DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok10" \
+    GITHUB_SERVER_URL="https://ex10.test" bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1 )
+assert_eq "#487 arm10: production locate_extraheader_file finds+rewrites the real git config" "x-access-token:NEW10" \
+  "$(cd "$REPO10" && git config --get 'http.https://ex10.test/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arm 11 — the wrapper's resolve_real_gh PATH fallback + self-exclusion (no DEVFLOW_GH_REAL):
+# place a stub `gh` on PATH AND a copy of the wrapper named `gh` ahead of it, then invoke
+# through that wrapper-named-gh. resolve_real_gh must SKIP itself and resolve the stub —
+# proving the recursion guard (a self-match would infinite-loop in production, where the
+# wrapper is installed ahead of the real gh on PATH).
+BIN11A="$D487/bin11a"; BIN11B="$D487/bin11b"; mkdir -p "$BIN11A" "$BIN11B"
+cp "$GHFRESH_SH" "$BIN11A/gh"; chmod +x "$BIN11A/gh"   # the wrapper, named gh, first on PATH
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "REAL11 ARGS=$*"\n'; } > "$BIN11B/gh"; chmod +x "$BIN11B/gh"
+_a11="$(env -u GH_TOKEN -u DEVFLOW_GH_REAL PATH="$BIN11A:$BIN11B:$PATH" \
+  DEVFLOW_GH_TOKEN_FILE="$D487/none11" DEVFLOW_GH_FINGERPRINT_FILE="$D487/none11fp" \
+  "$BIN11A/gh" x 2>/dev/null)"
+assert_eq "#487 arm11: resolve_real_gh skips the wrapper itself and resolves the real gh on PATH" "REAL11 ARGS=x" "$_a11"
+
+# Arm 11b — resolve_real_gh: DEVFLOW_GH_REAL SET but NON-EXECUTABLE (e.g. a stale/removed
+# path) must NOT be used verbatim — the `[ -x "$REAL_GH" ]` guard fails and resolve_real_gh
+# falls through to the PATH walk, resolving the real gh there (SUG-5 coverage, PR #491).
+BIN11C="$D487/bin11c"; mkdir -p "$BIN11C"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "REAL11C ARGS=$*"\n'; } > "$BIN11C/gh"; chmod +x "$BIN11C/gh"
+_a11b="$(env -u GH_TOKEN PATH="$BIN11C:$PATH" DEVFLOW_GH_REAL="$D487/nonexistent-real-gh" \
+  DEVFLOW_GH_TOKEN_FILE="$D487/none11b" DEVFLOW_GH_FINGERPRINT_FILE="$D487/none11bfp" \
+  bash "$GHFRESH_SH" x 2>/dev/null)"
+assert_eq "#487 arm11b: DEVFLOW_GH_REAL set-but-non-executable falls through to the PATH walk" "REAL11C ARGS=x" "$_a11b"
+
+# Arm 12 — decide() must NOT silently defer when it cannot establish the fingerprint
+# comparison (GH_TOKEN present but fingerprint file absent): it emits a breadcrumb and
+# defers (fail toward not clobbering a fresh #287 mint), never a silent stale-token ride.
+_a12_err="$(GH_TOKEN='SOMETHING' DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$D487/tok12" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/absent12" bash "$GHFRESH_SH" x 2>&1 1>/dev/null)"
+assert_eq "#487 arm12: unestablished fingerprint comparison emits a breadcrumb (not a silent defer)" "yes" \
+  "$(printf '%s' "$_a12_err" | grep -qF 'could not establish the job-start fingerprint comparison' && echo yes || echo no)"
+
+# Arm 21 — the extraheader rewrite uses `git config --replace-all`: seed a fixture
+# config carrying TWO values for the key, run a cycle, and assert the cycle collapses
+# them to the single fresh value (a plain `set` would fail on the multi-value key and
+# leave the credential stale).
+CFG21="$D487/cred21.config"
+git config --file "$CFG21" --add "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD_A"
+git config --file "$CFG21" --add "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD_B"
+DEVFLOW_REFRESH_MINT='printf TOKEN_21' DEVFLOW_REFRESH_CONFIG_FILE="$CFG21" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok21" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null >/dev/null 2>&1
+assert_eq "#487 arm21: multi-value extraheader collapses to ONE value after the cycle" "1" \
+  "$(git config --file "$CFG21" --get-all 'http.https://github.com/.extraheader' | wc -l | tr -d ' ')"
+assert_eq "#487 arm21: the surviving value is the fresh token" "x-access-token:TOKEN_21" \
+  "$(git config --file "$CFG21" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arm 21b — IMP-1 (PR #491 review): the extraheader key set in MORE THAN ONE distinct
+# config file is anomalous (actions/checkout persists exactly one). The PRODUCTION
+# locator (no DEVFLOW_REFRESH_CONFIG_FILE override) must FAIL CLOSED — warn and leave
+# the previous credential intact — rather than silently rewrite just the first file
+# while `git push` reads a higher-precedence stale value elsewhere and the cycle still
+# prints `cycle OK`. Seed a real repo whose LOCAL config carries the key AND an
+# include.path'd config that also carries it → `git config --show-origin --get-all`
+# returns two DISTINCT files. Distinct from arm21 (multi-VALUE in ONE file → collapses
+# via --replace-all → succeeds).
+REPO21B="$D487/repo21b"; mkdir -p "$REPO21B"; ( cd "$REPO21B" && git init -q )
+INC21B="$REPO21B/included.config"
+git config --file "$INC21B" "http.https://ex21b.test/.extraheader" \
+  "AUTHORIZATION: basic $(printf 'x-access-token:INCVAL21B' | openssl base64 -A)"
+( cd "$REPO21B" \
+  && git config "http.https://ex21b.test/.extraheader" "AUTHORIZATION: basic $(printf 'x-access-token:OLD21B' | openssl base64 -A)" \
+  && git config include.path "$INC21B" )   # ABSOLUTE — a relative include.path resolves against .git/, not the repo root
+_a21b_err="$(cd "$REPO21B" && DEVFLOW_REFRESH_MINT='printf TOKEN_21B' DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok21b" \
+  GITHUB_SERVER_URL="https://ex21b.test" bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _a21b_rc=$?
+assert_eq "#487 arm21b: multi-FILE extraheader fails closed (exits 0, best-effort)" "0" "$_a21b_rc"
+assert_eq "#487 arm21b: multi-FILE extraheader emits the more-than-one-config-file ::warning::" "yes" \
+  "$(printf '%s' "$_a21b_err" | grep -qF 'MORE THAN ONE config file' && echo yes || echo no)"
+assert_eq "#487 arm21b: multi-FILE extraheader leaves the LOCAL credential intact (OLD21B, not rewritten)" "x-access-token:OLD21B" \
+  "$(cd "$REPO21B" && git config --file .git/config --get 'http.https://ex21b.test/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+assert_eq "#487 arm21b: multi-FILE extraheader did NOT write the token file (mint fresh but push credential not rewritten)" "yes" \
+  "$([ ! -e "$D487/tok21b" ] && echo yes || echo no)"
+# Behavioral-fix pin (IMP-1): the mutation FLIPS the multi-file detection off in a way that
+# keeps the script parseable — `s/multi=yes/multi=no/` makes the assignment a no-op, so
+# locate_extraheader_file never warns and falls through to rewrite only the FIRST config
+# file: the actual silent-stale-credential regression (a higher-precedence stale credential
+# wins elsewhere). A line-DELETING mutation (`/multi=yes/d`) is deliberately NOT used — it
+# leaves `elif …; then` immediately before `fi`, a bash PARSE error that would flip the pin
+# RED because the whole script crashes rather than because the guard was behaviorally
+# disabled (the removal-pin vacuity the behavioral-fix-pin rule exists to reject). Must flip RED.
+assert_pin_red_under "#487 arm21b-pin: multi-file extraheader detection present (disabling it re-opens the silent-stale-credential path)" \
+  'multi=yes' 's/multi=yes/multi=no/' "$REFRESH_SH"
+
+# Arm 22 — the REAL mint path (no DEVFLOW_REFRESH_MINT override), desk-tested with a
+# stub `curl` (no network) and real `openssl`/`jq`: assert (a) the RS256 JWT header +
+# claims decode correctly, (b) the access-token POST body scopes to THIS repo only
+# ({"repositories":["<repo_name>"]}), and (c) a real token is minted+written. This
+# converts issue #487's least-privilege key AC from attestation to evidence.
+RSAKEY22="$(openssl genrsa 2048 2>/dev/null)"
+CURLDIR22="$D487/curlbin22"; mkdir -p "$CURLDIR22"
+BEARERF22="$D487/bearer22"; BODYF22="$D487/body22"
+cat > "$CURLDIR22/curl" <<EOF22
+#!/usr/bin/env bash
+prev=""; body=""
+for a in "\$@"; do
+  case "\$a" in "Authorization: Bearer "*) printf '%s' "\${a#Authorization: Bearer }" > "$BEARERF22" ;; esac
+  [ "\$prev" = "-d" ] && body="\$a"
+  prev="\$a"
+done
+case "\$*" in
+  *access_tokens*) printf '%s' "\$body" > "$BODYF22"; printf '{"token":"MINTED22"}' ;;
+  *installation*)  printf '{"id":9999}' ;;
+esac
+EOF22
+chmod +x "$CURLDIR22/curl"
+CFG22="$D487/cred22.config"
+git config --file "$CFG22" "http.https://github.com/.extraheader" "AUTHORIZATION: basic OLD22"
+printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR22:$PATH" DEVFLOW_APP_ID=APPID22 \
+  GITHUB_REPOSITORY="owner/myrepo22" DEVFLOW_REFRESH_CONFIG_FILE="$CFG22" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok22" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle >/dev/null 2>&1
+# b64url-decode helper for the captured JWT.
+_b64url_dec22() { local s="$1"; s="${s//-/+}"; s="${s//_//}"; case $(( ${#s} % 4 )) in 2) s="$s==";; 3) s="$s=";; esac; printf '%s' "$s" | openssl base64 -d -A 2>/dev/null; }
+_jwt22="$(cat "$BEARERF22" 2>/dev/null)"
+_jhdr22="${_jwt22%%.*}"; _jrest22="${_jwt22#*.}"; _jpay22="${_jrest22%%.*}"
+assert_eq "#487 arm22a: minted JWT header decodes to the RS256 alg" '{"alg":"RS256","typ":"JWT"}' \
+  "$(_b64url_dec22 "$_jhdr22")"
+assert_eq "#487 arm22a: minted JWT claims carry the app id as iss" "yes" \
+  "$(_b64url_dec22 "$_jpay22" | grep -qF '"iss":"APPID22"' && echo yes || echo no)"
+assert_eq "#487 arm22b: access-token POST body scopes to THIS repo only (least privilege)" '{"repositories":["myrepo22"]}' \
+  "$(cat "$BODYF22" 2>/dev/null)"
+assert_eq "#487 arm22c: real mint writes the fresh token to the token file" "MINTED22" \
+  "$(cat "$D487/tok22" 2>/dev/null)"
+assert_eq "#487 arm22c: real mint rewrites the extraheader to the fresh token" "x-access-token:MINTED22" \
+  "$(git config --file "$CFG22" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arm 23 — real mint returns an empty token (POST responds without a .token) →
+# previous credential intact + a ::warning::, never a stale/empty overwrite.
+CURLDIR23="$D487/curlbin23"; mkdir -p "$CURLDIR23"
+cat > "$CURLDIR23/curl" <<'EOF23'
+#!/usr/bin/env bash
+case "$*" in
+  *access_tokens*) printf '{"token":""}' ;;
+  *installation*)  printf '{"id":9999}' ;;
+esac
+EOF23
+chmod +x "$CURLDIR23/curl"
+CFG23="$D487/cred23.config"
+git config --file "$CFG23" "http.https://github.com/.extraheader" "AUTHORIZATION: basic $(printf 'x-access-token:PREV23' | openssl base64 -A)"
+_a23_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23:$PATH" DEVFLOW_APP_ID=APPID23 \
+  GITHUB_REPOSITORY="owner/myrepo23" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23_rc=$?
+assert_eq "#487 arm23: empty minted token exits 0 (best-effort cycle)" "0" "$_a23_rc"
+assert_eq "#487 arm23: empty minted token emits the SPECIFIC guard ::warning:: (access token missing from response)" "yes" \
+  "$(printf '%s' "$_a23_err" | grep -qF 'mint: access token missing from response' && echo yes || echo no)"
+assert_eq "#487 arm23: empty minted token leaves the previous credential intact (PREV23)" "x-access-token:PREV23" \
+  "$(git config --file "$CFG23" --get 'http.https://github.com/.extraheader' | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null)"
+
+# Arms 23b–23g — real_mint intermediate-failure branches (SUG-5 coverage, PR #491
+# review). Each drives ONE undriven guard of the real (no-override) mint path with the
+# real RSA key from arm22 (RSAKEY22) and a stubbed `curl` (no network). Every branch
+# must exit 0 (best-effort) and emit its SPECIFIC ::warning:: naming the failed arm,
+# leaving the previous credential untouched.
+CFG23B="$D487/cred23b.config"
+git config --file "$CFG23B" "http.https://github.com/.extraheader" "AUTHORIZATION: basic PREV23B"
+
+# 23b — installation-id GET fails (curl exits non-zero for the installation URL).
+CURLDIR23B="$D487/curlbin23b"; mkdir -p "$CURLDIR23B"
+cat > "$CURLDIR23B/curl" <<'EOF23B'
+#!/usr/bin/env bash
+case "$*" in *installation*) exit 22 ;; esac
+EOF23B
+chmod +x "$CURLDIR23B/curl"
+_a23b_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23B:$PATH" DEVFLOW_APP_ID=APPID23B \
+  GITHUB_REPOSITORY="owner/myrepo23b" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23b" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23b_rc=$?
+assert_eq "#487 arm23b: installation GET failure exits 0" "0" "$_a23b_rc"
+assert_eq "#487 arm23b: installation GET failure warns 'could not resolve installation id'" "yes" \
+  "$(printf '%s' "$_a23b_err" | grep -qF 'could not resolve installation id' && echo yes || echo no)"
+# Per-arm credential-intactness (PR #491 SUG-4): assert intact after EACH arm (not only
+# collectively at the end) so a regression that rewrites the credential on one failure
+# branch is localized to that arm instead of surfacing on a shared final assertion.
+assert_eq "#491 arm23b: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# 23c — installation response missing `.id` (jq yields empty).
+CURLDIR23C="$D487/curlbin23c"; mkdir -p "$CURLDIR23C"
+cat > "$CURLDIR23C/curl" <<'EOF23C'
+#!/usr/bin/env bash
+case "$*" in *installation*) printf '{}' ;; esac
+EOF23C
+chmod +x "$CURLDIR23C/curl"
+_a23c_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23C:$PATH" DEVFLOW_APP_ID=APPID23C \
+  GITHUB_REPOSITORY="owner/myrepo23c" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23c" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23c_rc=$?
+assert_eq "#487 arm23c: missing installation .id exits 0" "0" "$_a23c_rc"
+assert_eq "#487 arm23c: missing installation .id warns 'installation id missing'" "yes" \
+  "$(printf '%s' "$_a23c_err" | grep -qF 'installation id missing' && echo yes || echo no)"
+assert_eq "#491 arm23c: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# 23d — access-token POST fails (installation resolves, the POST curl exits non-zero).
+CURLDIR23D="$D487/curlbin23d"; mkdir -p "$CURLDIR23D"
+cat > "$CURLDIR23D/curl" <<'EOF23D'
+#!/usr/bin/env bash
+case "$*" in
+  *access_tokens*) exit 22 ;;
+  *installation*)  printf '{"id":9999}' ;;
+esac
+EOF23D
+chmod +x "$CURLDIR23D/curl"
+_a23d_err="$(printf '%s' "$RSAKEY22" | env "PATH=$CURLDIR23D:$PATH" DEVFLOW_APP_ID=APPID23D \
+  GITHUB_REPOSITORY="owner/myrepo23d" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23d" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23d_rc=$?
+assert_eq "#487 arm23d: access-token POST failure exits 0" "0" "$_a23d_rc"
+assert_eq "#487 arm23d: access-token POST failure warns 'access-token POST failed'" "yes" \
+  "$(printf '%s' "$_a23d_err" | grep -qF 'access-token POST failed' && echo yes || echo no)"
+assert_eq "#491 arm23d: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# 23e — JWT signing fails: feed a BOGUS (non-PEM) key on stdin so `openssl dgst -sign`
+# cannot load it. No curl is reached (signing precedes the API calls).
+_a23e_err="$(printf 'NOT-A-VALID-PEM-KEY' | env DEVFLOW_APP_ID=APPID23E \
+  GITHUB_REPOSITORY="owner/myrepo23e" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23e" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23e_rc=$?
+assert_eq "#487 arm23e: JWT signing failure exits 0" "0" "$_a23e_rc"
+assert_eq "#487 arm23e: bad private key warns on the JWT signing arm" "yes" \
+  "$(printf '%s' "$_a23e_err" | grep -qF 'JWT signing' && echo yes || echo no)"
+assert_eq "#491 arm23e: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# 23f — GITHUB_REPOSITORY empty: the mint cannot resolve an installation → the specific
+# guard fires (signing never runs; the guard precedes it).
+_a23f_err="$(printf '%s' "$RSAKEY22" | env DEVFLOW_APP_ID=APPID23F \
+  GITHUB_REPOSITORY= DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23f" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23f_rc=$?
+assert_eq "#487 arm23f: empty GITHUB_REPOSITORY exits 0" "0" "$_a23f_rc"
+assert_eq "#487 arm23f: empty GITHUB_REPOSITORY warns it cannot resolve the installation" "yes" \
+  "$(printf '%s' "$_a23f_err" | grep -qF 'GITHUB_REPOSITORY empty' && echo yes || echo no)"
+assert_eq "#491 arm23f: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# 23g — a required tool is missing: point PATH at a dir with ONLY `openssl` (the
+# tool-presence loop checks openssl THEN curl, before any signing), so `curl` is absent
+# and the missing-tool guard fires with its specific ::warning::. env is given an
+# ABSOLUTE bash so it can start with PATH pointed away from the system bindir.
+BINDIR23G="$D487/toolbin23g"; mkdir -p "$BINDIR23G"
+ln -s "$(command -v openssl)" "$BINDIR23G/openssl"
+BASH23G="$(command -v bash)"
+_a23g_err="$(printf '%s' "$RSAKEY22" | env "PATH=$BINDIR23G" DEVFLOW_APP_ID=APPID23G \
+  GITHUB_REPOSITORY="owner/myrepo23g" DEVFLOW_REFRESH_CONFIG_FILE="$CFG23B" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok23g" GITHUB_SERVER_URL="https://github.com" \
+  "$BASH23G" "$REFRESH_SH" cycle 2>&1 >/dev/null)"; _a23g_rc=$?
+assert_eq "#487 arm23g: missing required tool exits 0" "0" "$_a23g_rc"
+assert_eq "#487 arm23g: missing curl warns about the required tool not found on PATH" "yes" \
+  "$(printf '%s' "$_a23g_err" | grep -qF "required tool 'curl' not found" && echo yes || echo no)"
+assert_eq "#491 arm23g: previous credential intact after this failure arm (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+# Collective belt (retained alongside the per-arm asserts above): all six failure
+# branches leave the previous credential UNTOUCHED (mint failed before the git-config
+# rewrite), so CFG23B still carries its seeded value verbatim.
+assert_eq "#487 arm23b-g: mint-failure branches leave the previous credential intact (PREV23B)" "AUTHORIZATION: basic PREV23B" \
+  "$(git config --file "$CFG23B" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# Arm 24 — locate_extraheader_file failure (no override, no extraheader anywhere): a
+# successful mint but no config file to rewrite → warn, no crash, exit 0.
+REPO24="$D487/repo24"; mkdir -p "$REPO24"; ( cd "$REPO24" && git init -q )
+_a24_err="$(cd "$REPO24" && DEVFLOW_REFRESH_MINT='printf TOKEN_24' DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok24" \
+  GITHUB_SERVER_URL="https://nomatch24.test" bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _a24_rc=$?
+assert_eq "#487 arm24: absent extraheader locator failure exits 0 (no crash)" "0" "$_a24_rc"
+assert_eq "#487 arm24: absent extraheader emits the could-not-locate ::warning::" "yes" \
+  "$(printf '%s' "$_a24_err" | grep -qF 'could not locate the persisted' && echo yes || echo no)"
+
+# Arm i3 (PR #491 IMP-3) — run_cycle's surface-1 rewrite FAILURE branch: the mint succeeds
+# but `git config --file` cannot write (the located config's PARENT dir does not exist), so
+# `--replace-all` fails deterministically regardless of uid → warn, surface 2 (token file)
+# NOT reached/written, exit 0. Point the locate override at a path under a nonexistent dir.
+_ai3_err="$(DEVFLOW_REFRESH_MINT='printf TOKI3' \
+  DEVFLOW_REFRESH_CONFIG_FILE="$D487/nonexistent-i3-dir/cred.config" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/toki3" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _ai3_rc=$?
+assert_eq "#491 arm-i3: surface-1 extraheader rewrite failure exits 0 (best-effort)" "0" "$_ai3_rc"
+assert_eq "#491 arm-i3: surface-1 rewrite failure warns 'rewriting the extraheader … failed'" "yes" \
+  "$(printf '%s' "$_ai3_err" | grep -qF 'rewriting the extraheader' && echo yes || echo no)"
+assert_eq "#491 arm-i3: surface-1 rewrite failure did NOT write the token file (surface 2 not reached)" "yes" \
+  "$([ ! -e "$D487/toki3" ] && echo yes || echo no)"
+
+# Arm i3b (PR #491 IMP-3) — run_cycle's base64-encode FAILURE branch: shadow `openssl` with
+# a stub that exits 1. The mint uses the printf override (no openssl), so the ONLY openssl
+# call reached is the token base64 → it fails → warn, surface 2 NOT reached, exit 0.
+FAKEOSSL_I3B="$D487/fakeossl-i3b"; mkdir -p "$FAKEOSSL_I3B"
+{ printf '#!/usr/bin/env bash\n'; printf 'exit 1\n'; } > "$FAKEOSSL_I3B/openssl"; chmod +x "$FAKEOSSL_I3B/openssl"
+_ai3b_err="$(env "PATH=$FAKEOSSL_I3B:$PATH" DEVFLOW_REFRESH_MINT='printf TOKI3B' \
+  DEVFLOW_REFRESH_CONFIG_FILE="$D487/credi3b.config" DEVFLOW_REFRESH_TOKEN_FILE="$D487/toki3b" \
+  GITHUB_SERVER_URL="https://github.com" bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _ai3b_rc=$?
+assert_eq "#491 arm-i3b: base64-encode failure exits 0 (best-effort)" "0" "$_ai3b_rc"
+assert_eq "#491 arm-i3b: base64-encode failure warns 'base64 encode … failed'" "yes" \
+  "$(printf '%s' "$_ai3b_err" | grep -qF 'base64 encode' && echo yes || echo no)"
+assert_eq "#491 arm-i3b: base64-encode failure did NOT write the token file (surface 2 not reached)" "yes" \
+  "$([ ! -e "$D487/toki3b" ] && echo yes || echo no)"
+
+# Arm i-empty (PR #491 review) — run_cycle's empty-token guard: a mint that exits 0 with
+# EMPTY stdout (unreachable via real_mint, which always returns non-zero on an empty token —
+# so this is a defensive branch) must hit the DISTINCT 'mint returned an empty token' guard
+# (not the 'mint arm failed' one), leave the previous credential intact, and exit 0. Drive it
+# with the `true` override (exits 0, prints nothing).
+CFG_EMPTY="$D487/cred_empty.config"
+git config --file "$CFG_EMPTY" "http.https://github.com/.extraheader" "AUTHORIZATION: basic PREVEMPTY"
+_aempty_err="$(DEVFLOW_REFRESH_MINT='true' DEVFLOW_REFRESH_CONFIG_FILE="$CFG_EMPTY" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/tok_empty" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _aempty_rc=$?
+assert_eq "#491 arm-empty: empty-token mint exits 0 (best-effort)" "0" "$_aempty_rc"
+assert_eq "#491 arm-empty: empty-token mint hits the specific 'mint returned an empty token' guard" "yes" \
+  "$(printf '%s' "$_aempty_err" | grep -qF 'mint returned an empty token' && echo yes || echo no)"
+assert_eq "#491 arm-empty: empty-token mint leaves the previous credential intact (PREVEMPTY)" "AUTHORIZATION: basic PREVEMPTY" \
+  "$(git config --file "$CFG_EMPTY" --get 'http.https://github.com/.extraheader' 2>/dev/null)"
+
+# Arm-nokey (PR #491 shadow review) — real_mint's 'no private key on stdin' guard: with
+# DEVFLOW_APP_ID set (so the app-id guard passes) but an EMPTY stdin key and no mint override,
+# the KEY-empty guard fires (it precedes the tool-presence and GITHUB_REPOSITORY guards) with
+# its specific ::warning::, exits 0. The one real_mint guard previously undriven.
+_anokey_err="$(DEVFLOW_APP_ID=APPIDNK DEVFLOW_REFRESH_CONFIG_FILE="$D487/crednk.config" \
+  DEVFLOW_REFRESH_TOKEN_FILE="$D487/toknk" GITHUB_REPOSITORY="o/r" GITHUB_SERVER_URL="https://github.com" \
+  bash "$REFRESH_SH" cycle </dev/null 2>&1 >/dev/null)"; _anokey_rc=$?
+assert_eq "#491 arm-nokey: empty stdin key exits 0 (best-effort)" "0" "$_anokey_rc"
+assert_eq "#491 arm-nokey: empty stdin key hits the specific 'no private key on stdin' guard" "yes" \
+  "$(printf '%s' "$_anokey_err" | grep -qF 'no private key on stdin' && echo yes || echo no)"
+
+# Arm 25 — gh-fresh.sh resolve_real_gh returns 127 when no gh resolves (no
+# DEVFLOW_GH_REAL and no gh on PATH) → the breadcrumb, and rc 127.
+EMPTY25="$D487/emptybin25"; mkdir -p "$EMPTY25"
+# Give env an ABSOLUTE bash path — with PATH pointed at an empty dir, env could not
+# otherwise resolve `bash` itself (the point is only that the SCRIPT's internal PATH
+# has no `gh`, so resolve_real_gh's walk fails).
+BASH25="$(command -v bash)"
+_a25_err="$(env -u GH_TOKEN -u DEVFLOW_GH_REAL "PATH=$EMPTY25" "$BASH25" "$GHFRESH_SH" api x 2>&1 1>/dev/null)"; _a25_rc=$?
+assert_eq "#487 arm25: resolve_real_gh failure returns 127" "127" "$_a25_rc"
+assert_eq "#487 arm25: resolve_real_gh failure emits the could-not-resolve breadcrumb" "yes" \
+  "$(printf '%s' "$_a25_err" | grep -qF 'could not resolve the real gh binary' && echo yes || echo no)"
+
+# Arm 26 — the wrapper's bad-credential scan also matches the `Authentication failed`
+# regex alternative (arm9 only exercised `Bad credentials`).
+GHAUTHFAIL26="$D487/ghauthfail26"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "fatal: Authentication failed for '\''https://github.com/x'\''" >&2\n'; printf 'exit 1\n'; } > "$GHAUTHFAIL26"
+chmod +x "$GHAUTHFAIL26"
+printf 'FRESH26' > "$D487/tok26"; _d487_sha 'JOBSTART26' > "$D487/fp26"
+_a26="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHAUTHFAIL26" DEVFLOW_GH_TOKEN_FILE="$D487/tok26" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp26" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#487 arm26: 'Authentication failed' also triggers the expired-credential diagnostic" "yes" \
+  "$(printf '%s' "$_a26" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+# Arm 26b (PR #491 SUG-2) — the anchored regex still REJECTS a bare `Authentication failed`
+# that is NOT git's `fatal: Authentication failed for …` line: a non-token failure whose
+# stderr merely contains those two words must NOT get the expired-credential DIAG_LINE
+# (else it could trip the two-strikes abort). Negative control for the anchor.
+GHBAREAUTH26B="$D487/ghbareauth26b"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "error: Authentication failed due to 2FA policy" >&2\n'; printf 'exit 1\n'; } > "$GHBAREAUTH26B"
+chmod +x "$GHBAREAUTH26B"
+printf 'FRESH26B' > "$D487/tok26b"; _d487_sha 'JOBSTART26B' > "$D487/fp26b"
+_a26b="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHBAREAUTH26B" DEVFLOW_GH_TOKEN_FILE="$D487/tok26b" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp26b" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#491 arm26b: a bare (non-git) 'Authentication failed' does NOT get the expired-credential diagnostic" "no" \
+  "$(printf '%s' "$_a26b" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+
+# Arm 27 (PR #491 A-SUG-2) — the bad-credential scan reads the COMBINED stream: a real gh
+# that emits its 401 signature on STDOUT (not stderr) still gets the compaction-immune
+# DIAG_LINE appended (the pre-fix stderr-only scan would miss it). Stub gh prints the
+# signature to STDOUT and exits 1.
+GHOUT401_27="$D487/ghout401_27"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "gh: Bad credentials (HTTP 401)"\n'; printf 'exit 1\n'; } > "$GHOUT401_27"
+chmod +x "$GHOUT401_27"
+printf 'FRESH27' > "$D487/tok27"; _d487_sha 'JOBSTART27' > "$D487/fp27"
+_a27="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHOUT401_27" DEVFLOW_GH_TOKEN_FILE="$D487/tok27" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp27" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"
+assert_eq "#491 arm27: 401 on STDOUT (not stderr) still appends the expired-credential diagnostic" "yes" \
+  "$(printf '%s' "$_a27" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+
+# Arm 28 (PR #491 IMP-2 coverage) — resolve_real_gh's self-exclusion is canonicalized
+# (pwd -P + BASH_SOURCE), so the wrapper reached via a SYMLINKED PATH entry is still
+# recognized as itself and skipped, resolving the real gh. NOTE: this is COVERAGE of the
+# canonicalization path, not a RED-flip behavioral pin — the pre-fix code self-heals via
+# one extra re-exec (once it re-execs the wrapper by an absolute path, $0 matches and it
+# resolves the real gh), so both forms end at the SAME output; the fix removes the wasted
+# re-exec and hardens the symlink/relative case, which has no distinguishable unit output.
+W28="$D487/wrap28"; R28="$D487/real28"; mkdir -p "$W28" "$R28"
+cp "$GHFRESH_SH" "$W28/gh"; chmod +x "$W28/gh"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "REAL28 ARGS=$*"\n'; } > "$R28/gh"; chmod +x "$R28/gh"
+WLINK28="$D487/wraplink28"; ln -s "$W28" "$WLINK28"
+_a28="$(env -u GH_TOKEN -u DEVFLOW_GH_REAL PATH="$WLINK28:$R28:$PATH" \
+  DEVFLOW_GH_TOKEN_FILE="$D487/none28" DEVFLOW_GH_FINGERPRINT_FILE="$D487/none28fp" \
+  "$W28/gh" x 2>/dev/null)"
+assert_eq "#491 arm28: resolve_real_gh skips the wrapper reached via a symlinked PATH entry and resolves the real gh" "REAL28 ARGS=x" "$_a28"
+
+# Arm 29 (PR #491 review) — the mktemp-UNAVAILABLE fallback in main(): shadow `mktemp` with a
+# stub that exits 1 so outcap="" and the else branch runs (stderr-only scan, no tee, the
+# `2>&1 1>&3` invocation). Every other wrapper arm runs with mktemp present, so this branch —
+# real agent-facing code that duplicates the substitute/degrade invocation + redirection — was
+# untested. Assert (a) a bad-cred on STDERR still appends the diagnostic and preserves gh's rc,
+# and (b) stdout still streams live through the fallback.
+FAILMKTEMP29="$D487/failmktemp29"; mkdir -p "$FAILMKTEMP29"
+{ printf '#!/usr/bin/env bash\n'; printf 'exit 1\n'; } > "$FAILMKTEMP29/mktemp"; chmod +x "$FAILMKTEMP29/mktemp"
+printf 'FRESH29' > "$D487/tok29"; _d487_sha 'JOBSTART29' > "$D487/fp29"
+_a29_err="$(env -u GH_TOKEN "PATH=$FAILMKTEMP29:$PATH" DEVFLOW_GH_REAL="$GHBAD487" DEVFLOW_GH_TOKEN_FILE="$D487/tok29" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp29" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"; _a29_rc=$?
+assert_eq "#491 arm29: mktemp-unavailable fallback still appends the diagnostic on a stderr bad-cred" "yes" \
+  "$(printf '%s' "$_a29_err" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+assert_eq "#491 arm29: mktemp-unavailable fallback preserves the real gh exit code" "1" "$_a29_rc"
+_a29_out="$(env -u GH_TOKEN "PATH=$FAILMKTEMP29:$PATH" DEVFLOW_GH_REAL="$GHSTUB487" DEVFLOW_GH_TOKEN_FILE="$D487/tok29" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp29" bash "$GHFRESH_SH" api x 2>/dev/null)"
+assert_eq "#491 arm29: mktemp-unavailable fallback still streams stdout live (substitutes FRESH29)" "GH_TOKEN_SEEN=FRESH29 ARGS=api x" "$_a29_out"
+
+# Arm 30 (PR #491 shadow review) — NEGATIVE control pinning the `[ "$rc" -ne 0 ]` conjunct of
+# the diagnostic-append guard: a SUCCESSFUL (rc 0) gh call whose OUTPUT merely CONTAINS the
+# bad-cred signature (e.g. an issue title / JSON body) must NOT get the expired-credential
+# DIAG_LINE. arm27 pins the positive direction (rc≠0 + signature → DIAG); this pins the
+# rc-guard (deleting `[ "$rc" -ne 0 ]` would append the compaction-immune diagnostic on a
+# healthy call → RED).
+GHOK401_30="$D487/ghok401_30"
+{ printf '#!/usr/bin/env bash\n'; printf 'echo "issue #12: fix Bad credentials (HTTP 401) error handling"\n'; printf 'exit 0\n'; } > "$GHOK401_30"
+chmod +x "$GHOK401_30"
+printf 'FRESH30' > "$D487/tok30"; _d487_sha 'JOBSTART30' > "$D487/fp30"
+_a30_err="$(env -u GH_TOKEN DEVFLOW_GH_REAL="$GHOK401_30" DEVFLOW_GH_TOKEN_FILE="$D487/tok30" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D487/fp30" bash "$GHFRESH_SH" api x 2>&1 1>/dev/null)"; _a30_rc=$?
+assert_eq "#491 arm30: a SUCCESSFUL (rc 0) call whose output contains the signature does NOT get the diagnostic" "no" \
+  "$(printf '%s' "$_a30_err" | grep -qF 'devflow-gh-fresh: gh call failed with an expired/bad credential' && echo yes || echo no)"
+assert_eq "#491 arm30: the successful call preserves rc 0" "0" "$_a30_rc"
+
+# ── stop-refresher.sh arms (13–16, 19–20): the retirement step's defeated-refresher
+# signal is honest — it must NOT over-fire on a recovered transient, and it MUST fire on
+# the never-started/crash case (absent pidfile), the died-mid-run case (pidfile present
+# but the pid no longer runs — a stale `cycle OK` must not mask a death after that
+# cycle), and the sustained-failure case (log's last cycle line is a ::warning::).
+# Asserts on the helper's OWN message literal so a tailed fixture ::warning:: line is
+# not miscounted. Live-refresher fixtures spawn a real `sleep` child (the liveness probe
+# demands a running pid); stop-refresher.sh itself retires it via the pidfile.
+STOP_SH="$LIB/../scripts/stop-refresher.sh"
+_defeat487() { printf '%s' "$1" | grep -qF 'credential refresher may not have kept credentials fresh' && echo yes || echo no; }
+assert_eq "#487 stop-refresher exists (extracted from the workflow Stop step)" "yes" \
+  "$([ -f "$STOP_SH" ] && echo yes || echo no)"
+
+# Arm 13 — pidfile present (live process) + last cycle OK → recovered transient → NO
+# defeated warning. The live pid is the positive control the died-mid-run arm 19 needs:
+# same fixture shape, only liveness differs.
+sleep 300 & _live13=$!
+echo "$_live13" > "$D487/pidA"; printf 'refresh-app-credentials: cycle OK (credentials refreshed)\n' > "$D487/logA"
+_s13="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidA" DEVFLOW_REFRESH_LOG="$D487/logA" bash "$STOP_SH" 2>&1)"; _s13_rc=$?
+assert_eq "#487 arm13: recovered transient (live pid, last cycle OK) does NOT warn defeated" "no" "$(_defeat487 "$_s13")"
+assert_eq "#487 arm13: stop-refresher always exits 0" "0" "$_s13_rc"
+assert_eq "#487 arm13: a live refresher is signalled (kill by pidfile)" "yes" \
+  "$(printf '%s' "$_s13" | grep -qF "signalled credential refresher (pid $_live13)" && echo yes || echo no)"
+kill "$_live13" 2>/dev/null; wait "$_live13" 2>/dev/null || true
+
+# Arm 14 — pidfile absent AND the Start step ran (STARTED=success) → genuine defeat → warn.
+_s14="$(DEVFLOW_REFRESH_STARTED=success DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm14: absent pidfile + Start ran (never started/crashed) warns defeated" "yes" "$(_defeat487 "$_s14")"
+
+# Arm 17 — pidfile absent BUT the Start step did NOT run (job aborted upstream:
+# STARTED=skipped) → missing pidfile is expected → NO false defeated warning.
+_s17="$(DEVFLOW_REFRESH_STARTED=skipped DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm17: absent pidfile + Start skipped (upstream abort) does NOT warn defeated" "no" "$(_defeat487 "$_s17")"
+
+# Arm 18 — pidfile absent AND the Start step RAN-AND-FAILED (STARTED=failure) → the
+# refresher genuinely never started → warn (keys on "ran", not "succeeded").
+_s18="$(DEVFLOW_REFRESH_STARTED=failure DEVFLOW_REFRESH_PIDFILE="$D487/absentpid" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm18: absent pidfile + Start ran-and-failed warns defeated (ran, not succeeded)" "yes" "$(_defeat487 "$_s18")"
+
+# Arm 15 — pidfile present (live) + last log line is a ::warning:: → sustained failure
+# → warn, attributed to the LOG arm (not the liveness arm — the pid is alive).
+sleep 300 & _live15=$!
+echo "$_live15" > "$D487/pidC"
+printf 'refresh-app-credentials: cycle OK\n::warning::refresh-app-credentials: cycle: mint arm failed\n' > "$D487/logC"
+_s15="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidC" DEVFLOW_REFRESH_LOG="$D487/logC" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm15: sustained failure (live pid, last log line a ::warning::) warns defeated" "yes" "$(_defeat487 "$_s15")"
+assert_eq "#487 arm15: the warning is attributed to the failed cycle, not liveness" "yes" \
+  "$(printf '%s' "$_s15" | grep -qF 'the most recent refresh cycle failed' && echo yes || echo no)"
+kill "$_live15" 2>/dev/null; wait "$_live15" 2>/dev/null || true
+
+# Arm 16 — pidfile present (live) + no log yet → nothing to assert → NO defeated warning.
+sleep 300 & _live16=$!
+echo "$_live16" > "$D487/pidD"
+_s16="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidD" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm16: pidfile present (live) + no log does NOT warn defeated" "no" "$(_defeat487 "$_s16")"
+kill "$_live16" 2>/dev/null; wait "$_live16" 2>/dev/null || true
+
+# Arm 16b — pidfile present (live) + a log that EXISTS but carries NO
+# `refresh-app-credentials:` cycle line (unrelated content only) → the grep matches
+# nothing → `last` is empty → the `*)` default arm → nothing to assert → NO defeated
+# warning (SUG-5 coverage of the log-present-but-no-cycle-line default, PR #491).
+sleep 300 & _live16b=$!
+echo "$_live16b" > "$D487/pidG"
+printf 'some unrelated log noise\nanother line without the marker\n' > "$D487/logG"
+_s16b="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidG" DEVFLOW_REFRESH_LOG="$D487/logG" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm16b: live pid + log present but no cycle line (default arm) does NOT warn defeated" "no" "$(_defeat487 "$_s16b")"
+kill "$_live16b" 2>/dev/null; wait "$_live16b" 2>/dev/null || true
+
+# Arm 19 — pidfile present but the pid is DEAD + last cycle OK → the refresher died
+# after its last good cycle (OOM-killed/reaped); the stale `cycle OK` must NOT mask the
+# death → warn, attributed to the died-mid-run liveness arm. Positive control: arm 13 is
+# byte-identical except the pid is alive, and it does NOT warn — so this rejection is
+# attributable to liveness alone.
+# Sentinel PID far above any live-process range (exceeds PID_MAX on Linux/macOS), so
+# `kill -0` deterministically reports it dead with NO PID-reuse race and stop-refresher's
+# `kill "$pid"` cannot signal an unrelated same-uid process (PR #491 shadow review — a
+# reaped-child PID is correct only until the kernel recycles that number).
+_dead19=2147483647
+echo "$_dead19" > "$D487/pidE"; printf 'refresh-app-credentials: cycle OK (credentials refreshed)\n' > "$D487/logE"
+_s19="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidE" DEVFLOW_REFRESH_LOG="$D487/logE" bash "$STOP_SH" 2>&1)"; _s19_rc=$?
+assert_eq "#487 arm19: dead pid + last cycle OK warns defeated (stale cycle OK does not mask a death)" "yes" "$(_defeat487 "$_s19")"
+assert_eq "#487 arm19: the warning is attributed to the died-before-job-end liveness probe" "yes" \
+  "$(printf '%s' "$_s19" | grep -qF 'died before job end (pidfile present, process gone)' && echo yes || echo no)"
+assert_eq "#487 arm19: stop-refresher still exits 0 on the dead-pid arm" "0" "$_s19_rc"
+
+# Arm 20 — EMPTY pidfile → same unverifiable-liveness class (the loop writes its PID at
+# startup, so an empty file is anomalous) → warn, attributed to the empty-pidfile arm.
+: > "$D487/pidF"
+_s20="$(DEVFLOW_REFRESH_PIDFILE="$D487/pidF" DEVFLOW_REFRESH_LOG="$D487/absentlog" bash "$STOP_SH" 2>&1)"
+assert_eq "#487 arm20: empty pidfile warns defeated (health unverifiable)" "yes" "$(_defeat487 "$_s20")"
+assert_eq "#487 arm20: the warning is attributed to the empty pidfile" "yes" \
+  "$(printf '%s' "$_s20" | grep -qF 'pidfile is empty, so its health could not be verified' && echo yes || echo no)"
+
+# Arm 20b (PR #491 shadow review) — surface-2-ONLY divergence: the cycle refreshed git push
+# (surface 1) but failed to write the gh token file (surface 2). A LIVE pid (so no more
+# fundamental pidfile-based defeat fires first) + a log whose last refresh-app-credentials:
+# line is run_cycle's divergence warning → still a defeat (the gh surface is stale until the
+# backoff re-converges), but the impact clause is NARROWED to gh-only rather than the generic
+# "git push may be stale" over-claim (push in fact stayed fresh). Pins stop-refresher's new
+# divergence case arm (removing it drops the last line to the generic ::warning:: arm → RED).
+sleep 300 & _live20b=$!
+echo "$_live20b" > "$D487/pid20b"
+printf 'refresh-app-credentials: cycle OK\n::warning::refresh-app-credentials: cycle: renaming the token file into place failed — push credential (surface 1) IS fresh but the gh token file (surface 2) is now stale\n' > "$D487/log20b"
+_s20b="$(DEVFLOW_REFRESH_PIDFILE="$D487/pid20b" DEVFLOW_REFRESH_LOG="$D487/log20b" bash "$STOP_SH" 2>&1)"; _s20b_rc=$?
+kill "$_live20b" 2>/dev/null || true
+assert_eq "#491 arm20b: surface-2-only divergence still warns defeated (gh surface stale)" "yes" "$(_defeat487 "$_s20b")"
+assert_eq "#491 arm20b: the divergence impact clause narrows to gh-only (git push stayed fresh)" "yes" \
+  "$(printf '%s' "$_s20b" | grep -qF 'git push stayed fresh' && echo yes || echo no)"
+assert_eq "#491 arm20b: the divergence case does NOT emit the generic both-surfaces-stale impact" "no" \
+  "$(printf '%s' "$_s20b" | grep -qF 'git push / gh calls past ~60 min may have used a stale token' && echo yes || echo no)"
+assert_eq "#491 arm20b: stop-refresher still exits 0 on the divergence arm" "0" "$_s20b_rc"
+
+rm -rf "$D487"
+
+# ── Workflow wiring (issue #487): both writer jobs gain the refresher + wrapper
+# install + pidfile-kill steps, gated on the same DEVFLOW_APP_ID condition as
+# their app-token mint. Deliberately NOT a `background:` step (actionlint rejects
+# the keyword) — a detached `nohup … &` process instead.
+for _wf487 in devflow-implement devflow; do
+  _WFF487="$WF/$_wf487.yml"
+  assert_eq "#487 wiring: $_wf487.yml starts the credential refresher" "1" \
+    "$(grep -cF 'name: Start credential refresher (optional)' "$_WFF487")"
+  assert_eq "#487 wiring: $_wf487.yml installs the fresh-gh wrapper" "1" \
+    "$(grep -cF 'name: Install fresh-gh wrapper (optional)' "$_WFF487")"
+  assert_eq "#487 wiring: $_wf487.yml retires the refresher (pidfile-kill, if: always())" "1" \
+    "$(grep -cF 'name: Stop credential refresher (optional)' "$_WFF487")"
+  # The Stop step delegates its branch/message logic to the extracted helper
+  # (inline-shell-extraction convention) rather than carrying it inline.
+  assert_eq "#487 wiring: $_wf487.yml Stop step invokes the vendored stop-refresher.sh helper" "1" \
+    "$(grep -cF '.devflow/vendor/devflow/scripts/stop-refresher.sh' "$_WFF487")"
+  assert_eq "#487 wiring: $_wf487.yml invokes the vendored refresher via nohup (detached, not background:)" "1" \
+    "$(grep -cF 'nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop' "$_WFF487")"
+  # ── /proc/<pid>/environ mitigation (PR #491). The Start step exports the PEM as a
+  # step-level env var (to pipe it to the refresher's stdin); that var is inherited
+  # into the detached refresher's exec-time environment, where the concurrent same-uid
+  # claude step could read the raw PEM via /proc/<pid>/environ (which snapshots the
+  # environment at execve and is NOT cleared by an in-process `unset` — proc(5)). The
+  # ACTUAL mitigation is launching the refresher with `env -u DEVFLOW_APP_PRIVATE_KEY`,
+  # so the long-lived process's environ never holds the PEM. Removal reopens the leak.
+  _startblk487="$(mint_blk 'Start credential refresher (optional)' "$_WFF487")"
+  _envu_ln="$(printf '%s\n' "$_startblk487" | grep -nF 'env -u DEVFLOW_APP_PRIVATE_KEY' | head -1 | cut -d: -f1)"
+  _nohup_ln="$(printf '%s\n' "$_startblk487" | grep -nF 'nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop' | head -1 | cut -d: -f1)"
+  assert_eq "#487 wiring: $_wf487.yml launches the refresher with env -u DEVFLOW_APP_PRIVATE_KEY BEFORE nohup (closes the /proc PEM leak)" "yes" \
+    "$([ -n "$_envu_ln" ] && [ -n "$_nohup_ln" ] && [ "$_envu_ln" -lt "$_nohup_ln" ] && echo yes || echo no)"
+  # Behavioral-fix pin: deleting the `env -u DEVFLOW_APP_PRIVATE_KEY` line reintroduces
+  # the /proc/<pid>/environ PEM exposure, so it must flip the pin RED.
+  assert_pin_red_under "#487 wiring: $_wf487.yml env -u DEVFLOW_APP_PRIVATE_KEY present (deleting it reopens the /proc PEM leak)" \
+    'env -u DEVFLOW_APP_PRIVATE_KEY' '/env -u DEVFLOW_APP_PRIVATE_KEY/d' "$_WFF487"
+  # No `background:` step key anywhere (would break actionlint).
+  assert_eq "#487 wiring: $_wf487.yml uses no 'background:' step key (actionlint-safe)" "0" \
+    "$(grep -cE '^[[:space:]]*background:[[:space:]]*true' "$_WFF487")"
+  # The refresher/install steps are gated on DEVFLOW_APP_ID (unconfigured no-op).
+  assert_eq "#487 wiring: $_wf487.yml refresher start is gated on vars.DEVFLOW_APP_ID" "1" \
+    "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$_WFF487")" | grep -cF "vars.DEVFLOW_APP_ID != ''")"
+  # The install step records the job-start fingerprint and prepends the wrapper to PATH.
+  assert_eq "#487 wiring: $_wf487.yml install step prepends the wrapper dir to GITHUB_PATH" "1" \
+    "$(printf '%s\n' "$(mint_blk 'Install fresh-gh wrapper (optional)' "$_WFF487")" | grep -cF 'GITHUB_PATH')"
+  # ── Step ORDERING (PR #491 Suggestion 2): load-bearing but previously unpinned.
+  # (a) The refresher and the wrapper install must both precede the claude step, so the
+  # agent's >60-min run is already push-/gh-fresh from the start; a reordering that put
+  # either after the agent step would leave the run unprotected yet still pass the
+  # presence pins above. Compare 1-indexed line numbers within the workflow file.
+  _claude_ln="$(grep -nF 'name: Run Claude Code' "$_WFF487" | head -1 | cut -d: -f1)"
+  _start_ln="$(grep -nF 'name: Start credential refresher (optional)' "$_WFF487" | head -1 | cut -d: -f1)"
+  _inst_ln="$(grep -nF 'name: Install fresh-gh wrapper (optional)' "$_WFF487" | head -1 | cut -d: -f1)"
+  assert_eq "#487 wiring: $_wf487.yml starts the refresher BEFORE the claude step" "yes" \
+    "$([ -n "$_start_ln" ] && [ -n "$_claude_ln" ] && [ "$_start_ln" -lt "$_claude_ln" ] && echo yes || echo no)"
+  assert_eq "#487 wiring: $_wf487.yml installs the fresh-gh wrapper BEFORE the claude step" "yes" \
+    "$([ -n "$_inst_ln" ] && [ -n "$_claude_ln" ] && [ "$_inst_ln" -lt "$_claude_ln" ] && echo yes || echo no)"
+  # (a2) The refresher must also start AFTER checkout (PR #491 IMP-4): the refresher
+  # rewrites the checkout-PERSISTED http.*/.extraheader credential, so that credential
+  # must already exist when the first cycle fires. A reorder that put Start above the
+  # checkout would leave the first cycle with nothing to rewrite yet still pass the
+  # before-claude pins above. Pin `checkout < start`.
+  _checkout_ln="$(grep -nF 'name: Checkout repository' "$_WFF487" | head -1 | cut -d: -f1)"
+  assert_eq "#491 wiring: $_wf487.yml starts the refresher AFTER checkout (the persisted extraheader must exist to rewrite)" "yes" \
+    "$([ -n "$_checkout_ln" ] && [ -n "$_start_ln" ] && [ "$_checkout_ln" -lt "$_start_ln" ] && echo yes || echo no)"
+  # (b) Intra-step: the real gh's ABSOLUTE path must be captured BEFORE the wrapper dir
+  # is appended to GITHUB_PATH — otherwise a later name-based `gh` lookup recurses into
+  # the wrapper. Pin the two lines' order within the install step block.
+  _instblk="$(mint_blk 'Install fresh-gh wrapper (optional)' "$_WFF487")"
+  _cap_ln="$(printf '%s\n' "$_instblk" | grep -nF 'REAL_GH="$(command -v gh)"' | head -1 | cut -d: -f1)"
+  _path_ln="$(printf '%s\n' "$_instblk" | grep -nF 'GITHUB_PATH' | head -1 | cut -d: -f1)"
+  assert_eq "#487 wiring: $_wf487.yml captures REAL_GH before prepending the wrapper to GITHUB_PATH" "yes" \
+    "$([ -n "$_cap_ln" ] && [ -n "$_path_ln" ] && [ "$_cap_ln" -lt "$_path_ln" ] && echo yes || echo no)"
+done
+# devflow.yml's gate additionally excludes /devflow:review (read-only, never pushes).
+assert_eq "#487 wiring: devflow.yml refresher start excludes /devflow:review commands" "1" \
+  "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
+# The Stop step's review-exclusion ASYMMETRY keeps the Stop gate symmetric with Start:
+# devflow.yml's Stop step MUST carry the /devflow:review negation (on the review path the
+# refresher was never started, so the step would be a pointless no-op; a false defeat
+# warning there is prevented by the DEVFLOW_REFRESH_STARTED=skipped guard — arm17 — not
+# by this exclusion), while devflow-implement.yml's Stop step must NOT carry it (it
+# always starts the refresher). Pin both directions so a dropped or mis-copied gate goes RED.
+assert_eq "#487 wiring: devflow.yml Stop step carries the /devflow:review exclusion" "1" \
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
+assert_eq "#487 wiring: devflow-implement.yml Stop step does NOT carry a /devflow:review exclusion" "0" \
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow-implement.yml")" | grep -cF "/devflow:review")"
+# Both Stop steps pass the Start step's outcome so stop-refresher.sh can tell a genuine
+# never-started defeat from an upstream early-abort (absent pidfile is expected there).
+assert_eq "#487 wiring: devflow.yml Stop step passes steps.refresher.outcome as DEVFLOW_REFRESH_STARTED" "1" \
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow.yml")" | grep -cF 'DEVFLOW_REFRESH_STARTED: ${{ steps.refresher.outcome }}')"
+assert_eq "#487 wiring: devflow-implement.yml Stop step passes steps.refresher.outcome as DEVFLOW_REFRESH_STARTED" "1" \
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow-implement.yml")" | grep -cF 'DEVFLOW_REFRESH_STARTED: ${{ steps.refresher.outcome }}')"
+# Coupled literal: the refresher EMITS `cycle OK` and stop-refresher.sh MATCHES it to tell
+# a recovered transient from a sustained failure — a reworded producer breadcrumb would
+# silently break the consumer's discrimination. Pin the shared marker in both files.
+assert_eq "#487 coupled-literal: refresh-app-credentials.sh emits the 'cycle OK' success marker" "1" \
+  "$(grep -cF "printf 'refresh-app-credentials: cycle OK" "$LIB/../scripts/refresh-app-credentials.sh")"
+assert_eq "#487 coupled-literal: stop-refresher.sh matches the 'cycle OK' marker in its operative case arm" "1" \
+  "$(grep -cF '*"cycle OK"*)' "$LIB/../scripts/stop-refresher.sh")"
+
+# ── #491 coupled production-DEFAULT paths (shadow Finding A). Each credential surface is
+# written by one file and read by another, and the workflows pass NO override — production
+# works ONLY because two independently-defaulted RUNNER_TEMP/<basename> literals agree. Every
+# test arm injects matching DEVFLOW_* overrides on both sides, so a one-sided rename of a
+# DEFAULT ships green (gh-fresh reads no token / never matches the fingerprint, stop-refresher
+# false-fires a defeat). Pin the default BASENAMES agree across writer<->reader — the same
+# coupled-literal hazard as the 'cycle OK' marker above, one level down in the wiring.
+# Extract-and-compare (not substring grep) so a suffix-append rename is caught too.
+_dfbn() { grep -E "$2" "$1" 2>/dev/null | grep -oE 'devflow-[a-zA-Z0-9._-]+' | head -1; }
+_w_tok491="$(_dfbn "$LIB/../scripts/refresh-app-credentials.sh" '^TOKEN_FILE=')"
+_r_tok491="$(_dfbn "$LIB/../scripts/gh-fresh.sh" '^TOKEN_FILE=')"
+assert_eq "#491 coupled-default: token-file default basename agrees (refresh-app-credentials.sh writer <-> gh-fresh.sh reader) [$_w_tok491]" "yes" \
+  "$([ -n "$_w_tok491" ] && [ "$_w_tok491" = "$_r_tok491" ] && echo yes || echo no)"
+_w_pid491="$(_dfbn "$LIB/../scripts/refresh-app-credentials.sh" '^PIDFILE=')"
+_r_pid491="$(_dfbn "$LIB/../scripts/stop-refresher.sh" '^PIDFILE=')"
+assert_eq "#491 coupled-default: pidfile default basename agrees (refresh-app-credentials.sh writer <-> stop-refresher.sh reader) [$_w_pid491]" "yes" \
+  "$([ -n "$_w_pid491" ] && [ "$_w_pid491" = "$_r_pid491" ] && echo yes || echo no)"
+# fingerprint + log defaults are written by the WORKFLOWS (redirect / install-step write) and
+# read by gh-fresh.sh / stop-refresher.sh. Assert each reader's default basename appears as an
+# exact RUNNER_TEMP/<basename> token the workflow writes (space-bounded, so a suffix-append on
+# either side breaks the match), in BOTH workflows.
+_r_fp491="$(_dfbn "$LIB/../scripts/gh-fresh.sh" '^FINGERPRINT_FILE=')"
+_r_log491="$(_dfbn "$LIB/../scripts/stop-refresher.sh" '^LOG=')"
+for _wf491 in devflow-implement devflow; do
+  _wfbns491=" $(grep -oE 'RUNNER_TEMP/devflow-[a-zA-Z0-9._-]+' "$WF/$_wf491.yml" | sed 's#RUNNER_TEMP/##' | sort -u | tr '\n' ' ')"
+  assert_eq "#491 coupled-default: $_wf491.yml writes the fingerprint basename gh-fresh.sh reads [$_r_fp491]" "yes" \
+    "$([ -n "$_r_fp491" ] && printf '%s' "$_wfbns491" | grep -qF " $_r_fp491 " && echo yes || echo no)"
+  assert_eq "#491 coupled-default: $_wf491.yml writes the log basename stop-refresher.sh reads [$_r_log491]" "yes" \
+    "$([ -n "$_r_log491" ] && printf '%s' "$_wfbns491" | grep -qF " $_r_log491 " && echo yes || echo no)"
+done
+
+# Fail-fast prose rule (surface-presence class, per the issue's Testing Strategy): the
+# two-strikes bad-credential rule is present in both skill files. Pinned via
+# assert_pin_unique (the sanctioned unique-literal guard, not a raw echo-driven grep).
+assert_pin_unique "#487 fail-fast prose: skills/implement/SKILL.md carries the expired-credential two-strikes rule" \
+  'Expired-credential fail-fast (two strikes' "$LIB/../skills/implement/SKILL.md"
+assert_pin_unique "#487 fail-fast prose: skills/review-and-fix/SKILL.md carries the expired-credential two-strikes rule" \
+  'Expired-credential fail-fast (two strikes' "$LIB/../skills/review-and-fix/SKILL.md"
+# The compaction-immune sibling signal (the wrapper diagnostic literal) is named in the prose.
+assert_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
+  'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"
 
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

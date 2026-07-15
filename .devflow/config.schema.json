@@ -25,10 +25,52 @@
       "description": "Git ref (tag, branch, or commit SHA) of The01Geek/devflow-autopilot that the cloud-tier workflows fetch the plugin from at runtime (the vendor-plugin composite action's fetch branch \u2014 i.e. a thin install where the plugin tree is NOT committed). install.sh pins this to the commit it installed from (when no jq/node/python3 is available at install time it stays empty and you must set it by hand). Bump it to update. Ignored when the plugin is committed into .devflow/vendor/devflow/ (DEVFLOW_VENDOR=1) or when running in the source repo. Empty by default on purpose: the fetch branch fails loud on an empty ref rather than silently tracking mutable main, so an un-pinned thin install is caught instead of drifting.",
       "default": ""
     },
+    "providers": {
+      "type": "object",
+      "description": "OPT-IN, BEST-EFFORT third-party model providers for the CLOUD tier (issue #313). A named map of Anthropic-compatible endpoints (OpenRouter, Z.ai, Kimi/Moonshot, LiteLLM gateways, …) that the devflow / devflow_implement / devflow_runner sections can each route to via their own `provider` key. With no providers map and no per-section `provider`, cloud behavior matches the Anthropic-OAuth default (unchanged for a given `claude_model`; the runner's default-path model now resolves from base-ref config). The provider API credential is NOT named here — it is always the fixed repository secret DEVFLOW_PROVIDER_API_KEY (kept greppable/auditable and fail-closed on absence). Anthropic does not support routing Claude Code to non-Claude models, so this is best-effort. See docs/cloud-setup.md.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["base_url", "auth"],
+        "additionalProperties": false,
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "description": "Anthropic-compatible base URL, e.g. 'https://openrouter.ai/api' or 'https://api.z.ai/api/anthropic'. Exported to the action step as ANTHROPIC_BASE_URL."
+          },
+          "auth": {
+            "type": "string",
+            "enum": ["bearer", "api_key"],
+            "description": "How DEVFLOW_PROVIDER_API_KEY is presented. 'bearer' (most gateways, incl. OpenRouter): the key rides as the anthropic_api_key action input AND as ANTHROPIC_AUTH_TOKEN (the Authorization: Bearer header) — the documented two-slot recipe. 'api_key': the key is passed as the anthropic_api_key input only (x-api-key)."
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "description": "Optional request timeout in milliseconds, exported as API_TIMEOUT_MS (e.g. 3000000 for a 50-minute ceiling on slow gateway routes). Omitted → the action/client default."
+          },
+          "effort_supported": {
+            "type": "boolean",
+            "description": "Whether this provider accepts the --effort flag. Default false: many gateways reject unknown params with HTTP 400, so --effort is dropped for a provider unless this is explicitly true. The Anthropic default path keeps --effort (for a schema-valid, non-empty effort value).",
+            "default": false
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Extra environment variables exported verbatim into the job environment (consumed by the action step) (e.g. ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL so background/subagent calls resolve to a real model the endpoint serves; CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='1' to avoid anthropic-beta-header gateway 400s; CLAUDE_CODE_ATTRIBUTION_HEADER='0' to preserve gateway prompt caching — two distinct concerns, see docs/cloud-setup.md). See docs/cloud-setup.md for the worked OpenRouter/Z.ai maps."
+          }
+        }
+      }
+    },
     "devflow": {
       "type": "object",
       "description": "Shared DevFlow settings. allowed_bots/allowed_users gate triggering across ALL DevFlow workflows (devflow.yml, devflow-implement.yml, devflow-review.yml, devflow-runner.yml); workpad_marker is used by /devflow:implement; effort and allowed_tools apply specifically to the light /devflow:* command path (devflow.yml).",
       "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Optional: name of a `providers` entry to route the light /devflow:* command path (devflow.yml) through, instead of the Anthropic default. Requires the DEVFLOW_PROVIDER_API_KEY repo secret. Unset → Anthropic-OAuth default (issue #313)."
+        },
+        "claude_model": {
+          "type": "string",
+          "description": "Optional per-section model override for the light /devflow:* command path (devflow.yml). Takes precedence over the global claude_model. Unset → global claude_model (issue #313)."
+        },
         "allowed_bots": {
           "type": "string",
           "description": "Bot logins allowed to trigger DevFlow workflows (comma-separated). 'claude' is Anthropic's GitHub App identity; add your own bot/automation logins (e.g. dependabot).",
@@ -46,7 +88,7 @@
         },
         "effort": {
           "type": "string",
-          "description": "Reasoning effort for the light /devflow:* command path (devflow.yml). Always passed explicitly via --effort (including the default 'high'), so the effort is pinned rather than relying on the model's built-in default.",
+          "description": "Reasoning effort for the light /devflow:* command path (devflow.yml). Passed explicitly via --effort on the Anthropic default path (including the default 'high'), so the effort is pinned rather than relying on the model's built-in default; a provider-routed section drops --effort unless its provider sets effort_supported: true (issue #313).",
           "enum": [
             "low",
             "medium",
@@ -79,6 +121,14 @@
     "devflow_implement": {
       "type": "object",
       "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Optional: name of a `providers` entry to route the /devflow:implement action (devflow-implement.yml) through, instead of the Anthropic default. Requires the DEVFLOW_PROVIDER_API_KEY repo secret. Unset → Anthropic-OAuth default (issue #313)."
+        },
+        "claude_model": {
+          "type": "string",
+          "description": "Optional per-section model override for /devflow:implement (devflow-implement.yml), e.g. 'z-ai/glm-5.2'. Takes precedence over the global claude_model. Unset → global claude_model (issue #313)."
+        },
         "effort": {
           "type": "string",
           "enum": [
@@ -135,6 +185,14 @@
       "type": "object",
       "description": "Settings for the reusable runner that backs the automated reviewer (devflow-review.yml \u2192 devflow-runner.yml).",
       "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Optional: name of a `providers` entry to route the automated reviewer (devflow-runner.yml) through, instead of the Anthropic default. Requires the DEVFLOW_PROVIDER_API_KEY repo secret (carried into the runner via devflow-review.yml's `secrets: inherit`). Unset → Anthropic-OAuth default, so review stays on Claude (issue #313)."
+        },
+        "claude_model": {
+          "type": "string",
+          "description": "Optional per-section model override for the automated reviewer (devflow-runner.yml). Takes precedence over the global claude_model. Unset → global claude_model (issue #313)."
+        },
         "effort": {
           "type": "string",
           "enum": [

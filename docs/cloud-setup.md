@@ -120,10 +120,11 @@ variables → Actions**:
 
 | Secret | Used for | Notes |
 |---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates the Claude Code action (`/devflow:implement`, `/devflow:review` runners) | From your Anthropic account. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates the Claude Code action (`/devflow:implement`, `/devflow:review` runners) on the Anthropic default path | From your Anthropic account. Optional only if **every** active workflow section routes through a third-party `provider`. |
 | `GITHUB_TOKEN` | (built in — no action needed) | Provided automatically to workflows. |
+| `DEVFLOW_PROVIDER_API_KEY` | (optional) API key for a third-party model provider, consumed when a `devflow` / `devflow_implement` / `devflow_runner` section sets `provider` | Only needed if you opt into third-party model routing — see [Third-party model providers](#third-party-model-providers-opt-in-best-effort). One fixed secret name regardless of provider count. |
 
-That's the whole default — **no GitHub App is required**. (Earlier versions needed
+That's the whole default — **no GitHub App is required** and `CLAUDE_CODE_OAUTH_TOKEN` is the only secret. Opting a workflow section into a third-party model provider (below) adds exactly one more, `DEVFLOW_PROVIDER_API_KEY`. (Earlier versions needed
 one purely so a bot-authored "implement this" comment could re-trigger the
 workflow; a human `/devflow:implement <#>` comment is itself a native user event,
 so that need is gone.)
@@ -217,6 +218,83 @@ even the trigger-reaction job fails rather than silently posting as
 restore the default-token behavior. The read-only review run has the same fail-loud
 contract, but under its own `DEVFLOW_REVIEWER_APP_ID` (unset *that* to restore the
 review run's default token) — see the DevFlow-Reviewer section below.
+
+### Keeping writer-job credentials fresh past the token's 60-minute lifetime
+
+A GitHub App installation token expires **exactly one hour** after it is minted and
+cannot be renewed — only replaced by a fresh mint. DevFlow's writer jobs mint one
+token at job start and ride it for the whole run, so a `/devflow:implement` or
+`/devflow:review-and-fix` run that **outlives that hour** used to spend its remainder
+with dead credentials: the agent's `git push` and every agent-side `gh` call both
+`401`. The two writer jobs (`devflow-implement.yml`'s `claude` job and `devflow.yml`'s
+`command` job) fix this with a **long-run credential refresher**, gated on the **same**
+`vars.DEVFLOW_APP_ID != ''` condition as the App-token mint above — when the App is
+unconfigured, every step below is skipped and behavior is **byte-identical** to today.
+(The refresher is also excluded on the read-only `/devflow:review` path, which uses the
+downscoped reviewer token and never pushes.)
+
+**What it does.** After checkout — and before the `claude` step — the job starts
+`scripts/refresh-app-credentials.sh loop` as a **detached `nohup` background process**
+(deliberately *not* a `background:` step, a keyword `actionlint` rejects). The
+refresher holds the App credentials and, on a **45-minute cadence** (dropping to a
+**2-minute backoff** after a failed cycle until one succeeds), re-mints a fresh
+installation token and rewrites the two repo-controlled credential surfaces in place:
+
+1. the checkout-persisted `http.<server>/.extraheader` credential every in-run
+   `git push` authenticates with (it *rewrites* that credential of record — it never
+   replaces the push mechanism), and
+2. a mode-0600 token file that the agent-side `gh` wrapper (`scripts/gh-fresh.sh`)
+   reads at call time. The wrapper is wired both as `DEVFLOW_GH` (DevFlow's own
+   gh-callers resolve `gh` through that seam) and ahead of the real `gh` on `PATH`, so
+   direct `gh` calls resolve the fresh token too. It discriminates the ambient
+   job-start token from a deliberately-fresh backstop mint by fingerprint, so it only
+   substitutes the refreshed token where the ambient (expiring) one would be used.
+
+**Key handling.** The App's PEM private key is piped to the refresher's **stdin** — it
+is never passed as a process argument and never written to disk (the JWT is signed with
+the key handed to `openssl` over a file descriptor). The workflow's Start step exports
+the key as a step-level env var only so that short-lived launcher shell can pipe it; the
+**detached refresher is launched with `env -u DEVFLOW_APP_PRIVATE_KEY`**, so the raw PEM
+is absent from the long-lived refresher's exec-time environment and therefore never
+readable via its `/proc/<pid>/environ` by the concurrent same-uid `claude` agent step
+(`/proc/<pid>/environ` snapshots the environment at `execve` time and is not updated by a
+later `unset` — proc(5), so `env -u` at launch, not an in-process `unset`, is what closes
+that vector). The key then lives only in the refresher's shell memory.
+
+**Least privilege.** Each re-minted token is **scoped to this repository only**
+(`repositories: [<repo>]`), matching the job-start token's default scope rather than
+minting an installation-wide token across every repo the App is installed on.
+
+**Loud degrade.** The refresher is best-effort and never fails the job: a failed cycle
+emits a per-arm `::warning::` naming what failed and warns-and-continues. Almost every
+failure arm leaves the previous credential in place, with one disclosed exception — if
+the push credential (surface 1, the checkout extraheader) has already been rewritten to
+the fresh token and only the gh token file (surface 2) then fails to write, the two
+surfaces diverge (surface 1 fresh, surface 2 stale); the cycle warns naming that
+divergence and the next 2-minute backoff retry re-converges them. Because a background process's `::warning::` lines are
+inert in the Actions UI, an `if: always()` **Stop credential refresher** step
+(`scripts/stop-refresher.sh`) retires the refresher by pidfile, tails its detached log
+into the step output, and re-emits **one** live `::warning::` when the refresher was
+actually defeated (never started/crashed before its first cycle, died mid-run — the
+pidfile's pid no longer running, so a stale `cycle OK` in the log does not mask a death
+after that cycle; the pidfile present but empty — the loop could not record its PID, so
+its liveness cannot be verified — or its most recent cycle failed) — so a run that silently lost its
+credentials is visible without log archaeology. The agent-side wrapper degrades loudly
+too: a substitute decision that finds no token file (a refresher defeated at startup
+never writes one) emits a stderr breadcrumb before riding the ambient token.
+
+**Disclosed residual.** This refresher keeps DevFlow's own `git push` and `gh` calls
+fresh, but `claude-code-action`'s **own internal API calls** still ride the static
+`github_token` input passed to the action, which is not refreshed. That is an upstream
+limitation tracked at `anthropics/claude-code-action#716`; until it lands, an extremely
+long run can still see the action's internal calls fail on the expired token even
+though DevFlow's push/gh surfaces stay fresh. A second assumption to re-probe on any
+`claude-code-action` **major** upgrade: the wrapper's fingerprint discrimination relies
+on the action exporting its `github_token` input **byte-identical** as `GH_TOKEN`
+(verified against `src/entrypoints/run.ts` at drafting time). If a future version
+exports a differently-derived token, every wrapped call takes the defer path and the
+agent-side freshness fix goes silently inert (safe — the fail-fast rule still catches
+the 401 — but ineffective).
 
 ### The dedicated DevFlow-Reviewer app (review identity)
 
@@ -749,6 +827,197 @@ matter for the cloud tier:
   grant. `acceptEdits` would not help here anyway: it auto-approves `Edit`/`Write` plus some
   filesystem `Bash`, not the piped/compound `.sh` forms that were the primary denial.
 
+## Third-party model providers (opt-in, best-effort)
+
+By default every cloud workflow authenticates to Anthropic with
+`CLAUDE_CODE_OAUTH_TOKEN` and runs a Claude model. You can instead route an
+individual workflow section — the light command path (`devflow`),
+`/devflow:implement` (`devflow_implement`), or the automated reviewer
+(`devflow_runner`) — through any **Anthropic-compatible** endpoint (OpenRouter,
+Z.ai, Kimi/Moonshot, MiniMax, a LiteLLM gateway, …) via a `providers` map in
+`.devflow/config.json` plus one fixed repo secret, `DEVFLOW_PROVIDER_API_KEY`.
+Each section picks its own provider and model independently; with no provider
+configured the cloud tier matches the Anthropic-OAuth default (unchanged for a
+given `claude_model`; the reviewer's default-path model now resolves from
+base-ref config).
+
+> **Anthropic does not support routing Claude Code to non-Claude models, so this
+> integration is best-effort.** It relies on the officially documented
+> `ANTHROPIC_BASE_URL` gateway mechanism (code.claude.com/docs/en/llm-gateway-connect),
+> but non-Claude models behind a gateway can behave differently from Claude, and a
+> gateway or model update can break a run at any time. Keep the review/runner path
+> on Claude if review quality matters (this repo does).
+
+**Not to be confused with the `provision-auto-mode` provider detection.** The
+`CLAUDE_CODE_USE_BEDROCK` / `_VERTEX` / `_FOUNDRY` "provider detection" mentioned
+under *Install* and in `scripts/provision-auto-mode.sh` is a **local-tier**
+concern — it only gates whether the selectable `auto` permission mode is offered
+on those first-party clouds. The config `providers` map here is a **cloud-tier**
+model-routing feature and is unrelated to that detection.
+
+### How it wires up
+
+- **`base_url`** is exported as `ANTHROPIC_BASE_URL` into the job environment
+  (consumed by the action step), only when the section is provider-routed.
+- **`auth`** decides how `DEVFLOW_PROVIDER_API_KEY` is presented:
+  - `bearer` (most gateways, incl. OpenRouter): the key rides **both** as the
+    action's `anthropic_api_key` input **and** as `ANTHROPIC_AUTH_TOKEN` (the
+    `Authorization: Bearer` header). This two-slot pass is the *officially
+    documented recipe* — `claude-code-action`'s launch check reads
+    `anthropic_api_key` (not `ANTHROPIC_AUTH_TOKEN`), while the endpoint's real
+    auth comes from the bearer header. The claude process consequently sees the
+    key in both `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN`; that is expected
+    and must **not** be "fixed" (the action overwrites `ANTHROPIC_API_KEY` from
+    its input, so blanking it via env is a no-op, and bearer gateways such as
+    OpenRouter ignore the `x-api-key` copy).
+  - `api_key`: the key is passed as the `anthropic_api_key` input only (`x-api-key`).
+- **`timeout_ms`** is exported as `API_TIMEOUT_MS` (raise it for slow gateway routes).
+- **`effort_supported`** (default `false`): DevFlow passes `--effort` on the
+  Anthropic default path (for any schema-valid effort), but drops it for a provider
+  unless this is `true` — many gateways reject unknown params with HTTP 400.
+- **`env`** is a map of extra environment variables exported verbatim into the
+  job environment (consumed by the action step). Set at least the small/fast-model
+  mappings (below) for every third-party provider. The keys are exported
+  **unfiltered** — this map is read only from maintainer-controlled config
+  (base-ref for the runner, the trusted default-branch checkout for the command
+  workflows), so do not name a runtime-sensitive variable here (`PATH`,
+  `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, …); a stray such key would shadow the
+  environment of every later step in the job, not just the action step.
+- **The empty-secret guard:** if a section names a provider while
+  `DEVFLOW_PROVIDER_API_KEY` is empty at run time, the job fails loud with a
+  `::error::` naming the section and provider, before the action runs. (The secret
+  name is a fixed literal on purpose — dynamic secret indexing resolves a missing
+  key silently to an empty string, which would fail *open*.)
+
+**Haiku-tier (background) and subagent models — required.** Claude Code fires
+haiku-tier background calls and dispatches subagents; if the `env` map omits
+`ANTHROPIC_DEFAULT_HAIKU_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL`, those calls hit a
+Claude model ID the gateway won't serve and fail. Always map them to a real model
+the endpoint serves (you may point the haiku slot at a smaller/cheaper model the
+gateway offers to save on background calls; the examples use `glm-5.2` for simplicity).
+
+**Context window — a gateway model defaults to 200K, NOT its real window.** Claude Code
+cannot verify a gateway model's context length, so it budgets **200K** and auto-compacts
+at that boundary — even when the model is natively 1M (GLM-5.2, MiniMax-M3, Qwen3.7-Plus, …).
+Left alone you silently lose most of the window you are paying for, and long runs compact
+repeatedly. Lift it by setting **`CLAUDE_CODE_MAX_CONTEXT_TOKENS`** in the `env` map to the
+model's real window:
+
+```json
+"CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000"
+```
+
+Claude Code's context resolver honors this variable **only for model ids that do not begin
+with `claude-`** — i.e. it exists precisely for third-party gateway models, which is exactly
+this path. Verified: with it set, `/context` reports a **1,000,000**-token window against
+`z-ai/glm-5.2` on OpenRouter instead of 200,000.
+
+> **Undocumented — load-bearing but fragile.** `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is not in
+> Anthropic's published env-var reference. Re-verify after a Claude Code upgrade (`/context`
+> should still report your value). Do **not** substitute the `CLAUDE_CODE_EXTRA_BODY` +
+> `opus[1m]` trick circulating as an alternative: it force-injects a `model` override into
+> **every** request, which clobbers `ANTHROPIC_DEFAULT_HAIKU_MODEL` /
+> `CLAUDE_CODE_SUBAGENT_MODEL` and collapses every role onto a single model.
+
+**Gateway 400s — two *separate* failure modes, do not conflate them:**
+
+- `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` (shipped by default in the example
+  below) strips `anthropic-beta` headers / beta tool-schema fields, avoiding
+  "Extra inputs are not permitted"-class 400s on gateways.
+- 400s that name `thinking` / `adaptive` parameters are a **different** failure mode, and the
+  beta-header toggle does **not** address them. Note that `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1`
+  is **hard-scoped to the Opus/Sonnet 4.6 family** and is therefore **inert for a third-party
+  gateway model** — the lever that actually drops the `thinking` field for any model is
+  `CLAUDE_CODE_DISABLE_THINKING=1`. Reach for it only if you actually see such a 400: some
+  gateways serve `thinking` fine (OpenRouter/GLM-5.2 does), and disabling it can cost output
+  quality.
+
+**Prompt caching.** `CLAUDE_CODE_ATTRIBUTION_HEADER=0` (shipped by default below)
+omits the attribution block Claude Code otherwise prepends to the system prompt;
+its per-request prompt fingerprint would defeat prompt caching through a gateway.
+(On a direct Anthropic connection caching is unaffected either way.)
+
+### OpenRouter setup
+
+Add a `providers.openrouter` entry and point `devflow_implement` at it (routing
+only `/devflow:implement`, leaving review/command on Claude):
+
+```json
+{
+  "claude_model": "claude-opus-4-8",
+  "providers": {
+    "openrouter": {
+      "base_url": "https://openrouter.ai/api",
+      "auth": "bearer",
+      "timeout_ms": 3000000,
+      "env": {
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "z-ai/glm-5.2",
+        "CLAUDE_CODE_SUBAGENT_MODEL": "z-ai/glm-5.2",
+        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000"
+      }
+    }
+  },
+  "devflow_implement": {
+    "provider": "openrouter",
+    "claude_model": "z-ai/glm-5.2"
+  }
+}
+```
+
+Then set the repo secret `DEVFLOW_PROVIDER_API_KEY` to your OpenRouter key.
+`effort_supported` is omitted (defaults `false`), so `--effort` is dropped for this
+provider. The review and command paths keep no `provider`, so they stay on Claude.
+
+### OpenRouter privacy-hardening checklist
+
+OpenRouter forwards your prompts to the upstream provider you select, so before the
+first run:
+
+1. At **openrouter.ai/settings/privacy**, disable **both** "may train on your data"
+   toggles.
+2. Leave **prompt logging off**.
+3. Bind the `DEVFLOW_PROVIDER_API_KEY` key to an OpenRouter **guardrail whose
+   provider allowlist contains only the upstream provider you selected** (Z.AI in
+   the worked example above), so your prompts can only ever be routed to that one
+   upstream — never a random cheapest-wins provider.
+4. Record **your selected upstream's data policy** (Z.AI's, in the example) from
+   OpenRouter's provider-privacy documentation.
+   (The `GET openrouter.ai/api/v1/models/z-ai/glm-5.2/endpoints` API is useful for
+   pricing/uptime but carries **no** data-policy fields — read the provider-privacy
+   docs, not that endpoint, for the data policy.)
+
+### Z.ai-direct setup
+
+To talk to Z.ai without OpenRouter in the middle, use the Anthropic-compatible
+base URL and Z.AI's own bracket-suffixed model IDs:
+
+```json
+{
+  "providers": {
+    "zai": {
+      "base_url": "https://api.z.ai/api/anthropic",
+      "auth": "bearer",
+      "timeout_ms": 3000000,
+      "env": {
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.2",
+        "CLAUDE_CODE_SUBAGENT_MODEL": "glm-5.2[1m]",
+        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000"
+      }
+    }
+  },
+  "devflow_implement": { "provider": "zai", "claude_model": "glm-5.2[1m]" }
+}
+```
+
+Notes for Z.ai-direct: the `[1m]` **bracket suffix** on `glm-5.2[1m]` selects the
+1M-context variant — keep it on both `claude_model` and `CLAUDE_CODE_SUBAGENT_MODEL`
+if you want it; the haiku slot uses **`glm-5.2`** (no bracket). Set
+`DEVFLOW_PROVIDER_API_KEY` to your Z.AI key.
+
 ## Workflow inventory
 
 | Workflow | Purpose | Needs |
@@ -758,6 +1027,11 @@ matter for the cloud tier:
 | `devflow-runner.yml` | Reusable runner (`workflow_call`) — one read-only job called by `devflow-review.yml`; lives apart from `devflow.yml` so its permission ceiling stays a subset of the caller's grant | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-implement.yml` | Runs `/devflow:implement` on a bare command in an issue comment (issues-only; PR comments never fire it) | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs (calls `devflow-runner.yml`). Its `workflow_run` re-trigger — which re-fires a review deferred behind the `devflow_review.require_up_to_date` / `require_ci_green` preconditions (issue #304) — **must name your repo's CI workflows** in its `workflows:` list (ships as `[CI]`; a GitHub platform requirement, no wildcards) — edit that list when installing. External non-Actions CI is covered by `check_suite`, and legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the `status` trigger — both need no naming | `CLAUDE_CODE_OAUTH_TOKEN` |
+
+The **Needs** column lists the default (Anthropic-OAuth) secret. Each of the three
+model-running workflows (`devflow.yml`, `devflow-runner.yml`, `devflow-implement.yml`)
+**additionally** consumes the optional `DEVFLOW_PROVIDER_API_KEY` when its section opts
+into a third-party `provider` (see [Third-party model providers](#third-party-model-providers-opt-in-best-effort)); with no provider configured that secret is unused and the OAuth token alone is required.
 
 DevFlow never creates or overwrites `claude.yml` — that file belongs to
 Anthropic's Claude GitHub App, which owns plain `@claude` mentions, Q&A, and
