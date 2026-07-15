@@ -10,7 +10,7 @@
 # per run, never silent.
 #
 # Why a helper rather than an inline `case` in the workflow YAML: the arm selection
-# (failed > degraded > spliced > silent) and each arm's message ARE the
+# (failed > {degraded and/or spliced} > silent) and each arm's message ARE the
 # accurate-diagnosis output the feature exists to produce, so a reordered `case` or a
 # typo'd glob would silently mis-select while the workflow "works". Inline shell in
 # YAML cannot be unit-tested; here lib/test/run.sh drives every arm and the arm order
@@ -30,10 +30,14 @@
 #                 failure cause. Absent on the splice and silent arms.
 #
 # Arm selection (precedence order — a later arm never shadows an earlier one):
-#   1. read-outcome == failed            -> ::warning::  trusted-read-failed
-#   2. read-outcome == ok + defect       -> ::warning::  degraded-shape (names the defect)
-#   3. read-outcome == ok + entries      -> ::notice::   splice (lists every entry)
-#   4. else (ok, no defect, no entries)  -> silent       (absent/clean baseline)
+#   1. read-outcome == failed                -> ::warning::  trusted-read-failed
+#   2. read-outcome == ok + defect + entries -> ::warning:: AND ::notice:: — a degraded
+#                                               ENTRY never suppresses the splice audit
+#                                               line for the valid extras that WERE
+#                                               composed (issue #513). Both are emitted.
+#   3. read-outcome == ok + defect only      -> ::warning::  degraded-shape (names the defect)
+#   4. read-outcome == ok + entries only     -> ::notice::   splice (lists every entry)
+#   5. else (ok, no defect, no entries)      -> silent       (absent/clean baseline)
 #
 # The helper-file-absent (skew) arm is NOT here: it stays INLINE in the composing step
 # (grep-pinned by run.sh) because it fires precisely when this helper cannot be invoked
@@ -78,10 +82,19 @@ case "$read_outcome" in
         fi
         ;;
     ok)
-        if [ -n "$defect" ]; then
-            # The helper ran and emitted a breadcrumb: the settings file is present but
-            # degraded (invalid JSON, wrong-typed enabledPlugins, ...). Proceed with the
-            # baked baseline; name the specific defect so a consumer can fix it.
+        if [ -n "$defect" ] && [ -n "$entries" ]; then
+            # Mixed: some entries are degraded (skipped, named by the breadcrumb) while
+            # VALID extras WERE composed into the credentialed runner's plugin surface.
+            # Emit BOTH — the ::warning:: names the skipped-entry defect, the ::notice::
+            # lists what was composed — so a degraded entry never suppresses the splice
+            # audit line (issue #513: every spliced entry is logged, never silent).
+            printf '::warning::.claude/settings.json has degraded entries (%s); those are skipped, the valid extras below are composed.\n' "$defect"
+            printf '::notice::Composed plugin/marketplace entries beyond the baked baseline: %s\n' "$entries"
+        elif [ -n "$defect" ]; then
+            # The helper ran and emitted a breadcrumb, and nothing was composed: the
+            # settings file is present but degraded (invalid JSON, wrong-typed
+            # enabledPlugins, ...). Proceed with the baked baseline; name the specific
+            # defect so a consumer can fix it.
             printf '::warning::.claude/settings.json is degraded (%s); proceeding with the baked plugin baseline.\n' "$defect"
         elif [ -n "$entries" ]; then
             # The observable-output arm: list every spliced entry beyond the baked

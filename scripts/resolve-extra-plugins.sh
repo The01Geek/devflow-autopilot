@@ -32,21 +32,24 @@
 #
 # plugins mode — emits the enabledPlugins keys whose JSON value is the boolean true
 #   (json.load maps JSON true -> Python True, so `val is True` is the strict boolean
-#   test; a value of 1 or "true" is NOT boolean true). Excluded, each as noted:
+#   test; a value of 1 or "true" is NOT boolean true). Exclusions, listed in the order
+#   the code applies them:
+#     - value not boolean true: boolean false is silently skipped (the suppression
+#       case); the STRING "true" is not emitted and draws a wrong-type breadcrumb.
 #     - key equal to a baked baseline entry (code-review@claude-plugins-official,
 #       claude-md-management@claude-plugins-official, devflow@devflow-marketplace):
 #       silent skip (already installed by the baseline).
+#     - key with no @marketplace suffix: breadcrumb, not emitted.
 #     - key whose plugin name (the part before @) is "devflow": silent skip (always
 #       installed via the baked devflow@devflow-marketplace).
-#     - key with no @marketplace suffix: breadcrumb, not emitted.
 #     - key whose marketplace suffix is outside the known set — the union of
 #       claude-plugins-official, devflow-marketplace, and the names of github-kind
-#       extraKnownMarketplaces entries in the same file: a suffix declared nowhere in
-#       the file -> unknown-marketplace breadcrumb; a suffix declared in
-#       extraKnownMarketplaces but with a non-github source kind -> declared-but-
-#       unsupported-kind breadcrumb naming the kind and the scope boundary.
-#     - value not boolean true: boolean false is silently skipped (the suppression
-#       case); the STRING "true" is not emitted and draws a wrong-type breadcrumb.
+#       extraKnownMarketplaces entries in the same file WHOSE repo is a non-empty
+#       string: a suffix declared nowhere in the file -> unknown-marketplace
+#       breadcrumb; a suffix declared as github-kind but with a missing/empty/non-
+#       string repo (so its URL cannot be registered) -> bad-repo breadcrumb; a
+#       suffix declared with a non-github source kind -> declared-but-unsupported-kind
+#       breadcrumb naming the kind and the scope boundary.
 #
 # marketplaces mode — emits https://github.com/<repo>.git for each
 #   extraKnownMarketplaces entry whose .source.source is the string "github" and whose
@@ -122,6 +125,7 @@ extra = data.get("extraKnownMarketplaces")
 if isinstance(extra, dict):
     declared_market_names = set(extra.keys())
     github_market_names = set()
+    github_market_bad_repo = set()
     market_kinds = {}
     for nm, val in extra.items():
         if isinstance(val, dict):
@@ -131,10 +135,23 @@ if isinstance(extra, dict):
                 if isinstance(k, str):
                     market_kinds[nm] = k
                 if k == "github":
-                    github_market_names.add(nm)
+                    # Only a github market whose repo is a non-empty string maps to a
+                    # registrable URL (marketplaces mode requires the same), so only such
+                    # a market may join the plugins-mode KNOWN set. A github market with a
+                    # missing/empty/non-string repo is NOT known — its URL is never
+                    # registered, so a plugin against it must not be emitted-and-audited as
+                    # "composed" while its marketplace goes unregistered. Tracked separately
+                    # so the plugins-mode breadcrumb names this cause accurately (not the
+                    # non-github-kind message, whose kind here IS github).
+                    repo = src.get("repo")
+                    if isinstance(repo, str) and repo != "":
+                        github_market_names.add(nm)
+                    else:
+                        github_market_bad_repo.add(nm)
 else:
     declared_market_names = set()
     github_market_names = set()
+    github_market_bad_repo = set()
     market_kinds = {}
 
 
@@ -177,7 +194,11 @@ if mode == "plugins":
         if plugin_name == "devflow":
             continue
         if market not in known:
-            if market in declared_market_names:
+            if market in github_market_bad_repo:
+                warn("enabledPlugins entry " + repr(key) + " marketplace " + repr(market)
+                     + " is github-kind in extraKnownMarketplaces but its repo is missing, empty, or"
+                     + " non-string, so its marketplace URL cannot be registered; not emitted")
+            elif market in declared_market_names:
                 kstr = market_kinds.get(market) or "missing"
                 warn("enabledPlugins entry " + repr(key) + " marketplace " + repr(market)
                      + " is declared in extraKnownMarketplaces but with non-github source kind "

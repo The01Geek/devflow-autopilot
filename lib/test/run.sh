@@ -35870,6 +35870,22 @@ assert_eq "#505 AC: declared-unsupported-kind breadcrumb names the scope boundar
 # github-kind declared custom market IS emitted (known set includes github-kind extra names)
 _505_run plugins '{"enabledPlugins":{"plug@custom-market":true},"extraKnownMarketplaces":{"custom-market":{"source":{"source":"github","repo":"o/r"}}}}'
 assert_eq "#505 AC: github-kind custom-market plugin emitted" "plug@custom-market" "$_OUT"
+# #513: a github-kind market whose repo is EMPTY does NOT join the plugins-mode known set
+# (its URL is never registered by marketplaces mode), so a plugin against it is NOT emitted
+# — and the breadcrumb names the bad-repo cause, NOT the misleading "non-github source
+# kind 'github'" message. Mirrors marketplaces mode's non-empty-string repo requirement, so
+# a plugin cannot be audited as "composed" while its marketplace goes unregistered.
+_505_run plugins '{"enabledPlugins":{"plug@custom-market":true},"extraKnownMarketplaces":{"custom-market":{"source":{"source":"github","repo":""}}}}'
+assert_eq "#513 AC: github-kind empty-repo market → plugin NOT emitted" "" "$_OUT"
+assert_eq "#513 AC: github-kind empty-repo market → breadcrumb names the bad-repo cause" "yes" \
+  "$(printf '%s' "$_ERR" | grep -qi 'repo is missing, empty, or' && echo yes || echo no)"
+assert_eq "#513 AC: github-kind empty-repo market → breadcrumb does NOT misreport it as non-github kind" "no" \
+  "$(printf '%s' "$_ERR" | grep -qi 'non-github source kind' && echo yes || echo no)"
+# missing-repo variant (repo key absent entirely) → same bad-repo path
+_505_run plugins '{"enabledPlugins":{"plug@custom-market":true},"extraKnownMarketplaces":{"custom-market":{"source":{"source":"github"}}}}'
+assert_eq "#513 AC: github-kind missing-repo market → plugin NOT emitted" "" "$_OUT"
+assert_eq "#513 AC: github-kind missing-repo market → bad-repo breadcrumb" "yes" \
+  "$(printf '%s' "$_ERR" | grep -qi 'repo is missing, empty, or' && echo yes || echo no)"
 # baked-duplicate → silent skip
 _505_run plugins '{"enabledPlugins":{"code-review@claude-plugins-official":true,"real@claude-plugins-official":true}}'
 assert_eq "#505 AC: baked-duplicate entry silent skip" "real@claude-plugins-official" "$_OUT"
@@ -35949,10 +35965,20 @@ _505_dpc failed $'a@x' "some defect"
 assert_eq "#505 dpc: trusted-read-failed arm emits ::warning:: (outranks splice)" "yes" \
   "$(printf '%s' "$_OUT" | grep -q '::warning::' && printf '%s' "$_OUT" | grep -qi 'could not read' && echo yes || echo no)"
 assert_eq "#505 dpc: failed arm does NOT emit a notice" "no" "$(printf '%s' "$_OUT" | grep -q '::notice::' && echo yes || echo no)"
-# arm order: ok+defect+entries → degraded wins (not splice)
+# mixed: ok+defect+entries → BOTH a ::warning:: (degraded entry) AND a ::notice:: (the
+# valid extras were composed) — a degraded entry never suppresses the splice audit line
+# (issue #513: every spliced entry logged, never silent). Regression pin for the REJECT
+# driver: before #513 the degraded arm shadowed the splice notice, so a valid plugin
+# spliced into the credentialed runner shipped unaudited.
 _505_dpc ok $'a@x' "defect"
-assert_eq "#505 dpc: arm order — degraded outranks splice (ok+defect+entries → warning)" "yes" \
-  "$(printf '%s' "$_OUT" | grep -q '::warning::' && ! printf '%s' "$_OUT" | grep -q '::notice::' && echo yes || echo no)"
+assert_eq "#505 dpc(#513): mixed ok+defect+entries emits the degraded ::warning::" "yes" \
+  "$(printf '%s' "$_OUT" | grep -q '::warning::' && printf '%s' "$_OUT" | grep -qi 'degraded entries' && echo yes || echo no)"
+assert_eq "#505 dpc(#513): mixed ok+defect+entries ALSO emits the splice ::notice:: listing the entry (never suppressed)" "yes" \
+  "$(printf '%s' "$_OUT" | grep -q '::notice::' && printf '%s' "$_OUT" | grep -q 'a@x' && echo yes || echo no)"
+# arm 3 (defect only, no entries) still reads "proceeding with the baked plugin baseline"
+_505_dpc ok "" "defect"
+assert_eq "#505 dpc(#513): defect-only (no entries) still emits the baseline-only ::warning::, no ::notice::" "yes" \
+  "$(printf '%s' "$_OUT" | grep -q '::warning::' && printf '%s' "$_OUT" | grep -q 'baked plugin baseline' && ! printf '%s' "$_OUT" | grep -q '::notice::' && echo yes || echo no)"
 # arm order: failed outranks degraded (failed+defect → failed warning, not degraded)
 _505_dpc failed "" "defect"
 assert_eq "#505 dpc: arm order — failed outranks degraded (failed+defect → 'could not read')" "yes" \
@@ -35988,6 +36014,13 @@ assert_eq "#505 AC skew: devflow.yml skew arm names devflow_version" "yes" \
 for _f in devflow-implement devflow; do
   assert_eq "#505 AC skew: $_f.yml inline fallback emits a splice ::notice:: for valid extras (never silent)" "yes" \
     "$(grep -qF 'Composed plugin/marketplace entries beyond the baked baseline (describe-plugin-compose.sh unavailable):' "$_505_WF/$_f.yml" && echo yes || echo no)"
+  # #513: the inline fallback must emit the splice ::notice:: EVEN WHEN a degraded-entry
+  # ::warning:: also fires (DEFECT and a splice coexist) — a degraded entry must not
+  # suppress the audit line, mirroring describe-plugin-compose.sh's #513 fix. Pin the
+  # coexist arm's both-emit ::warning:: literal so an `elif` regression (which would drop
+  # the notice on the mixed case) turns RED.
+  assert_eq "#513 AC skew: $_f.yml inline fallback carries the coexisting degraded+splice ::warning:: (both emitted)" "yes" \
+    "$(grep -qF 'has degraded entries ($DEFECT); those are skipped, the valid extras below are composed.' "$_505_WF/$_f.yml" && echo yes || echo no)"
 done
 # (b) review-tier trusted-source pins
 _RYML="$_505_WF/devflow-runner.yml"
