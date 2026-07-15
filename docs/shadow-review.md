@@ -132,8 +132,10 @@ for. This is the **inverse** of the loop's normal iter-N≥2 fix-delta handoff:
   purpose** — reintroducing it turns the audit back into a self-check.
 
 Every shadow-pass subagent prompt the parent composes uses the engine's verbatim per-agent prompt,
-plus provenance-clean consumer prompt-extension text, plus only the shadow engine's own run-scoped
-full-diff artifacts and permitted repository paths. This covers Phase 1 checklist-generators, the
+plus consumer prompt-extension text whose provenance is classified at load time, plus only the
+shadow engine's own run-scoped full-diff artifacts and permitted repository paths. Provenance-clean
+extension text is permitted composition; extension text that fails either check remains loaded but
+is recorded as an addendum, so it cannot produce an attested clean result. This covers Phase 1 checklist-generators, the
 Phase 1.5 deduper, Phase 2 agent-mode verifiers, Phase 3 reviewers including the final-pass reviewer,
 and tripwire-widened late dispatches under either shadow trigger. The parent adds no focus,
 prioritization, or scoping clause. The Step 3.5 fix-delta gate and Loop Exit post-shadow delta-review

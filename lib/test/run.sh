@@ -36260,6 +36260,8 @@ assert_pin_red_under "#497 AC7 promotion is never gated and coverage is never ch
   '/The prompt-addenda attestation never gates outcome 2/d' "$I497_RAF"
 assert_pin_unique "#497 AC10 skill clean render requires both persisted operands" \
   'The exact clean-agreement string requires both persisted operands' "$I497_RAF"
+assert_pin_unique "#497 AC10 Coverage handles every present noncanonical attestation value" \
+  'Any other present attestation value is not attested.' "$I497_RAF"
 assert_pin_unique "#497 AC11 skill red flag names all three steering channels" \
   'append focus/prioritize/scope clauses to a shadow prompt, hand it regenerated or subsetted diff artifacts, or write steering into its prompt-extension file' "$I497_RAF"
 assert_pin_unique "#497 AC12 shadow doc mirrors the widened prompt composition rule" \
