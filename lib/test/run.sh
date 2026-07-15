@@ -20487,9 +20487,10 @@ assert_eq "#404 trust: old PR-head resolution loop is gone" "0" \
   "$(grep -cF '.devflow/vendor/devflow/scripts/filter-runner-tools.sh scripts/filter-runner-tools.sh' "$RUNNER" || true)"
 assert_eq "#404 trust: FLOOR_HELPER wired to baseprovision floor_helper output" "1" \
   "$(grep -cF 'FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}' "$RUNNER" || true)"
-# Two sites wire VENDOR_SOURCE to the same fresh-fetch gate: the tools step's
-# deny-floor (#404) and the #458 harden-stop-hooks step (same trusted-source rank).
-assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden step)" "2" \
+# VENDOR_SOURCE is wired to the same fresh-fetch gate at three sites: the tools
+# step's deny-floor (#404), the #458 harden-stop-hooks step, and the #505 compose
+# step (same trusted-source rank — the compose helper's rank-2 vendored fallback).
+assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden + #505 compose)" "3" \
   "$(grep -cF 'VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}' "$RUNNER" || true)"
 assert_eq "#404 trust: baseprovision materializes the floor from FETCH_HEAD" "1" \
   "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh' "$RUNNER" || true)"
@@ -20506,7 +20507,9 @@ assert_pin_red_under "#404 trust: vendored floor fallback is gated on vendor_sou
 # (#295 convention: `git rev-parse --show-toplevel`, falling back to `pwd`), so a
 # bare relative `.devflow/vendor/…` candidate can't be silently missed under a
 # future `working-directory:` and flip every review to helper-absent fail-closed.
-assert_eq "#409 item8: deny-floor helper resolution is repo-root-anchored (#295)" "1" \
+# Two sites anchor this way: the deny-floor (#409) and the #505 compose step's
+# rank-2 vendored-helper candidate (same repo-root convention).
+assert_eq "#409 item8: deny-floor helper resolution is repo-root-anchored (#295)" "2" \
   "$(grep -cF '_REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"' "$RUNNER" || true)"
 assert_eq "provision: empty-after-strip warns build-aware review has no tools" "1" \
   "$(grep -c 'build-aware review is enabled with NO build tools' "$RUNNER" || true)"
@@ -21237,7 +21240,10 @@ assert_eq "#460 workflow: harden self-copy is gated by the plugin.json-name disc
 # .claude/settings.json wires these Stop hooks. devflow-runner.yml ships to consumers,
 # but DevFlow's own Stop hooks do not; without this gate a consumer review stubs/creates
 # the nine DevFlow-layout paths over same-named files (a wrong verdict).
-assert_eq "#460 workflow: relevance gate reads the TRUSTED base .claude/settings.json" "1" \
+# Two steps read the trusted base-ref .claude/settings.json via git show: the #460
+# harden-stop-hooks relevance gate, and the #505 baseprovision compose materialization
+# (same trusted-ref read; the compose consumes only that materialized $RUNNER_TEMP path).
+assert_eq "#460 workflow: relevance gate reads the TRUSTED base .claude/settings.json" "2" \
   "$(grep -cF 'git show "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
 assert_eq "#460 workflow: relevance gate keys on the three entry hooks" "1" \
   "$(grep -cF 'ENTRY_TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh"' "$RUNNER" || true)"
@@ -21285,9 +21291,11 @@ assert_eq "#460 workflow: the swallowed 'printf … || true' materialization wri
 # wired" and skipped — that would drop DevFlow's OWN floor when settings.json exists at
 # base but `git show` read back empty despite a successful fetch. The gate distinguishes
 # absent (skip) from present-but-unreadable (fail-closed harden) via `git cat-file -e`.
-assert_eq "#460 workflow: empty settings read is disambiguated with git cat-file -e" "1" \
+# Both the #460 harden relevance gate and the #505 baseprovision compose materialization
+# disambiguate an empty settings read via git cat-file -e (same fail-closed discipline).
+assert_eq "#460 workflow: empty settings read is disambiguated with git cat-file -e" "2" \
   "$(grep -cF 'git cat-file -e "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
-assert_eq "#460 workflow: a present-but-unreadable base settings.json fails closed (hardens, warns)" "1" \
+assert_eq "#460 workflow: a present-but-unreadable base settings.json fails closed (hardens, warns)" "2" \
   "$(grep -c 'read back empty after a successful fetch' "$RUNNER" || true)"
 # SETTINGS.LOCAL.JSON scope (issue #460 SHADOW): the gate must ALSO read
 # .claude/settings.local.json — claude-code-action restores all of .claude/, so a hook
@@ -35300,6 +35308,206 @@ assert_eq "#457 execution-file-shape: AC6 links the security corollary issue #45
 assert_eq "#457 matcher-probe: hook-probe comment drops the stale 'SHIPS in this PR' framing" "yes" \
   "$(grep -qF 'SHIPS in this' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo no || echo yes)"
 rm -rf "$DHP_TMP"
+
+# ── #505 cloud-tier plugin parity: resolve-extra-plugins.sh +
+#    describe-plugin-compose.sh + three-workflow wiring ─────────────────────
+echo "resolve-extra-plugins.sh + describe-plugin-compose.sh (issue #505 plugin parity)"
+_505_WF="$LIB/../.github/workflows"
+REP="$LIB/../scripts/resolve-extra-plugins.sh"
+DPC="$LIB/../scripts/describe-plugin-compose.sh"
+assert_eq "#505 AC1: resolve-extra-plugins.sh exists" "yes" "$([ -f "$REP" ] && echo yes || echo no)"
+assert_eq "#505 AC1: resolve-extra-plugins.sh SPDX header" "yes" "$(grep -q 'SPDX-License-Identifier: MIT' "$REP" && echo yes || echo no)"
+assert_eq "#505 AC1: resolve-extra-plugins.sh exposes plugins + marketplaces modes" "yes" \
+  "$(grep -q 'plugins' "$REP" && grep -q 'marketplaces' "$REP" && echo yes || echo no)"
+# guard-class 2 (AC1): emitted values come from python3 (sys.stdout.write), and no
+# non-preflight PATH tool (tr/sed/wc/cut/head) is invoked as a command to derive one.
+assert_eq "#505 AC1: emitted values come from python3 (guard-class 2)" "yes" \
+  "$(grep -q 'sys.stdout.write' "$REP" && grep -q 'python3 -c' "$REP" && echo yes || echo no)"
+assert_eq "#505 AC1: no tr/sed/wc/cut/head command derives an emitted value (guard-class 2)" "0" \
+  "$(grep -cE '^[[:space:]]*(tr|sed|wc|cut|head)([[:space:]]|$)' "$REP")"
+
+# Driver: run the helper against a JSON fixture, capturing rc/stdout/stderr into globals.
+_505_ERR="$(mktemp)"
+_505_run() { _f="$(mktemp)"; printf '%s' "$2" > "$_f"; _OUT="$(bash "$REP" "$1" "$_f" 2>"$_505_ERR")"; _RC=$?; _ERR="$(cat "$_505_ERR")"; rm -f "$_f"; }
+_505_run_absent() { _f="$(mktemp)"; rm -f "$_f"; _OUT="$(bash "$REP" "$1" "$_f" 2>"$_505_ERR")"; _RC=$?; _ERR="$(cat "$_505_ERR")"; rm -f "$_f"; }
+_505_grep_err() { printf '%s' "$_ERR" | grep -qi "$1" && echo yes || echo no; }
+
+# ── plugins mode (AC2) ──
+_505_run plugins '{"enabledPlugins":{"a@claude-plugins-official":true,"b@claude-plugins-official":true},"extraKnownMarketplaces":{"my-mk":{"source":{"source":"github","repo":"o/r"}}}}'
+assert_eq "#505 AC2 happy: exit 0" "0" "$_RC"
+assert_eq "#505 AC2 happy: emits both true entries in settings order" \
+  "a@claude-plugins-official"$'\n'"b@claude-plugins-official" "$_OUT"
+assert_eq "#505 AC2 happy: no breadcrumb on a clean file" "" "$_ERR"
+_505_run_absent plugins
+assert_eq "#505 AC: absent file exit 0 (normal consumer case)" "0" "$_RC"
+assert_eq "#505 AC: absent file empty stdout" "" "$_OUT"
+assert_eq "#505 AC: absent file emits NO breadcrumb" "" "$_ERR"
+_505_run plugins '{"hooks":{"x":1}}'
+assert_eq "#505 AC: absent enabledPlugins key empty stdout" "" "$_OUT"
+_505_run plugins '{"enabledPlugins":{}}'
+assert_eq "#505 AC: empty enabledPlugins object empty stdout" "" "$_OUT"
+_505_run plugins '{not json'
+assert_eq "#505 AC: invalid JSON exit 0" "0" "$_RC"
+assert_eq "#505 AC: invalid JSON empty stdout" "" "$_OUT"
+assert_eq "#505 AC: invalid JSON breadcrumb names the defect" "yes" "$(_505_grep_err 'not valid JSON')"
+_505_run plugins '[1,2,3]'
+assert_eq "#505 AC: top-level array breadcrumb" "yes" "$(_505_grep_err 'not an object')"
+_505_run plugins '"hello"'
+assert_eq "#505 AC: top-level scalar breadcrumb" "yes" "$(_505_grep_err 'not an object')"
+_505_run plugins '{"enabledPlugins":[1,2]}'
+assert_eq "#505 AC: enabledPlugins as array breadcrumb" "yes" "$(_505_grep_err 'enabledPlugins is not an object')"
+_505_run plugins '{"enabledPlugins":true}'
+assert_eq "#505 AC: enabledPlugins as scalar breadcrumb" "yes" "$(_505_grep_err 'enabledPlugins is not an object')"
+# valid-falsy: boolean false alongside true → only true emitted (AC suppression fixture)
+_505_run plugins '{"enabledPlugins":{"keep@claude-plugins-official":true,"drop@claude-plugins-official":false}}'
+assert_eq "#505 AC: boolean false suppressed, boolean true emitted" "keep@claude-plugins-official" "$_OUT"
+assert_eq "#505 AC: boolean false entry emits no breadcrumb" "" "$_ERR"
+# string "true" → not emitted, wrong-type breadcrumb (AC type boundary)
+_505_run plugins '{"enabledPlugins":{"strue@claude-plugins-official":"true"}}'
+assert_eq "#505 AC: string 'true' not emitted" "" "$_OUT"
+assert_eq "#505 AC: string 'true' wrong-type breadcrumb" "yes" \
+  "$(printf '%s' "$_ERR" | grep -qi 'string value' && printf '%s' "$_ERR" | grep -qi 'not boolean true' && echo yes || echo no)"
+# bare-name (no @) → breadcrumb
+_505_run plugins '{"enabledPlugins":{"barename":true}}'
+assert_eq "#505 AC: bare-name (no @) breadcrumb" "yes" "$(_505_grep_err 'no @marketplace suffix')"
+# unknown-marketplace suffix (declared nowhere) → breadcrumb
+_505_run plugins '{"enabledPlugins":{"plug@unknown-market":true}}'
+assert_eq "#505 AC: unknown-marketplace suffix breadcrumb" "yes" "$(_505_grep_err 'is not declared anywhere')"
+# declared-but-unsupported-kind → breadcrumb naming the kind + scope boundary
+_505_run plugins '{"enabledPlugins":{"plug@custom-market":true},"extraKnownMarketplaces":{"custom-market":{"source":{"source":"url","repo":"x"}}}}'
+assert_eq "#505 AC: declared-unsupported-kind breadcrumb names the kind" "yes" "$(_505_grep_err 'non-github source kind')"
+assert_eq "#505 AC: declared-unsupported-kind breadcrumb names the scope boundary" "yes" "$(_505_grep_err 'scope boundary')"
+# github-kind declared custom market IS emitted (known set includes github-kind extra names)
+_505_run plugins '{"enabledPlugins":{"plug@custom-market":true},"extraKnownMarketplaces":{"custom-market":{"source":{"source":"github","repo":"o/r"}}}}'
+assert_eq "#505 AC: github-kind custom-market plugin emitted" "plug@custom-market" "$_OUT"
+# baked-duplicate → silent skip
+_505_run plugins '{"enabledPlugins":{"code-review@claude-plugins-official":true,"real@claude-plugins-official":true}}'
+assert_eq "#505 AC: baked-duplicate entry silent skip" "real@claude-plugins-official" "$_OUT"
+assert_eq "#505 AC: baked-duplicate entry no breadcrumb" "" "$_ERR"
+# devflow@-prefixed → silent skip
+_505_run plugins '{"enabledPlugins":{"devflow@devflow-marketplace":true,"real@claude-plugins-official":true}}'
+assert_eq "#505 AC: devflow@-prefixed entry silent skip" "real@claude-plugins-official" "$_OUT"
+# order preserved (settings-file order)
+_505_run plugins '{"enabledPlugins":{"zebra@claude-plugins-official":true,"apple@claude-plugins-official":true}}'
+assert_eq "#505 AC: settings-file order preserved" \
+  "zebra@claude-plugins-official"$'\n'"apple@claude-plugins-official" "$_OUT"
+
+# ── marketplaces mode (AC3) ──
+_505_run marketplaces '{"extraKnownMarketplaces":{"my-mk":{"source":{"source":"github","repo":"o/r"}}}}'
+assert_eq "#505 AC3: github marketplace emits the mapped URL" "https://github.com/o/r.git" "$_OUT"
+_505_run marketplaces '{"extraKnownMarketplaces":{"url-mk":{"source":{"source":"url","repo":"x"}}}}'
+assert_eq "#505 AC3: non-github kind breadcrumb names the kind" "yes" \
+  "$(printf '%s' "$_ERR" | grep -qi 'has source kind' && printf '%s' "$_ERR" | grep -qi 'only github is mapped' && echo yes || echo no)"
+_505_run marketplaces '{"extraKnownMarketplaces":{"nom-repo":{"source":{"source":"github"}}}}'
+assert_eq "#505 AC3: github missing-repo breadcrumb" "yes" "$(_505_grep_err 'repo is missing, empty, or non-string')"
+_505_run marketplaces '{"extraKnownMarketplaces":{"empty-repo":{"source":{"source":"github","repo":""}}}}'
+assert_eq "#505 AC3: github empty-repo breadcrumb" "yes" "$(_505_grep_err 'repo is missing, empty, or non-string')"
+_505_run marketplaces '{"extraKnownMarketplaces":{"badrepo":{"source":{"source":"github","repo":123}}}}'
+assert_eq "#505 AC3: github non-string-repo breadcrumb" "yes" "$(_505_grep_err 'repo is missing, empty, or non-string')"
+_505_run marketplaces '{"extraKnownMarketplaces":[1,2]}'
+assert_eq "#505 AC3: wrong-type extraKnownMarketplaces breadcrumb" "yes" "$(_505_grep_err 'extraKnownMarketplaces is not an object')"
+_505_run marketplaces '{"extraKnownMarketplaces":{"claude-plugins-official":{"source":{"source":"github","repo":"a/b"}},"devflow-marketplace":{"source":{"source":"github","repo":"c/d"}},"real-mk":{"source":{"source":"github","repo":"e/f"}}}}'
+assert_eq "#505 AC3: claude-plugins-official + devflow-marketplace names silent skip" "https://github.com/e/f.git" "$_OUT"
+_505_run marketplaces '{"extraKnownMarketplaces":{"bad-entry":"oops"}}'
+assert_eq "#505 AC3: entry not an object breadcrumb" "yes" "$(_505_grep_err 'is not an object')"
+_505_run marketplaces '{"extraKnownMarketplaces":{"nosrc":{"autoUpdate":true}}}'
+assert_eq "#505 AC3: no source object breadcrumb" "yes" "$(_505_grep_err 'has no source object')"
+
+# ── production fixture (provision-local-settings.sh DEFAULTS) → both modes emit nothing ──
+_505_PROD='{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/devflow-autopilot"},"autoUpdate":true}},"enabledPlugins":{"devflow@devflow-marketplace":true}}'
+_505_run plugins "$_505_PROD"
+assert_eq "#505 AC: production fixture plugins empty (fresh /devflow:init)" "" "$_OUT"
+assert_eq "#505 AC: production fixture plugins no breadcrumb" "" "$_ERR"
+_505_run marketplaces "$_505_PROD"
+assert_eq "#505 AC: production fixture marketplaces empty (fresh /devflow:init)" "" "$_OUT"
+assert_eq "#505 AC: production fixture marketplaces no breadcrumb" "" "$_ERR"
+
+# repo's own settings.json → plugins emits 3 (claude-md-management is a baked-skip),
+# marketplaces empty (this repo declares no extraKnownMarketplaces).
+_505_run plugins "$(cat "$LIB/../.claude/settings.json")"
+assert_eq "#505 AC: repo settings emits superpowers+skill-creator+plugin-dev" \
+  "superpowers@claude-plugins-official"$'\n'"skill-creator@claude-plugins-official"$'\n'"plugin-dev@claude-plugins-official" "$_OUT"
+_505_run marketplaces "$(cat "$LIB/../.claude/settings.json")"
+assert_eq "#505 AC: repo settings marketplaces empty" "" "$_OUT"
+
+# invalid mode → breadcrumb + exit 0
+_505_run badmode '{"enabledPlugins":{}}'
+assert_eq "#505 AC: invalid mode exit 0" "0" "$_RC"
+assert_eq "#505 AC: invalid mode breadcrumb" "yes" "$(_505_grep_err 'unknown mode')"
+rm -f "$_505_ERR"
+
+# ── describe-plugin-compose.sh (AC: arm classification in a suite-drivable helper) ──
+assert_eq "#505: describe-plugin-compose.sh exists" "yes" "$([ -f "$DPC" ] && echo yes || echo no)"
+assert_eq "#505: describe-plugin-compose.sh SPDX header" "yes" "$(grep -q 'SPDX-License-Identifier: MIT' "$DPC" && echo yes || echo no)"
+assert_eq "#505: describe-plugin-compose.sh uses set -u (not set -e; always exits 0)" "yes" \
+  "$(grep -qE '^set -u$' "$DPC" && ! grep -q 'set -e' "$DPC" && echo yes || echo no)"
+_505_DPC_E="$(mktemp)"
+_505_dpc() { printf '%s' "$2" > "$_505_DPC_E"; _OUT="$(bash "$DPC" "$1" "$_505_DPC_E" "$3" 2>/dev/null)"; _RC=$?; }
+# silent-absent baseline: ok, no entries, no defect → no output
+_505_dpc ok "" ""
+assert_eq "#505 dpc: silent-absent arm emits nothing" "" "$_OUT"
+# splice-plus-notice: ok + entries → ::notice:: listing every entry
+_505_dpc ok $'a@x\nb@y' ""
+assert_eq "#505 dpc: splice arm emits ::notice:: listing the entries" "yes" \
+  "$(printf '%s' "$_OUT" | grep -q '::notice::' && printf '%s' "$_OUT" | grep -q 'a@x' && printf '%s' "$_OUT" | grep -q 'b@y' && echo yes || echo no)"
+# degraded-shape: ok + defect → ::warning:: naming the defect
+_505_dpc ok "" "enabledPlugins is not an object"
+assert_eq "#505 dpc: degraded arm emits ::warning:: naming the defect" "yes" \
+  "$(printf '%s' "$_OUT" | grep -q '::warning::' && printf '%s' "$_OUT" | grep -qi 'degraded' && printf '%s' "$_OUT" | grep -q 'enabledPlugins is not an object' && echo yes || echo no)"
+# trusted-read-failed: failed → ::warning:: (arm order: failed outranks degraded + splice)
+_505_dpc failed $'a@x' "some defect"
+assert_eq "#505 dpc: trusted-read-failed arm emits ::warning:: (outranks splice)" "yes" \
+  "$(printf '%s' "$_OUT" | grep -q '::warning::' && printf '%s' "$_OUT" | grep -qi 'could not read' && echo yes || echo no)"
+assert_eq "#505 dpc: failed arm does NOT emit a notice" "no" "$(printf '%s' "$_OUT" | grep -q '::notice::' && echo yes || echo no)"
+# arm order: ok+defect+entries → degraded wins (not splice)
+_505_dpc ok $'a@x' "defect"
+assert_eq "#505 dpc: arm order — degraded outranks splice (ok+defect+entries → warning)" "yes" \
+  "$(printf '%s' "$_OUT" | grep -q '::warning::' && ! printf '%s' "$_OUT" | grep -q '::notice::' && echo yes || echo no)"
+# arm order: failed outranks degraded (failed+defect → failed warning, not degraded)
+_505_dpc failed "" "defect"
+assert_eq "#505 dpc: arm order — failed outranks degraded (failed+defect → 'could not read')" "yes" \
+  "$(printf '%s' "$_OUT" | grep -qi 'could not read' && echo yes || echo no)"
+rm -f "$_505_DPC_E"
+
+# ── #505 workflow-wiring pins (AC4 + review-tier trusted-source ACs) ────────────
+_505_BP="printf '%s\n' code-review@claude-plugins-official claude-md-management@claude-plugins-official devflow@devflow-marketplace"
+_505_BM="printf '%s\n' https://github.com/anthropics/claude-plugins-official.git ./"
+# (a) baked baseline literals byte-identical across the three call sites (AC4 sync invariant)
+for _f in devflow-implement devflow devflow-runner; do
+  assert_eq "#505 AC4: $_f.yml carries the baked plugins baseline literal" "1" "$(grep -cF "$_505_BP" "$_505_WF/$_f.yml")"
+  assert_eq "#505 AC4: $_f.yml carries the baked marketplaces baseline literal" "1" "$(grep -cF "$_505_BM" "$_505_WF/$_f.yml")"
+  assert_eq "#505 AC4: $_f.yml has a Compose plugin inputs step" "1" "$(grep -c 'name: Compose plugin inputs' "$_505_WF/$_f.yml")"
+  assert_eq "#505 AC4: $_f.yml plugin_marketplaces consumes the step output" "1" \
+    "$(grep -cF 'plugin_marketplaces: ${{ steps.plugins.outputs.plugin_marketplaces }}' "$_505_WF/$_f.yml")"
+  assert_eq "#505 AC4: $_f.yml plugins consumes the step output" "1" \
+    "$(grep -cF 'plugins: ${{ steps.plugins.outputs.plugins }}' "$_505_WF/$_f.yml")"
+  assert_eq "#505 AC: $_f.yml routes the annotation through describe-plugin-compose.sh" "yes" \
+    "$(grep -qF 'bash "$COMPOSE"' "$_505_WF/$_f.yml" && echo yes || echo no)"
+done
+# (c) the inline skew arm (helper-file-absent) names devflow_version on the WRITE tiers
+assert_eq "#505 AC skew: devflow-implement.yml skew arm names devflow_version" "yes" \
+  "$(grep -qF 'Bump devflow_version' "$_505_WF/devflow-implement.yml" && echo yes || echo no)"
+assert_eq "#505 AC skew: devflow.yml skew arm names devflow_version" "yes" \
+  "$(grep -qF 'Bump devflow_version' "$_505_WF/devflow.yml" && echo yes || echo no)"
+# (b) review-tier trusted-source pins
+_RYML="$_505_WF/devflow-runner.yml"
+assert_eq "#505 AC review: exactly one Compose plugin inputs step in devflow-runner.yml" "1" \
+  "$(grep -c 'Compose plugin inputs (baseline + trusted-base-ref' "$_RYML")"
+assert_eq "#505 AC review: helper invoked against the materialized path (plugins mode)" "1" \
+  "$(grep -cF 'bash "$HELPER" plugins "$COMPOSE_SETTINGS"' "$_RYML")"
+assert_eq "#505 AC review: helper invoked against the materialized path (marketplaces mode)" "1" \
+  "$(grep -cF 'bash "$HELPER" marketplaces "$COMPOSE_SETTINGS"' "$_RYML")"
+assert_eq "#505 AC review: baseprovision materializes FETCH_HEAD:.claude/settings.json" "yes" \
+  "$(grep -qF 'FETCH_HEAD:.claude/settings.json' "$_RYML" && echo yes || echo no)"
+# NEGATIVE: no helper invocation consumes a workspace-relative .claude/settings.json path
+# (the invocations use $COMPOSE_SETTINGS, a $RUNNER_TEMP materialized path) — a retargeted
+# read or a later workspace-fallback read would put a literal settings path on an
+# invocation line and turn this RED.
+assert_eq "#505 AC review: NO helper invocation consumes a workspace .claude/settings.json (negative)" "0" \
+  "$(grep -cE 'bash "\$HELPER".*\.claude/settings\.json' "$_RYML")"
+assert_eq "#505 AC review: fail-closed arm names the trusted-source rule" "yes" \
+  "$(grep -qF 'trusted-source rule' "$_RYML" && echo yes || echo no)"
+
 
 # ── #456 skip tally, summary renderer, and the NOTE-emit meta-assertion ───────────────
 # The suite reports passed/failed/skipped. A self-skipping check records a SKIP (never a
