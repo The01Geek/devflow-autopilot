@@ -7448,7 +7448,7 @@ assert_pin_unique "#377 w3-triage-carveout-intact: §3.2 #193 stale-AC carve-out
 # the §2.3 "Sweep selection (run first)" index, carries a durable-operand read protocol, a
 # drift-guarded fix-loop mapping table, ignore-aware command forms, a termination rule, and the
 # verify half of a fix-authoring test-first gate; Step 3 gains the gate itself and Step 4.5 gains
-# one defining clause. Every rewritten/new operative sentence is pinned through assert_pin_red_under
+# one defining clause. The acceptance-criterion-bearing operative clauses below are pinned through assert_pin_red_under
 # (default file $MAXI_SKILL = skills/review-and-fix/SKILL.md). The retained #377 Wave-3 pins
 # (operative / frequency / delta-scope / trigger-gating / gate-umbrella / evidence-routing /
 # finding-disposition) stay above; the obsolete per-sweep-reference and negative-tail pins were
@@ -7494,6 +7494,9 @@ assert_pin_red_under "#478 AC2 read-protocol: a sweep is never executed from rec
 assert_pin_red_under "#478 AC2 read-protocol: unreadable §2.3 source records sweeps: unrunnable and continues (never stall, never silent skip)" \
   'sweeps: unrunnable (phase-2 source unreadable at <path>)' \
   '/phase-2 source unreadable at/d'
+assert_pin_red_under "#478 AC2 read-protocol: a truncated or marker-incomplete read takes the unreadable-source arm" \
+  'an empty, truncated, denied, or marker-incomplete result takes the unreadable-source arm' \
+  's/an empty, truncated, denied, or marker-incomplete result takes the unreadable-source arm//'
 # AC2 record-schema consumer (#478 compatibility review): item 7 calls itself the authoritative
 # iter-N record shape, so the read protocol's durable fields must be enumerated there too. Without
 # these pins, item 3b can require evidence that the authoritative writer silently omits.
@@ -7516,6 +7519,9 @@ assert_pin_red_under "#478 AC8 command-forms: the Grep tool first, ignore-aware"
 assert_pin_red_under "#478 AC8 command-forms: match-count evidence is over tracked/non-ignored files" \
   'tracked/non-ignored files' \
   's#tracked/non-ignored files##'
+assert_pin_red_under "#478 AC8 command-forms: quantitative evidence enumerates the tracked-file operand explicitly" \
+  'enumerate it with `git ls-files -z`' \
+  's/enumerate it with `git ls-files -z`//'
 # AC8 crux (#478 Phase-3 review): the load-bearing negative of the command-forms paragraph — that
 # git grep -n is ungranted in both cloud allowlists — is carried by the "never git grep -n"
 # prohibition, which no pin above guards. A mutation flipping it back to "use git grep -n" would
