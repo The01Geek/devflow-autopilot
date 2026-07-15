@@ -31609,20 +31609,21 @@ EOF
   cat > "$R5/.devflow/learnings/retrospectives.jsonl" <<'EOF'
 {"schema_version":2,"kind":"implementation","pr":950,"merged_at":"2026-07-10T00:00:00Z","branch":"complete","merge_commit_sha":"m950"}
 {"schema_version":2,"kind":"implementation","pr":951,"merged_at":"2026-07-10T00:00:00Z","branch":"synth","merge_commit_sha":"m951"}
-{"schema_version":2,"kind":"implementation","pr":952,"merged_at":"2026-07-10T00:00:00Z","branch":"nulltok","merge_commit_sha":"m952"}
+{"schema_version":2,"kind":"implementation","pr":952,"merged_at":"2026-07-10T00:00:00Z","branch":"unavailable","merge_commit_sha":"m952"}
 EOF
   seed_eff "$R5/.devflow/logs/efficiency" "pr-950-r.json" "pr-950" "false" \
     '[{"iter":1,"phases":{"phase3":{"tokens":42}}}]' 'null'
   seed_eff "$R5/.devflow/logs/efficiency" "pr-951-r.json" "pr-951" "true" \
     '[{"iter":1,"phases":{"phase3":{"tokens":42}}}]' 'null'
   seed_eff "$R5/.devflow/logs/efficiency" "pr-952-r.json" "pr-952" "false" \
-    '[{"iter":1,"phases":null}]' 'null'
+    '[{"iter":1,"phases":"unavailable"}]' 'null'
   GITHUB_REPOSITORY=owner/repo DEVFLOW_GH="$EXP/gh" \
     python3 "$BXR" --repo-root "$R5" --prs 950,951,952 >/dev/null 2>&1
   ST5="$R5/.devflow/learnings/experiment-records.jsonl"
   assert_eq "#431 T5: complete record → telemetry_complete true" "true" "$(exp_field "$ST5" 950 efficiency_runs.0.telemetry_complete)"
   assert_eq "#431 T5: synthesized record → telemetry_complete false" "false" "$(exp_field "$ST5" 951 efficiency_runs.0.telemetry_complete)"
-  assert_eq "#431 T5: null-token record → telemetry_complete false" "false" "$(exp_field "$ST5" 952 efficiency_runs.0.telemetry_complete)"
+  assert_eq "#499 consumer: unavailable marker → telemetry_complete false" "false" "$(exp_field "$ST5" 952 efficiency_runs.0.telemetry_complete)"
+  assert_eq "#499 consumer: unavailable marker contributes no cost figures" "null" "$(exp_field "$ST5" 952 efficiency_runs.0.cost)"
   # Idempotency: a second run is byte-identical and does not duplicate lines.
   BEFORE5="$(cat "$ST5")"
   N5A="$(exp_count_lines "$ST5")"
