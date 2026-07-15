@@ -19128,6 +19128,49 @@ printf '#!/bin/sh\nexit 1\n' > "$_489_WCROOT/bin/wc"; chmod +x "$_489_WCROOT/bin
 assert_eq "489/AC4: a broken wc (size derivation fails) drops the whole artifact (fails closed)" "1|no" \
   "$(_489_run_val "$_489_A/ok" "$_489_A/ok-wcfail" "PATH=$_489_WCROOT/bin:$PATH")"
 
+# (18) a symlink to a DIRECTORY drops the whole artifact. The `[ -L ]`-before-`[ -d ]` ordering
+# in _dvt_walk is the load-bearing reject-vs-recurse decision; a reorder that let a dir-symlink
+# be recursed into (following it off-tree) would turn this RED.
+_489_symdir_tgt="$(git_sandbox "489 symlink-dir target")"; mkdir -p "$_489_symdir_tgt/x"
+mkdir -p "$_489_A/symdir/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"ok"}' > "$_489_A/symdir/.devflow/logs/efficiency/good-1.json"
+ln -s "$_489_symdir_tgt" "$_489_A/symdir/.devflow/logs/review"
+assert_eq "489/AC4: a symlinked DIRECTORY drops the whole artifact (reject before recurse)" "1|no" \
+  "$(_489_run_val "$_489_A/symdir" "$_489_A/symdir-out")"
+
+# (19) a DANGLING symlink (present link, missing target) is still SEEN and drops the artifact —
+# the walk's `[ -e ] || [ -L ]` condition exists precisely so a dangling link isn't skipped.
+mkdir -p "$_489_A/dangling/.devflow/logs/efficiency"
+ln -s /no/such/target "$_489_A/dangling/.devflow/logs/efficiency/dead-1.json"
+assert_eq "489/AC4: a DANGLING symlink drops the whole artifact (still seen, never skipped)" "1|no" \
+  "$(_489_run_val "$_489_A/dangling" "$_489_A/dangling-out")"
+
+# (20) a hostile filename containing whitespace/newline drops the whole artifact. The validator
+# header advertises NUL-safe array handling of such names; that name can only travel the reject
+# path (the allowlist's `[A-Za-z0-9._-]+` segment rejects it), which is exactly where a quoting
+# regression would misbehave — so the walk must handle it without word-splitting.
+mkdir -p "$_489_A/wsname/.devflow/logs/efficiency"
+printf '{}' > "$_489_A/wsname/.devflow/logs/efficiency/bad name.json"
+assert_eq "489/AC4: a filename with whitespace drops the whole artifact (NUL-safe walk, allowlist rejects)" "1|no" \
+  "$(_489_run_val "$_489_A/wsname" "$_489_A/wsname-out")"
+mkdir -p "$_489_A/nlname/.devflow/logs/efficiency"
+printf '{}' > "$_489_A/nlname/.devflow/logs/efficiency/$(printf 'evil\nrun').json"
+assert_eq "489/AC4: a filename with an embedded newline drops the whole artifact (NUL-safe walk)" "1|no" \
+  "$(_489_run_val "$_489_A/nlname" "$_489_A/nlname-out")"
+
+# (21) Sug#1: the entry-count cap SHORT-CIRCUITS the walk (bounds work/memory, not just
+# admission). With the cap forced to 1 and two records, the walk rejects mid-walk naming the
+# short-circuit, rather than materializing every entry before the post-walk cap trips.
+_489_run_val "$_489_A/many" "$_489_A/many-sc-out" DEVFLOW_TELEMETRY_MAX_ENTRIES=1 >/dev/null
+assert_eq "489/AC4(Sug#1): the count cap short-circuits the walk (names it)" "yes" \
+  "$(grep -qF 'walk short-circuited' "$_489_A/many-sc-out.err" && echo yes || echo no)"
+
+# (22) Sug#5: _dvt_path_safe restores the caller's noglob state — call it from a glob-OFF caller
+# (set -f) and confirm noglob is still on afterward (the predicate must be self-contained and
+# never clobber a glob-off caller; the save/restore around its IFS split is otherwise untested).
+_489_noglob_restore() { ( DVT_LIB_ONLY=1; . "$_489_VAL"; set -f; _dvt_path_safe '.devflow/logs/efficiency/x-1.json' >/dev/null; case "$-" in *f*) echo on ;; *) echo off ;; esac ); }
+assert_eq "489/AC4(Sug#5): _dvt_path_safe restores a glob-OFF caller's noglob state" "on" "$(_489_noglob_restore)"
+
 # (17) collect helper's copy-failure branch (saw_stage set, found not → the distinct 'records
 # existed but none could be copied' warning). Driven deterministically by pointing DEST_PARENT
 # read-only is not reachable (the top mkdir would abort first), and a chmod-000 source is
@@ -19199,6 +19242,22 @@ printf '{"schema_version":1,"slug":"big","pad":"%s"}' "$(printf 'x%.0s' $(seq 1 
 assert_eq "489/AC4: an oversized artifact leaves the branch UNCHANGED" "yes" \
   "$(_489_hostile_tip_unchanged oversized DEVFLOW_TELEMETRY_MAX_BYTES=10)"
 
+# (Sug#5) further hostile SHAPES exercised end-to-end (branch tip unchanged), not only at the
+# validator-unit level: a non-object record, an over-deep review path, and the entry-count cap.
+_489_HART="$(git_sandbox "489 hostile non-object")"; mkdir -p "$_489_HART/.devflow/logs/efficiency"
+printf '[1,2,3]' > "$_489_HART/.devflow/logs/efficiency/arr-run-1.json"
+assert_eq "489/AC4(Sug#5): a non-object-JSON artifact leaves the branch UNCHANGED (e2e)" "yes" \
+  "$(_489_hostile_tip_unchanged nonobject)"
+_489_HART="$(git_sandbox "489 hostile over-deep")"; mkdir -p "$_489_HART/.devflow/logs/review/pr-x/run-y/extra"
+printf '{"iter":1}' > "$_489_HART/.devflow/logs/review/pr-x/run-y/extra/iter-1.json"
+assert_eq "489/AC4(Sug#5): an over-deep review-path artifact leaves the branch UNCHANGED (e2e)" "yes" \
+  "$(_489_hostile_tip_unchanged overdeep)"
+_489_HART="$(git_sandbox "489 hostile count cap")"; mkdir -p "$_489_HART/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"a"}' > "$_489_HART/.devflow/logs/efficiency/a-1.json"
+printf '{"schema_version":1,"slug":"b"}' > "$_489_HART/.devflow/logs/efficiency/b-1.json"
+assert_eq "489/AC4(Sug#5): an over-count artifact leaves the branch UNCHANGED (e2e)" "yes" \
+  "$(_489_hostile_tip_unchanged countcap DEVFLOW_TELEMETRY_MAX_ENTRIES=1)"
+
 # Inert on an EMPTY artifact (landing-order: intermediate state pushes nothing and says so).
 _489_HART="$(git_sandbox "489 empty artifact")"
 _489_EMPTY_ERR="$( ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_HART" "$_489_REPO" ) 2>&1 1>/dev/null )"
@@ -19222,6 +19281,57 @@ assert_eq "489/AC3: the pusher fails LOUD (rc 1) when repo_root is not a git wor
 _489_NONGIT_ERR="$( ( cd "$_489_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_PUSH" "$_489_CART" "$(git_sandbox '489 non-git repo_root msg')" ) 2>&1 1>/dev/null )"
 assert_eq "489/AC3: ...naming the not-a-git-working-tree cause (::error::, fail loud)" "yes" \
   "$(printf '%s' "$_489_NONGIT_ERR" | grep -qF 'is not a git working tree' && echo yes || echo no)"
+
+# Fail-LOUD source/guard arms (guard-class-1) + the exec-fault distinction (Sug#2). Copy the
+# pusher + validator into a sandbox with a SWAPPABLE lib/, so we can drive the source-failure
+# `exit 1` arms and — most notably — the `declare -F devflow_telemetry_persist_tree`
+# undefined-after-source guard added specifically to prevent a silent no-op. All otherwise
+# unexercised (the trusted writer's "refuse to silently drop telemetry" contract).
+_489_SBX="$(git_sandbox "489 pusher lib sandbox")"
+mkdir -p "$_489_SBX/scripts" "$_489_SBX/lib"
+cp "$_489_PUSH" "$_489_SBX/scripts/telemetry-push-artifact.sh"
+cp "$_489_VAL" "$_489_SBX/scripts/validate-telemetry-artifact.sh"
+printf '%s\n' ': "${DEVFLOW_JQ:=jq}"' > "$_489_SBX/lib/resolve-jq.sh"   # minimal working stub
+_489_SBX_REPO="$(git_sandbox "489 pusher sandbox repo")"; git -C "$_489_SBX_REPO" init -q
+_489_SBX_ART="$(git_sandbox "489 pusher sandbox artifact")"
+mkdir -p "$_489_SBX_ART/.devflow/logs/efficiency"
+printf '{"schema_version":1,"slug":"s"}' > "$_489_SBX_ART/.devflow/logs/efficiency/s-1.json"
+_489_sbx_pusher() {  # needle -> "rc|matched(yes/no)" for a breadcrumb the run must emit
+  local needle="$1" err rc
+  err="$( DEVFLOW_CONFIG_FILE=/dev/null bash "$_489_SBX/scripts/telemetry-push-artifact.sh" "$_489_SBX_ART" "$_489_SBX_REPO" 2>&1 1>/dev/null )"; rc=$?
+  printf '%s|%s\n' "$rc" "$(printf '%s' "$err" | grep -qF "$needle" && echo yes || echo no)"
+}
+# (a) config-source.sh source failure → fail loud rc 1.
+printf 'return 1\n' > "$_489_SBX/lib/config-source.sh"
+printf 'devflow_telemetry_persist_tree() { return 0; }\n' > "$_489_SBX/lib/telemetry-branch.sh"
+assert_eq "489/AC3(fail-loud): a config-source.sh source failure exits 1 loud" "1|yes" \
+  "$(_489_sbx_pusher 'could not source lib/config-source.sh')"
+# (b) telemetry-branch.sh source failure → fail loud rc 1.
+printf 'return 0\n' > "$_489_SBX/lib/config-source.sh"
+printf 'return 1\n' > "$_489_SBX/lib/telemetry-branch.sh"
+assert_eq "489/AC3(fail-loud): a telemetry-branch.sh source failure exits 1 loud" "1|yes" \
+  "$(_489_sbx_pusher 'could not source lib/telemetry-branch.sh')"
+# (c) guard-class-1: telemetry-branch.sh sources cleanly but does NOT define the write function
+# → the declare -F guard fails loud rc 1 (the silent no-op this guard exists to stop).
+printf 'return 0\n' > "$_489_SBX/lib/telemetry-branch.sh"   # sources OK, defines nothing
+assert_eq "489/AC3(guard-class-1): undefined devflow_telemetry_persist_tree after source exits 1 loud" "1|yes" \
+  "$(_489_sbx_pusher 'devflow_telemetry_persist_tree is undefined')"
+# (d) Sug#2: a validator that CANNOT EXECUTE (chmod -x → rc 126) is reported as a deployment
+# fault distinctly from a legitimate content drop (still best-effort exit 0).
+chmod -x "$_489_SBX/scripts/validate-telemetry-artifact.sh"
+assert_eq "489/AC4(Sug#2): a non-executable validator (rc 126) is named a deployment fault, exit 0" "0|yes" \
+  "$(_489_sbx_pusher 'could not be executed')"
+chmod +x "$_489_SBX/scripts/validate-telemetry-artifact.sh"
+# (e/f) Sug#5: the pusher's `case "$rc"` degraded (rc=1) and staging-only (rc=2) notice arms —
+# covered only at the unit level before. Define the write function to RETURN each code and
+# confirm the matching warning fires (still best-effort exit 0). config-source.sh stays a
+# clean-source stub from arm (b); only the write function's return code varies.
+printf 'devflow_telemetry_persist_tree() { return 1; }\n' > "$_489_SBX/lib/telemetry-branch.sh"
+assert_eq "489/AC3(Sug#5): persist rc=1 → 'telemetry push degraded' warning, exit 0" "0|yes" \
+  "$(_489_sbx_pusher 'telemetry push degraded')"
+printf 'devflow_telemetry_persist_tree() { return 2; }\n' > "$_489_SBX/lib/telemetry-branch.sh"
+assert_eq "489/AC3(Sug#5): persist rc=2 → 'staging-only despite DEVFLOW_TELEMETRY_PUSH=1' warning, exit 0" "0|yes" \
+  "$(_489_sbx_pusher 'staging-only despite DEVFLOW_TELEMETRY_PUSH=1')"
 
 # --- AC2/AC3: workflow content pins ---
 # AC2 — the read-only review runner uploads its staged telemetry as a workflow artifact.

@@ -66,8 +66,8 @@ jobs:
 
       # Download the artifact the triggering (PR-head) review run uploaded. Cross-run download
       # needs the actions-read scope and the run id; `continue-on-error` so an older review run that
-      # produced no telemetry artifact (name absent) leaves an empty dir and the relay stays
-      # inert rather than failing the job.
+      # produced no telemetry artifact (name absent-or-empty) leaves nothing to relay and the job
+      # stays inert rather than failing.
       - name: Download staged telemetry artifact
         id: download
         continue-on-error: true
@@ -77,6 +77,20 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/telemetry-dl
+
+      # `continue-on-error` above turns EVERY download failure green — the benign "older run
+      # produced no artifact" case AND a genuine fault (transient API/throttle error, an
+      # `actions:read` regression, artifact expiry, corruption) — after which the pusher emits
+      # only the inert "no telemetry records to push" notice, so a real telemetry loss would be
+      # indistinguishable from a normal no-op with no annotation anywhere. Surface a ::warning::
+      # whenever the download step failed so a genuine loss is at least visible in the run log.
+      # (download-artifact@v4 cannot tell the two apart, so this may fire on a benign no-artifact
+      # run too — a visible, non-fatal annotation on those is the acceptable cost of never
+      # silently swallowing a real loss.)
+      - name: Warn on telemetry download failure
+        if: ${{ steps.download.outcome == 'failure' }}
+        run: |
+          echo "::warning::telemetry-push: the staged-telemetry artifact download failed (outcome=failure). This is usually the benign 'older review run produced no artifact' case, but a genuine fault (transient API error, actions:read regression, artifact expiry/corruption) is indistinguishable here — if telemetry is unexpectedly missing on the branch, start with this run's download step."
 
       - name: Validate and push telemetry
         run: |

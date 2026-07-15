@@ -156,6 +156,15 @@ _dvt_walk() {
       _dvt_walk "$e"
     elif [ -f "$e" ]; then
       _entries+=("$e")
+      # Short-circuit the walk the moment the entry count crosses the cap, so a hostile
+      # artifact with a huge file count is not fully materialized into _entries before the
+      # post-walk cap trips — this makes the count cap bound WORK/MEMORY on the trusted
+      # runner, not just admission. (The byte cap stays a post-walk admission bound: it is
+      # already externally bounded by GitHub's artifact-size limit and the producer's own
+      # bound, so short-circuiting it too is not worth sizing every entry mid-walk.)
+      if [ "${#_entries[@]}" -gt "$MAX_ENTRIES" ]; then
+        reject "entry count exceeds the cap of ${MAX_ENTRIES} (walk short-circuited before materializing the rest)"
+      fi
     else
       reject "entry '${e#"$ARTIFACT_DIR"/}' is neither a regular file nor a directory"
     fi
@@ -199,6 +208,13 @@ for e in ${_entries[@]+"${_entries[@]}"}; do
   if ! "$DEVFLOW_JQ" -e 'type == "object"' "$e" >/dev/null 2>&1; then
     reject "entry '$rel' is not a JSON object (malformed JSON or wrong top-level type)"
   fi
+  # Review records are admitted on `type == "object"` alone — no required-key shape gate,
+  # unlike efficiency records. This is deliberate: review-record CONTENT is out of scope for
+  # this gate. The record is inert data landing on a non-executed telemetry branch, and the
+  # downstream retrospective consumer already treats every telemetry record as untrusted
+  # input. The gate's job is confining the PATH (allowlist + no symlink/traversal + caps) and
+  # confirming each entry is well-formed JSON of the right top-level type — not vouching for
+  # the review record's fields.
   case "$rel" in
     .devflow/logs/efficiency/*)
       if ! "$DEVFLOW_JQ" -e '(.schema_version | type == "number") and (.slug | type == "string")' "$e" >/dev/null 2>&1; then

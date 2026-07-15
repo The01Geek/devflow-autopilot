@@ -53,8 +53,17 @@ trap 'rm -rf "$VALIDATED_ROOT" 2>/dev/null || true' EXIT
 
 # Step 1 — validate (all-or-nothing). A non-zero exit means the artifact was DROPPED whole
 # (the validator already emitted the ::warning::). Push nothing; exit 0 (best-effort).
-if ! "$HERE/validate-telemetry-artifact.sh" "$ARTIFACT_DIR" "$VALIDATED_ROOT"; then
-  echo "::notice::telemetry-push-artifact: the downloaded artifact was dropped by validation — nothing pushed to the telemetry branch this run." >&2
+# Distinguish a validator that COULD NOT EXECUTE (rc 126 not-executable / 127 not-found — a
+# deployment/permission fault) from a legitimate content drop (rc 1): both push nothing, but
+# the exec fault is a broken relay, not a rejected artifact, so name it distinctly to aid
+# debugging. Still exit 0 — the run is best-effort and never goes red on the untrusted input.
+"$HERE/validate-telemetry-artifact.sh" "$ARTIFACT_DIR" "$VALIDATED_ROOT"
+_val_rc=$?
+if [ "$_val_rc" -ne 0 ]; then
+  case "$_val_rc" in
+    126|127) echo "::warning::telemetry-push-artifact: the validator scripts/validate-telemetry-artifact.sh could not be executed (rc $_val_rc — not found or not executable); nothing pushed. This is a deployment fault, not a rejected artifact." >&2 ;;
+    *) echo "::notice::telemetry-push-artifact: the downloaded artifact was dropped by validation — nothing pushed to the telemetry branch this run." >&2 ;;
+  esac
   exit 0
 fi
 

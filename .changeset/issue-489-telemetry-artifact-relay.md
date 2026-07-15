@@ -13,4 +13,7 @@ type: Added
   downloaded artifact is treated as untrusted PR-influenced input: `scripts/validate-telemetry-artifact.sh`
   gates it all-or-nothing (rejecting symlinks, absolute/traversal paths, disallowed paths,
   over-cap entry-count/size, and non-record-shape JSON) before anything is staged, so a hostile
-  artifact is dropped whole with a `::warning::` and the branch is never mutated. (#495)
+  artifact is dropped whole with a `::warning::` and the branch is never mutated. A failed
+  cross-run artifact download now surfaces a `::warning::` (rather than silently going green) so a
+  genuine telemetry loss is visible in the run log, and the validator short-circuits its walk once
+  the entry-count cap is crossed so a hostile file-count bounds work, not just admission. (#495)
