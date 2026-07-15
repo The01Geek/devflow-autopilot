@@ -146,11 +146,9 @@ Likewise, the only permitted diff files are Phase 0.2's `diff.patch` and Phase 1
 shadow engine produced them for the full diff. A regenerated, filtered, or subsetted artifact set is
 topic steering moved to another channel and is recorded as an addendum.
 
-**Blinding boundary (stated as a contract).** Every Phase 1 checklist-generator, Phase 1.5 deduper,
-Phase 2 agent-mode verifier, Phase 3 reviewer (including the final pass), and tripwire-widened late
-dispatch references **only provenance-clean extension text, the shadow engine's own run-scoped
-full-diff artifacts, and repository file paths; it never carries a workpad path or workpad content.**
-The workpad holds exactly the loop state this blinding
+**Blinding boundary (stated as a contract).** In addition to the prompt classes and permitted
+composition above, no shadow prompt carries a workpad path or workpad content. The workpad holds
+exactly the loop state this blinding
 withholds (iteration history, fix decisions, prior findings), so passing a workpad path — or pasted
 workpad content — into a shadow prompt would re-open that channel and turn the audit back into a
 self-check. This matters more now that the engine hands diffs to Phase 1 and Phase 3 agents **by
