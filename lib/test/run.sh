@@ -7501,6 +7501,12 @@ assert_pin_red_under "#478 AC2 read-protocol: unreadable §2.3 source records sw
 assert_pin_red_under "#478 AC2 read-protocol: a truncated or marker-incomplete read takes the unreadable-source arm" \
   'an empty, truncated, denied, or marker-incomplete result takes the unreadable-source arm' \
   's/an empty, truncated, denied, or marker-incomplete result takes the unreadable-source arm//'
+assert_pin_red_under "#478 AC2 source path: the Phase 2.3 operand resolves from the executing skill bundle" \
+  'anchor as `../implement/phases/phase-2-implement.md`' \
+  's#anchor as `\.\./implement/phases/phase-2-implement\.md`#anchor as `missing-source`#'
+assert_pin_red_under "#478 AC2 source path: the read protocol names the portable skill-directory anchor" \
+  'portable skill-directory anchor' \
+  's/portable skill-directory anchor//'
 # AC2 record-schema consumer (#478 compatibility review): item 7 calls itself the authoritative
 # iter-N record shape, so the read protocol's durable fields must be enumerated there too. Without
 # these pins, item 3b can require evidence that the authoritative writer silently omits.
@@ -7584,6 +7590,24 @@ assert_pin_red_under "#478 AC7 degraded-arm: a denied command is never routed to
 assert_pin_red_under "#478 no-automated-test arm: the fixer executes the Phase-2.4-defined adversarial dry-trace inline at gate time" \
   'executes the Phase-2.4-defined adversarial dry-trace' \
   's/executes the Phase-2.4-defined adversarial dry-trace//'
+assert_pin_red_under "#478 no-automated-test taxonomy: model-context instructions are not routed through dry-trace" \
+  'When the fix changes prose that enters a model' \
+  's/When the fix changes prose that enters a model//'
+assert_pin_red_under "#478 model-context gate: the fixer runs a subagent RED/GREEN micro-test" \
+  'run the Phase-2.4 subagent RED/GREEN micro-test' \
+  's/run the Phase-2.4 subagent RED\/GREEN micro-test//'
+assert_pin_red_under "#478 model-context gate: the behavioral micro-test includes the no-guidance control" \
+  'including its no-guidance control' \
+  's/including its no-guidance control//'
+assert_pin_red_under "#478 model-context gate: failed or unavailable micro-tests durably block convergence" \
+  'the finding remains unresolved and blocks convergence' \
+  's/the finding remains unresolved and blocks convergence/the finding may proceed/'
+assert_pin_red_under "#478 model-context gate: item-7 preserves micro-test outcomes in test_first_gate" \
+  'model-context RED/GREEN/no-guidance micro-test outcome' \
+  's/model-context RED\/GREEN\/no-guidance micro-test outcome/model-context verification/'
+assert_pin_red_under "#478 model-context gate: item-7 emits an empty gate only when no verification route applied" \
+  'use `[]` only when none of those three verification routes applied' \
+  's/use `\[\]` only when none of those three verification routes applied/use `[]` when no automated test or dry-trace applied/'
 
 # AC10 — the one Step 4.5 defining clause (code-shaped fold-in graded/recorded, sweep as its source).
 assert_pin_red_under "#478 AC10 step-4.5 clause: a code-shaped 3b fold-in is a severity-calibrated fix_decisions entry with the sweep as its source" \
