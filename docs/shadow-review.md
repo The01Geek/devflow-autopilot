@@ -85,7 +85,9 @@ to the orchestrator instead.
 **The deterministic backstop (`skills/review/SKILL.md` Phase 3.1/3.2).** Independently of agent
 compliance, the shared engine snapshots the tree with `git status --porcelain -z` immediately
 **before** the Phase 3.1 batch (into a temp file — `-z` output carries NUL bytes a bash `$(...)`
-variable cannot hold) and compares **after** it returns. On divergence it records an Important
+variable cannot hold). The snapshot is a fixed repo-local `.devflow/tmp/` file so it survives
+the Agent-tool boundary without an unavailable `mktemp` capture. The engine compares it **after**
+the batch returns. On divergence it records an Important
 finding with an attributable breadcrumb (never silently discarded) and **restores only the snapshot
 delta** — paths clean at snapshot time that became dirty during the dispatch window — computed *by
 path column* (status prefix stripped from each `-z` record), so a path the orchestrator had already

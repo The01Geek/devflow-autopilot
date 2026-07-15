@@ -4018,11 +4018,11 @@ assert_pin_red_on_removal "#192 shadow-review docs distinguish the final-pass re
 # `sed 's/^...//'` pin had to be avoided because its program is wrapped in single-quote
 # delimiters that the literal cannot carry — the `-z` rework removes that `sed` entirely).
 assert_pin_red_on_removal "#216 backstop: deleting the pre-dispatch -z snapshot capture turns its pin RED" \
-  'git status --porcelain -z > "$GIT_SNAP_BEFORE"' "$REVIEW_SKILL"
+  'git status --porcelain -z > "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}"' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: deleting the after-dispatch -z snapshot capture turns its pin RED" \
-  'git status --porcelain -z > "$GIT_SNAP_AFTER"' "$REVIEW_SKILL"
+  'git status --porcelain -z > "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}"' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: deleting the cmp-based compare-after divergence trigger turns its pin RED" \
-  'cmp -s "$GIT_SNAP_BEFORE" "$GIT_SNAP_AFTER"' "$REVIEW_SKILL"
+  'cmp -s "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}"' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the attributable dirty-tree breadcrumb turns its pin RED" \
   'a Phase 3.1 review-agent dispatch modified the working tree' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the snapshot-delta-scoped restore turns its pin RED" \
@@ -4045,7 +4045,7 @@ assert_pin_red_on_removal "#192 backstop: deleting the untracked-file-never-auto
 # edits — the hazard the old `comm -13` direction guarded. (Each pin line carries `grep`/no
 # `echo`, so the repo-wide raw-guard scanner — which keys on a `grep…SKILL…echo` line — misses it.)
 assert_pin_red_on_removal "#216 backstop: deleting the by-path BEFORE-membership probe turns its pin RED" \
-  'grep -qzxF -- "${rec:3}" "$BEFORE_PATHS"' "$REVIEW_SKILL"
+  'grep -qzxF -- "${rec:3}" ".devflow/tmp/review-dirty-tree-before-paths"' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: flipping the restore direction off the grep-rc-1 (absent) branch turns its pin RED" \
   '[ "$gmrc" -eq 1 ]' "$REVIEW_SKILL"
 # Fail-closed guards added when hardening the restore (each must NOT read an error as a
@@ -4055,19 +4055,19 @@ assert_pin_red_on_removal "#216 backstop: flipping the restore direction off the
 assert_pin_red_on_removal "#216 backstop: deleting the grep-membership-error fail-closed guard turns its pin RED" \
   'NOT auto-restoring it (fail-closed)' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: deleting the temp-alloc-failure fail-closed breadcrumb turns its pin RED" \
-  'could not allocate temp files for the dirty-tree restore' "$REVIEW_SKILL"
+  'could not allocate repo-local scratch files for the dirty-tree restore' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: deleting the cmp-error fail-closed breadcrumb turns its pin RED" \
   'dirty-tree comparison SKIPPED this dispatch' "$REVIEW_SKILL"
 # Rename/copy two-path `-z` entries are surfaced-not-restored — routed to a separate file,
 # never into the auto-restore set. Deleting the routing or the breadcrumb silently drops them.
 assert_pin_red_on_removal "#216 backstop: deleting the rename surfaced-not-restored routing turns its pin RED" \
-  '>> "$RENAMED_PATHS_FILE"' "$REVIEW_SKILL"
+  '>> ".devflow/tmp/review-dirty-tree-renamed-paths"' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: deleting the rename surfaced-not-restored breadcrumb turns its pin RED" \
   'not auto-restored (a staged rename needs index surgery)' "$REVIEW_SKILL"
 # The empty-restore-set branch is the OPERATIVE directive (the breadcrumb pin below is its
 # message); pin the `[ ! -s ... ]` condition too so inverting/removing it can't stay GREEN.
 assert_pin_red_on_removal "#216 backstop: deleting the empty-restore-set branch condition turns its pin RED" \
-  '[ ! -s "$CHANGED_PATHS_FILE" ]' "$REVIEW_SKILL"
+  '[ ! -s ".devflow/tmp/review-dirty-tree-changed-paths" ]' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the fail-closed before-snapshot disable turns its pin RED" \
   'dirty-tree backstop DISABLED for this dispatch' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the after-snapshot fail-distinct breadcrumb turns its pin RED" \
@@ -4090,18 +4090,15 @@ assert_pin_red_on_removal "#216 backstop: deleting the empty-delta no-single-cau
 #  - the pathname-safe NUL read loop `IFS= read -r -d ''` at all THREE sites (BEFORE extract,
 #    AFTER extract, restore loop) — a regression to a newline `read -r` at any site drops the count;
 #  - the `sort -z` operand at BOTH extraction sorts — dropping `-z` collapses NUL data to one line;
-#  - the `\x01`-prefixed fail-closed sentinel VALUE at all THREE sites (set in 3.1, the 3.2
-#    short-circuit read, the 3.2 cleanup guard). A bare-NAME count (matching just
-#    `__DIRTY_TREE_BACKSTOP_DISABLED__`) would couple the NAME but NOT the `\x01` byte that
-#    makes the sites compare equal (#216), so this guard pins the FULL value
-#    `\x01__DIRTY_TREE_BACKSTOP_DISABLED__` instead — a one-sided `\x01` drop then drifts the
-#    count RED (a bare-name count would stay GREEN on exactly that regression).
+#  - the fixed repo-local fail-closed sentinel PATH at all FOUR sites (success cleanup, failure
+#    producer, 3.2 short-circuit read, final cleanup). This file survives the Agent boundary;
+#    a shell variable would not.
 assert_eq "#216 backstop: the pathname-safe NUL read loop is present at all three sites" "yes" \
   "$([ "$(grep -cF 'IFS= read -r -d' "$REVIEW_SKILL")" -eq 3 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==3 NUL read loops (BEFORE/AFTER extract + restore)
 assert_eq "#216 backstop: the sort -z operand is present at both extraction sorts" "yes" \
   "$([ "$(grep -cF 'sort -z' "$REVIEW_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 sort -z operands
-assert_eq "#216 backstop: the byte-prefixed fail-closed sentinel value stays coupled across its three sites" "yes" \
-  "$([ "$(grep -cF '\x01__DIRTY_TREE_BACKSTOP_DISABLED__' "$REVIEW_SKILL")" -eq 3 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==3 occurrences of the FULL \x01-prefixed sentinel (3.1 set + 3.2 read + 3.2 cleanup)
+assert_eq "#216 backstop: the fixed fail-closed sentinel path stays coupled across its four sites" "yes" \
+  "$([ "$(grep -cF '.devflow/tmp/review-dirty-tree-disabled' "$REVIEW_SKILL")" -eq 4 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==4 occurrences (success cleanup + failure producer + 3.2 read + final cleanup)
 # ── #216: dirty-tree backstop -z rework — git_sandbox integration proof ────────────────
 # AC2 (#216): a spaced-path agent mutation is correctly RESTORED (no silent no-op), a true
 # rename is SURFACED-not-restored, and the spaced-path restore is COUPLED to the `-z` rework
@@ -29728,12 +29725,12 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last changes: #441 Phase 4.5 record write collapsed to a single --persist call, then #466 Phase 0.6 adjudication-join fence added match-lint-adjudications.py + run-jq.sh + gh api --paginate — the comment fetch writes via an in-workspace redirect, NOT a tee, so gh's own exit status survives)" \
-  "102" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; #484 replaces two unavailable touch sites with four granted printf allocations)" \
+  "103" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
-assert_eq "#363 the review-skill head set matches the reviewed count (33 distinct names; +match-lint-adjudications.py, +run-jq.sh, +gh api --paginate at #466)" \
-  "33" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names; #484 removes the ungranted touch head from the shared review engine)" \
+  "32" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 
