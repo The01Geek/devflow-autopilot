@@ -31087,6 +31087,17 @@ assert_pin_unique "#363 renderer strips CI_SUMMARY backticks with a bash builtin
   'CI_SUMMARY="${CI_SUMMARY//\`/}"' "$RGB_SH"
 assert_pin_unique "#363 renderer strips ALLOWED_TOOLS backticks too (containment is the renderer's property, not its caller's)" \
   'ALLOWED_TOOLS="${ALLOWED_TOOLS//\`/}"' "$RGB_SH"
+# #504: HEAD_SHA is the third value interpolated into inline-code spans (the CI section's
+# `(`${HEAD_SHA}`)` and the displaced-paths `git show <head>:<path>` line). Same containment
+# discipline as the two slots above — the strip is the renderer's property, not the caller's —
+# so pin the builtin strip AND prove behaviorally that a backtick-bearing head cannot close
+# the span. A raw backtick would render `reviewed commit (`dead`beef`)`, opening a stray span.
+assert_pin_unique "#504 renderer strips HEAD_SHA backticks too (containment is the renderer's property, not its caller's)" \
+  'HEAD_SHA="${HEAD_SHA//\`/}"' "$RGB_SH"
+assert_eq "#504 renderer lets no backtick from HEAD_SHA reach the CI-section inline-code span" "yes" \
+  "$(_rgb $'dead\x60beef' 'lint: success' 'Read' | grep -qF 'reviewed commit (`deadbeef`)' && echo yes || echo no)"
+assert_eq "#504 renderer lets no backtick from HEAD_SHA reach the displaced git-show routing line" "yes" \
+  "$(_rgbh $'dead\x60beef' 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'git show deadbeef:<path>' && echo yes || echo no)"
 # Valid-falsy row of the input-shape matrix, and the reason the strips must precede the
 # empty-value defaults: a value of ONLY backticks strips to "". Stripped first, it routes
 # into the fail-closed literal; stripped after the default, it would render an EMPTY fence —
