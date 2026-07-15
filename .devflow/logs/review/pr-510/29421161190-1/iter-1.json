@@ -1,0 +1,9 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "73ccb1a8662ce279239e02a42ea9c20c7dcb79d7",
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}

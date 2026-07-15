@@ -1,0 +1,11 @@
+{
+  "iter": 2,
+  "fix_commit_sha": "3866c53388171898cfa38670f3d46e1c41cf92a2",
+  "fix_files": [
+    ".changeset/issue-414-review-backstop-glue-helper.md",
+    "lib/test/run.sh",
+    "scripts/post-review-backstop-comment.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true
+}
