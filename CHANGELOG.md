@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.10] — 2026-07-15
+
+### Changed
+- **`/devflow:review-and-fix` fixes now get the same authoring discipline the original diff got.** Step 3 item 3b re-anchors onto the full implement Phase 2.3 "Sweep selection (run first)" index, resolved from the executing skill bundle rather than the consumer repository, instead of a hand-enumerated three-sweep subset, so every warranted authoring-side sweep — trigger-gated and always-on alike — is selected automatically and runs against each iteration's fix delta when its definition is readable. Adding a sweep to that index (e.g. #474's §2.3.7) needs no further selection edit here; a new implement-only routing class still requires the mapping/lint vocabulary maintenance described below. A durable `sweep_defs_read` read protocol bounds the per-iteration context cost, a drift-guarded fix-loop mapping table resolves the imported sweeps' implement-only routings to standalone-loop destinations (with a `lib/test/run.sh` routing-marker lint that fails at DevFlow's desk when a closed-vocabulary routing marker present in a §2.3 sweep body loses its mapping-table row; a genuinely new routing marker outside that closed vocabulary requires a future vocabulary extension), Step 3 gains a fix-authoring test-first gate with a tier-mapped ungranted-command degraded arm and Phase 2.4-matched verification for un-drivable deliverables (dry-traces for logic/human prose, RED/GREEN/no-guidance micro-tests for model-context instructions), and Step 4.5 grades code-shaped sweep-driven fold-ins toward convergence. Fix-introduced defects are front-loaded instead of costing a full engine pass each to rediscover. (#478)
+
 ## [2.13.9] — 2026-07-15
 
 ### Changed
