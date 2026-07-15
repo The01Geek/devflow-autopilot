@@ -64,6 +64,30 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           token: ${{ steps.app-token.outputs.token }}
 
+      # Materialize the plugin so the trusted pusher helper resolves at the vendored
+      # workspace path (.devflow/vendor/devflow/scripts/). A consumer repo's default-branch
+      # checkout has the committed .devflow/config.json (with devflow_version) but NO
+      # repo-root scripts/, so the push step below resolves the helper at the vendored path
+      # (issue #502 consumer portability — the bare repo-relative path was absent in
+      # consumers and the push step red-lined rc 127). continue-on-error: the relay is
+      # best-effort observability, so a vendor hiccup must not red-line this trusted writer
+      # — the push step's own existence check warns and skips on a missing helper. Mirrors
+      # the vendor-plugin pattern in devflow-review.yml's finalize_check job.
+      - id: pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          REF=""
+          if [ -f .devflow/config.json ]; then
+            REF=$(jq -r '.devflow_version // empty' .devflow/config.json 2>/dev/null || true)
+          fi
+          echo "devflow_version=$REF" >> "$GITHUB_OUTPUT"
+      - id: vendor
+        uses: ./.github/actions/vendor-plugin
+        continue-on-error: true
+        with:
+          ref: ${{ steps.pin.outputs.devflow_version }}
+
       # Download the artifact the triggering (PR-head) review run uploaded. Cross-run download
       # needs the actions-read scope and the run id; `continue-on-error` so an older review run that
       # produced no telemetry artifact (name absent-or-empty) leaves nothing to relay and the job
@@ -97,6 +121,18 @@ jobs:
           set -uo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # The pusher is inert on an absent/empty/dropped artifact and best-effort otherwise;
-          # it exports DEVFLOW_TELEMETRY_PUSH=1 itself. Never checks out or trusts the PR head.
-          scripts/telemetry-push-artifact.sh "${RUNNER_TEMP}/telemetry-dl" "${GITHUB_WORKSPACE}"
+          # Prefer the vendored pusher (materialized by the vendor-plugin step above at
+          # .devflow/vendor/devflow/scripts/); fall back to the repo-root path for a
+          # self-repo checkout — mirrors the collect step's vendored-or-repo resolution
+          # (issue #502 consumer portability). The pusher is inert on an absent/empty/
+          # dropped artifact and best-effort otherwise; it exports DEVFLOW_TELEMETRY_PUSH=1
+          # itself. Never checks out or trusts the PR head. A missing helper (vendor
+          # failure in a consumer with no repo-root scripts/) warns and skips rather than
+          # red-lining rc 127.
+          _pusher=.devflow/vendor/devflow/scripts/telemetry-push-artifact.sh
+          [ -f "$_pusher" ] || _pusher=scripts/telemetry-push-artifact.sh
+          if [ -f "$_pusher" ]; then
+            "$_pusher" "${RUNNER_TEMP}/telemetry-dl" "${GITHUB_WORKSPACE}"
+          else
+            echo "::warning::telemetry-push: the push helper ($_pusher) could not be found — vendor-plugin did not materialize .devflow/vendor/devflow/ and the repo-root scripts/ is absent; nothing pushed this run (best-effort relay)." >&2
+          fi
