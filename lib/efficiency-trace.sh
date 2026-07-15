@@ -761,7 +761,7 @@ persist_one() {
       echo "::warning::efficiency-trace.sh --persist: run dir '${dir}' carries an unsubstituted '<placeholder>' identity (a verbatim '<slug>/<run-id>' directory left by a non-substituting run?); refusing to persist or synthesize under it — remove or rename the directory to recover" >&2
       return 0 ;;
   esac
-  local durable record out jq_rc cp_err ref rel_iter staged_iter stamp_tmp stamp_err
+  local durable record out jq_rc cp_err ref rel_iter staged_iter stamp_tmp stamp_err existing_class
   local iters=("$dir"/iter-*.json)
   if [ ! -e "${iters[0]}" ]; then
     # No per-iteration workpad. Layer-3+ synthesis floor (issue #381): reconstruct
@@ -868,14 +868,13 @@ persist_one() {
     ref="$(devflow_telemetry_ref)"
     for staged_iter in "$durable"/iter-*.json; do
       [ -e "$staged_iter" ] || continue
+      existing_class=""
       rel_iter="${staged_iter#"${_TELEMETRY_STAGE}/"}"
       if devflow_telemetry_blob_exists "$root" "$ref" "$rel_iter"; then
         # Existing legacy absent/null blobs are exclusively backfill territory.
-        # A path already normalized by a prior post-change persist is different:
-        # reapply its marker to the staged copy so the source run dir can remain
-        # byte-identical while a second persist stays tree-idempotent. This also
-        # lets unrelated later shadow-marker enrichment flow without regressing
-        # the telemetry marker.
+        # Classify the durable value before deciding whether this staged copy may
+        # overlay it. Legacy/non-object history stays backfill-owned; marker and
+        # established values may accept information-preserving source updates.
         existing_class="$(devflow_telemetry_show_blob "$root" "$ref" "$rel_iter" \
           | "$DEVFLOW_JQ" -r 'if type != "object" then "other" elif .telemetry == "unavailable" then "marker" elif ((has("telemetry") | not) or .telemetry == null) then "legacy" else "established" end' 2>/dev/null)" || existing_class="other"
         if [ "$existing_class" = legacy ]; then
@@ -894,6 +893,15 @@ persist_one() {
       fi
       if ! "$DEVFLOW_JQ" -e 'type == "object"' "$staged_iter" >/dev/null 2>&1; then
         echo "::warning::efficiency-trace.sh --persist: staged iter workpad '${rel_iter}' is malformed JSON or a valid non-object; copied byte-verbatim and telemetry was not fabricated" >&2
+        continue
+      fi
+      if [ "${existing_class:-}" = established ] \
+        && ! "$DEVFLOW_JQ" -e 'has("telemetry") and (.telemetry != null)' "$staged_iter" >/dev/null 2>&1; then
+        # A retained or rolled-back source must not downgrade established durable
+        # telemetry to the unavailable marker. Leave the whole historical blob
+        # untouched; a later source carrying established telemetry may still
+        # update this path normally.
+        rm -f "$staged_iter" 2>/dev/null || true
         continue
       fi
       if "$DEVFLOW_JQ" -e 'has("telemetry") and (.telemetry != null)' "$staged_iter" >/dev/null 2>&1; then

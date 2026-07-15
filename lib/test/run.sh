@@ -36386,6 +36386,11 @@ assert_eq "#499 persist: established telemetry path still carries later metadata
 jq '.telemetry = false' "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-3.json" > "$T499_P/iter.tmp" && mv "$T499_P/iter.tmp" "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-3.json"
 ( cd "$T499_P" && env -u GITHUB_ACTIONS bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
 assert_eq "#499 persist: prior marker upgrades to newly established false" "false" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-3.json' | jq -r '.telemetry')"
+# Information monotonicity: a retained/stale source that loses its key must not
+# downgrade an already-established durable value to the unavailable marker.
+jq 'del(.telemetry) | .later_metadata = "stale-source"' "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-2.json" > "$T499_P/iter.tmp" && mv "$T499_P/iter.tmp" "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-2.json"
+( cd "$T499_P" && env -u GITHUB_ACTIONS bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "#499 persist: established durable telemetry rejects a staged absent-key downgrade" "false" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-2.json' | jq -r '.telemetry')"
 rm -rf "$T499_P"
 
 # Existing legacy durable paths remain backfill-owned: a normal persist removes
@@ -36425,6 +36430,43 @@ assert_eq "#499 backfill: non-object entry record is byte-verbatim" "$T499_B_BEF
 assert_eq "#499 backfill: malformed family breadcrumbs are named" "yes" "$(printf '%s' "$T499_B_ERR" | grep -qF '(R4)' && printf '%s' "$T499_B_ERR" | grep -qF '(R5)' && echo yes || echo no)"
 assert_eq "#499 backfill: rerun is a branch no-op" "$T499_B_TIP1" "$T499_B_TIP2"
 rm -rf "$T499_B"
+
+# Remote retry union integration. Writer B and C retain the same stale local
+# snapshot while writer A migrates the remote. B must preserve the normalized
+# remote collision while ordinary established collisions remain local-wins.
+T499_U_ROOT="$(probe_tmp '#499 union collision root')"; rm -f "$T499_U_ROOT"; mkdir -p "$T499_U_ROOT"
+T499_U_REMOTE="$T499_U_ROOT/remote.git"; T499_U_A="$T499_U_ROOT/a"; T499_U_B="$T499_U_ROOT/b"; T499_U_C="$T499_U_ROOT/c"
+git init -q --bare "$T499_U_REMOTE"
+git init -q "$T499_U_A"; git -C "$T499_U_A" config user.email t@e.com; git -C "$T499_U_A" config user.name t
+git -C "$T499_U_A" commit --allow-empty -qm seed; git -C "$T499_U_A" branch -M main; git -C "$T499_U_A" remote add origin "$T499_U_REMOTE"; git -C "$T499_U_A" push -q -u origin main
+mkdir -p "$T499_U_A/legacy/.devflow/logs/review/pr-499/run-u" "$T499_U_A/legacy/.devflow/logs/efficiency"
+printf '%s' '{"iter":1}' > "$T499_U_A/legacy/.devflow/logs/review/pr-499/run-u/iter-1.json"
+printf '%s' '{"telemetry":[{"phases":{"writer":"initial"}}]}' > "$T499_U_A/legacy/.devflow/logs/efficiency/control.json"
+( cd "$T499_U_A" && unset GITHUB_ACTIONS && . "$LIB/config-source.sh" && . "$LIB/telemetry-branch.sh" && devflow_telemetry_persist_tree "$T499_U_A" "$T499_U_A/legacy" ) >/dev/null 2>&1
+git clone -q "$T499_U_REMOTE" "$T499_U_B"; git -C "$T499_U_B" fetch -q origin devflow-telemetry:devflow-telemetry
+git clone -q "$T499_U_REMOTE" "$T499_U_C"; git -C "$T499_U_C" fetch -q origin devflow-telemetry:devflow-telemetry
+mkdir -p "$T499_U_A/migrated/.devflow/logs/review/pr-499/run-u" "$T499_U_A/migrated/.devflow/logs/efficiency"
+printf '%s' '{"iter":1,"telemetry":"unavailable"}' > "$T499_U_A/migrated/.devflow/logs/review/pr-499/run-u/iter-1.json"
+printf '%s' '{"telemetry":[{"phases":{"writer":"remote"}}]}' > "$T499_U_A/migrated/.devflow/logs/efficiency/control.json"
+( cd "$T499_U_A" && unset GITHUB_ACTIONS && . "$LIB/config-source.sh" && . "$LIB/telemetry-branch.sh" && devflow_telemetry_persist_tree "$T499_U_A" "$T499_U_A/migrated" ) >/dev/null 2>&1
+mkdir -p "$T499_U_B/new/.devflow/logs/efficiency"
+printf '%s' '{"slug":"writer-b"}' > "$T499_U_B/new/.devflow/logs/efficiency/writer-b.json"
+T499_U_B_ERR="$( ( cd "$T499_U_B" && unset GITHUB_ACTIONS && . "$LIB/config-source.sh" && . "$LIB/telemetry-branch.sh" && devflow_telemetry_persist_tree "$T499_U_B" "$T499_U_B/new" ) 2>&1 )"
+git -C "$T499_U_B" fetch -q origin devflow-telemetry
+assert_eq "#499 union: normalized remote iter survives stale legacy local overlay" "unavailable" "$(git -C "$T499_U_B" show FETCH_HEAD:.devflow/logs/review/pr-499/run-u/iter-1.json | jq -r '.telemetry')"
+assert_eq "#499 union: ordinary established collision remains local-wins" "initial" "$(git -C "$T499_U_B" show FETCH_HEAD:.devflow/logs/efficiency/control.json | jq -r '.telemetry[0].phases.writer')"
+assert_eq "#499 union: retry also carries writer B's new blob" "writer-b" "$(git -C "$T499_U_B" show FETCH_HEAD:.devflow/logs/efficiency/writer-b.json | jq -r '.slug')"
+assert_eq "#499 union: successful collision retry emits no classifier refusal" "no" "$(printf '%s' "$T499_U_B_ERR" | grep -qF 'could not classify a colliding telemetry blob' && echo yes || echo no)"
+
+# Writer C has the same stale collision, but its classifier executable is
+# unavailable. The retry must fail closed: no new remote blob and a breadcrumb.
+mkdir -p "$T499_U_C/new/.devflow/logs/efficiency"
+printf '%s' '{"slug":"writer-c"}' > "$T499_U_C/new/.devflow/logs/efficiency/writer-c.json"
+T499_U_C_ERR="$( ( cd "$T499_U_C" && unset GITHUB_ACTIONS && . "$LIB/config-source.sh" && . "$LIB/telemetry-branch.sh" && DEVFLOW_JQ=/definitely/missing/jq devflow_telemetry_persist_tree "$T499_U_C" "$T499_U_C/new" ) 2>&1 )"
+git -C "$T499_U_C" fetch -q origin devflow-telemetry
+assert_eq "#499 union: classifier-unavailable retry refuses the remote write" "no" "$(git -C "$T499_U_C" cat-file -e FETCH_HEAD:.devflow/logs/efficiency/writer-c.json 2>/dev/null && echo yes || echo no)"
+assert_eq "#499 union: classifier-unavailable refusal is breadcrumbed" "yes" "$(printf '%s' "$T499_U_C_ERR" | grep -qF 'could not classify a colliding telemetry blob' && echo yes || echo no)"
+rm -rf "$T499_U_ROOT"
 # ── #497 shadow prompt-composition attestation pins ──────────────────────────
 I497_RAF="$LIB/../skills/review-and-fix/SKILL.md"
 I497_SHADOW_DOC="$LIB/../docs/shadow-review.md"
