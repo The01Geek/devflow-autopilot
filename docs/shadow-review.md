@@ -466,6 +466,10 @@ PR #164 converged to a clean in-loop self-APPROVE, and a later standalone `/devf
 
 *Guarantee scope.* The re-sweep covers comments describing the **changed** mechanism within the **touched** files. **It is not a repo-wide comment audit:** it does not catch drift in files the fix never touched, nor a claim that names no shared identifier. It closes the "spot-checked the fix's own hunks and missed a stale comment elsewhere in the same file" gap — nothing wider.
 
+**Parked-class sweep (fix loop — convergence entries).** The fix-triggered class generalization above cannot help when every finding is parked and no fix occurs. Before the convergence-time shadow, the fix loop now derives parked classes from its advisory decisions, unactioned Suggestion/Minor findings, and Yes-downgrade deferrals; it excludes recorded false claims, generalizes the remaining findings by `defect_signature.kind`, and scans only the PR diff plus fix-touched files. Every sibling is registered in the triggering iteration's `phase3_findings` before shadow comparison. Important siblings enter a counted promoted iteration, while advisory siblings remain visible with a distinct sweep marker. Site overlap—not free-text kind equality—deduplicates cross-producer results.
+
+*Guarantee scope.* This is a class-primed enumeration over known parked classes, not a second independent review. Semantic enumeration is bounded and batched; a failed dispatch is retried once and then reported as not verified. A per-class, clean, not-verified, or downgrade-path-not-applicable Reflection sentinel makes a skipped sweep fail closed at Loop Exit. Running before shadow is deliberate: the blinded pass judges the registered post-sweep population instead of rediscovering siblings one at a time.
+
 ## Cost
 
 The shadow pass roughly **doubles** the cost of a converging run — one full engine pass that does

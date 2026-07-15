@@ -2094,6 +2094,35 @@ printf 'operative token a.c/[x] on this line\nunrelated framing line\n' > "$PRU_
 assert_eq "#375 assert_pin_red_under: a pinned literal carrying regex+sed-delimiter metachars round-trips (fixed-string match; mutation flips it PASS->FAIL)" \
   "PASS" "$(probe_assert assert_pin_red_under 'meta' 'a.c/[x]' '/a\.c/d' "$PRU_META")"
 rm -f "$PRU_META"
+# Issue #500 parked-class sweep contract pins. These stay below the
+# assert_pin_red_under definition so the three behavioral mutations execute.
+assert_pin_unique "#500: parked-class sweep contract heading is present" \
+  '### Parked-class sweep (pre-shadow convergence gate)' "$ST_RAF"
+assert_pin_unique "#500: below-threshold producer decision is present" \
+  '"decision": "below-threshold",' "$ST_RAF"
+assert_pin_unique "#500: below-threshold producer marker is distinct and present" \
+  '"evidence": "parked-origin: below-threshold"' "$ST_RAF"
+assert_pin_unique "#500: swept-sibling marker is distinct and present" \
+  '"marker": "parked-sibling: class-sweep"' "$ST_RAF"
+assert_pin_unique "#500: sweep corroboration carve-out is present" \
+  'counts as corroboration of that parking, not a park-calibration mis-grade' "$ST_RAF"
+assert_pin_unique "#500: parked-class sweep schema block is present" \
+  '"parked_class_sweep": {' "$ST_RAF"
+assert_pin_unique "#500: parked-class Reflection evidence contract is present" \
+  'per-class results when siblings exist, `parked-class sweep clean: no new siblings` when none exist' "$ST_RAF"
+assert_pin_unique "#500: shadow-review documentation mirrors parked-class sweep" \
+  'Parked-class sweep' "$LIB/../docs/shadow-review.md"
+assert_pin_unique "#500: system overview mirrors parked-class sweep" \
+  '**Pre-shadow parked-class sweep:**' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_pin_red_under "#500: missing parked-class completeness gate goes RED" \
+  'An in-scope APPROVE-family conclusion with parked findings but no parked-class sweep evidence is non-convergence.' \
+  '/An in-scope APPROVE-family conclusion with parked findings but no parked-class sweep evidence is non-convergence\./d' "$ST_RAF"
+assert_pin_red_under "#500: missing threshold promotion route goes RED" \
+  'A discovered sibling at or above `$FIX_THRESHOLD` enters Step 2.5 → Step 3 as a promoted iteration using the same machinery as Decide outcome 2.' \
+  '/A discovered sibling at or above `\$FIX_THRESHOLD` enters Step 2\.5/d' "$ST_RAF"
+assert_pin_red_under "#500: missing phase3_findings registration goes RED" \
+  'Append every discovered sibling to the triggering iteration’s `phase3_findings` with its assigned severity and full `defect_signature` before the shadow runs.' \
+  '/Append every discovered sibling to the triggering iteration.*`phase3_findings`/d' "$ST_RAF"
 # #425 shadow-not-scoped behavioral-fix pin (placed here, below the assert_pin_red_under
 # definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
@@ -17482,7 +17511,7 @@ rm -rf "$LR_SC_REPO"
 #     top-level fields in SKILL.md minus `shadow` (appended later by Step 2.6,
 #     legitimately absent). FAILs if a field is added/removed on either side.
 LR_CONST="$(grep -E '^ITER_EXPECTED_FIELDS=' "$LIB/efficiency-trace.sh" | sed -E 's/^ITER_EXPECTED_FIELDS=//; s/"//g' | tr ' ' '\n' | grep -v '^$' | sort -u)"
-LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -v '^shadow$' | sort -u)"
+LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|parked_class_sweep)$' | sort -u)"
 assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md schema top-level minus shadow" \
   "$LR_SCHEMA" "$LR_CONST"
 
