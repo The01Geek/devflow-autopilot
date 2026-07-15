@@ -635,13 +635,22 @@ self-check warning maximize capture, but it remains irreducibly agent-dependent)
 `--persist` carries a second, narrower synthesis floor for the **shadow** block, sibling to the
 iter floor above. The shadow pass (`/devflow:review-and-fix` Step 2.6) appends a `shadow` block to
 the triggering iter's workpad, but that block can drop entirely (the issue-304 drop shape), leaving
-a promotion with no record of the shadow that produced it. When an `iter-<N>.json` carries **no
-`shadow` block** but the run holds **promotion evidence** — an `iter-<N+1>.json` with
-`loop_role: "promoted"`, meaning iteration N's shadow promoted new findings into iteration N+1 —
-`synthesize_shadow_markers` writes a minimal marker into `iter-<N>.json`'s `shadow` field:
+a promotion with no record of whether a predecessor shadow ran. A promoted successor now carries
+`promotion_provenance`, which separates shadow precedence from the broader `loop_role`:
 
-- *Synthesized shadow-marker shape.* Exactly `shadow_synthesized: true` and
-  `promoted_to_iter_next: true` (the promotion linkage). `--self-check` validates a
+- `shadow` recovers a dropped block with `promoted_to_iter_next: true`;
+- `park-calibration-post-shadow` recovers one with `promoted_to_iter_next: false`;
+- `park-calibration-pre-shadow` writes nothing because no predecessor shadow ran;
+- any other non-empty string writes nothing and warns; absent, null, empty, or non-string values
+  recover the legacy floor with `provenance_unestablished: true` and hedged warning text.
+
+Park-gate promotion credit lives only in provenance and never changes a surviving predecessor
+shadow block. Future promotion producers must choose a defined value to opt into drop recovery; an
+unknown string defaults to no synthesis, with a breadcrumb.
+
+- *Synthesized shadow-marker shape.* Established `shadow` and post-shadow markers contain exactly
+  `shadow_synthesized` and `promoted_to_iter_next`; the post-shadow value is false. The hedged legacy
+  arm adds only `provenance_unestablished: true`. `--self-check` validates a
   `shadow_synthesized: true` block against this minimal set (`SHADOW_SYNTH_EXPECTED_FIELDS`) as a
   recognized degraded class — a truncated synthesized marker still warns, exactly like a truncated
   synthesized iter record; a real (agent-written) shadow block carries no `shadow_synthesized` key
@@ -657,8 +666,7 @@ a promotion with no record of the shadow that produced it. When an `iter-<N>.jso
   own errno (read-only mount, `ENOSPC`) — rather than discarding it, so a floor that could not write
   is diagnosable rather than merely reported. On either failure the source `iter-<N>.json` is left
   untouched and the temp file is removed: no half-written marker, no orphaned `.shadowtmp`.
-- *Stated limitation — promoted shadows only.* The floor recovers a dropped shadow block **only**
-  when promotion evidence survives. A clean outcome-1 shadow whose block dropped leaves no promotion
+- *Stated limitation — provenance-licensed shadows only.* A clean outcome-1 shadow whose block dropped leaves no promotion
   evidence to synthesize from, so it is unrecoverable here — the fused Step 2.6 emit (mandatory on
   both termination paths, authored with the Write tool) is the primary fix and this floor is its
   backstop, not its equal. Like the iter floor, it recovers **attribution, not cost**: the

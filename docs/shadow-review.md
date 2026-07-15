@@ -119,7 +119,9 @@ Both residuals fall to the shadow pass + the post-shadow edit gate.
 The old design's independence story was "the shadow subagent's fresh context window has no access
 to the loop's state." Once the parent runs the fan-out, **the parent's own context is no longer
 blind** — it carries the iter history. Independence therefore moves into the **reviewer prompts**.
-This is the **inverse** of the loop's normal iter-N≥2 fix-delta handoff:
+Prior-findings leakage is one channel. Topic-priming is a second, distinct channel: even without pasted
+findings, an orchestrator-added request to focus or prioritize a surface steers what the reviewer looks
+for. This is the **inverse** of the loop's normal iter-N≥2 fix-delta handoff:
 
 - The shadow does **not** run the fix-delta handoff and does **not** pass `prior_phase3_findings` /
   `prior_checklist` / `fix_files` into any shadow phase.
@@ -129,15 +131,28 @@ This is the **inverse** of the loop's normal iter-N≥2 fix-delta handoff:
   "already considered" handoff is correct for a normal fix iteration but **defeats the shadow's
   purpose** — reintroducing it turns the audit back into a self-check.
 
-Each shadow reviewer therefore sees only the diff and the standard task + `defect_signature`
-prompt — a fresh context with the loop's findings withheld. The only residual shared state is the
-parent's aggregation step, a far smaller bias risk than losing all of Phase 3's coverage to a
-degraded subagent.
+Every shadow-pass subagent prompt the parent composes uses the engine's verbatim per-agent prompt,
+plus consumer prompt-extension text whose provenance is classified before any shadow dispatch, plus only the
+shadow engine's own run-scoped full-diff artifacts and permitted repository paths. Provenance-clean
+extension text is permitted composition; extension text that fails either check remains loaded but
+is recorded as an addendum, so it cannot produce an attested clean result. This covers Phase 1 checklist-generators, the
+Phase 1.5 deduper, Phase 2 agent-mode verifiers, Phase 3 reviewers including the final-pass reviewer,
+and tripwire-widened late dispatches under either shadow trigger. The parent adds no focus,
+prioritization, or scoping clause. The Step 3.5 fix-delta gate and Loop Exit post-shadow delta-review
+are explicitly delta-scoped by design, so their delta scope is not an addendum.
 
-**Blinding boundary (stated as a contract).** Every shadow prompt — reviewer *and*
-checklist-generator — references **only run-scoped diff artifacts (the cached `diff.patch` and any
-batch slice files under `.devflow/tmp/review/<slug>/<run-id>/`) and repository file paths; it never
-carries a workpad path or workpad content.** The workpad holds exactly the loop state this blinding
+Extension provenance is checked without a base-ref read: `git status --porcelain -- <path>` must
+exit successfully with empty output, and the readable run-cached changed-file list must omit the
+extension path. The extension is still loaded when either check fails or either operand cannot be
+established, but the local-status, reviewed-diff, or provenance-not-established failure is named in
+`prompt_addenda`. An error or unreadable input never defaults to provenance-clean.
+Likewise, the only permitted diff files are Phase 0.2's `diff.patch` and Phase 1's batch slices as the
+shadow engine produced them for the full diff. A regenerated, filtered, or subsetted artifact set is
+topic steering moved to another channel and is recorded as an addendum.
+
+**Blinding boundary (stated as a contract).** In addition to the prompt classes and permitted
+composition above, no shadow prompt carries a workpad path or workpad content. The workpad holds
+exactly the loop state this blinding
 withholds (iteration history, fix decisions, prior findings), so passing a workpad path — or pasted
 workpad content — into a shadow prompt would re-open that channel and turn the audit back into a
 self-check. This matters more now that the engine hands diffs to Phase 1 and Phase 3 agents **by
@@ -253,20 +268,31 @@ the engine SKILL.md unreadable, Phase 0.5 unable to classify) and any **multi-re
 immediate `not_verified` with no retry — they will not recover on a re-run. This is a single bounded
 retry, not a fall-back to the lenient "treat as inconclusive and proceed" path.
 
-### Fail-closed on both value and block presence
+### Fail-closed on coverage, block presence, and prompt composition
 
-Coverage is **fail-closed in two dimensions**:
+Coverage remains a pure reviewer-roster measurement. Prompt composition is fail-closed as a separate operand:
 
 1. **Value:** any `coverage` other than a positively-verified `"full"` — including `"not_verified"`,
    `null`, unset, or unrecognized — is treated as `"not_verified"` everywhere downstream.
 2. **Block presence:** the Step 2.6 workpad append is best-effort and can fail. If the final
    verdict is non-REJECT but **no** iteration has a `shadow` block at all, that is treated exactly
-   as not-verified — only a *present* block with `coverage: "full"` may render the
-   "shadow agreed, full coverage" status.
+   as not-verified.
+3. **Prompt composition:** clean convergence and the clean-agreement renders require a present block
+   carrying both `coverage: "full"` and `prompt_addenda: "none"`. An addenda array names the recorded
+   additions in the not-verified rendering; an absent field renders `attestation not recorded`, never
+   an accusation of steering. Outcome 1 re-reads both persisted operands, repairing an absent
+   attestation once only while the composing context can still record the truthful value.
+
+The attestation never gates outcome 2 and never changes `coverage`. A full-roster pass that surfaces
+new Critical/Important findings promotes them unchanged even with addenda, preserving the attestation
+on the block. A full-roster pass with nothing to promote but no `"none"` attestation keeps
+`coverage: "full"`, records `verdict: null` and a reason, and follows the outcome-3 downstream
+treatment: the tentative verdict stands but is not independently verified.
 
 The chat headline and the report's `## Coverage → Shadow agreement` section both state explicitly
-whether the shadow ran with full coverage or was not verified, rendering `shadow agreed, full
-coverage` only for a present `"full"` block and `shadow agreement not verified` otherwise (dropping
+whether the shadow ran with full coverage and attested prompt composition or was not verified,
+rendering `shadow agreed, full coverage` only for a present block with both required operands and
+`shadow agreement not verified` otherwise (dropping
 the absolute "All checks approved." / "with caveats." clause when not verified, so the headline
 never overclaims relative to its own parenthetical). The separate
 `APPROVE WITH UNRESOLVED SHADOW FINDINGS` verdict — outcome 2 hitting the iteration cap — *normally*
@@ -275,7 +301,9 @@ is never routed through the `{shadow status}` template. That dedicated line carr
 render-time coverage assertion: the full-coverage block it reads lives "one iter back" (the
 promotion-triggering iter) and was written by the same best-effort append that can be lost, so when
 that block is absent or not `"full"` the line falls back to a not-verified rendering rather than
-asserting a shadow result the persisted record can't back. The headline and the report's Coverage
+asserting a shadow result the persisted record can't back. An addenda array or absent attestation on
+that promotion block adds a caveat to the dedicated line and Coverage entry without changing the
+verdict. The headline and the report's Coverage
 section both pin to *that same* one-iter-back block (never an earlier iter's block) and evaluate the
 lost-write branch before the `"full"` branch, so a lost promotion-triggering block can't make the
 report read "full coverage" while the headline reads "not verified."
@@ -518,11 +546,14 @@ Two changes make both sides of that ledger recordable instead of reconstructed:
   anything — the issue-304 drop shape). It is authored with the Write tool and carries the same
   "mandatory on every pass regardless of how the loop was executed" force as the `iter-<N>.json`
   Layer-1 fused emit. The Decide outcome-1 block-presence read-back gate is unchanged.
-- **`lib/efficiency-trace.sh --persist` gains a shadow floor.** When promotion evidence survives
-  (an `iter-<N+1>.json` with `loop_role: "promoted"`) but the `iter-<N>.json` carries no `shadow`
-  block, the floor synthesizes a minimal marker (`shadow_synthesized: true` + `promoted_to_iter_next`
-  linkage), which `--self-check` validates as a recognized degraded class, and which it never writes
-  over an agent-written block. **Stated limitation:** the floor recovers *promoted* shadows only — a
+- **`lib/efficiency-trace.sh --persist` gains a provenance-gated shadow floor.** A promoted
+  successor records `promotion_provenance`: `shadow` recovers a dropped predecessor block with
+  promotion credit, `park-calibration-post-shadow` recovers it without promotion credit,
+  `park-calibration-pre-shadow` is silent because no predecessor shadow ran, and an unrecognized
+  string writes no marker but breadcrumbs the producer typo. Legacy/degraded values retain the floor
+  with a hedged `provenance_unestablished` marker. A park-gate promotion never changes a surviving
+  predecessor block; future producers must select a defined value to license recovery. The floor
+  never writes over an agent-written block. **Stated limitation:** a
   clean outcome-1 shadow whose block dropped leaves no promotion evidence to synthesize from. The
   fused emit is the primary fix and the floor is its backstop, not its equal; the floor recovers
   *attribution*, not cost (this floor recovers no token/wall figures — those are captured live by the
