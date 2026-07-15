@@ -4227,8 +4227,9 @@ assert_pin_red_on_removal "#296 phase-3.3: deleting the 'denial != local classif
 #   (2) skills/review/SKILL.md's shared Phase 3.1/3.2 dirty-tree backstop snapshots the
 #       tree before dispatch, compares after, surfaces the divergence as a finding with an
 #       attributable breadcrumb, and restores only the snapshot delta.
-# The operative agent-mandate literal is identical across all six definition files, so the
-# same literal pins each (assert_pin_unique requires it appear exactly once PER FILE).
+# The five first-party agent definitions share the temporary-copy mandate. The final-pass
+# template runs under a narrower profile and is pinned separately to refuse unavailable
+# mutation helpers while preserving the same no-in-place-mutation outcome.
 REVIEW_AGENT_MANDATE='on a temporary copy made with `mktemp`, never in place'
 # The PRIMARY write-prohibition (AC1's core contract) is a distinct operative sentence from
 # the mktemp clause — pin it too, else the prohibition could be deleted while the mktemp pin
@@ -4241,10 +4242,12 @@ for review_agent in code-reviewer silent-failure-hunter comment-analyzer type-de
   assert_pin_red_on_removal "#192 agent-mandate: deleting the primary write-prohibition from $review_agent turns its pin RED" \
     "$REVIEW_AGENT_PROHIBITION" "$LIB/../agents/$review_agent.md"
 done
-assert_pin_red_on_removal "#192 agent-mandate: deleting the never-mutate/mktemp-copy mandate from the requesting-code-review final-pass turns its pin RED" \
-  "$REVIEW_AGENT_MANDATE" "$LIB/../skills/requesting-code-review/code-reviewer.md"
+assert_pin_red_on_removal "#192 agent-mandate: deleting the unavailable-mutation refusal from the requesting-code-review final-pass turns its pin RED" \
+  'Do not attempt `git worktree add`, `mktemp`, or a mutation/half-revert' "$LIB/../skills/requesting-code-review/code-reviewer.md"
 assert_pin_red_on_removal "#192 agent-mandate: deleting the primary write-prohibition from the requesting-code-review final-pass turns its pin RED" \
   'Do not mutate the working tree, the index, HEAD, or branch state in any way' "$LIB/../skills/requesting-code-review/code-reviewer.md"
+assert_pin_red_on_removal "#192 shadow-review docs distinguish the final-pass read-only limitation from fan-out mutation copies" \
+  'it uses granted read-only history commands and reports the verification limitation' "$LIB/../docs/shadow-review.md"
 # Backstop operative sentences — one pin per operative directive (operative-vs-framing rule).
 # The Phase 3.1/3.2 backstop now snapshots with `git status --porcelain -z` into temp FILES
 # (NUL-delimited, UNQUOTED paths — a bash $(...) var cannot hold the NUL bytes), so a
@@ -4254,11 +4257,25 @@ assert_pin_red_on_removal "#192 agent-mandate: deleting the primary write-prohib
 # `sed 's/^...//'` pin had to be avoided because its program is wrapped in single-quote
 # delimiters that the literal cannot carry — the `-z` rework removes that `sed` entirely).
 assert_pin_red_on_removal "#216 backstop: deleting the pre-dispatch -z snapshot capture turns its pin RED" \
-  'git status --porcelain -z > "$GIT_SNAP_BEFORE"' "$REVIEW_SKILL"
+  'git status --porcelain -z > "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}"' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: deleting the after-dispatch -z snapshot capture turns its pin RED" \
-  'git status --porcelain -z > "$GIT_SNAP_AFTER"' "$REVIEW_SKILL"
+  'git status --porcelain -z > "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}"' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: deleting the cmp-based compare-after divergence trigger turns its pin RED" \
-  'cmp -s "$GIT_SNAP_BEFORE" "$GIT_SNAP_AFTER"' "$REVIEW_SKILL"
+  'cmp -s "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}"' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the pre-snapshot stale-path removal turns its pin RED" \
+  'if rm -f "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" ".devflow/tmp/review-dirty-tree-disabled"' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the before-snapshot symlink rejection turns its pin RED" \
+  '[ ! -L "${GIT_SNAP_BEFORE:-.devflow/tmp/review-dirty-tree-before}" ]' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the after-snapshot stale-path removal turns its pin RED" \
+  'elif ! rm -f "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}"' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the after-snapshot symlink rejection turns its pin RED" \
+  '[ -L "${GIT_SNAP_AFTER:-.devflow/tmp/review-dirty-tree-after}" ]' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the post-dispatch before-snapshot tamper guard turns its pin RED" \
+  'possible scratch tampering, nothing auto-restored' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the orchestrator-held snapshot digest check turns its pin RED" \
+  'scratch integrity failure, nothing auto-restored' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the external digest handoff contract turns its pin RED" \
+  'Record the single object ID printed by `git hash-object` as `{GIT_SNAP_BEFORE_OID}` in orchestrator state' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the attributable dirty-tree breadcrumb turns its pin RED" \
   'a Phase 3.1 review-agent dispatch modified the working tree' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the snapshot-delta-scoped restore turns its pin RED" \
@@ -4281,7 +4298,7 @@ assert_pin_red_on_removal "#192 backstop: deleting the untracked-file-never-auto
 # edits — the hazard the old `comm -13` direction guarded. (Each pin line carries `grep`/no
 # `echo`, so the repo-wide raw-guard scanner — which keys on a `grep…SKILL…echo` line — misses it.)
 assert_pin_red_on_removal "#216 backstop: deleting the by-path BEFORE-membership probe turns its pin RED" \
-  'grep -qzxF -- "${rec:3}" "$BEFORE_PATHS"' "$REVIEW_SKILL"
+  'grep -qzxF -- "${rec:3}" ".devflow/tmp/review-dirty-tree-before-paths"' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: flipping the restore direction off the grep-rc-1 (absent) branch turns its pin RED" \
   '[ "$gmrc" -eq 1 ]' "$REVIEW_SKILL"
 # Fail-closed guards added when hardening the restore (each must NOT read an error as a
@@ -4291,23 +4308,27 @@ assert_pin_red_on_removal "#216 backstop: flipping the restore direction off the
 assert_pin_red_on_removal "#216 backstop: deleting the grep-membership-error fail-closed guard turns its pin RED" \
   'NOT auto-restoring it (fail-closed)' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: deleting the temp-alloc-failure fail-closed breadcrumb turns its pin RED" \
-  'could not allocate temp files for the dirty-tree restore' "$REVIEW_SKILL"
+  'could not allocate repo-local scratch files for the dirty-tree restore' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: deleting the cmp-error fail-closed breadcrumb turns its pin RED" \
   'dirty-tree comparison SKIPPED this dispatch' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the before-extraction fail-closed breadcrumb turns its pin RED" \
+  'could not extract the before-snapshot path set' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#484 backstop: deleting the after-extraction fail-closed breadcrumb turns its pin RED" \
+  'could not extract the after-snapshot restore set' "$REVIEW_SKILL"
 # Rename/copy two-path `-z` entries are surfaced-not-restored — routed to a separate file,
 # never into the auto-restore set. Deleting the routing or the breadcrumb silently drops them.
 assert_pin_red_on_removal "#216 backstop: deleting the rename surfaced-not-restored routing turns its pin RED" \
-  '>> "$RENAMED_PATHS_FILE"' "$REVIEW_SKILL"
+  '>> ".devflow/tmp/review-dirty-tree-renamed-paths"' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: deleting the rename surfaced-not-restored breadcrumb turns its pin RED" \
   'not auto-restored (a staged rename needs index surgery)' "$REVIEW_SKILL"
 # The empty-restore-set branch is the OPERATIVE directive (the breadcrumb pin below is its
 # message); pin the `[ ! -s ... ]` condition too so inverting/removing it can't stay GREEN.
 assert_pin_red_on_removal "#216 backstop: deleting the empty-restore-set branch condition turns its pin RED" \
-  '[ ! -s "$CHANGED_PATHS_FILE" ]' "$REVIEW_SKILL"
+  '[ ! -s ".devflow/tmp/review-dirty-tree-changed-paths" ]' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the fail-closed before-snapshot disable turns its pin RED" \
   'dirty-tree backstop DISABLED for this dispatch' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the after-snapshot fail-distinct breadcrumb turns its pin RED" \
-  'could not snapshot the working tree after the Phase 3.1 dispatch' "$REVIEW_SKILL"
+  'could not create a regular working-tree snapshot after the Phase 3.1 dispatch' "$REVIEW_SKILL"
 # Pin the EXECUTABLE restore action (restore from HEAD, not the INDEX) and the post-restore
 # tree-state RE-CHECK (trust the tree, not the exit code) — deleting either downgrades the
 # backstop from "detect AND restore (verified)" to "detect only" while every prose pin stays GREEN.
@@ -4325,19 +4346,16 @@ assert_pin_red_on_removal "#216 backstop: deleting the empty-delta no-single-cau
 # to a literal that appears more than once by design):
 #  - the pathname-safe NUL read loop `IFS= read -r -d ''` at all THREE sites (BEFORE extract,
 #    AFTER extract, restore loop) — a regression to a newline `read -r` at any site drops the count;
-#  - the `sort -z` operand at BOTH extraction sorts — dropping `-z` collapses NUL data to one line;
-#  - the `\x01`-prefixed fail-closed sentinel VALUE at all THREE sites (set in 3.1, the 3.2
-#    short-circuit read, the 3.2 cleanup guard). A bare-NAME count (matching just
-#    `__DIRTY_TREE_BACKSTOP_DISABLED__`) would couple the NAME but NOT the `\x01` byte that
-#    makes the sites compare equal (#216), so this guard pins the FULL value
-#    `\x01__DIRTY_TREE_BACKSTOP_DISABLED__` instead — a one-sided `\x01` drop then drifts the
-#    count RED (a bare-name count would stay GREEN on exactly that regression).
+#  - no unchecked `sort -z` pipeline remains — records append directly and each write is rc-checked;
+#  - the fixed repo-local fail-closed sentinel PATH at all FOUR sites (success cleanup, failure
+#    producer, 3.2 short-circuit read, final cleanup). This file survives the Agent boundary;
+#    a shell variable would not.
 assert_eq "#216 backstop: the pathname-safe NUL read loop is present at all three sites" "yes" \
   "$([ "$(grep -cF 'IFS= read -r -d' "$REVIEW_SKILL")" -eq 3 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==3 NUL read loops (BEFORE/AFTER extract + restore)
-assert_eq "#216 backstop: the sort -z operand is present at both extraction sorts" "yes" \
-  "$([ "$(grep -cF 'sort -z' "$REVIEW_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 sort -z operands
-assert_eq "#216 backstop: the byte-prefixed fail-closed sentinel value stays coupled across its three sites" "yes" \
-  "$([ "$(grep -cF '\x01__DIRTY_TREE_BACKSTOP_DISABLED__' "$REVIEW_SKILL")" -eq 3 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==3 occurrences of the FULL \x01-prefixed sentinel (3.1 set + 3.2 read + 3.2 cleanup)
+assert_eq "#484 backstop: no unchecked sort -z extraction pipeline remains" "yes" \
+  "$([ "$(grep -cF 'sort -z' "$REVIEW_SKILL")" -eq 0 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==0 unchecked sort -z pipelines
+assert_eq "#216 backstop: the fixed fail-closed sentinel path stays coupled across its four sites" "yes" \
+  "$([ "$(grep -cF '.devflow/tmp/review-dirty-tree-disabled' "$REVIEW_SKILL")" -eq 4 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==4 occurrences (success cleanup + failure producer + 3.2 read + final cleanup)
 # ── #216: dirty-tree backstop -z rework — git_sandbox integration proof ────────────────
 # AC2 (#216): a spaced-path agent mutation is correctly RESTORED (no silent no-op), a true
 # rename is SURFACED-not-restored, and the spaced-path restore is COUPLED to the `-z` rework
@@ -4422,7 +4440,94 @@ if [ -d "$DT_D" ]; then
     "plain" "$(cat "$DT_D/plain.txt" 2>/dev/null)"
   rm -rf "$DT_D" "$DT_D_B" "$DT_D_AF"
 fi
+# Case E — a truncated non-NUL BEFORE record must fail closed. Without the explicit leftover-
+# record check, `read -d ''` reaches EOF, the loop reports success, and the empty membership
+# set misclassifies the orchestrator's already-dirty path as agent-introduced.
+DT_E="$(dt_make_repo)"
+if [ -d "$DT_E" ]; then
+  DT_E_B="$(probe_tmp "#484 case-E before")"; DT_E_AF="$(probe_tmp "#484 case-E after")"
+  printf ' M my file.txt' > "$DT_E_B"                 # deliberately missing the required NUL
+  printf 'concurrent edit' > "$DT_E/my file.txt"      # must never be restored from HEAD
+  printf 'agent edit' > "$DT_E/plain.txt"
+  git -C "$DT_E" status --porcelain -z > "$DT_E_AF"
+  ( cd "$DT_E" && GIT_SNAP_BEFORE="$DT_E_B" GIT_SNAP_AFTER="$DT_E_AF" bash "$DT_REGION" ) >/dev/null 2>&1
+  assert_eq "#484 backstop: truncated BEFORE snapshot fails closed without clobbering an existing edit" \
+    "concurrent edit" "$(cat "$DT_E/my file.txt" 2>/dev/null)"
+  assert_eq "#484 backstop: truncated BEFORE snapshot skips all restoration" \
+    "agent edit" "$(cat "$DT_E/plain.txt" 2>/dev/null)"
+  rm -rf "$DT_E" "$DT_E_B" "$DT_E_AF"
+fi
 rm -f "$DT_REGION"
+# #484: exercise the COMPLETE Phase 3.2 wrapper, including regular-file/OID authentication.
+# The older region above intentionally starts after those guards and cannot prove their behavior.
+DT_COMPARE="$(probe_tmp "#484 dirty-tree compare wrapper extraction")"
+DT_COMPARE_RUN="$(probe_tmp "#484 dirty-tree compare wrapper substituted")"
+DT_COMPARE_BEGIN="devflow:dirty-tree-compare ""BEGIN"
+DT_COMPARE_END="devflow:dirty-tree-compare ""END"
+region_lines "$REVIEW_SKILL" "$DT_COMPARE_BEGIN" "$DT_COMPARE_END" > "$DT_COMPARE"
+assert_eq "#484 backstop: complete authenticated compare wrapper extracted" "yes" \
+  "$([ -s "$DT_COMPARE" ] && echo yes || echo no)"
+
+# Case F — positive control: the authentic baseline + substituted external OID proceeds into
+# restore, preserving an already-dirty path while restoring the agent-introduced path.
+DT_F="$(dt_make_repo)"
+if [ -d "$DT_F" ]; then
+  DT_F_B="$(probe_tmp "#484 case-F before")"; DT_F_AF="$(probe_tmp "#484 case-F after")"
+  printf 'concurrent edit' > "$DT_F/my file.txt"
+  git -C "$DT_F" status --porcelain -z > "$DT_F_B"
+  DT_F_OID="$(git hash-object "$DT_F_B")"
+  printf 'agent edit' > "$DT_F/plain.txt"
+  sed "s/{GIT_SNAP_BEFORE_OID}/$DT_F_OID/g" "$DT_COMPARE" > "$DT_COMPARE_RUN"
+  ( cd "$DT_F" && GIT_SNAP_BEFORE="$DT_F_B" GIT_SNAP_AFTER="$DT_F_AF" bash "$DT_COMPARE_RUN" ) >/dev/null 2>&1
+  assert_eq "#484 backstop auth positive control: authentic OID preserves the pre-existing edit" \
+    "concurrent edit" "$(cat "$DT_F/my file.txt" 2>/dev/null)"
+  assert_eq "#484 backstop auth positive control: authentic OID permits snapshot-delta restore" \
+    "plain" "$(cat "$DT_F/plain.txt" 2>/dev/null)"
+  rm -rf "$DT_F" "$DT_F_B" "$DT_F_AF"
+fi
+
+# Case G — replace the captured baseline with a different regular file after recording its OID.
+# Without the digest guard (or with a reversed comparison), the empty forged baseline authorizes
+# checkout of BOTH dirty paths. Correct behavior emits the integrity breadcrumb and restores none.
+DT_G="$(dt_make_repo)"
+if [ -d "$DT_G" ]; then
+  DT_G_B="$(probe_tmp "#484 case-G before")"; DT_G_AF="$(probe_tmp "#484 case-G after")"
+  DT_G_ERR="$(probe_tmp "#484 case-G stderr")"
+  printf 'concurrent edit' > "$DT_G/my file.txt"
+  git -C "$DT_G" status --porcelain -z > "$DT_G_B"
+  DT_G_OID="$(git hash-object "$DT_G_B")"
+  printf 'agent edit' > "$DT_G/plain.txt"
+  printf '' > "$DT_G_B"  # forged regular-file baseline
+  sed "s/{GIT_SNAP_BEFORE_OID}/$DT_G_OID/g" "$DT_COMPARE" > "$DT_COMPARE_RUN"
+  ( cd "$DT_G" && GIT_SNAP_BEFORE="$DT_G_B" GIT_SNAP_AFTER="$DT_G_AF" bash "$DT_COMPARE_RUN" ) >/dev/null 2>"$DT_G_ERR"
+  assert_eq "#484 backstop auth: forged regular baseline cannot clobber the pre-existing edit" \
+    "concurrent edit" "$(cat "$DT_G/my file.txt" 2>/dev/null)"
+  assert_eq "#484 backstop auth: forged regular baseline skips all restoration" \
+    "agent edit" "$(cat "$DT_G/plain.txt" 2>/dev/null)"
+  assert_eq "#484 backstop auth: forged regular baseline emits the integrity breadcrumb" "yes" \
+    "$(grep -qF 'scratch integrity failure, nothing auto-restored' "$DT_G_ERR" && echo yes || echo no)"
+  rm -rf "$DT_G" "$DT_G_B" "$DT_G_AF" "$DT_G_ERR"
+fi
+
+# Case H — a symlink baseline is rejected before hashing/comparison and its target is untouched.
+DT_H="$(dt_make_repo)"
+if [ -d "$DT_H" ]; then
+  DT_H_TARGET="$(probe_tmp "#484 case-H symlink target")"; DT_H_B="$DT_H/before-link"
+  DT_H_AF="$(probe_tmp "#484 case-H after")"; DT_H_ERR="$(probe_tmp "#484 case-H stderr")"
+  printf 'target sentinel' > "$DT_H_TARGET"; ln -s "$DT_H_TARGET" "$DT_H_B"
+  DT_H_OID="$(git hash-object "$DT_H_TARGET")"
+  printf 'agent edit' > "$DT_H/plain.txt"
+  sed "s/{GIT_SNAP_BEFORE_OID}/$DT_H_OID/g" "$DT_COMPARE" > "$DT_COMPARE_RUN"
+  ( cd "$DT_H" && GIT_SNAP_BEFORE="$DT_H_B" GIT_SNAP_AFTER="$DT_H_AF" bash "$DT_COMPARE_RUN" ) >/dev/null 2>"$DT_H_ERR"
+  assert_eq "#484 backstop auth: symlink baseline skips restoration" \
+    "agent edit" "$(cat "$DT_H/plain.txt" 2>/dev/null)"
+  assert_eq "#484 backstop auth: symlink baseline target is never modified" \
+    "target sentinel" "$(cat "$DT_H_TARGET" 2>/dev/null)"
+  assert_eq "#484 backstop auth: symlink baseline emits the tamper breadcrumb" "yes" \
+    "$(grep -qF 'possible scratch tampering, nothing auto-restored' "$DT_H_ERR" && echo yes || echo no)"
+  rm -rf "$DT_H" "$DT_H_TARGET" "$DT_H_AF" "$DT_H_ERR"
+fi
+rm -f "$DT_COMPARE" "$DT_COMPARE_RUN"
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
 # into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
 # docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.
@@ -6447,6 +6552,220 @@ bt=[t.strip() for t in (b.group(1)+"Bash(tee:*)").split(",") if t.strip()]
 pt=[t.strip() for t in p.group(1).split(",") if t.strip()]
 print("SYNCED" if bt==pt else "DRIFT")
 ' "$IMPL_YML" "$MPROBE_YML")"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "implement-profile head guard (#484)"
+# ────────────────────────────────────────────────────────────────────────────
+# Phase 3 runs the review engine INLINE in the implement context. This guard audits
+# every fenced head in skills/implement/**, skills/review*/**, and the dispatched
+# skills/requesting-code-review/** final pass against the devflow-implement.yml baked
+# --allowed-tools allowlist — NOT the review one. The scan deliberately over-approximates
+# reachability: shared-source standalone-only fences (notably review Phase 4.4) remain in
+# the audited set even though normal inline control flow stops after Phase 4.3. A head
+# the inline flow reaches but the allowlist does not grant is silently refused (#363).
+# This block fails when an audited fenced head
+# is neither granted nor exactly withheld. A separate removal pin below protects
+# the instruction that inline bare-workpad source shorthand expands before emission.
+# The allowlist is assembled from
+# the workflow's baked block
+# ALONE (implement-block mode), never from .devflow/config.json — a consumer repo
+# does not carry this repo's config extras, so a head reachable only via config is
+# reported ungranted here (the fail-closed direction). The extractor prints
+# ungranted heads and exits 0 either way, so the guard keys on the printed output
+# being EMPTY, never on the exit status.
+ECH="$LIB/test/extract-command-heads.py"
+E363=
+E484=
+E484="$(mktemp -d)" || { echo "FAIL  #484: mktemp -d failed"; exit 1; }
+trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484"' EXIT
+
+# Heads deliberately left ungranted on the implement profile, each with a rationale:
+#   gh pr checkout — the inline engine is already on the branch; checking out a PR
+#     head would move the tree under Phase 3's fix loop and Phase 4's doc pass.
+#   git rev-list — the Phase 1 behind-by capture is refused and degrades gracefully;
+#     granting this head alone would not make that capture executable, and at
+#     fetch-depth 50 its count can be plausible-but-wrong across the graft boundary.
+#   mktemp — invoked only from leading VAR=$(…) capture shapes the matcher refuses
+#     regardless of a head grant; granting it would be a no-op greening the guard
+#     on a still-denied path.
+WITHHELD_IMPL=$'gh pr checkout\ngit rev-list\nmktemp'
+# Shell builtins + extractor parse artifacts (leaked case-arm fragments) emitted
+# alongside real heads. EXACT-match only (grep -xF): a head that merely begins with
+# a suppressed entry (set-something.sh) is still reported ungranted.
+SUPPRESS_IMPL=$'true\nset\nsetopt\nclaude/issue-*\nissue-*)\nnon-bug}'
+
+# True iff HEAD is an EXACT member of the suppression or withheld set (grep -xF:
+# fixed-string, whole-line; never a prefix match).
+_impl_suppressed() {  # <head> -> 0 if suppressed/withheld, 1 otherwise
+  { printf '%s\n' "$SUPPRESS_IMPL"; printf '%s\n' "$WITHHELD_IMPL"; } | grep -qxF "$1"
+}
+
+# Real ungranted heads from one skill file: extractor output minus suppressed/withheld.
+_impl_ungranted() {  # <skill-file> <allowlist> <mode>
+  local h output
+  if ! output="$(python3 "$ECH" ungranted "$1" "$2" "$3" 2>"$E484/err")"; then
+    printf '%s\n' '__extractor_error__'
+    return 0
+  fi
+  [ -n "$output" ] || return 0
+  printf '%s\n' "$output" \
+    | while IFS= read -r h; do _impl_suppressed "$h" || printf '%s\n' "$h"; done
+}
+
+# Manual review-and-fix runs under devflow.yml, where gh pr checkout must be a
+# real grant. Filter parser artifacts only: the implement profile's deliberately
+# withheld heads are not exemptions on this separate profile.
+_manual_ungranted() {  # <skill-file> <allowlist> <mode>
+  local h output
+  if ! output="$(python3 "$ECH" ungranted "$1" "$2" "$3" 2>"$E484/err")"; then
+    printf '%s\n' '__extractor_error__'
+    return 0
+  fi
+  [ -n "$output" ] || return 0
+  printf '%s\n' "$output" \
+    | while IFS= read -r h; do
+        printf '%s\n' "$SUPPRESS_IMPL" | grep -qxF "$h" || printf '%s\n' "$h"
+      done
+}
+
+# AC: a Bash(...) spec cited only in a YAML comment is NOT a grant — implement-block
+# scopes to the --allowed-tools quoted block, so the cited spec is unreachable. This
+# is the fail-OPEN shape (a whole-file parse reading a comment as a grant) the guard
+# exists to eliminate.
+printf '%s\n' '```bash' 'make build' '```' > "$E484/cited.md"
+{ printf '%s\n' 'steps:' '  - run: |' '      # Emits ",Bash(make:*),"' '      --allowed-tools' '      "Read,Bash(echo:*)"'; } > "$E484/cited.yml"
+assert_eq "#484 a Bash(...) spec cited in a YAML comment is not a grant (implement-block scopes to the quoted block)" \
+  "make" "$(python3 "$ECH" ungranted "$E484/cited.md" "$E484/cited.yml" implement-block)"
+
+# AC: an absent/unreadable workflow is a FAILURE, not zero findings (fail-closed —
+# never the empty allowlist the default mode would silently yield).
+assert_eq "#484 an absent workflow file is reported, not read as zero findings (fail-closed)" "yes" \
+  "$(python3 "$ECH" ungranted "$E484/cited.md" "$E484/does-not-exist.yml" implement-block >/dev/null 2>&1 && echo no || echo yes)"
+
+printf '%s\n' 'name: marker-free workflow' > "$E484/no-marker.yml"
+assert_eq "#484 a readable workflow with no --allowed-tools marker fails closed" \
+  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/no-marker.yml" implement-block)"
+
+# Malformed-but-present workflows must also make the contract guard visibly RED.
+# These exercise the two parser failures that previously vanished through the
+# `_impl_ungranted` pipeline and masqueraded as an empty ungranted-head set.
+{ printf '%s\n' '--allowed-tools' '"Read"' '--allowed-tools' '"Write"'; } > "$E484/duplicate-marker.yml"
+assert_eq "#484 duplicate --allowed-tools markers fail the implement contract guard closed" \
+  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/duplicate-marker.yml" implement-block)"
+{ printf '%s\n' '--allowed-tools' '"Read,Bash(echo:*)'; } > "$E484/unterminated-quote.yml"
+assert_eq "#484 an unterminated --allowed-tools quote fails the implement contract guard closed" \
+  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/unterminated-quote.yml" implement-block)"
+{ printf '%s\n' 'claude_args: >-' '  --allowed-tools' '  "Read,' '  Bash(make:*)' '# dedented later prose says "oops"'; } > "$E484/unterminated-before-later-quote.yml"
+assert_eq "#484 a dedented later quote cannot close an unterminated allowlist scalar" \
+  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/unterminated-before-later-quote.yml" implement-block)"
+{ printf '%s\n' '--allowed-tools' 'not-a-quoted-value' '# later prose cites "Read,Bash(make:*)"'; } > "$E484/detached-quote.yml"
+assert_eq "#484 a detached later quote cannot masquerade as the allowlist value" \
+  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/detached-quote.yml" implement-block)"
+assert_eq "#484 an unknown allowlist parse mode fails closed instead of scanning the whole file" \
+  "yes" "$(python3 "$ECH" ungranted "$E484/cited.md" "$E484/cited.yml" misspelled-mode >/dev/null 2>&1 && echo no || echo yes)"
+
+# AC: a head that merely begins with a suppressed builtin survives (exact, not prefix).
+printf '%s\n' '```bash' 'set-something.sh --x' '```' > "$E484/prefix.md"
+assert_eq "#484 set-something.sh survives the suppression list (exact-match, not prefix)" \
+  "set-something.sh" "$(python3 "$ECH" ungranted "$E484/prefix.md" "$E484/cited.yml" implement-block)"
+
+# AC: the withheld list is exactly {gh pr checkout, git rev-list, mktemp} — it cannot
+# silently grow into a suppression that hollows the guard out.
+assert_eq "#484 withheld list is exactly gh pr checkout, git rev-list, mktemp" \
+  "gh pr checkout git rev-list mktemp" "$(printf '%s\n' "$WITHHELD_IMPL" | sort | tr '\n' ' ' | sed 's/ *$//')"
+
+# AC: the contract — zero ungranted real heads across the whole implement-executed
+# surface (implement + the review engines Phase 3 runs inline, including the
+# dispatched requesting-code-review final pass). Derive this roster
+# recursively so a newly-added phase/reference cannot sit outside a frozen list
+# while the guard still claims those recursive roots as coverage.
+# A failed/empty find becomes a sentinel path, which `_impl_ungranted` turns into
+# `__extractor_error__`; roster discovery can never masquerade as zero heads.
+if ! _impl_files="$(find "$LIB/../skills/implement" "$LIB/../skills"/review* "$LIB/../skills/requesting-code-review" -type f -name '*.md' -print 2>"$E484/roster.err")" \
+   || [ -z "$_impl_files" ]; then
+  _impl_files="$E484/__roster_error__"
+fi
+assert_eq "#484 recursive roster includes nested implement phase files" "yes" \
+  "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/implement/phases/phase-4-documentation.md" && echo yes || echo no)"
+assert_eq "#484 recursive roster includes the dispatched requesting-code-review skill" "yes" \
+  "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/requesting-code-review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: roster membership assertion is scoped to the extractor input
+assert_eq "#484 every implement-tier head is granted or withheld (zero ungranted real heads)" "" \
+  "$(for f in $_impl_files; do _impl_ungranted "$f" "$IMPL_YML" implement-block; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+
+assert_pin_red_on_removal "#484 inline workpad shorthand must expand to the portable anchor before emission" \
+  'Every inline backtick instruction beginning with `workpad.py` in the phase references must be expanded before tool use' \
+  "$LIB/../skills/implement/SKILL.md"
+
+# AC: review-and-fix/SKILL.md against devflow.yml's hoisted TOOLS — gh pr checkout is
+# granted there (the manual /devflow:review-and-fix path checks out the PR head), so
+# every head it emits is granted or suppressed.
+assert_eq "#484 every review-and-fix head is granted by devflow.yml TOOLS (gh pr checkout granted there)" "" \
+  "$(_manual_ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../.github/workflows/devflow.yml" tools-line | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+sed -E 's/, Bash\(gh pr checkout:\*\)//' "$LIB/../.github/workflows/devflow.yml" > "$E484/manual-no-checkout.yml"
+assert_eq "#484 manual gh pr checkout grant is removal-proof" "yes" \
+  "$(_manual_ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$E484/manual-no-checkout.yml" tools-line | grep -qxF 'gh pr checkout' && echo yes || echo no)"
+
+# Skill-level recovery contracts: unit tests prove the helper behavior, while
+# these removal pins prove the orchestrator still requests a failure signal,
+# records it durably, and defers the pre-workpad refusal note to Phase 1.3.
+E484_IMPL_SKILL="$LIB/../skills/implement/SKILL.md"
+assert_pin_red_on_removal "#484 outcome reaction requests a reportable helper failure" \
+  '--reaction "$REACTION" --report-failure' "$E484_IMPL_SKILL"
+assert_pin_red_on_removal "#484 outcome reaction preserves the durable fallback note" \
+  'outcome reaction: react-to-trigger.sh exited non-zero (best-effort; the run continues)' "$E484_IMPL_SKILL"
+assert_pin_red_on_removal "#484 prompt-extension refusal preserves the exact pending note" \
+  'load-prompt-extension.sh was refused by the matcher; the consumer prompt extension could not be loaded' "$E484_IMPL_SKILL"
+assert_pin_red_on_removal "#484 prompt-extension refusal is flushed only after Phase 1.3 creates the workpad" \
+  'Immediately after Phase 1.3 has created or resumed the workpad' "$E484_IMPL_SKILL"
+
+E484_FINAL_PASS="$LIB/../skills/requesting-code-review/code-reviewer.md"
+assert_pin_red_on_removal "#484 final-pass reviewer does not emit unavailable worktree/mktemp recovery commands" \
+  'Do not attempt `git worktree add`, `mktemp`, or a mutation/half-revert' "$E484_FINAL_PASS"
+assert_pin_red_on_removal "#484 final-pass reviewer reports a mutation-evidence limitation instead of silently retrying" \
+  'report the verification limitation to the orchestrator instead' "$E484_FINAL_PASS"
+assert_pin_red_on_removal "#484 overview distinguishes standalone dismissal from inline runtime helpers" \
+  'inline implement runs skip after Phase 4.3' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_pin_red_on_removal "#484 install guide distinguishes standalone dismissal from inline runtime helpers" \
+  'inline implement review stops after Phase 4.3' "$LIB/../docs/install.md"
+assert_pin_red_on_removal "#484 changeset distinguishes standalone dismissal from inline runtime helpers" \
+  'inline implement review stops after Phase 4.3' "$LIB/../.changeset/issue-484-implement-profile-grants.md"
+for capability_mirror in \
+  "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" \
+  "$LIB/../docs/install.md" \
+  "$LIB/../.changeset/issue-484-implement-profile-grants.md"; do
+  assert_pin_red_on_removal "#484 dismissal mirror states the granted inline capability: $capability_mirror" \
+    'grant makes the capability available to the inline session' "$capability_mirror"
+done
+
+E484_PHASE4="$LIB/../skills/implement/phases/phase-4-documentation.md"
+assert_pin_red_on_removal "#484 docs staging consumes all four observed config results" \
+  'read the four tool results and substitute non-empty values as literals below' "$E484_PHASE4"
+assert_pin_red_on_removal "#484 docs config failures retry then block" \
+  'retry that read once, then mark the workpad `Blocked`' "$E484_PHASE4"
+assert_pin_red_on_removal "#484 docs staging inspects unfiltered status" \
+  'Inspect unfiltered `git status --short` after the docs subagent returns' "$E484_PHASE4"
+assert_pin_red_on_removal "#484 docs staging builds an explicit complete artifact list" \
+  'Build the explicit staging list from every documentation artifact that dispatch changed' "$E484_PHASE4"
+assert_pin_red_on_removal "#484 docs no-change arm requires clean subagent output plus unfiltered status" \
+  'Only when the subagent returned cleanly and unfiltered status confirms it produced no documentation artifact' "$E484_PHASE4"
+for docs_key in .docs.internal .docs.external .docs.release_notes_file .docs.changelog_file; do
+  assert_pin_red_on_removal "#484 docs staging reads configured key $docs_key" \
+    "config-get.sh $docs_key" "$E484_PHASE4"
+done
+
+# Behavioral-fix pin: removing the stale-prose-lint.py grant from devflow-implement.yml
+# must turn the guard RED — the guard catches the re-introduced silent denial, not
+# merely its own line vanishing. assert_pin_red_under mutates a scratch copy and
+# confirms the grant literal flips present→absent; a direct guard-behavior check
+# follows (drop the grant from a scratch workflow, confirm the extractor reports the
+# head ungranted over review/SKILL.md).
+assert_pin_red_under "#484 pin: the stale-prose-lint.py grant is removal-proof (deleting it turns the guard RED)" \
+  'Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)' \
+  '/Bash\(\.devflow\/vendor\/devflow\/scripts\/stale-prose-lint\.py:\*\)/d' \
+  "$IMPL_YML"
+sed -E '/Bash\(\.devflow\/vendor\/devflow\/scripts\/stale-prose-lint\.py:\*\)/d' "$IMPL_YML" > "$E484/impl-no-spl.yml"
+assert_eq "#484 guard-behavior: with the stale-prose-lint.py grant removed the extractor reports it ungranted over review/SKILL.md" \
+  "yes" "$(python3 "$ECH" ungranted "$LIB/../skills/review/SKILL.md" "$E484/impl-no-spl.yml" implement-block 2>/dev/null | grep -qF 'stale-prose-lint.py' && echo yes || echo no)"
 
 # Implement flip: the function + each of its fail-loud call sites (at least the four
 # pinned below), guarded on interim. Each pin quotes that site's unique cause string,
@@ -14516,6 +14835,19 @@ assert_eq "react: REACTION env overrides default content" \
   "1" "$(grep -c 'content=eyes' "$REACT_REC")"
 rm -f "$REACT_REC"
 
+# 5b. The implement skill cannot use an env-assignment prefix, so its emitted
+# leading-token call supplies every selector through CLI options. Conflicting
+# environment values prove the CLI path is operative and has precedence.
+REACT_REC="$(mktemp)"
+DEVFLOW_GH="$RT_STUB/gh" PATH="$RT_STUB:$PATH" REACT_REC="$REACT_REC" GH_TOKEN=x \
+  EVENT_NAME=pull_request_review REPO=wrong/repo COMMENT_ID=1 REACTION=confused \
+  bash "$RT" --repo o/r --event issue_comment --comment 17 --reaction eyes >/dev/null 2>&1
+assert_eq "react: CLI selectors override conflicting environment values" \
+  "1" "$(grep -c 'repos/o/r/issues/comments/17/reactions.*content=eyes' "$REACT_REC")"
+assert_eq "react: CLI selector path makes exactly one api call" \
+  "1" "$(wc -l < "$REACT_REC" | tr -d ' ')"
+rm -f "$REACT_REC"
+
 # 6. gh failure (e.g. HTTP 403 from a missing write scope) must NOT fail the
 # step — best-effort: the script swallows it, exits 0, and warns to stderr with
 # the gh error one-lined. This is the load-bearing error branch the success
@@ -14541,7 +14873,37 @@ assert_eq "react: gh failure warns to stderr" \
   "1" "$(printf '%s\n' "$react_err" | grep -c '::warning::react: could not add')"
 assert_eq "react: multi-line gh error is collapsed to one log line" \
   "1" "$(printf '%s\n' "$react_err" | grep -c 'integration (check issues')"
+
+# The skill's outcome-reaction fence opts into a non-zero signal so its `||
+# workpad.py update` arm can durably record the failure. The workflow path omits
+# this flag and retains the universal best-effort exit-zero behavior above.
+report_rc=0
+report_err="$(DEVFLOW_GH="$FAIL_STUB/gh" PATH="$FAIL_STUB:$PATH" GH_TOKEN=x \
+  EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=1 bash "$RT" --report-failure 2>&1 >/dev/null)" || report_rc=$?
+assert_eq "react: --report-failure returns non-zero after a failed api call" "1" "$report_rc"
+assert_eq "react: --report-failure preserves the attributable warning" \
+  "1" "$(printf '%s\n' "$report_err" | grep -c '::warning::react: could not add')"
 rm -rf "$FAIL_STUB"
+
+# 7. Malformed CLI input stays best-effort and fails closed. A recognized flag
+# without a value used to reach `shift 2` under `set -e` and violate the script's
+# universal exit-zero contract. An unknown flag must likewise stop before stale
+# environment values can select a real reaction endpoint.
+REACT_REC="$(mktemp)"
+missing_value_err="$(DEVFLOW_GH="$RT_STUB/gh" PATH="$RT_STUB:$PATH" REACT_REC="$REACT_REC" \
+  GH_TOKEN=x EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=9 bash "$RT" --reaction 2>&1 >/dev/null)"
+assert_eq "react: missing CLI value still exits 0 (best-effort)" "0" "$?"
+assert_eq "react: missing CLI value warns and makes no api call" \
+  "1-0" "$(printf '%s\n' "$missing_value_err" | grep -c 'missing value')-$(grep -c 'reactions' "$REACT_REC")"
+rm -f "$REACT_REC"
+
+REACT_REC="$(mktemp)"
+unknown_arg_err="$(DEVFLOW_GH="$RT_STUB/gh" PATH="$RT_STUB:$PATH" REACT_REC="$REACT_REC" \
+  GH_TOKEN=x EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=9 bash "$RT" --typo value 2>&1 >/dev/null)"
+assert_eq "react: unknown CLI flag still exits 0 (best-effort)" "0" "$?"
+assert_eq "react: unknown CLI flag warns and makes no api call" \
+  "1-0" "$(printf '%s\n' "$unknown_arg_err" | grep -c 'unknown argument')-$(grep -c 'reactions' "$REACT_REC")"
+rm -f "$REACT_REC"
 
 rm -rf "$RT_STUB"
 
@@ -29611,7 +29973,7 @@ echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
 # is worth: it must cover EVERY prose-invoked head, or the audit is green over a gap.
 ECH="$LIB/test/extract-command-heads.py"
 E363="$(mktemp -d)" || { echo "FAIL  #363: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363"' EXIT
+trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484"' EXIT
 
 assert_eq "#363 extractor helper exists" "yes" "$([ -f "$ECH" ] && echo yes || echo no)"
 
@@ -29780,12 +30142,12 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last changes: #441 Phase 4.5 record write collapsed to a single --persist call, then #466 Phase 0.6 adjudication-join fence added match-lint-adjudications.py + run-jq.sh + gh api --paginate — the comment fetch writes via an in-workspace redirect, NOT a tee, so gh's own exit status survives)" \
-  "102" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; #484 authenticates fixed-path snapshots and rejects truncated records)" \
+  "108" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
-assert_eq "#363 the review-skill head set matches the reviewed count (33 distinct names; +match-lint-adjudications.py, +run-jq.sh, +gh api --paginate at #466)" \
-  "33" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names; #484 adds granted git hash-object while removing touch and sort)" \
+  "32" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 
@@ -30505,7 +30867,7 @@ RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
 REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 DDC_SH="$LIB/../scripts/describe-denial-count.sh"
-for _g363 in 'Bash(mkdir:*)' 'Bash(tee:*)' 'Bash(git cat-file:*)' 'Bash(git checkout:*)' \
+for _g363 in 'Bash(mkdir:*)' 'Bash(tee:*)' 'Bash(git cat-file:*)' 'Bash(git hash-object:*)' 'Bash(git checkout:*)' \
              'Bash(mktemp:*)' 'Bash(cmp:*)' 'Bash(rm -f:*)'; do
   assert_pin_unique "#363 review profile grants $_g363" "$_g363" "$RUNNER_YML"
 done
@@ -30693,7 +31055,7 @@ echo "#363 scripts/summarize-ci-checks.sh (adversarial input-shape matrix, gh st
 # extraction would silently coerce into a passing result (the #312 bug class).
 SCC="$LIB/../scripts/summarize-ci-checks.sh"
 S363="$(mktemp -d)" || { echo "FAIL  #363 scc: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$S363"' EXIT
+trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484" "$S363"' EXIT
 
 assert_eq "#363 summarize-ci-checks.sh exists and is executable" "yes" \
   "$([ -x "$SCC" ] && echo yes || echo no)"
@@ -30924,7 +31286,7 @@ echo "#363 observability: ::warning:: on denials + permission_denials_count plum
 # ────────────────────────────────────────────────────────────────────────────
 SED_SH="$LIB/../scripts/surface-execution-diagnostics.sh"
 D363="$(mktemp -d)" || { echo "FAIL  #363 diag: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$S363" "$D363"' EXIT
+trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
 
 _diag_run() {  # execution-file-json -> stdout+stderr; GITHUB_OUTPUT at $D363/out
   : > "$D363/out"
@@ -32378,11 +32740,12 @@ assert_eq "#423 T9 severity array → default important"               "importan
 assert_eq "#423 T9 severity number → default important"              "important" "$(sp_resolve_sev '{"devflow_review":{"stale_prose":{"severity":5}}}')"
 assert_eq "#423 T9 severity unknown string → default important"      "important" "$(sp_resolve_sev '{"devflow_review":{"stale_prose":{"severity":"blocker"}}}')"
 
-# T7 → both cloud allowlists grant the helper (vendored literal), plus config grants.
+# T7 → both review-tier cloud allowlists grant the helper (vendored literal). The
+# inert config globs were removed in #484 (a */basename glob does not match the
+# vendored leading token); the implement profile grants the helper as a vendored
+# literal in its baked block instead, pinned by the #484 head guard below.
 assert_pin_unique "#423 T7 devflow-runner review TOOLS grants the lint (vendored literal)" 'Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)' "$SP_RUNNER_YML"
 assert_pin_unique "#423 T7 devflow.yml hoisted TOOLS grants the lint (vendored literal)" 'Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)' "$SP_DEVFLOW_YML"
-assert_eq "#423 T7 config devflow_implement.allowed_tools grants the lint" "yes" "$(jq -e '.devflow_implement.allowed_tools | index("Bash(*/stale-prose-lint.py:*)")' "$SP_CONFIG" >/dev/null && echo yes || echo no)"
-assert_eq "#423 T7 config devflow.allowed_tools grants the lint" "yes" "$(jq -e '.devflow.allowed_tools | index("Bash(*/stale-prose-lint.py:*)")' "$SP_CONFIG" >/dev/null && echo yes || echo no)"
 
 # T8 → engine-sharing invariant: Phase 0.6 lives ONLY in the engine skill; the fix-loop
 # skill invokes the same helper but adds no rule paraphrase (references the step only).
@@ -37373,9 +37736,11 @@ assert_eq "#466 mla-grants: devflow-runner.yml review profile grants match-lint-
   "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*)' "$MLA_RUNNER_YML")"
 assert_eq "#466 mla-grants: devflow.yml hoisted TOOLS grants match-lint-adjudications.py" "1" \
   "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*)' "$MLA_DEVFLOW_YML")"
-# devflow-implement.yml deliberately grants neither stale-prose-lint.py nor this helper (AC scoping).
-assert_eq "#466 mla-grants: devflow-implement.yml does NOT grant match-lint-adjudications.py (inert-tier scoping)" "0" \
-  "$(grep -cF 'match-lint-adjudications.py' "$LIB/../.github/workflows/devflow-implement.yml")"
+# devflow-implement.yml grants match-lint-adjudications.py because Phase 3 runs the
+# review engine inline under the implement allowlist (#484) — the implement profile
+# is no longer inert for review-engine helpers.
+assert_eq "#466 mla-grants: devflow-implement.yml grants match-lint-adjudications.py (Phase 3 runs the engine inline, #484)" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*)' "$LIB/../.github/workflows/devflow-implement.yml")"
 
 # mla-extension-pins (Extension rule): the six-shape phrase is present in both extension files.
 # (The $SIXSHAPE_SET lockstep block above already assert_pin_unique's the exact literal in both;

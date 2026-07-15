@@ -25,8 +25,7 @@
     "allowed_tools": [
       "Bash(lib/test/run.sh:*)",
       "Bash(lib/preflight.sh:*)",
-      "Bash(shellcheck:*)",
-      "Bash(*/stale-prose-lint.py:*)"
+      "Bash(shellcheck:*)"
     ],
     "execution_diagnostics_enabled": true,
     "execution_transcript_artifact_enabled": true
@@ -42,13 +41,7 @@
       "Bash(shellcheck:*)",
       "Bash(chmod:*)",
       "Bash(git ls-remote:*)",
-      "Bash(git check-ignore:*)",
-      "Bash(*/apply-labels.sh:*)",
-      "Bash(*/ensure-label.sh:*)",
-      "Bash(*/render-grounding-block.sh:*)",
-      "Bash(*/config-get.sh:*)",
-      "Bash(*/efficiency-trace.sh:*)",
-      "Bash(*/stale-prose-lint.py:*)"
+      "Bash(git check-ignore:*)"
     ],
     "stall_backstop": {
       "enabled": true,

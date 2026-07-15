@@ -49,7 +49,7 @@ Then populate the workpad's `PR` link from the freshly-created draft PR, and **p
 ```bash
 PR_URL=$(gh pr view --json url --jq '.url')
 PR_NUM=$(gh pr view --json number --jq '.number')
-workpad.py update $ISSUE_NUMBER --pr-link "[#$PR_NUM]($PR_URL)"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --pr-link "[#$PR_NUM]($PR_URL)"
 echo "draft PR number: [$PR_NUM]"
 ```
 
@@ -241,7 +241,7 @@ if [ ! -e "$1" ] || [ -z "$(printf '%s\n' "$@" | sort | comm -13 "$BEFORE" -)" ]
   # the run log rather than silently dropping both the telemetry AND its loss-record — a
   # double silent failure at the exact seam this clause exists to make visible. Mirrors the
   # --persist line's best-effort breadcrumb discipline.
-  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "review-and-fix inline loop wrote no iter-*.json this run AND lib/efficiency-trace.sh --persist synthesized nothing (no unrecorded 'fix: address review findings (iteration N)' commit to reconstruct from, a failed search — unresolvable base ref or failed git log — failed synthesized writes, or a discovery-mode skip such as multi-slug ambiguity or a refused unsubstituted placeholder identity; --persist's own warnings name which when a candidate dir was visited), so this run's effectiveness telemetry (.devflow/logs/efficiency/) is missing" \
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "review-and-fix inline loop wrote no iter-*.json this run AND lib/efficiency-trace.sh --persist synthesized nothing (no unrecorded 'fix: address review findings (iteration N)' commit to reconstruct from, a failed search — unresolvable base ref or failed git log — failed synthesized writes, or a discovery-mode skip such as multi-slug ambiguity or a refused unsubstituted placeholder identity; --persist's own warnings name which when a candidate dir was visited), so this run's effectiveness telemetry (.devflow/logs/efficiency/) is missing" \
     || echo "::warning::phase-3.3: failed to record dropped-failed observability-gap reflection on issue #$ISSUE_NUMBER; this run's effectiveness telemetry is lost AND its loss-record could not be written" >&2
 fi
 # The no-new-inputs case above only catches a dropped LOOP EXIT (the inline loop wrote no
@@ -276,7 +276,7 @@ fi
 # persistently-failing LEFTOVER run directory elsewhere on the local tier can also match —
 # the reflection below therefore does not assert the failure is scoped to this run.
 if [ "$PERSIST_ERR_IS_DEVNULL" -eq 0 ] && grep -qE 'record not written|failed \(disk/permission\); not persisted for' "$PERSIST_ERR" 2>/dev/null; then
-  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "lib/efficiency-trace.sh --persist failed to derive/write an effectiveness record (see the record-derivation/write-failure breadcrumb above) — either this run's or an unresolved leftover run's on this host; some run's effectiveness telemetry under .devflow/logs/efficiency/ is missing" \
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "lib/efficiency-trace.sh --persist failed to derive/write an effectiveness record (see the record-derivation/write-failure breadcrumb above) — either this run's or an unresolved leftover run's on this host; some run's effectiveness telemetry under .devflow/logs/efficiency/ is missing" \
     || echo "::warning::phase-3.3: failed to record dropped-failed observability-gap reflection (record-write-failure case) on issue #$ISSUE_NUMBER; this run's effectiveness telemetry is lost AND its loss-record could not be written" >&2
 fi
 [ "$PERSIST_ERR_IS_DEVNULL" -eq 1 ] || rm -f "$PERSIST_ERR" 2>/dev/null
