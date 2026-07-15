@@ -750,11 +750,12 @@ jobs:
           # devflow.yml's literal list (devflow-runner.yml intentionally uses a computed
           # steps.tools.outputs.tools profile string, not a literal list).
           # allowed_tools_extra splices inside the closing quote.
-          # Bundled helpers skills/review*/SKILL.md invokes are granted here as vendored
-          # literals because Phase 3 runs the review engine INLINE under this allowlist
-          # (#484) — otherwise the engine silently refuses them (#363). The
-          # lib/test/run.sh #484 head guard pins that every emitted head is granted or
-          # withheld with rationale.
+          # Reachable bundled helpers from skills/review*/SKILL.md are granted here as
+          # vendored literals because Phase 3 runs the review engine INLINE under this
+          # allowlist (#484) — otherwise the engine silently refuses them (#363). The
+          # lib/test/run.sh #484 guard deliberately audits all shared fenced source,
+          # including standalone-only Phase 4.4, so every audited head is granted or
+          # withheld with rationale even when normal inline control flow cannot reach it.
           claude_args: >-
             ${{ steps.cargs.outputs.args }}
             --allowed-tools
