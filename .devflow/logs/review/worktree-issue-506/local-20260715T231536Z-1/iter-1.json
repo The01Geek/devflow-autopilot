@@ -1,0 +1,11 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "05042b80b470e50a29cc7669083b987228012319",
+  "fix_files": [
+    ".devflow/prompt-extensions/implement.md",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
