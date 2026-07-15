@@ -35815,6 +35815,11 @@ assert_eq "#505 AC1: emitted values come from python3 (guard-class 2)" "yes" \
   "$(grep -q 'sys.stdout.write' "$REP" && grep -q 'python3 -c' "$REP" && echo yes || echo no)"
 assert_eq "#505 AC1: no tr/sed/wc/cut/head command derives an emitted value (guard-class 2)" "0" \
   "$(grep -cE '^[[:space:]]*(tr|sed|wc|cut|head)([[:space:]]|$)' "$REP")"
+# guard-class 2 for describe-plugin-compose.sh too: the entry-join that decides the
+# ::notice:: text is a bash read-loop, so no tr/sed/wc/cut/head command may derive it —
+# a future edit reaching for `sed`/`cut` in that loop must turn RED at the desk.
+assert_eq "#505 AC1: describe-plugin-compose.sh derives no emitted value via tr/sed/wc/cut/head (guard-class 2)" "0" \
+  "$(grep -cE '^[[:space:]]*(tr|sed|wc|cut|head)([[:space:]]|$)' "$DPC")"
 
 # Driver: run the helper against a JSON fixture, capturing rc/stdout/stderr into globals.
 _505_ERR="$(mktemp)"

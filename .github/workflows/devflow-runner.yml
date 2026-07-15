@@ -370,8 +370,9 @@ jobs:
                 # .claude/settings.json (run.sh negatively pins that). Classification
                 # keys on git show's EXIT STATUS: git-show succeeds (any present blob,
                 # INCLUDING a 0-byte one) → 'ok' (a 0-byte/whitespace-only file is then
-                # caught downstream as invalid JSON by the helper's own breadcrumb, arm
-                # 2 — not reclassified here); git-show fails but the object exists
+                # caught downstream as invalid JSON by resolve-extra-plugins.sh's own
+                # breadcrumb, which describe-plugin-compose.sh renders as arm 3
+                # (degraded-only) — not reclassified here); git-show fails but the object exists
                 # (git cat-file -e) → 'degraded' (trusted-read-failed); neither → 'absent'
                 # (the silent baseline).
                 if _s_raw=$(git show "FETCH_HEAD:.claude/settings.json" 2>/dev/null); then
