@@ -1,30 +1,109 @@
 {
   "iter": 1,
   "loop_role": "fix",
-  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
-  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
   "phase3_findings": [
-    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "_is_recognized_status_word delegated to _status_glyph prefix match, letting corrupted words pass", "defect_signature": {"file": "scripts/workpad.py", "line_range": [204, 214], "kind": "logic_error"}, "corroboration_count": 2, "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "diagnostic word list hardcoded, drift risk", "defect_signature": {"file": "scripts/workpad.py", "line_range": [250, 256], "kind": "comment_drift"}, "corroboration_count": 1, "fix_decision": "applied"}
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "_is_recognized_status_word delegated to _status_glyph prefix match, letting corrupted words pass",
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          204,
+          214
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "diagnostic word list hardcoded, drift risk",
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          250,
+          256
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "F-1", "decision": "applied", "commit": "e235560"},
-    {"finding_id": "F-2", "decision": "applied", "commit": "f5657fe"}
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "e235560"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "f5657fe"
+    }
   ],
   "shadow": {
     "ran_at": "2026-07-03T05:00:00Z",
     "reviewed_sha": "aab542a8456004718795f1728a5bd247b82d52f2",
     "verdict": "APPROVE with notes",
     "coverage": "full",
-    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
-    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
     "reason": null,
     "checklist_skipped": null,
     "phase3_findings": [
-      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "write path (cmd_update --status) not validated", "defect_signature": {"file": "scripts/workpad.py", "line_range": [1210, 1217], "kind": "logic_error"}}
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "write path (cmd_update --status) not validated",
+        "defect_signature": {
+          "file": "scripts/workpad.py",
+          "line_range": [
+            1210,
+            1217
+          ],
+          "kind": "logic_error"
+        }
+      }
     ],
     "phase2_fails": [],
-    "comparison": {"shadow_total": 1, "overlap_with_iter_N": 0, "new": 1, "new_critical": 0, "new_important": 1},
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_N": 0,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 1
+    },
     "promoted_to_iter_next": true
-  }
+  },
+  "telemetry": "unavailable"
 }

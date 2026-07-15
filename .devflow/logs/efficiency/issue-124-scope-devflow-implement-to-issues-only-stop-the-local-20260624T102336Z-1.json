@@ -97,11 +97,11 @@
   "telemetry": [
     {
       "iter": 1,
-      "phases": null
+      "phases": "unavailable"
     },
     {
       "iter": 2,
-      "phases": null
+      "phases": "unavailable"
     }
   ]
 }

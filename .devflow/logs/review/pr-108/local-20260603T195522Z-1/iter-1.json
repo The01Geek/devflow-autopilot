@@ -115,7 +115,7 @@
       "source_file": ".claude/settings.json",
       "claim_text": "relative hook path + || true silent no-op",
       "skip_category": "advisory-parked",
-      "evidence": "artifact is mandated VERBATIM by AC1 + docs/efficiency-trace.md; fixing desyncs the documented source of truth (out of scope for this wiring PR \u2014 critiques the #101 design); Claude Code Stop hooks run from project root so the relative path resolves; the hook is a best-effort local convenience and the cloud workflow step is the actual guarantee"
+      "evidence": "artifact is mandated VERBATIM by AC1 + docs/efficiency-trace.md; fixing desyncs the documented source of truth (out of scope for this wiring PR — critiques the #101 design); Claude Code Stop hooks run from project root so the relative path resolves; the hook is a best-effort local convenience and the cloud workflow step is the actual guarantee"
     },
     {
       "finding_id": "F-2",
@@ -212,5 +212,6 @@
       "new_important": 2
     },
     "promoted_to_iter_next": true
-  }
+  },
+  "telemetry": "unavailable"
 }
