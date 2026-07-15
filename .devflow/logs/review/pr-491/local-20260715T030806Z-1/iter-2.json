@@ -1,0 +1,55 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-15T03:40:00Z",
+  "fix_commit_sha": "dbaceafd",
+  "fix_files": ["scripts/stop-refresher.sh", "lib/test/run.sh"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "no negative control that a successful (rc==0) call whose output contains the bad-cred signature does NOT get the DIAG line (unpinned [ rc -ne 0 ] conjunct)", "defect_signature": {"file": "scripts/gh-fresh.sh", "line_range": [194, 197], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "severity-calibrated+applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "real_mint 'no private key on stdin' guard uncovered", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [119, 119], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "stop-refresher defeat warning over-claims git push stale on a surface-2-only divergence", "defect_signature": {"file": "scripts/stop-refresher.sh", "line_range": [128, 128], "kind": "misleading_breadcrumb"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "arm19 relies on a reaped PID not being reused (flaky + innocent-kill risk)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [35489, 35491], "kind": "test_robustness"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "surface-2 mv rename-failure branch untested (message-pinned only)", "defect_signature": {"file": "scripts/refresh-app-credentials.sh", "line_range": [281, 282], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "SH-rc0", "decision": "severity-calibrated", "source_file": "scripts/gh-fresh.sh", "claim_text": "rc-0 negative control missing for the DIAG-append guard", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "over-grade shape 1/2 (fail-closed/diagnostic-only): the guarded regression appends only a spurious advisory DIAG line on a HEALTHY call; the two-strikes rule keys on failures so it cannot drive a false abort. Single-source from pr-test-analyzer (empirical over-grader). Fixed anyway (arm30)."},
+    {"finding_id": "SH-rc0", "decision": "applied", "commit": "dbaceafd"},
+    {"finding_id": "SH-nokey", "decision": "applied", "commit": "dbaceafd"},
+    {"finding_id": "SH-divergence", "decision": "applied", "commit": "dbaceafd"},
+    {"finding_id": "SH-arm19", "decision": "applied", "commit": "dbaceafd"},
+    {"finding_id": "SH-mv", "decision": "deferred", "source_file": "scripts/refresh-app-credentials.sh", "claim_text": "surface-2 mv rename-failure branch untested", "skip_category": "claim-quality", "evidence": "mv-failure-with-temp-write-success is not deterministically forceable at unit scale (rename within the same writable dir succeeds); the branch is a near-duplicate of the tested temp-write branch and its divergence message is already pinned by arm4d-pin (count 2). Re-raised by convergence pr-test-analyzer; still deferred with the same reasoning."},
+    {"finding_id": "CONV-prose-signature", "decision": "deferred", "source_file": "skills/implement/SKILL.md", "claim_text": "two-strikes prose keys on bare 'Authentication failed' while gh-fresh.sh SIG anchors to 'fatal: Authentication failed for'", "skip_category": "claim-quality", "evidence": "The prose faithfully implements issue #487's fail-fast AC, which explicitly specifies the bare signature (HTTP 401 / Bad credentials / Authentication failed) and notes git push failures are covered by the prose alone (git's real message 'fatal: Authentication failed for' matches the bare form). The wrapper's anchoring is a deliberate wrapper-specific refinement to avoid a false auto-DIAG on gh's own output (proven by arm26b); the two layers are intentionally distinct. The convergence final-pass reviewer independently corroborated this ('correct as-is; noting it only so a future editor doesn't reconcile them and accidentally re-widen the wrapper'). Aligning the prose would deviate from the AC."}
+  ],
+  "convergence_inputs": {"fixes_applied": 4, "fix_diff_lines": 90, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "bash lib/test/run.sh", "result": "pass", "duration_s": 200, "skipped_checks": []},
+  "base_checkpoint": {"token": "UPDATED", "behind_by": 16},
+  "notes": "Promoted iteration from the engine_self_modifying early shadow. Merged origin/main (16 commits incl. #495/#489) cleanly — no conflicts (post-merge suite 7229/0). Convergence-time shadow ran on HEAD f1c5e5db with FULL coverage (5/5 reviewers); no new Critical/Important; new prose-signature Suggestion deferred as spec-faithful (corroborated by final-pass); surface-2 mv + arm28 are known deferrals. Post-shadow edit gate: HEAD unchanged, shadow reviewed exactly what ships.",
+  "shadow": {
+    "ran_at": "2026-07-15T03:52:00Z",
+    "reviewed_sha": "f1c5e5db",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "prose two-strikes signature (bare) vs wrapper anchored SIG", "new": true, "disposition": "deferred (spec-faithful)"},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "surface-2 mv branch untested", "new": false, "disposition": "known deferral"},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "arm28 canonicalization no RED pin", "new": false, "disposition": "acknowledged coverage limitation"}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 3, "overlap_with_iter_N": 2, "new": 1, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  }
+}
