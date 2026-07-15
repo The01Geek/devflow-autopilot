@@ -2094,6 +2094,245 @@ printf 'operative token a.c/[x] on this line\nunrelated framing line\n' > "$PRU_
 assert_eq "#375 assert_pin_red_under: a pinned literal carrying regex+sed-delimiter metachars round-trips (fixed-string match; mutation flips it PASS->FAIL)" \
   "PASS" "$(probe_assert assert_pin_red_under 'meta' 'a.c/[x]' '/a\.c/d' "$PRU_META")"
 rm -f "$PRU_META"
+# Issue #500 parked-class sweep contract pins. These stay below the
+# assert_pin_red_under definition so the behavioral mutations below execute.
+assert_pin_unique "#500: parked-class sweep contract heading is present" \
+  '### Parked-class sweep (pre-shadow convergence gate)' "$ST_RAF"
+assert_pin_unique "#500: below-threshold producer decision is present" \
+  '"decision": "below-threshold",' "$ST_RAF"
+assert_pin_unique "#500: below-threshold producer marker is distinct and present" \
+  '"evidence": "parked-origin: below-threshold"' "$ST_RAF"
+assert_pin_unique "#500: swept-sibling marker is distinct and present" \
+  '"marker": "parked-sibling: class-sweep"' "$ST_RAF"
+assert_pin_unique "#500: sweep corroboration carve-out is present" \
+  'counts as corroboration of that parking, not a park-calibration mis-grade' "$ST_RAF"
+assert_pin_unique "#500: parked-class sweep schema block is present" \
+  '"parked_class_sweep": {' "$ST_RAF"
+assert_pin_unique "#500: parked-class Reflection evidence contract is present" \
+  'per-class results when siblings exist, `parked-class sweep clean: no new siblings` when none exist' "$ST_RAF"
+assert_pin_unique "#500: shadow-review documentation mirrors parked-class sweep" \
+  '**Parked-class sweep (fix loop — convergence entries).**' "$LIB/../docs/shadow-review.md"
+assert_pin_unique "#500: system overview mirrors parked-class sweep" \
+  '**Pre-shadow parked-class sweep:**' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_pin_red_under "#500: missing parked-class completeness gate goes RED" \
+  'An in-scope APPROVE-family conclusion with parked findings but no parked-class sweep evidence is non-convergence.' \
+  's/parked-class sweep evidence is non-convergence/parked-class sweep evidence is convergence/' "$ST_RAF"
+# #510 review round 4: the completeness gate arms an UNKNOWN parked-finding count as a trip,
+# never collapsing it onto a genuine zero (the "Unknown is not zero" fail-open). Mutation drops
+# the fail-closed "do not collapse" instruction, re-admitting an unestablished-count skip.
+assert_pin_red_under "#510 review round 4: unestablished parked-finding count fails closed" \
+  'do not collapse that unknown onto zero and skip the bullet' \
+  's/do not collapse that unknown onto zero and skip the bullet/collapse that unknown onto zero and skip the bullet/' "$ST_RAF"
+# #510 review round 4: the completeness gate reads parked_class_sweep.truncation DIRECTLY, so a
+# capacity-truncated sweep that still found siblings cannot ride out a clean-looking per-class
+# bullet. Mutation flips the fail-closed rule, re-admitting a truncated sweep as a clean pass.
+assert_pin_red_under "#510 review round 4: capacity-truncated sweep is never a clean pass" \
+  'a truncated sweep is never a clean pass' \
+  's/a truncated sweep is never a clean pass/a truncated sweep is a clean pass/' "$ST_RAF"
+# #510 review round 5: the not-re-swept dedup ledger keys on BOTH dispatch==verified AND
+# truncation==null, so a capacity-truncated-but-dispatch-verified block is carried forward and
+# re-examined at re-convergence, never stranded as already-swept. Mutation drops the truncation
+# conjunct, re-opening the strand-a-truncated-block fail-open.
+assert_pin_red_under "#510 review round 5: dedup ledger re-sweeps a truncated-but-verified block" \
+  'whose `dispatch` was `verified` and whose `truncation` was `null`' \
+  's/ and whose `truncation` was `null`//' "$ST_RAF"
+# #510 review round 5: the completeness gate reads dispatch directly (symmetry with truncation),
+# so a clean bullet written over a not_verified dispatch cannot satisfy it. Mutation flips the rule.
+assert_pin_red_under "#510 review round 5: a non-verified sweep is never a clean pass either" \
+  'a non-verified sweep is never a clean pass either' \
+  's/a non-verified sweep is never a clean pass either/a non-verified sweep is a clean pass either/' "$ST_RAF"
+assert_pin_red_under "#500: missing threshold promotion route goes RED" \
+  'A discovered sibling at or above `$FIX_THRESHOLD` enters Step 2.5 → Step 3 as a promoted iteration using the same machinery as Decide outcome 2.' \
+  's/A discovered sibling at or above `\$FIX_THRESHOLD` enters/A discovered sibling below `\$FIX_THRESHOLD` enters/' "$ST_RAF"
+assert_pin_red_under "#500: missing phase3_findings registration goes RED" \
+  'Append every discovered sibling to the triggering iteration’s `phase3_findings` with its assigned severity and full `defect_signature` before the shadow runs.' \
+  's/with its assigned severity and full `defect_signature` before the shadow runs/with its assigned severity and full `defect_signature` after the shadow runs/' "$ST_RAF"
+assert_pin_red_under "#510 review: schema example excludes the refuted seed" \
+  '"source_finding_ids": ["F-16"],' \
+  's/"source_finding_ids": \["F-16"\]/"source_finding_ids": ["F-15"]/' "$ST_RAF"
+assert_pin_red_under "#510 review: capacity truncation fails closed" \
+  'A non-null `truncation` is incomplete coverage: record `parked-class sweep not verified: capacity truncation ({details})` and take the not-verified fallthrough.' \
+  's/A non-null `truncation` is incomplete coverage/A non-null `truncation` is complete coverage/' "$ST_RAF"
+assert_pin_red_under "#510 review: sweep-at-cap headline selects current iteration" \
+  'a sweep-at-cap verdict reads the current iteration'"'"'s block whose `parked_class_sweep` registered the unresolved sibling' \
+  's/a sweep-at-cap verdict reads the current iteration/a sweep-at-cap verdict reads the one-iter-back iteration/' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: persistence note selects the sweep-at-cap current iteration" \
+  'a parked-class sweep finding discovered at the cap lives on the current triggering iteration instead' \
+  's/lives on the current triggering iteration instead/lives one iter back instead/' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: Coverage fallback selects the sweep-at-cap current iteration" \
+  'If `APPROVE WITH UNRESOLVED SHADOW FINDINGS` lacks its selected current-iter or one-iter-back full-coverage block' \
+  's/selected current-iter or one-iter-back/one-iter-back/' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: shadow-review mirror selects the sweep-at-cap current iteration" \
+  'a parked-class sweep finding discovered at the cap reads the current triggering iteration' \
+  's/reads the current triggering iteration/reads the promotion-triggering iteration one iter back/' "$LIB/../docs/shadow-review.md"
+assert_pin_red_under "#510 review round 6: every parked seed receives a disposition even without kind" \
+  'Every union member must receive a class disposition before a clean sentinel is legal.' \
+  's/must receive a class disposition/may be dropped before class disposition/' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: missing kind fails closed after the bounded retry" \
+  'parked-class sweep not verified: missing defect_signature.kind for {finding_id}' \
+  's/parked-class sweep not verified: missing defect_signature.kind/parked-class sweep clean: missing defect_signature.kind/' "$ST_RAF"
+assert_pin_red_under "#510 review round 7: empty findings cannot hide an undisposed seed" \
+  'an empty `findings` array alone never proves that the seed was examined' \
+  's/never proves/proves/' "$ST_RAF"
+assert_pin_red_under "#510 review round 7: semantic envelope requires an exact seed-disposition join" \
+  'Only a well-formed result envelope with `status: "complete"` and the exact disposition join may contribute an empty sibling set or a clean sentinel.' \
+  's/and the exact disposition join//' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: ledger identity is site-only" \
+  'The not-re-swept ledger keys cross-producer identity on site overlap alone; `kind_literal` remains enumeration input and recorded metadata, never ledger identity.' \
+  's/site overlap alone/site overlap plus `kind_literal`/' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: sweep-at-cap renders the registered sibling population" \
+  'unfixed `parked_class_sweep.new_siblings` at or above `$FIX_THRESHOLD`, not from the shadow'"'"'s new-finding count' \
+  's/unfixed `parked_class_sweep.new_siblings` at or above `\$FIX_THRESHOLD`/the shadow'"'"'s new findings/' "$ST_RAF"
+assert_pin_red_under "#510 review round 6: sweep-at-cap report uses a distinct unresolved section" \
+  'in a distinct `## Unresolved Parked-Class Sweep Findings` section; those siblings were registered before shadow' \
+  's/in a distinct `## Unresolved Parked-Class Sweep Findings` section; those siblings were registered before shadow/in the ordinary unresolved section/' "$ST_RAF"
+assert_pin_red_under "#510 review round 7: caller contract selects the arm-specific unresolved section" \
+  'The unresolved population reaches the caller only via chat plus the arm-specific report section' \
+  's/arm-specific report section/`## Unresolved Shadow Findings` report section/' "$ST_RAF"
+assert_pin_red_under "#510 review round 8: iteration-cap trigger includes pre-shadow sweep overlap" \
+  'OR the iteration-cap sweep has an unfixed at-or-above-threshold `parked_class_sweep.new_siblings` row' \
+  's/OR the iteration-cap sweep has an unfixed at-or-above-threshold `parked_class_sweep.new_siblings` row//' "$ST_RAF"
+assert_pin_red_under "#510 review round 9: sweep-at-cap predicate is independent of shadow novelty" \
+  'The final predicate is intentionally independent of shadow novelty' \
+  's/independent of shadow novelty/dependent on shadow novelty/' "$ST_RAF"
+assert_pin_red_under "#510 review round 8: sweep-at-cap severity follows the configured threshold" \
+  'any non-Critical severity at or above `$FIX_THRESHOLD` on the sweep-at-cap arm' \
+  's/any non-Critical severity at or above `\$FIX_THRESHOLD`/Important severity/' "$ST_RAF"
+assert_pin_red_under "#510 review round 7: shadow-review mirrors both unresolved sections" \
+  'arm-specific section: `## Unresolved Shadow Findings` for an ordinary shadow promotion, or' \
+  's/arm-specific section: `## Unresolved Shadow Findings` for an ordinary shadow promotion, or/`## Unresolved Shadow Findings` section;/' "$LIB/../docs/shadow-review.md"
+assert_pin_red_under "#510 review round 8: shadow-review mirrors suggestion-threshold sweep-at-cap" \
+  'include Suggestion when that threshold is configured' \
+  's/include Suggestion/exclude Suggestion/' "$LIB/../docs/shadow-review.md"
+assert_pin_red_under "#510 review round 6: shadow-review uses the configured fix threshold" \
+  'Siblings at or above `$FIX_THRESHOLD` enter a counted promoted iteration; below-threshold siblings remain visible with a distinct sweep marker.' \
+  's/at or above `\$FIX_THRESHOLD`/graded Important/' "$LIB/../docs/shadow-review.md"
+assert_pin_red_under "#510 review: site overlap remains the cross-producer identity" \
+  'Treat `kind` as a matching input, never as cross-producer identity, because free-text labels drift' \
+  's/Treat `kind` as a matching input, never as cross-producer identity/Treat `kind` as a matching input, and as cross-producer identity/' "$ST_RAF"
+assert_pin_red_under "#510 review: terminal dispatch failure cannot read clean" \
+  'If it still fails, record the distinct Reflection bullet `parked-class sweep not verified: {cause}`, set `dispatch: "not_verified"`, and take the completeness gate'"'"'s not-verified fallthrough; never convert it into a clean run.' \
+  's/take the completeness gate'"'"'s not-verified fallthrough; never convert it into a clean run/take the completeness gate'"'"'s not-verified fallthrough; convert it into a clean run/' "$ST_RAF"
+assert_pin_red_under "#510 review round 2: below-threshold category is a non-REJECT-trigger sweep-only producer row" \
+  '**N/A** — sweep-only producer rows are not REJECT triggers and are excluded from existing advisory verdict/report operands.' \
+  's/sweep-only producer rows are not REJECT triggers and are excluded/sweep-only producer rows are REJECT triggers and are included/' "$ST_RAF"
+assert_pin_red_under "#510 review round 2: semantic empty result requires affirmative completion" \
+  'Envelope `status` is `"complete"` only after the assigned batch was fully examined' \
+  's/only after the assigned batch was fully examined/before the assigned batch was fully examined/' "$ST_RAF"
+assert_pin_red_under "#510 review round 2: Step 2 advisory split excludes producer rows" \
+  'For this Step 2 split, advisory findings exclude `decision: "below-threshold"` rows.' \
+  's/For this Step 2 split, advisory findings exclude/For this Step 2 split, advisory findings include/' "$ST_RAF"
+assert_pin_red_under "#510 review round 2: Loop Exit advisory trigger excludes producer rows" \
+  'For this Loop Exit trigger, advisory findings exclude `decision: "below-threshold"` rows.' \
+  's/For this Loop Exit trigger, advisory findings exclude/For this Loop Exit trigger, advisory findings include/' "$ST_RAF"
+assert_pin_red_under "#510 review round 2: headline advisory count excludes producer rows" \
+  'The headline advisory count excludes `decision: "below-threshold"` rows.' \
+  's/The headline advisory count excludes/The headline advisory count includes/' "$ST_RAF"
+# #510 review round 3: the not-re-swept dedup ledger gates on a `verified` dispatch, so a
+# not_verified/truncated sweep is re-examined and a failed dispatch is never laundered into
+# permanent silence. Mutation drops the "NOT treated as already-swept" carry-forward — the exact
+# laundering regression.
+assert_pin_red_under "#510 review round 3: not-re-swept dedup re-examines a non-verified prior sweep" \
+  'sites recorded under a `not_verified` (or capacity-truncated) prior sweep are NOT treated as already-swept' \
+  's/prior sweep are NOT treated as already-swept/prior sweep are treated as already-swept/' "$ST_RAF"
+# #510 review round 3: the downgrade-path conclusion satisfies the completeness gate via its
+# sanctioned not-applicable sentinel. Mutation flips the recognition so the sentinel no longer
+# satisfies the gate.
+assert_pin_red_under "#510 review round 3: downgrade-path sentinel satisfies the completeness gate" \
+  'The REJECT-downgrade conclusion satisfies this rule with `parked-class sweep not applicable: downgrade-path conclusion`.' \
+  's/The REJECT-downgrade conclusion satisfies this rule with/The REJECT-downgrade conclusion does not satisfy this rule with/' "$ST_RAF"
+# #510 review round 3: the sweep-at-cap Decide-outcome-1 bar. Mutation flips barred->permitted,
+# re-admitting a clean-approve while an unfixed at-or-above-threshold sibling exists.
+assert_pin_red_under "#510 review round 3: sweep-at-cap bars Decide outcome 1" \
+  'Decide outcome 1 is barred while any unfixed at-or-above-threshold sweep-registered sibling exists.' \
+  's/Decide outcome 1 is barred while/Decide outcome 1 is permitted while/' "$ST_RAF"
+# #510 review round 3: a false-established class is excluded as an enumeration seed. Mutation
+# flips exclude->include, priming the sweep on a refuted class.
+assert_pin_red_under "#510 review round 3: false-established class excluded as a sweep seed" \
+  'Exclude a finding when its recorded evidence establishes the claim false' \
+  's/Exclude a finding when its recorded evidence establishes the claim false/Include a finding when its recorded evidence establishes the claim false/' "$ST_RAF"
+# #510 review round 3: the producer marker never qualifies for the corroboration carve-out.
+# Mutation drops "never", letting a below-threshold producer row self-corroborate.
+assert_pin_red_under "#510 review round 3: producer marker never qualifies for the carve-out" \
+  'The producer marker `parked-origin: below-threshold` never qualifies.' \
+  's/The producer marker `parked-origin: below-threshold` never qualifies/The producer marker `parked-origin: below-threshold` qualifies/' "$ST_RAF"
+# #510 final review: every Step 2 APPROVE-family convergence entry routes parked state through
+# the sweep before shadow, instead of relying on the Loop Exit completeness backstop. These
+# firing-site pins complement the registration-level ordering pin above.
+assert_pin_red_under "#510 final review: clean APPROVE firing site runs a parked sweep before shadow" \
+  'When parked findings exist on this clean-APPROVE arm, run the parked-class sweep before **Step 2.6: Shadow review**; otherwise go directly to Step 2.6.' \
+  's/run the parked-class sweep before \*\*Step 2.6: Shadow review\*\*/run the parked-class sweep after **Step 2.6: Shadow review**/' "$ST_RAF"
+assert_pin_red_under "#510 final review: advisory APPROVE firing site runs the sweep before shadow" \
+  'Go to the parked-class sweep before **Step 2.6: Shadow review**.' \
+  's/Go to the parked-class sweep before \*\*Step 2.6: Shadow review\*\*/Go to **Step 2.6: Shadow review** before the parked-class sweep/' "$ST_RAF"
+assert_pin_red_under "#510 final review: coverage-caveat firing site runs a parked sweep before shadow" \
+  'If parked findings exist on this coverage-caveat arm, run the parked-class sweep before **Step 2.6: Shadow review**; otherwise go directly to Step 2.6.' \
+  's/run the parked-class sweep before \*\*Step 2.6: Shadow review\*\*/run the parked-class sweep after **Step 2.6: Shadow review**/' "$ST_RAF"
+# #510 final review: pin both fail-closed boundaries on the corroboration relaxation. Broadening
+# the severity band or removing the readable-comparand fallback must turn the suite red.
+assert_pin_red_under "#510 final review: corroboration carve-out is bounded at parked severity" \
+  'the shadow re-raises at or below its recorded parked severity counts as corroboration' \
+  's/at or below its recorded parked severity/at or above its recorded parked severity/' "$ST_RAF"
+assert_pin_red_under "#510 final review: corroboration carve-out fails closed without its comparand" \
+  'If neither the sibling id nor a readable parked-severity comparand exists, fail closed to the ordinary mis-grade rule' \
+  's/fail closed to the ordinary mis-grade rule/fall through to the corroboration carve-out/' "$ST_RAF"
+assert_pin_red_under "#510 final review: overview names the three-surface guard as lock-step" \
+  'a **render-time lock-step assertion** that keeps the `APPROVE WITH UNRESOLVED SHADOW FINDINGS`' \
+  's/render-time lock-step assertion/render-time dual-operand assertion/' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# #510 final review round 2: pin both convergence-entry declarations and the sweep-at-cap
+# post-shadow selector. Each mutation reintroduces an ordering or wrong-iteration regression.
+assert_pin_red_under "#510 final review round 2: gate declaration covers both convergence entries" \
+  'Run this gate at both convergence entries: after Step 2 forms any tentative non-REJECT final verdict and on Step 4.5'"'"'s non-REJECT early-exit path.' \
+  's/at both convergence entries: after Step 2 forms any tentative non-REJECT final verdict and on Step 4.5'"'"'s non-REJECT early-exit path/only after Step 2 forms a tentative non-REJECT final verdict/' "$ST_RAF"
+assert_pin_red_under "#510 final review round 2: Step 4.5 early exit sweeps before shadow" \
+  'when it is non-REJECT and parked findings exist, **run the parked-class sweep before the shadow**' \
+  's/run the parked-class sweep before the shadow/run the parked-class sweep after the shadow/' "$ST_RAF"
+assert_pin_red_under "#510 final review round 2: sweep-at-cap post-shadow edit gate reads current iteration" \
+  'read the current iteration'"'"'s shadow block instead; no promoted successor exists in this arm' \
+  's/read the current iteration'"'"'s shadow block instead/read the one-iter-back shadow block instead/' "$ST_RAF"
+# #510 final review round 3: cover the remaining sweep-at-cap severity source, record
+# precedence, and scoped-corroboration lookup order. Each mutation opens the exact advisory gap.
+assert_pin_red_under "#510 final review round 3: Critical sweep-at-cap population comes from registered siblings" \
+  'the shadow'"'"'s new findings on the ordinary arm, or the current iteration'"'"'s unfixed `parked_class_sweep.new_siblings` on the sweep-at-cap arm' \
+  's/, or the current iteration'"'"'s unfixed `parked_class_sweep.new_siblings` on the sweep-at-cap arm//' "$ST_RAF"
+assert_pin_red_under "#510 final review round 3: truncation overrides per-class result recording" \
+  'A non-null `truncation` overrides the per-class-results branch' \
+  's/A non-null `truncation` overrides/A null `truncation` overrides/' "$ST_RAF"
+assert_pin_red_under "#510 final review round 3: corroboration carve-out identifies by sibling id before marker fallback" \
+  'Identify it first by a finding id in the current convergence'"'"'s `parked_class_sweep.new_siblings`; only when that block is unavailable may you fall back to an advisory row carrying the exact sibling marker `parked-sibling: class-sweep`.' \
+  's/only when that block is unavailable may you fall back/always fall back/' "$ST_RAF"
+# #510 final self-audit: exhaust the remaining fail-open boundaries adjacent to the reviewed
+# findings so a later edit cannot silently narrow inputs, scope, visibility, or cap handling.
+assert_pin_red_under "#510 final self-audit: sweep input union includes unactioned findings and downgrade deferrals" \
+  'every unactioned Suggestion/Minor finding derived from recorded `phase3_findings` minus `applied` dispositions (including mixed-severity iterations); and Yes-downgrade deferrals' \
+  's/; and Yes-downgrade deferrals//' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: enumeration scans the complete changed surface" \
+  'scan exactly Step 3 item 3'"'"'s changed surface: the PR diff plus fix-touched files, never pre-existing untouched code' \
+  's/the PR diff plus fix-touched files/the PR diff only/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: missing kind remains in the bounded semantic batch" \
+  'a missing or malformed `defect_signature.kind` enters the bounded semantic batch under the literal `unknown-kind`; it is never dropped from the union' \
+  's/it is never dropped from the union/it is dropped from the union/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: sibling severity inherits from its source by default" \
+  'A sibling inherits its source finding'"'"'s original engine severity by default' \
+  's/inherits its source finding'"'"'s original engine severity/defaults to Suggestion/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: below-threshold siblings stay visibly parked" \
+  'A below-threshold sibling is parked in `## Advisory Findings` and the final report' \
+  's/is parked in `## Advisory Findings` and the final report/is discarded before the final report/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: ambiguous corroboration markers receive no carve-out" \
+  'A missing or ambiguous marker, including a row equally matching the producer shape, receives no carve-out.' \
+  's/receives no carve-out/receives the carve-out/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: a shadow re-raise above parked severity remains a mis-grade" \
+  'A shadow re-raise above the parked severity remains a mis-grade unchanged.' \
+  's/remains a mis-grade unchanged/becomes corroboration/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: iteration-cap sweep remains inside the shadow trigger" \
+  'At the iteration cap the sweep still runs and registers every sibling, and the tentative verdict remains inside the convergence-time trigger'"'"'s enumerated list so the shadow runs normally.' \
+  's/remains inside the convergence-time trigger'"'"'s enumerated list/remains outside the convergence-time trigger'"'"'s enumerated list/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: iteration-cap branch is evaluated before promotion" \
+  'Evaluate the iteration-cap branch first' \
+  's/Evaluate the iteration-cap branch first/Evaluate the promotion branch first/' "$ST_RAF"
+assert_pin_red_under "#510 final self-audit: caller fixes require another independent review" \
+  'that elects to *fix* these findings must re-establish independent coverage over the fix delta' \
+  's/must re-establish independent coverage over the fix delta/may ship the fix delta without independent coverage/' "$ST_RAF"
 # #425 shadow-not-scoped behavioral-fix pin (placed here, below the assert_pin_red_under
 # definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
@@ -18573,11 +18812,13 @@ rm -rf "$LR_SC_REPO"
 # (5) Single-source field set ↔ SKILL.md schema divergence guard (AC #6).
 #     ITER_EXPECTED_FIELDS in efficiency-trace.sh is the ONE place the expected
 #     iter-field set is defined; it MUST equal the iter-<N>.json schema's
-#     unconditional top-level fields in SKILL.md minus `shadow` (appended later)
-#     and `promotion_provenance` (conditional on promoted iterations). FAILs if
-#     an unconditional field is added/removed on either side.
+#     unconditional top-level fields in SKILL.md minus `shadow` and
+#     `parked_class_sweep` (convergence-only) and `promotion_provenance`
+#     (conditional on promoted iterations) — all three are subtracted by the
+#     `-Ev` filter below. FAILs if an unconditional field is
+#     added/removed on either side.
 LR_CONST="$(grep -E '^ITER_EXPECTED_FIELDS=' "$LIB/efficiency-trace.sh" | sed -E 's/^ITER_EXPECTED_FIELDS=//; s/"//g' | tr ' ' '\n' | grep -v '^$' | sort -u)"
-LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|promotion_provenance)$' | sort -u)"
+LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|promotion_provenance|parked_class_sweep)$' | sort -u)"
 assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md unconditional schema fields" \
   "$LR_SCHEMA" "$LR_CONST"
 
@@ -21476,7 +21717,7 @@ assert_eq "#460 workflow: harden self-copy is gated by the plugin.json-name disc
 # ── #460 review (FP1): consumer relevance gate — harden ONLY when the TRUSTED base
 # .claude/settings.json wires these Stop hooks. devflow-runner.yml ships to consumers,
 # but DevFlow's own Stop hooks do not; without this gate a consumer review stubs/creates
-# the nine DevFlow-layout paths over same-named files (a wrong verdict).
+# the ten DevFlow-layout paths over same-named files (a wrong verdict).
 assert_eq "#460 workflow: relevance gate reads the TRUSTED base .claude/settings.json" "1" \
   "$(grep -cF 'git show "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
 assert_eq "#460 workflow: relevance gate keys on the three entry hooks" "1" \
@@ -21594,7 +21835,7 @@ raise SystemExit("harden_hooks step not found")
 PY
   HH_FIX="$(git_sandbox '#460 errexit fixture')"
   # The trusted "origin": base tracks the REAL .claude/settings.json (wires the three
-  # Stop hooks), the vendored helper, and all nine closure targets — the same shapes
+  # Stop hooks), the vendored helper, and all ten closure targets — the same shapes
   # main carries — and deliberately does NOT track .claude/settings.local.json.
   mkdir -p "$HH_FIX/origin/.claude" "$HH_FIX/origin/.devflow/vendor/devflow/scripts"
   cp "$LIB/../.claude/settings.json" "$HH_FIX/origin/.claude/settings.json" 2>/dev/null
@@ -21611,7 +21852,12 @@ PY
   # Simulate the PR-head edit this floor exists to displace.
   printf 'MALICIOUS\n' > "$HH_FIX/ws/lib/efficiency-trace.sh"
   HH_RT="$(git_sandbox '#460 errexit RUNNER_TEMP')"
-  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" \
+  # GITHUB_OUTPUT is always exported by GitHub Actions for a `run:` step; the #504
+  # harden outputs (disposition / displaced_paths) append to it, so the fixture must
+  # supply it too — else the step's terminal `>> "$GITHUB_OUTPUT"` write hits
+  # `GITHUB_OUTPUT: unbound variable` (set -u) and the step exits 1 in a local run
+  # (masked in CI, where the var is set — the exact env-dependent-test trap).
+  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" GITHUB_OUTPUT="$HH_FIX/gh_out.txt" \
       bash -e "$HH_SCRIPT" ) >"$HH_FIX/out.log" 2>&1
   assert_eq "#460 errexit: the harden step survives GitHub's default \`bash -e {0}\` shell with settings.local.json absent at base (the live-repro shape)" \
     "0" "$?"
@@ -21622,6 +21868,19 @@ PY
     "$(grep -c 'nothing to harden' "$HH_FIX/out.log" || true)"
   assert_eq "#460 errexit: positive control — the PR-head-edited entry hook was displaced (MALICIOUS gone)" "0" \
     "$(grep -c 'MALICIOUS' "$HH_FIX/ws/lib/efficiency-trace.sh" || true)"
+  # AC1 CONTENT (#504): the fixture now runs the step through the terminal AC1 publish
+  # block, so assert what it actually WROTE to $GITHUB_OUTPUT — the workflow-side
+  # `printf '%s\n' $TARGETS` word-split is exercised nowhere else (the renderer tests feed
+  # HARDENED_PATHS directly). A regression that QUOTED $TARGETS would collapse the ten
+  # paths onto ONE line (rendering one bogus displaced-path bullet) and an emptied TARGETS
+  # would publish zero — both pass every other assertion green. The ten paths each start
+  # with lib/ or scripts/; the disposition/heredoc-delimiter lines do not, so the count is
+  # exactly ten on the correct (word-split) publish, 1 under the quoted-regression, 0 under
+  # an emptied one.
+  assert_eq "#504 AC1 errexit fixture: harden published disposition=displaced to GITHUB_OUTPUT" "1" \
+    "$(grep -c '^disposition=displaced$' "$HH_FIX/gh_out.txt" || true)"
+  assert_eq "#504 AC1 errexit fixture: harden published the ten displaced paths (word-split, one per line)" "10" \
+    "$(grep -cE '^(lib|scripts)/' "$HH_FIX/gh_out.txt" || true)"
   # MUTATION control: strip the errexit-off line from a COPY and re-run — the inherited
   # `-e` must kill it with git's 128 again, proving this test pins the exact regression
   # (a future edit dropping the line), not merely its own green path. It doubles as a
@@ -21630,7 +21889,11 @@ PY
   # turn this RED instead of leaving the suite vacuously green.
   HH_MUT="$(probe_tmp '#460 errexit mutant script')"
   grep -v '^set +e$' "$HH_SCRIPT" > "$HH_MUT"
-  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" \
+  # GITHUB_OUTPUT set here too (as in the real run above): under the mutant's inherited
+  # `-e` the step dies at the earlier settings.local.json `git show` (rc 128) before
+  # ever reaching the terminal output write, so this does not change the asserted rc —
+  # it just keeps the two invocations identical except for the stripped errexit-off line.
+  ( cd "$HH_FIX/ws" && BASE_REF=main VENDOR_SOURCE=self RUNNER_TEMP="$HH_RT" GITHUB_OUTPUT="$HH_FIX/gh_out.txt" \
       bash -e "$HH_MUT" ) >/dev/null 2>&1
   assert_eq "#460 errexit MUTATION: without the errexit-off line the inherited -e kills the step at the settings.local.json read (rc 128)" \
     "128" "$?"
@@ -30911,8 +31174,13 @@ for _b363 in "$RUNNER_YML" "$DEVFLOW_YML"; do
     '[ -n "$CI_SUMMARY" ] || CI_SUMMARY="CI status unavailable"' "$_b363"
   assert_pin_unique "#363 $_w renders the block through the shared renderer (no hand-copied prose)" \
     'RGB=.devflow/vendor/devflow/scripts/render-grounding-block.sh' "$_b363"
+  # Pin the common render-call prefix through ALLOWED_TOOLS: devflow-runner.yml additionally
+  # forwards HARDENED_PATHS after it (issue #504), so the two files' GROUNDING lines diverge
+  # past this point — the shared, byte-identical prefix is what proves both pass the resolved
+  # allowed-tools string into the renderer. The runner's HARDENED_PATHS forwarding is pinned
+  # separately by the #504 AC5 assertion below.
   assert_pin_unique "#363 $_w passes the resolved allowed-tools string into the renderer" \
-    'GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" bash "$RGB") || GROUNDING=""' "$_b363"
+    'GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" ' "$_b363"
   # Guard-class shape 1 (existence-vs-sourceability): `[ -f "$RGB" ]` proves the path
   # exists, never that the renderer produced a block. A truncated vendored copy that
   # exits 0 printing nothing would silently strip the injection defense from the prompt.
@@ -30943,6 +31211,129 @@ assert_pin_unique "#363 devflow.yml falls back to the bare command when no block
 
 # ── Renderer behavior (unit-tested once, rather than twice through YAML).
 _rgb() { HEAD_SHA="${1-}" CI_SUMMARY="${2-}" ALLOWED_TOOLS="${3-}" bash "$RGB_SH"; }
+
+# ── #504 renderer displaced-paths section (AC3/AC4). HARDENED_PATHS renders a
+# ── displaced-paths section ONLY when it carries a non-whitespace path;
+# ── unset/empty/whitespace-only collapse to "no section" (unset ≡ empty,
+# ── byte-identical — AC4). rc 0 always (always-exit-0 contract).
+_rgbh() { HEAD_SHA="${1-}" CI_SUMMARY="${2-}" ALLOWED_TOOLS="${3-}" HARDENED_PATHS="${4-}" bash "$RGB_SH"; }
+assert_eq "#504 renderer rc 0 with HARDENED_PATHS unset (always-exit-0)" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' >/dev/null 2>&1; echo $?)"
+assert_eq "#504 AC4 HARDENED_PATHS unset -> no displaced section" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' | grep -c 'Stop-hook-floor displacement')"
+assert_eq "#504 AC4 HARDENED_PATHS empty -> no displaced section" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' '' | grep -c 'Stop-hook-floor displacement')"
+assert_eq "#504 AC4 HARDENED_PATHS whitespace-only -> no displaced section" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' '   ' | grep -c 'Stop-hook-floor displacement')"
+assert_eq "#504 AC3 one path -> displaced section present" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'Stop-hook-floor displacement' && echo yes || echo no)"
+assert_eq "#504 AC3 one path -> the path is listed" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'lib/efficiency-trace.sh' && echo yes || echo no)"
+assert_eq "#504 AC3 several paths with a blank interior line -> section present" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' $'lib/efficiency-trace.sh\n\nlib/resolve-jq.sh' | grep -qF 'Stop-hook-floor displacement' && echo yes || echo no)"
+assert_eq "#504 AC3 backtick-bearing path -> section present (backticks stripped)" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' $'`lib/efficiency-trace.sh`' | grep -qF 'Stop-hook-floor displacement' && echo yes || echo no)"
+# AC4: unset renders byte-identical to empty (cmp).
+assert_eq "#504 AC4 unset renders byte-identical to empty" "" \
+  "$(diff <(_rgbh deadbeef 'lint: success' 'Read') <(_rgbh deadbeef 'lint: success' 'Read' ''))"
+# AC3: the listed-paths-fully-in-scope sentence is operative (mutation-backed).
+# The "remain FULLY" pin below proves the sentence is PRESENT, but deleting only that
+# emphasis leaves the operative promise ("changes the read CHANNEL, never the depth of
+# review") intact — so it is a presence pin, not a true operative guard (issue #375
+# framing-vs-operative discipline). The companion pin under it targets that operative
+# clause: removing "never the depth of review" re-opens the reduce-depth-on-displaced
+# risk (a listed path graded INCONCLUSIVE merely for being displaced), which is the
+# regression the AC3 fully-in-scope guarantee exists to prevent.
+assert_pin_red_under "#504 AC3 fully-in-scope operative sentence (removing it re-opens the wrong-REJECT risk)" \
+  "remain FULLY" "s/remain FULLY//" "$RGB_SH"
+assert_pin_red_under "#504 AC3 fully-in-scope OPERATIVE clause (removing 'never the depth of review' re-opens the reduce-depth-on-displaced risk)" \
+  "never the depth of review" "s/never the depth of review//" "$RGB_SH"
+# AC3 effect-level (not mere section-presence): the __HEAD_SHA__ placeholder is
+# substituted with the real head — a regression shipping the literal placeholder
+# in the routing line (`git show __HEAD_SHA__:<path>`) would pass a presence test.
+assert_eq "#504 AC3 no literal __HEAD_SHA__ placeholder survives into the rendered displaced prose" "0" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -c '__HEAD_SHA__')"
+assert_eq "#504 AC3 the real head SHA is substituted into the git show routing line" "yes" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'git show deadbeef:<path>' && echo yes || echo no)"
+# AC3 effect-level: a backtick-bearing path strips to a SINGLE clean list entry
+# wrapped only in the renderer's own backticks — not `` ``lib/…`` `` (raw input
+# backticks would double the pair and could close the inline-code span).
+assert_eq "#504 AC3 backtick-bearing path strips to a single clean list entry" "> - \`lib/efficiency-trace.sh\`" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' '`lib/efficiency-trace.sh`' | grep -F 'efficiency-trace.sh')"
+# AC3 effect-level: two paths separated by a blank interior line render EXACTLY
+# two list entries — the blank line is collapsed (continue'd), never a bogus
+# empty `> - `` `` entry.
+assert_eq "#504 AC3 two paths + blank interior line -> exactly two list entries (blank collapsed)" "2" \
+  "$(_rgbh deadbeef 'lint: success' 'Read' $'lib/efficiency-trace.sh\n\nlib/resolve-jq.sh' | grep -cE '^> - `')"
+
+# ── #504 workflow plumbing (AC1/AC5). ci_summary runs before harden_hooks
+# ── (summarize-ci-checks.sh sources lib/resolve-jq.sh, a closure member),
+# ── harden_hooks before Compose review prompt (a not-yet-run step's output
+# ── resolves to empty, so the HARDENED_PATHS forwarding ships permanently
+# ── inert without the reorder).
+_504_ci=$(grep -nE '^[[:space:]]*id: ci_summary$' "$RUNNER_YML" | head -1 | cut -d: -f1)
+_504_hh=$(grep -nE '^[[:space:]]*id: harden_hooks$' "$RUNNER_YML" | head -1 | cut -d: -f1)
+_504_co=$(grep -nE '^[[:space:]]*id: compose$' "$RUNNER_YML" | head -1 | cut -d: -f1)
+assert_eq "#504 AC5 ci_summary step exists" "1" "$([ -n "$_504_ci" ] && echo 1 || echo 0)"
+assert_eq "#504 AC5 ci_summary precedes harden_hooks" "1" "$([ -n "$_504_ci" ] && [ -n "$_504_hh" ] && [ "$_504_ci" -lt "$_504_hh" ] && echo 1 || echo 0)"
+assert_eq "#504 AC5 harden_hooks precedes Compose review prompt" "1" "$([ -n "$_504_hh" ] && [ -n "$_504_co" ] && [ "$_504_hh" -lt "$_504_co" ] && echo 1 || echo 0)"
+assert_pin_unique "#504 AC1 harden publishes disposition=displaced" "disposition=displaced" "$RUNNER_YML"
+assert_pin_unique "#504 AC1 harden publishes disposition=skipped" "disposition=skipped" "$RUNNER_YML"
+assert_pin_unique "#504 AC1 harden publishes displaced_paths heredoc" "displaced_paths<<" "$RUNNER_YML"
+# AC5 side-effect: summarize is called in exactly one step now (ci_summary), not compose.
+assert_pin_unique "#504 AC5 summarize called in exactly one step (ci_summary, removed from compose)" 'CI_SUMMARY=$(HEAD_SHA="$HEAD_SHA" bash "$SCC")' "$RUNNER_YML"
+assert_pin_unique "#504 AC5 compose forwards HARDENED_PATHS from harden" 'HARDENED_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}' "$RUNNER_YML"
+
+# ── #504 AC6 routing rule on the 7 claim-verification surfaces.
+assert_pin_unique "#504 AC6 SKILL defect_signature routing" "Displaced-path routing (issue #504)" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 SKILL Phase 4.1.6 routing" "displaced-path routing (this sweep)" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 SKILL Phase 2.1a lite-probe routing" "grep the \`git show <head>:<path>\` output" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 SKILL Phase 2.1b dispatch routing" "displaced-path routing: for any referenced file" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 code-reviewer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/code-reviewer.md"
+assert_pin_unique "#504 AC6 comment-analyzer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/comment-analyzer.md"
+assert_pin_unique "#504 AC6 checklist-verifier agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/checklist-verifier.md"
+# AC12 (#504): the agent-mirror routing pins above assert only the bold HEADER; AC12
+# requires the operative "route via git show, never a working-tree read" clause to be
+# mutation-backed, so a meaning-inverting edit (routing back to a working-tree read —
+# the exact regression this PR exists to prevent) turns the pin RED. Each agent file
+# carries the operative clause exactly once.
+assert_pin_red_under "#504 AC6 code-reviewer mirror operative clause (removing 'never a working-tree read' re-opens the wrong-REJECT risk)" \
+  "never a working-tree read" "s/never a working-tree read//" "$LIB/../agents/code-reviewer.md"
+assert_pin_red_under "#504 AC6 comment-analyzer mirror operative clause (removing 'never a working-tree read' re-opens the wrong-REJECT risk)" \
+  "never a working-tree read" "s/never a working-tree read//" "$LIB/../agents/comment-analyzer.md"
+assert_pin_red_under "#504 AC6 checklist-verifier mirror operative clause (removing 'never a working-tree read' re-opens the wrong-REJECT risk)" \
+  "never a working-tree read" "s/never a working-tree read//" "$LIB/../agents/checklist-verifier.md"
+# AC6 (#504): the DISPATCHED surfaces (the three agent mirrors + the Phase-3
+# truthfulness-contract paragraph + the 2.1b checklist-verifier dispatch prompt) never
+# receive the orchestrator's engine-ground-truth block, so the routing rule alone cannot
+# tell them WHICH paths are displaced. They must read the run's displaced list from the
+# Phase 0.1.5 scratch file. Pin that each dispatched surface names the scratch file —
+# dropping the reference leaves the routing inert on exactly the surfaces that produce
+# the false documented_falsehood findings this PR exists to stop.
+assert_pin_unique "#504 AC6 code-reviewer mirror reads the displaced scratch file" ".devflow/tmp/displaced-paths.txt" "$LIB/../agents/code-reviewer.md"
+assert_pin_unique "#504 AC6 comment-analyzer mirror reads the displaced scratch file" ".devflow/tmp/displaced-paths.txt" "$LIB/../agents/comment-analyzer.md"
+assert_pin_unique "#504 AC6 checklist-verifier mirror reads the displaced scratch file" ".devflow/tmp/displaced-paths.txt" "$LIB/../agents/checklist-verifier.md"
+assert_pin_unique "#504 AC6 Phase-3 truthfulness-contract dispatch reads the displaced scratch file" \
+  "you receive this contract, not the orchestrator's engine-ground-truth block" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 Phase 2.1b dispatch reads the displaced scratch file" \
+  "you receive this dispatch prompt, not the orchestrator's engine-ground-truth block" "$LIB/../skills/review/SKILL.md"
+# AC7: Phase 0.1 attribution + Phase 0.1.5 scratch persistence.
+assert_pin_unique "#504 AC7 Phase 0.1 displaced-path attribution" "#504 displaced-path attribution" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 Phase 0.1.5 scratch persistence" "Persist the displaced-path list" "$LIB/../skills/review/SKILL.md"
+
+# ── #504 AC10 stale-prose corrections.
+assert_pin_unique "#504 AC10 devflow-runner relevance-gate says ten" "ten DevFlow-layout paths would clobber" "$RUNNER_YML"
+assert_pin_unique "#504 AC10 devflow-runner FP-S1 warning says ten" "ten DevFlow-layout paths are stubbed" "$RUNNER_YML"
+# This pin's TARGET is run.sh itself, so the literal necessarily appears twice — once in the
+# real FP1 comment (the prose this corrects nine->ten) and once here as the pin's own argument.
+# assert_pin_unique cannot express a same-file self-pin (it demands exactly 1), so assert on the
+# self-inclusive count of 2: reverting the comment to "nine" drops it to 1 (this line alone) -> FAIL.
+assert_eq "#504 AC10 run.sh #460 FP1 says ten" "2" \
+  "$(pin_count 'ten DevFlow-layout paths over same-named' "$LIB/test/run.sh")"
+assert_eq "#504 AC10 CHANGELOG keeps the historical nine" "1" "$(pin_count 'nine DevFlow-layout' "$LIB/../CHANGELOG.md")"
+assert_pin_unique "#504 AC10 harden header efficiency-trace -> telemetry-branch edge" "scripts/config_fingerprint.py, lib/telemetry-branch.sh" "$LIB/../scripts/harden-stop-hooks.sh"
+assert_pin_unique "#504 AC10 harden header telemetry-branch -> config-source row" "lib/telemetry-branch.sh     -> lib/config-source.sh" "$LIB/../scripts/harden-stop-hooks.sh"
+assert_pin_unique "#504 AC10 harden header mode-delta names all three 100644" "lib/resolve-jq.sh, lib/resolve-bin.sh, and lib/telemetry-branch.sh are 100644" "$LIB/../scripts/harden-stop-hooks.sh"
 assert_eq "#363 renderer interpolates the reviewed HEAD SHA" "yes" \
   "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'reviewed commit (`deadbeef`)' && echo yes || echo no)"
 assert_eq "#363 renderer renders an absent HEAD SHA as 'unknown', never as blank" "yes" \
@@ -30993,6 +31384,17 @@ assert_pin_unique "#363 renderer strips CI_SUMMARY backticks with a bash builtin
   'CI_SUMMARY="${CI_SUMMARY//\`/}"' "$RGB_SH"
 assert_pin_unique "#363 renderer strips ALLOWED_TOOLS backticks too (containment is the renderer's property, not its caller's)" \
   'ALLOWED_TOOLS="${ALLOWED_TOOLS//\`/}"' "$RGB_SH"
+# #504: HEAD_SHA is the third value interpolated into inline-code spans (the CI section's
+# `(`${HEAD_SHA}`)` and the displaced-paths `git show <head>:<path>` line). Same containment
+# discipline as the two slots above — the strip is the renderer's property, not the caller's —
+# so pin the builtin strip AND prove behaviorally that a backtick-bearing head cannot close
+# the span. A raw backtick would render `reviewed commit (`dead`beef`)`, opening a stray span.
+assert_pin_unique "#504 renderer strips HEAD_SHA backticks too (containment is the renderer's property, not its caller's)" \
+  'HEAD_SHA="${HEAD_SHA//\`/}"' "$RGB_SH"
+assert_eq "#504 renderer lets no backtick from HEAD_SHA reach the CI-section inline-code span" "yes" \
+  "$(_rgb $'dead\x60beef' 'lint: success' 'Read' | grep -qF 'reviewed commit (`deadbeef`)' && echo yes || echo no)"
+assert_eq "#504 renderer lets no backtick from HEAD_SHA reach the displaced git-show routing line" "yes" \
+  "$(_rgbh $'dead\x60beef' 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'git show deadbeef:<path>' && echo yes || echo no)"
 # Valid-falsy row of the input-shape matrix, and the reason the strips must precede the
 # empty-value defaults: a value of ONLY backticks strips to "". Stripped first, it routes
 # into the fail-closed literal; stripped after the default, it would render an EMPTY fence —
@@ -37873,8 +38275,8 @@ assert_pin_red_under "#497 AC6 outcome 1 requires the positive prompt_addenda eq
   'Outcome 1 requires `prompt_addenda` to equal the JSON string literal `"none"` in both memory and the persisted shadow block.' \
   's/ Outcome 1 requires `prompt_addenda` to equal the JSON string literal `"none"` in both memory and the persisted shadow block\.//' "$I497_RAF"
 assert_pin_red_under "#497 AC7 promotion is never gated and coverage is never changed by attestation" \
-  'The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass promotes these findings unchanged and preserves any non-`"none"` attestation on the block.' \
-  's/ The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass promotes these findings unchanged and preserves any non-`"none"` attestation on the block\.//' "$I497_RAF"
+  'The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass preserves any non-`"none"` attestation on the block.' \
+  's/ The prompt-addenda attestation never gates outcome 2 and never changes `coverage`; a full-coverage pass preserves any non-`"none"` attestation on the block\.//' "$I497_RAF"
 assert_pin_unique "#497 AC10 skill clean render requires both persisted operands" \
   'The exact clean-agreement string requires both persisted operands' "$I497_RAF"
 assert_pin_unique "#497 AC10 Coverage handles every present noncanonical attestation value" \
