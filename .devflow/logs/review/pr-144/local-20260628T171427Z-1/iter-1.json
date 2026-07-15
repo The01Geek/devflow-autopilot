@@ -18,25 +18,184 @@
     "pr-review-toolkit:pr-test-analyzer",
     "superpowers:requesting-code-review"
   ],
-  "checklist_summary": {"total": 59, "pass": 57, "fail": 2, "inconclusive": 0, "lite": 23, "agent": 36},
+  "checklist_summary": {
+    "total": 59,
+    "pass": 57,
+    "fail": 2,
+    "inconclusive": 0,
+    "lite": 23,
+    "agent": 36
+  },
   "checklist_fails": [
-    {"id": "VC-30", "claim": "no pr-review-toolkit: outside Migration tables in review-agent-overrides.md", "verdict": "FAIL", "adjudication": "claim-quality false positive: line 34 mention is intended migration-section prose"},
-    {"id": "VC-56", "claim": "lib/test/run.sh shellcheck-clean + .py ruff-clean", "verdict": "FAIL", "adjudication": "out-of-scope: project shellcheck gate excludes lib/test/; flagged SC1087 is unrelated pam test + known [[:space:]] false positive; in-scope ruff clean"}
+    {
+      "id": "VC-30",
+      "claim": "no pr-review-toolkit: outside Migration tables in review-agent-overrides.md",
+      "verdict": "FAIL",
+      "adjudication": "claim-quality false positive: line 34 mention is intended migration-section prose"
+    },
+    {
+      "id": "VC-56",
+      "claim": "lib/test/run.sh shellcheck-clean + .py ruff-clean",
+      "verdict": "FAIL",
+      "adjudication": "out-of-scope: project shellcheck gate excludes lib/test/; flagged SC1087 is unrelated pam test + known [[:space:]] false positive; in-scope ruff clean"
+    }
   ],
   "phase3_findings": [
-    {"agent": "pr-review-toolkit:silent-failure-hunter", "severity": "Important", "description": "review/SKILL.md:620 fail-closed claim scoped to shadow pass; standalone review rule-5 (>=2) does not fail closed on a single lost final pass (pre-existing)", "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [620, 620], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
-    {"agent": "pr-review-toolkit:silent-failure-hunter", "severity": "Important", "description": "resolve-review-overrides.py silently drops a stale/renamed override config key with no runtime warning (documented-as-intended)", "defect_signature": {"file": "scripts/resolve-review-overrides.py", "line_range": [179, 269], "kind": "api_misuse"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
-    {"agent": "pr-review-toolkit:pr-test-analyzer", "severity": "Suggestion", "description": "implement/SKILL.md devflow:receiving-code-review reference unpinned (dropped-mention asymmetry)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [6458, 6459], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
-    {"agent": "pr-review-toolkit:pr-test-analyzer", "severity": "Suggestion", "description": "review-and-fix/SKILL.md requesting-code-review telemetry reference unpinned", "defect_signature": {"file": "lib/test/run.sh", "line_range": [6452, 6453], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
-    {"agent": "pr-review-toolkit:pr-test-analyzer", "severity": "Suggestion", "description": "(1d) broad superpowers: scan excepts all of lib/test; narrow to lib/test/run.sh", "defect_signature": {"file": "lib/test/run.sh", "line_range": [6069, 6070], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "deferred"},
-    {"agent": "pr-review-toolkit:comment-analyzer", "severity": "Suggestion", "description": "run.sh (8) assertion labeled #141 inside the #142 block", "defect_signature": {"file": "lib/test/run.sh", "line_range": [2213, 2221], "kind": "comment_drift"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "deferred"},
-    {"agent": "pr-review-toolkit:comment-analyzer", "severity": "Suggestion", "description": "CHANGELOG 2.8.12 date 2026-06-26 may be stale", "defect_signature": {"file": "CHANGELOG.md", "line_range": [7, 7], "kind": "style"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "deferred"},
-    {"agent": "pr-review-toolkit:comment-analyzer", "severity": "Suggestion", "description": "PR-body version claim 2.8.12->2.8.13 contradicts artifacts (2.8.12); PR-body only, no file change", "defect_signature": {"file": ".claude-plugin/plugin.json", "line_range": [3, 3], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"}
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "review/SKILL.md:620 fail-closed claim scoped to shadow pass; standalone review rule-5 (>=2) does not fail closed on a single lost final pass (pre-existing)",
+      "defect_signature": {
+        "file": "skills/review/SKILL.md",
+        "line_range": [
+          620,
+          620
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "resolve-review-overrides.py silently drops a stale/renamed override config key with no runtime warning (documented-as-intended)",
+      "defect_signature": {
+        "file": "scripts/resolve-review-overrides.py",
+        "line_range": [
+          179,
+          269
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "implement/SKILL.md devflow:receiving-code-review reference unpinned (dropped-mention asymmetry)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          6458,
+          6459
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "review-and-fix/SKILL.md requesting-code-review telemetry reference unpinned",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          6452,
+          6453
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "(1d) broad superpowers: scan excepts all of lib/test; narrow to lib/test/run.sh",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          6069,
+          6070
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "pr-review-toolkit:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "run.sh (8) assertion labeled #141 inside the #142 block",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          2213,
+          2221
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "pr-review-toolkit:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "CHANGELOG 2.8.12 date 2026-06-26 may be stale",
+      "defect_signature": {
+        "file": "CHANGELOG.md",
+        "line_range": [
+          7,
+          7
+        ],
+        "kind": "style"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "pr-review-toolkit:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "PR-body version claim 2.8.12->2.8.13 contradicts artifacts (2.8.12); PR-body only, no file change",
+      "defect_signature": {
+        "file": ".claude-plugin/plugin.json",
+        "line_range": [
+          3,
+          3
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "VC-30", "decision": "deferred", "source_file": "docs/review-agent-overrides.md", "claim_text": "no pr-review-toolkit: outside Migration tables", "skip_category": "claim-quality", "evidence": "line 34 is intended migration-section prose explaining stale-key behavior; the claim's table-only constraint is over-strict; the AC governs superpowers: ids, not pr-review-toolkit: prose"},
-    {"finding_id": "VC-56", "decision": "deferred", "source_file": "lib/test/run.sh", "claim_text": "lib/test/run.sh shellcheck-clean", "skip_category": "out-of-scope", "evidence": "project shellcheck gate (CLAUDE.md + CI) excludes lib/test/ via grep -v '^lib/test/'; flagged SC1087 at line 5769 is an unrelated provision-auto-mode test and a known [[:space:]]-in-regex false positive; in-scope ruff is clean"}
+    {
+      "finding_id": "VC-30",
+      "decision": "deferred",
+      "source_file": "docs/review-agent-overrides.md",
+      "claim_text": "no pr-review-toolkit: outside Migration tables",
+      "skip_category": "claim-quality",
+      "evidence": "line 34 is intended migration-section prose explaining stale-key behavior; the claim's table-only constraint is over-strict; the AC governs superpowers: ids, not pr-review-toolkit: prose"
+    },
+    {
+      "finding_id": "VC-56",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "lib/test/run.sh shellcheck-clean",
+      "skip_category": "out-of-scope",
+      "evidence": "project shellcheck gate (CLAUDE.md + CI) excludes lib/test/ via grep -v '^lib/test/'; flagged SC1087 at line 5769 is an unrelated provision-auto-mode test and a known [[:space:]]-in-regex false positive; in-scope ruff is clean"
+    }
   ],
-  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
-  "cap_drops": {"count": 0, "by_category": {}}
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": "unavailable"
 }

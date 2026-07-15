@@ -1,21 +1,142 @@
-{"iter":2,"source":"review-and-fix","fix_commit_sha":"8bb317bf6be0a6b189ad0f8aca089d7aaab2f2af","fix_files":[
-  "lib/test/run.sh",
-  "scripts/load-prompt-extension.sh"
-],
-"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
-"phase3_dispatched":["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer","pr-review-toolkit:pr-test-analyzer","superpowers:requesting-code-review"],
-"phase3_findings":[
- {"agent":"pr-review-toolkit:silent-failure-hunter","severity":"Important","description":"broken symlink silently no-ops (missing target)","defect_signature":{"file":"scripts/load-prompt-extension.sh","line_range":[71,77],"kind":"logic_error"},"corroboration_count":1,"fix_decision":"applied"},
- {"agent":"pr-review-toolkit:code-reviewer","severity":"Suggestion","description":"coverage-grep prefix weakness (substring)","defect_signature":{"file":"lib/test/run.sh","line_range":[230,231],"kind":"test_gap"},"corroboration_count":1,"fix_decision":"applied"},
- {"agent":"pr-review-toolkit:silent-failure-hunter","severity":"Suggestion","description":"cat SIGPIPE→141 if caller streams (latent)","defect_signature":{"file":"scripts/load-prompt-extension.sh","line_range":[44,76],"kind":"api_misuse"},"corroboration_count":1,"fix_decision":"pushed_back"},
- {"agent":"general-purpose:superpowers","severity":"Suggestion","description":"scaffold doesn't backfill example into pre-existing dir","defect_signature":{"file":"scripts/scaffold-config.sh","line_range":[123,149],"kind":"other"},"corroboration_count":1,"fix_decision":"pushed_back"},
- {"agent":"pr-review-toolkit:code-reviewer","severity":"Suggestion","description":"CLAUDE.md sync gotcha not added","defect_signature":{"file":"CLAUDE.md","line_range":[null,null],"kind":"comment_drift"},"corroboration_count":1,"fix_decision":"pushed_back"}
-],
-"fix_decisions":[
- {"finding_id":"F2-1","decision":"applied","commit":"8bb317bf6be0a6b189ad0f8aca089d7aaab2f2af"},
- {"finding_id":"F2-2","decision":"applied","commit":"8bb317bf6be0a6b189ad0f8aca089d7aaab2f2af"},
- {"finding_id":"F2-3","decision":"pushed_back","source_file":"scripts/load-prompt-extension.sh","claim_text":"cat SIGPIPE→141 if caller streams","skip_category":"claim-quality","evidence":"no shipped caller streams; all 16 SKILL.md invoke via $(...) full capture. Agent itself: 'No fix required for this PR'. Exit-code contract honest for actual usage."},
- {"finding_id":"F2-4","decision":"pushed_back","source_file":"scripts/scaffold-config.sh","claim_text":"scaffold doesn't backfill example into pre-existing dir","skip_category":"uncategorized","evidence":"optional discoverability nicety; superpowers reviewer: 'genuinely optional and arguably out of scope... Ship as-is'. Consistent with the intentional don't-clobber-dir guard discipline."},
- {"finding_id":"F2-5","decision":"pushed_back","source_file":"CLAUDE.md","claim_text":"new sync requirement not added to CLAUDE.md Gotchas","skip_category":"uncategorized","evidence":"~45 confidence sub-threshold; documented in CONTRIBUTING.md and enforced by the lib/test/run.sh coverage test. CLAUDE.md addition optional, out of this PR's core scope."}
-],
-"convergence_inputs":{"fixes_applied":2,"fix_diff_lines":32,"new_corroborated_critical_count":0}}
+{
+  "iter": 2,
+  "source": "review-and-fix",
+  "fix_commit_sha": "8bb317bf6be0a6b189ad0f8aca089d7aaab2f2af",
+  "fix_files": [
+    "lib/test/run.sh",
+    "scripts/load-prompt-extension.sh"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "pr-review-toolkit:pr-test-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "broken symlink silently no-ops (missing target)",
+      "defect_signature": {
+        "file": "scripts/load-prompt-extension.sh",
+        "line_range": [
+          71,
+          77
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:code-reviewer",
+      "severity": "Suggestion",
+      "description": "coverage-grep prefix weakness (substring)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          230,
+          231
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "cat SIGPIPE→141 if caller streams (latent)",
+      "defect_signature": {
+        "file": "scripts/load-prompt-extension.sh",
+        "line_range": [
+          44,
+          76
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "general-purpose:superpowers",
+      "severity": "Suggestion",
+      "description": "scaffold doesn't backfill example into pre-existing dir",
+      "defect_signature": {
+        "file": "scripts/scaffold-config.sh",
+        "line_range": [
+          123,
+          149
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "pr-review-toolkit:code-reviewer",
+      "severity": "Suggestion",
+      "description": "CLAUDE.md sync gotcha not added",
+      "defect_signature": {
+        "file": "CLAUDE.md",
+        "line_range": [
+          null,
+          null
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F2-1",
+      "decision": "applied",
+      "commit": "8bb317bf6be0a6b189ad0f8aca089d7aaab2f2af"
+    },
+    {
+      "finding_id": "F2-2",
+      "decision": "applied",
+      "commit": "8bb317bf6be0a6b189ad0f8aca089d7aaab2f2af"
+    },
+    {
+      "finding_id": "F2-3",
+      "decision": "pushed_back",
+      "source_file": "scripts/load-prompt-extension.sh",
+      "claim_text": "cat SIGPIPE→141 if caller streams",
+      "skip_category": "claim-quality",
+      "evidence": "no shipped caller streams; all 16 SKILL.md invoke via $(...) full capture. Agent itself: 'No fix required for this PR'. Exit-code contract honest for actual usage."
+    },
+    {
+      "finding_id": "F2-4",
+      "decision": "pushed_back",
+      "source_file": "scripts/scaffold-config.sh",
+      "claim_text": "scaffold doesn't backfill example into pre-existing dir",
+      "skip_category": "uncategorized",
+      "evidence": "optional discoverability nicety; superpowers reviewer: 'genuinely optional and arguably out of scope... Ship as-is'. Consistent with the intentional don't-clobber-dir guard discipline."
+    },
+    {
+      "finding_id": "F2-5",
+      "decision": "pushed_back",
+      "source_file": "CLAUDE.md",
+      "claim_text": "new sync requirement not added to CLAUDE.md Gotchas",
+      "skip_category": "uncategorized",
+      "evidence": "~45 confidence sub-threshold; documented in CONTRIBUTING.md and enforced by the lib/test/run.sh coverage test. CLAUDE.md addition optional, out of this PR's core scope."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 32,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": "unavailable"
+}

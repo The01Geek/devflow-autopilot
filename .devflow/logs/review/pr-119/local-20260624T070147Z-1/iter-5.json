@@ -84,5 +84,6 @@
     },
     "promoted_to_iter_next": false,
     "note": "AWUSF at cap (iter5 shadow surfaced drift-guard slack, Important) -> orchestrator option-1 fix + bounded re-review (full coverage). Re-review surfaced only comment-overclaim items (set-e safety) shared with pre-existing docs.labels idiom; resolved via comment-accuracy fix, post-shadow delta-review CLEAN. Feature code APPROVE, shadow agreed full coverage; reviewed_sha=final HEAD."
-  }
+  },
+  "telemetry": "unavailable"
 }
