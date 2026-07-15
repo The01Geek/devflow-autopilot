@@ -6285,6 +6285,11 @@ assert_eq "#484 duplicate --allowed-tools markers fail the implement contract gu
 { printf '%s\n' '--allowed-tools' '"Read,Bash(echo:*)'; } > "$E484/unterminated-quote.yml"
 assert_eq "#484 an unterminated --allowed-tools quote fails the implement contract guard closed" \
   "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/unterminated-quote.yml" implement-block)"
+{ printf '%s\n' '--allowed-tools' 'not-a-quoted-value' '# later prose cites "Read,Bash(make:*)"'; } > "$E484/detached-quote.yml"
+assert_eq "#484 a detached later quote cannot masquerade as the allowlist value" \
+  "__extractor_error__" "$(_impl_ungranted "$E484/cited.md" "$E484/detached-quote.yml" implement-block)"
+assert_eq "#484 an unknown allowlist parse mode fails closed instead of scanning the whole file" \
+  "yes" "$(python3 "$ECH" ungranted "$E484/cited.md" "$E484/cited.yml" misspelled-mode >/dev/null 2>&1 && echo no || echo yes)"
 
 # AC: a head that merely begins with a suppressed builtin survives (exact, not prefix).
 printf '%s\n' '```bash' 'set-something.sh --x' '```' > "$E484/prefix.md"
@@ -6297,9 +6302,17 @@ assert_eq "#484 withheld list is exactly gh pr checkout, git rev-list, mktemp" \
   "gh pr checkout git rev-list mktemp" "$(printf '%s\n' "$WITHHELD_IMPL" | sort | tr '\n' ' ' | sed 's/ *$//')"
 
 # AC: the contract — zero ungranted real heads across the whole implement-executed
-# surface (implement + the two review engines Phase 3 runs inline). Keys on the
-# extractor's printed output being empty, not its exit status.
-_impl_files="$LIB/../skills/implement/SKILL.md $LIB/../skills/implement/phases/phase-1-setup.md $LIB/../skills/implement/phases/phase-2-implement.md $LIB/../skills/implement/phases/phase-3-review.md $LIB/../skills/implement/phases/phase-4-documentation.md $LIB/../skills/review/SKILL.md $LIB/../skills/review-and-fix/SKILL.md"
+# surface (implement + the review engines Phase 3 runs inline). Derive this roster
+# recursively so a newly-added phase/reference cannot sit outside a frozen list
+# while the guard still claims skills/implement/** + skills/review*/** coverage.
+# A failed/empty find becomes a sentinel path, which `_impl_ungranted` turns into
+# `__extractor_error__`; roster discovery can never masquerade as zero heads.
+if ! _impl_files="$(find "$LIB/../skills/implement" "$LIB/../skills"/review* -type f -name '*.md' -print 2>"$E484/roster.err")" \
+   || [ -z "$_impl_files" ]; then
+  _impl_files="$E484/__roster_error__"
+fi
+assert_eq "#484 recursive roster includes nested implement phase files" "yes" \
+  "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/implement/phases/phase-4-documentation.md" && echo yes || echo no)"
 assert_eq "#484 every implement-tier head is granted or withheld (zero ungranted real heads)" "" \
   "$(for f in $_impl_files; do _impl_ungranted "$f" "$IMPL_YML" implement-block; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
 
@@ -14416,7 +14429,37 @@ assert_eq "react: gh failure warns to stderr" \
   "1" "$(printf '%s\n' "$react_err" | grep -c '::warning::react: could not add')"
 assert_eq "react: multi-line gh error is collapsed to one log line" \
   "1" "$(printf '%s\n' "$react_err" | grep -c 'integration (check issues')"
+
+# The skill's outcome-reaction fence opts into a non-zero signal so its `||
+# workpad.py update` arm can durably record the failure. The workflow path omits
+# this flag and retains the universal best-effort exit-zero behavior above.
+report_rc=0
+report_err="$(DEVFLOW_GH="$FAIL_STUB/gh" PATH="$FAIL_STUB:$PATH" GH_TOKEN=x \
+  EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=1 bash "$RT" --report-failure 2>&1 >/dev/null)" || report_rc=$?
+assert_eq "react: --report-failure returns non-zero after a failed api call" "1" "$report_rc"
+assert_eq "react: --report-failure preserves the attributable warning" \
+  "1" "$(printf '%s\n' "$report_err" | grep -c '::warning::react: could not add')"
 rm -rf "$FAIL_STUB"
+
+# 7. Malformed CLI input stays best-effort and fails closed. A recognized flag
+# without a value used to reach `shift 2` under `set -e` and violate the script's
+# universal exit-zero contract. An unknown flag must likewise stop before stale
+# environment values can select a real reaction endpoint.
+REACT_REC="$(mktemp)"
+missing_value_err="$(DEVFLOW_GH="$RT_STUB/gh" PATH="$RT_STUB:$PATH" REACT_REC="$REACT_REC" \
+  GH_TOKEN=x EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=9 bash "$RT" --reaction 2>&1 >/dev/null)"
+assert_eq "react: missing CLI value still exits 0 (best-effort)" "0" "$?"
+assert_eq "react: missing CLI value warns and makes no api call" \
+  "1-0" "$(printf '%s\n' "$missing_value_err" | grep -c 'missing value')-$(grep -c 'reactions' "$REACT_REC")"
+rm -f "$REACT_REC"
+
+REACT_REC="$(mktemp)"
+unknown_arg_err="$(DEVFLOW_GH="$RT_STUB/gh" PATH="$RT_STUB:$PATH" REACT_REC="$REACT_REC" \
+  GH_TOKEN=x EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=9 bash "$RT" --typo value 2>&1 >/dev/null)"
+assert_eq "react: unknown CLI flag still exits 0 (best-effort)" "0" "$?"
+assert_eq "react: unknown CLI flag warns and makes no api call" \
+  "1-0" "$(printf '%s\n' "$unknown_arg_err" | grep -c 'unknown argument')-$(grep -c 'reactions' "$REACT_REC")"
+rm -f "$REACT_REC"
 
 rm -rf "$RT_STUB"
 

@@ -54,7 +54,7 @@ Every label call site in the phase files carries a short co-located *Cloud-emiss
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh implement
 ```
 
-If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. If the command is **refused** by the permission matcher (a tool-level denial — the command did not run, which is distinct from running and printing nothing), record it durably as a workpad note (`workpad.py update $ISSUE_NUMBER --note "load-prompt-extension.sh was refused by the matcher; the consumer prompt extension could not be loaded"`) rather than silently proceeding without the consumer's customization — a refused load is not the same as a repo that has no extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
+If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. If the command is **refused** by the permission matcher (a tool-level denial — the command did not run, which is distinct from running and printing nothing), retain the exact pending note `load-prompt-extension.sh was refused by the matcher; the consumer prompt extension could not be loaded`. Do not run `workpad.py update` here: this load happens before Phase 1.3 establishes `ISSUE_NUMBER` and creates a fresh local workpad. Immediately after Phase 1.3 has created or resumed the workpad, write that pending note with `workpad.py update $ISSUE_NUMBER --note "…"`; the refusal is not complete until that durable write succeeds or its failure is surfaced. A refused load is not the same as a repo that has no extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
 
 **Phase reference files (resolve once, read each phase at its entry).** This orchestrator holds the cross-phase material (above and below) and, for each phase, a short stub plus a hard **entry-gate**. The detailed, authoritative procedure for each phase lives in its own reference file under `phases/`. Resolve the skill directory once now — the same anchor the prompt-extension load uses — and reuse the **printed path textually** (as `<skill-dir>` in the `Read` calls below) at every phase entry; this is prompt-level reuse of the tool output, never a shell variable (shell commands still resolve the anchor inline per the *Portable helper anchor* note above):
 
@@ -97,10 +97,11 @@ fi
 if [ -n "$TRIGGER_COMMENT_ID" ]; then
   # Leading-token form (the helper path is the command head; values as CLI args) —
   # a leading VAR=value env prefix is a denied matcher shape (#401) that would
-  # silently refuse the granted helper. react-to-trigger.sh is best-effort (exits
-  # 0); a genuine non-zero is recorded rather than swallowed by `|| true`.
+  # silently refuse the granted helper. --report-failure keeps the workflow's
+  # default best-effort exit-0 behavior unchanged while giving this fence a
+  # non-zero signal it can record before continuing.
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/react-to-trigger.sh \
-    --repo "$GITHUB_REPOSITORY" --event issue_comment --comment "$TRIGGER_COMMENT_ID" --reaction "$REACTION" \
+    --repo "$GITHUB_REPOSITORY" --event issue_comment --comment "$TRIGGER_COMMENT_ID" --reaction "$REACTION" --report-failure \
     || "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER \
       --note "outcome reaction: react-to-trigger.sh exited non-zero (best-effort; the run continues)"
 fi

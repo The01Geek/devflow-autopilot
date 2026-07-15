@@ -10,9 +10,11 @@
 # unparseable triggers get no reaction. The gate is the earliest authorized
 # moment (same job, no extra runner spin-up).
 #
-# BEST-EFFORT: a failed/forbidden reaction must never block the run. Every
-# failure path warns to stderr and exits 0; the workflow step is additionally
-# `continue-on-error: true` as a second guard.
+# BEST-EFFORT: a failed/forbidden reaction must never block the run. By default,
+# every failure path warns to stderr and exits 0; the workflow step is additionally
+# `continue-on-error: true` as a second guard. Agent-side callers may pass
+# `--report-failure` to receive rc 1 after an API failure and record that failure
+# durably while still continuing.
 #
 # Reactions are an issue/comment-only API — a submitted *review*
 # (pull_request_review) has no reactions endpoint, so that path is skipped
@@ -49,15 +51,29 @@ set -euo pipefail
 # a leading VAR=value env prefix is a denied matcher shape, so the skill fence passes
 # the values as CLI args instead). They override the env vars the workflow `env:`
 # block sets; the workflow passes no args, so its env-var path is unchanged.
+report_failure=false
 while [ $# -gt 0 ]; do
   case "$1" in
-    --repo) REPO="${2-}"; shift 2 ;;
-    --event) EVENT_NAME="${2-}"; shift 2 ;;
-    --comment) COMMENT_ID="${2-}"; shift 2 ;;
-    --issue) ISSUE_NUMBER="${2-}"; shift 2 ;;
-    --reaction) REACTION="${2-}"; shift 2 ;;
+    --report-failure) report_failure=true; shift ;;
+    --repo|--event|--comment|--issue|--reaction)
+      if [ $# -lt 2 ] || [ -z "${2-}" ] || [[ "${2-}" == --* ]]; then
+        echo "::warning::react: missing value for '$1'; skipping acknowledgement." >&2
+        exit 0
+      fi
+      case "$1" in
+        --repo) REPO="$2" ;;
+        --event) EVENT_NAME="$2" ;;
+        --comment) COMMENT_ID="$2" ;;
+        --issue) ISSUE_NUMBER="$2" ;;
+        --reaction) REACTION="$2" ;;
+      esac
+      shift 2
+      ;;
     --) shift; break ;;
-    *) echo "::warning::react: ignoring unknown argument '$1'" >&2; shift ;;
+    *)
+      echo "::warning::react: unknown argument '$1'; skipping acknowledgement." >&2
+      exit 0
+      ;;
   esac
 done
 
@@ -99,5 +115,8 @@ if err="$("$DEVFLOW_GH" api -X POST "$endpoint" -f "content=$reaction" 2>&1 >/de
 else
   # Collapse to one line so the GitHub log annotation stays readable.
   echo "::warning::react: could not add :$reaction: to $endpoint (continuing): ${err//$'\n'/ }" >&2
+  if [ "$report_failure" = true ]; then
+    exit 1
+  fi
 fi
 exit 0

@@ -376,21 +376,25 @@ These paths are the required deliverables. Stage 2 re-runs the **same helper** r
 
 Spawn a **subagent** (using the Agent tool) and instruct it to invoke the `devflow:docs` skill. Compose the dispatch instruction: begin with "Invoke the `devflow:docs` skill to update all documentation (internal docs, external docs, release notes). The issue context is provided for release notes generation." If `DOC_NEEDED_PATHS` is non-empty, append: " The issue requires the following files to be updated; treat each as a mandatory deliverable: `<path1>`, `<path2>`, …" Send this composed instruction along with the issue title, body, and number to the subagent.
 
-After the subagent completes, commit any documentation changes. Read the docs paths from `.devflow/config.json` — `config-get.sh` **prints** each path, so read the two printed values and substitute them as literals for `<internal-path>` / `<external-path>` below. (A `VAR=$(…)` capture does not survive across Bash tool calls on the cloud runner — both expand empty and `git add "" ""` fails with `fatal: empty string is not a valid pathspec`; #484/#490.)
+After the subagent completes, commit every documentation artifact it changed. Read the configured documentation paths from `.devflow/config.json` — `config-get.sh` **prints** each value, so read the four tool results and substitute non-empty values as literals below. (A `VAR=$(…)` capture does not survive across Bash tool calls on the cloud runner — values expand empty in the later call and `git add ""` fails; #484/#490.)
 
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.release_notes_file ""
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.changelog_file ""
 ```
 
-If `git status -- "<internal-path>" "<external-path>"` shows changes, stage and commit them:
+Each invocation is a separate observed tool call. For the required internal and external roots, success is rc 0 plus exactly one non-empty printed path. For the optional release-notes and changelog files, rc 0 with empty output means that artifact is disabled; any non-empty output must be exactly one path. A matcher refusal, non-zero exit, multi-line/non-path output, or empty required path is **not** "no documentation changes": retry that read once, then mark the workpad `Blocked` with a `dropped-failed` reflection naming the config key, emit the outcome reaction, and stop. Accept only repo-relative paths that do not begin with `-`.
+
+Inspect unfiltered `git status --short` after the docs subagent returns. Build the explicit staging list from every documentation artifact that dispatch changed: configured internal/external paths, each enabled release-notes/changelog file, every `Documentation Needed` path, and any other doc/release artifact the subagent reports and `git status` confirms (for example `README.md` or a `.changeset/` entry). Do not stage unrelated code or pre-existing dirty paths. If that explicit list contains changes, stage and commit the literal paths:
 ```bash
-git add "<internal-path>" "<external-path>"
+git add "<literal-doc-path-1>" "<literal-doc-path-2>" # include every changed doc/release artifact; omit absent optional paths
 git commit -m "docs: update documentation for issue #$ARGUMENTS"
 git push
 ```
 
-If nothing staged (no documentation changes), record it rather than ticking `Documentation` complete — an empty docs pass is not a completed one:
+Only when the subagent returned cleanly and unfiltered status confirms it produced no documentation artifact may this be recorded as a clean no-change pass:
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --note "Phase 4.1: no documentation changes to commit (docs subagent ran clean / made no changes)"
 ```

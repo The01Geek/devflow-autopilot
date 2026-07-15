@@ -7,9 +7,9 @@ bump: patch
 
 ### Changed
 - Anchor bare `workpad.py` fences in `skills/implement/phases/*.md` to the portable inline-anchor form the granted vendored literal covers.
-- Rework the `react-to-trigger.sh` emission in `skills/implement/SKILL.md` to a leading-token form with CLI args (a leading `VAR=` env prefix was a denied matcher shape) and record failure rather than swallowing it; `react-to-trigger.sh` accepts `--repo/--event/--comment/--issue/--reaction` CLI flags (env-var path unchanged for the workflow `env:` block).
-- `load-prompt-extension.sh`'s guard distinguishes a matcher refusal from "no consumer extension" and records the former as a workpad note.
-- Rework `phase-4-documentation.md` §4.1's docs-commit fence so doc paths reach `git add` through printed tool output, not a `VAR=` read across a fence boundary.
+- Rework the `react-to-trigger.sh` emission in `skills/implement/SKILL.md` to a leading-token form with CLI args (a leading `VAR=` env prefix was a denied matcher shape) and use `--report-failure` so the fence can record a failed reaction rather than swallowing it; the workflow's env-var path keeps its default best-effort exit-zero behavior.
+- `load-prompt-extension.sh`'s guard distinguishes a matcher refusal from "no consumer extension" and queues the refusal note until Phase 1.3 has created or resumed the workpad.
+- Rework `phase-4-documentation.md` §4.1's docs-commit fence so configured doc/release paths reach an explicit `git add` through validated printed tool output, not a `VAR=` read across a fence boundary; config-read failures block rather than masquerading as a clean no-change pass.
 
 ### Removed
 - Inert `*/`-prefixed grant globs from `.devflow/config.json`'s `devflow.allowed_tools` and `devflow_implement.allowed_tools` — a `*/basename` glob does not match the vendored multi-segment leading token the matcher grants.

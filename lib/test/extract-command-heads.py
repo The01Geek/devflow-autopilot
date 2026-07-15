@@ -552,10 +552,15 @@ def implement_allowlist_block(text: str) -> str:
             f"devflow: {len(markers)} `--allowed-tools` markers found; expected exactly one. "
             "Refusing to guess which block grants the implement profile's commands."
         )
-    joined = "\n".join(lines[markers[0] + 1 :])
+    value_lines = lines[markers[0] + 1 :]
+    while value_lines and not value_lines[0].strip():
+        value_lines.pop(0)
+    if not value_lines or not value_lines[0].lstrip().startswith('"'):
+        raise SystemExit(
+            "devflow: `--allowed-tools` value must begin with a quote on its next non-empty line"
+        )
+    joined = "\n".join(value_lines)
     q_start = joined.find('"')
-    if q_start == -1:
-        raise SystemExit("devflow: `--allowed-tools` marker has no opening quote")
     q_end = joined.find('"', q_start + 1)
     if q_end == -1:
         raise SystemExit("devflow: `--allowed-tools` block has no closing quote")
@@ -613,6 +618,8 @@ def main(argv: list[str]) -> int:
             allowlist = tools_allowlist_line(allowlist)
         elif len(argv) >= 5 and argv[4] == "implement-block":
             allowlist = implement_allowlist_block(allowlist)
+        elif len(argv) >= 5:
+            raise SystemExit(f"devflow: unknown allowlist parse mode: {argv[4]}")
         granted = parse_allowlist(allowlist)
         for name in sorted(
             {name_of(h) for h in heads if not is_granted(h, granted)}
