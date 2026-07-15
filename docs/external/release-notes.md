@@ -2,7 +2,7 @@
 
 ## July 14, 2026
 
-- **Fix — Shadow review now detects topic-primed prompts before reporting clean independent coverage** — DevFlow's review-and-fix loop now records prompt composition separately from reviewer-roster coverage. A shadow pass reports clean agreement only when its full reviewer roster ran and its prompts used the attested composition; provenance failures and other prompt additions remain visible without suppressing real findings that should trigger another review iteration. (#509)
+- **Fix — Shadow review now attests prompt composition before reporting clean independent coverage** — DevFlow's review-and-fix loop now records prompt composition separately from reviewer-roster coverage. A shadow pass reports clean agreement only when its full reviewer roster ran and its prompts used the attested composition; provenance failures and unauthorized prompt additions remain visible without suppressing real findings that should trigger another review iteration. (#509)
 
 ## July 13, 2026
 
