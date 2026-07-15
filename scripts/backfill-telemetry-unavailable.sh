@@ -18,7 +18,7 @@ if [ -z "$root" ] || [ -z "$ref" ] || ! git -C "$root" rev-parse --verify --quie
   exit 0
 fi
 
-stage="$root/.devflow/tmp/backfill-telemetry-unavailable-$$-${RANDOM}-${SECONDS}"
+stage="$root/.devflow/tmp/telemetry-stage-backfill-$$-${RANDOM}-${SECONDS}"
 mkdir -p "$stage" 2>/dev/null || { echo "::warning::backfill-telemetry-unavailable: could not create staging root '$stage'; migration skipped" >&2; exit 0; }
 trap 'rm -rf "$stage" 2>/dev/null || true' EXIT
 selected=0

@@ -36292,6 +36292,10 @@ assert_eq "#499 persist: non-object warning is named" "yes" "$(printf '%s' "$T49
 assert_eq "#499 persist: sibling JSON is copied but never stamped" '{"keep":true}' "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/deferrals.json')"
 assert_eq "#499 persist: source run directory is byte-identical" "$T499_SRC_BEFORE" "$(find "$T499_P/.devflow/tmp/review/pr-499/run-matrix" -type f -exec shasum {} + | sort)"
 assert_eq "#499 persist: second run is a telemetry-branch no-op" "$T499_TIP1" "$T499_TIP2"
+# Established telemetry paths remain eligible for ordinary metadata refreshes.
+jq '.later_metadata = true' "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-2.json" > "$T499_P/iter.tmp" && mv "$T499_P/iter.tmp" "$T499_P/.devflow/tmp/review/pr-499/run-matrix/iter-2.json"
+( cd "$T499_P" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "#499 persist: established telemetry path still carries later metadata" "true" "$(_et_show "$T499_P" '.devflow/logs/review/pr-499/run-matrix/iter-2.json' | jq -r '.later_metadata')"
 rm -rf "$T499_P"
 
 # Existing legacy durable paths remain backfill-owned: a normal persist removes
@@ -36303,6 +36307,36 @@ assert_pin_red_under "#499 union classifier failures refuse instead of guessing"
   'could not classify a colliding telemetry blob' '/could not classify a colliding telemetry blob/d' "$LIB/telemetry-branch.sh"
 assert_pin_red_under "#499 staging-only backfill retains relay input" \
   '2) trap - EXIT;' 's/2\) trap - EXIT;/2) :;/' "$LIB/../scripts/backfill-telemetry-unavailable.sh"
+assert_pin_red_under "#499 staging-only backfill uses the relay-collected prefix" \
+  'telemetry-stage-backfill-' 's/telemetry-stage-backfill-/backfill-telemetry-unavailable-/' "$LIB/../scripts/backfill-telemetry-unavailable.sh"
+
+# Populated backfill integration: seed legacy iter/record families through the
+# shared staged-tree writer, then run the shipped maintainer script from a repo-
+# local copy (so its HERE/root resolution matches an installed consumer).
+T499_B="$(git_sandbox '#499 populated backfill repo')"
+git -C "$T499_B" init -q; git -C "$T499_B" config user.email t@e.com; git -C "$T499_B" config user.name t
+mkdir -p "$T499_B/lib" "$T499_B/scripts" "$T499_B/seed/.devflow/logs/review/pr-499/run-b" "$T499_B/seed/.devflow/logs/efficiency"
+cp "$LIB/resolve-jq.sh" "$LIB/config-source.sh" "$LIB/telemetry-branch.sh" "$T499_B/lib/"
+cp "$LIB/../scripts/config-get.sh" "$LIB/../scripts/backfill-telemetry-unavailable.sh" "$T499_B/scripts/"
+printf '%s' '{"iter":1,"phase3_findings":[]}' > "$T499_B/seed/.devflow/logs/review/pr-499/run-b/iter-1.json"
+printf '%s' '{"telemetry":[{"iter":1,"phases":null},{"iter":2}]}' > "$T499_B/seed/.devflow/logs/efficiency/selected.json"
+printf '%s' '{"telemetry":"wrong"}' > "$T499_B/seed/.devflow/logs/efficiency/wrong.json"
+printf '%s' '{"telemetry":[false]}' > "$T499_B/seed/.devflow/logs/efficiency/nonobject.json"
+( cd "$T499_B" && . ./lib/config-source.sh && . ./lib/telemetry-branch.sh && devflow_telemetry_persist_tree "$T499_B" "$T499_B/seed" ) >/dev/null 2>&1
+T499_B_BEFORE_WRONG="$(_et_show "$T499_B" '.devflow/logs/efficiency/wrong.json')"
+T499_B_BEFORE_NONOBJ="$(_et_show "$T499_B" '.devflow/logs/efficiency/nonobject.json')"
+T499_B_ERR="$( ( cd "$T499_B" && bash ./scripts/backfill-telemetry-unavailable.sh ) 2>&1 1>/dev/null )"
+T499_B_TIP1="$(git -C "$T499_B" rev-parse devflow-telemetry)"
+( cd "$T499_B" && bash ./scripts/backfill-telemetry-unavailable.sh ) >/dev/null 2>&1
+T499_B_TIP2="$(git -C "$T499_B" rev-parse devflow-telemetry)"
+assert_eq "#499 backfill: populated M3 iter gains marker" "unavailable" "$(_et_show "$T499_B" '.devflow/logs/review/pr-499/run-b/iter-1.json' | jq -r '.telemetry')"
+assert_eq "#499 backfill: R1 null phases gains marker" "unavailable" "$(_et_show "$T499_B" '.devflow/logs/efficiency/selected.json' | jq -r '.telemetry[0].phases')"
+assert_eq "#499 backfill: R2 missing phases remains absent" "false" "$(_et_show "$T499_B" '.devflow/logs/efficiency/selected.json' | jq -r '.telemetry[1] | has("phases")')"
+assert_eq "#499 backfill: wrong-type record is byte-verbatim" "$T499_B_BEFORE_WRONG" "$(_et_show "$T499_B" '.devflow/logs/efficiency/wrong.json')"
+assert_eq "#499 backfill: non-object entry record is byte-verbatim" "$T499_B_BEFORE_NONOBJ" "$(_et_show "$T499_B" '.devflow/logs/efficiency/nonobject.json')"
+assert_eq "#499 backfill: malformed family breadcrumbs are named" "yes" "$(printf '%s' "$T499_B_ERR" | grep -qF '(R4)' && printf '%s' "$T499_B_ERR" | grep -qF '(R5)' && echo yes || echo no)"
+assert_eq "#499 backfill: rerun is a branch no-op" "$T499_B_TIP1" "$T499_B_TIP2"
+rm -rf "$T499_B"
 
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
