@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -867,6 +868,212 @@ class ManifestObserverTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((self.root / ".devflow/tmp/workflow-manifests/sid-entry.json").is_file())
         self.assertFalse((self.root / ".devflow/tmp/workflow-runs").exists())
+
+
+class ImportTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.sandbox = Path(self.temporary.name)
+        self.repository = self.sandbox / "repository"
+        self.projects = self.sandbox / "projects"
+        self.repository.mkdir()
+        self.projects.mkdir()
+        subprocess.run(["git", "init", "-q", str(self.repository)], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.repository), "config", "user.email", "import@example.invalid"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.repository), "config", "user.name", "Import Test"],
+            check=True,
+        )
+        for relative in [
+            "skills/implement/SKILL.md",
+            "skills/implement/phases/setup.md",
+            "skills/review/SKILL.md",
+            "skills/review-and-fix/SKILL.md",
+            "skills/docs/SKILL.md",
+        ]:
+            path = self.repository / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"# import {relative}\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.repository), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(self.repository), "commit", "-qm", "fixture"], check=True)
+
+    def _native_path(self, session_id: str, directory: str = "native") -> Path:
+        project = self.projects / directory
+        project.mkdir(parents=True, exist_ok=True)
+        return project / f"{session_id}.jsonl"
+
+    def _record(self, record: dict) -> dict:
+        return {**record, "cwd": str(self.repository)}
+
+    def _import(self, session_id: str) -> Path:
+        self.assertTrue(
+            hasattr(recorder, "import_inventory_session"),
+            "explicit native import is not implemented",
+        )
+        return recorder.import_inventory_session(
+            session_id,
+            self.projects,
+            self.repository,
+            REGISTRY,
+        )
+
+    def test_import_refreshes_short_issue_525_bundle_from_native_tail_and_uses_start_manifest(self) -> None:
+        session_id = "issue-525-session"
+        first_prompt = "Change PR525 to draft, then run /devflow:receiving-code-review 525"
+        records = [
+            self._record(user(first_prompt, "2026-07-15T19:00:00Z")),
+            self._record(
+                skill_call(
+                    "devflow:receiving-code-review",
+                    "525",
+                    "2026-07-15T19:01:00Z",
+                )
+            ),
+            self._record(assistant_text("reviewing", "2026-07-15T19:02:00Z")),
+            self._record(assistant_text("ISSUE-525-NATIVE-FINAL-TAIL", "2026-07-15T19:03:00Z")),
+        ]
+        native = self._native_path(session_id)
+        native.write_bytes(transcript(*records))
+        native.chmod(0o640)
+        source_bytes = native.read_bytes()
+        source_hash = hashlib.sha256(source_bytes).hexdigest()
+        source_mode = native.stat().st_mode & 0o777
+
+        manifest_result = recorder.capture_prompt_manifest(
+            {
+                "session_id": session_id,
+                "cwd": str(self.repository),
+                "transcript_path": str(native),
+                "user_prompt": first_prompt,
+                "model": "claude-start-model",
+                "effort": "high",
+            },
+            REGISTRY,
+        )
+        manifest_path = Path(manifest_result["manifest"])
+        start_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        start_fingerprint = start_manifest["prompt_surfaces"]["fingerprints"]["receiving-code-review"]
+        (self.repository / "skills/review/SKILL.md").write_text(
+            "# changed only after UserPromptSubmit\n",
+            encoding="utf-8",
+        )
+
+        bundle = self.repository.resolve() / ".devflow/tmp/workflow-runs" / session_id
+        bundle.mkdir(parents=True)
+        (bundle / "transcript.jsonl").write_bytes(transcript(*records[:3]))
+        (bundle / "stop-attempts.jsonl").write_text(
+            '{"result":"historical_partial","source":"stop_observer"}\n',
+            encoding="utf-8",
+        )
+        bundle.chmod(0o755)
+        (bundle / "transcript.jsonl").chmod(0o644)
+        (bundle / "stop-attempts.jsonl").chmod(0o644)
+
+        imported = self._import(session_id)
+
+        self.assertEqual(imported, bundle)
+        self.assertTrue(native.is_file())
+        self.assertEqual(native.read_bytes(), source_bytes)
+        self.assertEqual(hashlib.sha256(native.read_bytes()).hexdigest(), source_hash)
+        self.assertEqual(native.stat().st_mode & 0o777, source_mode)
+        destination = bundle / "transcript.jsonl"
+        self.assertEqual(destination.read_bytes(), source_bytes)
+        self.assertEqual(hashlib.sha256(destination.read_bytes()).hexdigest(), source_hash)
+        self.assertIn(b"ISSUE-525-NATIVE-FINAL-TAIL", destination.read_bytes())
+        occurrences = json.loads((bundle / "occurrences.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(occurrences), 1)
+        self.assertEqual(occurrences[0]["workflow"], "receiving-code-review")
+        self.assertEqual(occurrences[0]["mode"], "top-level")
+        self.assertEqual(occurrences[0]["subject"], {"kind": "pull_request", "number": 525})
+        prompt_surfaces = json.loads((bundle / "prompt-surfaces.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            prompt_surfaces["fingerprints"]["receiving-code-review"],
+            start_fingerprint,
+        )
+        summary = json.loads((bundle / "event-summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["model_effort"]["requested_model"], "claude-start-model")
+        self.assertEqual(summary["model_effort"]["requested_model_source"], "user_prompt_submit_payload")
+        self.assertEqual(summary["model_effort"]["requested_effort"], "high")
+        attempts = [
+            json.loads(line)
+            for line in (bundle / "stop-attempts.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(attempts[-1]["source"], "explicit_import")
+        self.assertEqual(attempts[-1]["result"], "captured")
+        self.assertEqual(attempts[-1]["transcript_sha256"], source_hash)
+
+        self.assertEqual(manifest_path.parent.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(manifest_path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(bundle.stat().st_mode & 0o777, 0o700)
+        for artifact in bundle.iterdir():
+            if artifact.is_file():
+                self.assertEqual(artifact.stat().st_mode & 0o777, 0o600, artifact.name)
+
+    def test_cli_imports_issue_522_native_tail_and_warns_when_manifest_is_absent(self) -> None:
+        session_id = "issue-522-session"
+        native = self._native_path(session_id)
+        native.write_bytes(
+            transcript(
+                self._record(user("/implement 522", "2026-07-15T18:00:00Z")),
+                self._record(assistant_text("working", "2026-07-15T18:01:00Z")),
+                self._record(assistant_text("ISSUE-522-NATIVE-FINAL-TAIL", "2026-07-15T18:02:00Z")),
+            )
+        )
+        entry = ROOT / "scripts/import-workflow-transcript.py"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(entry),
+                session_id,
+                "--claude-projects-root",
+                str(self.projects),
+                "--repo-root",
+                str(self.repository),
+                "--registry",
+                str(REGISTRY),
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bundle = self.repository.resolve() / ".devflow/tmp/workflow-runs" / session_id
+        self.assertEqual(Path(result.stdout.strip()), bundle)
+        self.assertIn(b"ISSUE-522-NATIVE-FINAL-TAIL", (bundle / "transcript.jsonl").read_bytes())
+        metadata = json.loads((bundle / "metadata.json").read_text(encoding="utf-8"))
+        self.assertIn(
+            "start manifest unavailable; prompt/config/git metadata measured at import time",
+            metadata["warnings"],
+        )
+
+    def test_missing_and_duplicate_session_ids_fail_without_mutating_sources_or_bundles(self) -> None:
+        duplicate_bytes = transcript(self._record(user("/implement 525")))
+        duplicates = [
+            self._native_path("duplicate-session", "first"),
+            self._native_path("duplicate-session", "second"),
+        ]
+        for path in duplicates:
+            path.write_bytes(duplicate_bytes)
+        before = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in duplicates}
+
+        with self.assertRaisesRegex(ValueError, "exactly one.*missing-session"):
+            self._import("missing-session")
+        self.assertFalse((self.repository / ".devflow/tmp").exists())
+
+        with self.assertRaisesRegex(ValueError, "exactly one.*duplicate-session"):
+            self._import("duplicate-session")
+        self.assertFalse((self.repository / ".devflow/tmp").exists())
+        self.assertEqual(
+            {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in duplicates},
+            before,
+        )
 
 
 class CaptureTests(unittest.TestCase):
