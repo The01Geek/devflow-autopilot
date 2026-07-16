@@ -34,8 +34,18 @@ unset DEVFLOW_GH
 # inherited sentinel survived, devflow_resolve_gh would echo it verbatim (override
 # contract) instead of resolving the fixture-local PATH stub. Exits before any other
 # test so the probe launch stays cheap and can never recurse.
+#
+# PROBE MODE RUNS ZERO TESTS, so it must be impossible to mistake for a green
+# suite: it banners loudly on stderr and exits 3 (a deliberate, distinctive
+# non-zero code). A DEVFLOW_AC13_PROBE value leaked into a CI environment
+# therefore fails the required check loudly instead of passing it with nothing
+# run — the env-triggered fail-open a shadow review pass flagged (issue #533).
 if [ -n "${DEVFLOW_AC13_PROBE:-}" ]; then
-  _p533_d="$(mktemp -d)"
+  echo "ac13-probe: PROBE MODE — the suite ran NO tests (deliberate rc 3; unset DEVFLOW_AC13_PROBE for a real run)" >&2
+  if ! _p533_d="$(mktemp -d)"; then
+    echo "ac13-probe: mktemp -d failed — probe could not run" >&2
+    exit 3
+  fi
   mkdir -p "$_p533_d/bin"
   printf '#!/usr/bin/env bash\necho AC13_PATH_STUB_INVOKED\n' > "$_p533_d/bin/gh"
   chmod +x "$_p533_d/bin/gh"
@@ -43,7 +53,7 @@ if [ -n "${DEVFLOW_AC13_PROBE:-}" ]; then
   _p533_out="$(PATH="$_p533_d/bin:$PATH" "$_p533_cmd" --version 2>/dev/null || true)"
   printf 'ac13-probe: resolved=%s output=%s\n' "$_p533_cmd" "$_p533_out"
   rm -rf "$_p533_d"
-  exit 0
+  exit 3
 fi
 
 # Results are recorded to a file (one PASS/FAIL line each) rather than to shell
@@ -40018,6 +40028,15 @@ assert_eq "#533 AC10: install-gh-wrapper.sh writes no bare DEVFLOW_GH= (only DEV
 for _wf533 in devflow-implement devflow; do
   assert_eq "#533 AC17: $_wf533.yml install step is gated on vars.DEVFLOW_APP_ID" "1" \
     "$(printf '%s\n' "$(mint_blk 'Install fresh-gh wrapper (optional)' "$WF/$_wf533.yml")" | grep -cF "vars.DEVFLOW_APP_ID != ''")"
+  # AC10 whole-workflow guard: no process-global DEVFLOW_GH assignment ANYWHERE
+  # in the file — shell '=' or YAML env ':' form alike (a re-introduction in the
+  # claude step's env: block would re-break fixture PATH stubs exactly like the
+  # original defect, and the install-step-scoped guard above cannot see it).
+  # DEVFLOW_GH_REAL / DEVFLOW_GH_WRAPDIR carry an underscore after GH, so the
+  # [=:] delimiter regex skips them; whole-line comments are stripped so prose
+  # mentioning the retired export cannot false-fire.
+  assert_eq "#533 AC10: $_wf533.yml carries no process-global DEVFLOW_GH assignment anywhere (= or : form, comments stripped)" "0" \
+    "$(grep -vE '^[[:space:]]*#' "$WF/$_wf533.yml" | grep -cE 'DEVFLOW_GH[=:]')"
 done
 
 # AC14 — the seven validated outputs: each induced failure exits 1 with a
@@ -40143,9 +40162,12 @@ assert_eq "#533 AC12: a Python caller honors an explicit DEVFLOW_GH over the PAT
 # AC13 — launch the suite itself with a failing-sentinel DEVFLOW_GH: the harness
 # entry clears it (probe mode exits right after the clear + resolver check), so
 # the fixture-local PATH stub — not the sentinel — is what resolves and runs.
-_ac13="$(DEVFLOW_GH=/nonexistent/failing-sentinel DEVFLOW_AC13_PROBE=1 bash "$LIB/test/run.sh" 2>/dev/null)"
-assert_eq "#533 AC13: suite launched with a failing-sentinel DEVFLOW_GH resolves gh via the fixture PATH stub" "yes" \
-  "$(printf '%s' "$_ac13" | grep -qF 'resolved=gh output=AC13_PATH_STUB_INVOKED' && echo yes || echo no)"
+# Probe mode deliberately exits 3 (a leaked DEVFLOW_AC13_PROBE in a CI env must
+# fail the required check loudly, never pass it green with zero tests run) —
+# assert the rc alongside the resolution so the fail-closed exit is pinned.
+_ac13="$(DEVFLOW_GH=/nonexistent/failing-sentinel DEVFLOW_AC13_PROBE=1 bash "$LIB/test/run.sh" 2>/dev/null)"; _ac13_rc=$?
+assert_eq "#533 AC13: suite launched with a failing-sentinel DEVFLOW_GH resolves gh via the fixture PATH stub (probe exits 3, never a green zero-test suite)" "3 yes" \
+  "$_ac13_rc $(printf '%s' "$_ac13" | grep -qF 'resolved=gh output=AC13_PATH_STUB_INVOKED' && echo yes || echo no)"
 
 # AC22 — planted production defects flip the named assertions RED (copy-based;
 # the working tree is never mutated).

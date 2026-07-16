@@ -261,7 +261,7 @@ installation token and rewrites the two repo-controlled credential surfaces in p
    finds the wrapper when `DEVFLOW_GH` is unset) resolve the fresh token. The install
    step publishes **no** process-global `DEVFLOW_GH` — that env value would persist into
    every later job step and outrank fixture PATH stubs in the repository test suite;
-   `DEVFLOW_GH` remains the explicit caller/test override seam. It discriminates the ambient
+   `DEVFLOW_GH` remains the explicit caller/test override seam. The wrapper discriminates the ambient
    job-start token from a deliberately-fresh backstop mint by fingerprint, so it only
    substitutes the refreshed token where the ambient (expiring) one would be used.
 
