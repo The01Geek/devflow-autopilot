@@ -12621,6 +12621,284 @@ assert_eq "#152: actionable-patterns carries the meta-title slug regex" "yes" \
   "$(grep -qF 'meta: (?<slug>' "$LIB/actionable-patterns.sh" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "recurring-targets.sh / recurring-targets.jq (#520)"
+# ────────────────────────────────────────────────────────────────────────────
+# Report-only "Recurring intervention targets" view: groups every accumulated
+# entry's suggested_interventions[].candidate_targets[] by exact target path and
+# emits the targets named in >= 2 DISTINCT PRs. Helper takes only the jsonl path
+# (no overrides arg), so dismissal state cannot affect it by construction.
+RT_TMP="$(mktemp -d)"
+rt_run() {  # <jsonl-content-on-stdin> → helper stdout
+  cat > "$RT_TMP/r.jsonl"
+  bash "$LIB/recurring-targets.sh" "$RT_TMP/r.jsonl"
+}
+
+# AC: a target in >= 2 PRs surfaces; a target in exactly 1 PR does not.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"fix A","candidate_targets":["lib/x.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"fix B","candidate_targets":["lib/x.sh","lib/solo.sh"]}]}
+JSONL
+)"
+assert_eq "#520: target in 2 PRs surfaces"          "true"  "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/x.sh")')"
+assert_eq "#520: target's pr_count is 2"            "2"     "$(echo "$RT_OUT" | jq -r '.[] | select(.target=="lib/x.sh") | .pr_count')"
+assert_eq "#520: target's prs list ascending"      "1,2"   "$(echo "$RT_OUT" | jq -r '.[] | select(.target=="lib/x.sh") | .prs | join(",")')"
+assert_eq "#520: single-PR target absent (1<2)"     "false" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/solo.sh")')"
+assert_eq "#520: representative_summary = earliest PR" "fix A" "$(echo "$RT_OUT" | jq -r '.[] | select(.target=="lib/x.sh") | .representative_summary')"
+
+# AC: representative_summary tiebreak within the EARLIEST PR is document-order-first
+# — when the earliest PR names the target through TWO interventions, the first
+# intervention's summary wins (sort_by(.pr) is stable, so $g[0] is the earliest-PR,
+# earliest-intervention record). Guards the "then intervention document order" clause.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"first-iv","candidate_targets":["lib/z.sh"]},{"summary":"second-iv","candidate_targets":["lib/z.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"later-pr-iv","candidate_targets":["lib/z.sh"]}]}
+JSONL
+)"
+assert_eq "#520: representative_summary tiebreak = earliest-PR, earliest-intervention" "first-iv" "$(echo "$RT_OUT" | jq -r '.[] | select(.target=="lib/z.sh") | .representative_summary')"
+
+# AC: pr_count counts DISTINCT PRs — a target named twice within one PR (across
+# two interventions) contributes 1, so a same-PR-twice target does NOT surface.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":7,"verdict":"imperfect","suggested_interventions":[{"summary":"one","candidate_targets":["lib/dup.sh"]},{"summary":"two","candidate_targets":["lib/dup.sh"]}]}
+JSONL
+)"
+assert_eq "#520: same target twice in one PR counts as 1 PR (absent)" "false" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/dup.sh")')"
+
+# AC: // []-guards — an entry missing suggested_interventions, one carrying [],
+# and an intervention missing candidate_targets each contribute nothing and never
+# throw; a genuine 2-PR target alongside them still surfaces.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect"}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"clean","suggested_interventions":[]}
+{"schema_version":2,"kind":"implementation","pr":3,"verdict":"imperfect","suggested_interventions":[{"summary":"no targets here"}]}
+{"schema_version":2,"kind":"implementation","pr":4,"verdict":"imperfect","suggested_interventions":[{"summary":"g","candidate_targets":["lib/g.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":5,"verdict":"imperfect","suggested_interventions":[{"summary":"g2","candidate_targets":["lib/g.sh"]}]}
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: missing-field entries skipped without throwing (rc 0)" "0" "$RT_RC"
+assert_eq "#520: surviving 2-PR target still surfaces"                  "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/g.sh")')"
+assert_eq "#520: only the genuine recurring target is present"          "1"    "$(echo "$RT_OUT" | jq 'length')"
+
+# Guard-class 2: a non-string candidate_targets element (agent-written store) is
+# dropped by the `strings` filter, never emitted as a target and never able to
+# perturb the sort's type ordering — while a genuine 2-PR string target surfaces.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"n","candidate_targets":[42,"lib/s.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"n2","candidate_targets":[null,"lib/s.sh"]}]}
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: non-string candidate_target dropped (rc 0)"  "0"    "$RT_RC"
+assert_eq "#520: string target still surfaces"                "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/s.sh")')"
+assert_eq "#520: no non-string target emitted"                "0"    "$(echo "$RT_OUT" | jq '[.[] | select((.target|type) != "string")] | length')"
+
+# AC: an empty-string candidate_target (a real string that passes `strings`) is
+# dropped by the SEPARATE `select(. != "")` guard — never emitted as a blank-target
+# bullet — while a genuine 2-PR string target still surfaces. Distinct from the
+# non-string case above: "" is a string, so `strings` alone would keep it.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"e","candidate_targets":["","lib/real.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"e2","candidate_targets":["","lib/real.sh"]}]}
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: empty-string candidate_target dropped (rc 0)" "0"    "$RT_RC"
+assert_eq "#520: string target still surfaces past empty filter" "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/real.sh")')"
+assert_eq "#520: no empty-string target emitted"              "0"    "$(echo "$RT_OUT" | jq '[.[] | select(.target=="")] | length')"
+
+# Guard-class 2 (container type): retrospectives.jsonl is agent-written, so an entry
+# or either container field can arrive WRONG-TYPED (not just missing). `// []` only
+# fires on null — a present string/number/object would detonate the `[]` iterator
+# (jq "Cannot iterate over …", rc 5), which under the SKILL's `set -euo pipefail`
+# wiring empties RECURRING_TARGETS_JSON and breaks the whole `--argjson` report build.
+# `objects`/`arrays` container guards must make each wrong-typed shape contribute
+# nothing at rc 0. Each row: a malformed entry + a genuine 2-PR target that survives.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"n","candidate_targets":"lib/bare-string.sh"}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":"oops-not-an-array"}
+{"schema_version":2,"kind":"implementation","pr":3,"verdict":"imperfect","suggested_interventions":["not-an-object"]}
+{"schema_version":2,"kind":"implementation","pr":4,"verdict":"imperfect","suggested_interventions":[{"summary":"n","candidate_targets":5}]}
+{"schema_version":2,"kind":"implementation","pr":5,"verdict":"imperfect","suggested_interventions":[{"summary":"g","candidate_targets":["lib/good.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":6,"verdict":"imperfect","suggested_interventions":[{"summary":"g2","candidate_targets":["lib/good.sh"]}]}
+5
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: wrong-typed containers fail closed (rc 0)"   "0"    "$RT_RC"
+assert_eq "#520: wrong-typed rows contribute no target"       "0"    "$(echo "$RT_OUT" | jq '[.[] | select(.target|IN("lib/bare-string.sh"))] | length')"
+assert_eq "#520: genuine target survives wrong-typed siblings" "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/good.sh")')"
+assert_eq "#520: only the genuine target present amid malformed rows" "1" "$(echo "$RT_OUT" | jq 'length')"
+
+# Guard-class 2 (field type): `.summary` is agent-written, so it can arrive
+# WRONG-TYPED (number/object/array), not just missing. `(.summary // "")` alone
+# only substitutes for null/false — a non-string summary would flow through as
+# `representative_summary` and detonate render-report.sh's `gsub("\n";" ")` (jq
+# rc 5 on a non-string) under its `set -euo pipefail`, aborting the whole render.
+# `((.summary | strings) // "")` must coerce every non-string summary to "" so the
+# emitted `representative_summary` is ALWAYS a string. (issue #520)
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":42,"candidate_targets":["lib/nst.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":{"o":"bj"},"candidate_targets":["lib/nst.sh"]}]}
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: non-string summary does not throw (rc 0)"    "0"    "$RT_RC"
+assert_eq "#520: non-string summary target still surfaces"    "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/nst.sh")')"
+assert_eq "#520: non-string summary coerced to string representative_summary" "true" "$(echo "$RT_OUT" | jq '[.[] | select((.representative_summary|type) != "string")] | length == 0')"
+
+# AC: `select(.pr | numbers)` — only a NUMBER-typed `.pr` contributes. A pr-less
+# entry (defensive: the store otherwise guarantees `pr`, so this is a malformed /
+# hand-corrupted line) naming a target that ONE real PR also names must NOT inflate
+# that target to pr_count 2.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","verdict":"imperfect","suggested_interventions":[{"summary":"noid","candidate_targets":["lib/onlyone.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":7,"verdict":"imperfect","suggested_interventions":[{"summary":"real","candidate_targets":["lib/onlyone.sh"]}]}
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: pr-less entry skipped (rc 0)"                "0"    "$RT_RC"
+assert_eq "#520: pr-less entry does not inflate to a distinct PR" "false" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/onlyone.sh")')"
+
+# AC: a WRONG-TYPED `pr` (agent-written string "7" instead of int 7) is dropped, not
+# counted as a PR distinct from the numeric 7 — otherwise a single real PR whose
+# target a string-pr sibling also names would falsely surface as pr_count 2.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":"7","verdict":"imperfect","suggested_interventions":[{"summary":"strpr","candidate_targets":["lib/onlyone.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":7,"verdict":"imperfect","suggested_interventions":[{"summary":"real","candidate_targets":["lib/onlyone.sh"]}]}
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: string pr dropped (rc 0)"                    "0"    "$RT_RC"
+assert_eq "#520: string pr does not inflate a numeric PR's count" "false" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/onlyone.sh")')"
+
+# AC: primary sort key is DESCENDING pr_count — a more-recurring target ranks first.
+# Target A recurs in 3 distinct PRs, target B in 2; A must precede B. The determinism
+# fixture below only has equal-count targets, so it exercises the .target secondary
+# tiebreak only — this fixture is the one that would catch a `-.pr_count` sign flip.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"a","candidate_targets":["lib/aaa.sh","lib/bbb.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"a","candidate_targets":["lib/aaa.sh","lib/bbb.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":3,"verdict":"imperfect","suggested_interventions":[{"summary":"a","candidate_targets":["lib/aaa.sh"]}]}
+JSONL
+)"
+assert_eq "#520: A(3 PRs) pr_count is 3"                       "3"    "$(echo "$RT_OUT" | jq -r '.[] | select(.target=="lib/aaa.sh") | .pr_count')"
+assert_eq "#520: primary sort desc pr_count (A before B)"     "lib/aaa.sh,lib/bbb.sh" "$(echo "$RT_OUT" | jq -r '[.[].target] | join(",")')"
+
+# AC: determinism — same input twice → byte-identical output.
+RT_DET_IN='{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"a","candidate_targets":["lib/a.sh","lib/b.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"b","candidate_targets":["lib/a.sh","lib/b.sh"]}]}'
+printf '%s\n' "$RT_DET_IN" > "$RT_TMP/det.jsonl"
+RT_D1="$(bash "$LIB/recurring-targets.sh" "$RT_TMP/det.jsonl")"
+RT_D2="$(bash "$LIB/recurring-targets.sh" "$RT_TMP/det.jsonl")"
+assert_eq "#520: deterministic (byte-identical on repeat)" "yes" "$([ "$RT_D1" = "$RT_D2" ] && echo yes || echo no)"
+assert_eq "#520: sort is pr_count desc then target asc"    "lib/a.sh,lib/b.sh" "$(echo "$RT_D1" | jq -r '[.[].target] | join(",")')"
+
+# AC: surfaces regardless of overrides.json dismissal — the entries carry a
+# `categories` slug that this repo dismisses; the helper ignores categories
+# entirely (no overrides arg), so the target still surfaces.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","categories":["dismissed-cat"],"suggested_interventions":[{"summary":"d","candidate_targets":["lib/dismissed.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","categories":["dismissed-cat"],"suggested_interventions":[{"summary":"d2","candidate_targets":["lib/dismissed.sh"]}]}
+JSONL
+)"
+assert_eq "#520: dismissed-category target still surfaces (report-only)" "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/dismissed.sh")')"
+
+# AC: empty / absent retrospectives.jsonl → [] with no error (fresh / consumer repo).
+RT_EMPTY="$(bash "$LIB/recurring-targets.sh" "$RT_TMP/does-not-exist-$$.jsonl")"; RT_EMPTY_RC=$?
+assert_eq "#520: absent store → [] (rc 0)"  "0"  "$RT_EMPTY_RC"
+assert_eq "#520: absent store → empty array" "0" "$(echo "$RT_EMPTY" | jq 'length')"
+: > "$RT_TMP/empty.jsonl"
+assert_eq "#520: empty store → empty array" "0" "$(bash "$LIB/recurring-targets.sh" "$RT_TMP/empty.jsonl" | jq 'length')"
+
+# AC: real-retrospectives.jsonl-SHAPED fixture (full entry shape, real multi-PR
+# candidate_targets — NOT hand-authored identical stubs) asserts the report
+# section renders NON-EMPTY — the anti-"green-suite/empty-production" guard.
+cat > "$RT_TMP/real.jsonl" <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":62,"issue":61,"merged_at":"2026-05-27T13:35:11Z","branch":"issue-61-x","head_sha":"85a6394","merge_commit_sha":"0469798","verdict":"imperfect","categories":["incomplete-edit","lenient-verdict"],"descriptors":["holes the standalone cloud review flagged Critical"],"signals":{"review_comments_count":0,"post_bot_commits":12,"workpad_final_status":"Complete"},"summary":"PR #62 hardened the shadow pass.","suggested_interventions":[{"summary":"Strengthen the review-and-fix loop-exit contract so a run that exits at the iteration cap with unresolved shadow findings does not present as clean.","candidate_targets":["skills/review-and-fix/SKILL.md","docs/shadow-review.md"],"change_type":"skill-update","confidence":"medium"}]}
+{"schema_version":2,"kind":"implementation","pr":91,"issue":90,"merged_at":"2026-06-02T09:10:00Z","branch":"issue-90-y","head_sha":"aa11bb2","merge_commit_sha":"cc33dd4","verdict":"imperfect","categories":["convention-violation"],"descriptors":["skill edit shipped without the writing-skills gate"],"signals":{"review_comments_count":2,"post_bot_commits":4,"workpad_final_status":"Complete"},"summary":"PR #91 tightened the fix loop.","suggested_interventions":[{"summary":"Add a tripwire so the fix loop cannot approve while shadow findings remain unresolved.","candidate_targets":["skills/review-and-fix/SKILL.md"],"change_type":"skill-update","confidence":"high"}]}
+JSONL
+( . "$LIB/render-report.sh"
+  RT_REAL="$(bash "$LIB/recurring-targets.sh" "$RT_TMP/real.jsonl")"
+  RT_SUM="$(jq -nc --argjson rt "$RT_REAL" '{prs_scanned:2,clean_count:0,analyzed_count:2,recurring_targets:$rt,intervention_issues:[]}')"
+  RT_REPORT="$(devflow_render_report "$RT_SUM")"
+  assert_eq "#520: real-shaped fixture renders the section"        "true" "$(echo "$RT_REPORT" | grep -q '## Recurring intervention targets' && echo true || echo false)"
+  assert_eq "#520: real-shaped fixture surfaces the recurring target" "true" "$(echo "$RT_REPORT" | grep -qF 'skills/review-and-fix/SKILL.md' && echo true || echo false)"  # raw-guard-ok: greps the rendered report output for a recurring target path that happens to contain 'SKILL.md'; not a SKILL-file guard
+  # omit-when-empty: no recurring target → no section header.
+  RT_SUM_EMPTY='{"prs_scanned":1,"clean_count":1,"analyzed_count":0,"recurring_targets":[],"intervention_issues":[]}'
+  assert_eq "#520: section omitted when no recurring target" "false" "$(devflow_render_report "$RT_SUM_EMPTY" | grep -q '## Recurring intervention targets' && echo true || echo false)"
+
+  # render-report line-format coverage — the recurring-target bullet exercises
+  # three render branches none of the fixtures above reach:
+  #   (a) the exact `N PRs (#a, #b)` prs-list bullet text,
+  #   (b) gsub("\n";" ") newline-flatten of an embedded newline, and
+  #   (c) the length>220 ellipsis truncation.
+  # Build one target carrying all three (prs 62,91; a summary with a newline that
+  # is also >220 chars so truncation applies to the flattened form).
+  # Build the summary inside jq so the "\n" is a REAL embedded newline (a shell
+  # $(printf '\n') would be stripped by command substitution) and the x-run is >220.
+  RT_RT_FMT="$(jq -nc '[{target:"lib/fmt.sh",pr_count:2,prs:[62,91],representative_summary:("line one\nand " + ("x"*300) + " tail")}]')"
+  RT_SUM_FMT="$(jq -nc --argjson rt "$RT_RT_FMT" '{prs_scanned:2,clean_count:0,analyzed_count:0,recurring_targets:$rt,intervention_issues:[]}')"
+  RT_FMT_LINE="$(devflow_render_report "$RT_SUM_FMT" | grep -F '`lib/fmt.sh`')"
+  # (a) exact prs-list bullet text.
+  assert_eq "#520: prs-list bullet renders '2 PRs (#62, #91)'" "true" "$(echo "$RT_FMT_LINE" | grep -qF '2 PRs (#62, #91)' && echo true || echo false)"
+  # (b) the embedded newline is flattened — the text before and after the newline
+  # ("line one" / "and xxx…") land on the SAME bullet line as "line one and ".
+  # If gsub did not flatten, "and …" would be on a separate line and this fails.
+  assert_eq "#520: embedded newline flattened onto the bullet line" "true" "$(echo "$RT_FMT_LINE" | grep -qF 'line one and ' && echo true || echo false)"
+  # (c) >220-char summary is ellipsis-truncated (the "…" appears; the full 300-x
+  # run cannot survive, so the bullet is shorter than the raw summary).
+  assert_eq "#520: >220-char representative_summary is ellipsis-truncated" "true" "$(echo "$RT_FMT_LINE" | grep -qF '…' && echo true || echo false)"
+  assert_eq "#520: truncated bullet drops the un-truncatable full x-run" "false" "$(echo "$RT_FMT_LINE" | grep -qF 'tail' && echo true || echo false)"
+
+  # render-report re-sorts recurring_targets itself (its comment: "never depends on
+  # the caller pre-sorting"). Feed a DELIBERATELY reverse-ordered 2-target array
+  # (the 2-PR target listed before the 3-PR target) and assert the rendered bullet
+  # order is pr_count-descending — the render-side analogue of the helper's A-before-B
+  # test, so a sign flip in render-report's own sort_by is caught, not just the jq's.
+  RT_RT_SORT="$(jq -nc '[{target:"lib/low.sh",pr_count:2,prs:[1,2],representative_summary:"low"},{target:"lib/high.sh",pr_count:3,prs:[1,2,3],representative_summary:"high"}]')"
+  RT_SUM_SORT="$(jq -nc --argjson rt "$RT_RT_SORT" '{prs_scanned:3,clean_count:0,analyzed_count:0,recurring_targets:$rt,intervention_issues:[]}')"
+  RT_SORT_ORDER="$(devflow_render_report "$RT_SUM_SORT" | grep -oE 'lib/(high|low)\.sh' | paste -sd, -)"
+  assert_eq "#520: render-report re-sorts to pr_count desc (high before low)" "lib/high.sh,lib/low.sh" "$RT_SORT_ORDER"
+)
+rm -rf "$RT_TMP"
+
+# Behavioral-fix pins (#520) — each mutates the operative jq to reintroduce the
+# guarded regression, proving the pin (and the behavioral asserts above) catch it.
+RT_JQ="$LIB/recurring-targets.jq"
+# The >= 2 distinct-PR threshold: dropping it to >= 1 would surface single-PR targets.
+assert_pin_red_under "#520: >= 2 distinct-PR threshold pinned" \
+  'map(select(.pr_count >= 2))' 's/\.pr_count >= 2/.pr_count >= 1/' "$RT_JQ"
+# Distinct-PR counting via `unique`: removing it would count non-distinct PRs.
+assert_pin_red_under "#520: distinct-PR (unique) pinned" \
+  'prs: ([ $g[].pr ] | unique)' 's/ \| unique\)/)/' "$RT_JQ"
+# The suggested_interventions guard (`// [] | arrays`): stripping it to a bare field
+# access throws on a missing OR wrong-typed field (null/string/number → not iterable).
+assert_pin_red_under "#520: suggested_interventions container guard pinned" \
+  '(.suggested_interventions // [] | arrays)[]' 's#\.suggested_interventions // \[\] | arrays#.suggested_interventions#' "$RT_JQ"
+# The candidate_targets guard (`// [] | arrays`): same — bare access throws on a
+# missing or wrong-typed (string/number) container instead of failing closed.
+assert_pin_red_under "#520: candidate_targets container guard pinned" \
+  '(.candidate_targets // [] | arrays)[]' 's#\.candidate_targets // \[\] | arrays#.candidate_targets#' "$RT_JQ"
+# Deterministic tiebreak: dropping the .target secondary key makes sort order unstable.
+assert_pin_red_under "#520: deterministic sort tiebreak pinned" \
+  'sort_by([ -.pr_count, .target ])' 's/sort_by\(\[ -\.pr_count, \.target \]\)/sort_by([ -.pr_count ])/' "$RT_JQ"
+# render-report's OWN re-sort sign (its self-contained mirror of the jq's canonical
+# key): flipping `-(.pr_count // 0)` to ascending would mis-order the rendered report.
+assert_pin_red_under "#520: render-report re-sort sign pinned" \
+  'sort_by([-(.pr_count // 0), .target])' 's/\[-\(\.pr_count/[(.pr_count/' "$LIB/render-report.sh"
+# Primary sort SIGN: flipping `-.pr_count` to `.pr_count` ranks the most-recurring
+# target LAST, silently mis-ordering the report (the A-before-B fixture catches it).
+assert_pin_red_under "#520: primary sort desc pr_count pinned" \
+  'sort_by([ -.pr_count, .target ])' 's/sort_by\(\[ -\.pr_count, \.target \]\)/sort_by([ .pr_count, .target ])/' "$RT_JQ"
+# Empty-string target guard: dropping `select(. != "")` would emit a blank-target bullet.
+assert_pin_red_under "#520: empty-string target guard pinned" \
+  'select(. != "")' 's/ *\| select\(\. != ""\)//' "$RT_JQ"
+# The pr-identity/type guard: relaxing `select(.pr | numbers)` to the null-only
+# `select(.pr != null)` lets a wrong-typed string pr through, inflating distinct-PR
+# counts (string "7" counted separately from numeric 7).
+assert_pin_red_under "#520: pr numbers identity guard pinned" \
+  'select(.pr | numbers)' 's/select\(\.pr | numbers\)/select(.pr != null)/' "$RT_JQ"
+# The summary type guard: relaxing `(.summary | strings) // ""` back to the bare
+# `(.summary // "")` lets a non-string summary reach representative_summary and
+# detonate render-report.sh's gsub — the non-string-summary fixture catches it.
+assert_pin_red_under "#520: summary strings type guard pinned" \
+  '((.summary | strings) // "")' 's#\(\.summary \| strings\) // ""#.summary // ""#' "$RT_JQ"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "clean-entry.jq / actionable-patterns.sh"
 # ────────────────────────────────────────────────────────────────────────────
 CTX_CLEAN='{"pr":42,"kind":"implementation","issue_number":40,"merged_at":"2026-05-01T00:00:00Z","branch":"claude/issue-40-x","head_sha":"abc","merge_commit_sha":"def","signals":{"review_comments_count":0,"post_bot_commits":0,"ci_failures_during_pr":0,"workpad_final_status":"Complete","review_reject_outstanding":false}}'
