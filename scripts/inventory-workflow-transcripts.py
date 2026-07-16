@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
 """Inventory native Claude workflow transcripts without modifying them."""
 
 from __future__ import annotations
