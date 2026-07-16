@@ -1089,6 +1089,141 @@ def _provider_classification() -> dict[str, Any]:
     return {"value": None, "source": None}
 
 
+def _prompt_candidate(
+    prompt: str,
+    definitions: dict[str, WorkflowDefinition],
+) -> tuple[WorkflowDefinition, str, str] | None:
+    """Return one provisional command candidate without retaining prompt prose."""
+    markup = COMMAND_MARKUP.search(prompt)
+    if markup:
+        invocation = _user_invocation(prompt, definitions)
+        if invocation is None:
+            return None
+        return invocation[0], invocation[1], "command_markup"
+
+    direct = _user_invocation(prompt, definitions)
+    if direct:
+        return direct[0], direct[1], "exact_user_command"
+
+    matches: list[tuple[re.Match[str], WorkflowDefinition]] = []
+    for definition in definitions.values():
+        for command in definition.user_commands:
+            pattern = rf"(?<![A-Za-z0-9:_-]){re.escape(command)}(?![A-Za-z0-9:_-])"
+            matches.extend((match, definition) for match in re.finditer(pattern, prompt))
+    if len(matches) != 1:
+        return None
+    match, definition = matches[0]
+    invocation = _user_invocation(prompt[match.start() :], definitions)
+    if invocation is None or invocation[0].workflow != definition.workflow:
+        return None
+    return definition, invocation[1], "embedded_user_command_candidate"
+
+
+def _plugin_version(root: Path) -> dict[str, Any]:
+    try:
+        document = json.loads((root / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"value": None, "source": None}
+    version = document.get("version") if isinstance(document, dict) else None
+    if not isinstance(version, str) or not version:
+        return {"value": None, "source": None}
+    return {"value": version, "source": "plugin_manifest"}
+
+
+def capture_prompt_manifest(payload: dict[str, Any], registry_path: Path) -> dict[str, Any]:
+    """Capture start metadata for one provisional workflow without reading its transcript."""
+    if not isinstance(payload, dict):
+        raise ValueError("UserPromptSubmit payload must be a JSON object")
+    session_id = payload.get("session_id")
+    if not isinstance(session_id, str) or not SAFE_ID.fullmatch(session_id):
+        raise ValueError("session_id is missing or unsafe")
+    transcript_path = payload.get("transcript_path")
+    if not isinstance(transcript_path, str) or not transcript_path:
+        raise ValueError("transcript_path is missing")
+    cwd_value = payload.get("cwd")
+    if not isinstance(cwd_value, str) or not Path(cwd_value).is_dir():
+        raise ValueError("cwd is missing or is not an existing directory")
+    prompt = payload.get("user_prompt") if "user_prompt" in payload else payload.get("prompt")
+    if not isinstance(prompt, str):
+        raise ValueError("user_prompt or prompt is missing")
+
+    definitions = load_registry(registry_path)
+    candidate = _prompt_candidate(prompt, definitions)
+    if candidate is None:
+        return {"captured": False, "session_id": session_id}
+    definition, args, invocation_evidence = candidate
+
+    cwd = Path(cwd_value).resolve()
+    git_root = _run_git(cwd, "rev-parse", "--show-toplevel")
+    root = Path(git_root).resolve() if git_root else cwd
+    storage_root, storage_root_source = _shared_storage_root(root)
+    head_sha = _run_git(root, "rev-parse", "HEAD")
+    branch = _run_git(root, "branch", "--show-current")
+    status = _run_git(root, "status", "--porcelain")
+    dirty_tree = None if status is None and head_sha is None else bool(status)
+
+    occurrence = Occurrence(
+        occurrence_id=f"{definition.workflow}-provisional",
+        workflow=definition.workflow,
+        mode="top-level",
+        parent_occurrence_id=None,
+        subject=_subject(definition, args),
+        invocation_source=invocation_evidence,
+        start_event=0,
+        started_at=None,
+        start_timestamp_source=None,
+    )
+    prompt_surfaces, _ = measure_prompt_surfaces(root, definitions, [occurrence])
+    requested_model = payload.get("model")
+    requested_effort = payload.get("effort")
+    if not isinstance(requested_model, str) or not requested_model:
+        requested_model = None
+    if not isinstance(requested_effort, str) or not requested_effort:
+        requested_effort = None
+    claude_code_version = payload.get("claude_code_version")
+    version_source = "user_prompt_submit_payload"
+    if not isinstance(claude_code_version, str) or not claude_code_version:
+        claude_code_version = os.environ.get("CLAUDE_CODE_VERSION") or None
+        version_source = "environment" if claude_code_version else None
+
+    manifest = {
+        "schema_version": 1,
+        "session_id": session_id,
+        "native_transcript_path": transcript_path,
+        "submitted_at": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
+            "+00:00", "Z"
+        ),
+        "cwd": str(cwd),
+        "candidate": {
+            "workflow": definition.workflow,
+            "subject": _inventory_subject(_subject(definition, args)),
+            "invocation_evidence": invocation_evidence,
+            "provisional": True,
+        },
+        "repository_root": str(root),
+        "storage_root": str(storage_root),
+        "storage_root_source": storage_root_source,
+        "git": {"head_sha": head_sha, "branch": branch, "dirty_tree": dirty_tree},
+        "devflow_version": _plugin_version(root),
+        "claude_configuration": _claude_configuration(root),
+        "claude_code_version": {"value": claude_code_version, "source": version_source},
+        "provider": _provider_classification(),
+        "model_effort": {
+            "requested_model": requested_model,
+            "requested_model_source": "user_prompt_submit_payload" if requested_model else None,
+            "requested_effort": requested_effort,
+            "requested_effort_source": "user_prompt_submit_payload" if requested_effort else None,
+        },
+        "prompt_surfaces": prompt_surfaces,
+        "warnings": ["embedded command candidates require native transcript corroboration"]
+        if invocation_evidence == "embedded_user_command_candidate"
+        else [],
+    }
+    path = storage_root / ".devflow/tmp/workflow-manifests" / f"{session_id}.json"
+    _atomic_write(path, _json_bytes(manifest))
+    return {"captured": True, "session_id": session_id, "manifest": str(path)}
+
+
 def _append_jsonl(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
@@ -1190,6 +1325,18 @@ def fail_open_main(registry_path: Path, stream: Any = sys.stdin) -> int:
     except Exception as exc:  # Stop observers must never block the session they observe.
         print(
             f"devflow: implement-flight-recorder: workflow-flight-recorder: {str(exc) or exc.__class__.__name__}",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def fail_open_manifest_main(registry_path: Path, stream: Any = sys.stdin) -> int:
+    try:
+        payload = json.load(stream)
+        capture_prompt_manifest(payload, registry_path)
+    except Exception as exc:  # UserPromptSubmit observers must never block the prompt.
+        print(
+            f"devflow: workflow-manifest-observer: {str(exc) or exc.__class__.__name__}",
             file=sys.stderr,
         )
     return 0
