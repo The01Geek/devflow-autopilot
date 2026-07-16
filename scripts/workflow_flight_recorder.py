@@ -209,6 +209,29 @@ def parse_events(raw: bytes) -> list[Event]:
     return events
 
 
+def first_authoritative_user_event(events: list[Event]) -> Event | None:
+    """Return the first effective user record that contains non-empty user text."""
+    for event in events:
+        authoritative_role = event.role or (
+            event.raw.get("type") if isinstance(event.raw.get("type"), str) else None
+        )
+        if authoritative_role != "user":
+            continue
+        message = event.raw.get("message")
+        content = message.get("content") if isinstance(message, dict) else event.raw.get("content")
+        if isinstance(content, str) and content.strip():
+            return event
+        if isinstance(content, list) and any(
+            isinstance(item, dict)
+            and item.get("type") == "text"
+            and isinstance(item.get("text"), str)
+            and bool(item["text"].strip())
+            for item in content
+        ):
+            return event
+    return None
+
+
 def _user_invocation(text: str, definitions: dict[str, WorkflowDefinition]) -> tuple[WorkflowDefinition, str] | None:
     markup = COMMAND_MARKUP.search(text)
     if markup:
@@ -296,6 +319,60 @@ def detect_occurrences(events: list[Event], definitions: dict[str, WorkflowDefin
                 if invocation:
                     add(invocation[0], event, "nested", "assistant_skill_tool", invocation[1])
     return occurrences
+
+
+def classify_inventory_occurrences(
+    events: list[Event], definitions: dict[str, WorkflowDefinition]
+) -> list[Occurrence]:
+    """Classify only the workflow rooted in the first authoritative user message."""
+    first_user = first_authoritative_user_event(events)
+    if first_user is None:
+        return []
+
+    occurrences = detect_occurrences(events, definitions)
+    direct = _user_invocation(first_user.text, definitions)
+    if direct:
+        expected_subject = _subject(direct[0], direct[1])
+        return [
+            occurrence
+            for occurrence in occurrences
+            if occurrence.mode == "top-level"
+            and occurrence.start_event == first_user.index
+            and occurrence.workflow == direct[0].workflow
+            and occurrence.subject == expected_subject
+        ][:1]
+
+    command_matches: list[tuple[re.Match[str], WorkflowDefinition]] = []
+    for definition in definitions.values():
+        for command in definition.user_commands:
+            pattern = rf"(?<![A-Za-z0-9:_-]){re.escape(command)}(?![A-Za-z0-9:_-])"
+            command_matches.extend(
+                (match, definition) for match in re.finditer(pattern, first_user.text)
+            )
+    if len(command_matches) != 1:
+        return []
+
+    command_match, definition = command_matches[0]
+    embedded = _user_invocation(first_user.text[command_match.start() :], definitions)
+    if embedded is None or embedded[0].workflow != definition.workflow:
+        return []
+    expected_subject = _subject(definition, embedded[1])
+    for occurrence in occurrences:
+        if (
+            occurrence.mode == "nested"
+            and occurrence.start_event > first_user.index
+            and occurrence.workflow == definition.workflow
+            and occurrence.subject == expected_subject
+        ):
+            occurrence.mode = "top-level"
+            occurrence.parent_occurrence_id = None
+            occurrence.invocation_source = "embedded_user_command_corroborated"
+            occurrence.start_event = first_user.index
+            occurrence.started_at = first_user.timestamp
+            occurrence.start_timestamp_source = "transcript_event" if first_user.timestamp else None
+            occurrence.preceding_context_events = first_user.index
+            return [occurrence]
+    return []
 
 
 def _completion_workflow(event: Event) -> str | None:

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "workflows": {
     "implement": {
-      "user_commands": ["/devflow:implement"],
+      "user_commands": ["/devflow:implement", "/implement"],
       "skill_aliases": ["implement", "devflow:implement"],
       "subject_kind": "issue",
       "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
@@ -17,7 +17,7 @@
       ]
     },
     "create-issue": {
-      "user_commands": ["/devflow:create-issue"],
+      "user_commands": ["/devflow:create-issue", "/create-issue"],
       "skill_aliases": ["create-issue", "devflow:create-issue"],
       "subject_kind": "topic",
       "argument_pattern": null,
@@ -40,7 +40,7 @@
       ]
     },
     "review-and-fix": {
-      "user_commands": ["/devflow:review-and-fix"],
+      "user_commands": ["/devflow:review-and-fix", "/review-and-fix"],
       "skill_aliases": ["review-and-fix", "devflow:review-and-fix"],
       "subject_kind": "pull_request",
       "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
