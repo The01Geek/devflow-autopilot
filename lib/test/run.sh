@@ -30144,7 +30144,7 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last changes: #484 authenticates fixed-path snapshots + rejects truncated records, then #503 rejected-review hardening added empty-base handling plus the checked head-override candidate/promote producer — the comment fetch still writes via an in-workspace redirect, NOT a tee, so gh's own exit status survives)" \
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last changes: #484 authenticates fixed-path snapshots + rejects truncated records, then #503 rejected-review hardening added empty-base handling plus the checked head-override candidate/promote producer — which stages via >-redirect candidates + awk/sed filter and a cat publish, adding no tee head)" \
   "134" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
@@ -32776,9 +32776,12 @@ assert_pin_unique "#424 (item 6a) recomputes at the POST-fix HEAD, not the cache
 assert_pin_red_under "#424 (item 6a): reverting the base to the stale run-start \$PR_BASE_SHA re-introduces the base-content leak" \
   'git diff "$REVIEW_DIFF_BASE...HEAD"' \
   's#\$REVIEW_DIFF_BASE#${PR_BASE_SHA:-origin/main}#' "$SP_RAF"
-assert_pin_red_under "#503 item-6a refuses to reconstruct a deleted PR base after Phase 0.2 selected the retained SHA" \
-  'if test -z "${HEAD_OVERRIDE_BASE:-}"; then' \
-  '/if test -z "\${HEAD_OVERRIDE_BASE:-}"; then/d' "$SP_RAF"
+assert_pin_red_under "#503 item-6a keys mode on the carried HEAD_OVERRIDE_BASE operand (operand-first: a carried operand — incl. a deleted-base retained SHA — is honored even without the PR_BASE_BRANCH signal)" \
+  'if test -n "${HEAD_OVERRIDE_BASE:-}"; then' \
+  '/if test -n "\${HEAD_OVERRIDE_BASE:-}"; then/d' "$SP_RAF"
+assert_pin_red_under "#503 item-6a fails closed (exit 65) when PR-mode is signaled but Phase 0.2's operand was not carried — never silently falls to the current-branch base" \
+  'elif test -n "${PR_BASE_BRANCH:-}"; then' \
+  '/elif test -n "\${PR_BASE_BRANCH:-}"; then/d' "$SP_RAF"
 # Producer-failure detection (#424 review Suggestion 1): a failing `git diff` must not
 # pipe empty stdout into the helper and read as a clean pass.
 assert_pin_unique "#424 (item 6a) fence sets pipefail so a producer/helper failure is not read as clean" \
@@ -33116,6 +33119,14 @@ assert_eq "#503 N2 item6a PR-mode arm honors the carried HEAD_OVERRIDE_BASE oper
 CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" PR_BASE_BRANCH=main HEAD_OVERRIDE_BASE= bash "$SP503_RAF_PRMODE" >/dev/null 2>&1
 assert_eq "#503 N2 item6a PR-mode arm fails closed (exit 65) when Phase 0.2's HEAD_OVERRIDE_BASE operand was not carried" \
   "65" "$?"
+# (c) F1 fail-open closed (shadow-promoted, corroborated x3): operand carried but the
+# PR_BASE_BRANCH mode-signal NOT threaded — the operand-first discriminator must still
+# honor the carried base (origin/release/2.0), NOT silently fall to the current-branch
+# base (origin/$config-base). Before the operand-first restructure this fell to the else
+# arm and re-scoped to origin/main — the #503 base-misattribution class via a side door.
+SP503_RAF_PR_C="$(CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" PR_BASE_BRANCH= HEAD_OVERRIDE_BASE=origin/release/2.0 bash "$SP503_RAF_PRMODE" 2>/dev/null | tail -1)"
+assert_eq "#503 N2(c) item6a honors a carried operand even when the PR_BASE_BRANCH mode-signal is absent (fail-open F1 closed)" \
+  "REVIEW_DIFF_BASE=origin/release/2.0" "$SP503_RAF_PR_C"
 rm -rf "$SP503_CAPTURE_DIR"
 
 # T10 → Phase 0.6 degradation arms (fail-safe, never fail-silent), pinned on the
