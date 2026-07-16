@@ -31,8 +31,11 @@
 # each intervention's `.candidate_targets` are `// []`-guarded, so an entry
 # missing either field (2/167 live entries lack suggested_interventions) or a
 # clean entry carrying `suggested_interventions: []` contributes nothing and the
-# reader never throws. Entries with no `pr` are skipped (a target's recurrence is
-# measured across PRs, so an entry with no PR identity cannot contribute).
+# reader never throws. Only entries whose `pr` is a NUMBER contribute (a target's
+# recurrence is measured across distinct PRs): a missing/null `pr` has no PR
+# identity, and a wrong-typed `pr` — e.g. an agent-written string `"42"` — is
+# dropped rather than counted as a PR distinct from the numeric `42`, which would
+# otherwise inflate `pr_count` for a single real PR.
 
 # Collect one record per (target, pr) pairing, preserving document order so the
 # representative-summary tiebreak (ascending pr, then intervention order) is stable.
@@ -46,7 +49,9 @@ def pairs:
     # wrong-typed value) so a malformed line contributes nothing and the reader stays
     # exit-0, honoring the "never throws" invariant documented above.
     | objects
-    | select(.pr != null)
+    # `numbers` keeps only a number-typed `.pr` (drops missing/null AND a wrong-typed
+    # string/bool `pr`), so a stray string `"42"` never counts as a PR distinct from 42.
+    | select(.pr | numbers)
     | .pr as $pr
     | (.suggested_interventions // [] | arrays)[]
     | objects

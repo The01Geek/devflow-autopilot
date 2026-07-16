@@ -12373,16 +12373,28 @@ assert_eq "#520: wrong-typed rows contribute no target"       "0"    "$(echo "$R
 assert_eq "#520: genuine target survives wrong-typed siblings" "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/good.sh")')"
 assert_eq "#520: only the genuine target present amid malformed rows" "1" "$(echo "$RT_OUT" | jq 'length')"
 
-# AC: `select(.pr != null)` — an entry with no PR identity (a real schema variant,
-# e.g. a kind:"audit" row) cannot contribute a distinct PR. A pr-less entry naming a
-# target that ONE real PR also names must NOT inflate that target to pr_count 2.
+# AC: `select(.pr | numbers)` — only a NUMBER-typed `.pr` contributes. A pr-less
+# entry (defensive: the store otherwise guarantees `pr`, so this is a malformed /
+# hand-corrupted line) naming a target that ONE real PR also names must NOT inflate
+# that target to pr_count 2.
 RT_OUT="$(rt_run <<'JSONL'
-{"schema_version":2,"kind":"audit","verdict":"imperfect","suggested_interventions":[{"summary":"noid","candidate_targets":["lib/onlyone.sh"]}]}
+{"schema_version":2,"kind":"implementation","verdict":"imperfect","suggested_interventions":[{"summary":"noid","candidate_targets":["lib/onlyone.sh"]}]}
 {"schema_version":2,"kind":"implementation","pr":7,"verdict":"imperfect","suggested_interventions":[{"summary":"real","candidate_targets":["lib/onlyone.sh"]}]}
 JSONL
 )"; RT_RC=$?
 assert_eq "#520: pr-less entry skipped (rc 0)"                "0"    "$RT_RC"
 assert_eq "#520: pr-less entry does not inflate to a distinct PR" "false" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/onlyone.sh")')"
+
+# AC: a WRONG-TYPED `pr` (agent-written string "7" instead of int 7) is dropped, not
+# counted as a PR distinct from the numeric 7 — otherwise a single real PR whose
+# target a string-pr sibling also names would falsely surface as pr_count 2.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":"7","verdict":"imperfect","suggested_interventions":[{"summary":"strpr","candidate_targets":["lib/onlyone.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":7,"verdict":"imperfect","suggested_interventions":[{"summary":"real","candidate_targets":["lib/onlyone.sh"]}]}
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: string pr dropped (rc 0)"                    "0"    "$RT_RC"
+assert_eq "#520: string pr does not inflate a numeric PR's count" "false" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/onlyone.sh")')"
 
 # AC: primary sort key is DESCENDING pr_count — a more-recurring target ranks first.
 # Target A recurs in 3 distinct PRs, target B in 2; A must precede B. The determinism
@@ -12462,6 +12474,16 @@ JSONL
   # run cannot survive, so the bullet is shorter than the raw summary).
   assert_eq "#520: >220-char representative_summary is ellipsis-truncated" "true" "$(echo "$RT_FMT_LINE" | grep -qF '…' && echo true || echo false)"
   assert_eq "#520: truncated bullet drops the un-truncatable full x-run" "false" "$(echo "$RT_FMT_LINE" | grep -qF 'tail' && echo true || echo false)"
+
+  # render-report re-sorts recurring_targets itself (its comment: "never depends on
+  # the caller pre-sorting"). Feed a DELIBERATELY reverse-ordered 2-target array
+  # (the 2-PR target listed before the 3-PR target) and assert the rendered bullet
+  # order is pr_count-descending — the render-side analogue of the helper's A-before-B
+  # test, so a sign flip in render-report's own sort_by is caught, not just the jq's.
+  RT_RT_SORT="$(jq -nc '[{target:"lib/low.sh",pr_count:2,prs:[1,2],representative_summary:"low"},{target:"lib/high.sh",pr_count:3,prs:[1,2,3],representative_summary:"high"}]')"
+  RT_SUM_SORT="$(jq -nc --argjson rt "$RT_RT_SORT" '{prs_scanned:3,clean_count:0,analyzed_count:0,recurring_targets:$rt,intervention_issues:[]}')"
+  RT_SORT_ORDER="$(devflow_render_report "$RT_SUM_SORT" | grep -oE 'lib/(high|low)\.sh' | paste -sd, -)"
+  assert_eq "#520: render-report re-sorts to pr_count desc (high before low)" "lib/high.sh,lib/low.sh" "$RT_SORT_ORDER"
 )
 rm -rf "$RT_TMP"
 
@@ -12485,6 +12507,10 @@ assert_pin_red_under "#520: candidate_targets container guard pinned" \
 # Deterministic tiebreak: dropping the .target secondary key makes sort order unstable.
 assert_pin_red_under "#520: deterministic sort tiebreak pinned" \
   'sort_by([ -.pr_count, .target ])' 's/sort_by\(\[ -\.pr_count, \.target \]\)/sort_by([ -.pr_count ])/' "$RT_JQ"
+# render-report's OWN re-sort sign (its self-contained mirror of the jq's canonical
+# key): flipping `-(.pr_count // 0)` to ascending would mis-order the rendered report.
+assert_pin_red_under "#520: render-report re-sort sign pinned" \
+  'sort_by([-(.pr_count // 0), .target])' 's/\[-\(\.pr_count/[(.pr_count/' "$LIB/render-report.sh"
 # Primary sort SIGN: flipping `-.pr_count` to `.pr_count` ranks the most-recurring
 # target LAST, silently mis-ordering the report (the A-before-B fixture catches it).
 assert_pin_red_under "#520: primary sort desc pr_count pinned" \
@@ -12492,10 +12518,11 @@ assert_pin_red_under "#520: primary sort desc pr_count pinned" \
 # Empty-string target guard: dropping `select(. != "")` would emit a blank-target bullet.
 assert_pin_red_under "#520: empty-string target guard pinned" \
   'select(. != "")' 's/ *\| select\(\. != ""\)//' "$RT_JQ"
-# The pr-identity guard: dropping `select(.pr != null)` lets a pr-less entry inflate a
-# target's distinct-PR count with a null pr.
-assert_pin_red_under "#520: pr != null identity guard pinned" \
-  'select(.pr != null)' 's/select\(\.pr != null\)/select(true)/' "$RT_JQ"
+# The pr-identity/type guard: relaxing `select(.pr | numbers)` to the null-only
+# `select(.pr != null)` lets a wrong-typed string pr through, inflating distinct-PR
+# counts (string "7" counted separately from numeric 7).
+assert_pin_red_under "#520: pr numbers identity guard pinned" \
+  'select(.pr | numbers)' 's/select\(\.pr | numbers\)/select(.pr != null)/' "$RT_JQ"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "clean-entry.jq / actionable-patterns.sh"
