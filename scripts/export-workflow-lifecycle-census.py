@@ -120,9 +120,17 @@ def fetch_runs_and_jobs(gh: str, repo: str, workflows: list[str], created_after:
     per_page = 100
     pagination_complete = True
     while True:
-        doc = _gh_json(gh, ["api", f"repos/{repo}/actions/runs",
+        # --method GET is REQUIRED: `gh api` switches to POST as soon as any
+        # parameter is added, and POSTing to the GET-only runs endpoint fails
+        # (returns None here) — so without it the exporter can never fetch a run.
+        # The closed window is ONE `created` range param (`after..before`): a
+        # separate `created<=` field is split by gh on the first `=` into the
+        # unknown key `created<`, which GitHub ignores, silently dropping the
+        # upper bound (issue #527 review findings). `--raw-field` forces the
+        # value to a string, avoiding `--field`'s magic type coercion.
+        doc = _gh_json(gh, ["api", "--method", "GET", f"repos/{repo}/actions/runs",
                             f"--field=per_page={per_page}", f"--field=page={page}",
-                            f"--field=created=>={created_after}", f"--field=created<={created_before}"])
+                            f"--raw-field=created={created_after}..{created_before}"])
         if doc is None or not isinstance(doc, dict):
             pagination_complete = False
             break
@@ -144,7 +152,7 @@ def fetch_runs_and_jobs(gh: str, repo: str, workflows: list[str], created_after:
         run_id = run.get("id")
         if run_id is None:
             continue
-        jdoc = _gh_json(gh, ["api", f"repos/{repo}/actions/runs/{run_id}/jobs", f"--field=per_page={per_page}"])
+        jdoc = _gh_json(gh, ["api", "--method", "GET", f"repos/{repo}/actions/runs/{run_id}/jobs", f"--field=per_page={per_page}"])
         if jdoc is None or not isinstance(jdoc, dict) or not isinstance(jdoc.get("jobs"), list):
             pagination_complete = False
             jobs_by_run[run_id] = []
@@ -188,7 +196,7 @@ def main(argv: "list[str] | None" = None) -> int:
     parser.add_argument("--repo", required=True, help="owner/repo to census")
     parser.add_argument("--workflows", default="", help="comma-separated workflow file paths/names to include (empty = all)")
     parser.add_argument("--created-after", required=True, help="ISO-8601; runs created at or after")
-    parser.add_argument("--created-before", required=True, help="ISO-8601; runs created before (closed window)")
+    parser.add_argument("--created-before", required=True, help="ISO-8601; runs created at or before (inclusive upper bound of the closed window)")
     parser.add_argument("--out", required=True, help="output snapshot path")
     parser.add_argument("--gh", default=os.environ.get("DEVFLOW_GH") or "gh")
     args = parser.parse_args(argv)

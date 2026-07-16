@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -12,6 +15,7 @@ import stat
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -304,7 +308,7 @@ class ExtractionTests(_TmpDirTestCase):
             bash_call("lib/test/run.sh", "t-denied"),
             tool_result("t-denied", "Error: permission denied", is_error=True),
             bash_call("lib/test/run.sh", "t-cancel"),
-            tool_result("t-cancel", "command was cancelled by the user"),
+            tool_result("t-cancel", "command was cancelled by the user", is_error=True),
             bash_call("lib/test/run.sh", "t-term"),
             tool_result("t-term", "ok; exit code 0"),
             bash_call("lib/test/run.sh", "t-missing"),
@@ -657,6 +661,156 @@ class ReviewFixFollowupTests(unittest.TestCase):
             m.timing["duration_ms"] = None
         groups = group_launches([a, b])
         self.assertNotEqual(groups[0].relationship, REL_CANDIDATE_TRANSPORT_RETRY)
+
+
+def _load_export_census():
+    spec = importlib.util.spec_from_file_location(
+        "export_census_regr", ROOT / "scripts/export-workflow-lifecycle-census.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _RawEvent:
+    """Minimal stand-in for a wfr.Event carrying only the `.raw` dict that
+    `_workspace_state` reads (a tool_result content shape)."""
+
+    def __init__(self, raw: dict) -> None:
+        self.raw = raw
+
+
+def _result_event(text: str) -> _RawEvent:
+    return _RawEvent({"message": {"content": [{"type": "tool_result", "content": text}]}})
+
+
+class Issue527ReviewFixTests(_TmpDirTestCase):
+    """Regression tests for the PR #531 review-and-fix findings (issue #527)."""
+
+    def _run(self, sid: str, transcript_bytes: bytes) -> dict:
+        write_manifest(self.manifests, sid)
+        write_bundle(self.bundles, sid, transcript_bytes)
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles),
+                   "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        runs = sorted(self.out.iterdir())
+        self.assertTrue(runs)
+        return json.loads((runs[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+
+    # --- F3: cancel/abort words in a SUCCESSFUL command's own output must not
+    #         reclassify a real launch out of the counts. --------------------
+    def test_successful_output_with_cancel_words_is_still_a_launch(self) -> None:
+        b = transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "t-ran"),
+            # is_error=False (successful) AND a real exit code: the "aborted"
+            # substring is incidental suite output, not a cancellation.
+            tool_result("t-ran", "1 test aborted earlier; suite recovered. exit code 0"),
+        )
+        doc = self._run("s-cancelwords", b)
+        starts = {r["tool_use_id"]: r["authorization_start"] for r in doc["verification_requests"]}
+        self.assertEqual(starts["t-ran"], START_CONFIRMED_TERMINAL)
+        launch_ids = {ln["tool_use_id"] for ln in doc["verification_process_launches"]}
+        self.assertIn("t-ran", launch_ids)
+
+    # --- F4: a malformed manifest keeps its terminal source_unreadable reason
+    #         through the left-join instead of being clobbered. --------------
+    def test_malformed_manifest_keeps_unreadable_after_join(self) -> None:
+        (self.manifests / "sess-1.json").write_text("{not json", encoding="utf-8")
+        reg = wfr.load_registry(REGISTRY)
+        rows = build_local_census(self.manifests, reg)
+        self.assertEqual(rows[0].source_status, SOURCE_UNREADABLE)
+        joined = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
+        self.assertEqual(joined[0].source_status, SOURCE_UNREADABLE)
+
+    # --- F5: a present-but-malformed cloud_mappings section is a loud
+    #         degradation (breadcrumb), an absent one is silent. -------------
+    def test_malformed_cloud_mappings_emits_breadcrumb(self) -> None:
+        reg = Path(self.tmp) / "reg-bad-cm.json"
+        reg.write_text(json.dumps({
+            "schema_version": 1, "workflows": {},
+            "cloud_mappings": {"schema_version": 999, "agent_jobs": []},
+        }), encoding="utf-8")
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            table = load_cloud_mappings(reg)
+        self.assertEqual(table, {})
+        self.assertIn("cloud_mappings", buf.getvalue())
+
+    def test_malformed_cloud_mappings_entries_emit_breadcrumb(self) -> None:
+        reg = Path(self.tmp) / "reg-bad-entries.json"
+        reg.write_text(json.dumps({
+            "schema_version": 1, "workflows": {},
+            "cloud_mappings": {
+                "schema_version": 1,
+                "agent_jobs": [
+                    {"workflow_file": "a.yml", "job": "j"},   # good
+                    {"workflow_file": 123, "job": "j"},        # non-str workflow_file
+                    "not-an-object",                            # non-dict entry
+                ],
+            },
+        }), encoding="utf-8")
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            table = load_cloud_mappings(reg)
+        self.assertEqual(len(table), 1)  # only the good entry survives
+        self.assertIn("dropped 2", buf.getvalue())
+
+    def test_absent_cloud_mappings_is_silent(self) -> None:
+        reg = Path(self.tmp) / "reg-no-cm.json"
+        reg.write_text(json.dumps({"schema_version": 1, "workflows": {}}), encoding="utf-8")
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            table = load_cloud_mappings(reg)
+        self.assertEqual(table, {})
+        self.assertEqual(buf.getvalue().strip(), "")
+
+    # --- F7: workspace coverage must not treat the "tracked" substring of
+    #         "untracked" as coverage of the tracked root. ------------------
+    def test_untracked_text_does_not_cover_tracked_root(self) -> None:
+        state = vb._workspace_state([_result_event("5 untracked files present")], 0, 0)
+        self.assertIn("untracked", state["covered_roots"])
+        self.assertNotIn("tracked", state["covered_roots"])
+
+    def test_tracked_text_still_covers_tracked_root(self) -> None:
+        state = vb._workspace_state([_result_event("all tracked files verified")], 0, 0)
+        self.assertIn("tracked", state["covered_roots"])
+
+    # --- F8: --cleanup must not report success while a sensitive artifact
+    #         could not be removed. -------------------------------------------
+    def test_cleanup_fails_loudly_when_an_artifact_cannot_be_removed(self) -> None:
+        self.out.mkdir(parents=True, exist_ok=True)
+        (self.out / "baseline.json").write_text("{}", encoding="utf-8")
+        buf = io.StringIO()
+        with mock.patch("pathlib.Path.unlink", side_effect=OSError("locked")):
+            with contextlib.redirect_stderr(buf):
+                rc = main(["--cleanup", "--out-dir", str(self.out)])
+        self.assertNotEqual(rc, 0)
+        self.assertIn("fail", buf.getvalue().lower())
+        # The unremovable artifact is still present (fix restores real perms in teardown).
+        self.assertTrue((self.out / "baseline.json").exists())
+
+    # --- F1/F2: the census exporter must issue a GET with a single closed
+    #            created range (no dropped upper bound). --------------------
+    def test_fetch_runs_uses_get_and_closed_created_range(self) -> None:
+        export = _load_export_census()
+        calls: list[list[str]] = []
+
+        def fake_gh_json(gh, args):
+            calls.append(list(args))
+            return {"workflow_runs": []}  # empty first page → stop, no jobs
+
+        export._gh_json = fake_gh_json
+        export.fetch_runs_and_jobs("gh", "o/r", [], "2026-07-01", "2026-08-01")
+        self.assertTrue(calls)
+        runs_call = calls[0]
+        self.assertIn("--method", runs_call)
+        self.assertEqual(runs_call[runs_call.index("--method") + 1], "GET")
+        created_fields = [a for a in runs_call if "created" in a]
+        self.assertEqual(len(created_fields), 1, f"expected one created field, got {created_fields}")
+        self.assertIn("2026-07-01..2026-08-01", created_fields[0])
+        # The old split-on-first-'=' upper-bound param must be gone.
+        self.assertFalse(any("created<" in a for a in runs_call))
 
 
 if __name__ == "__main__":

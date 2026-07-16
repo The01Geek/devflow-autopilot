@@ -578,13 +578,15 @@ class RelationshipGroup:
 def load_cloud_mappings(registry_path: Path) -> dict[str, dict[str, str]]:
     """Return {(workflow_file, job): agent_job_entry} from the registry's
     additive cloud_mappings section. Returns {} when the section is absent
-    (cloud census is optional) OR when it is present but malformed/wrong-schema —
-    both yield an empty table, so a present snapshot then builds an
-    all-ineligible cloud census reported as available (an operator
-    misconfiguration surfaced via every job reading ineligible, not via an
-    unavailable flag). The section is committed data authored once and the
-    registry's top-level schema_version is validated by load_registry, so a
-    malformed section is a rare authoring error rather than a runtime hazard."""
+    (cloud census is optional; silent, by design) OR when it is present but
+    malformed/wrong-schema. Both yield an empty table, so a present snapshot then
+    builds an all-ineligible cloud census reported as available — but a
+    present-but-malformed section additionally emits a stderr breadcrumb, so an
+    operator misconfiguration is a LOUD degradation distinguishable from a
+    genuinely-empty window (not silently indistinguishable from it). The section
+    is committed data authored once and the registry's top-level schema_version
+    is validated by load_registry, so a malformed section is a rare authoring
+    error rather than a runtime hazard."""
     try:
         document = json.loads(registry_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -592,24 +594,58 @@ def load_cloud_mappings(registry_path: Path) -> dict[str, dict[str, str]]:
     if not isinstance(document, dict):
         return {}
     mappings = document.get("cloud_mappings")
+    if mappings is None:
+        # Section absent — cloud census is optional. Silent, by design.
+        return {}
+    # Section PRESENT but malformed/wrong-schema: distinct from "absent". Both
+    # yield {} (so a present snapshot builds an all-ineligible cloud census), but
+    # an operator misconfiguration must be a LOUD degradation — otherwise "config
+    # is broken" is indistinguishable from "the window genuinely had no agent
+    # jobs" (issue #527 review finding; the repo's unknown-is-not-zero /
+    # loud-degradation discipline). The return contract is unchanged.
     if not isinstance(mappings, dict) or mappings.get("schema_version") != CLOUD_MAPPINGS_SCHEMA_VERSION:
+        print(
+            "devflow verification-baseline: cloud_mappings section is present but "
+            f"malformed (not an object, or schema_version != {CLOUD_MAPPINGS_SCHEMA_VERSION}); "
+            "ignoring it — cloud jobs will read ineligible. Fix the registry's cloud_mappings section.",
+            file=sys.stderr,
+        )
         return {}
     agent_jobs = mappings.get("agent_jobs")
     if not isinstance(agent_jobs, list):
+        print(
+            "devflow verification-baseline: cloud_mappings.agent_jobs is present but "
+            "not a list; ignoring the cloud_mappings section — cloud jobs will read "
+            "ineligible. Fix the registry's cloud_mappings section.",
+            file=sys.stderr,
+        )
         return {}
     table: dict[str, dict[str, str]] = {}
+    dropped = 0
     for entry in agent_jobs:
         if not isinstance(entry, dict):
+            dropped += 1
             continue
         wf = entry.get("workflow_file")
         job = entry.get("job")
         if not isinstance(wf, str) or not isinstance(job, str):
+            dropped += 1
             continue
         table[f"{wf}\x1f{job}"] = {
             "consumer": str(entry.get("consumer") or ""),
             "routed_command": str(entry.get("routed_command") or ""),
             "agent_step": str(entry.get("agent_step") or ""),
         }
+    if dropped:
+        # Individual malformed entries silently reducing the table is the same
+        # loud-degradation class as a malformed section: name the count so an
+        # operator sees the misconfiguration (issue #527 review, class sweep).
+        print(
+            f"devflow verification-baseline: cloud_mappings.agent_jobs dropped {dropped} "
+            "malformed entr(ies) (non-object, or non-string workflow_file/job); the "
+            "corresponding cloud jobs will read ineligible. Fix the registry's cloud_mappings section.",
+            file=sys.stderr,
+        )
     return table
 
 
@@ -739,6 +775,15 @@ def join_local_imports(rows: list[EligibleLifecycle], bundles_dir: Path, max_byt
     out: list[EligibleLifecycle] = []
     for row in rows:
         if row.source != SOURCE_LOCAL:
+            out.append(row)
+            continue
+        if row.eligibility_state == ELIGIBILITY_UNKNOWN:
+            # An unreadable/malformed manifest already carries a terminal
+            # source_status (source_unreadable) and has no usable identity to
+            # join a bundle for. Preserve its distinct reason code rather than
+            # clobbering it to source_missing / eligible_not_imported below —
+            # the "distinct reason codes, never silently reclassified" contract
+            # (issue #527 review finding).
             out.append(row)
             continue
         sid = row.identity.get("session_id")
@@ -907,16 +952,28 @@ def _classify_authorization_start(result: dict | None, ev: dict | None) -> str:
         text = content
     elif isinstance(content, list):
         text = "\n".join(p.get("text", "") for p in content if isinstance(p, dict) and isinstance(p.get("text"), str))
-    if result.get("is_error") and re.search(r"permission\s+denied|not\s+allowed|was\s+not\s+granted", text, re.IGNORECASE):
-        return START_DENIED_PRE
-    # A result that indicates cancellation (e.g. "command was cancelled").
-    if re.search(r"\bcancel\w*|\binterrupt\w*|\babort\w*", text, re.IGNORECASE):
-        return START_CANCELLED_PRE
-    # Terminal result with exit evidence -> start_confirmed_terminal.
-    if ev and ev.get("terminal_signal_present"):
-        if ev.get("exit_code") is None:
-            return START_CONFIRMED_RESULT_MISSING
+    # A parsed exit code is proof the process ran to termination — a pre-start
+    # denial/cancellation never carries one. Establish this FIRST so that a
+    # cancel/interrupt/abort word appearing incidentally in the command's OWN
+    # output (a passing suite that prints "1 aborted", "KeyboardInterrupt" in a
+    # captured traceback, a test named test_interrupt) cannot reclassify a real
+    # launch out of the counts (issue #527 review finding).
+    if ev and ev.get("exit_code") is not None:
         return START_CONFIRMED_TERMINAL
+    # Pre-start denial and cancellation are ERROR results with no terminal exit
+    # code. Gate BOTH on is_error (as the denied branch always has): a
+    # successful command's stdout can contain these words incidentally, and only
+    # a structured error signal — not a substring anywhere in output — may drop
+    # a request from the launch counts.
+    if result.get("is_error"):
+        if re.search(r"permission\s+denied|not\s+allowed|was\s+not\s+granted", text, re.IGNORECASE):
+            return START_DENIED_PRE
+        # A result that indicates cancellation (e.g. "command was cancelled").
+        if re.search(r"\bcancel\w*|\binterrupt\w*|\babort\w*", text, re.IGNORECASE):
+            return START_CANCELLED_PRE
+    # Terminal result text but no parsed exit code -> result missing.
+    if ev and ev.get("terminal_signal_present"):
+        return START_CONFIRMED_RESULT_MISSING
     return START_UNKNOWN
 
 
@@ -961,7 +1018,13 @@ def _workspace_state(events: list, start_idx: int, end_idx: int) -> dict:
                 covered.add("submodule")
             if "untracked" in lower:
                 covered.add("untracked")
-            if "tracked" in lower:
+            # Word-boundary match: the bare substring "tracked" is also inside
+            # "untracked", so a result mentioning only untracked files must NOT
+            # mark the tracked root covered (issue #527 review finding — a false
+            # "complete" coverage is the non-conservative direction that would
+            # enable a candidate_transport_retry classification the evidence does
+            # not support).
+            if re.search(r"\btracked\b", lower):
                 covered.add("tracked")
             # ignored/generated/dependency root: covered when a result explicitly
             # enumerates ignored files OR a generated/dependency root path.
@@ -1730,11 +1793,18 @@ class VerificationBaseline:
         })
 
 
-def _cleanup(out_dir: Path) -> int:
-    """Delete baseline + manual-review artifacts without touching native sources."""
+def _cleanup(out_dir: Path) -> "tuple[int, int]":
+    """Delete baseline + manual-review artifacts without touching native sources.
+
+    Returns (removed, failed). A per-artifact unlink/rmdir failure is COUNTED,
+    not silently swallowed: these artifacts hold sensitive local data at 0600, so
+    a failed deletion the caller reports as success would leave sensitive files
+    behind while claiming the directory was purged (issue #527 review finding).
+    """
     if not out_dir.exists():
-        return 0
+        return 0, 0
     removed = 0
+    failed = 0
     for child in sorted(out_dir.iterdir()):
         if child.is_dir():
             for sub in sorted(child.iterdir()):
@@ -1743,19 +1813,19 @@ def _cleanup(out_dir: Path) -> int:
                         sub.unlink()
                         removed += 1
                     except OSError:
-                        pass
+                        failed += 1
             try:
                 child.rmdir()
                 removed += 1
             except OSError:
-                pass
+                failed += 1
         elif child.is_file():
             try:
                 child.unlink()
                 removed += 1
             except OSError:
-                pass
-    return removed
+                failed += 1
+    return removed, failed
 
 
 def main(argv: "list[str] | None" = None) -> int:
@@ -1780,7 +1850,16 @@ def main(argv: "list[str] | None" = None) -> int:
         return 2
 
     if args.cleanup:
-        removed = _cleanup(out_dir)
+        removed, failed = _cleanup(out_dir)
+        if failed:
+            # Never report an unqualified success while sensitive 0600 artifacts
+            # survive: name the failure and exit non-zero (issue #527 review).
+            print(
+                f"devflow verification-baseline: cleanup removed {removed} artifact(s) but "
+                f"FAILED to remove {failed} (still present under {out_dir}; native sources untouched)",
+                file=sys.stderr,
+            )
+            return 1
         print(f"devflow verification-baseline: cleanup removed {removed} artifact(s) under {out_dir} (native sources untouched)")
         return 0
 
