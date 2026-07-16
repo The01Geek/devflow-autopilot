@@ -1,5 +1,9 @@
 # Release Notes
 
+## July 15, 2026
+
+- **Improvement — Weekly retrospective loop no longer spends an analysis pass on runs that only left an informational note** — The `/devflow:retrospective-weekly` clean gate now distinguishes reflection severity: a merged pull request whose only workpad reflections are informational `note`-kind (`ℹ️`) bullets is treated as clean and processed at no analysis cost, while every actionable reflection (issue-accuracy notes, action-required items, and improvement proposals) still forces a full analysis as before. Exempted notes are now preserved verbatim in the retrospective learnings instead of being dropped, and the gate fails closed — falling back to the previous "any reflection triggers analysis" behavior — whenever the new severity signal is missing or unreadable. The loop also writes a cleaner state pull request (progress output no longer leaks into the captured pull request number) and clears prior-run scratch files before each run. (#519)
+
 ## July 14, 2026
 
 - **Fix — Shadow review now attests prompt composition before reporting clean independent coverage** — DevFlow's review-and-fix loop now records prompt composition separately from reviewer-roster coverage. A shadow pass reports clean agreement only when its full reviewer roster ran and its prompts used the attested composition; provenance failures and unauthorized prompt additions remain visible without suppressing real findings that should trigger another review iteration. (#509)
