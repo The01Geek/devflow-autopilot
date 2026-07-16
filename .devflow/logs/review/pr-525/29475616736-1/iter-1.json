@@ -1,0 +1,12 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "7223e25687b5d75823b2a785dfe823290d54f9ba",
+  "fix_files": [
+    "lib/fetch-pr-context.sh",
+    "lib/test/run.sh",
+    "skills/retrospective/SKILL.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
