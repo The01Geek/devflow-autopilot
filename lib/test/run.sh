@@ -26,7 +26,26 @@ RESULTS_FILE="$(mktemp)"
 # SKIP introduces no new tool into the selection) — so a gate that self-skips is visible in
 # the summary and can never be mistaken for a clean pass. The renderer is lib/test/summary.sh.
 SKIPS_FILE="$(mktemp)"
-trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE"' EXIT   # protect RESULTS_FILE/SKIPS_FILE immediately; widened below once the bundle temp exists
+# Whole-run temp cleanup is a single EXIT trap over an APPEND-ONLY registry: every whole-run
+# temp file/dir is registered at its creation site via _suite_tmp_file/_suite_tmp_dir. The
+# previous idiom — re-registering a longer `trap … EXIT` line at each later creation site —
+# REPLACES the whole handler each time, so any rewrite that forgot an earlier entry silently
+# un-covered it (PR #539 review: SKIPS_FILE and IMPL_SKILL_BUNDLE were dropped by later
+# rewrites and leaked on every run, and MAXI_BUNDLE was created ~31k lines before its trap
+# line, leaking on any early `exit 1` in between). Registered here, before the first
+# assertion, so no whole-run temp ever precedes its coverage.
+_SUITE_TMP_FILES=(); _SUITE_TMP_DIRS=()
+_suite_tmp_file() { _SUITE_TMP_FILES+=("$1"); }
+_suite_tmp_dir()  { _SUITE_TMP_DIRS+=("$1"); }
+_suite_cleanup() {
+  # Length guards keep the empty-array "${arr[@]}" expansions off bash 4.0–4.3's set -u trap.
+  [ "${#_SUITE_TMP_FILES[@]}" -gt 0 ] && rm -f "${_SUITE_TMP_FILES[@]}"
+  [ "${#_SUITE_TMP_DIRS[@]}" -gt 0 ] && rm -rf "${_SUITE_TMP_DIRS[@]}"
+  return 0
+}
+trap _suite_cleanup EXIT
+_suite_tmp_file "$RESULTS_FILE"
+_suite_tmp_file "$SKIPS_FILE"
 # shellcheck source=lib/test/summary.sh disable=SC1091
 . "$LIB/test/summary.sh"
 
@@ -93,7 +112,7 @@ IMPL_PHASE_STEMS="phase-1-setup phase-2-implement phase-3-review phase-4-documen
 # separately at the call site since it performs the actual append.
 _impl_bundle_member_usable() { [ -r "$1" ] && [ -s "$1" ]; }
 IMPL_SKILL_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the implement-skill bundle temp" >&2; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
+_suite_tmp_file "$IMPL_SKILL_BUNDLE"
 # Build the member list as an ARRAY (not a space-joined string) so a checkout path
 # containing a space is preserved rather than word-split — the stems in IMPL_PHASE_STEMS
 # are space-free identifiers, but $LIB (the checkout dir) is not guaranteed to be.
@@ -1049,7 +1068,9 @@ assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_
 # The concat carries a `.md` suffix so pin-corpus-lint infers markdown comment syntax.
 MAXI_ROOT="$LIB/../skills/review-and-fix/SKILL.md"
 MAXI_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-and-fix bundle temp" >&2; exit 1; }
+_suite_tmp_file "$MAXI_BUNDLE"   # pre-rename path (covers an exit landing before the mv)
 mv "$MAXI_BUNDLE" "$MAXI_BUNDLE.md"; MAXI_BUNDLE="$MAXI_BUNDLE.md"
+_suite_tmp_file "$MAXI_BUNDLE"   # the real .md path used for the rest of the run
 : > "$MAXI_BUNDLE"
 # Build the bundle member-by-member through the same fail-closed predicate the implement
 # bundle uses (_impl_bundle_member_usable): a missing / empty / unreadable member records a
@@ -6803,7 +6824,7 @@ ECH="$LIB/test/extract-command-heads.py"
 E363=
 E484=
 E484="$(mktemp -d)" || { echo "FAIL  #484: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484"' EXIT
+_suite_tmp_dir "$E484"
 
 # Heads deliberately left ungranted on the implement profile, each with a rationale:
 #   gh pr checkout — the inline engine is already on the branch; checking out a PR
@@ -30905,7 +30926,7 @@ echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
 # is worth: it must cover EVERY prose-invoked head, or the audit is green over a gap.
 ECH="$LIB/test/extract-command-heads.py"
 E363="$(mktemp -d)" || { echo "FAIL  #363: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484"' EXIT
+_suite_tmp_dir "$E363"
 
 assert_eq "#363 extractor helper exists" "yes" "$([ -f "$ECH" ] && echo yes || echo no)"
 
@@ -31144,17 +31165,45 @@ done
 # ── #530 prompt-budget guard (AC3/AC4): the split keeps the thin root and its initial/peak
 # load under the documented ceilings; docs/review-and-fix-budget.md is the checked-in table.
 # wc is a test-harness tool here (not a shipped selection), consistent with the rest of run.sh.
-RAF_ROOT_W=$(wc -w < "$LIB/../skills/review-and-fix/SKILL.md")
-RAF_EXT_W=$(wc -w < "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
+# LC_ALL=C on every word count is load-bearing (PR #539 REJECT): BSD wc under a UTF-8 locale
+# (macOS default) splits words on some multibyte punctuation — e.g. U+2260 ≠, present in
+# several references — that glibc does not, so an unpinned count differs between a macOS desk
+# run and CI, and the table's desk-measured counts were false on the CI platform. The C locale
+# is byte-identical on both; the budget doc's Counting method pins the same locale.
+RAF_ROOT_W=$(LC_ALL=C wc -w < "$LIB/../skills/review-and-fix/SKILL.md")
+RAF_EXT_W=$(LC_ALL=C wc -w < "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
 RAF_MAXREF_W=0
+RAF_REFS_SUM_W=0
 for f in "$LIB/../skills/review-and-fix/references"/*.md; do
-  w=$(wc -w < "$f"); [ "$w" -gt "$RAF_MAXREF_W" ] && RAF_MAXREF_W="$w"
+  w=$(LC_ALL=C wc -w < "$f"); [ "$w" -gt "$RAF_MAXREF_W" ] && RAF_MAXREF_W="$w"
+  RAF_REFS_SUM_W=$((RAF_REFS_SUM_W + w))
 done
 # Fail closed if the references glob matched nothing: RAF_MAXREF_W would stay 0 and the peak
 # assertion (root+ext+0) would pass VACUOUSLY while under-reporting. A healthy tree always has
 # 8 references (each with a positive wc), so 0 means the glob is empty / the dir is gone.
 assert_eq "#530 budget: at least one reference file was measured (references glob non-empty)" "yes" \
   "$([ "$RAF_MAXREF_W" -gt 0 ] && echo yes || echo no)"
+# #539 review (Important): the reference SET was only incidentally asserted — every #530 loop
+# enumerates references/*.md by GLOB, so deleting a whole reference file (e.g.
+# error-handling.md, which carries no dedicated content pin) just shrinks the glob and ships
+# desk-green. Pin the exact expected set both ways: each expected name must exist, and no
+# unregistered references/*.md may appear (adding a reference must update this list — and with
+# it the budget table, the recorder registry, and the routing/marker surfaces the sibling #530
+# blocks assert).
+RAF_EXPECTED_REFS="convergence error-handling fix-delta-gate fixing loop-control loop-exit pre-fix-gates shadow-review"
+for _r in $RAF_EXPECTED_REFS; do
+  assert_eq "#530 budget: expected reference exists: references/${_r}.md" "yes" \
+    "$([ -f "$LIB/../skills/review-and-fix/references/${_r}.md" ] && echo yes || echo no)"
+done
+_raf_unexpected=""
+for f in "$LIB/../skills/review-and-fix/references"/*.md; do
+  _rb="$(basename "$f" .md)"
+  case " $RAF_EXPECTED_REFS " in
+    *" $_rb "*) : ;;
+    *) _raf_unexpected="$_raf_unexpected $_rb" ;;
+  esac
+done
+assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_raf_unexpected"
 assert_eq "#530 budget: plugin root <= 3000 words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le 3000 ] && echo yes || echo no)"
 assert_eq "#530 budget: root + live extension (initial load) <= 5500 words (measured $((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
@@ -31166,6 +31215,28 @@ assert_eq "#530 budget: checked-in budget table exists" "yes" \
   "$([ -f "$RAF_BUDGET_DOC" ] && echo yes || echo no)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
   '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,198 words' "$RAF_BUDGET_DOC"
+# #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
+# measurement, not merely textually self-consistent — the pin above passed while the
+# cumulative cell was stale because it matches the doc's own number, not reality. Recompute
+# the normal-cumulative-path words (root + extension + Σ references, same LC_ALL=C method)
+# and require (a) the doc's cumulative cell to equal the fresh measurement and (b) the pinned
+# growth delta to equal that measurement minus (36201 + RAF_EXT_W). 36201 is the pre-split
+# monolith's LC_ALL=C word count at the split's base commit — immutable history, safe to
+# freeze; the live extension term appears in both the cumulative and the baseline, so it
+# CANCELS: the growth arm tracks exactly root + Σ references − monolith, the doc's
+# "isolates the split" definition, and a future extension edit moves the cumulative cell
+# (arm a) without perturbing the growth figure (arm b). Any word change in the root or ANY
+# reference shifts both and turns them RED until the doc is re-measured.
+RAF_CUM_W=$((RAF_ROOT_W + RAF_EXT_W + RAF_REFS_SUM_W))
+_raf_cum_row="$(grep -F '| **AFTER** — normal cumulative path |' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc cumulative-path words cell matches fresh measurement ($RAF_CUM_W)" "yes" \
+  "$(case "${_raf_cum_row//,/}" in *"| $RAF_CUM_W |"*) echo yes;; *) echo no;; esac)"
+_raf_doc_growth="$(grep -F 'named justified-growth warning): +' "$RAF_BUDGET_DOC" | head -n 1 || true)"
+_raf_doc_growth="${_raf_doc_growth##*warning): +}"
+_raf_doc_growth="${_raf_doc_growth%% words*}"
+_raf_doc_growth="${_raf_doc_growth//,/}"
+assert_eq "#530 budget: pinned growth delta is arithmetically true (measured cumulative $RAF_CUM_W − frozen monolith 36201 − extension $RAF_EXT_W)" \
+  "$((RAF_CUM_W - 36201 - RAF_EXT_W))" "${_raf_doc_growth:-unparsed}"
 
 # ── #530 pressure tests (AC16): the split preserves every named control-flow scenario ──
 # Each scenario's operative behavioral literal must survive the split AND land in the
@@ -31221,6 +31292,13 @@ assert_pin_unique "#530 pressure(inline recovery): fused per-iteration emit in r
 # 14. fix-delta gate present (fix-delta-gate) — the reject-fix regression net
 assert_pin_unique "#530 pressure(fix-delta): fix-delta verification gate in fix-delta-gate" \
   'Fix-delta verification gate' "$P530_FDG"
+# 15. fixes applied (fixing) — #539 review: fixing.md (the largest reference) had no
+# file-targeted operative pin, so a partial content move OUT of it (full deletion is caught
+# by the 8-name set pin) shipped desk-green. Pin the fix-commit-fused iter-record Write —
+# the load-bearing contract that makes the per-iteration emit unloseable.
+P530_FIX="$LIB/../skills/review-and-fix/references/fixing.md"
+assert_pin_unique "#530 pressure(fix applied): fix-commit-fused iter record Write in fixing" \
+  'the workpad emit is fused to this fix-commit moment' "$P530_FIX"
 # Routing: the thin root's Step-routing table names every routed reference.
 for _r530 in pre-fix-gates shadow-review fixing fix-delta-gate convergence loop-exit loop-control; do
   assert_eq "#530 pressure(routing): root Step-routing names references/$_r530.md" "yes" \
@@ -32118,7 +32196,7 @@ echo "#363 scripts/summarize-ci-checks.sh (adversarial input-shape matrix, gh st
 # extraction would silently coerce into a passing result (the #312 bug class).
 SCC="$LIB/../scripts/summarize-ci-checks.sh"
 S363="$(mktemp -d)" || { echo "FAIL  #363 scc: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484" "$S363"' EXIT
+_suite_tmp_dir "$S363"
 
 assert_eq "#363 summarize-ci-checks.sh exists and is executable" "yes" \
   "$([ -x "$SCC" ] && echo yes || echo no)"
@@ -32349,7 +32427,7 @@ echo "#363 observability: ::warning:: on denials + permission_denials_count plum
 # ────────────────────────────────────────────────────────────────────────────
 SED_SH="$LIB/../scripts/surface-execution-diagnostics.sh"
 D363="$(mktemp -d)" || { echo "FAIL  #363 diag: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MAXI_BUNDLE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
+_suite_tmp_dir "$D363"
 
 _diag_run() {  # execution-file-json -> stdout+stderr; GITHUB_OUTPUT at $D363/out
   : > "$D363/out"
