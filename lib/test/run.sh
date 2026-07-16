@@ -3278,12 +3278,13 @@ assert_pin_unique "#443: audit summary renders the word degraded whenever the de
 # ── issue #522: Step 3.6 audits the canonical DRAFT FILE (not a hand-condensed copy), offers
 #    user-chosen audit rounds past the automatic cap, and Step 3.5 self-checks the audit
 #    dimensions. Same skill-contract mechanism as #443: pins over the rendered SKILL surface,
-#    no runtime code path in CI. The four behavioral-fix pins below use assert_pin_red_under
+#    no runtime code path in CI. Seven behavioral-fix pins in this block use assert_pin_red_under
 #    with a sed -E mutation that RE-INTRODUCES the named defect (each mutation excises or
 #    inverts the operative clause so its removal/inversion alone re-opens the guarded
-#    regression — pins 1/2 excise a clause, pins 3/4 invert/negate it ("is not on" → "is on";
-#    "exactly these 2 offer triggers" → "no offer triggers")); the rest are
-#    surface-presence pins (assert_pin_unique, or pin_count>=1 for a marker that recurs).
+#    regression) — the four immediately below (pins 1/2 excise a clause, pins 3/4 invert/negate
+#    it: "is not on" → "is on"; "exactly these 2 offer triggers" → "no offer triggers"), plus
+#    the write-landing-route, T1, and T2 behavioral-fix pins further down. The remaining #522
+#    pins are surface-presence pins (assert_pin_unique, or pin_count>=1 for a marker that recurs).
 # (1) Pre-dispatch canonical write — removing it re-opens the condensation-drift channel (the
 #     auditor audits a hand-condensed copy instead of the exact file the implementer reads).
 assert_pin_red_under "#522: Step 3.6 writes the canonical draft file before every dispatch" \
@@ -3304,7 +3305,8 @@ assert_pin_red_under "#522: draft file is NOT on the file-arm out-of-bounds list
 assert_pin_red_under "#522: Step 3.6->4 boundary evaluates the two user-chosen-round triggers" \
   'evaluate exactly these **2 offer triggers**' \
   's/evaluate exactly these \*\*2 offer triggers\*\*/evaluate no offer triggers/' "$CI443_SKILL"
-# Surface-presence pins (no mutation obligation) for the remaining new prose.
+# Surface-presence pins (no mutation obligation) for the following markers (the
+# write-landing-route / T1 / T2 behavioral-fix pins live further down).
 assert_eq "#522: embed arm carries the file-write-failed marker" "yes" \
   "$([ "$(pin_count 'draft embedded (file write failed)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
 assert_eq "#522: embed arm carries the file-unreadable marker" "yes" \
@@ -3344,6 +3346,19 @@ assert_pin_unique "#522: overview §11 item 5 describes the file-first sole-draf
 # a full-content digest catches an interior overwrite that boundary-line sampling would miss.
 assert_pin_unique "#522: file-arm carriage check returns a full-content git hash-object digest for identity compare" \
   'run `git hash-object` on the draft file it read and quote the printed object ID verbatim in its return' "$CI443_SKILL"
+# Template-side git-hash-object instruction (iteration-4 review finding C: narration-vs-template
+# drift). The pin above pins the AUTHOR-FACING narration wording; the DISPATCHED audit-prompt
+# template carries its own copy (different wording), and a regression removing the template's
+# instruction leaves the narration pin GREEN while the auditor is no longer asked to hash —
+# silently disabling the whole identity check. Symmetric with the out-of-bounds template pin.
+assert_pin_unique "#522: audit-prompt template instructs the auditor to return a git hash-object digest" \
+  'run `git hash-object` on that draft file and quote the object ID it prints verbatim' "$CI443_SKILL"
+# Template-side DRAFT-UNREADABLE emit condition (iteration-4 review finding F): the only other
+# guard over this token is a non-discriminating pin_count>=1 that stays GREEN as long as the
+# token survives anywhere; this pins the template's operative emit-condition sentence so deleting
+# the instruction that tells the auditor WHEN to produce the third verdict flips RED.
+assert_pin_unique "#522: audit-prompt template states the DRAFT-UNREADABLE emit condition" \
+  'If you cannot read the file, return **no findings** and end with' "$CI443_SKILL"
 # Degraded-arm carve-out: the inline arm has no subagent/file, so it must NOT emit the
 # file-arm-only third verdict value — deleting this carve-out re-opens a spurious emit.
 assert_pin_unique "#522: degraded inline arm emits no VERDICT: DRAFT-UNREADABLE" \
@@ -3355,14 +3370,38 @@ assert_pin_unique "#522: embed arm out-of-bounds names exactly the 4 files (draf
 # Carriage COMPARE-AND-REJECT (the ENFORCEMENT half of the anti-corruption check — the auditor's
 # quote obligation is pinned above, but the orchestrator's string-compare-and-reject is what
 # actually rejects foreign bytes; deleting it makes the identity check decorative).
-assert_pin_unique "#522: file-arm orchestrator string-compares the digest and rejects a mismatch" \
-  'string-compares that object ID (bash builtins only — never a non-preflight PATH tool) against the `git hash-object` of the file it wrote' "$CI443_SKILL"
+# Behavioral-fix pin (iteration-4 review finding A, corroborated x3): the comparand MUST be the
+# write-time digest captured at dispatch, NEVER a compare-time re-hash of the on-disk file — a
+# re-hash sees the same foreign bytes the auditor did and passes a concurrent overwrite
+# vacuously, leaving the write-to-read race the check exists to close wide open. The mutation
+# reverts the comparand to "`git hash-object` of the file it wrote" (the compare-time re-hash),
+# re-introducing exactly that fail-open, so the pin goes RED.
+assert_pin_red_under "#522: file-arm compare uses the write-time digest, never a compare-time re-hash" \
+  'against the write-time digest recorded in the event log for this round' \
+  's/against the write-time digest recorded in the event log for this round/against the `git hash-object` of the file it wrote for this round/' "$CI443_SKILL"
+# Fail-CLOSED on missing evidence (iteration-4 review finding B): an absent/unparseable object ID
+# is treated as a failed completion, not just a mismatch — the guard must not pass on the inputs
+# where its evidence is missing.
+assert_pin_unique "#522: file-arm compare fails closed on an absent or unparseable object ID" \
+  'an absent or unparseable object ID in the return' "$CI443_SKILL"
 assert_pin_unique "#522: embed-arm orchestrator string-compares sentinels and rejects a mismatch" \
   'string-compares them (bash builtins only, never a non-preflight PATH tool) against the dispatched values' "$CI443_SKILL"
+# Embed-arm auditor QUOTE obligation (iteration-4 review finding G): the compare pin above pins
+# the ENFORCEMENT half; this pins the half that PRODUCES the values compared. Deleting the
+# auditor's quote obligation makes the compare compare-against-nothing — the mirror of the
+# file-arm pair, which pins both the quote obligation and the compare.
+assert_pin_unique "#522: embed-arm auditor must quote both sentinels plus body boundary lines" \
+  'quote both sentinels plus the body'\''s first and last lines verbatim' "$CI443_SKILL"
 # DRAFT-UNREADABLE recovery action (what makes the third verdict value non-terminal): a file-arm
 # unreadable draft re-dispatches once on the embed arm — deleting it strands the third value.
 assert_pin_unique "#522: file-arm DRAFT-UNREADABLE re-dispatches exactly once on the embed arm" \
   '**re-dispatch exactly once on the embed arm**' "$CI443_SKILL"
+# DRAFT-UNREADABLE termination invariant (iteration-4 review finding D): an embed-arm
+# DRAFT-UNREADABLE is illegal and must NOT trigger a second file-arm re-dispatch — removing this
+# clause re-opens a potential re-dispatch loop (the loop-termination guard the re-dispatch pin
+# above does not itself cover).
+assert_pin_unique "#522: embed-arm DRAFT-UNREADABLE never triggers a second file-arm re-dispatch" \
+  '**never** a second file-arm re-dispatch' "$CI443_SKILL"
 # Write-landing route condition (issue #522 iteration-3 review I3): the read-only signal that
 # routes to the embed arm is a failed delete OR a write that did not land. Excising the
 # "OR a write that did not land" arm re-opens the fail-open where a fresh-slug read-only sandbox
