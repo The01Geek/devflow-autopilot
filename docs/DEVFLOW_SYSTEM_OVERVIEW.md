@@ -610,6 +610,23 @@ All telemetry is gated by config (`devflow_review_and_fix.efficiency_telemetry_e
 
 **Local workflow flight recorder.** For interactive performance R&D, Claude's native project JSONL is the transcript source of truth. A fail-open `UserPromptSubmit` observer writes metadata-only start manifests under `.devflow/tmp/workflow-manifests/`; a read-only inventory selects only sessions whose first authoritative user message invoked a registered workflow, including approved short aliases and corroborated embedded invocations; and an explicit session-ID import creates or refreshes the sensitive, byte-verified bundle under `.devflow/tmp/workflow-runs/`. Restart active Claude Code sessions after changing the local hook configuration. Generalized `.devflow/tmp/workflow-runs/` and legacy `.devflow/tmp/implement-runs/` bundles remain readable, while Claude owns native transcript retention. Analysis is read-only; recurrence requires at least two distinct sessions with the same workflow, mode, and prompt fingerprint, never pools two occurrences from one session as independent evidence, and never files issues automatically. See [`docs/workflow-flight-recorder.md`](workflow-flight-recorder.md).
 
+**Verification-launch baseline (Wave 1, issue #527).** An offline analyzer
+(`scripts/verification_baseline.py`) extends this recorder foundation into a
+read-only, source-provenanced baseline of actual verification launches from local
+native transcript events, plus a local + cloud lifecycle census (eligibility +
+source missingness) that is independent of transcript survival. It is pure Python
+standard library with no subprocess, no network, and no model/provider call;
+`workspace_state` coverage comes from explicit source-event results, not
+analyzer-time inspection. Repeated launches are classified conservatively as
+`single`, `candidate_transport_retry`, `intentional_rerun_evidence`,
+`independent_lifecycle`, or `unclassifiable` — never as automatically proven
+duplicates — and a deterministic SHA-256-seeded manual-review sample selects
+relationship groups for human adjudication. Cloud launch analysis is excluded in
+Wave 1; cloud rows are census/missingness-only from an explicit Actions snapshot
+(`scripts/export-workflow-lifecycle-census.py`, the sole networked step). Output
+is local and gitignored under owner-only `0700`/`0600`. See
+[`docs/workflow-flight-recorder.md`](workflow-flight-recorder.md#verification-launch-baseline-wave-1).
+
 ---
 
 ## 17. Configuration reference

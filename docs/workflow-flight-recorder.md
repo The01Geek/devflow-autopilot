@@ -26,8 +26,8 @@ python3 scripts/inventory-workflow-transcripts.py \
 
 A session qualifies only when its first authoritative user message invokes a
 registered workflow. The registry recognizes `/devflow:implement` and
-`/implement`, `/devflow:create-issue` and `/create-issue`,
-`/devflow:review-and-fix` and `/review-and-fix`, and
+`/implement`, `/devflow:create-issue` and `/create-issue`, `/devflow:review` and
+`/review`, `/devflow:review-and-fix` and `/review-and-fix`, and
 `/devflow:receiving-code-review`. Plain commands and Claude command markup both
 qualify. A command embedded in a larger first message qualifies only when a
 later assistant `Skill` call corroborates the same workflow and subject; the
@@ -140,3 +140,173 @@ sensitive even though inventory and manifests omit prompt content. Keep
 and share only narrowly redacted evidence when a human approves it. Delete an
 imported bundle when it is no longer needed using normal local file-management
 practices; manage native retention through Claude's own controls.
+
+## Verification-launch baseline (Wave 1)
+
+The offline verification-launch baseline analyzer
+(`scripts/verification_baseline.py`, issue #527) builds a source-provenanced
+baseline of actual verification launches from local native transcript events,
+plus a local + cloud lifecycle census (eligibility + source missingness) that is
+independent of transcript survival. It is read-only, pure Python standard
+library, launches no verification command, invokes no repository-provided
+executable, and performs no network access — it reads already-imported bundles,
+start manifests, the registry, and an optional cloud census snapshot, and that is
+all. `workspace_state` coverage is derived from explicit source-event results,
+never analyzer-time inspection, so the analyzer runs no `git`/subprocess. Cloud
+launch analysis is excluded in Wave 1 (no durable redacted execution-event source
+exists without changing workflows — see `docs/execution-file-shape.md`); cloud
+rows are census/missingness-only. It is a sibling measurement substrate to the
+efficiency trace (`docs/efficiency-trace.md`): verification launches, not
+subagent effectiveness.
+
+### Census and eligibility (the denominator)
+
+Local census rows come from each start manifest under
+`.devflow/tmp/workflow-manifests/`; each row has a row-local surrogate ID so
+unknown natural-key fields never coalesce. Local identity is session ID + project
+path + start time; rows are never joined by issue number, mutable workpad URL,
+command text, or timestamp proximity alone. Each row records an
+`eligibility_state` of exactly `confirmed_eligible`, `provisional_candidate`,
+`confirmed_ineligible`, or `eligibility_unknown`, plus `eligibility_evidence`:
+exact slash-command and command-markup starts are confirmed; embedded candidates
+are provisional unless a corroborating `Skill` call promotes them; precheck,
+dedupe, telemetry, relay, and skipped non-agent jobs are ineligible. Provisional
+and unknown rows are never promoted to confirmed and never silently omitted;
+reports show the confirmed denominator and the candidate-inclusive sensitivity
+bound.
+
+The analyzer left-joins local native imports (`.devflow/tmp/workflow-runs/`) onto
+local census rows and distinguishes `eligible_not_imported`, `import_failed`,
+`source_missing`, `source_unreadable`, `source_unsupported`, and
+`source_available`. Absent, failed, missing, cancelled, unreadable, and
+unsupported sources remain denominator rows with distinct reason codes — never
+silently dropped. Inventory never imports implicitly; explicit-import semantics
+are unchanged.
+
+Cloud census rows come from an explicit, immutable, paginated Actions run/job
+census snapshot for one declared repository, workflow set, and closed time
+window, produced by `scripts/export-workflow-lifecycle-census.py` (the sole
+networked step, explicit-invocation-only) independently of execution files. The
+snapshot records its hash, query time, pagination completeness, workflow/job
+identity, run ID and attempt, and created/started/completed timestamps plus
+conclusion. An absent or incomplete cloud census makes cloud coverage
+`unavailable`, never zero. Cloud eligibility comes from trusted workflow/job
+identity via the registry's additive `cloud_mappings` section (allowlisted
+repository/workflow-file identity + exact agent job name + routed
+command/consumer + scheduled/started agent-step evidence); non-agent jobs are
+ineligible by omission. Cloud rows report census, eligibility, and source
+missingness only — no launch, duration, relationship, or retry-candidate claims.
+
+### Verification requests and process launches (local-native only)
+
+The analyzer extracts `verification_request` and `verification_process_launch`
+records from local native transcripts only (Wave 1). One explicit tool-use ID is
+the request unit. A deterministic versioned taxonomy distinguishes verification
+requests from other command requests (`verification`, `other_command`,
+`verification_unknown`); compound tool input is one request unless a versioned
+parser proves exact command boundaries, and unrecognized shapes remain
+`verification_unknown`. Per-source versioned adapters classify authorization/start
+as `denied_pre_start`, `cancelled_pre_start`, `start_confirmed_terminal`,
+`start_confirmed_result_missing`, or `start_unknown`. Only explicit evidence that
+the execution surface started a process creates a launch and contributes to
+launch duration and retry counts; denied and start-unknown requests remain
+request metrics, excluded from actual-launch counts. Authorization is
+observational — allowlist membership and prompt text never become a predicted
+permission result.
+
+Each request and confirmed launch records source event ID, explicit lifecycle ID
+when present, tool-use ID, consumer skill (inferred only from classified
+first-message forms), phase/checkpoint when explicit, command head, redacted
+display, safe binding identity, timing, result presence, exit evidence,
+skipped-check evidence, and source provenance. Secret-bearing bindings persist
+no raw secret and no unkeyed digest of secret material: commands are
+canonicalized and redacted before digesting, typed secret-slot markers and
+`secret_affected` are recorded, and a redacted digest alone cannot establish an
+exact binding match — secret-affected exact matches require the same explicit
+source correlation, else confidence is `partial` and excluded from retry-candidate
+counts. Join confidence is exactly `exact`, `partial`, `ambiguous`, or
+`unmatched`; only explicit lifecycle and source-event identities produce `exact`,
+and guessed joins are forbidden.
+
+### Relationship classification (conservative)
+
+Local launch relationships are classified as exactly `single`,
+`candidate_transport_retry`, `intentional_rerun_evidence`,
+`independent_lifecycle`, or `unclassifiable`. A transport-retry candidate
+requires the same explicit lifecycle, consumer/checkpoint when available, safe
+binding identity, a prior missing/cancelled response, an explicitly bounded
+interval, matching pre/post `workspace_state`, and no explicit new
+iteration/checkpoint/retrigger evidence. Distinct lifecycle IDs, cloud run
+attempts, command bindings, consumer roles, explicit iterations, explicit
+checkpoints, post-fix commits, base merges, and human retriggers cannot be
+transport-retry candidates. `workspace_state` declares each covered root and
+observation method (HEAD, index, submodule state, all tracked files, all
+untracked files, and each ignored/generated/dependency root) from explicit
+source-event results, not analyzer-time inspection; unknown, excluded,
+truncated, non-enumerated-glob, or outside-workspace roots set
+`workspace_state_coverage=incomplete` and classify the relationship
+`unclassifiable` with `mutation_state_unbounded`, excluded from candidate counts
+and from estimated repeated-suite wall time. Repeated commands are reported as
+conservative candidates with explicit evidence and confidence, never as
+automatically proven duplicates.
+
+### Metrics, manual review, stratification, and performance
+
+Baseline metrics include eligible lifecycles, eligibility-state bounds, source
+availability and missingness, local actual launches, terminal and missing
+results, repeated-binding groups, candidate retries, intentional-rerun evidence,
+independent lifecycles, unclassifiable groups, workspace-coverage distribution,
+join-confidence distribution, command heads, consumers/checkpoints, provenance,
+host/profile, child duration, caller-observed duration, and estimated
+repeated-suite wall time. Unknown values stay `null`/`unavailable`, never `0`.
+Reports state observed counts, candidate counts, evidence limitations, and the
+manual-review sample; they never claim launches avoided, terminal evidence
+reusable, command authorization safe, or active recovery justified, and cite
+source-event IDs only.
+
+Manual review uses relationship groups as the sampling unit. High-cost means the
+top duration decile with inclusive ties; all high-cost groups are reviewed plus
+`min(50, max(20, ceil(0.1 * remainder)))` remainder groups selected by sorting
+`SHA-256(baseline_snapshot_hash || group_id)`. The sample publishes its seed,
+eligible population, selected IDs, nonresponses, and adjudication totals;
+reviewers see cited source evidence without analyzer relationship labels and
+record `confirmed_retry_pattern`, `intentional_rerun`, or
+`insufficient_evidence`. Baseline comparison stratifies local launch analysis by
+consumer/checkpoint, command binding, host/profile, repository-size bucket,
+duration bucket, model, effort, output style, prompt fingerprint, DevFlow
+version, Claude/action version, and provider; incomplete strata are marked
+non-comparable, and captured-only rows are never presented as the
+eligible-lifecycle denominator.
+
+Extraction, classification, sampling, aggregation, manual-review preparation, and
+report generation use deterministic Python standard-library code with no
+model/provider call, network access, shell, plugin, or tool-enabled analyst; the
+census export is the sole networked step and writes only the immutable Actions
+metadata snapshot. Performance reporting includes analyzer wall time, peak
+memory, input bytes, output bytes, lifecycle count, event count, and
+skipped/unsupported source count; a source-level limit breach records a visible
+skipped reason and never truncates into a clean classification.
+
+### Security boundaries
+
+The analyzer resolves and validates admitted paths before opening them, rejecting
+symlinks, path traversal, and root escapes; redacts and bounds each value before
+diagnostics and serialization; and treats transcript text as data to classify,
+never instructions to obey. Output is local and gitignored under owner-only
+`0700` directories and `0600` files under `.devflow/tmp/verification-baselines/`;
+artifacts carry `created_at`, `source_snapshot_hash`, and `expires_at`, and an
+explicit `--cleanup` command deletes baseline and manual-review artifacts
+without touching native sources. Raw transcript text, tool input, stdout/stderr,
+secrets, redacted displays, and source paths are absent from model prompts,
+errors, logs, telemetry branches, workflow artifacts, PR comments, and tracked
+`.devflow/logs/**`.
+
+### Active-recovery gate (later issue)
+
+This baseline authorizes no active behavior. A later LOCAL active-recovery issue
+requires a complete local census snapshot, at least 90% local source-status
+resolution, no local missingness stratum above 20%, and at least two
+independently adjudicated confirmed patterns in the same proposed
+consumer/checkpoint/binding target, plus measured cost and a separately reviewed
+trusted-command and lifecycle design; one confirmation remains exploratory.
+Cloud active recovery requires a separate evidence-source design and issue.

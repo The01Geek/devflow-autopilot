@@ -190,3 +190,20 @@ is reconstructable from the harness's own output, with no agent cooperation.
   is refreshed by re-running `scripts/stop-hook-probe.sh` locally, not by a dispatch. The
   other jobs in `matcher-probe.yml` — `probe`, `schedulewakeup-probe` — predate #437 and
   belong to other issues.)
+
+---
+
+## Wave 1 verification-launch baseline (issue #527)
+
+The offline verification-launch baseline analyzer
+(`scripts/verification_baseline.py`) excludes cloud launch analysis in Wave 1
+because no durable redacted execution-event source exists without changing
+workflows — the `execution_file` shapes documented above are not a stable,
+redacted, per-launch event source the analyzer can read offline. The analyzer's
+cloud denominator instead comes from an explicit, immutable, metadata-only
+Actions run/job census snapshot (`scripts/export-workflow-lifecycle-census.py`,
+the sole networked step, explicit-invocation-only): workflow/job identity, run ID
+and attempt, created/started/completed timestamps, and conclusion — no transcript
+text, tool input, stdout/stderr, or secrets. An absent or incomplete snapshot
+makes cloud coverage `unavailable`, never zero. See
+[`docs/workflow-flight-recorder.md`](workflow-flight-recorder.md#verification-launch-baseline-wave-1).

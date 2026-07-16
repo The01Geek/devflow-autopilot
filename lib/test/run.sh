@@ -40390,6 +40390,24 @@ assert_eq "workflow recorder: focused Python tests pass" "0" "$?"
 python3 "$LIB/test/test_workflow_analyzer.py" >"$IFR_ROOT/analyzer-unit.out" 2>&1
 assert_eq "workflow analyzer: focused Python tests pass" "0" "$?"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "verification-launch baseline analyzer (issue #527, Wave 1)"
+# ────────────────────────────────────────────────────────────────────────────
+python3 "$LIB/test/test_verification_baseline.py" >"$IFR_ROOT/vb-unit.out" 2>&1
+assert_eq "verification baseline: focused Python tests pass" "0" "$?"
+# The analyzer is offline (AC #527-2: read-only, launches no verification
+# command and invokes no repository-provided executable) — no subprocess call
+# site in the module. (It imports workflow_flight_recorder, which itself uses
+# subprocess for read-only git; the analyzer never calls those functions.)
+assert_eq "verification baseline: analyzer invokes no subprocess" "0" \
+  "$(grep -cE 'subprocess\.(run|Popen|call|check_output|check_call)' "$LIB/../scripts/verification_baseline.py" || true)"
+# Registry coupled pins (the test_workflow_flight_recorder registry test asserts
+# the 5-workflow set; these pin the #527 additions the analyzer depends on).
+assert_eq "verification baseline: registry has the review first-message forms" "1" \
+  "$(grep -cF '"/devflow:review", "/review"' "$LIB/../scripts/workflow-flight-recorder-registry.json" || true)"
+assert_eq "verification baseline: registry has the cloud_mappings section" "1" \
+  "$(grep -cF '"cloud_mappings"' "$LIB/../scripts/workflow-flight-recorder-registry.json" || true)"
+
 rm -rf "$IFR_ROOT"
 
 # ────────────────────────────────────────────────────────────────────────────

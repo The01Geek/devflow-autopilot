@@ -51,6 +51,26 @@
         {"glob": "skills/receiving-code-review/SKILL.md", "load_class": "nested", "required": true},
         {"glob": ".devflow/prompt-extensions/review-and-fix.md", "load_class": "extension", "required": false}
       ]
+    },
+    "review": {
+      "user_commands": ["/devflow:review", "/review"],
+      "skill_aliases": ["review", "devflow:review"],
+      "subject_kind": "pull_request",
+      "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
+      "allowed_parents": ["implement"],
+      "surfaces": [
+        {"glob": "skills/review/SKILL.md", "load_class": "always", "required": true}
+      ]
     }
+  },
+  "cloud_mappings": {
+    "schema_version": 1,
+    "comment": "Trusted cloud workflow/job -> DevFlow consumer mapping, read ONLY by the verification-launch baseline analyzer's cloud census eligibility (issue #527). load_registry ignores this additive section, so the top-level schema_version stays 1 and the recorder is unaffected. A census job is eligible only when its (workflow_file, job) matches an entry below AND the census records scheduled/started agent-step evidence; jobs absent here (gate, precheck, review_dedupe, create_check, finalize_check, config, and any non-agent relay/telemetry job) are ineligible by omission. agent_step names the step that runs the claude-code-action agent (informational only; census eligibility keys on job-level scheduled/started status, not the step name, because the census snapshot is job-level).",
+    "agent_jobs": [
+      {"workflow_file": ".github/workflows/devflow-implement.yml", "job": "claude", "agent_step": "claude-code-action", "consumer": "implement", "routed_command": "/devflow:implement"},
+      {"workflow_file": ".github/workflows/devflow-review.yml", "job": "review", "agent_step": "claude-code-action", "consumer": "review", "routed_command": "/devflow:review"},
+      {"workflow_file": ".github/workflows/devflow.yml", "job": "command", "agent_step": "claude-code-action", "consumer": "review", "routed_command": "/devflow:review"},
+      {"workflow_file": ".github/workflows/devflow-runner.yml", "job": "run", "agent_step": "claude-code-action", "consumer": "review", "routed_command": "/devflow:review"}
+    ]
   }
 }

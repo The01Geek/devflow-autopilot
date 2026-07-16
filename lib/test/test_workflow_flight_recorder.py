@@ -349,10 +349,10 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.registry = load_registry(REGISTRY)
 
-    def test_registry_has_the_initial_four_workflows(self) -> None:
+    def test_registry_has_the_initial_five_workflows(self) -> None:
         self.assertEqual(
             set(self.registry),
-            {"implement", "create-issue", "receiving-code-review", "review-and-fix"},
+            {"implement", "create-issue", "receiving-code-review", "review-and-fix", "review"},
         )
 
     def test_each_user_command_creates_a_top_level_occurrence(self) -> None:
@@ -361,6 +361,7 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
             ("/devflow:create-issue improve local capture", "create-issue", {"kind": "topic", "value": "improve local capture"}),
             ("/devflow:receiving-code-review 42", "receiving-code-review", {"kind": "pull_request", "number": 42}),
             ("/devflow:review-and-fix #77", "review-and-fix", {"kind": "pull_request", "number": 77}),
+            ("/devflow:review #88", "review", {"kind": "pull_request", "number": 88}),
         ]
         for command, workflow, subject in cases:
             with self.subTest(command=command):
@@ -376,6 +377,7 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
             ("/implement 520", "implement", {"kind": "issue", "number": 520}),
             ("/create-issue improve local capture", "create-issue", {"kind": "topic", "value": "improve local capture"}),
             ("/review-and-fix #77", "review-and-fix", {"kind": "pull_request", "number": 77}),
+            ("/review #88", "review", {"kind": "pull_request", "number": 88}),
         ]
         for command, workflow, subject in cases:
             with self.subTest(command=command):
