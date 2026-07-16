@@ -1,0 +1,33 @@
+{
+  "iter": 5,
+  "source": "review-and-fix",
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "fix_commit_sha": "5591d8d5",
+  "fix_files": ["scripts/verification_baseline.py", "scripts/export-workflow-lifecycle-census.py", "lib/test/test_verification_baseline.py"],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": true, "engine_self_modifying": true, "detect_all_audit": false, "checklist_skipped": "promoted"},
+  "note": "FINAL iteration (MAX_ITERS=5 reached). Promoted from iteration 4's convergence shadow, whose reviewer panel was SPLIT (3 of 6 agents clean/ready-to-merge; 2 single-source disputed Important). Fixed the clearly-actionable bounded findings; calibrated the disputed is_error finding to advisory.",
+  "fix_decisions": [
+    {"finding_id": "J2-quote-aware-split", "decision": "applied", "commit": "5591d8d5"},
+    {"finding_id": "J1-started-at-contract", "decision": "applied", "commit": "5591d8d5"},
+    {"finding_id": "J3-workflows-nomatch-warning", "decision": "applied", "commit": "5591d8d5"},
+    {"finding_id": "is_error-classifier", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "terminal classification ignores is_error=False; depends on rare 'exit code N' stdout string -> quiet successes dropped, noisy successes -> RESULT_MISSING, candidate over-count", "skip_category": "advisory-parked", "evidence": "OVER-GRADE GATE: single-source (SFH), explicitly DISPUTED by final-pass (praised the classifier as a strength, 'ready to merge') and not raised by code-reviewer/comment-analyzer. Impacts bounded by the conservative/advisory candidate framing (candidates are 'not proven', human-adjudicated). The correct fix is a RESULT_MISSING/candidate-semantics REDESIGN (native transcripts carry is_error but no structured exit code, so 'result missing' cannot be cleanly represented) — beyond a surgical fix-loop change and warranting the author's deliberate design decision. Surfaced in the final report as the top advisory."},
+    {"finding_id": "started-at-cancelled-semantics", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "a cancelled job (conclusion=cancelled, no job-level start) is admitted via completed_and_ran regardless of started_at", "skip_category": "advisory-parked", "evidence": "Debatable GitHub-Actions semantics (cancelled-while-queued vs cancelled-mid-run). J1 fixed the started_at contract; whether completed_and_ran should also exclude cancelled-without-start is a design decision for the author."},
+    {"finding_id": "cloud-mappings-durable-signal", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "malformed cloud_mappings signaled only via ephemeral stderr, not the durable artifact", "skip_category": "advisory-parked", "evidence": "MEDIUM. F5 already made it a loud stderr degradation. An in-band cloud_mappings_status flag in the durable artifact is an enhancement; parked."},
+    {"finding_id": "backslash-escape-limitation", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "quote-aware split does not handle backslash-escaped quotes", "skip_category": "advisory-parked", "evidence": "Suggestion. Explicitly disclaimed in the comment ('not a full shell parser'); rare in verification commands. Documented limitation."},
+    {"finding_id": "dead-symlink-branch", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "_validate_admitted_path is_symlink() branch dead after resolve()", "skip_category": "advisory-parked", "evidence": "Suggestion (cosmetic). The real escape protection is _within_repo_root(normalized), which is tested. Harmless dead branch; parked."},
+    {"finding_id": "input-bytes-underreport", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "performance.input_bytes sums only eligibility_evidence lengths, under-reports true input", "skip_category": "advisory-parked", "evidence": "Sub-threshold (code-reviewer ~65). Telemetry field, drives no conclusion. Parked."}
+  ],
+  "step_3_5_gate": {"result": "clean", "reviewer": "blinded general-purpose", "critical_important": 0, "note": "J2 quote-aware split verified (quote machine advances, fails safe, no ReDoS); J1 started_at job-level-only verified (comment now true, additive run_started_at, None-safe consumers); --workflows warning correct. Tests non-vacuous. One low-sev Suggestion (backslash-escape) already disclaimed."},
+  "verification_evidence": {"command": "bash lib/test/run.sh", "result": "pass", "duration_s": 190, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "dirty tree at run time; runs clean in CI"}]},
+  "convergence_inputs": {"fixes_applied": 3, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {"phase_3_shadow_input": {"calls": 6, "tokens": 850000}, "step_3_5": {"calls": 1, "tokens": 61000}},
+  "terminal_state": {
+    "iteration_cap_reached": true,
+    "max_iters": 5,
+    "verdict": "APPROVE WITH ADVISORY NOTES",
+    "shadow_note": "4 convergence shadows run across the loop (Important-count trend 3->3->2->2, the iter-4 pair single-source and disputed). Iteration 5's delta independently blinded-gate-verified clean. A 5th full shadow was not run at the cap: it cannot trigger a 6th fix iteration, the iter-5 delta is gate-clean, and shadow-4's panel was majority ready-to-merge — so shadow agreement is recorded as NOT independently re-verified for the final iter-5 delta beyond the blinded gate. The formal merge signal is deferred to a human /devflow:review by design.",
+    "shadow_agreement": "not_reverified_post_iter5 (iter-5 delta covered by the blinded fix-delta gate; iter-4 state covered by the full shadow-4 panel)"
+  }
+}
