@@ -3393,12 +3393,18 @@ assert_pin_unique "#522: file-arm compare fails closed on an absent or unparseab
 # Absent-comparand routing (iteration-4 shadow finding: split-anchor fail-open). The write-time
 # digest lives ONLY in the (cwd/worktree-anchored) event log, while the draft file is
 # main-root-anchored — the two roots can fail independently, so a landed draft write + failed
-# event-log write leaves the file-arm compare with no comparand. Behavioral-fix pin: the file
-# arm must route to the embed arm when its write-time digest was not recorded; the mutation
-# re-selects the file arm anyway, re-opening the compare-against-absent-comparand fail-open.
+# event-log write leaves the file-arm compare with no comparand. The routing is an IMPERATIVE
+# pre-dispatch check (confirm the digest was recorded, else route to embed), not a stated
+# invariant. Behavioral-fix pin: the mutation makes the file arm proceed regardless, re-opening
+# the compare-against-absent-comparand fail-open.
 assert_pin_red_under "#522: file-arm routes to the embed arm when its write-time comparand is unrecorded" \
-  'could not be recorded in the event log routes to the write-failure embed arm' \
-  's/routes to the write-failure embed arm instead/is dispatched on the file arm anyway/' "$CI443_SKILL"
+  'if it was not recorded, route to the write-failure embed arm instead' \
+  's/if it was not recorded, route to the write-failure embed arm instead/proceed on the file arm regardless/' "$CI443_SKILL"
+# Compare-time backstop (iteration-4 re-shadow finding: policy-without-mechanism). Symmetric to
+# the absent-object-ID arm — an absent recorded comparand at compare time is itself a failed
+# completion, so the compare can never be vacuously satisfied by a missing write-time digest.
+assert_pin_unique "#522: absent recorded write-time digest at compare time is a failed completion" \
+  'an absent or unreadable recorded write-time digest at compare time is itself a failed completion' "$CI443_SKILL"
 # Event-log RECORD producer (iteration-4 shadow gap: the compare's comparand producer). The
 # compare pin above asserts the orchestrator compares against the write-time digest recorded in
 # the event log; this pins that the event log actually RECORDS that digest at dispatch. Dropping
