@@ -221,7 +221,7 @@ The workpad is best-effort and informational. A write failure should not abort t
 
 ## Running the loop
 
-The always-resident loop control — config resolution, Iteration Start, Step 0.5 (PR-mode branch sync), Step 0.9 (fix-delta handoff), Step 1 (run the engine — load `/devflow:review`'s SKILL.md), and Step 2 (check verdict) — lives in `references/loop-control.md`. Load it at loop entry per the *Reference-loading contract*, follow it, and from Step 2's verdict route to the step references via the **Step routing** table below.
+The loop control — config resolution, Iteration Start, Step 0.5 (PR-mode branch sync), Step 0.9 (fix-delta handoff), Step 1 (run the engine — load `/devflow:review`'s SKILL.md), and Step 2 (check verdict) — lives in `references/loop-control.md`. Load it at loop entry per the *Reference-loading contract*, follow it, and from Step 2's verdict route to the step references via the **Step routing** table below. Like every reference it is loaded on demand, not held resident.
 
 ## Step routing (which reference implements each step)
 
@@ -257,7 +257,7 @@ Every step reference loads at entry, **before any action in that step**, and a r
 | `fix-delta-gate.md` | Record a not-verified fix-delta outcome (the existing gate-subagent-failure shape) that **prohibits a clean APPROVE-family verdict** for this run — the same effect as an unresolved over-grade flag. (The formal `reference_reads.fix_delta` schema field is deferred to the AC8 follow-up; the behavioral outcome is delivered here.) |
 | `convergence.md` | Treat as "a convergence condition failed" — never early-exit: loop back to Step 1 for iteration N+1, or at the cap proceed to Loop Exit reporting non-convergence. Mark non-convergence explicitly. |
 | `loop-exit.md` | Run the persistence backstop directly (`lib/efficiency-trace.sh --persist`) to floor the telemetry record, record an **incomplete terminal state** reflection, and emit a generic non-clean chat message instead of any APPROVE-family template — **prohibits a clean approve**. |
-| `loop-control.md` | The always-resident spine (config, Iteration Start, Steps 0.5/0.9/1/2), loaded at loop entry: **STOP before any mutation** — the loop cannot run the engine or a fix without it. Record a `blocked` reflection; report non-convergence. |
+| `loop-control.md` | The loop spine (config, Iteration Start, Steps 0.5/0.9/1/2), loaded at loop entry: **STOP before any mutation** — the loop cannot run the engine or a fix without it. Record a `blocked` reflection; report non-convergence. |
 | `error-handling.md` | Contextual guidance (When NOT to use / Error Handling / Common Mistakes), not a loop step — **best-effort**: log and continue; its absence degrades only guidance, never a gate. |
 
 **Always-resident re-read rule (issue #530 — never leaves the root, for eviction resistance).** After **every** `Agent`/`Task`/`Skill`-tool return while executing a reference's procedure, and **before the next cross-reference routing action**, re-`Read` the active reference — identified by `current_step`/`current_substep` in the active `iter-<N>.json`, **not** by conversational memory — and resume the interrupted substep; never re-dispatch the agent/skill that just returned. The durable operands are the step predicate; **agent recall is never the sole predicate**.

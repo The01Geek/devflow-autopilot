@@ -230,8 +230,8 @@ routes the discipline through a context-isolated **Agent-tool subagent**, where 
 
 **The trigger globs.** The routing fires on an edit to any path matching one of:
 `skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review-and-fix/references/*.md`, `.devflow/prompt-extensions/*.md`.
-(`agents/*.md` and skill companion/reference files stay under the base skill's Phase 2 §2.4
-discipline — out of scope for this routing.)
+(`agents/*.md` and skill companion/reference files *other than* the `skills/review-and-fix/references/*.md`
+step references named above stay under the base skill's Phase 2 §2.4 discipline — out of scope for this routing.)
 
 **The routing rule (edit-intent time).** Before making any edit to a path matching a trigger
 glob, the orchestrator dispatches a context-isolated Agent-tool subagent whose prompt instructs

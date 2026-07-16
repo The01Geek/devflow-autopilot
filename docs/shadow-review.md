@@ -1,7 +1,9 @@
 # The `/devflow:review-and-fix` shadow review pass
 
-**Skill:** `skills/review-and-fix/SKILL.md` (Step 2.6 *Shadow review*, plus the Loop Exit
-*Coverage → Shadow agreement* section and the chat-output `{shadow status}` rendering)
+**Skill:** `skills/review-and-fix/references/shadow-review.md` (Step 2.6 *Shadow review*),
+`skills/review-and-fix/references/loop-exit.md` (the Loop Exit *Coverage → Shadow agreement*
+section and the chat-output `{shadow status}` rendering) — the step references the thin
+`skills/review-and-fix/SKILL.md` root routes to (issue #530)
 
 This doc captures the mechanics of the shadow review pass and the structural constraint that
 shapes its design, so the constraint is not re-derived (or re-broken) by a future maintainer who
@@ -450,7 +452,7 @@ the prose "pin a *target-unique* phrase" advice in the mutation-check rule.
 
 The prose mutation-check rule itself carries two further requirements beyond "break it and watch it go
 RED," shared verbatim between the implement test-first gate (`skills/implement/phases/phase-2-implement.md`) and the fix
-loop (`skills/review-and-fix/SKILL.md` Step 3). First, **bake the half-revert into the suite**: a
+loop (`skills/review-and-fix/references/fixing.md` Step 3). First, **bake the half-revert into the suite**: a
 mutation-check run once by hand proves the pin caught the regression only at authoring time, so the pin
 must instead be expressed through the framework's *removal-proof assertion* — the assertion form that
 itself proves *PASS with the pinned text → FAIL without it* — so the check re-runs on every suite
@@ -469,7 +471,7 @@ green.
 
 ### Calibration is symmetric: the under-grade gate and the over-grade gate are two halves of one defense
 
-The calibration above is about the loop grading a finding **too low** (a real defect parked as a note that a later standalone review re-raises). That is one direction; the loop can also grade a finding **too high**, and the engine defends both directions with a matched pair of gates in `skills/review-and-fix/SKILL.md` that share one root idea — *never trust an emitted severity without a recorded technical evaluation against the finding's observable fail-direction and impact*:
+The calibration above is about the loop grading a finding **too low** (a real defect parked as a note that a later standalone review re-raises). That is one direction; the loop can also grade a finding **too high**, and the engine defends both directions with a matched pair of gates in `skills/review-and-fix/references/shadow-review.md` that share one root idea — *never trust an emitted severity without a recorded technical evaluation against the finding's observable fail-direction and impact*:
 
 - **Under-grade — the park-calibration gate**, on the **approve** path (before a Decide outcome-1 / Step 4.5 early-exit conclusion). It re-reads parked findings against the under-grade shapes and **promotes** any it catches back through Step 2.5 → Step 3, so a substantive finding cannot ride out as a note.
 - **Over-grade — the over-grade calibration gate**, on the **promote** path (before a Decide outcome-2 promotion fires on an emitted `Critical`/`Important` shadow finding). It **flags** a suspected over-grade against the *observable* over-grade shapes — whose **single definition** lives in the shared engine (`/devflow:review` SKILL.md Phase 4.1.5, *Over-grade advisory annotation*), consumed by both skills rather than forked: a defect that fails closed or that the suite catches RED, a diagnostic-or-cosmetic-only finding with no behavioral fail-direction, and an uncorroborated single-source `Critical`/`Important` from an empirical over-grader (`silent-failure-hunter` / `pr-test-analyzer`) — and, crucially, a defect that fails **open** never matches the first shape no matter that its limitation is documented or its trigger input contrived, because "documented" and "contrived" are disclosure facts, not severity facts — so the loop does not spend a full extra engine pass (a promoted iteration plus a re-shadow) on an unexamined label.
@@ -500,7 +502,7 @@ PR #164 converged to a clean in-loop self-APPROVE, and a later standalone `/devf
 
 *Guarantee scope.* The critic catches an audit that is **not a superset of a genuinely independent enumeration**. **It does not prove the audit is exhaustive:** the independent enumeration is itself reviewer judgment and can share a blind spot with the audit. A clean critic result means "the audit covers everything a second, structurally different enumeration found," not "nothing is uncovered." Like a clean shadow above, it **narrows** the circular-completeness gap; it does not close it.
 
-**The mechanism-scoped self-authored-claim re-sweep (fix loop — `skills/review-and-fix/SKILL.md` Step 3).** After a fix changes a mechanism (a guard, predicate, exclusion, or helper that comments describe), the fix loop re-runs the `devflow:comment-analyzer` agent over **every** comment describing that mechanism — located by the mechanism's identifiers across the touched files, not limited to the fix's own diff hunks — and treats a comment that still describes the pre-change mechanism as a finding. It **reuses the existing comment-analyzer (no new agent)** and lives only in the fix loop, since standalone review applies no fixes — so the shared engine carries no paraphrase of it.
+**The mechanism-scoped self-authored-claim re-sweep (fix loop — `skills/review-and-fix/references/fixing.md` Step 3).** After a fix changes a mechanism (a guard, predicate, exclusion, or helper that comments describe), the fix loop re-runs the `devflow:comment-analyzer` agent over **every** comment describing that mechanism — located by the mechanism's identifiers across the touched files, not limited to the fix's own diff hunks — and treats a comment that still describes the pre-change mechanism as a finding. It **reuses the existing comment-analyzer (no new agent)** and lives only in the fix loop, since standalone review applies no fixes — so the shared engine carries no paraphrase of it.
 
 *Guarantee scope.* The re-sweep covers comments describing the **changed** mechanism within the **touched** files. **It is not a repo-wide comment audit:** it does not catch drift in files the fix never touched, nor a claim that names no shared identifier. It closes the "spot-checked the fix's own hunks and missed a stale comment elsewhere in the same file" gap — nothing wider.
 

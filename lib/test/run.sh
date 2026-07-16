@@ -31150,6 +31150,11 @@ RAF_MAXREF_W=0
 for f in "$LIB/../skills/review-and-fix/references"/*.md; do
   w=$(wc -w < "$f"); [ "$w" -gt "$RAF_MAXREF_W" ] && RAF_MAXREF_W="$w"
 done
+# Fail closed if the references glob matched nothing: RAF_MAXREF_W would stay 0 and the peak
+# assertion (root+ext+0) would pass VACUOUSLY while under-reporting. A healthy tree always has
+# 8 references (each with a positive wc), so 0 means the glob is empty / the dir is gone.
+assert_eq "#530 budget: at least one reference file was measured (references glob non-empty)" "yes" \
+  "$([ "$RAF_MAXREF_W" -gt 0 ] && echo yes || echo no)"
 assert_eq "#530 budget: plugin root <= 3000 words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le 3000 ] && echo yes || echo no)"
 assert_eq "#530 budget: root + live extension (initial load) <= 5500 words (measured $((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
@@ -31160,7 +31165,7 @@ RAF_BUDGET_DOC="$LIB/../docs/review-and-fix-budget.md"
 assert_eq "#530 budget: checked-in budget table exists" "yes" \
   "$([ -f "$RAF_BUDGET_DOC" ] && echo yes || echo no)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,188 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,198 words' "$RAF_BUDGET_DOC"
 
 # ── #530 pressure tests (AC16): the split preserves every named control-flow scenario ──
 # Each scenario's operative behavioral literal must survive the split AND land in the
@@ -31220,6 +31225,29 @@ assert_pin_unique "#530 pressure(fix-delta): fix-delta verification gate in fix-
 for _r530 in pre-fix-gates shadow-review fixing fix-delta-gate convergence loop-exit loop-control; do
   assert_eq "#530 pressure(routing): root Step-routing names references/$_r530.md" "yes" \
     "$(grep_present "references/$_r530.md" "$P530_ROOT")"
+done
+# The contextual error-handling.md is NOT step-routed (it carries no loop step), so it is
+# absent from the routing loop above by design; pin its best-effort failure-map row and its
+# root pointer instead so the "every reference has a mapped outcome" invariant stays guarded.
+assert_pin_unique "#530 pressure(routing): root failure-map carries the loop-control.md STOP row" \
+  '| `loop-control.md` | The loop spine' "$P530_ROOT"
+assert_pin_unique "#530 pressure(routing): root failure-map carries the error-handling.md best-effort row" \
+  '| `error-handling.md` | Contextual guidance' "$P530_ROOT"
+assert_eq "#530 pressure(routing): root names references/error-handling.md (contextual pointer)" "yes" \
+  "$(grep_present "references/error-handling.md" "$P530_ROOT")"
+# ── #530 (silent-failure review): pin the START/END markers the fail-closed Reference-loading
+# contract hinges on. The runtime completeness check treats a reference as unreadable unless its
+# first non-blank line is `# Reference: <title>` and its last non-blank line is the canonical
+# `<!-- END <name>.md -->` marker. Nothing else pins them, so a future edit that drops/mangles a
+# marker (or appends content after the END) would ship desk-green. Pin both edges per reference.
+for _rf in "$LIB/../skills/review-and-fix/references"/*.md; do
+  _rb="$(basename "$_rf")"
+  assert_eq "#530 marker: references/$_rb first non-blank line is a canonical '# Reference:' heading" "yes" \
+    "$(grep -m1 -v '^[[:space:]]*$' "$_rf" | grep -q '^# Reference: ' && echo yes || echo no)"
+  # Extract the filename the END marker names and require it to equal this file's basename —
+  # this both asserts the marker is the last non-blank line AND that it names the right file.
+  assert_eq "#530 marker: references/$_rb last non-blank line is the canonical END marker naming it" "$_rb" \
+    "$(grep -v '^[[:space:]]*$' "$_rf" | tail -1 | sed -nE 's/^<!-- END (.+\.md) -->$/\1/p')"
 done
 
 # ── Anti-vacuity: each rule flags its denied shape (fixtures under $E363's trap-cleaned dir).
