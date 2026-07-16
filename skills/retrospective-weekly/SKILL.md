@@ -75,11 +75,17 @@ git branch --show-current
 
 If not on `main`, run `git checkout main`.
 
-Prepare the scratch directory (`$LIB` below is the textual notation from the top of this skill — expand it when composing commands, do not assign a shell variable):
+Prepare the scratch directory (`$LIB` below is the textual notation from the top of this skill — expand it when composing commands, do not assign a shell variable). This also removes prior-run per-PR scratch (`result-*.json`, `pr-*.context.json`) so a run starts clean and can never read another run's stale bundle or output:
 
 ```bash
 mkdir -p .devflow/tmp
 rm -f .devflow/tmp/new-entries.jsonl
+# Remove prior-run per-PR scratch. `find … -delete` (not a bare `rm -f <glob>`)
+# is shell- and OS-agnostic: it is a safe no-op when neither or only one pattern
+# matches, whereas under zsh an unmatched glob is a fatal `no matches found` that
+# would abort the whole rm (leaving BOTH patterns uncleaned). Step 1 runs before
+# any fetch, so it never touches the current run's own freshly-written files.
+find .devflow/tmp -maxdepth 1 -type f \( -name 'result-*.json' -o -name 'pr-*.context.json' \) -delete 2>/dev/null
 ```
 
 ---
