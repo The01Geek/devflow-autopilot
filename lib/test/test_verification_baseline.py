@@ -857,6 +857,53 @@ class Issue527ReviewFixTests(_TmpDirTestCase):
         resolved = vb._validate_admitted_path(".devflow/tmp")
         self.assertTrue(str(resolved).startswith(str(ROOT.resolve())))
 
+    # --- I1: two independent sessions each running the same verification command
+    #         must NOT be grouped into a transport-retry candidate (the
+    #         session-local occurrence_id must not collide across sessions). ----
+    def test_two_sessions_same_command_are_independent_lifecycles(self) -> None:
+        b = transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "tu1"),
+            tool_result("tu1", "ok; exit code 0"),
+        )
+        # Two separate sessions, each a full implement lifecycle running the suite.
+        for sid in ("sess-A", "sess-B"):
+            write_manifest(self.manifests, sid)
+            write_bundle(self.bundles, sid, b)
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles),
+                   "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        runs = sorted(self.out.iterdir())
+        doc = json.loads((runs[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+        # Both launches share a binding digest -> one group. It must be classified
+        # independent (distinct lifecycles), NOT a transport-retry candidate.
+        self.assertEqual(doc["metrics"]["candidate_retries"], 0)
+        groups = doc["relationship_groups"]
+        multi = [g for g in groups if len(g["members"]) > 1]
+        self.assertTrue(multi, "expected the two same-command launches to group together")
+        for g in multi:
+            # Distinct sessions -> distinct lifecycle IDs -> independent (NOT
+            # candidate, NOT the pre-fix 'unclassifiable' from a collapsed lifecycle).
+            self.assertEqual(g["relationship"], REL_INDEPENDENT_LIFECYCLE)
+
+    # --- I4: a chained command whose segments are all read-only tools must not
+    #         be counted as a verification launch (regression from the G8
+    #         chaining fix); grep/cat/etc. with a test-tool name in args too. ---
+    def test_chained_readonly_commands_are_not_verification(self) -> None:
+        self.assertEqual(vb._classify_taxonomy("cat lib/test/run.sh && echo done"), KIND_OTHER_COMMAND)
+        self.assertEqual(vb._classify_taxonomy("grep -r pytest . && ls"), KIND_OTHER_COMMAND)
+        self.assertEqual(vb._classify_taxonomy("grep -r pytest ."), KIND_OTHER_COMMAND)
+        # A real verification segment in a chain is still verification.
+        self.assertEqual(vb._classify_taxonomy("cd repo && pytest tests/"), KIND_VERIFICATION)
+        self.assertEqual(vb._classify_taxonomy("ruff check && git commit -m x"), KIND_VERIFICATION)
+
+    # --- I5: the exit-code heuristic must not bind an incidental number from
+    #         prose like "will exit 5 minutes". ------------------------------
+    def test_exit_code_regex_ignores_incidental_prose(self) -> None:
+        self.assertIsNone(vb._exit_evidence({"is_error": False, "content": "will exit 5 minutes"})["exit_code"])
+        self.assertEqual(vb._exit_evidence({"is_error": False, "content": "done; exit code 0"})["exit_code"], 0)
+        self.assertEqual(vb._exit_evidence({"is_error": False, "content": "rc: 2"})["exit_code"], 2)
+
     # --- H1: a skipped cloud job is ineligible EVEN WHEN the API populated a
     #         started_at (the guard must not fail open on that assumption). ----
     def test_skipped_cloud_job_with_started_at_is_ineligible(self) -> None:

@@ -192,7 +192,12 @@ VERIFICATION_PATTERNS = (
 # is other_command, not verification). Conservative and small.
 NON_VERIFICATION_HEADS = frozenset(
     {"git", "gh", "ls", "cat", "echo", "cd", "pwd", "mkdir", "rm", "cp", "mv",
-     "touch", "chmod", "chown", "stat", "file", "which", "env", "export"}
+     "touch", "chmod", "chown", "stat", "file", "which", "env", "export",
+     # Read-only text/inspection tools: never a verification launch, so an
+     # incidental test-tool name in their arguments (`grep -r pytest .`,
+     # `cat lib/test/run.sh`) must not be counted as one (issue #527 review).
+     "grep", "sed", "awk", "find", "wc", "head", "tail", "cut", "tr", "sort",
+     "uniq", "diff"}
 )
 
 # Secret-bearing token patterns (canonicalize+redact before digesting). Matched
@@ -925,25 +930,34 @@ def _strip_env_prefix(command: str) -> str:
     return head
 
 
-def _classify_taxonomy(command: str) -> str:
-    # A clearly-non-verification command head (git, cat, echo, …) means the
-    # command's action is git/cat/echo/… and a test-tool name later in it is an
-    # argument (`git commit -m 'fix ruff'`, `cat lib/test/run.sh`, `echo pytest`),
-    # NOT a launch — running the whole-command pattern search first counted those
-    # as verification launches, inflating the very baseline this tool measures
-    # (issue #527 review finding). But a CHAINED command (`cd repo && pytest`)
-    # can still run a real verification after the wrapper, so the head short-
-    # circuit applies only to a SIMPLE command; a chained command falls through to
-    # the pattern check (and, failing that, back to the head for other_command).
-    head = _strip_env_prefix(command)
-    chained = bool(re.search(r"&&|\|\||;", command))
-    if not chained and head in NON_VERIFICATION_HEADS:
-        return KIND_OTHER_COMMAND
-    if any(pat.search(command) for pat in VERIFICATION_PATTERNS):
-        return KIND_VERIFICATION
+def _classify_simple_command(segment: str) -> str:
+    # Classify ONE simple command by its head: a clearly-non-verification head
+    # (git, cat, grep, echo, …) means the segment's action is that command and a
+    # test-tool name in its arguments (`cat lib/test/run.sh`, `grep -r pytest .`)
+    # is not a launch; otherwise a verification pattern match makes it a launch.
+    head = _strip_env_prefix(segment)
     if head in NON_VERIFICATION_HEADS:
         return KIND_OTHER_COMMAND
+    if any(pat.search(segment) for pat in VERIFICATION_PATTERNS):
+        return KIND_VERIFICATION
     return KIND_VERIFICATION_UNKNOWN
+
+
+def _classify_taxonomy(command: str) -> str:
+    # Classify each top-level `&&`/`||`/`;` segment by its own head, then combine.
+    # A chained command is a verification launch iff SOME segment is one — so
+    # `cd repo && pytest` is verification (the pytest segment), while
+    # `cat lib/test/run.sh && echo done` is other_command (both segments are
+    # read-only tools whose args merely mention a test tool). Classifying the
+    # whole command against the pattern set first (or disabling the head guard for
+    # any chained command) counted those incidental mentions as launches,
+    # inflating the very baseline this tool measures (issue #527 review finding).
+    kinds = [_classify_simple_command(seg.strip()) for seg in re.split(r"&&|\|\||;", command) if seg.strip()]
+    if KIND_VERIFICATION in kinds:
+        return KIND_VERIFICATION
+    if KIND_VERIFICATION_UNKNOWN in kinds:
+        return KIND_VERIFICATION_UNKNOWN
+    return KIND_OTHER_COMMAND
 
 
 def _command_head(command: str) -> str:
@@ -966,7 +980,11 @@ def _exit_evidence(result: dict | None) -> "dict | None":
     # Exit-code heuristic: search for a trailing nonzero code in common shapes.
     # Observational only — never used to predict authorization.
     exit_code: int | None = None
-    m = re.search(r"(?:exit code|exit|rc)\s*[:=]?\s*(-?\d+)", text, re.IGNORECASE)
+    # Require a specific shape (`exit code`/`exit status`/`rc`) adjacent to the
+    # number — the bare `exit` alternative matched incidental prose like "will exit
+    # 5 minutes" and bound the wrong number, polluting the terminal-vs-result-missing
+    # split (issue #527 review).
+    m = re.search(r"(?:exit code|exit status|\brc\b)\s*[:=]?\s*(-?\d+)", text, re.IGNORECASE)
     if m:
         try:
             exit_code = int(m.group(1))
@@ -1132,7 +1150,7 @@ def extract_verification_lifecycles(
         if root is None:
             continue
         end_idx = root.end_event if root.end_event is not None else (len(events) - 1)
-        row.provenance["lifecycle_id"] = root.occurrence_id
+        row.provenance["lifecycle_id"] = f"{sid}\x1f{root.occurrence_id}"
         reqs, launches_in = _extract_from_lifecycle(events, root, end_idx, sid, row.consumer)
         requests.extend(reqs)
         launches.extend(launches_in)
@@ -1175,6 +1193,16 @@ def _extract_from_lifecycle(events, root, end_idx, sid, consumer):
     # _workspace_state's result is identical across launches in the same one).
     result_by_id, result_event_by_id = _build_result_indexes(events)
     ws = _workspace_state(events, root.start_event, end_idx)
+    # Globally-unique lifecycle identity. root.occurrence_id is only a
+    # per-transcript counter — workflow_flight_recorder's detect_occurrences resets
+    # it every call, so the root occurrence of EVERY session is the identical string
+    # (e.g. "implement-1"). group_launches buckets launches across ALL sessions by
+    # binding digest alone, so a bare occurrence_id collapses two independent
+    # sessions' runs of the same command into one "lifecycle" — defeating the
+    # REL_INDEPENDENT_LIFECYCLE guard and fabricating transport-retry candidates out
+    # of ordinary independent reruns (issue #527 review finding). Compose the session
+    # id in so lifecycle_id is a valid GLOBAL join key.
+    lifecycle_id = f"{sid}\x1f{root.occurrence_id}"
     for event in events[root.start_event : end_idx + 1]:
         if (event.role or event.raw.get("type")) != "assistant":
             continue
@@ -1201,7 +1229,7 @@ def _extract_from_lifecycle(events, root, end_idx, sid, consumer):
             req = VerificationRequest(
                 request_id=req_id,
                 source_event_id=_source_event_id(sid, event.index),
-                lifecycle_id=root.occurrence_id,
+                lifecycle_id=lifecycle_id,
                 tool_use_id=tool_use_id,
                 consumer_skill=consumer,
                 phase_checkpoint=None,  # Wave 1: not explicitly extracted
@@ -1227,7 +1255,7 @@ def _extract_from_lifecycle(events, root, end_idx, sid, consumer):
                     launch_id=launch_id,
                     request_id=req_id,
                     source_event_id=_source_event_id(sid, event.index),
-                    lifecycle_id=root.occurrence_id,
+                    lifecycle_id=lifecycle_id,
                     tool_use_id=tool_use_id,
                     consumer_skill=consumer,
                     phase_checkpoint=None,
@@ -1421,8 +1449,8 @@ def compute_metrics(
             source_missingness[SOURCE_UNAVAILABLE] += 1
     # Cloud coverage unavailability is a run-level signal (cloud_coverage), not a
     # per-row status, so drive the ``unavailable`` counter from it rather than
-    # leaving it structurally 0 (cloud rows always carry source_status="available"
-    # or there are no cloud rows when the snapshot is absent).
+    # leaving it structurally 0 (cloud rows always carry source_status=available,
+    # or there are no cloud rows — snapshot absent, incomplete, or all-malformed).
     if has_cloud_snapshot and cloud_unavailable:
         source_missingness[SOURCE_UNAVAILABLE] = source_missingness.get(SOURCE_UNAVAILABLE, 0) + 1
 

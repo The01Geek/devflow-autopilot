@@ -105,7 +105,14 @@ def _gh_json(gh: str, args: list[str]) -> Any:
     cmd = [gh, *args, "--jq", "."]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
-    except (OSError, subprocess.TimeoutExpired):
+    except FileNotFoundError as exc:
+        # gh not found / not on PATH / broken DEVFLOW_GH override. Name it, like the
+        # rc-nonzero and malformed-stdout branches below (issue #527 review) — else
+        # a missing gh is an indistinguishable, reasonless "pagination incomplete".
+        print(f"devflow census-export: gh not found ({exc}); set DEVFLOW_GH or install gh — treating as a failed fetch", file=sys.stderr)
+        return None
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"devflow census-export: gh invocation failed ({type(exc).__name__}: {exc}); treating as a failed fetch", file=sys.stderr)
         return None
     if proc.returncode != 0 or not proc.stdout.strip():
         stderr = (proc.stderr or "").strip()

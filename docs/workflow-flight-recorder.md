@@ -256,7 +256,9 @@ Local launch relationships are classified as exactly `single`,
 `independent_lifecycle`, or `unclassifiable`. A transport-retry candidate
 requires the same explicit lifecycle, consumer/checkpoint when available, safe
 binding identity, a prior missing/cancelled response, an explicitly bounded
-interval, matching pre/post `workspace_state`, and no explicit new
+interval, matching `workspace_state` coverage across the grouped launches
+(lifecycle-scoped in Wave 1 — the coverage is derived once per lifecycle from its
+source-event results, not compared per-launch before/after), and no explicit new
 iteration/checkpoint/retrigger evidence. Distinct lifecycle IDs, cloud run
 attempts, command bindings, consumer roles, explicit iterations, explicit
 checkpoints, post-fix commits, base merges, and human retriggers cannot be
