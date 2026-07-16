@@ -72,7 +72,8 @@ Each imported bundle contains one transcript plus:
 - `event-summary.json` — privacy-safe counts for tools, errors, permission
   denials, equivalent retries, subagents, compaction, gaps, usage, model, and
   effort where observable;
-- `stop-attempts.jsonl` — one compact record per capture or import attempt.
+- `stop-attempts.jsonl` — one compact entry per successful compatibility
+  capture or verified explicit import.
 
 `scripts/capture-implement-session.py` remains as an unwired compatibility entry
 point for existing callers. Generalized bundles and legacy implement bundles
