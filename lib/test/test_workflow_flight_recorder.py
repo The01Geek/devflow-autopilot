@@ -627,6 +627,248 @@ class TimingAndSummaryTests(unittest.TestCase):
         self.assertTrue(any(item["kind"] == "decreasing_timestamp" for item in summary["evidence"]))
 
 
+class ManifestObserverTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name) / "repository"
+        self.root.mkdir()
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "config", "user.email", "observer@example.invalid"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.root), "config", "user.name", "Observer Test"],
+            check=True,
+        )
+        for relative in [
+            "skills/implement/SKILL.md",
+            "skills/implement/phases/setup.md",
+            "skills/review/SKILL.md",
+            "skills/review-and-fix/SKILL.md",
+            "skills/docs/SKILL.md",
+        ]:
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"# observer {relative}\n", encoding="utf-8")
+        (self.root / ".claude").mkdir()
+        (self.root / ".claude/settings.local.json").write_text(
+            json.dumps({"outputStyle": "Default", "verbose": True}),
+            encoding="utf-8",
+        )
+        (self.root / ".claude-plugin").mkdir()
+        (self.root / ".claude-plugin/plugin.json").write_text(
+            json.dumps({"name": "devflow", "version": "9.8.7"}),
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(self.root), "commit", "-qm", "fixture"], check=True)
+        self.head_sha = subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+
+    def _payload(self, prompt: str, session_id: str = "sid-manifest") -> dict:
+        return {
+            "session_id": session_id,
+            "cwd": str(self.root),
+            "transcript_path": str(self.root / "must-not-exist.jsonl"),
+            "user_prompt": prompt,
+        }
+
+    def _capture(self, prompt: str, session_id: str = "sid-manifest") -> tuple[dict, dict]:
+        result = recorder.capture_prompt_manifest(self._payload(prompt, session_id), REGISTRY)
+        manifest_path = self.root / f".devflow/tmp/workflow-manifests/{session_id}.json"
+        return result, json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    def test_exact_wrapper_and_embedded_prompts_create_provisional_candidates(self) -> None:
+        cases = [
+            (
+                "/devflow:implement 525",
+                "implement",
+                {"kind": "issue", "number": 525},
+                "exact_user_command",
+            ),
+            (
+                "<command-message>devflow:review-and-fix</command-message>"
+                "<command-args>#77</command-args>",
+                "review-and-fix",
+                {"kind": "pull_request", "number": 77},
+                "command_markup",
+            ),
+            (
+                "Make PR 42 draft, then run /devflow:receiving-code-review 42",
+                "receiving-code-review",
+                {"kind": "pull_request", "number": 42},
+                "embedded_user_command_candidate",
+            ),
+        ]
+        for index, (prompt, workflow, subject, evidence) in enumerate(cases):
+            with self.subTest(prompt=prompt):
+                result, manifest = self._capture(prompt, f"sid-candidate-{index}")
+                self.assertTrue(result["captured"])
+                self.assertEqual(
+                    manifest["candidate"],
+                    {
+                        "workflow": workflow,
+                        "subject": subject,
+                        "invocation_evidence": evidence,
+                        "provisional": True,
+                    },
+                )
+                self.assertNotIn(prompt, json.dumps(manifest))
+
+    def test_manifest_snapshots_git_config_version_prompt_surfaces_and_unknown_model_effort(self) -> None:
+        _, manifest = self._capture("/implement 525")
+
+        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["session_id"], "sid-manifest")
+        self.assertEqual(manifest["native_transcript_path"], str(self.root / "must-not-exist.jsonl"))
+        self.assertRegex(manifest["submitted_at"], r"^\d{4}-\d{2}-\d{2}T")
+        self.assertEqual(manifest["cwd"], str(self.root.resolve()))
+        self.assertEqual(manifest["repository_root"], str(self.root.resolve()))
+        self.assertEqual(manifest["storage_root"], str(self.root.resolve()))
+        self.assertEqual(manifest["storage_root_source"], "git_common_dir_parent")
+        self.assertEqual(manifest["git"]["head_sha"], self.head_sha)
+        self.assertIsInstance(manifest["git"]["branch"], str)
+        self.assertFalse(manifest["git"]["dirty_tree"])
+        self.assertEqual(manifest["devflow_version"], {"value": "9.8.7", "source": "plugin_manifest"})
+        self.assertEqual(
+            manifest["claude_configuration"]["outputStyle"],
+            {"value": "Default", "source": "project_local_settings", "effective": False},
+        )
+        self.assertIn("provider", manifest)
+        self.assertEqual(
+            manifest["model_effort"],
+            {
+                "requested_model": None,
+                "requested_model_source": None,
+                "requested_effort": None,
+                "requested_effort_source": None,
+            },
+        )
+        self.assertEqual(manifest["prompt_surfaces"]["schema_version"], 1)
+        self.assertIn("implement", manifest["prompt_surfaces"]["fingerprints"])
+        surface = next(
+            item
+            for item in manifest["prompt_surfaces"]["surfaces"]
+            if item["path"] == "skills/implement/SKILL.md"
+        )
+        self.assertGreater(surface["bytes"], 0)
+        self.assertGreater(surface["lines"], 0)
+        self.assertGreater(surface["words"], 0)
+        self.assertGreater(surface["approx_tokens"], 0)
+        self.assertRegex(surface["sha256"], r"^[0-9a-f]{64}$")
+
+        self.assertFalse((self.root / "must-not-exist.jsonl").exists())
+        self.assertFalse((self.root / ".devflow/tmp/workflow-runs").exists())
+        self.assertFalse(any(self.root.rglob("transcript.jsonl")))
+
+    def test_payload_supplied_model_effort_and_prompt_alias_are_recorded(self) -> None:
+        payload = self._payload("ignored")
+        payload.pop("user_prompt")
+        payload.update(
+            {
+                "prompt": "/review-and-fix 91",
+                "model": "claude-opus-test",
+                "effort": "high",
+                "claude_code_version": "1.2.3",
+            }
+        )
+
+        result = recorder.capture_prompt_manifest(payload, REGISTRY)
+        manifest = json.loads(Path(result["manifest"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(manifest["candidate"]["workflow"], "review-and-fix")
+        self.assertEqual(manifest["model_effort"]["requested_model"], "claude-opus-test")
+        self.assertEqual(manifest["model_effort"]["requested_model_source"], "user_prompt_submit_payload")
+        self.assertEqual(manifest["model_effort"]["requested_effort"], "high")
+        self.assertEqual(manifest["model_effort"]["requested_effort_source"], "user_prompt_submit_payload")
+        self.assertEqual(
+            manifest["claude_code_version"],
+            {"value": "1.2.3", "source": "user_prompt_submit_payload"},
+        )
+
+    def test_linked_worktree_stores_manifest_in_shared_checkout(self) -> None:
+        linked = Path(self.temporary.name) / "linked"
+        subprocess.run(
+            ["git", "-C", str(self.root), "worktree", "add", "-q", "--detach", str(linked)],
+            check=True,
+        )
+        payload = self._payload("/implement 88", "sid-linked-manifest")
+        payload["cwd"] = str(linked)
+        payload["transcript_path"] = str(linked / "native.jsonl")
+
+        result = recorder.capture_prompt_manifest(payload, REGISTRY)
+
+        central = self.root.resolve() / ".devflow/tmp/workflow-manifests/sid-linked-manifest.json"
+        self.assertEqual(Path(result["manifest"]), central)
+        self.assertTrue(central.is_file())
+        self.assertFalse((linked / ".devflow/tmp/workflow-manifests").exists())
+        manifest = json.loads(central.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["repository_root"], str(linked.resolve()))
+        self.assertEqual(manifest["storage_root"], str(self.root.resolve()))
+
+    def test_non_candidate_and_multiple_embedded_candidates_create_no_artifact(self) -> None:
+        cases = [
+            "ordinary prompt",
+            "run /implement 1, then /review-and-fix 2",
+        ]
+        for index, prompt in enumerate(cases):
+            with self.subTest(prompt=prompt):
+                session_id = f"sid-none-{index}"
+                result = recorder.capture_prompt_manifest(self._payload(prompt, session_id), REGISTRY)
+                self.assertEqual(result, {"captured": False, "session_id": session_id})
+                self.assertFalse(
+                    (self.root / f".devflow/tmp/workflow-manifests/{session_id}.json").exists()
+                )
+
+    def test_unsafe_or_malformed_payloads_fail_without_artifacts(self) -> None:
+        cases = [
+            None,
+            [],
+            {},
+            self._payload("/implement 1", "../unsafe"),
+            {**self._payload("/implement 1"), "cwd": 7},
+            {**self._payload("/implement 1"), "cwd": str(self.root / "missing")},
+            {**self._payload("/implement 1"), "transcript_path": ""},
+            {**self._payload("/implement 1"), "transcript_path": 7},
+            {**self._payload("/implement 1"), "user_prompt": 7},
+        ]
+        for payload in cases:
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    recorder.capture_prompt_manifest(payload, REGISTRY)
+        self.assertFalse((self.root / ".devflow/tmp/workflow-manifests").exists())
+        self.assertFalse((self.root / ".devflow/tmp/workflow-runs").exists())
+
+    def test_thin_entry_point_is_fail_open_for_success_and_every_failure(self) -> None:
+        entry = ROOT / "scripts/capture-workflow-manifest.py"
+        cases = [
+            json.dumps(self._payload("/implement 525", "sid-entry")),
+            "{malformed",
+            "[]",
+            json.dumps(self._payload("/implement 1", "../unsafe")),
+            json.dumps({**self._payload("/implement 1"), "cwd": str(self.root / "missing")}),
+        ]
+        for raw in cases:
+            with self.subTest(raw=raw):
+                result = subprocess.run(
+                    [sys.executable, str(entry)],
+                    input=raw,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.root / ".devflow/tmp/workflow-manifests/sid-entry.json").is_file())
+        self.assertFalse((self.root / ".devflow/tmp/workflow-runs").exists())
+
+
 class CaptureTests(unittest.TestCase):
     def test_linked_worktree_launches_shared_recorder_and_stores_centrally(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
