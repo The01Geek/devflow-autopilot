@@ -1,0 +1,38 @@
+{
+  "iter": 3,
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "fix_commit_sha": "pending",
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "carriage compare-and-reject enforcement half unpinned; DRAFT-UNREADABLE re-dispatch recovery unpinned",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          3320,
+          3340
+        ],
+        "kind": "coverage-gap"
+      },
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "PTA2-1",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "SFH2-T2",
+      "decision": "advisory",
+      "source_file": "skills/create-issue/SKILL.md",
+      "claim_text": "T2 over-fires on read-only-sandbox converged runs (offers even when converged)",
+      "skip_category": "advisory-parked",
+      "evidence": "LOW; deliberate fail-loud over-approximation per the design's stated 'unknown is not zero' bias — over-asking a converged draft is the safe direction, user-gated, bounded (decline->proceed, cap 3). Defensible, not fixed."
+    }
+  ],
+  "telemetry": "unavailable"
+}
