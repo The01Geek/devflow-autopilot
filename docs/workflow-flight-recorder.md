@@ -108,9 +108,10 @@ The declaration is provenance, not proof of the provider's effective model.
 file-derived configuration snapshot. `DEVFLOW_RECORDER_MODEL` and
 `DEVFLOW_RECORDER_EFFORT` only fill in what the session did not itself report:
 when the host supplies the model or effort, that observation wins and the
-declaration is discarded rather than recorded over it. Either way the recorded
-value carries an `explicit_recorder_environment` source, so a declared value is
-always distinguishable from an observed one.
+declaration is discarded rather than recorded over it. A value taken from a
+declaration is recorded with an `explicit_recorder_environment` source and an
+observed one with `user_prompt_submit_payload`, so the two are always
+distinguishable in the bundle.
 
 Do not pool unlike output styles, invocation modes, prompt fingerprints, models,
 or effort levels without naming them as confounders.
@@ -122,7 +123,13 @@ caller must pass `--acknowledge-provider-access` to confirm that selected bundle
 content may be sent to the configured provider. Transcript content is untrusted;
 the analyst is instructed to read only supplied bundle paths, but the tool
 allowlist is not a filesystem sandbox. Run analysis only where that read scope is
-acceptable.
+acceptable. The analyst call is bounded by a 900-second timeout so a hung
+provider call cannot block the CLI indefinitely; set `DEVFLOW_CLAUDE_TIMEOUT` to
+a positive number of seconds to widen it.
+
+A bundle that cannot be loaded is skipped rather than analyzed, with a
+breadcrumb naming it: a cohort can be smaller than the `--last N` you asked for,
+and the skipped bundles are the ones to check first.
 
 A single session may produce a report but never an optimization issue. A recurring
 issue requires materially matching evidence from at least two distinct session
