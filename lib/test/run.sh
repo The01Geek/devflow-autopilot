@@ -40372,6 +40372,23 @@ assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda
 # ────────────────────────────────────────────────────────────────────────────
 echo "workflow flight recorder: native inventory, explicit import, and constrained analysis"
 # ────────────────────────────────────────────────────────────────────────────
+# #530 AC14: the recorder registry lists the review-and-fix references glob under BOTH the
+# review-and-fix and implement workflows with load_class "reference" — so measure_prompt_surfaces
+# globs each split-out reference as a measured surface, folds its sha256 into the workflow's
+# prompt fingerprint, and its bytes/words into the reference-class bundle totals. (Mutating one
+# reference therefore changes the fingerprint + totals by construction — the glob-match is what
+# makes the references measured surfaces in the first place.)
+RAF_REG="$LIB/../scripts/workflow-flight-recorder-registry.json"
+assert_eq "#530 AC14: recorder registry lists the review-and-fix references glob under BOTH workflows with load_class reference" "review-and-fix:yes implement:yes" \
+  "$(python3 - "$RAF_REG" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+def has(wf):
+    return any(s.get("glob") == "skills/review-and-fix/references/*.md" and s.get("load_class") == "reference"
+              for s in d["workflows"][wf]["surfaces"])
+print(f"review-and-fix:{'yes' if has('review-and-fix') else 'no'} implement:{'yes' if has('implement') else 'no'}")
+PY
+)"
 IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"
 IFR_INVENTORY="$LIB/../scripts/inventory-workflow-transcripts.py"
 IFR_IMPORT="$LIB/../scripts/import-workflow-transcript.py"
