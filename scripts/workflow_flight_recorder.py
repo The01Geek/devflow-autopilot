@@ -410,6 +410,51 @@ def classify_inventory_occurrences(
     return []
 
 
+def _bundle_occurrences(
+    events: list[Event],
+    definitions: dict[str, WorkflowDefinition],
+    admitted_root: Occurrence,
+) -> list[Occurrence]:
+    """Return every occurrence after first-message admission has selected the root."""
+    occurrences = detect_occurrences(events, definitions)
+    try:
+        root = next(
+            occurrence
+            for occurrence in occurrences
+            if occurrence.occurrence_id == admitted_root.occurrence_id
+        )
+    except StopIteration as exc:
+        raise ValueError("admitted inventory root is missing from complete occurrences") from exc
+
+    root.mode = admitted_root.mode
+    root.parent_occurrence_id = admitted_root.parent_occurrence_id
+    root.invocation_source = admitted_root.invocation_source
+    root.start_event = admitted_root.start_event
+    root.started_at = admitted_root.started_at
+    root.start_timestamp_source = admitted_root.start_timestamp_source
+    root.preceding_context_events = admitted_root.preceding_context_events
+    if admitted_root.invocation_source != "embedded_user_command_corroborated":
+        return occurrences
+
+    occurrences.sort(key=lambda occurrence: occurrence.start_event)
+    root_index = occurrences.index(root)
+    active: list[Occurrence] = [root]
+    for occurrence in occurrences[root_index + 1 :]:
+        if occurrence.mode == "top-level":
+            break
+        allowed_parents = definitions[occurrence.workflow].allowed_parents
+        occurrence.parent_occurrence_id = next(
+            (
+                candidate.occurrence_id
+                for candidate in reversed(active)
+                if candidate.workflow in allowed_parents
+            ),
+            None,
+        )
+        active.append(occurrence)
+    return occurrences
+
+
 def _completion_workflow(event: Event) -> str | None:
     marker = event.raw.get("workflow_completion")
     if isinstance(marker, str):
@@ -1441,9 +1486,11 @@ def import_inventory_session(
     except OSError as exc:
         raise ValueError(f"selected native transcript is unreadable: {native_path}") from exc
     definitions = load_registry(registry_path)
-    occurrences = classify_inventory_occurrences(parse_events(raw), definitions)
-    if not occurrences:
+    events = parse_events(raw)
+    admission = classify_inventory_occurrences(events, definitions)
+    if not admission:
         raise ValueError("selected native transcript no longer classifies as an inventory session")
+    occurrences = _bundle_occurrences(events, definitions, admission[0])
     manifest_path = storage_root / ".devflow/tmp/workflow-manifests" / f"{session_id}.json"
     start_manifest = _read_start_manifest(manifest_path, session_id)
 

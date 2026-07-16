@@ -1041,6 +1041,80 @@ class ImportTests(unittest.TestCase):
             if artifact.is_file():
                 self.assertEqual(artifact.stat().st_mode & 0o777, 0o600, artifact.name)
 
+    def test_import_retains_direct_root_and_later_nested_occurrences(self) -> None:
+        session_id = "direct-root-with-nested"
+        self._native_path(session_id).write_bytes(
+            transcript(
+                self._record(user("/devflow:implement 525", "2026-07-15T18:00:00Z")),
+                self._record(
+                    skill_call("review-and-fix", "525", "2026-07-15T18:01:00Z")
+                ),
+            )
+        )
+
+        bundle = self._import(session_id)
+
+        occurrences = json.loads((bundle / "occurrences.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            [
+                (item["workflow"], item["mode"], item["parent_occurrence_id"])
+                for item in occurrences
+            ],
+            [
+                ("implement", "top-level", None),
+                ("review-and-fix", "nested", "implement-1"),
+            ],
+        )
+        metadata = json.loads((bundle / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(metadata["occurrence_count"], 2)
+        summary = json.loads((bundle / "event-summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            summary["workflow_invocations"],
+            {
+                "implement": {"top-level": 1, "nested": 0},
+                "review-and-fix": {"top-level": 0, "nested": 1},
+            },
+        )
+
+    def test_import_promotes_embedded_root_and_parents_later_nested_occurrence(self) -> None:
+        session_id = "embedded-root-with-nested"
+        self._native_path(session_id).write_bytes(
+            transcript(
+                self._record(
+                    user(
+                        "Please run /devflow:implement 525 now",
+                        "2026-07-15T18:00:00Z",
+                    )
+                ),
+                self._record(skill_call("implement", "525", "2026-07-15T18:01:00Z")),
+                self._record(
+                    skill_call("review-and-fix", "525", "2026-07-15T18:02:00Z")
+                ),
+            )
+        )
+
+        bundle = self._import(session_id)
+
+        occurrences = json.loads((bundle / "occurrences.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            [
+                (
+                    item["workflow"],
+                    item["mode"],
+                    item["parent_occurrence_id"],
+                    item["start_event"],
+                    item["invocation_source"],
+                )
+                for item in occurrences
+            ],
+            [
+                ("implement", "top-level", None, 0, "embedded_user_command_corroborated"),
+                ("review-and-fix", "nested", "implement-1", 2, "assistant_skill_tool"),
+            ],
+        )
+        metadata = json.loads((bundle / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(metadata["occurrence_count"], 2)
+
     def test_cli_imports_issue_522_native_tail_and_warns_when_manifest_is_absent(self) -> None:
         session_id = "issue-522-session"
         native = self._native_path(session_id)
