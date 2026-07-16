@@ -116,5 +116,34 @@
         }
       }
     }
-  ]
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.13.12",
+    "workflow": "The01Geek/devflow-autopilot/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 91.04173499999996,
+    "tokens": {
+      "input_tokens": 7117415,
+      "output_tokens": 216017,
+      "cache_read_input_tokens": 56837952,
+      "cache_creation_input_tokens": 0,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "z-ai/glm-5.2": {
+        "inputTokens": 8969884,
+        "outputTokens": 387923,
+        "cacheReadInputTokens": 72988480,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 91.04173499999996,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 32000
+      }
+    },
+    "num_turns": 305,
+    "duration_ms": 13212512
+  }
 }
