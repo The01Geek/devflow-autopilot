@@ -191,6 +191,47 @@ class TimingAndSummaryTests(unittest.TestCase):
         self.assertEqual(nested.finished_at, "2026-07-16T01:04:00.000Z")
         self.assertIsNone(nested.duration_ms)
 
+    def test_terminal_stop_is_an_approximate_real_boundary_with_occurrence_model_effort(self) -> None:
+        records = [
+            user("/devflow:implement 520", "2026-07-16T01:00:00Z"),
+            {
+                "type": "assistant",
+                "timestamp": "2026-07-16T01:00:01Z",
+                "model": "claude-opus-4-6",
+                "effort": "high",
+                "message": {"role": "assistant", "content": "working"},
+            },
+            assistant_text("stopped", "2026-07-16T01:05:00Z"),
+        ]
+        events = parse_events(transcript(*records))
+        occurrences = detect_occurrences(events, self.registry)
+        resolve_boundaries(events, occurrences)
+        occurrence = occurrences[0]
+        self.assertEqual(occurrence.finish_timestamp_source, "terminal_stop_boundary")
+        self.assertEqual(occurrence.boundary_confidence, "approximate")
+        self.assertEqual(occurrence.finished_at, "2026-07-16T01:05:00.000Z")
+        self.assertEqual(occurrence.duration_ms, 300000)
+        self.assertEqual(occurrence.observed_models, ["claude-opus-4-6"])
+        self.assertEqual(occurrence.observed_effort, ["high"])
+        self.assertEqual(occurrence.model_effort_source, "events_within_boundary")
+
+    def test_next_top_level_root_bounds_prior_occurrence_at_previous_event(self) -> None:
+        records = [
+            user("/devflow:implement 520", "2026-07-16T01:00:00Z"),
+            {"type": "assistant", "timestamp": "2026-07-16T01:01:00Z", "model": "model-a", "message": {"role": "assistant", "content": "implement work"}},
+            user("/devflow:create-issue another topic", "2026-07-16T01:02:00Z"),
+            {"type": "assistant", "timestamp": "2026-07-16T01:03:00Z", "model": "model-b", "message": {"role": "assistant", "content": "issue work"}},
+        ]
+        events = parse_events(transcript(*records))
+        occurrences = detect_occurrences(events, self.registry)
+        resolve_boundaries(events, occurrences)
+        implement, create_issue = occurrences
+        self.assertEqual(implement.end_event, 1)
+        self.assertEqual(implement.finish_timestamp_source, "next_top_level_boundary")
+        self.assertEqual(implement.observed_models, ["model-a"])
+        self.assertNotIn("model-b", implement.observed_models)
+        self.assertEqual(create_issue.finish_timestamp_source, "terminal_stop_boundary")
+
     def test_summary_records_model_effort_usage_tools_and_gaps(self) -> None:
         records = [
             user("/devflow:implement 520"),
@@ -290,6 +331,17 @@ class CaptureTests(unittest.TestCase):
             self.assertEqual(metadata["claude_configuration"]["outputStyle"]["source"], "project_local_settings")
             manifests = json.loads((bundle / "prompt-surfaces.json").read_text())
             self.assertIn("implement", manifests["fingerprints"])
+            physical_bytes = sum(
+                len((root / relative).read_bytes())
+                for relative in {
+                    "skills/implement/SKILL.md",
+                    "skills/implement/phases/setup.md",
+                    "skills/review/SKILL.md",
+                    "skills/review-and-fix/SKILL.md",
+                    "skills/docs/SKILL.md",
+                }
+            )
+            self.assertEqual(manifests["session_unique_totals"]["bytes"], physical_bytes)
             self.assertEqual((bundle / "transcript.jsonl").read_bytes(), transcript_path.read_bytes())
 
     def test_non_workflow_session_creates_no_bundle(self) -> None:

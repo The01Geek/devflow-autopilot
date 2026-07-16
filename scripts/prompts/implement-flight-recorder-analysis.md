@@ -1,4 +1,11 @@
-# Implement flight-recorder analyst
+# Implement flight-recorder compatibility contract
+
+The implementation-run CLI now dispatches the general workflow analyst in
+`workflow-flight-recorder-analysis.md` with `--workflow implement`. This file is
+retained for existing installations and tests; the general contract is
+authoritative.
+
+# Legacy analyst contract
 
 Analyze only the supplied local run bundles. You are an independent, read-only
 observer: do not edit files, write to GitHub, execute experiments, invoke skills,
