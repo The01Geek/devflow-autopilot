@@ -40210,6 +40210,7 @@ IFR_IMPORT="$LIB/../scripts/import-workflow-transcript.py"
 IFR_ANALYZE="$LIB/../scripts/analyze-implement-runs.py"
 IFR_PROMPT="$LIB/../scripts/prompts/implement-flight-recorder-analysis.md"
 WFR_PROMPT="$LIB/../scripts/prompts/workflow-flight-recorder-analysis.md"
+IFR_SETTINGS_FIXTURE="$LIB/test/fixtures/workflow-flight-recorder-settings.local.json"
 IFR_ROOT="$(mktemp -d)"
 IFR_PROJECTS="$IFR_ROOT/native-projects"
 mkdir -p "$IFR_ROOT/nested" "$IFR_PROJECTS" "$IFR_ROOT/skills/implement/phases" \
@@ -40278,9 +40279,9 @@ assert_eq "flight recorder: import attempts identify the explicit source" "true"
 
 assert_eq "flight recorder: configured recorder hook is UserPromptSubmit" "yes" \
   "$(jq -e '[.hooks.UserPromptSubmit[].hooks[].command] | any(contains("capture-workflow-manifest.py"))' \
-      "$LIB/../.claude/settings.local.json" >/dev/null && echo yes || echo no)"
-assert_eq "flight recorder: configured Stop group has no recorder command" "no" \
-  "$(jq -r '.hooks.Stop[]?.hooks[]?.command // empty' "$LIB/../.claude/settings.json" | \
+      "$IFR_SETTINGS_FIXTURE" >/dev/null && echo yes || echo no)"
+assert_eq "flight recorder: local recorder fixture has no Stop command" "no" \
+  "$(jq -r '.hooks.Stop[]?.hooks[]?.command // empty' "$IFR_SETTINGS_FIXTURE" | \
       grep -Eq 'capture-(implement-session|workflow-manifest)\.py' && echo yes || echo no)"
 IFR_STOP_EXAMPLE="$(awk '/^- \*`Stop` hook \(local-tier only\)\.\*/ { found=1 } found { print } found && /^  > \*\*Note/ { exit }' "$LIB/../docs/efficiency-trace.md")"
 assert_eq "flight recorder: documented local Stop example has no recorder command" "no" \

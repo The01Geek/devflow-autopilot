@@ -652,7 +652,7 @@ def build_event_summary(events: list[Event], occurrences: list[Occurrence]) -> d
     }
 
 
-def _run_git(root: Path, *args: str) -> str | None:
+def _observe_git(root: Path, *args: str) -> tuple[bool, str | None]:
     try:
         result = subprocess.run(
             ["git", "-C", str(root), *args],
@@ -662,8 +662,20 @@ def _run_git(root: Path, *args: str) -> str | None:
             text=True,
         )
     except (OSError, subprocess.CalledProcessError):
+        return False, None
+    return True, result.stdout.strip()
+
+
+def _run_git(root: Path, *args: str) -> str | None:
+    succeeded, output = _observe_git(root, *args)
+    if not succeeded:
         return None
-    return result.stdout.strip() or None
+    return output or None
+
+
+def _git_dirty_tree(root: Path) -> bool | None:
+    succeeded, status = _observe_git(root, "status", "--porcelain")
+    return bool(status) if succeeded else None
 
 
 def _shared_storage_root(repository_root: Path) -> tuple[Path, str]:
@@ -1160,8 +1172,7 @@ def capture_prompt_manifest(payload: dict[str, Any], registry_path: Path) -> dic
     storage_root, storage_root_source = _shared_storage_root(root)
     head_sha = _run_git(root, "rev-parse", "HEAD")
     branch = _run_git(root, "branch", "--show-current")
-    status = _run_git(root, "status", "--porcelain")
-    dirty_tree = None if status is None and head_sha is None else bool(status)
+    dirty_tree = _git_dirty_tree(root)
 
     occurrence = Occurrence(
         occurrence_id=f"{definition.workflow}-provisional",
@@ -1332,8 +1343,7 @@ def _write_session_bundle(
     else:
         branch = _run_git(repository_root, "branch", "--show-current")
         head_sha = _run_git(repository_root, "rev-parse", "HEAD")
-        status = _run_git(repository_root, "status", "--porcelain")
-        dirty_tree = None if status is None and head_sha is None else bool(status)
+        dirty_tree = _git_dirty_tree(repository_root)
         claude_configuration = _claude_configuration(repository_root)
         recorded_version = {
             "value": claude_code_version or os.environ.get("CLAUDE_CODE_VERSION"),

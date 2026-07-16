@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -68,6 +69,20 @@ def skill_call(skill: str, args: str = "", timestamp: str = "2026-07-16T01:02:00
             ],
         },
     }
+
+
+def patched_git_status(stdout: str | None) -> mock._patch:
+    """Return a patch that changes only `git status --porcelain`."""
+    run = subprocess.run
+
+    def status_aware_run(command: list[str], *args: object, **kwargs: object) -> subprocess.CompletedProcess:
+        if command[-2:] == ["status", "--porcelain"]:
+            if stdout is None:
+                raise subprocess.CalledProcessError(128, command)
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+        return run(command, *args, **kwargs)
+
+    return mock.patch.object(recorder.subprocess, "run", side_effect=status_aware_run)
 
 
 class InventoryTests(unittest.TestCase):
@@ -768,6 +783,18 @@ class ManifestObserverTests(unittest.TestCase):
         self.assertFalse((self.root / ".devflow/tmp/workflow-runs").exists())
         self.assertFalse(any(self.root.rglob("transcript.jsonl")))
 
+    def test_manifest_dirty_tree_distinguishes_clean_dirty_and_failed_status(self) -> None:
+        cases = [
+            ("", False),
+            (" M skills/implement/SKILL.md\n", True),
+            (None, None),
+        ]
+        for index, (status_stdout, expected) in enumerate(cases):
+            with self.subTest(status_stdout=status_stdout):
+                with patched_git_status(status_stdout):
+                    _, manifest = self._capture("/implement 525", f"sid-status-{index}")
+                self.assertIs(manifest["git"]["dirty_tree"], expected)
+
     def test_payload_supplied_model_effort_and_prompt_alias_are_recorded(self) -> None:
         payload = self._payload("ignored")
         payload.pop("user_prompt")
@@ -1052,6 +1079,23 @@ class ImportTests(unittest.TestCase):
             "start manifest unavailable; prompt/config/git metadata measured at import time",
             metadata["warnings"],
         )
+
+    def test_import_dirty_tree_distinguishes_clean_dirty_and_failed_status(self) -> None:
+        cases = [
+            ("", False),
+            (" M skills/implement/SKILL.md\n", True),
+            (None, None),
+        ]
+        for index, (status_stdout, expected) in enumerate(cases):
+            with self.subTest(status_stdout=status_stdout):
+                session_id = f"issue-522-status-{index}"
+                self._native_path(session_id).write_bytes(
+                    transcript(self._record(user("/implement 522")))
+                )
+                with patched_git_status(status_stdout):
+                    bundle = self._import(session_id)
+                metadata = json.loads((bundle / "metadata.json").read_text(encoding="utf-8"))
+                self.assertIs(metadata["dirty_tree"], expected)
 
     def test_missing_and_duplicate_session_ids_fail_without_mutating_sources_or_bundles(self) -> None:
         duplicate_bytes = transcript(self._record(user("/implement 525")))
