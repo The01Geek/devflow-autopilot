@@ -11315,6 +11315,11 @@ F_OUT3="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh"
 assert_eq "fetch #97: malformed reflection block exits 0 (no detonation)" "0" "$F_RC3"
 assert_eq "fetch #97: malformed reflection block degrades to a valid array" "array" \
   "$(jq -r '.reflections | type' < "$F_OUT3")"
+# #519: a bullet before ANY `### ` heading (this malformed block) has cur_heading=None,
+# so it fails CLOSED to friction — assert the friction contribution, not just the array
+# shape, so a mutation dropping the pre-heading friction increment goes RED.
+assert_eq "#519: pre-heading bullet (no ### section) → friction_count 1 (fail-closed)" "1" \
+  "$(jq -r '.reflections_friction_count' < "$F_OUT3")"
 
 # Scenario 4: Blocked workpad (from issue) → end-to-end gate clean=false (signal live)
 cat > "$F97/workpad-blocked.md" <<'WPMD'
@@ -11383,7 +11388,116 @@ jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]'
 F_OUT7="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
 assert_eq "fetch #103 S-1: unknown leading symbol preserved (enumerated set, not strip-any-symbol)" "? Mystery" \
   "$(jq -r '.signals.workpad_final_status' < "$F_OUT7")"
+
+# ── #519 end-to-end: reflections_friction_count from a REAL rendered workpad ──
+# The reflection block is rendered using workpad.py's OWN _REFLECTION_SUBSECTIONS /
+# _REFLECTION_KINDS constants (imported, not hand-typed), so the exact section
+# headings and per-bullet glyphs — including any U+FE0F variation selectors — flow
+# through the gh api → jq → python heredoc pipeline into the parser. This catches
+# an emoji-normalization divergence the source-coupling pin below cannot see.
+# The block carries one bullet of EACH section: an action (⏭️ deferred), an
+# improvement (💡), an issue-accuracy (📝), and a note (ℹ️). Only the ℹ️ note is
+# exempt → friction_count must be 3, and reflections[] keeps all 4 bullets.
+python3 - "$LIB/../scripts/workpad.py" "$F97/workpad-friction.md" <<'PY'
+import sys, importlib.util
+spec = importlib.util.spec_from_file_location("wp", sys.argv[1])
+wp = importlib.util.module_from_spec(spec); spec.loader.exec_module(wp)
+H = dict(wp._REFLECTION_SUBSECTIONS)
+K = wp._REFLECTION_KINDS
+def bullet(kind, text):
+    glyph, label, _ = K[kind]
+    return f"- {glyph} **{label}:** {text}" if label else f"- {glyph} {text}"
+lines = [
+    "<!-- devflow:workpad -->", "**Status:** 🎉 Complete",
+    "## Devflow Reflection", "<details>",
+    "<summary>Devflow Reflection (click to expand)</summary>", "",
+    H['action'], bullet('deferred', "punted the workflow AC"), "",
+    H['improvements'], bullet('improvement', "add a helper"), "",
+    H['notes'], bullet('issue-accuracy', "claim was wrong"), bullet('note', "worked around a flake"), "",
+    "</details>",
+]
+open(sys.argv[2], "w", encoding="utf-8").write("\n".join(lines) + "\n")
+PY
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-friction.md" > "$F97/issuecomments.json"
+F_OUT8="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#519 e2e: friction_count counts every non-note bullet (action+improvement+issue-accuracy)" "3" \
+  "$(jq -r '.reflections_friction_count' < "$F_OUT8")"
+assert_eq "#519 e2e: reflections[] keeps all four bullets (flat-array shape unchanged)" "4" \
+  "$(jq '.reflections | length' < "$F_OUT8")"
+assert_eq "#519 e2e: a real friction bundle → cheap-gate clean=false" "false" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F_OUT8" | jq -r .clean)"
+# Note-only end-to-end: a block with only an ℹ️ note → friction_count 0 → clean.
+python3 - "$LIB/../scripts/workpad.py" "$F97/workpad-noteonly.md" <<'PY'
+import sys, importlib.util
+spec = importlib.util.spec_from_file_location("wp", sys.argv[1])
+wp = importlib.util.module_from_spec(spec); spec.loader.exec_module(wp)
+H = dict(wp._REFLECTION_SUBSECTIONS); K = wp._REFLECTION_KINDS
+g = K['note'][0]
+lines = ["<!-- devflow:workpad -->", "**Status:** 🎉 Complete",
+    "## Devflow Reflection", "<details>", "<summary>x</summary>", "",
+    H['notes'], f"- {g} just an informational note", "", "</details>"]
+open(sys.argv[2], "w", encoding="utf-8").write("\n".join(lines) + "\n")
+PY
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-noteonly.md" > "$F97/issuecomments.json"
+F_OUT9="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#519 e2e: note-only block → friction_count 0" "0" \
+  "$(jq -r '.reflections_friction_count' < "$F_OUT9")"
+assert_eq "#519 e2e: note-only bundle → cheap-gate clean=true (exempt, not analyzed)" "true" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F_OUT9" | jq -r .clean)"
+
+# #519 unknown-heading arm (AC): a bullet under an UNRECOGNIZED `### ` heading (not one
+# of the three real sections) fails CLOSED to friction — a future taxonomy section cannot
+# silently become non-friction. Uses a real ℹ️ glyph under a bogus heading to prove the
+# exemption keys on BOTH heading AND glyph, not the glyph alone.
+cat > "$F97/workpad-unknownhd.md" <<'WPMD'
+<!-- devflow:workpad -->
+**Status:** 🎉 Complete
+## Devflow Reflection
+<details>
+<summary>x</summary>
+
+### 🔥 Experimental
+- ℹ️ a bullet under an unrecognized heading
+
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-unknownhd.md" > "$F97/issuecomments.json"
+F_OUT10="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#519 e2e: bullet under unrecognized ### heading → friction_count 1 (fail-closed)" "1" \
+  "$(jq -r '.reflections_friction_count' < "$F_OUT10")"
+assert_eq "#519 e2e: unknown-heading bundle → cheap-gate clean=false" "false" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F_OUT10" | jq -r .clean)"
+
 rm -rf "$F97"
+
+# #519 fail-closed-on-parse-failure pin (behavioral-fix): when the reflection parser
+# emits no valid JSON, fetch-pr-context.sh substitutes a FRICTION sentinel (friction_count
+# 1), NOT friction_count 0 — a present-but-unparseable reflection block over-analyzes rather
+# than silently routing to the clean path. Pin the operative sentinel; the mutation restores
+# the old fail-open `:0` default and must turn the pin RED.
+assert_pin_red_under "#519: reflection-parse-failure fallback is a FRICTION sentinel (friction_count 1), not fail-open 0" \
+  '"friction_count":1}' \
+  's/"friction_count":1}/"friction_count":0}/' \
+  "$LIB/fetch-pr-context.sh"
+
+# ── #519 coupled-site pin (source↔source): the parser's `### ℹ️ Notes` heading
+# and the ℹ️/📝 glyph literals it hard-copies MUST equal scripts/workpad.py's
+# _REFLECTION_SUBSECTIONS['notes'] and _REFLECTION_KINDS['note'/'issue-accuracy']
+# glyphs. The inline python heredoc cannot import workpad.py, so a rename there
+# would silently mis-bucket without this pin. (The end-to-end fixture above guards
+# the orthogonal emoji-normalization divergence this source pin cannot see.)
+REFL_COUPLE="$(python3 - "$LIB/../scripts/workpad.py" "$LIB/fetch-pr-context.sh" <<'PY'
+import sys, importlib.util
+spec = importlib.util.spec_from_file_location("wp", sys.argv[1])
+wp = importlib.util.module_from_spec(spec); spec.loader.exec_module(wp)
+notes_heading = dict(wp._REFLECTION_SUBSECTIONS)['notes']
+note_glyph = wp._REFLECTION_KINDS['note'][0]
+fpc = open(sys.argv[2], encoding='utf-8').read()
+ok = (f"NOTES_HEADING = '{notes_heading}'" in fpc) and (f"NOTE_GLYPH = '{note_glyph}'" in fpc)
+print('yes' if ok else 'no')
+PY
+)"
+assert_eq "#519: fetch-pr-context parser heading+note-glyph stay in sync with workpad.py" "yes" "$REFL_COUPLE"
 
 # S-1 (review, corroborated x4): the inline glyph set in fetch-pr-context.sh must
 # stay in sync with workpad.py's _STATUS_GLYPHS (the single source of truth that
@@ -11472,11 +11586,49 @@ assert_eq "fetch I-1: issue# falls back to closingIssuesReferences when branch+b
   "$([ -n "$FCL_OUT" ] && jq -r '.issue_number' < "$FCL_OUT" || echo MISSING)"
 rm -rf "$FCL"
 
-# ── cheap-gate.jq: a non-empty reflections[] forces analysis even when clean ──
-assert_eq "gate #97: reflections non-empty → clean=false (all signals clean)" "false" \
+# ── cheap-gate.jq: reflection-severity discrimination (issue #519) ────────────
+# A non-empty reflections[] WITHOUT the new `reflections_friction_count` field
+# (an older bundle, or one whose emission failed) FAILS CLOSED: the gate falls
+# back to the legacy "any reflection trips" behavior. This is the #519
+# absent-signal arm — a missing friction signal must over-analyze, never route a
+# friction-bearing PR to the clean path.
+assert_eq "#519 gate: reflections non-empty, friction field ABSENT → clean=false (fail-closed)" "false" \
   "$(echo "$BASE" | jq '.reflections=["friction note"]' | gate | jq -r .clean)"
-assert_eq "gate #97: reflection reason names the signal" "workpad reflections present" \
+assert_eq "#519 gate: absent-signal reason names friction" "friction reflections present" \
   "$(echo "$BASE" | jq '.reflections=["friction note"]' | gate | jq -r .reason)"
+# Exempt arm: a note-only reflection block (friction_count 0) is treated as CLEAN.
+assert_eq "#519 gate: note-only (friction_count=0) → clean=true (exempt)" "true" \
+  "$(echo "$BASE" | jq '.reflections=["ℹ️ worked around a flake"] | .reflections_friction_count=0' | gate | jq -r .clean)"
+# issue-accuracy-is-friction arm: friction_count>0 → not clean, even alone.
+assert_eq "#519 gate: issue-accuracy (friction_count=1) → clean=false" "false" \
+  "$(echo "$BASE" | jq '.reflections=["📝 **Issue accuracy:** wrong claim"] | .reflections_friction_count=1' | gate | jq -r .clean)"
+# Trip arm: an action/improvement bullet (friction_count>0) → not clean + named reason.
+assert_eq "#519 gate: action bullet (friction_count=1) → clean=false" "false" \
+  "$(echo "$BASE" | jq '.reflections=["⏭️ **Deferred:** x"] | .reflections_friction_count=1' | gate | jq -r .clean)"
+assert_eq "#519 gate: trip-arm reason names friction" "friction reflections present" \
+  "$(echo "$BASE" | jq '.reflections=["⏭️ **Deferred:** x"] | .reflections_friction_count=1' | gate | jq -r .reason)"
+# Mixed arm: a note bullet mixed with a friction bullet → not clean.
+assert_eq "#519 gate: note+friction mixed (friction_count=1) → clean=false" "false" \
+  "$(echo "$BASE" | jq '.reflections=["ℹ️ note","⛔ **Blocked:** x"] | .reflections_friction_count=1' | gate | jq -r .clean)"
+# Empty reflections with friction_count 0 → clean (unchanged baseline).
+assert_eq "#519 gate: empty reflections, friction_count=0 → clean=true" "true" \
+  "$(echo "$BASE" | jq '.reflections=[] | .reflections_friction_count=0' | gate | jq -r .clean)"
+
+# ── #519 clean-entry.jq records note-only reflections (was: dropped them) ─────
+# A PR routed to the clean path on a note-only reflection block keeps those
+# bullets verbatim in its retrospectives.jsonl entry, and its summary no longer
+# claims "no retrospective signal" when a note is present.
+CE_NOTEONLY='{"pr":9,"issue_number":1,"merged_at":"m","branch":"b","head_sha":"h","merge_commit_sha":"c","signals":{},"reflections":["ℹ️ worked around a flake"]}'
+assert_eq "#519 clean-entry: note-only bundle → the note bullet is recorded verbatim" "ℹ️ worked around a flake" \
+  "$(printf '%s' "$CE_NOTEONLY" | jq -r -f "$LIB/clean-entry.jq" 2>/dev/null | jq -r '.reflections[0]')"
+assert_eq "#519 clean-entry: summary does NOT claim 'no retrospective signal' when a note is present" "no" \
+  "$(printf '%s' "$CE_NOTEONLY" | jq -f "$LIB/clean-entry.jq" | jq -r '.summary' | grep -q 'no retrospective signal' && echo yes || echo no)"
+# No reflections → summary keeps the original "no retrospective signal" wording.
+CE_NONE='{"pr":9,"issue_number":1,"merged_at":"m","branch":"b","head_sha":"h","merge_commit_sha":"c","signals":{},"reflections":[]}'
+assert_eq "#519 clean-entry: empty reflections → entry reflections is []" "0" \
+  "$(printf '%s' "$CE_NONE" | jq -f "$LIB/clean-entry.jq" | jq '.reflections | length')"
+assert_eq "#519 clean-entry: empty reflections → summary keeps 'no retrospective signal'" "yes" \
+  "$(printf '%s' "$CE_NONE" | jq -f "$LIB/clean-entry.jq" | jq -r '.summary' | grep -q 'no retrospective signal' && echo yes || echo no)"
 # #498 — a Cancelled workpad (operator-cancelled run) is a non-empty, non-Complete
 # status, so cheap-gate's $workpad_ok arm (Complete/empty/null only) gates it
 # non-clean via the existing 'workpad status not Complete' reason — cheap-gate.jq
@@ -12402,7 +12554,7 @@ assert_eq "#228: pr-description body PATCH uses the literal -F body=@- stdin for
 assert_eq "#97 pin: retrospective Stage A consumes reflections" "yes" \
   "$(grep -qi 'reflection' "$LIB/../skills/retrospective/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: case-insensitive (grep -qi); pin_count is case-sensitive -F
 assert_eq "#97 pin: cheap-gate carries the reflection reason string" "yes" \
-  "$(grep -q 'workpad reflections present' "$LIB/cheap-gate.jq" && echo yes || echo no)"
+  "$(grep -q 'friction reflections present' "$LIB/cheap-gate.jq" && echo yes || echo no)"
 assert_eq "#97 pin: config.example.json docs.labels reverted to Documented" "Documented" \
   "$(jq -r '.docs.labels' "$LIB/../.devflow/config.example.json")"
 
@@ -12902,6 +13054,56 @@ echo "render-report.sh / open-state-pr.sh / post-status.sh"
 OSPR="$(bash "$LIB/open-state-pr.sh" --branch devflow/learnings-test --dry-run 2>/dev/null)"
 assert_eq "open-state-pr dry-run echoes DRYRUN" "true" "$(echo "$OSPR" | grep -q 'DRYRUN' && echo true || echo false)"
 assert_eq "open-state-pr dry-run mentions git push" "true" "$(echo "$OSPR" | grep -qi 'git push' && echo true || echo false)"
+
+# ── #519: open-state-pr.sh stdout is ONLY the PR number on every real path ────
+# Reproduce-first: today (pre-fix) `git checkout -B` (via _run), `git commit`, and
+# the reuse-path `gh pr edit` leak porcelain to stdout, so a `STATE_PR=$(...)`
+# capture is a multiline blob that breaks the downstream `jq --argjson state_pr`.
+# Both paths must yield a single bare token: create (no existing PR) and reuse
+# (an existing PR for the branch, exercising `gh pr edit`).
+OSPR_SB="$(git_sandbox '#519 open-state-pr bare stdout')"
+( cd "$OSPR_SB" || exit 0
+  git init -q -b main >/dev/null 2>&1; git config user.email t@t; git config user.name t
+  git commit -q --allow-empty -m base
+  # A bare repo as `origin` so open-state-pr.sh's push step succeeds (it is not
+  # the subject under test; without it push fails and stdout is empty, not the PR#).
+  git init -q --bare "$OSPR_SB/origin.git" >/dev/null 2>&1
+  git remote add origin "$OSPR_SB/origin.git"
+  mkdir -p .devflow/learnings; echo '{"pr":1}' > .devflow/learnings/retrospectives.jsonl
+  # A modified tracked file so `git checkout -B` prints carried-over `M<TAB>file` lines.
+  echo x > tracked.txt; git add tracked.txt; git commit -q -m t; echo modified > tracked.txt
+  # gh stub whose "existing PR" answer is toggled by the OSPR_EXISTING env var.
+  cat > gh <<'STUB'
+#!/usr/bin/env bash
+j="$*"
+if [[ "$j" == *"pr list"* ]]; then printf '%s' "${OSPR_EXISTING:-}"; exit 0; fi
+if [[ "$j" == *"pr create"* ]]; then echo "https://github.com/x/y/pull/77"; exit 0; fi
+if [[ "$j" == *"pr edit"* ]]; then echo "https://github.com/x/y/pull/77"; exit 0; fi
+printf ''; exit 0
+STUB
+  chmod +x gh
+  # Create path: pr list returns empty first (no existing PR), then re-list returns 77.
+  cat > gh-create <<'STUB'
+#!/usr/bin/env bash
+j="$*"; MARK="$(dirname "$0")/.listed"
+if [[ "$j" == *"pr list"* ]]; then
+  if [ -f "$MARK" ]; then echo "77"; else touch "$MARK"; printf ''; fi; exit 0
+fi
+if [[ "$j" == *"pr create"* ]]; then echo "https://github.com/x/y/pull/77"; exit 0; fi
+printf ''; exit 0
+STUB
+  chmod +x gh-create
+  CREATE_OUT="$(DEVFLOW_GH="$OSPR_SB/gh-create" bash "$LIB/open-state-pr.sh" --branch devflow/learnings-test --base main 2>/dev/null)"
+  assert_eq "#519 open-state-pr create path: stdout is exactly the bare PR number" "77" "$CREATE_OUT"
+  # Reuse path: pr list reports an existing PR 77 (exercises gh pr edit).
+  git checkout -q main; echo modified2 > tracked.txt
+  REUSE_OUT="$(OSPR_EXISTING="77" DEVFLOW_GH="$OSPR_SB/gh" bash "$LIB/open-state-pr.sh" --branch devflow/learnings-test --base main 2>/dev/null)"
+  assert_eq "#519 open-state-pr reuse path: stdout is exactly the bare PR number" "77" "$REUSE_OUT"
+)
+
+# ── #519: retrospective-weekly Step-1 stale-scratch cleanup literal (coupled) ──
+assert_eq "#519 pin: retrospective-weekly Step 1 removes prior-run per-PR scratch" "yes" \
+  "$(grep -qF -- "find .devflow/tmp -maxdepth 1 -type f \\( -name 'result-*.json' -o -name 'pr-*.context.json' \\) -delete 2>/dev/null" "$LIB/../skills/retrospective-weekly/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: presence pin on the byte-exact Step-1 cleanup literal (single coupled site)
 PSR="$(echo '<!-- devflow:audit-report -->' > /tmp/devflow-test-report.md; bash "$LIB/post-status.sh" --pr 900 --report-file /tmp/devflow-test-report.md --dry-run 2>/dev/null; rm -f /tmp/devflow-test-report.md)"
 assert_eq "post-status dry-run echoes DRYRUN" "true" "$(echo "$PSR" | grep -q 'DRYRUN' && echo true || echo false)"
 

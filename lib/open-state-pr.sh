@@ -47,11 +47,17 @@ SUBJECT="chore(devflow): retrospectives for ${WEEK_LABEL} (${N} entries)"
 BODY="Retrospective entries from the $(date -u +%F) /devflow:retrospective-weekly run. Merge once CI passes."
 
 # ── Helper: run or dry-run a command ─────────────────────────────────────────
+# Progress output (git's carried-over `M<TAB>file` lines from `checkout -B`, and
+# any porcelain the wrapped command prints) is sent to stderr, NOT stdout: this
+# script's stdout contract is "only the resulting PR number" (callers capture it
+# via `STATE_PR=$(open-state-pr.sh)`), so anything else on stdout pollutes that
+# capture. Stderr (not /dev/null) preserves the output for debugging, mirroring
+# the `gh pr create … >&2` redirect below.
 _run() {
     if [ "$DRY_RUN" -eq 1 ]; then
         printf 'DRYRUN: %s\n' "$*"
     else
-        "$@"
+        "$@" 1>&2
     fi
 }
 
@@ -86,17 +92,21 @@ else
     if git diff --cached --quiet; then
         echo "open-state-pr: nothing staged, skipping commit" >&2
     else
-        git commit -m "$SUBJECT" -m "$BODY"
+        # Redirect git's `[branch hash] subject` / `N files changed` summary to
+        # stderr — it is progress output, and stdout is reserved for the PR number.
+        git commit -m "$SUBJECT" -m "$BODY" 1>&2
     fi
 fi
 
 # ── Step 4: push ──────────────────────────────────────────────────────────────
 PUSH_OPTS="-u origin $BRANCH"
 if [ "$DRY_RUN" -eq 0 ]; then
+    # `git push -u` prints a "branch '…' set up to track 'origin/…'" line to stdout;
+    # redirect the push's stdout to stderr too, so stdout carries only the PR number.
     if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-        git push --force-with-lease -u origin "$BRANCH"
+        git push --force-with-lease -u origin "$BRANCH" 1>&2
     else
-        git push -u origin "$BRANCH"
+        git push -u origin "$BRANCH" 1>&2
     fi
 else
     # Check whether remote branch exists (best-effort; don't fail in dry-run)
@@ -117,7 +127,9 @@ fi
 EXISTING_PR="$("$DEVFLOW_GH" pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
 
 if [ -n "$EXISTING_PR" ]; then
-    "$DEVFLOW_GH" pr edit "$EXISTING_PR" --title "$SUBJECT"
+    # gh pr edit prints the edited PR's URL to stdout (same convention as
+    # gh pr create); keep it off our stdout, which carries only the PR number.
+    "$DEVFLOW_GH" pr edit "$EXISTING_PR" --title "$SUBJECT" >&2
     echo "$EXISTING_PR"
 else
     # gh pr create prints the new PR URL to stdout; keep it off our stdout
