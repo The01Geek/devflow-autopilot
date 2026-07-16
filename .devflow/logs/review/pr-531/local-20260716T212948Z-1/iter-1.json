@@ -88,5 +88,38 @@
     "phase_1": {"calls": 2, "tokens": 203000},
     "phase_3": {"calls": 6, "tokens": 782000},
     "step_3_5": {"calls": 1, "tokens": 78000}
+  },
+  "shadow": {
+    "ran_at": "2026-07-16T22:10:00Z",
+    "trigger": "early (engine_self_modifying, after iteration 1 routed to fixes)",
+    "reviewed_sha": "5877f2a0",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": "shadow ran the Phase-3 blinded fan-out (6/6); checklist re-gen skipped for cost (lite items unchanged; agent-mode contract claims re-covered by the Phase-3 agents)",
+    "phase3_findings": [
+      {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "eligibility keys on always-True `provisional`; confirmed_eligible unreachable for real local data; real discriminator is invocation_evidence", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [695, 716], "kind": "logic_error"}, "new_vs_iter1": true},
+      {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "documented_falsehood: docs + '(checked later)' comment claim a confirm/promotion behavior not implemented", "defect_signature": {"file": "docs/workflow-flight-recorder.md", "line_range": [185, 186], "kind": "documented_falsehood"}, "new_vs_iter1": true},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "jobs pagination truncates at 100 while reporting pagination_complete=True", "defect_signature": {"file": "scripts/export-workflow-lifecycle-census.py", "line_range": [150, 161], "kind": "logic_error"}, "new_vs_iter1": true},
+      {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "cloud source_status='available' bare literal coupled to compute_metrics != 'available' (coupled magic string)", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [443, 443], "kind": "type_design"}, "new_vs_iter1": true},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "_workspace_state other roots (index/submodule/untracked/ignored) still loose substrings (class-completion of F7)", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [1013, 1034], "kind": "logic_error"}, "new_vs_iter1": true},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "taxonomy matches verification pattern over whole command before head check; non-launches (git commit -m 'fix ruff') counted as launches", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [896, 902], "kind": "logic_error"}, "new_vs_iter1": true},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "parent output dir not chmod 0700 (docstring says plural)", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [1963, 1968], "kind": "security"}, "new_vs_iter1": true},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "_gh_json JSONDecodeError no breadcrumb; exporter exits 0 on total fetch failure", "defect_signature": {"file": "scripts/export-workflow-lifecycle-census.py", "line_range": [105, 108], "kind": "logic_error"}, "new_vs_iter1": true},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "source_available bundle with no detected occurrence silently continues (conflated with real-zero) — PARKED advisory", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [1083, 1090], "kind": "logic_error"}, "new_vs_iter1": true},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "'(checked later)' comment misleading; doc cloud-in-local-paragraph placement", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [706, 707], "kind": "comment_drift"}, "new_vs_iter1": true}
+    ],
+    "comparison": {
+      "shadow_total": 11,
+      "overlap_with_iter_1": 3,
+      "new": 8,
+      "new_critical": 0,
+      "new_important": 3
+    },
+    "over_grade_gate": "Promote-driver (jobs-pagination truncation) evaluated: silently understates the denominator while asserting completeness — silent corruption, not a fail-closed stop, so the Important grade holds (not an over-grade). Recorded, not demoted.",
+    "promoted_to_iter_next": true
   }
 }
