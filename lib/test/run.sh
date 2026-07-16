@@ -21,6 +21,10 @@ LIB="$(cd "$(dirname "$0")/.." && pwd)"
 # making the suite report broad environmental failures on a clean baseline.
 # Tests that exercise the override contract reintroduce their own value with a
 # per-invocation `DEVFLOW_GH=… cmd` prefix, which is unaffected by this clear.
+# The clear is DISCLOSED, never silent: an operator who exported DEVFLOW_GH (the
+# documented Windows/WSL escape hatch) sees the breadcrumb instead of a baffling
+# ignored override.
+[ -n "${DEVFLOW_GH:-}" ] && echo "run.sh: clearing inherited DEVFLOW_GH='$DEVFLOW_GH' for fixture isolation (issue #533); override-contract tests re-set their own value per-invocation" >&2
 unset DEVFLOW_GH
 
 # issue #533 (AC13) probe mode: launched as `DEVFLOW_AC13_PROBE=1 bash lib/test/run.sh`
@@ -40058,7 +40062,7 @@ mkdir -p "$D533/badpy"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$D533/badpy/python3"; chmod +x "$D533/badpy/python3"
 _o533_5b="$(_i533 PATH="$D533/badpy:$D533/bin:$PATH")"; _rc533_5b=$?
 assert_eq "#533 AC14 output 5: a failing python3 fails rc 1 naming fingerprint-compute" "1 yes" \
-  "$_rc533_5b $(printf '%s' "$_o533_5b" | grep -qF 'output 5/7 FAILED' && printf '%s' "$_o533_5b" | grep -qF 'fingerprint-' && echo yes || echo no)"
+  "$_rc533_5b $(printf '%s' "$_o533_5b" | grep -qF 'output 5/7 FAILED' && printf '%s' "$_o533_5b" | grep -qF '(fingerprint-compute)' && echo yes || echo no)"
 # output 6: GITHUB_ENV pointing into a nonexistent directory.
 _o533_6="$(_i533 GITHUB_ENV="$D533/no-such-dir/ghenv")"; _rc533_6=$?
 assert_eq "#533 AC14 output 6: unwritable GITHUB_ENV fails rc 1 naming github-env-write" "1 yes" \
@@ -40085,6 +40089,29 @@ assert_eq "#533 AC14: fingerprint content is the python3-hashlib sha256 of APP_T
   "$(cat "$D533/rtmp/devflow-gh-fingerprint")"
 assert_eq "#533 AC14: fingerprint file is mode 0600" "600" \
   "$(python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$D533/rtmp/devflow-gh-fingerprint")"
+
+# AC14 — the DEFAULT wrapper-source resolution (output 2's vendored-or-repo
+# chain) is the branch PRODUCTION takes: neither workflow passes
+# DEVFLOW_GH_SOURCE_SH, so a regression in the default chain (inverted
+# precedence, a typo'd vendored path) would otherwise ship green while every
+# consumer install failed. The chain is cwd-keyed, so each case runs the
+# installer from a fixture tree root.
+mkdir -p "$D533/tree1/.devflow/vendor/devflow/scripts" "$D533/tree1/scripts" "$D533/tree2/scripts"
+printf '#!/usr/bin/env bash\necho vendored-copy\n' > "$D533/tree1/.devflow/vendor/devflow/scripts/gh-fresh.sh"
+printf '#!/usr/bin/env bash\necho repo-copy\n' > "$D533/tree1/scripts/gh-fresh.sh"
+printf '#!/usr/bin/env bash\necho repo-copy\n' > "$D533/tree2/scripts/gh-fresh.sh"
+: > "$D533/ghenv"; : > "$D533/ghpath"
+( cd "$D533/tree1" && env PATH="$D533/bin:$PATH" APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" \
+    GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" DEVFLOW_GH_WRAPDIR="$D533/wrapdir-src1" \
+    DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint" bash "$INSTALL533" >/dev/null 2>&1 )
+assert_eq "#533 AC14 default SRC: the vendored copy is preferred when both copies exist" "yes" \
+  "$(grep -qF 'vendored-copy' "$D533/wrapdir-src1/gh" 2>/dev/null && echo yes || echo no)"
+: > "$D533/ghenv"; : > "$D533/ghpath"
+( cd "$D533/tree2" && env PATH="$D533/bin:$PATH" APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" \
+    GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" DEVFLOW_GH_WRAPDIR="$D533/wrapdir-src2" \
+    DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint" bash "$INSTALL533" >/dev/null 2>&1 )
+assert_eq "#533 AC14 default SRC: the repo-relative copy is the fallback when no vendored copy exists" "yes" \
+  "$(grep -qF 'repo-copy' "$D533/wrapdir-src2/gh" 2>/dev/null && echo yes || echo no)"
 
 # AC11 — the three production caller classes reach the PATH-installed wrapper
 # (the wrapper is the real gh-fresh.sh copied by the installer above; with no

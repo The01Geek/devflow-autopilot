@@ -29,7 +29,11 @@
 # Fail-closed contract: exactly seven setup outputs are validated in order,
 # and the FIRST failure exits 1 with a diagnostic naming that output
 # ("install-gh-wrapper: output N/7 FAILED: ... (slug)"), so the job stops
-# before the agent ever runs against a half-installed wrapper.
+# before the agent ever runs against a half-installed wrapper. An output may
+# carry more than one failure slug — output 5 distinguishes
+# fingerprint-compute / fingerprint-nonempty / fingerprint-mode — and
+# lib/test/run.sh pins the slugs literally (the AC22 umask mutation proof
+# depends on fingerprint-mode specifically), so do not "normalize" them.
 #
 # Env contract:
 #   APP_TOKEN                    required — the minted App token to fingerprint

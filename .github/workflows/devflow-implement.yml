@@ -481,8 +481,13 @@ jobs:
       # name-based lookup in later steps would otherwise recurse into the
       # wrapper) and fails the job before the agent on the first missing output.
       # No scripts/… self-repo fallback here (same rationale as the Start step
-      # above): this runs right after `vendor-plugin`, so the vendored path is
-      # always present.
+      # above): this runs right after `vendor-plugin`, so the vendored tree is
+      # present — at the consumer's pinned `devflow_version`. A pin predating
+      # this installer has no such file, and the step fails LOUDLY (rc 127,
+      # before the agent) until workflows and the pin are refreshed together
+      # (see docs/install.md's update section). The installer's own output-2
+      # wrapper-SOURCE lookup carries a vendored-or-repo fallback — that is a
+      # different path (the gh-fresh.sh bytes to copy), not this invocation.
       - name: Install fresh-gh wrapper (optional)
         if: ${{ vars.DEVFLOW_APP_ID != '' }}
         env:
