@@ -3410,6 +3410,21 @@ assert_pin_unique "#522: event log records the write-time git hash-object digest
 # Dropping it leaves T2's postdates-test with nothing to fire on.
 assert_pin_unique "#522: revision step writes a revised-after-round-N event-log record" \
   'record written **as part of the revision step itself**' "$CI443_SKILL"
+# Event-log delete-leftover-first precondition (iteration-4 convergence-shadow gap): the "log
+# contains only this run's rounds" invariant T1/T2 rest on. Dropping delete-first lets a stale
+# prior-run event log survive, so the postdates-test fires against foreign records.
+assert_pin_unique "#522: event log is deleted-leftover-first at the run's first dispatch" \
+  "deleted-leftover-first at the run's first dispatch" "$CI443_SKILL"
+# Round-initiating-sites enumeration (iteration-4 convergence-shadow gap): the canonical-write
+# pin guards the general instruction, but not that the enumeration names all four sites (the
+# symmetric surface to the out-of-bounds enumerations this block already pins).
+assert_pin_unique "#522: canonical write fires at exactly the 4 round-initiating sites" \
+  'at exactly these 4 round-initiating sites' "$CI443_SKILL"
+# Sub-step 3 summary marker enumeration lists all THREE embed-arm markers (iteration-4
+# convergence-shadow: the summary-rendering site omitted the digest-unrecorded marker the
+# embed-arm paragraph defines — the multi-state-contract drift Step 3.5's own check targets).
+assert_pin_unique "#522: sub-step 3 summary enumerates the digest-unrecorded embed marker" \
+  'or `draft embedded (digest unrecorded)` (one per embed-arm entry path)' "$CI443_SKILL"
 assert_pin_unique "#522: embed-arm orchestrator string-compares sentinels and rejects a mismatch" \
   'string-compares them (bash builtins only, never a non-preflight PATH tool) against the dispatched values' "$CI443_SKILL"
 # Embed-arm auditor QUOTE obligation (iteration-4 review finding G): the compare pin above pins
