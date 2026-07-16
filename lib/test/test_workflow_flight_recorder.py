@@ -69,6 +69,266 @@ def skill_call(skill: str, args: str = "", timestamp: str = "2026-07-16T01:02:00
     }
 
 
+class InventoryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.sandbox = Path(self.temporary.name)
+        self.repository = self.sandbox / "repository"
+        self.projects = self.sandbox / "projects"
+        self.repository.mkdir()
+        self.projects.mkdir()
+        subprocess.run(["git", "init", "-q", str(self.repository)], check=True)
+
+    def _project_directory(self, root: Path | None = None) -> Path:
+        encoded = str((root or self.repository).resolve()).replace(os.sep, "-")
+        project = self.projects / encoded
+        project.mkdir(parents=True, exist_ok=True)
+        return project
+
+    def _write_session(
+        self,
+        session_id: str,
+        *records: dict,
+        project_root: Path | None = None,
+        raw_tail: bytes = b"",
+    ) -> Path:
+        path = self._project_directory(project_root) / f"{session_id}.jsonl"
+        path.write_bytes(transcript(*records) + raw_tail)
+        return path
+
+    def _record(self, record: dict, *, cwd: Path | None = None, branch: str | None = None) -> dict:
+        enriched = dict(record)
+        if cwd is not None:
+            enriched["cwd"] = str(cwd)
+        if branch is not None:
+            enriched["gitBranch"] = branch
+        return enriched
+
+    def test_inventory_classifies_fixture_matrix_and_sorts_deterministically(self) -> None:
+        exact_path = self._write_session(
+            "sid-exact",
+            self._record(user("/implement 520", "2026-07-16T03:00:00Z"), cwd=self.repository, branch="main"),
+            self._record(
+                {
+                    "type": "assistant",
+                    "timestamp": "2026-07-16T03:03:00Z",
+                    "model": "claude-opus-4-6",
+                    "effort": "high",
+                    "message": {"role": "assistant", "content": "private assistant text"},
+                },
+                cwd=self.repository,
+            ),
+        )
+        wrapped = (
+            "<command-message>devflow:create-issue</command-message>"
+            "<command-args>inventory native sessions</command-args>"
+        )
+        self._write_session(
+            "sid-wrapped",
+            self._record(user(wrapped, "2026-07-16T01:00:00Z"), cwd=self.repository),
+        )
+        secret_prompt = "Change PR525 to draft, then run /devflow:receiving-code-review 525 SECRET-PROMPT"
+        self._write_session(
+            "sid-embedded",
+            self._record(user(secret_prompt, "2026-07-16T02:00:00Z"), cwd=self.repository),
+            self._record(skill_call("devflow:receiving-code-review", "525", "2026-07-16T02:05:00Z"), cwd=self.repository),
+        )
+        self._write_session(
+            "sid-later-only",
+            self._record(user("ordinary request", "2026-07-16T00:00:00Z"), cwd=self.repository),
+            self._record(user("/review-and-fix 525", "2026-07-16T00:01:00Z"), cwd=self.repository),
+        )
+        malformed = self._write_session(
+            "sid-malformed",
+            self._record(user("/implement 999"), cwd=self.repository),
+            raw_tail=b"{broken\n",
+        )
+        other_repository = self.sandbox / "other-repository"
+        other_repository.mkdir()
+        subprocess.run(["git", "init", "-q", str(other_repository)], check=True)
+        self._write_session(
+            "sid-unrelated",
+            self._record(user("/implement 404"), cwd=other_repository),
+            project_root=other_repository,
+        )
+
+        result = recorder.inventory_native_transcripts(self.projects, self.repository, REGISTRY)
+
+        self.assertEqual(
+            [row.session_id for row in result.sessions],
+            ["sid-wrapped", "sid-embedded", "sid-exact"],
+        )
+        by_id = {row.session_id: row for row in result.sessions}
+        self.assertEqual(by_id["sid-exact"].workflow, "implement")
+        self.assertEqual(by_id["sid-exact"].subject, {"kind": "issue", "number": 520})
+        self.assertEqual(by_id["sid-exact"].native_path, str(exact_path.resolve()))
+        self.assertEqual(by_id["sid-exact"].cwd, str(self.repository.resolve()))
+        self.assertEqual(by_id["sid-exact"].started_at, "2026-07-16T03:00:00.000Z")
+        self.assertEqual(by_id["sid-exact"].finished_at, "2026-07-16T03:03:00.000Z")
+        self.assertEqual(by_id["sid-exact"].duration_ms, 180000)
+        self.assertEqual(by_id["sid-exact"].longest_gap_ms, 180000)
+        self.assertEqual(by_id["sid-exact"].event_count, 2)
+        self.assertEqual(by_id["sid-exact"].transcript_bytes, exact_path.stat().st_size)
+        self.assertEqual(by_id["sid-exact"].observed_models, ["claude-opus-4-6"])
+        self.assertEqual(by_id["sid-exact"].observed_effort, ["high"])
+        self.assertEqual(by_id["sid-exact"].branch, "main")
+        self.assertEqual(by_id["sid-exact"].association_confidence, "exact")
+        self.assertEqual(by_id["sid-exact"].manifest_status, "absent")
+        self.assertEqual(by_id["sid-exact"].import_status, "not_imported")
+        self.assertEqual(by_id["sid-embedded"].workflow, "receiving-code-review")
+        self.assertIsNone(by_id["sid-wrapped"].duration_ms)
+        self.assertEqual(result.summary["scanned"], 6)
+        self.assertEqual(result.summary["matched"], 3)
+        self.assertEqual(result.summary["already_bundled"], 0)
+        self.assertEqual(result.summary["unreadable"], 1)
+        self.assertEqual(
+            result.summary["by_workflow"],
+            {"create-issue": 1, "implement": 1, "receiving-code-review": 1},
+        )
+        self.assertEqual(len(result.errors), 1)
+        self.assertEqual(result.errors[0].native_path, str(malformed.resolve()))
+
+        document = recorder.render_inventory_json(result)
+        self.assertEqual(
+            set(json.loads(document)),
+            {"schema_version", "repository_root", "sessions", "errors", "summary"},
+        )
+        self.assertNotIn(secret_prompt, document)
+        self.assertNotIn("SECRET-PROMPT", document)
+        self.assertNotIn("inventory native sessions", document)
+        self.assertNotIn("private assistant text", document)
+
+    def test_inventory_associates_linked_worktree_by_common_dir(self) -> None:
+        subprocess.run(
+            ["git", "-C", str(self.repository), "config", "user.email", "inventory@example.invalid"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.repository), "config", "user.name", "Inventory Test"],
+            check=True,
+        )
+        (self.repository / "tracked").write_text("base\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.repository), "add", "tracked"], check=True)
+        subprocess.run(["git", "-C", str(self.repository), "commit", "-qm", "base"], check=True)
+        linked = self.sandbox / "linked-worktree"
+        subprocess.run(
+            ["git", "-C", str(self.repository), "worktree", "add", "-q", "--detach", str(linked)],
+            check=True,
+        )
+        self._write_session(
+            "sid-linked",
+            self._record(user("/review-and-fix 77"), cwd=linked),
+            project_root=linked,
+        )
+
+        result = recorder.inventory_native_transcripts(self.projects, self.repository, REGISTRY)
+
+        self.assertEqual([row.session_id for row in result.sessions], ["sid-linked"])
+        self.assertEqual(result.sessions[0].cwd, str(linked.resolve()))
+        self.assertEqual(result.sessions[0].association_confidence, "exact")
+
+    def test_encoded_directory_fallback_is_uncertain_and_unknowns_remain_none(self) -> None:
+        self._write_session(
+            "sid-unknown",
+            {
+                "type": "user",
+                "message": {"role": "user", "content": "/create-issue preserve unknowns"},
+                "futureNativeField": {"ignored": True},
+            },
+        )
+        storage_root, _ = recorder._shared_storage_root(self.repository)
+        manifest = storage_root / ".devflow/tmp/workflow-manifests/sid-unknown.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text("{}\n", encoding="utf-8")
+        imported = storage_root / ".devflow/tmp/workflow-runs/sid-unknown/transcript.jsonl"
+        imported.parent.mkdir(parents=True)
+        imported.write_text("already imported\n", encoding="utf-8")
+
+        result = recorder.inventory_native_transcripts(self.projects, self.repository, REGISTRY)
+
+        self.assertEqual(len(result.sessions), 1)
+        row = result.sessions[0]
+        self.assertEqual(row.association_confidence, "uncertain")
+        self.assertIsNone(row.cwd)
+        self.assertIsNone(row.started_at)
+        self.assertIsNone(row.finished_at)
+        self.assertIsNone(row.duration_ms)
+        self.assertIsNone(row.longest_gap_ms)
+        self.assertIsNone(row.observed_models)
+        self.assertIsNone(row.observed_effort)
+        self.assertIsNone(row.branch)
+        self.assertEqual(row.manifest_status, "present")
+        self.assertEqual(row.import_status, "imported")
+        self.assertEqual(result.summary["already_bundled"], 1)
+
+    def test_cli_json_is_private_and_table_uses_unavailable_markers(self) -> None:
+        secret = "SECRET CLI PROMPT"
+        self._write_session(
+            "sid-cli",
+            self._record(user(f"/implement 88 {secret}", timestamp=""), cwd=self.repository),
+        )
+        command = [
+            sys.executable,
+            str(ROOT / "scripts/inventory-workflow-transcripts.py"),
+            "--claude-projects-root",
+            str(self.projects),
+            "--repo-root",
+            str(self.repository),
+            "--registry",
+            str(REGISTRY),
+        ]
+
+        table = subprocess.run(command, check=False, text=True, capture_output=True)
+        json_result = subprocess.run([*command, "--json"], check=False, text=True, capture_output=True)
+
+        self.assertEqual(table.returncode, 0, table.stderr)
+        self.assertIn("sid-cli", table.stdout)
+        self.assertIn("unavailable", table.stdout)
+        self.assertNotIn(secret, table.stdout + table.stderr)
+        self.assertEqual(json_result.returncode, 0, json_result.stderr)
+        self.assertEqual(json.loads(json_result.stdout)["sessions"][0]["session_id"], "sid-cli")
+        self.assertNotIn(secret, json_result.stdout + json_result.stderr)
+
+    def test_cli_fails_when_projects_root_is_unavailable(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/inventory-workflow-transcripts.py"),
+                "--claude-projects-root",
+                str(self.sandbox / "missing"),
+                "--repo-root",
+                str(self.repository),
+                "--registry",
+                str(REGISTRY),
+            ],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("projects root", result.stderr.lower())
+
+    def test_cli_fails_when_no_meaningful_scan_can_occur(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/inventory-workflow-transcripts.py"),
+                "--claude-projects-root",
+                str(self.projects),
+                "--repo-root",
+                str(self.repository),
+                "--registry",
+                str(REGISTRY),
+            ],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no readable transcript scan", result.stderr.lower())
+
+
 class RegistryAndOccurrenceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.registry = load_registry(REGISTRY)
