@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.3] — 2026-07-16
+
+### Fixed
+- **Cancelled cloud runs no longer self-resume.** A cancelled `/devflow:implement` cloud run is now a decided ending, not a stall: the implement stall backstop reads `job.status` (`JOB_STATUS: ${{ job.status }}`) and, only on the exact value `cancelled`, flips an interim workpad to a new 🛑 `Cancelled` terminal status (no resume comment, no resume attempt consumed) or `skip-cancelled` on unreadable/auth-failure classes. Every other `job.status` value leaves the existing decision table byte-identical (fail toward resume, so an un-upgraded caller never suppresses a resume). Adds the 🛑 `Cancelled` status to `workpad.py` (glyph vocabulary, recognizer, terminal classification) + the `lib/fetch-pr-context.sh` glyph strip + a defined retrospective Stage-A `Cancelled` skip arm; pins the review-tier cancellation exclusions (`devflow.yml`'s `Review stall backstop` `if:` and `devflow-review.yml`'s `backstop_eligible` emission) as `assert_pin_red_under` regression guards; adds the `cancel-probe` job to `matcher-probe.yml` for the operator-performed live-evidence probe; reconciles every coupled glyph/status site and `CLAUDE.md`. (#517)
+
 ## [2.14.2] — 2026-07-16
 
 ### Added

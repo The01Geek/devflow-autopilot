@@ -359,7 +359,12 @@ phase boundary; Phase 4.5 finalizes it).
   verdict for the head, `finalize_check` posts a capped App-token-authored
   `/devflow:review` re-trigger (default `max_resume_attempts: 2` per head),
   degrading to exactly the dead-end flip when the cap is exhausted, the backstop
-  is disabled, or no App token is configured.
+  is disabled, or no App token is configured. A cancelled run is excluded from
+  auto-resume on every DevFlow backstop (issue #498) — a cancel is a decided
+  ending, not a benign timing stall — so neither this review backstop nor the
+  implement-tier one keys its resume decision on a cancelled run's stall
+  signature; the review tier's exclusion is already correct at source (the
+  dead-run signal fires only on is_error/failure, never on cancellation).
 - It works under the **read-only cloud `review` profile**: the comment is
   created/edited via `gh` (a comment edit, not a tree write), and the runner's
   `review` tool profile additionally allow-lists `workpad.py`, `config-get.sh`,

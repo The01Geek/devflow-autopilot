@@ -1180,6 +1180,12 @@ jobs:
           # successful claude step a vanished vendored dir means the backstop
           # was silently disarmed — fail loud instead of masking it.
           CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+          # The job's status (issue #498): success / failure / cancelled. The
+          # decide helper's fifth argument; only the exact string `cancelled`
+          # selects the cancellation-exclusion path (a cancel is a decided end,
+          # not a stall). Deliberately the documented job-context string, not a
+          # status-check function (the docs scope those to `if:` conditionals).
+          JOB_STATUS: ${{ job.status }}
         run: |
           set +e
           V=.devflow/vendor/devflow/scripts
@@ -1218,6 +1224,20 @@ jobs:
             python3 "$V/workpad.py" update "$ISSUE_NUMBER" --status Failed \
               --note "run died: ${1:-dead-end exit} — ${RUN_URL}" \
               || echo "::warning::stall backstop: could not flip workpad Status to 💥 Failed (${1:-dead-end exit}); leaving it unchanged"
+          }
+          # Cancelled-run flip (issue #498): mirror of flip_to_failed — the same
+          # POSITIONAL CLASS=interim guard, best-effort ::warning:: on failure,
+          # never changes the exit arm. Flips an interim workpad to 🛑 Cancelled
+          # so a deliberately-cancelled run stops lying it is still working.
+          # Called only from the flip-cancelled arm (a green exit), never on the
+          # resume path. The note names the signal (job.status=cancelled), never
+          # operator intent — same reason-line idiom as flip_to_failed. 🛑 joins
+          # 💥 as a workpad-only terminal glyph with no reaction equivalent.
+          flip_to_cancelled() {
+            [ "${CLASS:-}" = "interim" ] || return 0
+            python3 "$V/workpad.py" update "$ISSUE_NUMBER" --status Cancelled \
+              --note "run cancelled (job.status=cancelled) — ${RUN_URL}" \
+              || echo "::warning::stall backstop: could not flip workpad Status to 🛑 Cancelled; leaving it unchanged"
           }
           # Master switch first: disabled → fully skipped (no status read, no
           # comment, no resume, no fail). Unrecognized/missing resolves to
@@ -1298,12 +1318,29 @@ jobs:
             [ "$GH_ERRF" = /dev/null ] || rm -f "$GH_ERRF"
             [[ "$ATTEMPTS" =~ ^[0-9]+$ ]] || ATTEMPTS=0
           fi
-          DECISION="$(bash "$V/stall-backstop-decide.sh" "$ENABLED" "$CLASS" "$ATTEMPTS" "$MAX")"
-          echo "stall backstop: status='${STATUS_OUT}' class=${CLASS} attempts=${ATTEMPTS} max=${MAX} decision=${DECISION}"
+          DECISION="$(bash "$V/stall-backstop-decide.sh" "$ENABLED" "$CLASS" "$ATTEMPTS" "$MAX" "$JOB_STATUS")"
+          echo "stall backstop: status='${STATUS_OUT}' class=${CLASS} attempts=${ATTEMPTS} max=${MAX} decision=${DECISION} job_status=${JOB_STATUS}"
           # (The helper's 'skip' arm is unreachable here — the early exit above
           # already returned on ENABLED=false — so 'noop' is the only decision
           # that exits at THIS point; 'resume' also ends green, but lower down
           # via the FAIL mapping.)
+          # Cancelled-run exclusion (issue #498): a cancelled run is a decided
+          # ending, not a stall. flip-cancelled flips an interim workpad to 🛑
+          # Cancelled and exits green — no comment posted (no audit marker, no
+          # diagnostic), no resume attempt consumed. skip-cancelled (unreadable/
+          # auth-failure/unknown class on a cancel) logs one line and exits green
+          # without posting the fail-loud diagnostic comment. Both arms post NO
+          # comment: the run's own `cancelled` conclusion in the Actions UI is
+          # the record. These green exits do NOT call flip_to_failed — only the
+          # fail-loud arms below flip to 💥, and a cancel is not a failure.
+          if [ "$DECISION" = "flip-cancelled" ]; then
+            flip_to_cancelled
+            exit 0
+          fi
+          if [ "$DECISION" = "skip-cancelled" ]; then
+            echo "stall backstop: run cancelled (job.status=${JOB_STATUS}) — class=${CLASS}; no resume, no comment (cancelled runs are not stalls, issue #498)"
+            exit 0
+          fi
           if [ "$DECISION" = "noop" ]; then
             exit 0
           fi
