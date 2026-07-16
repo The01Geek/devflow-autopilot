@@ -1,0 +1,64 @@
+{
+  "iter": 2,
+  "source": "review-and-fix",
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "started_at": "2026-07-16T22:15:00Z",
+  "fix_commit_sha": "fd7c2e7b",
+  "fix_files": [
+    "scripts/verification_baseline.py",
+    "scripts/export-workflow-lifecycle-census.py",
+    "lib/test/test_verification_baseline.py",
+    "docs/workflow-flight-recorder.md"
+  ],
+  "diff_profile": {
+    "small_diff": false, "config_only": false, "has_new_types": true,
+    "engine_self_modifying": true, "detect_all_audit": false, "checklist_skipped": "promoted (Phase 1+2 skipped for a shadow-promoted iter)"
+  },
+  "note": "Promoted from iteration 1's early shadow (engine_self_modifying). Phase 1+2 skipped; the shadow's blinded Phase-3 fan-out IS the review input. Fixed the shadow's new Important findings + cheap class-completions.",
+  "phase3_findings_promoted": [
+    {"from_agent": "devflow:requesting-code-review", "severity": "Important", "id": "G-A", "description": "eligibility keyed on always-True provisional -> confirmed_eligible unreachable; key on invocation_evidence", "fix_decision": "applied", "verified": "cross-module: confirmed capture_prompt_manifest hardcodes provisional=True (wfr:1287) and invocation_evidence tokens (wfr:1175/1179/1192)"},
+    {"from_agent": "devflow:requesting-code-review", "severity": "Important", "id": "G6", "description": "docs + '(checked later)' comment documented_falsehood", "fix_decision": "applied"},
+    {"from_agent": "devflow:silent-failure-hunter", "severity": "Important", "id": "G1", "description": "jobs pagination truncates at 100 while pagination_complete=True", "fix_decision": "applied"},
+    {"from_agent": "devflow:type-design-analyzer", "severity": "Suggestion", "id": "G2", "description": "cloud source_status='available' coupled bare literal", "fix_decision": "applied"},
+    {"from_agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "id": "G3", "description": "_workspace_state other roots loose substring (F7 class-completion)", "fix_decision": "applied"},
+    {"from_agent": "devflow:requesting-code-review", "severity": "Suggestion", "id": "G8", "description": "taxonomy over-match counts non-launches as launches", "fix_decision": "applied"},
+    {"from_agent": "devflow:requesting-code-review", "severity": "Suggestion", "id": "G7", "description": "parent output dir not 0700", "fix_decision": "applied"},
+    {"from_agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "id": "G4", "description": "_gh_json JSONDecodeError no breadcrumb; exit 0 on incomplete", "fix_decision": "applied (breadcrumb + loud warning; exit 0 kept intentionally — degraded snapshot is usable, in-file flag durable)"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "G-A", "decision": "applied", "commit": "fd7c2e7b"},
+    {"finding_id": "G6", "decision": "applied", "commit": "fd7c2e7b"},
+    {"finding_id": "G1", "decision": "applied", "commit": "fd7c2e7b"},
+    {"finding_id": "G2", "decision": "applied", "commit": "fd7c2e7b"},
+    {"finding_id": "G3", "decision": "applied", "commit": "fd7c2e7b"},
+    {"finding_id": "G8", "decision": "applied", "commit": "fd7c2e7b"},
+    {"finding_id": "G7", "decision": "applied", "commit": "fd7c2e7b"},
+    {"finding_id": "G4", "decision": "applied", "commit": "fd7c2e7b"},
+    {"finding_id": "SFH-occurrence-undetected", "decision": "deferred", "source_file": "scripts/verification_baseline.py", "claim_text": "source_available bundle with no detected occurrence silently continues (conflated with real-zero)", "skip_category": "uncategorized", "evidence": "MEDIUM. The row is NOT dropped (stays eligible+source_available); it contributes zero launches, indistinguishable from a genuine no-launch session. A distinct extraction-gap reason code is a deeper design change threading a new signal through metrics/report; Wave-1 edge (registry/detector skew). Parked for a follow-up."},
+    {"finding_id": "SFH-cloud-inband-flag", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "malformed cloud_mappings surfaces only via stderr, not an in-band coverage flag", "skip_category": "advisory-parked", "evidence": "F5 already made it a LOUD stderr degradation (satisfies the repo's loud-degradation requirement). A machine-readable in-band eligibility_unresolved flag is an enhancement (threading through build_cloud_census); parked."},
+    {"finding_id": "FP-workspace-window", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "workspace coverage scans the whole lifecycle window, not just the launch's mutation window", "skip_category": "advisory-parked", "evidence": "G3 hardened the substring-looseness with word boundaries. Window-scoping is a further conservative refinement; candidates are already manual-review-gated. Parked."},
+    {"finding_id": "TD-retrigger-tristate", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "retrigger_evidence bool default False conflates unknown with no-retrigger (fail-open if future adapter improves ws coverage)", "skip_category": "advisory-parked", "evidence": "Forward-looking. Wave-1 never sets it True and ws coverage is ~always incomplete; documented design boundary. Tri-state is a future-adapter hardening; parked."},
+    {"finding_id": "PT-broader-test-gaps", "decision": "deferred", "source_file": "lib/test/test_verification_baseline.py", "claim_text": "coverage gaps in _gh_json/_strip_env_prefix/manual_review-ties/_matches_workflow_set/_bound_strings/_launch_timing/stratify/_duration_bucket", "skip_category": "out-of-scope", "evidence": "Coverage-expansion for code my fixes do not change. Added tests for everything I FIXED (+ the twice-flagged _validate_admitted_path security boundary). Broader coverage hardening is a follow-up test pass."}
+  ],
+  "step_3_5_gate": {
+    "result": "found-important-then-fixed",
+    "reviewer": "blinded general-purpose",
+    "findings": "1 Important (my doc reconciliation over-claimed: said the recorder corroborates before flagging embedded — it flags un-corroborated at prompt-submit) + 2 Suggestion (taxonomy chaining under-count; submodule plural)",
+    "inner_fix": "re-fixed all 3 in the same iteration (doc corrected against wfr:1304-1306; taxonomy made chaining-aware; \\bsubmodules?\\b). Re-verified: 53 module tests + full suite green.",
+    "attempts_used": 1
+  },
+  "verification_evidence": {
+    "command": "bash lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 190,
+    "skipped_checks": [
+      {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty at run time (grades committed HEAD); runs clean in CI"}
+    ]
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_3_shadow_input": {"calls": 6, "tokens": 780000},
+    "step_3_5": {"calls": 2, "tokens": 83000}
+  }
+}
