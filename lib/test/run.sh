@@ -1042,7 +1042,15 @@ assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_
 # SKILL.md were edited. Pin the load-bearing tokens in the real SKILL so a change to
 # the regex (negative-aware), the below-1 floor, or the default-5 fallback fails here
 # instead of silently passing against the copy.
-MAXI_SKILL="$LIB/../skills/review-and-fix/SKILL.md"
+# #530: review-and-fix is now a thin root + references/*.md. The literal-pin corpus below
+# targets the whole shipped bundle, so MAXI_SKILL/ST_RAF resolve against a byte-faithful
+# concatenation of the root + every reference (the pre-split content, reassembled), rebuilt
+# once per run. New #530 pins that must be file-specific pass an explicit reference-file arg.
+# The concat carries a `.md` suffix so pin-corpus-lint infers markdown comment syntax.
+MAXI_ROOT="$LIB/../skills/review-and-fix/SKILL.md"
+MAXI_BUNDLE="$(mktemp)"; mv "$MAXI_BUNDLE" "$MAXI_BUNDLE.md"; MAXI_BUNDLE="$MAXI_BUNDLE.md"
+cat "$MAXI_ROOT" "$LIB/../skills/review-and-fix/references"/*.md > "$MAXI_BUNDLE"
+MAXI_SKILL="$MAXI_BUNDLE"
 assert_pin_unique "max_iterations clamp: SKILL keeps the negative-aware integer regex" "'^-?[0-9]+\$'" "$MAXI_SKILL"
 assert_pin_unique "max_iterations clamp: SKILL keeps the below-1 floor" '"$MAX_ITERS" -lt 1' "$MAXI_SKILL"
 assert_pin_unique "max_iterations clamp: SKILL keeps the default-5 fallback" 'MAX_ITERS=5' "$MAXI_SKILL"
@@ -1146,7 +1154,7 @@ assert_eq "sev e2e: receiving section configured value honored" "suggestion" "$(
 assert_eq "sev e2e: receiving section unset → default"      "critical"  "$(sev_resolve '{"receiving_review":{}}' .receiving_review.fix_severity_threshold critical)"
 
 # operative-sentence pins in the three SKILL.md files (the sentence carrying the behavior)
-ST_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+ST_RAF="$MAXI_BUNDLE"   # #530: root+references bundle (see MAXI_BUNDLE above)
 ST_REV="$LIB/../skills/review/SKILL.md"
 ST_RCV="$LIB/../skills/receiving-code-review/SKILL.md"
 # each SKILL reads its key via config-get.sh (already cloud-allowlisted — no new helper)
@@ -6898,14 +6906,17 @@ assert_pin_red_on_removal "#484 inline workpad shorthand must expand to the port
   'Every inline backtick instruction beginning with `workpad.py` in the phase references must be expanded before tool use' \
   "$LIB/../skills/implement/SKILL.md"
 
-# AC: review-and-fix/SKILL.md against devflow.yml's hoisted TOOLS — gh pr checkout is
-# granted there (the manual /devflow:review-and-fix path checks out the PR head), so
-# every head it emits is granted or suppressed.
-assert_eq "#484 every review-and-fix head is granted by devflow.yml TOOLS (gh pr checkout granted there)" "" \
-  "$(_manual_ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../.github/workflows/devflow.yml" tools-line | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+# AC (#484 + #530): the WHOLE review-and-fix bundle — thin root + every references/*.md —
+# against devflow.yml's hoisted TOOLS. $MAXI_SKILL is the root+references concatenation
+# (see its definition), so this is now a whole-bundle head scan on the manual tier rather
+# than the pre-#530 single-SKILL.md check. gh pr checkout is granted there (the manual
+# /devflow:review-and-fix path checks out the PR head, Step 0.5 in the root), so every head
+# any bundle file emits is granted or suppressed.
+assert_eq "#484/#530 every review-and-fix bundle (root+references) head is granted by devflow.yml TOOLS" "" \
+  "$(_manual_ungranted "$MAXI_SKILL" "$LIB/../.github/workflows/devflow.yml" tools-line | sort -u | tr '\n' ' ' | sed 's/ *$//')"
 sed -E 's/, Bash\(gh pr checkout:\*\)//' "$LIB/../.github/workflows/devflow.yml" > "$E484/manual-no-checkout.yml"
 assert_eq "#484 manual gh pr checkout grant is removal-proof" "yes" \
-  "$(_manual_ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$E484/manual-no-checkout.yml" tools-line | grep -qxF 'gh pr checkout' && echo yes || echo no)"
+  "$(_manual_ungranted "$MAXI_SKILL" "$E484/manual-no-checkout.yml" tools-line | grep -qxF 'gh pr checkout' && echo yes || echo no)"
 
 # Skill-level recovery contracts: unit tests prove the helper behavior, while
 # these removal pins prove the orchestrator still requests a failure signal,
@@ -18799,7 +18810,7 @@ rm -rf "$ETSC2_REPO"
 # T5 → AC5: the fix-commit subject literal is a coupled TWO-SITE invariant —
 # skills/review-and-fix/SKILL.md item 6 (the producer) ↔ lib/efficiency-trace.sh
 # (the parser). Both sites must carry it; a targeted edit to either turns RED.
-ETSY_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+ETSY_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 ETSY_ETSH="$LIB/efficiency-trace.sh"
 assert_eq "et-synth(T5): fix-commit subject literal present in SKILL.md item 6 (producer site)" "yes" \
   "$([ "$(pin_count 'fix: address review findings (iteration' "$ETSY_RAF")" -ge 1 ] && echo yes || echo no)"
@@ -19874,12 +19885,14 @@ rm -rf "$LR_SC_REPO"
 #     ITER_EXPECTED_FIELDS in efficiency-trace.sh is the ONE place the expected
 #     iter-field set is defined; it MUST equal the iter-<N>.json schema's
 #     unconditional top-level fields in SKILL.md minus `shadow` and
-#     `parked_class_sweep` (convergence-only) and `promotion_provenance`
-#     (conditional on promoted iterations) — all three are subtracted by the
-#     `-Ev` filter below. FAILs if an unconditional field is
+#     `parked_class_sweep` (convergence-only), `promotion_provenance`
+#     (conditional on promoted iterations), and the #530 navigation stamps
+#     `current_step`/`current_substep`/`pending_dispatch` (best-effort
+#     continuation operands, not effectiveness/cost telemetry) — all are
+#     subtracted by the `-Ev` filter below. FAILs if an unconditional field is
 #     added/removed on either side.
 LR_CONST="$(grep -E '^ITER_EXPECTED_FIELDS=' "$LIB/efficiency-trace.sh" | sed -E 's/^ITER_EXPECTED_FIELDS=//; s/"//g' | tr ' ' '\n' | grep -v '^$' | sort -u)"
-LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|promotion_provenance|parked_class_sweep)$' | sort -u)"
+LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|promotion_provenance|parked_class_sweep|current_step|current_substep|pending_dispatch)$' | sort -u)"
 assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md unconditional schema fields" \
   "$LR_SCHEMA" "$LR_CONST"
 
@@ -20478,7 +20491,7 @@ rm -rf "$TB_MB_REPO"
 
 # Grep pins (AC1/AC19/AC22): the SKILL mirrors + workflows + docs carry the new
 # telemetry-branch contract; a revert turns the suite RED.
-TB_RAF="$LIB/../skills/review-and-fix/SKILL.md"; TB_REV="$LIB/../skills/review/SKILL.md"
+TB_RAF="$MAXI_BUNDLE"; TB_REV="$LIB/../skills/review/SKILL.md"   # #530: TB_RAF=root+references bundle
 assert_eq "tb(#441 AC1): review-and-fix Loop-Exit persists via --persist (single code path)" "yes" \
   "$([ "$(pin_count '/../../lib/efficiency-trace.sh --persist --workpad-dir ".devflow/tmp/review/<slug>/<run-id>" --slug "<slug>"' "$TB_RAF")" -ge 1 ] && echo yes || echo no)"
 assert_eq "tb(#441 AC1): review Phase 4.5 persists via --persist (unified store)" "yes" \
@@ -30645,7 +30658,15 @@ assert_eq "#375 pin-corpus-lint helper exists" "yes" "$([ -f "$PCL" ] && echo ye
 _PCL_ARGS=( --lib "$LIB" --md "$DEF_SKILL"
   --var "MAXI_SKILL=$MAXI_SKILL" --var "DEF_SKILL=$DEF_SKILL"
   --var "IMPL_SKILL_BUNDLE=$IMPL_SKILL_BUNDLE"
-  --var "ST_RAF=$ST_RAF" --var "ST_REV=$ST_REV" --var "ST_RCV=$ST_RCV" )
+  --var "ST_RAF=$ST_RAF" --var "ST_REV=$ST_REV" --var "ST_RCV=$ST_RCV"
+  # #530: the review-and-fix pins now target the root+references bundle ($MAXI_BUNDLE).
+  # These vars all equal $MAXI_BUNDLE (some are defined later in run.sh than this line),
+  # so bind each to $MAXI_BUNDLE's value to keep their pins RESOLVABLE and under the
+  # pin-in-comment lint rather than silently exempt (the "reported, never skipped" contract).
+  --var "MAXI_BUNDLE=$MAXI_BUNDLE"
+  --var "ETSY_RAF=$MAXI_BUNDLE" --var "TB_RAF=$MAXI_BUNDLE" --var "SP_RAF=$MAXI_BUNDLE"
+  --var "RF_SKILL=$MAXI_BUNDLE" --var "UBC_RAF=$MAXI_BUNDLE" --var "RAF456=$MAXI_BUNDLE"
+  --var "I497_RAF=$MAXI_BUNDLE" )
 # (1) Real corpus: no pin literal collides with a comment of its target; a collision here is a
 # real defect to fix in this same PR (issue #375 AC). The scanner reports every unresolvable
 # call site on stderr (UNRESOLVED / UNRESOLVED-COUNT) — SURFACE that count to the run log rather
@@ -31081,6 +31102,24 @@ assert_eq "#401 skills/review/SKILL.md teaches no proven-denied command shape" "
   "$(python3 "$ECS" "$ST_REV" 2>&1)"
 assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
   "$(python3 "$ECS" "$ST_REV" >/dev/null 2>&1; echo $?)"
+
+# ── #530 review-and-fix bundle shape lint (thin root + every references/*.md) ──
+# review-and-fix carried NO extract-command-shapes.py coverage before the #530 split.
+# The APPLICABLE shape gate is the IMPLEMENT profile: review-and-fix is dispatched inline
+# by /devflow:implement Phase 3 (implement tier) and via the manual /devflow:review-and-fix
+# comment path (devflow.yml) — it is NEVER dispatched on the read-only cloud `review`
+# profile (devflow-runner.yml). The default profile of extract-command-shapes.py encodes
+# that read-only review-runner matcher (R1–R4), which legitimately denies leading-`VAR=…$(…)`
+# assignments (e.g. the loop-start `RUN_ID=`) and the unexpanded `${CLAUDE_SKILL_DIR:-…}`
+# anchor-as-leading-token + redirect — source forms review-and-fix relies on and that ARE
+# permitted on the tiers it actually runs on (the implement-profile lint below is clean).
+# So the whole bundle is shape-linted under `--profile implement` (root + every reference);
+# the manual-command tier is covered by the whole-bundle HEAD scan against devflow.yml above.
+# Grants are unchanged — desk-time coverage only.
+for f in "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../skills/review-and-fix/references"/*.md; do
+  assert_eq "#530 review-and-fix shape-lint (implement profile): $(basename "$f") teaches no denied shape" "" \
+    "$(python3 "$ECS" --profile implement "$f" 2>&1)"
+done
 
 # ── Anti-vacuity: each rule flags its denied shape (fixtures under $E363's trap-cleaned dir).
 printf '%s\n' '```bash' 'M=x printf hi' '```' > "$E363/s-r1a.md"
@@ -32181,7 +32220,7 @@ echo "#363 observability: ::warning:: on denials + permission_denials_count plum
 # ────────────────────────────────────────────────────────────────────────────
 SED_SH="$LIB/../scripts/surface-execution-diagnostics.sh"
 D363="$(mktemp -d)" || { echo "FAIL  #363 diag: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MAXI_BUNDLE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
 
 _diag_run() {  # execution-file-json -> stdout+stderr; GITHUB_OUTPUT at $D363/out
   : > "$D363/out"
@@ -33417,7 +33456,7 @@ SP_SCHEMA="$LIB/../.devflow/config.schema.json"
 SP_EXAMPLE="$LIB/../.devflow/config.example.json"
 SP_CONFIG="$LIB/../.devflow/config.json"
 SP_REVIEW="$LIB/../skills/review/SKILL.md"
-SP_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+SP_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 SP_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
 SP_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 SP_CG="$LIB/../scripts/config-get.sh"
@@ -36086,7 +36125,7 @@ fi
 # operative addition, re-introducing the "not stamped / not recorded" state).
 ET_JQ="$LIB/efficiency-trace.jq"
 ET_SH="$LIB/efficiency-trace.sh"
-RF_SKILL="$LIB/../skills/review-and-fix/SKILL.md"
+RF_SKILL="$MAXI_BUNDLE"   # #530: root+references bundle
 DR_YML="$LIB/../.github/workflows/devflow-review.yml"
 OSP_SH="$LIB/open-state-pr.sh"
 
@@ -36834,7 +36873,7 @@ UBC_P1="$LIB/../skills/implement/phases/phase-1-setup.md"
 UBC_P2="$LIB/../skills/implement/phases/phase-2-implement.md"
 UBC_P3="$LIB/../skills/implement/phases/phase-3-review.md"
 UBC_P4="$LIB/../skills/implement/phases/phase-4-documentation.md"
-UBC_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+UBC_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 UBC_INVOKE='/../../scripts/update-branch-checkpoint.sh'
 assert_pin_unique "#448 ubc-call-sites: checkpoint 1 invokes the helper in phase-1-setup.md" "$UBC_INVOKE" "$UBC_P1"
 assert_pin_unique "#448 ubc-call-sites: checkpoint 2 invokes the helper in phase-3-review.md" "$UBC_INVOKE" "$UBC_P3"
@@ -38476,7 +38515,7 @@ assert_eq "#456 ci.yml: lib/test/summary.sh is added to the shellcheck lint scop
 #
 # review-and-fix: verification_evidence gains a skipped_checks list, and the not-a-clean-pass
 # clause stays repo-agnostic (names no lib/test/run.sh / lib + python tests / --flag).
-RAF456="$LIB/../skills/review-and-fix/SKILL.md"
+RAF456="$MAXI_BUNDLE"   # #530: root+references bundle
 assert_eq "#456 review-and-fix: verification_evidence documents a skipped_checks list" "yes" \
   "$(grep -qF 'skipped_checks' "$RAF456" && echo yes || echo no)"
 assert_eq "#456 review-and-fix: the not-a-clean-pass clause is present and repo-agnostic" "yes" \
@@ -40162,7 +40201,7 @@ assert_eq "#499 union: classifier-unavailable retry refuses the remote write" "n
 assert_eq "#499 union: classifier-unavailable refusal is breadcrumbed" "yes" "$(printf '%s' "$T499_U_C_ERR" | grep -qF 'could not classify a colliding telemetry blob' && echo yes || echo no)"
 rm -rf "$T499_U_ROOT"
 # ── #497 shadow prompt-composition attestation pins ──────────────────────────
-I497_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+I497_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 I497_SHADOW_DOC="$LIB/../docs/shadow-review.md"
 I497_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 
