@@ -40020,6 +40020,9 @@ assert_eq "#533 AC14: installer fingerprints via python3 hashlib and never invok
 # proof below exercises the same recipe the guard runs — never a hand copy that
 # could drift green while the real guard's pattern rots.
 _ac10_count533() { grep -cF 'DEVFLOW_GH=' "$1" 2>/dev/null; }
+# Whole-workflow sibling: counts process-global DEVFLOW_GH assignments anywhere
+# in a file — shell '=' or YAML env ':' form — with whole-line comments stripped.
+_ac10_wf_count533() { grep -vE '^[[:space:]]*#' "$1" 2>/dev/null | grep -cE 'DEVFLOW_GH[=:]'; }
 assert_eq "#533 AC10: install-gh-wrapper.sh writes no bare DEVFLOW_GH= (only DEVFLOW_GH_REAL=)" "0" \
   "$(_ac10_count533 "$INSTALL533")"
 
@@ -40034,10 +40037,23 @@ for _wf533 in devflow-implement devflow; do
   # original defect, and the install-step-scoped guard above cannot see it).
   # DEVFLOW_GH_REAL / DEVFLOW_GH_WRAPDIR carry an underscore after GH, so the
   # [=:] delimiter regex skips them; whole-line comments are stripped so prose
-  # mentioning the retired export cannot false-fire.
+  # mentioning the retired export cannot false-fire. The recipe lives in ONE
+  # function so the positive controls below exercise the same recipe the guard
+  # runs (a hand-copied grep could drift green while the guard's pattern rots).
   assert_eq "#533 AC10: $_wf533.yml carries no process-global DEVFLOW_GH assignment anywhere (= or : form, comments stripped)" "0" \
-    "$(grep -vE '^[[:space:]]*#' "$WF/$_wf533.yml" | grep -cE 'DEVFLOW_GH[=:]')"
+    "$(_ac10_wf_count533 "$WF/$_wf533.yml")"
 done
+# Positive controls for the whole-file recipe: a regex typo must not leave the
+# guard green forever. Plant each re-introduction shape in a scratch fixture and
+# assert the SAME recipe fires (1), and that a comment-only mention stays 0.
+_t533k="$(probe_tmp '#533 AC10 whole-file guard positive control setup')"
+printf 'jobs:\n  claude:\n    env:\n      DEVFLOW_GH: leaked\n' > "$_t533k"
+assert_eq "#533 AC22: the whole-file AC10 recipe fires on a planted YAML env DEVFLOW_GH: entry" "1" "$(_ac10_wf_count533 "$_t533k")"
+printf '          echo "DEVFLOW_GH=$WRAPDIR/gh" >> "$GITHUB_ENV"\n' > "$_t533k"
+assert_eq "#533 AC22: the whole-file AC10 recipe fires on a planted shell DEVFLOW_GH= export (the original defect form)" "1" "$(_ac10_wf_count533 "$_t533k")"
+printf '      # prose mentioning DEVFLOW_GH=old-export never fires the guard\n' > "$_t533k"
+assert_eq "#533 AC22: the whole-file AC10 recipe stays 0 on a whole-line comment mention" "0" "$(_ac10_wf_count533 "$_t533k")"
+rm -f "$_t533k"
 
 # AC14 — the seven validated outputs: each induced failure exits 1 with a
 # diagnostic naming that output; the full-success arm lands all seven.
