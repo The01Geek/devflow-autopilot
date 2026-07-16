@@ -31121,6 +31121,27 @@ for f in "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../skills/review-and-fix
     "$(python3 "$ECS" --profile implement "$f" 2>&1)"
 done
 
+# ── #530 prompt-budget guard (AC3/AC4): the split keeps the thin root and its initial/peak
+# load under the documented ceilings; docs/review-and-fix-budget.md is the checked-in table.
+# wc is a test-harness tool here (not a shipped selection), consistent with the rest of run.sh.
+RAF_ROOT_W=$(wc -w < "$LIB/../skills/review-and-fix/SKILL.md")
+RAF_EXT_W=$(wc -w < "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
+RAF_MAXREF_W=0
+for f in "$LIB/../skills/review-and-fix/references"/*.md; do
+  w=$(wc -w < "$f"); [ "$w" -gt "$RAF_MAXREF_W" ] && RAF_MAXREF_W="$w"
+done
+assert_eq "#530 budget: plugin root <= 3000 words (measured $RAF_ROOT_W)" "yes" \
+  "$([ "$RAF_ROOT_W" -le 3000 ] && echo yes || echo no)"
+assert_eq "#530 budget: root + live extension (initial load) <= 5500 words (measured $((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
+  "$([ "$((RAF_ROOT_W+RAF_EXT_W))" -le 5500 ] && echo yes || echo no)"
+assert_eq "#530 budget: root + extension + max active step <= 15000 words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)))" "yes" \
+  "$([ "$((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W))" -le 15000 ] && echo yes || echo no)"
+RAF_BUDGET_DOC="$LIB/../docs/review-and-fix-budget.md"
+assert_eq "#530 budget: checked-in budget table exists" "yes" \
+  "$([ -f "$RAF_BUDGET_DOC" ] && echo yes || echo no)"
+assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,196 words' "$RAF_BUDGET_DOC"
+
 # ── Anti-vacuity: each rule flags its denied shape (fixtures under $E363's trap-cleaned dir).
 printf '%s\n' '```bash' 'M=x printf hi' '```' > "$E363/s-r1a.md"
 assert_eq "#401 R1 flags an env-prefix compound (M=x cmd)" "yes" \
@@ -39984,8 +40005,8 @@ done
 # assert_pin_unique (the sanctioned unique-literal guard, not a raw echo-driven grep).
 assert_pin_unique "#487 fail-fast prose: skills/implement/SKILL.md carries the expired-credential two-strikes rule" \
   'Expired-credential fail-fast (two strikes' "$LIB/../skills/implement/SKILL.md"
-assert_pin_unique "#487 fail-fast prose: skills/review-and-fix/SKILL.md carries the expired-credential two-strikes rule" \
-  'Expired-credential fail-fast (two strikes' "$LIB/../skills/review-and-fix/SKILL.md"
+assert_pin_unique "#487 fail-fast prose: review-and-fix loop-control reference carries the expired-credential two-strikes rule" \
+  'Expired-credential fail-fast (two strikes' "$LIB/../skills/review-and-fix/references/loop-control.md"
 # The compaction-immune sibling signal (the wrapper diagnostic literal) is named in the prose.
 assert_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
   'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"

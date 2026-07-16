@@ -1,6 +1,6 @@
 # `/devflow:review-and-fix` subagent effectiveness telemetry
 
-**Skill:** `skills/review-and-fix/SKILL.md` (Loop Exit, *Subagent effectiveness trace*)
+**Skill:** `skills/review-and-fix/references/loop-exit.md` (Loop Exit, *Subagent effectiveness trace*; the reference the thin `skills/review-and-fix/SKILL.md` root routes to at loop termination — see issue #530)
 **Derivation:** `lib/efficiency-trace.jq` + `lib/efficiency-trace.sh`
 
 When `/devflow:review-and-fix` runs, its fix loop dispatches a lot of subagents per iteration —
@@ -567,7 +567,8 @@ real record carries, none of which is recoverable **from the fix commits**.
 
 - *Commit-subject selector (coupled two-site invariant).* Commits are selected by the subject
   template `fix: address review findings (iteration {N})` — **written** by
-  `skills/review-and-fix/SKILL.md` Step 3 item 6 and **parsed** by `lib/efficiency-trace.sh`
+  `skills/review-and-fix/references/fixing.md` Step 3 item 6 (the fixing reference the root
+  routes to; issue #530) and **parsed** by `lib/efficiency-trace.sh`
   (`FIX_COMMIT_SUBJECT_PREFIX`). `lib/test/run.sh` pins both sites; rewording the subject means
   editing both in the same commit. The commit range is `<base>..HEAD`, where the base ref prefers
   `origin/<base>` over the local base branch (routinely stale in worktrees — a stale local base
