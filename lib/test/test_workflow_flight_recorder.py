@@ -16,6 +16,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import workflow_flight_recorder as recorder  # noqa: E402
+
 from workflow_flight_recorder import (  # noqa: E402
     build_event_summary,
     capture_stop_payload,
@@ -92,6 +94,77 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
                 self.assertEqual(found[0].mode, "top-level")
                 self.assertEqual(found[0].subject, subject)
                 self.assertEqual(found[0].invocation_source, "user_command")
+
+    def test_short_user_commands_create_top_level_occurrences(self) -> None:
+        cases = [
+            ("/implement 520", "implement", {"kind": "issue", "number": 520}),
+            ("/create-issue improve local capture", "create-issue", {"kind": "topic", "value": "improve local capture"}),
+            ("/review-and-fix #77", "review-and-fix", {"kind": "pull_request", "number": 77}),
+        ]
+        for command, workflow, subject in cases:
+            with self.subTest(command=command):
+                found = detect_occurrences(parse_events(transcript(user(command))), self.registry)
+                self.assertEqual(
+                    [(item.workflow, item.mode, item.subject) for item in found],
+                    [(workflow, "top-level", subject)],
+                )
+
+    def test_embedded_first_prompt_is_top_level_only_when_skill_call_corroborates(self) -> None:
+        events = parse_events(
+            transcript(
+                user("Change PR525 to draft, then run /devflow:receiving-code-review 525"),
+                skill_call("devflow:receiving-code-review", "525"),
+            )
+        )
+        found = recorder.classify_inventory_occurrences(events, self.registry)
+        self.assertEqual(
+            [(item.workflow, item.mode, item.subject) for item in found],
+            [("receiving-code-review", "top-level", {"kind": "pull_request", "number": 525})],
+        )
+        self.assertEqual(found[0].start_event, events[0].index)
+
+    def test_embedded_first_prompt_without_matching_skill_call_does_not_classify(self) -> None:
+        events = parse_events(
+            transcript(user("Please document /devflow:receiving-code-review 525 for the team"))
+        )
+        self.assertEqual(recorder.classify_inventory_occurrences(events, self.registry), [])
+
+    def test_matching_command_in_a_later_user_turn_does_not_classify(self) -> None:
+        events = parse_events(
+            transcript(
+                user("Change PR525 to draft"),
+                user("/devflow:receiving-code-review 525", "2026-07-16T01:01:00Z"),
+                skill_call("devflow:receiving-code-review", "525"),
+            )
+        )
+        self.assertEqual(recorder.classify_inventory_occurrences(events, self.registry), [])
+
+    def test_tool_result_only_user_content_is_not_the_first_authoritative_message(self) -> None:
+        events = parse_events(
+            transcript(
+                {
+                    "type": "user",
+                    "timestamp": "2026-07-16T01:00:00Z",
+                    "message": {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "tool-1",
+                                "content": "/implement 999",
+                            }
+                        ],
+                    },
+                },
+                user("/review-and-fix 525", "2026-07-16T01:01:00Z"),
+            )
+        )
+        self.assertEqual(recorder.first_authoritative_user_event(events), events[1])
+        found = recorder.classify_inventory_occurrences(events, self.registry)
+        self.assertEqual(
+            [(item.workflow, item.mode, item.subject, item.start_event) for item in found],
+            [("review-and-fix", "top-level", {"kind": "pull_request", "number": 525}, 1)],
+        )
 
     def test_nested_skill_is_parented_to_top_level_implement(self) -> None:
         events = parse_events(
