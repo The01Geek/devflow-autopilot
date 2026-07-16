@@ -1,0 +1,35 @@
+{
+  "iter": 4,
+  "started_at": "2026-07-16T07:45:00Z",
+  "fix_commit_sha": "6a874764",
+  "fix_files": ["lib/test/run.sh", "skills/create-issue/SKILL.md"],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": "intentional"},
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "split-anchor comparand routing stated as invariant/policy, not an imperative pre-dispatch detection step; no compare-time backstop for an absent recorded digest", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [152, 152], "kind": "policy-without-mechanism"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "severity-calibrated"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "P1", "decision": "severity-calibrated", "source_file": "skills/create-issue/SKILL.md", "claim_text": "unrecorded-comparand routing states a policy but not a pre-dispatch detection mechanism", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "over-grade gate: single-source from silent-failure-hunter (empirical over-grader), PLAUSIBLE not CONFIRMED; 3 other reviewers (code-reviewer, pr-test-analyzer, final-pass) independently traced this exact routing and found it sound. The routing POLICY was already present and the dominant race closed, so not an Important fail-open. Calibrated to Suggestion — but applied anyway as a worthwhile hardening (making an LLM-executed contract imperative + adding a compare-time backstop) per the user directive to fix valid findings incl. suggestions."}
+  ],
+  "convergence_inputs": {"fixes_applied": 1, "fix_diff_lines": 10, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 150, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD); arms in CI"}]},
+  "telemetry": "unavailable",
+  "shadow": {
+    "ran_at": "2026-07-16T07:55:00Z",
+    "reviewed_sha": "6a874764",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": "intentional",
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  }
+}
