@@ -255,9 +255,13 @@ installation token and rewrites the two repo-controlled credential surfaces in p
    `git push` authenticates with (it *rewrites* that credential of record — it never
    replaces the push mechanism), and
 2. a mode-0600 token file that the agent-side `gh` wrapper (`scripts/gh-fresh.sh`)
-   reads at call time. The wrapper is wired both as `DEVFLOW_GH` (DevFlow's own
-   gh-callers resolve `gh` through that seam) and ahead of the real `gh` on `PATH`, so
-   direct `gh` calls resolve the fresh token too. It discriminates the ambient
+   reads at call time. The wrapper is installed by the checked-in, seven-output-validated
+   `scripts/install-gh-wrapper.sh` (issue #533) ahead of the real `gh` on `PATH`, so
+   direct `gh` calls and DevFlow's own resolver-routed gh-callers (whose PATH probe
+   finds the wrapper when `DEVFLOW_GH` is unset) resolve the fresh token. The install
+   step publishes **no** process-global `DEVFLOW_GH` — that env value would persist into
+   every later job step and outrank fixture PATH stubs in the repository test suite;
+   `DEVFLOW_GH` remains the explicit caller/test override seam. It discriminates the ambient
    job-start token from a deliberately-fresh backstop mint by fingerprint, so it only
    substitutes the refreshed token where the ambient (expiring) one would be used.
 

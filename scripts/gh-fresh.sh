@@ -9,11 +9,13 @@
 # ambient token with a stderr breadcrumb — see main()'s degrade path below; it is a
 # disclosed fail-safe, not an unconditional guarantee.
 #
-# It is wired two ways by the workflow's install step: as `DEVFLOW_GH` in the
-# claude step's env (so DevFlow's own gh-callers, which resolve gh through
-# lib/resolve-gh.sh's DEVFLOW_GH seam, pick it up) AND ahead of the real `gh` on
-# PATH via GITHUB_PATH (so direct skill-fence `gh` calls resolve to it too, and
-# every post-claude step inherits it).
+# It is wired by the install step (scripts/install-gh-wrapper.sh, issue #533)
+# ahead of the real `gh` on PATH via GITHUB_PATH: direct skill-fence `gh` calls,
+# DevFlow's own gh-callers (whose lib/resolve-gh.sh PATH probe finds the wrapper
+# when DEVFLOW_GH is unset), and every post-claude step all resolve to it. The
+# install step deliberately publishes NO process-global DEVFLOW_GH — that env
+# value would persist into later job steps and outrank fixture PATH stubs in
+# the repo test suite; DEVFLOW_GH stays an explicit caller/test override seam.
 #
 # Ambient-vs-chosen discrimination (AC "Ambient-vs-chosen credential
 # discrimination"): claude-code-action exports the job-start token as BOTH
