@@ -1,0 +1,12 @@
+{
+  "iter": 2,
+  "fix_commit_sha": "962bf0cb0c233dfa3e13398c88b230250422990e",
+  "fix_files": [
+    "lib/test/run.sh",
+    "scripts/match-lint-adjudications.py",
+    "skills/review/SKILL.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
