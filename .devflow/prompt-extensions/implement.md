@@ -229,7 +229,7 @@ routes the discipline through a context-isolated **Agent-tool subagent**, where 
 `writing-skills` invocation is safe because the skill's flow *is* the subagent's whole task.
 
 **The trigger globs.** The routing fires on an edit to any path matching one of:
-`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `.devflow/prompt-extensions/*.md`.
+`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review-and-fix/references/*.md`, `.devflow/prompt-extensions/*.md`.
 (`agents/*.md` and skill companion/reference files stay under the base skill's Phase 2 §2.4
 discipline — out of scope for this routing.)
 

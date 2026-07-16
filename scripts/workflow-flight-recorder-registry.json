@@ -12,6 +12,7 @@
         {"glob": "skills/implement/phases/*.md", "load_class": "phase", "required": true},
         {"glob": "skills/review/SKILL.md", "load_class": "nested", "required": true},
         {"glob": "skills/review-and-fix/SKILL.md", "load_class": "nested", "required": true},
+        {"glob": "skills/review-and-fix/references/*.md", "load_class": "reference", "required": false},
         {"glob": "skills/docs/SKILL.md", "load_class": "nested", "required": false},
         {"glob": ".devflow/prompt-extensions/implement.md", "load_class": "extension", "required": false}
       ]
@@ -47,6 +48,7 @@
       "allowed_parents": ["implement"],
       "surfaces": [
         {"glob": "skills/review-and-fix/SKILL.md", "load_class": "always", "required": true},
+        {"glob": "skills/review-and-fix/references/*.md", "load_class": "reference", "required": false},
         {"glob": "skills/review/SKILL.md", "load_class": "nested", "required": true},
         {"glob": "skills/receiving-code-review/SKILL.md", "load_class": "nested", "required": true},
         {"glob": ".devflow/prompt-extensions/review-and-fix.md", "load_class": "extension", "required": false}

@@ -25383,7 +25383,7 @@ WSR_RAF="$FDROOT/.devflow/prompt-extensions/review-and-fix.md"
 WSR_REV="$FDROOT/.devflow/prompt-extensions/review.md"
 WSR_CLAUDE="$FDROOT/CLAUDE.md"
 # The canonical trigger-glob list literal — must be byte-identical across all three extensions.
-WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `.devflow/prompt-extensions/*.md`'
+WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review-and-fix/references/*.md`, `.devflow/prompt-extensions/*.md`'
 # The evidence marker literal the routing evidence-contract writes and the gate criterion matches.
 WSR_MARK='Writing-skills evidence:'
 
