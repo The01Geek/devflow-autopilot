@@ -1,0 +1,14 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "64ba996744e670c3adb8829e92925b5605717798",
+  "fix_files": [
+    ".changeset/issue-529-review-thin-orchestrator.md",
+    "CLAUDE.md",
+    "docs/review-bundle-budget.md",
+    "lib/test/describe-budget-delta.sh",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
