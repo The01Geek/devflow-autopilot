@@ -86,9 +86,11 @@ and you treat its three facets as primary analysis input:
 - `reflections` — the bot's own `## Devflow Reflection` bullets. These are the
   most direct friction signal in the whole bundle: the bot recorded, in its own
   words, what was unclear, blocked, or deferred. **Read every reflection bullet
-  and let it drive the verdict, categories, and descriptors** — a run that left
-  even one reflection is, by construction, not a frictionless run (the clean-gate
-  already forces it into analysis for exactly this reason).
+  and let it drive the verdict, categories, and descriptors** — if this run
+  left any reflection bullet, the cheap-gate forces it into analysis UNLESS
+  every bullet is an informational `note`-kind (`ℹ️`) one (those are exempted
+  and recorded verbatim on the clean path, not analyzed); every actionable
+  kind — including `issue-accuracy` (`📝`) — still forces analysis.
 - `signals.workpad_final_status` — the bot's final Status (`Complete` / `Blocked` / `Failed` / `Cancelled` / an interim state); it bounds the verdict (see below). `Failed` is the cloud stall backstop's dead-run flip: the run died mid-lifecycle rather than deciding an outcome. `Cancelled` is the cloud stall backstop's cancelled-run flip (issue #498): the run was deliberately cancelled (an operator stop, or a platform-initiated teardown), not a quality signal.
 - `workpad_body` — the full workpad, including the `## Progress` notes nested
   under each phase. Mine its append-only notes for the moment-to-moment story.
