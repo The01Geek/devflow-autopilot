@@ -1,0 +1,63 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-15T22:00:00Z",
+  "fix_commit_sha": "4fa8121",
+  "fix_files": ["docs/DEVFLOW_SYSTEM_OVERVIEW.md", "scripts/stall-backstop-decide.sh", "scripts/workpad.py", "lib/test/run.sh"],
+  "loop_role": "fix",
+  "sweep_defs_read": ["../implement/phases/phase-2-implement.md"],
+  "sweep_evidence": {"status": "not-run", "reason": "fix delta is doc/comment/pin only — no new code/predicate/guard added in iteration 1; the always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.5/2.3.6) classify the delta as doc+test-comment changes with no error-handling/contract/derivation surface; stale-prose (2.3.4a) run via Phase 0.6"},
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null, "detect_all_audit": true},
+  "phase3_dispatched": ["devflow:silent-failure-hunter", "devflow:code-reviewer", "devflow:comment-analyzer", "devflow:pr-test-analyzer"],
+  "phase3_findings": [
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "DEVFLOW_SYSTEM_OVERVIEW.md stall-backstop terminal enumeration omits 🛑 Cancelled", "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [556, 556], "kind": "stale-enumeration"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "stall-backstop-decide.sh CLASS doc terminal enumeration omits 🛑 Cancelled", "defect_signature": {"file": "scripts/stall-backstop-decide.sh", "line_range": [21, 24], "kind": "stale-enumeration"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "_is_recognized_status_word docstring self-contradictory (opening says two terminal words, later says three)", "defect_signature": {"file": "scripts/workpad.py", "line_range": [330, 336], "kind": "stale-comment"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "JOB_STATUS env wiring unpinned — #268 harness injects it directly, so dropping the env: line stays GREEN while production regresses to resume-on-cancel", "defect_signature": {"file": ".github/workflows/devflow-implement.yml", "line_range": [1187, 1187], "kind": "unpinned-wiring"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "stale-prose-lint", "severity": "Important", "description": "count-locked 'six cancelled-path rows' comment not pinned or drift-proofed", "defect_signature": {"file": "lib/test/run.sh", "line_range": [27680, 27681], "kind": "count-locked-prose"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "4fa8121"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "4fa8121"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "4fa8121"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "4fa8121"},
+    {"finding_id": "F-5", "decision": "applied", "commit": "4fa8121"}
+  ],
+  "convergence_inputs": {"fixes_applied": 4, "fix_diff_lines": 27, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "parked_class_sweep": {"classes": [], "truncation": null, "dispatch": "verified"},
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 5},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_3": {"calls": 4, "tokens": 376907, "wall_clock_s": 2964},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_2_6": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 0}
+  },
+  "stale_prose_check": {"rows": ["UNRESOLVABLE\tR3\tlib/test/run.sh\t27680\tcount-locked: recognition-only (6 rows) — the 'six cancelled-path rows' comment"], "disposition": "drift-proofed in fix iteration 1 (reworded to remove the exact count)"},
+  "verification_evidence": {"command": "lib/test/run.sh (via python3 subprocess wrapper; DEVFLOW_GH/DEVFLOW_APP_ID unset — CI conditions)", "result": "pass", "duration_s": 180, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (this check grades committed HEAD) — the 2 'failed' (#484 changeset) are a pre-existing origin/main breakage, unrelated to #498"}]},
+  "test_first_gate": [],
+  "base_checkpoint": null,
+  "shadow": {
+    "ran_at": "2026-07-16T00:30:00Z",
+    "reviewed_sha": "4fa8121",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "load-bearing job.status timing assumption unverified (AC2 live evidence not recorded)", "defect_signature": {"file": ".github/workflows/devflow-implement.yml", "line_range": [1187, 1187], "kind": "unverified-live-boundary"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "skip-cancelled posts no issue comment on auth-failure (documented design — Actions UI cancelled conclusion is the record)"},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "changeset cites (#517) — correct PR citation"}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 3, "overlap_with_iter_N": 0, "new": 3, "new_critical": 0, "new_important": 1},
+    "promoted_to_iter_next": false,
+    "calibration_note": "the one new Important (job.status timing) is the T7 live-evidence explicitly tagged (post-merge) on AC2 — operator-performed, no in-iteration code fix; calibrated (not promoted) per the Over-grade gate. No new actionable code finding. Verdict: APPROVE WITH CAVEAT (caveat = the post-merge T7 evidence)."
+  }
+}
