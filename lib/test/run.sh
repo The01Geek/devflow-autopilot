@@ -3168,8 +3168,9 @@ assert_pin_red_under "#443: Step 3.6 mandates the FILE/REVISE/DRAFT-UNREADABLE v
   'whose only three legal values are exactly' 's/legal values are exactly//' "$CI443_SKILL"
 assert_eq "#522: Step 3.6 names the VERDICT: DRAFT-UNREADABLE legal value" "yes" \
   "$([ "$(pin_count 'VERDICT: DRAFT-UNREADABLE' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
-# Presence (not uniqueness): both verdict values recur across the template, the summary example,
-# and the act-on-the-verdict prose — the verdict-line CONTRACT is pinned uniquely above. Use
+# Presence (not uniqueness): the FILE/REVISE verdict values recur across the template, the
+# summary example, and the act-on-the-verdict prose (the third value DRAFT-UNREADABLE is pinned
+# separately below) — the verdict-line CONTRACT is pinned uniquely above. Use
 # pin_count (>=1), NOT grep_present, whose call sites are meta-pinned to exactly two.
 assert_eq "#443: Step 3.6 names the VERDICT: FILE legal value" "yes" \
   "$([ "$(pin_count 'VERDICT: FILE' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
@@ -3350,6 +3351,17 @@ assert_pin_unique "#522: degraded inline arm emits no VERDICT: DRAFT-UNREADABLE"
 # the draft path): symmetric with the file-arm template-enumeration pin above.
 assert_pin_unique "#522: embed arm out-of-bounds names exactly the 4 files (draft re-added)" \
   'On this arm the out-of-bounds declaration names exactly these 4 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
+# Carriage COMPARE-AND-REJECT (the ENFORCEMENT half of the anti-corruption check — the auditor's
+# quote obligation is pinned above, but the orchestrator's string-compare-and-reject is what
+# actually rejects foreign bytes; deleting it makes the identity check decorative).
+assert_pin_unique "#522: file-arm orchestrator string-compares and rejects a mismatch" \
+  'string-compares them (bash builtins only — never a non-preflight PATH tool) against the content it wrote to the file' "$CI443_SKILL"
+assert_pin_unique "#522: embed-arm orchestrator string-compares sentinels and rejects a mismatch" \
+  'string-compares them (bash builtins only, never a non-preflight PATH tool) against the dispatched values' "$CI443_SKILL"
+# DRAFT-UNREADABLE recovery action (what makes the third verdict value non-terminal): a file-arm
+# unreadable draft re-dispatches once on the embed arm — deleting it strands the third value.
+assert_pin_unique "#522: file-arm DRAFT-UNREADABLE re-dispatches exactly once on the embed arm" \
+  '**re-dispatch exactly once on the embed arm**' "$CI443_SKILL"
 
 # ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
