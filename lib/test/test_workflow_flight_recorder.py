@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -292,6 +295,93 @@ class TimingAndSummaryTests(unittest.TestCase):
 
 
 class CaptureTests(unittest.TestCase):
+    def test_linked_worktree_launches_shared_recorder_and_stores_centrally(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            sandbox = Path(temporary)
+            shared = sandbox / "shared"
+            linked = sandbox / "linked"
+            shared.mkdir()
+
+            def git(*args: str, cwd: Path = shared) -> str:
+                result = subprocess.run(
+                    ["git", *args],
+                    cwd=cwd,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                return result.stdout.strip()
+
+            git("init", "-q")
+            git("config", "user.email", "recorder-test@example.invalid")
+            git("config", "user.name", "Recorder Test")
+            for relative in [
+                "skills/implement/SKILL.md",
+                "skills/implement/phases/setup.md",
+                "skills/review/SKILL.md",
+                "skills/review-and-fix/SKILL.md",
+                "skills/docs/SKILL.md",
+            ]:
+                path = shared / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"# linked {relative}\n", encoding="utf-8")
+            git("add", "skills")
+            git("commit", "-qm", "base without recorder")
+            base_sha = git("rev-parse", "HEAD")
+
+            for name in [
+                "capture-implement-session.py",
+                "workflow_flight_recorder.py",
+                "workflow-flight-recorder-registry.json",
+            ]:
+                destination = shared / "scripts" / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / "scripts" / name, destination)
+            git("add", "scripts")
+            git("commit", "-qm", "add recorder only to shared checkout")
+            git("worktree", "add", "-q", "--detach", str(linked), base_sha)
+            (linked / "nested").mkdir()
+            transcript_path = linked / "session.jsonl"
+            transcript_path.write_bytes(transcript(user("/devflow:implement 520")))
+
+            self.assertFalse((linked / "scripts/capture-implement-session.py").exists())
+            payload = json.dumps(
+                {
+                    "session_id": "sid-linked",
+                    "transcript_path": str(transcript_path),
+                    "cwd": str(linked / "nested"),
+                }
+            )
+            command = (
+                'python3 "$(git rev-parse --path-format=absolute '
+                '--git-common-dir 2>/dev/null)/../scripts/capture-implement-session.py"'
+            )
+            launched = subprocess.run(
+                command,
+                cwd=linked / "nested",
+                shell=True,
+                executable="/bin/bash",
+                input=payload,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            )
+            self.assertEqual(launched.returncode, 0, launched.stderr)
+
+            central_bundle = shared / ".devflow/tmp/workflow-runs/sid-linked"
+            self.assertTrue((central_bundle / "transcript.jsonl").is_file())
+            self.assertFalse((linked / ".devflow/tmp/workflow-runs/sid-linked").exists())
+            metadata = json.loads((central_bundle / "metadata.json").read_text())
+            self.assertEqual(metadata["repository_root"], str(linked.resolve()))
+            self.assertEqual(metadata["storage_root"], str(shared.resolve()))
+            self.assertEqual(metadata["storage_root_source"], "git_common_dir_parent")
+            manifest = json.loads((central_bundle / "prompt-surfaces.json").read_text())
+            self.assertTrue(
+                any(item["path"] == "skills/implement/SKILL.md" for item in manifest["surfaces"])
+            )
+
     def test_one_generic_bundle_stores_multiple_occurrences_and_config_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -327,6 +417,9 @@ class CaptureTests(unittest.TestCase):
             self.assertEqual(json.loads((bundle / "occurrences.json").read_text())[1]["workflow"], "review-and-fix")
             metadata = json.loads((bundle / "metadata.json").read_text())
             self.assertEqual(metadata["occurrence_count"], 2)
+            self.assertEqual(metadata["repository_root"], str(root.resolve()))
+            self.assertEqual(metadata["storage_root"], str(root.resolve()))
+            self.assertEqual(metadata["storage_root_source"], "repository_root_fallback")
             self.assertEqual(metadata["claude_configuration"]["outputStyle"]["value"], "Default")
             self.assertEqual(metadata["claude_configuration"]["outputStyle"]["source"], "project_local_settings")
             manifests = json.loads((bundle / "prompt-surfaces.json").read_text())

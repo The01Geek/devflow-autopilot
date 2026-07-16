@@ -554,6 +554,18 @@ def _run_git(root: Path, *args: str) -> str | None:
     return result.stdout.strip() or None
 
 
+def _shared_storage_root(repository_root: Path) -> tuple[Path, str]:
+    common_dir = _run_git(
+        repository_root,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+    )
+    if common_dir:
+        return Path(common_dir).resolve().parent, "git_common_dir_parent"
+    return repository_root, "repository_root_fallback"
+
+
 def _atomic_write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     temporary: str | None = None
@@ -748,6 +760,7 @@ def capture_stop_payload(payload: dict[str, Any], registry_path: Path) -> dict[s
     cwd = Path(cwd_value).resolve()
     git_root = _run_git(cwd, "rev-parse", "--show-toplevel")
     root = Path(git_root).resolve() if git_root else cwd
+    storage_root, storage_root_source = _shared_storage_root(root)
 
     raw = transcript_path.read_bytes()
     events = parse_events(raw)
@@ -781,6 +794,8 @@ def capture_stop_payload(payload: dict[str, Any], registry_path: Path) -> dict[s
         "session_id": session_id,
         "captured_at": captured_at,
         "repository_root": str(root),
+        "storage_root": str(storage_root),
+        "storage_root_source": storage_root_source,
         "branch": branch,
         "head_sha": head_sha,
         "dirty_tree": dirty_tree,
@@ -799,7 +814,7 @@ def capture_stop_payload(payload: dict[str, Any], registry_path: Path) -> dict[s
             "file-derived Claude settings may be overridden by CLI or managed settings"
         ],
     }
-    bundle = root / ".devflow/tmp/workflow-runs" / session_id
+    bundle = storage_root / ".devflow/tmp/workflow-runs" / session_id
     _atomic_write(bundle / "transcript.jsonl", raw)
     _atomic_write(bundle / "metadata.json", _json_bytes(metadata))
     _atomic_write(bundle / "occurrences.json", _json_bytes([asdict(item) for item in occurrences]))
