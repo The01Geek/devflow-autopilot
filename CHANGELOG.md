@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.1] — 2026-07-16
+
+### Added
+- **Add native workflow transcript instrumentation.** Discover local Claude Code workflow sessions without exposing prompt content, retain only ephemeral start metadata automatically, and require explicit byte-verified import before creating analysis bundles. (#522, #525)
+
 ## [2.15.0] — 2026-07-16
 
 ### Added
