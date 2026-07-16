@@ -6727,12 +6727,17 @@ assert_pin_red_on_removal "#484 overview distinguishes standalone dismissal from
   'inline implement runs skip after Phase 4.3' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_pin_red_on_removal "#484 install guide distinguishes standalone dismissal from inline runtime helpers" \
   'inline implement review stops after Phase 4.3' "$LIB/../docs/install.md"
-assert_pin_red_on_removal "#484 changeset distinguishes standalone dismissal from inline runtime helpers" \
-  'inline implement review stops after Phase 4.3' "$LIB/../.changeset/issue-484-implement-profile-grants.md"
+# #506: the #484 changeset consolidated into CHANGELOG.md on merge (PR #514), deleting
+# .changeset/issue-484-implement-profile-grants.md — its two pins are repointed to CHANGELOG.md
+# (where the consolidated prose now lives, verified unique) so this coupled-site pair no longer
+# asserts a deleted file. Surfaced by #506's checkpoint-4 base merge; the after-base-merge
+# reconciliation the coupled-invariant convention prescribes when a changeset consolidates.
+assert_pin_red_on_removal "#484 CHANGELOG entry distinguishes standalone dismissal from inline runtime helpers" \
+  'inline implement review stops after Phase 4.3' "$LIB/../CHANGELOG.md"
 for capability_mirror in \
   "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" \
   "$LIB/../docs/install.md" \
-  "$LIB/../.changeset/issue-484-implement-profile-grants.md"; do
+  "$LIB/../CHANGELOG.md"; do
   assert_pin_red_on_removal "#484 dismissal mirror states the granted inline capability: $capability_mirror" \
     'grant makes the capability available to the inline session' "$capability_mirror"
 done
