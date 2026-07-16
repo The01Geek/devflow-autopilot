@@ -4,6 +4,14 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.2] — 2026-07-16
+
+### Added
+- **Add native workflow transcript instrumentation.** Discover local Claude Code workflow sessions without exposing prompt content, retain only ephemeral start metadata automatically, and require explicit byte-verified import before creating analysis bundles. (#522, #525)
+- **Honor a launch-line `DEVFLOW_RECORDER_MODEL`/`DEVFLOW_RECORDER_EFFORT` declaration in the start manifest.** A declared model or effort now fills in what the session did not itself report, instead of being silently dropped on the hooked launch path. An observation from the host still wins over a declaration.
+- **Report analysis evidence that could not be read.** A workflow bundle that fails to load is no longer dropped from `--last N` selection silently. A corrupted `event-summary.json` is now reported as corrupted rather than degrading to the same "unavailable" the analyst sees for one that was never captured.
+- **Bound the analyst subprocess with a timeout.** `analyze-workflow-runs.py` no longer blocks indefinitely on a hung provider call; override with `DEVFLOW_CLAUDE_TIMEOUT` (seconds).
+
 ## [2.15.1] — 2026-07-16
 
 ### Added
