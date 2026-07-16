@@ -617,7 +617,10 @@ def name_of(head: list[str]) -> str:
     return head[0]
 
 
-_ALLOWLIST_MODES = ("tools-line", "implement-block")
+_ALLOWLIST_MODES = {
+    "tools-line": tools_allowlist_line,
+    "implement-block": implement_allowlist_block,
+}
 
 _USAGE = (
     "usage: extract-command-heads.py heads FILE...\n"
@@ -655,11 +658,7 @@ def _read_allowlist(path: str, mode: str | None) -> str:
             f"if a parse mode was intended, the valid modes are: "
             f"{', '.join(_ALLOWLIST_MODES)}"
         ) from exc
-    if mode == "tools-line":
-        return tools_allowlist_line(allowlist)
-    if mode == "implement-block":
-        return implement_allowlist_block(allowlist)
-    return allowlist
+    return _ALLOWLIST_MODES[mode](allowlist) if mode else allowlist
 
 
 def main(argv: list[str]) -> int:

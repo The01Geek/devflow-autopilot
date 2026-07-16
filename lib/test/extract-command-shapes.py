@@ -1040,18 +1040,17 @@ def main(argv: list[str]) -> int:
     # The reviewed surface is a bundle (a skill root plus its phase references),
     # so every source is scanned in one call and each hit stays attributed to the
     # file it came from — a moved fence must not escape the scan (issue #529).
-    any_hits = False
+    finder = find_implement_violations if profile == "implement" else find_violations
+    hits: list[tuple[str, int, str, str]] = []
     for path in args:
         with open(path, encoding="utf-8") as handle:
-            text = handle.read()
-        hits = find_implement_violations(text) if profile == "implement" else find_violations(text)
-        for lineno, rule, statement in hits:
-            any_hits = True
-            oneline = " ".join(statement.split())
-            if len(oneline) > 160:
-                oneline = oneline[:157] + "..."
-            print(f"{path}:{lineno}  {rule}  {oneline}")
-    return 1 if any_hits else 0
+            hits += [(path, *hit) for hit in finder(handle.read())]
+    for path, lineno, rule, statement in hits:
+        oneline = " ".join(statement.split())
+        if len(oneline) > 160:
+            oneline = oneline[:157] + "..."
+        print(f"{path}:{lineno}  {rule}  {oneline}")
+    return 1 if hits else 0
 
 
 if __name__ == "__main__":

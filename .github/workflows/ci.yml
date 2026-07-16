@@ -75,6 +75,11 @@ jobs:
           # lib/test/summary.sh IS a real renderer sourced by the suite (issue #456), so it
           # is added to the lint's scope explicitly rather than shipping unlinted.
           shellcheck --severity=warning -e SC1091 lib/test/summary.sh
+          # lib/test/describe-budget-delta.sh is the #529 budget-delta reporter the suite
+          # drives (a branch-selecting message composer, extracted per CLAUDE.md's
+          # inline-shell rule). Same carve-out as summary.sh: real shell, so it is linted
+          # even though lib/test/ is excluded above.
+          shellcheck --severity=warning -e SC1091 lib/test/describe-budget-delta.sh
 
       # actionlint validates workflow syntax and runs shellcheck over run: blocks.
       # SHELLCHECK_OPTS mirrors the severity policy; SC2034 is excluded because

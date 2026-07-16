@@ -15,6 +15,13 @@
 # ("Justified growth is a warning requiring recurring-cost rationale, not an
 # automatic blocker") is the governing precedent.
 #
+# Lives in lib/test/ (not scripts/) because its only consumer is the suite:
+# scripts/ vendors wholesale into every consumer install under
+# .devflow/vendor/devflow/, and a test-only reporter is dead weight there.
+# (describe-denial-count.sh, the pattern this follows, IS in scripts/ because a
+# workflow really does call it.) CI shellchecks this file explicitly, the same
+# carve-out lib/test/summary.sh takes, since lib/test/ is otherwise excluded.
+#
 # Usage:  describe-budget-delta.sh <row-name> <before> <after>
 # Exit:   0 always (a reporter must never gate the suite).
 set -u

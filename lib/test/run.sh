@@ -30,24 +30,6 @@ trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE"' EXIT   # protect RESULTS_FILE/SKIPS_F
 # shellcheck source=lib/test/summary.sh disable=SC1091
 . "$LIB/test/summary.sh"
 
-# ── #529 the Review engine is a BUNDLE, not a file ───────────────────────────
-# `/devflow:review`'s engine is a thin root plus gated phase references under
-# skills/review/phases/. An engine contract sentence lives in exactly ONE of
-# those sources, and which one is an implementation detail that may change as
-# phases are re-partitioned — so a content pin asserts against the CONCATENATED
-# bundle, making "present-and-unique" a bundle-wide claim (the semantically
-# correct one) rather than a bet on which file currently hosts the text.
-# REVIEW_ROOT stays available for the pins that are genuinely ABOUT the root
-# (its budget, its routing stubs). The mutation-taking assertions still work:
-# they copy their target, and the bundle is regenerated from the real files on
-# every run, so deleting a pinned sentence from a phase file still turns its pin
-# RED. Built with `cat` in a fixed, sorted-glob order so the concatenation is
-# deterministic run to run.
-REVIEW_ROOT="$LIB/../skills/review/SKILL.md"
-REVIEW_BUNDLE="$(mktemp)"
-cat "$REVIEW_ROOT" "$LIB"/../skills/review/phases/*.md > "$REVIEW_BUNDLE"
-trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE" "$REVIEW_BUNDLE"' EXIT
-
 # SKIP_HELPER_REGION_BEGIN — the SOLE `printf '  NOTE ` skip-emit lives inside skip();
 # the #456 meta-assertion below asserts no other NOTE emit appears in this file outside
 # this region. The matching BEGIN/END marker VARIABLES are split-built at the meta-assertion
@@ -109,9 +91,25 @@ IMPL_PHASE_STEMS="phase-1-setup phase-2-implement phase-3-review phase-4-documen
 # logic — a replica would risk drifting from the real check. A member must be readable AND
 # non-empty to contribute; the `cat` exit status (read errors mid-stream) is checked
 # separately at the call site since it performs the actual append.
-_impl_bundle_member_usable() { [ -r "$1" ] && [ -s "$1" ]; }
+_bundle_member_usable() { [ -r "$1" ] && [ -s "$1" ]; }
+# Shared fail-closed bundle builder (#529). Factored so the implement bundle and the
+# review bundle cannot drift: a replica would inevitably lose one of the hardening
+# properties the header above promises (guarded mktemp, per-member usability, a
+# CHECKED `cat` rc, a newline separator). Members are passed as an array so a
+# checkout path containing a space is preserved rather than word-split.
+#   _build_skill_bundle <label> <out-file> <member>...
+_build_skill_bundle() {
+  _bsb_label="$1"; _bsb_out="$2"; shift 2
+  for _bsb_m in "$@"; do
+    if _bundle_member_usable "$_bsb_m" && cat "$_bsb_m" >> "$_bsb_out"; then
+      printf '\n' >> "$_bsb_out"
+    else
+      printf '  FAIL  %s bundle member missing, empty, or unreadable: %s\n' "$_bsb_label" "$_bsb_m"
+      echo FAIL >> "$RESULTS_FILE"
+    fi
+  done
+}
 IMPL_SKILL_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the implement-skill bundle temp" >&2; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
 # Build the member list as an ARRAY (not a space-joined string) so a checkout path
 # containing a space is preserved rather than word-split — the stems in IMPL_PHASE_STEMS
 # are space-free identifiers, but $LIB (the checkout dir) is not guaranteed to be.
@@ -119,18 +117,36 @@ _bundle_members=("$LIB/../skills/implement/SKILL.md")
 for _s in $IMPL_PHASE_STEMS; do
   _bundle_members+=("$LIB/../skills/implement/phases/${_s}.md")
 done
-for _m in "${_bundle_members[@]}"; do
-  # A member that is missing, empty, OR unreadable (or whose read errors mid-stream) records
-  # a FAIL instead of silently contributing nothing — the fail-closed property the header
-  # comment promises. The predicate covers missing/empty/unreadable; `&& cat` covers a
-  # mid-stream read error.
-  if _impl_bundle_member_usable "$_m" && cat "$_m" >> "$IMPL_SKILL_BUNDLE"; then
-    printf '\n' >> "$IMPL_SKILL_BUNDLE"
-  else
-    printf '  FAIL  implement-skill bundle member missing, empty, or unreadable: %s\n' "$_m"
-    echo FAIL >> "$RESULTS_FILE"
-  fi
+_build_skill_bundle "implement-skill" "$IMPL_SKILL_BUNDLE" "${_bundle_members[@]}"
+
+# ── #529 the Review engine is a BUNDLE too ───────────────────────────────────
+# `/devflow:review` is now a thin root plus gated phase references, exactly like
+# `/devflow:implement` above — so it gets the SAME fail-closed bundle treatment,
+# through the same builder. An engine contract sentence lives in exactly one of
+# those sources, and which one is an implementation detail that may change as
+# phases are re-partitioned, so a content pin asserts against the CONCATENATED
+# bundle: "present-and-unique" becomes a bundle-wide claim (the semantically
+# correct one) rather than a bet on which file currently hosts the text. The
+# mutation-taking assertions still work — they copy their target, and the bundle
+# is rebuilt from the real files every run, so deleting a pinned sentence from a
+# reference still turns its pin RED.
+# REVIEW_PHASE_STEMS is the single source of the review phase set: the bundle
+# members AND the AC3 default-path measurement derive from it, so a reference can
+# never be registered in one place and silently dropped from another (the
+# IMPL_PHASE_STEMS precedent). It is split into DEFAULT and GATED because the AC3
+# budget counts only the sources a pass with no blocker fast path and no
+# stale-prose predicate must read — the gated three are excluded BY the split.
+REVIEW_DEFAULT_PHASE_STEMS="phase-0-setup phase-1-checklist phase-2-verification phase-3-agents phase-4-verdict phase-4-4-github-post"
+REVIEW_GATED_PHASE_STEMS="phase-0-3-6-blocker-recheck phase-0-6-stale-prose-lint phase-4-1-7-stale-adjudication"
+REVIEW_PHASE_STEMS="$REVIEW_DEFAULT_PHASE_STEMS $REVIEW_GATED_PHASE_STEMS"
+REVIEW_ROOT="$LIB/../skills/review/SKILL.md"
+REVIEW_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-skill bundle temp" >&2; exit 1; }
+trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE" "$REVIEW_BUNDLE"' EXIT
+_review_members=("$REVIEW_ROOT")
+for _s in $REVIEW_PHASE_STEMS; do
+  _review_members+=("$LIB/../skills/review/phases/${_s}.md")
 done
+_build_skill_bundle "review-skill" "$REVIEW_BUNDLE" "${_review_members[@]}"
 
 PASS=0
 FAIL=0
@@ -4990,17 +5006,17 @@ assert_eq "429/T7: devflow.allowed_tools adds no merge-base/pr-view grant" "0" \
 #     replica drift) fails CLOSED on missing / empty / unreadable, and PASSES on a real file.
 _f1_missing="$IMPL_PHASES_DIR/.f1-nonexistent-$$"
 assert_eq "F1: bundle-member predicate fails closed on a MISSING member" "no" \
-  "$(_impl_bundle_member_usable "$_f1_missing" && echo yes || echo no)"
+  "$(_bundle_member_usable "$_f1_missing" && echo yes || echo no)"
 _f1_empty=$(probe_tmp "F1 empty-member proof"); : > "$_f1_empty"
 assert_eq "F1: bundle-member predicate fails closed on an EMPTY member" "no" \
-  "$(_impl_bundle_member_usable "$_f1_empty" && echo yes || echo no)"
+  "$(_bundle_member_usable "$_f1_empty" && echo yes || echo no)"
 assert_eq "F1: bundle-member predicate PASSES on a real readable non-empty phase file (not trivially false)" "yes" \
-  "$(_impl_bundle_member_usable "$IMPL_PHASES_DIR/phase-1-setup.md" && echo yes || echo no)"
+  "$(_bundle_member_usable "$IMPL_PHASES_DIR/phase-1-setup.md" && echo yes || echo no)"
 # the unreadable arm (S1's specific case) only when non-root — `[ -r ]` is always true as root.
 if [ "$(id -u)" != 0 ]; then
   _f1_unreadable=$(probe_tmp "F1 unreadable-member proof"); printf 'x\n' > "$_f1_unreadable"; chmod a-r "$_f1_unreadable"
   assert_eq "F1: bundle-member predicate fails closed on an UNREADABLE member" "no" \
-    "$(_impl_bundle_member_usable "$_f1_unreadable" && echo yes || echo no)"
+    "$(_bundle_member_usable "$_f1_unreadable" && echo yes || echo no)"
   chmod u+rw "$_f1_unreadable" 2>/dev/null || true
 fi
 # (b) the directory-reconciliation pipeline detects an unregistered stem — a synthetic dir
@@ -6992,7 +7008,7 @@ assert_pin_red_under "#484 pin: the stale-prose-lint.py grant is removal-proof (
   "$IMPL_YML"
 sed -E '/Bash\(\.devflow\/vendor\/devflow\/scripts\/stale-prose-lint\.py:\*\)/d' "$IMPL_YML" > "$E484/impl-no-spl.yml"
 assert_eq "#484 guard-behavior: with the stale-prose-lint.py grant removed the extractor reports it ungranted over review/SKILL.md" \
-  "yes" "$(python3 "$ECH" ungranted "$REVIEW_BUNDLE" "$LIB"/../skills/review/phases/*.md "$E484/impl-no-spl.yml" implement-block 2>/dev/null | grep -qF 'stale-prose-lint.py' && echo yes || echo no)"
+  "yes" "$(python3 "$ECH" ungranted "$REVIEW_BUNDLE" "$E484/impl-no-spl.yml" implement-block 2>/dev/null | grep -qF 'stale-prose-lint.py' && echo yes || echo no)"
 
 # Implement flip: the function + each of its fail-loud call sites (at least the four
 # pinned below), guarded on interim. Each pin quotes that site's unique cause string,
@@ -30956,16 +30972,44 @@ assert_eq "#529 shapes scans every source in the bundle (a violation in a refere
 # `wc` is not preflight-guaranteed, but this is the TEST harness (which already
 # hard-depends on grep for its own PASS/FAIL selection), not a shipped helper —
 # guard-class 2 governs shipped code.
-RB_ROOT_W=$(wc -w < "$LIB/../skills/review/SKILL.md" | tr -d ' ')
-RB_EXT_W=$(wc -w < "$LIB/../.devflow/prompt-extensions/review.md" | tr -d ' ')
-RB_DEFAULT_W=$(cat "$LIB/../skills/review/SKILL.md" \
-  "$LIB/../.devflow/prompt-extensions/review.md" \
-  "$LIB/../skills/review/phases/phase-0-setup.md" \
-  "$LIB/../skills/review/phases/phase-1-checklist.md" \
-  "$LIB/../skills/review/phases/phase-2-verification.md" \
-  "$LIB/../skills/review/phases/phase-3-agents.md" \
-  "$LIB/../skills/review/phases/phase-4-4-github-post.md" \
-  "$LIB/../skills/review/phases/phase-4-verdict.md" | wc -w | tr -d ' ')
+# The default-path member list derives from REVIEW_DEFAULT_PHASE_STEMS — the same
+# single source the bundle is built from. A hardcoded path list here would let a
+# newly-added reference join the bundle while silently escaping the AC3
+# measurement, and the ceiling would keep passing while under-measuring.
+RB_EXT="$LIB/../.devflow/prompt-extensions/review.md"
+RB_ROOT_W=$(wc -w < "$REVIEW_ROOT" | tr -d ' ')
+RB_EXT_W=$(wc -w < "$RB_EXT" | tr -d ' ')
+_rb_default=("$REVIEW_ROOT" "$RB_EXT")
+for _s in $REVIEW_DEFAULT_PHASE_STEMS; do
+  _rb_default+=("$LIB/../skills/review/phases/${_s}.md")
+done
+RB_DEFAULT_W=$(cat "${_rb_default[@]}" | wc -w | tr -d ' ')
+# Directory reconciliation (the IMPL_PHASE_STEMS precedent): the real phases/*.md
+# set must equal REVIEW_PHASE_STEMS, so a reference added on disk but not
+# registered — or registered but deleted — turns the suite RED here instead of
+# silently escaping the bundle and the budget.
+assert_eq "#529 the phases/ directory matches REVIEW_PHASE_STEMS (no unregistered or missing reference)" \
+  "$(printf '%s\n' $REVIEW_PHASE_STEMS | sort | tr '\n' ' ' | sed 's/ *$//')" \
+  "$(for _f in "$LIB"/../skills/review/phases/*.md; do basename "$_f" .md; done | sort | tr '\n' ' ' | sed 's/ *$//')"
+# ── #529 AC6 boundary markers — the DESK-TIME half ───────────────────────────
+# The root's 7-row boundary table is executed by an LLM at every phase entry, and it
+# covers what only runtime can see (a Read that is denied, empty, or truncated). But
+# duplicate / reversed / noncanonical / missing markers are ON-DISK properties of nine
+# checked-in files: only an edit can break them, so they are cheap to enforce here and
+# must not rest on an agent noticing at review time. Without this, a commit dropping a
+# marker ships green and surfaces as a `boundary:` stop in a production review.
+for _s in $REVIEW_PHASE_STEMS; do
+  _rbf="$LIB/../skills/review/phases/${_s}.md"
+  # The check is structural — exactly one start as line 1 and one end as line N, each
+  # naming THIS file — which is what the runtime table's rows 3-7 assert on disk.
+  assert_eq "#529 AC6 desk: ${_s}.md start marker is the literal FIRST line and names its own path" "yes" \
+    "$(head -1 "$_rbf" | grep -qF -- "<!-- devflow:review-ref phase=" \
+        && head -1 "$_rbf" | grep -qF -- "file=skills/review/phases/${_s}.md start -->" && echo yes || echo no)"
+  assert_eq "#529 AC6 desk: ${_s}.md end marker is the literal LAST line and names its own path" "yes" \
+    "$(tail -1 "$_rbf" | grep -qF -- "file=skills/review/phases/${_s}.md end -->" && echo yes || echo no)"
+  assert_eq "#529 AC6 desk: ${_s}.md carries exactly one start and one end marker (no duplicate)" "1|1" \
+    "$(grep -cF -- 'start -->' "$_rbf" | tr -d ' ')|$(grep -cF -- 'end -->' "$_rbf" | tr -d ' ')"
+done
 assert_eq "#529 AC2: root + shipped extension is within the 8,500-word ceiling" "yes" \
   "$([ "$((RB_ROOT_W + RB_EXT_W))" -le 8500 ] && echo yes || echo no)"
 assert_eq "#529 AC2: the split is at least 25,327 words below the 33,827 baseline" "yes" \
@@ -30987,11 +31031,14 @@ assert_pin_unique "#529 AC4: the budget table disclaims any retained-context rea
 # ── #529 AC5 justified-growth reporter — every arm, and the ARM ORDER ─────────
 # Extracted to a helper per CLAUDE.md's inline-shell rule: a grep-pin on a message
 # literal is not coverage of the selection that chooses it.
-RB_DBD="$LIB/../scripts/describe-budget-delta.sh"
+RB_DBD="$LIB/test/describe-budget-delta.sh"
 assert_eq "#529 AC5: a grown row emits the NAMED justified-growth warning with its delta" "yes" \
   "$("$RB_DBD" 'r' 100 137 | grep -qF '::warning::devflow budget: justified-growth: r grew by 37 (before 100, after 137)' && echo yes || echo no)"
+# One invocation, captured once. `grep -qv` would mean "SOME line lacks the literal" —
+# true even when a warning IS present — so the no-warning half uses `! grep -q`.
+RB_SHRUNK="$("$RB_DBD" 'r' 137 100)"
 assert_eq "#529 AC5: a shrunk row reports a decrease and emits NO warning" "yes" \
-  "$("$RB_DBD" 'r' 137 100 | grep -qvF '::warning::' && "$RB_DBD" 'r' 137 100 | grep -qF 'decreased by 37' && echo yes || echo no)"
+  "$(printf '%s' "$RB_SHRUNK" | grep -qF 'decreased by 37' && ! printf '%s' "$RB_SHRUNK" | grep -qF '::warning::' && echo yes || echo no)"
 assert_eq "#529 AC5: an unchanged row emits no warning" "yes" \
   "$("$RB_DBD" 'r' 50 50 | grep -qF 'unchanged (50)' && echo yes || echo no)"
 # Unknown is not zero: an unestablished measurement must NOT render as "no growth".
@@ -31197,9 +31244,9 @@ assert_eq "#401 shape-lint helper exists" "yes" "$([ -f "$ECS" ] && echo yes || 
 
 # The contract: the real review skill teaches NO proven-denied command shape (exit 0, empty).
 assert_eq "#401 skills/review/SKILL.md teaches no proven-denied command shape" "" \
-  "$(python3 "$ECS" "$ST_REV" 2>&1)"
+  "$(python3 "$ECS" "${_review_members[@]}" 2>&1)"
 assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
-  "$(python3 "$ECS" "$ST_REV" >/dev/null 2>&1; echo $?)"
+  "$(python3 "$ECS" "${_review_members[@]}" >/dev/null 2>&1; echo $?)"
 
 # ── Anti-vacuity: each rule flags its denied shape (fixtures under $E363's trap-cleaned dir).
 printf '%s\n' '```bash' 'M=x printf hi' '```' > "$E363/s-r1a.md"
