@@ -3278,8 +3278,9 @@ assert_pin_unique "#443: audit summary renders the word degraded whenever the de
 #    user-chosen audit rounds past the automatic cap, and Step 3.5 self-checks the audit
 #    dimensions. Same skill-contract mechanism as #443: pins over the rendered SKILL surface,
 #    no runtime code path in CI. The four behavioral-fix pins below use assert_pin_red_under
-#    with a sed -E mutation that RE-INTRODUCES the named defect (each mutation excises the
-#    operative sentence so its removal alone re-opens the guarded regression); the rest are
+#    with a sed -E mutation that RE-INTRODUCES the named defect (each mutation excises or
+#    inverts the operative clause so its removal/inversion alone re-opens the guarded
+#    regression — pins 1/2/4 excise a clause, pin 3 inverts "is not on" → "is on"); the rest are
 #    surface-presence pins (assert_pin_unique, or pin_count>=1 for a marker that recurs).
 # (1) Pre-dispatch canonical write — removing it re-opens the condensation-drift channel (the
 #     auditor audits a hand-condensed copy instead of the exact file the implementer reads).
@@ -3320,6 +3321,21 @@ assert_pin_unique "#522: Step 3.5 self-checks the draft against the audit dimens
   'Self-check the draft against the Step 3.6 audit dimensions' "$CI443_SKILL"
 assert_pin_unique "#522: Step 3.5 summary reports the dimension self-check (falsifiable zero)" \
   'no dimension-checklist finding' "$CI443_SKILL"
+# Template out-of-bounds ENUMERATION pin (closes the narration-vs-template drift the pin (3)
+# narration pin alone leaves open — a regression re-adding the draft to the audit-prompt
+# TEMPLATE's 3-file list would keep pin (3)'s narration sentence GREEN; this pins the
+# template's exact 3-reasoning-artifact list, so re-adding the draft there flips it RED).
+assert_pin_unique "#522: audit-prompt template out-of-bounds names exactly the 3 reasoning artifacts" \
+  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
+# Automatic budget unchanged (AC 'Automatic budget unchanged'): the user-chosen rounds must
+# not silently widen the automatic loop past one audit + one automatic re-audit.
+assert_pin_unique "#522: automatic budget stays one audit plus at most one automatic re-audit" \
+  'one audit plus **at most one** automatic re-audit' "$CI443_SKILL"
+# Coupled doc site (AC 'Coupled sites updated in the same change'): the §11 item 5 overview
+# must carry the new file-first contract, not the retired "only the rendered title and body".
+CI522_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_pin_unique "#522: overview §11 item 5 describes the file-first sole-draft-source contract" \
+  'reads that file as the sole draft source' "$CI522_OVERVIEW"
 
 # ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
