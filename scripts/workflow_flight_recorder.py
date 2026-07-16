@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Pure parsing and capture primitives for local DevFlow workflow sessions."""
 
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -14,8 +17,13 @@ import re
 import subprocess
 import sys
 import tempfile
-from typing import Any
+from typing import Any, Literal
 
+
+# The closed sets these two fields may hold. analyze-workflow-runs.py re-validates
+# OccurrenceMode when reading a bundle back, since a bundle on disk is untrusted input.
+OccurrenceMode = Literal["top-level", "nested"]
+BoundaryConfidence = Literal["unknown", "exact", "approximate"]
 
 SAFE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 COMMAND_MARKUP = re.compile(
@@ -56,9 +64,14 @@ class Event:
 
 @dataclass
 class Occurrence:
+    # Deliberately mutable, unlike every sibling here: boundary resolution discovers an
+    # occurrence's end, timing, and model/effort facts across three later passes over the
+    # event stream, and rebuilding a frozen instance per pass would buy immutability at
+    # the cost of the correlated-field updates being spread even wider. Reconsider if a
+    # second producer appears — today detect_occurrences is the only one.
     occurrence_id: str
     workflow: str
-    mode: str
+    mode: OccurrenceMode
     parent_occurrence_id: str | None
     subject: dict[str, Any] | None
     invocation_source: str
@@ -69,7 +82,7 @@ class Occurrence:
     finished_at: str | None = None
     finish_timestamp_source: str | None = None
     duration_ms: int | None = None
-    boundary_confidence: str = "unknown"
+    boundary_confidence: BoundaryConfidence = "unknown"
     preceding_context_events: int = 0
     observed_models: list[str] = field(default_factory=list)
     observed_effort: list[str] = field(default_factory=list)
@@ -314,7 +327,9 @@ def detect_occurrences(events: list[Event], definitions: dict[str, WorkflowDefin
     counters: dict[str, int] = {}
     active_root_start: int | None = None
 
-    def add(definition: WorkflowDefinition, event: Event, mode: str, source: str, args: str) -> None:
+    def add(
+        definition: WorkflowDefinition, event: Event, mode: OccurrenceMode, source: str, args: str
+    ) -> None:
         counters[definition.workflow] = counters.get(definition.workflow, 0) + 1
         parent = None
         if mode == "nested":
@@ -1237,6 +1252,20 @@ def capture_prompt_manifest(payload: dict[str, Any], registry_path: Path) -> dic
         requested_model = None
     if not isinstance(requested_effort, str) or not requested_effort:
         requested_effort = None
+    requested_model_source = "user_prompt_submit_payload" if requested_model else None
+    requested_effort_source = "user_prompt_submit_payload" if requested_effort else None
+    # A launch-line DEVFLOW_RECORDER_MODEL/EFFORT declaration is provenance, not an
+    # observation, so it only fills what the payload did not already observe.
+    if not requested_model:
+        declared_model = os.environ.get("DEVFLOW_RECORDER_MODEL")
+        if declared_model:
+            requested_model = declared_model
+            requested_model_source = "explicit_recorder_environment"
+    if not requested_effort:
+        declared_effort = os.environ.get("DEVFLOW_RECORDER_EFFORT")
+        if declared_effort:
+            requested_effort = declared_effort
+            requested_effort_source = "explicit_recorder_environment"
     claude_code_version = payload.get("claude_code_version")
     version_source = "user_prompt_submit_payload"
     if not isinstance(claude_code_version, str) or not claude_code_version:
@@ -1267,9 +1296,9 @@ def capture_prompt_manifest(payload: dict[str, Any], registry_path: Path) -> dic
         "provider": _provider_classification(),
         "model_effort": {
             "requested_model": requested_model,
-            "requested_model_source": "user_prompt_submit_payload" if requested_model else None,
+            "requested_model_source": requested_model_source,
             "requested_effort": requested_effort,
-            "requested_effort_source": "user_prompt_submit_payload" if requested_effort else None,
+            "requested_effort_source": requested_effort_source,
         },
         "prompt_surfaces": prompt_surfaces,
         "warnings": ["embedded command candidates require native transcript corroboration"]
@@ -1336,6 +1365,11 @@ def _write_session_bundle(
             definitions,
             occurrences,
         )
+    # A start manifest is captured at UserPromptSubmit, when only the root occurrence
+    # exists, so it fingerprints that workflow's surfaces alone. Occurrences of any other
+    # workflow (nested dispatches) therefore keep a None fingerprint here, which makes
+    # them recurrence-ineligible: deliberate, because the only fingerprint we could give
+    # them is a Stop-time measurement of a surface that was never the launch-time one.
     for occurrence in occurrences:
         fingerprint = fingerprints.get(occurrence.workflow)
         occurrence.prompt_fingerprint = fingerprint if isinstance(fingerprint, str) else None

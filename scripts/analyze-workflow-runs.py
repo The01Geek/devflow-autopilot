@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Analyze captured DevFlow workflow occurrences with a fresh read-only model."""
 
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
+
 from __future__ import annotations
 
 import argparse
@@ -41,6 +44,7 @@ class SessionBundle:
     occurrences: tuple[dict[str, Any], ...]
     provenance: str
     event_summary: dict[str, Any]
+    event_summary_status: str
 
 
 @dataclass(frozen=True)
@@ -129,14 +133,22 @@ def load_session_bundle(path: Path) -> SessionBundle:
             raise AnalysisError(f"bundle {path.name!r} has an invalid occurrence mode")
         seen.add(occurrence_id)
         normalized.append(dict(item))
-    try:
-        event_summary = _json_object(path / "event-summary.json")
-    except AnalysisError:
-        event_summary = {}
+    # An absent event-summary.json is a bundle that never captured one; a present but
+    # unreadable one is corrupted evidence. Both degrade to {}, so record which it was
+    # rather than letting the analyst read "unavailable" over a corrupted file.
+    event_summary: dict[str, Any] = {}
+    event_summary_status = "absent"
+    if (path / "event-summary.json").exists():
+        try:
+            event_summary = _json_object(path / "event-summary.json")
+            event_summary_status = "present"
+        except AnalysisError as exc:
+            event_summary_status = "corrupted"
+            print(f"devflow: workflow-run-analysis: {exc}", file=sys.stderr)
     return SessionBundle(
         path=path, session_id=path.name, captured_at=_captured(metadata, path),
         metadata=metadata, occurrences=tuple(normalized), provenance="workflow_bundle",
-        event_summary=event_summary,
+        event_summary=event_summary, event_summary_status=event_summary_status,
     )
 
 
@@ -163,7 +175,7 @@ def load_legacy_implement_bundle(path: Path) -> SessionBundle:
     return SessionBundle(
         path=path, session_id=path.name, captured_at=_captured(metadata, path),
         metadata=metadata, occurrences=(occurrence,), provenance="legacy_implement_bundle",
-        event_summary={},
+        event_summary={}, event_summary_status="absent",
     )
 
 
@@ -181,7 +193,14 @@ def _discover(root: Path) -> list[SessionBundle]:
                 continue
             try:
                 found[path.name] = loader(path)
-            except AnalysisError:
+            except AnalysisError as exc:
+                # A bundle that fails to load is dropped from selection, so say so:
+                # silently shrinking the cohort makes vanished evidence indistinguishable
+                # from evidence that was never captured.
+                print(
+                    f"devflow: workflow-run-analysis: skipping unusable bundle: {exc}",
+                    file=sys.stderr,
+                )
                 continue
     return sorted(found.values(), key=lambda item: item.captured_at, reverse=True)
 
@@ -409,6 +428,7 @@ def _cohort_document(selected: list[SelectedOccurrence], eligibility: dict[str, 
                 "workflow": item.workflow, "mode": item.mode,
                 "prompt_fingerprint": item.occurrence.get("prompt_fingerprint"),
                 "provenance": item.bundle.provenance,
+                "event_summary_status": item.bundle.event_summary_status,
                 "model_effort": model_effort(item),
             }
             for item in selected
@@ -437,6 +457,28 @@ def _split_repository_root(argv: list[str]) -> tuple[Path, list[str]]:
     return root, argv[:index] + argv[index + 2:]
 
 
+DEFAULT_ANALYST_TIMEOUT_SECONDS = 900.0
+
+
+def _analyst_timeout() -> float:
+    """Seconds to wait for the analyst before giving up, overridable and fail-soft."""
+    raw = os.environ.get("DEVFLOW_CLAUDE_TIMEOUT")
+    if not raw:
+        return DEFAULT_ANALYST_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        value = 0.0
+    if value <= 0 or value != value or value == float("inf"):
+        print(
+            f"devflow: workflow-run-analysis: DEVFLOW_CLAUDE_TIMEOUT value {raw!r} is not a "
+            f"positive number of seconds; using default {DEFAULT_ANALYST_TIMEOUT_SECONDS:.0f}s",
+            file=sys.stderr,
+        )
+        return DEFAULT_ANALYST_TIMEOUT_SECONDS
+    return value
+
+
 def main(argv: list[str]) -> int:
     try:
         acknowledgement = "--acknowledge-provider-access"
@@ -460,7 +502,16 @@ def main(argv: list[str]) -> int:
             "--safe-mode", "--print", "--permission-mode", "dontAsk",
             "--allowedTools", "Read,Grep,Glob", _prompt(selected, eligibility),
         ]
-        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            result = subprocess.run(
+                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                timeout=_analyst_timeout(),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AnalysisError(
+                f"analyst did not respond within {exc.timeout:.0f}s; "
+                "raise DEVFLOW_CLAUDE_TIMEOUT to allow longer runs"
+            ) from exc
         if result.returncode != 0:
             diagnostic = result.stderr or f"model exited {result.returncode}"
             atomic_text(out_dir / "model-error.txt", diagnostic)

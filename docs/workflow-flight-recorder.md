@@ -104,6 +104,13 @@ DEVFLOW_RECORDER_OUTPUT_STYLE=Explanatory DEVFLOW_RECORDER_MODEL=opus \
 ```
 
 The declaration is provenance, not proof of the provider's effective model.
+`DEVFLOW_RECORDER_OUTPUT_STYLE` and its allowlisted siblings override the
+file-derived configuration snapshot. `DEVFLOW_RECORDER_MODEL` and
+`DEVFLOW_RECORDER_EFFORT` only fill in what the session did not itself report:
+when the host supplies the model or effort, that observation wins and the
+declaration is discarded rather than recorded over it. Either way the recorded
+value carries an `explicit_recorder_environment` source, so a declared value is
+always distinguishable from an observed one.
 
 Do not pool unlike output styles, invocation modes, prompt fingerprints, models,
 or effort levels without naming them as confounders.

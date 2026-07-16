@@ -20,6 +20,11 @@ supplied bundle paths; do not inspect unrelated repository or user files.
 - Cite privacy-safe session ids, occurrence ids, timestamps, and event indexes.
 - State whether every timing, model, and effort fact is observed, approximate,
   or unavailable. Unknown is `unknown`, never zero.
+- Each occurrence carries an `event_summary_status` of `present`, `absent`, or
+  `corrupted`. Never read `absent` and `corrupted` as the same thing: `absent`
+  means the session never captured a summary, while `corrupted` means one was
+  captured and can no longer be read — evidence that was lost, which is itself
+  worth reporting rather than silently treating as never-measured.
 - Treat model, effort, output style, thinking settings, provider, Claude Code
   version, prompt fingerprint, repository state, and preceding context as
   possible confounders when established.
