@@ -43,7 +43,7 @@ import re
 import sys
 import time
 import tracemalloc
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -387,9 +387,11 @@ def _redact_secrets(command: str) -> "tuple[str, bool, list[str]]":
 
     redacted = SECRET_FLAG.sub(flag_repl, redacted)
 
-    if SECRET_URL.search(redacted):
-        redacted = SECRET_URL.sub(r"\1<url-cred>@", redacted)
+    def url_repl(match: "re.Match[str]") -> str:
         slots.append("url-cred")
+        return f"{match.group(1)}<url-cred>@"
+
+    redacted = SECRET_URL.sub(url_repl, redacted)
 
     def bearer_repl(match: "re.Match[str]") -> str:
         slots.append("bearer")
@@ -467,7 +469,7 @@ class VerificationRequest:
     schema_version: int = VERIFICATION_REQUEST_SCHEMA
 
     def to_dict(self) -> dict[str, Any]:
-        d = {
+        return {
             "schema_version": self.schema_version,
             "request_id": self.request_id,
             "source_event_id": self.source_event_id,
@@ -485,7 +487,6 @@ class VerificationRequest:
             "skipped_check_evidence": self.skipped_check_evidence,
             "provenance": self.provenance,
         }
-        return d
 
 
 @dataclass
@@ -686,16 +687,21 @@ def _hashed_if_present(value: Any) -> str | None:
     return _sha8(value)
 
 
+def _subdict(doc: dict, key: str) -> dict:
+    v = doc.get(key)
+    return v if isinstance(v, dict) else {}
+
+
 def _host_profile_from_manifest(doc: dict) -> dict | None:
     profile: dict[str, Any] = {}
     for key in ("provider", "devflow_version", "claude_code_version"):
         v = doc.get(key)
         if isinstance(v, str) and v:
             profile[key] = v
-    me = doc.get("model_effort") if isinstance(doc.get("model_effort"), dict) else {}
+    me = _subdict(doc, "model_effort")
     if isinstance(me.get("requested_model"), str):
         profile["model"] = me["requested_model"]
-    git = doc.get("git") if isinstance(doc.get("git"), dict) else {}
+    git = _subdict(doc, "git")
     if isinstance(git.get("branch"), str):
         profile["branch"] = git["branch"]
     if isinstance(doc.get("cwd"), str):
@@ -763,13 +769,14 @@ def _classify_source_status(bundle: Path, max_bytes: int) -> str:
         # An empty transcript is available but event-less (no launches); it is
         # not unreadable — the import succeeded, the session was simply empty.
         return SOURCE_AVAILABLE
+    # Read once and reuse for the parse check (parse_events validates JSONL).
     try:
-        transcript.read_bytes()  # parseable check (parse_events validates JSONL)
+        raw = transcript.read_bytes()
     except OSError:
         return SOURCE_UNREADABLE
     # Final parse check: malformed JSONL -> unreadable, not missing.
     try:
-        wfr.parse_events(transcript.read_bytes())
+        wfr.parse_events(raw)
     except ValueError:
         return SOURCE_UNREADABLE
     if _import_failed(bundle):
@@ -805,17 +812,22 @@ def _import_failed(bundle: Path) -> bool:
 # --------------------------------------------------------------------------- #
 # Verification request + process-launch extraction (local-native only).
 # --------------------------------------------------------------------------- #
+def _strip_env_prefix(command: str) -> str:
+    """Strip leading VAR=value assignments to find the real command head."""
+    head = command.strip().split(None, 1)[0] if command.strip() else ""
+    while head and "=" in head and not head.startswith("/") and not head.startswith("-"):
+        rest = command.strip().split(None, 1)
+        if len(rest) < 2:
+            return head
+        command = rest[1]
+        head = command.strip().split(None, 1)[0] if command.strip() else ""
+    return head
+
+
 def _classify_taxonomy(command: str) -> str:
     if any(pat.search(command) for pat in VERIFICATION_PATTERNS):
         return KIND_VERIFICATION
-    head = command.strip().split()[0] if command.strip() else ""
-    # Strip a leading env-assignment prefix to find the real head (e.g. FOO=bar baz).
-    while "=" in head and not head.startswith("/") and not head.startswith("-"):
-        rest = command.strip().split(None, 1)
-        if len(rest) < 2:
-            break
-        command = rest[1]
-        head = command.strip().split()[0] if command.strip() else ""
+    head = _strip_env_prefix(command)
     if head in NON_VERIFICATION_HEADS:
         return KIND_OTHER_COMMAND
     return KIND_VERIFICATION_UNKNOWN
@@ -823,27 +835,9 @@ def _classify_taxonomy(command: str) -> str:
 
 def _command_head(command: str) -> str:
     canonical = _canonical_command(command)
-    parts = canonical.split(" ", 1) if canonical else []
-    head = parts[0] if parts else ""
-    # Bound the head (local record only) and strip env-assignment prefixes.
-    while head and "=" in head and not head.startswith("/") and not head.startswith("-"):
-        rest = canonical.split(None, 1)
-        if len(rest) < 2:
-            return head
-        canonical = rest[1]
-        head = canonical.split(" ", 1)[0] if canonical else ""
+    head = _strip_env_prefix(canonical)
+    # Bound the head (local record only).
     return head[:120]
-
-
-def _result_for(events: list, tool_use_id: str) -> "dict | None":
-    for event in events:
-        content = event.raw.get("message", {}).get("content") if isinstance(event.raw.get("message"), dict) else None
-        if not isinstance(content, list):
-            continue
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "tool_result" and item.get("tool_use_id") == tool_use_id:
-                return item
-    return None
 
 
 def _exit_evidence(result: dict | None) -> "dict | None":
@@ -868,9 +862,13 @@ def _exit_evidence(result: dict | None) -> "dict | None":
     return {"is_error": is_error, "exit_code": exit_code, "terminal_signal_present": bool(text.strip())}
 
 
-def _classify_authorization_start(tool_use_id: str, events: list) -> str:
-    """Per-source versioned adapter (Wave 1: native Claude transcripts)."""
-    result = _result_for(events, tool_use_id)
+def _classify_authorization_start(result: dict | None, ev: dict | None) -> str:
+    """Per-source versioned adapter (Wave 1: native Claude transcripts).
+
+    Takes the already-located ``result`` and its precomputed ``ev`` (exit
+    evidence) so the caller's per-lifecycle ``tool_use_id -> result`` index is
+    the single scan over ``events``.
+    """
     if result is None:
         # No result observed -> the request may have been denied or cancelled
         # pre-start, or the transcript is truncated. Conservative: start_unknown.
@@ -888,7 +886,6 @@ def _classify_authorization_start(tool_use_id: str, events: list) -> str:
     if re.search(r"\bcancel\w*|\binterrupt\w*|\babort\w*", text, re.IGNORECASE):
         return START_CANCELLED_PRE
     # Terminal result with exit evidence -> start_confirmed_terminal.
-    ev = _exit_evidence(result)
     if ev and ev.get("terminal_signal_present"):
         if ev.get("exit_code") is None:
             return START_CONFIRMED_RESULT_MISSING
@@ -896,13 +893,10 @@ def _classify_authorization_start(tool_use_id: str, events: list) -> str:
     return START_UNKNOWN
 
 
-def _only_explicit_process_start(result: dict | None) -> bool:
+def _only_explicit_process_start(ev: dict | None) -> bool:
     """Only explicit evidence that the execution surface started a process
     creates a launch. A tool_result with terminal content is explicit; absence
-    or a pure denial/cancel is not."""
-    if not result:
-        return False
-    ev = _exit_evidence(result)
+    or a pure denial/cancel is not. Takes the precomputed exit evidence."""
     return bool(ev and ev.get("terminal_signal_present"))
 
 
@@ -948,18 +942,14 @@ def _workspace_state(events: list, start_idx: int, end_idx: int) -> dict:
                 marker in lower for marker in ("node_modules", "target/", "dist/", "build/", "__pycache__", ".venv", "venv/")
             ):
                 covered.add("ignored_gen_dep")
-    # A complete enumeration would require explicit coverage of ALL six roots
+    # A complete enumeration requires explicit coverage of ALL six roots
     # (head, index, submodule, tracked, untracked, ignored/generated/dependency).
-    # The ignored/generated/dependency root is never explicitly observable from
+    # The ignored/generated/dependency root is rarely explicitly observable from
     # a verification command's source-event results in Wave 1, so coverage is
-    # incomplete by construction unless all six are present.
+    # usually incomplete by construction — `required.issubset(covered)` captures
+    # that without a redundant special-case branch.
     required = {"head", "index", "submodule", "tracked", "untracked", "ignored_gen_dep"}
-    if "ignored_gen_dep" not in covered:
-        # No native source-event result explicitly enumerates ignored/generated/
-        # dependency roots for a verification command in Wave 1 -> unbounded.
-        coverage = "incomplete"
-    else:
-        coverage = "complete" if required.issubset(covered) else "incomplete"
+    coverage = "complete" if required.issubset(covered) else "incomplete"
     return {
         "covered_roots": sorted(covered),
         "observation_method": "source_event_results",
@@ -1024,9 +1014,31 @@ def _select_root_occurrence(occurrences: list, consumer: str | None):
     return occurrences[0] if occurrences else None
 
 
+def _build_result_indexes(events: list) -> "tuple[dict[str, dict], dict[str, object]]":
+    """One O(events) pass: map tool_use_id -> result item and -> the enclosing
+    event. Built once per lifecycle so every tool_use lookup is O(1) instead of
+    a full re-scan via ``_result_for`` / ``_find_result_event``."""
+    result_by_id: dict[str, dict] = {}
+    result_event_by_id: dict[str, object] = {}
+    for event in events:
+        content = event.raw.get("message", {}).get("content") if isinstance(event.raw.get("message"), dict) else None
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "tool_result" and isinstance(item.get("tool_use_id"), str):
+                result_by_id[item["tool_use_id"]] = item
+                result_event_by_id[item["tool_use_id"]] = event
+    return result_by_id, result_event_by_id
+
+
 def _extract_from_lifecycle(events, root, end_idx, sid, consumer):
     requests: list[VerificationRequest] = []
     launches: list[VerificationProcessLaunch] = []
+    # Per-lifecycle indexes + workspace_state: computed once, reused for every
+    # tool_use in this lifecycle (start_event/end_idx are lifecycle-scoped, so
+    # _workspace_state's result is identical across launches in the same one).
+    result_by_id, result_event_by_id = _build_result_indexes(events)
+    ws = _workspace_state(events, root.start_event, end_idx)
     for event in events[root.start_event : end_idx + 1]:
         if (event.role or event.raw.get("type")) != "assistant":
             continue
@@ -1040,8 +1052,10 @@ def _extract_from_lifecycle(events, root, end_idx, sid, consumer):
             tool_use_id = str(tool_use.get("id") or "")
             req_id = _surrogate_id("req", sid, str(event.index), tool_use_id)
             binding = _binding_identity(command)
-            result = _result_for(events, tool_use_id)
-            auth = _classify_authorization_start(tool_use_id, events)
+            result = result_by_id.get(tool_use_id)
+            ev = _exit_evidence(result)
+            head = _command_head(command)
+            auth = _classify_authorization_start(result, ev)
             req_timing = {
                 "requested_at": _ms_to_iso(event.timestamp_ms),
                 "started_at": None,
@@ -1055,13 +1069,13 @@ def _extract_from_lifecycle(events, root, end_idx, sid, consumer):
                 tool_use_id=tool_use_id,
                 consumer_skill=consumer,
                 phase_checkpoint=None,  # Wave 1: not explicitly extracted
-                command_head=_command_head(command),
+                command_head=head,
                 binding=binding,
                 request_kind=_classify_taxonomy(command),
                 authorization_start=auth,
                 timing=req_timing,
                 result_presence=result is not None,
-                exit_evidence=_exit_evidence(result),
+                exit_evidence=ev,
                 skipped_check_evidence=None,
                 provenance={"session_id": sid, "event_index": event.index},
             )
@@ -1069,11 +1083,10 @@ def _extract_from_lifecycle(events, root, end_idx, sid, consumer):
             # Only explicit process-start evidence creates a launch, and only for
             # confirmed verification commands; other_command/verification_unknown
             # are request metrics only (excluded from actual-launch counts).
-            if req.request_kind == KIND_VERIFICATION and _only_explicit_process_start(result) and auth in (START_CONFIRMED_TERMINAL, START_CONFIRMED_RESULT_MISSING):
+            if req.request_kind == KIND_VERIFICATION and _only_explicit_process_start(ev) and auth in (START_CONFIRMED_TERMINAL, START_CONFIRMED_RESULT_MISSING):
                 launch_id = _surrogate_id("launch", sid, str(event.index), tool_use_id)
-                result_event = _find_result_event(events, tool_use_id)
+                result_event = result_event_by_id.get(tool_use_id)
                 launch_timing = _launch_timing(event, result_event)
-                ws = _workspace_state(events, root.start_event, end_idx)
                 launches.append(VerificationProcessLaunch(
                     launch_id=launch_id,
                     request_id=req_id,
@@ -1082,29 +1095,17 @@ def _extract_from_lifecycle(events, root, end_idx, sid, consumer):
                     tool_use_id=tool_use_id,
                     consumer_skill=consumer,
                     phase_checkpoint=None,
-                    command_head=_command_head(command),
+                    command_head=head,
                     binding=binding,
                     start_authorization=auth,
                     timing=launch_timing,
                     workspace_state=ws,
                     result_presence=result is not None,
-                    exit_evidence=_exit_evidence(result),
+                    exit_evidence=ev,
                     skipped_check_evidence=None,
                     provenance={"session_id": sid, "event_index": event.index},
                 ))
     return requests, launches
-
-
-def _find_result_event(events, tool_use_id: str):
-    """The event whose content carries the tool_result for tool_use_id, or None."""
-    for event in events:
-        content = event.raw.get("message", {}).get("content") if isinstance(event.raw.get("message"), dict) else None
-        if not isinstance(content, list):
-            continue
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "tool_result" and item.get("tool_use_id") == tool_use_id:
-                return event
-    return None
 
 
 def _launch_timing(tool_use_event, result_event) -> dict:
@@ -1203,10 +1204,13 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
         # Distinct lifecycle IDs -> independent (cannot be transport-retry).
         return REL_INDEPENDENT_LIFECYCLE, CONFIDENCE_PARTIAL
     # Same lifecycle, repeated binding -> candidate transport-retry only if ALL
-    # requirements hold; else unclassifiable.
-    any_unbounded = any(m.workspace_state.get("mutation_state_unbounded") for m in members)
-    if any_unbounded:
-        return REL_UNCLASSIFIABLE, CONFIDENCE_AMBIGUOUS
+    # requirements hold; else unclassifiable. ``ws_matching`` False (any member
+    # has an unbounded/incomplete workspace_state, or the covered-roots sets
+    # disagree) covers the mutation_state_unbounded case — the two earlier
+    # ``any_unbounded`` / ``not ws_matching`` returns were the same verdict, so
+    # only one remains. ``no_retrigger`` is guaranteed True here by the early
+    # return above, and ``ws_matching`` is guaranteed True by the return below,
+    # so neither is restated in the final candidate guard.
     ws_complete = all(m.workspace_state.get("coverage") == "complete" for m in members)
     ws_roots = {tuple(m.workspace_state.get("covered_roots", [])) for m in members}
     ws_matching = ws_complete and len(ws_roots) == 1
@@ -1219,9 +1223,7 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     )
     bounded = [m for m in members if m.timing.get("started_at") and m.timing.get("finished_at")]
     interval_bounded = len(bounded) >= 2
-    # No explicit new iteration/checkpoint/retrigger evidence (Wave 1: none).
-    no_retrigger = not any(_has_explicit_retrigger(m) for m in members)
-    if has_prior_missing and interval_bounded and ws_matching and no_retrigger:
+    if has_prior_missing and interval_bounded:
         return REL_CANDIDATE_TRANSPORT_RETRY, CONFIDENCE_EXACT
     return REL_UNCLASSIFIABLE, CONFIDENCE_AMBIGUOUS
 
@@ -1265,17 +1267,21 @@ def compute_metrics(
             tally[str(v)] = tally.get(str(v), 0) + 1
         return tally
 
-    eligibility_bounds = {s: 0 for s in ELIGIBILITY_STATES}
-    for row in rows:
-        eligibility_bounds[row.eligibility_state] = eligibility_bounds.get(row.eligibility_state, 0) + 1
+    def count_into(values, keys):
+        tally = {k: 0 for k in keys}
+        for v in values:
+            tally[v] = tally.get(v, 0) + 1
+        return tally
+
+    eligibility_bounds = count_into((r.eligibility_state for r in rows), ELIGIBILITY_STATES)
 
     source_missingness = {s: 0 for s in LOCAL_SOURCE_STATUSES}
     source_missingness[SOURCE_UNAVAILABLE] = 0
     for row in rows:
         if row.source == SOURCE_LOCAL:
             source_missingness[row.source_status] = source_missingness.get(row.source_status, 0) + 1
-        else:
-            source_missingness[SOURCE_UNAVAILABLE] = source_missingness.get(SOURCE_UNAVAILABLE, 0) + (0 if row.source_status == "available" else 1)
+        elif row.source_status != "available":
+            source_missingness[SOURCE_UNAVAILABLE] += 1
 
     actual_launches = [
         l for l in launches
@@ -1284,18 +1290,9 @@ def compute_metrics(
     terminal_results = sum(1 for l in actual_launches if l.exit_evidence and l.exit_evidence.get("exit_code") is not None)
     missing_results = sum(1 for l in launches if l.start_authorization == START_CONFIRMED_RESULT_MISSING)
 
-    rel_dist = {r: 0 for r in RELATIONSHIP_CLASSES}
-    for g in groups:
-        rel_dist[g.relationship] = rel_dist.get(g.relationship, 0) + 1
-
-    ws_dist = {"complete": 0, "incomplete": 0}
-    for g in groups:
-        cov = g.workspace_state.get("coverage", "incomplete")
-        ws_dist[cov] = ws_dist.get(cov, 0) + 1
-
-    join_dist = {c: 0 for c in CONFIDENCE_CLASSES}
-    for g in groups:
-        join_dist[g.join_confidence] = join_dist.get(g.join_confidence, 0) + 1
+    rel_dist = count_into((g.relationship for g in groups), RELATIONSHIP_CLASSES)
+    ws_dist = count_into((g.workspace_state.get("coverage", "incomplete") for g in groups), ("complete", "incomplete"))
+    join_dist = count_into((g.join_confidence for g in groups), CONFIDENCE_CLASSES)
 
     command_heads = count_by(l.command_head for l in launches)
     consumers = count_by((l.consumer_skill or "unknown") for l in launches)
@@ -1533,7 +1530,7 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
             },
             eligibility_state=state,
             eligibility_evidence=evidence,
-            host_profile={"conclusion": raw.get("conclusion"), "status": status} or None,
+            host_profile={"conclusion": raw.get("conclusion"), "status": status},
             source_status="available",
             provenance={"snapshot_hash": snapshot.get("snapshot_hash"), "run_id": run_id, "run_attempt": run_attempt},
         ))
@@ -1801,11 +1798,16 @@ def main(argv: "list[str] | None" = None) -> int:
         performance=performance,
     )
 
-    payload = json.dumps(baseline.to_dict(), indent=2, sort_keys=True).encode("utf-8")
+    # output_bytes is self-referential (the field's value changes the payload
+    # length): serialize once, set output_bytes on the serialized dict, and
+    # re-serialize that — avoiding a second to_dict()/_bound_strings() walk of
+    # the whole baseline. generate_report does not read baseline.performance, so
+    # the live object's output_bytes is mirrored only for parity.
+    doc = baseline.to_dict()
+    payload = json.dumps(doc, indent=2, sort_keys=True).encode("utf-8")
     performance["output_bytes"] = len(payload)
-    # Re-serialize with the now-known output_bytes.
-    baseline.performance = performance
-    payload = json.dumps(baseline.to_dict(), indent=2, sort_keys=True).encode("utf-8")
+    doc["performance"]["output_bytes"] = len(payload)
+    payload = json.dumps(doc, indent=2, sort_keys=True).encode("utf-8")
 
     report = generate_report(baseline)
 
