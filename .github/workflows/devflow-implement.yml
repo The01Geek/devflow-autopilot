@@ -469,28 +469,32 @@ jobs:
 
       # Install scripts/gh-fresh.sh as a `gh` wrapper so agent-side gh resolves
       # its token at call time from the refresher-maintained token file. Wired
-      # BOTH as DEVFLOW_GH (DevFlow's own gh-callers resolve gh through this seam)
-      # and ahead of the real gh on PATH via GITHUB_PATH (direct skill-fence gh
-      # calls + post-claude steps). The real gh's ABSOLUTE path is captured HERE,
-      # before the GITHUB_PATH prepend takes effect in later steps — a name-based
-      # lookup would otherwise recurse into the wrapper.
+      # ahead of the real gh on PATH via GITHUB_PATH — direct skill-fence gh
+      # calls, DevFlow's resolver-routed gh-callers (whose PATH probe finds the
+      # wrapper when DEVFLOW_GH is unset), and post-claude steps all reach it.
+      # Deliberately NOT exported as a process-global DEVFLOW_GH (issue #533):
+      # GITHUB_ENV values persist into every later step — including a repo test
+      # process — where a non-empty DEVFLOW_GH outranks fixture PATH stubs by
+      # resolver design; DEVFLOW_GH stays an explicit caller/test seam. The body
+      # is the checked-in seven-output-validated installer, which resolves the
+      # real gh's ABSOLUTE path before the GITHUB_PATH prepend takes effect (a
+      # name-based lookup in later steps would otherwise recurse into the
+      # wrapper) and fails the job before the agent on the first missing output.
+      # No scripts/… self-repo fallback here (same rationale as the Start step
+      # above): this runs right after `vendor-plugin`, so the vendored tree is
+      # present — at the consumer's pinned `devflow_version`. A pin predating
+      # this installer has no such file, and the step fails LOUDLY (rc 127,
+      # before the agent) until workflows and the pin are refreshed together
+      # (see docs/install.md's update section). The installer's own output-2
+      # wrapper-SOURCE lookup carries a vendored-or-repo fallback — that is a
+      # different path (the gh-fresh.sh bytes to copy), not this invocation.
       - name: Install fresh-gh wrapper (optional)
         if: ${{ vars.DEVFLOW_APP_ID != '' }}
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          REAL_GH="$(command -v gh)"
-          WRAPDIR="$RUNNER_TEMP/devflow-gh-bin"
-          mkdir -p "$WRAPDIR"
-          cp .devflow/vendor/devflow/scripts/gh-fresh.sh "$WRAPDIR/gh"
-          chmod +x "$WRAPDIR/gh"
-          # Record the job-start token fingerprint (mode 0600) so the wrapper can
-          # tell the ambient token from a deliberately-fresh #287 backstop mint.
-          ( umask 077; printf '%s' "$APP_TOKEN" | sha256sum | awk '{print $1}' \
-              > "$RUNNER_TEMP/devflow-gh-fingerprint" )
-          { echo "DEVFLOW_GH=$WRAPDIR/gh"; echo "DEVFLOW_GH_REAL=$REAL_GH"; } >> "$GITHUB_ENV"
-          echo "$WRAPDIR" >> "$GITHUB_PATH"
+          bash .devflow/vendor/devflow/scripts/install-gh-wrapper.sh
       # ── Third-party model provider resolution (issue #313) ─────────────────
       # Resolve this section's (devflow_implement) provider decision from
       # .devflow/config.json via the single-sourced inline jq RESOLVER below.

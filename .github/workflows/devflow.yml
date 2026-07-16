@@ -646,21 +646,18 @@ jobs:
           disown || true
           echo "credential refresher started (detached); log: $RUNNER_TEMP/devflow-refresh.log"
 
+      # Body delegated to the checked-in seven-output-validated installer (issue
+      # #533) — see devflow-implement.yml's install-step comment for the full
+      # rationale (PATH-scoped wrapper selection; no process-global DEVFLOW_GH;
+      # vendored at the pinned devflow_version — a stale pin fails this step
+      # loudly before the agent; refresh workflows and the pin together).
       - name: Install fresh-gh wrapper (optional)
         if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          REAL_GH="$(command -v gh)"
-          WRAPDIR="$RUNNER_TEMP/devflow-gh-bin"
-          mkdir -p "$WRAPDIR"
-          cp .devflow/vendor/devflow/scripts/gh-fresh.sh "$WRAPDIR/gh"
-          chmod +x "$WRAPDIR/gh"
-          ( umask 077; printf '%s' "$APP_TOKEN" | sha256sum | awk '{print $1}' \
-              > "$RUNNER_TEMP/devflow-gh-fingerprint" )
-          { echo "DEVFLOW_GH=$WRAPDIR/gh"; echo "DEVFLOW_GH_REAL=$REAL_GH"; } >> "$GITHUB_ENV"
-          echo "$WRAPDIR" >> "$GITHUB_PATH"
+          bash .devflow/vendor/devflow/scripts/install-gh-wrapper.sh
       # ── Third-party model provider resolution (issue #313) ─────────────────
       # Resolve this section's (devflow) provider decision from .devflow/config.json
       # via the single-sourced inline jq RESOLVER below. The RESOLVER program is
