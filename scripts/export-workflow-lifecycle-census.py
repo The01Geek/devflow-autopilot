@@ -105,6 +105,10 @@ def _gh_json(gh: str, args: list[str]) -> Any:
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError:
+        # A gh success with malformed stdout degrades to None (→ pagination
+        # incomplete). Surface it like the rc-nonzero branch above so it isn't a
+        # silent failure indistinguishable from an empty window (issue #527 review).
+        print("devflow census-export: gh returned malformed JSON stdout; treating as a failed fetch", file=sys.stderr)
         return None
 
 
@@ -152,12 +156,38 @@ def fetch_runs_and_jobs(gh: str, repo: str, workflows: list[str], created_after:
         run_id = run.get("id")
         if run_id is None:
             continue
-        jdoc = _gh_json(gh, ["api", "--method", "GET", f"repos/{repo}/actions/runs/{run_id}/jobs", f"--field=per_page={per_page}"])
-        if jdoc is None or not isinstance(jdoc, dict) or not isinstance(jdoc.get("jobs"), list):
+        # Page the jobs endpoint the SAME way as runs — a run with a large matrix
+        # can have >100 jobs, and a single per_page=100 fetch silently truncated
+        # the cloud denominator while still reporting pagination_complete=True
+        # (issue #527 review finding). A transport failure or a page that under-
+        # counts vs total_count marks the census incomplete (the analyzer then
+        # reads cloud coverage as unavailable, never a partial-presented-as-whole).
+        collected: list[dict] = []
+        jpage = 1
+        truncated = False
+        while True:
+            jdoc = _gh_json(gh, ["api", "--method", "GET", f"repos/{repo}/actions/runs/{run_id}/jobs",
+                                 f"--field=per_page={per_page}", f"--field=page={jpage}"])
+            if jdoc is None or not isinstance(jdoc, dict) or not isinstance(jdoc.get("jobs"), list):
+                truncated = True
+                break
+            page_jobs = jdoc["jobs"]
+            collected.extend(page_jobs)
+            total = jdoc.get("total_count")
+            if len(page_jobs) < per_page:
+                # Last (partial) page. If the API told us a total and we have
+                # fewer, something was dropped — mark incomplete rather than trust
+                # a short census.
+                if isinstance(total, int) and len(collected) < total:
+                    truncated = True
+                break
+            jpage += 1
+            if jpage > 200:  # hard cap; a real run's job count is bounded
+                truncated = True
+                break
+        if truncated:
             pagination_complete = False
-            jobs_by_run[run_id] = []
-            continue
-        jobs_by_run[run_id] = jdoc["jobs"]
+        jobs_by_run[run_id] = collected
     return runs, jobs_by_run, pagination_complete
 
 
@@ -209,6 +239,13 @@ def main(argv: "list[str] | None" = None) -> int:
     out_path = Path(args.out)
     _atomic_write(out_path, payload)
     print(f"devflow census-export: wrote {out_path} (rows={snapshot['row_count']} pagination_complete={pagination_complete} hash={snapshot['snapshot_hash'][:12]})")
+    if not pagination_complete:
+        # Loud degradation: the snapshot is INCOMPLETE (a transport failure or a
+        # truncated page). The analyzer reads this as cloud coverage 'unavailable'
+        # (never a partial-as-complete census), so exit 0 is intentional — the
+        # degraded snapshot is still usable — but the operator must see it (issue
+        # #527 review). The in-file `pagination_complete: false` is the durable record.
+        print("devflow census-export: WARNING — pagination incomplete; the snapshot is partial and the analyzer will read cloud coverage as unavailable", file=sys.stderr)
     return 0
 
 

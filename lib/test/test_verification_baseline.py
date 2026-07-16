@@ -111,8 +111,12 @@ def manifest(sid: str, workflow: str = "implement", provisional: bool = False, s
         "candidate": {
             "workflow": workflow,
             "subject": {"kind": "issue", "number": 527},
-            "invocation_evidence": "exact slash-command /devflow:implement 527",
-            "provisional": provisional,
+            # Real recorder shape (capture_prompt_manifest): `provisional` is ALWAYS
+            # True; `invocation_evidence` is the eligibility discriminator. The
+            # `provisional` param selects the embedded (provisional) vs exact
+            # (confirmed) evidence kind.
+            "invocation_evidence": "embedded_user_command_candidate" if provisional else "exact_user_command",
+            "provisional": True,
         },
         "repository_root": "/home/u/repo",
         "storage_root": "/home/u/repo",
@@ -790,8 +794,109 @@ class Issue527ReviewFixTests(_TmpDirTestCase):
         # The unremovable artifact is still present (fix restores real perms in teardown).
         self.assertTrue((self.out / "baseline.json").exists())
 
+    # --- G-A: eligibility must key on invocation_evidence, NOT the always-True
+    #          `provisional` flag the recorder hardcodes. -------------------
+    def _write_real_manifest(self, sid: str, evidence: str, workflow: str = "implement") -> None:
+        # The REAL recorder shape (capture_prompt_manifest): provisional is ALWAYS
+        # True; invocation_evidence is the discriminator.
+        m = {
+            "schema_version": 1, "session_id": sid,
+            "submitted_at": "2026-07-16T01:00:00Z", "cwd": "/home/u/repo",
+            "candidate": {
+                "workflow": workflow, "subject": {"kind": "issue", "number": 527},
+                "invocation_evidence": evidence, "provisional": True,
+            },
+        }
+        (self.manifests / f"{sid}.json").write_text(json.dumps(m), encoding="utf-8")
+
+    def test_exact_start_is_confirmed_despite_provisional_true(self) -> None:
+        self._write_real_manifest("sess-exact", "exact_user_command")
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        self.assertEqual(rows[0].eligibility_state, ELIGIBILITY_CONFIRMED)
+
+    def test_command_markup_start_is_confirmed(self) -> None:
+        self._write_real_manifest("sess-markup", "command_markup")
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        self.assertEqual(rows[0].eligibility_state, ELIGIBILITY_CONFIRMED)
+
+    def test_embedded_start_is_provisional(self) -> None:
+        self._write_real_manifest("sess-embed", "embedded_user_command_candidate")
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        self.assertEqual(rows[0].eligibility_state, ELIGIBILITY_PROVISIONAL)
+
+    # --- G8: a non-verification command must not be classified verification
+    #         because a test-tool name appears later in the command. --------
+    def test_taxonomy_head_first_for_non_verification_commands(self) -> None:
+        self.assertEqual(vb._classify_taxonomy("git commit -m 'fix ruff test'"), KIND_OTHER_COMMAND)
+        self.assertEqual(vb._classify_taxonomy("cat lib/test/run.sh"), KIND_OTHER_COMMAND)
+        self.assertEqual(vb._classify_taxonomy("echo pytest passed"), KIND_OTHER_COMMAND)
+        # Real verification commands still classify as verification.
+        self.assertEqual(vb._classify_taxonomy("lib/test/run.sh"), KIND_VERIFICATION)
+        self.assertEqual(vb._classify_taxonomy("pytest tests/"), KIND_VERIFICATION)
+        # A chained command whose wrapper head is non-verification still runs a
+        # real verification after `&&` — must not be under-counted as other_command.
+        self.assertEqual(vb._classify_taxonomy("cd repo && pytest tests/"), KIND_VERIFICATION)
+        # A chained non-verification command (no test tool) stays other_command.
+        self.assertEqual(vb._classify_taxonomy("git add -A && git commit -m x"), KIND_OTHER_COMMAND)
+
+    # --- Coverage for the security path-validation boundary (flagged in both
+    #     review passes as having zero tests). ---------------------------------
+    def test_validate_admitted_path_rejects_escape(self) -> None:
+        with self.assertRaises(ValueError):
+            vb._validate_admitted_path("/etc/passwd")
+        with self.assertRaises(ValueError):
+            vb._validate_admitted_path("../../../../etc/passwd")
+        with self.assertRaises(ValueError):
+            vb._validate_admitted_path("")
+        with self.assertRaises(FileNotFoundError):
+            vb._validate_admitted_path(".devflow/tmp/does-not-exist-xyz-527", must_exist=True)
+        # A valid in-repo path resolves under the repo root.
+        resolved = vb._validate_admitted_path(".devflow/tmp")
+        self.assertTrue(str(resolved).startswith(str(ROOT.resolve())))
+
     # --- F1/F2: the census exporter must issue a GET with a single closed
     #            created range (no dropped upper bound). --------------------
+    def test_fetch_jobs_paginates_all_pages(self) -> None:
+        # A run with >100 jobs must have EVERY job collected (and pagination stay
+        # complete) — a single per_page=100 fetch silently truncates the cloud
+        # denominator while asserting completeness (issue #527 shadow finding).
+        export = _load_export_census()
+        calls: list[list[str]] = []
+
+        def fake_gh_json(gh, args):
+            calls.append(list(args))
+            joined = " ".join(args)
+            if "/actions/runs/7/jobs" in joined:
+                page = next((a.split("=")[-1] for a in args if a.startswith("--field=page=")), "1")
+                if page == "1":
+                    return {"total_count": 150, "jobs": [{"name": f"j{i}"} for i in range(100)]}
+                return {"total_count": 150, "jobs": [{"name": f"j{i}"} for i in range(100, 150)]}
+            # runs endpoint: one run, then stop.
+            return {"workflow_runs": [{"id": 7, "path": ".github/workflows/x.yml", "name": "X"}]}
+
+        export._gh_json = fake_gh_json
+        runs, jobs_by_run, complete = export.fetch_runs_and_jobs("gh", "o/r", [], "2026-07-01", "2026-08-01")
+        self.assertEqual(len(jobs_by_run[7]), 150)
+        self.assertTrue(complete)
+
+    def test_fetch_jobs_incomplete_page_marks_unavailable(self) -> None:
+        # A jobs page that fails mid-pagination must mark the census incomplete
+        # (never a partial-count presented as complete).
+        export = _load_export_census()
+
+        def fake_gh_json(gh, args):
+            joined = " ".join(args)
+            if "/actions/runs/7/jobs" in joined:
+                page = next((a.split("=")[-1] for a in args if a.startswith("--field=page=")), "1")
+                if page == "1":
+                    return {"total_count": 150, "jobs": [{"name": f"j{i}"} for i in range(100)]}
+                return None  # transport failure on page 2
+            return {"workflow_runs": [{"id": 7, "path": ".github/workflows/x.yml", "name": "X"}]}
+
+        export._gh_json = fake_gh_json
+        _, _, complete = export.fetch_runs_and_jobs("gh", "o/r", [], "2026-07-01", "2026-08-01")
+        self.assertFalse(complete)
+
     def test_fetch_runs_uses_get_and_closed_created_range(self) -> None:
         export = _load_export_census()
         calls: list[list[str]] = []

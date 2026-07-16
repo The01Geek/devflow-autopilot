@@ -81,6 +81,18 @@ ELIGIBILITY_STATES = (
     ELIGIBILITY_UNKNOWN,
 )
 
+# Manifest `candidate.invocation_evidence` kinds — the ACTUAL eligibility
+# discriminator. These mirror the tokens workflow_flight_recorder's
+# capture_prompt_manifest writes (a cross-module coupling, kept as named
+# constants so the decision is greppable and drift is visible). The manifest's
+# sibling `provisional` flag is NOT a discriminator: the recorder hardcodes it
+# True for every start kind, so keying eligibility on it makes confirmed_eligible
+# unreachable for all real local data (issue #527 review finding).
+EVIDENCE_EXACT = "exact_user_command"
+EVIDENCE_COMMAND_MARKUP = "command_markup"
+EVIDENCE_EMBEDDED = "embedded_user_command_candidate"
+CONFIRMED_EVIDENCE_KINDS = (EVIDENCE_EXACT, EVIDENCE_COMMAND_MARKUP)
+
 # Local source-status enum (left-join of native imports onto census rows).
 SOURCE_AVAILABLE = "source_available"
 SOURCE_ELIGIBLE_NOT_IMPORTED = "eligible_not_imported"
@@ -89,6 +101,12 @@ SOURCE_MISSING = "source_missing"
 SOURCE_UNREADABLE = "source_unreadable"
 SOURCE_UNSUPPORTED = "source_unsupported"
 SOURCE_UNAVAILABLE = "unavailable"  # cloud census absent/incomplete
+# Cloud rows carry their OWN source_status domain {available, unavailable},
+# distinct from the local SOURCE_AVAILABLE="source_available". This is a named
+# constant (not a bare "available" literal) so the producer (build_cloud_census)
+# and the compute_metrics consumer share one symbol rather than two coupled
+# literals that must stay byte-identical (issue #527 review finding).
+CLOUD_SOURCE_AVAILABLE = "available"
 LOCAL_SOURCE_STATUSES = (
     SOURCE_AVAILABLE,
     SOURCE_ELIGIBLE_NOT_IMPORTED,
@@ -698,22 +716,28 @@ def _local_row_from_manifest(doc: dict, path: Path, position: int, registry: dic
     candidate = doc.get("candidate") if isinstance(doc.get("candidate"), dict) else {}
     workflow = candidate.get("workflow") if isinstance(candidate.get("workflow"), str) else None
     subject = candidate.get("subject") if isinstance(candidate.get("subject"), dict) else None
-    provisional = bool(candidate.get("provisional", False))
     evidence = str(candidate.get("invocation_evidence") or "")
     started_at = doc.get("submitted_at") if isinstance(doc.get("submitted_at"), str) else None
 
-    # Eligibility (local): exact slash-command/command-markup starts confirmed;
-    # embedded candidates provisional unless Skill corroboration (checked later);
-    # unknown manifest -> eligibility_unknown.
+    # Eligibility (local) keys on invocation_evidence, NOT the manifest's
+    # `provisional` flag: the recorder hardcodes provisional=True for every start
+    # kind (exact / command-markup / embedded), so keying on it would classify
+    # every real lifecycle provisional and make confirmed_eligible unreachable
+    # (issue #527 review finding). Exact slash-command and command-markup starts
+    # are confirmed here; an embedded candidate (or an unrecognized/missing
+    # evidence kind for a registered workflow) stays provisional — the recorder
+    # already flags embedded starts as needing native-transcript corroboration,
+    # and this analyzer does not promote provisional -> confirmed. Unknown
+    # manifest -> eligibility_unknown (in _unknown_manifest_row).
     if not workflow or workflow not in registry:
         state = ELIGIBILITY_INELIGIBLE
         ev_text = evidence or f"workflow {workflow!r} not in registry (non-agent or unregistered)"
-    elif provisional:
-        state = ELIGIBILITY_PROVISIONAL
-        ev_text = evidence or "embedded first-message candidate; provisional pending Skill corroboration"
-    else:
+    elif evidence in CONFIRMED_EVIDENCE_KINDS:
         state = ELIGIBILITY_CONFIRMED
         ev_text = evidence or "exact slash-command or command-markup start"
+    else:
+        state = ELIGIBILITY_PROVISIONAL
+        ev_text = evidence or "embedded first-message candidate; provisional pending native-transcript corroboration"
 
     host_profile = _host_profile_from_manifest(doc)
     identity = {
@@ -894,9 +918,21 @@ def _strip_env_prefix(command: str) -> str:
 
 
 def _classify_taxonomy(command: str) -> str:
+    # A clearly-non-verification command head (git, cat, echo, …) means the
+    # command's action is git/cat/echo/… and a test-tool name later in it is an
+    # argument (`git commit -m 'fix ruff'`, `cat lib/test/run.sh`, `echo pytest`),
+    # NOT a launch — running the whole-command pattern search first counted those
+    # as verification launches, inflating the very baseline this tool measures
+    # (issue #527 review finding). But a CHAINED command (`cd repo && pytest`)
+    # can still run a real verification after the wrapper, so the head short-
+    # circuit applies only to a SIMPLE command; a chained command falls through to
+    # the pattern check (and, failing that, back to the head for other_command).
+    head = _strip_env_prefix(command)
+    chained = bool(re.search(r"&&|\|\||;", command))
+    if not chained and head in NON_VERIFICATION_HEADS:
+        return KIND_OTHER_COMMAND
     if any(pat.search(command) for pat in VERIFICATION_PATTERNS):
         return KIND_VERIFICATION
-    head = _strip_env_prefix(command)
     if head in NON_VERIFICATION_HEADS:
         return KIND_OTHER_COMMAND
     return KIND_VERIFICATION_UNKNOWN
@@ -1012,23 +1048,24 @@ def _workspace_state(events: list, start_idx: int, end_idx: int) -> dict:
             lower = text.lower()
             if "head " in lower or "head\t" in lower or lower.startswith("head "):
                 covered.add("head")
-            if "index" in lower:
+            # Word-boundary matches: a bare substring marks a root covered on
+            # incidental text (and "tracked" is literally inside "untracked"), so
+            # a false "complete" coverage — the non-conservative direction that
+            # ENABLES a candidate_transport_retry classification the evidence does
+            # not support — is exactly what these boundaries guard against (issue
+            # #527 review finding; applied uniformly across all roots, not just
+            # tracked).
+            if re.search(r"\bindex\b", lower):
                 covered.add("index")
-            if "submodule" in lower:
+            if re.search(r"\bsubmodules?\b", lower):
                 covered.add("submodule")
-            if "untracked" in lower:
+            if re.search(r"\buntracked\b", lower):
                 covered.add("untracked")
-            # Word-boundary match: the bare substring "tracked" is also inside
-            # "untracked", so a result mentioning only untracked files must NOT
-            # mark the tracked root covered (issue #527 review finding — a false
-            # "complete" coverage is the non-conservative direction that would
-            # enable a candidate_transport_retry classification the evidence does
-            # not support).
             if re.search(r"\btracked\b", lower):
                 covered.add("tracked")
             # ignored/generated/dependency root: covered when a result explicitly
             # enumerates ignored files OR a generated/dependency root path.
-            if "ignored" in lower or any(
+            if re.search(r"\bignored\b", lower) or any(
                 marker in lower for marker in ("node_modules", "target/", "dist/", "build/", "__pycache__", ".venv", "venv/")
             ):
                 covered.add("ignored_gen_dep")
@@ -1372,7 +1409,7 @@ def compute_metrics(
     for row in rows:
         if row.source == SOURCE_LOCAL:
             source_missingness[row.source_status] = source_missingness.get(row.source_status, 0) + 1
-        elif row.source_status != "available":
+        elif row.source_status != CLOUD_SOURCE_AVAILABLE:
             source_missingness[SOURCE_UNAVAILABLE] += 1
     # Cloud coverage unavailability is a run-level signal (cloud_coverage), not a
     # per-row status, so drive the ``unavailable`` counter from it rather than
@@ -1657,7 +1694,7 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
             eligibility_state=state,
             eligibility_evidence=evidence,
             host_profile={"conclusion": raw.get("conclusion"), "status": status},
-            source_status="available",
+            source_status=CLOUD_SOURCE_AVAILABLE,
             provenance={"snapshot_hash": snapshot.get("snapshot_hash"), "run_id": run_id, "run_attempt": run_attempt},
         ))
         position += 1
@@ -1962,10 +1999,14 @@ def main(argv: "list[str] | None" = None) -> int:
     stamp = created_at.replace(":", "").replace(".", "").replace("-", "")[:14]
     out_subdir = out_dir / f"{stamp}-{snapshot_hash[:8]}"
     out_subdir.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(out_subdir, DIR_MODE)
-    except OSError:
-        pass
+    # Harden BOTH the per-run subdir AND its parent baseline dir to 0700: the
+    # docstring promises "owner-only 0700 directories" (plural), and mkdir(parents)
+    # otherwise leaves the parent at umask perms (issue #527 review, defense-in-depth).
+    for _d in (out_dir, out_subdir):
+        try:
+            os.chmod(_d, DIR_MODE)
+        except OSError:
+            pass
     _atomic_write(out_subdir / "verification_baseline.json", payload)
     _atomic_write(out_subdir / "report.md", report.encode("utf-8"))
     # Manual-review artifact (initially empty adjudication; reviewers fill it).

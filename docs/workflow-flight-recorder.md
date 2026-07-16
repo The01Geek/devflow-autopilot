@@ -182,9 +182,14 @@ path + start time; rows are never joined by issue number, mutable workpad URL,
 command text, or timestamp proximity alone. Each row records an
 `eligibility_state` of exactly `confirmed_eligible`, `provisional_candidate`,
 `confirmed_ineligible`, or `eligibility_unknown`, plus `eligibility_evidence`:
-exact slash-command and command-markup starts are confirmed; embedded candidates
-are provisional unless a corroborating `Skill` call promotes them; precheck,
-dedupe, telemetry, relay, and skipped non-agent jobs are ineligible. Provisional
+exact slash-command and command-markup starts are confirmed; an embedded
+first-message candidate is provisional — the manifest the analyzer reads records
+it as an *un-corroborated* candidate (`invocation_evidence:
+embedded_user_command_candidate`, written at prompt submit with a warning that
+native-transcript corroboration is still required), so this analyzer classifies
+it provisional from that recorded `invocation_evidence` and never itself promotes
+provisional to confirmed; precheck, dedupe, telemetry, relay, and skipped
+non-agent (cloud) jobs are ineligible. Provisional
 and unknown rows are never promoted to confirmed and never silently omitted;
 reports show the confirmed denominator and the candidate-inclusive sensitivity
 bound.
