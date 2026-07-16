@@ -1,6 +1,0 @@
----
-bump: patch
-type: Fixed
----
-
-- **Hardened the retrospective-weekly loop: reflection-severity gate, state-PR stdout hygiene, and stale-scratch cleanup.** `lib/cheap-gate.jq` now discriminates reflection severity — a run whose only `## Devflow Reflection` bullets are informational `note`-kind (`ℹ️`) ones is treated as clean instead of forcing an LLM analysis, while every actionable kind (including `issue-accuracy` `📝`, and everything under Action-required / Improvements) still trips it. `lib/fetch-pr-context.sh` emits a new top-level `reflections_friction_count` bundle field (the `reflections[]` string array is unchanged); the gate falls back to the legacy "any reflection trips" behavior when that field is absent, failing closed. `lib/clean-entry.jq` now records a clean PR's reflection bullets verbatim (previously dropped) so an exempted note is preserved in the learnings. `lib/open-state-pr.sh` now writes only the PR number to stdout on every real path — the `git checkout`, `git commit`, `git push -u`, and reuse-path `gh pr edit` progress output is redirected to stderr, so a `STATE_PR=$(...)` capture is a bare token. `/devflow:retrospective-weekly` Step 1 removes prior-run per-PR scratch (`result-*.json`, `pr-*.context.json`) with a shell-agnostic `find … -delete`. (#519)
