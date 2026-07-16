@@ -43,7 +43,12 @@ def pairs:
     | (.suggested_interventions // [])[]
     | (.summary // "") as $summary
     | (.candidate_targets // [])[]
-    | select((. // "") != "")
+    # A target must be a non-empty string. `strings` drops any non-string element
+    # (guard-class 2 / best-effort-parser discipline: retrospectives.jsonl is
+    # agent-written, so a stray non-string candidate_target never becomes a target
+    # or perturbs the sort's type ordering) before the empty-string check.
+    | strings
+    | select(. != "")
     | { target: ., pr: $pr, summary: $summary }
   ];
 

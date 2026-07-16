@@ -12315,6 +12315,18 @@ assert_eq "#520: missing-field entries skipped without throwing (rc 0)" "0" "$RT
 assert_eq "#520: surviving 2-PR target still surfaces"                  "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/g.sh")')"
 assert_eq "#520: only the genuine recurring target is present"          "1"    "$(echo "$RT_OUT" | jq 'length')"
 
+# Guard-class 2: a non-string candidate_targets element (agent-written store) is
+# dropped by the `strings` filter, never emitted as a target and never able to
+# perturb the sort's type ordering — while a genuine 2-PR string target surfaces.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"n","candidate_targets":[42,"lib/s.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"n2","candidate_targets":[null,"lib/s.sh"]}]}
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: non-string candidate_target dropped (rc 0)"  "0"    "$RT_RC"
+assert_eq "#520: string target still surfaces"                "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/s.sh")')"
+assert_eq "#520: no non-string target emitted"                "0"    "$(echo "$RT_OUT" | jq '[.[] | select((.target|type) != "string")] | length')"
+
 # AC: determinism — same input twice → byte-identical output.
 RT_DET_IN='{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"a","candidate_targets":["lib/a.sh","lib/b.sh"]}]}
 {"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"b","candidate_targets":["lib/a.sh","lib/b.sh"]}]}'
