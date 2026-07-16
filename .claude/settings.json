@@ -6,16 +6,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash lib/efficiency-trace.sh --persist || true"
+            "command": "bash \"$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' \"${CLAUDE_PROJECT_DIR:-.}\")/lib/efficiency-trace.sh\" --persist || true"
           },
           {
             "type": "command",
-            "command": "bash lib/implement-stop-guard.sh",
+            "command": "bash \"$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' \"${CLAUDE_PROJECT_DIR:-.}\")/lib/implement-stop-guard.sh\"",
             "timeout": 15
           },
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}\"/scripts/stop-hook-probe.sh || echo \"devflow stop-hook-probe: exited rc=$? (the script promises exit 0, so this is a launch/path or hard-crash problem; CLAUDE_PROJECT_DIR='${CLAUDE_PROJECT_DIR:-}')\" >&2",
+            "command": "bash \"$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' \"${CLAUDE_PROJECT_DIR:-.}\")/scripts/stop-hook-probe.sh\" || echo \"devflow stop-hook-probe: exited rc=$? (the script promises exit 0, so this is a launch/path or hard-crash problem; CLAUDE_PROJECT_DIR='${CLAUDE_PROJECT_DIR:-}')\" >&2",
             "timeout": 15
           }
         ]
