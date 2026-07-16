@@ -381,11 +381,23 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.registry = load_registry(REGISTRY)
 
-    def test_registry_has_the_initial_four_workflows(self) -> None:
+    def test_registry_has_the_expected_workflows(self) -> None:
         self.assertEqual(
             set(self.registry),
-            {"implement", "create-issue", "receiving-code-review", "review-and-fix"},
+            {"implement", "create-issue", "receiving-code-review", "review-and-fix", "review"},
         )
+
+    def test_review_surfaces_cover_the_whole_engine_bundle(self) -> None:
+        # #529: the Review engine is a bundle — a root plus gated phase references.
+        # Every path that reaches the engine must enumerate the references too, or
+        # editing one changes no fingerprint and the recorder under-reports the
+        # prompt surface it actually loaded.
+        for workflow in ("review", "review-and-fix", "implement"):
+            globs = {item.glob for item in self.registry[workflow].surfaces}
+            with self.subTest(workflow=workflow):
+                self.assertIn("skills/review/SKILL.md", globs)
+                self.assertIn("skills/review/phases/*.md", globs)
+                self.assertIn(".devflow/prompt-extensions/review.md", globs)
 
     def test_each_user_command_creates_a_top_level_occurrence(self) -> None:
         cases = [

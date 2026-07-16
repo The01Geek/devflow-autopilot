@@ -30,6 +30,24 @@ trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE"' EXIT   # protect RESULTS_FILE/SKIPS_F
 # shellcheck source=lib/test/summary.sh disable=SC1091
 . "$LIB/test/summary.sh"
 
+# ── #529 the Review engine is a BUNDLE, not a file ───────────────────────────
+# `/devflow:review`'s engine is a thin root plus gated phase references under
+# skills/review/phases/. An engine contract sentence lives in exactly ONE of
+# those sources, and which one is an implementation detail that may change as
+# phases are re-partitioned — so a content pin asserts against the CONCATENATED
+# bundle, making "present-and-unique" a bundle-wide claim (the semantically
+# correct one) rather than a bet on which file currently hosts the text.
+# REVIEW_ROOT stays available for the pins that are genuinely ABOUT the root
+# (its budget, its routing stubs). The mutation-taking assertions still work:
+# they copy their target, and the bundle is regenerated from the real files on
+# every run, so deleting a pinned sentence from a phase file still turns its pin
+# RED. Built with `cat` in a fixed, sorted-glob order so the concatenation is
+# deterministic run to run.
+REVIEW_ROOT="$LIB/../skills/review/SKILL.md"
+REVIEW_BUNDLE="$(mktemp)"
+cat "$REVIEW_ROOT" "$LIB"/../skills/review/phases/*.md > "$REVIEW_BUNDLE"
+trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE" "$REVIEW_BUNDLE"' EXIT
+
 # SKIP_HELPER_REGION_BEGIN — the SOLE `printf '  NOTE ` skip-emit lives inside skip();
 # the #456 meta-assertion below asserts no other NOTE emit appears in this file outside
 # this region. The matching BEGIN/END marker VARIABLES are split-built at the meta-assertion
@@ -1147,7 +1165,7 @@ assert_eq "sev e2e: receiving section unset → default"      "critical"  "$(sev
 
 # operative-sentence pins in the three SKILL.md files (the sentence carrying the behavior)
 ST_RAF="$LIB/../skills/review-and-fix/SKILL.md"
-ST_REV="$LIB/../skills/review/SKILL.md"
+ST_REV="$REVIEW_BUNDLE"
 ST_RCV="$LIB/../skills/receiving-code-review/SKILL.md"
 # each SKILL reads its key via config-get.sh (already cloud-allowlisted — no new helper)
 assert_pin_unique "sev(raf): reads fix_severity_threshold via config-get.sh" '/../../scripts/config-get.sh .devflow_review_and_fix.fix_severity_threshold important' "$ST_RAF"
@@ -2425,7 +2443,7 @@ assert_pin_unique "over-grade: engine gate keeps the never-auto-demote contract 
 # (/devflow:review Phase 4.1.5) — issue #195. Pin the canonical shapes against review/SKILL.md,
 # pin that review-and-fix REFERENCES (does NOT fork) them, and pin the advisory-annotation
 # contract (advisory only; verdict unchanged; never auto-demote).
-OG_REVIEW_SKILL="$LIB/../skills/review/SKILL.md"
+OG_REVIEW_SKILL="$REVIEW_BUNDLE"
 assert_pin_unique "over-grade: shared engine carries the single-source annotation heading (#291-reconciled: title states the cap exception)" \
   '### 4.1.5 Over-grade advisory annotation (advisory for shapes 1/3 + non-comment shape 2; a deterministic verdict cap for the in-code-comment sub-case)' "$OG_REVIEW_SKILL"
 assert_pin_unique "over-grade: shared engine declares itself the single source of truth for the shapes" \
@@ -3974,7 +3992,7 @@ assert_pin_unique "rcv: step 0 fail-soft path" \
 # CLAUDE.md single-quote gotcha), so assert_pin_unique fails closed on a deleted OR
 # duplicated literal. REVIEW_SKILL is the shared engine; the two checks must NOT be
 # paraphrased across the two skills (the fix loop inherits the engine by reference).
-REVIEW_SKILL="$LIB/../skills/review/SKILL.md"
+REVIEW_SKILL="$REVIEW_BUNDLE"
 SHADOW_DOC="$LIB/../docs/shadow-review.md"
 # AC1: Phase 0.5 classifies the detect-all-audit shape with a concrete, twice-applicable rule
 # (the enumerate-a-population AND assert-completeness combination is the load-bearing signal).
@@ -6596,7 +6614,7 @@ assert_eq "#356 flip: no-Status breadcrumb names its own arm" "yes" \
 # literal — a seed drift to e.g. `**Status**:` would silently route every flip to the
 # NOSTATUS no-op arm above while every other pin stayed green.
 assert_pin_unique "#356 pin: skills/review/SKILL.md seeds the '**Status:** 🚀 Reviewing' line the helper matches" \
-  '**Status:** 🚀 Reviewing' "$LIB/../skills/review/SKILL.md"
+  '**Status:** 🚀 Reviewing' "$REVIEW_BUNDLE"
 
 # (non-numeric pr) `workpad.py id` declares its issue arg type=int, so ARGPARSE also
 # exits 2 on a usage error — the same rc cmd_id uses for "scanned cleanly, no match".
@@ -6680,7 +6698,7 @@ assert_eq "#356 flip: helper routes GitHub access through workpad.py (no bare gh
 # the `❌ Review failed` literal must match. Pin the SKILL side uniquely (a rename
 # there goes RED); assert the helper carries the matching literal via grep_present.
 assert_pin_unique "#356 flip: skills/review/SKILL.md carries the '❌ Review failed' literal the helper mirrors" \
-  '❌ Review failed' "$LIB/../skills/review/SKILL.md"
+  '❌ Review failed' "$REVIEW_BUNDLE"
 assert_eq "#356 flip: helper carries the matching '❌ Review failed' literal" "yes" \
   "$(grep -qF '❌ Review failed' "$FLIP_SH" && echo yes || echo no)"
 
@@ -6703,10 +6721,10 @@ M356_REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 M356_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 assert_pin_unique "#356 marker: skills/review/SKILL.md seeds the run-keyed review-progress marker" \
   'MARKER=$(printf '"'"'%s'"'"' "<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")' \
-  "$LIB/../skills/review/SKILL.md"
+  "$REVIEW_BUNDLE"
 assert_pin_red_on_removal "#356 marker: the SKILL.md seed-marker line flips RED on removal" \
   'MARKER=$(printf '"'"'%s'"'"' "<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")' \
-  "$LIB/../skills/review/SKILL.md"
+  "$REVIEW_BUNDLE"
 assert_pin_unique "#356 marker: devflow-review.yml rebuilds the identical run-keyed marker" \
   'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_REVIEW_YML"
 assert_pin_unique "#356 marker: devflow.yml rebuilds the identical run-keyed marker" \
@@ -6719,7 +6737,7 @@ assert_eq "#356 marker: both workflows' FLIP_MARKER literals are byte-identical"
      = "$(grep -oF 'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML")" ] \
      && [ -n "$(grep -oF 'FLIP_MARKER="<!-- devflow:review-progress run=' "$M356_REVIEW_YML")" ] && echo yes || echo no)"
 assert_eq "#356 marker: the marker prefix the skill seeds is the prefix both workflows rebuild" "yes" \
-  "$(grep -qF '<!-- devflow:review-progress run=' "$LIB/../skills/review/SKILL.md" \
+  "$(grep -qF '<!-- devflow:review-progress run=' "$REVIEW_BUNDLE" \
      && grep -qF '<!-- devflow:review-progress run=' "$M356_REVIEW_YML" \
      && grep -qF '<!-- devflow:review-progress run=' "$M356_DEVFLOW_YML" && echo yes || echo no)"
 
@@ -6974,7 +6992,7 @@ assert_pin_red_under "#484 pin: the stale-prose-lint.py grant is removal-proof (
   "$IMPL_YML"
 sed -E '/Bash\(\.devflow\/vendor\/devflow\/scripts\/stale-prose-lint\.py:\*\)/d' "$IMPL_YML" > "$E484/impl-no-spl.yml"
 assert_eq "#484 guard-behavior: with the stale-prose-lint.py grant removed the extractor reports it ungranted over review/SKILL.md" \
-  "yes" "$(python3 "$ECH" ungranted "$LIB/../skills/review/SKILL.md" "$E484/impl-no-spl.yml" implement-block 2>/dev/null | grep -qF 'stale-prose-lint.py' && echo yes || echo no)"
+  "yes" "$(python3 "$ECH" ungranted "$REVIEW_BUNDLE" "$LIB"/../skills/review/phases/*.md "$E484/impl-no-spl.yml" implement-block 2>/dev/null | grep -qF 'stale-prose-lint.py' && echo yes || echo no)"
 
 # Implement flip: the function + each of its fail-loud call sites (at least the four
 # pinned below), guarded on interim. Each pin quotes that site's unique cause string,
@@ -20478,7 +20496,7 @@ rm -rf "$TB_MB_REPO"
 
 # Grep pins (AC1/AC19/AC22): the SKILL mirrors + workflows + docs carry the new
 # telemetry-branch contract; a revert turns the suite RED.
-TB_RAF="$LIB/../skills/review-and-fix/SKILL.md"; TB_REV="$LIB/../skills/review/SKILL.md"
+TB_RAF="$LIB/../skills/review-and-fix/SKILL.md"; TB_REV="$REVIEW_BUNDLE"
 assert_eq "tb(#441 AC1): review-and-fix Loop-Exit persists via --persist (single code path)" "yes" \
   "$([ "$(pin_count '/../../lib/efficiency-trace.sh --persist --workpad-dir ".devflow/tmp/review/<slug>/<run-id>" --slug "<slug>"' "$TB_RAF")" -ge 1 ] && echo yes || echo no)"
 assert_eq "tb(#441 AC1): review Phase 4.5 persists via --persist (unified store)" "yes" \
@@ -25146,7 +25164,7 @@ for a in $PRT_AGENTS; do
   # dispatch block), so this tracks the dispatch, not any mention. (Twin of the #139
   # `subagent_type: devflow:$fdagent` pin, adapted to this engine's bold-header convention.)
   assert_eq "#141 review engine dispatches devflow:$a via its **devflow:$a** prompt block (load-bearing call-site present)" \
-    "yes" "$(grep -qF "**devflow:$a**" "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin
+    "yes" "$(grep -qF "**devflow:$a**" "$REVIEW_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin
   # Peer-completeness (AC3 names BOTH skills): the fix-loop skill carries the same roster
   # in its phase3_dispatched / shadow-roster / reviewers_dispatched examples, and (1)'s
   # negative scan only catches a leftover OLD id — not a DROPPED devflow: id. Pin it
@@ -25361,7 +25379,7 @@ done
 # key; receiving-code-review: the fix-loop applies its principles. (writing-skills has no call-
 # site here — it is external; its CLAUDE.md reference is pinned in (1c).)
 assert_eq "#142 review engine dispatches /devflow:requesting-code-review (final-pass call-site rewired)" \
-  "yes" "$(grep -qF '/devflow:requesting-code-review' "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: non-unique: '/devflow:requesting-code-review' appears twice in the target SKILL
+  "yes" "$(grep -qF '/devflow:requesting-code-review' "$REVIEW_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: '/devflow:requesting-code-review' appears twice in the target SKILL
 assert_eq "#142 resolver allowlists devflow:requesting-code-review (override key resolves)" \
   "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/scripts/resolve-review-overrides.py" && echo yes || echo no)"
 assert_eq "#142 config schema declares the devflow:requesting-code-review override key" \
@@ -25383,7 +25401,7 @@ WSR_RAF="$FDROOT/.devflow/prompt-extensions/review-and-fix.md"
 WSR_REV="$FDROOT/.devflow/prompt-extensions/review.md"
 WSR_CLAUDE="$FDROOT/CLAUDE.md"
 # The canonical trigger-glob list literal — must be byte-identical across all three extensions.
-WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `.devflow/prompt-extensions/*.md`'
+WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review/phases/*.md`, `.devflow/prompt-extensions/*.md`'
 # The evidence marker literal the routing evidence-contract writes and the gate criterion matches.
 WSR_MARK='Writing-skills evidence:'
 
@@ -25526,7 +25544,7 @@ assert_eq "#142 no operative surface references the retired using-git-worktrees 
 # A missing file returns the distinct MISSING-FILE sentinel, which is != "no" and fails loud.
 assert_eq "#142 review engine no longer assumes the final-pass reviewer is an installed companion plugin" \
   "no" "$([ -f "$FDROOT/skills/review/SKILL.md" ] \
-          && grep_present 'plugin is installed in the executing environment' "$FDROOT/skills/review/SKILL.md" \
+          && grep_present 'plugin is installed in the executing environment' "$REVIEW_BUNDLE" \
           || echo MISSING-FILE)"
 
 # (7) Positive roster-doc rewire (AC8): the docs that describe the final-pass reviewer must
@@ -27569,7 +27587,7 @@ assert_eq "#271 coupled: devflow.yml (manual-comment review listener) allowlists
 # no regression guard). Target-unique: `--argjson findings` follows run-jq.sh only in the
 # trace example, so assert_pin_unique proves PASS-with-the-literal → FAIL-without-it.
 assert_pin_unique "#271 coupled: skills/review/SKILL.md trace example invokes the run-jq.sh wrapper (not bare jq -n)" \
-  'scripts/run-jq.sh -n --argjson findings' "$LIB/../skills/review/SKILL.md"
+  'scripts/run-jq.sh -n --argjson findings' "$REVIEW_BUNDLE"
 # The implement/SKILL.md reaction-comment read and the phase-4 deferrals merge are
 # fenced-block sites covered by the awk absence pin above, but that pin is *negative*
 # only — it goes RED on a reintroduced BARE jq, yet stays GREEN if the site is
@@ -29574,7 +29592,7 @@ assert_pin_red_under "#408 grounding: deleting the ScheduleWakeup-unavailable ru
 # Skill-prose behavioral-fix pins — the two operative directives of the headless-wait
 # rule (one pin per operative sentence, per the behavioral-fix-pin rule). Each mutation
 # removes the operative sentence and must flip its pin RED.
-REVIEW_SKILL408="$REPO_ROOT/skills/review/SKILL.md"
+REVIEW_SKILL408="$REVIEW_BUNDLE"
 assert_pin_red_under "#408 skill: removing the never-end-turn-with-pending-agent rule flips its pin RED" \
   'Never end your turn while any dispatched agent' \
   '/Never end your turn while any dispatched agent/d' "$REVIEW_SKILL408"
@@ -30874,10 +30892,10 @@ assert_eq "#363 extractor helper exists" "yes" "$([ -f "$ECH" ] && echo yes || e
 
 # ── The contract itself: every extracted head is granted by BOTH allowlists. ──
 assert_eq "#363 every review-skill bash head is granted by devflow-runner.yml review profile" \
-  "" "$(python3 "$ECH" ungranted "$LIB/../skills/review/SKILL.md" \
+  "" "$(python3 "$ECH" ungranted "$REVIEW_BUNDLE" \
         "$LIB/../.github/workflows/devflow-runner.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
 assert_eq "#363 every review-skill bash head is granted by devflow.yml command allowlist" \
-  "" "$(python3 "$ECH" ungranted "$LIB/../skills/review/SKILL.md" \
+  "" "$(python3 "$ECH" ungranted "$REVIEW_BUNDLE" \
         "$LIB/../.github/workflows/devflow.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
 
 # ── Anti-vacuity: the pin must actually be able to go RED. A fixture skill whose
@@ -30890,6 +30908,43 @@ assert_eq "#363 pin goes RED on an ungranted head (anti-vacuity)" "somecmd" \
 assert_eq "#363 pin is silent when that same head IS granted (discriminates)" "" \
   "$(printf "%s\n" "TOOLS='Read,Bash(somecmd:*)'" > "$E363/green-profile.yml"; \
      python3 "$ECH" ungranted "$E363/red.md" "$E363/green-profile.yml" tools-line)"
+
+# ── #529 whole-bundle scanning: the reviewed surface is a skill ROOT plus its
+# ── phase references, so both extractors take every source in one call. Before
+# ── #529 they took a single FILE and SILENTLY IGNORED the rest, exiting 0 — a
+# ── moved fence escaped the scan with no signal (the issue's named gotcha). The
+# ── aggregation assertions below are what make that regression impossible.
+printf '%s\n' '```bash' 'alpha --x' '```' > "$E363/bundle-root.md"
+printf '%s\n' '```bash' 'beta --y' '```' > "$E363/bundle-ref.md"
+printf "%s\n" "TOOLS='Read,Bash(alpha:*)'" > "$E363/bundle-profile.yml"
+assert_eq "#529 heads unions every source in the bundle (a later file is not ignored)" \
+  "alpha beta" \
+  "$(python3 "$ECH" heads "$E363/bundle-root.md" "$E363/bundle-ref.md" | tr '\n' ' ' | sed 's/ *$//')"
+assert_eq "#529 ungranted reports an ungranted head living in a REFERENCE, not just the root" \
+  "beta" \
+  "$(python3 "$ECH" ungranted "$E363/bundle-root.md" "$E363/bundle-ref.md" \
+        "$E363/bundle-profile.yml" tools-line)"
+# Anti-vacuity for the aggregation itself: the reference's head must be the thing
+# reported. If the extractor silently dropped the reference (the pre-#529 bug),
+# the assertion above would print nothing and pass a `""` expectation — so pin
+# that the SINGLE-file call over the root alone is silent, proving `beta` above
+# came from the reference and not from the root.
+assert_eq "#529 the root alone is clean (so 'beta' above provably came from the reference)" \
+  "" "$(python3 "$ECH" ungranted "$E363/bundle-root.md" "$E363/bundle-profile.yml" tools-line)"
+# Backward compatibility: the pre-#529 single-file arg shapes still behave.
+assert_eq "#529 single-file ungranted with a parse mode still works (back-compat)" \
+  "beta" "$(python3 "$ECH" ungranted "$E363/bundle-ref.md" "$E363/bundle-profile.yml" tools-line)"
+# A botched parse-mode word falls through to the allowlist slot; it must fail
+# CLOSED naming both possibilities, never scan with an empty allowlist.
+assert_eq "#529 a botched parse mode fails closed and names both possibilities" "yes" \
+  "$(python3 "$ECH" ungranted "$E363/bundle-root.md" "$E363/bundle-profile.yml" misspelled-mode 2>&1 \
+       | grep -qF 'if a parse mode was intended' && echo yes || echo no)"
+assert_eq "#529 shapes scans every source in the bundle (a violation in a reference is reported)" \
+  "yes" \
+  "$(printf '%s\n' '```bash' 'cd /tmp && echo hi' '```' > "$E363/bundle-badshape.md"; \
+     python3 "$LIB/test/extract-command-shapes.py" --profile review \
+        "$E363/bundle-root.md" "$E363/bundle-badshape.md" 2>/dev/null \
+       | grep -qF 'bundle-badshape.md' && echo yes || echo no)"
 
 # ── The extractor discriminates BETWEEN the two allowlists (it is not a
 # ── fail-always / pass-always stub): the same skill head is ungranted by one
@@ -31032,19 +31087,21 @@ ARMSHAPES
 assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) still yields no head" \
   "aa bb cc dd ee ff" "$(python3 "$ECH" heads "$E363/armshapes.md" | tr '\n' ' ' | sed 's/ *$//')"
 
-# Regression guard: the arm-position fix is a NO-OP on today's skills/review/SKILL.md.
+# Regression guard: the arm-position fix is a NO-OP on today's Review engine BUNDLE
+# (root + skills/review/phases/*.md — #529 split the engine, so the reviewed surface
+# is every source, not just the root).
 # Assert BOTH the occurrence count and the distinct-name count — the distinct count
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last changes: #484 authenticates fixed-path snapshots + rejects truncated records, then #503 rejected-review hardening added empty-base handling plus the checked head-override candidate/promote producer — which stages via >-redirect candidates + awk/sed filter and a cat publish, adding no tee head)" \
-  "134" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #529 split the engine into a thin root + gated phase references and added the AC7 bundle-identity fence, whose two git hash-object calls take 134 -> 136; git hash-object was already granted and already in the distinct set, so the distinct count is unchanged)" \
+  "136" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
-print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
-assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names; #484 adds granted git hash-object while removing touch and sort)" \
+print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$REVIEW_BUNDLE")"
+assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names over the whole bundle; #529 moved fences into references and added only already-counted git hash-object calls, so the distinct set is unchanged)" \
   "32" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
-h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
+h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$REVIEW_BUNDLE")"
 
 # #426 no-skew property: Phase 1.1's awk >-redirect batch-slice authoring and its
 # &&-chained rc gate reuse heads (awk, test, echo) already granted in BOTH cloud
@@ -32588,10 +32645,10 @@ assert_pin_unique "#504 AC5 summarize called in exactly one step (ci_summary, re
 assert_pin_unique "#504 AC5 compose forwards HARDENED_PATHS from harden" 'HARDENED_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}' "$RUNNER_YML"
 
 # ── #504 AC6 routing rule on the 7 claim-verification surfaces.
-assert_pin_unique "#504 AC6 SKILL defect_signature routing" "Displaced-path routing (issue #504)" "$LIB/../skills/review/SKILL.md"
-assert_pin_unique "#504 AC6 SKILL Phase 4.1.6 routing" "displaced-path routing (this sweep)" "$LIB/../skills/review/SKILL.md"
-assert_pin_unique "#504 AC6 SKILL Phase 2.1a lite-probe routing" "grep the \`git show <head>:<path>\` output" "$LIB/../skills/review/SKILL.md"
-assert_pin_unique "#504 AC6 SKILL Phase 2.1b dispatch routing" "displaced-path routing: for any referenced file" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 SKILL defect_signature routing" "Displaced-path routing (issue #504)" "$REVIEW_BUNDLE"
+assert_pin_unique "#504 AC6 SKILL Phase 4.1.6 routing" "displaced-path routing (this sweep)" "$REVIEW_BUNDLE"
+assert_pin_unique "#504 AC6 SKILL Phase 2.1a lite-probe routing" "grep the \`git show <head>:<path>\` output" "$REVIEW_BUNDLE"
+assert_pin_unique "#504 AC6 SKILL Phase 2.1b dispatch routing" "displaced-path routing: for any referenced file" "$REVIEW_BUNDLE"
 assert_pin_unique "#504 AC6 code-reviewer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/code-reviewer.md"
 assert_pin_unique "#504 AC6 comment-analyzer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/comment-analyzer.md"
 assert_pin_unique "#504 AC6 checklist-verifier agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/checklist-verifier.md"
@@ -32617,12 +32674,12 @@ assert_pin_unique "#504 AC6 code-reviewer mirror reads the displaced scratch fil
 assert_pin_unique "#504 AC6 comment-analyzer mirror reads the displaced scratch file" ".devflow/tmp/displaced-paths.txt" "$LIB/../agents/comment-analyzer.md"
 assert_pin_unique "#504 AC6 checklist-verifier mirror reads the displaced scratch file" ".devflow/tmp/displaced-paths.txt" "$LIB/../agents/checklist-verifier.md"
 assert_pin_unique "#504 AC6 Phase-3 truthfulness-contract dispatch reads the displaced scratch file" \
-  "you receive this contract, not the orchestrator's engine-ground-truth block" "$LIB/../skills/review/SKILL.md"
+  "you receive this contract, not the orchestrator's engine-ground-truth block" "$REVIEW_BUNDLE"
 assert_pin_unique "#504 AC6 Phase 2.1b dispatch reads the displaced scratch file" \
-  "you receive this dispatch prompt, not the orchestrator's engine-ground-truth block" "$LIB/../skills/review/SKILL.md"
+  "you receive this dispatch prompt, not the orchestrator's engine-ground-truth block" "$REVIEW_BUNDLE"
 # AC7: Phase 0.1 attribution + Phase 0.1.5 scratch persistence.
-assert_pin_unique "#504 AC7 Phase 0.1 displaced-path attribution" "#504 displaced-path attribution" "$LIB/../skills/review/SKILL.md"
-assert_pin_unique "#504 AC6 Phase 0.1.5 scratch persistence" "Persist the displaced-path list" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC7 Phase 0.1 displaced-path attribution" "#504 displaced-path attribution" "$REVIEW_BUNDLE"
+assert_pin_unique "#504 AC6 Phase 0.1.5 scratch persistence" "Persist the displaced-path list" "$REVIEW_BUNDLE"
 
 # ── #504 AC10 stale-prose corrections.
 assert_pin_unique "#504 AC10 devflow-runner relevance-gate says ten" "ten DevFlow-layout paths would clobber" "$RUNNER_YML"
@@ -32748,7 +32805,7 @@ assert_eq "#363 devflow-runner.yml prepends the grounding block in BOTH prompt b
 # ────────────────────────────────────────────────────────────────────────────
 echo "#363 skills/review/SKILL.md engine-grounding instructions"
 # ────────────────────────────────────────────────────────────────────────────
-REVIEW_SKILL="$LIB/../skills/review/SKILL.md"
+REVIEW_SKILL="$REVIEW_BUNDLE"
 
 # Each pin below targets the OPERATIVE sentence — the minimal text whose removal
 # alone re-introduces the behavior observed in the pre-skill baseline (an engine
@@ -33369,7 +33426,7 @@ assert_pin_red_under "#405 AC3 phase-3.4: gate never waits for / polls / re-chec
 # AC4: the shared review engine, executed inline, takes its test evidence from the
 # orchestrator's in-env suite/lint results — never a CI conclusion. Behavioral pin on the
 # inline-tier evidence sentence in the engine's grounding-block section:
-I405_REVIEW="$LIB/../skills/review/SKILL.md"
+I405_REVIEW="$REVIEW_BUNDLE"
 assert_pin_red_under "#405 AC4 review/SKILL.md: inline-tier test evidence is the orchestrator's in-env suite/lint, never CI" \
   "On the inline tier the test evidence is the orchestrator's own in-environment suite/lint results for the current HEAD" \
   '/On the inline tier the test evidence is the/d' \
@@ -33416,7 +33473,7 @@ SPL="$LIB/../scripts/stale-prose-lint.py"
 SP_SCHEMA="$LIB/../.devflow/config.schema.json"
 SP_EXAMPLE="$LIB/../.devflow/config.example.json"
 SP_CONFIG="$LIB/../.devflow/config.json"
-SP_REVIEW="$LIB/../skills/review/SKILL.md"
+SP_REVIEW="$REVIEW_BUNDLE"
 SP_RAF="$LIB/../skills/review-and-fix/SKILL.md"
 SP_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
 SP_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"

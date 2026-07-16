@@ -32,10 +32,16 @@ Claude Code's own matching behavior, which this models:
   `bash ...`.
 
 CLI:
-    extract-command-heads.py heads FILE
-        -> one extracted head per line, sorted and deduped.
-    extract-command-heads.py ungranted FILE ALLOWLIST_FILE [tools-line | implement-block]
-        -> one head per line that no rule in ALLOWLIST_FILE grants.
+    extract-command-heads.py heads FILE...
+        -> one extracted head per line, sorted and deduped, unioned across every
+           FILE. A reviewed surface is a BUNDLE (a skill root plus its phase
+           references, issue #529), so passing every source in one call is what
+           keeps a head in a moved fence from escaping the scan.
+    extract-command-heads.py ungranted FILE... ALLOWLIST_FILE [tools-line | implement-block]
+        -> one head per line, across every FILE, that no rule in ALLOWLIST_FILE
+           grants. The trailing parse mode is a closed enum, so it is recognized
+           by exact membership; a trailing token that is neither a known mode nor
+           a readable allowlist fails closed naming both possibilities.
        By default every `Bash(<spec>:*)` rule anywhere in ALLOWLIST_FILE grants —
        including one merely CITED inside a comment. Pass the literal `tools-line`
        to parse only a workflow's real `TOOLS='...'` allowlist line; both workflows
@@ -611,35 +617,76 @@ def name_of(head: list[str]) -> str:
     return head[0]
 
 
+_ALLOWLIST_MODES = ("tools-line", "implement-block")
+
+_USAGE = (
+    "usage: extract-command-heads.py heads FILE...\n"
+    "       extract-command-heads.py ungranted FILE... ALLOWLIST_FILE "
+    "[tools-line | implement-block]"
+)
+
+
+def _heads_of_all(paths: list[str]) -> list[list[str]]:
+    """Union the fences of every source file into one head list.
+
+    The reviewed surface is a *bundle* (a skill root plus its phase references),
+    not a single document, so a head granted for the bundle is granted wherever
+    in the bundle it sits. Reading every source in one call is what keeps an
+    ungranted head in a moved fence from escaping the scan (issue #529).
+    """
+    heads: list[list[str]] = []
+    for path in paths:
+        with open(path, encoding="utf-8") as handle:
+            heads.extend(extract_heads(handle.read()))
+    return heads
+
+
+def _read_allowlist(path: str, mode: str | None) -> str:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            allowlist = handle.read()
+    except OSError as exc:
+        # The trailing token is either an unreadable allowlist path or a botched
+        # parse-mode word that fell through to the allowlist slot. The two are
+        # indistinguishable here, so name BOTH rather than asserting one — and
+        # fail closed either way, never scanning with an empty allowlist.
+        raise SystemExit(
+            f"devflow: cannot read allowlist file {path!r} ({exc.strerror}); "
+            f"if a parse mode was intended, the valid modes are: "
+            f"{', '.join(_ALLOWLIST_MODES)}"
+        ) from exc
+    if mode == "tools-line":
+        return tools_allowlist_line(allowlist)
+    if mode == "implement-block":
+        return implement_allowlist_block(allowlist)
+    return allowlist
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) >= 3 and argv[1] == "heads":
-        with open(argv[2], encoding="utf-8") as handle:
-            heads = extract_heads(handle.read())
-        for name in sorted({name_of(h) for h in heads}):
+    args = argv[2:]
+    if len(args) >= 1 and argv[1] == "heads":
+        for name in sorted({name_of(h) for h in _heads_of_all(args)}):
             print(name)
         return 0
-    if len(argv) >= 4 and argv[1] == "ungranted":
-        with open(argv[2], encoding="utf-8") as handle:
-            heads = extract_heads(handle.read())
-        with open(argv[3], encoding="utf-8") as handle:
-            allowlist = handle.read()
-        if len(argv) >= 5 and argv[4] == "tools-line":
-            allowlist = tools_allowlist_line(allowlist)
-        elif len(argv) >= 5 and argv[4] == "implement-block":
-            allowlist = implement_allowlist_block(allowlist)
-        elif len(argv) >= 5:
-            raise SystemExit(f"devflow: unknown allowlist parse mode: {argv[4]}")
-        granted = parse_allowlist(allowlist)
+    if len(args) >= 2 and argv[1] == "ungranted":
+        # Tail layout: [FILE...] ALLOWLIST_FILE [MODE]. MODE is a closed enum, so
+        # its presence is decided by exact membership — never by a path-shape
+        # guess, which would misparse a legitimately odd allowlist filename.
+        mode = None
+        if args[-1] in _ALLOWLIST_MODES:
+            mode = args[-1]
+            args = args[:-1]
+        if len(args) < 2:
+            print(_USAGE, file=sys.stderr)
+            return 2
+        granted = parse_allowlist(_read_allowlist(args[-1], mode))
+        heads = _heads_of_all(args[:-1])
         for name in sorted(
             {name_of(h) for h in heads if not is_granted(h, granted)}
         ):
             print(name)
         return 0
-    print(
-        "usage: extract-command-heads.py heads FILE\n"
-        "       extract-command-heads.py ungranted FILE ALLOWLIST_FILE [tools-line | implement-block]",
-        file=sys.stderr,
-    )
+    print(_USAGE, file=sys.stderr)
     return 2
 
 
