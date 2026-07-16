@@ -31142,6 +31142,66 @@ assert_eq "#530 budget: checked-in budget table exists" "yes" \
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
   '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,196 words' "$RAF_BUDGET_DOC"
 
+# ── #530 pressure tests (AC16): the split preserves every named control-flow scenario ──
+# Each scenario's operative behavioral literal must survive the split AND land in the
+# correct reference file (asserted against the specific file, not the concat, so a
+# mis-placed move is RED), and the thin root's Step-routing table must name each routed
+# reference. This is the structural walkthrough that proves routing survived the split —
+# the regression net the architect flagged as more decisive than any single pin.
+P530_ROOT="$LIB/../skills/review-and-fix/SKILL.md"
+P530_LC="$LIB/../skills/review-and-fix/references/loop-control.md"
+P530_SH="$LIB/../skills/review-and-fix/references/shadow-review.md"
+P530_PFG="$LIB/../skills/review-and-fix/references/pre-fix-gates.md"
+P530_FDG="$LIB/../skills/review-and-fix/references/fix-delta-gate.md"
+P530_CV="$LIB/../skills/review-and-fix/references/convergence.md"
+P530_LE="$LIB/../skills/review-and-fix/references/loop-exit.md"
+# 1. immediate APPROVE — Step 2 clean-APPROVE arm (loop-control)
+assert_pin_unique "#530 pressure(immediate APPROVE): Step 2 clean-APPROVE arm in loop-control" \
+  'tentative final verdict `APPROVE`' "$P530_LC"
+# 2. reject-fix-approve — REJECT routes to Step 2.5 (loop-control)
+assert_pin_unique "#530 pressure(reject-fix-approve): REJECT routes to Step 2.5 in loop-control" \
+  'Engine verdict **REJECT** → continue to Step 2.5' "$P530_LC"
+# 3. cap exit — the $MAX_ITERS cap is preserved (convergence)
+assert_pin_unique "#530 pressure(cap exit): the \$MAX_ITERS cap is preserved in convergence" \
+  'The `$MAX_ITERS` cap, the REJECT paths, and the shadow triggers are unchanged.' "$P530_CV"
+# 4. shadow trigger (convergence-time fan-out) — shadow-review
+assert_pin_unique "#530 pressure(shadow trigger, convergence): parent-orchestrated fan-out in shadow-review" \
+  '#### Run the shadow fan-out (parent-orchestrated)' "$P530_SH"
+# 5. shadow trigger (early, engine_self_modifying after iter 1) — shadow-review
+assert_pin_unique "#530 pressure(shadow trigger, early engine_self_modifying): early trigger in shadow-review" \
+  '#### Early shadow trigger (`engine_self_modifying`, after iteration 1)' "$P530_SH"
+# 6. post-shadow edit gate — loop-exit
+assert_pin_unique "#530 pressure(post-shadow edit): post-shadow edit gate in loop-exit" \
+  'Post-shadow edit gate (no unreviewed final edits)' "$P530_LE"
+# 7. parked finding — parked-class sweep (pre-fix-gates)
+assert_pin_unique "#530 pressure(parked finding): parked-class sweep in pre-fix-gates" \
+  'Parked-class sweep (pre-shadow convergence gate)' "$P530_PFG"
+# 8/9. calibration — park-calibration + over-grade calibration gates (shadow-review)
+assert_pin_unique "#530 pressure(calibration, park): park-calibration gate in shadow-review" \
+  'Park-calibration gate (before any APPROVE-family conclusion)' "$P530_SH"
+assert_pin_unique "#530 pressure(calibration, over-grade): over-grade calibration gate in shadow-review" \
+  'Over-grade calibration gate (before any Decide outcome 2 promotion)' "$P530_SH"
+# 10. unreadable source — the fail-closed reference-loading contract (root)
+assert_pin_unique "#530 pressure(unreadable source): fail-closed reference-loading contract in root" \
+  'each degrades exactly as the engine already degrades' "$P530_ROOT"
+# 11. push — base-branch update checkpoint 3 (loop-exit)
+assert_pin_unique "#530 pressure(push): base-branch update checkpoint 3 in loop-exit" \
+  'Base-branch update checkpoint 3' "$P530_LE"
+# 12. persistence failure — persistence self-check backstop (loop-exit)
+assert_pin_unique "#530 pressure(persistence failure): persistence self-check in loop-exit" \
+  'Persistence self-check (Layer 2' "$P530_LE"
+# 13. inline recovery — the fused per-iteration emit that survives a dropped Loop Exit (root Lifecycle)
+assert_pin_unique "#530 pressure(inline recovery): fused per-iteration emit in root Lifecycle" \
+  'non-optional emit, fused to the fix commit' "$P530_ROOT"
+# 14. fix-delta gate present (fix-delta-gate) — the reject-fix regression net
+assert_pin_unique "#530 pressure(fix-delta): fix-delta verification gate in fix-delta-gate" \
+  'Fix-delta verification gate' "$P530_FDG"
+# Routing: the thin root's Step-routing table names every routed reference.
+for _r530 in pre-fix-gates shadow-review fixing fix-delta-gate convergence loop-exit loop-control; do
+  assert_eq "#530 pressure(routing): root Step-routing names references/$_r530.md" "yes" \
+    "$(grep -qF "references/$_r530.md" "$P530_ROOT" && echo yes || echo no)"  # raw-guard-ok: loop body over the enumerated $_r530 reference names, not a static pin
+done
+
 # ── Anti-vacuity: each rule flags its denied shape (fixtures under $E363's trap-cleaned dir).
 printf '%s\n' '```bash' 'M=x printf hi' '```' > "$E363/s-r1a.md"
 assert_eq "#401 R1 flags an env-prefix compound (M=x cmd)" "yes" \
