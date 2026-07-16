@@ -250,9 +250,9 @@ WORKPAD_FINAL_STATUS=""
 REFLECTIONS="[]"
 if [ -n "$WORKPAD_BODY" ]; then
     # Extract the value after "**Status:** <glyph> <word>" / "Status: <word>".
-    # workpad.py prepends a canonical glyph (🚀/🎉/👎/💥) to the status word, so the
+    # workpad.py prepends a canonical glyph (🚀/🎉/👎/💥/🛑) to the status word, so the
     # captured value is e.g. "🎉 Complete". Strip that glyph by the known glyph SET
-    # the workpad owns (a leading 🚀/🎉/👎/💥 plus surrounding whitespace), NOT by
+    # the workpad owns (a leading 🚀/🎉/👎/💥/🛑 plus surrounding whitespace), NOT by
     # taking the last whitespace token: the old `awk '{print $NF}'` silently
     # coupled the strip to a single-word status vocabulary and would mis-gate a
     # future multi-word status (e.g. "In Progress" → "Progress"). The glyphs are
@@ -266,7 +266,7 @@ if [ -n "$WORKPAD_BODY" ]; then
     # return on the value. Trailing `|| true`: under `set -euo pipefail`, `head -1`
     # closing the pipe early can hand an upstream stage a SIGPIPE (141) and abort
     # the script; guard it.
-    WORKPAD_FINAL_STATUS="$(printf '%s' "$WORKPAD_BODY" | tr -d '\r' | sed -nE 's/^\*{0,2}[[:space:]]*[Ss]tatus[[:space:]]*:?\*{0,2}[[:space:]]*(.+)/\1/p' | head -1 | sed -E 's/^[[:space:]]*(🚀|🎉|👎|💥)?[[:space:]]*//; s/[[:space:]]+$//' || true)"
+    WORKPAD_FINAL_STATUS="$(printf '%s' "$WORKPAD_BODY" | tr -d '\r' | sed -nE 's/^\*{0,2}[[:space:]]*[Ss]tatus[[:space:]]*:?\*{0,2}[[:space:]]*(.+)/\1/p' | head -1 | sed -E 's/^[[:space:]]*(🚀|🎉|👎|💥|🛑)?[[:space:]]*//; s/[[:space:]]+$//' || true)"
     # Fail toward analysis, not toward "clean": a workpad is present but its
     # Status line did not parse (corrupt/hand-edited — workpad.py always writes
     # `**Status:** <glyph> <word>`). cheap-gate.jq treats "" as clean, so an

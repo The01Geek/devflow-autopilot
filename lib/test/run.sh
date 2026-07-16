@@ -6249,9 +6249,10 @@ ni=[i for i,l in enumerate(t) if 'died here' in l]
 print('yes' if si and ii and ni and si[0]<ni[0]<ii[0] else 'no')
 ")"
 
-# Source pins: the 💥 vocabulary lives in workpad.py (single source of truth).
-assert_eq "#356: workpad.py _STATUS_GLYPHS includes 💥 (extended tuple)" "yes" \
-  "$(grep -q "💥')" "$WP_PY" && echo yes || echo no)"
+# Source pins: the 💥/🛑 vocabulary lives in workpad.py (single source of truth).
+# The tuple ends in 🛑 (🛑 Cancelled, issue #498); 💥 is no longer the last element.
+assert_eq "#356: workpad.py _STATUS_GLYPHS includes 💥 and 🛑 (extended tuple)" "yes" \
+  "$(grep -q "💥.*🛑')" "$WP_PY" && echo yes || echo no)"
 assert_eq "#356: workpad.py maps 'failed' → 💥 (write path) and leaves it out of _STATUS_TO_PROGRESS_PHASE" "yes" \
   "$(grep -q "return '💥'" "$WP_PY" && ! grep -q "'failed':" "$WP_PY" && echo yes || echo no)"
 
@@ -6461,14 +6462,14 @@ chmod 644 "$S356/lonely/workpad.py" 2>/dev/null || true
 # enumerates that model must name it. These two sites are operative (an agent reads them at
 # runtime), unpinned before this change, and were left stale by the first pass — pin them so
 # a future glyph addition cannot silently desync them again.
-assert_pin_unique "#356: implement SKILL's --status row names the full canonical glyph set (incl. 💥)" \
-  'the helper prepends the canonical glyph (🚀/🎉/👎/💥)' "$LIB/../skills/implement/SKILL.md"
+assert_pin_unique "#356: implement SKILL's --status row names the full canonical glyph set (incl. 💥 and 🛑)" \
+  'the helper prepends the canonical glyph (🚀/🎉/👎/💥/🛑)' "$LIB/../skills/implement/SKILL.md"
 assert_pin_red_on_removal "#356: implement SKILL canonical-glyph-set clause flips RED on removal" \
-  'the helper prepends the canonical glyph (🚀/🎉/👎/💥)' "$LIB/../skills/implement/SKILL.md"
-assert_pin_unique "#356: retrospective SKILL enumerates Failed among the terminal workpad_final_status values" \
-  '`Complete` / `Blocked` / `Failed`' "$LIB/../skills/retrospective/SKILL.md"
+  'the helper prepends the canonical glyph (🚀/🎉/👎/💥/🛑)' "$LIB/../skills/implement/SKILL.md"
+assert_pin_unique "#356: retrospective SKILL enumerates the terminal workpad_final_status values (incl. Cancelled)" \
+  '`Complete` / `Blocked` / `Failed` / `Cancelled`' "$LIB/../skills/retrospective/SKILL.md"
 assert_pin_red_on_removal "#356: retrospective SKILL terminal-status enumeration flips RED on removal" \
-  '`Complete` / `Blocked` / `Failed`' "$LIB/../skills/retrospective/SKILL.md"
+  '`Complete` / `Blocked` / `Failed` / `Cancelled`' "$LIB/../skills/retrospective/SKILL.md"
 
 assert_eq "#356 flip: helper carries the SPDX header" "yes" \
   "$(grep -q 'SPDX-License-Identifier: MIT' "$FLIP_SH" && echo yes || echo no)"
@@ -6522,8 +6523,8 @@ assert_eq "#356 marker: the marker prefix the skill seeds is the prefix both wor
      && grep -qF '<!-- devflow:review-progress run=' "$M356_DEVFLOW_YML" && echo yes || echo no)"
 
 # ── fetch-pr-context.sh glyph-strip pin (unit) ────────────────────────────────
-assert_eq "#356: fetch-pr-context.sh strips 💥 from the workpad Status glyph set" "yes" \
-  "$(grep -q '🚀|🎉|👎|💥' "$LIB/fetch-pr-context.sh" && echo yes || echo no)"
+assert_eq "#356: fetch-pr-context.sh strips the full Status glyph set (incl. 💥 and 🛑)" "yes" \
+  "$(grep -q '🚀|🎉|👎|💥|🛑' "$LIB/fetch-pr-context.sh" && echo yes || echo no)"
 
 # ── Static workflow-wiring pins (the repo's #232/#258 pattern) ─────────────────
 IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
@@ -11273,6 +11274,16 @@ assert_eq "gate #97: reflections non-empty → clean=false (all signals clean)" 
   "$(echo "$BASE" | jq '.reflections=["friction note"]' | gate | jq -r .clean)"
 assert_eq "gate #97: reflection reason names the signal" "workpad reflections present" \
   "$(echo "$BASE" | jq '.reflections=["friction note"]' | gate | jq -r .reason)"
+# #498 — a Cancelled workpad (operator-cancelled run) is a non-empty, non-Complete
+# status, so cheap-gate's $workpad_ok arm (Complete/empty/null only) gates it
+# non-clean via the existing 'workpad status not Complete' reason — cheap-gate.jq
+# needs no edit (issue #498 AC4). The strip of the leading 🛑 is covered by the
+# glyph-sync self-check (fetch-pr-context.sh's strip set == workpad.py's
+# _STATUS_GLYPHS, which now includes 🛑).
+assert_eq "gate #498: workpad_final_status=Cancelled -> clean=false" "false" \
+  "$(echo "$BASE" | jq '.signals.workpad_final_status="Cancelled"' | gate | jq -r .clean)"
+assert_eq "gate #498: Cancelled reason is the existing 'workpad status not Complete' arm" "workpad status not Complete" \
+  "$(echo "$BASE" | jq '.signals.workpad_final_status="Cancelled"' | gate | jq -r .reason)"
 
 # ════════════════════════════════════════════════════════════════════════════
 echo "issue #126: --reflection-kind grouped Devflow Reflection rendering"
@@ -27750,6 +27761,31 @@ assert_eq "#287 decide: auth-failure -> fail-auth (distinct from fail-unreadable
 assert_eq "#266 decide: unrecognized enabled resolves to enabled (interim -> resume)" "resume" "$(decide266 yes interim 0 2)"
 assert_eq "#266 decide: negative cap falls back to default 2 (interim,attempts=1 -> resume)" "resume" "$(decide266 true interim 1 -1)"
 assert_eq "#266 decide: non-integer attempts -> 0 (interim,cap=2 -> resume)" "resume" "$(decide266 true interim notanum 2)"
+# #498 — cancelled-run exclusion (issue #498). Only the exact 5th arg `cancelled`
+# selects the cancel path; every other value leaves the existing table byte-
+# identical (fail toward resume, so an un-upgraded caller never suppresses a
+# resume). The cancelled-path rows below are complete by construction — the
+# `*` arm folds the unreadable/auth-failure/unknown classes, closing the class
+# space (adding a class needs no new row here; it inherits the fold). RED
+# pre-change: today's helper ignores a 5th arg, so `interim + cancelled`
+# printed `resume` (the defect).
+assert_eq "#498 decide: ENABLED=false + cancelled -> skip (master switch wins)" "skip" "$(decide266 false interim 0 2 cancelled)"
+assert_eq "#498 decide: interim + cancelled -> flip-cancelled" "flip-cancelled" "$(decide266 true interim 0 2 cancelled)"
+assert_eq "#498 decide: terminal + cancelled -> noop" "noop" "$(decide266 true terminal 0 2 cancelled)"
+assert_eq "#498 decide: unreadable + cancelled -> skip-cancelled" "skip-cancelled" "$(decide266 true unreadable 0 2 cancelled)"
+assert_eq "#498 decide: auth-failure + cancelled -> skip-cancelled" "skip-cancelled" "$(decide266 true auth-failure 0 2 cancelled)"
+assert_eq "#498 decide: unknown class + cancelled -> skip-cancelled (unreadable fold)" "skip-cancelled" "$(decide266 true bogus 0 2 cancelled)"
+# #498 T2 — input shapes: every value other than the exact string `cancelled`
+# falls through to the existing table byte-identical. The compare is case-
+# sensitive (`Cancelled` -> resume), and an exhausted cap still flips on a
+# cancel (the cancel path is taken before the attempts/max comparison, so no
+# resume attempt is consumed by a cancel).
+assert_eq "#498 decide: JOB_STATUS=success -> existing resume arm" "resume" "$(decide266 true interim 0 2 success)"
+assert_eq "#498 decide: JOB_STATUS=failure -> existing resume arm" "resume" "$(decide266 true interim 0 2 failure)"
+assert_eq "#498 decide: JOB_STATUS empty -> existing resume arm" "resume" "$(decide266 true interim 0 2 '')"
+assert_eq "#498 decide: 5th arg absent (4-arg caller) -> existing resume arm" "resume" "$(decide266 true interim 0 2)"
+assert_eq "#498 decide: JOB_STATUS='Cancelled' (case-sensitive) -> existing resume arm" "resume" "$(decide266 true interim 0 2 Cancelled)"
+assert_eq "#498 decide: interim at cap + cancelled -> flip-cancelled (no attempt consumed)" "flip-cancelled" "$(decide266 true interim 2 2 cancelled)"
 decide266 true interim 0 2 >/dev/null 2>&1
 assert_eq "#266 decide: a valid decision exits 0" "0" "$?"
 
@@ -27860,6 +27896,15 @@ assert_eq "#287 wiring: backstop-token mint if: carries the always() guard (mint
   "$(grep -A2 'name: Mint stall-backstop token' "$WF268" | grep -cF "if: \${{ always() && vars.DEVFLOW_APP_ID != '' }}")"
 assert_pin_unique "#268 wiring: CLAUDE_OUTCOME wired from the claude step outcome" \
   'CLAUDE_OUTCOME: ${{ steps.claude.outcome }}' "$WF268"
+# #498 — the cancel signal's PRODUCTION delivery path: the step's `env:` must
+# wire JOB_STATUS from job.status (the documented job-context string). The
+# #268 behavioral harness injects JOB_STATUS directly (it extracts only the
+# `run:` body, not the `env:` block), so WITHOUT this pin a future edit that
+# drops the env: line leaves the suite GREEN while production $JOB_STATUS
+# resolves empty — the decide helper gets an empty 5th arg, the cancel path is
+# never taken, and a cancelled run auto-resumes (the exact defect #498 fixes).
+assert_pin_unique "#498 wiring: JOB_STATUS wired from job.status (the cancel signal's production delivery)" \
+  'JOB_STATUS: ${{ job.status }}' "$WF268"
 # Actions runs run: blocks under bash -e; the step's leading `set +e` is what
 # makes every fallback branch reachable. Assert it inside the step REGION (other
 # steps carry their own set +e, so a whole-file pin cannot be unique) AND run
@@ -27912,6 +27957,13 @@ esac
 STUB
   cat > "$SB268_V/workpad.py" <<'STUB'
 import os, sys
+# Opt-in arg recording (issue #498): when STUB_WP_ARGS is set, append this
+# invocation's argv so the cancelled-flip scenario can assert workpad.py was
+# called with `--status Cancelled`. Existing scenarios leave it unset.
+ap = os.environ.get("STUB_WP_ARGS")
+if ap:
+    with open(ap, "a") as f:
+        f.write(" ".join(sys.argv[1:]) + "\n")
 open(os.environ["STUB_TOUCH"], "w").close()
 out = os.environ.get("STUB_STATUS_OUT", "")
 if out:
@@ -28071,6 +28123,38 @@ STUB
   SB268_RC=$?
   assert_eq "#268 behavior: unrecognized enabled value ('False') stays enabled (status read ran)" "0:yes" \
     "$SB268_RC:$([ -f "$SB268_DIR/status-touched" ] && echo yes || echo no)"
+  # #498 — cancelled-run exclusion (issue #498). The step's `env: JOB_STATUS` is
+  # injected here (the harness extracts only the `run:` body, so the env: block is
+  # supplied via the harness env). A cancelled run with an interim workpad takes
+  # the flip-cancelled arm: exit 0, NO comment posted (no audit marker, no
+  # diagnostic), no resume attempt consumed, and the workpad is flipped to
+  # --status Cancelled. RED pre-change: today's step + helper ignored JOB_STATUS,
+  # so this posted the resume comment (the defect captured in the 2.1.5 repro).
+  SB268_WP_ARGS="$SB268_DIR/wp-args"; rm -f "$SB268_WP_ARGS"
+  sb268_run env JOB_STATUS=cancelled STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_WP_ARGS="$SB268_WP_ARGS"
+  SB268_RC=$?
+  assert_eq "#498 behavior: interim + cancelled -> flip-cancelled exit 0 (no resume attempt consumed)" "0" "$SB268_RC"
+  assert_eq "#498 behavior: interim + cancelled -> NO comment posted" "no" \
+    "$([ -f "$SB268_POST" ] && echo yes || echo no)"
+  assert_eq "#498 behavior: interim + cancelled -> workpad flipped to --status Cancelled" "yes" \
+    "$(grep -qF -- '--status Cancelled' "$SB268_WP_ARGS" && echo yes || echo no)"
+  # Sibling row (the suppression claim is pinned with the suppressed input present
+  # on one side and absent on the other): a NON-cancelled interim run still takes
+  # the resume arm and posts the resume comment, byte-identical to pre-change.
+  sb268_run env JOB_STATUS=success STUB_STATUS_OUT="interim 🚀 Reviewing"
+  SB268_RC=$?
+  assert_eq "#498 behavior: interim + JOB_STATUS=success -> resume still posts (suppression scoped to 'cancelled')" "0:yes" \
+    "$SB268_RC:$(grep -qF 'devflow:stall-backstop-audit' "$SB268_POST" && grep -qF '/devflow:implement 5' "$SB268_POST" && echo yes || echo no)"
+  # skip-cancelled (unreadable class on a cancel): logs and exits green — no
+  # fail-loud diagnostic comment, and no flip (the guard is CLASS=interim, this
+  # was unreadable). The decide helper maps unreadable+cancelled -> skip-cancelled.
+  rm -f "$SB268_WP_ARGS"; rm -f "$SB268_POST"
+  sb268_run env JOB_STATUS=cancelled STUB_STATUS_RC=2 STUB_WP_ARGS="$SB268_WP_ARGS"
+  SB268_RC=$?
+  assert_eq "#498 behavior: unreadable + cancelled -> skip-cancelled exit 0 (no diagnostic comment)" "0:no" \
+    "$SB268_RC:$([ -f "$SB268_POST" ] && echo yes || echo no)"
+  assert_eq "#498 behavior: unreadable + cancelled -> no flip (guard is CLASS=interim, this was unreadable)" "no" \
+    "$(grep -qF -- '--status Cancelled' "$SB268_WP_ARGS" && echo yes || echo no)"
   rm -rf "$SB268_DIR"; rm -f "$SB268_RUN"
 else
   printf '  SKIP  #268 behavior: python3+PyYAML unavailable — extraction test skipped (content pins above still ran)\n'
@@ -28102,12 +28186,27 @@ WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflo
 assert_eq "#266 workpad.py status: Complete -> 'terminal 🎉 Complete'" "terminal 🎉 Complete" "$WP266_OUT"
 WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 👎 Blocked"}]' python3 "$WP266_PY" status 5 2>/dev/null)"
 assert_eq "#266 workpad.py status: Blocked -> 'terminal 👎 Blocked'" "terminal 👎 Blocked" "$WP266_OUT"
+WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🛑 Cancelled"}]' python3 "$WP266_PY" status 5 2>/dev/null)"
+assert_eq "#498 workpad.py status: Cancelled -> 'terminal 🛑 Cancelled'" "terminal 🛑 Cancelled" "$WP266_OUT"
 WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🚀 Reviewing"}]' python3 "$WP266_PY" status 5 2>/dev/null)"
 assert_eq "#266 workpad.py status: Reviewing -> 'interim 🚀 Reviewing'" "interim 🚀 Reviewing" "$WP266_OUT"
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
 assert_eq "#266 workpad.py status: no workpad -> exit 2" "2" "$?"
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\nno status line here"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
 assert_eq "#266 workpad.py status: present but unreadable Status -> exit 1" "1" "$?"
+# #498 — idempotency: re-applying --status Cancelled to an already-🛑 status
+# strips the prior glyph and prepends exactly one (the update path's idempotency
+# contract, same as every existing status word).
+WP498_IDEM="$(python3 - "$WP266_PY" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('wp', sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+g = m._status_glyph('Cancelled')                                  # 🛑
+g2 = m._status_glyph(m._strip_status_glyph(g + ' Cancelled'))     # re-apply -> still 🛑
+print('ok' if g == '🛑' and g2 == '🛑' else 'FAIL')
+PY
+)"
+assert_eq "#498 workpad.py: --status Cancelled is idempotent (one glyph on re-apply)" "ok" "$WP498_IDEM"
 
 # #287 — a gh-api/transport/auth failure (here a non-zero gh) must exit 3,
 # kept DISTINCT from exit 1 (content-shape: unparseable/absent/unrecognized) and
@@ -28735,6 +28834,32 @@ assert_pin_unique "#408 devflow-yml: manual-path fresh backstop-token mint step 
   "id: backstop-token" "$WFD408"
 assert_eq "#408 devflow-yml: manual-path mint gated on the dead-run trigger + DEVFLOW_APP_ID" "1" \
   "$(grep -cF "(steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') && vars.DEVFLOW_APP_ID != '' }}" "$WFD408")"
+# #498 — review-tier exclusion regression pins (issue #498 AC6). The two review-
+# tier backstops already exclude cancellation at source (the #408 pins above
+# assert the source-text exclusions); these two behavioral-fix pins prove the
+# exclusion catches a resume-on-cancel regression. Each is carried with
+# assert_pin_red_under: a sed -E mutation that re-introduces resume-on-cancel
+# keying is run and the pin observed RED under it. They guard the source-text
+# exclusion (no backstop keys its resume decision on a cancelled run's stall
+# signature); they do not claim to close the accepted latched-signal race
+# documented in the issue's Desired Behavior.
+# Pin A — devflow.yml's `Review stall backstop` `if:` re-trigger condition
+# contains the is_error/failure disjuncts and NO cancellation trigger. The
+# mutation adds a cancelled disjunct (resume-on-cancel keying); the dead-run
+# literal is then absent from the backstop step's if: → PASS->FAIL.
+assert_pin_red_under "#498 devflow-yml: Review stall backstop if: excludes cancellation (dead-run trigger only, no cancelled disjunct)" \
+  "(steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') }}" \
+  "s/steps\\.claude\\.outcome == 'failure'\\)/steps.claude.outcome == 'failure' || steps.claude.outcome == 'cancelled')/" \
+  "$WFD408"
+# Pin B — devflow-review.yml emits backstop_eligible=true ONLY in the incomplete
+# arm (a second emission — e.g. on the cancelled|skipped arm — would resume a
+# cancelled review run). The mutation adds a second backstop_eligible=true
+# emission to the cancelled arm (resume-on-cancel keying); the literal is then
+# no longer unique → PASS->FAIL.
+assert_pin_red_under "#498 review-yml: backstop_eligible=true emitted once (only the incomplete arm — a second emission would resume a cancelled run)" \
+  'echo "backstop_eligible=true" >> "$GITHUB_OUTPUT"' \
+  's#flip_review "review job cancelled"#echo "backstop_eligible=true" >> "$GITHUB_OUTPUT"; flip_review "review job cancelled"#' \
+  "$WFR408"
 # Fix A consumer-side breadcrumb selection now lives in the shared helper (issue #414),
 # driven in the #414 block below for both the manual and auto-review paths.
 
