@@ -31,8 +31,9 @@
 #   * DEFERS untouched when env GH_TOKEN's hash DIFFERS from the fingerprint (a
 #     deliberately fresh mint: the #287 stall/review backstops), and
 #   * also DEFERS — with a breadcrumb, never silently — when the comparison cannot
-#     be established (the fingerprint file is unreadable, or no sha256 tool is on
-#     PATH), failing toward not clobbering a deliberately-fresh backstop mint.
+#     be established (the fingerprint file is unreadable, or no hash method works:
+#     python3 first, then sha256sum/shasum), failing toward not clobbering a
+#     deliberately-fresh backstop mint.
 # It DEGRADES to a plain invocation — with a stderr breadcrumb, never silently —
 # when the substitute decision was taken but the token file is absent/empty, and on
 # a bad-credential failure (whichever path) appends one distinctive diagnostic line
@@ -90,7 +91,23 @@ resolve_real_gh() {
 }
 
 sha256_of() {
-  # macOS has shasum; ubuntu-hosted runners have sha256sum. Prefer sha256sum.
+  # python3 first (the preflight-guaranteed hash method — writer/reader symmetry
+  # with install-gh-wrapper.sh, issue #544): sha256sum/shasum + awk are not
+  # PATH-guaranteed on every runner, and before this convergence a hash-tool-less
+  # host silently degraded every fingerprinted call to the defer arm. The value is
+  # captured and checked non-empty before printing, so a python3 that is present
+  # but crashes mid-write falls through to the tool arms instead of emitting a
+  # partial hash. sha256sum (ubuntu runners) and shasum (macOS) stay as fallbacks;
+  # only when no method works at all does this return 1 (decide()'s disclosed
+  # could-not-establish defer arm — a preserved outcome, not a new one).
+  local h
+  if command -v python3 >/dev/null 2>&1; then
+    if h="$(printf '%s' "$1" | python3 -c 'import hashlib,sys; sys.stdout.write(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())' 2>/dev/null)" \
+       && [ -n "$h" ]; then
+      printf '%s' "$h"
+      return 0
+    fi
+  fi
   if command -v sha256sum >/dev/null 2>&1; then
     printf '%s' "$1" | sha256sum | awk '{print $1}'
   elif command -v shasum >/dev/null 2>&1; then
@@ -113,13 +130,13 @@ decide() {
   fp="$(cat "$FINGERPRINT_FILE" 2>/dev/null || true)"
   cur="$(sha256_of "$GH_TOKEN" 2>/dev/null || true)"
   # Could-not-establish the comparison (fingerprint file unreadable, or no
-  # sha256sum/shasum/awk to hash with) must NOT collapse silently onto the defer
+  # working hash method — python3/sha256sum/shasum) must NOT collapse silently onto the defer
   # path — a buried defer would ride the possibly-expired ambient token, the exact
   # failure this wrapper prevents. Fail toward NOT clobbering a deliberately-fresh
   # #287 backstop mint (defer), but emit a breadcrumb so the state is visible;
   # the two-strikes fail-fast rule then catches a genuinely-expired token.
   if [ -z "$fp" ] || [ -z "$cur" ]; then
-    printf 'devflow-gh-fresh: could not establish the job-start fingerprint comparison (fingerprint file unreadable or no sha256 tool on PATH); deferring to the ambient GH_TOKEN — if that is the expired job-start token, gh will 401 and the fail-fast rule applies.\n' >&2
+    printf 'devflow-gh-fresh: could not establish the job-start fingerprint comparison (fingerprint file unreadable, or no working hash method — python3/sha256sum/shasum); deferring to the ambient GH_TOKEN — if that is the expired job-start token, gh will 401 and the fail-fast rule applies.\n' >&2
     return 1
   fi
   [ "$cur" = "$fp" ]

@@ -57,6 +57,10 @@ fail() { printf 'install-gh-wrapper: %s\n' "$1" >&2; exit 1; }
 # "the real gh" — the recursion this absolute capture exists to prevent. Tests
 # steer this lookup with a PATH stub, the same seam production uses.
 REAL_GH="$(command -v gh 2>/dev/null || true)"
+# The [ -x ] half is defense-in-depth with no drivable test seam: bash's PATH
+# search returns only executable regular files (a non-executable file or a
+# directory named gh is skipped, rc 1 — verified empirically), so this arm can
+# fire only on a permission flip between resolution and test.
 [ -n "$REAL_GH" ] && [ -x "$REAL_GH" ] \
   || fail "output 1/7 FAILED: no executable real gh resolved (real-gh-resolve)"
 
