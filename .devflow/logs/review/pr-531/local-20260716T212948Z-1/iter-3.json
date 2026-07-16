@@ -1,0 +1,56 @@
+{
+  "iter": 3,
+  "source": "review-and-fix",
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "started_at": "2026-07-16T22:45:00Z",
+  "fix_commit_sha": "33bda226",
+  "fix_files": [
+    "scripts/verification_baseline.py",
+    "scripts/export-workflow-lifecycle-census.py",
+    "lib/test/test_verification_baseline.py"
+  ],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": true, "engine_self_modifying": true, "detect_all_audit": false, "checklist_skipped": "promoted"},
+  "note": "Promoted from iteration 2's convergence shadow. Fixed a class of wrong-shape/wrong-assumption field reads (host_profile {value,source} dicts, skipped-job started_at) + a class-completion (HEAD word boundary) + made the test fixture realistic to remove the masking mechanism.",
+  "phase3_findings_promoted": [
+    {"from_agent": "devflow:type-design-analyzer", "severity": "Important", "id": "H3", "description": "host_profile reads {value,source} dicts as str -> stratify dims permanently None", "fix_decision": "applied"},
+    {"from_agent": "devflow:silent-failure-hunter+requesting-code-review", "severity": "Important", "id": "H2", "description": "_workspace_state HEAD 'head ' matches 'ahead of' (class-completion miss)", "fix_decision": "applied", "corroboration_count": 2},
+    {"from_agent": "devflow:silent-failure-hunter", "severity": "Important", "id": "H1", "description": "build_cloud_census 'or bool(started_at)' re-admits skipped job", "fix_decision": "applied"},
+    {"from_agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "id": "attempt-coverage", "description": "cloud census latest-attempt-only under-count", "fix_decision": "applied (recorded attempt_coverage='latest_only')"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "H1", "decision": "applied", "commit": "33bda226"},
+    {"finding_id": "H2", "decision": "applied", "commit": "33bda226"},
+    {"finding_id": "H3", "decision": "applied", "commit": "33bda226"},
+    {"finding_id": "attempt-coverage", "decision": "applied", "commit": "33bda226"},
+    {"finding_id": "eligible-lifecycles-label", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "eligible_lifecycles headline counts all census rows incl ineligible/unknown", "skip_category": "advisory-parked", "evidence": "Suggestion. The accurate confirmed/provisional/ineligible split exists in eligibility_state_bounds alongside. Renaming the public field ripples into docs/schema; a deliberate naming decision, not a bug. Parked."},
+    {"finding_id": "single-launch-confidence", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "single-launch groups marked CONFIDENCE_EXACT inflate join_confidence_distribution", "skip_category": "advisory-parked", "evidence": "Suggestion. Changing it alters the CONFIDENCE_CLASSES enum cardinality (pinned) or the distribution; a deliberate design decision. Parked (distinct from the iter-4 cross-session collision, which IS fixed)."},
+    {"finding_id": "select-root-occurrence-fallback", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "_select_root_occurrence falls back to occurrences[0] even if not top-level", "skip_category": "advisory-parked", "evidence": "Suggestion, low impact (still cites source-event IDs). Parked."},
+    {"finding_id": "runs-multipage-test", "decision": "deferred", "source_file": "lib/test/test_verification_baseline.py", "claim_text": "runs-endpoint multi-page pagination untested (jobs is)", "skip_category": "uncategorized", "evidence": "test_gap. The runs loop is symmetric to the tested jobs loop; low-value. Follow-up."}
+  ],
+  "step_3_5_gate": {"result": "clean", "reviewer": "blinded general-purpose", "critical_important": 0, "note": "Verified all 3 Important fixes correct; swept the manifest-read surface confirming H3 closes the whole wrong-shape-read class; tests non-vacuous."},
+  "verification_evidence": {"command": "bash lib/test/run.sh", "result": "pass", "duration_s": 190, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "dirty tree at run time; runs clean in CI"}]},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {"phase_3_shadow_input": {"calls": 6, "tokens": 800000}, "step_3_5": {"calls": 1, "tokens": 85000}, "step_2_6": {"calls": 6, "tokens": 840000}},
+  "shadow": {
+    "ran_at": "2026-07-16T23:10:00Z",
+    "trigger": "convergence-time (post-iteration-3)",
+    "reviewed_sha": "33bda226",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "phase3_findings": [
+      {"agent": "devflow:type-design-analyzer", "severity": "Important", "id": "I1", "description": "lifecycle_id = session-local occurrence_id used as GLOBAL join key -> cross-session same-command launches collapse into one lifecycle, fabricating transport-retry candidates from independent reruns", "new_vs_prior": true},
+      {"agent": "devflow:requesting-code-review", "severity": "Important", "id": "I4", "description": "chained-command taxonomy false-positive: 'cat run.sh && echo' counted as verification (regression from iter-2 chaining fix)", "new_vs_prior": true},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "id": "I2", "description": "_gh_json OSError/timeout branch swallows gh-not-found silently (asymmetric with sibling breadcrumbs)", "new_vs_prior": true},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "id": "I5", "description": "_exit_evidence bare exit/rc over-match ('will exit 5 minutes' -> exit_code 5)", "new_vs_prior": true},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "id": "I6", "description": "doc 'matching pre/post workspace_state' overstates (lifecycle-scoped, no per-launch before/after)", "new_vs_prior": true}
+    ],
+    "comparison": {"shadow_total": 13, "overlap_with_iter_3": 0, "new": 13, "new_critical": 0, "new_important": 2},
+    "over_grade_gate": "I1 (fabricates false retry evidence) and I4 (inflates launch count) both silently corrupt the measurement, not fail-closed stops; Important grade holds. code-reviewer clean; comment-analyzer no falsehoods; SFH + pr-test confirm iter-3 fixes hold. Important-count trend across shadows: 3 -> 3 -> 2 (decreasing; I4 is a self-introduced regression, I1 the final deep bug).",
+    "promoted_to_iter_next": true
+  }
+}
