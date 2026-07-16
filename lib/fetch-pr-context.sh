@@ -248,6 +248,10 @@ fi
 WORKPAD_BODY="$(echo "$ISSUE_COMMENTS_RAW" | "$DEVFLOW_JQ" -r '[.[] | select((.body // "") | test("<!-- devflow:workpad -->"; "i"))] | first | .body // ""')"
 WORKPAD_FINAL_STATUS=""
 REFLECTIONS="[]"
+# reflections_friction_count: the number of reflection bullets that force LLM
+# analysis (every kind EXCEPT the informational `note`). Defaulted to 0 for a
+# workpad-less bundle; recomputed by the parser below when a workpad is present.
+REFLECTION_FRICTION_COUNT=0
 if [ -n "$WORKPAD_BODY" ]; then
     # Extract the value after "**Status:** <glyph> <word>" / "Status: <word>".
     # workpad.py prepends a canonical glyph (🚀/🎉/👎/💥/🛑) to the status word, so the
@@ -280,10 +284,27 @@ if [ -n "$WORKPAD_BODY" ]; then
     # <details> block (excluding the <summary> scaffold). Parsed in python3 (a
     # hard dependency) over the env-passed body — no shell quoting traverses the
     # markdown, and metacharacters (backticks, $) in a bullet survive intact.
-    REFLECTIONS="$(DEVFLOW_WORKPAD_BODY="$WORKPAD_BODY" python3 - <<'PYEOF'
+    #
+    # The parser also derives `friction_count`: the number of bullets that force
+    # LLM analysis. Exempt-list semantics — a bullet is exempt ONLY when it is a
+    # `note`-kind bullet (leading glyph `ℹ️`) rendered under the `### ℹ️ Notes`
+    # sub-section; EVERY other bullet is friction (an `issue-accuracy` `📝` bullet
+    # sharing that section, an `### ⚠️ Action required` / `### 💡 Improvements`
+    # bullet, a bullet under an unrecognized `### ` heading, and any bullet before
+    # a `### ` heading — all fail closed to friction so a future taxonomy section
+    # cannot silently become non-friction). The `### ℹ️ Notes` heading literal and
+    # the `ℹ️`/`📝` glyphs are a COUPLED INVARIANT hard-copied from
+    # scripts/workpad.py's `_REFLECTION_SUBSECTIONS` / `_REFLECTION_KINDS` (this
+    # inline heredoc cannot `import` workpad.py); lib/test/run.sh pins the couple.
+    # The output is a JSON object {reflections, friction_count}; `reflections` keeps
+    # its existing flat-string-array shape and contents byte-for-byte.
+    REFLECTION_PARSE="$(DEVFLOW_WORKPAD_BODY="$WORKPAD_BODY" python3 - <<'PYEOF'
 import os, re, json
 body = os.environ.get('DEVFLOW_WORKPAD_BODY', '')
-out, in_section = [], False
+# Coupled with scripts/workpad.py _REFLECTION_SUBSECTIONS / _REFLECTION_KINDS.
+NOTES_HEADING = '### ℹ️ Notes'
+NOTE_GLYPH = 'ℹ️'
+out, friction, in_section, cur_heading = [], 0, False, None
 for raw in body.split('\n'):
     line = raw.rstrip('\r')
     if re.match(r'^##\s+Devflow Reflection\s*$', line):
@@ -294,6 +315,8 @@ for raw in body.split('\n'):
     # End of the reflection region: the closing </details>, or the next
     # `## ` heading (degrade gracefully when </details> is missing — malformed
     # block must not detonate the parse or swallow the rest of the comment).
+    # NOTE: a `### ` sub-heading is `##`+`#`, so it never matches `^##\s+\S` and
+    # is not a region terminator — it is captured as the current sub-section below.
     if '</details>' in line:
         break
     if re.match(r'^##\s+\S', line):
@@ -301,18 +324,37 @@ for raw in body.split('\n'):
     # Skip the <details>/<summary> scaffold lines.
     if '<details' in line or '<summary' in line or '</summary>' in line:
         continue
+    # Track the current `### ` sub-section heading (drives the friction split).
+    h = re.match(r'^\s*(###\s+.*\S)\s*$', line)
+    if h:
+        cur_heading = h.group(1)
+        continue
     m = re.match(r'^\s*[-*]\s+(.*\S)\s*$', line)
     if m:
-        out.append(m.group(1))
-print(json.dumps(out))
+        text = m.group(1)
+        out.append(text)
+        # Exempt ONLY a note-kind bullet (ℹ️) under the `### ℹ️ Notes` heading;
+        # everything else — including an issue-accuracy 📝 bullet in that same
+        # section — is friction.
+        exempt = (cur_heading == NOTES_HEADING and text.lstrip().startswith(NOTE_GLYPH))
+        if not exempt:
+            friction += 1
+print(json.dumps({"reflections": out, "friction_count": friction}))
 PYEOF
 )"
     # Guard against a python hiccup leaving an empty/invalid value that would
-    # break the later `--slurpfile reflections`.
-    if ! printf '%s' "$REFLECTIONS" | "$DEVFLOW_JQ" -e . >/dev/null 2>&1; then
+    # break the later `--slurpfile reflections` / `--argjson`. The guard requires
+    # BOTH keys so a partial/garbage payload fails closed to zero-reflections; the
+    # friction field then reads 0, and cheap-gate's own absent-field fallback
+    # (legacy "any reflection trips") no longer applies since reflections is [].
+    if ! printf '%s' "$REFLECTION_PARSE" | "$DEVFLOW_JQ" -e 'has("reflections") and has("friction_count")' >/dev/null 2>&1; then
         echo "::warning::fetch-pr-context: reflection parse produced no valid JSON for PR ${PR}; defaulting to []" >&2
-        REFLECTIONS="[]"
+        REFLECTION_PARSE='{"reflections":[],"friction_count":0}'
     fi
+    REFLECTIONS="$(printf '%s' "$REFLECTION_PARSE" | "$DEVFLOW_JQ" -c '.reflections')"
+    REFLECTION_FRICTION_COUNT="$(printf '%s' "$REFLECTION_PARSE" | "$DEVFLOW_JQ" -r '.friction_count')"
+    # Defensive: never let an empty derivation poison the later `--argjson`.
+    case "$REFLECTION_FRICTION_COUNT" in ''|*[!0-9]*) REFLECTION_FRICTION_COUNT=0 ;; esac
 fi
 
 # ttm_hours: (merged_at - created_at) in decimal hours
@@ -483,6 +525,7 @@ printf '%s' "$IMPLEMENT_SUMMARY_JSON"   > "$_JQ_TMP/implement_summary_comment.js
     --argjson ci_failures_during_pr "$CI_FAILURES" \
     --argjson ci_status_unknown "$CI_STATUS_UNKNOWN" \
     --arg workpad_final_status "$WORKPAD_FINAL_STATUS" \
+    --argjson reflections_friction_count "$REFLECTION_FRICTION_COUNT" \
     --argjson ttm_hours "$TTM_HOURS" \
     '{
         pr: $pr,
@@ -511,6 +554,7 @@ printf '%s' "$IMPLEMENT_SUMMARY_JSON"   > "$_JQ_TMP/implement_summary_comment.js
         commits: $commits[0],
         workpad_body: $workpad_body[0],
         reflections: $reflections[0],
+        reflections_friction_count: $reflections_friction_count,
         review_verdicts: $review_verdicts[0],
         implement_summary_comment: $implement_summary_comment[0],
         signals: {

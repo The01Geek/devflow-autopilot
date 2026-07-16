@@ -18,10 +18,23 @@
 #                                          superseded by a later APPROVE
 #     ci_status_unknown         <bool>   — true if CI check-runs could not be read
 #                                          (fail-safe: such a PR is never "clean")
-#   plus one TOP-LEVEL field (sibling of .signals), defaulted to [] when absent
-#   (older bundles predate it):
+#   plus two TOP-LEVEL fields (siblings of .signals):
 #     reflections               <array>  — the workpad's `## Devflow Reflection`
-#                                          bullets; non-empty ⇒ forces analysis
+#                                          bullets (flat string array; defaulted
+#                                          to [] when absent — older bundles).
+#     reflections_friction_count <int|absent> — how many of those bullets are
+#                                          FRICTION (every reflection kind EXCEPT
+#                                          the informational `note`). Only friction
+#                                          forces analysis: a run whose reflections
+#                                          are all `note`-kind is treated as clean.
+#                                          Emitted by fetch-pr-context.sh. When
+#                                          ABSENT (an older bundle, or a bundle
+#                                          whose emission failed) the gate FAILS
+#                                          CLOSED — it falls back to the legacy
+#                                          "any reflection trips" behavior
+#                                          (reflections | length > 0), so a missing
+#                                          signal over-analyzes, never silently
+#                                          skips a friction PR.
 #
 # Output:
 #   One compact JSON object:
@@ -34,19 +47,27 @@
 #     • post_bot_commits         == 0
 #     • review_comments_count    == 0
 #     • workpad_final_status     is "Complete", "", or null
-#     • reflections              is empty (no `## Devflow Reflection` bullets)
+#     • no FRICTION reflections  (reflections_friction_count == 0; or, when that
+#                                 field is absent, reflections is empty)
 #
 #   "reason" names the FIRST failing check when clean=false, or
 #   "all clean signals" when clean=true. Check order matches the priority
 #   used in the LLM triage prompt (most-blocking first). The reflection check
-#   is last: a run that left a friction bullet on its workpad is forced into
+#   is last: a run that left a FRICTION bullet on its workpad is forced into
 #   LLM analysis even when every other signal is clean — that self-reported
-#   friction is exactly the signal the retrospective exists to learn from.
-#   `reflections` is a top-level bundle field (sibling of .signals), so it is
-#   read directly and defaulted to [] when absent (older bundles lack it).
+#   friction is exactly the signal the retrospective exists to learn from. A run
+#   whose only reflections are informational `note`-kind bullets is NOT friction
+#   and is treated as clean (the note is still recorded verbatim by
+#   clean-entry.jq). `reflections` and `reflections_friction_count` are top-level
+#   bundle fields (siblings of .signals), read directly.
 
 .signals as $s
 | ((.reflections // []) | length) as $reflection_count
+# Fail closed: when the friction field is ABSENT (null — an older bundle or a
+# failed emission), fall back to the legacy "any reflection trips" count so a
+# missing signal over-analyzes rather than reading as zero friction.
+| (if (.reflections_friction_count == null) then $reflection_count
+   else .reflections_friction_count end) as $friction_count
 | (($s.workpad_final_status == "Complete")
    or ($s.workpad_final_status == "")
    or ($s.workpad_final_status == null)) as $workpad_ok
@@ -57,6 +78,6 @@
   elif $s.post_bot_commits        > 0             then { clean: false, reason: "human commits after the bot" }
   elif $s.review_comments_count   > 0             then { clean: false, reason: "review comments present" }
   elif ($workpad_ok | not)                        then { clean: false, reason: "workpad status not Complete" }
-  elif $reflection_count          > 0             then { clean: false, reason: "workpad reflections present" }
+  elif $friction_count            > 0             then { clean: false, reason: "friction reflections present" }
   else                                                 { clean: true,  reason: "all clean signals" }
   end

@@ -26,6 +26,15 @@
   categories: [],
   descriptors: [],
   signals: .signals,
-  summary: "PR merged with no review comments, no outstanding /review REJECT, no substantive human commits after the bot, no CI failures, and a Complete workpad — no retrospective signal.",
+  # Record the workpad's reflection bullets verbatim (additive field). A PR reaches
+  # the clean path with a non-empty `reflections` only when every bullet is an
+  # informational `note`-kind (non-friction) one — cheap-gate.jq exempts exactly
+  # those — so preserving them here keeps an exempted note in the learnings instead
+  # of dropping it. Byte-for-byte the bundle's flat string array; [] when absent.
+  reflections: (.reflections // []),
+  summary: (if ((.reflections // []) | length) > 0
+    then "PR merged with no review comments, no outstanding /review REJECT, no substantive human commits after the bot, no CI failures, and a Complete workpad; recorded informational reflection note(s) with no analysis-forcing friction."
+    else "PR merged with no review comments, no outstanding /review REJECT, no substantive human commits after the bot, no CI failures, and a Complete workpad — no retrospective signal."
+    end),
   suggested_interventions: []
 }
