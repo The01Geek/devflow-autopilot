@@ -20,7 +20,7 @@ import tempfile
 from typing import Any, Literal
 
 
-# The closed sets these two fields may hold. analyze-workflow-runs.py re-validates
+# The closed set of values each field may hold. analyze-workflow-runs.py re-validates
 # OccurrenceMode when reading a bundle back, since a bundle on disk is untrusted input.
 OccurrenceMode = Literal["top-level", "nested"]
 BoundaryConfidence = Literal["unknown", "exact", "approximate"]
