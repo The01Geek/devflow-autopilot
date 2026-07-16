@@ -70,6 +70,9 @@ devflow_render_report() {
     recurring_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.recurring_targets // []) | length')"
     if [ "$recurring_n" -gt 0 ]; then
         printf '\n## Recurring intervention targets\n\n'
+        # recurring-targets.jq already emits this order; the sort mirrors its
+        # canonical key so render-report stays self-contained (like the patterns
+        # section) and never depends on the caller pre-sorting the array.
         echo "$summary_json" | "$DEVFLOW_JQ" -r '
             (.recurring_targets // [])
             | sort_by([-(.pr_count // 0), .target])[]

@@ -38,7 +38,7 @@
 # representative-summary tiebreak (ascending pr, then intervention order) is stable.
 def pairs:
   [ .[]
-    | select((.pr // null) != null)
+    | select(.pr != null)
     | .pr as $pr
     | (.suggested_interventions // [])[]
     | (.summary // "") as $summary
