@@ -94,8 +94,9 @@ IMPL_PHASE_STEMS="phase-1-setup phase-2-implement phase-3-review phase-4-documen
 _bundle_member_usable() { [ -r "$1" ] && [ -s "$1" ]; }
 # Shared fail-closed bundle builder (#529). Factored so the implement bundle and the
 # review bundle cannot drift: a replica would inevitably lose one of the hardening
-# properties the header above promises (guarded mktemp, per-member usability, a
-# CHECKED `cat` rc, a newline separator). Members are passed as an array so a
+# properties the header above promises (per-member usability, a CHECKED `cat` rc,
+# a newline separator). The mktemp guard stays at each call site by design — the
+# builder takes a pre-allocated out-file and cannot name the caller's variable. Members are passed as an array so a
 # checkout path containing a space is preserved rather than word-split.
 #   _build_skill_bundle <label> <out-file> <member>...
 _build_skill_bundle() {
@@ -30676,9 +30677,10 @@ assert_eq "#375 pin-corpus-lint helper exists" "yes" "$([ -f "$PCL" ] && echo ye
 # Runtime-resolved target-file bindings the static scanner cannot derive itself: DEF_SKILL /
 # IMPL_SKILL_BUNDLE are the mktemp'd implement-skill bundle (markdown, no extension → --md);
 # the $LIB-relative ones the helper resolves on its own, but binding them explicitly is harmless.
-_PCL_ARGS=( --lib "$LIB" --md "$DEF_SKILL"
+_PCL_ARGS=( --lib "$LIB" --md "$DEF_SKILL" --md "$IMPL_SKILL_BUNDLE" --md "$REVIEW_BUNDLE"
   --var "MAXI_SKILL=$MAXI_SKILL" --var "DEF_SKILL=$DEF_SKILL"
   --var "IMPL_SKILL_BUNDLE=$IMPL_SKILL_BUNDLE"
+  --var "REVIEW_BUNDLE=$REVIEW_BUNDLE" --var "REVIEW_ROOT=$REVIEW_ROOT"
   --var "ST_RAF=$ST_RAF" --var "ST_REV=$ST_REV" --var "ST_RCV=$ST_RCV" )
 # (1) Real corpus: no pin literal collides with a comment of its target; a collision here is a
 # real defect to fix in this same PR (issue #375 AC). The scanner reports every unresolvable
@@ -31017,6 +31019,23 @@ inline Implement (shared engine, per-agent prompts)|defect_signature|phase-3-age
 blocker (0.3.6 fast path)|Blocker-recheck fast path|phase-0-3-6-blocker-recheck
 stale-prose (0.6 lint + 4.1.7 adjudication)|Stale counted-prose lint|phase-0-6-stale-prose-lint
 PRESSURE
+# Every registered reference must be routed from the root — not just the five the
+# scenario table happens to name. A reference the root never routes to is dead text:
+# the file exists, the dir-reconciliation passes, its contracts still sit in the
+# bundle and still count toward the budget, yet no pass would ever load it. The
+# scenario rows above prove the CONTRACTS survive; this proves every FILE is reachable.
+# Assert the ROUTING TABLE row, not the bare path: the AC7 hash fence also names every
+# `phases/<stem>.md`, so a `grep -qF "phases/<stem>.md"` matches that fence and stays
+# GREEN with the routing row deleted — vacuous, and the very defect this closes. The
+# routing table spells each reference in backticks, so pin that form and require the
+# hash fence separately (both must name every reference, for different reasons).
+for _s in $REVIEW_PHASE_STEMS; do
+  assert_eq "#529 AC15 pressure: ${_s}.md has a ROUTING TABLE row in the root (an unrouted reference is dead text)" "yes" \
+    "$(grep -qF '`'"${_s}.md"'`' "$REVIEW_ROOT" && echo yes || echo no)"
+  assert_eq "#529 AC7: ${_s}.md is named in the root's bundle-identity hash fence" "yes" \
+    "$(grep -qF "phases/${_s}.md" "$REVIEW_ROOT" && echo yes || echo no)"
+done
+
 # The two scenarios the ROOT itself must decide (they pick which reference runs, so
 # their routing rule cannot live in a reference — that would be unreachable).
 assert_pin_unique "#529 AC15 pressure: the root routes 4.4 as standalone-only (review-and-fix skips it)" \
@@ -31038,7 +31057,7 @@ assert_pin_unique "#529 AC15 pressure: the root binds shadow entry to the identi
 for _s in $REVIEW_PHASE_STEMS; do
   _rbf="$LIB/../skills/review/phases/${_s}.md"
   # The check is structural — exactly one start as line 1 and one end as line N, each
-  # naming THIS file — which is what the runtime table's rows 3-7 assert on disk.
+  # naming THIS file — which is what the runtime table's marker rows assert on disk.
   assert_eq "#529 AC6 desk: ${_s}.md start marker is the literal FIRST line and names its own path" "yes" \
     "$(head -1 "$_rbf" | grep -qF -- "<!-- devflow:review-ref phase=" \
         && head -1 "$_rbf" | grep -qF -- "file=skills/review/phases/${_s}.md start -->" && echo yes || echo no)"
@@ -31053,10 +31072,26 @@ assert_eq "#529 AC2: the split is at least 25,327 words below the 33,827 baselin
   "$([ "$((33827 - RB_ROOT_W - RB_EXT_W))" -ge 25327 ] && echo yes || echo no)"
 assert_eq "#529 AC3: the default per-pass unique path is within the 28,700-word ceiling" "yes" \
   "$([ "$RB_DEFAULT_W" -le 28700 ] && echo yes || echo no)"
-# Anti-vacuity: the ceilings above are only meaningful if the measurement is real.
-# A typo'd path would make `cat` emit nothing and every ceiling pass at 0 words.
-assert_eq "#529 the budget measurement is real (a mis-measured 0-word path cannot pass the ceilings)" "yes" \
-  "$([ "$RB_DEFAULT_W" -gt 20000 ] && [ "$RB_ROOT_W" -gt 1000 ] && echo yes || echo no)"
+# Anti-vacuity: the ceilings above are only meaningful if every operand was really
+# measured. `cat` SKIPS an unreadable member and keeps going, so a wrong path does
+# NOT zero the count — it merely shrinks it, and a ceiling then passes MORE easily
+# on an under-measurement. A magic floor cannot catch that (dropping the largest
+# default member still cleared 20,000), and RB_EXT_W is consumed only inside `$(( ))`,
+# where an empty value silently becomes 0. So check each operand at its source
+# instead: every member usable and word-bearing, and the member set the expected size.
+assert_eq "#529 every budget operand was really measured (no member silently skipped)" "yes" \
+  "$(_rb_ok=yes
+     for _m in "${_rb_default[@]}"; do
+       _bundle_member_usable "$_m" || _rb_ok=no
+       [ "$(wc -w < "$_m" 2>/dev/null | tr -d ' ')" -gt 0 ] 2>/dev/null || _rb_ok=no
+     done
+     printf '%s' "$_rb_ok")"
+assert_eq "#529 the default-path member set is the expected size (root + ext + 6 non-gated)" "8" \
+  "${#_rb_default[@]}"
+# RB_EXT_W has no range check of its own anywhere else, and an empty value would be
+# invisible inside the `$(( ))` sums above — pin it non-empty and word-bearing here.
+assert_eq "#529 RB_EXT_W is really measured (an absent extension cannot silently sum as 0)" "yes" \
+  "$([ -n "$RB_EXT_W" ] && [ "$RB_EXT_W" -gt 0 ] 2>/dev/null && echo yes || echo no)"
 # The checked-in record must exist and carry the ceilings it claims (AC4).
 assert_pin_unique "#529 AC4: the budget table records the wc -w measurement method" \
   'Words are `wc -w`' "$LIB/../docs/review-bundle-budget.md"
@@ -31086,11 +31121,23 @@ assert_eq "#529 AC5: a non-numeric measurement reports unavailable, never a bogu
 assert_eq "#529 AC5: the reporter never gates the suite (exit 0 on every arm)" "0|0|0|0" \
   "$("$RB_DBD" r 1 2 >/dev/null; printf '%s' $?; printf '|'; "$RB_DBD" r 2 1 >/dev/null; printf '%s' $?; printf '|'; \
      "$RB_DBD" r '' 1 >/dev/null; printf '%s' $?; printf '|'; "$RB_DBD" >/dev/null 2>&1; printf '%s' $?)"
-# The two AC5-named rows must actually DECREASE against baseline.
-assert_eq "#529 AC5: standalone execution-weighted traffic decreased against baseline" "yes" \
-  "$("$RB_DBD" 'standalone' 237113 202683 | grep -qF 'decreased by' && echo yes || echo no)"
-assert_eq "#529 AC5: one normal-plus-shadow pass decreased against baseline" "yes" \
-  "$("$RB_DBD" 'normal+shadow' 474226 405366 | grep -qF 'decreased by' && echo yes || echo no)"
+# The two AC5-named rows must actually DECREASE against baseline — measured LIVE, not
+# asserted over literals. Feeding the reporter two constants would only prove that
+# `after < before` for those constants and would stay green however much the real
+# bundle grew, leaving the justified-growth warning wired to nothing.
+RB_BASE_BYTES=$(git -C "$LIB/.." show origin/main:skills/review/SKILL.md 2>/dev/null | wc -c | tr -d ' ')
+RB_BASE_EXT_BYTES=$(git -C "$LIB/.." show origin/main:.devflow/prompt-extensions/review.md 2>/dev/null | wc -c | tr -d ' ')
+RB_LIVE_BYTES=$(cat "${_rb_default[@]}" | wc -c | tr -d ' ')
+if [ -n "$RB_BASE_BYTES" ] && [ "$RB_BASE_BYTES" -gt 0 ] 2>/dev/null; then
+  RB_BASELINE=$((RB_BASE_BYTES + RB_BASE_EXT_BYTES))
+  assert_eq "#529 AC5: standalone execution-weighted traffic decreased against the LIVE baseline" "yes" \
+    "$("$RB_DBD" 'standalone execution-weighted bytes' "$RB_BASELINE" "$RB_LIVE_BYTES" | grep -qF 'decreased by' && echo yes || echo no)"
+  assert_eq "#529 AC5: one normal-plus-shadow pass decreased against the LIVE baseline" "yes" \
+    "$("$RB_DBD" 'normal+shadow bytes' "$((RB_BASELINE * 2))" "$((RB_LIVE_BYTES * 2))" | grep -qF 'decreased by' && echo yes || echo no)"
+else
+  skip "#529 AC5 live execution-weighted comparison" host-capability \
+    "origin/main is unavailable, so the pre-split baseline could not be measured"
+fi
 
 # ── The extractor discriminates BETWEEN the two allowlists (it is not a
 # ── fail-always / pass-always stub): the same skill head is ungranted by one
@@ -31240,11 +31287,11 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #529 split the engine into a thin root + gated phase references and added the AC7 bundle-identity fence, whose two git hash-object calls take 134 -> 136; git hash-object was already granted and already in the distinct set, so the distinct count is unchanged)" \
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #529 split the engine into a thin root + gated phase references and added the AC7 bundle-identity fence, whose git hash-object call and anchor echo take 134 -> 136; both heads were already granted and already in the distinct set, so the distinct count is unchanged)" \
   "136" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$REVIEW_BUNDLE")"
-assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names over the whole bundle; #529 moved fences into references and added only already-counted git hash-object calls, so the distinct set is unchanged)" \
+assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo), so the distinct set is unchanged)" \
   "32" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$REVIEW_BUNDLE")"

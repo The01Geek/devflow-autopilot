@@ -32,10 +32,20 @@ ROW="${1-}"; BEFORE="${2-}"; AFTER="${3-}"
 # never collapsed onto a number — CLAUDE.md's "Unknown is not zero" rule: a
 # missing measurement rendered as 0 would read as "no growth" and assert a state
 # nobody observed.
-if [ -z "$ROW" ] || [ -z "$BEFORE" ] || [ -z "$AFTER" ]; then
-  printf 'devflow budget: %s: delta unavailable (a before/after measurement was not established)\n' "${ROW:-(unnamed row)}"
+# A missing row NAME is a caller bug, not a missing measurement — it gets its own arm
+# and its own breadcrumb. Folding it into the arm below would name a cause the code
+# observed to be false AND swallow a real growth warning (the helper's whole purpose).
+if [ -z "$ROW" ]; then
+  printf 'devflow budget: delta not reported: the caller passed no row name (before=%s after=%s)\n' \
+    "${BEFORE:-<unset>}" "${AFTER:-<unset>}"
   exit 0
 fi
+if [ -z "$BEFORE" ] || [ -z "$AFTER" ]; then
+  printf 'devflow budget: %s: delta unavailable (a before/after measurement was not established)\n' "$ROW"
+  exit 0
+fi
+# Reachable only after the arm above proved BOTH operands non-empty: this
+# concatenation cannot distinguish an empty BEFORE from an empty AFTER.
 case "$BEFORE$AFTER" in
   *[!0-9]*)
     printf 'devflow budget: %s: delta unavailable (a before/after measurement was not numeric)\n' "$ROW"
