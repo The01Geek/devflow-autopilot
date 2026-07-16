@@ -3163,9 +3163,11 @@ assert_eq "#449: --no-reproduction help states the recorded content classificati
 CI443_SKILL="$LIB/../skills/create-issue/SKILL.md"
 CI443_EXT="$LIB/../.devflow/prompt-extensions/create-issue.md"
 # Verdict-line requirement (maps to the audit-prompt AC): removing "legal values are exactly"
-# guts the FILE/REVISE verdict contract.
-assert_pin_red_under "#443: Step 3.6 mandates the FILE/REVISE verdict line" \
-  'whose only two legal values are exactly' 's/legal values are exactly//' "$CI443_SKILL"
+# guts the FILE/REVISE/DRAFT-UNREADABLE verdict contract (issue #522 widened it to three values).
+assert_pin_red_under "#443: Step 3.6 mandates the FILE/REVISE/DRAFT-UNREADABLE verdict line" \
+  'whose only three legal values are exactly' 's/legal values are exactly//' "$CI443_SKILL"
+assert_eq "#522: Step 3.6 names the VERDICT: DRAFT-UNREADABLE legal value" "yes" \
+  "$([ "$(pin_count 'VERDICT: DRAFT-UNREADABLE' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
 # Presence (not uniqueness): both verdict values recur across the template, the summary example,
 # and the act-on-the-verdict prose — the verdict-line CONTRACT is pinned uniquely above. Use
 # pin_count (>=1), NOT grep_present, whose call sites are meta-pinned to exactly two.
@@ -3271,6 +3273,53 @@ assert_pin_unique "#443: audit summary states whether a consumer audit-dimension
   'whether a consumer `## Audit dimensions` section was appended' "$CI443_SKILL"
 assert_pin_unique "#443: audit summary renders the word degraded whenever the degraded arm ran" \
   'the word "degraded"' "$CI443_SKILL"
+
+# ── issue #522: Step 3.6 audits the canonical DRAFT FILE (not a hand-condensed copy), offers
+#    user-chosen audit rounds past the automatic cap, and Step 3.5 self-checks the audit
+#    dimensions. Same skill-contract mechanism as #443: pins over the rendered SKILL surface,
+#    no runtime code path in CI. The four behavioral-fix pins below use assert_pin_red_under
+#    with a sed -E mutation that RE-INTRODUCES the named defect (each mutation excises the
+#    operative sentence so its removal alone re-opens the guarded regression); the rest are
+#    surface-presence pins (assert_pin_unique, or pin_count>=1 for a marker that recurs).
+# (1) Pre-dispatch canonical write — removing it re-opens the condensation-drift channel (the
+#     auditor audits a hand-condensed copy instead of the exact file the implementer reads).
+assert_pin_red_under "#522: Step 3.6 writes the canonical draft file before every dispatch" \
+  'write the current rendered draft title + body to the canonical draft file' \
+  's/ to the canonical draft file//' "$CI443_SKILL"
+# (2) Read-the-file-as-sole-draft-source — removing it lets the auditor judge an embedded/
+#     remembered copy, re-opening the same condensation-drift channel.
+assert_pin_red_under "#522: audit prompt reads the draft file as the sole draft source" \
+  'Read the draft file `{absolute issue-draft-<slug>.md path}` as the sole draft source' \
+  's/as the sole draft source//' "$CI443_SKILL"
+# (3) Narrowed reasoning-artifacts-only out-of-bounds list — putting the draft back on the
+#     file-arm out-of-bounds list makes the artifact under audit unreadable to the auditor.
+assert_pin_red_under "#522: draft file is NOT on the file-arm out-of-bounds list" \
+  'is **not** on the file-arm out-of-bounds list' \
+  's/is \*\*not\*\* on the file-arm out-of-bounds list/is on the file-arm out-of-bounds list/' "$CI443_SKILL"
+# (4) Two-trigger user-chosen-rounds offer — deleting the trigger evaluation re-opens the
+#     ship-unconverged channel (the run proceeds to Step 4 without offering another round).
+assert_pin_red_under "#522: Step 3.6->4 boundary evaluates the two user-chosen-round triggers" \
+  'evaluate exactly these **2 offer triggers**' \
+  's/evaluate exactly these \*\*2 offer triggers\*\*/evaluate no offer triggers/' "$CI443_SKILL"
+# Surface-presence pins (no mutation obligation) for the remaining new prose.
+assert_eq "#522: embed arm carries the file-write-failed marker" "yes" \
+  "$([ "$(pin_count 'draft embedded (file write failed)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
+assert_eq "#522: embed arm carries the file-unreadable marker" "yes" \
+  "$([ "$(pin_count 'draft embedded (file unreadable)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
+assert_pin_unique "#522: audit summary line states the total number of audit rounds run" \
+  'the total number of audit rounds run' "$CI443_SKILL"
+assert_pin_unique "#522: audit summary carries the declined-further-audit phrase" \
+  'user declined further audit' "$CI443_SKILL"
+assert_pin_unique "#522: user-chosen rounds are capped at 3 per run" \
+  'User-chosen rounds are capped at 3 per run' "$CI443_SKILL"
+assert_pin_unique "#522: audit event-log state file is cwd/worktree-anchored" \
+  'the round record the user-chosen-rounds offer reads' "$CI443_SKILL"
+assert_pin_unique "#522: unestablished event log treats trigger T2 as holding" \
+  'T2 below is treated as holding' "$CI443_SKILL"
+assert_pin_unique "#522: Step 3.5 self-checks the draft against the audit dimensions" \
+  'Self-check the draft against the Step 3.6 audit dimensions' "$CI443_SKILL"
+assert_pin_unique "#522: Step 3.5 summary reports the dimension self-check (falsifiable zero)" \
+  'no dimension-checklist finding' "$CI443_SKILL"
 
 # ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
