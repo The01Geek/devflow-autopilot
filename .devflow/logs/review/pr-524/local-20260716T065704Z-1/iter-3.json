@@ -1,0 +1,27 @@
+{
+  "iter": 3,
+  "started_at": "2026-07-16T07:30:00Z",
+  "fix_commit_sha": "e1f33360",
+  "fix_files": ["lib/test/run.sh", "skills/create-issue/SKILL.md"],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": "intentional"},
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "sub-step 3 summary marker enumeration listed 2 of 3 embed-arm markers (digest-unrecorded omitted) — coupled-site drift introduced in iter 2", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [220, 220], "kind": "unreconciled-multi-state-contract"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "event-log delete-leftover-first precondition unpinned (T1/T2 rest on it)", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [192, 192], "kind": "unpinned-lifecycle-precondition"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "4-round-initiating-sites enumeration unpinned", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [146, 146], "kind": "narration-vs-narration-drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "T1", "decision": "applied", "commit": "e1f33360"},
+    {"finding_id": "T2", "decision": "applied", "commit": "e1f33360"},
+    {"finding_id": "T3", "decision": "applied", "commit": "e1f33360"},
+    {"finding_id": "ADV4", "decision": "advisory", "source_file": "skills/create-issue/SKILL.md", "claim_text": "write->dispatch-hash TOCTOU residual window: the write-time digest is captured by re-hashing the on-disk file at dispatch, leaving a millisecond write->dispatch-hash window", "skip_category": "advisory-parked", "evidence": "informational/LOW; both convergence-shadow silent-failure-hunter and Step 3.5 flagged it as below-threshold and NOT a new fail-open introduced by this diff. Full close requires hashing in-memory bytes at write time, which an LLM orchestrator cannot reliably compute (no by-hand SHA-1). Dominant [dispatch-hash->auditor-read] window is closed."},
+    {"finding_id": "ADV5", "decision": "advisory", "source_file": "skills/create-issue/SKILL.md", "claim_text": "self-check re-gate obligation and retry-precedence ordering unpinned (pr-test gaps sev 3)", "skip_category": "advisory-parked", "evidence": "severity 3, mitigated by step-5 general revise-and-re-gate discipline and the pinned DRAFT-UNREADABLE recovery/termination invariant. Secondary-contract coverage a maintainer MAY add; not a defect. Parked to avoid over-pinning drift."},
+    {"finding_id": "ADV2", "decision": "advisory", "source_file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "claim_text": "line ~463 narrative 'sees only the rendered draft' predates the file-arm mechanism", "skip_category": "advisory-parked", "evidence": "conceptually still true; authoritative §11 item 5 fully updated. Optional refresh."}
+  ],
+  "convergence_inputs": {"fixes_applied": 3, "fix_diff_lines": 15, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 150, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD); arms in CI"}]},
+  "telemetry": "unavailable"
+}
