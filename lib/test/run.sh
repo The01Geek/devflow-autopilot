@@ -40207,6 +40207,7 @@ echo "implement flight recorder: passive capture and constrained analysis"
 IFR_CAPTURE="$LIB/../scripts/capture-implement-session.py"
 IFR_ANALYZE="$LIB/../scripts/analyze-implement-runs.py"
 IFR_PROMPT="$LIB/../scripts/prompts/implement-flight-recorder-analysis.md"
+WFR_PROMPT="$LIB/../scripts/prompts/workflow-flight-recorder-analysis.md"
 IFR_ROOT="$(mktemp -d)"
 mkdir -p "$IFR_ROOT/nested" "$IFR_ROOT/skills/implement/phases" \
   "$IFR_ROOT/skills/review" "$IFR_ROOT/skills/review-and-fix" "$IFR_ROOT/skills/docs"
@@ -40224,21 +40225,22 @@ IFR_PAYLOAD="$(jq -cn --arg sid sid-a --arg transcript "$IFR_TRANSCRIPT" --arg c
   '{session_id:$sid,transcript_path:$transcript,cwd:$cwd}')"
 IFR_ERR="$IFR_ROOT/capture.err"
 printf '%s' "$IFR_PAYLOAD" | python3 "$IFR_CAPTURE" 2>"$IFR_ERR"
-IFR_BUNDLE="$IFR_ROOT/.devflow/tmp/implement-runs/sid-a"
-assert_eq "flight recorder: valid user invocation creates the four-file bundle" "yes" \
+IFR_BUNDLE="$IFR_ROOT/.devflow/tmp/workflow-runs/sid-a"
+assert_eq "flight recorder: valid user invocation creates the generalized bundle" "yes" \
   "$([ -f "$IFR_BUNDLE/transcript.jsonl" ] && [ -f "$IFR_BUNDLE/metadata.json" ] && \
+      [ -f "$IFR_BUNDLE/occurrences.json" ] && [ -f "$IFR_BUNDLE/event-summary.json" ] && \
       [ -f "$IFR_BUNDLE/stop-attempts.jsonl" ] && [ -f "$IFR_BUNDLE/prompt-surfaces.json" ] && echo yes || echo no)"
 assert_eq "flight recorder: nested payload cwd resolves the repository root" "$(cd "$IFR_ROOT" && pwd -P)" \
   "$(jq -r '.repository_root' "$IFR_BUNDLE/metadata.json")"
 assert_eq "flight recorder: issue number comes from the user invocation" "123" \
-  "$(jq -r '.issue_number' "$IFR_BUNDLE/metadata.json")"
+  "$(jq -r '.[0].subject.number' "$IFR_BUNDLE/occurrences.json")"
 assert_eq "flight recorder: prompt manifest records always/phase/nested load classes" "always,nested,phase" \
   "$(jq -r '[.surfaces[].load_class] | unique | join(",")' "$IFR_BUNDLE/prompt-surfaces.json")"
 assert_eq "flight recorder: prompt manifest labels its approximate-token heuristic" "true" \
   "$(jq -r '.token_estimate | contains("heuristic, not API-reported")' "$IFR_BUNDLE/prompt-surfaces.json")"
 assert_eq "flight recorder: each prompt surface has path/count/hash attribution" "true" \
   "$(jq -r 'all(.surfaces[]; (.path|type)=="string" and (.bytes|type)=="number" and (.lines|type)=="number" and (.words|type)=="number" and (.approx_tokens|type)=="number" and (.sha256|test("^[0-9a-f]{64}$")))' "$IFR_BUNDLE/prompt-surfaces.json")"
-IFR_FP1="$(jq -r '.prompt_fingerprint' "$IFR_BUNDLE/metadata.json")"
+IFR_FP1="$(jq -r '.[0].prompt_fingerprint' "$IFR_BUNDLE/occurrences.json")"
 
 # A longer repeated Stop refreshes the same bundle and attempt log, but transcript
 # content alone cannot change the prompt-surface fingerprint.
@@ -40249,11 +40251,11 @@ assert_eq "flight recorder: repeated Stop refreshes rather than duplicates" "3" 
 assert_eq "flight recorder: repeated Stop appends one compact attempt" "2" \
   "$(wc -l < "$IFR_BUNDLE/stop-attempts.jsonl" | tr -d ' ')"
 assert_eq "flight recorder: transcript-only changes do not alter prompt fingerprint" "$IFR_FP1" \
-  "$(jq -r '.prompt_fingerprint' "$IFR_BUNDLE/metadata.json")"
+  "$(jq -r '.[0].prompt_fingerprint' "$IFR_BUNDLE/occurrences.json")"
 printf '%s\n' '# one more prompt byte' >> "$IFR_ROOT/skills/implement/SKILL.md"
 printf '%s' "$IFR_PAYLOAD" | python3 "$IFR_CAPTURE" 2>>"$IFR_ERR"
 assert_eq "flight recorder: prompt edits change the prompt fingerprint" "no" \
-  "$([ "$IFR_FP1" = "$(jq -r '.prompt_fingerprint' "$IFR_BUNDLE/metadata.json")" ] && echo yes || echo no)"
+  "$([ "$IFR_FP1" = "$(jq -r '.[0].prompt_fingerprint' "$IFR_BUNDLE/occurrences.json")" ] && echo yes || echo no)"
 
 # Assistant mentions and non-implement user turns are never classification evidence.
 printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":"/devflow:implement 999"}}' > "$IFR_ROOT/not-implement.jsonl"
@@ -40261,7 +40263,7 @@ IFR_NO_PAYLOAD="$(jq -cn --arg sid sid-assistant --arg transcript "$IFR_ROOT/not
   '{session_id:$sid,transcript_path:$transcript,cwd:$cwd}')"
 printf '%s' "$IFR_NO_PAYLOAD" | python3 "$IFR_CAPTURE" 2>>"$IFR_ERR"
 assert_eq "flight recorder: assistant-only command mention creates no bundle" "no" \
-  "$([ -e "$IFR_ROOT/.devflow/tmp/implement-runs/sid-assistant" ] && echo yes || echo no)"
+  "$([ -e "$IFR_ROOT/.devflow/tmp/workflow-runs/sid-assistant" ] && echo yes || echo no)"
 
 # Claude command markup is accepted only in a user message.
 printf '%s\n' '{"type":"user","message":{"role":"user","content":"<command-message>devflow:implement</command-message><command-args>456</command-args>"}}' > "$IFR_ROOT/markup.jsonl"
@@ -40269,7 +40271,7 @@ IFR_MARKUP_PAYLOAD="$(jq -cn --arg sid sid-markup --arg transcript "$IFR_ROOT/ma
   '{session_id:$sid,transcript_path:$transcript,cwd:$cwd}')"
 printf '%s' "$IFR_MARKUP_PAYLOAD" | python3 "$IFR_CAPTURE" 2>>"$IFR_ERR"
 assert_eq "flight recorder: user command-markup invocation is recognized" "456" \
-  "$(jq -r '.issue_number' "$IFR_ROOT/.devflow/tmp/implement-runs/sid-markup/metadata.json")"
+  "$(jq -r '.[0].subject.number' "$IFR_ROOT/.devflow/tmp/workflow-runs/sid-markup/occurrences.json")"
 
 # Failure is fail-open and never echoes transcript content.
 printf '%s\n' '{"type":"user","message":{"role":"user","content":"/devflow:implement 777"}}' \
@@ -40305,6 +40307,20 @@ for IFR_PIN in \
   assert_eq "flight recorder prompt: carries '$IFR_PIN'" "1" "$(grep -cF "$IFR_PIN" "$IFR_PROMPT")"
 done
 
+for WFR_PIN in \
+  'A session is one Claude Code transcript; an occurrence is one registered workflow' \
+  'Multiple occurrences in one session are not independent' \
+  'top-level' 'nested' 'timing, model, and effort fact is observed, approximate,' \
+  'Unknown is `unknown`, never zero' 'event indexes' 'Do not dump transcripts' \
+  'Calculate recurrence separately per mode' 'explicit human decision' \
+  'external `writing-skills` skill from the Superpowers plugin' \
+  'before/after lines, words, bytes, and approximate tokens' \
+  'default to net reduction' 'justified prompt growth as a warning' \
+  'Do not edit files, write to GitHub' '<!-- DEVFLOW_REPORT_BEGIN -->' \
+  '<!-- DEVFLOW_ISSUE_BEGIN slug=<safe-slug> runs=<sid1>,<sid2>[,<sid3>] -->'; do
+  assert_eq "workflow recorder prompt: carries '$WFR_PIN'" "1" "$(grep -qF "$WFR_PIN" "$WFR_PROMPT" && echo 1 || echo 0)"
+done
+
 # Analyzer uses a fake Claude binary: no model/network call occurs in the suite.
 IFR_FAKE="$IFR_ROOT/fake-claude"
 printf '%s\n' '#!/usr/bin/env bash' \
@@ -40317,9 +40333,9 @@ IFR_REPORT='<!-- DEVFLOW_REPORT_BEGIN -->
 # One-run report
 <!-- DEVFLOW_REPORT_END -->'
 (cd "$IFR_ROOT" && DEVFLOW_CLAUDE_BIN="$IFR_FAKE" FAKE_ARGS="$IFR_ARGS" FAKE_OUTPUT="$IFR_REPORT" \
-  python3 "$IFR_ANALYZE" latest >/dev/null)
+  python3 "$IFR_ANALYZE" --acknowledge-provider-access latest >/dev/null)
 assert_eq "flight recorder analyzer: latest writes only the selected run report" "yes" \
-  "$([ -f "$IFR_ROOT/.devflow/tmp/implement-runs/sid-markup/run-report.md" ] && echo yes || echo no)"
+  "$([ -f "$IFR_ROOT/.devflow/tmp/workflow-runs/sid-markup/run-report.md" ] && echo yes || echo no)"
 assert_eq "flight recorder analyzer: launch enables safe mode" "1" "$(grep -cFx -- '--safe-mode' "$IFR_ARGS")"
 assert_eq "flight recorder analyzer: launch uses print mode" "1" "$(grep -cFx -- '--print' "$IFR_ARGS")"
 assert_eq "flight recorder analyzer: launch denies permission prompts" "1" "$(grep -cFx -- 'dontAsk' "$IFR_ARGS")"
@@ -40328,20 +40344,20 @@ assert_eq "flight recorder analyzer: no write/edit/bash/web tool is granted" "no
   "$(grep -Eq '^(Write|Edit|Bash|Web|MCP|GitHub)$' "$IFR_ARGS" && echo yes || echo no)"
 
 # Form a comparable three-run cohort from safe local fixtures.
-IFR_COHORT_FP="$(jq -r '.prompt_fingerprint' "$IFR_BUNDLE/metadata.json")"
+IFR_COHORT_FP="$(jq -r '.[0].prompt_fingerprint' "$IFR_BUNDLE/occurrences.json")"
 for IFR_SID in sid-b sid-c; do
   mkdir -p "$IFR_ROOT/.devflow/tmp/implement-runs/$IFR_SID"
   cp "$IFR_BUNDLE/transcript.jsonl" "$IFR_ROOT/.devflow/tmp/implement-runs/$IFR_SID/transcript.jsonl"
-  jq --arg sid "$IFR_SID" --arg fp "$IFR_COHORT_FP" \
-    '.session_id=$sid | .prompt_fingerprint=$fp | .captured_at="2026-07-15T00:00:00Z"' \
-    "$IFR_BUNDLE/metadata.json" > "$IFR_ROOT/.devflow/tmp/implement-runs/$IFR_SID/metadata.json"
+  jq -n --arg sid "$IFR_SID" --arg fp "$IFR_COHORT_FP" \
+    '{schema_version:1,session_id:$sid,issue_number:123,prompt_fingerprint:$fp,captured_at:"2026-07-15T00:00:00Z"}' \
+    > "$IFR_ROOT/.devflow/tmp/implement-runs/$IFR_SID/metadata.json"
 done
-jq --arg fp "$IFR_COHORT_FP" '.prompt_fingerprint=$fp | .captured_at="2026-07-15T00:00:02Z"' \
+jq '.captured_at="2026-07-15T00:00:02Z"' \
   "$IFR_BUNDLE/metadata.json" > "$IFR_ROOT/sid-a-metadata"
 mv "$IFR_ROOT/sid-a-metadata" "$IFR_BUNDLE/metadata.json"
 # sid-markup is newer but is deliberately made invalid for discovery, leaving the
 # intended three-run cohort as the newest valid comparable set.
-rm -f "$IFR_ROOT/.devflow/tmp/implement-runs/sid-markup/transcript.jsonl"
+rm -f "$IFR_ROOT/.devflow/tmp/workflow-runs/sid-markup/transcript.jsonl"
 IFR_COHORT_REPORT='<!-- DEVFLOW_REPORT_BEGIN -->
 # Cohort report
 <!-- DEVFLOW_REPORT_END -->
@@ -40349,7 +40365,7 @@ IFR_COHORT_REPORT='<!-- DEVFLOW_REPORT_BEGIN -->
 # Repeated read
 <!-- DEVFLOW_ISSUE_END -->'
 (cd "$IFR_ROOT" && DEVFLOW_CLAUDE_BIN="$IFR_FAKE" FAKE_ARGS="$IFR_ARGS" FAKE_OUTPUT="$IFR_COHORT_REPORT" \
-  python3 "$IFR_ANALYZE" --last 3 > "$IFR_ROOT/analysis-path")
+  python3 "$IFR_ANALYZE" --acknowledge-provider-access --last 3 > "$IFR_ROOT/analysis-path")
 IFR_ANALYSIS="$(cat "$IFR_ROOT/analysis-path")"
 assert_eq "flight recorder analyzer: comparable cohort writes a comparison report" "yes" \
   "$([ -f "$IFR_ANALYSIS/comparison-report.md" ] && echo yes || echo no)"
@@ -40361,11 +40377,16 @@ assert_eq "flight recorder analyzer: cohort manifest contains no transcript cont
 # A single-run issue block is rejected and cannot replace the prior valid report.
 IFR_PRIOR_REPORT="$(cat "$IFR_BUNDLE/run-report.md" 2>/dev/null || true)"
 (cd "$IFR_ROOT" && DEVFLOW_CLAUDE_BIN="$IFR_FAKE" FAKE_ARGS="$IFR_ARGS" FAKE_OUTPUT="$IFR_COHORT_REPORT" \
-  python3 "$IFR_ANALYZE" sid-a >/dev/null 2>"$IFR_ROOT/single-issue.err")
+  python3 "$IFR_ANALYZE" --acknowledge-provider-access sid-a >/dev/null 2>"$IFR_ROOT/single-issue.err")
 IFR_SINGLE_RC=$?
 assert_eq "flight recorder analyzer: a single-run issue block is rejected" "1" "$IFR_SINGLE_RC"
 assert_eq "flight recorder analyzer: rejected output publishes no replacement report" "$IFR_PRIOR_REPORT" \
   "$(cat "$IFR_BUNDLE/run-report.md" 2>/dev/null || true)"
+
+python3 "$LIB/test/test_workflow_flight_recorder.py" >"$IFR_ROOT/recorder-unit.out" 2>&1
+assert_eq "workflow recorder: focused Python tests pass" "0" "$?"
+python3 "$LIB/test/test_workflow_analyzer.py" >"$IFR_ROOT/analyzer-unit.out" 2>&1
+assert_eq "workflow analyzer: focused Python tests pass" "0" "$?"
 
 rm -rf "$IFR_ROOT"
 

@@ -73,6 +73,8 @@ class Occurrence:
     preceding_context_events: int = 0
     observed_models: list[str] = field(default_factory=list)
     observed_effort: list[str] = field(default_factory=list)
+    model_effort_source: str | None = None
+    model_effort_event_count: int = 0
     prompt_fingerprint: str | None = None
 
 
@@ -316,8 +318,22 @@ def resolve_boundaries(events: list[Event], occurrences: list[Occurrence]) -> No
         end: Event | None = None
         source: str | None = None
         confidence = "unknown"
-        for event in events[occurrence.start_event + 1 :]:
+        later_boundaries = [
+            item for item in occurrences
+            if item.start_event > occurrence.start_event
+            and (item.mode == "top-level" or item.workflow == occurrence.workflow)
+        ]
+        next_boundary = min(later_boundaries, key=lambda item: item.start_event) if later_boundaries else None
+        search_stop = next_boundary.start_event if next_boundary else len(events)
+        for event in events[occurrence.start_event + 1 : search_stop]:
             if _completion_workflow(event) == occurrence.workflow:
+                marker = event.raw.get("workflow_completion")
+                if (
+                    isinstance(marker, dict)
+                    and marker.get("occurrence_id") is not None
+                    and marker.get("occurrence_id") != occurrence.occurrence_id
+                ):
+                    continue
                 end = event
                 source = "explicit_completion_marker"
                 confidence = "exact"
@@ -331,6 +347,37 @@ def resolve_boundaries(events: list[Event], occurrences: list[Occurrence]) -> No
                     confidence = "approximate"
                     break
 
+        if end is None and next_boundary and next_boundary.start_event - 1 > occurrence.start_event:
+            end = events[next_boundary.start_event - 1]
+            source = (
+                "next_top_level_boundary"
+                if next_boundary.mode == "top-level"
+                else "next_same_workflow_boundary"
+            )
+            confidence = "approximate"
+        if end is None and not next_boundary and events and events[-1].index > occurrence.start_event:
+            end = events[-1]
+            source = "terminal_stop_boundary"
+            confidence = "approximate"
+        boundary_end = end.index if end is not None else occurrence.start_event
+        interval = events[occurrence.start_event : boundary_end + 1]
+        models = {
+            value for event in interval
+            if isinstance((value := _record_value(event.raw, "model")), str) and value
+        }
+        efforts = {
+            value for event in interval
+            if isinstance((value := _record_value(event.raw, "effort")), str) and value
+        }
+        occurrence.observed_models = sorted(models)
+        occurrence.observed_effort = sorted(efforts)
+        occurrence.model_effort_event_count = sum(
+            isinstance(_record_value(event.raw, "model"), str)
+            or isinstance(_record_value(event.raw, "effort"), str)
+            for event in interval
+        )
+        if occurrence.model_effort_event_count:
+            occurrence.model_effort_source = "events_within_boundary"
         if end is None:
             continue
         occurrence.end_event = end.index
@@ -580,16 +627,31 @@ def measure_prompt_surfaces(
         ).encode()
         fingerprints[workflow] = hashlib.sha256(material).hexdigest()
     totals: dict[str, dict[str, int]] = {}
+    totals_by_workflow: dict[str, dict[str, dict[str, int]]] = {}
     for surface in surfaces:
         bucket = totals.setdefault(surface["load_class"], {"bytes": 0, "lines": 0, "words": 0, "approx_tokens": 0})
         for key in bucket:
             bucket[key] += surface[key]
+        for workflow in surface["workflows"]:
+            workflow_bucket = totals_by_workflow.setdefault(workflow, {}).setdefault(
+                surface["load_class"], {"bytes": 0, "lines": 0, "words": 0, "approx_tokens": 0}
+            )
+            for key in workflow_bucket:
+                workflow_bucket[key] += surface[key]
+    unique_by_path = {surface["path"]: surface for surface in surfaces}
+    session_unique_totals = {"bytes": 0, "lines": 0, "words": 0, "approx_tokens": 0}
+    for surface in unique_by_path.values():
+        for key in session_unique_totals:
+            session_unique_totals[key] += surface[key]
     return (
         {
             "schema_version": 1,
             "token_estimate": "ceil(bytes / 4); heuristic, not API-reported",
             "surfaces": surfaces,
             "totals_by_load_class": totals,
+            "totals_note": "load-class totals are attribution totals and may include one physical path in multiple workflow contexts",
+            "totals_by_workflow_load_class": totals_by_workflow,
+            "session_unique_totals": session_unique_totals,
             "missing_surfaces": missing,
             "fingerprints": fingerprints,
         },
@@ -604,6 +666,13 @@ CONFIG_KEYS = (
     "alwaysThinkingEnabled",
     "showThinkingSummaries",
 )
+CONFIG_ENV_KEYS = {
+    "outputStyle": "DEVFLOW_RECORDER_OUTPUT_STYLE",
+    "verbose": "DEVFLOW_RECORDER_VERBOSE",
+    "viewMode": "DEVFLOW_RECORDER_VIEW_MODE",
+    "alwaysThinkingEnabled": "DEVFLOW_RECORDER_ALWAYS_THINKING_ENABLED",
+    "showThinkingSummaries": "DEVFLOW_RECORDER_SHOW_THINKING_SUMMARIES",
+}
 
 
 def _claude_configuration(root: Path) -> dict[str, Any]:
@@ -626,6 +695,17 @@ def _claude_configuration(root: Path) -> dict[str, Any]:
                 resolved[key] = {"value": value, "source": source, "effective": False}
     for key in CONFIG_KEYS:
         resolved.setdefault(key, {"value": None, "source": None, "effective": False})
+        environment_value = os.environ.get(CONFIG_ENV_KEYS[key])
+        if environment_value is not None:
+            normalized: Any = environment_value
+            if environment_value.lower() in {"true", "false"}:
+                normalized = environment_value.lower() == "true"
+            resolved[key] = {
+                "value": normalized,
+                "source": "explicit_recorder_environment",
+                "effective": False,
+                "declared_for_run": True,
+            }
     return resolved
 
 
@@ -685,6 +765,14 @@ def capture_stop_payload(payload: dict[str, Any], registry_path: Path) -> dict[s
     for occurrence in occurrences:
         occurrence.prompt_fingerprint = fingerprints.get(occurrence.workflow)
     summary = build_event_summary(events, occurrences)
+    declared_model = os.environ.get("DEVFLOW_RECORDER_MODEL")
+    declared_effort = os.environ.get("DEVFLOW_RECORDER_EFFORT")
+    if declared_model:
+        summary["model_effort"]["requested_model"] = declared_model
+        summary["model_effort"]["requested_model_source"] = "explicit_recorder_environment"
+    if declared_effort:
+        summary["model_effort"]["requested_effort"] = declared_effort
+        summary["model_effort"]["requested_effort_source"] = "explicit_recorder_environment"
 
     captured_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     timed = [event.timestamp_ms for event in events if event.timestamp_ms is not None]
