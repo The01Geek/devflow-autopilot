@@ -27677,9 +27677,11 @@ assert_eq "#266 decide: non-integer attempts -> 0 (interim,cap=2 -> resume)" "re
 # #498 — cancelled-run exclusion (issue #498). Only the exact 5th arg `cancelled`
 # selects the cancel path; every other value leaves the existing table byte-
 # identical (fail toward resume, so an un-upgraded caller never suppresses a
-# resume). The six cancelled-path rows are complete by construction — the
-# unknown-class fold closes the class space. RED pre-change: today's helper
-# ignores a 5th arg, so `interim + cancelled` printed `resume` (the defect).
+# resume). The cancelled-path rows below are complete by construction — the
+# `*` arm folds the unreadable/auth-failure/unknown classes, closing the class
+# space (adding a class needs no new row here; it inherits the fold). RED
+# pre-change: today's helper ignores a 5th arg, so `interim + cancelled`
+# printed `resume` (the defect).
 assert_eq "#498 decide: ENABLED=false + cancelled -> skip (master switch wins)" "skip" "$(decide266 false interim 0 2 cancelled)"
 assert_eq "#498 decide: interim + cancelled -> flip-cancelled" "flip-cancelled" "$(decide266 true interim 0 2 cancelled)"
 assert_eq "#498 decide: terminal + cancelled -> noop" "noop" "$(decide266 true terminal 0 2 cancelled)"
@@ -27807,6 +27809,15 @@ assert_eq "#287 wiring: backstop-token mint if: carries the always() guard (mint
   "$(grep -A2 'name: Mint stall-backstop token' "$WF268" | grep -cF "if: \${{ always() && vars.DEVFLOW_APP_ID != '' }}")"
 assert_pin_unique "#268 wiring: CLAUDE_OUTCOME wired from the claude step outcome" \
   'CLAUDE_OUTCOME: ${{ steps.claude.outcome }}' "$WF268"
+# #498 — the cancel signal's PRODUCTION delivery path: the step's `env:` must
+# wire JOB_STATUS from job.status (the documented job-context string). The
+# #268 behavioral harness injects JOB_STATUS directly (it extracts only the
+# `run:` body, not the `env:` block), so WITHOUT this pin a future edit that
+# drops the env: line leaves the suite GREEN while production $JOB_STATUS
+# resolves empty — the decide helper gets an empty 5th arg, the cancel path is
+# never taken, and a cancelled run auto-resumes (the exact defect #498 fixes).
+assert_pin_unique "#498 wiring: JOB_STATUS wired from job.status (the cancel signal's production delivery)" \
+  'JOB_STATUS: ${{ job.status }}' "$WF268"
 # Actions runs run: blocks under bash -e; the step's leading `set +e` is what
 # makes every fallback branch reachable. Assert it inside the step REGION (other
 # steps carry their own set +e, so a whole-file pin cannot be unique) AND run

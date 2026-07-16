@@ -328,11 +328,12 @@ def _is_recognized_status_word(word: str) -> bool:
     """True if `word` (already glyph-stripped) is a canonical Status word —
     exactly one of `_STATUS_TO_PROGRESS_PHASE`'s keys (every in-progress phase
     word, plus 'complete') or one of the literal terminal words 'blocked' /
-    'failed' (the words `_STATUS_TO_PROGRESS_PHASE` intentionally omits — see
-    `_progress_phase_for_status`). Deliberately exact-match, NOT
-    `_status_glyph(word) in ('🎉', '👎')`: that delegates to `_status_glyph`'s
-    own `startswith('complete'/'blocked')` prefix check, which is intentional
-    for its write-path callers but would let a corrupted word like
+    'failed' / 'cancelled' (the words `_STATUS_TO_PROGRESS_PHASE` intentionally
+    omits — see `_progress_phase_for_status`). Deliberately exact-match, NOT
+    `_status_glyph(word) in ('🎉', '👎', '💥', '🛑')`: that delegates to
+    `_status_glyph`'s own `startswith('complete'/'blocked'/'failed'/'cancelled')
+    prefix check, which is intentional for its write-path callers but would let
+    a corrupted word like
     'Completely wrong' or 'Blockeddependency' pass this recognition check —
     exactly the fail-open this function exists to close. No independent
     hardcoded word list: 'blocked', 'failed', and 'cancelled' are the only
