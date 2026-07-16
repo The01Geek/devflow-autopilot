@@ -3163,11 +3163,14 @@ assert_eq "#449: --no-reproduction help states the recorded content classificati
 CI443_SKILL="$LIB/../skills/create-issue/SKILL.md"
 CI443_EXT="$LIB/../.devflow/prompt-extensions/create-issue.md"
 # Verdict-line requirement (maps to the audit-prompt AC): removing "legal values are exactly"
-# guts the FILE/REVISE verdict contract.
-assert_pin_red_under "#443: Step 3.6 mandates the FILE/REVISE verdict line" \
-  'whose only two legal values are exactly' 's/legal values are exactly//' "$CI443_SKILL"
-# Presence (not uniqueness): both verdict values recur across the template, the summary example,
-# and the act-on-the-verdict prose — the verdict-line CONTRACT is pinned uniquely above. Use
+# guts the FILE/REVISE/DRAFT-UNREADABLE verdict contract (issue #522 widened it to three values).
+assert_pin_red_under "#443: Step 3.6 mandates the FILE/REVISE/DRAFT-UNREADABLE verdict line" \
+  'whose only three legal values are exactly' 's/legal values are exactly//' "$CI443_SKILL"
+assert_eq "#522: Step 3.6 names the VERDICT: DRAFT-UNREADABLE legal value" "yes" \
+  "$([ "$(pin_count 'VERDICT: DRAFT-UNREADABLE' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
+# Presence (not uniqueness): the FILE/REVISE verdict values recur across the template, the
+# summary example, and the act-on-the-verdict prose (the third value DRAFT-UNREADABLE is pinned
+# separately below) — the verdict-line CONTRACT is pinned uniquely above. Use
 # pin_count (>=1), NOT grep_present, whose call sites are meta-pinned to exactly two.
 assert_eq "#443: Step 3.6 names the VERDICT: FILE legal value" "yes" \
   "$([ "$(pin_count 'VERDICT: FILE' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
@@ -3271,6 +3274,204 @@ assert_pin_unique "#443: audit summary states whether a consumer audit-dimension
   'whether a consumer `## Audit dimensions` section was appended' "$CI443_SKILL"
 assert_pin_unique "#443: audit summary renders the word degraded whenever the degraded arm ran" \
   'the word "degraded"' "$CI443_SKILL"
+
+# ── issue #522: Step 3.6 audits the canonical DRAFT FILE (not a hand-condensed copy), offers
+#    user-chosen audit rounds past the automatic cap, and Step 3.5 self-checks the audit
+#    dimensions. Same skill-contract mechanism as #443: pins over the rendered SKILL surface,
+#    no runtime code path in CI. Nine behavioral-fix pins in this block use assert_pin_red_under
+#    with a sed -E mutation that RE-INTRODUCES the named defect (each mutation excises or
+#    inverts the operative clause so its removal/inversion alone re-opens the guarded
+#    regression) — the four immediately below (pins 1/2 excise a clause, pins 3/4 invert/negate
+#    it: "is not on" → "is on"; "exactly these 2 offer triggers" → "no offer triggers"), plus
+#    the write-time-digest compare, the file-arm-routes-to-embed (unrecorded comparand), the
+#    write-landing-route, T1, and T2 behavioral-fix pins further down. The remaining #522 pins
+#    are surface-presence pins (assert_pin_unique, or pin_count>=1 for a marker that recurs).
+# (1) Pre-dispatch canonical write — removing it re-opens the condensation-drift channel (the
+#     auditor audits a hand-condensed copy instead of the exact file the implementer reads).
+assert_pin_red_under "#522: Step 3.6 writes the canonical draft file before every dispatch" \
+  'write the current rendered draft title + body to the canonical draft file' \
+  's/ to the canonical draft file//' "$CI443_SKILL"
+# (2) Read-the-file-as-sole-draft-source — removing it lets the auditor judge an embedded/
+#     remembered copy, re-opening the same condensation-drift channel.
+assert_pin_red_under "#522: audit prompt reads the draft file as the sole draft source" \
+  'Read the draft file `{absolute issue-draft-<slug>.md path}` as the sole draft source' \
+  's/as the sole draft source//' "$CI443_SKILL"
+# (3) Narrowed reasoning-artifacts-only out-of-bounds list — putting the draft back on the
+#     file-arm out-of-bounds list makes the artifact under audit unreadable to the auditor.
+assert_pin_red_under "#522: draft file is NOT on the file-arm out-of-bounds list" \
+  'is **not** on the file-arm out-of-bounds list' \
+  's/is \*\*not\*\* on the file-arm out-of-bounds list/is on the file-arm out-of-bounds list/' "$CI443_SKILL"
+# (4) Two-trigger user-chosen-rounds offer — deleting the trigger evaluation re-opens the
+#     ship-unconverged channel (the run proceeds to Step 4 without offering another round).
+assert_pin_red_under "#522: Step 3.6->4 boundary evaluates the two user-chosen-round triggers" \
+  'evaluate exactly these **2 offer triggers**' \
+  's/evaluate exactly these \*\*2 offer triggers\*\*/evaluate no offer triggers/' "$CI443_SKILL"
+# Surface-presence pins (no mutation obligation) for the following markers (the
+# write-landing-route / T1 / T2 behavioral-fix pins live further down).
+assert_eq "#522: embed arm carries the file-write-failed marker" "yes" \
+  "$([ "$(pin_count 'draft embedded (file write failed)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
+assert_eq "#522: embed arm carries the file-unreadable marker" "yes" \
+  "$([ "$(pin_count 'draft embedded (file unreadable)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
+# Distinct marker for the unrecorded-comparand entry path (iteration-2 re-gate: the write
+# actually landed there, so reusing the file-write-failed marker would be a misdirected
+# breadcrumb — CLAUDE.md guard-class-2). The distinct marker keeps the breadcrumb honest.
+assert_eq "#522: embed arm carries the distinct digest-unrecorded marker" "yes" \
+  "$([ "$(pin_count 'draft embedded (digest unrecorded)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
+assert_pin_unique "#522: audit summary line states the total number of audit rounds run" \
+  'the total number of audit rounds run' "$CI443_SKILL"
+assert_pin_unique "#522: audit summary carries the declined-further-audit phrase" \
+  'user declined further audit' "$CI443_SKILL"
+assert_pin_unique "#522: user-chosen rounds are capped at 3 per run" \
+  'User-chosen rounds are capped at 3 per run' "$CI443_SKILL"
+assert_pin_unique "#522: audit event-log is the round record the user-chosen-rounds offer reads" \
+  'the round record the user-chosen-rounds offer reads' "$CI443_SKILL"
+assert_pin_unique "#522: unestablished event log treats trigger T2 as holding" \
+  'T2 below is treated as holding' "$CI443_SKILL"
+assert_pin_unique "#522: Step 3.5 self-checks the draft against the audit dimensions" \
+  'Self-check the draft against the Step 3.6 audit dimensions' "$CI443_SKILL"
+assert_pin_unique "#522: Step 3.5 summary reports the dimension self-check (falsifiable zero)" \
+  'no dimension-checklist finding' "$CI443_SKILL"
+# Template out-of-bounds ENUMERATION pin (closes the narration-vs-template drift the pin (3)
+# narration pin alone leaves open — a regression re-adding the draft to the audit-prompt
+# TEMPLATE's 3-file list would keep pin (3)'s narration sentence GREEN; this pins the
+# template's exact 3-reasoning-artifact list, so re-adding the draft there flips it RED).
+assert_pin_unique "#522: audit-prompt template out-of-bounds names exactly the 3 reasoning artifacts" \
+  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
+# Automatic budget unchanged (AC 'Automatic budget unchanged'): the user-chosen rounds must
+# not silently widen the automatic loop past one audit + one automatic re-audit.
+assert_pin_unique "#522: automatic budget stays one audit plus at most one automatic re-audit" \
+  'one audit plus **at most one** automatic re-audit' "$CI443_SKILL"
+# Coupled doc site (AC 'Coupled sites updated in the same change'): the §11 item 5 overview
+# must carry the new file-first contract, not the retired "only the rendered title and body".
+CI522_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_pin_unique "#522: overview §11 item 5 describes the file-first sole-draft-source contract" \
+  'reads that file as the sole draft source' "$CI522_OVERVIEW"
+# File-arm carriage / identity check (closes the write-to-read race — the one uncovered
+# operative anti-corruption contract): the auditor must return a full-content git hash-object
+# digest of the file it read so the orchestrator can compare and reject foreign bytes —
+# a full-content digest catches an interior overwrite that boundary-line sampling would miss.
+assert_pin_unique "#522: file-arm carriage check returns a full-content git hash-object digest for identity compare" \
+  'run `git hash-object` on the draft file it read and quote the printed object ID verbatim in its return' "$CI443_SKILL"
+# Template-side git-hash-object instruction (iteration-4 review finding C: narration-vs-template
+# drift). The pin above pins the AUTHOR-FACING narration wording; the DISPATCHED audit-prompt
+# template carries its own copy (different wording), and a regression removing the template's
+# instruction leaves the narration pin GREEN while the auditor is no longer asked to hash —
+# silently disabling the whole identity check. Symmetric with the out-of-bounds template pin.
+assert_pin_unique "#522: audit-prompt template instructs the auditor to return a git hash-object digest" \
+  'run `git hash-object` on that draft file and quote the object ID it prints verbatim' "$CI443_SKILL"
+# Template-side DRAFT-UNREADABLE emit condition (iteration-4 review finding F): the only other
+# guard over this token is a non-discriminating pin_count>=1 that stays GREEN as long as the
+# token survives anywhere; this pins the template's operative emit-condition sentence so deleting
+# the instruction that tells the auditor WHEN to produce the third verdict flips RED.
+assert_pin_unique "#522: audit-prompt template states the DRAFT-UNREADABLE emit condition" \
+  'If you cannot read the file, return **no findings** and end with' "$CI443_SKILL"
+# Degraded-arm carve-out: the inline arm has no subagent/file, so it must NOT emit the
+# file-arm-only third verdict value — deleting this carve-out re-opens a spurious emit.
+assert_pin_unique "#522: degraded inline arm emits no VERDICT: DRAFT-UNREADABLE" \
+  'emits **no `VERDICT: DRAFT-UNREADABLE`**' "$CI443_SKILL"
+# Embed-arm 4-file out-of-bounds list (the inverse of the file arm's 3-file list — re-adds
+# the draft path): symmetric with the file-arm template-enumeration pin above.
+assert_pin_unique "#522: embed arm out-of-bounds names exactly the 4 files (draft re-added)" \
+  'On this arm the out-of-bounds declaration names exactly these 4 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
+# Carriage COMPARE-AND-REJECT (the ENFORCEMENT half of the anti-corruption check — the auditor's
+# quote obligation is pinned above, but the orchestrator's string-compare-and-reject is what
+# actually rejects foreign bytes; deleting it makes the identity check decorative).
+# Behavioral-fix pin (iteration-4 review finding A, corroborated x3): the comparand MUST be the
+# write-time digest captured at dispatch, NEVER a compare-time re-hash of the on-disk file — a
+# re-hash sees the same foreign bytes the auditor did and passes a concurrent overwrite
+# vacuously, leaving the write-to-read race the check exists to close wide open. The mutation
+# reverts the comparand to "`git hash-object` of the file it wrote" (the compare-time re-hash),
+# re-introducing exactly that fail-open, so the pin goes RED.
+assert_pin_red_under "#522: file-arm compare uses the write-time digest, never a compare-time re-hash" \
+  'against the write-time digest recorded in the event log for this round' \
+  's/against the write-time digest recorded in the event log for this round/against the `git hash-object` of the file it wrote for this round/' "$CI443_SKILL"
+# Fail-CLOSED on missing evidence (iteration-4 review finding B): an absent/unparseable object ID
+# is treated as a failed completion, not just a mismatch — the guard must not pass on the inputs
+# where its evidence is missing.
+assert_pin_unique "#522: file-arm compare fails closed on an absent or unparseable object ID" \
+  'an absent or unparseable object ID in the return' "$CI443_SKILL"
+# Absent-comparand routing (iteration-4 shadow finding: split-anchor fail-open). The write-time
+# digest lives ONLY in the (cwd/worktree-anchored) event log, while the draft file is
+# main-root-anchored — the two roots can fail independently, so a landed draft write + failed
+# event-log write leaves the file-arm compare with no comparand. The routing is an IMPERATIVE
+# pre-dispatch check (confirm the digest was recorded, else route to embed), not a stated
+# invariant. Behavioral-fix pin: the mutation makes the file arm proceed regardless, re-opening
+# the compare-against-absent-comparand fail-open.
+assert_pin_red_under "#522: file-arm routes to the embed arm when its write-time comparand is unrecorded" \
+  'if it was not recorded, route to the write-failure embed arm instead' \
+  's/if it was not recorded, route to the write-failure embed arm instead/proceed on the file arm regardless/' "$CI443_SKILL"
+# Compare-time backstop (iteration-4 re-shadow finding: policy-without-mechanism). Symmetric to
+# the absent-object-ID arm — an absent recorded comparand at compare time is itself a failed
+# completion, so the compare can never be vacuously satisfied by a missing write-time digest.
+assert_pin_unique "#522: absent recorded write-time digest at compare time is a failed completion" \
+  'an absent or unreadable recorded write-time digest at compare time is itself a failed completion' "$CI443_SKILL"
+# Event-log RECORD producer (iteration-4 shadow gap: the compare's comparand producer). The
+# compare pin above asserts the orchestrator compares against the write-time digest recorded in
+# the event log; this pins that the event log actually RECORDS that digest at dispatch. Dropping
+# it leaves the identity check with no comparand while the consumer pin stays GREEN.
+assert_pin_unique "#522: event log records the write-time git hash-object digest at each file-arm dispatch" \
+  'git hash-object` of the dispatched `issue-draft-<slug>.md` on the file arm' "$CI443_SKILL"
+# T2 producer (iteration-4 shadow gap): the T2 behavioral pin verifies the temporal test, but
+# the producer — that the revision step writes a `revised after round N` record — is unpinned.
+# Dropping it leaves T2's postdates-test with nothing to fire on.
+assert_pin_unique "#522: revision step writes a revised-after-round-N event-log record" \
+  'record written **as part of the revision step itself**' "$CI443_SKILL"
+# Event-log delete-leftover-first precondition (iteration-4 convergence-shadow gap): the "log
+# contains only this run's rounds" invariant T1/T2 rest on. Dropping delete-first lets a stale
+# prior-run event log survive, so the postdates-test fires against foreign records.
+assert_pin_unique "#522: event log is deleted-leftover-first at the run's first dispatch" \
+  "deleted-leftover-first at the run's first dispatch" "$CI443_SKILL"
+# Round-initiating-sites enumeration (iteration-4 convergence-shadow gap): the canonical-write
+# pin guards the general instruction, but not that the enumeration names all four sites (the
+# symmetric surface to the out-of-bounds enumerations this block already pins).
+assert_pin_unique "#522: canonical write fires at exactly the 4 round-initiating sites" \
+  'at exactly these 4 round-initiating sites' "$CI443_SKILL"
+# Sub-step 3 summary marker enumeration lists all THREE embed-arm markers (iteration-4
+# convergence-shadow: the summary-rendering site omitted the digest-unrecorded marker the
+# embed-arm paragraph defines — the multi-state-contract drift Step 3.5's own check targets).
+assert_pin_unique "#522: sub-step 3 summary enumerates the digest-unrecorded embed marker" \
+  'or `draft embedded (digest unrecorded)` (one per embed-arm entry path)' "$CI443_SKILL"
+assert_pin_unique "#522: embed-arm orchestrator string-compares sentinels and rejects a mismatch" \
+  'string-compares them (bash builtins only, never a non-preflight PATH tool) against the dispatched values' "$CI443_SKILL"
+# Embed-arm auditor QUOTE obligation (iteration-4 review finding G): the compare pin above pins
+# the ENFORCEMENT half; this pins the half that PRODUCES the values compared. Deleting the
+# auditor's quote obligation makes the compare compare-against-nothing — the mirror of the
+# file-arm pair, which pins both the quote obligation and the compare.
+assert_pin_unique "#522: embed-arm auditor must quote both sentinels plus body boundary lines" \
+  'quote both sentinels plus the body'\''s first and last lines verbatim' "$CI443_SKILL"
+# DRAFT-UNREADABLE recovery action (what makes the third verdict value non-terminal): a file-arm
+# unreadable draft re-dispatches once on the embed arm — deleting it strands the third value.
+assert_pin_unique "#522: file-arm DRAFT-UNREADABLE re-dispatches exactly once on the embed arm" \
+  '**re-dispatch exactly once on the embed arm**' "$CI443_SKILL"
+# DRAFT-UNREADABLE termination invariant (iteration-4 review finding D): an embed-arm
+# DRAFT-UNREADABLE is illegal and must NOT trigger a second file-arm re-dispatch — removing this
+# clause re-opens a potential re-dispatch loop (the loop-termination guard the re-dispatch pin
+# above does not itself cover).
+assert_pin_unique "#522: embed-arm DRAFT-UNREADABLE never triggers a second file-arm re-dispatch" \
+  '**never** a second file-arm re-dispatch' "$CI443_SKILL"
+# Write-landing route condition (issue #522 iteration-3 review I3): the read-only signal that
+# routes to the embed arm is a failed delete OR a write that did not land. Excising the
+# "OR a write that did not land" arm re-opens the fail-open where a fresh-slug read-only sandbox
+# lets `rm` succeed vacuously while the write still fails, sending an UNWRITTEN path down the
+# file arm (the auditor then reads a stale/absent file). Behavioral-fix pin: the mutation
+# removes the write-landing arm, so keying routing on the delete alone comes back.
+assert_pin_red_under "#522: embed-arm routing keys on a failed delete OR a write that did not land" \
+  'a failed delete OR a write that did not land' \
+  's/ OR a write that did not land//' "$CI443_SKILL"
+# Trigger T1 firing condition: the user-chosen-round offer fires when the most recent completed
+# audit round returned VERDICT: REVISE. Inverting REVISE->FILE makes T1 fire on the wrong
+# verdict (offering another round after a clean FILE and withholding it on an unconverged
+# REVISE) — the exact demonstrably-unconverged signal T1 exists to catch.
+assert_pin_red_under "#522: user-chosen offer trigger T1 fires on the last round's VERDICT: REVISE" \
+  'the most recent completed audit round returned `VERDICT: REVISE`' \
+  's/most recent completed audit round returned `VERDICT: REVISE`/most recent completed audit round returned `VERDICT: FILE`/' "$CI443_SKILL"
+# Trigger T2 firing condition: T2 holds when a `revised after round N` record POSTDATES the last
+# completed round's record in the event log (content no audit round has seen). Inverting
+# postdates->predates flips the temporal test so T2 never fires on genuinely-newer revisions —
+# re-opening the ship-unaudited-revision channel T2 closes.
+assert_pin_red_under "#522: user-chosen offer trigger T2 fires when a revision postdates the last round" \
+  '**postdates the last completed round' \
+  's/postdates/predates/' "$CI443_SKILL"
 
 # ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
