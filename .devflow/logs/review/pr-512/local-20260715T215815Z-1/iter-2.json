@@ -1,0 +1,104 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-15T22:45:00Z",
+  "fix_commit_sha": "b77b50eb",
+  "fix_files": [".changeset/issue-503-diff-base-fix.md", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "lib/test/run.sh"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "N1 (shadow-promoted, corroborated x2): 'Both local-diff producers check the raw diff, filtered candidate, promotion write, and stdout publication' falsely attributes Phase 0.2's cache-producer pipeline to the item-6a pre-check (which is pipefail + rc routing only). In .changeset/issue-503-diff-base-fix.md:6 and docs/DEVFLOW_SYSTEM_OVERVIEW.md:371.",
+      "defect_signature": {"file": ".changeset/issue-503-diff-base-fix.md", "line_range": [6, 6], "kind": "documented_falsehood"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "N2 (shadow-promoted, corroborated x3): item-6a PR-mode arm (exit-65 guard + REVIEW_DIFF_BASE=$HEAD_OVERRIDE_BASE) never executed, pinned deletion-only. Added behavioral execution tests (operand carried -> honored; dropped -> exit 65); mutation-verified both catch guard defeat.",
+      "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [771, 776], "kind": "test-coverage"},
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "#503 assertion label said 'stages the filtered diff' but pins the raw-candidate (pre-awk) stage.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [32862, 32862], "kind": "inaccurate-test-label"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "N1", "decision": "applied", "commit": "b77b50eb"},
+    {"finding_id": "N2", "decision": "applied", "commit": "b77b50eb"},
+    {"finding_id": "N3-label", "decision": "applied", "commit": "b77b50eb"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 23,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "stale_prose_check": {
+    "rc": 0,
+    "rows": [
+      "UNRESOLVABLE\tR3\t.changeset/issue-503-diff-base-fix.md\t6\tcount-locked: '3 item' claim but no adjacent assertion block (informational, never gates)"
+    ]
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 210,
+    "skipped_checks": [
+      {
+        "check": "#434 stale-prose self-scan",
+        "kind": "blocking-gate",
+        "reason": "working tree dirty at the pre-commit suite run (grades committed HEAD); item-6a stale-prose pre-check ran clean on committed HEAD (rc 0), and the committed-tree confirming run clears the skip"
+      }
+    ]
+  },
+  "telemetry": {
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 1, "webfetches": 0},
+    "step_3_5": {"calls": 1, "tokens": 80094, "wall_clock_s": 133},
+    "step_2_6": {"calls": 5, "tokens": 691000, "wall_clock_s": 739}
+  },
+  "shadow": {
+    "ran_at": "2026-07-15T23:05:00Z",
+    "reviewed_sha": "b77b50eb323d071ce852d88d3db8a9c50da918e8",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "F1 (corroborated x3: silent-failure-hunter + pr-test-analyzer + requesting-code-review): item-6a fence discriminates PR-vs-current-branch mode on `test -n ${PR_BASE_BRANCH:-}`, but the prose only instructs carrying $HEAD_OVERRIDE_BASE, not the PR_BASE_BRANCH discriminator. If the agent carries the operand but not the mode-signal, the fence silently falls to the current-branch arm (origin/$BASE), bypassing the exit-65 guard — the base-misattribution class #503 exists to close, via a different door. Fails open where it claims to fail closed.", "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [768, 788], "kind": "fail-open-guard"}, "corroboration_count": 3},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "The #363 head-count assertion label carries a stale copy-paste clause ('the comment fetch still writes via an in-workspace redirect, NOT a tee, so gh exit status survives') that misdescribes the #503 producer (no comment fetch / gh in that fence).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [30145, 30145], "kind": "inaccurate-comment"}, "corroboration_count": 1},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "F2 (known/accepted, from iter-1): config-get hard-failure defaults to origin/main in a read-only review rather than failing closed like update-branch-checkpoint.sh. Prose now accurately describes this (comment-analyzer confirmed); accepted tradeoff for the advisory read-only surface.", "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [531, 540], "kind": "warned-fallback"}, "corroboration_count": 1}
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 5,
+      "overlap_with_iter_N": 2,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 1
+    },
+    "promoted_to_iter_next": true
+  }
+}

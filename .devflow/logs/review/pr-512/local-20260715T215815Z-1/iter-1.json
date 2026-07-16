@@ -1,0 +1,146 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-15T21:58:15Z",
+  "fix_commit_sha": "93117564",
+  "fix_files": ["skills/review/SKILL.md", "skills/review-and-fix/SKILL.md", "lib/test/run.sh"],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "Stale hardcoded 'vs main' in the review skill's Input line (:11) and reviewer-prompt Description template (:1033) — the exact hardcoded-base class this PR set out to eliminate; misdescribes behavior for non-main-trunk consumers.",
+      "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [1033, 1033], "kind": "stale-hardcoded-base"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The $PR_BASE_BRANCH operand producer (Phase 0.2 'gh pr view --json …baseRefName…' field + storage instruction) is entirely unpinned; a future edit dropping baseRefName silently empties the operand every base-resolution arm reads while the suite stays green (CLAUDE.md operand→producer gotcha).",
+      "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [326, 330], "kind": "operand-producer-untested"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "review-and-fix item 6a prose claims the config-get hard-failure fallback to 'main' is 'the same shape … update-branch-checkpoint.sh use[s]', but the checkpoint script emits UNVERIFIED (stops) on hard failure rather than defaulting — fail-open-to-a-guess mislabeled 'fail-closed'.",
+      "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [768, 779], "kind": "unverified-assumption"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "The retargeting divergence warning reads $BASE from a separate fence; if the agent does not thread $BASE, it is empty here and the warning fires on every head-override run (over-warns, fails safe — log noise only).",
+      "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [383, 384], "kind": "cross-fence-variable-dependency"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "item-6a current-branch arm is unreachable in the PR-scoped fix loop (PR_BASE_BRANCH always set); retained only for byte-parity with Phase 0.2 but not annotated as such.",
+      "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [428, 438], "kind": "unreachable-fallback"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-A", "decision": "applied", "commit": "93117564"},
+    {"finding_id": "F-B", "decision": "applied", "commit": "93117564"},
+    {"finding_id": "F-1", "decision": "applied", "commit": "93117564"},
+    {
+      "finding_id": "F-S1",
+      "decision": "deferred",
+      "source_file": "skills/review/SKILL.md",
+      "claim_text": "divergence warning reads $BASE from a separate fence — over-warns if not threaded",
+      "skip_category": "uncategorized",
+      "evidence": "Fails safe (over-warns, log noise only, never leaks or mis-approves). The obvious fix (re-resolve $BASE inside the HEAD_OVERRIDE_BASE_RESOLUTION fence) would add a second 'config-get.sh .base_branch main' occurrence to review/SKILL.md, flipping the #503 AC8 pin (expects exactly 1) RED; the prose already instructs the agent to thread the resolved value like $PR_BASE_BRANCH/$PR_BASE_SHA. Parked as advisory."
+    },
+    {
+      "finding_id": "F-S2",
+      "decision": "deferred",
+      "source_file": "skills/review-and-fix/SKILL.md",
+      "claim_text": "item-6a current-branch arm unreachable in the fix loop, retained for Phase-0.2 byte-parity but not annotated",
+      "skip_category": "uncategorized",
+      "evidence": "Cosmetic doc clarification; the arm is intentionally byte-identical to Phase 0.2 (AC8 extracts and compares the fence between BEGIN/END markers), so adding an in-fence note risks the parity assertion. Low value. Parked as advisory."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 20,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "stale_prose_check": {
+    "rc": 0,
+    "rows": [
+      "UNRESOLVABLE\tR3\t.changeset/issue-503-diff-base-fix.md\t6\tcount-locked: '3 item' claim but no adjacent assertion block (informational, never gates)"
+    ]
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 210,
+    "skipped_checks": [
+      {
+        "check": "#434 stale-prose self-scan",
+        "kind": "blocking-gate",
+        "reason": "working tree dirty at the pre-commit suite run (this check grades committed HEAD); re-run on the clean committed tree passed with 0 skipped (7688 passed, 0 failed, 0 skipped)"
+      }
+    ]
+  },
+  "telemetry": {
+    "phase_3": {"calls": 5, "tokens": 543000, "wall_clock_s": 714},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2, "webfetches": 0},
+    "step_3_5": {"calls": 1, "tokens": 79573, "wall_clock_s": 479},
+    "step_2_6": {"calls": 5, "tokens": 662000, "wall_clock_s": 915}
+  },
+  "shadow": {
+    "ran_at": "2026-07-15T22:40:00Z",
+    "reviewed_sha": "d890a89a720e95b1fbcce929776c008a5c84c70d",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "N1: 'Both local-diff producers check the raw diff, filtered candidate, promotion write, and stdout publication' is false for the item-6a pre-check (only Phase 0.2 has that pipeline). Appears in .changeset/issue-503-diff-base-fix.md:6 and docs/DEVFLOW_SYSTEM_OVERVIEW.md:371.", "defect_signature": {"file": ".changeset/issue-503-diff-base-fix.md", "line_range": [6, 6], "kind": "documented_falsehood"}, "corroboration_count": 2},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "N2: item-6a PR-mode branch (exit 65 guard + REVIEW_DIFF_BASE=$HEAD_OVERRIDE_BASE) is never executed and pinned deletion-only; guard inversion or exit-65→exit-0 stays green. Corroborated by silent-failure-hunter + requesting-code-review.", "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [771, 776], "kind": "test-coverage"}, "corroboration_count": 3},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "run.sh assertion label says 'stages the filtered diff' but pins the raw-candidate (unfiltered) stage.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [186, 187], "kind": "inaccurate-test-label"}, "corroboration_count": 1},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "head-override prose line 'git diff origin/$PR_BASE_BRANCH...HEAD' not pinned against reverting to the stale SHA; Scenario-B fixture not run end-to-end through the fence.", "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [515, 515], "kind": "test-coverage"}, "corroboration_count": 1}
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 6,
+      "overlap_with_iter_N": 1,
+      "new": 5,
+      "new_critical": 0,
+      "new_important": 2
+    },
+    "promoted_to_iter_next": true
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "iter": 3,
+  "started_at": "2026-07-15T23:10:00Z",
+  "fix_commit_sha": "d43e6dec",
+  "fix_files": ["skills/review-and-fix/SKILL.md", "lib/test/run.sh"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "F1 (shadow-promoted, corroborated x3): item-6a discriminated PR-vs-current-branch mode on `test -n ${PR_BASE_BRANCH:-}` while the prose only instructs carrying $HEAD_OVERRIDE_BASE; a carried-operand-but-unthreaded-signal run silently fell to the current-branch base, bypassing the exit-65 guard. Restructured to operand-first (key on $HEAD_OVERRIDE_BASE); PR_BASE_BRANCH now only gates the fail-closed exit-65.",
+      "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [771, 788], "kind": "fail-open-guard"},
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "Sug1: #363 head-count label carried a stale copy-paste clause ('comment fetch ... NOT a tee ... gh exit status survives') misdescribing the #503 producer. Replaced with an accurate description (>-redirect candidates + awk/sed filter + cat publish, no tee head).",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [30147, 30147], "kind": "inaccurate-comment"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F1", "decision": "applied", "commit": "d43e6dec"},
+    {"finding_id": "Sug1", "decision": "applied", "commit": "d43e6dec"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 27,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "stale_prose_check": {
+    "rc": 0,
+    "rows": [
+      "UNRESOLVABLE\tR3\t.changeset/issue-503-diff-base-fix.md\t6\tcount-locked: '3 item' claim but no adjacent assertion block (informational, never gates)"
+    ]
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 210,
+    "skipped_checks": [
+      {
+        "check": "#434 stale-prose self-scan",
+        "kind": "blocking-gate",
+        "reason": "working tree dirty at the pre-commit suite run (grades committed HEAD); item-6a pre-check ran clean on committed HEAD (rc 0); committed-tree confirming run clears the skip"
+      }
+    ]
+  },
+  "telemetry": {
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 1, "webfetches": 0},
+    "step_3_5": {"calls": 1, "tokens": 85314, "wall_clock_s": 346},
+    "step_2_6": {"calls": 5, "tokens": 620000, "wall_clock_s": 736}
+  },
+  "shadow": {
+    "ran_at": "2026-07-15T23:30:00Z",
+    "reviewed_sha": "d43e6dec7ef85ffa11e40984d4e3cae351b472c4",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "docs/DEVFLOW_SYSTEM_OVERVIEW.md:60 attributes the merge-base/--unshallow cleanup to 'Phase 0.2's cache producer', but that cleanup lives in the sibling base-resolution fence (both in Phase 0.2). Net behavior described is correct; only the attribution is slightly off.", "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [60, 60], "kind": "imprecise-attribution"}, "corroboration_count": 1},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "$BASE in the retargeting-divergence check (review/SKILL.md:383) is a cross-fence read; if unthreaded it misfires a spurious warning. Cosmetic only (diff base is $HEAD_OVERRIDE_BASE, unaffected); matches the established carry-the-value convention. Parked since iter-1.", "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [383, 384], "kind": "cross-fence-variable-reliance"}, "corroboration_count": 2},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "item-6a both-unthreaded residual: if a PR-mode iteration threads NEITHER $HEAD_OVERRIDE_BASE nor $PR_BASE_BRANCH, the else arm resolves the current-branch config base. All agree this is strictly better than the prior ${PR_BASE_SHA:-origin/main} form, documented, and backstopped by Phase 0.6 — the irreducible carry-nothing residual, not a defect.", "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [771, 793], "kind": "residual-fail-open"}, "corroboration_count": 2},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Minor test-hardening gaps (sev 2-4): no end-to-end fence→real-git-diff thread (A), legitimate empty-but-successful producer run untested (B), no standalone-mode negative test (C), user-facing prose unpinned (D). None leaves a changed behavior fully untested; follow-up hardening.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [32805, 33055], "kind": "test-coverage-seam"}, "corroboration_count": 1}
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 4,
+      "overlap_with_iter_N": 2,
+      "new": 2,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false,
+    "post_shadow_edit_gate": {
+      "head_at_exit": "d1ba59d1",
+      "delta": "final Loop-Exit base merge (origin/main, 10 commits) + run.sh #484-region conflict resolution deferring to main's already-merged #506 (repoint pins to CHANGELOG.md) instead of this branch's superseded iter-1 branch-hygiene edit, plus a 2-line explanatory comment",
+      "delta_review": "clean",
+      "delta_review_agent": "devflow:code-reviewer",
+      "reviewed_sha_advanced_to": "d1ba59d1",
+      "note": "post-shadow PR-authored delta is a test-harness comment resolution deferring to an already-reviewed main PR; suite green (7936 passed, 0 failed, 0 skipped)"
+    }
+  },
+  "park_calibration_gate": "clean: no parked finding matched a mis-grade shape (fail-open guard on inputs it should catch / coverage hole hiding a defect / overclaiming breadcrumb / un-honorable deferral). Parked: $BASE cross-fence over-warn (fails safe), item-6a both-unthreaded residual (strictly-better, documented, Phase-0.6-backstopped), docs:60 attribution nit (net behavior correct), minor test-hardening gaps (empty-success path confirmed correct)."
+}
