@@ -3278,13 +3278,14 @@ assert_pin_unique "#443: audit summary renders the word degraded whenever the de
 # ── issue #522: Step 3.6 audits the canonical DRAFT FILE (not a hand-condensed copy), offers
 #    user-chosen audit rounds past the automatic cap, and Step 3.5 self-checks the audit
 #    dimensions. Same skill-contract mechanism as #443: pins over the rendered SKILL surface,
-#    no runtime code path in CI. Seven behavioral-fix pins in this block use assert_pin_red_under
+#    no runtime code path in CI. Eight behavioral-fix pins in this block use assert_pin_red_under
 #    with a sed -E mutation that RE-INTRODUCES the named defect (each mutation excises or
 #    inverts the operative clause so its removal/inversion alone re-opens the guarded
 #    regression) — the four immediately below (pins 1/2 excise a clause, pins 3/4 invert/negate
 #    it: "is not on" → "is on"; "exactly these 2 offer triggers" → "no offer triggers"), plus
-#    the write-landing-route, T1, and T2 behavioral-fix pins further down. The remaining #522
-#    pins are surface-presence pins (assert_pin_unique, or pin_count>=1 for a marker that recurs).
+#    the write-time-digest compare, the write-landing-route, T1, and T2 behavioral-fix pins
+#    further down. The remaining #522 pins are surface-presence pins (assert_pin_unique, or
+#    pin_count>=1 for a marker that recurs).
 # (1) Pre-dispatch canonical write — removing it re-opens the condensation-drift channel (the
 #     auditor audits a hand-condensed copy instead of the exact file the implementer reads).
 assert_pin_red_under "#522: Step 3.6 writes the canonical draft file before every dispatch" \
@@ -3384,6 +3385,26 @@ assert_pin_red_under "#522: file-arm compare uses the write-time digest, never a
 # where its evidence is missing.
 assert_pin_unique "#522: file-arm compare fails closed on an absent or unparseable object ID" \
   'an absent or unparseable object ID in the return' "$CI443_SKILL"
+# Absent-comparand routing (iteration-4 shadow finding: split-anchor fail-open). The write-time
+# digest lives ONLY in the (cwd/worktree-anchored) event log, while the draft file is
+# main-root-anchored — the two roots can fail independently, so a landed draft write + failed
+# event-log write leaves the file-arm compare with no comparand. Behavioral-fix pin: the file
+# arm must route to the embed arm when its write-time digest was not recorded; the mutation
+# re-selects the file arm anyway, re-opening the compare-against-absent-comparand fail-open.
+assert_pin_red_under "#522: file-arm routes to the embed arm when its write-time comparand is unrecorded" \
+  'could not be recorded in the event log routes to the write-failure embed arm' \
+  's/routes to the write-failure embed arm instead/is dispatched on the file arm anyway/' "$CI443_SKILL"
+# Event-log RECORD producer (iteration-4 shadow gap: the compare's comparand producer). The
+# compare pin above asserts the orchestrator compares against the write-time digest recorded in
+# the event log; this pins that the event log actually RECORDS that digest at dispatch. Dropping
+# it leaves the identity check with no comparand while the consumer pin stays GREEN.
+assert_pin_unique "#522: event log records the write-time git hash-object digest at each file-arm dispatch" \
+  'git hash-object` of the dispatched `issue-draft-<slug>.md` on the file arm' "$CI443_SKILL"
+# T2 producer (iteration-4 shadow gap): the T2 behavioral pin verifies the temporal test, but
+# the producer — that the revision step writes a `revised after round N` record — is unpinned.
+# Dropping it leaves T2's postdates-test with nothing to fire on.
+assert_pin_unique "#522: revision step writes a revised-after-round-N event-log record" \
+  'record written **as part of the revision step itself**' "$CI443_SKILL"
 assert_pin_unique "#522: embed-arm orchestrator string-compares sentinels and rejects a mismatch" \
   'string-compares them (bash builtins only, never a non-preflight PATH tool) against the dispatched values' "$CI443_SKILL"
 # Embed-arm auditor QUOTE obligation (iteration-4 review finding G): the compare pin above pins
