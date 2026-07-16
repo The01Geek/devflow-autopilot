@@ -775,6 +775,14 @@ def _host_profile_from_manifest(doc: dict) -> dict | None:
     profile: dict[str, Any] = {}
     for key in ("provider", "devflow_version", "claude_code_version"):
         v = doc.get(key)
+        # The recorder (capture_prompt_manifest) writes these as {"value","source"}
+        # dicts, NOT bare strings — reading them as `str` silently dropped all
+        # three on every real manifest, leaving the provider / devflow-version /
+        # claude-version stratification dimensions permanently non-comparable
+        # (issue #527 review; the same wrong-shape-read class as the eligibility
+        # bug). Extract `.value`; a bare string is still accepted for robustness.
+        if isinstance(v, dict):
+            v = v.get("value")
         if isinstance(v, str) and v:
             profile[key] = v
     me = _subdict(doc, "model_effort")
@@ -1046,7 +1054,7 @@ def _workspace_state(events: list, start_idx: int, end_idx: int) -> dict:
             elif isinstance(c, list):
                 text = "\n".join(p.get("text", "") for p in c if isinstance(p, dict) and isinstance(p.get("text"), str))
             lower = text.lower()
-            if "head " in lower or "head\t" in lower or lower.startswith("head "):
+            if re.search(r"\bhead\b", lower):
                 covered.add("head")
             # Word-boundary matches: a bare substring marks a root covered on
             # incidental text (and "tracked" is literally inside "untracked"), so
@@ -1667,7 +1675,15 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
         status = str(raw.get("status") or "")
         conclusion = raw.get("conclusion")
         completed_and_ran = status == "completed" and conclusion not in (None, "skipped")
-        scheduled_started = status in ("queued", "in_progress") or completed_and_ran or bool(started_at)
+        # A SKIPPED job never ran its agent step, so it is never "started" —
+        # regardless of whether the Actions API populated a started_at for it. The
+        # trailing `bool(started_at)` must not re-admit a skipped job: keying the
+        # exclusion on that unverified API-shape assumption fails OPEN on the exact
+        # input the guard exists to reject (issue #527 review; unverified-assumption
+        # class). Exclude skipped explicitly.
+        scheduled_started = (
+            status in ("queued", "in_progress") or completed_and_ran or bool(started_at)
+        ) and conclusion != "skipped"
         if mapping is None:
             # Precheck/dedupe/telemetry/relay/skipped non-agent jobs: ineligible.
             state = ELIGIBILITY_INELIGIBLE

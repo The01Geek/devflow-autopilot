@@ -11,6 +11,11 @@ closed time window, paginates, and writes an immutable metadata-only snapshot
 conclusion). The offline analyzer (verification_baseline.py) reads this snapshot
 without any network access.
 
+Scope: only each run's LATEST attempt is censused (the runs list endpoint returns
+one row per run at its latest attempt); superseded re-run attempts are out of
+Wave-1 scope and recorded as ``attempt_coverage: "latest_only"`` rather than left
+as a silent under-count.
+
 The snapshot records its hash, query time, and pagination completeness. It
 contains ONLY Actions metadata — no transcript text, no tool input, no stdout/
 stderr, no secrets, no source paths. An absent or incomplete snapshot makes the
@@ -81,6 +86,11 @@ def build_snapshot(repo: str, workflow_set: list[str], closed_after: str, closed
         "repository": repo,
         "workflow_set": workflow_set,
         "closed_window": {"created_after": closed_after, "created_before": closed_before},
+        # The runs list endpoint returns only each run's LATEST attempt, and this
+        # exporter does not enumerate prior attempts — so superseded re-run
+        # attempts are not in the census. Record that scope explicitly as a durable,
+        # visible fact rather than leaving it a silent under-count (issue #527 review).
+        "attempt_coverage": "latest_only",
         "row_count": len(rows),
         "rows": rows,
     }

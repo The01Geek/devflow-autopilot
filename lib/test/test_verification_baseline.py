@@ -122,9 +122,12 @@ def manifest(sid: str, workflow: str = "implement", provisional: bool = False, s
         "storage_root": "/home/u/repo",
         "storage_root_source": "git_common_dir",
         "git": {"head_sha": "abc", "branch": "main", "dirty_tree": False},
-        "devflow_version": "1.2.3",
-        "claude_code_version": "1.0.0",
-        "provider": "anthropic",
+        # Real recorder shape: these three are {"value","source"} dicts, not bare
+        # strings (capture_prompt_manifest). Using the real shape here exercises
+        # host_profile's dict extraction.
+        "devflow_version": {"value": "1.2.3", "source": "plugin_manifest"},
+        "claude_code_version": {"value": "1.0.0", "source": "cli"},
+        "provider": {"value": "anthropic", "source": "env"},
         "model_effort": {"requested_model": "claude-sonnet-5"},
     }
 
@@ -853,6 +856,81 @@ class Issue527ReviewFixTests(_TmpDirTestCase):
         # A valid in-repo path resolves under the repo root.
         resolved = vb._validate_admitted_path(".devflow/tmp")
         self.assertTrue(str(resolved).startswith(str(ROOT.resolve())))
+
+    # --- H1: a skipped cloud job is ineligible EVEN WHEN the API populated a
+    #         started_at (the guard must not fail open on that assumption). ----
+    def test_skipped_cloud_job_with_started_at_is_ineligible(self) -> None:
+        snap = {
+            "schema_version": 1, "snapshot_hash": "h", "query_time": "t",
+            "pagination_complete": True, "repository": "o/r",
+            "rows": [
+                # A skipped job that DOES carry a started_at — must still be ineligible.
+                {"workflow_file": ".github/workflows/devflow-implement.yml", "job": "claude",
+                 "run_id": 9, "run_attempt": 1, "started_at": "2026-07-16T01:00:10Z",
+                 "conclusion": "skipped", "status": "completed"},
+            ],
+        }
+        rows, _ = build_cloud_census(snap, load_cloud_mappings(REGISTRY))
+        self.assertEqual(rows[0].eligibility_state, ELIGIBILITY_INELIGIBLE)
+
+    # --- H2: HEAD coverage must use a word boundary too — 'ahead of' (git
+    #         status) must NOT mark the HEAD root covered. -------------------
+    def test_head_root_not_covered_by_ahead(self) -> None:
+        state = vb._workspace_state([_result_event("Your branch is ahead of 'origin/main' by 1 commit.")], 0, 0)
+        self.assertNotIn("head", state["covered_roots"])
+
+    def test_head_root_covered_by_real_head_mention(self) -> None:
+        state = vb._workspace_state([_result_event("HEAD detached at abc123")], 0, 0)
+        self.assertIn("head", state["covered_roots"])
+
+    # --- H3: host_profile must extract .value from the recorder's
+    #         {"value","source"} dict shape, not require a bare string. -------
+    def test_host_profile_reads_value_source_dicts(self) -> None:
+        doc = {
+            "provider": {"value": "bedrock", "source": "env"},
+            "devflow_version": {"value": "2.1.0", "source": "plugin_manifest"},
+            "claude_code_version": {"value": "1.0.0", "source": "cli"},
+            "model_effort": {"requested_model": "claude-sonnet-5"},
+            "git": {"branch": "main"},
+        }
+        hp = vb._host_profile_from_manifest(doc)
+        self.assertEqual(hp["provider"], "bedrock")
+        self.assertEqual(hp["devflow_version"], "2.1.0")
+        self.assertEqual(hp["claude_code_version"], "1.0.0")
+        self.assertEqual(hp["model"], "claude-sonnet-5")
+
+    # --- Test-gap fills flagged in both shadow passes. ----------------------
+    def test_fetch_jobs_total_count_undercount_marks_incomplete(self) -> None:
+        # A final short page whose accumulated count is < the API-reported
+        # total_count must flip pagination_complete=False (silent short census).
+        export = _load_export_census()
+
+        def fake_gh_json(gh, args):
+            joined = " ".join(args)
+            if "/actions/runs/7/jobs" in joined:
+                # total_count=200 but only 150 jobs across the pages we return.
+                page = next((a.split("=")[-1] for a in args if a.startswith("--field=page=")), "1")
+                if page == "1":
+                    return {"total_count": 200, "jobs": [{"name": f"j{i}"} for i in range(100)]}
+                return {"total_count": 200, "jobs": [{"name": f"j{i}"} for i in range(100, 150)]}
+            return {"workflow_runs": [{"id": 7, "path": ".github/workflows/x.yml", "name": "X"}]}
+
+        export._gh_json = fake_gh_json
+        _, jobs_by_run, complete = export.fetch_runs_and_jobs("gh", "o/r", [], "2026-07-01", "2026-08-01")
+        self.assertEqual(len(jobs_by_run[7]), 150)  # data retained
+        self.assertFalse(complete)  # but marked incomplete (150 < 200)
+
+    def test_validate_admitted_path_rejects_symlink_escape(self) -> None:
+        # Plant a symlink under .devflow/tmp pointing outside the repo root and
+        # assert it is rejected (the function's headline security promise).
+        link = Path(self.tmp) / "escape-link"
+        try:
+            link.symlink_to("/etc")
+        except OSError:
+            self.skipTest("symlinks unsupported on this platform")
+        rel = link.relative_to(ROOT)
+        with self.assertRaises(ValueError):
+            vb._validate_admitted_path(str(rel / "passwd"))
 
     # --- F1/F2: the census exporter must issue a GET with a single closed
     #            created range (no dropped upper bound). --------------------
