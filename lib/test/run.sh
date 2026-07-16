@@ -1048,8 +1048,24 @@ assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_
 # once per run. New #530 pins that must be file-specific pass an explicit reference-file arg.
 # The concat carries a `.md` suffix so pin-corpus-lint infers markdown comment syntax.
 MAXI_ROOT="$LIB/../skills/review-and-fix/SKILL.md"
-MAXI_BUNDLE="$(mktemp)"; mv "$MAXI_BUNDLE" "$MAXI_BUNDLE.md"; MAXI_BUNDLE="$MAXI_BUNDLE.md"
-cat "$MAXI_ROOT" "$LIB/../skills/review-and-fix/references"/*.md > "$MAXI_BUNDLE"
+MAXI_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-and-fix bundle temp" >&2; exit 1; }
+mv "$MAXI_BUNDLE" "$MAXI_BUNDLE.md"; MAXI_BUNDLE="$MAXI_BUNDLE.md"
+: > "$MAXI_BUNDLE"
+# Build the bundle member-by-member through the same fail-closed predicate the implement
+# bundle uses (_impl_bundle_member_usable): a missing / empty / unreadable member records a
+# suite FAIL instead of silently dropping — a silent partial bundle would turn the
+# absence/count pins that read $MAXI_BUNDLE (e.g. the #456 grep-and-echo-no guard, LR_SCHEMA)
+# into vacuous passes. The array preserves a $LIB path containing a space.
+_maxi_members=("$MAXI_ROOT")
+for _mf in "$LIB/../skills/review-and-fix/references"/*.md; do _maxi_members+=("$_mf"); done
+for _m in "${_maxi_members[@]}"; do
+  if _impl_bundle_member_usable "$_m" && cat "$_m" >> "$MAXI_BUNDLE"; then
+    printf '\n' >> "$MAXI_BUNDLE"
+  else
+    printf '  FAIL  review-and-fix bundle member missing, empty, or unreadable: %s\n' "$_m"
+    echo FAIL >> "$RESULTS_FILE"
+  fi
+done
 MAXI_SKILL="$MAXI_BUNDLE"
 assert_pin_unique "max_iterations clamp: SKILL keeps the negative-aware integer regex" "'^-?[0-9]+\$'" "$MAXI_SKILL"
 assert_pin_unique "max_iterations clamp: SKILL keeps the below-1 floor" '"$MAX_ITERS" -lt 1' "$MAXI_SKILL"
@@ -31113,9 +31129,13 @@ assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
 # assignments (e.g. the loop-start `RUN_ID=`) and the unexpanded `${CLAUDE_SKILL_DIR:-…}`
 # anchor-as-leading-token + redirect — source forms review-and-fix relies on and that ARE
 # permitted on the tiers it actually runs on (the implement-profile lint below is clean).
-# So the whole bundle is shape-linted under `--profile implement` (root + every reference);
-# the manual-command tier is covered by the whole-bundle HEAD scan against devflow.yml above.
-# Grants are unchanged — desk-time coverage only.
+# So the whole bundle is shape-linted under `--profile implement` (root + every reference).
+# The manual-command (devflow.yml) tier's SHAPES are unprobed — matcher-probe.yml has only a
+# review-probe and an implement-probe job, no manual-command job — so the implement profile
+# stands in as the closest MEASURED proxy for the manual push path (probe-inference, not
+# measurement; if a shape denial ever surfaces there the real fix is a manual-probe job, not
+# more lint). The manual tier's HEADS are separately covered by the whole-bundle head scan
+# against devflow.yml above. Grants are unchanged — desk-time coverage only.
 for f in "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../skills/review-and-fix/references"/*.md; do
   assert_eq "#530 review-and-fix shape-lint (implement profile): $(basename "$f") teaches no denied shape" "" \
     "$(python3 "$ECS" --profile implement "$f" 2>&1)"
@@ -31140,7 +31160,7 @@ RAF_BUDGET_DOC="$LIB/../docs/review-and-fix-budget.md"
 assert_eq "#530 budget: checked-in budget table exists" "yes" \
   "$([ -f "$RAF_BUDGET_DOC" ] && echo yes || echo no)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,196 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,188 words' "$RAF_BUDGET_DOC"
 
 # ── #530 pressure tests (AC16): the split preserves every named control-flow scenario ──
 # Each scenario's operative behavioral literal must survive the split AND land in the
@@ -31199,7 +31219,7 @@ assert_pin_unique "#530 pressure(fix-delta): fix-delta verification gate in fix-
 # Routing: the thin root's Step-routing table names every routed reference.
 for _r530 in pre-fix-gates shadow-review fixing fix-delta-gate convergence loop-exit loop-control; do
   assert_eq "#530 pressure(routing): root Step-routing names references/$_r530.md" "yes" \
-    "$(grep -qF "references/$_r530.md" "$P530_ROOT" && echo yes || echo no)"  # raw-guard-ok: loop body over the enumerated $_r530 reference names, not a static pin
+    "$(grep_present "references/$_r530.md" "$P530_ROOT")"
 done
 
 # ── Anti-vacuity: each rule flags its denied shape (fixtures under $E363's trap-cleaned dir).

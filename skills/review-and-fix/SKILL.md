@@ -225,7 +225,7 @@ The always-resident loop control — config resolution, Iteration Start, Step 0.
 
 ## Step routing (which reference implements each step)
 
-Steps 2.5 through Loop Exit are **step references** — their authoritative procedure lives in a file under `skills/review-and-fix/references/` and is loaded at step entry (the *Reference-loading contract* below governs how). This root retains the invocation contract, the shared `### Schema`/`### Lifecycle`, the Main-Loop control, Steps 0.5/0.9/1/2/4, routing, terminal mapping, and fail-closed handling; it never paraphrases a reference's procedure. When a step's prose above or in a reference names "Step N.M", resolve it to its reference via this table.
+Every loop step's authoritative procedure lives in a file under `skills/review-and-fix/references/` and is loaded at step entry (the *Reference-loading contract* below governs how); the root retains the invocation contract, `### Schema`, `### Lifecycle`, routing, terminal mapping, and fail-closed handling, and never paraphrases a reference's procedure. When any prose names "Step N.M", resolve it to its reference via this table.
 
 | Step (`current_step`) | Reference file | Fires when |
 | --- | --- | --- |
@@ -257,8 +257,10 @@ Every step reference loads at entry, **before any action in that step**, and a r
 | `fix-delta-gate.md` | Record a not-verified fix-delta outcome (the existing gate-subagent-failure shape) that **prohibits a clean APPROVE-family verdict** for this run — the same effect as an unresolved over-grade flag. (The formal `reference_reads.fix_delta` schema field is deferred to the AC8 follow-up; the behavioral outcome is delivered here.) |
 | `convergence.md` | Treat as "a convergence condition failed" — never early-exit: loop back to Step 1 for iteration N+1, or at the cap proceed to Loop Exit reporting non-convergence. Mark non-convergence explicitly. |
 | `loop-exit.md` | Run the persistence backstop directly (`lib/efficiency-trace.sh --persist`) to floor the telemetry record, record an **incomplete terminal state** reflection, and emit a generic non-clean chat message instead of any APPROVE-family template — **prohibits a clean approve**. |
+| `loop-control.md` | The always-resident spine (config, Iteration Start, Steps 0.5/0.9/1/2), loaded at loop entry: **STOP before any mutation** — the loop cannot run the engine or a fix without it. Record a `blocked` reflection; report non-convergence. |
+| `error-handling.md` | Contextual guidance (When NOT to use / Error Handling / Common Mistakes), not a loop step — **best-effort**: log and continue; its absence degrades only guidance, never a gate. |
 
-**Always-resident re-read rule (issue #530 — this block never leaves the root, for eviction resistance).** After **every** `Agent`/`Task`/`Skill`-tool return that occurred while executing a reference's procedure (a Phase-3 dispatch inside Step 1, a shadow reviewer inside `shadow-review.md`, the blinded subagent inside `fix-delta-gate.md`, and any other), and **before taking the next cross-reference routing action**, re-`Read` the currently-active reference — identified by `current_step`/`current_substep` in the active `iter-<N>.json`, **not** by conversational memory — and resume the interrupted substep. Never re-dispatch the agent/skill that just returned (the same do-not-re-dispatch idempotency the implement orchestrator's re-anchor carries). The durable operands are the step predicate; **agent recall is never the sole predicate**.
+**Always-resident re-read rule (issue #530 — never leaves the root, for eviction resistance).** After **every** `Agent`/`Task`/`Skill`-tool return while executing a reference's procedure, and **before the next cross-reference routing action**, re-`Read` the active reference — identified by `current_step`/`current_substep` in the active `iter-<N>.json`, **not** by conversational memory — and resume the interrupted substep; never re-dispatch the agent/skill that just returned. The durable operands are the step predicate; **agent recall is never the sole predicate**.
 
 
 ### Step 4: Continue Loop
@@ -269,14 +271,14 @@ Output: `Fixed {N} issues, skipped {M}. Re-running review...`
 
 ## Terminal verdict → chat output (mapping)
 
-This is the externally-visible terminal contract — which converged verdict produces which chat outcome — that downstream callers (e.g. `/devflow:implement` Phase 3.3) rely on. The **authoritative rendering** (headline templates, finding/advisory counts, deferrals-manifest surfacing, the coverage/telemetry appendix) lives in `references/loop-exit.md` under "Verdict → chat output"; this table is the routing summary and may only be rendered **after** `references/loop-exit.md`'s Pre-mapping gates have run and written their verdict/sentinel (see the *Step routing* table's `loop-exit` row).
+The externally-visible terminal contract — which converged verdict produces which chat outcome — that downstream callers (e.g. `/devflow:implement` Phase 3.3) rely on. The authoritative rendering (headlines, counts, deferrals manifest, coverage/telemetry appendix) lives in `references/loop-exit.md` under *Verdict → chat output*, and may only be rendered **after** its Pre-mapping gates have run (see the *Step routing* `loop-exit` row).
 
 | Converged verdict | Terminal chat outcome |
 | --- | --- |
-| `APPROVE` | clean approve — reported only when the shadow pass recorded `coverage: "full"` and no gate prohibits a clean approve |
+| `APPROVE` | clean approve — only when shadow `coverage: "full"` and no gate prohibits it |
 | `APPROVE WITH ADVISORY NOTES` | approve, surfacing the parked advisory findings |
 | `APPROVE WITH CAVEAT` | approve, surfacing the verification-coverage caveat (incl. shadow `not_verified`) |
-| `REJECT` | non-clean — the loop exhausted its cap without converging, or a Pre-mapping gate downgraded to REJECT |
+| `REJECT` | non-clean — cap exhausted without converging, or a Pre-mapping gate downgraded |
 | incomplete / not-verified (any fail-closed reference outcome above) | a generic non-clean message; **never** an APPROVE-family template |
 
 
