@@ -12292,6 +12292,17 @@ assert_eq "#520: target's prs list ascending"      "1,2"   "$(echo "$RT_OUT" | j
 assert_eq "#520: single-PR target absent (1<2)"     "false" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/solo.sh")')"
 assert_eq "#520: representative_summary = earliest PR" "fix A" "$(echo "$RT_OUT" | jq -r '.[] | select(.target=="lib/x.sh") | .representative_summary')"
 
+# AC: representative_summary tiebreak within the EARLIEST PR is document-order-first
+# — when the earliest PR names the target through TWO interventions, the first
+# intervention's summary wins (sort_by(.pr) is stable, so $g[0] is the earliest-PR,
+# earliest-intervention record). Guards the "then intervention document order" clause.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"first-iv","candidate_targets":["lib/z.sh"]},{"summary":"second-iv","candidate_targets":["lib/z.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"later-pr-iv","candidate_targets":["lib/z.sh"]}]}
+JSONL
+)"
+assert_eq "#520: representative_summary tiebreak = earliest-PR, earliest-intervention" "first-iv" "$(echo "$RT_OUT" | jq -r '.[] | select(.target=="lib/z.sh") | .representative_summary')"
+
 # AC: pr_count counts DISTINCT PRs — a target named twice within one PR (across
 # two interventions) contributes 1, so a same-PR-twice target does NOT surface.
 RT_OUT="$(rt_run <<'JSONL'
@@ -12369,6 +12380,29 @@ JSONL
   # omit-when-empty: no recurring target → no section header.
   RT_SUM_EMPTY='{"prs_scanned":1,"clean_count":1,"analyzed_count":0,"recurring_targets":[],"intervention_issues":[]}'
   assert_eq "#520: section omitted when no recurring target" "false" "$(devflow_render_report "$RT_SUM_EMPTY" | grep -q '## Recurring intervention targets' && echo true || echo false)"
+
+  # render-report line-format coverage — the recurring-target bullet exercises
+  # three render branches none of the fixtures above reach:
+  #   (a) the exact `N PRs (#a, #b)` prs-list bullet text,
+  #   (b) gsub("\n";" ") newline-flatten of an embedded newline, and
+  #   (c) the length>220 ellipsis truncation.
+  # Build one target carrying all three (prs 62,91; a summary with a newline that
+  # is also >220 chars so truncation applies to the flattened form).
+  # Build the summary inside jq so the "\n" is a REAL embedded newline (a shell
+  # $(printf '\n') would be stripped by command substitution) and the x-run is >220.
+  RT_RT_FMT="$(jq -nc '[{target:"lib/fmt.sh",pr_count:2,prs:[62,91],representative_summary:("line one\nand " + ("x"*300) + " tail")}]')"
+  RT_SUM_FMT="$(jq -nc --argjson rt "$RT_RT_FMT" '{prs_scanned:2,clean_count:0,analyzed_count:0,recurring_targets:$rt,intervention_issues:[]}')"
+  RT_FMT_LINE="$(devflow_render_report "$RT_SUM_FMT" | grep -F '`lib/fmt.sh`')"
+  # (a) exact prs-list bullet text.
+  assert_eq "#520: prs-list bullet renders '2 PRs (#62, #91)'" "true" "$(echo "$RT_FMT_LINE" | grep -qF '2 PRs (#62, #91)' && echo true || echo false)"
+  # (b) the embedded newline is flattened — the text before and after the newline
+  # ("line one" / "and xxx…") land on the SAME bullet line as "line one and ".
+  # If gsub did not flatten, "and …" would be on a separate line and this fails.
+  assert_eq "#520: embedded newline flattened onto the bullet line" "true" "$(echo "$RT_FMT_LINE" | grep -qF 'line one and ' && echo true || echo false)"
+  # (c) >220-char summary is ellipsis-truncated (the "…" appears; the full 300-x
+  # run cannot survive, so the bullet is shorter than the raw summary).
+  assert_eq "#520: >220-char representative_summary is ellipsis-truncated" "true" "$(echo "$RT_FMT_LINE" | grep -qF '…' && echo true || echo false)"
+  assert_eq "#520: truncated bullet drops the un-truncatable full x-run" "false" "$(echo "$RT_FMT_LINE" | grep -qF 'tail' && echo true || echo false)"
 )
 rm -rf "$RT_TMP"
 
