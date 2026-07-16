@@ -506,7 +506,13 @@ just the PRs that produced an intervention:
 ```bash
 ANALYZED_JSON="$($LIB/../scripts/run-jq.sh -sc '[.[] | select(.verdict == "imperfect" or .verdict == "blocked") | {pr, verdict, summary}]' .devflow/tmp/new-entries.jsonl)"
 PATTERNS_JSON="$(cat .devflow/tmp/patterns.json)"
+RECURRING_TARGETS_JSON="$(bash $LIB/recurring-targets.sh .devflow/learnings/retrospectives.jsonl)"
 ```
+
+`recurring-targets.sh` groups every accumulated entry's
+`suggested_interventions[].candidate_targets[]` by exact target path and emits
+only the targets named in ≥2 distinct PRs (report-only; `[]` when nothing
+recurs, which `render-report.sh` then omits).
 
 Build the summary JSON and assign it to `$SUMMARY_JSON`:
 
@@ -517,12 +523,13 @@ SUMMARY_JSON="$($LIB/../scripts/run-jq.sh -nc \
   --argjson analyzed_count      "$analyzed_count" \
   --argjson analyzed            "$ANALYZED_JSON" \
   --argjson patterns            "$PATTERNS_JSON" \
+  --argjson recurring_targets   "$RECURRING_TARGETS_JSON" \
   --argjson intervention_issues "$(printf '%s\n' "${intervention_issues[@]:-}" | $LIB/../scripts/run-jq.sh -sc '.')" \
   --argjson cooldown_skipped    "$(printf '%s\n' "${cooldown_skipped[@]:-}"    | $LIB/../scripts/run-jq.sh -sc '.')" \
   --argjson blockers            "$(printf '%s\n' "${blockers[@]:-}"            | $LIB/../scripts/run-jq.sh -sc '.')" \
   --argjson state_pr            "$STATE_PR" \
   '{prs_scanned:$prs_scanned,clean_count:$clean_count,analyzed_count:$analyzed_count,
-    analyzed:$analyzed,patterns:$patterns,
+    analyzed:$analyzed,patterns:$patterns,recurring_targets:$recurring_targets,
     intervention_issues:$intervention_issues,
     cooldown_skipped:$cooldown_skipped,blockers:$blockers,state_pr:$state_pr}')"
 ```

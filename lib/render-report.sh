@@ -60,6 +60,26 @@ devflow_render_report() {
               + (if (.cooldown_active // false) then " — cooldown, skipped this run" else "" end)'
     fi
 
+    # Recurring intervention targets (issue #520) — report-only: the files/areas
+    # the accumulated retrospectives.jsonl repeatedly points at, ranked by
+    # distinct-PR count. Files no issue and writes no dismissal state, so it
+    # surfaces recurring targets regardless of overrides.json dismissal. Omitted
+    # when no target reaches >= 2 distinct PRs (the helper emits [] then), mirroring
+    # the optional-section idiom above.
+    local recurring_n
+    recurring_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.recurring_targets // []) | length')"
+    if [ "$recurring_n" -gt 0 ]; then
+        printf '\n## Recurring intervention targets\n\n'
+        # recurring-targets.jq already emits this order; the sort mirrors its
+        # canonical key so render-report stays self-contained (like the patterns
+        # section) and never depends on the caller pre-sorting the array.
+        echo "$summary_json" | "$DEVFLOW_JQ" -r '
+            (.recurring_targets // [])
+            | sort_by([-(.pr_count // 0), .target])[]
+            | "- `\(.target)` — \(.pr_count // 0) PRs (\((.prs // []) | map("#\(.)") | join(", "))): "
+              + ((.representative_summary // "") | gsub("\n";" ") | if length > 220 then .[0:217] + "…" else . end)'
+    fi
+
     # Issues filed — one per actionable pattern (the loop proposes, not disposes:
     # each pattern becomes a GitHub issue for the normal implement -> review pipeline)
     printf '\n## Issues filed\n\n'
