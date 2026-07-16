@@ -13,6 +13,49 @@ set -u
 
 LIB="$(cd "$(dirname "$0")/.." && pwd)"
 
+# issue #533 (AC13): clear an INHERITED DEVFLOW_GH before any fixture runs. The
+# resolvers treat a non-empty DEVFLOW_GH as the strongest explicit override (no
+# probe), so a value leaked in from the invoking environment — historically the
+# writer workflows' install step exported one process-globally via GITHUB_ENV —
+# would silently outrank every fixture-local PATH stub this suite installs,
+# making the suite report broad environmental failures on a clean baseline.
+# Tests that exercise the override contract reintroduce their own value with a
+# per-invocation `DEVFLOW_GH=… cmd` prefix, which is unaffected by this clear.
+# The clear is DISCLOSED, never silent: an operator who exported DEVFLOW_GH (the
+# documented Windows/WSL escape hatch) sees the breadcrumb instead of a baffling
+# ignored override.
+[ -n "${DEVFLOW_GH:-}" ] && echo "run.sh: clearing inherited DEVFLOW_GH='$DEVFLOW_GH' for fixture isolation (issue #533); override-contract tests re-set their own value per-invocation" >&2
+unset DEVFLOW_GH
+
+# issue #533 (AC13) probe mode: launched as `DEVFLOW_AC13_PROBE=1 bash lib/test/run.sh`
+# (the #533 regression test does exactly this, with DEVFLOW_GH pre-set to a failing
+# sentinel), the suite runs ONLY this harness-entry probe and exits — proving the
+# `unset DEVFLOW_GH` above governs the real suite entry, not a simulation: if the
+# inherited sentinel survived, devflow_resolve_gh would echo it verbatim (override
+# contract) instead of resolving the fixture-local PATH stub. Exits before any other
+# test so the probe launch stays cheap and can never recurse.
+#
+# PROBE MODE RUNS ZERO TESTS, so it must be impossible to mistake for a green
+# suite: it banners loudly on stderr and exits 3 (a deliberate, distinctive
+# non-zero code). A DEVFLOW_AC13_PROBE value leaked into a CI environment
+# therefore fails the required check loudly instead of passing it with nothing
+# run — the env-triggered fail-open a shadow review pass flagged (issue #533).
+if [ -n "${DEVFLOW_AC13_PROBE:-}" ]; then
+  echo "ac13-probe: PROBE MODE — the suite ran NO tests (deliberate rc 3; unset DEVFLOW_AC13_PROBE for a real run)" >&2
+  if ! _p533_d="$(mktemp -d)"; then
+    echo "ac13-probe: mktemp -d failed — probe could not run" >&2
+    exit 3
+  fi
+  mkdir -p "$_p533_d/bin"
+  printf '#!/usr/bin/env bash\necho AC13_PATH_STUB_INVOKED\n' > "$_p533_d/bin/gh"
+  chmod +x "$_p533_d/bin/gh"
+  _p533_cmd="$(PATH="$_p533_d/bin:$PATH" bash -c ". \"$LIB/resolve-gh.sh\"; devflow_resolve_gh")"
+  _p533_out="$(PATH="$_p533_d/bin:$PATH" "$_p533_cmd" --version 2>/dev/null || true)"
+  printf 'ac13-probe: resolved=%s output=%s\n' "$_p533_cmd" "$_p533_out"
+  rm -rf "$_p533_d"
+  exit 3
+fi
+
 # Results are recorded to a file (one PASS/FAIL line each) rather than to shell
 # variables, so assertions that run inside ( … ) subshells — the config-source.sh and
 # render-report.sh blocks, sourced in subshells to contain their `set -e` — are
@@ -39850,9 +39893,16 @@ for _wf487 in devflow-implement devflow; do
   # The refresher/install steps are gated on DEVFLOW_APP_ID (unconfigured no-op).
   assert_eq "#487 wiring: $_wf487.yml refresher start is gated on vars.DEVFLOW_APP_ID" "1" \
     "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$_WFF487")" | grep -cF "vars.DEVFLOW_APP_ID != ''")"
-  # The install step records the job-start fingerprint and prepends the wrapper to PATH.
-  assert_eq "#487 wiring: $_wf487.yml install step prepends the wrapper dir to GITHUB_PATH" "1" \
-    "$(printf '%s\n' "$(mint_blk 'Install fresh-gh wrapper (optional)' "$_WFF487")" | grep -cF 'GITHUB_PATH')"
+  # The install step delegates its whole body to the checked-in seven-output
+  # installer (issue #533) — the fingerprint write and GITHUB_PATH prepend now
+  # live in scripts/install-gh-wrapper.sh, pinned below outside this loop.
+  assert_eq "#533 wiring: $_wf487.yml install step invokes the vendored install-gh-wrapper.sh" "1" \
+    "$(printf '%s\n' "$(mint_blk 'Install fresh-gh wrapper (optional)' "$_WFF487")" | grep -cF '.devflow/vendor/devflow/scripts/install-gh-wrapper.sh')"
+  # AC10 (issue #533): the install step must NOT export a process-global DEVFLOW_GH —
+  # GITHUB_ENV values persist into every later job step, where a non-empty DEVFLOW_GH
+  # outranks fixture PATH stubs by resolver design. Wrapper selection is PATH-scoped.
+  assert_eq "#533 AC10: $_wf487.yml install step no longer exports DEVFLOW_GH to GITHUB_ENV" "0" \
+    "$(printf '%s\n' "$(mint_blk 'Install fresh-gh wrapper (optional)' "$_WFF487")" | grep -cF 'DEVFLOW_GH=')"
   # ── Step ORDERING (PR #491 Suggestion 2): load-bearing but previously unpinned.
   # (a) The refresher and the wrapper install must both precede the claude step, so the
   # agent's >60-min run is already push-/gh-fresh from the start; a reordering that put
@@ -39873,15 +39923,16 @@ for _wf487 in devflow-implement devflow; do
   _checkout_ln="$(grep -nF 'name: Checkout repository' "$_WFF487" | head -1 | cut -d: -f1)"
   assert_eq "#491 wiring: $_wf487.yml starts the refresher AFTER checkout (the persisted extraheader must exist to rewrite)" "yes" \
     "$([ -n "$_checkout_ln" ] && [ -n "$_start_ln" ] && [ "$_checkout_ln" -lt "$_start_ln" ] && echo yes || echo no)"
-  # (b) Intra-step: the real gh's ABSOLUTE path must be captured BEFORE the wrapper dir
-  # is appended to GITHUB_PATH — otherwise a later name-based `gh` lookup recurses into
-  # the wrapper. Pin the two lines' order within the install step block.
-  _instblk="$(mint_blk 'Install fresh-gh wrapper (optional)' "$_WFF487")"
-  _cap_ln="$(printf '%s\n' "$_instblk" | grep -nF 'REAL_GH="$(command -v gh)"' | head -1 | cut -d: -f1)"
-  _path_ln="$(printf '%s\n' "$_instblk" | grep -nF 'GITHUB_PATH' | head -1 | cut -d: -f1)"
-  assert_eq "#487 wiring: $_wf487.yml captures REAL_GH before prepending the wrapper to GITHUB_PATH" "yes" \
-    "$([ -n "$_cap_ln" ] && [ -n "$_path_ln" ] && [ "$_cap_ln" -lt "$_path_ln" ] && echo yes || echo no)"
 done
+# (b) Intra-step ordering, relocated to the installer (issue #533): the real gh's
+# ABSOLUTE path must be resolved BEFORE the wrapper dir is appended to GITHUB_PATH —
+# otherwise a later name-based `gh` lookup recurses into the wrapper. The install
+# step body now lives once in scripts/install-gh-wrapper.sh, so pin the order there.
+INSTALL533="$LIB/../scripts/install-gh-wrapper.sh"
+_cap_ln533="$(grep -nF 'REAL_GH="$(command -v gh' "$INSTALL533" 2>/dev/null | head -1 | cut -d: -f1)"
+_path_ln533="$(grep -nF '>> "$GITHUB_PATH"' "$INSTALL533" 2>/dev/null | head -1 | cut -d: -f1)"
+assert_eq "#487 wiring: install-gh-wrapper.sh resolves the real gh before prepending the wrapper to GITHUB_PATH" "yes" \
+  "$([ -n "$_cap_ln533" ] && [ -n "$_path_ln533" ] && [ "$_cap_ln533" -lt "$_path_ln533" ] && echo yes || echo no)"
 # devflow.yml's gate additionally excludes /devflow:review (read-only, never pushes).
 assert_eq "#487 wiring: devflow.yml refresher start excludes /devflow:review commands" "1" \
   "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
@@ -39932,10 +39983,14 @@ assert_eq "#491 coupled-default: pidfile default basename agrees (refresh-app-cr
 # either side breaks the match), in BOTH workflows.
 _r_fp491="$(_dfbn "$LIB/../scripts/gh-fresh.sh" '^FINGERPRINT_FILE=')"
 _r_log491="$(_dfbn "$LIB/../scripts/stop-refresher.sh" '^LOG=')"
+# The fingerprint WRITER moved from the two workflow YAML bodies into the single
+# checked-in installer (issue #533) — compare the writer/reader DEFAULTS directly,
+# the same extract-and-compare shape as the token-file/pidfile pins above.
+_w_fp533="$(_dfbn "$INSTALL533" '^FINGERPRINT_FILE=')"
+assert_eq "#491 coupled-default: fingerprint default basename agrees (install-gh-wrapper.sh writer <-> gh-fresh.sh reader) [$_w_fp533]" "yes" \
+  "$([ -n "$_w_fp533" ] && [ "$_w_fp533" = "$_r_fp491" ] && echo yes || echo no)"
 for _wf491 in devflow-implement devflow; do
   _wfbns491=" $(grep -oE 'RUNNER_TEMP/devflow-[a-zA-Z0-9._-]+' "$WF/$_wf491.yml" | sed 's#RUNNER_TEMP/##' | sort -u | tr '\n' ' ')"
-  assert_eq "#491 coupled-default: $_wf491.yml writes the fingerprint basename gh-fresh.sh reads [$_r_fp491]" "yes" \
-    "$([ -n "$_r_fp491" ] && printf '%s' "$_wfbns491" | grep -qF " $_r_fp491 " && echo yes || echo no)"
   assert_eq "#491 coupled-default: $_wf491.yml writes the log basename stop-refresher.sh reads [$_r_log491]" "yes" \
     "$([ -n "$_r_log491" ] && printf '%s' "$_wfbns491" | grep -qF " $_r_log491 " && echo yes || echo no)"
 done
@@ -39950,6 +40005,274 @@ assert_pin_unique "#487 fail-fast prose: skills/review-and-fix/SKILL.md carries 
 # The compaction-immune sibling signal (the wrapper diagnostic literal) is named in the prose.
 assert_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
   'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"
+
+# ── issue #533: workflow CLI scoping — single validated installer, PATH-scoped
+# wrapper selection, no process-global DEVFLOW_GH, harness isolation ──────────
+
+# AC14 — the checked-in installer exists and fingerprints via python3 hashlib
+# (preflight-guaranteed), never sha256sum/shasum/awk (not PATH-guaranteed on the
+# runner; a silent absence would ship an empty fingerprint — guard-class 2).
+assert_eq "#533 AC14: scripts/install-gh-wrapper.sh exists" "yes" \
+  "$([ -f "$INSTALL533" ] && echo yes || echo no)"
+assert_eq "#533 AC14: installer fingerprints via python3 hashlib and never invokes sha256sum/shasum/awk" "yes" \
+  "$(grep -vE '^[[:space:]]*#' "$INSTALL533" 2>/dev/null | grep -qF 'hashlib' && ! grep -vE '^[[:space:]]*#' "$INSTALL533" | grep -qE 'sha256sum|shasum|awk' && echo yes || echo no)"
+# The AC10 guard's counting recipe lives in ONE function so the AC22 mutation
+# proof below exercises the same recipe the guard runs — never a hand copy that
+# could drift green while the real guard's pattern rots.
+_ac10_count533() { grep -cF 'DEVFLOW_GH=' "$1" 2>/dev/null; }
+# Whole-workflow sibling: counts process-global DEVFLOW_GH assignments anywhere
+# in a file — shell '=' or YAML env ':' form — with whole-line comments stripped.
+_ac10_wf_count533() { grep -vE '^[[:space:]]*#' "$1" 2>/dev/null | grep -cE 'DEVFLOW_GH[=:]'; }
+assert_eq "#533 AC10: install-gh-wrapper.sh writes no bare DEVFLOW_GH= (only DEVFLOW_GH_REAL=)" "0" \
+  "$(_ac10_count533 "$INSTALL533")"
+
+# AC17 — the install step stays gated on DEVFLOW_APP_ID in both writer workflows
+# (zero-App jobs never install the wrapper; bare-gh/token behavior is untouched).
+for _wf533 in devflow-implement devflow; do
+  assert_eq "#533 AC17: $_wf533.yml install step is gated on vars.DEVFLOW_APP_ID" "1" \
+    "$(printf '%s\n' "$(mint_blk 'Install fresh-gh wrapper (optional)' "$WF/$_wf533.yml")" | grep -cF "vars.DEVFLOW_APP_ID != ''")"
+  # AC10 whole-workflow guard: no process-global DEVFLOW_GH assignment ANYWHERE
+  # in the file — shell '=' or YAML env ':' form alike (a re-introduction in the
+  # claude step's env: block would re-break fixture PATH stubs exactly like the
+  # original defect, and the install-step-scoped guard above cannot see it).
+  # DEVFLOW_GH_REAL / DEVFLOW_GH_WRAPDIR carry an underscore after GH, so the
+  # [=:] delimiter regex skips them; whole-line comments are stripped so prose
+  # mentioning the retired export cannot false-fire. The recipe lives in ONE
+  # function so the positive controls below exercise the same recipe the guard
+  # runs (a hand-copied grep could drift green while the guard's pattern rots).
+  assert_eq "#533 AC10: $_wf533.yml carries no process-global DEVFLOW_GH assignment anywhere (= or : form, comments stripped)" "0" \
+    "$(_ac10_wf_count533 "$WF/$_wf533.yml")"
+  # The installer reads the token from the APP_TOKEN env value — the step must
+  # keep passing it in its env: block, or output 5 fails on every App-enabled run.
+  assert_eq "#533 AC14: $_wf533.yml install step passes APP_TOKEN in its env: block" "1" \
+    "$(printf '%s\n' "$(mint_blk 'Install fresh-gh wrapper (optional)' "$WF/$_wf533.yml")" | grep -cF 'APP_TOKEN: ${{ steps.app-token.outputs.token }}')"
+done
+# Positive controls for the whole-file recipe: a regex typo must not leave the
+# guard green forever. Plant each re-introduction shape in a scratch fixture and
+# assert the SAME recipe fires (1), and that a comment-only mention stays 0.
+_t533k="$(probe_tmp '#533 AC10 whole-file guard positive control setup')"
+printf 'jobs:\n  claude:\n    env:\n      DEVFLOW_GH: leaked\n' > "$_t533k"
+assert_eq "#533 AC22: the whole-file AC10 recipe fires on a planted YAML env DEVFLOW_GH: entry" "1" "$(_ac10_wf_count533 "$_t533k")"
+printf '          echo "DEVFLOW_GH=$WRAPDIR/gh" >> "$GITHUB_ENV"\n' > "$_t533k"
+assert_eq "#533 AC22: the whole-file AC10 recipe fires on a planted shell DEVFLOW_GH= export (the original defect form)" "1" "$(_ac10_wf_count533 "$_t533k")"
+printf '      # prose mentioning DEVFLOW_GH=old-export never fires the guard\n' > "$_t533k"
+assert_eq "#533 AC22: the whole-file AC10 recipe stays 0 on a whole-line comment mention" "0" "$(_ac10_wf_count533 "$_t533k")"
+rm -f "$_t533k"
+
+# AC14 — the seven validated outputs: each induced failure exits 1 with a
+# diagnostic naming that output; the full-success arm lands all seven.
+D533="$(mktemp -d)"
+# The real-gh capture is steered through a PATH stub — the same seam production
+# uses — never a bypass branch in the installer itself.
+mkdir -p "$D533/bin" "$D533/rtmp" "$D533/emptybin"
+printf '#!/usr/bin/env bash\necho "REALGH_CALLED $*"\n' > "$D533/bin/gh"; chmod +x "$D533/bin/gh"
+: > "$D533/ghenv"; : > "$D533/ghpath"
+_i533() {  # run the installer with the success fixture env, overriding via "$@"
+  env PATH="$D533/bin:$PATH" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh" \
+      APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" \
+      DEVFLOW_GH_WRAPDIR="$D533/wrapdir" DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint" \
+      "$@" bash "$INSTALL533" 2>&1
+}
+# output 1: no executable real gh (gh-less PATH).
+_o533_1="$(env APP_TOKEN=t GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" \
+  RUNNER_TEMP="$D533/rtmp" PATH="$D533/emptybin" "$BASH" "$INSTALL533" 2>&1)"; _rc533_1=$?
+assert_eq "#533 AC14 output 1: missing real gh fails rc 1 naming real-gh-resolve" "1 yes" \
+  "$_rc533_1 $(printf '%s' "$_o533_1" | grep -qF 'output 1/7 FAILED' && printf '%s' "$_o533_1" | grep -qF '(real-gh-resolve)' && echo yes || echo no)"
+# output 2: unreadable wrapper source.
+_o533_2="$(_i533 DEVFLOW_GH_SOURCE_SH="$D533/missing-src")"; _rc533_2=$?
+assert_eq "#533 AC14 output 2: unreadable wrapper source fails rc 1 naming wrapper-source-read" "1 yes" \
+  "$_rc533_2 $(printf '%s' "$_o533_2" | grep -qF 'output 2/7 FAILED' && printf '%s' "$_o533_2" | grep -qF '(wrapper-source-read)' && echo yes || echo no)"
+# output 3: wrapper dir blocked by a regular file on its parent path.
+: > "$D533/blockfile"
+_o533_3="$(_i533 DEVFLOW_GH_WRAPDIR="$D533/blockfile/sub")"; _rc533_3=$?
+assert_eq "#533 AC14 output 3: uncreatable wrapper dir fails rc 1 naming wrapdir-create" "1 yes" \
+  "$_rc533_3 $(printf '%s' "$_o533_3" | grep -qF 'output 3/7 FAILED' && printf '%s' "$_o533_3" | grep -qF '(wrapdir-create)' && echo yes || echo no)"
+# output 4: copy target occupied by a directory named gh.
+mkdir -p "$D533/wd4/gh"
+_o533_4="$(_i533 DEVFLOW_GH_WRAPDIR="$D533/wd4")"; _rc533_4=$?
+assert_eq "#533 AC14 output 4: failed wrapper copy fails rc 1 naming wrapper-copy-exec" "1 yes" \
+  "$_rc533_4 $(printf '%s' "$_o533_4" | grep -qF 'output 4/7 FAILED' && printf '%s' "$_o533_4" | grep -qF '(wrapper-copy-exec)' && echo yes || echo no)"
+# output 5a: empty APP_TOKEN (nothing to fingerprint).
+_o533_5a="$(_i533 APP_TOKEN=)"; _rc533_5a=$?
+assert_eq "#533 AC14 output 5: empty APP_TOKEN fails rc 1 naming fingerprint-compute" "1 yes" \
+  "$_rc533_5a $(printf '%s' "$_o533_5a" | grep -qF 'output 5/7 FAILED' && printf '%s' "$_o533_5a" | grep -qF '(fingerprint-compute)' && echo yes || echo no)"
+# output 5b: python3 itself failing (shadowed by a failing stub).
+mkdir -p "$D533/badpy"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$D533/badpy/python3"; chmod +x "$D533/badpy/python3"
+_o533_5b="$(_i533 PATH="$D533/badpy:$D533/bin:$PATH")"; _rc533_5b=$?
+assert_eq "#533 AC14 output 5: a failing python3 fails rc 1 naming fingerprint-compute" "1 yes" \
+  "$_rc533_5b $(printf '%s' "$_o533_5b" | grep -qF 'output 5/7 FAILED' && printf '%s' "$_o533_5b" | grep -qF '(fingerprint-compute)' && echo yes || echo no)"
+# output 5c: python3 runs, exits 0, but writes NOTHING — the [ -s ] non-empty
+# guard is what catches it (fingerprint-nonempty), distinct from a crash (5b).
+mkdir -p "$D533/emptypy"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$D533/emptypy/python3"; chmod +x "$D533/emptypy/python3"
+rm -f "$D533/rtmp/devflow-gh-fingerprint"
+_o533_5c="$(_i533 PATH="$D533/emptypy:$D533/bin:$PATH")"; _rc533_5c=$?
+assert_eq "#533 AC14 output 5: a python3 that succeeds writing nothing fails rc 1 naming fingerprint-nonempty" "1 yes" \
+  "$_rc533_5c $(printf '%s' "$_o533_5c" | grep -qF 'output 5/7 FAILED' && printf '%s' "$_o533_5c" | grep -qF '(fingerprint-nonempty)' && echo yes || echo no)"
+# outputs 3 & 5, RUNNER_TEMP-unset fail-closed branches: with no RUNNER_TEMP and
+# no matching override the guard must fire the NAMED diagnostic, never a bash
+# unbound-variable abort (the set -u escape the fail-closed contract forbids).
+_o533_3b="$(env -u RUNNER_TEMP PATH="$D533/bin:$PATH" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh" \
+  APP_TOKEN=t GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" bash "$INSTALL533" 2>&1)"; _rc533_3b=$?
+assert_eq "#533 AC14 output 3: RUNNER_TEMP unset with no WRAPDIR override fails rc 1 naming wrapdir-create (no set -u abort)" "1 yes" \
+  "$_rc533_3b $(printf '%s' "$_o533_3b" | grep -qF 'output 3/7 FAILED' && printf '%s' "$_o533_3b" | grep -qF '(wrapdir-create)' && echo yes || echo no)"
+_o533_5d="$(env -u RUNNER_TEMP PATH="$D533/bin:$PATH" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh" \
+  APP_TOKEN=t GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" DEVFLOW_GH_WRAPDIR="$D533/wrapdir-rt" bash "$INSTALL533" 2>&1)"; _rc533_5d=$?
+assert_eq "#533 AC14 output 5: RUNNER_TEMP unset with no FINGERPRINT override fails rc 1 naming fingerprint-compute (no set -u abort)" "1 yes" \
+  "$_rc533_5d $(printf '%s' "$_o533_5d" | grep -qF 'output 5/7 FAILED' && printf '%s' "$_o533_5d" | grep -qF '(fingerprint-compute)' && echo yes || echo no)"
+# output 2 via the PRODUCTION default chain: from a tree root carrying NEITHER a
+# vendored nor a repo-relative gh-fresh.sh, the default source lookup fails
+# closed with the named diagnostic (the override-driven arm above cannot see a
+# broken default chain).
+mkdir -p "$D533/tree0"
+_o533_2b="$( cd "$D533/tree0" && env PATH="$D533/bin:$PATH" APP_TOKEN=t RUNNER_TEMP="$D533/rtmp" \
+  GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" DEVFLOW_GH_WRAPDIR="$D533/wrapdir-t0" bash "$INSTALL533" 2>&1 )"; _rc533_2b=$?
+assert_eq "#533 AC14 output 2: the production default source chain fails rc 1 naming wrapper-source-read when neither copy exists" "1 yes" \
+  "$_rc533_2b $(printf '%s' "$_o533_2b" | grep -qF 'output 2/7 FAILED' && printf '%s' "$_o533_2b" | grep -qF '(wrapper-source-read)' && echo yes || echo no)"
+# output 6: GITHUB_ENV pointing into a nonexistent directory.
+_o533_6="$(_i533 GITHUB_ENV="$D533/no-such-dir/ghenv")"; _rc533_6=$?
+assert_eq "#533 AC14 output 6: unwritable GITHUB_ENV fails rc 1 naming github-env-write" "1 yes" \
+  "$_rc533_6 $(printf '%s' "$_o533_6" | grep -qF 'output 6/7 FAILED' && printf '%s' "$_o533_6" | grep -qF '(github-env-write)' && echo yes || echo no)"
+# output 7: GITHUB_PATH pointing into a nonexistent directory.
+_o533_7="$(_i533 GITHUB_PATH="$D533/no-such-dir/ghpath")"; _rc533_7=$?
+assert_eq "#533 AC14 output 7: unwritable GITHUB_PATH fails rc 1 naming github-path-write" "1 yes" \
+  "$_rc533_7 $(printf '%s' "$_o533_7" | grep -qF 'output 7/7 FAILED' && printf '%s' "$_o533_7" | grep -qF '(github-path-write)' && echo yes || echo no)"
+# Full success — additionally on a PATH whose sha256sum/shasum/awk all FAIL, proving
+# the installer's no-GNU-hash-tools contract behaviorally, not just by grep.
+mkdir -p "$D533/noshabin"
+for _t533 in sha256sum shasum awk; do
+  printf '#!/usr/bin/env bash\nexit 127\n' > "$D533/noshabin/$_t533"; chmod +x "$D533/noshabin/$_t533"
+done
+: > "$D533/ghenv"; : > "$D533/ghpath"
+_o533_ok="$(_i533 PATH="$D533/noshabin:$D533/bin:$PATH")"; _rc533_ok=$?
+assert_eq "#533 AC14 success: all seven outputs land (rc 0) on a PATH without working sha256sum/shasum/awk" "0" "$_rc533_ok"
+assert_eq "#533 AC10: on success GITHUB_ENV carries DEVFLOW_GH_REAL and no bare DEVFLOW_GH" "1 0" \
+  "$(grep -cF "DEVFLOW_GH_REAL=$D533/bin/gh" "$D533/ghenv") $(grep -cF 'DEVFLOW_GH=' "$D533/ghenv")"
+assert_eq "#533 AC10: on success GITHUB_PATH carries the wrapper dir" "1" "$(grep -cF "$D533/wrapdir" "$D533/ghpath")"
+assert_eq "#533 AC14: installed wrapper is executable" "yes" "$([ -x "$D533/wrapdir/gh" ] && echo yes || echo no)"
+_fp533_want="$(printf '%s' FIXTURE_TOKEN_533 | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
+assert_eq "#533 AC14: fingerprint content is the python3-hashlib sha256 of APP_TOKEN" "$_fp533_want" \
+  "$(cat "$D533/rtmp/devflow-gh-fingerprint")"
+assert_eq "#533 AC14: fingerprint file is mode 0600" "600" \
+  "$(python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$D533/rtmp/devflow-gh-fingerprint")"
+
+# AC14 — the DEFAULT wrapper-source resolution (output 2's vendored-or-repo
+# chain) is the branch PRODUCTION takes: neither workflow passes
+# DEVFLOW_GH_SOURCE_SH, so a regression in the default chain (inverted
+# precedence, a typo'd vendored path) would otherwise ship green while every
+# consumer install failed. The chain is cwd-keyed, so each case runs the
+# installer from a fixture tree root.
+mkdir -p "$D533/tree1/.devflow/vendor/devflow/scripts" "$D533/tree1/scripts" "$D533/tree2/scripts"
+printf '#!/usr/bin/env bash\necho vendored-copy\n' > "$D533/tree1/.devflow/vendor/devflow/scripts/gh-fresh.sh"
+printf '#!/usr/bin/env bash\necho repo-copy\n' > "$D533/tree1/scripts/gh-fresh.sh"
+printf '#!/usr/bin/env bash\necho repo-copy\n' > "$D533/tree2/scripts/gh-fresh.sh"
+: > "$D533/ghenv"; : > "$D533/ghpath"
+( cd "$D533/tree1" && env PATH="$D533/bin:$PATH" APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" \
+    GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" DEVFLOW_GH_WRAPDIR="$D533/wrapdir-src1" \
+    DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint" bash "$INSTALL533" >/dev/null 2>&1 )
+assert_eq "#533 AC14 default SRC: the vendored copy is preferred when both copies exist" "yes" \
+  "$(grep -qF 'vendored-copy' "$D533/wrapdir-src1/gh" 2>/dev/null && echo yes || echo no)"
+: > "$D533/ghenv"; : > "$D533/ghpath"
+( cd "$D533/tree2" && env PATH="$D533/bin:$PATH" APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" \
+    GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" DEVFLOW_GH_WRAPDIR="$D533/wrapdir-src2" \
+    DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint" bash "$INSTALL533" >/dev/null 2>&1 )
+assert_eq "#533 AC14 default SRC: the repo-relative copy is the fallback when no vendored copy exists" "yes" \
+  "$(grep -qF 'repo-copy' "$D533/wrapdir-src2/gh" 2>/dev/null && echo yes || echo no)"
+
+# AC11 — the three production caller classes reach the PATH-installed wrapper
+# (the wrapper is the real gh-fresh.sh copied by the installer above; with no
+# GH_TOKEN and an absent token file it degrades to a plain invocation of
+# DEVFLOW_GH_REAL — the fixture stub — whose echoed marker proves the chain).
+_c533_1="$(DEVFLOW_GH_REAL="$D533/bin/gh" DEVFLOW_GH_TOKEN_FILE="$D533/absent-token" \
+  PATH="$D533/wrapdir:$PATH" gh api one 2>/dev/null)"
+assert_eq "#533 AC11: a direct gh call reaches the PATH-installed wrapper" "yes" \
+  "$(printf '%s' "$_c533_1" | grep -qF 'REALGH_CALLED api one' && echo yes || echo no)"
+_c533_2cmd="$(DEVFLOW_GH_REAL="$D533/bin/gh" PATH="$D533/wrapdir:$PATH" bash -c ". \"$LIB/resolve-gh.sh\"; devflow_resolve_gh")"
+_c533_2="$(DEVFLOW_GH_REAL="$D533/bin/gh" DEVFLOW_GH_TOKEN_FILE="$D533/absent-token" \
+  PATH="$D533/wrapdir:$PATH" "$_c533_2cmd" api two 2>/dev/null)"
+assert_eq "#533 AC11: a shell helper via devflow_resolve_gh reaches the PATH-installed wrapper" "gh yes" \
+  "$_c533_2cmd $(printf '%s' "$_c533_2" | grep -qF 'REALGH_CALLED api two' && echo yes || echo no)"
+_c533_3="$(DEVFLOW_GH_REAL="$D533/bin/gh" DEVFLOW_GH_TOKEN_FILE="$D533/absent-token" \
+  PATH="$D533/wrapdir:$PATH" python3 -c 'import os,subprocess; gh=os.environ.get("DEVFLOW_GH") or "gh"; print(subprocess.run([gh,"api","three"],capture_output=True,text=True).stdout,end="")')"
+assert_eq "#533 AC11: a Python helper GH selector reaches the PATH-installed wrapper" "yes" \
+  "$(printf '%s' "$_c533_3" | grep -qF 'REALGH_CALLED api three' && echo yes || echo no)"
+
+# AC12 — an explicitly scoped non-empty DEVFLOW_GH still outranks PATH for the
+# shell resolver AND a Python caller, even with the wrapper dir first on PATH.
+printf '#!/usr/bin/env bash\necho "OVERRIDE_CALLED $*"\n' > "$D533/override-gh"; chmod +x "$D533/override-gh"
+_c533_ov="$(DEVFLOW_GH="$D533/override-gh" PATH="$D533/wrapdir:$PATH" bash -c ". \"$LIB/resolve-gh.sh\"; devflow_resolve_gh")"
+assert_eq "#533 AC12: shell resolver honors an explicit DEVFLOW_GH over the PATH wrapper" "$D533/override-gh" "$_c533_ov"
+_c533_ovp="$(DEVFLOW_GH="$D533/override-gh" PATH="$D533/wrapdir:$PATH" python3 -c 'import os,subprocess; gh=os.environ.get("DEVFLOW_GH") or "gh"; print(subprocess.run([gh,"api","ov"],capture_output=True,text=True).stdout,end="")')"
+assert_eq "#533 AC12: a Python caller honors an explicit DEVFLOW_GH over the PATH wrapper" "yes" \
+  "$(printf '%s' "$_c533_ovp" | grep -qF 'OVERRIDE_CALLED api ov' && echo yes || echo no)"
+
+# gh-fresh writer/reader hash symmetry (#544): with sha256sum/shasum/awk all
+# failing on PATH, the wrapper's call-time fingerprint comparison still matches
+# the installer-written (python3-hashlib) fingerprint via its own python3 arm —
+# so the ambient job-start token is substituted with the refreshed one instead
+# of silently deferring on exactly the host class the installer was hardened for.
+mkdir -p "$D533/wrapb"
+cp "$LIB/../scripts/gh-fresh.sh" "$D533/wrapb/gh"; chmod +x "$D533/wrapb/gh"
+printf '#!/usr/bin/env bash\necho "TOKEN_SEEN=${GH_TOKEN:-none}"\n' > "$D533/realgh2"; chmod +x "$D533/realgh2"
+printf '%s' FRESH_TOKEN_544 > "$D533/tokfile544"
+printf '%s' AMBIENT_T_544 | python3 -c 'import hashlib,sys; sys.stdout.write(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())' > "$D533/fp544"
+_c544="$(env GH_TOKEN=AMBIENT_T_544 DEVFLOW_GH_REAL="$D533/realgh2" DEVFLOW_GH_TOKEN_FILE="$D533/tokfile544" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D533/fp544" PATH="$D533/noshabin:$PATH" bash "$D533/wrapb/gh" api q 2>/dev/null)"
+assert_eq "#544 symmetry: fingerprint match works without sha256sum/shasum/awk (python3 arm) — ambient token substituted" "TOKEN_SEEN=FRESH_TOKEN_544" "$_c544"
+# AC16 preserved: with EVERY hash method defeated (failing sha256sum/shasum/awk
+# AND a failing python3 first on PATH), decide() still takes the disclosed
+# could-not-establish defer arm — breadcrumb emitted, ambient token untouched.
+_c544b_out="$(env GH_TOKEN=AMBIENT_T_544 DEVFLOW_GH_REAL="$D533/realgh2" DEVFLOW_GH_TOKEN_FILE="$D533/tokfile544" \
+  DEVFLOW_GH_FINGERPRINT_FILE="$D533/fp544" PATH="$D533/noshabin:$D533/badpy:$PATH" bash "$D533/wrapb/gh" api q 2>"$D533/c544b.err")"
+assert_eq "#544 symmetry: all hash methods defeated still defers on the ambient token with the disclosed breadcrumb" "TOKEN_SEEN=AMBIENT_T_544 yes" \
+  "$_c544b_out $(grep -qF 'could not establish the job-start fingerprint comparison' "$D533/c544b.err" && echo yes || echo no)"
+
+# AC13 — launch the suite itself with a failing-sentinel DEVFLOW_GH: the harness
+# entry clears it (probe mode exits right after the clear + resolver check), so
+# the fixture-local PATH stub — not the sentinel — is what resolves and runs.
+# Probe mode deliberately exits 3 (a leaked DEVFLOW_AC13_PROBE in a CI env must
+# fail the required check loudly, never pass it green with zero tests run) —
+# assert the rc alongside the resolution so the fail-closed exit is pinned.
+_ac13="$(DEVFLOW_GH=/nonexistent/failing-sentinel DEVFLOW_AC13_PROBE=1 bash "$LIB/test/run.sh" 2>/dev/null)"; _ac13_rc=$?
+assert_eq "#533 AC13: suite launched with a failing-sentinel DEVFLOW_GH resolves gh via the fixture PATH stub (probe exits 3, never a green zero-test suite)" "3 yes" \
+  "$_ac13_rc $(printf '%s' "$_ac13" | grep -qF 'resolved=gh output=AC13_PATH_STUB_INVOKED' && echo yes || echo no)"
+
+# AC22 — planted production defects flip the named assertions RED (copy-based;
+# the working tree is never mutated).
+# (a) Harness defect: remove the entry clear from a run.sh copy (with the resolver
+# siblings beside it so the probe still sources) — the inherited sentinel then
+# SURVIVES into the probe, i.e. the AC13 assertion above would go RED.
+_m533d="$(mktemp -d)"; mkdir -p "$_m533d/test"
+sed -E 's/^unset DEVFLOW_GH$/: # planted defect: inherited override no longer cleared/' "$LIB/test/run.sh" > "$_m533d/test/run.sh"
+cp "$LIB/resolve-gh.sh" "$LIB/resolve-bin.sh" "$_m533d/"
+_ac13m="$(DEVFLOW_GH=/nonexistent/failing-sentinel DEVFLOW_AC13_PROBE=1 bash "$_m533d/test/run.sh" 2>/dev/null || true)"
+assert_eq "#533 AC22: a planted removal of the harness clear surfaces the sentinel (AC13 assertion goes RED on the defect)" "yes" \
+  "$(printf '%s' "$_ac13m" | grep -qF 'resolved=/nonexistent/failing-sentinel' && echo yes || echo no)"
+rm -rf "$_m533d"
+# (b) Installer defect: weaken the fingerprint umask on a copy — the installer's
+# own output-5 mode validation catches it, rc 1 naming fingerprint-mode.
+_t533i="$(probe_tmp '#533 AC22 mutated-installer setup')"
+sed -E 's/umask 077/umask 022/' "$INSTALL533" > "$_t533i"
+rm -f "$D533/rtmp/devflow-gh-fingerprint"; : > "$D533/ghenv"; : > "$D533/ghpath"
+_o533_mut="$(env PATH="$D533/bin:$PATH" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh" \
+  APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" \
+  DEVFLOW_GH_WRAPDIR="$D533/wrapdir-mut" DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint" \
+  bash "$_t533i" 2>&1)"; _rc533_mut=$?
+assert_eq "#533 AC22: a planted umask defect in a mutated installer copy fails rc 1 naming fingerprint-mode" "1 yes" \
+  "$_rc533_mut $(printf '%s' "$_o533_mut" | grep -qF '(fingerprint-mode)' && echo yes || echo no)"
+rm -f "$_t533i"
+# (c) Installer defect: a re-introduced bare DEVFLOW_GH export on a copy is caught
+# by the AC10 guard's OWN counting recipe (_ac10_count533 — the same function the
+# real assertion runs, exercised via probe_assert so the intentional RED never
+# hits the suite tally; a hand-copied grep here could drift green while the real
+# guard's pattern rots).
+_t533j="$(probe_tmp '#533 AC22 mutated-installer AC10 setup')"
+sed -E 's/DEVFLOW_GH_REAL=\$REAL_GH/DEVFLOW_GH=\$WRAPDIR\/gh/' "$INSTALL533" > "$_t533j"
+assert_eq "#533 AC22: a planted bare DEVFLOW_GH export in a mutated installer copy flips the AC10 guard RED" "FAIL" \
+  "$(probe_assert assert_eq 'probe-ac10-mutated' "0" "$(_ac10_count533 "$_t533j")")"
+rm -f "$_t533j"
+rm -rf "$D533"
 
 # ── issue #499: unavailable telemetry is explicit and falsy-safe ───────────
 T499_DIR="$(probe_tmp '#499 telemetry normalization fixture')"
