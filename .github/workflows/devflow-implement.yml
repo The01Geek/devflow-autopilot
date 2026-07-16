@@ -890,6 +890,7 @@ jobs:
             Bash(git push:*),
             Bash(git pull:*),
             Bash(git fetch:*),
+            Bash(git ls-remote:*),
             Bash(git status:*),
             Bash(git diff:*),
             Bash(git log:*),
