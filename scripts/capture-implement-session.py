@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Stable compatibility entry point for the generic workflow recorder."""
 
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
+
 from pathlib import Path
 import sys
 
