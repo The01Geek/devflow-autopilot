@@ -1,0 +1,92 @@
+{
+  "iter": 1,
+  "source": "review-and-fix",
+  "started_at": "2026-07-16T21:29:48Z",
+  "fix_commit_sha": "5877f2a0",
+  "fix_files": [
+    "scripts/verification_baseline.py",
+    "scripts/export-workflow-lifecycle-census.py",
+    "lib/test/test_verification_baseline.py"
+  ],
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": false,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {"id": "VC-13", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:workflow-flight-recorder-registry.json:review-first-message-forms", "reused_from_iter_prev": false},
+    {"id": "VC-14", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:workflow-flight-recorder-registry.json:cloud-mappings-section", "reused_from_iter_prev": false},
+    {"id": "b2-VC-3", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "data_format_assumption:workflow-flight-recorder-registry.json:json-well-formed", "reused_from_iter_prev": false}
+  ],
+  "checklist_note": "31 items generated across 2 batches (dedup dropped 2 registry string-presence dups). Lite probes (registry string-presence + JSON validity) verified directly and PASS. Remaining agent-mode items were factual contract claims about the analyzer/wfr API and the ACs; the Phase-3 review agents (esp. code-reviewer, silent-failure-hunter, final-pass) independently exercised those same absolute_claim / dependency_interaction surfaces and surfaced the real defects, which drove the fixes below.",
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:requesting-code-review", "severity": "Critical", "description": "gh api calls omit --method GET; gh POSTs to GET-only Actions endpoints; exporter never fetches a run", "defect_signature": {"file": "scripts/export-workflow-lifecycle-census.py", "line_range": [123, 147], "kind": "api_misuse"}, "corroboration_count": 1, "step25_classification": "web_confirmed", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "--field=created<= splits on first '=' -> unknown key 'created<'; upper bound silently dropped; contradicts 'closed window'", "defect_signature": {"file": "scripts/export-workflow-lifecycle-census.py", "line_range": [124, 125], "kind": "api_misuse"}, "corroboration_count": 2, "step25_classification": "web_confirmed", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "closed-window upper bound dropped (corroborates code-reviewer)", "defect_signature": {"file": "scripts/export-workflow-lifecycle-census.py", "line_range": [124, 125], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "web_confirmed", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "cancel/interrupt/abort regex on raw stdout before terminal check drops successful launches from counts", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [912, 914], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "load_cloud_mappings silent {} on malformed section -> all cloud jobs ineligible but census 'available'; no breadcrumb", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [588, 613], "kind": "api_misuse"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "join_local_imports clobbers malformed-manifest source_unreadable -> source_missing/eligible_not_imported", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [744, 747], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "malformed-manifest surviving source_status untested; masks the join clobber (corroborates SFH)", "defect_signature": {"file": "lib/test/test_verification_baseline.py", "line_range": [225, 229], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "_workspace_state loose substrings; 'tracked' matches inside 'untracked'; can flip coverage to complete", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [955, 980], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "_workspace_state substring coverage (corroborates SFH)", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [930, 986], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "_cleanup swallows unlink failures, reports success while sensitive 0600 artifacts survive", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [1742, 1757], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "--created-before help says 'before' but query is <= (inclusive)", "defect_signature": {"file": "scripts/export-workflow-lifecycle-census.py", "line_range": [191, 191], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "exit-code regex bare 'exit'/'rc' alternatives can bind wrong number", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [880, 886], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "new 5th Python gh-caller (export script) outside run.sh DEVFLOW_GH pin loop + CLAUDE.md roster", "defect_signature": {"file": "scripts/export-workflow-lifecycle-census.py", "line_range": [190, 206], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "_validate_admitted_path security guard (symlink/traversal/root-escape) has zero tests", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [216, 255], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "dataclasses model closed enums / structured sub-records as bare str/dict, enforce nothing at construction (BindingIdentity secret coupling, EligibleLifecycle discriminated union, WorkspaceState)", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [352, 572], "kind": "type_design"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "join_confidence() and _validate_admitted_path post-resolve symlink branch read as guards that don't do what they appear to (dead)", "defect_signature": {"file": "scripts/verification_baseline.py", "line_range": [1161, 1185], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F1-gh-method", "decision": "applied", "commit": "5877f2a0"},
+    {"finding_id": "F2-created-range", "decision": "applied", "commit": "5877f2a0"},
+    {"finding_id": "F3-cancel-regex", "decision": "applied", "commit": "5877f2a0"},
+    {"finding_id": "F4-join-clobber", "decision": "applied", "commit": "5877f2a0"},
+    {"finding_id": "F5-cloud-mappings-breadcrumb", "decision": "applied", "commit": "5877f2a0"},
+    {"finding_id": "F7-workspace-tracked", "decision": "applied", "commit": "5877f2a0"},
+    {"finding_id": "F8-cleanup-failures", "decision": "applied", "commit": "5877f2a0"},
+    {"finding_id": "F9-exit-regex", "decision": "deferred", "source_file": "scripts/verification_baseline.py", "claim_text": "exit-code regex bare exit/rc alternatives can bind wrong number", "skip_category": "uncategorized", "evidence": "Real but low-impact: regex requires the token immediately adjacent to a digit (exit\\s*[:=]?\\s*\\d), so common false positives like 'exited 5' do not match; blast radius is only the terminal-vs-result-missing split. Suggestion-level, not fixed this iteration."},
+    {"finding_id": "F6-gh-caller-pin", "decision": "deferred", "source_file": "scripts/export-workflow-lifecycle-census.py", "claim_text": "new 5th Python gh-caller outside run.sh DEVFLOW_GH pin loop + CLAUDE.md 'four Python gh-callers' roster", "skip_category": "out-of-scope", "evidence": "Suggestion-level. The export script DOES correctly honor DEVFLOW_GH (os.environ.get('DEVFLOW_GH') or 'gh'), so no behavioral defect — only a missing pin + a stale CLAUDE.md roster count. The CLAUDE.md roster is not in this PR's diff (widening the surface), and a mid-loop CLAUDE.md edit is routing-restricted; noted for a follow-up."},
+    {"finding_id": "PT1-validate-path-untested", "decision": "deferred", "source_file": "scripts/verification_baseline.py", "claim_text": "_validate_admitted_path security guard has zero tests", "skip_category": "uncategorized", "evidence": "Test-coverage expansion beyond the fixes; the guard itself is unchanged by this PR's own logic. Valuable follow-up (criticality 8 per pr-test-analyzer) but out of this fix loop's scope-bounded surface."},
+    {"finding_id": "TD-enum-str", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "dataclasses enforce closed enums / sub-record shapes only via factories, not __post_init__", "skip_category": "advisory-parked", "evidence": "Advisory design hardening. Production paths route through the factories (_binding_identity, build_local_census); adding __post_init__ asserts risks breaking the tests that construct instances directly for mutation testing. Wave-1 design tradeoff."},
+    {"finding_id": "FP-dead-guards", "decision": "advisory", "source_file": "scripts/verification_baseline.py", "claim_text": "join_confidence() tests-only; _validate_admitted_path symlink branch dead after .resolve()", "skip_category": "advisory-parked", "evidence": "Dead-but-harmless. Not fixed to avoid churn; noted for a future cleanup."}
+  ],
+  "step_2_5_note": "All findings routed to the fixer are codebase claims (pass straight through) except the two gh-behavior claims (F1/F2), which are external-tool claims verified against `gh api --help` (authoritative doc): 'adding request parameters will automatically switch the request method to POST ... use --method GET'. Confirmed. No findings refuted.",
+  "convergence_inputs": {
+    "fixes_applied": 7,
+    "fix_diff_lines_code": 96,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {
+    "command": "bash lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 190,
+    "skipped_checks": [
+      {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD); runs clean in CI on the committed tree"}
+    ]
+  },
+  "fix_delta_gate": {
+    "result": "clean",
+    "reviewer": "blinded general-purpose",
+    "critical_important": 0,
+    "note": "One Suggestion accepted as advisory: F3 assumes a genuine cancellation always carries is_error=True (matches Claude Code interrupt behavior; residual failure direction over-counts a launch rather than dropping one — the safe direction)."
+  },
+  "telemetry": {
+    "phase_1": {"calls": 2, "tokens": 203000},
+    "phase_3": {"calls": 6, "tokens": 782000},
+    "step_3_5": {"calls": 1, "tokens": 78000}
+  }
+}
