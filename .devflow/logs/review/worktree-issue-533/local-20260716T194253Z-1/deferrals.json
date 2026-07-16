@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "pr_branch": "worktree-issue-533",
+  "base_branch": "main",
+  "generated_at": "2026-07-16T22:05:00Z",
+  "deferrals": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "file": "scripts/gh-fresh.sh",
+      "line_range": [92, 126],
+      "symbol": "sha256_of",
+      "kind": "logic_error",
+      "summary": "gh-fresh.sh's call-time fingerprint comparison (sha256_of) still depends on sha256sum/shasum+awk — the tool family the installer was migrated off for guard-class-2 reasons. On a hash-tool-less runner the freshness feature degrades per-call (disclosed defer breadcrumb, fail-safe direction) instead of failing loudly at install. Converge sha256_of onto python3 hashlib (writer/reader symmetry) in a follow-up.",
+      "category": "out-of-scope",
+      "explanation": "gh-fresh.sh executable lines are unmodified by this PR (comment-only diff); AC16 explicitly preserves the wrapper's existing decision outcomes including the no-hash-tool defer arm; converging the reader is follow-up material. Widens-surface check: the PR's gh-fresh.sh hunk touches lines 9-18 (header) only — no overlap with lines 92-126 within ±10."
+    }
+  ]
+}

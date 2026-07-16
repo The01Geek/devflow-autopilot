@@ -1,0 +1,68 @@
+{
+  "iter": 3,
+  "started_at": "2026-07-16T21:25:00Z",
+  "fix_commit_sha": "f920d37726e2155aa51d1c4f674beedcf4c01be6",
+  "fix_files": ["scripts/install-gh-wrapper.sh"],
+  "loop_role": "promoted",
+  "promotion_provenance": "park-calibration-pre-shadow",
+  "sweep_defs_read": ["skills/implement/phases/phase-2-implement.md#2.3 (recorded iter-1; inner-path trigger-gated: 2.3.6 over the delta — the removed suppressions now surface tool stderr above the named fail line, no new swallowed error)"],
+  "sweep_evidence": {"status": "run", "classification": "promoted park-calibration fix: drop 2>/dev/null on the five validated installer arms so the OS-level cause reaches the job log", "notes": "kept the two benign captures (command -v probe, python3 mode read — the latter fails CLOSED to 'unreadable')"},
+  "test_first_gate": [
+    {"decision": "no-new-test", "command": "lib/test/run.sh", "result": "pass", "evidence": "diagnostic-surface-only change; existing seven failure arms re-exercise every touched line (slug assertions unchanged, substring matching tolerant of the now-flowing tool stderr); suite 8187/0"}
+  ],
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": "intentional-promoted-iter (park-calibration promotion — Phase 1+2 skipped)"},
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "Installer validated arms suppressed the underlying tool stderr (which output failed, never why).", "defect_signature": {"file": "scripts/install-gh-wrapper.sh", "line_range": [75, 115], "kind": "other"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "P-1", "decision": "applied", "commit": "f920d377"},
+    {"finding_id": "P-2", "decision": "pushed_back", "source_file": "scripts/gh-fresh.sh", "claim_text": "sha256_of reader-half still uses sha256sum/shasum+awk", "skip_category": "out-of-scope", "evidence": "park-calibration re-evaluation: gh-fresh.sh executable lines are untouched by this PR (comment-only diff, VC-14/SVC-13); AC16 freezes the wrapper's decision outcomes incl. the no-hash-tool defer arm whose breadcrumbed fail-safe direction is pinned by existing tests; deferral flows through the deferrals manifest to a filed follow-up (the honorable channel) — re-demoted with evidence, not silently parked"},
+    {"finding_id": "P-3", "decision": "deferred", "source_file": "lib/test/run.sh", "claim_text": "AC11 cloud PATH-inheritance measured only locally", "skip_category": "uncategorized", "evidence": "park-calibration re-evaluation: genuinely requires a post-merge cloud writer run (local probes invalid for runner semantics); recorded for post-merge observation in the workpad — no pre-merge fix exists"}
+  ],
+  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 10, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 300, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD); runs live in CI"}]},
+  "stale_prose_check": {"status": "run", "rows": [], "note": "delta adds no counted prose; iter-2 recheck at ab18f048 was 0 STALE and the iter-3 delta touches only suppression removals"},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "parked_class_sweep": {
+    "classes": [
+      {"source_finding_ids": ["F-7"], "kind_literal": "other (suppressed-stderr-on-validated-arm)", "sites_examined": ["scripts/install-gh-wrapper.sh:59-119 (all 2>/dev/null sites in diff-added production code)"], "new_siblings": []},
+      {"source_finding_ids": ["F-8"], "kind_literal": "logic_error (non-preflight-hash-tool-derivation)", "sites_examined": ["diff-added non-comment code: grep -cE 'sha256sum|shasum|awk' == 0 over scripts/install-gh-wrapper.sh"], "new_siblings": []},
+      {"source_finding_ids": ["F-10"], "kind_literal": "test_gap (cloud-behavior-asserted-locally)", "sites_examined": ["lib/test/run.sh #533 AC11/AC12/AC13 fixtures — single class site (GITHUB_PATH inheritance into the agent process); the GITHUB_ENV/GITHUB_PATH runner semantics themselves are GitHub-documented (cited in issue #533)"], "new_siblings": []}
+    ],
+    "truncation": null,
+    "dispatch": "verified"
+  },
+  "shadow": {
+    "ran_at": "2026-07-16T21:55:00Z",
+    "reviewed_sha": "f920d37726e2155aa51d1c4f674beedcf4c01be6",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review", "devflow:pr-test-analyzer"],
+    "reason": null,
+    "checklist_skipped": null,
+    "trigger": "convergence-time",
+    "checklist_note": "20 items: 19 PASS (3 lite, 16 agent incl. empirical probes of the fingerprint newline compat, probe rc-3 universality, set-u guard falsification); CVC-17 verifier returned FAIL whose own evidence establishes the code correct (zero DEVFLOW_GH[=:] occurrences in both workflows — the guard property holds; the checklist item's mechanism wording was inaccurate) — adjudicated PASS-with-note per the verifier contract's wording-vs-code rule, recorded here for audit",
+    "phase3_findings": [
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "original_severity": "Important", "description": "RUNNER_TEMP-unset guard arms (outputs 3/5) untested in the suite — severity-calibrated down: fail direction of the guarded regression is a loud set-u abort (rc!=0, CI red) and both arms were empirically driven by two independent verifier probes (iter-1 VC-12, iter-2 SVC-11).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [40340, 40360], "kind": "test_gap"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "original_severity": "Important", "description": "python3-absent (127) vs python3-failing (1) conflated in output-5b — pipefail equivalence is an inference; calibrated down (same fail arm, same named diagnostic).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [40395, 40400], "kind": "test_gap"}},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "Installer-scoped _ac10_count533 counts comments (re-raise of parked F-11 at parked severity — fail-closed, conceded).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [40286, 40291], "kind": "test_gap"}},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "Output-4 fixture leaves a residue file inside wd4/gh (cleaned by rm -rf).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [40344, 40348], "kind": "test_gap"}},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "Suite-entry clear also strips the documented Windows/WSL escape hatch for the run — disclosed by breadcrumb; docs note optional.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [155, 167], "kind": "comment_drift"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "'ABSOLUTE path' comment wording assumes absolute PATH entries (true on GitHub runners).", "defect_signature": {"file": "scripts/install-gh-wrapper.sh", "line_range": [65, 74], "kind": "comment_drift"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 6, "overlap_with_iter_N": 1, "new": 5, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 5},
+    "step_3_5": {"calls": 1, "tokens": 59136, "wall_clock_s": 140},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 60}
+  }
+}
