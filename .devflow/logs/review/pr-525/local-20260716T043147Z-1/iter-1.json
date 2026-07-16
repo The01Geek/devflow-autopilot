@@ -1,0 +1,156 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "7223e25687b5d75823b2a785dfe823290d54f9ba",
+  "fix_files": [
+    "lib/fetch-pr-context.sh",
+    "lib/test/run.sh",
+    "skills/retrospective/SKILL.md"
+  ],
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "fetch-pr-context.sh reflection-parse guard fails open (friction_count 0 default) — a friction workpad whose parse crashed reads clean",
+      "defect_signature": {
+        "file": "lib/fetch-pr-context.sh",
+        "line_range": [
+          350,
+          357
+        ],
+        "kind": "wrong_fallback_direction"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "retrospective/SKILL.md Source priority inverted claim (reached analysis => friction reflection, a false converse)",
+      "defect_signature": {
+        "file": "skills/retrospective/SKILL.md",
+        "line_range": [
+          89,
+          91
+        ],
+        "kind": "self_authored_claim_false"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "unknown-heading and pre-heading parser friction arms executed but not asserted (AC names unknown-heading arm)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          11296,
+          11341
+        ],
+        "kind": "test_coverage_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F1",
+      "decision": "applied",
+      "commit": "7223e25687b5d75823b2a785dfe823290d54f9ba"
+    },
+    {
+      "finding_id": "F2",
+      "decision": "applied",
+      "commit": "7223e25687b5d75823b2a785dfe823290d54f9ba"
+    },
+    {
+      "finding_id": "F3",
+      "decision": "applied",
+      "commit": "7223e25687b5d75823b2a785dfe823290d54f9ba"
+    },
+    {
+      "finding_id": "A1",
+      "decision": "advisory",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "parse-failure friction sentinel is source-pinned but not behaviorally exercised end-to-end (a stubbed jq/python one-key payload would drive it)",
+      "skip_category": "advisory-parked",
+      "evidence": "Suggestion (criticality 4); fail-direction is over-analysis (safe); driving a genuine parse failure requires fragile python/jq stubbing not supported by the F97 harness"
+    },
+    {
+      "finding_id": "A2",
+      "decision": "advisory",
+      "source_file": "lib/fetch-pr-context.sh",
+      "claim_text": "the non-digit case-guard (empty/non-digit -> friction 1) is untested",
+      "skip_category": "advisory-parked",
+      "evidence": "Suggestion (criticality 3); only fires if jq vanishes mid-run; safe fail-direction"
+    },
+    {
+      "finding_id": "A3",
+      "decision": "advisory",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "open-state-pr tests assert stdout only, not that redirected porcelain lands on stderr",
+      "skip_category": "advisory-parked",
+      "evidence": "Suggestion (criticality 2); the stdout bare-token contract is what the downstream jq --argjson capture needs and it IS asserted"
+    }
+  ],
+  "verification_evidence": {
+    "command": "bash lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 200,
+    "skipped_checks": [
+      {
+        "check": "#434 stale-prose self-scan",
+        "kind": "blocking-gate",
+        "reason": "working tree dirty (grades committed HEAD; runs green in CI)"
+      }
+    ]
+  },
+  "telemetry": "unavailable",
+  "shadow": {
+    "ran_at": "recorded",
+    "reviewed_sha": "7223e25687b5d75823b2a785dfe823290d54f9ba",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:requesting-code-review",
+      "devflow:pr-test-analyzer"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:requesting-code-review",
+      "devflow:pr-test-analyzer"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "comparison": {
+      "shadow_total": 3,
+      "overlap_with_iter_N": 0,
+      "new": 3,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  }
+}
