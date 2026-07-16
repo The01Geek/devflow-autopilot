@@ -1,0 +1,14 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "8764140a2174fafc9ce95099f59f1ead1f07d080",
+  "fix_files": [
+    "CLAUDE.md",
+    "docs/external/release-notes.md",
+    "lib/test/run.sh",
+    "scripts/match-lint-adjudications.py",
+    "skills/review/SKILL.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
