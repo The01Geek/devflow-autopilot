@@ -1,0 +1,11 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "ca0ed7c7067c654628da657605a46f7dea7c3cac",
+  "fix_files": [
+    "lib/test/run.sh",
+    "skills/create-issue/SKILL.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
