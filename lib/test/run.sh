@@ -12338,6 +12338,32 @@ assert_eq "#520: non-string candidate_target dropped (rc 0)"  "0"    "$RT_RC"
 assert_eq "#520: string target still surfaces"                "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/s.sh")')"
 assert_eq "#520: no non-string target emitted"                "0"    "$(echo "$RT_OUT" | jq '[.[] | select((.target|type) != "string")] | length')"
 
+# AC: an empty-string candidate_target (a real string that passes `strings`) is
+# dropped by the SEPARATE `select(. != "")` guard — never emitted as a blank-target
+# bullet — while a genuine 2-PR string target still surfaces. Distinct from the
+# non-string case above: "" is a string, so `strings` alone would keep it.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"e","candidate_targets":["","lib/real.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"e2","candidate_targets":["","lib/real.sh"]}]}
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: empty-string candidate_target dropped (rc 0)" "0"    "$RT_RC"
+assert_eq "#520: string target still surfaces past empty filter" "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/real.sh")')"
+assert_eq "#520: no empty-string target emitted"              "0"    "$(echo "$RT_OUT" | jq '[.[] | select(.target=="")] | length')"
+
+# AC: primary sort key is DESCENDING pr_count — a more-recurring target ranks first.
+# Target A recurs in 3 distinct PRs, target B in 2; A must precede B. The determinism
+# fixture below only has equal-count targets, so it exercises the .target secondary
+# tiebreak only — this fixture is the one that would catch a `-.pr_count` sign flip.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"a","candidate_targets":["lib/aaa.sh","lib/bbb.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"a","candidate_targets":["lib/aaa.sh","lib/bbb.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":3,"verdict":"imperfect","suggested_interventions":[{"summary":"a","candidate_targets":["lib/aaa.sh"]}]}
+JSONL
+)"
+assert_eq "#520: A(3 PRs) pr_count is 3"                       "3"    "$(echo "$RT_OUT" | jq -r '.[] | select(.target=="lib/aaa.sh") | .pr_count')"
+assert_eq "#520: primary sort desc pr_count (A before B)"     "lib/aaa.sh,lib/bbb.sh" "$(echo "$RT_OUT" | jq -r '[.[].target] | join(",")')"
+
 # AC: determinism — same input twice → byte-identical output.
 RT_DET_IN='{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"a","candidate_targets":["lib/a.sh","lib/b.sh"]}]}
 {"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"b","candidate_targets":["lib/a.sh","lib/b.sh"]}]}'
@@ -12424,6 +12450,13 @@ assert_pin_red_under "#520: candidate_targets // [] guard pinned" \
 # Deterministic tiebreak: dropping the .target secondary key makes sort order unstable.
 assert_pin_red_under "#520: deterministic sort tiebreak pinned" \
   'sort_by([ -.pr_count, .target ])' 's/sort_by\(\[ -\.pr_count, \.target \]\)/sort_by([ -.pr_count ])/' "$RT_JQ"
+# Primary sort SIGN: flipping `-.pr_count` to `.pr_count` ranks the most-recurring
+# target LAST, silently mis-ordering the report (the A-before-B fixture catches it).
+assert_pin_red_under "#520: primary sort desc pr_count pinned" \
+  'sort_by([ -.pr_count, .target ])' 's/sort_by\(\[ -\.pr_count, \.target \]\)/sort_by([ .pr_count, .target ])/' "$RT_JQ"
+# Empty-string target guard: dropping `select(. != "")` would emit a blank-target bullet.
+assert_pin_red_under "#520: empty-string target guard pinned" \
+  'select(. != "")' 's/ *\| select\(\. != ""\)//' "$RT_JQ"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "clean-entry.jq / actionable-patterns.sh"
