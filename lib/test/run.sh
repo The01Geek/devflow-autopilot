@@ -3315,7 +3315,7 @@ assert_pin_unique "#522: audit summary carries the declined-further-audit phrase
   'user declined further audit' "$CI443_SKILL"
 assert_pin_unique "#522: user-chosen rounds are capped at 3 per run" \
   'User-chosen rounds are capped at 3 per run' "$CI443_SKILL"
-assert_pin_unique "#522: audit event-log state file is cwd/worktree-anchored" \
+assert_pin_unique "#522: audit event-log is the round record the user-chosen-rounds offer reads" \
   'the round record the user-chosen-rounds offer reads' "$CI443_SKILL"
 assert_pin_unique "#522: unestablished event log treats trigger T2 as holding" \
   'T2 below is treated as holding' "$CI443_SKILL"
@@ -3339,10 +3339,11 @@ CI522_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_pin_unique "#522: overview §11 item 5 describes the file-first sole-draft-source contract" \
   'reads that file as the sole draft source' "$CI522_OVERVIEW"
 # File-arm carriage / identity check (closes the write-to-read race — the one uncovered
-# operative anti-corruption contract): the auditor must quote the title + first/last lines
-# verbatim so the orchestrator can string-compare and reject foreign bytes.
-assert_pin_unique "#522: file-arm carriage check quotes title + first/last lines for identity compare" \
-  "quote, in its return, the draft's title line and the body's first and last lines verbatim as read from the file" "$CI443_SKILL"
+# operative anti-corruption contract): the auditor must return a full-content git hash-object
+# digest of the file it read so the orchestrator can compare and reject foreign bytes —
+# a full-content digest catches an interior overwrite that boundary-line sampling would miss.
+assert_pin_unique "#522: file-arm carriage check returns a full-content git hash-object digest for identity compare" \
+  'run `git hash-object` on the draft file it read and quote the printed object ID verbatim in its return' "$CI443_SKILL"
 # Degraded-arm carve-out: the inline arm has no subagent/file, so it must NOT emit the
 # file-arm-only third verdict value — deleting this carve-out re-opens a spurious emit.
 assert_pin_unique "#522: degraded inline arm emits no VERDICT: DRAFT-UNREADABLE" \
@@ -3354,14 +3355,37 @@ assert_pin_unique "#522: embed arm out-of-bounds names exactly the 4 files (draf
 # Carriage COMPARE-AND-REJECT (the ENFORCEMENT half of the anti-corruption check — the auditor's
 # quote obligation is pinned above, but the orchestrator's string-compare-and-reject is what
 # actually rejects foreign bytes; deleting it makes the identity check decorative).
-assert_pin_unique "#522: file-arm orchestrator string-compares and rejects a mismatch" \
-  'string-compares them (bash builtins only — never a non-preflight PATH tool) against the content it wrote to the file' "$CI443_SKILL"
+assert_pin_unique "#522: file-arm orchestrator string-compares the digest and rejects a mismatch" \
+  'string-compares that object ID (bash builtins only — never a non-preflight PATH tool) against the `git hash-object` of the file it wrote' "$CI443_SKILL"
 assert_pin_unique "#522: embed-arm orchestrator string-compares sentinels and rejects a mismatch" \
   'string-compares them (bash builtins only, never a non-preflight PATH tool) against the dispatched values' "$CI443_SKILL"
 # DRAFT-UNREADABLE recovery action (what makes the third verdict value non-terminal): a file-arm
 # unreadable draft re-dispatches once on the embed arm — deleting it strands the third value.
 assert_pin_unique "#522: file-arm DRAFT-UNREADABLE re-dispatches exactly once on the embed arm" \
   '**re-dispatch exactly once on the embed arm**' "$CI443_SKILL"
+# Write-landing route condition (issue #522 iteration-3 review I3): the read-only signal that
+# routes to the embed arm is a failed delete OR a write that did not land. Excising the
+# "OR a write that did not land" arm re-opens the fail-open where a fresh-slug read-only sandbox
+# lets `rm` succeed vacuously while the write still fails, sending an UNWRITTEN path down the
+# file arm (the auditor then reads a stale/absent file). Behavioral-fix pin: the mutation
+# removes the write-landing arm, so keying routing on the delete alone comes back.
+assert_pin_red_under "#522: embed-arm routing keys on a failed delete OR a write that did not land" \
+  'a failed delete OR a write that did not land' \
+  's/ OR a write that did not land//' "$CI443_SKILL"
+# Trigger T1 firing condition: the user-chosen-round offer fires when the most recent completed
+# audit round returned VERDICT: REVISE. Inverting REVISE->FILE makes T1 fire on the wrong
+# verdict (offering another round after a clean FILE and withholding it on an unconverged
+# REVISE) — the exact demonstrably-unconverged signal T1 exists to catch.
+assert_pin_red_under "#522: user-chosen offer trigger T1 fires on the last round's VERDICT: REVISE" \
+  'the most recent completed audit round returned `VERDICT: REVISE`' \
+  's/most recent completed audit round returned `VERDICT: REVISE`/most recent completed audit round returned `VERDICT: FILE`/' "$CI443_SKILL"
+# Trigger T2 firing condition: T2 holds when a `revised after round N` record POSTDATES the last
+# completed round's record in the event log (content no audit round has seen). Inverting
+# postdates->predates flips the temporal test so T2 never fires on genuinely-newer revisions —
+# re-opening the ship-unaudited-revision channel T2 closes.
+assert_pin_red_under "#522: user-chosen offer trigger T2 fires when a revision postdates the last round" \
+  '**postdates the last completed round' \
+  's/postdates/predates/' "$CI443_SKILL"
 
 # ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
