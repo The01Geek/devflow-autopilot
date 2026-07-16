@@ -38,11 +38,20 @@
 # representative-summary tiebreak (ascending pr, then intervention order) is stable.
 def pairs:
   [ .[]
+    # Best-effort-parser discipline: retrospectives.jsonl is agent-written, so an
+    # entry (or either container field) can arrive WRONG-TYPED, not just missing.
+    # `// []` only substitutes for null/missing — a present string/number/object
+    # would still detonate the `[]` iterator (jq "Cannot iterate over …"). Guard the
+    # CONTAINER type at each level (`objects` / `arrays` emit nothing for a
+    # wrong-typed value) so a malformed line contributes nothing and the reader stays
+    # exit-0, honoring the "never throws" invariant documented above.
+    | objects
     | select(.pr != null)
     | .pr as $pr
-    | (.suggested_interventions // [])[]
+    | (.suggested_interventions // [] | arrays)[]
+    | objects
     | (.summary // "") as $summary
-    | (.candidate_targets // [])[]
+    | (.candidate_targets // [] | arrays)[]
     # A target must be a non-empty string. `strings` drops any non-string element
     # (guard-class 2 / best-effort-parser discipline: retrospectives.jsonl is
     # agent-written, so a stray non-string candidate_target never becomes a target

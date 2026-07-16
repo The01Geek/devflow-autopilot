@@ -12351,6 +12351,39 @@ assert_eq "#520: empty-string candidate_target dropped (rc 0)" "0"    "$RT_RC"
 assert_eq "#520: string target still surfaces past empty filter" "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/real.sh")')"
 assert_eq "#520: no empty-string target emitted"              "0"    "$(echo "$RT_OUT" | jq '[.[] | select(.target=="")] | length')"
 
+# Guard-class 2 (container type): retrospectives.jsonl is agent-written, so an entry
+# or either container field can arrive WRONG-TYPED (not just missing). `// []` only
+# fires on null — a present string/number/object would detonate the `[]` iterator
+# (jq "Cannot iterate over …", rc 5), which under the SKILL's `set -euo pipefail`
+# wiring empties RECURRING_TARGETS_JSON and breaks the whole `--argjson` report build.
+# `objects`/`arrays` container guards must make each wrong-typed shape contribute
+# nothing at rc 0. Each row: a malformed entry + a genuine 2-PR target that survives.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"n","candidate_targets":"lib/bare-string.sh"}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":"oops-not-an-array"}
+{"schema_version":2,"kind":"implementation","pr":3,"verdict":"imperfect","suggested_interventions":["not-an-object"]}
+{"schema_version":2,"kind":"implementation","pr":4,"verdict":"imperfect","suggested_interventions":[{"summary":"n","candidate_targets":5}]}
+{"schema_version":2,"kind":"implementation","pr":5,"verdict":"imperfect","suggested_interventions":[{"summary":"g","candidate_targets":["lib/good.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":6,"verdict":"imperfect","suggested_interventions":[{"summary":"g2","candidate_targets":["lib/good.sh"]}]}
+5
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: wrong-typed containers fail closed (rc 0)"   "0"    "$RT_RC"
+assert_eq "#520: wrong-typed rows contribute no target"       "0"    "$(echo "$RT_OUT" | jq '[.[] | select(.target|IN("lib/bare-string.sh"))] | length')"
+assert_eq "#520: genuine target survives wrong-typed siblings" "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/good.sh")')"
+assert_eq "#520: only the genuine target present amid malformed rows" "1" "$(echo "$RT_OUT" | jq 'length')"
+
+# AC: `select(.pr != null)` — an entry with no PR identity (a real schema variant,
+# e.g. a kind:"audit" row) cannot contribute a distinct PR. A pr-less entry naming a
+# target that ONE real PR also names must NOT inflate that target to pr_count 2.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"audit","verdict":"imperfect","suggested_interventions":[{"summary":"noid","candidate_targets":["lib/onlyone.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":7,"verdict":"imperfect","suggested_interventions":[{"summary":"real","candidate_targets":["lib/onlyone.sh"]}]}
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: pr-less entry skipped (rc 0)"                "0"    "$RT_RC"
+assert_eq "#520: pr-less entry does not inflate to a distinct PR" "false" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/onlyone.sh")')"
+
 # AC: primary sort key is DESCENDING pr_count — a more-recurring target ranks first.
 # Target A recurs in 3 distinct PRs, target B in 2; A must precede B. The determinism
 # fixture below only has equal-count targets, so it exercises the .target secondary
@@ -12441,12 +12474,14 @@ assert_pin_red_under "#520: >= 2 distinct-PR threshold pinned" \
 # Distinct-PR counting via `unique`: removing it would count non-distinct PRs.
 assert_pin_red_under "#520: distinct-PR (unique) pinned" \
   'prs: ([ $g[].pr ] | unique)' 's/ \| unique\)/)/' "$RT_JQ"
-# The // [] guard on suggested_interventions: dropping it would throw on a missing field.
-assert_pin_red_under "#520: suggested_interventions // [] guard pinned" \
-  '(.suggested_interventions // [])[]' 's#\.suggested_interventions // \[\]#.suggested_interventions#' "$RT_JQ"
-# The // [] guard on candidate_targets: dropping it would throw on a missing field.
-assert_pin_red_under "#520: candidate_targets // [] guard pinned" \
-  '(.candidate_targets // [])[]' 's#\.candidate_targets // \[\]#.candidate_targets#' "$RT_JQ"
+# The suggested_interventions guard (`// [] | arrays`): stripping it to a bare field
+# access throws on a missing OR wrong-typed field (null/string/number → not iterable).
+assert_pin_red_under "#520: suggested_interventions container guard pinned" \
+  '(.suggested_interventions // [] | arrays)[]' 's#\.suggested_interventions // \[\] | arrays#.suggested_interventions#' "$RT_JQ"
+# The candidate_targets guard (`// [] | arrays`): same — bare access throws on a
+# missing or wrong-typed (string/number) container instead of failing closed.
+assert_pin_red_under "#520: candidate_targets container guard pinned" \
+  '(.candidate_targets // [] | arrays)[]' 's#\.candidate_targets // \[\] | arrays#.candidate_targets#' "$RT_JQ"
 # Deterministic tiebreak: dropping the .target secondary key makes sort order unstable.
 assert_pin_red_under "#520: deterministic sort tiebreak pinned" \
   'sort_by([ -.pr_count, .target ])' 's/sort_by\(\[ -\.pr_count, \.target \]\)/sort_by([ -.pr_count ])/' "$RT_JQ"
@@ -12457,6 +12492,10 @@ assert_pin_red_under "#520: primary sort desc pr_count pinned" \
 # Empty-string target guard: dropping `select(. != "")` would emit a blank-target bullet.
 assert_pin_red_under "#520: empty-string target guard pinned" \
   'select(. != "")' 's/ *\| select\(\. != ""\)//' "$RT_JQ"
+# The pr-identity guard: dropping `select(.pr != null)` lets a pr-less entry inflate a
+# target's distinct-PR count with a null pr.
+assert_pin_red_under "#520: pr != null identity guard pinned" \
+  'select(.pr != null)' 's/select\(\.pr != null\)/select(true)/' "$RT_JQ"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "clean-entry.jq / actionable-patterns.sh"
