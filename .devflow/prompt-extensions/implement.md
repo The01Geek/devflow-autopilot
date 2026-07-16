@@ -215,3 +215,56 @@ An implement run that shipped the issue, hit no friction, and left **neither** a
 bullet nor this Progress note has skipped the side task; empty-and-silent is not done. Never
 invent findings to fill Reflection — the frictionless *Progress note* is the honest terminal
 state for a clean run, precisely so you never have to.
+
+## Prompt-surface edit routing (repo policy)
+
+`CLAUDE.md`'s "Editing any skill file" convention mandates the `superpowers:writing-skills`
+RED/GREEN discipline before any `SKILL.md` edit, and this repo extends that mandate to its
+**prompt-surface** files. An autonomous `/devflow:implement` run must **not** invoke
+`writing-skills` through the **Skill tool** mid-phase — a mid-phase Skill-tool call is a tail
+call that adopts the nested skill's flow as the run's whole task and strands the run (the
+engine's #362 exclusionary Skill rule, which this extension preserves **unchanged**:
+`writing-skills` is **not** added to the engine's three-skill allowlist). This repo instead
+routes the discipline through a context-isolated **Agent-tool subagent**, where a Skill-tool
+`writing-skills` invocation is safe because the skill's flow *is* the subagent's whole task.
+
+**The trigger globs.** The routing fires on an edit to any path matching one of:
+`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `.devflow/prompt-extensions/*.md`.
+(`agents/*.md` and skill companion/reference files stay under the base skill's Phase 2 §2.4
+discipline — out of scope for this routing.)
+
+**The routing rule (edit-intent time).** Before making any edit to a path matching a trigger
+glob, the orchestrator dispatches a context-isolated Agent-tool subagent whose prompt instructs
+it to invoke `superpowers:writing-skills` and perform the edit under that skill's RED/GREEN
+discipline, returning the edit and its evidence; the orchestrator itself does **not** invoke
+`writing-skills` through the Skill tool mid-phase.
+
+**The repair arm (resumed/compacted runs).** Evaluated **at extension load and again at Phase 3
+entry**: when the branch diff already touches a trigger glob and the workpad carries no
+`Writing-skills evidence:` marker, route the existing edits through the subagent for RED/GREEN
+verification — recording the marker — before the run proceeds. These two always-reached anchors
+make the arm fire even on a resumed or compacted run whose remaining work touches no trigger
+path, the exact state the arm exists for. **Fail closed on an unresolvable operand:** the
+trigger-glob operand is produced by reading the branch diff (`git diff` against the base) — if
+that read **fails or cannot be resolved** (an unfetched/empty base ref, a git error), treat the
+trigger-glob condition as **unknown → fire the arm**, never as "no trigger touched"; and an
+unreadable workpad likewise reads as "no marker" (fire the arm). Both operands fail toward
+*extra* verification, so a degraded read on the resumed/compacted state this arm protects can
+never silently skip the RED/GREEN discipline.
+
+**The fallback clause.** The subagent checks `writing-skills` against its available-skills list
+**before** editing and quotes that check's outcome in its returned evidence. When the check
+reports the skill **absent**, the edit is made under the base skill's Phase 2 §2.4 inline
+RED/GREEN micro-test discipline instead, and the workpad records the degraded mode. The recorded
+mode is **derived from the quoted check** — so `subagent` can never be recorded when the skill
+never loaded.
+
+**The evidence contract.** After any trigger-file edit, the workpad carries a line **containing**
+the exact marker literal `Writing-skills evidence:`, recorded via the sanctioned `workpad.py
+update --note` path (whose rendering prepends `  - HH:MM:SS — ` to every note, which is why the
+contract is *containment*, never line-start). The line records: the trigger files touched, the
+mode (`subagent` for the dispatch path, `inline-degraded` for the fallback), the quoted
+available-skills check outcome, and the RED/GREEN/no-guidance micro-test outcomes. This
+`Writing-skills evidence:` marker literal is the exact string the review-gate criterion matches
+(also as containment) — a coupled site, pinned in lockstep across `review-and-fix.md` and
+`review.md`.
