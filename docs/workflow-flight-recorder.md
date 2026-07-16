@@ -205,34 +205,37 @@ snapshot records its hash, query time, pagination completeness, workflow/job
 identity, run ID and attempt, and created/started/completed timestamps plus
 conclusion. An absent or incomplete cloud census makes cloud coverage
 `unavailable`, never zero. Cloud eligibility comes from trusted workflow/job
-identity via the registry's additive `cloud_mappings` section (allowlisted
-repository/workflow-file identity + exact agent job name + routed
-command/consumer + scheduled/started agent-step evidence); non-agent jobs are
-ineligible by omission. Cloud rows report census, eligibility, and source
-missingness only — no launch, duration, relationship, or retry-candidate claims.
+identity via the registry's additive `cloud_mappings` section (an allowlisted
+workflow-file + job identity + exact agent job name + routed command/consumer +
+scheduled/started agent-step evidence — a skipped job, which never ran its agent
+step, is ineligible); non-agent jobs are ineligible by omission. Cloud rows
+report census, eligibility, and source missingness only — no launch, duration,
+relationship, or retry-candidate claims.
 
 ### Verification requests and process launches (local-native only)
 
 The analyzer extracts `verification_request` and `verification_process_launch`
 records from local native transcripts only (Wave 1). One explicit tool-use ID is
-the request unit. A deterministic versioned taxonomy distinguishes verification
-requests from other command requests (`verification`, `other_command`,
-`verification_unknown`); compound tool input is one request unless a versioned
-parser proves exact command boundaries, and unrecognized shapes remain
-`verification_unknown`. Per-source versioned adapters classify authorization/start
-as `denied_pre_start`, `cancelled_pre_start`, `start_confirmed_terminal`,
-`start_confirmed_result_missing`, or `start_unknown`. Only explicit evidence that
-the execution surface started a process creates a launch and contributes to
-launch duration and retry counts; denied and start-unknown requests remain
-request metrics, excluded from actual-launch counts. Authorization is
-observational — allowlist membership and prompt text never become a predicted
-permission result.
+the request unit: each Bash `tool_use` is one request (no compound-input
+splitting is performed in Wave 1). A deterministic versioned taxonomy
+distinguishes verification requests from other command requests (`verification`,
+`other_command`, `verification_unknown`); unrecognized shapes remain
+`verification_unknown`. A single native-transcript classifier (a per-source
+versioned adapter is a future hook, not a dispatch table today) classifies
+authorization/start as `denied_pre_start`, `cancelled_pre_start`,
+`start_confirmed_terminal`, `start_confirmed_result_missing`, or
+`start_unknown`. Only explicit evidence that the execution surface started a
+process creates a launch and contributes to launch duration and retry counts;
+denied and start-unknown requests remain request metrics, excluded from
+actual-launch counts. Authorization is observational — allowlist membership and
+prompt text never become a predicted permission result.
 
 Each request and confirmed launch records source event ID, explicit lifecycle ID
 when present, tool-use ID, consumer skill (inferred only from classified
-first-message forms), phase/checkpoint when explicit, command head, redacted
-display, safe binding identity, timing, result presence, exit evidence,
-skipped-check evidence, and source provenance. Secret-bearing bindings persist
+first-message forms), command head, redacted display, safe binding identity,
+timing, result presence, exit evidence, skipped-check evidence, and source
+provenance. (Phase/checkpoint is not extracted in Wave 1 and is left null.)
+Secret-bearing bindings persist
 no raw secret and no unkeyed digest of secret material: commands are
 canonicalized and redacted before digesting, typed secret-slot markers and
 `secret_affected` are recorded, and a redacted digest alone cannot establish an

@@ -35,13 +35,15 @@ from verification_baseline import (  # noqa: E402
     stratify,
 )
 from verification_baseline import (  # noqa: E402
+    CONFIDENCE_AMBIGUOUS,
+    CONFIDENCE_CLASSES,
     CONFIDENCE_EXACT,
     CONFIDENCE_PARTIAL,
     CONFIDENCE_UNMATCHED,
-    CONFIDENCE_AMBIGUOUS,
     ELIGIBILITY_CONFIRMED,
     ELIGIBILITY_INELIGIBLE,
     ELIGIBILITY_PROVISIONAL,
+    ELIGIBILITY_STATES,
     ELIGIBILITY_UNKNOWN,
     KIND_OTHER_COMMAND,
     KIND_VERIFICATION,
@@ -51,13 +53,16 @@ from verification_baseline import (  # noqa: E402
     REL_INTENTIONAL_RERUN,
     REL_SINGLE,
     REL_UNCLASSIFIABLE,
+    RELATIONSHIP_CLASSES,
     SOURCE_AVAILABLE,
     SOURCE_ELIGIBLE_NOT_IMPORTED,
     SOURCE_IMPORT_FAILED,
     SOURCE_MISSING,
     SOURCE_UNREADABLE,
     SOURCE_UNSUPPORTED,
+    SOURCE_UNAVAILABLE,
     START_CANCELLED_PRE,
+    START_CLASSES,
     START_CONFIRMED_RESULT_MISSING,
     START_CONFIRMED_TERMINAL,
     START_DENIED_PRE,
@@ -546,7 +551,8 @@ class ExportSnapshotTests(unittest.TestCase):
         tmp.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_text(json.dumps(snap), encoding="utf-8")
         try:
-            read = read_cloud_census(tmp)
+            read, reason = read_cloud_census(tmp)
+            self.assertEqual(reason, "ok")
             self.assertIsNotNone(read)
             assert read is not None
             self.assertEqual(read["snapshot_hash"], snap["snapshot_hash"])
@@ -556,6 +562,106 @@ class ExportSnapshotTests(unittest.TestCase):
             self.assertEqual(rows[0].eligibility_state, ELIGIBILITY_CONFIRMED)
         finally:
             tmp.unlink(missing_ok=True)
+
+
+class ReviewFixFollowupTests(unittest.TestCase):
+    """Tests added by the Phase 3.3 review-and-fix loop for findings the review
+    agents surfaced (secret-pattern coverage, secret-affected group exclusion,
+    cloud skipped/pagination/malformed handling, read reasons, the
+    interval_bounded candidate guard, and the enum-cardinality pins)."""
+
+    def test_enum_cardinalities(self) -> None:
+        # Pins the "exactly these N" comments on each enum so adding a value
+        # without updating the comment goes RED at the desk.
+        self.assertEqual(len(ELIGIBILITY_STATES), 4)
+        self.assertEqual(len(START_CLASSES), 5)
+        self.assertEqual(len(CONFIDENCE_CLASSES), 4)
+        self.assertEqual(len(RELATIONSHIP_CLASSES), 5)
+
+    def test_secret_flag_catches_compound_forms(self) -> None:
+        for flag in ("--api-key", "--auth-token", "--access-key", "--secret-key", "--token", "--key"):
+            b = vb._binding_identity(f"{flag} sk-secret123 lib/test/run.sh")
+            self.assertTrue(b.secret_affected, f"{flag} should be secret-affected")
+            self.assertNotIn("sk-secret123", b.redacted_display)
+            self.assertNotIn("sk-secret123", b.digest)
+        # --pattern must NOT be flagged (contains 'pat' but is not a secret flag).
+        nopat = vb._binding_identity("--pattern '*.py' lib/test/run.sh")
+        self.assertFalse(nopat.secret_affected)
+
+    def test_secret_url_and_bearer_redaction(self) -> None:
+        url = vb._binding_identity("curl https://alice:s3cr3t@example.com/x lib/test/run.sh")
+        self.assertTrue(url.secret_affected)
+        self.assertNotIn("s3cr3t", url.redacted_display)
+        bearer = vb._binding_identity("gh api -H 'Authorization: Bearer ghp_tok3n' lib/test/run.sh")
+        self.assertTrue(bearer.secret_affected)
+        self.assertNotIn("ghp_tok3n", bearer.redacted_display)
+
+    def test_secret_affected_group_excluded_from_candidates(self) -> None:
+        # A secret-affected same-lifecycle pair must NOT be a candidate transport
+        # retry (a redacted digest alone cannot establish an exact match).
+        a = make_launch("a", secret_affected=True, start_auth=START_CONFIRMED_RESULT_MISSING)
+        b = make_launch("b", secret_affected=True, start_auth=START_CONFIRMED_TERMINAL)
+        groups = group_launches([a, b])
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0].relationship, REL_UNCLASSIFIABLE)
+        self.assertEqual(groups[0].join_confidence, CONFIDENCE_PARTIAL)
+
+    def test_cloud_census_skipped_job_is_ineligible(self) -> None:
+        snap = {
+            "schema_version": 1, "snapshot_hash": "h", "query_time": "2026-07-16T01:00:00Z",
+            "pagination_complete": True, "repository": "o/r",
+            "rows": [
+                {"workflow_file": ".github/workflows/devflow-implement.yml", "job": "claude", "run_id": 1, "run_attempt": 1, "started_at": "2026-07-16T01:00:10Z", "conclusion": "success", "status": "completed"},
+                {"workflow_file": ".github/workflows/devflow-implement.yml", "job": "claude", "run_id": 2, "run_attempt": 1, "started_at": None, "conclusion": "skipped", "status": "completed"},
+            ],
+        }
+        rows, cov = build_cloud_census(snap, load_cloud_mappings(REGISTRY))
+        self.assertFalse(cov["unavailable"])
+        by_run = {r.identity["run_id"]: r.eligibility_state for r in rows}
+        self.assertEqual(by_run[1], ELIGIBILITY_CONFIRMED)
+        self.assertEqual(by_run[2], ELIGIBILITY_INELIGIBLE)  # skipped -> never started
+
+    def test_cloud_census_pagination_incomplete_is_unavailable(self) -> None:
+        snap = {"schema_version": 1, "snapshot_hash": "h", "query_time": "t", "pagination_complete": False, "repository": "o/r", "rows": []}
+        rows, cov = build_cloud_census(snap, load_cloud_mappings(REGISTRY))
+        self.assertTrue(cov["unavailable"])
+        self.assertEqual(cov["reason"], "pagination incomplete")
+        self.assertEqual(rows, [])
+
+    def test_cloud_census_malformed_row_counted(self) -> None:
+        snap = {"schema_version": 1, "snapshot_hash": "h", "query_time": "t", "pagination_complete": True, "repository": "o/r",
+                "rows": ["not-a-dict", {"workflow_file": ".github/workflows/devflow-implement.yml", "job": "claude", "run_id": 1, "run_attempt": 1, "started_at": "t", "conclusion": "success", "status": "completed"}]}
+        rows, cov = build_cloud_census(snap, load_cloud_mappings(REGISTRY))
+        self.assertEqual(cov.get("malformed_row_count"), 1)
+        self.assertEqual(len(rows), 1)  # the one valid row still built
+
+    def test_read_cloud_census_distinguishes_absent_corrupt_schema(self) -> None:
+        self.assertEqual(read_cloud_census(None), (None, "absent"))
+        tmp = ROOT / ".devflow/tmp/vb-snap-reasons.json"
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            tmp.write_text("{not json", encoding="utf-8")
+            doc, reason = read_cloud_census(tmp)
+            self.assertIsNone(doc)
+            self.assertIn("unreadable", reason)
+            tmp.write_text(json.dumps({"schema_version": 99}), encoding="utf-8")
+            doc, reason = read_cloud_census(tmp)
+            self.assertIsNone(doc)
+            self.assertIn("schema_version", reason)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def test_mutation_interval_bounded_removed(self) -> None:
+        # Removing the interval_bounded requirement (both launches unbounded)
+        # must NOT still classify as a candidate — proves the guard is operative.
+        a = make_launch("a", start_auth=START_CONFIRMED_RESULT_MISSING)
+        b = make_launch("b", start_auth=START_CONFIRMED_TERMINAL)
+        for m in (a, b):
+            m.timing["started_at"] = None
+            m.timing["finished_at"] = None
+            m.timing["duration_ms"] = None
+        groups = group_launches([a, b])
+        self.assertNotEqual(groups[0].relationship, REL_CANDIDATE_TRANSPORT_RETRY)
 
 
 if __name__ == "__main__":

@@ -48,9 +48,10 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
-# Reuse the recorder's PUBLIC parsing API only (stable, pure stdlib, no git).
-# Importing the module is safe — subprocess is only invoked inside functions we
-# do not call (inventory_native_transcripts / _shared_storage_root / _run_git).
+# Reuse the recorder's PUBLIC parsing API only (stable, pure stdlib). Importing
+# the module is safe: the recorder's subprocess use lives inside its own git
+# helpers, none of which the analyzer calls — and the run.sh grep pin asserts
+# this module contains no subprocess call site of its own.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import workflow_flight_recorder as wfr  # noqa: E402
 
@@ -62,12 +63,13 @@ ELIGIBLE_LIFECYCLE_SCHEMA = 1
 VERIFICATION_REQUEST_SCHEMA = 1
 VERIFICATION_PROCESS_LAUNCH_SCHEMA = 1
 VERIFICATION_BASELINE_SCHEMA = 1
+RELATIONSHIP_GROUP_SCHEMA = 1
 
 # Census source enum (local vs cloud).
 SOURCE_LOCAL = "local"
 SOURCE_CLOUD = "cloud"
 
-# Eligibility states — exactly these four, never promoted, never silently omitted.
+# Eligibility states — never promoted, never silently omitted (cardinality pinned by test_enum_cardinalities).
 ELIGIBILITY_CONFIRMED = "confirmed_eligible"
 ELIGIBILITY_PROVISIONAL = "provisional_candidate"
 ELIGIBILITY_INELIGIBLE = "confirmed_ineligible"
@@ -96,7 +98,9 @@ LOCAL_SOURCE_STATUSES = (
     SOURCE_UNSUPPORTED,
 )
 
-# Authorization/start classification (per-source versioned adapters).
+# Authorization/start classification. Wave 1 ships a single native-transcript
+# classifier; per-source versioned adapters are a future hook (see
+# _classify_authorization_start), not a dispatch table today.
 START_DENIED_PRE = "denied_pre_start"
 START_CANCELLED_PRE = "cancelled_pre_start"
 START_CONFIRMED_TERMINAL = "start_confirmed_terminal"
@@ -117,14 +121,14 @@ KIND_OTHER_COMMAND = "other_command"
 KIND_VERIFICATION_UNKNOWN = "verification_unknown"
 REQUEST_KINDS = (KIND_VERIFICATION, KIND_OTHER_COMMAND, KIND_VERIFICATION_UNKNOWN)
 
-# Join confidence — exactly these four.
+# Join confidence (cardinality pinned by test_enum_cardinalities).
 CONFIDENCE_EXACT = "exact"
 CONFIDENCE_PARTIAL = "partial"
 CONFIDENCE_AMBIGUOUS = "ambiguous"
 CONFIDENCE_UNMATCHED = "unmatched"
 CONFIDENCE_CLASSES = (CONFIDENCE_EXACT, CONFIDENCE_PARTIAL, CONFIDENCE_AMBIGUOUS, CONFIDENCE_UNMATCHED)
 
-# Relationship classes — exactly these five.
+# Relationship classes (cardinality pinned by test_enum_cardinalities).
 REL_SINGLE = "single"
 REL_CANDIDATE_TRANSPORT_RETRY = "candidate_transport_retry"
 REL_INTENTIONAL_RERUN = "intentional_rerun_evidence"
@@ -182,7 +186,12 @@ SECRET_ENV_ASSIGNMENT = re.compile(
     re.IGNORECASE,
 )
 SECRET_FLAG = re.compile(
-    r"(--(?:token|key|password|passwd|secret|pat|app-key|private-key|credential))"
+    # Match ``--<name>`` whose name is exactly a keyword (``--token``) OR ends in a
+    # hyphen-delimited keyword segment (``--api-key``, ``--auth-token``, ``--access-key``,
+    # ``--secret-key``). Anchoring the keyword at a segment boundary avoids false-positiving
+    # on common flags like ``--pattern`` (which contains ``pat``) while still catching every
+    # compound secret flag the previous exact-match form missed.
+    r"(--(?:[A-Za-z0-9-]*-)?(?:token|key|password|passwd|secret|pat|credential))"
     r"(?:[ =])(\S+)",
     re.IGNORECASE,
 )
@@ -221,15 +230,17 @@ def _validate_admitted_path(raw: str, must_exist: bool = False) -> Path:
     normalized = (Path(os.getcwd()) / candidate).resolve(strict=False)
     if not _within_repo_root(normalized):
         raise ValueError(f"resolved path escapes the admitted root: {normalized}")
-    # Reject symlinks pointing outside the admitted root.
+    # Reject symlinks pointing outside the admitted root. Fail CLOSED on an OSError
+    # here (a symlink whose target cannot be resolved/verified is rejected, not
+    # admitted) — admitting an unresolvable symlink would fail-open a guard whose
+    # docstring promises "reject symlinks pointing outside the admitted root."
     try:
         if normalized.is_symlink():
             target = normalized.resolve(strict=True)
             if not _within_repo_root(target):
                 raise ValueError(f"symlink escapes the admitted root: {raw} -> {target}")
-    except OSError:
-        if must_exist:
-            raise
+    except OSError as exc:
+        raise ValueError(f"symlink target could not be resolved/verified (fail-closed): {raw}: {exc}") from exc
     if must_exist and not normalized.exists():
         raise FileNotFoundError(f"admitted path does not exist: {normalized}")
     return normalized
@@ -357,9 +368,9 @@ class BindingIdentity:
 
 
 def _canonical_command(command: str) -> str:
-    # Collapse internal runs of whitespace; strip; lowercase the head is NOT done
-    # (binding identity is case-sensitive on purpose — a differently-cased command
-    # is a different binding). Trim trailing punctuation noise only.
+    # Collapse internal runs of whitespace and strip. Binding identity is
+    # case-sensitive on purpose (a differently-cased command is a different
+    # binding); the head is deliberately not lowercased.
     return re.sub(r"\s+", " ", command).strip()
 
 
@@ -544,9 +555,11 @@ class RelationshipGroup:
     consumer: str | None
     duration_ms: int | None  # group representative duration (max member duration)
     provenance: dict
+    schema_version: int = RELATIONSHIP_GROUP_SCHEMA
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "schema_version": self.schema_version,
             "group_id": self.group_id,
             "members": self.members,
             "relationship": self.relationship,
@@ -565,7 +578,13 @@ class RelationshipGroup:
 def load_cloud_mappings(registry_path: Path) -> dict[str, dict[str, str]]:
     """Return {(workflow_file, job): agent_job_entry} from the registry's
     additive cloud_mappings section. Returns {} when the section is absent
-    (cloud coverage then reads unavailable, never zero)."""
+    (cloud census is optional) OR when it is present but malformed/wrong-schema —
+    both yield an empty table, so a present snapshot then builds an
+    all-ineligible cloud census reported as available (an operator
+    misconfiguration surfaced via every job reading ineligible, not via an
+    unavailable flag). The section is committed data authored once and the
+    registry's top-level schema_version is validated by load_registry, so a
+    malformed section is a rare authoring error rather than a runtime hazard."""
     try:
         document = json.loads(registry_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -705,8 +724,10 @@ def _host_profile_from_manifest(doc: dict) -> dict | None:
     if isinstance(git.get("branch"), str):
         profile["branch"] = git["branch"]
     if isinstance(doc.get("cwd"), str):
-        # host OS is not derivable without a subprocess; record unknown explicitly.
-        profile["host_os"] = "unknown"
+        # host OS is not derivable without a subprocess; leave it absent (None)
+        # so stratify counts the launch's stratum as incomplete (unknown host ->
+        # non-comparable), consistent with how _workspace_state treats unknown.
+        pass
     return profile or None
 
 
@@ -741,9 +762,12 @@ def _classify_source_status(bundle: Path, max_bytes: int) -> str:
         try:
             meta = json.loads(metadata.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            meta = {}
+            # An unreadable/corrupt metadata.json is a denominator row whose
+            # reason is "unreadable" (a permission/corruption fault), distinct
+            # from a readable-but-unsupported schema version below.
+            return SOURCE_UNREADABLE
         if not isinstance(meta, dict):
-            meta = {}
+            return SOURCE_UNREADABLE
         sv = meta.get("schema_version")
         # Bundle metadata is schema_version 2 (recorder contract). Anything else
         # is unsupported — a denominator row, never a clean classification.
@@ -863,7 +887,10 @@ def _exit_evidence(result: dict | None) -> "dict | None":
 
 
 def _classify_authorization_start(result: dict | None, ev: dict | None) -> str:
-    """Per-source versioned adapter (Wave 1: native Claude transcripts).
+    """Classify a request's authorization/start state (Wave 1: native Claude
+    transcripts). This is a single classifier, not a per-source adapter table —
+    per-source versioned adapters are a future hook for when a second source
+    format is added; today native transcripts are the only source.
 
     Takes the already-located ``result`` and its precomputed ``ev`` (exit
     evidence) so the caller's per-lifecycle ``tool_use_id -> result`` index is
@@ -942,12 +969,13 @@ def _workspace_state(events: list, start_idx: int, end_idx: int) -> dict:
                 marker in lower for marker in ("node_modules", "target/", "dist/", "build/", "__pycache__", ".venv", "venv/")
             ):
                 covered.add("ignored_gen_dep")
-    # A complete enumeration requires explicit coverage of ALL six roots
-    # (head, index, submodule, tracked, untracked, ignored/generated/dependency).
-    # The ignored/generated/dependency root is rarely explicitly observable from
-    # a verification command's source-event results in Wave 1, so coverage is
-    # usually incomplete by construction — `required.issubset(covered)` captures
-    # that without a redundant special-case branch.
+    # A complete enumeration requires explicit coverage of every root in the
+    # `required` set below (head, index, submodule, tracked, untracked, and the
+    # ignored/generated/dependency root). The ignored/generated/dependency root
+    # is rarely explicitly observable from a verification command's source-event
+    # results in Wave 1, so coverage is usually incomplete by construction —
+    # `required.issubset(covered)` captures that without a redundant special-case
+    # branch, so adding a root to `required` is the one place to update.
     required = {"head", "index", "submodule", "tracked", "untracked", "ignored_gen_dep"}
     coverage = "complete" if required.issubset(covered) else "incomplete"
     return {
@@ -1204,13 +1232,13 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
         # Distinct lifecycle IDs -> independent (cannot be transport-retry).
         return REL_INDEPENDENT_LIFECYCLE, CONFIDENCE_PARTIAL
     # Same lifecycle, repeated binding -> candidate transport-retry only if ALL
-    # requirements hold; else unclassifiable. ``ws_matching`` False (any member
-    # has an unbounded/incomplete workspace_state, or the covered-roots sets
-    # disagree) covers the mutation_state_unbounded case — the two earlier
-    # ``any_unbounded`` / ``not ws_matching`` returns were the same verdict, so
-    # only one remains. ``no_retrigger`` is guaranteed True here by the early
-    # return above, and ``ws_matching`` is guaranteed True by the return below,
-    # so neither is restated in the final candidate guard.
+    # requirements hold; else unclassifiable. The single ``ws_matching`` check
+    # (every member has complete coverage AND all share the same covered-roots
+    # set) guards the mutation_state_unbounded case: an incomplete or
+    # non-matching workspace makes the relationship unclassifiable. The retrigger
+    # guard already fired above, so no-retrigger is guaranteed here; and
+    # ws_matching is guaranteed True past the next return, so neither is restated
+    # in the final candidate guard below.
     ws_complete = all(m.workspace_state.get("coverage") == "complete" for m in members)
     ws_roots = {tuple(m.workspace_state.get("covered_roots", [])) for m in members}
     ws_matching = ws_complete and len(ws_roots) == 1
@@ -1260,6 +1288,7 @@ def compute_metrics(
     launches: list[VerificationProcessLaunch],
     groups: list[RelationshipGroup],
     has_cloud_snapshot: bool,
+    cloud_unavailable: bool = False,
 ) -> dict[str, Any]:
     def count_by(values):
         tally: dict[str, int] = {}
@@ -1282,6 +1311,12 @@ def compute_metrics(
             source_missingness[row.source_status] = source_missingness.get(row.source_status, 0) + 1
         elif row.source_status != "available":
             source_missingness[SOURCE_UNAVAILABLE] += 1
+    # Cloud coverage unavailability is a run-level signal (cloud_coverage), not a
+    # per-row status, so drive the ``unavailable`` counter from it rather than
+    # leaving it structurally 0 (cloud rows always carry source_status="available"
+    # or there are no cloud rows when the snapshot is absent).
+    if has_cloud_snapshot and cloud_unavailable:
+        source_missingness[SOURCE_UNAVAILABLE] = source_missingness.get(SOURCE_UNAVAILABLE, 0) + 1
 
     actual_launches = [
         l for l in launches
@@ -1455,19 +1490,27 @@ def _duration_bucket(ms: Any) -> "str | None":
 CLOUD_SNAPSHOT_SCHEMA = 1
 
 
-def read_cloud_census(snapshot_path: Path) -> dict[str, Any] | None:
-    """Read an explicit Actions run/job census snapshot. Returns None when the
-    snapshot is absent/unreadable — cloud coverage then reads unavailable,
-    never zero."""
+def read_cloud_census(snapshot_path: Path) -> "tuple[dict[str, Any] | None, str]":
+    """Read an explicit Actions run/job census snapshot.
+
+    Returns ``(doc, reason)``: ``doc`` is the parsed snapshot or ``None`` when it
+    could not be read; ``reason`` names whether it was absent, unreadable/
+    corrupt, or wrong-schema so a caller can surface a distinct breadcrumb rather
+    than conflating "no flag" with "corrupt file" with "schema mismatch" (all
+    three otherwise read as bare ``None``). Cloud coverage reads ``unavailable``
+    (never zero) on any non-``ok`` reason.
+    """
     if snapshot_path is None:
-        return None
+        return None, "absent"
     try:
         doc = json.loads(snapshot_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(doc, dict) or doc.get("schema_version") != CLOUD_SNAPSHOT_SCHEMA:
-        return None
-    return doc
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, f"unreadable/corrupt ({type(exc).__name__})"
+    if not isinstance(doc, dict):
+        return None, "not a JSON object"
+    if doc.get("schema_version") != CLOUD_SNAPSHOT_SCHEMA:
+        return None, f"schema_version != {CLOUD_SNAPSHOT_SCHEMA}"
+    return doc, "ok"
 
 
 def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str, dict[str, str]]) -> "tuple[list[EligibleLifecycle], dict[str, Any]]":
@@ -1482,6 +1525,15 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
     coverage["snapshot_hash"] = snapshot.get("snapshot_hash")
     coverage["repository"] = snapshot.get("repository")
     coverage["query_time"] = snapshot.get("query_time")
+    # An incomplete pagination (a mid-export transport failure left a partial row
+    # set) is NOT an available census — collapse it to unavailable so a partial
+    # measurement is never read as a complete one (the exporter's "absent or
+    # incomplete -> unavailable, never zero" contract).
+    if not coverage["pagination_complete"]:
+        coverage["available"] = False
+        coverage["unavailable"] = True
+        coverage["reason"] = "pagination incomplete"
+        return rows, coverage
     raw_rows = snapshot.get("rows")
     if not isinstance(raw_rows, list):
         # Incomplete cloud census -> unavailable.
@@ -1490,8 +1542,12 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
         coverage["reason"] = "snapshot rows missing or malformed"
         return rows, coverage
     position = 0
+    malformed_rows = 0
     for raw in raw_rows:
         if not isinstance(raw, dict):
+            # A corrupt/API-shifted row never vanishes from the denominator silently:
+            # count it so the reader can see rows were dropped (never silently omitted).
+            malformed_rows += 1
             continue
         wf = raw.get("workflow_file")
         job = raw.get("job")
@@ -1500,18 +1556,25 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
         repo = snapshot.get("repository") or raw.get("repository")
         run_id = raw.get("run_id")
         run_attempt = raw.get("run_attempt")
-        started_at = raw.get("started_at") or raw.get("created_at")
+        started_at = raw.get("started_at")
         # Cloud eligibility: allowlisted (workflow_file, job) + scheduled/started
-        # agent-step evidence (the job reached a scheduled/started state).
+        # agent-step evidence. A job is "started" only when it reached an in-progress
+        # or completed-with-a-real-conclusion state — a GitHub Actions SKIPPED job
+        # has status="completed" + conclusion="skipped" but the agent step never ran,
+        # so it must NOT be confirmed_eligible (it would over-claim the denominator).
+        # started_at is the job-level start only; the run-level created_at is NOT a
+        # job start and is deliberately not used as a fallback.
         status = str(raw.get("status") or "")
-        scheduled_started = status in ("queued", "in_progress", "completed") or bool(started_at)
+        conclusion = raw.get("conclusion")
+        completed_and_ran = status == "completed" and conclusion not in (None, "skipped")
+        scheduled_started = status in ("queued", "in_progress") or completed_and_ran or bool(started_at)
         if mapping is None:
             # Precheck/dedupe/telemetry/relay/skipped non-agent jobs: ineligible.
             state = ELIGIBILITY_INELIGIBLE
             evidence = f"job {job!r} not in cloud_mappings agent_jobs (non-agent)"
         elif not scheduled_started:
             state = ELIGIBILITY_INELIGIBLE
-            evidence = "agent job present but no scheduled/started agent-step evidence"
+            evidence = "agent job present but no scheduled/started agent-step evidence (skipped or never started)"
         else:
             state = ELIGIBILITY_CONFIRMED
             evidence = f"allowlisted agent job {job!r} consumer={mapping.get('consumer')} routed={mapping.get('routed_command')}"
@@ -1535,6 +1598,8 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
             provenance={"snapshot_hash": snapshot.get("snapshot_hash"), "run_id": run_id, "run_attempt": run_attempt},
         ))
         position += 1
+    if malformed_rows:
+        coverage["malformed_row_count"] = malformed_rows
     # Cloud rows report census/eligibility/missingness ONLY — no launch/duration/
     # relationship/retry-candidate claims are made here (cloud launch analysis is
     # excluded in Wave 1).
@@ -1749,7 +1814,11 @@ def main(argv: "list[str] | None" = None) -> int:
     if args.cloud_census:
         try:
             cloud_path = _validate_admitted_path(args.cloud_census, must_exist=True)
-            cloud_snapshot = read_cloud_census(cloud_path)
+            cloud_snapshot, cloud_reason = read_cloud_census(cloud_path)
+            if cloud_snapshot is None and cloud_reason != "absent":
+                # Distinguish a corrupt/schema-mismatch file from a missing flag so an
+                # operator who passed --cloud-census can tell why coverage is unavailable.
+                print(f"devflow verification-baseline: cloud census unreadable ({cloud_reason}); coverage reads unavailable", file=sys.stderr)
         except (ValueError, FileNotFoundError) as exc:
             print(f"devflow verification-baseline: cloud census read failed: {exc}", file=sys.stderr)
     cloud_rows, cloud_coverage = build_cloud_census(cloud_snapshot, cloud_mappings)
@@ -1758,7 +1827,7 @@ def main(argv: "list[str] | None" = None) -> int:
     has_cloud = cloud_snapshot is not None
 
     # 6. Metrics + sampling + stratification.
-    metrics = compute_metrics(all_rows, requests, launches, groups, has_cloud)
+    metrics = compute_metrics(all_rows, requests, launches, groups, has_cloud, bool(cloud_coverage.get("unavailable")))
     snapshot_hash = compute_source_snapshot_hash(all_rows, cloud_snapshot)
     sample = manual_review_sample(groups, snapshot_hash)
     stratification = stratify(launches, all_rows)

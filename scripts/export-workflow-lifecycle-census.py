@@ -87,13 +87,20 @@ def build_snapshot(repo: str, workflow_set: list[str], closed_after: str, closed
 
 
 def _gh_json(gh: str, args: list[str]) -> Any:
-    """Run gh with --jq '.' (JSON) and parse. Returns None on failure."""
+    """Run gh with --jq '.' (JSON) and parse. Returns None on failure.
+
+    Surfaces gh's stderr on a non-zero exit so the sole networked step is
+    diagnosable: a 401, a rate limit, and a legitimately empty window no longer
+    all read as an indistinguishable "pagination_complete=False"."""
     cmd = [gh, *args, "--jq", "."]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if proc.returncode != 0 or not proc.stdout.strip():
+        stderr = (proc.stderr or "").strip()
+        if stderr:
+            print(f"devflow census-export: gh failed (rc={proc.returncode}): {stderr[:300]}", file=sys.stderr)
         return None
     try:
         return json.loads(proc.stdout)
