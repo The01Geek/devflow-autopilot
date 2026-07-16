@@ -1,6 +1,6 @@
 # Workflow Transcript Inventory and Short-Command Capture
 
-**Date:** 2026-07-15  
+**Date:** 2026-07-15
 **Status:** Approved
 **Scope:** Local Claude Code transcripts for DevFlow's registered workflow recorder
 
