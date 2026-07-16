@@ -1,31 +1,67 @@
 # Local workflow flight recorder
 
-The workflow flight recorder is an opt-in, local observer for improving DevFlow
-skills from real Claude Code sessions. It captures sessions containing
-`implement`, `create-issue`, `receiving-code-review`, or `review-and-fix`, whether
-the workflow is invoked directly or as a nested Skill call.
+The workflow flight recorder is opt-in, local instrumentation for improving
+DevFlow skills from real Claude Code sessions. Claude's native JSONL under its
+projects store remains the transcript source of truth; DevFlow inventories that
+store without copying or changing it, records only start metadata automatically,
+and imports a selected transcript only on an explicit operator command.
 
-Capture does not block Claude Code, contact a model provider, file issues, edit
-skills, or infer missing measurements. Raw session data stays under the ignored
-`.devflow/tmp/` tree. Analysis is a separate, explicit operation: it sends
-selected evidence to the configured Claude provider and can use read-only tools
-against the local filesystem, so review the bundle and provider policy first.
+Observation and inventory do not block Claude Code, contact a model provider,
+file issues, edit skills, or infer missing measurements. Analysis is a separate,
+explicit operation: it sends selected imported evidence to the configured Claude
+provider and can use read-only tools against the local filesystem, so review the
+bundle and provider policy first.
 
-## Capture
+## Native inventory and manifest lifecycle
 
-The repository Stop hook keeps the stable entry point:
+The read-only inventory scans Claude's native project store and emits metadata,
+not prompts, tool results, or transcript excerpts:
 
-```text
-scripts/capture-implement-session.py
+```bash
+python3 scripts/inventory-workflow-transcripts.py \
+  --repo-root /path/to/repository \
+  --claude-projects-root ~/.claude/projects \
+  --json
 ```
 
-Despite its compatibility name, it writes generalized bundles to:
+A session qualifies only when its first authoritative user message invokes a
+registered workflow. The registry recognizes `/devflow:implement` and
+`/implement`, `/devflow:create-issue` and `/create-issue`,
+`/devflow:review-and-fix` and `/review-and-fix`, and
+`/devflow:receiving-code-review`. Plain commands and Claude command markup both
+qualify. A command embedded in a larger first message qualifies only when a
+later assistant `Skill` call corroborates the same workflow and subject; the
+inventory then classifies it as top-level. Later command mentions do not qualify
+an otherwise unrelated session.
 
-```text
-.devflow/tmp/workflow-runs/<session-id>/
+The local `UserPromptSubmit` observer at
+`scripts/capture-workflow-manifest.py` writes candidate metadata to the shared
+checkout at `.devflow/tmp/workflow-manifests/<session-id>.json`. The manifest
+preserves ephemeral start state such as repository and Git provenance, selected
+Claude settings, and prompt-surface fingerprints and sizes. It does not copy or
+parse the native transcript, retain submitted prompt content, use the network,
+or block prompt submission. Embedded candidates remain provisional until the
+native transcript supplies the corroborating `Skill` call. Restart any active
+Claude Code session after installing or changing the hook configuration; hooks
+are loaded when the session starts.
+
+## Explicit import and compatibility
+
+Import exactly one inventoried session by ID when it is ready for analysis:
+
+```bash
+python3 scripts/import-workflow-transcript.py <session-id> \
+  --repo-root /path/to/repository \
+  --claude-projects-root ~/.claude/projects
 ```
 
-Each bundle contains one transcript plus:
+Import re-reads the complete native JSONL, combines it with the start manifest
+when present, writes `.devflow/tmp/workflow-runs/<session-id>/`, and verifies the
+copied transcript bytes against the native source. Re-import refreshes the same
+bundle and records another import attempt; inventory never imports implicitly,
+and import never changes or deletes Claude's native file.
+
+Each imported bundle contains one transcript plus:
 
 - `metadata.json` — repository state, session start/finish, Claude configuration
   provenance, version/provider markers, and capture warnings;
@@ -36,10 +72,12 @@ Each bundle contains one transcript plus:
 - `event-summary.json` — privacy-safe counts for tools, errors, permission
   denials, equivalent retries, subagents, compaction, gaps, usage, model, and
   effort where observable;
-- `stop-attempts.jsonl` — one compact record per Stop attempt.
+- `stop-attempts.jsonl` — one compact record per capture or import attempt.
 
-Legacy implement bundles under `.devflow/tmp/implement-runs/` remain readable
-and are never rewritten.
+`scripts/capture-implement-session.py` remains as an unwired compatibility entry
+point for existing callers. Generalized bundles and legacy implement bundles
+under `.devflow/tmp/implement-runs/` remain readable by the analyzer; legacy
+bundles are normalized in memory and are never rewritten.
 
 ## Configuration and experimental validity
 
@@ -94,7 +132,10 @@ automatic blocker.
 
 ## Privacy and cleanup
 
-Bundles can contain the full local Claude session transcript. Keep
-`.devflow/tmp/` ignored, do not attach bundles to issues or commits, and share
-only narrowly redacted evidence when a human approves it. Delete a bundle when
-it is no longer needed using normal local file-management practices.
+Claude owns native transcript retention under its project store. An explicitly
+imported bundle can contain the full local Claude session transcript and remains
+sensitive even though inventory and manifests omit prompt content. Keep
+`.devflow/tmp/` ignored, do not attach manifests or bundles to issues or commits,
+and share only narrowly redacted evidence when a human approves it. Delete an
+imported bundle when it is no longer needed using normal local file-management
+practices; manage native retention through Claude's own controls.
