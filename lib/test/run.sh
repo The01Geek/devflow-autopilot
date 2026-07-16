@@ -39915,7 +39915,7 @@ done
 # otherwise a later name-based `gh` lookup recurses into the wrapper. The install
 # step body now lives once in scripts/install-gh-wrapper.sh, so pin the order there.
 INSTALL533="$LIB/../scripts/install-gh-wrapper.sh"
-_cap_ln533="$(grep -nF 'REAL_GH="${DEVFLOW_GH_REAL_OVERRIDE' "$INSTALL533" 2>/dev/null | head -1 | cut -d: -f1)"
+_cap_ln533="$(grep -nF 'REAL_GH="$(command -v gh' "$INSTALL533" 2>/dev/null | head -1 | cut -d: -f1)"
 _path_ln533="$(grep -nF '>> "$GITHUB_PATH"' "$INSTALL533" 2>/dev/null | head -1 | cut -d: -f1)"
 assert_eq "#487 wiring: install-gh-wrapper.sh resolves the real gh before prepending the wrapper to GITHUB_PATH" "yes" \
   "$([ -n "$_cap_ln533" ] && [ -n "$_path_ln533" ] && [ "$_cap_ln533" -lt "$_path_ln533" ] && echo yes || echo no)"
@@ -40001,9 +40001,13 @@ assert_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh di
 assert_eq "#533 AC14: scripts/install-gh-wrapper.sh exists" "yes" \
   "$([ -f "$INSTALL533" ] && echo yes || echo no)"
 assert_eq "#533 AC14: installer fingerprints via python3 hashlib and never invokes sha256sum/shasum/awk" "yes" \
-  "$(grep -qF 'hashlib' "$INSTALL533" 2>/dev/null && ! grep -vE '^[[:space:]]*#' "$INSTALL533" | grep -qE 'sha256sum|shasum|awk' && echo yes || echo no)"
+  "$(grep -vE '^[[:space:]]*#' "$INSTALL533" 2>/dev/null | grep -qF 'hashlib' && ! grep -vE '^[[:space:]]*#' "$INSTALL533" | grep -qE 'sha256sum|shasum|awk' && echo yes || echo no)"
+# The AC10 guard's counting recipe lives in ONE function so the AC22 mutation
+# proof below exercises the same recipe the guard runs — never a hand copy that
+# could drift green while the real guard's pattern rots.
+_ac10_count533() { grep -cF 'DEVFLOW_GH=' "$1" 2>/dev/null; }
 assert_eq "#533 AC10: install-gh-wrapper.sh writes no bare DEVFLOW_GH= (only DEVFLOW_GH_REAL=)" "0" \
-  "$(grep -cF 'DEVFLOW_GH=' "$INSTALL533" 2>/dev/null)"
+  "$(_ac10_count533 "$INSTALL533")"
 
 # AC17 — the install step stays gated on DEVFLOW_APP_ID in both writer workflows
 # (zero-App jobs never install the wrapper; bare-gh/token behavior is untouched).
@@ -40015,17 +40019,19 @@ done
 # AC14 — the seven validated outputs: each induced failure exits 1 with a
 # diagnostic naming that output; the full-success arm lands all seven.
 D533="$(mktemp -d)"
-printf '#!/usr/bin/env bash\necho "REALGH_CALLED $*"\n' > "$D533/stub-gh"; chmod +x "$D533/stub-gh"
-mkdir -p "$D533/rtmp" "$D533/emptybin"
+# The real-gh capture is steered through a PATH stub — the same seam production
+# uses — never a bypass branch in the installer itself.
+mkdir -p "$D533/bin" "$D533/rtmp" "$D533/emptybin"
+printf '#!/usr/bin/env bash\necho "REALGH_CALLED $*"\n' > "$D533/bin/gh"; chmod +x "$D533/bin/gh"
 : > "$D533/ghenv"; : > "$D533/ghpath"
 _i533() {  # run the installer with the success fixture env, overriding via "$@"
-  env DEVFLOW_GH_REAL_OVERRIDE="$D533/stub-gh" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh" \
+  env PATH="$D533/bin:$PATH" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh" \
       APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" \
       DEVFLOW_GH_WRAPDIR="$D533/wrapdir" DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint" \
       "$@" bash "$INSTALL533" 2>&1
 }
-# output 1: no executable real gh (empty override + gh-less PATH).
-_o533_1="$(env DEVFLOW_GH_REAL_OVERRIDE= APP_TOKEN=t GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" \
+# output 1: no executable real gh (gh-less PATH).
+_o533_1="$(env APP_TOKEN=t GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" \
   RUNNER_TEMP="$D533/rtmp" PATH="$D533/emptybin" "$BASH" "$INSTALL533" 2>&1)"; _rc533_1=$?
 assert_eq "#533 AC14 output 1: missing real gh fails rc 1 naming real-gh-resolve" "1 yes" \
   "$_rc533_1 $(printf '%s' "$_o533_1" | grep -qF 'output 1/7 FAILED' && printf '%s' "$_o533_1" | grep -qF '(real-gh-resolve)' && echo yes || echo no)"
@@ -40050,7 +40056,7 @@ assert_eq "#533 AC14 output 5: empty APP_TOKEN fails rc 1 naming fingerprint-com
 # output 5b: python3 itself failing (shadowed by a failing stub).
 mkdir -p "$D533/badpy"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$D533/badpy/python3"; chmod +x "$D533/badpy/python3"
-_o533_5b="$(_i533 PATH="$D533/badpy:$PATH")"; _rc533_5b=$?
+_o533_5b="$(_i533 PATH="$D533/badpy:$D533/bin:$PATH")"; _rc533_5b=$?
 assert_eq "#533 AC14 output 5: a failing python3 fails rc 1 naming fingerprint-compute" "1 yes" \
   "$_rc533_5b $(printf '%s' "$_o533_5b" | grep -qF 'output 5/7 FAILED' && printf '%s' "$_o533_5b" | grep -qF 'fingerprint-' && echo yes || echo no)"
 # output 6: GITHUB_ENV pointing into a nonexistent directory.
@@ -40067,11 +40073,11 @@ mkdir -p "$D533/noshabin"
 for _t533 in sha256sum shasum awk; do
   printf '#!/usr/bin/env bash\nexit 127\n' > "$D533/noshabin/$_t533"; chmod +x "$D533/noshabin/$_t533"
 done
-rm -f "$D533/ghenv" "$D533/ghpath"; : > "$D533/ghenv"; : > "$D533/ghpath"
-_o533_ok="$(_i533 PATH="$D533/noshabin:$PATH")"; _rc533_ok=$?
+: > "$D533/ghenv"; : > "$D533/ghpath"
+_o533_ok="$(_i533 PATH="$D533/noshabin:$D533/bin:$PATH")"; _rc533_ok=$?
 assert_eq "#533 AC14 success: all seven outputs land (rc 0) on a PATH without working sha256sum/shasum/awk" "0" "$_rc533_ok"
 assert_eq "#533 AC10: on success GITHUB_ENV carries DEVFLOW_GH_REAL and no bare DEVFLOW_GH" "1 0" \
-  "$(grep -cF "DEVFLOW_GH_REAL=$D533/stub-gh" "$D533/ghenv") $(grep -cF 'DEVFLOW_GH=' "$D533/ghenv")"
+  "$(grep -cF "DEVFLOW_GH_REAL=$D533/bin/gh" "$D533/ghenv") $(grep -cF 'DEVFLOW_GH=' "$D533/ghenv")"
 assert_eq "#533 AC10: on success GITHUB_PATH carries the wrapper dir" "1" "$(grep -cF "$D533/wrapdir" "$D533/ghpath")"
 assert_eq "#533 AC14: installed wrapper is executable" "yes" "$([ -x "$D533/wrapdir/gh" ] && echo yes || echo no)"
 _fp533_want="$(printf '%s' FIXTURE_TOKEN_533 | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
@@ -40084,16 +40090,16 @@ assert_eq "#533 AC14: fingerprint file is mode 0600" "600" \
 # (the wrapper is the real gh-fresh.sh copied by the installer above; with no
 # GH_TOKEN and an absent token file it degrades to a plain invocation of
 # DEVFLOW_GH_REAL — the fixture stub — whose echoed marker proves the chain).
-_c533_1="$(DEVFLOW_GH_REAL="$D533/stub-gh" DEVFLOW_GH_TOKEN_FILE="$D533/absent-token" \
+_c533_1="$(DEVFLOW_GH_REAL="$D533/bin/gh" DEVFLOW_GH_TOKEN_FILE="$D533/absent-token" \
   PATH="$D533/wrapdir:$PATH" gh api one 2>/dev/null)"
 assert_eq "#533 AC11: a direct gh call reaches the PATH-installed wrapper" "yes" \
   "$(printf '%s' "$_c533_1" | grep -qF 'REALGH_CALLED api one' && echo yes || echo no)"
-_c533_2cmd="$(DEVFLOW_GH_REAL="$D533/stub-gh" PATH="$D533/wrapdir:$PATH" bash -c ". \"$LIB/resolve-gh.sh\"; devflow_resolve_gh")"
-_c533_2="$(DEVFLOW_GH_REAL="$D533/stub-gh" DEVFLOW_GH_TOKEN_FILE="$D533/absent-token" \
+_c533_2cmd="$(DEVFLOW_GH_REAL="$D533/bin/gh" PATH="$D533/wrapdir:$PATH" bash -c ". \"$LIB/resolve-gh.sh\"; devflow_resolve_gh")"
+_c533_2="$(DEVFLOW_GH_REAL="$D533/bin/gh" DEVFLOW_GH_TOKEN_FILE="$D533/absent-token" \
   PATH="$D533/wrapdir:$PATH" "$_c533_2cmd" api two 2>/dev/null)"
 assert_eq "#533 AC11: a shell helper via devflow_resolve_gh reaches the PATH-installed wrapper" "gh yes" \
   "$_c533_2cmd $(printf '%s' "$_c533_2" | grep -qF 'REALGH_CALLED api two' && echo yes || echo no)"
-_c533_3="$(DEVFLOW_GH_REAL="$D533/stub-gh" DEVFLOW_GH_TOKEN_FILE="$D533/absent-token" \
+_c533_3="$(DEVFLOW_GH_REAL="$D533/bin/gh" DEVFLOW_GH_TOKEN_FILE="$D533/absent-token" \
   PATH="$D533/wrapdir:$PATH" python3 -c 'import os,subprocess; gh=os.environ.get("DEVFLOW_GH") or "gh"; print(subprocess.run([gh,"api","three"],capture_output=True,text=True).stdout,end="")')"
 assert_eq "#533 AC11: a Python helper GH selector reaches the PATH-installed wrapper" "yes" \
   "$(printf '%s' "$_c533_3" | grep -qF 'REALGH_CALLED api three' && echo yes || echo no)"
@@ -40130,8 +40136,8 @@ rm -rf "$_m533d"
 # own output-5 mode validation catches it, rc 1 naming fingerprint-mode.
 _t533i="$(probe_tmp '#533 AC22 mutated-installer setup')"
 sed -E 's/umask 077/umask 022/' "$INSTALL533" > "$_t533i"
-rm -f "$D533/rtmp/devflow-gh-fingerprint" "$D533/ghenv" "$D533/ghpath"; : > "$D533/ghenv"; : > "$D533/ghpath"
-_o533_mut="$(env DEVFLOW_GH_REAL_OVERRIDE="$D533/stub-gh" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh" \
+rm -f "$D533/rtmp/devflow-gh-fingerprint"; : > "$D533/ghenv"; : > "$D533/ghpath"
+_o533_mut="$(env PATH="$D533/bin:$PATH" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh" \
   APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" \
   DEVFLOW_GH_WRAPDIR="$D533/wrapdir-mut" DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint" \
   bash "$_t533i" 2>&1)"; _rc533_mut=$?
@@ -40139,11 +40145,14 @@ assert_eq "#533 AC22: a planted umask defect in a mutated installer copy fails r
   "$_rc533_mut $(printf '%s' "$_o533_mut" | grep -qF '(fingerprint-mode)' && echo yes || echo no)"
 rm -f "$_t533i"
 # (c) Installer defect: a re-introduced bare DEVFLOW_GH export on a copy is caught
-# by the AC10 zero-count guard (count flips 0 -> 1 on the mutated copy).
+# by the AC10 guard's OWN counting recipe (_ac10_count533 — the same function the
+# real assertion runs, exercised via probe_assert so the intentional RED never
+# hits the suite tally; a hand-copied grep here could drift green while the real
+# guard's pattern rots).
 _t533j="$(probe_tmp '#533 AC22 mutated-installer AC10 setup')"
 sed -E 's/DEVFLOW_GH_REAL=\$REAL_GH/DEVFLOW_GH=\$WRAPDIR\/gh/' "$INSTALL533" > "$_t533j"
-assert_eq "#533 AC22: a planted bare DEVFLOW_GH export in a mutated installer copy is caught by the AC10 guard" "1" \
-  "$(grep -cF 'DEVFLOW_GH=' "$_t533j")"
+assert_eq "#533 AC22: a planted bare DEVFLOW_GH export in a mutated installer copy flips the AC10 guard RED" "FAIL" \
+  "$(probe_assert assert_eq 'probe-ac10-mutated' "0" "$(_ac10_count533 "$_t533j")")"
 rm -f "$_t533j"
 rm -rf "$D533"
 

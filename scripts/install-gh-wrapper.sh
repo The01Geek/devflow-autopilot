@@ -40,7 +40,6 @@
 #                                (the same default gh-fresh.sh reads — a coupled
 #                                default pinned by lib/test/run.sh)
 #   DEVFLOW_GH_SOURCE_SH         override for the gh-fresh.sh source path
-#   DEVFLOW_GH_REAL_OVERRIDE     test seam — bypasses the `command -v gh` lookup
 
 set -uo pipefail
 
@@ -48,7 +47,12 @@ fail() { printf 'install-gh-wrapper: %s\n' "$1" >&2; exit 1; }
 
 # output 1/7 — an executable real gh, resolved BEFORE the wrapper dir reaches
 # PATH (a name-based lookup after the prepend would recurse into the wrapper).
-REAL_GH="${DEVFLOW_GH_REAL_OVERRIDE:-$(command -v gh 2>/dev/null || true)}"
+# Deliberately a bare `command -v gh`, NOT the lib/resolve-gh.sh resolver: the
+# resolver's DEVFLOW_GH override outranks PATH by design, and honoring it here
+# could capture the very wrapper this script installs (or any test override) as
+# "the real gh" — the recursion this absolute capture exists to prevent. Tests
+# steer this lookup with a PATH stub, the same seam production uses.
+REAL_GH="$(command -v gh 2>/dev/null || true)"
 [ -n "$REAL_GH" ] && [ -x "$REAL_GH" ] \
   || fail "output 1/7 FAILED: no executable real gh resolved (real-gh-resolve)"
 
