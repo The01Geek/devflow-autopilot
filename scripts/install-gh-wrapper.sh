@@ -76,13 +76,13 @@ if [ -z "${DEVFLOW_GH_WRAPDIR:-}" ] && [ -z "${RUNNER_TEMP:-}" ]; then
   fail "output 3/7 FAILED: RUNNER_TEMP is unset and no DEVFLOW_GH_WRAPDIR override was given (wrapdir-create)"
 fi
 WRAPDIR="${DEVFLOW_GH_WRAPDIR:-$RUNNER_TEMP/devflow-gh-bin}"
-mkdir -p "$WRAPDIR" 2>/dev/null && [ -d "$WRAPDIR" ] && [ -w "$WRAPDIR" ] \
+mkdir -p "$WRAPDIR" && [ -d "$WRAPDIR" ] && [ -w "$WRAPDIR" ] \
   || fail "output 3/7 FAILED: wrapper dir $WRAPDIR could not be created or is not writable (wrapdir-create)"
 
 # output 4/7 — a successful copy carrying the executable bit. The regular-file
 # check matters: `cp` into a directory that happens to occupy $WRAPDIR/gh would
 # "succeed" while leaving no wrapper at the path later steps invoke.
-cp "$SRC" "$WRAPDIR/gh" 2>/dev/null && chmod +x "$WRAPDIR/gh" 2>/dev/null \
+cp "$SRC" "$WRAPDIR/gh" && chmod +x "$WRAPDIR/gh" \
   && [ -f "$WRAPDIR/gh" ] && [ -x "$WRAPDIR/gh" ] \
   || fail "output 4/7 FAILED: copying $SRC to $WRAPDIR/gh (or chmod +x) did not produce an executable wrapper file (wrapper-copy-exec)"
 
@@ -98,7 +98,7 @@ FINGERPRINT_FILE="${DEVFLOW_GH_FINGERPRINT_FILE:-$RUNNER_TEMP/devflow-gh-fingerp
   printf '%s' "$APP_TOKEN" \
     | python3 -c 'import hashlib,sys; sys.stdout.write(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())' \
     > "$FINGERPRINT_FILE"
-) 2>/dev/null \
+) \
   || fail "output 5/7 FAILED: the python3 hashlib fingerprint computation errored (fingerprint-compute)"
 [ -s "$FINGERPRINT_FILE" ] \
   || fail "output 5/7 FAILED: fingerprint file $FINGERPRINT_FILE is empty after the write (fingerprint-nonempty)"
@@ -111,11 +111,11 @@ _fpmode="$(python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0
 # output 6/7 — a writable GITHUB_ENV, receiving ONLY the real gh's absolute
 # path. The wrapper resolves the real CLI through this seam; no DEVFLOW_GH is
 # published (see the header).
-{ [ -n "${GITHUB_ENV:-}" ] && echo "DEVFLOW_GH_REAL=$REAL_GH" >> "$GITHUB_ENV"; } 2>/dev/null \
+{ [ -n "${GITHUB_ENV:-}" ] && echo "DEVFLOW_GH_REAL=$REAL_GH" >> "$GITHUB_ENV"; } \
   || fail "output 6/7 FAILED: GITHUB_ENV is unset or not appendable (github-env-write)"
 
 # output 7/7 — a writable GITHUB_PATH, prepending the wrapper dir for later steps.
-{ [ -n "${GITHUB_PATH:-}" ] && echo "$WRAPDIR" >> "$GITHUB_PATH"; } 2>/dev/null \
+{ [ -n "${GITHUB_PATH:-}" ] && echo "$WRAPDIR" >> "$GITHUB_PATH"; } \
   || fail "output 7/7 FAILED: GITHUB_PATH is unset or not appendable (github-path-write)"
 
 printf 'install-gh-wrapper: installed (wrapdir=%s real_gh=%s)\n' "$WRAPDIR" "$REAL_GH"
