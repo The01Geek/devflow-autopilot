@@ -192,9 +192,8 @@ bound.
 The analyzer left-joins local native imports (`.devflow/tmp/workflow-runs/`) onto
 local census rows and distinguishes `eligible_not_imported`, `import_failed`,
 `source_missing`, `source_unreadable`, `source_unsupported`, and
-`source_available`. Absent, failed, missing, cancelled, unreadable, and
-unsupported sources remain denominator rows with distinct reason codes — never
-silently dropped. Inventory never imports implicitly; explicit-import semantics
+`source_available`. Absent, failed, missing, unreadable, and unsupported sources
+remain denominator rows with distinct reason codes — never silently dropped. Inventory never imports implicitly; explicit-import semantics
 are unchanged.
 
 Cloud census rows come from an explicit, immutable, paginated Actions run/job
