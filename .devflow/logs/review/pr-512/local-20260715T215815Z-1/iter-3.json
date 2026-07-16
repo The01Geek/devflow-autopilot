@@ -4,6 +4,7 @@
   "fix_commit_sha": "d43e6dec",
   "fix_files": ["skills/review-and-fix/SKILL.md", "lib/test/run.sh"],
   "loop_role": "promoted",
+  "promotion_provenance": {"promoted_by_iter": 2, "trigger": "convergence-shadow (outcome 2)", "shadow_new_important": 1, "findings": ["F1 item-6a mode-selection fail-open (corroborated x3)"]},
   "checklist": [],
   "phase3_dispatched": [],
   "diff_profile": {
