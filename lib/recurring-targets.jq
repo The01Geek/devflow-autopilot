@@ -29,13 +29,19 @@
 #
 # Guards (issue #520 data-shape contract): both `.suggested_interventions` and
 # each intervention's `.candidate_targets` are `// []`-guarded, so an entry
-# missing either field (2/167 live entries lack suggested_interventions) or a
+# missing either field (some live entries lack suggested_interventions) or a
 # clean entry carrying `suggested_interventions: []` contributes nothing and the
 # reader never throws. Only entries whose `pr` is a NUMBER contribute (a target's
 # recurrence is measured across distinct PRs): a missing/null `pr` has no PR
 # identity, and a wrong-typed `pr` — e.g. an agent-written string `"42"` — is
 # dropped rather than counted as a PR distinct from the numeric `42`, which would
-# otherwise inflate `pr_count` for a single real PR.
+# otherwise inflate `pr_count` for a single real PR. Every agent-written field this
+# reader EMITS is type-guarded at its source, so the emitted shape is total: `target`
+# is always a non-empty string, and `representative_summary` is always a string — a
+# wrong-typed summary would otherwise reach the CONSUMER's newline-flattening gsub in
+# render-report.sh and abort the whole report render, since this reader's own rc-0
+# "never throws" invariant does not extend to what downstream does with the value it
+# emits. (Each guard's operative expression is at its site below, pinned by run.sh.)
 
 # Collect one record per (target, pr) pairing, preserving document order so the
 # representative-summary tiebreak (ascending pr, then intervention order) is stable.
@@ -55,7 +61,14 @@ def pairs:
     | .pr as $pr
     | (.suggested_interventions // [] | arrays)[]
     | objects
-    | (.summary // "") as $summary
+    # Type-guard the summary exactly like `target`: an alternative-operator default
+    # alone only substitutes for null/false, so a number/object/array summary
+    # (reachable in an agent-written store) would flow through as
+    # `representative_summary` and detonate the newline-flattening gsub in
+    # render-report.sh (jq rc 5 on a non-string) — a hard abort of the whole render
+    # under its `set -euo pipefail`, not a graceful omission. The `strings` filter
+    # emits nothing for a non-string, so the default then yields "". (issue #520)
+    | ((.summary | strings) // "") as $summary
     | (.candidate_targets // [] | arrays)[]
     # A target must be a non-empty string. `strings` drops any non-string element
     # (guard-class 2 / best-effort-parser discipline: retrospectives.jsonl is

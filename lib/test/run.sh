@@ -12574,6 +12574,22 @@ assert_eq "#520: wrong-typed rows contribute no target"       "0"    "$(echo "$R
 assert_eq "#520: genuine target survives wrong-typed siblings" "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/good.sh")')"
 assert_eq "#520: only the genuine target present amid malformed rows" "1" "$(echo "$RT_OUT" | jq 'length')"
 
+# Guard-class 2 (field type): `.summary` is agent-written, so it can arrive
+# WRONG-TYPED (number/object/array), not just missing. `(.summary // "")` alone
+# only substitutes for null/false — a non-string summary would flow through as
+# `representative_summary` and detonate render-report.sh's `gsub("\n";" ")` (jq
+# rc 5 on a non-string) under its `set -euo pipefail`, aborting the whole render.
+# `((.summary | strings) // "")` must coerce every non-string summary to "" so the
+# emitted `representative_summary` is ALWAYS a string. (issue #520)
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":42,"candidate_targets":["lib/nst.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":{"o":"bj"},"candidate_targets":["lib/nst.sh"]}]}
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: non-string summary does not throw (rc 0)"    "0"    "$RT_RC"
+assert_eq "#520: non-string summary target still surfaces"    "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/nst.sh")')"
+assert_eq "#520: non-string summary coerced to string representative_summary" "true" "$(echo "$RT_OUT" | jq '[.[] | select((.representative_summary|type) != "string")] | length == 0')"
+
 # AC: `select(.pr | numbers)` — only a NUMBER-typed `.pr` contributes. A pr-less
 # entry (defensive: the store otherwise guarantees `pr`, so this is a malformed /
 # hand-corrupted line) naming a target that ONE real PR also names must NOT inflate
@@ -12724,6 +12740,11 @@ assert_pin_red_under "#520: empty-string target guard pinned" \
 # counts (string "7" counted separately from numeric 7).
 assert_pin_red_under "#520: pr numbers identity guard pinned" \
   'select(.pr | numbers)' 's/select\(\.pr | numbers\)/select(.pr != null)/' "$RT_JQ"
+# The summary type guard: relaxing `(.summary | strings) // ""` back to the bare
+# `(.summary // "")` lets a non-string summary reach representative_summary and
+# detonate render-report.sh's gsub — the non-string-summary fixture catches it.
+assert_pin_red_under "#520: summary strings type guard pinned" \
+  '((.summary | strings) // "")' 's#\(\.summary \| strings\) // ""#.summary // ""#' "$RT_JQ"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "clean-entry.jq / actionable-patterns.sh"
