@@ -1,0 +1,6 @@
+---
+bump: patch
+type: Added
+---
+
+- **Offline verification-launch baseline analyzer (Wave 1).** Adds `scripts/verification_baseline.py`, a read-only, pure-stdlib, no-subprocess/no-network analyzer that builds a source-provenanced baseline of actual verification launches from local native transcript events plus a local + cloud lifecycle census (eligibility + source missingness), with conservative transport-retry candidate classification (`single` / `candidate_transport_retry` / `intentional_rerun_evidence` / `independent_lifecycle` / `unclassifiable`) and a deterministic SHA-256-seeded manual-review sample; adds `scripts/export-workflow-lifecycle-census.py` (the sole networked, explicit-invocation census-export step) and `lib/test/test_verification_baseline.py`; and extends the workflow-flight-recorder registry with the `review` first-message forms and a versioned `cloud_mappings` section. Cloud launch analysis is excluded in Wave 1 (no durable redacted execution-event source without changing workflows); cloud rows are census/missingness-only. (#531)
