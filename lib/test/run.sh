@@ -30991,6 +30991,43 @@ RB_DEFAULT_W=$(cat "${_rb_default[@]}" | wc -w | tr -d ' ')
 assert_eq "#529 the phases/ directory matches REVIEW_PHASE_STEMS (no unregistered or missing reference)" \
   "$(printf '%s\n' $REVIEW_PHASE_STEMS | sort | tr '\n' ' ' | sed 's/ *$//')" \
   "$(for _f in "$LIB"/../skills/review/phases/*.md; do basename "$_f" .md; done | sort | tr '\n' ' ' | sed 's/ *$//')"
+# ── #529 AC15 pressure tests: every scenario's outcome survives the split ─────
+# The engine is agent-executed prose, so a scenario's "outcome" is decided by two
+# things and both must hold after a text move: (1) the governing contract still
+# EXISTS somewhere in the bundle — the move did not drop it — and (2) the root can
+# still REACH it, i.e. the reference that owns it is routed. A contract that
+# survives in a file the root never routes to is dead text, and a routing row to a
+# file that lost its contract is a dangling gate; either breaks the scenario while
+# every other pin stays green. Each row below asserts both halves.
+#   scenario|literal that decides it|reference stem that must own + route it
+while IFS='|' read -r _ps_name _ps_lit _ps_stem; do
+  [ -n "$_ps_name" ] || continue
+  assert_eq "#529 AC15 pressure: the '$_ps_name' contract survives in the bundle" "yes" \
+    "$(grep -qF -- "$_ps_lit" "$REVIEW_BUNDLE" && echo yes || echo no)"
+  assert_eq "#529 AC15 pressure: '$_ps_name' is owned by ${_ps_stem}.md and routed from the root" "yes|yes" \
+    "$(grep -qF -- "$_ps_lit" "$LIB/../skills/review/phases/${_ps_stem}.md" && echo yes || echo no)|$(grep -qF -- "phases/${_ps_stem}.md" "$REVIEW_ROOT" && echo yes || echo no)"
+done <<'PRESSURE'
+standalone (4.4 posts the verdict)|Record the verdict as a formal GitHub review|phase-4-4-github-post
+current-branch (no PR number)|CURRENT_BRANCH_BASE_CAPTURE|phase-0-setup
+small-config (0.5 five-flag profile)|config_only|phase-0-setup
+engine-self-modifying (0.5 flag)|engine_self_modifying|phase-0-setup
+fix-loop (head_override = local)|head_override|phase-0-setup
+shadow (Step 2.6 re-entry is blinded)|detect_all_audit|phase-3-agents
+inline Implement (shared engine, per-agent prompts)|defect_signature|phase-3-agents
+blocker (0.3.6 fast path)|Blocker-recheck fast path|phase-0-3-6-blocker-recheck
+stale-prose (0.6 lint + 4.1.7 adjudication)|Stale counted-prose lint|phase-0-6-stale-prose-lint
+PRESSURE
+# The two scenarios the ROOT itself must decide (they pick which reference runs, so
+# their routing rule cannot live in a reference — that would be unreachable).
+assert_pin_unique "#529 AC15 pressure: the root routes 4.4 as standalone-only (review-and-fix skips it)" \
+  'skips 4.4 entirely' "$REVIEW_ROOT"
+assert_eq "#529 AC15 pressure: the root gates 0.3.6 to standalone PR mode and 0.6 on its config key" "yes|yes" \
+  "$(grep -qF 'standalone PR mode only' "$REVIEW_ROOT" && echo yes || echo no)|$(grep -qF 'devflow_review.stale_prose.enabled' "$REVIEW_ROOT" && echo yes || echo no)"
+# A shadow entry is a phase entry — the identity re-derivation must bind it, or a
+# compacted shadow pass would read the bundle without re-checking it.
+assert_pin_unique "#529 AC15 pressure: the root binds shadow entry to the identity re-derivation" \
+  'every shadow entry' "$REVIEW_ROOT"
+
 # ── #529 AC6 boundary markers — the DESK-TIME half ───────────────────────────
 # The root's 7-row boundary table is executed by an LLM at every phase entry, and it
 # covers what only runtime can see (a Read that is denied, empty, or truncated). But
