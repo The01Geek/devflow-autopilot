@@ -11114,6 +11114,11 @@ F_OUT3="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh"
 assert_eq "fetch #97: malformed reflection block exits 0 (no detonation)" "0" "$F_RC3"
 assert_eq "fetch #97: malformed reflection block degrades to a valid array" "array" \
   "$(jq -r '.reflections | type' < "$F_OUT3")"
+# #519: a bullet before ANY `### ` heading (this malformed block) has cur_heading=None,
+# so it fails CLOSED to friction — assert the friction contribution, not just the array
+# shape, so a mutation dropping the pre-heading friction increment goes RED.
+assert_eq "#519: pre-heading bullet (no ### section) → friction_count 1 (fail-closed)" "1" \
+  "$(jq -r '.reflections_friction_count' < "$F_OUT3")"
 
 # Scenario 4: Blocked workpad (from issue) → end-to-end gate clean=false (signal live)
 cat > "$F97/workpad-blocked.md" <<'WPMD'
@@ -11239,7 +11244,40 @@ assert_eq "#519 e2e: note-only block → friction_count 0" "0" \
 assert_eq "#519 e2e: note-only bundle → cheap-gate clean=true (exempt, not analyzed)" "true" \
   "$(jq -c -f "$LIB/cheap-gate.jq" < "$F_OUT9" | jq -r .clean)"
 
+# #519 unknown-heading arm (AC): a bullet under an UNRECOGNIZED `### ` heading (not one
+# of the three real sections) fails CLOSED to friction — a future taxonomy section cannot
+# silently become non-friction. Uses a real ℹ️ glyph under a bogus heading to prove the
+# exemption keys on BOTH heading AND glyph, not the glyph alone.
+cat > "$F97/workpad-unknownhd.md" <<'WPMD'
+<!-- devflow:workpad -->
+**Status:** 🎉 Complete
+## Devflow Reflection
+<details>
+<summary>x</summary>
+
+### 🔥 Experimental
+- ℹ️ a bullet under an unrecognized heading
+
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-unknownhd.md" > "$F97/issuecomments.json"
+F_OUT10="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#519 e2e: bullet under unrecognized ### heading → friction_count 1 (fail-closed)" "1" \
+  "$(jq -r '.reflections_friction_count' < "$F_OUT10")"
+assert_eq "#519 e2e: unknown-heading bundle → cheap-gate clean=false" "false" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F_OUT10" | jq -r .clean)"
+
 rm -rf "$F97"
+
+# #519 fail-closed-on-parse-failure pin (behavioral-fix): when the reflection parser
+# emits no valid JSON, fetch-pr-context.sh substitutes a FRICTION sentinel (friction_count
+# 1), NOT friction_count 0 — a present-but-unparseable reflection block over-analyzes rather
+# than silently routing to the clean path. Pin the operative sentinel; the mutation restores
+# the old fail-open `:0` default and must turn the pin RED.
+assert_pin_red_under "#519: reflection-parse-failure fallback is a FRICTION sentinel (friction_count 1), not fail-open 0" \
+  '"friction_count":1}' \
+  's/"friction_count":1}/"friction_count":0}/' \
+  "$LIB/fetch-pr-context.sh"
 
 # ── #519 coupled-site pin (source↔source): the parser's `### ℹ️ Notes` heading
 # and the ℹ️/📝 glyph literals it hard-copies MUST equal scripts/workpad.py's

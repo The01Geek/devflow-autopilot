@@ -344,17 +344,25 @@ PYEOF
 )"
     # Guard against a python hiccup leaving an empty/invalid value that would
     # break the later `--slurpfile reflections` / `--argjson`. The guard requires
-    # BOTH keys so a partial/garbage payload fails closed to zero-reflections; the
-    # friction field then reads 0, and cheap-gate's own absent-field fallback
-    # (legacy "any reflection trips") no longer applies since reflections is [].
+    # BOTH keys, and — crucially — it FAILS TOWARD ANALYSIS, matching the sibling
+    # WORKPAD_FINAL_STATUS="Unparsed" guard above: a workpad IS present (we are
+    # inside `if [ -n "$WORKPAD_BODY" ]`), so a parse failure means "a reflection
+    # block existed but could not be read", NOT "there were no reflections". The
+    # fallback therefore substitutes a FRICTION sentinel (one non-note bullet,
+    # friction_count 1) so cheap-gate gates the PR non-clean and it is analyzed,
+    # rather than defaulting to friction_count 0 and silently routing a possibly
+    # friction-bearing run to the clean path (fail-open). The `::warning::`
+    # names the shape so the substitution is not silent.
     if ! printf '%s' "$REFLECTION_PARSE" | "$DEVFLOW_JQ" -e 'has("reflections") and has("friction_count")' >/dev/null 2>&1; then
-        echo "::warning::fetch-pr-context: reflection parse produced no valid JSON for PR ${PR}; defaulting to []" >&2
-        REFLECTION_PARSE='{"reflections":[],"friction_count":0}'
+        echo "::warning::fetch-pr-context: reflection parse produced no valid JSON for PR ${PR}; a present-but-unparseable reflection block is treated as friction (fail toward analysis)" >&2
+        REFLECTION_PARSE='{"reflections":["<unparsed reflection block>"],"friction_count":1}'
     fi
     REFLECTIONS="$(printf '%s' "$REFLECTION_PARSE" | "$DEVFLOW_JQ" -c '.reflections')"
     REFLECTION_FRICTION_COUNT="$(printf '%s' "$REFLECTION_PARSE" | "$DEVFLOW_JQ" -r '.friction_count')"
-    # Defensive: never let an empty derivation poison the later `--argjson`.
-    case "$REFLECTION_FRICTION_COUNT" in ''|*[!0-9]*) REFLECTION_FRICTION_COUNT=0 ;; esac
+    # Defensive: an empty/non-digit derivation (e.g. jq itself vanished) also fails
+    # toward analysis — substitute 1, not 0, so a broken derivation over-analyzes
+    # rather than reading as zero friction (same fail-direction as the guard above).
+    case "$REFLECTION_FRICTION_COUNT" in ''|*[!0-9]*) REFLECTION_FRICTION_COUNT=1 ;; esac
 fi
 
 # ttm_hours: (merged_at - created_at) in decimal hours
