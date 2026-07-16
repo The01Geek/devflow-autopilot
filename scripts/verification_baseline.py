@@ -1319,18 +1319,18 @@ def compute_metrics(
         source_missingness[SOURCE_UNAVAILABLE] = source_missingness.get(SOURCE_UNAVAILABLE, 0) + 1
 
     actual_launches = [
-        l for l in launches
-        if l.start_authorization in (START_CONFIRMED_TERMINAL, START_CONFIRMED_RESULT_MISSING)
+        launch for launch in launches
+        if launch.start_authorization in (START_CONFIRMED_TERMINAL, START_CONFIRMED_RESULT_MISSING)
     ]
-    terminal_results = sum(1 for l in actual_launches if l.exit_evidence and l.exit_evidence.get("exit_code") is not None)
-    missing_results = sum(1 for l in launches if l.start_authorization == START_CONFIRMED_RESULT_MISSING)
+    terminal_results = sum(1 for launch in actual_launches if launch.exit_evidence and launch.exit_evidence.get("exit_code") is not None)
+    missing_results = sum(1 for launch in launches if launch.start_authorization == START_CONFIRMED_RESULT_MISSING)
 
     rel_dist = count_into((g.relationship for g in groups), RELATIONSHIP_CLASSES)
     ws_dist = count_into((g.workspace_state.get("coverage", "incomplete") for g in groups), ("complete", "incomplete"))
     join_dist = count_into((g.join_confidence for g in groups), CONFIDENCE_CLASSES)
 
-    command_heads = count_by(l.command_head for l in launches)
-    consumers = count_by((l.consumer_skill or "unknown") for l in launches)
+    command_heads = count_by(launch.command_head for launch in launches)
+    consumers = count_by((launch.consumer_skill or "unknown") for launch in launches)
 
     candidate_group_durations = [g.duration_ms for g in groups if g.relationship == REL_CANDIDATE_TRANSPORT_RETRY and isinstance(g.duration_ms, int)]
     estimated_wall = sum(candidate_group_durations) if candidate_group_durations else None
@@ -1359,7 +1359,7 @@ def compute_metrics(
         },
         "host_profile": _aggregate_host_profile(rows),
         "child_duration_ms": None,  # unknown in Wave 1 (no child-process timing in native events)
-        "caller_observed_duration_ms": [l.timing.get("duration_ms") for l in launches if isinstance(l.timing.get("duration_ms"), int)] or None,
+        "caller_observed_duration_ms": [launch.timing.get("duration_ms") for launch in launches if isinstance(launch.timing.get("duration_ms"), int)] or None,
         "estimated_repeated_suite_wall_time_ms": estimated_wall,
         "verification_requests": len(requests),
         "verification_process_launches": len(launches),
@@ -1859,7 +1859,7 @@ def main(argv: "list[str] | None" = None) -> int:
         },
         cloud_coverage=cloud_coverage,
         verification_requests=[r.to_dict() for r in requests],
-        verification_process_launches=[l.to_dict() for l in launches],
+        verification_process_launches=[launch.to_dict() for launch in launches],
         relationship_groups=[g.to_dict() for g in groups],
         metrics=metrics,
         manual_review_sample=sample,

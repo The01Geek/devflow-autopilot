@@ -23,16 +23,12 @@ from verification_baseline import (  # noqa: E402
     VerificationProcessLaunch,
     build_cloud_census,
     build_local_census,
-    compute_metrics,
-    compute_source_snapshot_hash,
-    generate_report,
     group_launches,
     join_confidence,
     load_cloud_mappings,
     manual_review_sample,
     main,
     read_cloud_census,
-    stratify,
 )
 from verification_baseline import (  # noqa: E402
     CONFIDENCE_AMBIGUOUS,
@@ -60,7 +56,6 @@ from verification_baseline import (  # noqa: E402
     SOURCE_MISSING,
     SOURCE_UNREADABLE,
     SOURCE_UNSUPPORTED,
-    SOURCE_UNAVAILABLE,
     START_CANCELLED_PRE,
     START_CLASSES,
     START_CONFIRMED_RESULT_MISSING,
@@ -324,7 +319,7 @@ class ExtractionTests(_TmpDirTestCase):
         self.assertEqual(starts["t-missing"], START_CONFIRMED_RESULT_MISSING)
         self.assertEqual(starts["t-noresult"], START_UNKNOWN)
         # Only t-term and t-missing are confirmed launches (the others are request metrics).
-        launch_ids = {l["tool_use_id"] for l in doc["verification_process_launches"]}
+        launch_ids = {launch["tool_use_id"] for launch in doc["verification_process_launches"]}
         self.assertEqual(launch_ids, {"t-term", "t-missing"})
 
     def test_secret_redaction_boundary(self) -> None:
