@@ -924,6 +924,7 @@ def render_inventory_table(result: InventoryResult) -> str:
 
 def _atomic_write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)
     temporary: str | None = None
     try:
         with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", delete=False) as handle:
@@ -1226,11 +1227,234 @@ def capture_prompt_manifest(payload: dict[str, Any], registry_path: Path) -> dic
 
 def _append_jsonl(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     try:
+        os.fchmod(descriptor, 0o600)
         os.write(descriptor, json.dumps(value, sort_keys=True, separators=(",", ":")).encode() + b"\n")
     finally:
         os.close(descriptor)
+
+
+def _read_start_manifest(path: Path, session_id: str) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"start manifest is unreadable or malformed: {path}") from exc
+    if not isinstance(document, dict) or document.get("schema_version") != 1:
+        raise ValueError(f"start manifest requires schema_version 1: {path}")
+    if document.get("session_id") != session_id:
+        raise ValueError(f"start manifest session_id does not match {session_id!r}")
+    return document
+
+
+def _write_session_bundle(
+    session_id: str,
+    raw: bytes,
+    occurrences: list[Occurrence],
+    repository_root: Path,
+    storage_root: Path,
+    storage_root_source: str,
+    definitions: dict[str, WorkflowDefinition],
+    start_manifest: dict[str, Any] | None,
+    *,
+    source: str,
+    claude_code_version: Any = None,
+) -> tuple[Path, str, int]:
+    """Write one analysis bundle from already-selected native transcript bytes."""
+    events = parse_events(raw)
+    resolve_boundaries(events, occurrences)
+
+    if start_manifest is not None:
+        prompt_surfaces = start_manifest.get("prompt_surfaces")
+        if not isinstance(prompt_surfaces, dict):
+            raise ValueError("start manifest is missing prompt_surfaces")
+        fingerprints = prompt_surfaces.get("fingerprints")
+        if not isinstance(fingerprints, dict):
+            raise ValueError("start manifest prompt_surfaces is missing fingerprints")
+    else:
+        prompt_surfaces, fingerprints = measure_prompt_surfaces(
+            repository_root,
+            definitions,
+            occurrences,
+        )
+    for occurrence in occurrences:
+        fingerprint = fingerprints.get(occurrence.workflow)
+        occurrence.prompt_fingerprint = fingerprint if isinstance(fingerprint, str) else None
+
+    summary = build_event_summary(events, occurrences)
+    if start_manifest is not None:
+        requested = start_manifest.get("model_effort")
+        if isinstance(requested, dict):
+            for key in (
+                "requested_model",
+                "requested_model_source",
+                "requested_effort",
+                "requested_effort_source",
+            ):
+                summary["model_effort"][key] = requested.get(key)
+    else:
+        declared_model = os.environ.get("DEVFLOW_RECORDER_MODEL")
+        declared_effort = os.environ.get("DEVFLOW_RECORDER_EFFORT")
+        if declared_model:
+            summary["model_effort"]["requested_model"] = declared_model
+            summary["model_effort"]["requested_model_source"] = "explicit_recorder_environment"
+        if declared_effort:
+            summary["model_effort"]["requested_effort"] = declared_effort
+            summary["model_effort"]["requested_effort_source"] = "explicit_recorder_environment"
+
+    if start_manifest is not None:
+        git = start_manifest.get("git")
+        git = git if isinstance(git, dict) else {}
+        branch = git.get("branch")
+        head_sha = git.get("head_sha")
+        dirty_tree = git.get("dirty_tree")
+        claude_configuration = start_manifest.get("claude_configuration")
+        if not isinstance(claude_configuration, dict):
+            claude_configuration = _claude_configuration(repository_root)
+        recorded_version = start_manifest.get("claude_code_version")
+        if not isinstance(recorded_version, dict):
+            recorded_version = {"value": None, "source": None}
+        provider = start_manifest.get("provider")
+        if not isinstance(provider, dict):
+            provider = _provider_classification()
+        manifest_warnings = start_manifest.get("warnings")
+        warnings = [
+            warning
+            for warning in manifest_warnings
+            if isinstance(warning, str)
+        ] if isinstance(manifest_warnings, list) else []
+        metadata_repository_root = start_manifest.get("repository_root")
+        if not isinstance(metadata_repository_root, str) or not metadata_repository_root:
+            metadata_repository_root = str(repository_root)
+    else:
+        branch = _run_git(repository_root, "branch", "--show-current")
+        head_sha = _run_git(repository_root, "rev-parse", "HEAD")
+        status = _run_git(repository_root, "status", "--porcelain")
+        dirty_tree = None if status is None and head_sha is None else bool(status)
+        claude_configuration = _claude_configuration(repository_root)
+        recorded_version = {
+            "value": claude_code_version or os.environ.get("CLAUDE_CODE_VERSION"),
+            "source": (
+                "stop_payload"
+                if claude_code_version
+                else ("environment" if os.environ.get("CLAUDE_CODE_VERSION") else None)
+            ),
+        }
+        provider = _provider_classification()
+        warnings = []
+        metadata_repository_root = str(repository_root)
+        if source == "explicit_import":
+            warnings.append(
+                "start manifest unavailable; prompt/config/git metadata measured at import time"
+            )
+    warnings.append("file-derived Claude settings may be overridden by CLI or managed settings")
+
+    captured_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
+        "+00:00", "Z"
+    )
+    timed = [event.timestamp_ms for event in events if event.timestamp_ms is not None]
+    metadata = {
+        "schema_version": 2,
+        "session_id": session_id,
+        "captured_at": captured_at,
+        "repository_root": metadata_repository_root,
+        "storage_root": str(storage_root),
+        "storage_root_source": storage_root_source,
+        "branch": branch,
+        "head_sha": head_sha,
+        "dirty_tree": dirty_tree,
+        "transcript_bytes": len(raw),
+        "event_count": len(events),
+        "occurrence_count": len(occurrences),
+        "session_started_at": _utc_timestamp(min(timed)) if timed else None,
+        "session_finished_at": _utc_timestamp(max(timed)) if timed else None,
+        "claude_configuration": claude_configuration,
+        "claude_code_version": recorded_version,
+        "provider": provider,
+        "warnings": warnings,
+    }
+    bundle = storage_root / ".devflow/tmp/workflow-runs" / session_id
+    bundle.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(bundle, 0o700)
+    _atomic_write(bundle / "transcript.jsonl", raw)
+    _atomic_write(bundle / "metadata.json", _json_bytes(metadata))
+    _atomic_write(bundle / "occurrences.json", _json_bytes([asdict(item) for item in occurrences]))
+    _atomic_write(bundle / "prompt-surfaces.json", _json_bytes(prompt_surfaces))
+    _atomic_write(bundle / "event-summary.json", _json_bytes(summary))
+    return bundle, captured_at, len(events)
+
+
+def _append_bundle_attempt(
+    bundle: Path,
+    captured_at: str,
+    raw: bytes,
+    event_count: int,
+    source: str,
+) -> None:
+    _append_jsonl(
+        bundle / "stop-attempts.jsonl",
+        {
+            "captured_at": captured_at,
+            "transcript_bytes": len(raw),
+            "transcript_sha256": hashlib.sha256(raw).hexdigest(),
+            "event_count": event_count,
+            "result": "captured",
+            "source": source,
+        },
+    )
+
+
+def import_inventory_session(
+    session_id: str,
+    projects_root: Path,
+    repository_root: Path,
+    registry_path: Path,
+) -> Path:
+    """Explicitly import exactly one inventoried native session by ID."""
+    if not isinstance(session_id, str) or not SAFE_ID.fullmatch(session_id):
+        raise ValueError("session_id is missing or unsafe")
+    inventory = inventory_native_transcripts(projects_root, repository_root, registry_path)
+    matches = [row for row in inventory.sessions if row.session_id == session_id]
+    if len(matches) != 1:
+        raise ValueError(
+            f"expected exactly one inventoried session for {session_id!r}; found {len(matches)}"
+        )
+
+    repository_root = repository_root.expanduser().resolve()
+    storage_root, storage_root_source = _shared_storage_root(repository_root)
+    native_path = Path(matches[0].native_path)
+    try:
+        raw = native_path.read_bytes()
+    except OSError as exc:
+        raise ValueError(f"selected native transcript is unreadable: {native_path}") from exc
+    definitions = load_registry(registry_path)
+    occurrences = classify_inventory_occurrences(parse_events(raw), definitions)
+    if not occurrences:
+        raise ValueError("selected native transcript no longer classifies as an inventory session")
+    manifest_path = storage_root / ".devflow/tmp/workflow-manifests" / f"{session_id}.json"
+    start_manifest = _read_start_manifest(manifest_path, session_id)
+
+    bundle, captured_at, event_count = _write_session_bundle(
+        session_id,
+        raw,
+        occurrences,
+        repository_root,
+        storage_root,
+        storage_root_source,
+        definitions,
+        start_manifest,
+        source="explicit_import",
+    )
+    destination = bundle / "transcript.jsonl"
+    destination_bytes = destination.read_bytes()
+    source_hash = hashlib.sha256(raw).digest()
+    if destination_bytes != raw or hashlib.sha256(destination_bytes).digest() != source_hash:
+        raise OSError(f"imported transcript verification failed: {destination}")
+    _append_bundle_attempt(bundle, captured_at, raw, event_count, "explicit_import")
+    return bundle
 
 
 def capture_stop_payload(payload: dict[str, Any], registry_path: Path) -> dict[str, Any]:
@@ -1259,62 +1483,19 @@ def capture_stop_payload(payload: dict[str, Any], registry_path: Path) -> dict[s
     occurrences = detect_occurrences(events, definitions)
     if not occurrences:
         return {"captured": False, "session_id": session_id}
-    resolve_boundaries(events, occurrences)
-
-    branch = _run_git(root, "branch", "--show-current")
-    head_sha = _run_git(root, "rev-parse", "HEAD")
-    status = _run_git(root, "status", "--porcelain")
-    dirty_tree = None if status is None and head_sha is None else bool(status)
-    manifest, fingerprints = measure_prompt_surfaces(root, definitions, occurrences)
-    for occurrence in occurrences:
-        occurrence.prompt_fingerprint = fingerprints.get(occurrence.workflow)
-    summary = build_event_summary(events, occurrences)
-    declared_model = os.environ.get("DEVFLOW_RECORDER_MODEL")
-    declared_effort = os.environ.get("DEVFLOW_RECORDER_EFFORT")
-    if declared_model:
-        summary["model_effort"]["requested_model"] = declared_model
-        summary["model_effort"]["requested_model_source"] = "explicit_recorder_environment"
-    if declared_effort:
-        summary["model_effort"]["requested_effort"] = declared_effort
-        summary["model_effort"]["requested_effort_source"] = "explicit_recorder_environment"
-
-    captured_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    timed = [event.timestamp_ms for event in events if event.timestamp_ms is not None]
-    metadata = {
-        "schema_version": 2,
-        "session_id": session_id,
-        "captured_at": captured_at,
-        "repository_root": str(root),
-        "storage_root": str(storage_root),
-        "storage_root_source": storage_root_source,
-        "branch": branch,
-        "head_sha": head_sha,
-        "dirty_tree": dirty_tree,
-        "transcript_bytes": len(raw),
-        "event_count": len(events),
-        "occurrence_count": len(occurrences),
-        "session_started_at": _utc_timestamp(min(timed)) if timed else None,
-        "session_finished_at": _utc_timestamp(max(timed)) if timed else None,
-        "claude_configuration": _claude_configuration(root),
-        "claude_code_version": {
-            "value": payload.get("claude_code_version") or os.environ.get("CLAUDE_CODE_VERSION"),
-            "source": "stop_payload" if payload.get("claude_code_version") else ("environment" if os.environ.get("CLAUDE_CODE_VERSION") else None),
-        },
-        "provider": _provider_classification(),
-        "warnings": [
-            "file-derived Claude settings may be overridden by CLI or managed settings"
-        ],
-    }
-    bundle = storage_root / ".devflow/tmp/workflow-runs" / session_id
-    _atomic_write(bundle / "transcript.jsonl", raw)
-    _atomic_write(bundle / "metadata.json", _json_bytes(metadata))
-    _atomic_write(bundle / "occurrences.json", _json_bytes([asdict(item) for item in occurrences]))
-    _atomic_write(bundle / "prompt-surfaces.json", _json_bytes(manifest))
-    _atomic_write(bundle / "event-summary.json", _json_bytes(summary))
-    _append_jsonl(
-        bundle / "stop-attempts.jsonl",
-        {"captured_at": captured_at, "transcript_bytes": len(raw), "event_count": len(events), "result": "captured"},
+    bundle, captured_at, event_count = _write_session_bundle(
+        session_id,
+        raw,
+        occurrences,
+        root,
+        storage_root,
+        storage_root_source,
+        definitions,
+        None,
+        source="stop_observer",
+        claude_code_version=payload.get("claude_code_version"),
     )
+    _append_bundle_attempt(bundle, captured_at, raw, event_count, "stop_observer")
     return {"captured": True, "session_id": session_id, "bundle": str(bundle)}
 
 
