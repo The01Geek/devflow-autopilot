@@ -3280,7 +3280,8 @@ assert_pin_unique "#443: audit summary renders the word degraded whenever the de
 #    no runtime code path in CI. The four behavioral-fix pins below use assert_pin_red_under
 #    with a sed -E mutation that RE-INTRODUCES the named defect (each mutation excises or
 #    inverts the operative clause so its removal/inversion alone re-opens the guarded
-#    regression — pins 1/2/4 excise a clause, pin 3 inverts "is not on" → "is on"); the rest are
+#    regression — pins 1/2 excise a clause, pins 3/4 invert/negate it ("is not on" → "is on";
+#    "exactly these 2 offer triggers" → "no offer triggers")); the rest are
 #    surface-presence pins (assert_pin_unique, or pin_count>=1 for a marker that recurs).
 # (1) Pre-dispatch canonical write — removing it re-opens the condensation-drift channel (the
 #     auditor audits a hand-condensed copy instead of the exact file the implementer reads).
@@ -3336,6 +3337,19 @@ assert_pin_unique "#522: automatic budget stays one audit plus at most one autom
 CI522_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_pin_unique "#522: overview §11 item 5 describes the file-first sole-draft-source contract" \
   'reads that file as the sole draft source' "$CI522_OVERVIEW"
+# File-arm carriage / identity check (closes the write-to-read race — the one uncovered
+# operative anti-corruption contract): the auditor must quote the title + first/last lines
+# verbatim so the orchestrator can string-compare and reject foreign bytes.
+assert_pin_unique "#522: file-arm carriage check quotes title + first/last lines for identity compare" \
+  "quote, in its return, the draft's title line and the body's first and last lines verbatim as read from the file" "$CI443_SKILL"
+# Degraded-arm carve-out: the inline arm has no subagent/file, so it must NOT emit the
+# file-arm-only third verdict value — deleting this carve-out re-opens a spurious emit.
+assert_pin_unique "#522: degraded inline arm emits no VERDICT: DRAFT-UNREADABLE" \
+  'emits **no `VERDICT: DRAFT-UNREADABLE`**' "$CI443_SKILL"
+# Embed-arm 4-file out-of-bounds list (the inverse of the file arm's 3-file list — re-adds
+# the draft path): symmetric with the file-arm template-enumeration pin above.
+assert_pin_unique "#522: embed arm out-of-bounds names exactly the 4 files (draft re-added)" \
+  'On this arm the out-of-bounds declaration names exactly these 4 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
 
 # ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
