@@ -12268,6 +12268,118 @@ assert_eq "#152: actionable-patterns carries the meta-title slug regex" "yes" \
   "$(grep -qF 'meta: (?<slug>' "$LIB/actionable-patterns.sh" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "recurring-targets.sh / recurring-targets.jq (#520)"
+# ────────────────────────────────────────────────────────────────────────────
+# Report-only "Recurring intervention targets" view: groups every accumulated
+# entry's suggested_interventions[].candidate_targets[] by exact target path and
+# emits the targets named in >= 2 DISTINCT PRs. Helper takes only the jsonl path
+# (no overrides arg), so dismissal state cannot affect it by construction.
+RT_TMP="$(mktemp -d)"
+rt_run() {  # <jsonl-content-on-stdin> → helper stdout
+  cat > "$RT_TMP/r.jsonl"
+  bash "$LIB/recurring-targets.sh" "$RT_TMP/r.jsonl"
+}
+
+# AC: a target in >= 2 PRs surfaces; a target in exactly 1 PR does not.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"fix A","candidate_targets":["lib/x.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"fix B","candidate_targets":["lib/x.sh","lib/solo.sh"]}]}
+JSONL
+)"
+assert_eq "#520: target in 2 PRs surfaces"          "true"  "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/x.sh")')"
+assert_eq "#520: target's pr_count is 2"            "2"     "$(echo "$RT_OUT" | jq -r '.[] | select(.target=="lib/x.sh") | .pr_count')"
+assert_eq "#520: target's prs list ascending"      "1,2"   "$(echo "$RT_OUT" | jq -r '.[] | select(.target=="lib/x.sh") | .prs | join(",")')"
+assert_eq "#520: single-PR target absent (1<2)"     "false" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/solo.sh")')"
+assert_eq "#520: representative_summary = earliest PR" "fix A" "$(echo "$RT_OUT" | jq -r '.[] | select(.target=="lib/x.sh") | .representative_summary')"
+
+# AC: pr_count counts DISTINCT PRs — a target named twice within one PR (across
+# two interventions) contributes 1, so a same-PR-twice target does NOT surface.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":7,"verdict":"imperfect","suggested_interventions":[{"summary":"one","candidate_targets":["lib/dup.sh"]},{"summary":"two","candidate_targets":["lib/dup.sh"]}]}
+JSONL
+)"
+assert_eq "#520: same target twice in one PR counts as 1 PR (absent)" "false" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/dup.sh")')"
+
+# AC: // []-guards — an entry missing suggested_interventions, one carrying [],
+# and an intervention missing candidate_targets each contribute nothing and never
+# throw; a genuine 2-PR target alongside them still surfaces.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect"}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"clean","suggested_interventions":[]}
+{"schema_version":2,"kind":"implementation","pr":3,"verdict":"imperfect","suggested_interventions":[{"summary":"no targets here"}]}
+{"schema_version":2,"kind":"implementation","pr":4,"verdict":"imperfect","suggested_interventions":[{"summary":"g","candidate_targets":["lib/g.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":5,"verdict":"imperfect","suggested_interventions":[{"summary":"g2","candidate_targets":["lib/g.sh"]}]}
+JSONL
+)"; RT_RC=$?
+assert_eq "#520: missing-field entries skipped without throwing (rc 0)" "0" "$RT_RC"
+assert_eq "#520: surviving 2-PR target still surfaces"                  "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/g.sh")')"
+assert_eq "#520: only the genuine recurring target is present"          "1"    "$(echo "$RT_OUT" | jq 'length')"
+
+# AC: determinism — same input twice → byte-identical output.
+RT_DET_IN='{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","suggested_interventions":[{"summary":"a","candidate_targets":["lib/a.sh","lib/b.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","suggested_interventions":[{"summary":"b","candidate_targets":["lib/a.sh","lib/b.sh"]}]}'
+printf '%s\n' "$RT_DET_IN" > "$RT_TMP/det.jsonl"
+RT_D1="$(bash "$LIB/recurring-targets.sh" "$RT_TMP/det.jsonl")"
+RT_D2="$(bash "$LIB/recurring-targets.sh" "$RT_TMP/det.jsonl")"
+assert_eq "#520: deterministic (byte-identical on repeat)" "yes" "$([ "$RT_D1" = "$RT_D2" ] && echo yes || echo no)"
+assert_eq "#520: sort is pr_count desc then target asc"    "lib/a.sh,lib/b.sh" "$(echo "$RT_D1" | jq -r '[.[].target] | join(",")')"
+
+# AC: surfaces regardless of overrides.json dismissal — the entries carry a
+# `categories` slug that this repo dismisses; the helper ignores categories
+# entirely (no overrides arg), so the target still surfaces.
+RT_OUT="$(rt_run <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":1,"verdict":"imperfect","categories":["dismissed-cat"],"suggested_interventions":[{"summary":"d","candidate_targets":["lib/dismissed.sh"]}]}
+{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","categories":["dismissed-cat"],"suggested_interventions":[{"summary":"d2","candidate_targets":["lib/dismissed.sh"]}]}
+JSONL
+)"
+assert_eq "#520: dismissed-category target still surfaces (report-only)" "true" "$(echo "$RT_OUT" | jq 'any(.[]; .target=="lib/dismissed.sh")')"
+
+# AC: empty / absent retrospectives.jsonl → [] with no error (fresh / consumer repo).
+RT_EMPTY="$(bash "$LIB/recurring-targets.sh" "$RT_TMP/does-not-exist-$$.jsonl")"; RT_EMPTY_RC=$?
+assert_eq "#520: absent store → [] (rc 0)"  "0"  "$RT_EMPTY_RC"
+assert_eq "#520: absent store → empty array" "0" "$(echo "$RT_EMPTY" | jq 'length')"
+: > "$RT_TMP/empty.jsonl"
+assert_eq "#520: empty store → empty array" "0" "$(bash "$LIB/recurring-targets.sh" "$RT_TMP/empty.jsonl" | jq 'length')"
+
+# AC: real-retrospectives.jsonl-SHAPED fixture (full entry shape, real multi-PR
+# candidate_targets — NOT hand-authored identical stubs) asserts the report
+# section renders NON-EMPTY — the anti-"green-suite/empty-production" guard.
+cat > "$RT_TMP/real.jsonl" <<'JSONL'
+{"schema_version":2,"kind":"implementation","pr":62,"issue":61,"merged_at":"2026-05-27T13:35:11Z","branch":"issue-61-x","head_sha":"85a6394","merge_commit_sha":"0469798","verdict":"imperfect","categories":["incomplete-edit","lenient-verdict"],"descriptors":["holes the standalone cloud review flagged Critical"],"signals":{"review_comments_count":0,"post_bot_commits":12,"workpad_final_status":"Complete"},"summary":"PR #62 hardened the shadow pass.","suggested_interventions":[{"summary":"Strengthen the review-and-fix loop-exit contract so a run that exits at the iteration cap with unresolved shadow findings does not present as clean.","candidate_targets":["skills/review-and-fix/SKILL.md","docs/shadow-review.md"],"change_type":"skill-update","confidence":"medium"}]}
+{"schema_version":2,"kind":"implementation","pr":91,"issue":90,"merged_at":"2026-06-02T09:10:00Z","branch":"issue-90-y","head_sha":"aa11bb2","merge_commit_sha":"cc33dd4","verdict":"imperfect","categories":["convention-violation"],"descriptors":["skill edit shipped without the writing-skills gate"],"signals":{"review_comments_count":2,"post_bot_commits":4,"workpad_final_status":"Complete"},"summary":"PR #91 tightened the fix loop.","suggested_interventions":[{"summary":"Add a tripwire so the fix loop cannot approve while shadow findings remain unresolved.","candidate_targets":["skills/review-and-fix/SKILL.md"],"change_type":"skill-update","confidence":"high"}]}
+JSONL
+( . "$LIB/render-report.sh"
+  RT_REAL="$(bash "$LIB/recurring-targets.sh" "$RT_TMP/real.jsonl")"
+  RT_SUM="$(jq -nc --argjson rt "$RT_REAL" '{prs_scanned:2,clean_count:0,analyzed_count:2,recurring_targets:$rt,intervention_issues:[]}')"
+  RT_REPORT="$(devflow_render_report "$RT_SUM")"
+  assert_eq "#520: real-shaped fixture renders the section"        "true" "$(echo "$RT_REPORT" | grep -q '## Recurring intervention targets' && echo true || echo false)"
+  assert_eq "#520: real-shaped fixture surfaces the recurring target" "true" "$(echo "$RT_REPORT" | grep -qF 'skills/review-and-fix/SKILL.md' && echo true || echo false)"  # raw-guard-ok: greps the rendered report output for a recurring target path that happens to contain 'SKILL.md'; not a SKILL-file guard
+  # omit-when-empty: no recurring target → no section header.
+  RT_SUM_EMPTY='{"prs_scanned":1,"clean_count":1,"analyzed_count":0,"recurring_targets":[],"intervention_issues":[]}'
+  assert_eq "#520: section omitted when no recurring target" "false" "$(devflow_render_report "$RT_SUM_EMPTY" | grep -q '## Recurring intervention targets' && echo true || echo false)"
+)
+rm -rf "$RT_TMP"
+
+# Behavioral-fix pins (#520) — each mutates the operative jq to reintroduce the
+# guarded regression, proving the pin (and the behavioral asserts above) catch it.
+RT_JQ="$LIB/recurring-targets.jq"
+# The >= 2 distinct-PR threshold: dropping it to >= 1 would surface single-PR targets.
+assert_pin_red_under "#520: >= 2 distinct-PR threshold pinned" \
+  'map(select(.pr_count >= 2))' 's/\.pr_count >= 2/.pr_count >= 1/' "$RT_JQ"
+# Distinct-PR counting via `unique`: removing it would count non-distinct PRs.
+assert_pin_red_under "#520: distinct-PR (unique) pinned" \
+  'prs: ([ $g[].pr ] | unique)' 's/ \| unique\)/)/' "$RT_JQ"
+# The // [] guard on suggested_interventions: dropping it would throw on a missing field.
+assert_pin_red_under "#520: suggested_interventions // [] guard pinned" \
+  '(.suggested_interventions // [])[]' 's#\.suggested_interventions // \[\]#.suggested_interventions#' "$RT_JQ"
+# The // [] guard on candidate_targets: dropping it would throw on a missing field.
+assert_pin_red_under "#520: candidate_targets // [] guard pinned" \
+  '(.candidate_targets // [])[]' 's#\.candidate_targets // \[\]#.candidate_targets#' "$RT_JQ"
+# Deterministic tiebreak: dropping the .target secondary key makes sort order unstable.
+assert_pin_red_under "#520: deterministic sort tiebreak pinned" \
+  'sort_by([ -.pr_count, .target ])' 's/sort_by\(\[ -\.pr_count, \.target \]\)/sort_by([ -.pr_count ])/' "$RT_JQ"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "clean-entry.jq / actionable-patterns.sh"
 # ────────────────────────────────────────────────────────────────────────────
 CTX_CLEAN='{"pr":42,"kind":"implementation","issue_number":40,"merged_at":"2026-05-01T00:00:00Z","branch":"claude/issue-40-x","head_sha":"abc","merge_commit_sha":"def","signals":{"review_comments_count":0,"post_bot_commits":0,"ci_failures_during_pr":0,"workpad_final_status":"Complete","review_reject_outstanding":false}}'
