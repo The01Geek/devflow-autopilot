@@ -1,0 +1,736 @@
+#!/usr/bin/env python3
+"""Pure parsing and capture primitives for local DevFlow workflow sessions."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+from typing import Any
+
+
+SAFE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+COMMAND_MARKUP = re.compile(
+    r"<command-message>\s*(?P<command>/?[A-Za-z0-9:_-]+)\s*</command-message>"
+    r"[\s\S]*?<command-args>\s*(?P<args>[\s\S]*?)\s*</command-args>",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class SurfaceDefinition:
+    glob: str
+    load_class: str
+    required: bool
+
+
+@dataclass(frozen=True)
+class WorkflowDefinition:
+    workflow: str
+    user_commands: tuple[str, ...]
+    skill_aliases: tuple[str, ...]
+    subject_kind: str
+    argument_pattern: re.Pattern[str] | None
+    allowed_parents: tuple[str, ...]
+    surfaces: tuple[SurfaceDefinition, ...]
+
+
+@dataclass(frozen=True)
+class Event:
+    index: int
+    raw: dict[str, Any]
+    timestamp: str | None
+    timestamp_ms: int | None
+    role: str | None
+    text: str
+    tool_uses: tuple[dict[str, Any], ...]
+
+
+@dataclass
+class Occurrence:
+    occurrence_id: str
+    workflow: str
+    mode: str
+    parent_occurrence_id: str | None
+    subject: dict[str, Any] | None
+    invocation_source: str
+    start_event: int
+    started_at: str | None
+    start_timestamp_source: str | None
+    end_event: int | None = None
+    finished_at: str | None = None
+    finish_timestamp_source: str | None = None
+    duration_ms: int | None = None
+    boundary_confidence: str = "unknown"
+    preceding_context_events: int = 0
+    observed_models: list[str] = field(default_factory=list)
+    observed_effort: list[str] = field(default_factory=list)
+    prompt_fingerprint: str | None = None
+
+
+def load_registry(path: Path) -> dict[str, WorkflowDefinition]:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"workflow registry is unreadable or malformed: {path}") from exc
+    if not isinstance(document, dict) or document.get("schema_version") != 1:
+        raise ValueError("workflow registry requires schema_version 1")
+    raw_workflows = document.get("workflows")
+    if not isinstance(raw_workflows, dict) or not raw_workflows:
+        raise ValueError("workflow registry requires a non-empty workflows object")
+
+    definitions: dict[str, WorkflowDefinition] = {}
+    aliases: set[str] = set()
+    commands: set[str] = set()
+    for workflow, raw in raw_workflows.items():
+        if not isinstance(workflow, str) or not SAFE_ID.fullmatch(workflow) or not isinstance(raw, dict):
+            raise ValueError("workflow ids must be safe strings with object definitions")
+        user_commands = tuple(raw.get("user_commands", ()))
+        skill_aliases = tuple(raw.get("skill_aliases", ()))
+        if not user_commands or not skill_aliases or any(not isinstance(item, str) for item in user_commands + skill_aliases):
+            raise ValueError(f"workflow {workflow!r} requires string command and Skill aliases")
+        if commands.intersection(user_commands) or aliases.intersection(skill_aliases):
+            raise ValueError(f"workflow {workflow!r} duplicates a command or Skill alias")
+        commands.update(user_commands)
+        aliases.update(skill_aliases)
+        pattern_value = raw.get("argument_pattern")
+        pattern = None
+        if pattern_value is not None:
+            if not isinstance(pattern_value, str):
+                raise ValueError(f"workflow {workflow!r} argument_pattern must be a string or null")
+            try:
+                pattern = re.compile(pattern_value)
+            except re.error as exc:
+                raise ValueError(f"workflow {workflow!r} has an invalid argument_pattern") from exc
+            if "number" not in pattern.groupindex:
+                raise ValueError(f"workflow {workflow!r} numeric pattern requires a named number group")
+        raw_surfaces = raw.get("surfaces", [])
+        if not isinstance(raw_surfaces, list):
+            raise ValueError(f"workflow {workflow!r} surfaces must be an array")
+        surfaces = tuple(
+            SurfaceDefinition(
+                glob=item["glob"],
+                load_class=item["load_class"],
+                required=bool(item.get("required", False)),
+            )
+            for item in raw_surfaces
+            if isinstance(item, dict)
+            and isinstance(item.get("glob"), str)
+            and isinstance(item.get("load_class"), str)
+        )
+        if len(surfaces) != len(raw_surfaces):
+            raise ValueError(f"workflow {workflow!r} has an invalid surface definition")
+        definitions[workflow] = WorkflowDefinition(
+            workflow=workflow,
+            user_commands=user_commands,
+            skill_aliases=skill_aliases,
+            subject_kind=str(raw.get("subject_kind", "unknown")),
+            argument_pattern=pattern,
+            allowed_parents=tuple(raw.get("allowed_parents", ())),
+            surfaces=surfaces,
+        )
+    return definitions
+
+
+def _timestamp_ms(value: Any) -> int | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return int(parsed.timestamp() * 1000)
+
+
+def _utc_timestamp(timestamp_ms: int | None) -> str | None:
+    if timestamp_ms is None:
+        return None
+    value = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+    return value.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _content(record: dict[str, Any]) -> tuple[str, str | None, tuple[dict[str, Any], ...]]:
+    message = record.get("message")
+    role = message.get("role") if isinstance(message, dict) and isinstance(message.get("role"), str) else None
+    content = message.get("content") if isinstance(message, dict) else record.get("content")
+    if isinstance(content, str):
+        return content, role, ()
+    texts: list[str] = []
+    tool_uses: list[dict[str, Any]] = []
+    if isinstance(content, list):
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if isinstance(item.get("text"), str):
+                texts.append(item["text"])
+            if item.get("type") == "tool_use":
+                tool_uses.append(item)
+    return "\n".join(texts), role, tuple(tool_uses)
+
+
+def parse_events(raw: bytes) -> list[Event]:
+    events: list[Event] = []
+    for line_number, line in enumerate(raw.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"transcript JSONL is malformed at line {line_number}") from exc
+        if not isinstance(record, dict):
+            raise ValueError(f"transcript JSONL record {line_number} is not an object")
+        text, role, tool_uses = _content(record)
+        timestamp = record.get("timestamp") if isinstance(record.get("timestamp"), str) else None
+        events.append(
+            Event(
+                index=len(events),
+                raw=record,
+                timestamp=timestamp,
+                timestamp_ms=_timestamp_ms(timestamp),
+                role=role,
+                text=text,
+                tool_uses=tool_uses,
+            )
+        )
+    if not events:
+        raise ValueError("transcript JSONL is empty")
+    return events
+
+
+def _user_invocation(text: str, definitions: dict[str, WorkflowDefinition]) -> tuple[WorkflowDefinition, str] | None:
+    markup = COMMAND_MARKUP.search(text)
+    if markup:
+        command = markup.group("command")
+        command = command if command.startswith("/") else f"/{command}"
+        args = markup.group("args").strip()
+        for definition in definitions.values():
+            if command in definition.user_commands:
+                return definition, args
+    for definition in definitions.values():
+        for command in definition.user_commands:
+            match = re.fullmatch(rf"{re.escape(command)}(?:\s+(?P<args>[\s\S]*))?", text.strip())
+            if match:
+                return definition, (match.group("args") or "").strip()
+    return None
+
+
+def _subject(definition: WorkflowDefinition, args: str) -> dict[str, Any] | None:
+    if definition.subject_kind == "topic":
+        return {"kind": "topic", "value": args} if args else {"kind": "topic", "value": None}
+    if definition.argument_pattern is None:
+        return None
+    match = definition.argument_pattern.search(args)
+    if not match:
+        return {"kind": definition.subject_kind, "number": None}
+    return {"kind": definition.subject_kind, "number": int(match.group("number"))}
+
+
+def _skill_definition(tool_use: dict[str, Any], definitions: dict[str, WorkflowDefinition]) -> tuple[WorkflowDefinition, str] | None:
+    if tool_use.get("name") != "Skill":
+        return None
+    inputs = tool_use.get("input")
+    if not isinstance(inputs, dict) or not isinstance(inputs.get("skill"), str):
+        return None
+    skill = inputs["skill"]
+    args = inputs.get("args") if isinstance(inputs.get("args"), str) else ""
+    for definition in definitions.values():
+        if skill in definition.skill_aliases:
+            return definition, args
+    return None
+
+
+def detect_occurrences(events: list[Event], definitions: dict[str, WorkflowDefinition]) -> list[Occurrence]:
+    occurrences: list[Occurrence] = []
+    counters: dict[str, int] = {}
+    active_root_start: int | None = None
+
+    def add(definition: WorkflowDefinition, event: Event, mode: str, source: str, args: str) -> None:
+        counters[definition.workflow] = counters.get(definition.workflow, 0) + 1
+        parent = None
+        if mode == "nested":
+            for candidate in reversed(occurrences):
+                if (
+                    active_root_start is not None
+                    and candidate.start_event >= active_root_start
+                    and candidate.workflow in definition.allowed_parents
+                ):
+                    parent = candidate.occurrence_id
+                    break
+        occurrences.append(
+            Occurrence(
+                occurrence_id=f"{definition.workflow}-{counters[definition.workflow]}",
+                workflow=definition.workflow,
+                mode=mode,
+                parent_occurrence_id=parent,
+                subject=_subject(definition, args),
+                invocation_source=source,
+                start_event=event.index,
+                started_at=event.timestamp,
+                start_timestamp_source="transcript_event" if event.timestamp else None,
+                preceding_context_events=event.index,
+            )
+        )
+
+    for event in events:
+        authoritative_role = event.role or (event.raw.get("type") if isinstance(event.raw.get("type"), str) else None)
+        if authoritative_role == "user":
+            invocation = _user_invocation(event.text, definitions)
+            if invocation:
+                add(invocation[0], event, "top-level", "user_command", invocation[1])
+                active_root_start = event.index
+        if authoritative_role == "assistant":
+            for tool_use in event.tool_uses:
+                invocation = _skill_definition(tool_use, definitions)
+                if invocation:
+                    add(invocation[0], event, "nested", "assistant_skill_tool", invocation[1])
+    return occurrences
+
+
+def _completion_workflow(event: Event) -> str | None:
+    marker = event.raw.get("workflow_completion")
+    if isinstance(marker, str):
+        return marker
+    if isinstance(marker, dict) and isinstance(marker.get("workflow"), str):
+        return marker["workflow"]
+    return None
+
+
+def resolve_boundaries(events: list[Event], occurrences: list[Occurrence]) -> None:
+    """Normalize invocation times and attach only evidence-backed end boundaries."""
+    by_id = {item.occurrence_id: item for item in occurrences}
+    for occurrence in occurrences:
+        start = events[occurrence.start_event]
+        occurrence.started_at = _utc_timestamp(start.timestamp_ms)
+        occurrence.start_timestamp_source = "transcript_event" if start.timestamp_ms is not None else None
+
+        end: Event | None = None
+        source: str | None = None
+        confidence = "unknown"
+        for event in events[occurrence.start_event + 1 :]:
+            if _completion_workflow(event) == occurrence.workflow:
+                end = event
+                source = "explicit_completion_marker"
+                confidence = "exact"
+                break
+            if occurrence.mode == "nested" and occurrence.parent_occurrence_id:
+                parent = by_id.get(occurrence.parent_occurrence_id)
+                continuation = event.raw.get("parent_continuation")
+                if parent and continuation == parent.workflow:
+                    end = event
+                    source = "parent_continuation"
+                    confidence = "approximate"
+                    break
+
+        if end is None:
+            continue
+        occurrence.end_event = end.index
+        occurrence.finished_at = _utc_timestamp(end.timestamp_ms)
+        occurrence.finish_timestamp_source = source
+        occurrence.boundary_confidence = confidence
+        if start.timestamp_ms is not None and end.timestamp_ms is not None and end.timestamp_ms >= start.timestamp_ms:
+            occurrence.duration_ms = end.timestamp_ms - start.timestamp_ms
+
+
+def _message_content(record: dict[str, Any]) -> list[dict[str, Any]]:
+    message = record.get("message")
+    content = message.get("content") if isinstance(message, dict) else record.get("content")
+    return [item for item in content if isinstance(item, dict)] if isinstance(content, list) else []
+
+
+def _record_value(record: dict[str, Any], key: str) -> Any:
+    if key in record:
+        return record[key]
+    message = record.get("message")
+    return message.get(key) if isinstance(message, dict) else None
+
+
+def build_event_summary(events: list[Event], occurrences: list[Occurrence]) -> dict[str, Any]:
+    """Build a compact privacy-safe index of mechanically observable facts."""
+    event_counts: dict[str, int] = {}
+    tool_by_name: dict[str, int] = {}
+    tool_starts: dict[str, tuple[int, int | None, str]] = {}
+    tool_shapes: dict[str, list[int]] = {}
+    failed = denials = paired = 0
+    dispatched = completed = waits = compactions = 0
+    models: set[str] = set()
+    efforts: set[str] = set()
+    model_effort_events = 0
+    usage_blocks: list[dict[str, int]] = []
+    saw_usage = False
+    evidence: list[dict[str, Any]] = []
+    gaps: list[dict[str, int]] = []
+    previous_timed: Event | None = None
+    subagent_ids: set[str] = set()
+
+    for event in events:
+        event_type = event.raw.get("type") if isinstance(event.raw.get("type"), str) else "unknown"
+        event_counts[f"type:{event_type}"] = event_counts.get(f"type:{event_type}", 0) + 1
+        if event.role:
+            event_counts[f"role:{event.role}"] = event_counts.get(f"role:{event.role}", 0) + 1
+
+        if event.timestamp_ms is not None and previous_timed is not None:
+            delta = event.timestamp_ms - previous_timed.timestamp_ms  # type: ignore[operator]
+            if delta < 0:
+                evidence.append({"kind": "decreasing_timestamp", "event_indexes": [previous_timed.index, event.index]})
+            elif delta > 0:
+                gaps.append({"duration_ms": delta, "start_event": previous_timed.index, "end_event": event.index})
+        if event.timestamp_ms is not None:
+            previous_timed = event
+
+        model = _record_value(event.raw, "model")
+        effort = _record_value(event.raw, "effort")
+        if isinstance(model, str) and model:
+            models.add(model)
+        if isinstance(effort, str) and effort:
+            efforts.add(effort)
+        if isinstance(model, str) or isinstance(effort, str):
+            model_effort_events += 1
+
+        usage = _record_value(event.raw, "usage")
+        if isinstance(usage, dict):
+            saw_usage = True
+            numeric = {key: value for key, value in usage.items() if isinstance(value, int) and not isinstance(value, bool)}
+            if any(value > 0 for value in numeric.values()):
+                usage_blocks.append(numeric)
+
+        subtype = event.raw.get("subtype")
+        if event_type in {"compact_boundary", "summary"} or subtype in {"compact_boundary", "context_summary"}:
+            compactions += 1
+
+        for tool in event.tool_uses:
+            name = tool.get("name") if isinstance(tool.get("name"), str) else "unknown"
+            tool_by_name[name] = tool_by_name.get(name, 0) + 1
+            tool_id = tool.get("id")
+            if isinstance(tool_id, str):
+                tool_starts[tool_id] = (event.index, event.timestamp_ms, name)
+            inputs = tool.get("input") if isinstance(tool.get("input"), dict) else {}
+            shape = json.dumps({"name": name, "input": inputs}, sort_keys=True, separators=(",", ":"))
+            tool_shapes.setdefault(shape, []).append(event.index)
+            lowered = name.lower()
+            if lowered in {"agent", "task"} or "spawn_agent" in lowered:
+                dispatched += 1
+                if isinstance(tool_id, str):
+                    subagent_ids.add(tool_id)
+            if "wait" in lowered:
+                waits += 1
+
+        for item in _message_content(event.raw):
+            if item.get("type") != "tool_result":
+                continue
+            tool_id = item.get("tool_use_id")
+            start = tool_starts.get(tool_id) if isinstance(tool_id, str) else None
+            if start and start[1] is not None and event.timestamp_ms is not None and event.timestamp_ms >= start[1]:
+                paired += 1
+            is_error = item.get("is_error") is True
+            if is_error:
+                failed += 1
+                content = item.get("content")
+                error_text = content if isinstance(content, str) else ""
+                if "permission denied" in error_text.lower() or "not allowed" in error_text.lower():
+                    denials += 1
+                    evidence.append({"kind": "permission_denial", "event_indexes": [event.index]})
+            if isinstance(tool_id, str) and tool_id in subagent_ids:
+                completed += 1
+
+    retry_groups = [indexes for indexes in tool_shapes.values() if len(indexes) > 1]
+    equivalent_retries = sum(len(indexes) - 1 for indexes in retry_groups)
+    for indexes in retry_groups:
+        evidence.append({"kind": "equivalent_tool_retry", "event_indexes": indexes})
+
+    figures: dict[str, int] | None = None
+    usage_shape = "unavailable"
+    if usage_blocks:
+        figures = {}
+        for block in usage_blocks:
+            for key, value in block.items():
+                figures[key] = figures.get(key, 0) + value
+        usage_shape = "real"
+    elif saw_usage:
+        usage_shape = "placeholder"
+
+    sorted_gaps = sorted(gaps, key=lambda item: item["duration_ms"], reverse=True)
+    workflow_invocations: dict[str, dict[str, int]] = {}
+    for occurrence in occurrences:
+        bucket = workflow_invocations.setdefault(occurrence.workflow, {"top-level": 0, "nested": 0})
+        bucket[occurrence.mode] = bucket.get(occurrence.mode, 0) + 1
+
+    return {
+        "schema_version": 1,
+        "timestamp_coverage": {"events": len(events), "with_timestamp": sum(item.timestamp_ms is not None for item in events)},
+        "event_counts": dict(sorted(event_counts.items())),
+        "tool_calls": {
+            "by_name": dict(sorted(tool_by_name.items())),
+            "failed": failed,
+            "permission_denials": denials,
+            "equivalent_retries": equivalent_retries,
+            "paired_duration_count": paired,
+        },
+        "subagents": {"dispatched": dispatched, "completed": completed, "waits": waits},
+        "compactions": {"count": compactions},
+        "gaps": {"longest_ms": sorted_gaps[0]["duration_ms"] if sorted_gaps else None, "top": sorted_gaps[:5]},
+        "usage": {"shape": usage_shape, "figures": figures},
+        "model_effort": {
+            "requested_model": None,
+            "requested_model_source": None,
+            "requested_effort": None,
+            "requested_effort_source": None,
+            "observed_models": sorted(models),
+            "observed_effort": sorted(efforts),
+            "coverage": model_effort_events,
+        },
+        "workflow_invocations": workflow_invocations,
+        "evidence": evidence,
+    }
+
+
+def _run_git(root: Path, *args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip() or None
+
+
+def _atomic_write(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", delete=False) as handle:
+            temporary = handle.name
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+
+
+def _json_bytes(value: Any) -> bytes:
+    return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
+
+
+def measure_prompt_surfaces(
+    root: Path,
+    definitions: dict[str, WorkflowDefinition],
+    occurrences: list[Occurrence],
+) -> tuple[dict[str, Any], dict[str, str | None]]:
+    active = {item.workflow for item in occurrences}
+    surfaces: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    per_workflow: dict[str, list[dict[str, Any]]] = {workflow: [] for workflow in active}
+    for workflow in sorted(active):
+        for definition in definitions[workflow].surfaces:
+            matches = sorted(path for path in root.glob(definition.glob) if path.is_file())
+            if not matches:
+                missing.append(
+                    {
+                        "workflow": workflow,
+                        "glob": definition.glob,
+                        "load_class": definition.load_class,
+                        "required": definition.required,
+                    }
+                )
+            for path in matches:
+                data = path.read_bytes()
+                relative = path.relative_to(root).as_posix()
+                record = {
+                    "path": relative,
+                    "workflows": [workflow],
+                    "load_class": definition.load_class,
+                    "required": definition.required,
+                    "bytes": len(data),
+                    "lines": len(data.splitlines()),
+                    "words": len(re.findall(r"\S+", data.decode("utf-8", errors="replace"))),
+                    "approx_tokens": math.ceil(len(data) / 4),
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                }
+                surfaces.append(record)
+                per_workflow[workflow].append(record)
+
+    fingerprints: dict[str, str | None] = {}
+    for workflow, records in per_workflow.items():
+        if not records:
+            fingerprints[workflow] = None
+            continue
+        material = "".join(
+            f"{item['path']}\0{item['sha256']}\0{item['load_class']}\n"
+            for item in sorted(records, key=lambda value: (value["path"], value["load_class"]))
+        ).encode()
+        fingerprints[workflow] = hashlib.sha256(material).hexdigest()
+    totals: dict[str, dict[str, int]] = {}
+    for surface in surfaces:
+        bucket = totals.setdefault(surface["load_class"], {"bytes": 0, "lines": 0, "words": 0, "approx_tokens": 0})
+        for key in bucket:
+            bucket[key] += surface[key]
+    return (
+        {
+            "schema_version": 1,
+            "token_estimate": "ceil(bytes / 4); heuristic, not API-reported",
+            "surfaces": surfaces,
+            "totals_by_load_class": totals,
+            "missing_surfaces": missing,
+            "fingerprints": fingerprints,
+        },
+        fingerprints,
+    )
+
+
+CONFIG_KEYS = (
+    "outputStyle",
+    "verbose",
+    "viewMode",
+    "alwaysThinkingEnabled",
+    "showThinkingSummaries",
+)
+
+
+def _claude_configuration(root: Path) -> dict[str, Any]:
+    candidates = [
+        (Path.home() / ".claude/settings.json", "user_settings"),
+        (root / ".claude/settings.json", "project_settings"),
+        (root / ".claude/settings.local.json", "project_local_settings"),
+    ]
+    resolved: dict[str, dict[str, Any]] = {}
+    for path, source in candidates:
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(document, dict):
+            continue
+        for key in CONFIG_KEYS:
+            value = document.get(key)
+            if isinstance(value, (str, bool, int, float)) or value is None and key in document:
+                resolved[key] = {"value": value, "source": source, "effective": False}
+    for key in CONFIG_KEYS:
+        resolved.setdefault(key, {"value": None, "source": None, "effective": False})
+    return resolved
+
+
+def _provider_classification() -> dict[str, Any]:
+    if os.environ.get("CLAUDE_CODE_USE_BEDROCK"):
+        return {"value": "bedrock", "source": "environment_marker"}
+    if os.environ.get("CLAUDE_CODE_USE_VERTEX"):
+        return {"value": "vertex", "source": "environment_marker"}
+    if os.environ.get("CLAUDE_CODE_USE_FOUNDRY"):
+        return {"value": "foundry", "source": "environment_marker"}
+    if os.environ.get("ANTHROPIC_BASE_URL"):
+        return {"value": "custom_base_url", "source": "environment_marker"}
+    return {"value": None, "source": None}
+
+
+def _append_jsonl(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        os.write(descriptor, json.dumps(value, sort_keys=True, separators=(",", ":")).encode() + b"\n")
+    finally:
+        os.close(descriptor)
+
+
+def capture_stop_payload(payload: dict[str, Any], registry_path: Path) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Stop payload must be a JSON object")
+    session_id = payload.get("session_id")
+    if not isinstance(session_id, str) or not SAFE_ID.fullmatch(session_id):
+        raise ValueError("session_id is missing or unsafe")
+    transcript_value = payload.get("transcript_path")
+    if not isinstance(transcript_value, str) or not transcript_value:
+        raise ValueError("transcript_path is missing")
+    transcript_path = Path(transcript_value)
+    if not transcript_path.is_file() or not os.access(transcript_path, os.R_OK):
+        raise ValueError("transcript_path is not a readable regular file")
+    cwd_value = payload.get("cwd")
+    if not isinstance(cwd_value, str) or not Path(cwd_value).is_dir():
+        raise ValueError("cwd is missing or is not an existing directory")
+    cwd = Path(cwd_value).resolve()
+    git_root = _run_git(cwd, "rev-parse", "--show-toplevel")
+    root = Path(git_root).resolve() if git_root else cwd
+
+    raw = transcript_path.read_bytes()
+    events = parse_events(raw)
+    definitions = load_registry(registry_path)
+    occurrences = detect_occurrences(events, definitions)
+    if not occurrences:
+        return {"captured": False, "session_id": session_id}
+    resolve_boundaries(events, occurrences)
+
+    branch = _run_git(root, "branch", "--show-current")
+    head_sha = _run_git(root, "rev-parse", "HEAD")
+    status = _run_git(root, "status", "--porcelain")
+    dirty_tree = None if status is None and head_sha is None else bool(status)
+    manifest, fingerprints = measure_prompt_surfaces(root, definitions, occurrences)
+    for occurrence in occurrences:
+        occurrence.prompt_fingerprint = fingerprints.get(occurrence.workflow)
+    summary = build_event_summary(events, occurrences)
+
+    captured_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    timed = [event.timestamp_ms for event in events if event.timestamp_ms is not None]
+    metadata = {
+        "schema_version": 2,
+        "session_id": session_id,
+        "captured_at": captured_at,
+        "repository_root": str(root),
+        "branch": branch,
+        "head_sha": head_sha,
+        "dirty_tree": dirty_tree,
+        "transcript_bytes": len(raw),
+        "event_count": len(events),
+        "occurrence_count": len(occurrences),
+        "session_started_at": _utc_timestamp(min(timed)) if timed else None,
+        "session_finished_at": _utc_timestamp(max(timed)) if timed else None,
+        "claude_configuration": _claude_configuration(root),
+        "claude_code_version": {
+            "value": payload.get("claude_code_version") or os.environ.get("CLAUDE_CODE_VERSION"),
+            "source": "stop_payload" if payload.get("claude_code_version") else ("environment" if os.environ.get("CLAUDE_CODE_VERSION") else None),
+        },
+        "provider": _provider_classification(),
+        "warnings": [
+            "file-derived Claude settings may be overridden by CLI or managed settings"
+        ],
+    }
+    bundle = root / ".devflow/tmp/workflow-runs" / session_id
+    _atomic_write(bundle / "transcript.jsonl", raw)
+    _atomic_write(bundle / "metadata.json", _json_bytes(metadata))
+    _atomic_write(bundle / "occurrences.json", _json_bytes([asdict(item) for item in occurrences]))
+    _atomic_write(bundle / "prompt-surfaces.json", _json_bytes(manifest))
+    _atomic_write(bundle / "event-summary.json", _json_bytes(summary))
+    _append_jsonl(
+        bundle / "stop-attempts.jsonl",
+        {"captured_at": captured_at, "transcript_bytes": len(raw), "event_count": len(events), "result": "captured"},
+    )
+    return {"captured": True, "session_id": session_id, "bundle": str(bundle)}
+
+
+def fail_open_main(registry_path: Path, stream: Any = sys.stdin) -> int:
+    try:
+        payload = json.load(stream)
+        capture_stop_payload(payload, registry_path)
+    except Exception as exc:  # Stop observers must never block the session they observe.
+        print(
+            f"devflow: implement-flight-recorder: workflow-flight-recorder: {str(exc) or exc.__class__.__name__}",
+            file=sys.stderr,
+        )
+    return 0

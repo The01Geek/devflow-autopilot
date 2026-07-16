@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "workflows": {
+    "implement": {
+      "user_commands": ["/devflow:implement"],
+      "skill_aliases": ["implement", "devflow:implement"],
+      "subject_kind": "issue",
+      "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
+      "allowed_parents": [],
+      "surfaces": [
+        {"glob": "skills/implement/SKILL.md", "load_class": "always", "required": true},
+        {"glob": "skills/implement/phases/*.md", "load_class": "phase", "required": true},
+        {"glob": "skills/review/SKILL.md", "load_class": "nested", "required": true},
+        {"glob": "skills/review-and-fix/SKILL.md", "load_class": "nested", "required": true},
+        {"glob": "skills/docs/SKILL.md", "load_class": "nested", "required": false},
+        {"glob": ".devflow/prompt-extensions/implement.md", "load_class": "extension", "required": false}
+      ]
+    },
+    "create-issue": {
+      "user_commands": ["/devflow:create-issue"],
+      "skill_aliases": ["create-issue", "devflow:create-issue"],
+      "subject_kind": "topic",
+      "argument_pattern": null,
+      "allowed_parents": ["implement"],
+      "surfaces": [
+        {"glob": "skills/create-issue/SKILL.md", "load_class": "always", "required": true},
+        {"glob": "skills/create-issue/references/*.md", "load_class": "reference", "required": false},
+        {"glob": ".devflow/prompt-extensions/create-issue.md", "load_class": "extension", "required": false}
+      ]
+    },
+    "receiving-code-review": {
+      "user_commands": ["/devflow:receiving-code-review"],
+      "skill_aliases": ["receiving-code-review", "devflow:receiving-code-review"],
+      "subject_kind": "pull_request",
+      "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
+      "allowed_parents": ["review-and-fix", "implement"],
+      "surfaces": [
+        {"glob": "skills/receiving-code-review/SKILL.md", "load_class": "always", "required": true},
+        {"glob": ".devflow/prompt-extensions/receiving-code-review.md", "load_class": "extension", "required": false}
+      ]
+    },
+    "review-and-fix": {
+      "user_commands": ["/devflow:review-and-fix"],
+      "skill_aliases": ["review-and-fix", "devflow:review-and-fix"],
+      "subject_kind": "pull_request",
+      "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
+      "allowed_parents": ["implement"],
+      "surfaces": [
+        {"glob": "skills/review-and-fix/SKILL.md", "load_class": "always", "required": true},
+        {"glob": "skills/review/SKILL.md", "load_class": "nested", "required": true},
+        {"glob": "skills/receiving-code-review/SKILL.md", "load_class": "nested", "required": true},
+        {"glob": ".devflow/prompt-extensions/review-and-fix.md", "load_class": "extension", "required": false}
+      ]
+    }
+  }
+}
