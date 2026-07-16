@@ -78,6 +78,41 @@ class Occurrence:
     prompt_fingerprint: str | None = None
 
 
+@dataclass(frozen=True)
+class InventoryRow:
+    workflow: str
+    subject: dict[str, Any] | None
+    session_id: str
+    native_path: str
+    cwd: str | None
+    started_at: str | None
+    finished_at: str | None
+    duration_ms: int | None
+    longest_gap_ms: int | None
+    event_count: int
+    transcript_bytes: int
+    observed_models: list[str] | None
+    observed_effort: list[str] | None
+    branch: str | None
+    association_confidence: str
+    manifest_status: str
+    import_status: str
+
+
+@dataclass(frozen=True)
+class InventoryError:
+    native_path: str
+    error: str
+
+
+@dataclass(frozen=True)
+class InventoryResult:
+    repository_root: str
+    sessions: list[InventoryRow]
+    errors: list[InventoryError]
+    summary: dict[str, Any]
+
+
 def load_registry(path: Path) -> dict[str, WorkflowDefinition]:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -641,6 +676,250 @@ def _shared_storage_root(repository_root: Path) -> tuple[Path, str]:
     if common_dir:
         return Path(common_dir).resolve().parent, "git_common_dir_parent"
     return repository_root, "repository_root_fallback"
+
+
+def _first_recorded_string(events: list[Event], *keys: str) -> str | None:
+    for event in events:
+        for key in keys:
+            value = _record_value(event.raw, key)
+            if isinstance(value, str) and value:
+                return value
+    return None
+
+
+def _repository_association(
+    native_path: Path,
+    cwd: str | None,
+    repository_root: Path,
+) -> str | None:
+    if cwd:
+        cwd_path = Path(cwd).expanduser()
+        if cwd_path.is_dir():
+            resolved_cwd = cwd_path.resolve()
+            if resolved_cwd == repository_root or repository_root in resolved_cwd.parents:
+                return "exact"
+            cwd_common = _run_git(
+                resolved_cwd,
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            )
+            repository_common = _run_git(
+                repository_root,
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            )
+            if cwd_common and repository_common:
+                if Path(cwd_common).resolve() == Path(repository_common).resolve():
+                    return "exact"
+            return None
+
+    encoded_repository = str(repository_root).replace(os.sep, "-")
+    if native_path.parent.name == encoded_repository:
+        return "uncertain"
+    return None
+
+
+def _inventory_subject(subject: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Keep selectors useful without exposing free-form prompt arguments."""
+    if not isinstance(subject, dict):
+        return None
+    kind = subject.get("kind")
+    number = subject.get("number")
+    if isinstance(kind, str) and isinstance(number, int) and not isinstance(number, bool):
+        return {"kind": kind, "number": number}
+    return {"kind": kind} if isinstance(kind, str) else None
+
+
+def inventory_native_transcripts(
+    projects_root: Path,
+    repository_root: Path,
+    registry_path: Path,
+) -> InventoryResult:
+    """Read native Claude JSONL one file at a time and return metadata-only rows."""
+    projects_root = projects_root.expanduser()
+    repository_root = repository_root.expanduser()
+    if not projects_root.is_dir():
+        raise ValueError(f"Claude projects root is unavailable: {projects_root}")
+    if not repository_root.is_dir():
+        raise ValueError(f"repository root is unavailable: {repository_root}")
+
+    repository_root = repository_root.resolve()
+    definitions = load_registry(registry_path)
+    storage_root, _ = _shared_storage_root(repository_root)
+    rows: list[InventoryRow] = []
+    errors: list[InventoryError] = []
+    scanned = readable = 0
+
+    for native_path in sorted(projects_root.rglob("*.jsonl")):
+        if not native_path.is_file():
+            continue
+        scanned += 1
+        try:
+            raw = native_path.read_bytes()
+            events = parse_events(raw)
+        except (OSError, ValueError) as exc:
+            errors.append(
+                InventoryError(
+                    native_path=str(native_path.resolve()),
+                    error=str(exc) or exc.__class__.__name__,
+                )
+            )
+            continue
+        readable += 1
+
+        occurrences = classify_inventory_occurrences(events, definitions)
+        if not occurrences:
+            continue
+        cwd = _first_recorded_string(events, "cwd")
+        association_confidence = _repository_association(
+            native_path,
+            cwd,
+            repository_root,
+        )
+        if association_confidence is None:
+            continue
+
+        timestamps = [event.timestamp_ms for event in events if event.timestamp_ms is not None]
+        started_ms = min(timestamps) if timestamps else None
+        finished_ms = max(timestamps) if timestamps else None
+        summary = build_event_summary(events, occurrences)
+        model_effort = summary["model_effort"]
+        session_id = native_path.stem
+        manifest = storage_root / ".devflow/tmp/workflow-manifests" / f"{session_id}.json"
+        imported = storage_root / ".devflow/tmp/workflow-runs" / session_id / "transcript.jsonl"
+        occurrence = occurrences[0]
+        rows.append(
+            InventoryRow(
+                workflow=occurrence.workflow,
+                subject=_inventory_subject(occurrence.subject),
+                session_id=session_id,
+                native_path=str(native_path.resolve()),
+                cwd=str(Path(cwd).expanduser().resolve()) if cwd else None,
+                started_at=_utc_timestamp(started_ms),
+                finished_at=_utc_timestamp(finished_ms),
+                duration_ms=(
+                    finished_ms - started_ms
+                    if len(timestamps) >= 2
+                    and started_ms is not None
+                    and finished_ms is not None
+                    else None
+                ),
+                longest_gap_ms=summary["gaps"]["longest_ms"],
+                event_count=len(events),
+                transcript_bytes=len(raw),
+                observed_models=model_effort["observed_models"] or None,
+                observed_effort=model_effort["observed_effort"] or None,
+                branch=_first_recorded_string(events, "gitBranch", "branch"),
+                association_confidence=association_confidence,
+                manifest_status="present" if manifest.is_file() else "absent",
+                import_status="imported" if imported.is_file() else "not_imported",
+            )
+        )
+
+    rows.sort(
+        key=lambda row: (
+            row.started_at is None,
+            row.started_at or "",
+            row.session_id,
+            row.native_path,
+        )
+    )
+    by_workflow: dict[str, int] = {}
+    for row in rows:
+        by_workflow[row.workflow] = by_workflow.get(row.workflow, 0) + 1
+    summary = {
+        "scanned": scanned,
+        "readable": readable,
+        "matched": len(rows),
+        "already_bundled": sum(row.import_status == "imported" for row in rows),
+        "unreadable": len(errors),
+        "by_workflow": dict(sorted(by_workflow.items())),
+    }
+    return InventoryResult(
+        repository_root=str(repository_root),
+        sessions=rows,
+        errors=errors,
+        summary=summary,
+    )
+
+
+def inventory_document(result: InventoryResult) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "repository_root": result.repository_root,
+        "sessions": [asdict(row) for row in result.sessions],
+        "errors": [asdict(error) for error in result.errors],
+        "summary": result.summary,
+    }
+
+
+def render_inventory_json(result: InventoryResult) -> str:
+    return json.dumps(inventory_document(result), indent=2, sort_keys=True) + "\n"
+
+
+def render_inventory_table(result: InventoryResult) -> str:
+    headings = (
+        "WORKFLOW",
+        "SUBJECT",
+        "SESSION",
+        "PATH",
+        "CWD",
+        "STARTED",
+        "FINISHED",
+        "DURATION_MS",
+        "MAX_GAP_MS",
+        "EVENTS",
+        "BYTES",
+        "MODEL",
+        "EFFORT",
+        "BRANCH",
+        "ASSOCIATION",
+        "MANIFEST",
+        "IMPORT",
+    )
+    values: list[tuple[str, ...]] = []
+    for row in result.sessions:
+        values.append(
+            (
+                row.workflow,
+                json.dumps(row.subject, sort_keys=True, separators=(",", ":")) if row.subject else "unavailable",
+                row.session_id,
+                row.native_path,
+                row.cwd or "unavailable",
+                row.started_at or "unavailable",
+                row.finished_at or "unavailable",
+                str(row.duration_ms) if row.duration_ms is not None else "unavailable",
+                str(row.longest_gap_ms) if row.longest_gap_ms is not None else "unavailable",
+                str(row.event_count),
+                str(row.transcript_bytes),
+                ",".join(row.observed_models or []) or "unavailable",
+                ",".join(row.observed_effort or []) or "unavailable",
+                row.branch or "unavailable",
+                row.association_confidence,
+                row.manifest_status,
+                row.import_status,
+            )
+        )
+    widths = [
+        max(len(headings[index]), *(len(row[index]) for row in values))
+        if values
+        else len(headings[index])
+        for index in range(len(headings))
+    ]
+
+    def format_row(row: tuple[str, ...]) -> str:
+        return "  ".join(value.ljust(widths[index]) for index, value in enumerate(row)).rstrip()
+
+    lines = [format_row(headings), format_row(tuple("-" * width for width in widths))]
+    lines.extend(format_row(row) for row in values)
+    lines.append(
+        "summary: "
+        f"scanned={result.summary['scanned']} matched={result.summary['matched']} "
+        f"already_bundled={result.summary['already_bundled']} unreadable={result.summary['unreadable']}"
+    )
+    return "\n".join(lines) + "\n"
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
