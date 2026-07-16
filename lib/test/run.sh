@@ -3278,14 +3278,14 @@ assert_pin_unique "#443: audit summary renders the word degraded whenever the de
 # ── issue #522: Step 3.6 audits the canonical DRAFT FILE (not a hand-condensed copy), offers
 #    user-chosen audit rounds past the automatic cap, and Step 3.5 self-checks the audit
 #    dimensions. Same skill-contract mechanism as #443: pins over the rendered SKILL surface,
-#    no runtime code path in CI. Eight behavioral-fix pins in this block use assert_pin_red_under
+#    no runtime code path in CI. Nine behavioral-fix pins in this block use assert_pin_red_under
 #    with a sed -E mutation that RE-INTRODUCES the named defect (each mutation excises or
 #    inverts the operative clause so its removal/inversion alone re-opens the guarded
 #    regression) — the four immediately below (pins 1/2 excise a clause, pins 3/4 invert/negate
 #    it: "is not on" → "is on"; "exactly these 2 offer triggers" → "no offer triggers"), plus
-#    the write-time-digest compare, the write-landing-route, T1, and T2 behavioral-fix pins
-#    further down. The remaining #522 pins are surface-presence pins (assert_pin_unique, or
-#    pin_count>=1 for a marker that recurs).
+#    the write-time-digest compare, the file-arm-routes-to-embed (unrecorded comparand), the
+#    write-landing-route, T1, and T2 behavioral-fix pins further down. The remaining #522 pins
+#    are surface-presence pins (assert_pin_unique, or pin_count>=1 for a marker that recurs).
 # (1) Pre-dispatch canonical write — removing it re-opens the condensation-drift channel (the
 #     auditor audits a hand-condensed copy instead of the exact file the implementer reads).
 assert_pin_red_under "#522: Step 3.6 writes the canonical draft file before every dispatch" \
