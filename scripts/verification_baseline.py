@@ -943,16 +943,53 @@ def _classify_simple_command(segment: str) -> str:
     return KIND_VERIFICATION_UNKNOWN
 
 
+def _split_top_level_segments(command: str) -> list[str]:
+    # Split on `&&` / `||` / `;` that occur OUTSIDE single/double quotes, so a
+    # delimiter inside a quoted argument (`git commit -m "refactor && pytest"`)
+    # does not manufacture a spurious verification segment out of the quoted text
+    # (issue #527 review finding — the quoted-delimiter false-positive that the
+    # naive re.split left open). Not a full shell parser: it tracks only quote
+    # state, which is sufficient to keep a quoted delimiter from splitting.
+    segments: list[str] = []
+    buf: list[str] = []
+    quote: str | None = None
+    i = 0
+    n = len(command)
+    while i < n:
+        ch = command[i]
+        if quote:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            buf.append(ch)
+            i += 1
+            continue
+        two = command[i : i + 2]
+        if two in ("&&", "||") or ch == ";":
+            segments.append("".join(buf))
+            buf = []
+            i += 2 if two in ("&&", "||") else 1
+            continue
+        buf.append(ch)
+        i += 1
+    segments.append("".join(buf))
+    return segments
+
+
 def _classify_taxonomy(command: str) -> str:
-    # Classify each top-level `&&`/`||`/`;` segment by its own head, then combine.
-    # A chained command is a verification launch iff SOME segment is one — so
-    # `cd repo && pytest` is verification (the pytest segment), while
+    # Classify each top-level `&&`/`||`/`;` segment (quote-aware) by its own head,
+    # then combine. A chained command is a verification launch iff SOME segment is
+    # one — so `cd repo && pytest` is verification (the pytest segment), while
     # `cat lib/test/run.sh && echo done` is other_command (both segments are
-    # read-only tools whose args merely mention a test tool). Classifying the
-    # whole command against the pattern set first (or disabling the head guard for
-    # any chained command) counted those incidental mentions as launches,
-    # inflating the very baseline this tool measures (issue #527 review finding).
-    kinds = [_classify_simple_command(seg.strip()) for seg in re.split(r"&&|\|\||;", command) if seg.strip()]
+    # read-only tools whose args merely mention a test tool). Classifying the whole
+    # command against the pattern set first (or splitting quote-blind) counted
+    # those incidental mentions as launches, inflating the very baseline this tool
+    # measures (issue #527 review finding).
+    kinds = [_classify_simple_command(seg.strip()) for seg in _split_top_level_segments(command) if seg.strip()]
     if KIND_VERIFICATION in kinds:
         return KIND_VERIFICATION
     if KIND_VERIFICATION_UNKNOWN in kinds:

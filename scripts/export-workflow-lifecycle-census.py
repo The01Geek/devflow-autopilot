@@ -70,7 +70,13 @@ def build_snapshot(repo: str, workflow_set: list[str], closed_after: str, closed
                 "run_id": run_id,
                 "run_attempt": attempt,
                 "created_at": run.get("created_at"),
-                "started_at": job.get("started_at") or run.get("run_started_at"),
+                # started_at is the JOB-level start ONLY (null when the agent step
+                # never started) — the analyzer's cloud-eligibility guard reads it
+                # as per-job evidence, so folding in the run-level start would make
+                # every job of a started run look started (issue #527 review). The
+                # run-level start is carried separately for reference.
+                "started_at": job.get("started_at"),
+                "run_started_at": run.get("run_started_at"),
                 "completed_at": job.get("completed_at"),
                 "conclusion": job.get("conclusion") or run.get("conclusion"),
                 "status": job.get("status") or run.get("status"),
@@ -251,6 +257,12 @@ def main(argv: "list[str] | None" = None) -> int:
     workflows = [w.strip() for w in args.workflows.split(",") if w.strip()] if args.workflows else []
     query_time = _now_iso()
     runs, jobs_by_run, pagination_complete = fetch_runs_and_jobs(args.gh, args.repo, workflows, args.created_after, args.created_before)
+    if workflows and not runs and pagination_complete:
+        # A non-empty --workflows filter matched zero runs in a fully-fetched
+        # window: almost certainly a typo'd path/name (an empty census then reads
+        # as a genuine agent-less window). Surface it rather than let it pass as a
+        # real empty window (issue #527 review, loud degradation).
+        print(f"devflow census-export: WARNING — --workflows {workflows} matched 0 of the fetched runs; check the workflow path/name (the census will be empty)", file=sys.stderr)
     snapshot = build_snapshot(args.repo, workflows, args.created_after, args.created_before, runs, jobs_by_run, query_time, pagination_complete)
     payload = json.dumps(snapshot, indent=2, sort_keys=True).encode("utf-8")
     out_path = Path(args.out)

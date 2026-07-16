@@ -857,6 +857,30 @@ class Issue527ReviewFixTests(_TmpDirTestCase):
         resolved = vb._validate_admitted_path(".devflow/tmp")
         self.assertTrue(str(resolved).startswith(str(ROOT.resolve())))
 
+    # --- J2: the segment split must be quote-aware — a delimiter inside a quoted
+    #         argument must not manufacture a verification segment. -----------
+    def test_taxonomy_split_is_quote_aware(self) -> None:
+        self.assertEqual(vb._classify_taxonomy('git commit -m "refactor && pytest later"'), KIND_OTHER_COMMAND)
+        self.assertEqual(vb._classify_taxonomy('echo "step one; pytest next"'), KIND_OTHER_COMMAND)
+        self.assertEqual(vb._classify_taxonomy("git commit -m 'note; ruff clean'"), KIND_OTHER_COMMAND)
+        # A REAL top-level chained verification still classifies as verification.
+        self.assertEqual(vb._classify_taxonomy('echo "prep" && pytest tests/'), KIND_VERIFICATION)
+
+    # --- J1: the exporter must write a JOB-level started_at only (null when the
+    #         job never started), not fold in the run-level start. -----------
+    def test_export_started_at_is_job_level_only(self) -> None:
+        export = _load_export_census()
+        runs = [{"id": 7, "path": ".github/workflows/x.yml", "name": "X", "run_attempt": 1,
+                 "created_at": "t", "run_started_at": "2026-07-16T01:00:00Z",
+                 "conclusion": "success", "status": "completed"}]
+        # A job with NO job-level started_at must NOT inherit the run-level start.
+        jobs_by_run = {7: [{"name": "claude", "started_at": None, "completed_at": "t2",
+                            "conclusion": "cancelled", "status": "completed"}]}
+        snap = export.build_snapshot("o/r", [], "a", "b", runs, jobs_by_run, "qt", True)
+        row = snap["rows"][0]
+        self.assertIsNone(row["started_at"])
+        self.assertEqual(row["run_started_at"], "2026-07-16T01:00:00Z")
+
     # --- I1: two independent sessions each running the same verification command
     #         must NOT be grouped into a transport-retry candidate (the
     #         session-local occurrence_id must not collide across sessions). ----
