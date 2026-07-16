@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.4] — 2026-07-16
+
+### Fixed
+- **Review engine's local-diff base now tracks the PR's own base ref, not the stale run-start SHA.** The Phase 0.2 head-override diff and the `/devflow:review-and-fix` Step 3 item 6a stale-prose pre-check pinned their diff base to the run-start `baseRefOid` (`$PR_BASE_SHA`), so an in-loop Checkpoint-3 base merge attributed base content to the PR as added — spurious `STALE` findings, false `REJECT`s, and a fail-open where an empty cached diff read as clean `APPROVE`. Both now reuse the Phase-0.2-selected base in PR mode (the fetched tip of `origin/<baseRefName>`, or the retained `baseRefOid` after confirmed deletion) and the configured `base_branch` in current-branch mode (fail-closed to `main`), mirroring `update-branch-checkpoint.sh`'s explicit-refspec fetch and one-shot `--unshallow` retry. Phase 0.2's cache producer (in both its head-override and current-branch modes) checks the raw diff, filtered candidate, promotion write, and stdout publication; any failure removes every candidate and prior cache, becomes Blocked when observed by the wrapping implement run (or stop-and-report standalone), and can never become an `APPROVE`-eligible empty diff. The item-6a stale-prose pre-check has no such cache — it pipes straight to the lint helper and is fail-closed via `set -o pipefail` + Phase 0.6 exit-code routing. A retargeted PR whose base ref differs from `base_branch` emits a warning naming the observable residual. (#503)
+
 ## [2.14.3] — 2026-07-16
 
 ### Fixed
