@@ -3312,6 +3312,11 @@ assert_eq "#522: embed arm carries the file-write-failed marker" "yes" \
   "$([ "$(pin_count 'draft embedded (file write failed)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
 assert_eq "#522: embed arm carries the file-unreadable marker" "yes" \
   "$([ "$(pin_count 'draft embedded (file unreadable)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
+# Distinct marker for the unrecorded-comparand entry path (iteration-2 re-gate: the write
+# actually landed there, so reusing the file-write-failed marker would be a misdirected
+# breadcrumb — CLAUDE.md guard-class-2). The distinct marker keeps the breadcrumb honest.
+assert_eq "#522: embed arm carries the distinct digest-unrecorded marker" "yes" \
+  "$([ "$(pin_count 'draft embedded (digest unrecorded)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
 assert_pin_unique "#522: audit summary line states the total number of audit rounds run" \
   'the total number of audit rounds run' "$CI443_SKILL"
 assert_pin_unique "#522: audit summary carries the declined-further-audit phrase" \
