@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.2] — 2026-07-16
+
+### Added
+- **Prompt-surface edit routing through `superpowers:writing-skills`, with a review-gate evidence backstop.** This repo's implement prompt extension (`.devflow/prompt-extensions/implement.md`) gains a "Prompt-surface edit routing" rule: before an autonomous `/devflow:implement` run edits any path matching a trigger glob (`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `.devflow/prompt-extensions/*.md`), it dispatches a context-isolated Agent-tool subagent that invokes `superpowers:writing-skills` and edits under that skill's RED/GREEN discipline — never a mid-phase Skill-tool call (the engine's #362 exclusionary rule is preserved unchanged). The rule carries a repair arm (evaluated at extension load and Phase 3 entry) and a fallback clause (an available-skills check routes to the inline §2.4 micro-test discipline when the skill is absent), and records a `Writing-skills evidence:` marker in the workpad. A byte-identical review-gate criterion in `.devflow/prompt-extensions/review-and-fix.md` and the new `.devflow/prompt-extensions/review.md` fails a reviewed diff that touches a trigger glob but carries no discharging evidence marker (checked on the linked-issue workpad, then the PR description; fail-closed). `CLAUDE.md`'s "Editing any skill file" convention and `lib/test/run.sh` pins are updated in lockstep. The shipped engine (`skills/`, `agents/`) is untouched — this is repo-local policy. (#516)
+
 ## [2.14.1] — 2026-07-15
 
 ### Changed
