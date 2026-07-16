@@ -306,7 +306,7 @@ At engine entry (Phase 0), hash the root and its references:
 git hash-object <skill-dir>/SKILL.md <skill-dir>/phases/phase-0-setup.md <skill-dir>/phases/phase-0-3-6-blocker-recheck.md <skill-dir>/phases/phase-0-6-stale-prose-lint.md <skill-dir>/phases/phase-1-checklist.md <skill-dir>/phases/phase-2-verification.md <skill-dir>/phases/phase-3-agents.md <skill-dir>/phases/phase-4-verdict.md <skill-dir>/phases/phase-4-1-7-stale-adjudication.md <skill-dir>/phases/phase-4-4-github-post.md
 ```
 
-With the **Write tool**, author the **bundle manifest** — canonical root path, root hash, and each reference's path and hash — to `.devflow/tmp/review/<slug>/<run-id>/root-identity.json` (the run-scoped dir Phase 0.2 created; `Write(.devflow/tmp/**)` is the probe-permitted shape — a `/tmp`-targeted redirect and a `cat`-headed heredoc write are denied).
+With the **Write tool**, author the **bundle manifest** — canonical root path, root hash, and each reference's path and hash — to `.devflow/tmp/review/<slug>/<run-id>/root-identity.json` (the run-scoped dir Phase 0.2 created; `Write(.devflow/tmp/**)` is the probe-permitted shape).
 
 **Every phase entry — and every shadow entry** (`/devflow:review-and-fix` Step 2.6 re-enters this engine and is one) — **re-derives identity before acting, never trusting a value it merely remembers.** Compaction is the reason: re-run the anchor `echo`, `Read` the manifest, and re-run `git hash-object` on the root and the reference you are about to read. Then require the same identity:
 
@@ -336,8 +336,6 @@ After the `Read`: **quote the body's literal first and last lines**, and let `S`
 | 5 | duplicate | `S` > 1 **or** `E` > 1 | `boundary: duplicate` |
 | 6 | reversed | the `end` line precedes the `start` line | `boundary: reversed` |
 | 7 | noncanonical | unique and ordered, but `start` is not the literal **first** line **or** `end` is not the literal **last** line | `boundary: noncanonical` |
-
-Ordered this way, exactly one row fires.
 
 **On any identity or boundary row: stop that phase**, report the label with the phase id and reference path, and do **not** act on the body, improvise the phase from its orientation text, or repair the file. A body can read as complete and correct and still fail these checks — that case *is* the reason they exist: a defective boundary or identity means what you hold is not the bundle this engine was built against, so its plausibility is worth nothing.
 

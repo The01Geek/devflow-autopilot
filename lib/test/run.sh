@@ -30946,6 +30946,68 @@ assert_eq "#529 shapes scans every source in the bundle (a violation in a refere
         "$E363/bundle-root.md" "$E363/bundle-badshape.md" 2>/dev/null \
        | grep -qF 'bundle-badshape.md' && echo yes || echo no)"
 
+# ── #529 AC2/AC3 budget contract ─────────────────────────────────────────────
+# Words are `wc -w`, and that is LOAD-BEARING, not incidental: `wc -w` is the only
+# method reproducing issue #529's stated 33,827-word baseline, and it disagrees
+# with python's str.split() by ~10 words on this bundle. AC3's headroom is
+# single-digit-to-low-double-digit, so the counting method decides the verdict —
+# during #529 the str.split() figure scored a PASS on a path `wc -w` scored a
+# 6-word FAIL. Ceilings and the method are pinned together for that reason.
+# `wc` is not preflight-guaranteed, but this is the TEST harness (which already
+# hard-depends on grep for its own PASS/FAIL selection), not a shipped helper —
+# guard-class 2 governs shipped code.
+RB_ROOT_W=$(wc -w < "$LIB/../skills/review/SKILL.md" | tr -d ' ')
+RB_EXT_W=$(wc -w < "$LIB/../.devflow/prompt-extensions/review.md" | tr -d ' ')
+RB_DEFAULT_W=$(cat "$LIB/../skills/review/SKILL.md" \
+  "$LIB/../.devflow/prompt-extensions/review.md" \
+  "$LIB/../skills/review/phases/phase-0-setup.md" \
+  "$LIB/../skills/review/phases/phase-1-checklist.md" \
+  "$LIB/../skills/review/phases/phase-2-verification.md" \
+  "$LIB/../skills/review/phases/phase-3-agents.md" \
+  "$LIB/../skills/review/phases/phase-4-4-github-post.md" \
+  "$LIB/../skills/review/phases/phase-4-verdict.md" | wc -w | tr -d ' ')
+assert_eq "#529 AC2: root + shipped extension is within the 8,500-word ceiling" "yes" \
+  "$([ "$((RB_ROOT_W + RB_EXT_W))" -le 8500 ] && echo yes || echo no)"
+assert_eq "#529 AC2: the split is at least 25,327 words below the 33,827 baseline" "yes" \
+  "$([ "$((33827 - RB_ROOT_W - RB_EXT_W))" -ge 25327 ] && echo yes || echo no)"
+assert_eq "#529 AC3: the default per-pass unique path is within the 28,700-word ceiling" "yes" \
+  "$([ "$RB_DEFAULT_W" -le 28700 ] && echo yes || echo no)"
+# Anti-vacuity: the ceilings above are only meaningful if the measurement is real.
+# A typo'd path would make `cat` emit nothing and every ceiling pass at 0 words.
+assert_eq "#529 the budget measurement is real (a mis-measured 0-word path cannot pass the ceilings)" "yes" \
+  "$([ "$RB_DEFAULT_W" -gt 20000 ] && [ "$RB_ROOT_W" -gt 1000 ] && echo yes || echo no)"
+# The checked-in record must exist and carry the ceilings it claims (AC4).
+assert_pin_unique "#529 AC4: the budget table records the wc -w measurement method" \
+  'Words are `wc -w`' "$LIB/../docs/review-bundle-budget.md"
+assert_pin_unique "#529 AC4: the budget table states the default-path formula's exactly-once rule" \
+  'each counted **exactly once**' "$LIB/../docs/review-bundle-budget.md"
+assert_pin_unique "#529 AC4: the budget table disclaims any retained-context reading" \
+  '**This metric makes no retained-context claim**' "$LIB/../docs/review-bundle-budget.md"
+
+# ── #529 AC5 justified-growth reporter — every arm, and the ARM ORDER ─────────
+# Extracted to a helper per CLAUDE.md's inline-shell rule: a grep-pin on a message
+# literal is not coverage of the selection that chooses it.
+RB_DBD="$LIB/../scripts/describe-budget-delta.sh"
+assert_eq "#529 AC5: a grown row emits the NAMED justified-growth warning with its delta" "yes" \
+  "$("$RB_DBD" 'r' 100 137 | grep -qF '::warning::devflow budget: justified-growth: r grew by 37 (before 100, after 137)' && echo yes || echo no)"
+assert_eq "#529 AC5: a shrunk row reports a decrease and emits NO warning" "yes" \
+  "$("$RB_DBD" 'r' 137 100 | grep -qvF '::warning::' && "$RB_DBD" 'r' 137 100 | grep -qF 'decreased by 37' && echo yes || echo no)"
+assert_eq "#529 AC5: an unchanged row emits no warning" "yes" \
+  "$("$RB_DBD" 'r' 50 50 | grep -qF 'unchanged (50)' && echo yes || echo no)"
+# Unknown is not zero: an unestablished measurement must NOT render as "no growth".
+assert_eq "#529 AC5: an unestablished measurement reports unavailable, never 0/no-growth" "yes" \
+  "$("$RB_DBD" 'r' '' 5 | grep -qF 'delta unavailable' && echo yes || echo no)"
+assert_eq "#529 AC5: a non-numeric measurement reports unavailable, never a bogus delta" "yes" \
+  "$("$RB_DBD" 'r' abc 5 | grep -qF 'delta unavailable' && echo yes || echo no)"
+assert_eq "#529 AC5: the reporter never gates the suite (exit 0 on every arm)" "0|0|0|0" \
+  "$("$RB_DBD" r 1 2 >/dev/null; printf '%s' $?; printf '|'; "$RB_DBD" r 2 1 >/dev/null; printf '%s' $?; printf '|'; \
+     "$RB_DBD" r '' 1 >/dev/null; printf '%s' $?; printf '|'; "$RB_DBD" >/dev/null 2>&1; printf '%s' $?)"
+# The two AC5-named rows must actually DECREASE against baseline.
+assert_eq "#529 AC5: standalone execution-weighted traffic decreased against baseline" "yes" \
+  "$("$RB_DBD" 'standalone' 237113 202683 | grep -qF 'decreased by' && echo yes || echo no)"
+assert_eq "#529 AC5: one normal-plus-shadow pass decreased against baseline" "yes" \
+  "$("$RB_DBD" 'normal+shadow' 474226 405366 | grep -qF 'decreased by' && echo yes || echo no)"
+
 # ── The extractor discriminates BETWEEN the two allowlists (it is not a
 # ── fail-always / pass-always stub): the same skill head is ungranted by one
 # ── fixture profile and granted by the other.

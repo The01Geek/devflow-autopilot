@@ -57,7 +57,7 @@ cause fixed under issue #57.
 
 **The fix: the PARENT orchestrator runs the shadow fan-out itself.** The parent *can* dispatch
 subagents, so it re-runs `/devflow:review`'s Phases 0 through 4.3 inline — `Glob` for
-`**/devflow/skills/review/SKILL.md`, `Read` it in full, and walk its phases — launching every
+`**/devflow/skills/review/SKILL.md`, `Read` it in full, walk its gated phase references under `phases/` (re-deriving bundle identity and clearing each reference's boundary contract at every entry — a shadow entry is a phase entry), and run every
 Phase-3 reviewer normally. (Reading the engine as an inline procedure, rather than invoking it via
 the `Skill` tool, is deliberate: `Skill` would run the engine end-to-end including Phase 4.4's
 GitHub post, and the loop is silent on GitHub by design. The shadow stops before Phase 4.4.)
@@ -169,7 +169,7 @@ leak channel for the loop state the blinding withholds — the artifacts it hand
 diff files and repo paths only.
 
 **Why the shadow still re-Reads the engine fresh (read-reuse was considered and rejected).** Step
-2.6 keeps its mandatory fresh re-Read of `skills/review/SKILL.md` on every shadow pass; skipping it
+2.6 keeps its mandatory fresh re-Read of the Review bundle (`skills/review/SKILL.md` plus each `phases/*.md` reference it enters) on every shadow pass; skipping it
 when the diff does not touch the engine file was considered and **rejected**. The reuse premise —
 that Step 1's Read is still verbatim in the parent's context at Step 2.6 — is unverifiable from
 skill prose: context compaction on a long run can replace the verbatim copy with a lossy summary,
