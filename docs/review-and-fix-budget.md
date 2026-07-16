@@ -10,22 +10,27 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 > **Maintainer note — the root budget is razor-thin.** The root measures **2,996 / 3,000 words**
 > (~4 words of headroom). Any non-trivial addition to `skills/review-and-fix/SKILL.md` will trip
 > the `#530 budget` guard; externalize new procedure into a reference (or trim) rather than
-> growing the root. Re-run the measurement below (always `LC_ALL=C wc -w` — see Counting method)
+> growing the root. Re-run the measurement below (always the python3 word counter — see
+> Counting method; never a bare `wc -w`)
 > and reconcile the numbers in this table and the `+1,198` figure pinned in `lib/test/run.sh`
 > whenever the root or a reference changes; the `#530 budget` guard recomputes the cumulative
 > sum and the growth arithmetic from the live files, so a stale table cell goes RED at the desk.
 
 ## Counting method & formulas
 
-- **lines / words / bytes** are `wc -l` / `LC_ALL=C wc -w` / `wc -c` of each file (the same
-  tools and locale the `run.sh` guard uses). **The C locale on the word count is load-bearing:**
-  BSD `wc` under a UTF-8 locale (macOS default) treats some multibyte punctuation — e.g. `≠`
-  (U+2260), which several references contain — as a word break, while glibc (Linux/CI) does not,
-  so an unpinned `wc -w` reports different totals on the two platforms (this file's counts were
-  once desk-measured on macOS and rejected by a Linux reviewer re-measuring the same HEAD).
-  `LC_ALL=C` byte-locale counting is identical on both. This also means totals here can differ
-  by a few words from earlier unpinned measurements quoted in issue #530 (its 38,634-word
-  baseline was a BSD-UTF-8 count of the same bytes).
+- **lines / bytes** are `wc -l` / `wc -c` of each file. **words** are ASCII-whitespace-delimited
+  byte tokens: `python3 -c 'import sys; print(len(open(sys.argv[1],"rb").read().split()))' <file>`
+  — the exact counter the `run.sh` guard uses (python3 is a preflight prerequisite).
+  **`wc -w` is deliberately not the arbiter — it disagrees with itself across platforms on this
+  corpus in both locales.** BSD `wc` under a UTF-8 locale (macOS default) splits words on some
+  multibyte punctuation (`≠` U+2260, present in several references) that glibc does not — that
+  skew got this file's original macOS-measured counts rejected by a Linux reviewer re-measuring
+  the same HEAD. And under `LC_ALL=C`, GNU `wc` counts only whitespace-runs containing a
+  printable ASCII byte, so the standalone em-dash tokens this prose uses heavily count as words
+  on macOS/BSD but not on Linux CI (observed: 39,826 vs 39,053 for identical cumulative bytes).
+  `bytes.split()` is byte-identical everywhere; on this corpus it equals BSD `LC_ALL=C wc -w`.
+  Totals here can therefore differ by a few words from earlier unpinned measurements quoted in
+  issue #530 (its 38,634-word baseline was a BSD-UTF-8 count of the same bytes).
 - **approx tokens = words × 1.3, rounded to the nearest whole number (half up)** (a coarse
   English-prose estimate; stated as a formula, not a measured tokenizer count).
 - **BEFORE basis:** the pre-split monolith `SKILL.md` as of the split's base commit on `main`;

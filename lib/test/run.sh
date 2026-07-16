@@ -31165,17 +31165,23 @@ done
 # ── #530 prompt-budget guard (AC3/AC4): the split keeps the thin root and its initial/peak
 # load under the documented ceilings; docs/review-and-fix-budget.md is the checked-in table.
 # wc is a test-harness tool here (not a shipped selection), consistent with the rest of run.sh.
-# LC_ALL=C on every word count is load-bearing (PR #539 REJECT): BSD wc under a UTF-8 locale
-# (macOS default) splits words on some multibyte punctuation — e.g. U+2260 ≠, present in
-# several references — that glibc does not, so an unpinned count differs between a macOS desk
-# run and CI, and the table's desk-measured counts were false on the CI platform. The C locale
-# is byte-identical on both; the budget doc's Counting method pins the same locale.
-RAF_ROOT_W=$(LC_ALL=C wc -w < "$LIB/../skills/review-and-fix/SKILL.md")
-RAF_EXT_W=$(LC_ALL=C wc -w < "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
+# The word counter is python3 bytes.split() — deliberately NOT wc -w — because wc -w
+# disagrees with itself across platforms on this corpus in BOTH locales (PR #539 rounds
+# 1 and 2): BSD wc under a UTF-8 locale (macOS default) splits words on some multibyte
+# punctuation (U+2260 ≠, present in several references) that glibc does not, and GNU wc
+# under LC_ALL=C counts only whitespace-runs containing a printable ASCII byte, so the
+# corpus's ubiquitous standalone em-dash tokens (" — ") count as words on macOS/BSD but
+# not on Linux CI (observed: cumulative 39,826 vs 39,053 for identical bytes). python3 is
+# a preflight prerequisite, and bytes.split() — ASCII-whitespace-delimited byte tokens —
+# is byte-identical everywhere (it equals BSD `LC_ALL=C wc -w` on this corpus). The budget
+# doc's Counting method names this same counter.
+_raf_words() { python3 -c 'import sys; print(len(open(sys.argv[1],"rb").read().split()))' "$1"; }
+RAF_ROOT_W=$(_raf_words "$LIB/../skills/review-and-fix/SKILL.md")
+RAF_EXT_W=$(_raf_words "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
 RAF_MAXREF_W=0
 RAF_REFS_SUM_W=0
 for f in "$LIB/../skills/review-and-fix/references"/*.md; do
-  w=$(LC_ALL=C wc -w < "$f"); [ "$w" -gt "$RAF_MAXREF_W" ] && RAF_MAXREF_W="$w"
+  w=$(_raf_words "$f"); [ "$w" -gt "$RAF_MAXREF_W" ] && RAF_MAXREF_W="$w"
   RAF_REFS_SUM_W=$((RAF_REFS_SUM_W + w))
 done
 # Fail closed if the references glob matched nothing: RAF_MAXREF_W would stay 0 and the peak
@@ -31218,10 +31224,10 @@ assert_pin_unique "#530 budget: table names the justified-growth warning with it
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
-# the normal-cumulative-path words (root + extension + Σ references, same LC_ALL=C method)
+# the normal-cumulative-path words (root + extension + Σ references, same _raf_words counter)
 # and require (a) the doc's cumulative cell to equal the fresh measurement and (b) the pinned
 # growth delta to equal that measurement minus (36201 + RAF_EXT_W). 36201 is the pre-split
-# monolith's LC_ALL=C word count at the split's base commit — immutable history, safe to
+# monolith's _raf_words count at the split's base commit — immutable history, safe to
 # freeze; the live extension term appears in both the cumulative and the baseline, so it
 # CANCELS: the growth arm tracks exactly root + Σ references − monolith, the doc's
 # "isolates the split" definition, and a future extension edit moves the cumulative cell
