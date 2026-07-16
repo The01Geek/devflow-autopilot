@@ -32865,10 +32865,10 @@ assert_pin_red_under "#424 (item 6a): reverting the base to the stale run-start 
   's#\$REVIEW_DIFF_BASE#${PR_BASE_SHA:-origin/main}#' "$SP_RAF"
 assert_pin_red_under "#503 item-6a keys mode on the carried HEAD_OVERRIDE_BASE operand (operand-first: a carried operand — incl. a deleted-base retained SHA — is honored even without the PR_BASE_BRANCH signal)" \
   'if test -n "${HEAD_OVERRIDE_BASE:-}"; then' \
-  '/if test -n "\${HEAD_OVERRIDE_BASE:-}"; then/d' "$SP_RAF"
+  '/if test -n "\$\{HEAD_OVERRIDE_BASE:-\}"; then/d' "$SP_RAF"
 assert_pin_red_under "#503 item-6a fails closed (exit 65) when PR-mode is signaled but Phase 0.2's operand was not carried — never silently falls to the current-branch base" \
   'elif test -n "${PR_BASE_BRANCH:-}"; then' \
-  '/elif test -n "\${PR_BASE_BRANCH:-}"; then/d' "$SP_RAF"
+  '/elif test -n "\$\{PR_BASE_BRANCH:-\}"; then/d' "$SP_RAF"
 # Producer-failure detection (#424 review Suggestion 1): a failing `git diff` must not
 # pipe empty stdout into the helper and read as a clean pass.
 assert_pin_unique "#424 (item 6a) fence sets pipefail so a producer/helper failure is not read as clean" \
