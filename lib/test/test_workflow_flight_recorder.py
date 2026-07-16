@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Focused tests for the local DevFlow workflow flight recorder."""
 
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
+
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -214,6 +218,34 @@ class InventoryTests(unittest.TestCase):
         self.assertNotIn("SECRET-PROMPT", document)
         self.assertNotIn("inventory native sessions", document)
         self.assertNotIn("private assistant text", document)
+
+    def test_unreadable_transcript_is_an_inventory_error_not_a_crash(self) -> None:
+        readable = self._write_session(
+            "sid-readable", self._record(user("/implement 520"), cwd=self.repository)
+        )
+        unreadable = self._write_session(
+            "sid-unreadable", self._record(user("/implement 521"), cwd=self.repository)
+        )
+        # Positive control: both fixtures classify identically, so the only difference
+        # driving the error below is that this one cannot be read.
+        self.assertTrue(readable.is_file() and unreadable.is_file())
+
+        real_read_bytes = Path.read_bytes
+
+        def deny_one(self_path: Path, *args: object, **kwargs: object) -> bytes:
+            if self_path == unreadable:
+                raise OSError(13, "Permission denied")
+            return real_read_bytes(self_path, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_bytes", deny_one):
+            result = recorder.inventory_native_transcripts(self.projects, self.repository, REGISTRY)
+
+        self.assertEqual([row.session_id for row in result.sessions], ["sid-readable"])
+        self.assertEqual([error.native_path for error in result.errors], [str(unreadable.resolve())])
+        self.assertIn("Permission denied", result.errors[0].error)
+        # An unreadable session is scanned but not readable, and the tallies must say so
+        # rather than quietly shrinking the denominator.
+        self.assertEqual(result.summary["readable"], 1)
 
     def test_inventory_associates_linked_worktree_by_common_dir(self) -> None:
         subprocess.run(
@@ -491,6 +523,42 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
         )
         found = detect_occurrences(parse_events(transcript(user(content))), self.registry)
         self.assertEqual(found[0].subject, {"kind": "issue", "number": 521})
+
+    def test_transcripts_with_no_events_are_rejected_rather_than_read_as_empty(self) -> None:
+        for case, raw in {"empty": b"", "newlines only": b"\n\n", "whitespace": b"  \n\t\n"}.items():
+            with self.subTest(case=case):
+                # Fail closed: a transcript that yields no events is unusable evidence,
+                # not a session that legitimately did nothing.
+                with self.assertRaisesRegex(ValueError, "transcript JSONL is empty"):
+                    parse_events(raw)
+
+    def test_non_object_records_are_rejected_naming_the_line(self) -> None:
+        for case, raw in {
+            "array record": b'["not an object"]\n',
+            "scalar record": b"42\n",
+            "null record": b"null\n",
+        }.items():
+            with self.subTest(case=case):
+                # A positive control on the same shape: the record is well-formed JSON, so
+                # the rejection can only come from the not-an-object guard under test.
+                self.assertIsInstance(json.loads(raw), (list, int, type(None)))
+                with self.assertRaisesRegex(ValueError, "record 1 is not an object"):
+                    parse_events(raw)
+
+    def test_naive_and_unparseable_timestamps_yield_no_event_time(self) -> None:
+        for case, timestamp in {
+            "naive": "2026-07-16T01:00:00",
+            "unparseable": "not-a-timestamp",
+            "empty": "",
+        }.items():
+            with self.subTest(case=case):
+                events = parse_events(transcript(user("/implement 520", timestamp)))
+                # A naive timestamp has no zone, so it cannot be placed on the UTC line
+                # the recorder compares against: it is unknown, never assumed to be UTC.
+                self.assertEqual(len(events), 1)
+                self.assertIsNone(events[0].timestamp_ms)
+        aware = parse_events(transcript(user("/implement 520", "2026-07-16T01:00:00Z")))
+        self.assertIsNotNone(aware[0].timestamp_ms)
 
     def test_malformed_jsonl_tail_is_rejected(self) -> None:
         raw = transcript(user("/devflow:implement 520")) + b"{broken\n"
@@ -820,6 +888,35 @@ class ManifestObserverTests(unittest.TestCase):
             {"value": "1.2.3", "source": "user_prompt_submit_payload"},
         )
 
+    def test_declared_model_effort_fills_gaps_but_never_overrides_the_payload(self) -> None:
+        declaration = {
+            "DEVFLOW_RECORDER_MODEL": "declared-model",
+            "DEVFLOW_RECORDER_EFFORT": "declared-effort",
+        }
+
+        with mock.patch.dict(os.environ, declaration):
+            payload = self._payload("/implement 525", "sid-declared")
+            result = recorder.capture_prompt_manifest(payload, REGISTRY)
+        declared = json.loads(Path(result["manifest"]).read_text(encoding="utf-8"))["model_effort"]
+
+        # The documented launch-line declaration survives when the host reports nothing.
+        self.assertEqual(declared["requested_model"], "declared-model")
+        self.assertEqual(declared["requested_model_source"], "explicit_recorder_environment")
+        self.assertEqual(declared["requested_effort"], "declared-effort")
+        self.assertEqual(declared["requested_effort_source"], "explicit_recorder_environment")
+
+        with mock.patch.dict(os.environ, declaration):
+            payload = self._payload("/implement 525", "sid-observed")
+            payload.update({"model": "observed-model", "effort": "observed-effort"})
+            result = recorder.capture_prompt_manifest(payload, REGISTRY)
+        observed = json.loads(Path(result["manifest"]).read_text(encoding="utf-8"))["model_effort"]
+
+        # An observation is stronger evidence than a declaration, so it wins outright.
+        self.assertEqual(observed["requested_model"], "observed-model")
+        self.assertEqual(observed["requested_model_source"], "user_prompt_submit_payload")
+        self.assertEqual(observed["requested_effort"], "observed-effort")
+        self.assertEqual(observed["requested_effort_source"], "user_prompt_submit_payload")
+
     def test_linked_worktree_stores_manifest_in_shared_checkout(self) -> None:
         linked = Path(self.temporary.name) / "linked"
         subprocess.run(
@@ -873,27 +970,59 @@ class ManifestObserverTests(unittest.TestCase):
         self.assertFalse((self.root / ".devflow/tmp/workflow-manifests").exists())
         self.assertFalse((self.root / ".devflow/tmp/workflow-runs").exists())
 
+    def _run_entry(self, entry: Path, raw: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(entry)],
+            input=raw,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+
     def test_thin_entry_point_is_fail_open_for_success_and_every_failure(self) -> None:
         entry = ROOT / "scripts/capture-workflow-manifest.py"
-        cases = [
-            json.dumps(self._payload("/implement 525", "sid-entry")),
-            "{malformed",
-            "[]",
-            json.dumps(self._payload("/implement 1", "../unsafe")),
-            json.dumps({**self._payload("/implement 1"), "cwd": str(self.root / "missing")}),
-        ]
-        for raw in cases:
-            with self.subTest(raw=raw):
-                result = subprocess.run(
-                    [sys.executable, str(entry)],
-                    input=raw,
-                    text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-                )
+        manifests = self.root / ".devflow/tmp/workflow-manifests"
+
+        # Positive control: this fixture differs from the failure cases below in exactly
+        # the one property under test, so a failure case rejected by some unrelated
+        # precondition cannot masquerade as the rejection being asserted.
+        result = self._run_entry(entry, json.dumps(self._payload("/implement 525", "sid-entry")))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((manifests / "sid-entry.json").is_file())
+
+        failures = {
+            "malformed json": "{malformed",
+            "non-object payload": "[]",
+            "unsafe session id": json.dumps(self._payload("/implement 1", "../unsafe")),
+            "cwd outside any repository": json.dumps(
+                {**self._payload("/implement 1"), "cwd": str(self.root / "missing")}
+            ),
+        }
+        before = sorted(path.name for path in manifests.iterdir())
+        for case, raw in failures.items():
+            with self.subTest(case=case):
+                result = self._run_entry(entry, raw)
+                # Fail-open: never block the prompt, but leave a breadcrumb and no artifact.
                 self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.root / ".devflow/tmp/workflow-manifests/sid-entry.json").is_file())
+                self.assertIn("devflow: workflow-manifest-observer:", result.stderr)
+                self.assertEqual(sorted(path.name for path in manifests.iterdir()), before)
+        self.assertFalse((self.root / ".devflow/tmp/workflow-runs").exists())
+
+    def test_stop_entry_point_is_fail_open_when_capture_itself_raises(self) -> None:
+        entry = ROOT / "scripts/capture-implement-session.py"
+
+        # A malformed payload never reaches capture_stop_payload, so drive the observer's
+        # broad except through the capture call itself rather than through json.load.
+        with mock.patch.object(recorder, "capture_stop_payload", side_effect=RuntimeError("boom")):
+            code = recorder.fail_open_main(REGISTRY, io.StringIO(json.dumps(self._payload("/implement 1"))))
+        self.assertEqual(code, 0)
+
+        for case, raw in {"malformed json": "{malformed", "non-object payload": "[]"}.items():
+            with self.subTest(case=case):
+                result = self._run_entry(entry, raw)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("workflow-flight-recorder:", result.stderr)
         self.assertFalse((self.root / ".devflow/tmp/workflow-runs").exists())
 
 
