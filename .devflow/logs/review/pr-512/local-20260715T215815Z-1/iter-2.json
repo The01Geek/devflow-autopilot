@@ -4,7 +4,8 @@
   "fix_commit_sha": "b77b50eb",
   "fix_files": [".changeset/issue-503-diff-base-fix.md", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "lib/test/run.sh"],
   "loop_role": "promoted",
-  "promotion_provenance": {"promoted_by_iter": 1, "trigger": "early-shadow (engine_self_modifying, after iter 1)", "shadow_new_important": 2, "findings": ["N1 documented-falsehood", "N2 item-6a test-coverage"]},
+  "promotion_provenance": "shadow",
+  "promotion_detail": {"promoted_by_iter": 1, "trigger": "early-shadow (engine_self_modifying, after iter 1)", "shadow_new_important": 2, "findings": ["N1 documented-falsehood", "N2 item-6a test-coverage"]},
   "checklist": [],
   "phase3_dispatched": [],
   "diff_profile": {
