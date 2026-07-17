@@ -321,14 +321,18 @@ SECRET_FLAG = re.compile(
     # those secrets leaked raw with secret_affected=False (Step 3.5 fix-delta
     # gate, PR #531 review-and-fix local iteration — the worse direction: no
     # redaction AND no secret-affected carve-out).
-    # `(?<!\S)` token-start anchor: a flag always begins a whitespace-delimited
-    # token in the canonical command; without the anchor the widened
-    # single-dash arm matched INSIDE a hyphenated data token (`X-API-KEY=v`
-    # matched at `-API-KEY=`), mislabeling a data assignment as a flag — the
-    # same slot-fidelity defect class as the phantom `env:` slot. Anchored,
-    # such tokens fall through to SECRET_ASSIGNMENT_FALLBACK's honest
+    # `(?<!\w)` start anchor (NOT `(?<!\S)`): the anchor exists only to refuse
+    # the mid-token mislabel (`X-API-KEY=v` matching at `-API-KEY=` as a
+    # "flag"), and a preceding WORD character is exactly that case. Refusing
+    # all of `\S` over-narrowed: a flag preceded by a quote, paren, or an
+    # enclosing assignment's `=` (`run.sh "--token=v"`, `ARGS=--api-key=v`)
+    # was matched by no pattern and leaked raw with secret_affected=False —
+    # the worse direction (Step 3.5 fix-delta re-gate, PR #531 review-and-fix
+    # local iteration, inner attempt 2). `(?<!\w)` admits those non-word
+    # prefixes while still refusing the word-adjacent mid-token start; the
+    # mislabeled token routes to SECRET_ASSIGNMENT_FALLBACK's honest
     # `assign:` label (still redacted either way).
-    r"(?<!\S)(-{1,2}(?:[A-Za-z0-9_-]*[-_])?(?:token|key|password|passwd|secret|pat|credential)s?)"
+    r"(?<!\w)(-{1,2}(?:[A-Za-z0-9_-]*[-_])?(?:token|key|password|passwd|secret|pat|credential)s?)"
     r"(?: ?= ?| )" + _SECRET_VALUE,
     re.IGNORECASE,
 )
@@ -346,7 +350,11 @@ SECRET_ASSIGNMENT_FALLBACK = re.compile(
     # `env:` label. Same suffix-anchored keyword set + `S?` as the env pattern,
     # for the same collision-rejection reasons (Step 3.5 fix-delta gate,
     # PR #531 review-and-fix local iteration).
-    r"(?<!\S)((?=[A-Za-z0-9_.\-]*-)[-A-Za-z0-9_.]*(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|PAT|PASS|KEY)S?)=(?!<)" + _SECRET_VALUE,
+    # `(?<![\w.-])` start anchor (see SECRET_FLAG's `(?<!\w)` rationale — a
+    # quote/paren-preceded token must still match; additionally refusing `-`
+    # and `.` keeps this fallback from re-matching MID-token after a word char
+    # was consumed, since its own name class contains both).
+    r"(?<![\w.-])((?=[A-Za-z0-9_.\-]*-)[-A-Za-z0-9_.]*(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|PAT|PASS|KEY)S?)=(?!<)" + _SECRET_VALUE,
     re.IGNORECASE,
 )
 # curl-style short-flag credentials: `-u user:pass`. The value halves get the
@@ -688,14 +696,18 @@ def _redact_secrets(command: str) -> "tuple[str, bool, list[str]]":
 
     Returns (redacted_command, secret_affected, typed_slots). For every
     RECOGNIZED pattern class (env assignment incl. quoted values, --flag
-    secrets incl. quoted values, `-u user:pass` incl. quoted halves AND a
-    quoted whole operand, URL credentials incl. a password containing `/` or
-    `@`, Bearer tokens), no raw secret and no unkeyed digest of secret material leaves
+    secrets incl. quoted values and underscore/single-dash spellings,
+    hyphen-named assignment tokens via the ``assign:`` fallback
+    (``X-API-KEY=v``, ``-Dapikey=v``), `-u user:pass` incl. quoted halves AND
+    a quoted whole operand, URL credentials incl. a password containing `/`
+    or `@`, Bearer tokens), no raw secret and no unkeyed digest of secret material leaves
     this function: the digest (in BindingIdentity) is computed over
     ``redacted_command``. Known Wave-1 limitation (documented, not guessed
     at): a secret passed through a shape OUTSIDE these classes — e.g. a bare
-    positional password, or a bespoke short flag other than ``-u`` — is not
-    recognized and therefore not redacted; extending the class set is the
+    positional password, a bespoke short flag other than ``-u``, or an
+    assignment value that itself begins with ``<`` (the fallback's
+    marker-safety guard skips it) — is not recognized and therefore not
+    redacted; extending the class set is the
     remedy, and the conservative direction (per issue #527's gotcha) is that
     an over-broad redaction lowers confidence rather than merging commands,
     so new classes should prefer precision (like ``-u``'s colon requirement)
@@ -1553,8 +1565,11 @@ def _stop_attempts_state(bundle: Path, stats: "dict | None" = None) -> "tuple[st
     (unestablishable — the caller's consistency check treats ``None`` as a
     contradiction, never as "no claim")."""
     attempts = bundle / "stop-attempts.jsonl"
-    if not attempts.exists():
-        return "none", []
+    # Symlink check BEFORE exists() — the same deliberate ordering as the
+    # bundle/metadata/transcript siblings in _classify_source_status: exists()
+    # follows symlinks, so a DANGLING stop-attempts symlink would silently
+    # read as "none" (-> source_missing) with no breadcrumb (Step 3.5
+    # fix-delta re-gate, inner attempt 2).
     if attempts.is_symlink():
         # AC #61: never follow a symlinked stop-attempts log (same class as
         # the other discovered-file rejections).
@@ -1564,6 +1579,8 @@ def _stop_attempts_state(bundle: Path, stats: "dict | None" = None) -> "tuple[st
             file=sys.stderr,
         )
         return "unreadable", []
+    if not attempts.exists():
+        return "none", []
     try:
         text = attempts.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):

@@ -3152,6 +3152,41 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         self.assertEqual(status, SOURCE_UNREADABLE)
         self.assertIn("symlink", err.getvalue())
 
+    # Step 3.5 inner attempt 2: a secret flag/assignment preceded by a
+    # non-space NON-WORD character (quote, paren, an enclosing assignment's
+    # `=`) must still be redacted — the token-start anchor may refuse only a
+    # preceding WORD character (the mid-token mislabel case), never all of \S.
+    def test_nonword_preceded_flags_still_redacted(self) -> None:
+        for cmd, want_prefix in (
+            ('run.sh "--token=hunter2"', "flag:"),
+            ("run.sh '--token=hunter2'", "flag:"),
+            ("run.sh (--token=hunter2)", "flag:"),
+            ("ARGS=--api-key=hunter2 run.sh", "flag:"),
+            ('run.sh "X-API-KEY=hunter2"', "assign:"),
+        ):
+            b = vb._binding_identity(cmd)
+            self.assertTrue(b.secret_affected, cmd)
+            self.assertNotIn("hunter2", b.redacted_display, cmd)
+            self.assertTrue(any(s.startswith(want_prefix) for s in b.secret_slots), (cmd, b.secret_slots))
+        # The anchor's motivating case stays fixed: no mid-token flag mislabel.
+        b2 = vb._binding_identity("curl -H X-API-KEY=hunter2 example")
+        self.assertNotIn("hunter2", b2.redacted_display)
+        self.assertIn("assign:X-API-KEY", b2.secret_slots)
+        self.assertEqual([s for s in b2.secret_slots if s.startswith("flag:")], [])
+
+    # Step 3.5 inner attempt 2: a DANGLING stop-attempts.jsonl symlink is
+    # rejected loudly ("unreadable"), never silently read as "none".
+    def test_dangling_stop_attempts_symlink_is_rejected(self) -> None:
+        sid = "s-dang-stop"
+        write_bundle(self.bundles, sid, b"")
+        s = self.bundles / sid / "stop-attempts.jsonl"
+        s.symlink_to(Path(self.tmp) / "gone.jsonl")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            state, claims = vb._stop_attempts_state(self.bundles / sid, None)
+        self.assertEqual(state, "unreadable")
+        self.assertIn("symlink", err.getvalue())
+
     # FP-4: the exact join arm requires the same source event AND the same
     # tool_use — one assistant event can carry multiple Bash tool_uses.
     def test_join_exact_requires_same_tool_use(self) -> None:
