@@ -27,13 +27,11 @@
       "Bash(lib/preflight.sh:*)",
       "Bash(shellcheck:*)"
     ],
-    "execution_diagnostics_enabled": true,
-    "execution_transcript_artifact_enabled": true
+    "execution_diagnostics_enabled": false,
+    "execution_transcript_artifact_enabled": false
   },
   "devflow_implement": {
-    "provider": "openrouter",
-    "claude_model": "z-ai/glm-5.2",
-    "effort": "medium",
+    "effort": "low",
     "implement_pr_state": "ready_for_review",
     "allowed_tools": [
       "Bash(lib/test/run.sh:*)",
