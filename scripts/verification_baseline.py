@@ -239,7 +239,11 @@ SECRET_ENV_ASSIGNMENT = re.compile(
     # in a keyword) while rejecting the collision words above. Over-redaction
     # of a rare name that merely ends in a keyword (COMPASS=) stays the safe
     # direction (partial confidence, no leak).
-    r"\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|PAT|PASS|KEY))=" + _SECRET_VALUE,
+    # A trailing `S?` admits the plural/compound forms (API_KEYS, GITHUB_TOKENS,
+    # SECRETS) without re-admitting the collision words: PATH/PATTERN/KEYWORDS
+    # end in a NON-`S` char after the keyword prefix, so `S?=` still rejects
+    # them (PR #531 iteration-2 fix-delta gate: suffix-anchoring dropped plurals).
+    r"\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|PAT|PASS|KEY)S?)=" + _SECRET_VALUE,
     re.IGNORECASE,
 )
 SECRET_FLAG = re.compile(

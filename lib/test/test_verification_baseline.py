@@ -1778,7 +1778,9 @@ class Pr531Iter2ShadowFixTests(_TmpDirTestCase):
             b = vb._binding_identity(benign)
             self.assertFalse(b.secret_affected, f"{benign!r} must not be secret-affected")
         for real in ('GITHUB_TOKEN=abc x', 'APIKEY=abc x', 'API_KEY=abc x', 'MY_PAT=abc x',
-                     'PASSWORD=abc x', 'AWS_SECRET_ACCESS_KEY=abc x'):
+                     'PASSWORD=abc x', 'AWS_SECRET_ACCESS_KEY=abc x',
+                     # Plural/compound forms (fix-delta gate recall regression):
+                     'API_KEYS=abc x', 'GITHUB_TOKENS=abc x', 'SECRETS=abc x'):
             b = vb._binding_identity(real)
             self.assertTrue(b.secret_affected, f"{real!r} must be secret-affected")
             self.assertNotIn("abc", b.redacted_display)
