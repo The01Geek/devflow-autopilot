@@ -1,0 +1,6 @@
+[
+  {"decision": "test-first RED observed for iteration-1 behavioral fixes",
+   "command": "python3 lib/test/test_verification_baseline.py (pre-fix HEAD 218c5bf1)",
+   "result": "FAILED (failures=15, errors=1) — exactly the new/updated tests: quoted-env secret redaction, curl -u creds, cancelled/action_required cloud eligibility, prior-missing ordering (incl. list-order fallback), escaped-quote splitter (2), stop-attempts writer-shape realignment (s-failed fixture, tri-state positive control, all-corrupt log, captured-claim-missing-transcript, empty-transcript claims), extraction-failure counter/provenance, BindingIdentity __post_init__, registry review/run mapping, to_dict field-superset (error was a test-side arg-order bug, corrected)",
+   "evidence": "each failure is the absent behavior, not a fixture error; controls (unquoted chain still splits, missing-before-relaunch still candidate, cancelled-with-start confirmed) passed pre-fix"}
+]
