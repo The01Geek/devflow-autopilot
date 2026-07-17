@@ -7,6 +7,11 @@
 # it never invokes the runner or the full-suite boundary. The inventory in
 # review-and-fix-contract.inventory.md maps the extracted coverage to its former
 # run.sh locations. Modules may not self-skip.
+# The `trap _raf_cleanup EXIT` below relies on a sourcing contract: both callers
+# (module-harness.sh and run-module.sh) source this module inside a ( ... )
+# subshell, so the trap fires at subshell exit and cannot clobber the runner's
+# own EXIT handling. Do not source this module directly in a runner's top-level
+# shell without restoring the trap.
 
 # This module deliberately uses the caller's module API only. A caller may point
 # DEVFLOW_RAF_CONTRACT_ROOT at a scratch repository copy for mutation evidence;
@@ -81,6 +86,8 @@ assert_eq "raf max_iterations: schema minimum is one" "1" \
   "$(jq -r "$RAF_MAXI_PROP.minimum" "$RAF_SCHEMA")"
 assert_eq "raf max_iterations: schema default is five" "5" \
   "$(jq -r "$RAF_MAXI_PROP.default" "$RAF_SCHEMA")"
+assert_eq "raf max_iterations: schema has a non-empty description" "yes" \
+  "$(jq -e "$RAF_MAXI_PROP.description | type == \"string\" and (length > 0)" "$RAF_SCHEMA" >/dev/null && echo yes || echo no)"
 assert_eq "raf max_iterations: example matches schema default" \
   "$(jq -r "$RAF_MAXI_PROP.default" "$RAF_SCHEMA")" \
   "$(jq -r '.devflow_review_and_fix.max_iterations' "$RAF_EXAMPLE")"
@@ -104,6 +111,7 @@ assert_eq "raf max_iterations clamp: no upper cap" "42" "$(_raf_maxi_clamp 42)"
 assert_eq "raf max_iterations clamp: zero floors to one" "1" "$(_raf_maxi_clamp 0)"
 assert_eq "raf max_iterations clamp: negative floors to one" "1" "$(_raf_maxi_clamp -3)"
 assert_eq "raf max_iterations clamp: non-integer falls back" "5" "$(_raf_maxi_clamp abc)"
+assert_eq "raf max_iterations clamp: float falls back" "5" "$(_raf_maxi_clamp 2.5)"
 assert_eq "raf max_iterations clamp: empty falls back" "5" "$(_raf_maxi_clamp '')"
 assert_eq "raf max_iterations clamp: resolver failure falls back" "5" "$(_raf_maxi_clamp '' 2)"
 _raf_pin_unique "raf max_iterations: skill keeps negative-aware integer validation" \
