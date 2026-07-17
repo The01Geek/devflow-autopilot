@@ -266,11 +266,36 @@ SECRET_FLAG = re.compile(
 # operand (`sort -u file.txt`) never matches; a `-u` operand that DOES contain
 # a colon (`sort -u a:b`) is over-redacted — the safe direction (partial
 # confidence, no leak), not the credential-only match the old comment claimed.
+#
+# The two WHOLE-OPERAND-quoted alternatives lead the group and are load-bearing
+# (issue #527 review, Important 1): the halves-oriented third alternative only
+# matches when a colon survives at the TOP level, but `-u "user:pass"` hides the
+# colon INSIDE the quotes, so `"[^"]*(?:"|$)` consumed the operand whole, no
+# top-level `:` remained, the pattern did not fire, and the raw credential
+# reached both `redacted_display` and the digest input with secret_affected
+# False (excluding it from the secret-affected retry-candidate carve-out).
+# `[^"':]*` before the colon pins the FIRST in-quote colon as the separator, so
+# each alternative has one deterministic parse and adds no backtracking pair —
+# the ReDoS-safety property the quote-exclusion above establishes is preserved.
 SECRET_SHORT_U = re.compile(
     r"(?<![\w-])(-u[ =]?)"
-    r"((?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|[^\s:\"'])+:(?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|[^\s\"'])+)"
+    r"("
+    r"\"[^\"':]*:[^\"]*(?:\"|$)"
+    r"|'[^\"':]*:[^']*(?:'|$)"
+    r"|(?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|[^\s:\"'])+:(?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|[^\s\"'])+"
+    r")"
 )
-SECRET_URL = re.compile(r"(https?://)[^/\s:@]+:[^/\s:@]+@")
+# URL credentials: `https://user:pass@host`. The PASSWORD half deliberately
+# admits `/` and `@` (issue #527 review, Suggestion 1 — the same recall class as
+# the `-u` whole-operand gap above): the old `[^/\s:@]+` password class failed on
+# `https://user:pa/ss@host` (no match at all — the WHOLE credential leaked) and
+# truncated `https://user:pa@ss@host` at the first `@` (leaking the `ss` tail).
+# Greedy `[^\s]+` backtracks to the LAST `@`, which is where a URL's userinfo
+# actually ends. The USER half still excludes `/`, which is what keeps a pathy
+# `https://host/a:b@c` from false-positiving — and where a genuinely ambiguous
+# authority does match, over-redaction is the safe direction (partial
+# confidence, no leak), never a merged command.
+SECRET_URL = re.compile(r"(https?://)[^/\s:@]+:[^\s]+@")
 BEARER_TOKEN = re.compile(r"(Bearer\s+)([A-Za-z0-9._\-+/=]+)", re.IGNORECASE)
 
 DEFAULT_MANIFESTS_DIR = ".devflow/tmp/workflow-manifests"
@@ -519,8 +544,9 @@ def _redact_secrets(command: str) -> "tuple[str, bool, list[str]]":
 
     Returns (redacted_command, secret_affected, typed_slots). For every
     RECOGNIZED pattern class (env assignment incl. quoted values, --flag
-    secrets incl. quoted values, `-u user:pass`, URL credentials, Bearer
-    tokens), no raw secret and no unkeyed digest of secret material leaves
+    secrets incl. quoted values, `-u user:pass` incl. quoted halves AND a
+    quoted whole operand, URL credentials incl. a password containing `/` or
+    `@`, Bearer tokens), no raw secret and no unkeyed digest of secret material leaves
     this function: the digest (in BindingIdentity) is computed over
     ``redacted_command``. Known Wave-1 limitation (documented, not guessed
     at): a secret passed through a shape OUTSIDE these classes — e.g. a bare

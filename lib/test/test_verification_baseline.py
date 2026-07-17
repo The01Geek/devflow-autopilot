@@ -1574,6 +1574,72 @@ class Pr531Iter1FixLoopTests(_TmpDirTestCase):
         for fragment in ("pass word", " word"):
             self.assertNotIn(fragment, b.redacted_display)
 
+    # --- Gate issue #527 review, Important 1: a WHOLE-operand-quoted `-u`
+    #     credential hides the separator colon inside the quotes. The prior
+    #     halves-oriented pattern needed a TOP-level colon, so it did not fire
+    #     and the raw credential reached redacted_display AND the digest input
+    #     with secret_affected False. Every spelling below is the recognized
+    #     `-u` class the _redact_secrets docstring promises to redact. ---------
+    def test_short_u_whole_operand_quoted_credential_redacted(self) -> None:
+        for command, leak in (
+            ('curl -u "user:pass" https://example.invalid/', "pass"),
+            ("curl -u 'user:pass' https://example.invalid/", "pass"),
+            ('curl -u"user:pass" https://example.invalid/', "pass"),   # compact + quoted
+            ('curl -u "user:pa:ss" https://example.invalid/', "pa:ss"),  # first colon separates
+            ('curl -u "user:pass', "pass"),                              # unterminated -> EOL
+        ):
+            with self.subTest(command=command):
+                b = vb._binding_identity(command)
+                self.assertTrue(b.secret_affected)
+                self.assertIn("flag:u", b.secret_slots)
+                self.assertNotIn(leak, b.redacted_display)
+                # The digest is taken over the redacted form, so a leak in the
+                # display is also a leak into the persisted binding identity.
+                self.assertNotIn(leak, vb._binding_identity(command).redacted_display)
+
+    def test_short_u_whole_operand_quoted_negative_controls(self) -> None:
+        # Positive control for the fixture shape above: the same `-u` flag with
+        # a colon-free operand must NOT redact, so the redaction proven above is
+        # attributable to the credential shape and not to `-u` firing on sight.
+        for command in ("sort -u lib/test/run.sh", 'curl -u "username" https://example.invalid/'):
+            with self.subTest(command=command):
+                b = vb._binding_identity(command)
+                self.assertFalse(b.secret_affected)
+                self.assertFalse(b.secret_slots)
+                self.assertEqual(b.redacted_display, command)
+
+    # --- Gate issue #527 review, Suggestion 1 (same recall class as Important
+    #     1): a URL password containing `/` or `@`. The old `[^/\s:@]+` password
+    #     class did not match `pa/ss` at all (whole credential leaked) and
+    #     truncated `pa@ss` at the first `@` (tail leaked). ---------------------
+    def test_secret_url_password_with_slash_or_at_redacted(self) -> None:
+        # Each password carries a DISTINCTIVE trailing token so the assertion
+        # pins the fragment the pre-fix pattern actually leaked, not merely the
+        # whole password string: `[^/\s:@]+` truncated the match at the first
+        # `@`, so `https://user:pa@SSTAIL@host` redacted to `<url-cred>@SSTAIL@`
+        # — a display in which the *contiguous* password "pa@SSTAIL" is absent
+        # while SSTAIL itself leaks. Asserting the whole password would pass
+        # vacuously against that mutant.
+        for command, leaks in (
+            ("curl https://user:pa/SLASHTAIL@host.invalid/x lib/test/run.sh", ("pa/SLASHTAIL", "SLASHTAIL")),
+            ("curl https://user:pa@SSTAIL@host.invalid/x lib/test/run.sh", ("pa@SSTAIL", "SSTAIL")),
+            ("curl https://user:p/a@s:MIXTAIL@host.invalid/x lib/test/run.sh", ("p/a@s:MIXTAIL", "MIXTAIL")),
+        ):
+            with self.subTest(command=command):
+                b = vb._binding_identity(command)
+                self.assertTrue(b.secret_affected)
+                for leak in leaks:
+                    self.assertNotIn(leak, b.redacted_display)
+
+    def test_secret_url_pathy_colon_is_not_a_credential(self) -> None:
+        # The user half still excludes `/`, so a colon in a PATH does not turn
+        # the URL into a false credential match (the precision the widened
+        # password class must not cost).
+        b = vb._binding_identity("curl https://host.invalid/a:b@c lib/test/run.sh")
+        self.assertFalse(b.secret_affected)
+        self.assertFalse(b.secret_slots)
+        self.assertEqual(b.redacted_display, "curl https://host.invalid/a:b@c lib/test/run.sh")
+
     # --- Gate finding 5: a captured claim whose byte field is unusable beside
     #     an empty transcript is unestablishable, never clean. ----------------
     def test_empty_transcript_with_corrupt_byte_claim_fails_closed(self) -> None:
