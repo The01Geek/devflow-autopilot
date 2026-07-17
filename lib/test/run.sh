@@ -8739,6 +8739,25 @@ PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies >/dev/null 2>&1; P54
 assert_eq "#547: a usage error exits UNAVAILABLE(3), not the BLOCKED code (2)" "3" "$P547_USAGE_RC"
 rm -rf "$P547D"
 
+# ── issue #547 AC10: the §1.3.5 dependency gate precedes §1.4 branch work ──────
+# The gate must run before ANY §1.4 branch operation (resume-precheck checkout,
+# fetch, checkpoint merge, fresh-branch creation, push) on every entry path.
+# Assert it positionally in the owning file (single coordinate space), mirroring
+# the "backstop precedes the publish gate" idiom elsewhere in this file.
+P547_ORD_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
+P547_GATE_LN=$(grep -nF 'preflight.py dependencies --issue $ISSUE_NUMBER' "$P547_ORD_FILE" | head -1 | cut -d: -f1)
+P547_14_LN=$(grep -nF '### 1.4 Create or Detect Feature Branch' "$P547_ORD_FILE" | head -1 | cut -d: -f1)
+assert_eq "#547 AC10: the early dependency gate precedes §1.4 branch work (all entry paths)" "yes" \
+  "$([ -n "$P547_GATE_LN" ] && [ -n "$P547_14_LN" ] && [ "$P547_GATE_LN" -lt "$P547_14_LN" ] && echo yes || echo no)"
+# Mutation evidence (AC10): a sed -E reorder that moves the gate invocation to
+# after the §1.4 heading (copy-to-hold `h`, then append `G` at the heading — a
+# genuine relocation, not a mere-removal strip) makes the unique gate literal
+# appear in the post-branch position too, breaking its uniqueness. assert_pin_red_under
+# proves that reorder turns the invocation pin RED (present-and-unique → non-unique).
+assert_pin_red_under "#547 AC10: a sed -E reorder placing the gate after §1.4 turns its pin RED" \
+  'preflight.py dependencies --issue $ISSUE_NUMBER' \
+  '/preflight\.py dependencies --issue/h;/^### 1\.4 Create or Detect Feature Branch/G' "$P547_ORD_FILE"
+
 # ── issue #254: declared sequencing-dependency vocabulary stays coupled. ───
 # An issue stating it "must merge after #N" is verified deterministically: each
 # declared dependency's state is read via gh issue view; all-closed records a
