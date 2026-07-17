@@ -306,8 +306,17 @@ automatically proven duplicates.
 
 ### Metrics, manual review, stratification, and performance
 
-Baseline metrics include eligible lifecycles, eligibility-state bounds, source
-availability and missingness, local actual launches, terminal and missing
+Baseline metrics include census rows (every job row, confirmed-ineligible
+included) and eligible lifecycles (confirmed + provisional only — the two are
+distinct: the census emits one row per job, so most rows on a real snapshot are
+non-agent jobs the analyzer certifies ineligible, and counting them as
+"eligible" would inflate the headline denominator), eligibility-state bounds,
+source availability and missingness, local actual launches — plus their
+breakdown by the owning lifecycle's eligibility state, since extraction admits
+any source-available local row regardless of eligibility, so a launch can sit in
+the numerator with nothing behind it in the eligible denominator; a non-zero
+non-eligible tally means the launch/eligible ratio is not a clean fraction —
+terminal and missing
 results, repeated-binding groups, candidate retries, intentional-rerun evidence,
 independent lifecycles, unclassifiable groups, workspace-coverage distribution,
 join-confidence distribution, command heads, consumers/checkpoints, provenance,

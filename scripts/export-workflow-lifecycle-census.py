@@ -210,8 +210,18 @@ def fetch_runs_and_jobs(gh: str, repo: str, workflows: list[str], created_after:
         if not isinstance(page_runs, list):
             pagination_complete = False
             break
-        # Filter to the declared workflow set by workflow path/name.
-        filtered = [r for r in page_runs if isinstance(r, dict) and _matches_workflow_set(r, workflows)] if workflows else list(page_runs)
+        # Filter to the declared workflow set by workflow path/name. A NON-DICT
+        # row is deliberately KEPT here rather than filtered out: build_snapshot
+        # already owns the malformed-row contract (it counts the row into
+        # dropped_runs and folds that into pagination_complete=False), so
+        # discarding it at fetch time made that guard UNREACHABLE — dropped_runs
+        # stayed 0 and the snapshot self-certified complete over a silently
+        # shrunk denominator, the exact fail-open the guard exists to close
+        # (PR #531 review-and-fix iter-1, code-reviewer Critical). Share the
+        # consumer's own contract instead of re-deriving a second counting path
+        # here; `_matches_workflow_set` is only asked about real dicts.
+        filtered = [r for r in page_runs
+                    if not isinstance(r, dict) or _matches_workflow_set(r, workflows)] if workflows else list(page_runs)
         runs.extend(filtered)
         if len(page_runs) < per_page:
             break
@@ -221,6 +231,14 @@ def fetch_runs_and_jobs(gh: str, repo: str, workflows: list[str], created_after:
             break
     jobs_by_run: dict[int, list[dict]] = {}
     for run in runs:
+        if not isinstance(run, dict):
+            # A malformed row now reaches here (it is kept above so
+            # build_snapshot can count it). It has no jobs to fetch and must not
+            # be asked for `.get` — the unguarded call raised AttributeError and
+            # took down the whole export, so the "incomplete snapshot reads
+            # unavailable, never zero" contract never got the chance to apply
+            # (PR #531 review-and-fix iter-1, code-reviewer Critical).
+            continue
         run_id = run.get("id")
         if run_id is None:
             continue

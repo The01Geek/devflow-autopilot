@@ -12,10 +12,12 @@ import hashlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import stat
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -187,6 +189,15 @@ def candidate_pair():
     a = make_launch("a", start_auth=START_CONFIRMED_RESULT_MISSING)  # prior missing
     b = make_launch("b", start_auth=START_CONFIRMED_TERMINAL)
     return a, b
+
+
+def _candidate_pair_with_consumers(consumer_a, consumer_b):
+    """candidate_pair() with only consumer_skill varied — built by replacing on
+    the real fixture so the pair cannot drift from the genuine candidate shape
+    (a hand-rolled near-miss would make the guard's test vacuous)."""
+    a, b = candidate_pair()
+    return (dataclasses.replace(a, consumer_skill=consumer_a),
+            dataclasses.replace(b, consumer_skill=consumer_b))
 
 
 class _TmpDirTestCase(unittest.TestCase):
@@ -1981,6 +1992,167 @@ class Pr531Iter2ShadowFixTests(_TmpDirTestCase):
         self.assertEqual(snap["row_count"], 1)
         self.assertIn("dropped", buf.getvalue().lower())
 
+
+class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
+    """Iteration-1 findings of the /devflow:review-and-fix run on PR #531."""
+
+    # --- Phase-2 VC-6 FAIL: a backslash-escaped space is not a word boundary in
+    #     shell, but the bare-char alternative of _SECRET_VALUE stops at it, so
+    #     the secret's tail survived in redacted_display AND in the digest while
+    #     secret_affected=True falsely asserted redaction was complete. Same
+    #     recall class as the quoted-value (iter-1) and URL-password fixes, in
+    #     the escaped-value shape; fixed as a class, not per cited instance. ----
+    def test_escaped_whitespace_secret_value_fully_redacted(self) -> None:
+        for command, leaks in (
+            (r"TOKEN=sec\ ret pytest", ("ret",)),
+            (r"API_KEY=my\ secret\ value pytest", ("secret", "value")),
+            (r"mytool --api-key my\ secret\ value", ("secret", "value")),
+            (r"curl -u user:pa\ ss https://example.invalid/", ("ss",)),
+            (r'TOKEN="a\"b c" pytest', ("c",)),  # escaped quote inside dquotes
+        ):
+            with self.subTest(command=command):
+                b = vb._binding_identity(command)
+                self.assertTrue(b.secret_affected)
+                stripped = re.sub(r"<(env|flag):[^>]*>", "", b.redacted_display)
+                for leak in leaks:
+                    self.assertNotIn(leak, stripped,
+                                     f"secret fragment {leak!r} survived in {b.redacted_display!r}")
+
+    def test_escaped_value_redaction_is_not_redos_prone(self) -> None:
+        # The escape alternative must not re-admit the backtracking pair the
+        # quote-exclusion closed: a backslash is consumable by exactly ONE
+        # alternative, so a backslash-dense operand stays linear.
+        for payload in ("TOKEN=" + "\\" * 4000, "curl -u " + "\\" * 4000,
+                        "TOKEN=" + '\\"' * 2000):
+            with self.subTest(payload=payload[:16]):
+                start = time.monotonic()
+                vb._redact_secrets(payload)
+                self.assertLess(time.monotonic() - start, 1.0)
+
+    # --- code-reviewer Critical: build_snapshot's malformed-run guard is
+    #     UNREACHABLE from the real fetch path. With --workflows set the
+    #     comprehension discarded the non-dict uncounted (dropped_runs stayed 0,
+    #     so the snapshot self-certified complete on a shrunk denominator); with
+    #     it empty the non-dict reached run.get("id") and raised AttributeError.
+    #     The existing exporter test called build_snapshot directly, bypassing
+    #     exactly the layer that swallowed it. -----------------------------------
+    def _fetch_with_page(self, page_runs: list) -> tuple:
+        exp = _load_export_census()
+        calls = {"n": 0}
+
+        def fake_gh_json(gh, args):
+            calls["n"] += 1
+            if "jobs" in " ".join(args):
+                return {"jobs": [], "total_count": 0}
+            return {"workflow_runs": page_runs} if calls["n"] == 1 else {"workflow_runs": []}
+
+        exp._gh_json = fake_gh_json
+        return exp, exp.fetch_runs_and_jobs("gh", "o/r", ["wf.yml"], "a", "b")
+
+    def test_fetch_layer_does_not_silently_discard_malformed_run(self) -> None:
+        good = {"id": 7, "path": "wf.yml", "name": "W", "run_attempt": 1,
+                "created_at": "c", "conclusion": "success", "status": "completed"}
+        exp, (runs, jobs, complete) = self._fetch_with_page(["not-a-dict", good])
+        # The malformed row must reach build_snapshot so its counting guard runs.
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            snap = exp.build_snapshot("o/r", ["wf.yml"], "a", "b", runs, jobs, "t", complete)
+        self.assertEqual(snap["dropped_run_count"], 1,
+                         "malformed run was discarded uncounted before build_snapshot")
+        self.assertFalse(snap["pagination_complete"],
+                         "shape-drifted census self-certified complete")
+
+    def test_fetch_layer_survives_malformed_run_without_workflow_filter(self) -> None:
+        # The `else list(page_runs)` branch passed the non-dict to run.get("id").
+        exp = _load_export_census()
+        calls = {"n": 0}
+
+        def fake_gh_json(gh, args):
+            calls["n"] += 1
+            if "jobs" in " ".join(args):
+                return {"jobs": [], "total_count": 0}
+            return {"workflow_runs": ["not-a-dict"]} if calls["n"] == 1 else {"workflow_runs": []}
+
+        exp._gh_json = fake_gh_json
+        runs, jobs, complete = exp.fetch_runs_and_jobs("gh", "o/r", [], "a", "b")
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            snap = exp.build_snapshot("o/r", [], "a", "b", runs, jobs, "t", complete)
+        self.assertEqual(snap["dropped_run_count"], 1)
+        self.assertFalse(snap["pagination_complete"])
+
+    # --- Phase-2 VC-33 FAIL: consumer_approximate is dropped by its only
+    #     reader, so a stratifier cannot tell devflow.yml's multiplexed
+    #     `command` attribution from an exact one — the registry comment
+    #     instructs downstream not to treat it as exact, but nothing carries it.
+    def test_consumer_approximate_is_carried_by_its_reader(self) -> None:
+        table = vb.load_cloud_mappings(REGISTRY)
+        key = ".github/workflows/devflow.yml\x1fcommand"
+        self.assertIn(key, table)
+        self.assertTrue(table[key].get("consumer_approximate"),
+                        "consumer_approximate dropped by load_cloud_mappings")
+        exact = table[".github/workflows/devflow-implement.yml\x1fclaude"]
+        self.assertFalse(exact.get("consumer_approximate"))
+
+    # --- code-reviewer Important: `eligible_lifecycles` counted EVERY census
+    #     row, confirmed-ineligible included, under a name asserting otherwise.
+    def _rows(self, states: list[str]) -> list:
+        return [
+            vb.EligibleLifecycle(
+                source=vb.SOURCE_LOCAL, surrogate_id=f"s{i}", consumer=None, subject=None,
+                identity={"session_id": f"s{i}"}, eligibility_state=state,
+                eligibility_evidence="test", host_profile=None,
+                source_status=vb.SOURCE_MISSING, provenance={},
+            )
+            for i, state in enumerate(states)
+        ]
+
+    def test_eligible_lifecycles_excludes_confirmed_ineligible(self) -> None:
+        rows = self._rows([vb.ELIGIBILITY_CONFIRMED, vb.ELIGIBILITY_INELIGIBLE,
+                           vb.ELIGIBILITY_INELIGIBLE, vb.ELIGIBILITY_PROVISIONAL])
+        m = vb.compute_metrics(rows, [], [], [], has_cloud_snapshot=False,
+                               cloud_attempted=False, cloud_unavailable=False)
+        self.assertEqual(m["census_rows"], 4, "census_rows must carry the full row total")
+        self.assertEqual(m["eligible_lifecycles"], 2,
+                         "eligible_lifecycles must count confirmed+provisional, not every row")
+        # The full per-state split stays published — nothing is hidden by the split.
+        self.assertEqual(m["eligibility_state_bounds"][vb.ELIGIBILITY_INELIGIBLE], 2)
+
+    def test_baseline_schema_version_moved_with_the_metric_rename(self) -> None:
+        # eligible_lifecycles changed MEANING; a reader treating it as the row
+        # total would silently mis-read. Not additive => version moves.
+        self.assertGreaterEqual(vb.VERIFICATION_BASELINE_SCHEMA, 2)
+
+    # --- Phase-2 VC-4 FAIL: the issue's AC enumerates nine dimensions that
+    #     "cannot be classified as transport-retry candidates". Eight are
+    #     foreclosed (lifecycle -> independent_lifecycle; command binding ->
+    #     structurally, groups are keyed by digest; iterations/checkpoints/
+    #     post-fix commits/base merges/human retriggers -> retrigger_evidence;
+    #     cloud run attempts -> not applicable in Wave 1). CONSUMER ROLES were
+    #     foreclosed by nothing: _classify_relationship never read consumer_skill
+    #     at all, so two DIFFERENT consumers running the same command in one
+    #     lifecycle classified as candidate_transport_retry. ---------------------
+    def test_distinct_consumer_roles_are_never_a_transport_retry_candidate(self) -> None:
+        a, b = _candidate_pair_with_consumers("implement", "review")
+        rel, conf = vb._classify_relationship([a, b])
+        self.assertNotEqual(rel, vb.REL_CANDIDATE_TRANSPORT_RETRY,
+                            "distinct consumer roles classified as a transport-retry candidate")
+
+    def test_same_consumer_role_still_reaches_candidate(self) -> None:
+        # The positive control: the guard must foreclose ONLY the distinct-role
+        # case, not defeat candidate classification wholesale (a guard that
+        # rejects everything would pass the test above while asserting nothing).
+        a, b = _candidate_pair_with_consumers("implement", "implement")
+        rel, _conf = vb._classify_relationship([a, b])
+        self.assertEqual(rel, vb.REL_CANDIDATE_TRANSPORT_RETRY,
+                         "same-consumer candidate pair no longer classifies as a candidate")
+
+    def test_unrecorded_consumer_role_does_not_foreclose(self) -> None:
+        # Wave-1 rows can carry consumer=None; two None roles are not evidence
+        # of DISTINCT roles, so they must not silently foreclose the candidate.
+        a, b = _candidate_pair_with_consumers(None, None)
+        rel, _conf = vb._classify_relationship([a, b])
+        self.assertEqual(rel, vb.REL_CANDIDATE_TRANSPORT_RETRY)
 
 if __name__ == "__main__":
     unittest.main()

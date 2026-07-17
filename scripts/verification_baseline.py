@@ -62,7 +62,13 @@ CLOUD_MAPPINGS_SCHEMA_VERSION = 1
 ELIGIBLE_LIFECYCLE_SCHEMA = 1
 VERIFICATION_REQUEST_SCHEMA = 1
 VERIFICATION_PROCESS_LAUNCH_SCHEMA = 1
-VERIFICATION_BASELINE_SCHEMA = 1
+# 2: `metrics.eligible_lifecycles` changed MEANING — it counted every census row
+# (confirmed-ineligible included); it now counts confirmed + provisional only,
+# with the total moved to the new `metrics.census_rows`. A reader that kept
+# treating the old field as the row total would silently mis-read the new
+# output, so this is a semantic change, not an additive one, and the version
+# moves with it (PR #531 review-and-fix iter-1, code-reviewer Important).
+VERIFICATION_BASELINE_SCHEMA = 2
 RELATIONSHIP_GROUP_SCHEMA = 1
 
 # Census source enum (local vs cloud).
@@ -227,7 +233,30 @@ NON_VERIFICATION_HEADS = frozenset(
 # ~40-quote `-u` command hung _redact_secrets on attacker-shaped transcript
 # text). Defense-in-depth: _SECRET_VALUE's own uses have no required suffix so
 # they never backtracked, but the quote-exclusion is applied here too.
-_SECRET_VALUE = r"((?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|[^\s\"'])+)"
+#
+# A BACKSLASH ESCAPE is one shell character, so an escaped space does not end
+# the word: `TOKEN=sec\ ret` is the single value `sec ret`. The bare-char class
+# stopped at the escaped space, so the tail (`ret`) survived in
+# redacted_display AND in the digest input while secret_affected=True falsely
+# asserted redaction was complete (PR #531 review-and-fix iter-1, Phase-2 VC-6
+# FAIL). This is the same recall class as the quoted-value and URL-password
+# leaks above, in the escaped-value shape — fixed for the whole class (env,
+# --flag, and -u alike), not the one cited spelling.
+#
+# The escape alternatives lead each chunk group and the bare-char classes
+# EXCLUDE backslash (`[^\s\"'\\]`), so a backslash is consumable by EXACTLY ONE
+# alternative — the same unambiguous-segmentation property the quote-exclusion
+# establishes, so the linear-time guarantee is preserved rather than trading a
+# leak for the ReDoS this file already fixed once. `\\$` (trailing lone
+# backslash) and `\\[\s\S]` (escape pair) are mutually exclusive: the former
+# requires end-of-string, the latter a following character.
+_ESC_CHUNK = r"\\[\s\S]|\\$"
+# A double-quoted chunk processes `\"` (shell escapes inside dquotes); a
+# single-quoted chunk does NOT (backslash is literal in POSIX sglquotes), so it
+# keeps consuming to the closing quote regardless.
+_DQ_CHUNK = r"\"(?:\\[\s\S]|[^\"\\])*(?:\"|$)"
+_SQ_CHUNK = r"'[^']*(?:'|$)"
+_SECRET_VALUE = r"((?:" + _ESC_CHUNK + r"|" + _DQ_CHUNK + r"|" + _SQ_CHUNK + r"|[^\s\"'\\])+)"
 SECRET_ENV_ASSIGNMENT = re.compile(
     # The keyword must be a SUFFIX of the variable name (name ends in the
     # keyword, immediately before `=`), not merely a substring. The old
@@ -277,12 +306,19 @@ SECRET_FLAG = re.compile(
 # `[^"':]*` before the colon pins the FIRST in-quote colon as the separator, so
 # each alternative has one deterministic parse and adds no backtracking pair —
 # the ReDoS-safety property the quote-exclusion above establishes is preserved.
+# The halves-oriented third alternative carries the SAME escape-awareness as
+# _SECRET_VALUE (and shares its chunk definitions rather than re-deriving them —
+# a second copy of this segmentation is exactly the coupled-mirror drift that
+# would let one spelling regress silently): `-u user:pa\ ss` is one operand, and
+# the escape-blind bare classes leaked the `ss` tail (PR #531 review-and-fix
+# iter-1, Phase-2 VC-6 FAIL — same class as the env/--flag leak).
 SECRET_SHORT_U = re.compile(
     r"(?<![\w-])(-u[ =]?)"
     r"("
     r"\"[^\"':]*:[^\"]*(?:\"|$)"
     r"|'[^\"':]*:[^']*(?:'|$)"
-    r"|(?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|[^\s:\"'])+:(?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|[^\s\"'])+"
+    r"|(?:" + _ESC_CHUNK + r"|" + _DQ_CHUNK + r"|" + _SQ_CHUNK + r"|[^\s:\"'\\])+"
+    r":(?:" + _ESC_CHUNK + r"|" + _DQ_CHUNK + r"|" + _SQ_CHUNK + r"|[^\s\"'\\])+"
     r")"
 )
 # URL credentials: `https://user:pass@host`. The PASSWORD half deliberately
@@ -850,7 +886,15 @@ def load_cloud_mappings(registry_path: Path) -> dict[str, dict[str, str]]:
             file=sys.stderr,
         )
         return {}
-    table: dict[str, dict[str, str]] = {}
+    # `object` (not `str`) in the value type: `consumer_approximate` is a bool.
+    # It is carried rather than dropped because the registry's own comment
+    # instructs downstream stratification NOT to treat the devflow.yml `command`
+    # job's consumer as exact — an instruction nothing could honor while its only
+    # reader silently discarded the flag, leaving an approximate attribution
+    # indistinguishable from an exact one (PR #531 review-and-fix iter-1,
+    # Phase-2 VC-33 FAIL). Default False: absent means exact, and a non-bool
+    # shape coerces rather than admitting a truthy string.
+    table: dict[str, dict[str, object]] = {}
     dropped = 0
     for entry in agent_jobs:
         if not isinstance(entry, dict):
@@ -862,6 +906,7 @@ def load_cloud_mappings(registry_path: Path) -> dict[str, dict[str, str]]:
             dropped += 1
             continue
         table[f"{wf}\x1f{job}"] = {
+            "consumer_approximate": entry.get("consumer_approximate") is True,
             "consumer": str(entry.get("consumer") or ""),
             "routed_command": str(entry.get("routed_command") or ""),
             "agent_step": str(entry.get("agent_step") or ""),
@@ -1607,7 +1652,8 @@ def extract_verification_lifecycles(
                 continue
             end_idx = root.end_event if root.end_event is not None else (len(events) - 1)
             row.provenance["lifecycle_id"] = f"{sid}\x1f{root.occurrence_id}"
-            reqs, launches_in = _extract_from_lifecycle(events, root, end_idx, sid, row.consumer)
+            reqs, launches_in = _extract_from_lifecycle(events, root, end_idx, sid, row.consumer,
+                                                        row.eligibility_state)
         except Exception as exc:
             # Per-transcript exception isolation (issue #527 review, Important
             # 2): a JSON-valid but unexpected event shape that raises KeyError/
@@ -1668,7 +1714,7 @@ def _build_result_indexes(events: list) -> "tuple[dict[str, dict], dict[str, obj
     return result_by_id, result_event_by_id
 
 
-def _extract_from_lifecycle(events, root, end_idx, sid, consumer):
+def _extract_from_lifecycle(events, root, end_idx, sid, consumer, eligibility_state):
     requests: list[VerificationRequest] = []
     launches: list[VerificationProcessLaunch] = []
     # Per-lifecycle indexes + workspace_state: computed once, reused for every
@@ -1758,7 +1804,21 @@ def _extract_from_lifecycle(events, root, end_idx, sid, consumer):
                     result_presence=result is not None,
                     exit_evidence=ev,
                     skipped_check_evidence=None,
-                    provenance={"session_id": sid, "event_index": event.index},
+                    # Carry the OWNING row's eligibility state onto the launch.
+                    # This filter admits any source_available local row, with no
+                    # eligibility check, so an ineligible-but-importable row's
+                    # launches land in the numerator while its own row sits in
+                    # the confirmed_ineligible bucket — a launch counted with
+                    # nothing behind it in the eligible denominator (PR #531
+                    # review-and-fix iter-1, Phase-2 VC-2 FAIL). Wave 1 does not
+                    # change which launches are counted (that is a numerator-
+                    # policy decision for the issue owner, not this fix loop);
+                    # it makes the composition VISIBLE — metrics tally launches
+                    # by this state, so an incoherent ratio is readable rather
+                    # than silent. "Never silently omitted" cuts both ways: the
+                    # row is not dropped, and neither is the discrepancy.
+                    provenance={"session_id": sid, "event_index": event.index,
+                                "lifecycle_eligibility_state": eligibility_state},
                 ))
     return requests, launches
 
@@ -1866,6 +1926,30 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     # construction / future adapter could produce None-lifecycle members).
     if len(lifecycles) != 1 or any(not m.lifecycle_id for m in members):
         return REL_UNCLASSIFIABLE, CONFIDENCE_AMBIGUOUS
+    # DISTINCT CONSUMER ROLES cannot be a transport-retry candidate (issue #527
+    # AC, which enumerates nine such dimensions). Eight were foreclosed —
+    # lifecycle above, command binding structurally (group_launches keys groups
+    # BY binding digest), iterations/checkpoints/post-fix commits/base merges/
+    # human retriggers via retrigger_evidence, cloud run attempts not applicable
+    # in Wave 1 — but consumer roles were foreclosed by NOTHING:
+    # _classify_relationship never read consumer_skill, so two different
+    # consumers each running the same command in one lifecycle (implement's
+    # Phase 3 and review both running the suite) classified as a transport
+    # retry, inflating candidate_retries with intentional work (PR #531
+    # review-and-fix iter-1, Phase-2 VC-4 FAIL).
+    #
+    # Placed AFTER the lifecycle branches so REL_INDEPENDENT_LIFECYCLE keeps
+    # precedence (existing behavior unchanged); this fires only for the
+    # same-single-lifecycle groups that are the actual gap. Two DIFFERENT
+    # consumers each deciding to run the command is evidence the rerun was
+    # intentional — the same reading, and the same class, the retrigger branch
+    # above already applies to explicit iterations/checkpoints. `None` is an
+    # UNRECORDED role, not a distinct one (Wave-1 rows may carry no consumer),
+    # so it never forecloses: only 2+ distinct NON-None roles do — an absent
+    # operand must not silently decide this.
+    consumer_roles = {m.consumer_skill for m in members if m.consumer_skill}
+    if len(consumer_roles) > 1:
+        return REL_INTENTIONAL_RERUN, CONFIDENCE_PARTIAL
     # Same lifecycle, repeated binding -> candidate transport-retry only if ALL
     # requirements hold; else unclassifiable. The single ``ws_matching`` check
     # (every member has complete coverage AND all share the same covered-roots
@@ -2021,8 +2105,32 @@ def compute_metrics(
     candidate_group_durations = [g.duration_ms for g in groups if g.relationship == REL_CANDIDATE_TRANSPORT_RETRY and isinstance(g.duration_ms, int)]
     estimated_wall = sum(candidate_group_durations) if candidate_group_durations else None
 
+    # `eligible_lifecycles` counted len(rows) — EVERY census row, including the
+    # ones the analyzer had just certified confirmed_ineligible (the producer
+    # emits one row per job: precheck, dedupe, telemetry, relay included), so a
+    # measurement tool whose entire purpose is not over-claiming published an
+    # inflated headline denominator under a name asserting the opposite, and the
+    # parameter's own `list[EligibleLifecycle]` type encoded the invariant the
+    # data violated. `census_rows` now carries the total (nothing is hidden —
+    # the full per-state split remains in eligibility_state_bounds) and
+    # `eligible_lifecycles` means what it says: confirmed + provisional.
+    # (PR #531 review-and-fix iter-1, code-reviewer Important.)
+    eligible_denominator = eligibility_bounds[ELIGIBILITY_CONFIRMED] + eligibility_bounds[ELIGIBILITY_PROVISIONAL]
+    # Numerator composition by the OWNING row's eligibility (Phase-2 VC-2 FAIL):
+    # extraction admits any source_available local row regardless of eligibility,
+    # so a launch can sit in the numerator with nothing behind it in the
+    # denominator above. Wave 1 keeps the numerator as-is and makes the
+    # discrepancy readable instead of silent; a non-zero non-eligible tally is
+    # the signal that the ratio is not a clean fraction.
+    launches_by_eligibility = count_into(
+        (str(launch.provenance.get("lifecycle_eligibility_state") or "unrecorded")
+         for launch in actual_launches),
+        ELIGIBILITY_STATES + ("unrecorded",),
+    )
     return {
-        "eligible_lifecycles": len(rows),
+        "census_rows": len(rows),
+        "eligible_lifecycles": eligible_denominator,
+        "local_actual_launches_by_lifecycle_eligibility": launches_by_eligibility,
         "eligibility_state_bounds": eligibility_bounds,
         "source_availability_and_missingness": source_missingness,
         "local_actual_launches": len(actual_launches),
@@ -2359,7 +2467,19 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
             eligibility_evidence=evidence,
             host_profile={"conclusion": raw.get("conclusion"), "status": status},
             source_status=CLOUD_SOURCE_AVAILABLE,
-            provenance={"snapshot_hash": snapshot.get("snapshot_hash"), "run_id": run_id, "run_attempt": run_attempt},
+            provenance={
+                "snapshot_hash": snapshot.get("snapshot_hash"),
+                "run_id": run_id,
+                "run_attempt": run_attempt,
+                # Surfaced on the ROW, not merely carried in the mapping table:
+                # the consumer attribution of a multiplexed job (devflow.yml's
+                # `command` routes three commands, and the census snapshot is
+                # job-level) is a Wave-1 approximation, and a stratifier reading
+                # this row must be able to tell it from an exact attribution.
+                # Nothing could, while the flag was dropped by its only reader
+                # (PR #531 review-and-fix iter-1, Phase-2 VC-33 FAIL).
+                "consumer_approximate": bool(mapping.get("consumer_approximate")) if mapping else False,
+            },
         ))
         position += 1
     if malformed_rows:
@@ -2414,7 +2534,21 @@ def generate_report(baseline: "VerificationBaseline") -> str:
     lines.append(f"- expires_at: {baseline.expires_at}")
     lines.append("")
     lines.append("## Census + eligibility (denominator)")
-    lines.append(f"- eligible lifecycles: {m['eligible_lifecycles']}")
+    lines.append(f"- census rows: {m['census_rows']} (every job row, including confirmed-ineligible)")
+    lines.append(f"- eligible lifecycles: {m['eligible_lifecycles']} (confirmed + provisional)")
+    _ineligible_launches = sum(
+        c for s, c in m["local_actual_launches_by_lifecycle_eligibility"].items()
+        if s not in (ELIGIBILITY_CONFIRMED, ELIGIBILITY_PROVISIONAL)
+    )
+    if _ineligible_launches:
+        # Never print the ratio's numerator without this when it does not sit
+        # over the denominator above — the incoherence must be readable at the
+        # surface a human actually reads (PR #531 review-and-fix iter-1, VC-2).
+        lines.append(
+            f"- ⚠️ {_ineligible_launches} actual launch(es) come from lifecycles that are NOT in the "
+            f"eligible denominator above (extraction admits any source-available local row regardless "
+            f"of eligibility) — treat the launch/eligible ratio as non-comparable, not a clean fraction"
+        )
     bounds = m["eligibility_state_bounds"]
     lines.append(f"- eligibility bounds: confirmed={bounds.get(ELIGIBILITY_CONFIRMED, 0)} provisional={bounds.get(ELIGIBILITY_PROVISIONAL, 0)} ineligible={bounds.get(ELIGIBILITY_INELIGIBLE, 0)} unknown={bounds.get(ELIGIBILITY_UNKNOWN, 0)}")
     sm = m["source_availability_and_missingness"]
@@ -2740,7 +2874,11 @@ def main(argv: "list[str] | None" = None) -> int:
     _atomic_write(out_subdir / "manual_review.json", json.dumps(manual_review_doc, indent=2, sort_keys=True).encode("utf-8"))
 
     print(f"devflow verification-baseline: wrote {out_subdir}/verification_baseline.json + report.md")
-    print(f"  eligible lifecycles: {metrics['eligible_lifecycles']} | actual launches: {metrics['local_actual_launches']} | candidate retries: {metrics['candidate_retries']} | unclassifiable: {metrics['unclassifiable_groups']}")
+    # The stdout summary prints the headline figures with NO adjacent bounds
+    # disclosure, so it carried the inflated denominator entirely uncorrected —
+    # print the census total beside the eligible count here too (PR #531
+    # review-and-fix iter-1, code-reviewer Important).
+    print(f"  census rows: {metrics['census_rows']} | eligible lifecycles: {metrics['eligible_lifecycles']} | actual launches: {metrics['local_actual_launches']} | candidate retries: {metrics['candidate_retries']} | unclassifiable: {metrics['unclassifiable_groups']}")
     print(f"  wall {wall_ms}ms | peak {peak}B | output {len(payload)}B | skipped/unsupported {performance['skipped_unsupported_source_count']}")
     return 0
 
