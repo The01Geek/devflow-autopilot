@@ -1,0 +1,327 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-17T07:56:28Z",
+  "fix_commit_sha": "1a1241b37d6c658aa9cf85b35e222bd6ab8e01db",
+  "fix_files": ["scripts/issue-audit-state.py"],
+  "loop_role": "fix",
+  "sweep_defs_read": {
+    "source": "skills/implement/phases/phase-2-implement.md",
+    "note": "fix delta is a prose/docstring correction only; trigger-gated sweeps evaluated against that shape"
+  },
+  "sweep_evidence": {
+    "status": "run",
+    "diff_shape": "prose/comment-only fix delta (docstring + sibling inline comment in one .py file); no guard, predicate, parser, or behavioral surface changed",
+    "class_sweep": "generalized the finding to kind=documented_falsehood over the changed surface: git grep for every precedence claim over the eligibility reason vocabulary found exactly two sites (issue-audit-state.py:776-778 docstring = FALSE, fixed; :830 inline comment = accurate-but-partial 3-term subset, completed for mirror consistency). No other sibling."
+  },
+  "checklist": [
+    {"id": "VC-1", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "absolute_claim:issue-audit-state.py:no-filters-digest-agreement", "reused_from_iter_prev": false},
+    {"id": "VC-2", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "absolute_claim:issue-audit-state.py:arm-verdict-cross-product-total", "reused_from_iter_prev": false, "evidence": "mutation on scratch copy: removing the inline/DRAFT-UNREADABLE row fired the import-time assert"},
+    {"id": "VC-3", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "absolute_claim:issue-audit-state.py:override-invalidated-by-later-revision", "reused_from_iter_prev": false},
+    {"id": "VC-4", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "absolute_claim:issue-audit-state.py:absent-carriage-equals-mismatched", "reused_from_iter_prev": false},
+    {"id": "VC-5", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "dependency_interaction:issue-audit-state.py:round-funding-formula", "reused_from_iter_prev": false},
+    {"id": "VC-6", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "test_mock_alignment:test_python_scripts.py:transition-rows-lockstep-content", "reused_from_iter_prev": false},
+    {"id": "VC-7", "verification_mode": "agent", "verdict": "FAIL", "claim_signature": "absolute_claim:issue-546:lockstep-planted-defect-evidence-recorded", "reused_from_iter_prev": false, "evidence": "verifier looked only for assert_pin_red_under in run.sh; the AC requires the control be RECORDED IN THE PR, which it is (PR body line 29 + issue workpad note 00:36:03)"},
+    {"id": "VC-8", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "dependency_interaction:issue-audit-state.py:slug-path-escape-guard-ordering", "reused_from_iter_prev": false, "evidence": "traversal slug rejected before unlink; sandbox canary untouched"},
+    {"id": "VC-9", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:issue-audit-state.py:validate-collapses-whole-file", "reused_from_iter_prev": false},
+    {"id": "VC-10", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:issue-audit-state.py:summary-fields-branch-parity", "reused_from_iter_prev": false},
+    {"id": "VC-11", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:issue-audit-state.py:spdx-header-present", "reused_from_iter_prev": false, "evidence": "lite probe: hit at line 3. The item's line_range [2398,2402] was a diff-offset artifact from the generator, not a file line; the claim's intent (SPDX header present in the new file) is satisfied."},
+    {"id": "VC-12", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:SKILL.md:retired-md-log-still-named-oob", "reused_from_iter_prev": false, "evidence": "lite probe: hits at SKILL.md lines 180, 186, 196"},
+    {"id": "VC-13", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:SKILL.md:consumer-agnostic-absence-pin-preserved", "reused_from_iter_prev": false, "evidence": "lite probe: zero hits in SKILL.md and issue-template.md"},
+    {"id": "VC-14", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:issue-audit-state.py:summary-fields-ac-completeness", "reused_from_iter_prev": false},
+    {"id": "VC-15", "verification_mode": "agent", "verdict": "FAIL", "claim_signature": "dependency_interaction:issue-audit-state.py:trailing-newline-tolerance-matches-gh-jq-framing", "reused_from_iter_prev": false, "evidence": "code + tolerance verified correct; the claim misattributed the recipe's location to issue-template.md when it lives in SKILL.md:296-300"},
+    {"id": "VC-16", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "absolute_claim:issue-audit-state.py:arm-routing-recorded-fact-overrides-omitted-flag", "reused_from_iter_prev": false},
+    {"id": "VC-17", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "test_mock_alignment:run.sh:restricted-path-roundtrip-no-stray-files", "reused_from_iter_prev": false},
+    {"id": "VC-18", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "dependency_interaction:issue-audit-state.py:attestation-forward-only-guard-consistency", "reused_from_iter_prev": false},
+    {"id": "VC-19", "verification_mode": "agent", "verdict": "FAIL", "claim_signature": "absolute_claim:issue-audit-state.py:eligibility-reason-precedence-matches-docstring", "reused_from_iter_prev": false, "evidence": "verifier constructed a both-apply state and observed reason='no-digest-supplied' where the docstring demands 'stale-override'. REAL — fixed this iteration."}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:requesting-code-review",
+    "devflow:type-design-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "evaluate_eligibility's documented reason precedence contradicts the code: the docstring orders stale-override > no-digest-supplied, but no-digest-supplied returns from inside the overrides branch before the stale-override fallthrough. The suite pins the code's behavior by name (test_python_scripts.py:4130), so the docstring is the stale artifact.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [774, 776], "kind": "documented_falsehood"},
+      "corroboration_count": 1,
+      "also_corroborated_by": "Phase 2 checklist FAIL VC-19",
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "Step 3.6 fallback classification depends on free-text judgment over unstructured stderr rather than a structured reason= tag (policy-without-mechanism).",
+      "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [152, 261], "kind": "other"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "severity-calibrated"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "main() has no top-level exception backstop for the documented 'queries always exit 0' contract; enforcement rests on per-call-site catches.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1629, 1766], "kind": "unhandled_exception"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "severity-calibrated"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "cmd_query_arm reuses the digest-unrecorded embed marker for the foreign-nonce cause; once persisted via record-dispatch --marker the two causes are indistinguishable in the rendered summary.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1507, 1511], "kind": "type_design"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "below-threshold"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Four test gaps: _check_nonce mismatch path; load_state on-disk corruption via the CLI seam; route_arm prior_unreadable provenance at the query-arm seam; next_action compound budget+cap exhaustion.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [643, 956], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "below-threshold"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "Module docstring's 'Query subcommands ALWAYS exit 0' is true of answer-producing behavior but argparse exits 2 on a malformed invocation; a '(once correctly invoked)' parenthetical would disambiguate.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [22, 26], "kind": "style"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "below-threshold"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "Two self-disclosed type-design trade-offs: non-verdict-on-arm TRANSITIONS rows are not runtime-load-bearing; arm/verdict tokens are bare strings rather than enums.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [76, 296], "kind": "type_design"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "below-threshold"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "1a1241b37d6c658aa9cf85b35e222bd6ab8e01db"},
+    {"finding_id": "VC-19", "decision": "applied", "commit": "1a1241b37d6c658aa9cf85b35e222bd6ab8e01db"},
+    {
+      "finding_id": "VC-7",
+      "decision": "pushed_back",
+      "source_file": "lib/test/test_python_scripts.py",
+      "claim_text": "The lockstep assert's planted-defect positive control was actually run and observed RED, per the AC's requirement that this be recorded as evidence not attestation.",
+      "skip_category": "claim-quality",
+      "evidence": "The verifier searched only for assert_pin_red_under wrapping the lockstep in run.sh and concluded the control 'does not exist'. Issue #546's AC (line 69/120) requires the control be RECORDED IN THE PR — 'a table row removed via sed -E on a scratch copy, with the assert observed RED' — and reserves assert_pin_red_under for a DIFFERENT pin (line 121, the obey-the-tool behavioral-fix pin). The recording exists: PR #552 body line 29 ('drops module rows 33 -> 32 and the count assert is observed RED (672 passed / 3 failed vs 675 / 0 unmutated)') and the issue-546 workpad note at 00:36:03 carrying the exact sed -E expression and the observed tally. AC discharged; the verifier over-read the requirement."
+    },
+    {
+      "finding_id": "VC-15",
+      "decision": "pushed_back",
+      "source_file": "skills/create-issue/references/issue-template.md",
+      "claim_text": "record-creation-attestation's one-trailing-newline tolerance is documented and implemented consistently in issue-template.md's recipe (gh api ... --jq .body).",
+      "skip_category": "claim-quality",
+      "evidence": "The verifier confirmed the code's tolerance is real and correctly matches jq -r's raw-output framing (exactly one trailing newline), i.e. the underlying code is correct. It FAILed solely because the recipe lives in skills/create-issue/SKILL.md:296-300 rather than issue-template.md as the generator's claim asserted. That is a defect in the checklist claim's file attribution, not in the code — the engine's own verifier guidance directs PASS when the claim's wording is inaccurate but the code is correct."
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "severity-calibrated",
+      "source_file": "skills/create-issue/SKILL.md",
+      "claim_text": "Step 3.6 fallback classification is policy-without-mechanism (free-text stderr judgment).",
+      "original_severity": "Important",
+      "calibrated_severity": "Suggestion",
+      "evidence": "Over-grade shape 3 (uncorroborated single-source from silent-failure-hunter, an empirical over-grader; no other Phase-3 agent and no Phase-2 FAIL covers it) AND shape 1 (fail-closed): the agent's own blast-radius statement is 'does not itself lose data or corrupt state; the blast radius is workflow/UX, not correctness of the persisted audit record'. A misroute produces a loud degraded round or a refusal, never a silently wrong persisted verdict. Real and worth a follow-up; not an Important blocker."
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "severity-calibrated",
+      "source_file": "scripts/issue-audit-state.py",
+      "claim_text": "main() has no top-level exception backstop for the 'queries always exit 0' contract.",
+      "original_severity": "Important",
+      "calibrated_severity": "Suggestion",
+      "evidence": "Over-grade shape 1 (fail-closed) + shape 3 (uncorroborated single-source from silent-failure-hunter). The agent states 'no live failure was demonstrated' and the risk is hypothetical-future ('if any FUTURE code path escapes the local catches'). The observable fail-direction is a loud non-zero exit with a traceback — a bounded stop, the safe direction — not a wrong value presented as an answer. Phase 2 VC-9/VC-10 confirmed every current StateError/_DigestError/OSError site is caught. Defence-in-depth worth doing; not an Important blocker on this diff."
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "below-threshold",
+      "source_file": "scripts/issue-audit-state.py",
+      "claim_text": "digest-unrecorded embed marker reused for the foreign-nonce cause",
+      "skip_category": "below-threshold-parked",
+      "evidence": "parked-origin: below-threshold"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "below-threshold",
+      "source_file": "scripts/issue-audit-state.py",
+      "claim_text": "four test gaps (_check_nonce, load_state corruption, route_arm seam, next_action compound exhaustion)",
+      "skip_category": "below-threshold-parked",
+      "evidence": "parked-origin: below-threshold"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "below-threshold",
+      "source_file": "scripts/issue-audit-state.py",
+      "claim_text": "'Query subcommands ALWAYS exit 0' vs argparse's own exit 2 on malformed invocation",
+      "skip_category": "below-threshold-parked",
+      "evidence": "parked-origin: below-threshold"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "below-threshold",
+      "source_file": "scripts/issue-audit-state.py",
+      "claim_text": "self-disclosed type-design trade-offs (non-runtime TRANSITIONS rows; bare-string tokens)",
+      "skip_category": "below-threshold-parked",
+      "evidence": "parked-origin: below-threshold"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 9,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "stale_prose_check": {
+    "rows": "no STALE rows at post-fix HEAD (rc=0 pre-commit, no STALE rows post-commit); UNRESOLVABLE informational rows only, which never gate",
+    "result": "clean"
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 250,
+    "skipped_checks": [
+      {
+        "check": "#434 stale-prose self-scan",
+        "kind": "blocking-gate",
+        "reason": "working tree dirty (this check grades committed HEAD) — self-skipped at the pre-commit run only; the same gate ran GREEN on the clean tree at the parent commit 1ee048da (8519 passed, 0 failed, 0 skipped), and the independent post-commit stale-prose pre-check over origin/main...HEAD reported zero STALE rows"
+      }
+    ]
+  },
+  "test_first_gate": [
+    {
+      "decision": "no-automated-test arm: the fix delta is a docstring/comment prose correction with no new behavioral surface to exercise",
+      "command": "n/a — the guarded behavior is already pinned by name",
+      "result": "pass",
+      "evidence": "test_python_scripts.py:4130 asserts '#546 conv-shadow: a digest-bound override with no digest supplied names no-digest-supplied, not stale-override' — the exact behavior the corrected docstring now describes. The pin predates this fix and passes; the defect was the prose diverging from the pinned behavior, so no new pin is warranted (adding one would duplicate 4130)."
+    }
+  ],
+  "telemetry": {
+    "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 40},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 15},
+    "phase_1":   {"calls": 1, "tokens": 173509, "wall_clock_s": 124},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2":   {"calls": 16, "tokens": 937000, "wall_clock_s": 63},
+    "phase_3":   {"calls": 6, "tokens": 594004, "wall_clock_s": 223},
+    "step_2_5":  {"calls": 0, "tokens": 0, "wall_clock_s": 5, "webfetches": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 30}
+  },
+  "shadow": {
+    "ran_at": "2026-07-17T08:40:00Z",
+    "trigger": "early (engine_self_modifying, after iteration 1 — iteration 1 routed to fixes on a REJECT, so the convergence-time trigger had not run)",
+    "reviewed_sha": "1a1241b37d6c658aa9cf85b35e222bd6ab8e01db",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:requesting-code-review",
+      "devflow:type-design-analyzer",
+      "devflow:pr-test-analyzer"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "coverage_note": "expected roster computed from the shadow's own Phase 0.5 (has_new_types=true -> type-design-analyzer; test-relevance predicate matches -> pr-test-analyzer). iterations:first-only was NOT applied (never applies to a shadow), so code-reviewer dispatched. 1:1 join: all 6 dispatched identifiers returned exactly one parsed, evidence-bearing result. No tripwire fired: the loop's last-iter phase3_dispatched carries both gated analyzers (no narrowing divergence), and checklist_skipped is null on both sides.",
+    "phase3_findings": [
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Critical",
+        "description": "The override eligibility ground has no precondition: cmd_record_override does not require any completed round (unlike record-revision/record-creation-epoch), and _valid_override is consulted before the no-verdict-round refusal. So init -> record-override -> query-eligibility answers eligible=yes ground=override with ZERO rounds dispatched and zero verdicts, and emit-body emits the never-audited body at exit 0 — defeating the module's stated remit that a caller ignoring the exit code cannot post an unaudited body.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [826, 828], "kind": "logic_error"},
+        "corroboration_count": 1,
+        "orchestrator_reproduced": true
+      },
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Critical",
+        "description": "A digest-unbound override fails open on a file-arm epoch: --draft-file is optional on record-override, and _valid_override skips the byte comparison entirely when draft_digest is None. A tampered, never-audited draft therefore answers eligible=yes and emit-body emits it. A guard whose comparand can be absent fails open exactly where it claims to fail closed.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [748, 753], "kind": "logic_error"},
+        "corroboration_count": 1,
+        "orchestrator_reproduced": true
+      },
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Important",
+        "description": "The eligibility-token binding claim is false against HEAD: the changeset/docs/docstring say the token is bound to the answering digest or revision ordinal 'whichever ground answered', but on the override ground a digest answers while _yes is passed str(revision_ordinal(state)). Byte-distinct drafts mint an identical token — the replay the token exists to expose. Three coupled sites carry the claim.",
+        "defect_signature": {"file": ".changeset/issue-546-issue-audit-state-cli.md", "line_range": [25, 26], "kind": "documented_falsehood"},
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Important",
+        "description": "The illegal-transition vs environmental-failure discriminator the SKILL.md routes on is unparseable free-form English; all nine _TRANSITION_REASONS tokens are dead vocabulary, never emitted. _load_for_mutation merges the two classes at one site (foreign nonce and corrupt state both surface as StateError -> exit 1).",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [318, 321], "kind": "api_misuse"},
+        "corroboration_count": 1,
+        "note": "independently re-raises the same underlying concern iteration 1's silent-failure-hunter filed against SKILL.md:152-261 (different file+kind, so NEW under the Phase 3.2 signature rule) — a park-calibration signal that iteration 1's Suggestion grade was too lenient"
+      },
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Important",
+        "description": "init --nonce <same> --force silently wipes a recorded creation attestation: cmd_init builds a fresh _new_doc whose creation is None, bypassing both forward-only guards; query-summary then renders attestation=none, which SKILL.md:300 defines as 'before any creation attempt' — indistinguishable from never-attempted.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1086, 1091], "kind": "logic_error"},
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "evaluate_triggers docstring omits the third branch that unconditionally forces T2 true when the last completed round's outcome was 'no-verdict'.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [702, 723], "kind": "comment_drift"},
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:type-design-analyzer",
+        "severity": "Suggestion",
+        "description": "_validate never asserts the outcome/pending mutual-exclusivity invariant that next_action relies on.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [474, 533], "kind": "type_design"},
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:type-design-analyzer",
+        "severity": "Suggestion",
+        "description": "_validate does not re-check at load time the write-time rule that a user-decline override must name a surface.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [534, 540], "kind": "type_design"},
+        "corroboration_count": 1
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 8,
+      "overlap_with_iter_N": 0,
+      "new": 8,
+      "new_critical": 2,
+      "new_important": 3
+    },
+    "over_grade_gate": "no promote-path finding flagged: the two Criticals are fail-OPEN (shape 1 explicitly excludes a fail-open defect), the documented_falsehood is excluded from shape 2 by the truthfulness discriminator, and none is an uncorroborated single-source from silent-failure-hunter/pr-test-analyzer (shape 3) — all five promote-path findings come from code-reviewer.",
+    "promoted_to_iter_next": true
+  }
+}

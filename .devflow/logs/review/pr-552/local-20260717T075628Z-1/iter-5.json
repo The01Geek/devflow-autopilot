@@ -1,0 +1,129 @@
+{
+  "iter": 5,
+  "started_at": "2026-07-17T10:05:00Z",
+  "fix_commit_sha": "e8f65578",
+  "fix_files": ["scripts/issue-audit-state.py", "lib/test/run.sh"],
+  "loop_role": "promoted",
+  "promotion_provenance": "park-calibration-pre-shadow",
+  "promotion_note": "Promoted by the parked-class sweep (not by a shadow): the sweep generalized the parked Suggestions to their kinds and found an at-or-above-threshold sibling — the after_round read-boundary fail-open, the sibling of this PR's own _valid_override read guard.",
+  "checklist": [],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": true, "engine_self_modifying": true, "checklist_skipped": "intentional"},
+  "phase3_dispatched": [],
+  "phase3_findings": [],
+  "fix_decisions": [
+    {"finding_id": "SWEEP-1", "decision": "applied", "commit": "e8f65578",
+     "note": "after_round read-boundary fail-open. record-revision now persists the floor it validated against; _validate re-checks against THAT (not a re-derivation, which has demonstrable false positives). Verified: exploit closed, correct refusal unchanged, floor-0-while-open positive control still legal."}
+  ],
+  "convergence_inputs": {"fixes_applied": 1, "fix_diff_lines": 30, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "stale_prose_check": {"rows": "no STALE rows at post-fix HEAD", "result": "clean"},
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 260,
+    "skipped_checks": [
+      {"check": "#434 stale-prose self-scan", "kind": "blocking-gate",
+       "reason": "working tree dirty at the pre-commit run (grades committed HEAD). The independent stale-prose pre-check over origin/main...HEAD at the committed head reported zero STALE rows."}
+    ]
+  },
+  "parked_class_sweep": {
+    "dispatch": "verified",
+    "truncation": null,
+    "classes": [
+      {"source_finding_ids": ["F-4", "F-7", "SHADOW-S2", "TD-counters", "RCR-two-sites"], "kind_literal": "type_design"},
+      {"source_finding_ids": ["F-5"], "kind_literal": "test_gap"},
+      {"source_finding_ids": ["F-6"], "kind_literal": "style"},
+      {"source_finding_ids": ["GATE-S2"], "kind_literal": "other"},
+      {"source_finding_ids": ["SHADOW-S1"], "kind_literal": "comment_drift"}
+    ],
+    "seeds_excluded": ["VC-7", "VC-15", "ITER4-emit-body-embed"],
+    "seeds_excluded_reason": "claim-quality pushbacks whose recorded evidence establishes the claim FALSE — a false class is not a useful enumeration seed; priming on it manufactures lookalikes rather than siblings.",
+    "sites_examined": ["scripts/issue-audit-state.py (whole file — it is wholly new, so the entire module is changed surface)", "lib/test/run.sh", "lib/test/test_python_scripts.py", "skills/create-issue/**", "docs/**", ".changeset/**"],
+    "new_siblings": [
+      {"finding_id": "SWEEP-1", "site": "scripts/issue-audit-state.py:555-566", "severity": "Important", "disposition": "applied", "note": "the ONLY fail-open sibling; promoted to this iteration and fixed"},
+      {"finding_id": "SWEEP-2", "site": "scripts/issue-audit-state.py:802-806+873-887", "severity": "Suggestion", "disposition": "advisory", "marker": "parked-sibling: class-sweep", "note": "the second no-digest-supplied site is unreachable when overrides is non-empty; stale-override short-circuits it, and SKILL.md documents a remedy for no-digest-supplied but none for stale-override — the misattribution denies the run its self-correction. Fails closed."},
+      {"finding_id": "SWEEP-3", "site": "scripts/issue-audit-state.py:1735-1741", "severity": "Suggestion", "disposition": "advisory", "marker": "parked-sibling: class-sweep", "note": "query-summary renders a foreign nonce as state=unestablished with the cause only on stderr, while every sibling query puts reason=foreign-nonce on stdout"},
+      {"finding_id": "SWEEP-4", "site": "scripts/issue-audit-state.py:528-530,1218-1220,1311-1312", "severity": "Suggestion", "disposition": "advisory", "marker": "parked-sibling: class-sweep", "note": "the pending-token domain is literal-duplicated at three sites with no shared accessor — the same shape _attestation_frozen was extracted to fix"},
+      {"finding_id": "SWEEP-5", "site": "scripts/issue-audit-state.py:1281-1284", "severity": "Suggestion", "disposition": "advisory", "marker": "parked-sibling: class-sweep", "note": "the two-concurrently-open-rounds guard has zero test rows"},
+      {"finding_id": "SWEEP-6", "site": "scripts/issue-audit-state.py:1466-1468", "severity": "Suggestion", "disposition": "advisory", "marker": "parked-sibling: class-sweep", "note": "the user-decline must-name-surface guard has zero test rows"},
+      {"finding_id": "SWEEP-7", "site": "scripts/issue-audit-state.py:1504-1514", "severity": "Suggestion", "disposition": "advisory", "marker": "parked-sibling: class-sweep", "note": "record-degraded validates --reason against _DEGRADED_REASONS and echoes it but never PERSISTS it — the cause is permanently lost and _DEGRADED_REASONS is decorative"}
+    ]
+  },
+  "shadow": {
+    "ran_at": "2026-07-17T10:30:00Z",
+    "trigger": "convergence-time (iteration 5 reached a tentative non-REJECT verdict after the sweep)",
+    "reviewed_sha": "e8f6557863feb3e4dd35efb3715b67f0fd505acc",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:type-design-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review", "devflow:type-design-analyzer", "devflow:pr-test-analyzer"],
+    "reason": null,
+    "checklist_skipped": null,
+    "coverage_note": "1:1 join satisfied — all 6 dispatched identifiers returned exactly one parsed, evidence-bearing result. iterations:first-only NOT applied (never applies to a shadow), so code-reviewer dispatched. Provenance re-checked at shadow time: the prompt extension is neither locally modified nor in the reviewed diff, and no focus/scoping clause was added to any prompt — hence prompt_addenda: none.",
+    "phase3_findings": [
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Critical",
+        "description": "_validate iterates rnd.get('embed_markers', []) with no isinstance gate — the only round container without one (rounds/revisions/overrides/attempts/creation are all gated). The `, []` default covers an ABSENT key; a present-but-non-iterable value raises TypeError, not StateError. _query_state catches only StateError and main has no top-level guard, so it escapes as a raw traceback — breaking the two-class contract this diff asserts in three places (the module docstring's 'Query subcommands ALWAYS exit 0 ... A crashed read is never presented as a value'; the comment at :551-554 naming this 'the exact two-class-contract violation _validate exists to prevent'; and DEVFLOW_SYSTEM_OVERVIEW.md:453). The state file is agent-mutable scratch, so CLAUDE.md's best-effort-parser wrong-type row is squarely in scope.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [533, 536], "kind": "unhandled_exception"},
+        "corroboration_count": 1,
+        "orchestrator_reproduced": true,
+        "reproduction": "embed_markers: 5 -> `query-triggers` dies with TypeError: 'int' object is not iterable (raw traceback). Independently reproduced by the orchestrator."
+      },
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Important",
+        "description": "Same root cause, mutation side: rnd['embed_markers'] is indexed unconditionally at :1349-1350. _validate requires only ('round','attempts','outcome') on a round record and reads embed_markers via .get, so a hand-edited/truncated round lacking the key validates cleanly and record-dispatch raises KeyError — a raw traceback rather than the contract's named breadcrumb. A _validate-level list check that defaults the key closes both findings.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1349, 1350], "kind": "unhandled_exception"},
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "cmd_record_creation_attestation's trailing-newline retry swallows a _DigestError with a bare `except _DigestError: pass` and no breadcrumb. Benign for correctness (status already holds the conservative 'mismatch', so no false match is possible) — a diagnosability gap only.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1616, 1626], "kind": "other"},
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "_OVERRIDE_SURFACES declares three tokens but only t1t2-boundary is ever invoked; Step 4's decline path never calls record-override, so step4-offer / step4-approval-after-exhausted-offer are unwired.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [121, 123], "kind": "comment_drift"},
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:type-design-analyzer",
+        "severity": "Suggestion",
+        "description": "The state document has no static type (TypedDict/dataclass); TRANSITIONS rows are bare dicts so a misspelled key reads None rather than erroring. Quality suggestions; no invariant violated on a reachable path.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [921, 933], "kind": "type_design"},
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "record-degraded's 'no round N is recorded' guard is never driven (every sibling command's equivalent is); the --reason choices validation is untested.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1525, 1536], "kind": "test_gap"},
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "_valid_override binds on a recorded digest whenever one exists rather than only on file-arm epochs, and derives file_arm_epoch from last_completed(state) rather than the override's own recorded round. Both fail closed; no live bug under current call patterns.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [3471, 3506], "kind": "logic_error"},
+        "corroboration_count": 1
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 7, "overlap_with_iter_N": 0, "new": 7, "new_critical": 1, "new_important": 1},
+    "over_grade_gate": "no promote-path finding flagged. The Critical is fail-OPEN in the contract sense (a raw traceback where the contract promises a decided token) — shape 1 explicitly excludes a fail-open defect; it is not diagnostic-only (shape 2) because the module's own diff-added prose asserts the contract it breaks; and it is from code-reviewer, not an empirical over-grader (shape 3). It therefore drives the verdict at its emitted severity with no calibration record required.",
+    "promoted_to_iter_next": false,
+    "promotion_blocked_reason": "ITERATION CAP: iteration 5 of max_iterations=5 has already run, so Decide outcome 2's cap branch fires — do NOT start a further iteration. The unresolved population contains a Critical, so the final verdict is REJECT."
+  },
+  "telemetry": {
+    "step_2_6": {"calls": 6, "tokens": 558112, "wall_clock_s": 313},
+    "parked_class_sweep": {"calls": 1, "tokens": 119913, "wall_clock_s": 265},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 30}
+  }
+}

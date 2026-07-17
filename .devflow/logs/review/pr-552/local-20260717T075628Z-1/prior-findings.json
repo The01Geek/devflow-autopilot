@@ -1,0 +1,282 @@
+[
+ {
+  "agent": "devflow:code-reviewer",
+  "severity": "Important",
+  "description": "evaluate_eligibility docstring's reason precedence contradicted the code (stale-override vs no-digest-supplied ordering)",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    774,
+    776
+   ],
+   "kind": "documented_falsehood"
+  },
+  "fix_decision": "applied"
+ },
+ {
+  "agent": "devflow:code-reviewer",
+  "severity": "Critical",
+  "description": "override ground had no completed-round precondition; init -> record-override alone answered eligible and emit-body emitted a never-audited body at exit 0",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    826,
+    828
+   ],
+   "kind": "logic_error"
+  },
+  "fix_decision": "applied"
+ },
+ {
+  "agent": "devflow:code-reviewer",
+  "severity": "Critical",
+  "description": "digest-unbound override failed open on a file-arm epoch; a tampered draft still answered eligible",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    748,
+    753
+   ],
+   "kind": "logic_error"
+  },
+  "fix_decision": "applied"
+ },
+ {
+  "agent": "devflow:code-reviewer",
+  "severity": "Important",
+  "description": "eligibility-token binding claim false against HEAD; override ground keyed on the ordinal though a digest answered, so byte-distinct drafts minted an identical token",
+  "defect_signature": {
+   "file": ".changeset/issue-546-issue-audit-state-cli.md",
+   "line_range": [
+    25,
+    26
+   ],
+   "kind": "documented_falsehood"
+  },
+  "fix_decision": "applied"
+ },
+ {
+  "agent": "devflow:code-reviewer",
+  "severity": "Important",
+  "description": "init --nonce <same> --force silently wiped a recorded creation attestation",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    1086,
+    1091
+   ],
+   "kind": "logic_error"
+  },
+  "fix_decision": "applied"
+ },
+ {
+  "agent": "devflow:code-reviewer",
+  "severity": "Important",
+  "description": "illegal-transition vs environmental-failure discriminator is unparseable prose; _TRANSITION_REASONS is dead vocabulary",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    318,
+    321
+   ],
+   "kind": "api_misuse"
+  },
+  "fix_decision": "deferred"
+ },
+ {
+  "agent": "devflow:silent-failure-hunter",
+  "severity": "Important",
+  "description": "Step 3.6 fallback classification is policy-without-mechanism over free-text stderr",
+  "defect_signature": {
+   "file": "skills/create-issue/SKILL.md",
+   "line_range": [
+    152,
+    261
+   ],
+   "kind": "other"
+  },
+  "fix_decision": "severity-calibrated"
+ },
+ {
+  "agent": "devflow:silent-failure-hunter",
+  "severity": "Important",
+  "description": "main() has no top-level exception backstop for the queries-always-exit-0 contract",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    1629,
+    1766
+   ],
+   "kind": "unhandled_exception"
+  },
+  "fix_decision": "severity-calibrated"
+ },
+ {
+  "agent": "devflow:type-design-analyzer",
+  "severity": "Suggestion",
+  "description": "digest-unrecorded embed marker reused for the foreign-nonce cause",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    1507,
+    1511
+   ],
+   "kind": "type_design"
+  },
+  "fix_decision": "below-threshold"
+ },
+ {
+  "agent": "devflow:type-design-analyzer",
+  "severity": "Suggestion",
+  "description": "_validate misses the outcome/pending mutual-exclusivity invariant and the user-decline surface load-check",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    474,
+    540
+   ],
+   "kind": "type_design"
+  },
+  "fix_decision": "below-threshold"
+ },
+ {
+  "agent": "devflow:comment-analyzer",
+  "severity": "Suggestion",
+  "description": "evaluate_triggers docstring omits the no-verdict T2 branch",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    702,
+    723
+   ],
+   "kind": "comment_drift"
+  },
+  "fix_decision": "below-threshold"
+ },
+ {
+  "agent": "devflow:pr-test-analyzer",
+  "severity": "Suggestion",
+  "description": "test gaps: _check_nonce mismatch, load_state on-disk corruption, route_arm CLI seam, next_action compound exhaustion",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    643,
+    956
+   ],
+   "kind": "test_gap"
+  },
+  "fix_decision": "below-threshold"
+ },
+ {
+  "agent": "fix-delta-gate",
+  "severity": "Suggestion",
+  "description": "an unbound override on a file-arm epoch refuses as stale-override though nothing went stale (misattribution; fails closed)",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    866,
+    878
+   ],
+   "kind": "other"
+  },
+  "fix_decision": "below-threshold"
+ },
+ {
+  "agent": "devflow:code-reviewer",
+  "severity": "Critical",
+  "description": "same-arm retry deadlock: query-arm routes to embed when the file goes unhashable, record-dispatch refuses that arm, next-action loops forever with no legal next call",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    1584,
+    1590
+   ],
+   "kind": "logic_error"
+  },
+  "fix_decision": "applied"
+ },
+ {
+  "agent": "devflow:code-reviewer",
+  "severity": "Important",
+  "description": "module docstring's emit-body 'cannot byte-bind' claim became false for the file-arm override ground after the digest-binding fix",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    34,
+    37
+   ],
+   "kind": "documented_falsehood"
+  },
+  "fix_decision": "applied"
+ },
+ {
+  "agent": "devflow:silent-failure-hunter",
+  "severity": "Important",
+  "description": "two unguarded sys.stdin.buffer.read() sites escape as raw tracebacks instead of the named-breadcrumb mutation contract",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    1176,
+    1179
+   ],
+   "kind": "unhandled_exception"
+  },
+  "fix_decision": "applied"
+ },
+ {
+  "agent": "devflow:type-design-analyzer",
+  "severity": "Suggestion",
+  "description": "the forward-only attestation predicate was three copy-pasted comparisons (coupled-mirror drift)",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    1127,
+    1488
+   ],
+   "kind": "type_design"
+  },
+  "fix_decision": "applied"
+ },
+ {
+  "agent": "devflow:requesting-code-review",
+  "severity": "Suggestion",
+  "description": "no-digest-supplied is emitted at two sites with no shared predicate naming the rule",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    870,
+    885
+   ],
+   "kind": "type_design"
+  },
+  "fix_decision": "below-threshold"
+ },
+ {
+  "agent": "fix-delta-gate",
+  "severity": "Important",
+  "description": "the stdin except OSError guard was blind to a closed fd 0 (sys.stdin is None -> AttributeError); guard and its comment were both wrong",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    1224,
+    1235
+   ],
+   "kind": "documented_falsehood"
+  },
+  "fix_decision": "applied"
+ },
+ {
+  "agent": "fix-delta-gate",
+  "severity": "Suggestion",
+  "description": "the file->embed escalation is permitted, not verified: the marker is orchestrator-asserted, not tool-observed (now disclosed in the docstring)",
+  "defect_signature": {
+   "file": "scripts/issue-audit-state.py",
+   "line_range": [
+    1210,
+    1212
+   ],
+   "kind": "other"
+  },
+  "fix_decision": "applied"
+ }
+]

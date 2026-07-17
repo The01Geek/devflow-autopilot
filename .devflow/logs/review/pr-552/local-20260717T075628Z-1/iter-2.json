@@ -1,0 +1,144 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-17T08:45:00Z",
+  "fix_commit_sha": "fd07676c",
+  "fix_files": ["scripts/issue-audit-state.py", "lib/test/run.sh"],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional"
+  },
+  "checklist_skip_note": "Phase 1+2 skipped for this PROMOTED iteration per Decide outcome 2 — the shadow's inputs ARE a Phase 1+2+3 result. This is the one sanctioned Phase 1+2 skip on iter >= 2; diff_profile.checklist_skipped records it as intentional.",
+  "phase3_findings": [],
+  "phase3_note": "A promoted iteration takes the shadow's new findings as its Phase 3 findings (recorded on iter-1's shadow block) and goes straight to Step 2.5 -> Step 3; it dispatches no fleet of its own.",
+  "fix_decisions": [
+    {"finding_id": "SHADOW-C1", "decision": "applied", "commit": "0431acff",
+     "note": "override ground had no completed-round precondition; guarded at BOTH the write boundary (record-override refuses) and the read boundary (_valid_override re-checks, so a hand-edited state file cannot smuggle it). Reproduced at the CLI before fixing: init -> record-override -> eligible=yes ground=override -> emit-body emitted the body at rc=0."},
+    {"finding_id": "SHADOW-C2", "decision": "applied", "commit": "0431acff",
+     "note": "digest-unbound override failed open on a file-arm epoch. SKILL.md:242 already required --draft-file on EVERY record-override call on a file-arm epoch; the tool now enforces it rather than trusting prose — which is issue #546's whole premise."},
+    {"finding_id": "SHADOW-I3", "decision": "applied", "commit": "0431acff",
+     "note": "token-binding documented_falsehood. Fixed the CODE to match the documented contract (rather than weakening the docs): the override ground now keys on the answering digest when bound. Verified byte-distinct drafts mint distinct tokens; the changeset/docs claims are now true."},
+    {"finding_id": "SHADOW-I5", "decision": "applied", "commit": "0431acff",
+     "note": "init --force wiped forward-only creation tamper evidence; added the missing third guard with the exemption set byte-identical to its two siblings."},
+    {
+      "finding_id": "SHADOW-I4",
+      "decision": "deferred",
+      "source_file": "scripts/issue-audit-state.py",
+      "claim_text": "The illegal-transition vs environmental-failure discriminator the SKILL.md routes on is unparseable free-form English; the nine _TRANSITION_REASONS tokens are dead vocabulary, never emitted.",
+      "skip_category": "uncategorized",
+      "evidence": "Real and correctly graded — I did not demote it. Not fixed in-loop because the fix is a design change, not a repair: it means adding a machine-readable failure taxonomy (a distinct exit code or a reason=<token> field) across every _fail call site, and those breadcrumbs are pinned by name across several existing run.sh blocks. That is a change the issue should authorize, not one a fix loop should smuggle into a PR whose scope is the lifecycle extraction. It is NOT a REJECT driver (verdict_severity_threshold=critical, and it is Important), it fails closed today (an illegal transition exits non-zero with a named breadcrumb; only the CLASS attribution is left to prose), and iteration 1's silent-failure-hunter independently raised the same concern from the SKILL.md side — two independent passes agreeing it is real. Recorded here for a follow-up issue rather than parked silently. Revisit condition: file the follow-up before any further prose is added that routes on this distinction."
+    },
+    {
+      "finding_id": "GATE-I1",
+      "decision": "applied",
+      "commit": "02cb1495",
+      "note": "the fix-delta gate proved MY OWN token row vacuous: two slugs meant two random nonces, so the tokens differed regardless of the key and the row stayed GREEN with the key fix reverted. Rewritten to one slug/one nonce with two digest-bound overrides at the same ordinal; mutation-proven RED."
+    },
+    {
+      "finding_id": "GATE-I2",
+      "decision": "applied",
+      "commit": "02cb1495",
+      "note": "the gate caught a documented_falsehood in my own it6 fixture comment — I claimed the row 'passed on the wrong breadcrumb', but pre-delta it passed on the RIGHT one; the fixture needed changing because the new preconditions refuse first. Corrected."
+    },
+    {
+      "finding_id": "GATE-I3",
+      "decision": "applied",
+      "commit": "fd07676c",
+      "note": "the re-gate found my docstring claimed BOTH preconditions are re-checked at the read boundary while only precondition 1 was pinned there — the read guard could be reverted with all 11 rows green. Added the symmetric (2b) row; mutation-proven RED (emit rc=0 emitting NEVER AUDITED BYTES without the guard)."
+    },
+    {
+      "finding_id": "GATE-S1",
+      "decision": "applied",
+      "commit": "fd07676c",
+      "note": "trivial + clearly correct: replaced the draft_digest falsy-coercion with an explicit `is not None` test (unreachable today, but its correctness rested on a distant invariant in a repo with an explicit valid-falsy rule)."
+    },
+    {
+      "finding_id": "GATE-S2",
+      "decision": "below-threshold",
+      "source_file": "scripts/issue-audit-state.py",
+      "claim_text": "An unbound override on a file-arm epoch refuses as stale-override, but nothing went stale — it was never bound, so it was never compared. The module's own comment states that standard for the sibling case.",
+      "skip_category": "below-threshold-parked",
+      "evidence": "parked-origin: below-threshold. Raised by three independent gate passes and real, but Suggestion-tier: it fails CLOSED (the refusal is correct; only the diagnosis is misattributed) and is now unreachable through the CLI because the write guard refuses that shape — only a pre-delta or hand-edited state file reaches it. Naming the honest cause needs a new token in the closed _ELIGIBILITY_REASONS vocabulary, which issue #546's AC also enumerates and pins per state class — not trivial, so Step 3 item 2 says leave it. Mitigated in the meantime: row (2b) greps '^eligible=no ' rather than the exact reason, so it stays green and correct if the token is later corrected."
+    },
+    {
+      "finding_id": "SHADOW-S1",
+      "decision": "below-threshold",
+      "source_file": "scripts/issue-audit-state.py",
+      "claim_text": "evaluate_triggers docstring omits the third branch forcing T2 true on a no-verdict outcome",
+      "skip_category": "below-threshold-parked",
+      "evidence": "parked-origin: below-threshold"
+    },
+    {
+      "finding_id": "SHADOW-S2",
+      "decision": "below-threshold",
+      "source_file": "scripts/issue-audit-state.py",
+      "claim_text": "_validate does not assert the outcome/pending mutual-exclusivity invariant, nor re-check the user-decline surface requirement at load",
+      "skip_category": "below-threshold-parked",
+      "evidence": "parked-origin: below-threshold"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 205,
+    "new_corroborated_critical_count": 2
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "stale_prose_check": {"rows": "no STALE rows at post-fix HEAD", "result": "clean"},
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 255,
+    "skipped_checks": [
+      {
+        "check": "#434 stale-prose self-scan",
+        "kind": "blocking-gate",
+        "reason": "working tree dirty at the pre-commit run (this check grades committed HEAD). It ran GREEN on the clean committed tree — the independent fix-delta re-gate over fd07676c reported the suite as '8532 passed, 0 failed, no skips', i.e. the gate executed for real rather than self-skipping."
+      }
+    ]
+  },
+  "test_first_gate": [
+    {
+      "decision": "automated-test arm: each fix adds behavior a test can exercise (a refusal, an exit code, a token value)",
+      "command": "lib/test/run.sh (#546 override_precondition_rows)",
+      "result": "pass",
+      "evidence": "RED-before-GREEN observed on the real code rather than attested: each exploit was first reproduced end-to-end at the CLI (Critical 1: eligible=yes ground=override, emit-body emitted the body at rc=0 with zero rounds; Critical 2: tampered draft emitted; Important 3: byte-distinct drafts minted an identical token key=0; Important 5: init --force wiped attestation=match), then re-driven after the fix and observed refusing. Each pin was then mutation-proven on a scratch copy: reverting the guard flips its row's operands RED (record-override rc 1->0, breadcrumb 1->0, eligible=no->yes, emit rc 1->0 emitting the body, tokens differ->identical). The blinded re-gate independently reproduced the same six mutations and confirmed each row goes RED only under its own."
+    }
+  ],
+  "step_3_5_gate": {
+    "attempts": 2,
+    "attempt_1": "Important x2 — my token row was vacuous (two slugs -> two nonces forced the inequality regardless of the key; proven GREEN with the key fix reverted) and my it6 fixture comment was a documented_falsehood (inverted the reason for its own edit). Both fixed in 02cb1495.",
+    "attempt_2": "Important x1 — the read-boundary unbound-override guard had no pin; all 11 rows stayed green with it reverted while emit-body emitted arbitrary bytes. Fixed in fd07676c with the symmetric (2b) row.",
+    "final": "CLEAN — no Critical or Important findings. All six guarded rows proven non-vacuous individually; every diff-added claim verified true against HEAD; the shape matrix fails closed on every row; no legitimate lifecycle flow narrowed (verified live on the embed arm, which still legitimately omits --draft-file). One Suggestion parked (GATE-S2)."
+  },
+  "telemetry": {
+    "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 5},
+    "phase_1":   {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2":   {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_3":   {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_2_5":  {"calls": 0, "tokens": 0, "wall_clock_s": 8, "webfetches": 0},
+    "step_3_5":  {"calls": 3, "tokens": 303160, "wall_clock_s": 994},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 20}
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  }
+}
