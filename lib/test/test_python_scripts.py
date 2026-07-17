@@ -61,6 +61,7 @@ match_deferrals = _load('match_deferrals', SCRIPTS / 'match-deferrals.py')
 resolve_review_overrides = _load(
     'resolve_review_overrides', SCRIPTS / 'resolve-review-overrides.py')
 stale_prose_lint = _load('stale_prose_lint', SCRIPTS / 'stale-prose-lint.py')
+issue_audit_state = _load('issue_audit_state', SCRIPTS / 'issue-audit-state.py')
 
 
 PASS = 0
@@ -3557,6 +3558,941 @@ assert_eq("#434: a C-quoted non-ASCII path is decoded back to real text",
           {'café.md': {1: 'prose'}},
           stale_prose_lint.parse_diff(
               '--- a/x\n+++ "b/caf\\303\\251.md"\n@@ -0,0 +1,1 @@\n+prose\n'))
+
+print()
+print("issue-audit-state: the motivating regression (issue #546)")
+
+# The named test-first regression. State holds a `VERDICT: REVISE` round on digest
+# D1 plus a subsequently recorded revision; the draft file's bytes now hash to
+# D2 != D1 and no further round completed. `approve` mode must refuse.
+#
+# This is the exact shape of the incident that motivated extracting the lifecycle
+# out of prose: revised draft bytes proceeding toward presentation after a REVISE
+# verdict, with no clean audit verdict on those exact bytes.
+_REGRESSION_STATE = {
+    'schema_version': issue_audit_state.SCHEMA_VERSION,
+    'slug': 'motivating-regression',
+    'nonce': 'a1b2c3d4e5f60718',
+    'reinit_forced': False,
+    'automatic_reaudits_used': 0,
+    'user_rounds_used': 0,
+    'rounds': [{
+        'round': 1,
+        'attempts': [{'arm': 'file', 'digest': 'D1', 'body_digest': 'B1',
+                      'sentinel_open': None, 'sentinel_close': None}],
+        'no_parseable_retry_used': False,
+        'unreadable_retry_used': False,
+        'outcome': 'REVISE',
+        'findings_count': 2,
+        'consumer_dimensions_appended': False,
+        'embed_markers': [],
+        'degraded': False,
+    }],
+    'revisions': [{'ordinal': 1, 'after_round': 1}],
+    'overrides': [],
+    'creation': None,
+}
+
+_regression = issue_audit_state.evaluate_eligibility(
+    _REGRESSION_STATE, 'approve', current_digest='D2')
+
+assert_eq("#546 eligibility_unaudited_revision_regression: REVISE on D1 + a recorded "
+          "revision, approve mode, draft now hashes to D2 -> not-eligible",
+          'not-eligible', _regression['answer'])
+assert_eq("#546 eligibility_unaudited_revision_regression: the refusal reason is "
+          "unaudited-revision",
+          'unaudited-revision', _regression['reason'])
+assert_eq("#546 eligibility_unaudited_revision_regression: a refused answer issues "
+          "no eligibility token",
+          None, _regression['token'])
+
+print()
+print("issue-audit-state: the transition table (issue #546)")
+
+# One row here per module table row, counted and content-matched in LOCKSTEP (a
+# metadata lockstep over event/condition/legality — not itself a behavioral drive;
+# the behavioral arms are driven by the function-level rows below and the CLI blocks
+# in the shell suite, including the illegal-mutation guards). The lockstep assert
+# derives the expected count from the module's OWN table, so a row added to the
+# module without a row added here turns the suite RED rather than shipping an
+# untracked transition.
+_TRANSITION_ROWS = [
+    ('init', 'cold-start-no-nonce', True),
+    ('init', 'same-run-nonce-no-rounds', True),
+    ('init', 'same-run-nonce-over-rounds-unforced', False),
+    ('init', 'same-run-nonce-over-rounds-forced', True),
+    ('init', 'foreign-nonce', False),
+    ('dispatch', 'file-arm-write-landed', True),
+    ('dispatch', 'embed-arm-entry', True),
+    ('dispatch', 'inline-arm-entry', True),
+    ('dispatch', 'no-open-round', False),
+    ('return', 'verdict-on-arm', True),      # file/FILE
+    ('return', 'verdict-on-arm', True),      # file/REVISE
+    ('return', 'verdict-on-arm', True),      # file/DRAFT-UNREADABLE
+    ('return', 'verdict-on-arm', True),      # embed/FILE
+    ('return', 'verdict-on-arm', True),      # embed/REVISE
+    ('return', 'verdict-on-arm', False),     # embed/DRAFT-UNREADABLE — illegal
+    ('return', 'verdict-on-arm', True),      # inline/FILE
+    ('return', 'verdict-on-arm', True),      # inline/REVISE
+    ('return', 'verdict-on-arm', False),     # inline/DRAFT-UNREADABLE — illegal
+    ('return', 'no-verdict-line', True),
+    ('return', 'carriage-absent-or-mismatched', True),
+    ('return', 'no-open-round', False),
+    ('return', 'round-already-returned', False),
+    ('revision', 'after-completed-round', True),
+    ('revision', 'no-rounds-recorded', False),
+    ('override', 'user-decline-recorded', True),
+    ('override', 'cap-reached-recorded', True),
+    ('degraded', 'inline-arm-entered', True),
+    ('creation-epoch', 'bound-to-round', True),
+    ('creation-epoch', 'no-round-recorded', False),
+    ('creation-attestation', 'body-matches', True),
+    ('creation-attestation', 'body-mismatches', True),
+    ('creation-attestation', 'fetch-failed', True),
+    ('creation-attestation', 'no-epoch-recorded', False),
+    ('creation-attestation', 'already-recorded', False),
+    ('creation-epoch', 'rebind-after-attestation', False),
+]
+
+# table_test_lockstep_count — the exact-count lockstep. Derived from the module's own
+# table, never a literal transcribed by hand.
+assert_eq("#546 table_test_lockstep_count: one driven test row per module transition row",
+          len(issue_audit_state.TRANSITIONS), len(_TRANSITION_ROWS))
+
+# Each driven row corresponds, in order, to a real (event, condition, legal) triple in
+# the module's table — so the counts matching is not a coincidence of two equal numbers.
+assert_eq("#546 table_test_lockstep_count: each driven row matches its module row's "
+          "event/condition/legality, in order",
+          [(r['event'], r['condition'], r['legal']) for r in issue_audit_state.TRANSITIONS],
+          _TRANSITION_ROWS)
+
+# Positive controls for the two locksteps above (raised on PR #552): the sibling locksteps
+# each carry an explicit planted-defect control observed distinguishing; these give this one
+# the same. They plant a defect into a COPY of the derived module rows and assert the exact
+# comparison each lockstep makes would reject it — proving neither assert is a tautology of two
+# coincidentally-equal shapes. The module's own TRANSITIONS is never mutated (route (a): the
+# defect lives on a copy), so a green run leaves the real table untouched.
+_derived_rows = [(r['event'], r['condition'], r['legal']) for r in issue_audit_state.TRANSITIONS]
+# (a) count control — dropping a row makes the count lockstep's operands unequal.
+assert_eq("#546 table_test_lockstep_count: POSITIVE CONTROL — a dropped module row breaks the "
+          "count lockstep (len no longer matches the driven rows)",
+          True, len(_derived_rows[:-1]) != len(_TRANSITION_ROWS))
+# (b) content control — flipping one legality bit makes the in-order content lockstep's
+# operands unequal even though the count still matches (so the count assert alone would miss it).
+_flipped = list(_derived_rows)
+_flipped[0] = (_flipped[0][0], _flipped[0][1], not _flipped[0][2])
+assert_eq("#546 table_test_lockstep_count: POSITIVE CONTROL — a flipped legality bit breaks the "
+          "content lockstep while the count still matches",
+          (True, True),
+          (len(_flipped) == len(_TRANSITION_ROWS), _flipped != _TRANSITION_ROWS))
+
+# arm_routing_rows — arm decisions from recorded facts alone, and the three marker
+# literals byte-for-byte.
+for (landed, hash_ok, prior, want_arm, want_marker) in [
+    (True, True, False, 'file', None),
+    (False, True, False, 'embed', 'write-failed'),
+    (True, False, False, 'embed', 'digest-unrecorded'),
+    # Both non-prior conditions false at once: the decided precedence tests
+    # write_landed BEFORE hash_ok, so the write-failed marker wins.
+    (False, False, False, 'embed', 'write-failed'),
+    (True, True, True, 'embed', 'file-unreadable'),
+    (False, False, True, 'embed', 'file-unreadable'),   # a prior unreadable wins
+]:
+    assert_eq(f"#546 arm_routing_rows: landed={landed} hash_ok={hash_ok} prior={prior}",
+              (want_arm, want_marker),
+              issue_audit_state.route_arm(landed, hash_ok, prior))
+
+assert_eq("#546 arm_routing_rows: the three embed markers are preserved verbatim",
+          ['draft embedded (file write failed)',
+           'draft embedded (file unreadable)',
+           'draft embedded (digest unrecorded)'],
+          [issue_audit_state._EMBED_MARKER_TEXT[t]
+           for t in ('write-failed', 'file-unreadable', 'digest-unrecorded')])
+
+# carriage_evidence_rows / budget_retry_rows — classification, incl. the fixed retry
+# precedence. Absent carriage evidence must behave EXACTLY like mismatched evidence.
+for (arm, verdict, has_line, carriage, want) in [
+    ('file', 'FILE', True, True, 'accept-file'),
+    ('file', 'REVISE', True, True, 'accept-revise'),
+    ('file', 'DRAFT-UNREADABLE', True, True, 'retry-embed'),
+    ('embed', 'FILE', True, True, 'accept-file'),
+    ('embed', 'REVISE', True, True, 'accept-revise'),
+    ('inline', 'FILE', True, True, 'accept-file'),
+    ('inline', 'REVISE', True, True, 'accept-revise'),
+    ('embed', 'DRAFT-UNREADABLE', True, True, 'no-parseable-verdict'),
+    ('inline', 'DRAFT-UNREADABLE', True, True, 'no-parseable-verdict'),
+    # carriage mismatched vs. absent — the same classification, fail closed
+    ('file', 'FILE', True, False, 'no-parseable-verdict'),
+    ('embed', 'REVISE', True, False, 'no-parseable-verdict'),
+    # a return that is both unreadable-prose AND verdict-less is classified by the
+    # ABSENT VERDICT LINE — the fixed precedence
+    ('file', None, False, True, 'no-parseable-verdict'),
+    ('file', 'DRAFT-UNREADABLE', False, True, 'no-parseable-verdict'),
+]:
+    assert_eq(f"#546 carriage_evidence_rows/budget_retry_rows: arm={arm} verdict={verdict} "
+              f"line={has_line} carriage={carriage}",
+              want, issue_audit_state.classify_return(arm, verdict, has_line, carriage))
+
+
+def _state(rounds, revisions=(), overrides=(), nonce='n0', reinit=False):
+    return {'schema_version': issue_audit_state.SCHEMA_VERSION, 'slug': 's',
+            'nonce': nonce, 'reinit_forced': reinit, 'automatic_reaudits_used': 0,
+            'user_rounds_used': 0, 'rounds': list(rounds),
+            'revisions': [{'ordinal': i + 1, 'after_round': r}
+                          for i, r in enumerate(revisions)],
+            'overrides': list(overrides), 'creation': None}
+
+
+def _round(num, arm, outcome, digest='D1', findings=0, degraded=False, markers=()):
+    return {'round': num,
+            'attempts': [{'arm': arm, 'digest': digest, 'body_digest': 'B' + digest,
+                          'sentinel_open': None, 'sentinel_close': None}],
+            'no_parseable_retry_used': False, 'unreadable_retry_used': False,
+            'outcome': outcome, 'findings_count': findings,
+            'consumer_dimensions_appended': False, 'embed_markers': list(markers),
+            'degraded': degraded}
+
+
+# eligibility_grounds_table — the two approve-mode grounds and every not-eligible class.
+_clean_file = _state([_round(1, 'file', 'FILE', 'D1')])
+assert_eq("#546 eligibility_grounds_table: file-arm clean verdict, digest current -> eligible",
+          ('eligible', 'file-identity'),
+          (lambda r: (r['answer'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(_clean_file, 'approve', 'D1')))
+
+# eligibility_byte_source_rows — the clean-run re-presentation row (no drift-induced
+# false mismatch) and the revision-landed row.
+assert_eq("#546 eligibility_byte_source_rows: an untouched clean draft re-presents "
+          "eligible (no drift false-negative)",
+          'eligible',
+          issue_audit_state.evaluate_eligibility(_clean_file, 'approve', 'D1')['answer'])
+assert_eq("#546 eligibility_byte_source_rows: a rewritten file refuses as unaudited-revision",
+          ('not-eligible', 'unaudited-revision'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([_round(1, 'file', 'FILE', 'D1')], revisions=(1,)),
+                  'approve', 'D2')))
+
+# The file-arm fail-closed row: the canonical file is absent at query time.
+assert_eq("#546 eligibility_grounds_table: a file-arm epoch whose canonical file is "
+          "absent at query time answers not-eligible (fail closed)",
+          'not-eligible',
+          issue_audit_state.evaluate_eligibility(_clean_file, 'approve', None)['answer'])
+
+# The event-ordering ground: embed/inline arms, where no trustworthy canonical file exists.
+for arm in ('embed', 'inline'):
+    assert_eq(f"#546 eligibility_grounds_table: {arm}-arm clean verdict with no later "
+              "revision -> eligible via the event-ordering ground",
+              ('eligible', 'event-ordering'),
+              (lambda r: (r['answer'], r['ground']))(
+                  issue_audit_state.evaluate_eligibility(
+                      _state([_round(1, arm, 'FILE', 'D1')]), 'approve', None)))
+    assert_eq(f"#546 eligibility_grounds_table: {arm}-arm clean verdict PLUS a later "
+              "revision -> unaudited-revision",
+              ('not-eligible', 'unaudited-revision'),
+              (lambda r: (r['answer'], r['reason']))(
+                  issue_audit_state.evaluate_eligibility(
+                      _state([_round(1, arm, 'FILE', 'D1')], revisions=(1,)),
+                      'approve', None)))
+
+assert_eq("#546 eligibility_grounds_table: unestablished state -> state-unestablished",
+          ('not-eligible', 'state-unestablished'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(None, 'approve', 'D1')))
+assert_eq("#546 eligibility_grounds_table: fresh init, zero rounds -> no-verdict-round",
+          ('not-eligible', 'no-verdict-round'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(_state([]), 'approve', 'D1')))
+assert_eq("#546 eligibility_grounds_table: the inline arm's verdict-less terminal -> "
+          "no-verdict-round",
+          ('not-eligible', 'no-verdict-round'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([_round(1, 'inline', 'no-verdict', 'D1')]), 'approve', 'D1')))
+# A no-verdict round does NOT shadow an older clean FILE round on unchanged bytes: the
+# clean-scan breaks on REVISE (a positive "needs changes" signal) but falls through a
+# no-verdict round (an inconclusive re-audit, not a revocation), so bytes cleanly
+# audited in the FILE round still ground eligibility. Pin the current, deliberate
+# behavior in BOTH directions so a regression that adds no-verdict to the break set
+# (invalidating a legitimately-clean draft) turns the suite RED.
+assert_eq("#546 eligibility_grounds_table: a newer no-verdict round does NOT shadow an "
+          "older clean FILE round on unchanged bytes",
+          ('eligible', 'file-identity'),
+          (lambda r: (r['answer'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([_round(1, 'file', 'FILE', 'D1'),
+                          _round(2, 'inline', 'no-verdict', 'D1')]), 'approve', 'D1')))
+# The embed-arm sibling of the interleaving above: eligibility grounds on event
+# ordering (no revision postdates the clean round), and the trailing no-verdict round
+# does not shadow it — while evaluate_triggers fires T2 on the same state (asserted in
+# t1_t2_rows below), the documented deliberate divergence: the boundary offer surfaces
+# the inconclusive re-audit instead of revoking the clean verdict.
+assert_eq("#546 eligibility_grounds_table: a newer no-verdict round does NOT shadow an "
+          "older clean EMBED round with no revision (event-ordering ground holds)",
+          ('eligible', 'event-ordering'),
+          (lambda r: (r['answer'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([_round(1, 'embed', 'FILE', 'D1'),
+                          _round(2, 'embed', 'no-verdict', 'D1')]), 'approve', None)))
+# ...but a newer REVISE round DOES invalidate the older clean FILE round (the contrast
+# that proves the no-verdict fall-through above is deliberate, not a scan bug).
+assert_eq("#546 eligibility_grounds_table: a newer REVISE round DOES invalidate an older "
+          "clean FILE round",
+          'not-eligible',
+          issue_audit_state.evaluate_eligibility(
+              _state([_round(1, 'file', 'FILE', 'D1'),
+                      _round(2, 'file', 'REVISE', 'D1')]), 'approve', 'D1')['answer'])
+
+# override_epoch_rows — a current override grounds eligible; a stale one refuses.
+_cur_override = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1,), overrides=[
+    {'kind': 'user-decline', 'surface': 'step4-offer', 'recorded_at_ordinal': 1,
+     'draft_digest': 'D2'}])
+assert_eq("#546 override_epoch_rows: an override recorded at the current ordinal and "
+          "digest grounds eligible",
+          ('eligible', 'override'),
+          (lambda r: (r['answer'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(_cur_override, 'approve', 'D2')))
+_stale_override = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1, 1), overrides=[
+    {'kind': 'user-decline', 'surface': 'step4-offer', 'recorded_at_ordinal': 1,
+     'draft_digest': 'D2'}])
+assert_eq("#546 override_epoch_rows: a later revision invalidates an earlier override "
+          "-> stale-override",
+          ('not-eligible', 'stale-override'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(_stale_override, 'approve', 'D3')))
+assert_eq("#546 override_epoch_rows: an override whose recorded digest no longer matches "
+          "does not re-arm",
+          'not-eligible',
+          issue_audit_state.evaluate_eligibility(_cur_override, 'approve', 'D9')['answer'])
+
+# approval_override_row — the accepted-re-audit -> REVISE -> revise terminal: an explicit
+# user approval recorded as the third user-decline surface grounds eligible.
+_approval_terminal = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1,), overrides=[
+    {'kind': 'user-decline', 'surface': 'step4-approval-after-exhausted-offer',
+     'recorded_at_ordinal': 1, 'draft_digest': 'D2'}])
+assert_eq("#546 approval_override_row: explicit approval past the exhausted offer surface "
+          "grounds eligible (the audit informs, it never deadlocks filing)",
+          'eligible',
+          issue_audit_state.evaluate_eligibility(_approval_terminal, 'approve', 'D2')['answer'])
+
+# iterate_mode_rows — iterate-ok on recorded-revision bytes; approve refuses the same state.
+_mid_iterate = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1,))
+assert_eq("#546 iterate_mode_rows: just-revised bytes answer iterate-ok in iterate mode",
+          'iterate-ok',
+          issue_audit_state.evaluate_eligibility(_mid_iterate, 'iterate', 'D2')['answer'])
+assert_eq("#546 iterate_mode_rows: the SAME state refuses in approve mode "
+          "(iterate-ok is never a ground for approval)",
+          ('not-eligible', 'unaudited-revision'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(_mid_iterate, 'approve', 'D2')))
+assert_eq("#546 iterate_mode_rows: iterate mode with no revision recorded refuses",
+          ('not-eligible', 'no-revision-recorded'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(_state([]), 'iterate', None)))
+
+# eligibility_token_rows — deterministic, idempotent, digest-bound.
+_t1 = issue_audit_state.evaluate_eligibility(_clean_file, 'approve', 'D1')['token']
+_t2 = issue_audit_state.evaluate_eligibility(_clean_file, 'approve', 'D1')['token']
+assert_eq("#546 eligibility_token_rows: repeated queries re-emit an identical token",
+          _t1, _t2)
+assert_eq("#546 eligibility_token_rows: an eligible answer emits a token", True,
+          bool(_t1) and _t1.startswith('eat_'))
+assert_eq("#546 eligibility_token_rows: tokens differ across digests", False,
+          _t1 == issue_audit_state.issue_token('n0', 'file-identity', 'D2'))
+assert_eq("#546 eligibility_token_rows: tokens differ across run nonces", False,
+          issue_audit_state.issue_token('n0', 'file-identity', 'D1')
+          == issue_audit_state.issue_token('n1', 'file-identity', 'D1'))
+assert_eq("#546 eligibility_token_rows: summary re-emits the expected token as the "
+          "string-compare comparand",
+          _t1, issue_audit_state.summary_fields(_clean_file, 'D1')['token'])
+# A token issued on D1 is NOT re-emitted after a revision record: the stale marker appears.
+_revised = _state([_round(1, 'file', 'FILE', 'D1')], revisions=(1,))
+_sf = issue_audit_state.summary_fields(_revised, 'D2')
+assert_eq("#546 eligibility_token_rows: after a revision the pre-revision token is not "
+          "re-emitted", None, _sf['token'])
+assert_eq("#546 eligibility_token_rows: ... and the distinct stale-token marker appears "
+          "instead", True, _sf['stale_token'])
+# The OVERRIDE ground can also issue a token — over a REVISE/no-verdict epoch with NO
+# FILE round in `done` at all — so a later revision must stale THAT token too, or a
+# replayed override-ground token renders `token=none` (indistinguishable from
+# never-eligible) instead of the distinct stale marker. Regression pin for the
+# override-ground fail-open: `stale` keyed only on `any(outcome == 'FILE')` missed it.
+_ovr_staled_sf = issue_audit_state.summary_fields(_stale_override, 'D3')
+assert_eq("#546 eligibility_token_rows: a staled OVERRIDE-ground token (no FILE round) "
+          "does not re-emit", None, _ovr_staled_sf['token'])
+assert_eq("#546 eligibility_token_rows: ... and renders the distinct stale-token marker, "
+          "not token=none (override-ground fail-open regression)",
+          True, _ovr_staled_sf['stale_token'])
+# The NO-VERDICT-epoch sibling of the staled-override row above: refusal precedence
+# answers `no-verdict-round` before `stale-override` on a verdict-less epoch, so a
+# reason-keyed derivation never sees the staled override there and rendered
+# `token=none` (defined as "no token was ever issued") for a token that WAS issued and
+# later invalidated. The state-derived predicate (an override recorded at a
+# non-current ordinal) must render the distinct stale marker on this epoch too.
+_nv_stale_override = _state(
+    [_round(1, 'inline', 'no-verdict', 'D1')], revisions=(1,), overrides=[
+        {'kind': 'user-decline', 'surface': 'step4-offer', 'recorded_at_ordinal': 0,
+         'draft_digest': None}])
+_nv_sf = issue_audit_state.summary_fields(_nv_stale_override, 'D2')
+assert_eq("#546 eligibility_token_rows: a staled override token on a NO-VERDICT epoch "
+          "does not re-emit", None, _nv_sf['token'])
+assert_eq("#546 eligibility_token_rows: ... and renders stale-token, not token=none "
+          "(refusal precedence hides stale-override behind no-verdict-round there)",
+          True, _nv_sf['stale_token'])
+# The still-current override (a token IS live) must NOT render stale — guards against the
+# fix over-firing the marker on a legitimately-eligible override.
+_ovr_live_sf = issue_audit_state.summary_fields(_cur_override, 'D2')
+assert_eq("#546 eligibility_token_rows: a still-current override renders its live token, "
+          "not the stale marker", False, _ovr_live_sf['stale_token'])
+
+# t1_t2_rows — including state_unestablished_t2_holds.
+assert_eq("#546 t1_t2_rows: T1 holds when the most recent completed round is REVISE",
+          (True, False),
+          (lambda t: (t['t1'], t['t2']))(
+              issue_audit_state.evaluate_triggers(_state([_round(1, 'file', 'REVISE')]))))
+assert_eq("#546 t1_t2_rows: T1 does not hold on a clean FILE round",
+          False,
+          issue_audit_state.evaluate_triggers(_clean_file)['t1'])
+assert_eq("#546 t1_t2_rows: T2 holds when a revision postdates the last completed round",
+          True,
+          issue_audit_state.evaluate_triggers(
+              _state([_round(1, 'file', 'FILE')], revisions=(1,)))['t2'])
+assert_eq("#546 t1_t2_rows/state_unestablished_t2_holds: unestablished state -> T2 holds "
+          "with reason state-unestablished (unknown is not zero)",
+          (False, True, 'state-unestablished'),
+          (lambda t: (t['t1'], t['t2'], t['reason']))(
+              issue_audit_state.evaluate_triggers(None)))
+assert_eq("#546 t1_t2_rows: the verdict-less terminal -> T1 does not hold, T2 does",
+          (False, True),
+          (lambda t: (t['t1'], t['t2']))(
+              issue_audit_state.evaluate_triggers(
+                  _state([_round(1, 'inline', 'no-verdict')]))))
+assert_eq("#546 t1_t2_rows: zero completed rounds -> neither trigger holds",
+          (False, False),
+          (lambda t: (t['t1'], t['t2']))(issue_audit_state.evaluate_triggers(_state([]))))
+
+# Valid-falsy: a recorded findings count of 0 is a REAL zero, distinct from unestablished.
+assert_eq("#546 valid-falsy: a recorded findings count of 0 is a real zero", 0,
+          issue_audit_state.summary_fields(
+              _state([_round(1, 'file', 'FILE', findings=0)]), 'D1')['findings_count'])
+assert_eq("#546 valid-falsy: no completed round -> findings count is None, not 0 "
+          "(unknown is not zero)",
+          None, issue_audit_state.summary_fields(_state([]), None)['findings_count'])
+assert_eq("#546 valid-falsy: an empty rounds list is a legal live state that answers, "
+          "never an error",
+          'ok', issue_audit_state.summary_fields(_state([]), None)['state'])
+# rounds_run is its OWN derivation (len(state['rounds'])), distinct from revisions_applied
+# and verdict — pin its VALUE (not just its presence in the field set) over a multi-round
+# fixture so a regression emitting len(completed_rounds) or an off-by-one turns RED. This
+# re-establishes the deleted #522 "audit summary states the total rounds run" guarantee.
+_two_rounds = _state([_round(1, 'file', 'REVISE', 'D1'), _round(2, 'file', 'FILE', 'D1')])
+assert_eq("#546 summary rounds_run: the total number of rounds run is reported by value",
+          2, issue_audit_state.summary_fields(_two_rounds, 'D1')['rounds_run'])
+# An open (uncompleted) round still counts toward rounds_run (len of state['rounds'], not
+# completed_rounds) — the discriminator against the len(completed_rounds) regression.
+_open_plus_done = _state([_round(1, 'file', 'FILE', 'D1')])
+_open_plus_done['rounds'].append({'round': 2, 'attempts': [], 'no_parseable_retry_used': False,
+                                  'unreadable_retry_used': False, 'outcome': None,
+                                  'findings_count': None, 'consumer_dimensions_appended': False,
+                                  'embed_markers': [], 'degraded': False})
+assert_eq("#546 summary rounds_run: an open round still counts (len(rounds), not "
+          "len(completed_rounds))",
+          2, issue_audit_state.summary_fields(_open_plus_done, 'D1')['rounds_run'])
+
+print()
+print("issue-audit-state: the malformed-state matrix (issue #546)")
+
+# The CLAUDE.md adversarial input-shape matrix, widened to this tool-owned state JSON.
+# Every row must raise StateError (queries then answer state-unestablished, exit 0;
+# mutations exit non-zero with a named breadcrumb) — never a crash presented as a value.
+_GOOD = {'schema_version': issue_audit_state.SCHEMA_VERSION, 'slug': 's', 'nonce': 'n0',
+         'rounds': [], 'revisions': [], 'overrides': []}
+
+
+def _malformed(name, doc, slug='s'):
+    assert_raises(f"#546 malformed-state matrix: {name}", issue_audit_state.StateError,
+                  lambda: issue_audit_state._validate(doc, slug))
+
+
+_malformed('wrong-type top level (array)', [])
+_malformed('wrong-type top level (bare scalar)', 'nope')
+_malformed('wrong-type top level (null)', None)
+_malformed('missing required key (nonce)', {k: v for k, v in _GOOD.items() if k != 'nonce'})
+_malformed('missing required key (rounds)', {k: v for k, v in _GOOD.items() if k != 'rounds'})
+_malformed('schema-version mismatch', dict(_GOOD, schema_version=999))
+_malformed('slug mismatch', dict(_GOOD, slug='other'))
+_malformed('wrong-type field (rounds is an object)', dict(_GOOD, rounds={}))
+_malformed('wrong-type field (nonce is an int)', dict(_GOOD, nonce=7))
+_malformed('empty nonce', dict(_GOOD, nonce=''))
+_malformed('duplicate round numbers',
+           dict(_GOOD, rounds=[_round(1, 'file', 'FILE'), _round(1, 'file', 'FILE')]))
+_malformed('out-of-order round numbers',
+           dict(_GOOD, rounds=[_round(2, 'file', 'FILE'), _round(1, 'file', 'FILE')]))
+_malformed('an arm outside the canonical set',
+           dict(_GOOD, rounds=[_round(1, 'bogus-arm', 'FILE')]))
+_malformed('an outcome outside the canonical set',
+           dict(_GOOD, rounds=[_round(1, 'file', 'MAYBE')]))
+_malformed('an embed marker outside the canonical set',
+           dict(_GOOD, rounds=[_round(1, 'embed', 'FILE', markers=('bogus',))]))
+_malformed('an override kind outside the canonical set',
+           dict(_GOOD, overrides=[{'kind': 'bogus', 'recorded_at_ordinal': 0}]))
+_malformed('wrong-type findings_count (a string)',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'), findings_count='two')]))
+_malformed('a round with no attempts recorded',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'), attempts=[])]))
+_malformed('a round missing a required key', dict(_GOOD, rounds=[{'round': 1}]))
+
+# The valid-falsy control: an empty rounds list is NOT malformed — it must validate.
+assert_eq("#546 malformed-state matrix (valid-falsy control): an empty rounds list is "
+          "valid state, not a malformed shape",
+          's', issue_audit_state._validate(dict(_GOOD), 's')['slug'])
+
+print()
+print("issue-audit-state: review-round hardening (issue #546, PR #552 review)")
+
+# (1) Malformed read-surface fields the QUERIES consume. Pre-fix, each of these passed
+# _validate and then crashed a query (AttributeError/TypeError) — a crashed read
+# presented as a non-zero query exit, violating the two-class contract.
+_malformed('a revision record that is not an object', dict(_GOOD, revisions=['x']))
+_malformed('a revision record missing its ordinal', dict(_GOOD, revisions=[{'after_round': 0}]))
+_malformed('a non-integer revision ordinal',
+           dict(_GOOD, revisions=[{'ordinal': 'one', 'after_round': 0}]))
+_malformed('a non-integer after_round on a revision record',
+           dict(_GOOD, revisions=[{'ordinal': 1, 'after_round': 'zero'}]))
+# The per-round retry booleans DRIVE dispatch routing, so a hand-corrupted non-bool must
+# fail closed at the read boundary exactly like pending/outcome/findings_count above: a
+# falsy-corrupted unreadable_retry_used would admit a SECOND DRAFT-UNREADABLE re-dispatch,
+# a fail OPEN of the 'exactly one per round' bound this boundary exists to catch.
+_bad_unreadable = _round(1, 'file', 'FILE')
+_bad_unreadable['unreadable_retry_used'] = 'yes'
+_malformed('a non-boolean unreadable_retry_used (routing-decision fail-open)',
+           dict(_GOOD, rounds=[_bad_unreadable]))
+_bad_noparse = _round(1, 'file', 'FILE')
+_bad_noparse['no_parseable_retry_used'] = 1
+_malformed('a non-boolean no_parseable_retry_used (routing-decision fail-open)',
+           dict(_GOOD, rounds=[_bad_noparse]))
+_malformed('a non-integer automatic_reaudits_used counter',
+           dict(_GOOD, automatic_reaudits_used='two'))
+_malformed('a non-integer user_rounds_used counter', dict(_GOOD, user_rounds_used='three'))
+_malformed('a creation record that is not an object', dict(_GOOD, creation='yes'))
+_malformed('a creation record missing its body_only_digest',
+           dict(_GOOD, creation={'epoch_round': 1}))
+assert_eq("#546 review-round (valid-falsy control): creation=None is a legal live state",
+          's', issue_audit_state._validate(dict(_GOOD, creation=None), 's')['slug'])
+
+# (2) The creation-attestation status is surfaced in the audit-summary fields (AC:
+# "a mismatch is surfaced in the reported outcome and the audit-summary fields").
+_att_state = _state([_round(1, 'file', 'FILE', 'D1')])
+_att_state['creation'] = {'epoch_round': 1, 'epoch_arm': 'file',
+                          'body_only_digest': 'BD1', 'attestation': 'mismatch'}
+assert_eq("#546 attestation_summary_rows: a recorded attestation mismatch is surfaced "
+          "in the summary fields", 'mismatch',
+          issue_audit_state.summary_fields(_att_state, 'D1')['attestation'])
+assert_eq("#546 attestation_summary_rows: no creation epoch -> attestation reads none "
+          "(unknown is not a pass)", 'none',
+          issue_audit_state.summary_fields(_clean_file, 'D1')['attestation'])
+
+# The summary derivation threads digest_failed like the approve gate does: an
+# undigestible draft yields NO live token and NO false stale-token marker.
+assert_eq("#546 draft_undigestible_rows: the summary never renders a live token for an "
+          "undigestible draft",
+          (None, False),
+          (lambda f: (f['token'], f['stale_token']))(
+              issue_audit_state.summary_fields(_clean_file, None, digest_failed=True)))
+
+# summary_schema_rows — `summary_fields` answers on two INDEPENDENT branches
+# (state-unestablished and ok). The query surface renders the returned mapping key by key,
+# so a field added to one branch and forgotten on the other is a KeyError at a surface whose
+# contract is always-exit-0 — a two-class-contract violation, not a cosmetic slip. Both
+# branches are routed through the single `_summary` constructor, which fails loudly at the
+# call. These rows pin BOTH halves: that the two live branches actually agree, and that the
+# constructor is a real guard (a non-tautological positive control — it rejects the drift it
+# exists to catch, rather than merely existing).
+assert_eq("#546 summary_schema_rows: the two summary_fields branches answer with the "
+          "IDENTICAL field set (a KeyError at the query surface otherwise)",
+          sorted(issue_audit_state.summary_fields(None)),
+          sorted(issue_audit_state.summary_fields(_clean_file, 'D1')))
+assert_eq("#546 summary_schema_rows: ... and that field set is exactly _SUMMARY_FIELDS",
+          sorted(issue_audit_state._SUMMARY_FIELDS),
+          sorted(issue_audit_state.summary_fields(None)))
+# Positive control for the two rows above: the constructor REJECTS a branch that drops a
+# field, so their agreement is enforced rather than coincidental.
+assert_raises("#546 summary_schema_rows: _summary rejects a branch that OMITS a field",
+              AssertionError,
+              lambda: issue_audit_state._summary(
+                  **{k: None for k in issue_audit_state._SUMMARY_FIELDS[:-1]}))
+assert_raises("#546 summary_schema_rows: _summary rejects a branch that adds an UNKNOWN "
+              "field (a typo'd key would otherwise render as a silently missing field)",
+              AssertionError,
+              lambda: issue_audit_state._summary(
+                  **{k: None for k in issue_audit_state._SUMMARY_FIELDS}, bogus_field=1))
+
+print()
+print("issue-audit-state: shadow-round hardening (issue #546, PR #552 shadow review)")
+
+# (1) Read-surface sub-shapes the mutations index unconditionally: a corrupted attempt
+# record (missing digest/body_digest, non-string sentinel), a malformed override record
+# (bad surface, non-int ordinal), a non-sequential revision ordinal chain, and an
+# off-set creation attestation must all collapse to StateError — never a KeyError
+# traceback from a mutation that promised a named breadcrumb.
+_malformed('an attempt record missing its digest',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'),
+                                    attempts=[{'arm': 'file', 'body_digest': 'B'}])]))
+_malformed('an attempt record missing its body_digest',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'),
+                                    attempts=[{'arm': 'file', 'digest': 'D'}])]))
+_malformed('a non-string attempt sentinel',
+           dict(_GOOD, rounds=[dict(_round(1, 'embed', 'FILE'),
+                                    attempts=[{'arm': 'embed', 'digest': 'D',
+                                               'body_digest': 'B', 'sentinel_open': 7,
+                                               'sentinel_close': 'X'}])]))
+_malformed('an override record with a surface outside the canonical set',
+           dict(_GOOD, overrides=[{'kind': 'user-decline', 'surface': 'bogus',
+                                   'recorded_at_ordinal': 0, 'draft_digest': None}]))
+_malformed('an override record with a non-integer recorded_at_ordinal',
+           dict(_GOOD, overrides=[{'kind': 'user-decline', 'surface': 't1t2-boundary',
+                                   'recorded_at_ordinal': 'zero', 'draft_digest': None}]))
+# A present-but-EMPTY override draft_digest must be rejected at the read boundary: an empty
+# bound digest would compare equal to an empty computed digest on the override ground (a
+# fail-open). Double-defended in practice (hash_bytes can never emit ''), so this pins the
+# read-boundary half explicitly. Well-formed up to the draft_digest check (kind/surface/
+# ordinal all valid) so the reject attributes to that guard, not a precondition.
+_malformed('an override record with a present-but-empty draft_digest',
+           dict(_GOOD, overrides=[{'kind': 'user-decline', 'surface': 't1t2-boundary',
+                                   'recorded_at_ordinal': 0, 'draft_digest': ''}]))
+# De-vacuumed: the old fixture omitted `floor_round`, so it was rejected by the
+# floor_round-not-integer precondition and NEVER reached the ordinal-chain guard it
+# names — a regression deleting that guard would have kept it green. Supply floor_round
+# so the fixture is well-formed up to the ordinal-chain check, and ATTRIBUTE the reject
+# to that guard's own breadcrumb (not a bare StateError) so a sibling guard firing first
+# can no longer masquerade as this rejection.
+try:
+    issue_audit_state._validate(
+        dict(_GOOD, revisions=[{'ordinal': 2, 'after_round': 0, 'floor_round': 0}]), 's')
+    assert_eq("#546 malformed-state matrix: a revision ordinal chain that is not 1..N",
+              "raised StateError", "no exception raised")
+except issue_audit_state.StateError as _e:
+    assert_eq("#546 malformed-state matrix: a revision ordinal chain that is not 1..N "
+              "(rejected by the ordinal-chain guard, not a precondition)",
+              True, 'ordinal chain broken' in str(_e))
+# The read-boundary staleness gate: a WELL-FORMED revision record (all three ints, valid
+# ordinal chain) whose after_round < floor_round must be rejected here — the source flags
+# this as "the gate": below-floor after_round fails the event-ordering staleness guard
+# OPEN, so a revised-never-audited draft would answer eligible and emit-body would emit it
+# at exit 0. Only the WRITE boundary was tested before; this pins the READ boundary.
+try:
+    issue_audit_state._validate(
+        dict(_GOOD, revisions=[{'ordinal': 1, 'after_round': 0, 'floor_round': 1}]), 's')
+    assert_eq("#546 malformed-state matrix: a below-floor after_round (read-boundary "
+              "staleness gate)", "raised StateError", "no exception raised")
+except issue_audit_state.StateError as _e:
+    assert_eq("#546 malformed-state matrix: a below-floor after_round is rejected at the "
+              "read boundary (fail-open staleness gate)",
+              True, 'below the floor' in str(_e))
+# De-vacuumed: the old fixture omitted epoch_round/epoch_arm, so it was rejected by the
+# epoch_round-not-integer precondition and NEVER reached the attestation-canonical guard it
+# names — a regression deleting that guard would have stayed green. The attestation field
+# has a LIVE reader (summary_fields renders `attestation=<token>` and treats it as
+# forward-only tamper evidence), so this guard is load-bearing. Supply a well-formed
+# creation record up to the attestation check and ATTRIBUTE the reject to that guard's own
+# breadcrumb, exactly as the ordinal-chain row above does.
+try:
+    issue_audit_state._validate(
+        dict(_GOOD, creation={'body_only_digest': 'B', 'epoch_round': 1, 'epoch_arm': 'file',
+                              'attestation': 'maybe'}), 's')
+    assert_eq("#546 malformed-state matrix: a creation attestation outside the canonical set",
+              "raised StateError", "no exception raised")
+except issue_audit_state.StateError as _e:
+    assert_eq("#546 malformed-state matrix: a creation attestation outside the canonical set "
+              "(rejected by the attestation guard, not a precondition)",
+              True, 'attestation status outside the canonical set' in str(_e))
+# The two sibling creation sub-guards (no reader today, but closed at the read boundary):
+# each fixture is well-formed up to the guard it names so the reject is not a precondition.
+_malformed('a creation record with a non-integer epoch_round',
+           dict(_GOOD, creation={'body_only_digest': 'B', 'epoch_round': 'one',
+                                 'epoch_arm': 'file'}))
+_malformed('a creation record with an epoch_arm outside the canonical set',
+           dict(_GOOD, creation={'body_only_digest': 'B', 'epoch_round': 1,
+                                 'epoch_arm': 'bogus'}))
+
+# (2) evaluate_eligibility's mode is a closed set like every other vocabulary: an
+# off-set mode must raise loudly, never silently take the permissive approve path.
+assert_raises("#546 shadow-round: an off-vocabulary eligibility mode raises, never "
+              "defaults to approve", AssertionError,
+              lambda: issue_audit_state.evaluate_eligibility(_clean_file, 'aprove', 'D1'))
+
+# (3) A file-arm clean round queried with NO digest supplied must not claim the token
+# went stale (nothing was compared) — token None, stale_token False.
+assert_eq("#546 shadow-round: absent draft digest on a file-arm epoch never renders "
+          "stale-token", (None, False),
+          (lambda f: (f['token'], f['stale_token']))(
+              issue_audit_state.summary_fields(_clean_file, None)))
+assert_eq("#546 shadow-round: ... while a genuinely staled event-ordering epoch still "
+          "marks stale with no digest supplied", True,
+          issue_audit_state.summary_fields(
+              _state([_round(1, 'embed', 'FILE')], revisions=(1,)), None)['stale_token'])
+assert_eq("#546 shadow-round: a file-arm epoch whose clean round a revision postdates "
+          "marks stale even with no digest supplied (positive invalidation evidence)",
+          True,
+          issue_audit_state.summary_fields(
+              _state([_round(1, 'file', 'FILE')], revisions=(1,)), None)['stale_token'])
+
+# (4) A dispatch recorded for a pending retry clears the pending action: next-action
+# then answers the fail-closed awaiting token, never the already-spent retry action.
+_pending_round = _state([dict(_round(1, 'file', None), outcome=None,
+                              pending='dispatch-embed-retry')])
+assert_eq("#546 shadow-round: pending survives until the retry dispatch is recorded",
+          'dispatch-embed-retry',
+          issue_audit_state.next_action(_pending_round, 1))
+
+# (5) A slug that escapes .devflow/tmp is refused as untrustworthy state, fail closed.
+assert_raises("#546 shadow-round: a path-escaping slug raises StateError",
+              issue_audit_state.StateError,
+              lambda: issue_audit_state.state_path('../../evil'))
+assert_raises("#546 shadow-round: a slash-carrying slug raises StateError",
+              issue_audit_state.StateError,
+              lambda: issue_audit_state.state_path('a/b'))
+
+print()
+print("issue-audit-state: iteration-3 hardening (issue #546, PR #552 review)")
+
+# State-shape hardening for the iteration-3 fields (the after-round bounds themselves
+# are driven at the CLI in run.sh's iter3_hardening_rows; these rows pin the sibling
+# _validate additions).
+_malformed('a negative findings_count',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'), findings_count=-3)]))
+_malformed('a non-boolean reinit_forced', dict(_GOOD, reinit_forced='yes'))
+assert_eq("#546 iter3: _TRANSITION_REASONS gains attestation-already-recorded",
+          True, 'attestation-already-recorded' in issue_audit_state._TRANSITION_REASONS)
+
+# iteration-5: the no-digest-supplied reason is distinct from unaudited-revision (a
+# file-arm clean epoch queried with no digest was never compared at all).
+assert_eq("#546 iter5: no digest supplied over a file-arm clean epoch names its own reason",
+          ('not-eligible', 'no-digest-supplied'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(_clean_file, 'approve', None)))
+assert_eq("#546 iter5: ... while a revision-postdated file-arm epoch still refuses "
+          "unaudited-revision with no digest",
+          'unaudited-revision',
+          issue_audit_state.evaluate_eligibility(
+              _state([_round(1, 'file', 'FILE')], revisions=(1,)),
+              'approve', None)['reason'])
+
+print()
+print("issue-audit-state: convergence-shadow hardening (issue #546, PR #552 shadow)")
+
+# The newest completed verdict-bearing round wins: a later REVISE round on the SAME
+# bytes invalidates an older clean FILE round (probe-confirmed fail-open otherwise).
+assert_eq("#546 conv-shadow: a later REVISE round invalidates an earlier clean FILE "
+          "round on unchanged bytes",
+          ('not-eligible', 'unaudited-revision'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([_round(1, 'file', 'FILE', 'D1'),
+                          _round(2, 'file', 'REVISE', 'D1')]),
+                  'approve', 'D1')))
+assert_eq("#546 conv-shadow: ... and a later clean FILE round still grounds eligibility",
+          'eligible',
+          issue_audit_state.evaluate_eligibility(
+              _state([_round(1, 'file', 'REVISE', 'D1'),
+                      _round(2, 'file', 'FILE', 'D1')]),
+              'approve', 'D1')['answer'])
+
+# The persisted pending domain is the WRITER's domain: a corrupted 'proceed' collapses
+# the file rather than walking the orchestrator past an unreturned audit.
+_malformed('a pending value outside the writer domain (proceed)',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', None), outcome=None,
+                                    pending='proceed')]))
+
+# A digest-bound override queried with no digest names the caller omission.
+assert_eq("#546 conv-shadow: a digest-bound override with no digest supplied names "
+          "no-digest-supplied, not stale-override",
+          'no-digest-supplied',
+          issue_audit_state.evaluate_eligibility(
+              _state([_round(1, 'file', 'REVISE', 'D1')],
+                     overrides=[{'kind': 'user-decline', 'surface': 't1t2-boundary',
+                                 'recorded_at_ordinal': 0, 'draft_digest': 'D1'}]),
+              'approve', None)['reason'])
+
+# (3) An unreadable/unhashable supplied draft refuses with the DISTINCT reason
+# draft-undigestible in approve mode — never misattributed as unaudited-revision,
+# and never eligible on any ground (fail closed, overrides included).
+assert_eq("#546 draft_undigestible_rows: digest failure refuses with its own reason, "
+          "not unaudited-revision",
+          ('not-eligible', 'draft-undigestible'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([_round(1, 'file', 'FILE', 'D1')]), 'approve', None,
+                  digest_failed=True)))
+assert_eq("#546 draft_undigestible_rows: a digest failure blocks even the override ground",
+          'draft-undigestible',
+          issue_audit_state.evaluate_eligibility(
+              _state([_round(1, 'file', 'FILE', 'D1')],
+                     overrides=[{'kind': 'user-decline', 'surface': 't1t2-boundary',
+                                 'recorded_at_ordinal': 0, 'draft_digest': None}]),
+              'approve', None, digest_failed=True)['reason'])
+
+# (4) An open, unreturned round answers a fail-closed token, never `proceed`.
+_open_round = _state([dict(_round(1, 'file', None), outcome=None)])
+assert_eq("#546 next_action_rows: an open unreturned round answers "
+          "round-open-awaiting-return, never proceed",
+          'round-open-awaiting-return',
+          issue_audit_state.next_action(_open_round, 1))
+
+# (5) split_body edge-case rows — the producer of the body-only digest, driven directly.
+_sb = issue_audit_state.split_body
+assert_eq("#546 split_body_rows: no title heading -> whole content is the body",
+          b'plain text\nmore\n', _sb(b'plain text\nmore\n'))
+assert_eq("#546 split_body_rows: a level-2 heading first is NOT a title",
+          b'## Context\nbody\n', _sb(b'## Context\nbody\n'))
+assert_eq("#546 split_body_rows: a bare '#' line is accepted as the title",
+          b'body\n', _sb(b'#\n\nbody\n'))
+assert_eq("#546 split_body_rows: leading blank lines are skipped before the title",
+          b'body\n', _sb(b'\n\n# Title\n\nbody\n'))
+assert_eq("#546 split_body_rows: a title-only draft yields an empty body",
+          b'', _sb(b'# Title\n'))
+assert_eq("#546 split_body_rows: CRLF line endings are preserved byte-for-byte",
+          b'body\r\nmore\r\n', _sb(b'# Title\r\n\r\nbody\r\nmore\r\n'))
+assert_eq("#546 split_body_rows: empty input returns the empty bytes unchanged "
+          "(the no-lines early return, never an index into an empty list)",
+          b'', _sb(b''))
+
+# (6) findings_count from a REFUSED completion (failed carriage / no parseable verdict)
+# is never recorded onto the round — an unproven tally must not leak into the summary.
+# Driven at the classify/record seam: classify_return refuses, and the recording gate
+# keys on the accepted classifications only (exercised end-to-end by the run.sh CLI
+# block; here the pure gate predicate is pinned).
+assert_eq("#546 refused_return_rows: a refused completion classification is never an "
+          "accepted one", False,
+          issue_audit_state.classify_return('file', 'FILE', True, False)
+          in ('accept-file', 'accept-revise'))
+
+print()
+print("issue-audit-state: coverage-gap rows (issue #546, PR #552 review)")
+
+# (1) save_state's failed-persist cleanup: when os.replace cannot land (here the
+# target path is occupied by a directory), the failure surfaces as StateError with
+# the could-not-persist breadcrumb AND the partial .json.tmp is removed — a failed
+# persist never leaves a stray temp file in the evidence-bearing tmp directory.
+with tempfile.TemporaryDirectory() as _td:
+    _ss_root = Path(_td)
+    (_ss_root / '.devflow' / 'tmp' / 'issue-audit-state-s.json').mkdir(parents=True)
+    try:
+        issue_audit_state.save_state(_state([]), 's', root=_ss_root)
+        assert_eq("#546 save_state_cleanup_rows: a persist the OS refuses raises "
+                  "StateError", "raised StateError", "no exception raised")
+    except issue_audit_state.StateError as _e:
+        assert_eq("#546 save_state_cleanup_rows: a persist the OS refuses raises "
+                  "StateError with the could-not-persist breadcrumb",
+                  True, 'could not persist state' in str(_e))
+    assert_eq("#546 save_state_cleanup_rows: ... and no partial .json.tmp survives "
+              "the failed persist",
+              [], list((_ss_root / '.devflow' / 'tmp').glob('*.json.tmp')))
+
+# (2) The attestation trailing-newline tolerance swallows a _DigestError raised by
+# the SECOND (newline-stripped) hash: the compare stays a well-defined mismatch —
+# never an unhandled exception, which would leave the run with no attestation record
+# at all (rendering attestation=none, the never-attempted misattribution). Driven
+# with hash_bytes stubbed so the swallow itself is what the row exercises: the first
+# call establishes the mismatch, the retry raises.
+with tempfile.TemporaryDirectory() as _td:
+    _att_root = Path(_td)
+    _att_doc = _state([_round(1, 'file', 'FILE', 'D1')])
+    _att_doc['creation'] = {'epoch_round': 1, 'epoch_arm': 'file',
+                            'body_only_digest': 'BD1', 'attestation': None}
+    issue_audit_state.save_state(_att_doc, 's', root=_att_root)
+    _hash_calls = []
+
+    def _hash_stub(data):
+        _hash_calls.append(data)
+        if len(_hash_calls) > 1:
+            raise issue_audit_state._DigestError('stub: retry hash unavailable')
+        return 'NOT-BD1'
+
+    _orig_repo_root = issue_audit_state._repo_root
+    _orig_hash = issue_audit_state.hash_bytes
+    _orig_stdin = sys.stdin
+    _att_out = io.StringIO()
+    try:
+        issue_audit_state._repo_root = lambda: _att_root
+        issue_audit_state.hash_bytes = _hash_stub
+        sys.stdin = types.SimpleNamespace(buffer=io.BytesIO(b'fetched body\n'))
+        try:
+            with contextlib.redirect_stdout(_att_out), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                issue_audit_state.cmd_record_creation_attestation(
+                    argparse.Namespace(slug='s', nonce='n0',
+                                       attestation_unavailable=False))
+            _att_ended = 'returned'
+        except SystemExit as _e:
+            _att_ended = f'SystemExit({_e.code})'
+        except Exception as _e:
+            _att_ended = f'{type(_e).__name__}: {_e}'
+    finally:
+        issue_audit_state._repo_root = _orig_repo_root
+        issue_audit_state.hash_bytes = _orig_hash
+        sys.stdin = _orig_stdin
+    assert_eq("#546 attestation_swallow_rows: a _DigestError on the newline-stripped "
+              "retry hash is swallowed (the command completes)",
+              'returned', _att_ended)
+    assert_eq("#546 attestation_swallow_rows: ... the retry hash WAS attempted, so "
+              "the swallow (not a skipped tolerance) is what ran",
+              2, len(_hash_calls))
+    assert_eq("#546 attestation_swallow_rows: ... and the outcome stays the "
+              "well-defined mismatch",
+              'attestation=mismatch\n', _att_out.getvalue())
+    assert_eq("#546 attestation_swallow_rows: ... persisted as mismatch, never "
+              "half-recorded",
+              'mismatch',
+              issue_audit_state.load_state('s', root=_att_root)['creation']['attestation'])
+
+# (3) record-return's negative --findings-count guard fires its OWN breadcrumb (a
+# tally cannot be negative) before anything persists; findings-count 0 on the SAME
+# fixture is the valid-falsy positive control — a real zero is accepted and recorded.
+with tempfile.TemporaryDirectory() as _td:
+    _rr_root = Path(_td)
+    issue_audit_state.save_state(_state([_round(1, 'inline', None)]), 's', root=_rr_root)
+
+    def _rr_args(count):
+        return argparse.Namespace(slug='s', nonce='n0', round=1, verdict='FILE',
+                                  findings_count=count,
+                                  consumer_dimensions_appended=False,
+                                  carriage_object_id=None,
+                                  carriage_sentinel_open=None,
+                                  carriage_sentinel_close=None)
+
+    _orig_repo_root = issue_audit_state._repo_root
+    _rr_err = io.StringIO()
+    try:
+        issue_audit_state._repo_root = lambda: _rr_root
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(_rr_err):
+                issue_audit_state.cmd_record_return(_rr_args(-1))
+            _rr_code = None
+        except SystemExit as _e:
+            _rr_code = _e.code
+        assert_eq("#546 record_return_findings_rows: a negative findings count exits "
+                  "non-zero", 1, _rr_code)
+        assert_eq("#546 record_return_findings_rows: ... attributed to the "
+                  "negative-tally guard's own breadcrumb",
+                  True, 'is negative; a findings tally cannot be' in _rr_err.getvalue())
+        assert_eq("#546 record_return_findings_rows: ... and the refused return never "
+                  "persisted (the round is still open)",
+                  None,
+                  issue_audit_state.load_state('s', root=_rr_root)['rounds'][0]['outcome'])
+        _rr_out = io.StringIO()
+        with contextlib.redirect_stdout(_rr_out):
+            issue_audit_state.cmd_record_return(_rr_args(0))
+        assert_eq("#546 record_return_findings_rows: findings-count 0 on the same "
+                  "fixture is accepted (valid-falsy, a real zero)",
+                  'classification=accept-file outcome=FILE\n', _rr_out.getvalue())
+        assert_eq("#546 record_return_findings_rows: ... and the real zero is recorded",
+                  0,
+                  issue_audit_state.load_state(
+                      's', root=_rr_root)['rounds'][0]['findings_count'])
+    finally:
+        issue_audit_state._repo_root = _orig_repo_root
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

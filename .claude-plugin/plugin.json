@@ -1,6 +1,6 @@
 {
   "name": "devflow",
-  "version": "2.15.6",
+  "version": "2.15.8",
   "description": "Make agentic coding work on real codebases: DevFlow takes a one-line request to a complete, tested, reviewed, documented PR that's ready for your final review, and improves itself weekly. Includes /devflow:implement (4-phase orchestrator), /devflow:review and /devflow:review-and-fix (a verification-checklist review engine that audits its own approval), the /devflow:docs suite, /devflow:create-issue, plus the self-improving retrospective loop (/devflow:retrospective per-PR + /devflow:retrospective-audit weekly).",
   "author": {
     "name": "Daniel Radman",
