@@ -1,0 +1,68 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-17T17:45:00Z",
+  "fix_commit_sha": "34f649f0dfd1c61c87e0a3e7a93c11b5b553c799",
+  "fix_files": [".changeset/pr-563-selectable-test-modules.md", "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "lib/test/module-harness.sh", "lib/test/modules/workflow-flight-recorder.sh", "lib/test/run-module.sh", "lib/test/run.sh", "lib/test/test_module_runner.py"],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "fix_threshold": "important",
+  "checklist": [],
+  "checklist_note": "Phase 1+2 deliberately skipped for a shadow-promoted iteration (the inputs are a full Phases 0-4.3 shadow result); diff_profile.checklist_skipped stays null for the engine profile — the skip is the promotion rule's, not Phase 0.5's",
+  "phase3_dispatched": [],
+  "phase3_note": "promoted iteration — findings sourced from iter-1's shadow block (S-1..S-13 + Phase 2 FAIL VC-33), no own Phase 3 fan-out",
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": true, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"finding_id": "S-1", "agent": "devflow:comment-analyzer", "severity": "Critical", "description": "bash EXIT-trap rationale comment false against interpreter behavior (documented_falsehood carve-out)", "defect_signature": {"file": "lib/test/run-module.sh", "line_range": [75, 77], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied", "note": "orchestrator re-probed before fixing: EXIT trap ran on untrapped SIGTERM (rc 143)"},
+    {"finding_id": "S-2", "agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "unguarded harness source fails open in the focused runner", "defect_signature": {"file": "lib/test/run-module.sh", "line_range": [16, 17], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"finding_id": "VC-33-shadow-phase2-fail", "agent": "devflow:checklist-verifier", "severity": "Important", "description": "shadow checklist claim asserted run-module.sh/module-harness.sh source carries 'could not allocate workflow-flight-recorder workspace'", "defect_signature": {"file": "lib/test/run-module.sh", "line_range": [1, 1], "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"},
+    {"finding_id": "S-3", "agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "unchecked runner tally appends", "defect_signature": {"file": "lib/test/run-module.sh", "line_range": [242, 256], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"finding_id": "S-4", "agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "registry error cause swallowed", "defect_signature": {"file": "lib/test/run-module.sh", "line_range": [116, 122], "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"finding_id": "S-5", "agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "sed-dependent failure diagnostics", "defect_signature": {"file": "lib/test/module-harness.sh", "line_range": [31, 31], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"finding_id": "S-6", "agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "below-floor clause grouping", "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [699, 699], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"finding_id": "S-7", "agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "harness return-contract undocumented", "defect_signature": {"file": "lib/test/module-harness.sh", "line_range": [63, 64], "kind": "type_design"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"finding_id": "S-8", "agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "log accumulation (re-raise of parked F-18)", "defect_signature": {"file": "lib/test/run-module.sh", "line_range": [756, 757], "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied", "note": "addressed via the overview pruning note — the finding's own alternative remedy; F-18's parking superseded by an applied fix"},
+    {"finding_id": "S-9", "agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "LOG_FILE allocated before tallies", "defect_signature": {"file": "lib/test/run-module.sh", "line_range": [756, 764], "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"finding_id": "S-10", "agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "chmod-0 test assumes non-root", "defect_signature": {"file": "lib/test/test_module_runner.py", "line_range": [2048, 2059], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"finding_id": "S-11", "agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "no-self-skip contract unstated", "defect_signature": {"file": "lib/test/modules/workflow-flight-recorder.sh", "line_range": [4, 8], "kind": "comment_drift"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"finding_id": "S-12", "agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "unknown registry keys tolerated; schema-version cohabitation", "defect_signature": {"file": "lib/test/run-module.sh", "line_range": [139, 177], "kind": "type_design"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"finding_id": "S-13", "agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "floor-tightness not auto-asserted; sanitize_result_field untested", "defect_signature": {"file": "scripts/workflow-flight-recorder-registry.json", "line_range": [3, 8], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "S-1", "decision": "applied", "commit": "34f649f0"},
+    {"finding_id": "S-2", "decision": "applied", "commit": "34f649f0"},
+    {"finding_id": "VC-33-shadow-phase2-fail", "decision": "pushed_back", "source_file": "lib/test/run-module.sh", "claim_text": "runner/harness source emits 'could not allocate workflow-flight-recorder workspace'", "skip_category": "claim-quality", "evidence": "the string is emitted by the sourced module (lib/test/modules/workflow-flight-recorder.sh:61), captured into the runner's log and echoed on the runner's stdout at runtime; the shadow verifier itself confirmed every runtime behavior correct and failed only the claim's source-file attribution — the code is right, the generated claim misattributed the emitter"},
+    {"finding_id": "S-3", "decision": "applied", "commit": "34f649f0"},
+    {"finding_id": "S-4", "decision": "applied", "commit": "34f649f0"},
+    {"finding_id": "S-5", "decision": "applied", "commit": "34f649f0"},
+    {"finding_id": "S-6", "decision": "applied", "commit": "34f649f0"},
+    {"finding_id": "S-7", "decision": "applied", "commit": "34f649f0"},
+    {"finding_id": "S-8", "decision": "applied", "commit": "34f649f0"},
+    {"finding_id": "S-9", "decision": "applied", "commit": "34f649f0"},
+    {"finding_id": "S-10", "decision": "applied", "commit": "34f649f0"},
+    {"finding_id": "S-11", "decision": "applied", "commit": "34f649f0"},
+    {"finding_id": "S-12", "decision": "deferred", "source_file": "lib/test/run-module.sh", "claim_text": "reject unknown registry mapping keys; split/annotate the shared schema_version", "skip_category": "uncategorized", "evidence": "future-drift design notes, not current defects: unknown keys are tolerated by explicit .get() extraction (description rides along by design) and both subsystems validate disjoint subtrees today; a schema split is a separate design decision"},
+    {"finding_id": "S-13", "decision": "deferred", "source_file": "scripts/workflow-flight-recorder-registry.json", "claim_text": "assert floor == actual count; test sanitize_result_field TSV fields", "skip_category": "uncategorized", "evidence": "disclosed-by-design lower bound (key is named minimum_assertions); tight-guard preservation and sanitizer micro-tests are nice-to-have coverage, not defects"}
+  ],
+  "test_first_gate": [
+    {"decision": "red-green", "command": "python3 lib/test/test_module_runner.py", "result": "pass", "evidence": "S-2: the two new fail-closed tests (missing harness -> 'could not source'; stub harness -> 'did not define its contract functions') pin the guard's own distinct diagnostics with positive controls (marker absent, no log dir); green as shipped"},
+    {"decision": "probe-before-fix", "command": "bash EXIT-trap probe under kill -TERM (mktemp scratch)", "result": "pass", "evidence": "S-1: EXIT_TRAP_RAN observed at rc 143 — the old comment's premise refuted under the real interpreter before rewording"}
+  ],
+  "sweep_defs_read": ["inner/promoted path: trigger-gated sweeps only (per the review-and-fix 3b termination rule)"],
+  "sweep_evidence": {"status": "run", "classification": "guard rewrites + comments + docs + tests", "sweeps": ["class-sweep (unguarded top-level source): run.sh's own `. module-harness.sh` consumers are wrapped in if!-guards that trip on rc-127 — fails closed, no sibling fix needed", "mechanism comment re-sweep: trap rationale reworded (S-1); no other comment describes the old rationale (comment-analyzer's occurrence sweep confirmed single site)", "coupled-site: overview + changeset below-floor sentences edited together; 'a failure recap whenever...' pin literal preserved"],
+  "residue_note": "fold-in edits ride this iteration's Step 3.5 cumulative-delta re-gate"},
+  "convergence_inputs": {"fixes_applied": 12, "fix_diff_lines": 81, "new_corroborated_critical_count": 0, "critical_important_code_fixes": 1, "note": "only S-2's guard (~12 lines) is Critical/Important CODE; S-1 is a comment fix; the rest are Suggestion-grade or test/doc surface"},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "bash lib/test/run.sh + shellcheck (lib/test scope) + ruff + focused runner", "result": "pass", "duration_s": 300, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty at the pre-commit run (grades committed HEAD); prior post-commit runs green and the run-4 skip is the only skip"}], "note": "suite run 4 (pre-commit): 8271 passed, 0 failed, 1 skipped (#434 dirty-tree); both Python suites OK (38 runner incl. 2 new, 21 harness); focused runner 68/68; pre-3.5 caveat applies"},
+  "stale_prose_check": {"rc": 0, "rows": [], "note": "clean at 34f649f0 vs origin/main (three-dot)"},
+  "devflow_reflection": [
+    "over-grade calibration gate: S-3/S-4/S-5 flagged (single-source silent-failure-hunter MEDIUMs) — recorded severity-calibrated evaluations on iter-1's shadow block (calibrated to Suggestion; all three fixed anyway as trivial)",
+    "VC-33 shadow Phase-2 FAIL pushed back as claim-quality with source-span evidence (module:61 emits; runner output carries it at runtime)",
+    "S-8 resolves iter-1's parked F-18 via the finding's own doc-note remedy — applied, no longer parked"
+  ],
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 30},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 15, "webfetches": 0},
+    "phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_3": {"calls": 0, "tokens": 0, "wall_clock_s": 900}
+  }
+}
