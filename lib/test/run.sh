@@ -41059,6 +41059,11 @@ if [ -d "$QM_SB" ]; then
   for SHAPE in empty malformed array scalar; do
     (
       cd "$QM_SB" || exit 1
+      # git init is load-bearing, not boilerplate: state_path() anchors to the git root, so
+      # an un-init'd sandbox nested inside an outer repo resolves to the OUTER repo's path —
+      # the malformed file written here is then never read, and every row passes vacuously
+      # while exercising nothing.
+      git init -q . 2>/dev/null
       mkdir -p .devflow/tmp
       case "$SHAPE" in
         empty)     : > .devflow/tmp/issue-audit-state-m.json ;;

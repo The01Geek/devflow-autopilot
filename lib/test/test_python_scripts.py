@@ -3574,7 +3574,6 @@ _REGRESSION_STATE = {
     'slug': 'motivating-regression',
     'nonce': 'a1b2c3d4e5f60718',
     'reinit_forced': False,
-    'revision_ordinal': 1,
     'automatic_reaudits_used': 0,
     'user_rounds_used': 0,
     'rounds': [{

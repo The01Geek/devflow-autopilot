@@ -71,7 +71,20 @@ _EVENTS = (
 _ARMS = ('file', 'embed', 'inline')
 _VERDICTS = ('FILE', 'REVISE', 'DRAFT-UNREADABLE')
 _ROUND_OUTCOMES = ('FILE', 'REVISE', 'no-verdict')
+# The closed set of return classifications. `classify_return` is validated against it, so a
+# renamed classification fails loudly instead of routing a live return to a rule that no
+# longer matches.
 _CLASSIFICATIONS = ('accept-file', 'accept-revise', 'retry-embed', 'no-parseable-verdict')
+
+# Every decided outcome a transition row may name. Declared independently of TRANSITIONS on
+# purpose — the import-time assert compares the table against THIS, so it can actually fail.
+_RESULTS = _CLASSIFICATIONS + (
+    'nonce-minted', 'nonce-echoed', 'reinit-forced', 'illegal-reinit',
+    'digest-recorded', 'sentinels-generated', 'illegal-dispatch',
+    'illegal-return', 'ordinal-incremented', 'illegal-revision',
+    'override-recorded', 'degraded-recorded', 'epoch-recorded', 'illegal-epoch',
+    'match', 'mismatch', 'attestation-unavailable', 'illegal-attestation',
+)
 
 # The three embed-arm entry markers, preserved verbatim from the prose this module
 # replaces. `lib/test/run.sh` pins the rendered text byte-for-byte: the audit summary
@@ -205,9 +218,6 @@ def _assert_transition_tokens():
     module exists to remove from prose. Import fails rather than routing a live
     lifecycle event to a stale rule.
     """
-    known_results = (
-        {r['result'] for r in TRANSITIONS if r['result']} | set(_CLASSIFICATIONS)
-    )
     for r in TRANSITIONS:
         where = f"{r['event']}/{r['condition']}"
         assert r['event'] in _EVENTS, (
@@ -220,8 +230,12 @@ def _assert_transition_tokens():
         assert r['reason'] is None or r['reason'] in _ALL_REASONS, (
             f'issue-audit-state: transition {where} names a reason token not in the '
             f'canonical reason sets: {r["reason"]}')
-        assert r['result'] is None or r['result'] in known_results, (
-            f'issue-audit-state: transition {where} names an unknown result: {r["result"]}')
+        # `_RESULTS` is declared INDEPENDENTLY of the table (never derived from it): an
+        # assert whose comparand is built from the very rows it checks is a tautology that
+        # cannot fail, which is a false signal of coverage rather than a guard.
+        assert r['result'] is None or r['result'] in _RESULTS, (
+            f'issue-audit-state: transition {where} names a result not in _RESULTS: '
+            f'{r["result"]}')
     # The arm x verdict cross product must be total — an unrouted combination would
     # fall through to whatever the caller improvised, which is the prose failure mode.
     covered = {(r['arm'], r['verdict']) for r in TRANSITIONS
@@ -422,6 +436,12 @@ def _validate(doc, slug):
         fc = rnd.get('findings_count')
         if fc is not None and (not isinstance(fc, int) or isinstance(fc, bool)):
             raise StateError(f'round {num} findings_count {fc!r} is not an integer')
+        # `pending` decides the next dispatch, so a hand-corrupted value outside the closed
+        # answer set must fail closed here rather than reach the skill as an unroutable token.
+        pend = rnd.get('pending')
+        if pend is not None and pend not in _NEXT_ACTIONS:
+            raise StateError(f'round {num} names a pending action outside the canonical '
+                             f'set: {pend!r}')
         for mk in rnd.get('embed_markers', []):
             if mk not in _EMBED_MARKER_TOKENS:
                 raise StateError(f'round {num} names an embed marker outside the '
@@ -496,6 +516,11 @@ def classify_return(arm, verdict, has_verdict_line, carriage_ok):
 def _legality(arm, verdict):
     for r in TRANSITIONS:
         if r['condition'] == 'verdict-on-arm' and r['arm'] == arm and r['verdict'] == verdict:
+            if r['result'] not in _CLASSIFICATIONS:
+                raise AssertionError(
+                    f'issue-audit-state: the verdict-on-arm row for arm={arm!r} '
+                    f'verdict={verdict!r} names {r["result"]!r}, which is not a return '
+                    f'classification in _CLASSIFICATIONS')
             return r['result']
     raise KeyError(f'no transition row for arm={arm!r} verdict={verdict!r}')
 
@@ -676,16 +701,10 @@ def next_action(state, round_no):
         return 'revise-then-evaluate-offer'
     if outcome == 'no-verdict':
         return 'round-closed-no-verdict'
-    # The pending flags are set by `record-return` from the round's own retry accounting;
-    # this query only reads them, so the retry arms cannot be re-derived (and re-decided)
-    # differently here than they were recorded.
-    if rnd.get('pending_embed_retry'):
-        return _checked_action('dispatch-embed-retry')
-    if rnd.get('pending_inline_degraded'):
-        return _checked_action('dispatch-inline-degraded')
-    if rnd.get('pending_no_verdict_retry'):
-        return _checked_action('dispatch-retry-same-arm')
-    return _checked_action('proceed')
+    # `pending` is written by `record-return` from the round's own retry accounting; this
+    # query only reads it, so the retry arm cannot be re-derived (and re-decided) differently
+    # here than it was recorded. One field, one read — no order-dependent if-chain.
+    return _checked_action(rnd.get('pending') or 'proceed')
 
 
 def _checked_action(token):
@@ -711,10 +730,15 @@ def _find_round(state, round_no):
 
 
 def route_arm(write_landed, hash_ok, prior_unreadable):
-    """Decide a dispatch's arm from recorded facts alone.
+    """Decide a dispatch's arm.
 
     Returns (arm, marker_token|None). The three embed markers are the ported entry
     conditions, preserved verbatim in `_EMBED_MARKER_TEXT`.
+
+    The three inputs are not equals: `hash_ok` the tool observes itself, `prior_unreadable`
+    it recorded at the previous return (`cmd_query_arm` reads it back rather than trusting
+    the caller), and `write_landed` is the one genuinely orchestrator-reported fact — the
+    tool does not own the draft write, so it cannot observe whether it landed.
     """
     if prior_unreadable:
         return 'embed', 'file-unreadable'
@@ -917,6 +941,11 @@ def cmd_record_return(args):
     verdict = args.verdict
     cls = classify_return(arm, verdict, args.verdict is not None, carriage_ok)
 
+    # `pending` is ONE field holding at most one next action, not a set of mutually-exclusive
+    # booleans. Three separate flags let the persisted state hold a genuine contradiction
+    # (two pending arms true at once), with correctness resting silently on the read-order of
+    # the consumer's if-chain; a single assignment site cannot express that state at all.
+    rnd['pending'] = None
     if cls == 'accept-file':
         rnd['outcome'] = 'FILE'
     elif cls == 'accept-revise':
@@ -927,9 +956,8 @@ def cmd_record_return(args):
             cls = 'no-parseable-verdict'
         else:
             rnd['unreadable_retry_used'] = True
-            rnd['pending_embed_retry'] = True
+            rnd['pending'] = 'dispatch-embed-retry'
     if cls == 'no-parseable-verdict':
-        rnd.pop('pending_embed_retry', None)
         # Read the retry flag BEFORE setting it: exactly one no-parseable-verdict retry
         # per round, and only a SECOND such completion routes to the inline degraded arm.
         # Setting and reading it in one branch would make the first completion look like
@@ -938,11 +966,12 @@ def cmd_record_return(args):
             if arm == 'inline':
                 # The arm past both defined retries: the round closes verdict-less.
                 rnd['outcome'] = 'no-verdict'
+                rnd['pending'] = None
             else:
-                rnd['pending_inline_degraded'] = True
+                rnd['pending'] = 'dispatch-inline-degraded'
         else:
             rnd['no_parseable_retry_used'] = True
-            rnd['pending_no_verdict_retry'] = True
+            rnd['pending'] = 'dispatch-retry-same-arm'
     if args.findings_count is not None:
         rnd['findings_count'] = args.findings_count
     if args.consumer_dimensions_appended:
@@ -1112,7 +1141,24 @@ def cmd_query_arm(args):
         hash_file(args.draft_file)
     except _DigestError:
         hash_ok = False
-    arm, marker = route_arm(args.write_landed == 'yes', hash_ok, args.prior_unreadable)
+    state = _query_state(args.slug)
+    if state is not None and state['nonce'] != args.nonce:
+        # Every sibling query fails closed on a foreign nonce; this one must too, rather
+        # than answering a routing decision for a run it does not belong to.
+        print('arm=embed marker=digest-unrecorded reason=foreign-nonce')
+        return
+    # A prior within-round DRAFT-UNREADABLE is a fact the tool RECORDED at record-return
+    # (`unreadable_retry_used` on the open round) — so read it rather than trusting the
+    # caller to hand back something already written down. The reported flag is still OR'd
+    # in so a caller that knows better than unestablished state is not overridden, but the
+    # recorded fact alone is sufficient: this is what makes "decides from recorded facts"
+    # true of the retry input rather than a claim the caller has to honor.
+    prior_unreadable = bool(args.prior_unreadable)
+    if state is not None and state['rounds']:
+        last = state['rounds'][-1]
+        if last.get('outcome') is None and last.get('unreadable_retry_used'):
+            prior_unreadable = True
+    arm, marker = route_arm(args.write_landed == 'yes', hash_ok, prior_unreadable)
     print(f'arm={arm} marker={marker or "none"}')
 
 
