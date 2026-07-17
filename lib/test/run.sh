@@ -2359,6 +2359,31 @@ assert_pin_unique "#557: Decide outcome 1 handoff recognizes the preservation se
   'the preservation sentinel `park-calibration gate: {N} parking(s) preserved on evidence equivalence` — recognized as gate-completion exactly as the clean sentinel is' "$ST_RAF"
 assert_pin_unique "#557: fail-closed degradation bullet is friction-kind" \
   'the degradation bullet naming the finding and the absent/malformed operand is written **friction-kind**' "$ST_RAF"
+# Behavioral pin (review #558 round 2, finding 1): the friction-kind framing above is only
+# load-bearing if the operative reflection kind is `improvement` (friction) and not `note`
+# (retrospective-exempt). An `improvement`→`note` swap would launder the degradation signal into
+# the exempt bucket while the presence pin stayed GREEN, so mutate the operative token and flip
+# PASS->FAIL.
+assert_pin_red_under "#557 (review #558): degradation reflection kind is operative (improvement->note laundering goes RED)" \
+  'via `--reflection-kind improvement` (a 💡 bullet' \
+  's/via `--reflection-kind improvement` \(a 💡 bullet/via `--reflection-kind note` (a 💡 bullet/' "$ST_RAF"
+# Behavioral pin (review #558 round 2, finding 2): the promote arm must carry the shadow
+# re-raise's severity, never the (possibly lower) parked severity. Mutating it to the parked
+# finding's severity re-introduces the silent downgrade the parenthetical forbids, so the pin
+# flips PASS->FAIL (anchor stops before the apostrophe to stay single-quote-safe).
+assert_pin_red_under "#557 (review #558): promoted-severity rule is operative (silent downgrade goes RED)" \
+  'the promoted finding **carries the shadow re-raise' \
+  's/the promoted finding \*\*carries the shadow re-raise/the promoted finding **carries the parked finding/' "$ST_RAF"
+# Presence pin (review #558 round 2, finding 3): condition (c)'s uncitable-outcome list must
+# retain `tools_unavailable`; dropping it makes every tools-unavailable demotion fail (c) and
+# always promote (the safe direction, so a presence pin catching deletion is sufficient).
+assert_pin_unique "#557 (review #558): condition (c) uncitable list retains tools_unavailable" \
+  '(`web_inconclusive`, `over_budget`, or `tools_unavailable`) restated in `parking_evidence.basis`' "$ST_RAF"
+# Deferred (review #558 round 2, finding 4): condition (c)'s band-scoping clause ("binds only in
+# the band between $FIX_THRESHOLD and the verdict threshold") is left unpinned deliberately — it
+# is a framing restatement, not an operative guard: the REJECT arm independently governs the
+# at-or-above-verdict-threshold band, so a regression there fails safe and an operative-vs-framing
+# pin here would over-pin framing. Revisit only if the REJECT arm stops governing that band.
 assert_pin_unique "#557: shadow-review documents the evidence gate" \
   '### Evidence-aware post-shadow grading of parked findings (issue #557)' "$LIB/../docs/shadow-review.md"
 assert_pin_unique "#557: system overview documents the evidence gate" \
