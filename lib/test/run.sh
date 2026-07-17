@@ -4015,13 +4015,14 @@ assert_pin_unique "rcv: step 0 fail-soft path" \
 # vendored to consumer repos, so an assert_pin_unique on each operative sentence is the
 # mutation-proven drift guard. Each literal is target-unique, apostrophe-free ASCII, and
 # repo-agnostic (only generic git/gh/PR concepts — never a repo path or CI job name; the
-# existing #379(AC8) whole-file absence pins (~1731) already cover this new prose, so no fresh
+# existing #379(AC8) whole-file absence pins already cover this new prose, so no fresh
 # 'lib/test/run.sh' / 'lib + python tests' absence pin is added — the same precedent the #479
 # block cites). The 15 behavioral rules each also carry assert_pin_red_under mutation evidence:
 # a sed -E mutation re-introduces the named bug and the pin is observed PASS->FAIL, so a
 # framing-only pin that stayed green under the operative half-revert is caught mechanically.
 #
-# Presence pins (18 — the 17 named contract sentences plus the three-arm classifier structure):
+# Presence pins: the 17 named contract sentences, the three-arm classifier structure, and two
+# defensive out-of-set pins (AC10 no-subject stop + the guard-class-2 fail-open sentence).
 assert_pin_unique "rcv/#545 P-carveout: preflight scoped to direct invocation, loop governs otherwise" \
   'and this preflight is not consulted' "$RECV_SKILL"
 assert_pin_unique "rcv/#545 P-nocmd: neither-context run executes no preflight command" \
@@ -4058,6 +4059,13 @@ assert_pin_unique "rcv/#545 P-terminate: non-interactive ambiguous subject never
   'the run never self-confirms and never waits' "$RECV_SKILL"
 assert_pin_unique "rcv/#545 P-freshness: failed fetch divergence unknown, never zero-behind" \
   'both divergence measurements are recorded as unknown, never zero-behind' "$RECV_SKILL"
+# Two additional load-bearing sentences outside the issue's named P-* set, pinned defensively
+# (issue #545 review, pr-test-analyzer): AC10's no-subject stop, and the guard-class-2 fail-open
+# hazard the repo treats as load-bearing elsewhere.
+assert_pin_unique "rcv/#545 P-nosubject: no PR + no feedback + no checkout binding stops and asks (AC10)" \
+  'and the skill stops and asks for the subject instead of triaging' "$RECV_SKILL"
+assert_pin_unique "rcv/#545 P-guardclass2: fact statuses derived with builtins, non-preflight tool fails open" \
+  'a missing tool would fail open and stamp a fact' "$RECV_SKILL"
 #
 # Behavioral-fix mutation evidence (15): each sed -E mutation re-introduces the named bug.
 assert_pin_red_under "rcv/#545 P-carveout-mp: deleting the loop-governs clause (double-establishment bug)" \
@@ -4114,21 +4122,32 @@ assert_pin_red_under "rcv/#545 P-freshness-mp: deleting never-zero-behind (faile
 # vacuously). The awk/grep here operates on the SKILL text as test-harness scanning, not a
 # runtime selection — the guard-class-2 non-preflight-tool rule governs shipped code, not this
 # detector. Absorbs grep's no-match exit 1 with `|| true` so `set -u` never aborts a clean scan.
-pf545_cmd_lines() {  # file -> command lines inside the Reception Preflight section's bash fences
+pf545_cmd_lines() {  # file -> non-blank, non-comment command lines inside the section's bash fences
   awk '
     $0 ~ /^## Reception Preflight$/ {inpf=1; next}
     inpf && /^## / {inpf=0}
     inpf && /^```bash$/ {infence=1; next}
     inpf && infence && /^```$/ {infence=0; next}
     inpf && infence {print}
-  ' "$1" | sed -E 's/^[[:space:]]+//'
+  ' "$1" | sed -E 's/^[[:space:]]+//' | grep -vE '^(#|$)'
 }
-pf545_cmd_count() {  # count of git/gh command lines in the section's bash fences (non-vacuity)
-  pf545_cmd_lines "$1" | grep -Ec '^(git|gh)[[:space:]]' || true
+pf545_cmd_count() {  # count of ALL command lines in the section's bash fences (non-vacuity)
+  pf545_cmd_lines "$1" | grep -c . || true
 }
-pf545_illegal_count() {  # count of command lines whose head is NOT in the AC5 allowlist
-  pf545_cmd_lines "$1" | grep -E '^(git|gh)[[:space:]]' \
-    | grep -cvE '^(git fetch|git rev-parse|git status|git merge-base|git rev-list|gh pr view|gh issue view)([[:space:]]|$)' || true
+# Illegal = any fenced command line whose head is NOT in the AC5 permitted read-only set.
+# The set is broader than git/gh: AC5 also permits the extension loader and the threshold
+# read, both invoked via the portable ${CLAUDE_SKILL_DIR:-…} anchor (so their leading token
+# is a path, matched here by the helper basename anywhere on the line). Every OTHER head — a
+# git/gh WRITE subcommand (push/checkout/merge/…), or any non-git/gh command (rm/curl/python3/
+# sed -i/…) — survives both filters and is counted illegal, so the membership check enforces
+# AC5's "and from nothing else" for every head, not only git/gh-prefixed ones (issue #545
+# review: silent-failure-hunter / comment-analyzer / pr-test-analyzer all flagged the
+# git/gh-only scope as failing open against the section's own "every command head" contract).
+pf545_illegal_count() {
+  pf545_cmd_lines "$1" \
+    | grep -vE '^(git fetch|git rev-parse|git status|git merge-base|git rev-list|gh pr view|gh issue view)([[:space:]]|$)' \
+    | grep -vE 'load-prompt-extension\.sh|config-get\.sh' \
+    | grep -c . || true
 }
 assert_eq "rcv/#545 read-only detector: Reception Preflight section carries fenced commands (non-vacuous)" \
   "yes" "$([ "$(pf545_cmd_count "$RECV_SKILL")" -ge 1 ] && echo yes || echo no)"
@@ -4151,6 +4170,19 @@ if [ "$PF545_INJ" != "/dev/null" ]; then
   assert_eq "rcv/#545 read-only detector positive control: injected 'gh pr checkout' turns the scan RED" \
     "yes" "$([ "$(pf545_illegal_count "$PF545_INJ")" -ge 1 ] && echo yes || echo no)"
   rm -f "$PF545_INJ"
+fi
+# Second positive control: a NON-git/gh mutating command must also turn the scan RED — the
+# AC5 contract is "every command head", not only git/gh subcommands (issue #545 review).
+PF545_INJ2="$(probe_tmp 'rcv/#545 read-only detector non-git/gh positive control setup')"
+if [ "$PF545_INJ2" != "/dev/null" ]; then
+  awk '
+    {print}
+    /^## Reception Preflight$/{inpf=1}
+    inpf && /^```bash$/ && !seen {print "rm -rf /tmp/scratch"; seen=1}
+  ' "$RECV_SKILL" > "$PF545_INJ2"
+  assert_eq "rcv/#545 read-only detector positive control 2: injected non-git/gh 'rm -rf' turns the scan RED" \
+    "yes" "$([ "$(pf545_illegal_count "$PF545_INJ2")" -ge 1 ] && echo yes || echo no)"
+  rm -f "$PF545_INJ2"
 fi
 
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
