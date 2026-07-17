@@ -31036,8 +31036,13 @@ while IFS='|' read -r _ps_name _ps_lit _ps_stem; do
   [ -n "$_ps_name" ] || continue
   assert_eq "#529 AC15 pressure: the '$_ps_name' contract survives in the bundle" "yes" \
     "$(grep -qF -- "$_ps_lit" "$REVIEW_BUNDLE" && echo yes || echo no)"
-  assert_eq "#529 AC15 pressure: '$_ps_name' is owned by ${_ps_stem}.md and routed from the root" "yes|yes" \
-    "$(grep -qF -- "$_ps_lit" "$LIB/../skills/review/phases/${_ps_stem}.md" && echo yes || echo no)|$(grep -qF -- "phases/${_ps_stem}.md" "$REVIEW_ROOT" && echo yes || echo no)"
+  # OWNERSHIP only. The bare `phases/<stem>.md` spelling canNOT witness routing — it
+  # also matches the AC7 hash fence, so it stays green with the routing row deleted
+  # (the vacuity the backticked loop below was written to close). Naming it "routed"
+  # here would claim coverage this half does not provide; the routing witness is that
+  # loop, which runs over every stem.
+  assert_eq "#529 AC15 pressure: '$_ps_name' is OWNED by ${_ps_stem}.md (routing is witnessed separately)" "yes" \
+    "$(grep -qF -- "$_ps_lit" "$LIB/../skills/review/phases/${_ps_stem}.md" && echo yes || echo no)"
 done <<'PRESSURE'
 standalone (4.4 posts the verdict)|Record the verdict as a formal GitHub review|phase-4-4-github-post
 current-branch (no PR number)|CURRENT_BRANCH_BASE_CAPTURE|phase-0-setup
@@ -31091,6 +31096,14 @@ assert_pin_unique "#529 the root's 4.1.7 routing row carries the ordering cue (a
   'runs after 4.1.6 and **before** 4.2' "$REVIEW_ROOT"
 assert_pin_unique "#529 the verdict reference points at 4.1.7 AT the 4.1.6->4.2 seam (the split dropped this)" \
   'Phase 4.1.7 runs at this seam' "$LIB/../skills/review/phases/phase-4-verdict.md"
+# 0.3.6 is the SIBLING of the 4.1.7 seam defect, and the same lockstep pair closes it.
+# Its execution point is INTERIOR to phase-0-setup (between 0.3.5 and 0.4), but the
+# reference flowed 0.3.5 -> 0.4 -> 0.5 uninterrupted while the root routes 0.3.6 after
+# row 0 — so a pass ran 0.4/0.5 and only then noticed the gate whose whole purpose is
+# to be evaluated BEFORE them. Observed, not theorised: fresh readers of the real
+# reference listed 0.3.5 -> 0.4 -> 0.5 and relegated 0.3.6 to a trailing note.
+assert_pin_unique "#529 the setup reference points at 0.3.6 AT the 0.3.5->0.4 seam (sibling of the 4.1.7 defect)" \
+  'Phase 0.3.6 runs at this seam' "$LIB/../skills/review/phases/phase-0-setup.md"
 # The identity table's own fail-open fix. Every other row fires on a value being
 # present-and-wrong, so an absent hash made nothing differ and the gate passed on an
 # unverified bundle. Nothing pinned any identity label, so the whole table could be

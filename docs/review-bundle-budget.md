@@ -16,7 +16,11 @@ budget contract later changes are held to.
 - **Bytes** are `wc -c`; **lines** are `wc -l`.
 - **Approximate tokens** are `ceil(bytes / 4)` — the same heuristic
   [`docs/workflow-flight-recorder.md`](workflow-flight-recorder.md) uses, and explicitly *not*
-  an API-reported count.
+  an API-reported count. A **multiplied** row (a path read N times) rounds *per pass* and then
+  multiplies — `ceil(bytes/4) × N`, not `ceil(bytes × N / 4)` — because the repeat is N separate
+  reads, each paying its own rounding. The two conventions differ by a token or three on the
+  multiplied rows; on an explicitly approximate heuristic that is noise, but the rows are
+  reproducible only against the stated convention.
 - **Baseline ("before")** is `origin/main` at the split: `skills/review/SKILL.md` +
   `.devflow/prompt-extensions/review.md`.
 
