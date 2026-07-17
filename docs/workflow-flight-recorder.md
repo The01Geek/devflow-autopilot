@@ -26,9 +26,11 @@ python3 scripts/inventory-workflow-transcripts.py \
 
 A session qualifies only when its first authoritative user message invokes a
 registered workflow. The registry recognizes `/devflow:implement` and
-`/implement`, `/devflow:create-issue` and `/create-issue`, `/devflow:review` and
-`/review`, `/devflow:review-and-fix` and `/review-and-fix`, and
-`/devflow:receiving-code-review`. Plain commands and Claude command markup both
+`/implement`, `/devflow:create-issue` and `/create-issue`,
+`/devflow:review-and-fix` and `/review-and-fix`, `/devflow:review` and
+`/review`, and `/devflow:receiving-code-review` — see
+`scripts/workflow-flight-recorder-registry.json` for the authoritative set and
+each workflow's measured prompt surfaces. Plain commands and Claude command markup both
 qualify. A command embedded in a larger first message qualifies only when a
 later assistant `Skill` call corroborates the same workflow and subject; the
 inventory then classifies it as top-level. Later command mentions do not qualify

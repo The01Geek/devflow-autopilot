@@ -72,13 +72,18 @@ jobs:
           git ls-files '*.sh' | grep -v '^lib/test/' \
             | xargs -r shellcheck --severity=warning -e SC1091
           # lib/test/ is excluded above (the gh-stub fixtures are not shipped code), but
-          # These lib/test files are shipped code (the sourced harness/renderer/
+          # these lib/test files are shipped code (the sourced harness/renderer/
           # module and the standalone focused runner) rather than fixtures, so
           # they are added explicitly rather than shipping unlinted.
           shellcheck --severity=warning -e SC1091 \
             lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh \
             lib/test/modules/workflow-flight-recorder.sh \
             lib/test/modules/review-and-fix-contract.sh
+          # lib/test/describe-budget-delta.sh is the #529 budget-delta reporter the suite
+          # drives (a branch-selecting message composer, extracted per CLAUDE.md's
+          # inline-shell rule). Same carve-out: real shell, so it is linted even
+          # though lib/test/ is excluded above.
+          shellcheck --severity=warning -e SC1091 lib/test/describe-budget-delta.sh
 
       # actionlint validates workflow syntax and runs shellcheck over run: blocks.
       # SHELLCHECK_OPTS mirrors the severity policy; SC2034 is excluded because
