@@ -8,6 +8,8 @@ got wrong on PR #190.
 
 ## Re-read the live issue spec — including any Addendum — before triaging findings
 
+This repo-specific step **sharpens** the base skill's Reception Preflight linked-issue fact (fact 6, which re-reads each linked issue body in this run as triage data): the preflight establishes the generic re-read, and this extension layers the Addendum/supersession discipline on top of it. The two do not conflict — the preflight gathers the current issue body as data, and this rule governs how an Addendum within that body is weighed.
+
 When the feedback concerns a PR that closes a GitHub issue, **re-read the issue body
 fresh** (`gh issue view <n> --json body --jq '.body'`) as the FIRST step of VERIFY,
 before you evaluate or implement any finding. Do not rely on the issue understanding you
