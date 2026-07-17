@@ -38889,8 +38889,9 @@ assert_eq "#456 both #434 self-scan arms are blocking-gate skips through skip()"
 # ci.yml: the lib+python test job's checkout sets fetch-depth: 0 so origin/main resolves.
 assert_eq "#456 ci.yml: the 'lib + python tests' job checkout sets fetch-depth: 0" "yes" \
   "$(awk '/^    name: lib \+ python tests/{intest=1; next} /^  [a-z]/{intest=0} intest && /fetch-depth: 0/{f=1} END{print (f?"yes":"no")}' "$LIB/../.github/workflows/ci.yml")"
-assert_eq "#456 ci.yml: lib/test/summary.sh is added to the shellcheck lint scope" "yes" \
-  "$(grep -qF 'shellcheck --severity=warning -e SC1091 lib/test/summary.sh' "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
+assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck scope" "yes" \
+  "$(grep -qF 'lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh' \
+       "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
 #
 # review-and-fix: verification_evidence gains a skipped_checks list, and the not-a-clean-pass
 # clause stays repo-agnostic (names no lib/test/run.sh / lib + python tests / --flag).

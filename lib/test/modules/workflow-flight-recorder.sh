@@ -14,7 +14,33 @@ IFR_ANALYZE="$LIB/../scripts/analyze-implement-runs.py"
 IFR_PROMPT="$LIB/../scripts/prompts/implement-flight-recorder-analysis.md"
 WFR_PROMPT="$LIB/../scripts/prompts/workflow-flight-recorder-analysis.md"
 IFR_SETTINGS_FIXTURE="$LIB/test/fixtures/workflow-flight-recorder-settings.local.json"
-IFR_ROOT="$(mktemp -d)"
+IFR_TEMPLATE="${TMPDIR:-/tmp}"
+IFR_TEMPLATE="${IFR_TEMPLATE%/}/devflow-wfr.XXXXXX"
+IFR_PREFIX="${IFR_TEMPLATE%XXXXXX}"
+IFR_ROOT="$(mktemp -d "$IFR_TEMPLATE")" || IFR_ROOT=""
+IFR_ROOT_VALID=0
+case "$IFR_ROOT" in
+  "$IFR_PREFIX"?*)
+    IFR_SUFFIX="${IFR_ROOT#"$IFR_PREFIX"}"
+    case "$IFR_SUFFIX" in
+      */*) ;;
+      *)
+        IFR_EXPECTED_PARENT="$(cd "${IFR_TEMPLATE%/devflow-wfr.XXXXXX}" && pwd -P)" || \
+          IFR_EXPECTED_PARENT=""
+        IFR_ACTUAL_PARENT="$(cd "$IFR_ROOT/.." && pwd -P)" || IFR_ACTUAL_PARENT=""
+        if [ -d "$IFR_ROOT" ] && [ ! -L "$IFR_ROOT" ] && \
+          [ -n "$IFR_EXPECTED_PARENT" ] && \
+          [ "$IFR_ACTUAL_PARENT" = "$IFR_EXPECTED_PARENT" ]; then
+          IFR_ROOT_VALID=1
+        fi
+        ;;
+    esac
+    ;;
+esac
+if [ "$IFR_ROOT_VALID" -ne 1 ]; then
+  printf 'could not allocate workflow-flight-recorder workspace\n' >&2
+  return 1
+fi
 IFR_PROJECTS="$IFR_ROOT/native-projects"
 mkdir -p "$IFR_ROOT/nested" "$IFR_PROJECTS" "$IFR_ROOT/skills/implement/phases" \
   "$IFR_ROOT/skills/review" "$IFR_ROOT/skills/review-and-fix" "$IFR_ROOT/skills/docs"

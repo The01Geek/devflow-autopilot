@@ -17,22 +17,41 @@ HARNESS = ROOT / "lib/test/module-harness.sh"
 
 
 class FullSuiteModuleHarnessTests(unittest.TestCase):
-    def _run(self, module_body: str | None) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self,
+        module_body: str | None,
+        *,
+        initial_results: str = "",
+        report_marker: bool = False,
+        results_are_directory: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             module = root / "module.sh"
             if module_body is not None:
                 module.write_text(module_body, encoding="utf-8")
             driver = root / "driver.sh"
-            driver.write_text(
+            results_setup = (
+                f"mkdir {root / 'results'}\n"
+                if results_are_directory
+                else f"printf '%s' {initial_results!r} > {str(root / 'results')!r}\n"
+            )
+            driver_text = (
                 "#!/usr/bin/env bash\n"
                 f"RESULTS_FILE={root / 'results'}\n"
-                '> "$RESULTS_FILE"\n'
-                f'. "{HARNESS}"\n'
-                f'devflow_run_full_suite_module "{module}" "sample"\n'
-                'cat "$RESULTS_FILE"\n',
-                encoding="utf-8",
+                f"MODULE_MARKER={root / 'module-marker'}\n"
+                + results_setup
+                + f'. "{HARNESS}"\n'
+                + f'devflow_run_full_suite_module "{module}" "sample"\n'
+                + (
+                    'if [ -e "$MODULE_MARKER" ]; then echo MODULE_SOURCED; '
+                    "else echo MODULE_NOT_SOURCED; fi\n"
+                    if report_marker
+                    else ""
+                )
+                + 'if [ -f "$RESULTS_FILE" ]; then cat "$RESULTS_FILE"; fi\n'
             )
+            driver.write_text(driver_text, encoding="utf-8")
             return subprocess.run(
                 ["bash", str(driver)],
                 cwd=root,
@@ -74,6 +93,49 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("FAIL", result.stdout.splitlines())
         self.assertIn("exited with status", result.stderr)
+
+    def test_unreadable_tally_before_module_execution_fails_closed(self) -> None:
+        result = self._run(
+            'printf "sourced\\n" > "$MODULE_MARKER"\n'
+            'printf "PASS\\n" >> "$RESULTS_FILE"\n',
+            report_marker=True,
+            results_are_directory=True,
+        )
+
+        self.assertIn("result tally unreadable before module execution", result.stderr)
+        self.assertIn("MODULE_NOT_SOURCED", result.stdout.splitlines())
+
+    def test_unreadable_tally_after_module_execution_fails_closed(self) -> None:
+        result = self._run(
+            'printf "sourced\\n" > "$MODULE_MARKER"\n'
+            'rm -f "$RESULTS_FILE"\nmkdir "$RESULTS_FILE"\n'
+            'printf "PASS\\n" > "$RESULTS_FILE/record"\n',
+            report_marker=True,
+        )
+
+        self.assertIn("result tally unreadable after module execution", result.stderr)
+        self.assertIn("MODULE_SOURCED", result.stdout.splitlines())
+
+    def test_invalid_tally_before_module_execution_fails_closed(self) -> None:
+        result = self._run(
+            'printf "sourced\\n" > "$MODULE_MARKER"\n'
+            'printf "PASS\\n" >> "$RESULTS_FILE"\n',
+            initial_results="INVALID\n",
+            report_marker=True,
+        )
+
+        self.assertIn("result tally unreadable before module execution", result.stderr)
+        self.assertIn("MODULE_NOT_SOURCED", result.stdout.splitlines())
+
+    def test_invalid_tally_after_module_execution_fails_closed(self) -> None:
+        result = self._run(
+            'printf "sourced\\n" > "$MODULE_MARKER"\n'
+            'printf "INVALID\\n" >> "$RESULTS_FILE"\n',
+            report_marker=True,
+        )
+
+        self.assertIn("result tally unreadable after module execution", result.stderr)
+        self.assertIn("MODULE_SOURCED", result.stdout.splitlines())
 
 
 if __name__ == "__main__":

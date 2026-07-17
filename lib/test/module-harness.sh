@@ -5,9 +5,11 @@
 
 _devflow_valid_result_count() {
   local verdict count=0
+  [ -f "$RESULTS_FILE" ] && [ -r "$RESULTS_FILE" ] || return 1
   while IFS= read -r verdict || [ -n "$verdict" ]; do
     case "$verdict" in
       PASS|FAIL) count=$((count + 1)) ;;
+      *) return 1 ;;
     esac
   done < "$RESULTS_FILE" || return 1
   printf '%s\n' "$count"

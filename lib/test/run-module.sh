@@ -185,6 +185,8 @@ DETAILS_FILE="$(mktemp)" || {
 
 (
   set -u
+  # Consumed by the dynamically selected module sourced below.
+  # shellcheck disable=SC2034
   LIB="$REPO_ROOT/lib"
 
   sanitize_result_field() {

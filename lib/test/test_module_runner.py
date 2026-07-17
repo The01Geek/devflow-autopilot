@@ -19,6 +19,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER_SOURCE = ROOT / "lib/test/run-module.sh"
+WORKFLOW_MODULE_SOURCE = ROOT / "lib/test/modules/workflow-flight-recorder.sh"
 
 
 class ModuleRunnerTests(unittest.TestCase):
@@ -50,17 +51,30 @@ class ModuleRunnerTests(unittest.TestCase):
             'printf "sourced\\n" > "$SOURCE_MARKER"\nexit 7\n',
         )
         self._write_module(
+            "invalid-tally.sh",
+            'printf "INVALID\\n" >> "$RESULTS_FILE"\n'
+            'assert_eq "valid assertion after invalid record" "expected" "expected"\n',
+        )
+        self._write_module(
             "blocking.sh",
             'printf "ready\\n" > "$READY_MARKER"\n'
             'sleep 5\n'
             'assert_eq "blocking assertion" "expected" "expected"\n',
+        )
+        shutil.copy2(
+            WORKFLOW_MODULE_SOURCE,
+            self.modules_dir / "workflow-flight-recorder.sh",
         )
         self._write_registry(
             {
                 "sample": {"path": "lib/test/modules/sample.sh"},
                 "empty": {"path": "lib/test/modules/empty.sh"},
                 "crash": {"path": "lib/test/modules/crash.sh"},
+                "invalid-tally": {"path": "lib/test/modules/invalid-tally.sh"},
                 "blocking": {"path": "lib/test/modules/blocking.sh"},
+                "workflow-flight-recorder": {
+                    "path": "lib/test/modules/workflow-flight-recorder.sh"
+                },
             }
         )
 
@@ -232,6 +246,35 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertIn("mapping for 'broken' must be an object", result.stderr)
         self.assertFalse(self.marker.exists())
 
+    def test_invalid_sibling_module_id_invalidates_whole_registry(self) -> None:
+        self._write_registry(
+            {
+                "sample": {"path": "lib/test/modules/sample.sh"},
+                "../broken": {"path": "lib/test/modules/empty.sh"},
+            }
+        )
+
+        result = self._run("sample")
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("registry contains invalid module id '../broken'", result.stderr)
+        self.assertFalse(self.marker.exists())
+
+    def test_duplicate_registry_key_invalidates_whole_registry(self) -> None:
+        registry = self.scripts_dir / "workflow-flight-recorder-registry.json"
+        registry.write_text(
+            '{"schema_version":1,"test_modules":{'
+            '"sample":{"path":"lib/test/modules/sample.sh"},'
+            '"sample":{"path":"lib/test/modules/empty.sh"}}}',
+            encoding="utf-8",
+        )
+
+        result = self._run("sample")
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("registry is unreadable or malformed", result.stderr)
+        self.assertFalse(self.marker.exists())
+
     def test_escaping_module_path_is_invalid_and_never_sourced(self) -> None:
         escaped = self.root / "escape.sh"
         escaped.write_text('printf "escaped\\n" > "$SOURCE_MARKER"\n', encoding="utf-8")
@@ -313,6 +356,68 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertIn("Module crash: 0 passed, 2 failed", result.stdout)
         self.assertIn("module process exited with status 7", result.stdout)
         self.assertIn("module executed zero assertions", result.stdout)
+
+    def test_invalid_tally_record_is_nonzero_and_recapped(self) -> None:
+        result = self._run("invalid-tally")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Module invalid-tally: 1 passed, 1 failed", result.stdout)
+        self.assertIn("assertion tally contained 1 invalid record(s)", result.stdout)
+
+    def _run_with_fake_directory_mktemp(
+        self, fake_directory_result: str
+    ) -> subprocess.CompletedProcess[str]:
+        fake_bin = self.root / "fake-bin"
+        fake_bin.mkdir(exist_ok=True)
+        controlled_tmp = self.root / "fake-tmp"
+        controlled_tmp.mkdir(exist_ok=True)
+        fake_mktemp = fake_bin / "mktemp"
+        real_mktemp = shutil.which("mktemp")
+        self.assertIsNotNone(real_mktemp)
+        fake_mktemp.write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "${1:-}" = "-d" ]; then '
+            + fake_directory_result
+            + "; fi\n"
+            f'exec "{real_mktemp}" "$@"\n',
+            encoding="utf-8",
+        )
+        fake_mktemp.chmod(0o755)
+
+        return self._run(
+            "workflow-flight-recorder",
+            extra_env={
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "TMPDIR": str(controlled_tmp),
+            },
+        )
+
+    def test_module_workspace_allocation_failure_is_explicit(self) -> None:
+        result = self._run_with_fake_directory_mktemp("exit 9")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("could not allocate workflow-flight-recorder workspace", result.stdout)
+        self.assertNotIn("mkdir: /nested", result.stdout)
+
+    def test_module_workspace_rejects_unsafe_successful_mktemp_output(self) -> None:
+        unsafe_results = (
+            "printf '/\\n'; exit 0",
+            'candidate="${2%XXXXXX}fixture"; mkdir -p "$candidate"; '
+            'printf "%s/..\\n" "$candidate"; exit 0',
+            'target="${2%XXXXXX}target"; link="${2%XXXXXX}link"; '
+            'mkdir -p "$target"; ln -s "$target" "$link"; '
+            'printf "%s\\n" "$link"; exit 0',
+        )
+        for fake_result in unsafe_results:
+            with self.subTest(fake_result=fake_result):
+                result = self._run_with_fake_directory_mktemp(fake_result)
+
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(
+                    "could not allocate workflow-flight-recorder workspace",
+                    result.stdout,
+                )
+                self.assertNotIn("mkdir: /nested", result.stdout)
 
     def test_controlled_failure_is_nonzero_and_recapped_in_the_persisted_log(self) -> None:
         result = self._run(
@@ -431,6 +536,11 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertIn(
             'IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"',
             module_text,
+        )
+        ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            "lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh",
+            ci_text,
         )
 
 
