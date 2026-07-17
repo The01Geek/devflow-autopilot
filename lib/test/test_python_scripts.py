@@ -3666,6 +3666,26 @@ assert_eq("#546 table_test_lockstep_count: each driven row matches its module ro
           [(r['event'], r['condition'], r['legal']) for r in issue_audit_state.TRANSITIONS],
           _TRANSITION_ROWS)
 
+# Positive controls for the two locksteps above (raised on PR #552): the sibling locksteps
+# each carry an explicit planted-defect control observed distinguishing; these give this one
+# the same. They plant a defect into a COPY of the derived module rows and assert the exact
+# comparison each lockstep makes would reject it — proving neither assert is a tautology of two
+# coincidentally-equal shapes. The module's own TRANSITIONS is never mutated (route (a): the
+# defect lives on a copy), so a green run leaves the real table untouched.
+_derived_rows = [(r['event'], r['condition'], r['legal']) for r in issue_audit_state.TRANSITIONS]
+# (a) count control — dropping a row makes the count lockstep's operands unequal.
+assert_eq("#546 table_test_lockstep_count: POSITIVE CONTROL — a dropped module row breaks the "
+          "count lockstep (len no longer matches the driven rows)",
+          True, len(_derived_rows[:-1]) != len(_TRANSITION_ROWS))
+# (b) content control — flipping one legality bit makes the in-order content lockstep's
+# operands unequal even though the count still matches (so the count assert alone would miss it).
+_flipped = list(_derived_rows)
+_flipped[0] = (_flipped[0][0], _flipped[0][1], not _flipped[0][2])
+assert_eq("#546 table_test_lockstep_count: POSITIVE CONTROL — a flipped legality bit breaks the "
+          "content lockstep while the count still matches",
+          (True, True),
+          (len(_flipped) == len(_TRANSITION_ROWS), _flipped != _TRANSITION_ROWS))
+
 # arm_routing_rows — arm decisions from recorded facts alone, and the three marker
 # literals byte-for-byte.
 for (landed, hash_ok, prior, want_arm, want_marker) in [

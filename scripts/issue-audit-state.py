@@ -20,7 +20,9 @@ the token fail-closed against its closed set), the draft-file writes, and every 
 interaction. This module never posts an issue.
 
 TWO-CLASS CLI CONTRACT (the skill branches on exactly this):
-  * Query subcommands ALWAYS exit 0 and answer on stdout with a decided single-line
+  * Query subcommands ALWAYS exit 0 once their arguments parse (an argparse usage
+    error — a missing required flag or an unknown one — exits 2 before the query logic
+    runs) and answer on stdout with a decided single-line
     token — fail-closed answers included. A crashed read is never presented as a
     value. Queries are strictly READ-ONLY: the tool-unavailability fallback depends
     on a mutation-persistence failure still leaving the queries answering, so no
@@ -1619,13 +1621,34 @@ def cmd_record_creation_epoch(args):
               'an attestation is already recorded; re-binding the creation epoch would '
               'silently discard that tamper evidence')
     attempt = rnd['attempts'][-1]
+    # The attestation comparand is the digest of the bytes the creation will ACTUALLY post,
+    # not the audited round's dispatch digest. On a file-arm epoch the posting sources from
+    # the current canonical file via emit-body, and eligibility may ground on a still-current
+    # override whose bytes postdate the audited round (a user-elected "file anyway" over a
+    # REVISE verdict) — so binding attempt['body_digest'] there would record the OLD audited
+    # bytes and make the post-hoc attestation a structurally-guaranteed `mismatch` on a
+    # legitimate override filing that GitHub stored faithfully (a false tamper signal, PR #552
+    # review). Bind the current draft-file body digest instead, so the attestation compares
+    # fetched-vs-posted like-for-like. On the file-identity ground the two are equal by
+    # construction (eligibility required the file's full digest to equal the round's), so this
+    # is a no-op there. On embed/inline epochs there is no trustworthy canonical file to point
+    # at (the disclosed weaker-identity residual the module header describes), so the audited
+    # round body digest remains the comparand and the attestation stays their detection surface.
+    body_only_digest = attempt['body_digest']
+    if args.draft_file and attempt['arm'] == 'file':
+        try:
+            raw = Path(args.draft_file).read_bytes()
+            body_only_digest = hash_bytes(split_body(raw))
+        except (OSError, _DigestError) as exc:
+            _fail('record-creation-epoch',
+                  f'could not hash the draft file to bind the creation epoch: {exc}')
     doc['creation'] = {'epoch_round': args.round, 'epoch_arm': attempt['arm'],
-                       'body_only_digest': attempt['body_digest'], 'attestation': None}
+                       'body_only_digest': body_only_digest, 'attestation': None}
     try:
         save_state(doc, args.slug)
     except StateError as exc:
         _fail('record-creation-epoch', str(exc))
-    print(f'epoch_round={args.round} body_digest={attempt["body_digest"]}')
+    print(f'epoch_round={args.round} body_digest={body_only_digest}')
 
 
 def cmd_record_creation_attestation(args):
@@ -1859,7 +1882,8 @@ def main():
     p = argparse.ArgumentParser(
         prog='issue-audit-state.py',
         description='State owner for the /devflow:create-issue fresh-context audit '
-                    'lifecycle. Queries always exit 0 and print a decided token; '
+                    'lifecycle. Queries always exit 0 once the arguments parse and '
+                    'print a decided token; '
                     'mutations exit non-zero with a named breadcrumb.')
     sub = p.add_subparsers(dest='cmd', required=True)
 
@@ -1929,11 +1953,19 @@ def main():
     s.add_argument('--accepted', action='store_true')
     s.set_defaults(func=cmd_record_offer)
 
-    s = sub.add_parser('record-creation-epoch', help='Bind creation to the round whose '
-                                                     'body digest was audited.')
+    s = sub.add_parser('record-creation-epoch', help='Bind creation to a completed round; '
+                                                     'on the file arm bind the digest of '
+                                                     'the bytes actually being posted.')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
     s.add_argument('--round', type=int, required=True)
+    s.add_argument('--draft-file', help='The canonical draft file the file-arm posting '
+                                        'sources from. On a file-arm epoch it binds the '
+                                        'body digest of the bytes emit-body will actually '
+                                        'post, so the post-hoc attestation compares '
+                                        'like-for-like even on an override filing; absent, '
+                                        'or on an embed/inline epoch, the audited round '
+                                        'body digest is used.')
     s.set_defaults(func=cmd_record_creation_epoch)
 
     s = sub.add_parser('record-creation-attestation',

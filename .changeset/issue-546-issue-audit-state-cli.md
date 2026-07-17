@@ -32,9 +32,15 @@ bump: patch
 - Issue creation is bound to the audited bytes: on file-arm epochs the posted body is
   sourced from the gated canonical draft through the tool's gated body emitter, and every
   creation is followed by a best-effort attestation that hashes the created issue's fetched
-  body against the recorded body-only digest. A mismatch is surfaced in the reported outcome
-  and the audit-summary fields (post-hoc detection — creation is not rolled back), and a
-  failed fetch is reported as attestation-unavailable, never as a pass (issue #546, PR #552).
+  body against the recorded body-only digest. On file-arm epochs that digest is bound to the
+  bytes actually posted (`record-creation-epoch --draft-file`), so a legitimate "file anyway"
+  override filing — where the current draft was revised past the audited round — attests
+  `match` against a faithfully-created issue instead of a structurally-guaranteed false
+  `mismatch`; embed/inline epochs keep the audited round body as the comparand, where the
+  attestation remains the detection surface for their disclosed weaker identity. A mismatch is
+  surfaced in the reported outcome and the audit-summary fields (post-hoc detection — creation
+  is not rolled back), and a failed fetch is reported as attestation-unavailable, never as a
+  pass (issue #546, PR #552).
 
 - On hosts where the state owner cannot run (an absent interpreter, a denied invocation, an
   unpersistable state file), the skill now routes to a named, bounded fallback lifecycle —

@@ -41272,7 +41272,7 @@ assert_pin_unique "#546: overview §11 keeps the narrows-never-closes honest-cla
 # fail the match on exactly the newer interpreters this repo supports.
 IAS_HELP_546="$(NO_COLOR=1 PYTHON_COLORS=0 python3 "$IAS" --help 2>&1 | tr -s '[:space:]' ' ')"
 assert_eq "#546 help_surface_pin: --help states the query exit-0 contract (rendered)" \
-  "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'Queries always exit 0 and print a decided token' | grep -c .)"
+  "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'Queries always exit 0 once the arguments parse and print a decided token' | grep -c .)"
 assert_eq "#546 help_surface_pin: --help states the mutation breadcrumb contract (rendered)" \
   "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'mutations exit non-zero with a named breadcrumb' | grep -c .)"
 # The subcommand roster renders in the PARENT help (a subparser's own --help does not
@@ -41645,6 +41645,62 @@ if [ -d "$CB_SB" ]; then
   assert_eq "#546 creation_binding_rows: a failed fetch reports attestation-unavailable, never a pass" \
     "attestation=attestation-unavailable" "$(cat "$CB_SB/.cb-unavail" 2>/dev/null)"
   rm -rf "$CB_SB"
+fi
+
+# override_attestation_rows — a file-arm "file anyway" override over a REVISE verdict (PR #552
+# review, Important #1). The user revises the draft AFTER the audited round returned REVISE and
+# elects to file the revised bytes without another round. emit-body posts the CURRENT file
+# (D2); the creation epoch must bind the digest of THOSE posted bytes, not the audited round's
+# older bytes (D1) — otherwise the post-hoc attestation is a structurally-guaranteed `mismatch`
+# on a legitimate override filing that GitHub stored faithfully (a false tamper signal). The fix:
+# record-creation-epoch --draft-file binds the posted-file body digest. This block drives both
+# arms of the fix on the SAME scenario: WITH --draft-file attests `match` (correct), and WITHOUT
+# it reproduces the old false `mismatch` — so the assertion is a live positive control that the
+# --draft-file binding is what removes the false signal, not a tautology.
+OA_SB="$(git_sandbox '#546 override_attestation_rows')"
+if [ -d "$OA_SB" ]; then
+  (
+    cd "$OA_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    for SLUG in oafix oaold; do
+      printf '# T\n\nBody one.\n' > "d-$SLUG.md"
+      NS="$(python3 "$IAS" init "$SLUG" | sed 's/nonce=//')"
+      python3 "$IAS" record-dispatch "$SLUG" --nonce "$NS" --round 1 --arm file \
+        --draft-file "d-$SLUG.md" > /dev/null
+      OID1="$(git hash-object --stdin --no-filters < "d-$SLUG.md")"
+      # The audited round returns REVISE (not clean) on the original bytes.
+      python3 "$IAS" record-return "$SLUG" --nonce "$NS" --round 1 --verdict REVISE \
+        --findings-count 1 --carriage-object-id "$OID1" > /dev/null
+      # The user revises the draft file to new bytes (D2), then elects to file anyway.
+      printf '# T\n\nBody two, revised.\n' > "d-$SLUG.md"
+      python3 "$IAS" record-revision "$SLUG" --nonce "$NS" --after-round 1 > /dev/null
+      python3 "$IAS" record-override "$SLUG" --nonce "$NS" --kind user-decline \
+        --surface step4-approval-after-exhausted-offer --draft-file "d-$SLUG.md" > /dev/null
+      printf '%s' "$NS" > ".oa-nonce-$SLUG"
+    done
+    # eligibility grounds on the still-current override for the revised bytes.
+    python3 "$IAS" query-eligibility oafix --nonce "$(cat .oa-nonce-oafix)" --mode approve \
+      --draft-file d-oafix.md > .oa-elig 2>&1
+    # FIX arm: bind the epoch to the posted (revised) file, then attest the emitted body.
+    python3 "$IAS" record-creation-epoch oafix --nonce "$(cat .oa-nonce-oafix)" --round 1 \
+      --draft-file d-oafix.md > /dev/null
+    python3 "$IAS" emit-body oafix --nonce "$(cat .oa-nonce-oafix)" --draft-file d-oafix.md \
+      | python3 "$IAS" record-creation-attestation oafix --nonce "$(cat .oa-nonce-oafix)" > .oa-fix
+    # OLD arm (same scenario, no --draft-file): the epoch binds the audited round's older
+    # body, so the identical faithful post attests as a false mismatch.
+    python3 "$IAS" record-creation-epoch oaold --nonce "$(cat .oa-nonce-oaold)" --round 1 \
+      > /dev/null
+    python3 "$IAS" emit-body oaold --nonce "$(cat .oa-nonce-oaold)" --draft-file d-oaold.md \
+      | python3 "$IAS" record-creation-attestation oaold --nonce "$(cat .oa-nonce-oaold)" > .oa-old
+  )
+  assert_eq "#546 override_attestation_rows: a file-arm 'file anyway' override grounds eligibility on the revised bytes" \
+    "1" "$(grep -c 'eligible=yes ground=override' "$OA_SB/.oa-elig" 2>/dev/null)"
+  assert_eq "#546 override_attestation_rows: --draft-file binds the POSTED body, so a faithful override filing attests match (no false tamper signal)" \
+    "attestation=match" "$(cat "$OA_SB/.oa-fix" 2>/dev/null)"
+  assert_eq "#546 override_attestation_rows: positive control — WITHOUT --draft-file the epoch binds the audited round's older body, reproducing the old false mismatch" \
+    "attestation=mismatch" "$(cat "$OA_SB/.oa-old" 2>/dev/null)"
+  rm -rf "$OA_SB"
 fi
 
 # emit-body is the gated emitter: it refuses with EMPTY stdout so a caller that pipes it
