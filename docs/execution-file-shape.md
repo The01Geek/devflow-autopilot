@@ -205,8 +205,8 @@ Actions run/job census snapshot (`scripts/export-workflow-lifecycle-census.py`,
 the sole networked step, explicit-invocation-only): workflow/job identity, run ID
 and attempt, the run-level `created_at`, job-level started/completed timestamps,
 and job-level conclusion and status (the run-level values are carried separately
-as `run_started_at`/`run_conclusion`/`run_status` reference fields), plus the
-run's public `html_url` — no transcript
+as `run_started_at`/`run_conclusion`/`run_status` reference fields), plus a public
+`html_url` (the job's when the API provides one, else the run's) — no transcript
 text, tool input, stdout/stderr, or secrets. An absent or incomplete snapshot
 makes cloud coverage `unavailable`, never zero. See
 [`docs/workflow-flight-recorder.md`](workflow-flight-recorder.md#verification-launch-baseline-wave-1).

@@ -209,7 +209,12 @@ NON_VERIFICATION_HEADS = frozenset(
 # value, leaving the raw remainder in the redacted display AND in the digest —
 # the PR #531 iteration-1 leak (a quoted env secret with spaces survived
 # redaction in fragments). Quoted forms must be consumed whole.
-_SECRET_VALUE = r"(\"[^\"]*\"|'[^']*'|\S+)"
+# A value is a greedy run of chunks — quoted strings consumed whole, plus any
+# other non-space characters — so POSIX adjacent concatenation ("abc"def, a
+# single shell word) is consumed to the word boundary, never split at the
+# closing quote (PR #531 iteration-1 gate: the quoted-first alternation
+# stopped at the close and leaked the concatenated remainder).
+_SECRET_VALUE = r"((?:\"[^\"]*\"|'[^']*'|\S)+)"
 SECRET_ENV_ASSIGNMENT = re.compile(
     r"\b([A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|PASS|PAT|CREDENTIAL|PRIVATE_KEY)[A-Z0-9_]*)=" + _SECRET_VALUE,
     re.IGNORECASE,
@@ -227,7 +232,12 @@ SECRET_FLAG = re.compile(
 # curl-style short-flag credentials: `-u user:pass` (colon required, so a bare
 # `-u` boolean flag — e.g. `sort -u` — never matches). The colon requirement
 # keeps the false-positive rate near zero while closing the raw-credential leak.
-SECRET_SHORT_U = re.compile(r"(-u[ =])([^\s:]+:\S+)")
+SECRET_SHORT_U = re.compile(
+    # The password half gets the same quoted-whole treatment as _SECRET_VALUE
+    # (`-u user:"pass word"` is ordinary curl; a \S+ tail split the quoted
+    # password at its first space — PR #531 iteration-1 gate finding).
+    r"(-u[ =])([^\s:]+:(?:\"[^\"]*\"|'[^']*'|\S)+)"
+)
 SECRET_URL = re.compile(r"(https?://)[^/\s:@]+:[^/\s:@]+@")
 BEARER_TOKEN = re.compile(r"(Bearer\s+)([A-Za-z0-9._\-+/=]+)", re.IGNORECASE)
 
@@ -1030,7 +1040,15 @@ def _classify_source_status(bundle: Path, max_bytes: int, stats: "dict | None" =
         state, claims = _stop_attempts_state(bundle, stats)
         if state == "unreadable":
             return SOURCE_UNREADABLE
-        if state == "captured" and any(c > 0 for c in claims):
+        if state == "uncaptured":
+            # Symmetry with the no-transcript path: an attempted-never-captured
+            # log beside a 0-byte transcript is an interrupted import, not a
+            # clean empty session (PR #531 iteration-1 gate finding 5).
+            return SOURCE_IMPORT_FAILED
+        if state == "captured" and any(c is None or c > 0 for c in claims):
+            # A claim of >0 captured bytes contradicts the empty file; a claim
+            # whose byte field is unusable (None) is UNESTABLISHABLE and fails
+            # closed the same way — never read as "no contradiction".
             return SOURCE_IMPORT_FAILED
         return SOURCE_AVAILABLE
     # Read once and reuse for the parse check (parse_events validates JSONL).
@@ -1054,7 +1072,12 @@ def _classify_source_status(bundle: Path, max_bytes: int, stats: "dict | None" =
 
 
 def _import_failed(bundle: Path, stats: "dict | None" = None) -> "bool | None":
-    """Tri-state, aligned to the REAL stop-attempts writer contract
+    """Thin tri-state wrapper over ``_stop_attempts_state`` (the production
+    classification path in ``_classify_source_status`` calls
+    ``_stop_attempts_state`` directly; this wrapper carries the documented
+    tri-state contract and is exercised by the test suite).
+
+    Tri-state, aligned to the REAL stop-attempts writer contract
     (workflow_flight_recorder._append_bundle_attempt): the log records
     SUCCESS-ONLY entries — ``{captured_at, transcript_bytes, transcript_sha256,
     event_count, result: "captured", source}`` — appended once per successful
@@ -1101,9 +1124,10 @@ def _stop_attempts_state(bundle: Path, stats: "dict | None" = None) -> "tuple[st
     ``none`` (no log), ``unreadable`` (I/O or decode failure, or non-blank
     lines with zero parseable JSON objects), ``uncaptured`` (log present, no
     ``result == "captured"`` entry), ``captured`` (at least one captured
-    entry). ``captured_byte_claims`` lists each captured entry's
-    ``transcript_bytes`` when it is an int (for the caller's consistency
-    check against the actual transcript)."""
+    entry). ``captured_byte_claims`` holds one entry per captured record: its
+    ``transcript_bytes`` when that is a genuine int, else ``None``
+    (unestablishable — the caller's consistency check treats ``None`` as a
+    contradiction, never as "no claim")."""
     attempts = bundle / "stop-attempts.jsonl"
     if not attempts.exists():
         return "none", []
@@ -1114,7 +1138,7 @@ def _stop_attempts_state(bundle: Path, stats: "dict | None" = None) -> "tuple[st
     _count_input_bytes(stats, len(text.encode("utf-8")))
     nonblank = 0
     parsed = 0
-    claims: list[int] = []
+    claims: list["int | None"] = []
     captured = False
     for line in text.splitlines():
         if not line.strip():
@@ -1130,8 +1154,16 @@ def _stop_attempts_state(bundle: Path, stats: "dict | None" = None) -> "tuple[st
         if entry.get("result") == "captured":
             captured = True
             tb = entry.get("transcript_bytes")
-            if isinstance(tb, int):
+            # A captured entry whose byte claim is missing or non-int appends
+            # None (unestablishable), never nothing: dropping it silently made
+            # the caller's consistency check read a corrupted claim as "no
+            # contradiction" — the unknown-is-not-zero collapse (PR #531
+            # iteration-1 gate finding 5). bool is excluded (bool ⊂ int would
+            # admit True as byte-count 1).
+            if isinstance(tb, int) and not isinstance(tb, bool):
                 claims.append(tb)
+            else:
+                claims.append(None)
     if nonblank and not parsed:
         # Valid UTF-8 but wholly JSON-corrupt: the failure log is unusable.
         return "unreadable", []
@@ -1465,6 +1497,8 @@ def extract_verification_lifecycles(
         except ValueError:
             row.source_status = SOURCE_UNREADABLE
             continue
+        if stats is not None:
+            stats["extraction_attempted_count"] = stats.get("extraction_attempted_count", 0) + 1
         try:
             occurrences = wfr.detect_occurrences(events, registry)
             # Use the manifest's consumer to scope the root occurrence; fall back
@@ -1753,9 +1787,19 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     # transcript order); when every member carries a started_at the explicit
     # timestamps decide the order, otherwise event order is the documented
     # fallback.
+    # Temporal order must be decided by PARSED timestamps, never a string sort:
+    # lexicographically "…:00.500Z" < "…:00Z" (0x2E < 0x5A) although it is
+    # 500ms LATER, and "+00:00" vs "Z" spellings misorder the same way — a
+    # string sort can put a temporally-last missing response first and
+    # FABRICATE a candidate (PR #531 iteration-1 gate finding 3). Reuse the
+    # module's own ISO parser (the consumer's operation); if ANY member's
+    # started_at fails to parse, fall back to event/list order rather than
+    # sorting on a half-parsed key set.
     ordered = members
-    if all(m.timing.get("started_at") for m in members):
-        ordered = sorted(members, key=lambda m: str(m.timing.get("started_at")))
+    keys = [_parse_iso_ms(m.timing.get("started_at")) for m in members]
+    if all(k is not None for k in keys):
+        order = sorted(range(len(members)), key=lambda i: (keys[i], i))
+        ordered = [members[i] for i in order]
     has_prior_missing = any(
         m.start_authorization in (START_DENIED_PRE, START_CANCELLED_PRE, START_CONFIRMED_RESULT_MISSING, START_UNKNOWN)
         or m.result_presence is False
@@ -2117,7 +2161,11 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
         # (PR #531 iteration-1; the same fail-open class the skipped/queued
         # arms already close). For these conclusions the job-level started_at
         # is the only admissible start evidence.
-        _non_start_conclusions = ("cancelled", "action_required")
+        # "stale" is included on the same conservative basis: it is a terminal
+        # conclusion GitHub can stamp on a superseded/stale job without the
+        # step having run; requiring a job-level started_at can only demote a
+        # never-evidenced row to provisional/ineligible, never promote one.
+        _non_start_conclusions = ("cancelled", "action_required", "stale")
         completed_and_ran = (
             status == "completed"
             and conclusion not in (None, "skipped")
@@ -2467,9 +2515,13 @@ def main(argv: "list[str] | None" = None) -> int:
         # transcript degrading) is visible in the artifact, not just stderr.
         "extraction_failure_count": stats.get("extraction_failure_count", 0),
     }
-    if performance["extraction_failure_count"] and performance["extraction_failure_count"] >= sum(
-        1 for r in all_rows if r.source == SOURCE_LOCAL and r.source_status in (SOURCE_AVAILABLE, SOURCE_UNSUPPORTED)
-    ):
+    # Denominator = transcripts extraction actually ATTEMPTED (counted at the
+    # extraction site), not every unsupported row — schema-unknown/size-breach
+    # rows extraction never reached must not dilute the all-attempts-failed
+    # signal (PR #531 iteration-1 gate finding 7).
+    if performance["extraction_failure_count"] and performance[
+        "extraction_failure_count"
+    ] >= stats.get("extraction_attempted_count", 0):
         print(
             "devflow verification-baseline: WARNING — extraction failed for EVERY "
             "attempted transcript; this baseline measured nothing (an analyzer-side "

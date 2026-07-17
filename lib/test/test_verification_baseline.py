@@ -1480,14 +1480,93 @@ class Pr531Iter1FixLoopTests(_TmpDirTestCase):
         self.assertEqual(rel, REL_CANDIDATE_TRANSPORT_RETRY)
         self.assertEqual(conf, CONFIDENCE_EXACT)
 
-    def test_list_order_is_the_fallback_when_timing_is_unbounded(self) -> None:
-        # Members arrive in event order; a missing-timestamp member cannot be
-        # sorted, so list position decides "last".
-        first = make_launch("a", start_auth=START_CONFIRMED_TERMINAL)
-        last = make_launch("b", start_auth=START_CONFIRMED_RESULT_MISSING)
-        object.__setattr__(last, "timing", {"started_at": None, "finished_at": None, "duration_ms": None, "caller_observed_duration_ms": None})
+    def test_list_order_is_the_fallback_when_timestamps_unparseable(self) -> None:
+        # Both members carry BOUNDED timing (so the interval guard is satisfied
+        # and only ordering decides), but the started_at values are unparseable
+        # strings — the sort cannot run, so list position decides "last". The
+        # missing-response member is list-last -> not prior -> not a candidate.
+        first = make_launch("a", start_auth=START_CONFIRMED_TERMINAL,
+                            started="not-a-time-1", finished="2026-07-16T01:02:00Z")
+        last = make_launch("b", start_auth=START_CONFIRMED_RESULT_MISSING,
+                           started="not-a-time-2", finished="2026-07-16T01:04:00Z")
         rel, _conf = vb._classify_relationship([first, last])
         self.assertNotEqual(rel, REL_CANDIDATE_TRANSPORT_RETRY)
+        # Control on the same fixture shape: missing member list-FIRST -> candidate.
+        rel2, _conf2 = vb._classify_relationship([last, first])
+        self.assertEqual(rel2, REL_CANDIDATE_TRANSPORT_RETRY)
+
+    def test_temporal_order_beats_list_order_when_timestamps_parse(self) -> None:
+        # Differential pin on the SORT itself (PR #531 iter-1 gate finding 3/4):
+        # the missing-response member is list-FIRST but temporally LAST via a
+        # sub-second timestamp that breaks a lexicographic string sort
+        # ("...:00.500Z" < "...:00Z" bytewise, though it is 500ms LATER).
+        # Deleting the sort (list order) or sorting lexicographically both
+        # wrongly classify this a candidate.
+        miss_temporally_last = make_launch("m", start_auth=START_CONFIRMED_RESULT_MISSING,
+                                           started="2026-07-16T01:01:00.500Z",
+                                           finished="2026-07-16T01:02:00Z")
+        ok_temporally_first = make_launch("k", start_auth=START_CONFIRMED_TERMINAL,
+                                          started="2026-07-16T01:01:00Z",
+                                          finished="2026-07-16T01:02:00Z")
+        rel, _conf = vb._classify_relationship([miss_temporally_last, ok_temporally_first])
+        self.assertNotEqual(rel, REL_CANDIDATE_TRANSPORT_RETRY)
+        # Reverse: missing member temporally FIRST though list-last -> candidate.
+        miss_first = make_launch("m2", start_auth=START_CONFIRMED_RESULT_MISSING,
+                                 started="2026-07-16T01:01:00Z", finished="2026-07-16T01:01:30Z")
+        ok_last = make_launch("k2", start_auth=START_CONFIRMED_TERMINAL,
+                              started="2026-07-16T01:01:00.500Z", finished="2026-07-16T01:02:00Z")
+        rel2, conf2 = vb._classify_relationship([ok_last, miss_first])
+        self.assertEqual(rel2, REL_CANDIDATE_TRANSPORT_RETRY)
+        self.assertEqual(conf2, CONFIDENCE_EXACT)
+        # Mixed offset spellings (+00:00 vs Z) must also order temporally.
+        miss_z_last = make_launch("m3", start_auth=START_CONFIRMED_RESULT_MISSING,
+                                  started="2026-07-16T01:02:00+00:00", finished="2026-07-16T01:03:00Z")
+        ok_earlier = make_launch("k3", start_auth=START_CONFIRMED_TERMINAL,
+                                 started="2026-07-16T01:01:00Z", finished="2026-07-16T01:01:30Z")
+        rel3, _conf3 = vb._classify_relationship([miss_z_last, ok_earlier])
+        self.assertNotEqual(rel3, REL_CANDIDATE_TRANSPORT_RETRY)
+
+    # --- Gate findings 1-2: adjacent-concatenation and quoted -u values must
+    #     redact whole (the quoted-first alternation stopped at the close). ---
+    def test_adjacent_concatenation_secret_value_fully_redacted(self) -> None:
+        b = vb._binding_identity('TOKEN="abc"def lib/test/run.sh')
+        self.assertTrue(b.secret_affected)
+        self.assertNotIn("def", b.redacted_display.replace("<env:TOKEN>", ""))
+        b2 = vb._binding_identity('mytool --token="abc"tail lib/test/run.sh')
+        self.assertTrue(b2.secret_affected)
+        self.assertNotIn("tail", b2.redacted_display.replace("<flag:--token>", "").replace("flag:", ""))
+
+    def test_short_u_quoted_password_with_space_fully_redacted(self) -> None:
+        b = vb._binding_identity('curl -u user:"pass word" https://example.invalid/')
+        self.assertTrue(b.secret_affected)
+        for fragment in ("pass word", " word"):
+            self.assertNotIn(fragment, b.redacted_display)
+
+    # --- Gate finding 5: a captured claim whose byte field is unusable beside
+    #     an empty transcript is unestablishable, never clean. ----------------
+    def test_empty_transcript_with_corrupt_byte_claim_fails_closed(self) -> None:
+        for tb in ("999", 999.0, None):
+            with self.subTest(tb=tb):
+                sid = f"s-corrupt-tb-{str(tb).replace('.', '-')}"
+                write_manifest(self.manifests, sid)
+                entry = {"result": "captured"}
+                if tb is not None:
+                    entry["transcript_bytes"] = tb
+                write_bundle(self.bundles, sid, b"", stop_attempts=[entry])
+                rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+                rows = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
+                by = {r.identity.get("session_id"): r.source_status for r in rows}
+                self.assertEqual(by[sid], SOURCE_IMPORT_FAILED)
+
+    def test_empty_transcript_with_uncaptured_log_is_import_failed(self) -> None:
+        # Symmetry with the no-transcript path: an attempted-never-captured log
+        # beside a 0-byte transcript is an interrupted import, not a clean
+        # empty session.
+        write_manifest(self.manifests, "s-unc-empty")
+        write_bundle(self.bundles, "s-unc-empty", b"", stop_attempts=[{"result": "started"}])
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        rows = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
+        self.assertEqual(rows[0].source_status, SOURCE_IMPORT_FAILED)
 
     # --- F8: a backslash-escaped quote inside a double-quoted argument must
     #         not flip quote state and manufacture a verification segment. ---
