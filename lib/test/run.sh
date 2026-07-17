@@ -4136,17 +4136,20 @@ pf545_cmd_count() {  # count of ALL command lines in the section's bash fences (
 }
 # Illegal = any fenced command line whose head is NOT in the AC5 permitted read-only set.
 # The set is broader than git/gh: AC5 also permits the extension loader and the threshold
-# read, both invoked via the portable ${CLAUDE_SKILL_DIR:-…} anchor (so their leading token
-# is a path, matched here by the helper basename anywhere on the line). Every OTHER head — a
-# git/gh WRITE subcommand (push/checkout/merge/…), or any non-git/gh command (rm/curl/python3/
-# sed -i/…) — survives both filters and is counted illegal, so the membership check enforces
-# AC5's "and from nothing else" for every head, not only git/gh-prefixed ones (issue #545
-# review: silent-failure-hunter / comment-analyzer / pr-test-analyzer all flagged the
-# git/gh-only scope as failing open against the section's own "every command head" contract).
+# read, both invoked via the portable ${CLAUDE_SKILL_DIR:-…}/…/scripts/<helper> anchor — so
+# the helper basename is always PATH-PREFIXED (a "/" precedes it). The exemption is anchored to
+# that "/<basename>" path form (not a bare substring), so a mutating command that merely NAMES
+# a helper (e.g. `rm -f config-get.sh`, with no leading slash) is NOT exempted and is counted
+# illegal. Every OTHER head — a git/gh WRITE subcommand (push/checkout/merge/…), or any
+# non-git/gh command (rm/curl/python3/sed -i/…) — survives both filters and is counted illegal,
+# so the membership check enforces AC5's "and from nothing else" for every head, not only
+# git/gh-prefixed ones (issue #545 review: the git/gh-only scope failed open against the
+# section's own "every command head" contract; the fix-delta gate then flagged the unanchored
+# helper-basename exemption as a residual fail-open, tightened here to the path-anchored form).
 pf545_illegal_count() {
   pf545_cmd_lines "$1" \
     | grep -vE '^(git fetch|git rev-parse|git status|git merge-base|git rev-list|gh pr view|gh issue view)([[:space:]]|$)' \
-    | grep -vE 'load-prompt-extension\.sh|config-get\.sh' \
+    | grep -vE '/load-prompt-extension\.sh|/config-get\.sh' \
     | grep -c . || true
 }
 assert_eq "rcv/#545 read-only detector: Reception Preflight section carries fenced commands (non-vacuous)" \
@@ -4183,6 +4186,21 @@ if [ "$PF545_INJ2" != "/dev/null" ]; then
   assert_eq "rcv/#545 read-only detector positive control 2: injected non-git/gh 'rm -rf' turns the scan RED" \
     "yes" "$([ "$(pf545_illegal_count "$PF545_INJ2")" -ge 1 ] && echo yes || echo no)"
   rm -f "$PF545_INJ2"
+fi
+# Third positive control: a MUTATING command that merely NAMES a permitted helper (no leading
+# "/" path anchor) must still turn the scan RED — proves the loader/threshold exemption is
+# path-anchored, not a bare-substring exemption a `rm -f config-get.sh` could ride through
+# (issue #545 fix-delta gate).
+PF545_INJ3="$(probe_tmp 'rcv/#545 read-only detector helper-name-exemption positive control setup')"
+if [ "$PF545_INJ3" != "/dev/null" ]; then
+  awk '
+    {print}
+    /^## Reception Preflight$/{inpf=1}
+    inpf && /^```bash$/ && !seen {print "rm -f config-get.sh"; seen=1}
+  ' "$RECV_SKILL" > "$PF545_INJ3"
+  assert_eq "rcv/#545 read-only detector positive control 3: mutating 'rm -f config-get.sh' (names a helper) turns the scan RED" \
+    "yes" "$([ "$(pf545_illegal_count "$PF545_INJ3")" -ge 1 ] && echo yes || echo no)"
+  rm -f "$PF545_INJ3"
 fi
 
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
