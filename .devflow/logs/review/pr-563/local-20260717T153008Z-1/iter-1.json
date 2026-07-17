@@ -85,6 +85,19 @@
   "cap_drops": {"count": 0, "by_category": {}},
   "verification_evidence": {"command": "bash lib/test/run.sh + shellcheck (tracked + lib/test scope) + ruff", "result": "pass", "duration_s": 300, "skipped_checks": [], "note": "run 1 (pre-fix, 85f63334): 8268 passed, 2 failed — the F-1/F-2 red tests; run 2 (post-fix, pre-commit): 8271 passed, 0 failed, 1 skipped (#434 dirty-tree self-skip, cleared below); run 3 (post-commit, c59e3598): 8272 passed, 0 failed, zero skips — clean; pre-3.5 caveat applies"},
   "stale_prose_check": {"rc": 0, "rows": [], "note": "clean at post-fix HEAD c59e3598 against origin/main (three-dot); informational stderr breadcrumb about .json scoping only"},
+  "step_3_5": {
+    "iter_fix_base": "85f633342e71e667ed7afce42577cf95960ae0b5",
+    "attempt_1": {"verdict": "2 Important + 3 Suggestion", "findings": ["cleanup rm -rf accepted multi-component suffixes the validation rejected", "MIN_ASSERTIONS guard dropped the harness length cap (superset accepted set)"], "fix_commit": "8898a5a9d4ebb41f7e5b06a7013fbe4c933d5d77"},
+    "re_gate": {"verdict": "clean — no Critical or Important", "suggestion": "floor-guard comment precision — fixed in 392e274c (comment-only, pre-shadow)"},
+    "inner_attempts_used": 1
+  },
+  "devflow_reflection": [
+    "fix-delta gate: attempt-1 surfaced 2 Important fix-introduced defects (unsafe cleanup containment; re-derived floor-guard contract without length cap) — both fixed in inner attempt 1; re-gate clean (one comment-precision suggestion, fixed)",
+    "over-grade calibration: final-pass Critical on the macOS mktemp test calibrated to Important with recorded evaluation (shape 1 — loud suite-RED, bounded); no auto-demote",
+    "writing-skills evidence gate discharged: PR description now carries 'Writing-skills evidence:' citing the eight #563 assert_pin_red_under mutation pins",
+    "completeness critic (detect_all_audit): audits complete w.r.t. independent enumeration (registry keys; modules/ dir listing); name-hardcoded single-member coupling noted (F-23, deferred)",
+    "behavioral-fix pin evidence: F-5 excerpt positive control observed RED under anchor-broken doc copy; F-6 guard pin observed RED against empty err file; F-11 widened trap predicate observed False under a trap line missing MODULE_FAILURES_FILE; F-13 forced-injection RED half asserted behaviorally"
+  ],
   "telemetry": {
     "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 120},
     "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 60},
