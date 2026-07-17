@@ -4128,8 +4128,7 @@ pf545_cmd_count() {  # count of git/gh command lines in the section's bash fence
 }
 pf545_illegal_count() {  # count of command lines whose head is NOT in the AC5 allowlist
   pf545_cmd_lines "$1" | grep -E '^(git|gh)[[:space:]]' \
-    | grep -vE '^(git fetch|git rev-parse|git status|git merge-base|git rev-list|gh pr view|gh issue view)([[:space:]]|$)' \
-    | grep -c . || true
+    | grep -cvE '^(git fetch|git rev-parse|git status|git merge-base|git rev-list|gh pr view|gh issue view)([[:space:]]|$)' || true
 }
 assert_eq "rcv/#545 read-only detector: Reception Preflight section carries fenced commands (non-vacuous)" \
   "yes" "$([ "$(pf545_cmd_count "$RECV_SKILL")" -ge 1 ] && echo yes || echo no)"
@@ -4140,10 +4139,13 @@ assert_eq "rcv/#545 read-only detector: every preflight fenced command head is i
 # proves the membership check is not vacuous (the #275/#284 self-injection pattern).
 PF545_INJ="$(probe_tmp 'rcv/#545 read-only detector positive control setup')"
 if [ "$PF545_INJ" != "/dev/null" ]; then
+  # The single injection is bounded by the /^## Reception Preflight$/ anchor + the !seen
+  # one-shot guard (it lands at the first bash fence in the section), so no next-heading
+  # terminator is needed — and omitting it keeps this injector from carrying a second,
+  # divergent copy of the section boundary the detector already defines generically above.
   awk '
     {print}
     /^## Reception Preflight$/{inpf=1}
-    inpf && /^## Update the Branch First/{inpf=0}
     inpf && /^```bash$/ && !seen {print "gh pr checkout 999"; seen=1}
   ' "$RECV_SKILL" > "$PF545_INJ"
   assert_eq "rcv/#545 read-only detector positive control: injected 'gh pr checkout' turns the scan RED" \
