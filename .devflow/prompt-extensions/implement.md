@@ -141,6 +141,20 @@ run is denied, do this in order — do not skip to the last rung:
 The standard is *evidence before assertion*: a claim that something works must point to a
 command you actually ran and its observed output, or be explicitly flagged unverified.
 
+## Focused test modules accelerate RED/GREEN only
+
+Before choosing an iteration test, use the task context or test plan to identify a candidate
+module, then confirm its exact ID in `scripts/workflow-flight-recorder-registry.json` and inspect
+the registered module when needed to establish coverage. Explicitly record the selected ID and
+use `bash lib/test/run-module.sh <module-id>` for RED/GREEN iteration. If the classifier denies
+the `bash` wrapper, retry the same command with the runner path as the leading token:
+`lib/test/run-module.sh <module-id>`. Do not infer or automate changed-file-to-module routing.
+When no registered module covers the change, use the full suite during iteration.
+
+A focused result is never a completion gate. Before a commit, phase completion, push, or
+completion claim, run `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md` (using
+its documented classifier fallback when necessary). A nonempty skip tally is not clean.
+
 ## Interpreter-faithful probes — probe under the shell the artifact actually runs under
 
 When you probe behavior that depends on the **interpreter or environment** an artifact runs under —

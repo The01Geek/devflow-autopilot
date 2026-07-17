@@ -12,6 +12,20 @@ interpreter-faithful-probe rule (PR #340's R7). Flag an instance of any shape as
 contract is a correctness defect), and require the fix to verify the *outcome*, not the
 precondition.
 
+## Focused test modules accelerate fix iteration only
+
+Before choosing an iteration test, use the finding context or test plan to identify a candidate
+module, then confirm its exact ID in `scripts/workflow-flight-recorder-registry.json` and inspect
+the registered module when needed to establish coverage. Explicitly record the selected ID and
+use `bash lib/test/run-module.sh <module-id>` for the RED/GREEN loop. If the classifier denies
+the `bash` wrapper, retry the same command with the runner path as the leading token:
+`lib/test/run-module.sh <module-id>`. Do not infer or automate changed-file-to-module routing.
+When no registered module covers the fix, use the full suite during iteration.
+
+A focused result never discharges a review/fix gate. Before a commit, phase completion, push,
+or completion claim, run `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md`
+(using its documented classifier fallback when necessary). A nonempty skip tally is not clean.
+
 ## Guard-class shape 1 — existence-vs-sourceability (verify the outcome, not the precondition)
 
 A guard that tests a file's **existence** and then treats a later **consumption** of that

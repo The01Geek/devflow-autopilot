@@ -72,9 +72,12 @@ jobs:
           git ls-files '*.sh' | grep -v '^lib/test/' \
             | xargs -r shellcheck --severity=warning -e SC1091
           # lib/test/ is excluded above (the gh-stub fixtures are not shipped code), but
-          # lib/test/summary.sh IS a real renderer sourced by the suite (issue #456), so it
-          # is added to the lint's scope explicitly rather than shipping unlinted.
-          shellcheck --severity=warning -e SC1091 lib/test/summary.sh
+          # These lib/test files are shipped code (the sourced harness/renderer/
+          # module and the standalone focused runner) rather than fixtures, so
+          # they are added explicitly rather than shipping unlinted.
+          shellcheck --severity=warning -e SC1091 \
+            lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh \
+            lib/test/modules/workflow-flight-recorder.sh
 
       # actionlint validates workflow syntax and runs shellcheck over run: blocks.
       # SHELLCHECK_OPTS mirrors the severity policy; SC2034 is excluded because
