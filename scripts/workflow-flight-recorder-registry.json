@@ -1,5 +1,11 @@
 {
   "schema_version": 1,
+  "test_modules": {
+    "workflow-flight-recorder": {
+      "path": "lib/test/modules/workflow-flight-recorder.sh",
+      "description": "Native inventory, explicit import, constrained analysis, and focused Python coverage"
+    }
+  },
   "workflows": {
     "implement": {
       "user_commands": ["/devflow:implement", "/implement"],
