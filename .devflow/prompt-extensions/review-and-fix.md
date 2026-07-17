@@ -182,7 +182,7 @@ that its edit went through the `superpowers:writing-skills` RED/GREEN discipline
 the review-time backstop for that routing — flag a missing discharge as at least **Important**.
 
 **Trigger.** This gate applies only when the reviewed diff touches a path matching one of the
-trigger globs: `skills/*/SKILL.md`, `skills/implement/phases/*.md`, `.devflow/prompt-extensions/*.md`.
+trigger globs: `skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review/phases/*.md`, `.devflow/prompt-extensions/*.md`.
 A diff touching none of them draws no finding.
 
 **Enforcement surfaces.** The gate is enforced on: an implement run's **Phase 3** (which holds
