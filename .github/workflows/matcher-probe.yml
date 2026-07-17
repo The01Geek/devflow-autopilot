@@ -30,10 +30,10 @@ name: Matcher probe
 # profile — a distinct allowlist from the review profile, so shapes/forms proven on
 # one tier are unproven on the other. It establishes which grant FORM (explicit
 # vendored literal vs. `*/basename` glob) and which command SHAPES (`for` / piped
-# `while read` / `VAR="$(…)"` wrappers, the unexpanded-anchor leading token) the
-# matcher accepts for the label helpers (`ensure-label.sh` / `apply-labels.sh`),
-# whose silently-denied applies are the defect issue #450 fixes. Its grant sets were
-# originally attribution-split (explicit-for-apply-labels, glob-for-ensure-label) so
+# `while read` / `VAR="$(…)"` wrappers, the unexpanded-anchor leading token,
+# redirects, heredocs, simple expansions, and leading environment assignments) the
+# matcher accepts for granted heads. Its original grant sets were
+# attribution-split (explicit-for-apply-labels, glob-for-ensure-label) so
 # every label verdict attributed to exactly one form. Human-dispatch only: its
 # observed table is the implement-tier evidence of record that Stage B's grant +
 # call-site rework was gated on. That table is now RECORDED (issues #450/#455) and
@@ -414,7 +414,13 @@ jobs:
   # shipped both halves: the explicit grants in `devflow-implement.yml` and the call-site
   # rework. This job's job is now to KEEP that true — it re-measures the real shipped
   # profile end-to-end after a `claude-code-action` / CLI upgrade, and rows 8/9 are the
-  # open disambiguators for the non-label-capture carve-out.
+  # open disambiguators for the non-label-capture carve-out. The issue #571 rows extend
+  # the evidence surface to everyday ad-hoc redirects, heredocs, expansions, and leading
+  # assignments (issue #571). Multi-operation statements (`A; B`, `A && B`) are
+  # deliberately excluded: shipped implement phase fences already exercise them
+  # successfully, so another row would be redundant and misleading rather than new
+  # evidence. The exact capture-heredoc and computed-assignment rows necessarily combine
+  # properties; their simpler neighboring rows are the attribution disambiguators.
   #
   # RE-DERIVING THE I2/I3 ATTRIBUTION (what the retired split used to give you). The
   # shipped profile now carries BOTH the explicit grant and the `*/basename` glob for each
@@ -511,12 +517,12 @@ jobs:
           allowed_bots: "*"
           prompt: |
             You are a PERMISSION-MATCHER PROBE. Your ONLY task is to attempt each of
-            the 9 numbered command shapes below EXACTLY ONCE, each in its OWN single
+            the 16 numbered command shapes below EXACTLY ONCE, each in its OWN single
             tool call, VERBATIM — do not modify, wrap, quote-escape, split, or combine
             them, and do not add any command that is not listed. Attempt them in order
-            1 through 9. If a shape is DENIED or errors, do NOT retry it and do NOT try
+            1 through 16. If a shape is DENIED or errors, do NOT retry it and do NOT try
             a different formulation — move straight to the next number. After
-            attempting all 9, STOP and reply with the single word DONE.
+            attempting all 16, STOP and reply with the single word DONE.
 
             Your text output is not measured. Only the harness record of which tool
             calls the permission matcher allowed versus denied is measured. Attempt
@@ -583,6 +589,42 @@ jobs:
             is denied" from "the inner redirect is denied" from "a label helper inside a
             substitution is denied". Dummy issue 9999, dummy label:
             LBL_OUT="$(.devflow/vendor/devflow/scripts/apply-labels.sh 9999 iprobe09nofd)"
+
+            Shape 10 — bare redirect to `/tmp` after a granted head (Bash). This row
+            isolates the redirect target class; no compound or trailing diagnostic:
+            echo iprobe10tmp > /tmp/iprobe10tmp
+
+            Shape 11 — bare redirect to `.devflow/tmp` after a granted head (Bash).
+            This is the workspace-local sibling of shape 10, again with no compound:
+            echo iprobe11workspace > .devflow/tmp/iprobe11workspace
+
+            Shape 12 — heredoc write through a granted leading head (Bash). This row
+            isolates the plain heredoc form from the captured form in shape 13:
+            tee .devflow/tmp/iprobe12heredoc <<'EOF'
+            iprobe12heredoc
+            EOF
+
+            Shape 13 — exact captured heredoc form used by phase-4 authoring fences
+            (Bash). This necessarily combines capture and heredoc; shapes 8/9 and 12
+            are its simpler attribution controls:
+            IPROBE13="$(cat <<'EOF'
+            iprobe13captureheredoc
+            EOF
+            )"
+
+            Shape 14 — `echo "$VAR"` simple expansion after a granted leading head
+            (Bash). The literal marker keeps the row identifiable regardless of the
+            environment value:
+            echo iprobe14expansion "$GITHUB_ACTIONS"
+
+            Shape 15 — literal leading `VAR=value` assignment before a granted head
+            (Bash), with no substitution or compound:
+            IPROBE15=iprobe15literal echo iprobe15literal
+
+            Shape 16 — computed leading `VAR="$(<granted-head>)"` assignment before a
+            granted head (Bash). This exact production-style form necessarily includes
+            a substitution; shapes 8 and 15 disambiguate its component properties:
+            IPROBE16="$(echo iprobe16capture)" echo iprobe16capture
 
           plugin_marketplaces: |
             https://github.com/anthropics/claude-plugins-official.git
@@ -699,6 +741,13 @@ jobs:
               (7, "plainly granted single command (positive control)",                           "README.md",       None),
               (8, "`VAR=$(helper …)` capture of a NON-LABEL helper (config-get.sh) — shape-6 disambiguator", "iprobe08nonlabel", "$("),
               (9, "redirect-free `VAR=\"$(helper …)\"` capture of a label helper — shape-6 disambiguator", "iprobe09nofd", "$("),
+              (10, "bare `> /tmp/f` redirect after a granted head",                    "iprobe10tmp",             "> /tmp/"),
+              (11, "bare `> .devflow/tmp/f` redirect after a granted head",           "iprobe11workspace",       "> .devflow/tmp/"),
+              (12, "plain heredoc write through a granted leading head",              "iprobe12heredoc",         "<<'EOF'"),
+              (13, "captured `VAR=\"$(cat <<'EOF' …)\"` heredoc form",                "iprobe13captureheredoc",  "$(cat <<'EOF'"),
+              (14, "`echo \"$VAR\"` simple expansion after a granted leading head",     "iprobe14expansion",       "$GITHUB_ACTIONS"),
+              (15, "literal leading `VAR=value` assignment before a granted head",    "iprobe15literal",         "IPROBE15=iprobe15literal"),
+              (16, "computed leading `VAR=\"$(head)\"` assignment before a granted head", "iprobe16capture",      "$(echo iprobe16capture)"),
           ]
 
           out = []
