@@ -774,8 +774,12 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
     never a ground for creation.
 
     Reason precedence when several could apply is decided, not incidental:
-      state-unestablished > draft-undigestible > no-verdict-round > stale-override >
-      no-digest-supplied > unaudited-revision.
+      state-unestablished > draft-undigestible > no-verdict-round > no-digest-supplied >
+      stale-override > unaudited-revision.
+
+    `no-digest-supplied` outranks `stale-override` deliberately: an override queried
+    with no draft digest was never compared, so nothing went stale — naming the
+    caller's omission is the honest cause. See the refusal chain below.
     """
     if mode not in ('approve', 'iterate'):
         # The mode is a closed vocabulary like every other: an off-set value must
@@ -823,7 +827,8 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
     if ov is not None:
         return _yes(state, 'override', str(revision_ordinal(state)))
 
-    # Refusal precedence, decided: no-verdict-round > stale-override > unaudited-revision.
+    # Refusal precedence, decided (the docstring's tail, in the order checked below):
+    # no-verdict-round > no-digest-supplied > stale-override > unaudited-revision.
     # `no-verdict-round` is scoped to the genuinely verdict-less states — nothing has
     # completed yet, or the last completed round hit the inline arm's verdict-less
     # terminal. A completed REVISE round is NOT verdict-less: a verdict exists, it is
