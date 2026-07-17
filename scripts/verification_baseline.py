@@ -234,6 +234,21 @@ FILE_MODE = 0o600
 
 
 # --------------------------------------------------------------------------- #
+# Input-byte accounting (performance.input_bytes).
+# --------------------------------------------------------------------------- #
+def _count_input_bytes(stats: "dict | None", n: int) -> None:
+    """Accumulate bytes actually READ from source inputs (manifests, bundle
+    metadata, transcripts, stop-attempts logs, the registry, the cloud census
+    snapshot) into ``stats["input_bytes"]``. performance.input_bytes
+    previously summed only the short per-row eligibility_evidence strings — a
+    self-measurement tool under-reporting its own measured input by orders of
+    magnitude (issue #527 review finding). Only successfully-read content is
+    counted (an unreadable file contributes no bytes because none were read)."""
+    if stats is not None:
+        stats["input_bytes"] = stats.get("input_bytes", 0) + n
+
+
+# --------------------------------------------------------------------------- #
 # Path validation (reject symlinks, traversal, root escapes before opening).
 # --------------------------------------------------------------------------- #
 def _validate_admitted_path(raw: str, must_exist: bool = False) -> Path:
@@ -253,10 +268,15 @@ def _validate_admitted_path(raw: str, must_exist: bool = False) -> Path:
     normalized = (Path(os.getcwd()) / candidate).resolve(strict=False)
     if not _within_repo_root(normalized):
         raise ValueError(f"resolved path escapes the admitted root: {normalized}")
-    # Reject symlinks pointing outside the admitted root. Fail CLOSED on an OSError
-    # here (a symlink whose target cannot be resolved/verified is rejected, not
-    # admitted) — admitting an unresolvable symlink would fail-open a guard whose
-    # docstring promises "reject symlinks pointing outside the admitted root."
+    # Primary symlink protection is the resolve()+_within_repo_root containment
+    # check above: .resolve(strict=False) already collapses every resolvable
+    # symlink (including a dangling one), so containment is checked on the real
+    # target. This branch fires only for a symlink resolve() could NOT collapse
+    # (e.g. a self-referential loop, where realpath returns the path unresolved)
+    # and fails CLOSED on it: resolve(strict=True) raises OSError there, which
+    # is rejected, not admitted (issue #527 review: the branch is near-dead by
+    # design — kept for the unresolvable-symlink edge, not as the primary
+    # containment).
     try:
         if normalized.is_symlink():
             target = normalized.resolve(strict=True)
@@ -452,7 +472,26 @@ def _binding_identity(command: str) -> BindingIdentity:
 
 # --------------------------------------------------------------------------- #
 # Records (each schema-versioned independently; additive fields do not bump).
+#
+# Type-design hardening (issue #527 review, Important 5): every record type
+# validates its taxonomy fields at construction (__post_init__), so an invalid
+# enum value is a loud ValueError at the producer, not a silent stringly-typed
+# row that degrades downstream tallies. The three extraction-side records
+# (VerificationRequest, VerificationProcessLaunch, RelationshipGroup) are
+# frozen — nothing mutates them after construction. EligibleLifecycle is
+# deliberately NOT frozen: join_local_imports / extract_verification_lifecycles
+# mutate ``source_status`` in place (the left-join contract), so its invariants
+# are enforced at construction only. Literal[...] aliases were considered and
+# rejected: they would duplicate every enum literal already named by the
+# module-level constant tuples, creating coupled mirrors this repo's
+# conventions forbid — the __post_init__ checks validate against those same
+# tuples instead.
 # --------------------------------------------------------------------------- #
+def _require_member(field_name: str, value: Any, allowed: tuple) -> None:
+    if value not in allowed:
+        raise ValueError(f"{field_name} must be one of {allowed}; got {value!r}")
+
+
 @dataclass
 class EligibleLifecycle:
     source: str  # local | cloud
@@ -466,6 +505,15 @@ class EligibleLifecycle:
     source_status: str  # local: LOCAL_SOURCE_STATUSES; cloud: available|unavailable
     provenance: dict  # session_id refs + snapshot_ref (no raw native paths)
     schema_version: int = ELIGIBLE_LIFECYCLE_SCHEMA
+
+    def __post_init__(self) -> None:
+        _require_member("EligibleLifecycle.source", self.source, (SOURCE_LOCAL, SOURCE_CLOUD))
+        _require_member("EligibleLifecycle.eligibility_state", self.eligibility_state, ELIGIBILITY_STATES)
+        allowed_status = (
+            LOCAL_SOURCE_STATUSES if self.source == SOURCE_LOCAL
+            else (CLOUD_SOURCE_AVAILABLE, SOURCE_UNAVAILABLE)
+        )
+        _require_member("EligibleLifecycle.source_status", self.source_status, allowed_status)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -483,7 +531,7 @@ class EligibleLifecycle:
         }
 
 
-@dataclass
+@dataclass(frozen=True)
 class VerificationRequest:
     request_id: str
     source_event_id: str
@@ -501,6 +549,10 @@ class VerificationRequest:
     skipped_check_evidence: dict | None
     provenance: dict
     schema_version: int = VERIFICATION_REQUEST_SCHEMA
+
+    def __post_init__(self) -> None:
+        _require_member("VerificationRequest.request_kind", self.request_kind, REQUEST_KINDS)
+        _require_member("VerificationRequest.authorization_start", self.authorization_start, START_CLASSES)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -523,7 +575,7 @@ class VerificationRequest:
         }
 
 
-@dataclass
+@dataclass(frozen=True)
 class VerificationProcessLaunch:
     launch_id: str
     request_id: str
@@ -543,6 +595,16 @@ class VerificationProcessLaunch:
     provenance: dict
     retrigger_evidence: bool = False  # explicit iteration/checkpoint/post-fix/base-merge/human-retrigger; Wave 1 extraction never sets this True (no markers extracted), but the field carries the guard the candidate classification requires.
     schema_version: int = VERIFICATION_PROCESS_LAUNCH_SCHEMA
+
+    def __post_init__(self) -> None:
+        _require_member("VerificationProcessLaunch.start_authorization", self.start_authorization, START_CLASSES)
+        if not isinstance(self.retrigger_evidence, bool):
+            # The load-bearing no-retrigger guard must be a real bool — a truthy
+            # string ("false") silently flipping candidates to intentional_rerun
+            # is exactly the stringly-typed hazard flagged in review (#527).
+            raise ValueError(
+                f"VerificationProcessLaunch.retrigger_evidence must be bool; got {self.retrigger_evidence!r}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -567,7 +629,7 @@ class VerificationProcessLaunch:
         }
 
 
-@dataclass
+@dataclass(frozen=True)
 class RelationshipGroup:
     group_id: str
     members: list[str]  # launch_ids
@@ -579,6 +641,10 @@ class RelationshipGroup:
     duration_ms: int | None  # group representative duration (max member duration)
     provenance: dict
     schema_version: int = RELATIONSHIP_GROUP_SCHEMA
+
+    def __post_init__(self) -> None:
+        _require_member("RelationshipGroup.relationship", self.relationship, RELATIONSHIP_CLASSES)
+        _require_member("RelationshipGroup.join_confidence", self.join_confidence, CONFIDENCE_CLASSES)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -612,7 +678,9 @@ def load_cloud_mappings(registry_path: Path) -> dict[str, dict[str, str]]:
     error rather than a runtime hazard."""
     try:
         document = json.loads(registry_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        # UnicodeDecodeError is a ValueError, not an OSError — without it a
+        # non-UTF-8 registry aborts the analyzer instead of degrading (#527).
         return {}
     if not isinstance(document, dict):
         return {}
@@ -675,7 +743,7 @@ def load_cloud_mappings(registry_path: Path) -> dict[str, dict[str, str]]:
 # --------------------------------------------------------------------------- #
 # Local census: one EligibleLifecycle row per start manifest.
 # --------------------------------------------------------------------------- #
-def build_local_census(manifests_dir: Path, registry: dict) -> list[EligibleLifecycle]:
+def build_local_census(manifests_dir: Path, registry: dict, stats: "dict | None" = None) -> list[EligibleLifecycle]:
     rows: list[EligibleLifecycle] = []
     if not manifests_dir.exists() or not manifests_dir.is_dir():
         return rows
@@ -684,10 +752,14 @@ def build_local_census(manifests_dir: Path, registry: dict) -> list[EligibleLife
         try:
             raw = path.read_text(encoding="utf-8")
             doc = json.loads(raw)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             # Unreadable manifest -> denominator row with eligibility_unknown.
+            # UnicodeDecodeError (a ValueError) is caught explicitly: a
+            # non-UTF-8 manifest is a source_unreadable denominator row, never
+            # an analyzer abort (issue #527 review finding).
             rows.append(_unknown_manifest_row(path, position))
             continue
+        _count_input_bytes(stats, len(raw.encode("utf-8")))
         if not isinstance(doc, dict):
             rows.append(_unknown_manifest_row(path, position))
             continue
@@ -807,7 +879,7 @@ def _host_profile_from_manifest(doc: dict) -> dict | None:
 # --------------------------------------------------------------------------- #
 # Local native import left-join + source missingness.
 # --------------------------------------------------------------------------- #
-def join_local_imports(rows: list[EligibleLifecycle], bundles_dir: Path, max_bytes: int) -> list[EligibleLifecycle]:
+def join_local_imports(rows: list[EligibleLifecycle], bundles_dir: Path, max_bytes: int, stats: "dict | None" = None) -> list[EligibleLifecycle]:
     """Left-join imported bundles onto local census rows; set source_status."""
     out: list[EligibleLifecycle] = []
     for row in rows:
@@ -829,21 +901,23 @@ def join_local_imports(rows: list[EligibleLifecycle], bundles_dir: Path, max_byt
             out.append(row)
             continue
         bundle = bundles_dir / sid
-        status = _classify_source_status(bundle, max_bytes)
+        status = _classify_source_status(bundle, max_bytes, stats)
         row.source_status = status
         out.append(row)
     return out
 
 
-def _classify_source_status(bundle: Path, max_bytes: int) -> str:
+def _classify_source_status(bundle: Path, max_bytes: int, stats: "dict | None" = None) -> str:
     if not bundle.exists() or not bundle.is_dir():
         return SOURCE_ELIGIBLE_NOT_IMPORTED
     metadata = bundle / "metadata.json"
     transcript = bundle / "transcript.jsonl"
     if metadata.exists():
         try:
-            meta = json.loads(metadata.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            meta_text = metadata.read_text(encoding="utf-8")
+            _count_input_bytes(stats, len(meta_text.encode("utf-8")))
+            meta = json.loads(meta_text)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             # An unreadable/corrupt metadata.json is a denominator row whose
             # reason is "unreadable" (a permission/corruption fault), distinct
             # from a readable-but-unsupported schema version below.
@@ -859,8 +933,13 @@ def _classify_source_status(bundle: Path, max_bytes: int) -> str:
         # Legacy/absent metadata -> treat as unsupported source version.
         return SOURCE_UNSUPPORTED
     if not transcript.exists():
-        # A stop-attempts failure with no transcript -> import_failed.
-        if _import_failed(bundle):
+        # A stop-attempts failure with no transcript -> import_failed. An
+        # unreadable stop-attempts log (None) -> source_unreadable, never a
+        # silent "no failure" (issue #527 review, suggestion 1).
+        failed = _import_failed(bundle, stats)
+        if failed is None:
+            return SOURCE_UNREADABLE
+        if failed:
             return SOURCE_IMPORT_FAILED
         return SOURCE_MISSING
     try:
@@ -880,38 +959,49 @@ def _classify_source_status(bundle: Path, max_bytes: int) -> str:
         raw = transcript.read_bytes()
     except OSError:
         return SOURCE_UNREADABLE
+    _count_input_bytes(stats, len(raw))
     # Final parse check: malformed JSONL -> unreadable, not missing.
     try:
         wfr.parse_events(raw)
     except ValueError:
         return SOURCE_UNREADABLE
-    if _import_failed(bundle):
+    failed = _import_failed(bundle, stats)
+    if failed is None:
+        return SOURCE_UNREADABLE
+    if failed:
         return SOURCE_IMPORT_FAILED
     return SOURCE_AVAILABLE
 
 
-def _import_failed(bundle: Path) -> bool:
+def _import_failed(bundle: Path, stats: "dict | None" = None) -> "bool | None":
+    """Tri-state: True = import failed, False = no failure evidence, None = the
+    stop-attempts log itself could not be read/decoded (OSError or a non-UTF-8
+    file). ``None`` routes the caller to source_unreadable rather than coercing
+    an unreadable failure-log to "no failure" — returning False there failed
+    open on exactly the input the log exists to explain (issue #527 review)."""
     attempts = bundle / "stop-attempts.jsonl"
     if not attempts.exists():
         return False
+    try:
+        text = attempts.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    _count_input_bytes(stats, len(text.encode("utf-8")))
     saw_success = False
     saw_error = False
-    try:
-        for line in attempts.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(entry, dict):
-                continue
-            if entry.get("error"):
-                saw_error = True
-            if entry.get("bytes_verified") is True or entry.get("ok") is True:
-                saw_success = True
-    except OSError:
-        return False
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("error"):
+            saw_error = True
+        if entry.get("bytes_verified") is True or entry.get("ok") is True:
+            saw_success = True
     return saw_error and not saw_success
 
 
@@ -919,9 +1009,26 @@ def _import_failed(bundle: Path) -> bool:
 # Verification request + process-launch extraction (local-native only).
 # --------------------------------------------------------------------------- #
 def _strip_env_prefix(command: str) -> str:
-    """Strip leading VAR=value assignments to find the real command head."""
+    """Strip leading VAR=value assignments — and a leading ``env`` wrapper with
+    its own VAR=value arguments — to find the real command head, so
+    ``env FOO=bar pytest`` classifies by ``pytest``, not by ``env``
+    (issue #527 review: the ``env`` wrapper hid real launches as
+    other_command). A bare ``env`` (no wrapped command) keeps ``env`` as its
+    head and stays other_command via NON_VERIFICATION_HEADS.
+
+    Known Wave-1 taxonomy gap (documented, not guessed at): other wrapper heads
+    that run a payload command from their arguments — ``find … -exec pytest``,
+    ``nice``/``nohup``/``timeout`` — are NOT unwrapped, so a verification
+    launch behind one of them classifies by the wrapper's own head (``find`` is
+    a read-only inspection head, so it reads other_command) or by pattern match
+    over the whole segment (``xargs pytest`` matches the pattern set). This can
+    under-count wrapped launches; the conservative direction (an under-count of
+    candidates, never a fabricated one)."""
     head = command.strip().split(None, 1)[0] if command.strip() else ""
-    while head and "=" in head and not head.startswith("/") and not head.startswith("-"):
+    while head and (
+        ("=" in head and not head.startswith("/") and not head.startswith("-"))
+        or head == "env"
+    ):
         rest = command.strip().split(None, 1)
         if len(rest) < 2:
             return head
@@ -1092,9 +1199,55 @@ def _workspace_state(events: list, start_idx: int, end_idx: int) -> dict:
     such an enumeration around a verification command, so the conservative
     default is coverage=incomplete -> relationship unclassifiable
     (mutation_state_unbounded). This is the conservative bias the issue demands:
-    never claim a stable workspace without explicit evidence.
+    never claim a stable workspace without explicit evidence. coverage=complete
+    additionally requires every required root to be covered by ONE single
+    tool_result (a genuine enumeration shape), never keywords accumulated
+    across unrelated results (issue #527 review, Important 4).
     """
-    covered: set[str] = set()
+    # A complete enumeration requires explicit coverage of every root in
+    # `required` (head, index, submodule, tracked, untracked, and the
+    # ignored/generated/dependency root) — and it must come from a SINGLE
+    # tool_result (the shape of one explicit workspace enumeration, e.g. a
+    # `git status --ignored` result). The coverage signal is a keyword-presence
+    # reading of result text, not a true before/after mutation bound, so
+    # cross-result accumulation is deliberately NOT allowed to establish
+    # "complete": keywords scattered across unrelated results over the whole
+    # lifecycle window could assemble a coverage no single source event ever
+    # established — the non-conservative direction that ENABLES a
+    # candidate_transport_retry the evidence does not support (issue #527
+    # review finding, Important 4). ``covered_roots`` still reports the union
+    # across results for visibility. The ignored/generated/dependency root is
+    # rarely explicitly observable in Wave 1, so coverage is usually incomplete
+    # by construction; adding a root to `required` is the one place to update.
+    required = {"head", "index", "submodule", "tracked", "untracked", "ignored_gen_dep"}
+
+    def _covered_in(text: str) -> set[str]:
+        covered: set[str] = set()
+        lower = text.lower()
+        if re.search(r"\bhead\b", lower):
+            covered.add("head")
+        # Word-boundary matches: a bare substring marks a root covered on
+        # incidental text (and "tracked" is literally inside "untracked"), so
+        # a false "complete" coverage is exactly what these boundaries guard
+        # against (issue #527 review finding; applied uniformly across roots).
+        if re.search(r"\bindex\b", lower):
+            covered.add("index")
+        if re.search(r"\bsubmodules?\b", lower):
+            covered.add("submodule")
+        if re.search(r"\buntracked\b", lower):
+            covered.add("untracked")
+        if re.search(r"\btracked\b", lower):
+            covered.add("tracked")
+        # ignored/generated/dependency root: covered when a result explicitly
+        # enumerates ignored files OR a generated/dependency root path.
+        if re.search(r"\bignored\b", lower) or any(
+            marker in lower for marker in ("node_modules", "target/", "dist/", "build/", "__pycache__", ".venv", "venv/")
+        ):
+            covered.add("ignored_gen_dep")
+        return covered
+
+    union: set[str] = set()
+    complete = False
     for event in events[start_idx : end_idx + 1]:
         content = event.raw.get("message", {}).get("content") if isinstance(event.raw.get("message"), dict) else None
         if not isinstance(content, list):
@@ -1108,41 +1261,13 @@ def _workspace_state(events: list, start_idx: int, end_idx: int) -> dict:
                 text = c
             elif isinstance(c, list):
                 text = "\n".join(p.get("text", "") for p in c if isinstance(p, dict) and isinstance(p.get("text"), str))
-            lower = text.lower()
-            if re.search(r"\bhead\b", lower):
-                covered.add("head")
-            # Word-boundary matches: a bare substring marks a root covered on
-            # incidental text (and "tracked" is literally inside "untracked"), so
-            # a false "complete" coverage — the non-conservative direction that
-            # ENABLES a candidate_transport_retry classification the evidence does
-            # not support — is exactly what these boundaries guard against (issue
-            # #527 review finding; applied uniformly across all roots, not just
-            # tracked).
-            if re.search(r"\bindex\b", lower):
-                covered.add("index")
-            if re.search(r"\bsubmodules?\b", lower):
-                covered.add("submodule")
-            if re.search(r"\buntracked\b", lower):
-                covered.add("untracked")
-            if re.search(r"\btracked\b", lower):
-                covered.add("tracked")
-            # ignored/generated/dependency root: covered when a result explicitly
-            # enumerates ignored files OR a generated/dependency root path.
-            if re.search(r"\bignored\b", lower) or any(
-                marker in lower for marker in ("node_modules", "target/", "dist/", "build/", "__pycache__", ".venv", "venv/")
-            ):
-                covered.add("ignored_gen_dep")
-    # A complete enumeration requires explicit coverage of every root in the
-    # `required` set below (head, index, submodule, tracked, untracked, and the
-    # ignored/generated/dependency root). The ignored/generated/dependency root
-    # is rarely explicitly observable from a verification command's source-event
-    # results in Wave 1, so coverage is usually incomplete by construction —
-    # `required.issubset(covered)` captures that without a redundant special-case
-    # branch, so adding a root to `required` is the one place to update.
-    required = {"head", "index", "submodule", "tracked", "untracked", "ignored_gen_dep"}
-    coverage = "complete" if required.issubset(covered) else "incomplete"
+            covered = _covered_in(text)
+            union |= covered
+            if required.issubset(covered):
+                complete = True
+    coverage = "complete" if complete else "incomplete"
     return {
-        "covered_roots": sorted(covered),
+        "covered_roots": sorted(union),
         "observation_method": "source_event_results",
         "coverage": coverage,
         "mutation_state_unbounded": coverage == "incomplete",
@@ -1150,7 +1275,8 @@ def _workspace_state(events: list, start_idx: int, end_idx: int) -> dict:
 
 
 def extract_verification_lifecycles(
-    rows: list[EligibleLifecycle], bundles_dir: Path, registry: dict, max_bytes: int
+    rows: list[EligibleLifecycle], bundles_dir: Path, registry: dict, max_bytes: int,
+    stats: "dict | None" = None,
 ) -> "tuple[list[VerificationRequest], list[VerificationProcessLaunch], list[EligibleLifecycle]]":
     """Extract verification requests + process launches from source_available
     local lifecycles. Returns (requests, launches, updated_rows)."""
@@ -1169,6 +1295,7 @@ def extract_verification_lifecycles(
         except OSError:
             row.source_status = SOURCE_UNREADABLE
             continue
+        _count_input_bytes(stats, len(raw))
         if len(raw) > max_bytes:
             row.source_status = SOURCE_UNSUPPORTED
             continue
@@ -1180,15 +1307,34 @@ def extract_verification_lifecycles(
         except ValueError:
             row.source_status = SOURCE_UNREADABLE
             continue
-        occurrences = wfr.detect_occurrences(events, registry)
-        # Use the manifest's consumer to scope the root occurrence; fall back to
-        # the first top-level occurrence of any registered workflow.
-        root = _select_root_occurrence(occurrences, row.consumer)
-        if root is None:
+        try:
+            occurrences = wfr.detect_occurrences(events, registry)
+            # Use the manifest's consumer to scope the root occurrence; fall back
+            # to the first top-level occurrence of any registered workflow.
+            root = _select_root_occurrence(occurrences, row.consumer)
+            if root is None:
+                continue
+            end_idx = root.end_event if root.end_event is not None else (len(events) - 1)
+            row.provenance["lifecycle_id"] = f"{sid}\x1f{root.occurrence_id}"
+            reqs, launches_in = _extract_from_lifecycle(events, root, end_idx, sid, row.consumer)
+        except Exception as exc:
+            # Per-transcript exception isolation (issue #527 review, Important
+            # 2): a JSON-valid but unexpected event shape that raises KeyError/
+            # TypeError/etc. inside occurrence detection or extraction must
+            # degrade THIS row to a denominator entry, never abort the whole
+            # baseline and lose every healthy bundle. The transcript parsed but
+            # this analyzer version cannot process its shape ->
+            # source_unsupported (a distinct reason code, never a clean
+            # classification), with a LOUD stderr breadcrumb naming the session
+            # id + exception type only — no raw transcript text ever reaches
+            # errors/logs (the redaction boundary).
+            row.source_status = SOURCE_UNSUPPORTED
+            print(
+                f"devflow verification-baseline: extraction failed for session {sid} "
+                f"({type(exc).__name__}); row degraded to {SOURCE_UNSUPPORTED}",
+                file=sys.stderr,
+            )
             continue
-        end_idx = root.end_event if root.end_event is not None else (len(events) - 1)
-        row.provenance["lifecycle_id"] = f"{sid}\x1f{root.occurrence_id}"
-        reqs, launches_in = _extract_from_lifecycle(events, root, end_idx, sid, row.consumer)
         requests.extend(reqs)
         launches.extend(launches_in)
     return requests, launches, rows
@@ -1417,6 +1563,13 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     ws_matching = ws_complete and len(ws_roots) == 1
     if not ws_matching:
         return REL_UNCLASSIFIABLE, CONFIDENCE_AMBIGUOUS
+    # Forward-looking guard (issue #527 review, disclosure note): members here
+    # are LAUNCHES, which Wave-1 extraction creates only for
+    # START_CONFIRMED_TERMINAL / START_CONFIRMED_RESULT_MISSING — so the
+    # DENIED/CANCELLED/UNKNOWN arms below cannot match today. They are kept so
+    # a future adapter that admits other start classes into launches still
+    # counts them as prior-missing evidence instead of silently weakening this
+    # candidate requirement.
     has_prior_missing = any(
         m.start_authorization in (START_DENIED_PRE, START_CANCELLED_PRE, START_CONFIRMED_RESULT_MISSING, START_UNKNOWN)
         or m.result_presence is False
@@ -1462,6 +1615,7 @@ def compute_metrics(
     groups: list[RelationshipGroup],
     has_cloud_snapshot: bool,
     cloud_unavailable: bool = False,
+    cloud_attempted: bool = False,
 ) -> dict[str, Any]:
     def count_by(values):
         tally: dict[str, int] = {}
@@ -1488,13 +1642,25 @@ def compute_metrics(
     # per-row status, so drive the ``unavailable`` counter from it rather than
     # leaving it structurally 0 (cloud rows always carry source_status=available,
     # or there are no cloud rows — snapshot absent, incomplete, or all-malformed).
-    if has_cloud_snapshot and cloud_unavailable:
+    # Keyed on cloud_attempted, NOT has_cloud_snapshot: a corrupt/wrong-schema
+    # --cloud-census parses to no snapshot at all (has_cloud_snapshot=False), and
+    # keying on it left this counter at 0 exactly while the report printed
+    # "cloud coverage: unavailable" (issue #527 review, suggestion 2). A run
+    # that never passed --cloud-census records 0 here — no cloud measurement was
+    # attempted, so there is no unavailable measurement to count.
+    if cloud_attempted and cloud_unavailable:
         source_missingness[SOURCE_UNAVAILABLE] = source_missingness.get(SOURCE_UNAVAILABLE, 0) + 1
 
     actual_launches = [
         launch for launch in launches
         if launch.start_authorization in (START_CONFIRMED_TERMINAL, START_CONFIRMED_RESULT_MISSING)
     ]
+    # terminal_results is expected to sit near zero on real transcript corpora:
+    # it requires a PARSED exit code, and _exit_evidence's heuristic only
+    # matches results that spell one out ("exit code 0", "rc: 2") — most real
+    # tool_results do not. That is measurement honesty, not a defect: unknown
+    # terminal evidence stays out of the count rather than being guessed
+    # (issue #527 review, forward-looking disclosure).
     terminal_results = sum(1 for launch in actual_launches if launch.exit_evidence and launch.exit_evidence.get("exit_code") is not None)
     missing_results = sum(1 for launch in launches if launch.start_authorization == START_CONFIRMED_RESULT_MISSING)
 
@@ -1615,6 +1781,13 @@ def stratify(launches: list[VerificationProcessLaunch], rows: list[EligibleLifec
         return {
             "consumer_checkpoint": launch.consumer_skill,
             "command_binding": launch.binding.digest,
+            # host_os: _host_profile_from_manifest deliberately never writes
+            # this key in Wave 1 (host OS is not derivable from a manifest
+            # without a subprocess), so this dimension is ALWAYS None and every
+            # stratum counts as incomplete/non-comparable — the intended
+            # unknown-host handling, pinned by
+            # test_stratify_host_profile_dimension_is_always_incomplete
+            # (issue #527 review, Important 6).
             "host_profile": hp.get("host_os"),
             "repository_size_bucket": None,  # unknown without a subprocess
             "duration_bucket": _duration_bucket(launch.timing.get("duration_ms")),
@@ -1677,7 +1850,9 @@ def read_cloud_census(snapshot_path: Path) -> "tuple[dict[str, Any] | None, str]
         return None, "absent"
     try:
         doc = json.loads(snapshot_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        # UnicodeDecodeError: a non-UTF-8 snapshot is an unreadable census
+        # (coverage unavailable), never an analyzer abort (#527 review).
         return None, f"unreadable/corrupt ({type(exc).__name__})"
     if not isinstance(doc, dict):
         return None, "not a JSON object"
@@ -1749,6 +1924,15 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
         scheduled_started = (
             status in ("queued", "in_progress") or completed_and_ran or bool(started_at)
         ) and conclusion != "skipped"
+        # A job is evidenced STARTED only when it completed with a real
+        # conclusion or is in_progress with a job-level started_at. A queued
+        # job (or an in_progress row the API has not stamped a job start on,
+        # or a bare started_at under an unknown status) is scheduled but not
+        # evidenced-started: it stays provisional_candidate — in the
+        # denominator, never confirmed, never promoted — instead of
+        # over-claiming the confirmed eligible denominator (issue #527 review,
+        # suggestion 3).
+        started_evidenced = completed_and_ran or (status == "in_progress" and bool(started_at))
         if mapping is None:
             # Precheck/dedupe/telemetry/relay/skipped non-agent jobs: ineligible.
             state = ELIGIBILITY_INELIGIBLE
@@ -1756,6 +1940,12 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
         elif not scheduled_started:
             state = ELIGIBILITY_INELIGIBLE
             evidence = "agent job present but no scheduled/started agent-step evidence (skipped or never started)"
+        elif not started_evidenced:
+            state = ELIGIBILITY_PROVISIONAL
+            evidence = (
+                f"allowlisted agent job {job!r} scheduled (status={status or 'unknown'}) but its start is "
+                "not yet evidenced (no completed conclusion / no in-progress job start) — provisional, never promoted"
+            )
         else:
             state = ELIGIBILITY_CONFIRMED
             evidence = f"allowlisted agent job {job!r} consumer={mapping.get('consumer')} routed={mapping.get('routed_command')}"
@@ -1983,7 +2173,12 @@ def main(argv: "list[str] | None" = None) -> int:
 
     tracemalloc.start()
     wall_start = time.monotonic()
-    input_bytes = 0
+    # input_bytes counts bytes actually READ from source inputs (registry,
+    # manifests, bundle metadata, transcripts, stop-attempts logs, the cloud
+    # census snapshot) — not the short per-row evidence strings the field
+    # previously summed, which under-reported the tool's own measured input by
+    # orders of magnitude (issue #527 review, Important 3).
+    stats: dict[str, int] = {"input_bytes": 0}
 
     try:
         registry = wfr.load_registry(registry_path)
@@ -1991,17 +2186,21 @@ def main(argv: "list[str] | None" = None) -> int:
         print(f"devflow verification-baseline: registry load failed: {exc}", file=sys.stderr)
         return 2
     cloud_mappings = load_cloud_mappings(registry_path)
+    try:
+        # The registry file is read twice (load_registry + load_cloud_mappings);
+        # its size is counted once — the input is one file.
+        _count_input_bytes(stats, registry_path.stat().st_size)
+    except OSError:
+        pass
 
     # 1. Local census (denominator, from start manifests).
-    local_rows = build_local_census(manifests_dir, registry)
-    for row in local_rows:
-        input_bytes += len(row.eligibility_evidence.encode("utf-8"))
+    local_rows = build_local_census(manifests_dir, registry, stats)
 
     # 2. Left-join local native imports + source missingness.
-    local_rows = join_local_imports(local_rows, bundles_dir, args.max_source_bytes)
+    local_rows = join_local_imports(local_rows, bundles_dir, args.max_source_bytes, stats)
 
     # 3. Verification request + process-launch extraction (local-native only).
-    requests, launches, local_rows = extract_verification_lifecycles(local_rows, bundles_dir, registry, args.max_source_bytes)
+    requests, launches, local_rows = extract_verification_lifecycles(local_rows, bundles_dir, registry, args.max_source_bytes, stats)
 
     # 4. Relationship grouping + classification.
     groups = group_launches(launches)
@@ -2012,6 +2211,10 @@ def main(argv: "list[str] | None" = None) -> int:
         try:
             cloud_path = _validate_admitted_path(args.cloud_census, must_exist=True)
             cloud_snapshot, cloud_reason = read_cloud_census(cloud_path)
+            try:
+                _count_input_bytes(stats, cloud_path.stat().st_size)
+            except OSError:
+                pass
             if cloud_snapshot is None and cloud_reason != "absent":
                 # Distinguish a corrupt/schema-mismatch file from a missing flag so an
                 # operator who passed --cloud-census can tell why coverage is unavailable.
@@ -2024,7 +2227,11 @@ def main(argv: "list[str] | None" = None) -> int:
     has_cloud = cloud_snapshot is not None
 
     # 6. Metrics + sampling + stratification.
-    metrics = compute_metrics(all_rows, requests, launches, groups, has_cloud, bool(cloud_coverage.get("unavailable")))
+    metrics = compute_metrics(
+        all_rows, requests, launches, groups, has_cloud,
+        bool(cloud_coverage.get("unavailable")),
+        cloud_attempted=bool(args.cloud_census),
+    )
     snapshot_hash = compute_source_snapshot_hash(all_rows, cloud_snapshot)
     sample = manual_review_sample(groups, snapshot_hash)
     stratification = stratify(launches, all_rows)
@@ -2036,7 +2243,7 @@ def main(argv: "list[str] | None" = None) -> int:
     performance = {
         "analyzer_wall_time_ms": wall_ms,
         "peak_memory_bytes": peak,
-        "input_bytes": input_bytes,
+        "input_bytes": stats["input_bytes"],
         "output_bytes": None,  # filled after serialization
         "lifecycle_count": len(all_rows),
         "event_count": None,  # not aggregated across sources in Wave 1 (per-source only)

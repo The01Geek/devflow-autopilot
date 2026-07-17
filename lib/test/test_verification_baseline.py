@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import importlib.util
 import io
 import json
@@ -402,27 +403,29 @@ class CandidateFailsClosedTests(unittest.TestCase):
 
     def test_mutation_lifecycle_removed(self) -> None:
         a, b = candidate_pair()
-        b.lifecycle_id = "implement-2"  # distinct lifecycle
+        b = dataclasses.replace(b, lifecycle_id="implement-2")  # distinct lifecycle (records are frozen)
         groups = group_launches([a, b])
         self.assertNotEqual(groups[0].relationship, REL_CANDIDATE_TRANSPORT_RETRY)
         self.assertEqual(groups[0].relationship, REL_INDEPENDENT_LIFECYCLE)
 
     def test_mutation_missing_response_removed(self) -> None:
         a, b = candidate_pair()
-        a.start_authorization = START_CONFIRMED_TERMINAL  # no prior missing response
+        a = dataclasses.replace(a, start_authorization=START_CONFIRMED_TERMINAL)  # no prior missing response
         groups = group_launches([a, b])
         self.assertNotEqual(groups[0].relationship, REL_CANDIDATE_TRANSPORT_RETRY)
 
     def test_mutation_boundary_removed(self) -> None:
         a, b = candidate_pair()
-        for m in (a, b):
-            m.workspace_state = {**m.workspace_state, "coverage": "incomplete", "mutation_state_unbounded": True}
+        a, b = (
+            dataclasses.replace(m, workspace_state={**m.workspace_state, "coverage": "incomplete", "mutation_state_unbounded": True})
+            for m in (a, b)
+        )
         groups = group_launches([a, b])
         self.assertEqual(groups[0].relationship, REL_UNCLASSIFIABLE)
 
     def test_mutation_binding_removed(self) -> None:
         a, b = candidate_pair()
-        b.binding = BindingIdentity(digest="different", secret_affected=False, secret_slots=(), redacted_display="other")
+        b = dataclasses.replace(b, binding=BindingIdentity(digest="different", secret_affected=False, secret_slots=(), redacted_display="other"))
         groups = group_launches([a, b])
         # Different bindings -> two single-member groups, no candidate.
         self.assertEqual(len(groups), 2)
@@ -431,7 +434,7 @@ class CandidateFailsClosedTests(unittest.TestCase):
 
     def test_mutation_retrigger_removed(self) -> None:
         a, b = candidate_pair()
-        a.retrigger_evidence = True  # explicit retrigger evidence -> intentional rerun
+        a = dataclasses.replace(a, retrigger_evidence=True)  # explicit retrigger evidence -> intentional rerun
         groups = group_launches([a, b])
         self.assertEqual(groups[0].relationship, REL_INTENTIONAL_RERUN)
 
@@ -1065,6 +1068,313 @@ class Issue527ReviewFixTests(_TmpDirTestCase):
         self.assertIn("2026-07-01..2026-08-01", created_fields[0])
         # The old split-on-first-'=' upper-bound param must be gone.
         self.assertFalse(any("created<" in a for a in runs_call))
+
+
+class Pr531ReceivingReviewFixTests(_TmpDirTestCase):
+    """Regression tests for the PR #531 receiving-code-review fixes (the
+    APPROVE-with-notes Important/Suggestion findings)."""
+
+    # --- Important 1: non-UTF-8 inputs degrade to denominator rows, never an
+    #     analyzer abort (UnicodeDecodeError is a ValueError, not OSError). ----
+    def test_non_utf8_manifest_is_unknown_unreadable_row(self) -> None:
+        (self.manifests / "sess-bad.json").write_bytes(b"\xff\xfe{not utf8")
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        self.assertEqual(rows[0].eligibility_state, ELIGIBILITY_UNKNOWN)
+        self.assertEqual(rows[0].source_status, SOURCE_UNREADABLE)
+
+    def test_non_utf8_bundle_metadata_is_unreadable(self) -> None:
+        write_manifest(self.manifests, "s-bm")
+        d = self.bundles / "s-bm"
+        d.mkdir(parents=True)
+        (d / "metadata.json").write_bytes(b"\xff\xfe{bad")
+        (d / "transcript.jsonl").write_bytes(transcript(user("x")))
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        rows = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
+        self.assertEqual(rows[0].source_status, SOURCE_UNREADABLE)
+
+    # --- Suggestion 1 + Important 1: an unreadable/non-UTF-8 stop-attempts log
+    #     routes to source_unreadable, never coerced to "no failure". ---------
+    def test_non_utf8_stop_attempts_routes_unreadable(self) -> None:
+        write_manifest(self.manifests, "s-sa")
+        write_bundle(self.bundles, "s-sa", transcript(user("x")))
+        (self.bundles / "s-sa" / "stop-attempts.jsonl").write_bytes(b"\xff\xfe not utf8")
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        rows = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
+        self.assertEqual(rows[0].source_status, SOURCE_UNREADABLE)
+
+    def test_import_failed_tri_state_none_on_oserror(self) -> None:
+        d = self.bundles / "s-tri"
+        d.mkdir(parents=True)
+        (d / "stop-attempts.jsonl").write_text(json.dumps({"error": "x"}) + "\n", encoding="utf-8")
+        # Positive control on the same fixture: readable log with an error and
+        # no success -> True (the tri-state's failure arm still works).
+        self.assertIs(vb._import_failed(d), True)
+        with mock.patch("pathlib.Path.read_text", side_effect=OSError("denied")):
+            self.assertIsNone(vb._import_failed(d))
+
+    def test_non_utf8_cloud_census_reads_unreadable_reason(self) -> None:
+        tmp = Path(self.tmp) / "census-bad.json"
+        tmp.write_bytes(b"\xff\xfe{bad")
+        doc, reason = read_cloud_census(tmp)
+        self.assertIsNone(doc)
+        self.assertIn("unreadable", reason)
+
+    def test_non_utf8_registry_cloud_mappings_returns_empty(self) -> None:
+        reg = Path(self.tmp) / "reg-bad-utf8.json"
+        reg.write_bytes(b"\xff\xfe{bad")
+        self.assertEqual(load_cloud_mappings(reg), {})
+
+    # --- Important 2: a per-transcript extraction failure degrades only that
+    #     row (source_unsupported + breadcrumb); healthy bundles survive. -----
+    def test_extraction_isolates_per_transcript_failures(self) -> None:
+        b = transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "tu1"),
+            tool_result("tu1", "ok; exit code 0"),
+        )
+        for sid in ("sess-boom", "sess-fine"):
+            write_manifest(self.manifests, sid)
+            write_bundle(self.bundles, sid, b)
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        rows = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
+        real_detect = vb.wfr.detect_occurrences
+        calls = {"n": 0}
+
+        def boom_first(events, registry):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise KeyError("unexpected-but-JSON-valid event shape")
+            return real_detect(events, registry)
+
+        buf = io.StringIO()
+        with mock.patch.object(vb.wfr, "detect_occurrences", side_effect=boom_first):
+            with contextlib.redirect_stderr(buf):
+                requests, launches, rows = vb.extract_verification_lifecycles(
+                    rows, self.bundles, wfr.load_registry(REGISTRY), 64 * 1024 * 1024
+                )
+        by = {r.identity.get("session_id"): r.source_status for r in rows}
+        self.assertEqual(by["sess-boom"], SOURCE_UNSUPPORTED)
+        self.assertEqual(by["sess-fine"], SOURCE_AVAILABLE)
+        # The healthy bundle still produced its launch; the breadcrumb names
+        # the degraded session + exception type (never raw transcript text).
+        self.assertEqual(len(launches), 1)
+        self.assertIn("sess-boom", buf.getvalue())
+        self.assertIn("KeyError", buf.getvalue())
+
+    # --- Important 3: performance.input_bytes counts the bytes actually read
+    #     (transcripts + manifests + registry), not evidence-string lengths. --
+    def test_input_bytes_counts_transcript_bytes(self) -> None:
+        b = transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "tu1"),
+            tool_result("tu1", "padding " * 500 + "; exit code 0"),
+        )
+        write_manifest(self.manifests, "s-ib")
+        write_bundle(self.bundles, "s-ib", b)
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles),
+                   "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        baseline = json.loads((sorted(self.out.iterdir())[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+        # The transcript alone is > its own size; evidence strings are ~40 bytes.
+        self.assertGreaterEqual(baseline["performance"]["input_bytes"], len(b))
+
+    # --- Important 4: coverage="complete" requires a SINGLE result covering
+    #     every required root; scattered keywords never assemble it. ---------
+    def test_workspace_complete_requires_single_result_enumeration(self) -> None:
+        full = "head main; index clean; submodule none; tracked 5; untracked 0; ignored node_modules/"
+        state = vb._workspace_state([_result_event(full)], 0, 0)
+        self.assertEqual(state["coverage"], "complete")
+        # The same keywords split across two unrelated results: union still
+        # reported, but coverage stays incomplete (mutation_state_unbounded).
+        half_a = "head main; index clean; submodule none"
+        half_b = "tracked 5; untracked 0; ignored node_modules/"
+        state = vb._workspace_state([_result_event(half_a), _result_event(half_b)], 0, 1)
+        self.assertEqual(state["coverage"], "incomplete")
+        self.assertTrue(state["mutation_state_unbounded"])
+        self.assertIn("head", state["covered_roots"])
+        self.assertIn("untracked", state["covered_roots"])
+
+    # --- Important 5: taxonomy fields validate at construction; extraction
+    #     records are frozen. ------------------------------------------------
+    def test_dataclass_taxonomy_validation_and_frozen(self) -> None:
+        with self.assertRaises(ValueError):
+            make_launch("x", start_auth="not-a-start-class")
+        launch = make_launch("ok")
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            launch.start_authorization = START_CONFIRMED_TERMINAL
+        with self.assertRaises(ValueError):
+            dataclasses.replace(launch, retrigger_evidence="false")  # not a bool
+        with self.assertRaises(ValueError):
+            vb.RelationshipGroup(
+                group_id="g", members=["a"], relationship="bogus-class",
+                join_confidence=CONFIDENCE_EXACT, workspace_state={}, binding_digest=None,
+                consumer=None, duration_ms=None, provenance={},
+            )
+        with self.assertRaises(ValueError):
+            vb.EligibleLifecycle(
+                source="local", surrogate_id="s", consumer=None, subject=None,
+                identity={}, eligibility_state="bogus", eligibility_evidence="",
+                host_profile=None, source_status=SOURCE_MISSING, provenance={},
+            )
+
+    # --- Important 6: stratify() coverage (previously untested) + the
+    #     deliberate always-None host_os dimension. --------------------------
+    def test_stratify_builds_strata_and_counts_incomplete(self) -> None:
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        a = make_launch("a", binding_digest="D1")
+        b = make_launch("b", binding_digest="D2")
+        strat = vb.stratify([a, b], rows)
+        self.assertEqual(strat["strata_count"], 2)
+        self.assertEqual(sum(strat["strata"].values()), 2)
+        # Every Wave-1 stratum has null dimensions (host_os, effort, ...) so all
+        # launches count incomplete/non-comparable.
+        self.assertEqual(strat["incomplete_strata_launches"], 2)
+        self.assertIn("non-comparable", strat["non_comparable_note"])
+
+    def test_stratify_host_profile_dimension_is_always_incomplete(self) -> None:
+        # _host_profile_from_manifest deliberately never writes host_os in Wave 1
+        # (not derivable without a subprocess): the dimension must be None even
+        # for a fully-populated real-shape manifest, keeping the stratum
+        # incomplete (unknown-is-not-zero for stratification).
+        hp = vb._host_profile_from_manifest(manifest("sess-1"))
+        self.assertNotIn("host_os", hp)
+        write_manifest(self.manifests, "s-h")
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        launch = make_launch("h1")
+        launch.provenance["session_id"] = "s-h"
+        strat = vb.stratify([launch], rows)
+        self.assertEqual(strat["incomplete_strata_launches"], 1)
+
+    # --- Suggestion 2: a corrupt --cloud-census counts as an unavailable cloud
+    #     measurement in source_missingness (report and counter agree). ------
+    def test_corrupt_cloud_census_counts_unavailable(self) -> None:
+        write_manifest(self.manifests, "s-cc")
+        bad = Path(self.tmp) / "census-corrupt.json"
+        bad.write_text("{not json", encoding="utf-8")
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles),
+                   "--registry", str(REGISTRY), "--out-dir", str(self.out),
+                   "--cloud-census", str(bad)])
+        self.assertEqual(rc, 0)
+        baseline = json.loads((sorted(self.out.iterdir())[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+        self.assertTrue(baseline["cloud_coverage"]["unavailable"])
+        self.assertEqual(baseline["metrics"]["source_availability_and_missingness"]["unavailable"], 1)
+
+    def test_no_cloud_flag_leaves_unavailable_counter_zero(self) -> None:
+        # Positive control for the counter: no --cloud-census means no cloud
+        # measurement was attempted — nothing unavailable to count.
+        write_manifest(self.manifests, "s-nc")
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles),
+                   "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        baseline = json.loads((sorted(self.out.iterdir())[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(baseline["metrics"]["source_availability_and_missingness"]["unavailable"], 0)
+
+    # --- Suggestion 3: queued/not-evidenced-started agent jobs are provisional,
+    #     never confirmed (no over-claimed confirmed denominator). -----------
+    def test_queued_and_unstamped_cloud_jobs_are_provisional(self) -> None:
+        snap = {
+            "schema_version": 1, "snapshot_hash": "h", "query_time": "t",
+            "pagination_complete": True, "repository": "o/r",
+            "rows": [
+                {"workflow_file": ".github/workflows/devflow-implement.yml", "job": "claude",
+                 "run_id": 1, "run_attempt": 1, "started_at": None, "conclusion": None, "status": "queued"},
+                {"workflow_file": ".github/workflows/devflow-implement.yml", "job": "claude",
+                 "run_id": 2, "run_attempt": 1, "started_at": None, "conclusion": None, "status": "in_progress"},
+                {"workflow_file": ".github/workflows/devflow-implement.yml", "job": "claude",
+                 "run_id": 3, "run_attempt": 1, "started_at": "2026-07-16T01:00:10Z", "conclusion": None, "status": "in_progress"},
+                {"workflow_file": ".github/workflows/devflow-implement.yml", "job": "claude",
+                 "run_id": 4, "run_attempt": 1, "started_at": "2026-07-16T01:00:10Z", "conclusion": "success", "status": "completed"},
+            ],
+        }
+        rows, _ = build_cloud_census(snap, load_cloud_mappings(REGISTRY))
+        by_run = {r.identity["run_id"]: r.eligibility_state for r in rows}
+        self.assertEqual(by_run[1], ELIGIBILITY_PROVISIONAL)  # queued
+        self.assertEqual(by_run[2], ELIGIBILITY_PROVISIONAL)  # in_progress, no job start
+        self.assertEqual(by_run[3], ELIGIBILITY_CONFIRMED)    # in_progress + job started
+        self.assertEqual(by_run[4], ELIGIBILITY_CONFIRMED)    # completed + real conclusion
+
+    # --- Suggestion 4: the symlink branch in _validate_admitted_path exists for
+    #     unresolvable symlinks (a loop) and fails closed on them. ------------
+    def test_validate_admitted_path_rejects_symlink_loop(self) -> None:
+        loop = Path(self.tmp) / "loop-link"
+        try:
+            loop.symlink_to(loop.name)  # self-referential loop
+        except OSError:
+            self.skipTest("symlinks unsupported on this platform")
+        rel = loop.relative_to(ROOT)
+        with self.assertRaises(ValueError):
+            vb._validate_admitted_path(str(rel))
+
+    # --- Suggestion 5: `env FOO=bar pytest` unwraps to the real head; bare
+    #     `env` stays other_command; find -exec remains a documented gap. ----
+    def test_env_wrapper_unwraps_to_real_head(self) -> None:
+        self.assertEqual(vb._classify_taxonomy("env FOO=1 pytest tests/"), KIND_VERIFICATION)
+        self.assertEqual(vb._command_head("env FOO=1 pytest tests/"), "pytest")
+        self.assertEqual(vb._classify_taxonomy("env FOO=1 git status"), KIND_OTHER_COMMAND)
+        self.assertEqual(vb._classify_taxonomy("env"), KIND_OTHER_COMMAND)
+        # Documented Wave-1 wrapper-head gap (accepted limitation, pinned so a
+        # behavior change is a deliberate edit): find -exec is read-only-headed.
+        self.assertEqual(vb._classify_taxonomy("find . -name '*.py' -exec pytest {} +"), KIND_OTHER_COMMAND)
+
+
+class ExporterSubprocessTests(_TmpDirTestCase):
+    """Important 6 (part 2): drive the exporter's real subprocess wrapper
+    `_gh_json` and `main()` end-to-end through on-disk stub gh executables —
+    not monkeypatched fakes — so the rc/stdout/missing-binary branches are
+    exercised through the code that actually ships."""
+
+    def _stub(self, name: str, body: str) -> str:
+        path = Path(self.tmp) / name
+        path.write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8")
+        path.chmod(0o700)
+        return str(path)
+
+    def test_gh_json_real_subprocess_branches(self) -> None:
+        export = _load_export_census()
+        ok = self._stub("gh-ok", "echo '{\"workflow_runs\": []}'")
+        self.assertEqual(export._gh_json(ok, ["api", "x"]), {"workflow_runs": []})
+        # rc != 0 -> None + stderr breadcrumb naming the rc.
+        fail = self._stub("gh-fail", "echo 'HTTP 401' >&2; exit 1")
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            self.assertIsNone(export._gh_json(fail, ["api", "x"]))
+        self.assertIn("rc=1", buf.getvalue())
+        self.assertIn("401", buf.getvalue())
+        # Malformed stdout -> None + breadcrumb.
+        bad = self._stub("gh-bad", "echo 'not json'")
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            self.assertIsNone(export._gh_json(bad, ["api", "x"]))
+        self.assertIn("malformed", buf.getvalue())
+        # Missing binary -> None + breadcrumb (FileNotFoundError branch).
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            self.assertIsNone(export._gh_json(str(Path(self.tmp) / "gh-missing"), ["api", "x"]))
+        self.assertIn("not found", buf.getvalue())
+
+    def test_export_main_end_to_end_with_stub_gh(self) -> None:
+        export = _load_export_census()
+        out = Path(self.tmp) / "census.json"
+        # Empty window, complete pagination: snapshot written, complete.
+        ok = self._stub("gh-empty", "echo '{\"workflow_runs\": []}'")
+        rc = export.main(["--repo", "o/r", "--created-after", "2026-07-01", "--created-before", "2026-07-02",
+                          "--out", str(out), "--gh", ok])
+        self.assertEqual(rc, 0)
+        snap = json.loads(out.read_text(encoding="utf-8"))
+        self.assertTrue(snap["pagination_complete"])
+        self.assertEqual(snap["row_count"], 0)
+        # Degradation: gh fails -> snapshot still written, pagination_complete
+        # False, loud WARNING on stderr (rc stays 0 by design — the degraded
+        # snapshot is usable and the analyzer reads it as unavailable).
+        fail = self._stub("gh-down", "exit 1")
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            rc = export.main(["--repo", "o/r", "--created-after", "2026-07-01", "--created-before", "2026-07-02",
+                              "--out", str(out), "--gh", fail])
+        self.assertEqual(rc, 0)
+        snap = json.loads(out.read_text(encoding="utf-8"))
+        self.assertFalse(snap["pagination_complete"])
+        self.assertIn("pagination incomplete", buf.getvalue())
 
 
 if __name__ == "__main__":

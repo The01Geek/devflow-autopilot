@@ -258,7 +258,10 @@ requires the same explicit lifecycle, consumer/checkpoint when available, safe
 binding identity, a prior missing/cancelled response, an explicitly bounded
 interval, matching `workspace_state` coverage across the grouped launches
 (lifecycle-scoped in Wave 1 — the coverage is derived once per lifecycle from its
-source-event results, not compared per-launch before/after), and no explicit new
+source-event results, not compared per-launch before/after; `complete` coverage
+additionally requires a single source-event result that explicitly covers every
+required root, the shape of one genuine workspace enumeration — keywords
+accumulated across unrelated results never establish it), and no explicit new
 iteration/checkpoint/retrigger evidence. Distinct lifecycle IDs, cloud run
 attempts, command bindings, consumer roles, explicit iterations, explicit
 checkpoints, post-fix commits, base merges, and human retriggers cannot be
@@ -267,7 +270,8 @@ observation method (HEAD, index, submodule state, all tracked files, all
 untracked files, and each ignored/generated/dependency root) from explicit
 source-event results, not analyzer-time inspection; unknown, excluded,
 truncated, non-enumerated-glob, or outside-workspace roots set
-`workspace_state_coverage=incomplete` and classify the relationship
+`workspace_state.coverage` to `incomplete` (the serialized key — the issue text
+abbreviates it `workspace_state_coverage`) and classify the relationship
 `unclassifiable` with `mutation_state_unbounded`, excluded from candidate counts
 and from estimated repeated-suite wall time. Repeated commands are reported as
 conservative candidates with explicit evidence and confidence, never as
@@ -289,7 +293,9 @@ source-event IDs only.
 
 Manual review uses relationship groups as the sampling unit. High-cost means the
 top duration decile with inclusive ties; all high-cost groups are reviewed plus
-`min(50, max(20, ceil(0.1 * remainder)))` remainder groups selected by sorting
+`min(50, max(20, ceil(0.1 * remainder)))` remainder groups — additionally
+capped at the remainder population size (`min(…, len(remainder))`), so the
+sample never exceeds the groups that exist — selected by sorting
 `SHA-256(baseline_snapshot_hash || group_id)`. The sample publishes its seed,
 eligible population, selected IDs, nonresponses, and adjudication totals;
 reviewers see cited source evidence without analyzer relationship labels and
