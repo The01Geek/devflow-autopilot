@@ -29,6 +29,9 @@ devflow_run_full_suite_module() { # module-path module-name
   fi
 
   (
+    # Keep the full-suite boundary's fail direction identical to the focused
+    # runner even when a future caller does not enable nounset globally.
+    set -u
     # shellcheck source=/dev/null disable=SC1090
     . "$module_path"
   )

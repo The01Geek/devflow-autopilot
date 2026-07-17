@@ -80,20 +80,27 @@ class ModuleRunnerTests(unittest.TestCase):
             json.dumps(document), encoding="utf-8"
         )
 
-    def _run(self, module: str, *, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    def _run_args(
+        self, *args: str, extra_env: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
         environment["SOURCE_MARKER"] = str(self.marker)
         if extra_env:
             environment.update(extra_env)
         return subprocess.run(
-            ["bash", str(self.runner), module],
+            ["bash", str(self.runner), *args],
             cwd=self.root,
             env=environment,
             text=True,
             capture_output=True,
             check=False,
         )
+
+    def _run(
+        self, module: str, *, extra_env: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        return self._run_args(module, extra_env=extra_env)
 
     def _log_path(self, result: subprocess.CompletedProcess[str]) -> Path:
         for line in result.stdout.splitlines():
@@ -119,6 +126,61 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertIn("selector error: unknown test module 'unknown'", result.stderr)
         self.assertFalse(self.marker.exists())
         self.assertFalse((self.root / ".devflow/tmp/test-module-logs").exists())
+
+    def test_help_and_argument_errors_are_explicit(self) -> None:
+        help_result = self._run_args("--help")
+        no_module = self._run_args()
+        two_modules = self._run_args("sample", "empty")
+        unknown_option = self._run_args("--unknown")
+        missing_registry_value = self._run_args("--registry")
+        missing_log_dir_value = self._run_args("--log-dir")
+
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn("Usage:", help_result.stderr)
+        for result in (
+            no_module,
+            two_modules,
+            unknown_option,
+            missing_registry_value,
+            missing_log_dir_value,
+        ):
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn("selector error:", result.stderr)
+            self.assertFalse(self.marker.exists())
+
+    def test_registry_and_log_dir_options_control_the_selected_run(self) -> None:
+        alternate_registry = self.root / "alternate-registry.json"
+        alternate_registry.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "workflows": {"placeholder": {}},
+                    "test_modules": {
+                        "alternate": {"path": "lib/test/modules/sample.sh"}
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        alternate_logs = self.root / "alternate-logs"
+
+        result = self._run_args(
+            "--registry",
+            str(alternate_registry),
+            "--log-dir",
+            str(alternate_logs),
+            "alternate",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self._log_path(result).parent, alternate_logs)
+
+    def test_invalid_module_id_fails_before_source(self) -> None:
+        result = self._run("../sample")
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("invalid module id", result.stderr)
+        self.assertFalse(self.marker.exists())
 
     def test_empty_module_mapping_fails_closed_before_source(self) -> None:
         self._write_registry({})
@@ -179,6 +241,29 @@ class ModuleRunnerTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("module path must match lib/test/modules/<name>.sh", result.stderr)
+        self.assertFalse(self.marker.exists())
+
+    def test_missing_regex_valid_module_path_fails_before_source(self) -> None:
+        self._write_registry(
+            {"missing": {"path": "lib/test/modules/missing.sh"}}
+        )
+
+        result = self._run("missing")
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("module path is missing", result.stderr)
+        self.assertFalse(self.marker.exists())
+
+    def test_resolved_directory_is_not_accepted_as_readable_module_file(self) -> None:
+        (self.modules_dir / "directory.sh").mkdir()
+        self._write_registry(
+            {"directory": {"path": "lib/test/modules/directory.sh"}}
+        )
+
+        result = self._run("directory")
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("module path is not a readable file", result.stderr)
         self.assertFalse(self.marker.exists())
 
     def test_symlink_escape_is_rejected_by_canonical_path_confinement(self) -> None:
@@ -336,6 +421,12 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertIn('python3 "$LIB/test/test_module_runner.py"', run_text)
         self.assertNotIn('IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"', run_text)
         module_text = module.read_text(encoding="utf-8")
+        self.assertTrue(
+            module_text.startswith(
+                "# SPDX-FileCopyrightText: 2026 Daniel Radman\n"
+                "# SPDX-License-Identifier: MIT\n"
+            )
+        )
         self.assertNotIn('python3 "$LIB/test/test_module_runner.py"', module_text)
         self.assertIn(
             'IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"',

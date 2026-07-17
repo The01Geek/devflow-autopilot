@@ -26,7 +26,6 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
             driver = root / "driver.sh"
             driver.write_text(
                 "#!/usr/bin/env bash\n"
-                "set -u\n"
                 f"RESULTS_FILE={root / 'results'}\n"
                 '> "$RESULTS_FILE"\n'
                 f'. "{HARNESS}"\n'
@@ -68,6 +67,13 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("FAIL", result.stdout.splitlines())
         self.assertIn("executed zero assertions", result.stderr)
+
+    def test_unbound_variable_records_process_failure_even_for_permissive_caller(self) -> None:
+        result = self._run('printf "%s\\n" "$UNBOUND_MODULE_VALUE"\n')
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("FAIL", result.stdout.splitlines())
+        self.assertIn("exited with status", result.stderr)
 
 
 if __name__ == "__main__":

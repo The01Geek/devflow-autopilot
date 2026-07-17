@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
 # Sourceable workflow-flight-recorder test module.
 # Contract: the caller sets LIB and RESULTS_FILE and defines assert_eq.
 # The module owns all other fixtures and removes its temporary workspace.
