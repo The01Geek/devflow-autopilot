@@ -44,5 +44,25 @@
   "sweep_defs_read": ["comprehensive grep of both lib/test/run.sh + lib/efficiency-trace.sh for all review-and-fix SKILL.md location refs; classified each as moved (fix) vs retained/implement/review/code (keep)"],
   "sweep_evidence": {"status": "ran", "notes": "definitive class-sweep informed by the final shadow comment-analyzer's comprehensive F1-F7 enumeration; verified post-sweep that only legitimate refs remain (root file path, ### Schema at efficiency-trace.sh:275, implement-skill deferred.labels block, review-skill Phase 1.4/3.x, code/fixtures)"},
   "test_first_gate": [],
-  "telemetry": "unavailable"
+  "telemetry": "unavailable",
+  "shadow": {
+    "ran_at": "2026-07-17T05:00:00Z",
+    "trigger": "convergence-time (promoted iter 4)",
+    "reviewed_sha": "b03a76c8",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "loop-control.md:130 broken in-file 'above' xref (Lifecycle note stayed in root)", "defect_signature": {"file": "skills/review-and-fix/references/loop-control.md", "line_range": [130, 130], "kind": "broken_xref"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "run.sh 4254/4485/10198 remaining stale location comments (functionally harmless, pins target bundle)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [4254, 10199], "kind": "stale_comment"}}
+    ],
+    "phase2_fails": [],
+    "notes": "4 of 5 reviewers CLEAN (code-reviewer, silent-failure, pr-test, final-pass) — substantive content validated a 4th time; only comment-analyzer found the remaining stale-comment tail, all fixed in iteration 5",
+    "comparison": {"shadow_total": 4, "overlap_with_iter_4": 0, "new": 4, "new_critical": 0, "new_important": 1},
+    "promoted_to_iter_next": true
+  }
 }
