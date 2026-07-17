@@ -27,7 +27,7 @@
       "Bash(lib/preflight.sh:*)",
       "Bash(shellcheck:*)"
     ],
-    "execution_diagnostics_enabled": false,
+    "execution_diagnostics_enabled": true,
     "execution_transcript_artifact_enabled": false
   },
   "devflow_implement": {
@@ -52,7 +52,7 @@
     "allowed_tools": []
   },
   "devflow_review_and_fix": {
-    "fix_severity_threshold": "important",
+    "fix_severity_threshold": "suggestion",
     "max_iterations": 5,
     "efficiency_telemetry_enabled": true,
     "efficiency_cut_candidate_min_dispatch": 3
@@ -82,7 +82,7 @@
     }
   },
   "receiving_review": {
-    "fix_severity_threshold": "important"
+    "fix_severity_threshold": "suggestion"
   },
   "setup": {
     "python_version": "3.11",
