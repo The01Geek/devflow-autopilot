@@ -5,7 +5,7 @@ type: Added
 
 - **`/devflow:create-issue` now verifies the content a revision itself introduces.** A new
   shared **Revision-delta verification** procedure is stated once in `skills/create-issue/SKILL.md`
-  and referenced by every revise-and-re-gate site (Step 3.5 items 5 and 6, Step 3.6's `VERDICT:
+  and referenced by every revise-and-re-gate site (Step 3.5's items 5 and 6, Step 3.6's `VERDICT:
   REVISE` handling and its user-chosen rounds, and Step 4 sub-step 4's two revision sentences).
   At every revision event it walks the edit-batch delta across six classes (mechanisms, lifecycle
   rules, execution-tier assumptions, dependencies, universal guarantees, and a total-making

@@ -3795,14 +3795,15 @@ assert_pin_unique "#464 AC6: overview §11 records the deliberate Stage-B audito
 #    wired-site bin is empty (zero-hit floor). A gate-mentioning revise sentence
 #    added/moved/reworded — or a novel-verb variant — arrives RED until wired or
 #    knowingly allowlisted. Reuses the #312/#443 create-issue file var CI312_SKILL
-#    and the #465 §11 doc var OG_OVERVIEW_DOC.
+#    and the shared overview-doc var OG_OVERVIEW_DOC.
 CI559_SKILL="$CI312_SKILL"
 
 # ci559_classify FILE -> prints "bin1=N bin2=N bin3=N unresolved=N" on stdout
 # (per-unresolved diagnostics to stderr). The two key phrases, the by-name
 # reference token, the per-hit adjacency window, the definition-block heading, and
-# the enumerated non-command allowlist (the 5 drafting-time explanatory
-# `no-options gate` mentions) are all defined verbatim below.
+# the enumerated non-command allowlist (the drafting-time explanatory
+# `no-options gate` mentions — the ALLOW list below is the source of truth for that
+# set) are all defined verbatim below.
 ci559_classify() {  # skill-file -> summary line on stdout
   python3 - "$1" <<'PY'
 import sys, re
@@ -3888,6 +3889,37 @@ assert_eq "#559: total classification flags a novel-verb gate mention as unresol
   "1" "$(ci559_field "$(ci559_classify "$CI559_NOVEL" 2>/dev/null)" unresolved)"
 rm -f "$CI559_NOVEL"
 
+# Input-shape matrix rows (issue #559 Testing Strategy — the mutable-markdown
+# malformed-shape matrix per CLAUDE.md's best-effort-parser convention: the guard is
+# a reader of agent-mutable markdown, so each degenerate input shape is asserted to
+# fail closed).
+# (a) Empty input → the wired-site bin is empty → the zero-hit floor goes RED.
+CI559_EMPTY="$(probe_tmp '#559 empty-input setup')" || CI559_EMPTY=/dev/null
+: > "$CI559_EMPTY"
+assert_eq "#559 shape: empty input → the wired-site bin is empty (zero-hit floor RED)" \
+  "0" "$(ci559_field "$(ci559_classify "$CI559_EMPTY" 2>/dev/null)" bin1)"
+rm -f "$CI559_EMPTY"
+# (b) Absent target file → the classifier prints an empty summary, so the total-
+# classification assert compares "0" against "" and goes RED (fail-closed, never a
+# vacuous pass) — asserted here as the empty-summary signal that drives that RED.
+assert_eq "#559 shape: absent target file → empty summary (total-classification assert would go RED)" \
+  "" "$(ci559_field "$(ci559_classify /nonexistent/no-options-gate-file.md 2>/dev/null)" unresolved)"
+# (c) Allowlist-bin positive control: the enumerated non-command mentions land in
+# bin3 on the live skill, confirming the allowlist path is live — not merely that a
+# broken allowlist would surface elsewhere as an unresolved occurrence.
+assert_eq "#559 shape: the enumerated allowlist mentions land in bin3 on the live skill" \
+  "5" "$(ci559_field "$CI559_SUM" bin3)"
+# (d) Boundary-hostile: a correctly-wired gate mention whose key phrase and by-name
+# reference are separated by a period-bearing path literal still classifies as a
+# wired site (unresolved=0), proving the contract is positional adjacency — not
+# sentence-boundary recovery, which a period-bearing path literal defeats (the reason
+# the wiring is adjacency-based).
+CI559_BND="$(probe_tmp '#559 boundary-hostile setup')" || CI559_BND=/dev/null
+printf 'x revise, then re-run the no-options gate (see e.g. lib/foo.sh). Then run **Revision-delta verification** now.\n' > "$CI559_BND"
+assert_eq "#559 shape: a period-bearing literal between the gate phrase and the reference still classifies as wired (adjacency, not sentence-boundary)" \
+  "0" "$(ci559_field "$(ci559_classify "$CI559_BND" 2>/dev/null)" unresolved)"
+rm -f "$CI559_BND"
+
 # Prose pins (AC 14). The always-run trigger sentence is a behavioral-fix pin:
 # removing the "at every revision event" qualifier re-introduces the #555-class
 # regression (a revision reaching filing with only the no-options gate), so it is
@@ -3909,7 +3941,7 @@ assert_pin_unique "#559: closing evidence line — enumerated/verified/fixed for
 assert_pin_unique "#559: closing evidence line — no-verifiable-delta format literal" \
   'revision-delta check: no verifiable delta' "$CI559_SKILL"
 assert_pin_unique "#559: the five per-site evidence-line anchors are enumerated" \
-  "at Step 3.5 item 5, immediately after that item's gate re-run; at Step 3.5 item 6, immediately before the initial Step 3.6 dispatch's pre-dispatch draft write" "$CI559_SKILL"
+  "at Step 3.5's item 5, immediately after that item's gate re-run; at Step 3.5's item 6, immediately before the initial Step 3.6 dispatch's pre-dispatch draft write" "$CI559_SKILL"
 # SYSTEM_OVERVIEW §11 documents the procedure in both revise-loop descriptions (AC 13).
 assert_pin_unique "#559: overview §11 (Step 3.5 loop) documents the Revision-delta verification procedure" \
   "walks the revision's edit-batch delta across six classes" "$OG_OVERVIEW_DOC"
