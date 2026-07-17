@@ -1204,6 +1204,15 @@ def _permitted_retry_arms(rnd):
     `dispatch-embed-retry` escalation already reports itself. It is deliberately NOT
     extended to an inline-arm round: inline is the terminal degraded arm, so there is
     nothing to escalate to.
+
+    Disclosed residual: the escalation is permitted, not verified. The tool does not
+    re-hash the file at dispatch to confirm it really is unhashable — doing so would
+    re-race the very condition the escalation answers — so an orchestrator may take the
+    embed arm on any file-arm same-arm retry and thereby self-downgrade from byte-bound
+    file-identity to the weaker embed comparand. The entry marker is therefore
+    orchestrator-asserted, not tool-observed. This is the same trust boundary
+    `route_arm` already documents for `write_landed`, and it is bounded by the same
+    disclosure: the downgrade is recorded and rendered, never silent.
     """
     same = rnd['attempts'][-1]['arm']
     permitted = {'dispatch-embed-retry': ('embed',),

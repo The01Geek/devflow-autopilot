@@ -42594,6 +42594,27 @@ if [ -d "$RD_SB" ]; then
     python3 "$IAS" record-return rd4 --nonce "$N4" --round 1 > /dev/null 2>&1
     printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd4 --nonce "$N4" --round 1 \
       --arm embed > /dev/null 2> .rd-nomarker; printf '%s' "$?" > .rd-nomarker-rc
+
+    # A CLOSED fd 0 (`0<&-`) must still produce the named breadcrumb, never a raw
+    # traceback. This is the absent-operand shape: CPython sets `sys.stdin = None` at
+    # startup, so the ATTRIBUTE access fails — an `except OSError` around the read is
+    # blind to it. Without these rows the guard could be "simplified" back to a bare
+    # except OSError and nothing would go RED while a traceback reached the caller's
+    # stderr classifier instead of one of this tool's vocabulary strings.
+    N5="$(python3 "$IAS" init rd5 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch rd5 --nonce "$N5" --round 1 --arm embed \
+      --marker write-failed 0<&- > /dev/null 2> .rd-nostdin
+    printf '%s' "$?" > .rd-nostdin-rc
+    # the attestation twin: bind a real epoch first so the read is actually reached
+    N6="$(python3 "$IAS" init rd6 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch rd6 --nonce "$N6" --round 1 --arm file \
+      --draft-file d2.md > /dev/null 2>&1
+    D6="$(git hash-object --stdin --no-filters < d2.md)"
+    python3 "$IAS" record-return rd6 --nonce "$N6" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$D6" > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch rd6 --nonce "$N6" --round 1 > /dev/null 2>&1
+    python3 "$IAS" record-creation-attestation rd6 --nonce "$N6" 0<&- \
+      > /dev/null 2> .rd-nostdin-att; printf '%s' "$?" > .rd-nostdin-att-rc
   )
   assert_eq "#546 retry_arm_deadlock_rows: a no-parseable-verdict completion leaves a same-arm retry pending (setup control)" \
     "action=dispatch-retry-same-arm" "$(cat "$RD_SB/.rd-pending" 2>/dev/null)"
@@ -42609,6 +42630,10 @@ if [ -d "$RD_SB" ]; then
     "1:1" "$(cat "$RD_SB/.rd-inlineround-rc" 2>/dev/null):$(grep -c 'does not permit a dispatch on the embed arm' "$RD_SB/.rd-inlineround" 2>/dev/null)"
   assert_eq "#546 retry_arm_deadlock_rows: the escalated embed dispatch still requires its cause marker" \
     "1:1" "$(cat "$RD_SB/.rd-nomarker-rc" 2>/dev/null):$(grep -c 'requires --marker naming the entry cause' "$RD_SB/.rd-nomarker" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: a CLOSED fd 0 names the breadcrumb on record-dispatch, never a traceback" \
+    "1:1" "$(cat "$RD_SB/.rd-nostdin-rc" 2>/dev/null):$(grep -c 'no stdin is attached (fd 0 is closed)' "$RD_SB/.rd-nostdin" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: ... and on record-creation-attestation, the tamper-detection surface" \
+    "1:1" "$(cat "$RD_SB/.rd-nostdin-att-rc" 2>/dev/null):$(grep -c 'no stdin is attached (fd 0 is closed)' "$RD_SB/.rd-nostdin-att" 2>/dev/null)"
   rm -rf "$RD_SB"
 fi
 
