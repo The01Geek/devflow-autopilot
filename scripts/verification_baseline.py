@@ -361,13 +361,35 @@ SECRET_SHORT_U = re.compile(
 # the `-u` whole-operand gap above): the old `[^/\s:@]+` password class failed on
 # `https://user:pa/ss@host` (no match at all — the WHOLE credential leaked) and
 # truncated `https://user:pa@ss@host` at the first `@` (leaking the `ss` tail).
-# Greedy `[^\s]+` backtracks to the LAST `@`, which is where a URL's userinfo
-# actually ends. The USER half still excludes `/`, which is what keeps a pathy
+# Greedy backtracking to the LAST `@` is where a URL's userinfo actually ends.
+# The USER half still excludes `/`, which is what keeps a pathy
 # `https://host/a:b@c` from false-positiving — and where a genuinely ambiguous
 # authority does match, over-redaction is the safe direction (partial
 # confidence, no leak), never a merged command.
-SECRET_URL = re.compile(r"(https?://)[^/\s:@]+:[^\s]+@")
-BEARER_TOKEN = re.compile(r"(Bearer\s+)([A-Za-z0-9._\-+/=]+)", re.IGNORECASE)
+#
+# Both halves carry the SAME escape-awareness as _SECRET_VALUE, and share its
+# chunk definitions rather than spelling a third copy of the segmentation (the
+# coupled-mirror hazard that produced this very bug). The old `[^\s]+` password
+# class stopped at a backslash-escaped space — one shell character, not a word
+# boundary — so the required `@` became unreachable and the pattern did not fire
+# AT ALL: on `https://user:pa\ ss@host` the whole credential, user and password
+# both, reached redacted_display and the digest with secret_affected=False,
+# which additionally skips the secret-affected carve-outs in join_confidence /
+# _classify_relationship, so a credential-bearing binding read as a clean
+# `exact` match. Strictly worse than the four sibling leaks fixed before it,
+# which at least kept secret_affected=True. It stayed blind through four rounds
+# of fixing its siblings precisely because no test row exercised this class —
+# the untested sibling is the one that regressed (PR #531 review-and-fix,
+# convergence shadow).
+_URL_USER = r"(?:" + _ESC_CHUNK + r"|" + _DQ_CHUNK + r"|" + _SQ_CHUNK + r"|[^/\s:@\"'\\])+"
+_URL_PASS = r"(?:" + _ESC_CHUNK + r"|" + _DQ_CHUNK + r"|" + _SQ_CHUNK + r"|[^\s\"'\\])+"
+SECRET_URL = re.compile(r"(https?://)" + _URL_USER + r":" + _URL_PASS + r"@")
+# Same escape-awareness, for class consistency rather than because a
+# space-bearing bearer token is realistic (they are base64url by construction):
+# leaving the one sibling escape-blind is exactly how the URL class survived
+# four rounds of sibling fixes. Its fail-direction was milder — the tail leaked
+# but secret_affected stayed True, so the carve-outs still fired.
+BEARER_TOKEN = re.compile(r"(Bearer\s+)((?:" + _ESC_CHUNK + r"|[A-Za-z0-9._\-+/=])+)", re.IGNORECASE)
 
 DEFAULT_MANIFESTS_DIR = ".devflow/tmp/workflow-manifests"
 DEFAULT_BUNDLES_DIR = ".devflow/tmp/workflow-runs"
@@ -1011,6 +1033,26 @@ def load_cloud_mappings(registry_path: Path) -> dict[str, dict[str, object]]:
 def build_local_census(manifests_dir: Path, registry: dict, stats: "dict | None" = None) -> list[EligibleLifecycle]:
     rows: list[EligibleLifecycle] = []
     if not manifests_dir.exists() or not manifests_dir.is_dir():
+        # This function is the SOLE producer of the entire local denominator, so
+        # returning [] silently made a typo'd --manifests-dir, a stale path, or a
+        # wrong cwd produce census_rows: 0 / eligible_lifecycles: 0 at exit 0 — a
+        # report reading exactly like "we measured a genuinely empty corpus".
+        # That is this module's own "unknown is not zero" contract broken at the
+        # one place it matters most, and it was the only degradation in the file
+        # left completely silent while every sibling breadcrumbs (a malformed
+        # cloud_mappings section, a gh failure, a dropped API row, a chmod
+        # failure, even a stat failure whose only impact is a telemetry byte
+        # count). Non-fatal on purpose — a not-yet-created manifests dir is a
+        # legitimate "no data yet" state on a first run — but never silent: an
+        # absent corpus and an unmeasured one must be distinguishable by a reader
+        # (PR #531 review-and-fix, convergence shadow).
+        print(
+            f"devflow verification-baseline: manifests dir {manifests_dir} does not exist or is "
+            "not a directory; the local census is EMPTY (0 rows) because nothing was measured — "
+            "verify --manifests-dir points at the right path rather than reading this as a "
+            "genuinely empty corpus",
+            file=sys.stderr,
+        )
         return rows
     manifest_files = sorted(p for p in manifests_dir.iterdir() if p.is_file() and p.suffix == ".json")
     for position, path in enumerate(manifest_files):

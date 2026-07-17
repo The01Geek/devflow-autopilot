@@ -2020,11 +2020,26 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
             (r"mytool --api-key my\ secret\ value", ("secret", "value")),
             (r"curl -u user:pa\ ss https://example.invalid/", ("ss",)),
             (r'TOKEN="a\"b c" pytest', ("c",)),  # escaped quote inside dquotes
+            # The URL and Bearer classes belong in this matrix — this test's own
+            # header names the URL-password fix as the precedent for fixing "the
+            # whole class", yet no row exercised it, so SECRET_URL stayed
+            # escape-blind through four rounds of fixing its siblings and leaked
+            # the WHOLE credential with secret_affected=False (worse than the
+            # others: it also skipped the secret-affected carve-outs). The
+            # untested sibling is the one that regressed.
+            (r"curl https://user:pa\ ss@host/x", ("ss",)),
+            (r"curl https://us\ er:pass@host/x", ("pass",)),
+            (r"curl -H 'Authorization: Bearer ab\ cd' https://host/", ("cd",)),
         ):
             with self.subTest(command=command):
                 b = vb._binding_identity(command)
-                self.assertTrue(b.secret_affected)
-                stripped = re.sub(r"<(env|flag):[^>]*>", "", b.redacted_display)
+                self.assertTrue(b.secret_affected,
+                                f"secret_affected False for {command!r} — the leak would also "
+                                "skip the secret-affected carve-outs")
+                # Strip EVERY slot spelling, not just env/flag: a strip that
+                # misses <url-cred>/<bearer> would let their own placeholder text
+                # satisfy the assertion and hide a real leak.
+                stripped = re.sub(r"<(env|flag):[^>]*>|<url-cred>|<bearer>", "", b.redacted_display)
                 for leak in leaks:
                     self.assertNotIn(leak, stripped,
                                      f"secret fragment {leak!r} survived in {b.redacted_display!r}")
@@ -2305,6 +2320,42 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
     #     contract never got the chance to apply. Same failure class as the
     #     non-dict guard one branch over; shape drift is this file's declared
     #     threat model, so a non-scalar id sits inside it. ---------------------
+    def test_boolean_run_id_does_not_collide_with_a_real_run(self) -> None:
+        # bool is an int subclass and True == 1 hashes identically, so a
+        # shape-drifted `"id": true` row passed a bare isinstance(id,(int,str))
+        # check and then OVERWROTE the jobs of the genuine run whose id is 1 —
+        # misattributing jobs between two runs instead of being counted as
+        # malformed. Drive the real fetch layer so the collision would actually
+        # occur (both rows must reach jobs_by_run).
+        exp = _load_export_census()
+        calls = {"n": 0}
+
+        def fake_gh_json(gh, args):
+            calls["n"] += 1
+            if "jobs" in " ".join(args):
+                return {"jobs": [{"name": "job-of-run-1", "started_at": "s",
+                                  "completed_at": "e", "conclusion": "success",
+                                  "status": "completed"}], "total_count": 1}
+            if calls["n"] == 1:
+                return {"workflow_runs": [
+                    {"id": True, "path": "wf.yml"},            # drifted
+                    {"id": 1, "path": "wf.yml", "name": "W", "run_attempt": 1,
+                     "created_at": "c", "conclusion": "success", "status": "completed"}]}
+            return {"workflow_runs": []}
+
+        exp._gh_json = fake_gh_json
+        runs, jobs, complete = exp.fetch_runs_and_jobs("gh", "o/r", ["wf.yml"], "a", "b")
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            snap = exp.build_snapshot("o/r", ["wf.yml"], "a", "b", runs, jobs, "t", complete)
+        self.assertEqual(snap["dropped_run_count"], 1,
+                         "a boolean id must be counted malformed, not accepted as a key")
+        self.assertFalse(snap["pagination_complete"])
+        # The genuine run id 1 must keep its own job, un-clobbered.
+        self.assertEqual(snap["row_count"], 1)
+        self.assertEqual(snap["rows"][0]["run_id"], 1)
+        self.assertEqual(snap["rows"][0]["job"], "job-of-run-1")
+
     def test_non_scalar_run_id_is_counted_not_fatal(self) -> None:
         for bad_id in ({"node_id": "x"}, ["list"], {"a": 1}):
             with self.subTest(bad_id=bad_id):
@@ -2442,6 +2493,47 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
             row.set_source_status(vb.SOURCE_UNAVAILABLE)
         self.assertEqual(row.source_status, vb.SOURCE_AVAILABLE,
                          "a rejected mutation must leave the row unchanged")
+
+    # --- Final convergence shadow, LIVE: build_local_census returned [] with no
+    #     breadcrumb when the manifests dir was absent. It is the sole producer
+    #     of the entire local denominator, so a typo'd --manifests-dir, a stale
+    #     path, or a wrong cwd produced census_rows: 0 / eligible_lifecycles: 0
+    #     and exit 0 — a report reading exactly like "we measured a genuinely
+    #     empty corpus". That is this module's own "unknown is not zero" contract
+    #     broken at the one place it matters most, and the one degradation in the
+    #     file left completely silent while every sibling breadcrumbs. --------
+    def test_absent_manifests_dir_is_announced_not_silently_empty(self) -> None:
+        registry = wfr.load_registry(REGISTRY)
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            rows = build_local_census(Path(self.tmp) / "typo-does-not-exist", registry)
+        self.assertEqual(rows, [])
+        err = buf.getvalue()
+        self.assertIn("typo-does-not-exist", err,
+                      "an absent manifests dir must name itself — a silent empty census is "
+                      "indistinguishable from a genuinely empty corpus")
+        self.assertTrue(err.strip(), "the sole producer of the local denominator degraded silently")
+
+    def test_manifests_dir_that_is_a_file_is_announced(self) -> None:
+        # The .is_dir() arm swallows a file-instead-of-directory misconfiguration
+        # into the same silent [] — same contract, different operator mistake.
+        not_a_dir = Path(self.tmp) / "manifests-is-a-file"
+        not_a_dir.write_text("oops", encoding="utf-8")
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            rows = build_local_census(not_a_dir, wfr.load_registry(REGISTRY))
+        self.assertEqual(rows, [])
+        self.assertIn("manifests-is-a-file", buf.getvalue())
+
+    def test_present_manifests_dir_stays_quiet(self) -> None:
+        # Positive control: a real (even genuinely empty) dir must NOT breadcrumb,
+        # or the signal is noise and an operator learns to ignore it.
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        self.assertEqual(buf.getvalue(), "",
+                         "a present manifests dir must not warn — a genuinely empty corpus is "
+                         "a real measurement, not a degradation")
 
     def test_baseline_schema_version_moved_with_the_metric_rename(self) -> None:
         # eligible_lifecycles changed MEANING; a reader treating it as the row

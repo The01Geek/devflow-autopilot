@@ -43,6 +43,21 @@ def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def _usable_run_id(run_id: object) -> bool:
+    """A run id usable as a jobs_by_run dict key.
+
+    `bool` is EXCLUDED even though it is an int subclass: True == 1 and
+    False == 0 hash identically, so a shape-drifted `"id": true` row would pass a
+    bare isinstance(run_id, (int, str)) check and then silently OVERWRITE the
+    jobs of a genuine run whose id is 1 — misattributing jobs between two runs
+    rather than being counted as malformed. Shape drift is this file's declared
+    threat model, so a boolean id sits inside it (PR #531 review-and-fix,
+    iteration-4 fix-delta gate). Shared by both call sites so the two cannot
+    drift apart.
+    """
+    return isinstance(run_id, (int, str)) and not isinstance(run_id, bool)
+
+
 def build_snapshot(repo: str, workflow_set: list[str], closed_after: str, closed_before: str,
                    runs: list[dict[str, Any]], jobs_by_run: dict[int, list[dict[str, Any]]],
                    query_time: str, pagination_complete: bool) -> dict[str, Any]:
@@ -65,8 +80,8 @@ def build_snapshot(repo: str, workflow_set: list[str], closed_after: str, closed
             dropped_runs += 1
             continue
         run_id = run.get("id")
-        if not isinstance(run_id, (int, str)):
-            # Covers `id` absent (None) AND `id` present but non-scalar. A
+        if not _usable_run_id(run_id):
+            # Covers `id` absent (None), non-scalar, AND boolean (see the helper). A
             # non-scalar id is unhashable, and it is used as a dict key
             # (jobs_by_run) — so an API shape drift there raised TypeError out of
             # fetch_runs_and_jobs and killed the whole export with no snapshot
@@ -250,7 +265,7 @@ def fetch_runs_and_jobs(gh: str, repo: str, workflows: list[str], created_after:
             # (PR #531 review-and-fix iter-1, code-reviewer Critical).
             continue
         run_id = run.get("id")
-        if not isinstance(run_id, (int, str)):
+        if not _usable_run_id(run_id):
             # A non-scalar id is UNHASHABLE and this loop uses it as a
             # jobs_by_run key, so the bare `is None` check let a shape-drifted
             # row raise TypeError here and take down the whole export before any
