@@ -31247,6 +31247,35 @@ assert_eq "#529 AC5: the standalone set is strictly LARGER than the AC3 default 
 # exclusion by its size: the two sets must differ by exactly that file.
 assert_eq "#529 AC5: the raf set really EXCLUDES the standalone-only reference (the sets differ by exactly that file)" \
   "yes" "$([ "$((RB_STANDALONE_BYTES - RB_RAF_BYTES))" -eq "$(wc -c < "$LIB/../skills/review/phases/${REVIEW_STANDALONE_ONLY_STEM}.md" | tr -d ' ')" ] && echo yes || echo no)"
+# ── The RECORD must reconcile with the live bundle ────────────────────────────
+# The AC4 pins above check the record's METHOD prose; nothing checked its NUMBERS.
+# During #529 a prose edit moved the figures three separate times, and each time the
+# record was corrected only where the author happened to look. The nastiest shape is a
+# WORD-NEUTRAL edit: AC3 stays green while every byte/line/token column silently rots,
+# and the suite reports "0 failed" over a false record — which is exactly what shipped
+# in 08030506. CLAUDE.md names this file THE record, so a stale row is a
+# documented_falsehood that reaches a reader. These compare the PUBLISHED constants
+# against what the bundle measures right now: each must appear in the doc, comma-
+# grouped as the table writes it. Deliberately placed after the measurements above so
+# the comparands are real values, never an empty `set -u` casualty.
+# The growth row sums the MEMBER FILES, never $REVIEW_BUNDLE: the builder appends a
+# newline separator per member, so the bundle temp runs a byte-per-member heavier than
+# the sources the doc measures. This pin failed on its first run for exactly that
+# reason — the doc was right and the comparand was wrong.
+RB_DOC="$LIB/../docs/review-bundle-budget.md"
+_rb_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
+while IFS='|' read -r _rbn _rbv; do
+  [ -n "$_rbn" ] || continue
+  assert_eq "#529 AC4: the budget record publishes the LIVE $_rbn (a stale constant cannot ship green)" "yes" \
+    "$(grep -qF -- "$(_rb_grouped "$_rbv")" "$RB_DOC" && echo yes || echo no)"
+done <<RECORD
+AC3 default-path words|$RB_DEFAULT_W
+AC2 root+extension words|$((RB_ROOT_W + RB_EXT_W))
+standalone execution-weighted bytes|$RB_STANDALONE_BYTES
+normal-plus-shadow execution-weighted bytes|$((RB_RAF_BYTES * 2))
+complete-bundle growth in bytes|$(( $(cat "${_review_members[@]}" "$RB_EXT" | wc -c | tr -d ' ') - 237113 ))
+shipped-default path words (the non-gating honest row)|$(cat "${_rb_standalone[@]}" | wc -w | tr -d ' ')
+RECORD
 # RB_BASE_EXT_BYTES is summed into the baseline below, where an empty value would
 # silently sum as 0 and UNDERSTATE the baseline — making a decrease easier to claim.
 # Its live twin RB_EXT_W already carries exactly this check; the baseline operand had

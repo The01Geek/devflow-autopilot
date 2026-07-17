@@ -45,8 +45,8 @@ budget contract later changes are held to.
 | Row | Before — lines / words / bytes / ~tokens | After — lines / words / bytes / ~tokens |
 |---|---|---|
 | Root (`skills/review/SKILL.md`) | 1,559 / 33,390 / 233,903 / 58,476 | 375 / 7,790 / 52,285 / 13,072 |
-| Complete bundle | 1,604 / 33,827 / 237,113 / 59,279 | 1,679 / 34,904 / 245,362 / 61,341 |
-| Default per-pass unique path | 1,604 / 33,827 / 237,113 / 59,279 | 1,541 / 28,697 / 202,680 / 50,670 |
+| Complete bundle | 1,604 / 33,827 / 237,113 / 59,279 | 1,681 / 34,904 / 245,296 / 61,324 |
+| Default per-pass unique path | 1,604 / 33,827 / 237,113 / 59,279 | 1,543 / 28,697 / 202,614 / 50,654 |
 | Max incremental phase read | 1,559 / 33,390 / 233,903 / 58,476 | 245 / 6,057 / 42,753 / 10,689 |
 | Consumer extension (shipped repo copy) | 45 / 437 / 3,210 / 803 | 45 / 438 / 3,239 / 810 |
 
@@ -109,10 +109,10 @@ reads repeatedly**. Baseline is the monolith, which every pass read in full.
 a hypothetical configuration; AC5 measures reality, so each row carries the references its own path
 actually loads:
 
-- **`standalone_path`** (218,569 B / 54,643 tok) — the AC3 default set **plus**
+- **`standalone_path`** (218,503 B / 54,626 tok) — the AC3 default set **plus**
   `phases/phase-0-6-stale-prose-lint.md`, whose gate defaults **true**, so an ordinary standalone pass
   reads it. Includes `phases/phase-4-4-github-post.md` (a standalone pass posts to GitHub).
-- **`raf_path`** (212,082 B / 53,021 tok) — the same, **minus** the standalone-only
+- **`raf_path`** (212,016 B / 53,004 tok) — the same, **minus** the standalone-only
   `phase-4-4-github-post.md`, which `/devflow:review-and-fix` skips entirely.
 - `phases/phase-0-3-6-blocker-recheck.md` is in **neither**: its predicate needs a prior REJECT driven
   solely by carve-out blockers, so an ordinary pass never loads it — and on a hit it *replaces* Phases
@@ -120,10 +120,10 @@ actually loads:
 
 | Path | Formula | Before (bytes / ~tokens) | After (bytes / ~tokens) | Delta |
 |---|---|---|---|---|
-| Standalone review (1 pass) | `standalone_path × 1` | 237,113 / 59,279 | 218,569 / 54,643 | **−18,544 / −4,636** |
-| One normal + shadow pass | `raf_path × 2` | 474,226 / 118,558 | 424,164 / 106,042 | **−50,062 / −12,516** |
-| Bounded multi-iteration (2 iters + shadow) | `raf_path × (N+1)`, N=2 | 711,339 / 177,837 | 636,246 / 159,063 | **−75,093 / −18,774** |
-| Bounded multi-iteration (3 iters + shadow) | `raf_path × (N+1)`, N=3 | 948,452 / 237,116 | 848,328 / 212,084 | **−100,124 / −25,032** |
+| Standalone review (1 pass) | `standalone_path × 1` | 237,113 / 59,279 | 218,503 / 54,626 | **−18,610 / −4,653** |
+| One normal + shadow pass | `raf_path × 2` | 474,226 / 118,558 | 424,032 / 106,008 | **−50,194 / −12,550** |
+| Bounded multi-iteration (2 iters + shadow) | `raf_path × (N+1)`, N=2 | 711,339 / 177,837 | 636,048 / 159,012 | **−75,291 / −18,825** |
+| Bounded multi-iteration (3 iters + shadow) | `raf_path × (N+1)`, N=3 | 948,452 / 237,116 | 848,064 / 212,016 | **−100,388 / −25,100** |
 
 **Repeated reads are reported explicitly, not amortized.** The multipliers above *are* the repeat
 count: a normal-plus-shadow pass reads its path twice (the shadow re-enters the engine at
@@ -148,7 +148,7 @@ run. A skipped check is never a clean pass.
 
 ## Justified growth
 
-The **complete bundle** grows by **1,077 words / 8,249 bytes** against baseline. That is the
+The **complete bundle** grows by **1,077 words / 8,183 bytes** against baseline. That is the
 expected cost of the split and is stated rather than hidden: the root gained the bundle-identity
 contract, the boundary contract, and the routing table (~960 words), and each reference carries a
 start/end boundary marker pair. The growth buys the AC3 reduction — the gated references
