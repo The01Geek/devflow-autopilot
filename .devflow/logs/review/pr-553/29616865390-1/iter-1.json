@@ -1,0 +1,13 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "8077de35f1dd08d79fd95c49b2d1d9d7cf379ef4",
+  "fix_files": [
+    ".changeset/issue-478-fix-loop-sweep-reanchor.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/run.sh",
+    "skills/review-and-fix/SKILL.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
