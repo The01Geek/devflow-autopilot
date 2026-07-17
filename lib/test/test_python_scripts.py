@@ -4098,6 +4098,14 @@ _malformed('an override record with a surface outside the canonical set',
 _malformed('an override record with a non-integer recorded_at_ordinal',
            dict(_GOOD, overrides=[{'kind': 'user-decline', 'surface': 't1t2-boundary',
                                    'recorded_at_ordinal': 'zero', 'draft_digest': None}]))
+# A present-but-EMPTY override draft_digest must be rejected at the read boundary: an empty
+# bound digest would compare equal to an empty computed digest on the override ground (a
+# fail-open). Double-defended in practice (hash_bytes can never emit ''), so this pins the
+# read-boundary half explicitly. Well-formed up to the draft_digest check (kind/surface/
+# ordinal all valid) so the reject attributes to that guard, not a precondition.
+_malformed('an override record with a present-but-empty draft_digest',
+           dict(_GOOD, overrides=[{'kind': 'user-decline', 'surface': 't1t2-boundary',
+                                   'recorded_at_ordinal': 0, 'draft_digest': ''}]))
 # De-vacuumed: the old fixture omitted `floor_round`, so it was rejected by the
 # floor_round-not-integer precondition and NEVER reached the ordinal-chain guard it
 # names — a regression deleting that guard would have kept it green. Supply floor_round
@@ -4127,8 +4135,31 @@ except issue_audit_state.StateError as _e:
     assert_eq("#546 malformed-state matrix: a below-floor after_round is rejected at the "
               "read boundary (fail-open staleness gate)",
               True, 'below the floor' in str(_e))
-_malformed('a creation attestation outside the canonical set',
-           dict(_GOOD, creation={'body_only_digest': 'B', 'attestation': 'maybe'}))
+# De-vacuumed: the old fixture omitted epoch_round/epoch_arm, so it was rejected by the
+# epoch_round-not-integer precondition and NEVER reached the attestation-canonical guard it
+# names — a regression deleting that guard would have stayed green. The attestation field
+# has a LIVE reader (summary_fields renders `attestation=<token>` and treats it as
+# forward-only tamper evidence), so this guard is load-bearing. Supply a well-formed
+# creation record up to the attestation check and ATTRIBUTE the reject to that guard's own
+# breadcrumb, exactly as the ordinal-chain row above does.
+try:
+    issue_audit_state._validate(
+        dict(_GOOD, creation={'body_only_digest': 'B', 'epoch_round': 1, 'epoch_arm': 'file',
+                              'attestation': 'maybe'}), 's')
+    assert_eq("#546 malformed-state matrix: a creation attestation outside the canonical set",
+              "raised StateError", "no exception raised")
+except issue_audit_state.StateError as _e:
+    assert_eq("#546 malformed-state matrix: a creation attestation outside the canonical set "
+              "(rejected by the attestation guard, not a precondition)",
+              True, 'attestation status outside the canonical set' in str(_e))
+# The two sibling creation sub-guards (no reader today, but closed at the read boundary):
+# each fixture is well-formed up to the guard it names so the reject is not a precondition.
+_malformed('a creation record with a non-integer epoch_round',
+           dict(_GOOD, creation={'body_only_digest': 'B', 'epoch_round': 'one',
+                                 'epoch_arm': 'file'}))
+_malformed('a creation record with an epoch_arm outside the canonical set',
+           dict(_GOOD, creation={'body_only_digest': 'B', 'epoch_round': 1,
+                                 'epoch_arm': 'bogus'}))
 
 # (2) evaluate_eligibility's mode is a closed set like every other vocabulary: an
 # off-set mode must raise loudly, never silently take the permissive approve path.
