@@ -146,8 +146,8 @@ is checked in as a constant on purpose. **Do not "restore" a live `origin/main` 
 what the code used to do, and it was a trap: once this split merges, `origin/main` *is* the split, so
 the baseline would collapse from the monolith's bytes to the thin root's, both rows would invert into
 a growth warning, and the required CI job would go red on the merge commit and on every pull request
-after it — green in the PR that introduced it, red forever after. The AC4 record checks below assert
-that the constant and this page publish the same number, so the two cannot drift apart.
+after it — green in the PR that introduced it, red forever after. The suite reconciles that constant
+against the figure this page publishes, so the two cannot drift apart.
 
 ## Justified growth
 

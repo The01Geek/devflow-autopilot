@@ -82,7 +82,8 @@ where `mktemp` and `git worktree add` are not uniformly available, so it does no
 verification; it uses granted read-only history commands and reports the verification limitation
 to the orchestrator instead.
 
-**The deterministic backstop (`skills/review/SKILL.md` Phase 3.1/3.2).** Independently of agent
+**The deterministic backstop (shared engine — the Phase 3 reference under `skills/review/phases/`,
+steps 3.1/3.2).** Independently of agent
 compliance, the shared engine snapshots the tree with `git status --porcelain -z` immediately
 **before** the Phase 3.1 batch (into a temp file — `-z` output carries NUL bytes a bash `$(...)`
 variable cannot hold). The snapshot is a fixed repo-local `.devflow/tmp/` file so it survives
@@ -496,7 +497,7 @@ The shadow pass audits the **whole diff** at **convergence** (and, on an `engine
 
 PR #164 converged to a clean in-loop self-APPROVE, and a later standalone `/devflow:review` flagged two Important findings the loop had missed — both the recurring high-risk classes this section is about: a **vacuous or incomplete audit**, and a **stale comment after a mechanism change**. Two mechanical checks now target them directly. Both are calibrated, not catch-all — read the guarantee-scope paragraphs below for exactly what each does and does not assert.
 
-**The completeness critic (shared engine — `skills/review/SKILL.md`).** When Phase 0.5 classifies the diff as `detect_all_audit` — it adds or changes a scanner / audit / coverage-invariant that *enumerates a population* and *asserts a completeness property* over it — Phase 3.1.5 forces a completeness-critic pass. The pass re-enumerates the audit's target population **by a signal other than the audit's own pattern** and emits a finding for any member of that independent enumeration the audit does not cover. It lives in the shared Phases 0–4.3, so standalone `/devflow:review` and the `/devflow:review-and-fix` fix loop both apply it. It is the engine's answer to the circular-completeness trap: a "detect-all" claim cannot be self-certified by the audit making it — the PR #62 too-narrow tripwire and the PR #154 vacuous drift-guard were both this shape, certified clean by their own output.
+**The completeness critic (shared engine — the Phase 3 reference under `skills/review/phases/`, step 3.1.5).** When Phase 0.5 classifies the diff as `detect_all_audit` — it adds or changes a scanner / audit / coverage-invariant that *enumerates a population* and *asserts a completeness property* over it — Phase 3.1.5 forces a completeness-critic pass. The pass re-enumerates the audit's target population **by a signal other than the audit's own pattern** and emits a finding for any member of that independent enumeration the audit does not cover. It lives in the shared Phases 0–4.3, so standalone `/devflow:review` and the `/devflow:review-and-fix` fix loop both apply it. It is the engine's answer to the circular-completeness trap: a "detect-all" claim cannot be self-certified by the audit making it — the PR #62 too-narrow tripwire and the PR #154 vacuous drift-guard were both this shape, certified clean by their own output.
 
 *Guarantee scope.* The critic catches an audit that is **not a superset of a genuinely independent enumeration**. **It does not prove the audit is exhaustive:** the independent enumeration is itself reviewer judgment and can share a blind spot with the audit. A clean critic result means "the audit covers everything a second, structurally different enumeration found," not "nothing is uncovered." Like a clean shadow above, it **narrows** the circular-completeness gap; it does not close it.
 
