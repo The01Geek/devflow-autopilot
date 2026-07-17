@@ -1040,6 +1040,14 @@ class VerificationProcessLaunch:
                 f"VerificationProcessLaunch.result_presence must be bool or None; got {self.result_presence!r}"
             )
 
+    @property
+    def is_prior_missing_evidence(self) -> bool:
+        # A launch is prior-missing-result evidence when its result went missing
+        # (confirmed) or its response was absent. Denied/cancelled/unknown starts
+        # do NOT prove a missing response and must fail closed. Single authoritative
+        # definition shared by both _classify_relationship candidate sites.
+        return self.start_authorization == START_CONFIRMED_RESULT_MISSING
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": self.schema_version,
@@ -2512,11 +2520,7 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     if all(k is not None for k in keys):
         order = sorted(range(len(members)), key=lambda i: (keys[i], i))
         ordered = [members[i] for i in order]
-    has_prior_missing = any(
-        m.start_authorization == START_CONFIRMED_RESULT_MISSING
-        or m.result_presence is False
-        for m in ordered[:-1]
-    )
+    has_prior_missing = any(m.is_prior_missing_evidence for m in ordered[:-1])
     # "Explicitly bounded interval" = both endpoints (started_at AND
     # finished_at) are present on at least two members, so the gap between the
     # missing-result launch and its successor is computable from explicit
@@ -2535,11 +2539,7 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     interval_bounded = False
     if len(bounded) >= 2:
         for idx, m in enumerate(ordered[:-1]):
-            missing_shape = (
-                m.start_authorization == START_CONFIRMED_RESULT_MISSING
-                or m.result_presence is False
-            )  # same predicate as has_prior_missing above — the pair is ITS pair
-            if missing_shape:
+            if m.is_prior_missing_evidence:
                 nxt = ordered[idx + 1]
                 if (m.timing.get("started_at") and m.timing.get("finished_at")
                         and nxt.timing.get("started_at") and nxt.timing.get("finished_at")):

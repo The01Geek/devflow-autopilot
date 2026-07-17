@@ -491,7 +491,7 @@ class CandidateFailsClosedTests(unittest.TestCase):
         for start_class in (value for value in START_CLASSES if value != START_CONFIRMED_RESULT_MISSING):
             with self.subTest(start_class=start_class):
                 a, b = candidate_pair()
-                a = dataclasses.replace(a, start_authorization=start_class)
+                a = dataclasses.replace(a, start_authorization=start_class, result_presence=False)
                 groups = group_launches([a, b])
                 self.assertNotEqual(groups[0].relationship, REL_CANDIDATE_TRANSPORT_RETRY)
 
@@ -3284,11 +3284,14 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
             "cloud execution files", "missing tool results", "compaction", "cancellation",
             "concurrent lifecycles", "corrupted sources",
         })
+        source_cache: dict[Path, str] = {}
         for owner in COMPATIBILITY_FIXTURE_OWNERS.values():
             path, test_name = owner.split("::")
             owner_path = ROOT / "lib/test" / path
             self.assertTrue(owner_path.is_file())
-            self.assertIn(f"def {test_name}(", owner_path.read_text(encoding="utf-8"))
+            if owner_path not in source_cache:
+                source_cache[owner_path] = owner_path.read_text(encoding="utf-8")
+            self.assertIn(f"def {test_name}(", source_cache[owner_path])
 
     # TD-1: the source/source_status pair is guarded in BOTH directions —
     # reassigning `source` re-validates the already-bound source_status.
