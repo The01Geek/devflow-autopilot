@@ -39647,8 +39647,11 @@ git config --file "$CFG487" "http.https://github.com/.extraheader" \
 # (used by arms 2/3/4 to assert which token the refresher wrote).
 _a487_hdr() { git config --file "$CFG487" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null; }
 
-# Arm 1 — missing inputs → clean exit 0 with a stderr breadcrumb.
-_a1_err="$(DEVFLOW_REFRESH_CONFIG_FILE="$D487/none" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
+# Arm 1 — missing inputs → clean exit 0 with a stderr breadcrumb. Pin DEVFLOW_APP_ID empty
+# for this sub-shell so the arm asserts the intended "DEVFLOW_APP_ID empty" breadcrumb rather
+# than inheriting an ambient DEVFLOW_APP_ID (set on the cloud implement/writer tier), which
+# would suppress that breadcrumb and fail the arm on an env leak (test-isolation fix).
+_a1_err="$(DEVFLOW_APP_ID= DEVFLOW_REFRESH_CONFIG_FILE="$D487/none" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
   bash "$REFRESH_SH" cycle </dev/null 2>&1 1>/dev/null)"; _a1_rc=$?
 assert_eq "#487 arm1: missing inputs exits 0" "0" "$_a1_rc"
 assert_eq "#487 arm1: emits the SPECIFIC guard ::warning:: (DEVFLOW_APP_ID empty), not just any breadcrumb" "yes" \
