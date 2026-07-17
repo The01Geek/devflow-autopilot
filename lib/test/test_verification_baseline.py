@@ -3274,8 +3274,9 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         })
         for owner in COMPATIBILITY_FIXTURE_OWNERS.values():
             path, test_name = owner.split("::")
-            self.assertTrue((ROOT / "lib/test" / path).is_file())
-            self.assertRegex(test_name, r"^test_")
+            owner_path = ROOT / "lib/test" / path
+            self.assertTrue(owner_path.is_file())
+            self.assertIn(f"def {test_name}(", owner_path.read_text(encoding="utf-8"))
 
     # TD-1: the source/source_status pair is guarded in BOTH directions —
     # reassigning `source` re-validates the already-bound source_status.
