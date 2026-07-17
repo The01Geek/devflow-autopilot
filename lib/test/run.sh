@@ -12374,6 +12374,51 @@ assert_pin_unique "#242 docs: overview states the runner-neutral total-question 
   'runner-neutral total-clarifying-question budget' "$CI_OVERVIEW_242"
 assert_eq "#242 docs: overview dropped the round-based cap phrasing" "yes" \
   "$(! grep -qF 'capped at ~6 rounds' "$CI_OVERVIEW_242" && echo yes || echo no)"  # raw-guard-ok: absence pin — old round-cap phrasing GONE
+# ── #560: create-issue Completion-checklist is runner-neutral on the task-tracking tool ──
+# Extends the #242 runner-neutralization pattern (name the abstraction, cite the canonical
+# Claude Code example, list equivalents as examples, make affordance-dependent behavior
+# conditional) from the user-question tool to the task-tracking tool, in the same file, with
+# the #242 per-site completeness rationale (a revert of any one reworded clause turns its own
+# pin RED, not a neighbor's). Surface-presence/absence pins (the #242 A1/A2 classification) —
+# no assert_pin_red_under obligation. Literals are apostrophe-free ASCII, unique, single-line.
+CI_SKILL_560="$LIB/../skills/create-issue/SKILL.md"
+# AC1: the four mandate-sentence elements — abstraction, canonical example, equivalents, fallback route.
+assert_pin_unique "#560 AC1: mandate names the runner-neutral task-tracking abstraction" \
+  'set up progress tracking for exactly the seven items below using the task-tracking tool the runner exposes' "$CI_SKILL_560"
+assert_pin_unique "#560 AC1: mandate keeps TodoWrite as the canonical Claude Code example" \
+  '`TodoWrite` (Claude Code, the canonical example)' "$CI_SKILL_560"
+assert_pin_unique "#560 AC1: mandate names TaskCreate/TaskUpdate and update_plan as example equivalents" \
+  '`TaskCreate`/`TaskUpdate` (newer Claude Code sessions), or `update_plan` (Codex CLI)' "$CI_SKILL_560"
+assert_pin_unique "#560 AC1: mandate routes to the inline fallback when no task tool is usable" \
+  'when the runner exposes no task-tracking tool or the exposed one is disabled or unusable' "$CI_SKILL_560"
+# AC3: the status-transition sentence keeps in_progress/completed canonical + nearest-equivalents.
+assert_pin_unique "#560 AC3: status-transition sentence names the nearest-equivalents rule" \
+  'a task tool whose status fields differ uses its nearest equivalents' "$CI_SKILL_560"
+# AC2: the inline checklist fallback definition, one presence pin per separable clause.
+assert_pin_unique "#560 AC2: fallback re-renders the block on each status change" \
+  're-render the whole block with updated status markers on each status change' "$CI_SKILL_560"
+assert_pin_unique "#560 AC2: fallback defines exactly the three status markers" \
+  '`[ ]` pending, `[~]` in progress, `[x]` completed' "$CI_SKILL_560"
+assert_pin_unique "#560 AC2: fallback renders the paused-at-todo-6 waiting state" \
+  'The paused-at-todo-6 waiting state renders as item 6 marked in progress' "$CI_SKILL_560"
+assert_pin_unique "#560 AC2: fallback mirrors state to the per-slug checklist state file" \
+  '.devflow/tmp/issue-checklist-<slug>.md' "$CI_SKILL_560"
+assert_pin_unique "#560 AC2: fallback names the fourth path-agnostic creation-time anchor" \
+  'plus a fourth path-agnostic anchor at Step 4 sub-step 5' "$CI_SKILL_560"
+assert_pin_unique "#560 AC2: creation-time confirmation obligation sits at Step 4 sub-step 5" \
+  're-confirm two things in the current conversation' "$CI_SKILL_560"
+assert_pin_unique "#560 AC2: fail-closed arm treats a bad state file as pipeline-paused" \
+  'an absent, foreign-content, or unparseable state file is treated as pipeline-paused' "$CI_SKILL_560"
+assert_pin_unique "#560 AC2: read-only sandbox degrades to the re-post-in-current-turn rule" \
+  'degrades to the re-post-the-block-in-the-current-turn rule' "$CI_SKILL_560"
+assert_pin_unique "#560 AC2: every rendered block ends with the re-read-before-creating pointer" \
+  'Every rendered block ends with a one-line pointer to re-read the state file before creating the issue' "$CI_SKILL_560"
+# AC4: the state file is classified OUT of the Step 3.6 out-of-bounds enumerations.
+assert_pin_unique "#560 AC4: state file is deliberately outside the Step 3.6 out-of-bounds enumerations" \
+  'deliberately NOT added to the Step 3.6 out-of-bounds reasoning-artifact enumerations' "$CI_SKILL_560"
+# AC1 removal half: the old runner-specific mandate literal is GONE.
+assert_eq "#560 AC1: create-issue dropped the sole TodoWrite mandate literal" "yes" \
+  "$(! grep -qF 'create a TodoWrite todo list' "$CI_SKILL_560" && echo yes || echo no)"  # raw-guard-ok: absence pin — old runner-specific mandate literal GONE
 # ── #256: a silent no-response is NOT disengagement (question-tool timeout ≠ hand-off) ──
 # The operative fix is behavioral: silence (a question-tool timeout / No response after 60s /
 # the user stepping away) must NOT be classified as disengagement — the agent pauses and
