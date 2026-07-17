@@ -1,0 +1,16 @@
+{"iter": 3, "loop_role": "promoted", "promotion_provenance": "shadow", "fix_commit_sha": "235432512fc4bb13c12f8aa37bb1ae16d9ebbd1e",
+ "fix_files": ["scripts/verification_baseline.py","lib/test/test_verification_baseline.py"],
+ "summary": "Convergence-shadow outcome-2 promotion: fixed the snapshot_hash absent-comparand fail-open (my own iteration-2 regression) — a rows-present snapshot with an absent/non-string snapshot_hash now reads unavailable (integrity unverifiable) instead of ok; this also makes the coupled doc sentence true. Tightened the no-explicit-lifecycle test to assert the exact REL_UNCLASSIFIABLE class.",
+ "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+ "verification_evidence": {"command": "lib/test/run.sh (direct leading-token form)", "result": "pass", "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "tree dirty; runs live in CI"}]},
+ "fix_delta_gate": "clean (blinded, 6 verification points; round-trip preserved, coupled doc now true, no regressions)",
+ "deferred_suggestions": [
+   {"finding": "EligibleLifecycle source_status construction-only invariant (property setter)", "reason": "design hardening, no live bug — all mutation sites assign valid local-domain values; raised and deferred across iters 1-3"},
+   {"finding": "VerificationBaseline has no __post_init__", "reason": "pure single-producer output DTO assembled from already-validated records; acceptable as-is"},
+   {"finding": "agent_step value labels step by action not id", "reason": "cosmetic; field is explicitly informational-only, keys no eligibility decision"},
+   {"finding": "input_bytes best-effort stat() undercount", "reason": "self-metric only, no functional effect; files already read/validated upstream"},
+   {"finding": "exporter --out not through _validate_admitted_path", "reason": "operator-directed explicit output path; repo-root containment would be INCORRECT (operator may intentionally write outside the repo)"},
+   {"finding": "ReDoS tests are wall-clock assertions", "reason": "robustness note; 200-300x repeat payload makes 0.5s a safe linear-vs-exponential separator; fail-direction is flaky-red never silent-green"}
+ ],
+ "mutation_checks": "snapshot-hash fail-closed + lifecycle exact-class both reverted-to-RED on copies.",
+ "telemetry": "unavailable"}

@@ -1,0 +1,46 @@
+{
+  "iter": 2,
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "fix_commit_sha": "cd5a55b43f2cb77817626143c8e3ad0dc7b2191e",
+  "fix_files": [
+    "scripts/verification_baseline.py",
+    "scripts/export-workflow-lifecycle-census.py",
+    "scripts/workflow-flight-recorder-registry.json",
+    "lib/test/test_verification_baseline.py",
+    "docs/workflow-flight-recorder.md"
+  ],
+  "summary": "Fixed all early-shadow-promoted findings: ReDoS (SECRET_SHORT_U quote-exclusion), denial classification (is_error-gated harness rejection + prefix bound), SECRET_ENV_ASSIGNMENT suffix-anchor + plural, lifecycle-None guard, snapshot_hash verify, exporter dropped-run folding, all-malformed census unavailable, partial-corrupt stop-attempts fail-closed, 3 documented_falsehoods (manual_review TTL fields, _count_input_bytes docstring, command-job multiplex disclosure), covered_roots deep-copy, annotations.",
+  "inner_attempts": [
+    {
+      "commit": "0976df717ce800445ba221f9bbc6cec0b8b9aec9",
+      "finding": "fix-delta gate: harness-rejection check must be is_error-gated (successful echo not dropped)"
+    },
+    {
+      "commit": "4f9c7e2e129ccf1d3b34698a9e6ec4c6272aed57",
+      "finding": "fix-delta gate observation: plural secret env vars (API_KEYS) dropped by suffix-anchor -> trailing S?"
+    }
+  ],
+  "base_checkpoint": {
+    "token": "UPDATED",
+    "behind_by": 1
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh (direct leading-token form)",
+    "result": "pass",
+    "skipped_checks": [
+      {
+        "check": "#434 stale-prose self-scan",
+        "kind": "blocking-gate",
+        "reason": "tree dirty; grades committed HEAD; runs live in CI"
+      }
+    ]
+  },
+  "fix_decisions_note": "All shadow Critical/Important applied. Suggestions deferred (see iter-3).",
+  "mutation_checks": "12 guards mutation-checked RED across iter-2 + inner attempts (ReDoS timing verified by pre-fix hang; regex/denial/census/stop-attempts/lifecycle guards each reverted-to-RED on copies).",
+  "telemetry": "unavailable",
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
+}
