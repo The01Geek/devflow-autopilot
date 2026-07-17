@@ -258,8 +258,11 @@ After the persist block above, on a **converged writable run with telemetry enab
 # non-converged early failure. The helper is itself silent when telemetry is off,
 # so this is doubly safe. WORKPAD_DIR is the run-scoped dir from the trace block;
 # <slug> is this run's slug. Invoke the helper directly (no `bash` prefix) so the
-# resolved-path allow-list entry matches on a headless run.
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --self-check --workpad-dir ".devflow/tmp/review/<slug>/<run-id>" --slug "<slug>" || true
+# resolved-path allow-list entry matches on a headless run. (No `|| true`:
+# --self-check is exit-0 by contract, and a trailing `|| true` would introduce an
+# ungranted `true` command head — silently refused on the cloud command path per
+# the #363/#401 head-grant rule — the same reason the --persist fence above drops it.)
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --self-check --workpad-dir ".devflow/tmp/review/<slug>/<run-id>" --slug "<slug>"
 ```
 
 If the self-check warns that the record or the workpads were not persisted, the deterministic recovery is `lib/efficiency-trace.sh --persist` (Layer 3) — the same command the `Stop` hook and the cloud wrapper invoke. The warning is observability, not a gate: a writable run that converged but somehow skipped the persist block above is exactly the interactive-drop failure mode this self-check exists to surface (see Common Mistakes).

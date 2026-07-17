@@ -8885,8 +8885,8 @@ p478_sweep_bodies() {
 # a genuine dropped-row drift. (The BEGIN side was already fail-loud: no BEGIN -> empty table -> RED.)
 p478_maptable() {
   awk '
-    /BEGIN fix-loop mapping table/ { f=1; buf=""; next }
-    /END fix-loop mapping table/   { if (f) printf "%s", buf; f=0; next }
+    /fix-loop-mapping-table-start/ { f=1; buf=""; next }
+    /fix-loop-mapping-table-end/   { if (f) printf "%s", buf; f=0; next }
     f { buf = buf $0 "\n" }
   ' "$1"
 }
@@ -8938,7 +8938,7 @@ rm -f "$P478_MUT_DEST"
 # unmapped -> RED. This proves the routing lint's own END boundary fails LOUD on a rename/removal
 # rather than silently widening the table region to EOF and masking a real drift.
 P478_MUT_END="$(probe_tmp '#478 maptable END-anchor fail-closed setup')"
-grep -vF -- 'END fix-loop mapping table' "$MAXI_SKILL" > "$P478_MUT_END"
+grep -vF -- 'fix-loop-mapping-table-end' "$MAXI_SKILL" > "$P478_MUT_END"
 assert_eq "#478 maptable END-anchor fail-closed: removing the END anchor flips the routing lint RED (no silent widen to EOF)" \
   "RED" "$(p478_routing_lint "$P478_MUT_END" "$P478_P2")"
 rm -f "$P478_MUT_END"
@@ -31654,17 +31654,35 @@ for f in "$LIB/../skills/review-and-fix/references"/*.md; do
   esac
 done
 assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_raf_unexpected"
-assert_eq "#530 budget: plugin root <= 3000 words (measured $RAF_ROOT_W)" "yes" \
-  "$([ "$RAF_ROOT_W" -le 3000 ] && echo yes || echo no)"
-assert_eq "#530 budget: root + live extension (initial load) <= 5500 words (measured $((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
-  "$([ "$((RAF_ROOT_W+RAF_EXT_W))" -le 5500 ] && echo yes || echo no)"
-assert_eq "#530 budget: root + extension + max active step <= 15000 words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)))" "yes" \
-  "$([ "$((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W))" -le 15000 ] && echo yes || echo no)"
+# #539 review (Suggestion 2): the three ceilings are policy constants duplicated in this
+# suite and in docs/review-and-fix-budget.md's table. Name them ONCE here and (a) drive the
+# numeric checks below from the names, and (b) assert each doc "Value" cell equals the same
+# constant, so a ceiling changed on one side without the other turns the coupling RED instead
+# of the two artifacts silently disagreeing.
+RAF_ROOT_CEIL=3000
+RAF_LOAD_CEIL=5500
+RAF_MAXSTEP_CEIL=15000
+assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
+  "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
+assert_eq "#530 budget: root + live extension (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
+  "$([ "$((RAF_ROOT_W+RAF_EXT_W))" -le "$RAF_LOAD_CEIL" ] && echo yes || echo no)"
+assert_eq "#530 budget: root + extension + max active step <= $RAF_MAXSTEP_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)))" "yes" \
+  "$([ "$((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W))" -le "$RAF_MAXSTEP_CEIL" ] && echo yes || echo no)"
 RAF_BUDGET_DOC="$LIB/../docs/review-and-fix-budget.md"
 assert_eq "#530 budget: checked-in budget table exists" "yes" \
   "$([ -f "$RAF_BUDGET_DOC" ] && echo yes || echo no)"
+# #539 review (Suggestion 2): bind each doc ceiling "Value" cell to the suite constant above.
+# The cells are comma-grouped (e.g. "3,000"); strip commas with pure-bash expansion (no
+# non-preflight PATH tool per CLAUDE.md) before matching so a re-grouping never masks a drift.
+# A ceiling edited in only one of the two files goes RED here.
+_raf_doc_nocommas="$(< "$RAF_BUDGET_DOC")"
+_raf_doc_nocommas="${_raf_doc_nocommas//,/}"
+for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
+  assert_eq "#530 budget: doc table carries ceiling constant $_raf_ceil (bound to suite)" "yes" \
+    "$(case "$_raf_doc_nocommas" in *"| $_raf_ceil |"*) echo yes;; *) echo no;; esac)"
+done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,216 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,254 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
