@@ -42438,6 +42438,30 @@ PY
     python3 "$IAS" emit-body op2 --nonce "$N2" --draft-file tampered.md \
       > .op-tampered-emit 2> /dev/null; printf '%s' "$?" > .op-tampered-emit-rc
 
+    # (2b) READ boundary for the digest-unbound precondition — the symmetric partner of
+    # (1b). The rows above drive only the WRITE boundary, and the tampered rows pin the
+    # pre-existing `want != current_digest` branch, NOT the `want is None` one. Without
+    # this row the read-boundary unbound check could be reverted with the whole block
+    # staying green while emit-body emitted arbitrary bytes from a pre-delta or
+    # hand-edited state file. Plant the unbound override the write guard refuses.
+    N2B="$(python3 "$IAS" init op2b | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch op2b --nonce "$N2B" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return op2b --nonce "$N2B" --round 1 --verdict REVISE \
+      --findings-count 1 --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 - <<'PY' > /dev/null 2>&1
+import json, pathlib
+p = pathlib.Path('.devflow/tmp/issue-audit-state-op2b.json')
+d = json.loads(p.read_text())
+d['overrides'].append({'kind': 'user-decline', 'surface': 't1t2-boundary',
+                       'recorded_at_ordinal': 0, 'draft_digest': None})
+p.write_text(json.dumps(d))
+PY
+    python3 "$IAS" query-eligibility op2b --nonce "$N2B" --mode approve \
+      --draft-file tampered.md > .op-unbound-read-elig 2>&1
+    python3 "$IAS" emit-body op2b --nonce "$N2B" --draft-file tampered.md \
+      > .op-unbound-read-emit 2> /dev/null; printf '%s' "$?" > .op-unbound-read-emit-rc
+
     # (3) token binding: two byte-distinct drafts, each with its own digest-bound
     # override at the SAME revision ordinal, must mint DIFFERENT tokens. Keying on the
     # ordinal alone collapsed them onto one token — the replay the token exposes.
@@ -42490,6 +42514,12 @@ PY
     "eligible=no reason=stale-override" "$(cat "$OP_SB/.op-tampered-elig" 2>/dev/null)"
   assert_eq "#546 override_precondition_rows: ... and emit-body refuses them with the empty-stdout signature" \
     "1:" "$(cat "$OP_SB/.op-tampered-emit-rc" 2>/dev/null):$(cat "$OP_SB/.op-tampered-emit" 2>/dev/null)"
+  # (2b) the read boundary for the unbound precondition: a hand-planted/pre-delta
+  # unbound override on a file-arm epoch must not be honoured either.
+  assert_eq "#546 override_precondition_rows: a hand-planted digest-unbound override on a file-arm epoch is not honoured at the read boundary" \
+    "1" "$(grep -c '^eligible=no ' "$OP_SB/.op-unbound-read-elig" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: ... and emit-body refuses it with the empty-stdout signature" \
+    "1:" "$(cat "$OP_SB/.op-unbound-read-emit-rc" 2>/dev/null):$(cat "$OP_SB/.op-unbound-read-emit" 2>/dev/null)"
   # The token rows are a pair: each must be a real token (not empty — which would make
   # the inequality assert vacuous), and the two must differ.
   assert_eq "#546 override_precondition_rows: a digest-bound override mints a real token (guards the row below against vacuity)" \

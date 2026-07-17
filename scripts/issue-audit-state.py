@@ -853,8 +853,9 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
         # exactly the replay the token exists to expose. Where no digest is bound (an
         # embed/inline epoch, which has no trustworthy canonical file), the ordinal is
         # what answered and remains the key.
+        bound = ov.get('draft_digest')
         return _yes(state, 'override',
-                    ov.get('draft_digest') or str(revision_ordinal(state)))
+                    bound if bound is not None else str(revision_ordinal(state)))
 
     # Refusal precedence, decided (the docstring's tail, in the order checked below):
     # no-verdict-round > no-digest-supplied > stale-override > unaudited-revision.
