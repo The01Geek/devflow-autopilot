@@ -51,6 +51,17 @@ case "$BEFORE$AFTER" in
     printf 'devflow budget: %s: delta unavailable (a before/after measurement was not numeric)\n' "$ROW"
     exit 0 ;;
 esac
+# All-digits is not the same as representable. A value past this shell's integer range
+# makes BOTH comparisons below fail (`[: integer expected`, on stderr where a caller
+# capturing stdout never sees it), and the chain falls through to the equal arm — so a
+# vast DECREASE renders as "unchanged", asserting a state nobody observed. That is
+# CLAUDE.md's "Unknown is not zero" in its purest form: unrepresentable reported as
+# no-change. `[ "$x" -ge 0 ]` is the exact probe rather than a digit-length heuristic —
+# it fails for precisely the values the arithmetic below cannot handle.
+if ! [ "$BEFORE" -ge 0 ] 2>/dev/null || ! [ "$AFTER" -ge 0 ] 2>/dev/null; then
+  printf 'devflow budget: %s: delta unavailable (a before/after measurement is outside this shell integer range)\n' "$ROW"
+  exit 0
+fi
 
 # Comparison and arithmetic use bash builtins only (guard-class 2: a value that
 # decides an EMITTED result must not be derived through a non-preflight PATH tool).

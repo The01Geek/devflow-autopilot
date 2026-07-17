@@ -31189,6 +31189,14 @@ assert_eq "#529 AC5: an unestablished measurement reports unavailable, never 0/n
   "$("$RB_DBD" 'r' '' 5 | grep -qF 'delta unavailable' && echo yes || echo no)"
 assert_eq "#529 AC5: a non-numeric measurement reports unavailable, never a bogus delta" "yes" \
   "$("$RB_DBD" 'r' abc 5 | grep -qF 'delta unavailable' && echo yes || echo no)"
+# All-digits is not representable: a value past the shell's integer range makes BOTH
+# comparisons fail (to stderr, which a stdout-capturing caller never sees) and the
+# chain falls through to the EQUAL arm — so a vast decrease renders as "unchanged",
+# which is "Unknown is not zero" exactly. Assert stdout only, as the suite does.
+assert_eq "#529 AC5: an out-of-range measurement reports unavailable, never 'unchanged'" "yes" \
+  "$(RB_BIG="$("$RB_DBD" 'r' 99999999999999999999 1 2>/dev/null)"
+     printf '%s' "$RB_BIG" | grep -qF 'delta unavailable' \
+       && ! printf '%s' "$RB_BIG" | grep -qF 'unchanged' && echo yes || echo no)"
 # The missing-row-NAME arm — the block header claims "every arm, and the ARM ORDER",
 # but nothing pinned that arm's message or its precedence: deleting it, or folding it
 # into the unestablished-operand arm below it, left every assertion GREEN. Both halves
