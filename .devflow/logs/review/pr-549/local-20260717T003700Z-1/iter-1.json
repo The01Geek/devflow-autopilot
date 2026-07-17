@@ -1,0 +1,237 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-17T00:37:00Z",
+  "fix_commit_sha": "381cee2862735757b003f84e8c7f0ef2e4315c36",
+  "fix_files": [
+    "lib/test/run.sh",
+    "skills/receiving-code-review/SKILL.md"
+  ],
+  "loop_role": "fix",
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "18+ assert_pin_unique present for the 17 P-* contract sentences",
+      "file": "lib/test/run.sh",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "20 assert_pin_unique rcv/#545 after F5",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "claim": "15 assert_pin_red_under mutation pins present, each PASS->FAIL",
+      "file": "lib/test/run.sh",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "15 assert_pin_red_under, all green",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "claim": "read-only detector allowlist enforces AC5 read-only set",
+      "file": "lib/test/run.sh",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "reworked to full AC5 set; 2 positive controls fire",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "claim": "changeset frontmatter valid (bump: patch, type: Added)",
+      "file": ".changeset/issue-545-reception-preflight.md",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "consolidate-changesets CANONICAL_TYPES includes Added",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-5",
+      "claim": "SKILL.md Reception Preflight section is repo-agnostic",
+      "file": "skills/receiving-code-review/SKILL.md",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "no repo-internal path/CI-job/issue-number; #379(AC8) absence pins green",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:requesting-code-review",
+    "devflow:pr-test-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "read-only detector filters fence lines to ^(git|gh) first, so a non-git/gh mutating command in the preflight fence is invisible to both counters, failing open vs the section's 'every command head' AC5 contract",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          4126,
+          4131
+        ],
+        "kind": "over-narrow-guard-fails-open"
+      },
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "AC14/AC15 records (superseded-startup-surface enumeration + assert_pin_red_under mutation evidence) are absent from the PR description surface the two ACs name; currently only in the issue workpad",
+      "defect_signature": {
+        "file": "PR-body",
+        "line_range": [
+          0,
+          0
+        ],
+        "kind": "ac-discharge-surface"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "(~1731) line-number reference violates the reference-by-tag convention (rot risk)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          66,
+          66
+        ],
+        "kind": "line-number-rot"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "dropped possessive apostrophes in consumer-facing preflight prose (over-applied ASCII-apostrophe avoidance leaked from pin literals into ordinary prose)",
+      "defect_signature": {
+        "file": "skills/receiving-code-review/SKILL.md",
+        "line_range": [
+          45,
+          126
+        ],
+        "kind": "readability-grammar"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "AC10 (no-subject stop) and the guard-class-2 fail-open sentence are load-bearing but unpinned",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          4106,
+          4106
+        ],
+        "kind": "coverage-boundary"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "docs/DEVFLOW_SYSTEM_OVERVIEW.md direct-invocation startup contract not yet present (Phase 4.1 owns it)",
+      "defect_signature": {
+        "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+        "line_range": [
+          0,
+          0
+        ],
+        "kind": "doc-deferral"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F1",
+      "decision": "applied",
+      "commit": "381cee28"
+    },
+    {
+      "finding_id": "F2",
+      "decision": "deferred",
+      "source_file": "PR-body",
+      "claim_text": "AC14/AC15 records on the PR description surface",
+      "skip_category": "already-tracked",
+      "evidence": "discharged in Phase 4.2 by /pr-description, which authors the PR body — the substance is in the issue workpad and carried forward"
+    },
+    {
+      "finding_id": "F3",
+      "decision": "applied",
+      "commit": "381cee28"
+    },
+    {
+      "finding_id": "F4",
+      "decision": "applied",
+      "commit": "381cee28"
+    },
+    {
+      "finding_id": "F5",
+      "decision": "applied",
+      "commit": "381cee28"
+    },
+    {
+      "finding_id": "F6",
+      "decision": "deferred",
+      "source_file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+      "claim_text": "direct-invocation startup contract documentation",
+      "skip_category": "already-tracked",
+      "evidence": "Phase 4.1 devflow:docs subagent owns docs authoring; deferred per the docs-ownership rule"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 60,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 150,
+    "skipped_checks": [
+      {
+        "check": "#434 stale-prose self-scan",
+        "kind": "blocking-gate",
+        "reason": "working tree dirty (grades committed HEAD); runs live on CI post-commit"
+      }
+    ]
+  },
+  "base_checkpoint": {
+    "token": "UP_TO_DATE",
+    "behind_by": null
+  },
+  "telemetry": "unavailable",
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
+}
