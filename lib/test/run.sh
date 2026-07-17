@@ -3663,10 +3663,12 @@ assert_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mut
   'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$MAXI_SKILL"
 assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
   'input-type analogue** for the widened surfaces' "$CI443_EXT"
-# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 8 after
-# issue #464 (merged) appended the "Mutation evidence for behavioral-fix pins" dimension; #467
-# sharpened the existing case-matrix bullet in place, adding no row.
-assert_eq "#467 D3: create-issue extension is 8 dimension bullets (7 base + #464's dimension; #467 added none)" "8" \
+# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 9:
+# 7 base + #464's "Mutation evidence for behavioral-fix pins" dimension + the
+# "Deployment-variance silence" dimension main commit 760c0902 appended (that commit updated the
+# extension without this pin — the coupled-site miss shipped main's CI red; reconciled here on
+# PR #531's base merge). #467 sharpened the existing case-matrix bullet in place, adding no row.
+assert_eq "#467 D3: create-issue extension is 9 dimension bullets (7 base + #464's + 760c0902's deployment-variance dimension)" "9" \
   "$(grep -c '^- \*\*' "$CI443_EXT")"
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.

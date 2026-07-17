@@ -313,8 +313,40 @@ SECRET_FLAG = re.compile(
     # secret-affected carve-outs either). Low-realism spellings, but the same
     # partial-redaction class this file already fixed for quoted/escaped values
     # (PR #531 review, Suggestion: fixed for the class, both siblings).
-    r"(--(?:[A-Za-z0-9-]*-)?(?:token|key|password|passwd|secret|pat|credential)s?)"
+    # `-{1,2}` + `[-_]` segment delimiters (not `--` + `-` only): the env
+    # pattern's hyphen lookbehind refuses every hyphen-preceded assignment, so
+    # the flag pattern must carry the shapes the old `\b` env match had
+    # accidentally covered — underscore long flags (`--api_key=v`, the
+    # argparse/absl spelling) and single-dash forms (`-key=v`). Without this,
+    # those secrets leaked raw with secret_affected=False (Step 3.5 fix-delta
+    # gate, PR #531 review-and-fix local iteration — the worse direction: no
+    # redaction AND no secret-affected carve-out).
+    # `(?<!\S)` token-start anchor: a flag always begins a whitespace-delimited
+    # token in the canonical command; without the anchor the widened
+    # single-dash arm matched INSIDE a hyphenated data token (`X-API-KEY=v`
+    # matched at `-API-KEY=`), mislabeling a data assignment as a flag — the
+    # same slot-fidelity defect class as the phantom `env:` slot. Anchored,
+    # such tokens fall through to SECRET_ASSIGNMENT_FALLBACK's honest
+    # `assign:` label (still redacted either way).
+    r"(?<!\S)(-{1,2}(?:[A-Za-z0-9_-]*[-_])?(?:token|key|password|passwd|secret|pat|credential)s?)"
     r"(?: ?= ?| )" + _SECRET_VALUE,
+    re.IGNORECASE,
+)
+SECRET_ASSIGNMENT_FALLBACK = re.compile(
+    # Whitespace-anchored assignment whose NAME contains a hyphen — the shapes
+    # neither the env pattern (its lookbehind refuses hyphen-preceded starts,
+    # and its name class has no `-`) nor the flag pattern (requires a leading
+    # dash) can cover: header-style data tokens (`X-API-KEY=v`) and bespoke
+    # single-dash property forms (`-Dapikey=v`). Runs AFTER the env and flag
+    # substitutions; the `(?!<)` value guard keeps it from re-processing an
+    # already-substituted `<env:...>`/`<flag:...>` marker (a raw secret that
+    # itself begins with `<` is outside the recognized classes — the module's
+    # documented Wave-1 recognition limitation covers it). The hyphen
+    # requirement keeps plain `NAME=v` env shapes on the env pattern's honest
+    # `env:` label. Same suffix-anchored keyword set + `S?` as the env pattern,
+    # for the same collision-rejection reasons (Step 3.5 fix-delta gate,
+    # PR #531 review-and-fix local iteration).
+    r"(?<!\S)((?=[A-Za-z0-9_.\-]*-)[-A-Za-z0-9_.]*(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|PAT|PASS|KEY)S?)=(?!<)" + _SECRET_VALUE,
     re.IGNORECASE,
 )
 # curl-style short-flag credentials: `-u user:pass`. The value halves get the
@@ -686,6 +718,17 @@ def _redact_secrets(command: str) -> "tuple[str, bool, list[str]]":
 
     redacted = SECRET_FLAG.sub(flag_repl, redacted)
 
+    def assign_repl(match: "re.Match[str]") -> str:
+        name = match.group(1)
+        label = name.lstrip("-").upper()
+        slots.append(f"assign:{label}")
+        return f"{name}=<assign:{label}>"
+
+    # After env+flag: catches hyphen-named assignments neither sibling covers
+    # (see SECRET_ASSIGNMENT_FALLBACK's rationale); the value guard skips
+    # already-substituted markers.
+    redacted = SECRET_ASSIGNMENT_FALLBACK.sub(assign_repl, redacted)
+
     def short_u_repl(match: "re.Match[str]") -> str:
         slots.append("flag:u")
         return f"{match.group(1)}<flag:u>"
@@ -774,8 +817,14 @@ class EligibleLifecycle:
     def _require_valid_source_status(self, value: str) -> None:
         """The source-conditional status check, shared by construction AND
         mutation so the two cannot drift into different accepted sets."""
+        self._require_status_in_source_domain(value, self.source)
+
+    @staticmethod
+    def _require_status_in_source_domain(value: str, source: str) -> None:
+        """Single owner of the source->status domain mapping (both __setattr__
+        arms and __post_init__ route here, so the accepted sets cannot drift)."""
         allowed_status = (
-            LOCAL_SOURCE_STATUSES if self.source == SOURCE_LOCAL
+            LOCAL_SOURCE_STATUSES if source == SOURCE_LOCAL
             else (CLOUD_SOURCE_AVAILABLE, SOURCE_UNAVAILABLE)
         )
         _require_member("EligibleLifecycle.source_status", value, allowed_status)
@@ -799,14 +848,16 @@ class EligibleLifecycle:
             # side, so reassigning ``source`` after construction could leave a
             # local-domain status on a cloud row with no error — exactly the
             # inconsistent state the docstring says is impossible "for every
-            # assignment path". Re-validate the already-bound status against
-            # the NEW source before the assignment lands (no live call site
-            # reassigns source; this closes the latent path by construction).
-            allowed_status = (
-                LOCAL_SOURCE_STATUSES if value == SOURCE_LOCAL
-                else (CLOUD_SOURCE_AVAILABLE, SOURCE_UNAVAILABLE)
-            )
-            _require_member("EligibleLifecycle.source_status", self.source_status, allowed_status)
+            # assignment path". Validate the NEW source value itself first
+            # (else `row.source = "bogus"` would slip through the else-arm of
+            # the domain map — the Step 3.5 gate's fail-open catch), then
+            # re-validate the already-bound status against it, through the one
+            # shared domain helper (no drifting copies). Validation runs
+            # BEFORE assignment, so a rejected mutation leaves the row
+            # unchanged. (No live call site reassigns source; this closes the
+            # latent path by construction.)
+            _require_member("EligibleLifecycle.source", value, (SOURCE_LOCAL, SOURCE_CLOUD))
+            self._require_status_in_source_domain(self.source_status, value)
         object.__setattr__(self, name, value)
 
     def set_source_status(self, value: str) -> None:
@@ -1005,11 +1056,12 @@ def load_cloud_mappings(registry_path: Path) -> dict[str, dict[str, object]]:
     additive cloud_mappings section. Returns {} when the section is absent
     (cloud census is optional; silent, by design), when it is present but
     malformed/wrong-schema, OR when the registry itself is unreadable/corrupt
-    or not a JSON object (both also loud). Both yield an empty table, so a present snapshot then
-    builds an all-ineligible cloud census reported as available — but a
-    present-but-malformed section additionally emits a stderr breadcrumb, so an
-    operator misconfiguration is a LOUD degradation distinguishable from a
-    genuinely-empty window (not silently indistinguishable from it). The section
+    or not a JSON object. Every case yields an empty table, so a present snapshot then
+    builds an all-ineligible cloud census reported as available — and every
+    case EXCEPT the absent section (the one silent-by-design arm) additionally
+    emits a stderr breadcrumb, so an operator misconfiguration is a LOUD
+    degradation distinguishable from a genuinely-empty window (not silently
+    indistinguishable from it). The section
     is committed data authored once and the registry's top-level schema_version
     is validated by load_registry, so a malformed section is a rare authoring
     error rather than a runtime hazard."""
@@ -1129,7 +1181,13 @@ def build_local_census(manifests_dir: Path, registry: dict, stats: "dict | None"
             file=sys.stderr,
         )
         return rows
-    manifest_files = sorted(p for p in manifests_dir.iterdir() if p.is_file() and p.suffix == ".json")
+    # `is_file() or is_symlink()`: is_file() follows symlinks, so a BROKEN
+    # symlink (or a symlink to a directory) named *.json would otherwise be
+    # silently excluded — no row, no breadcrumb — violating unknown-is-not-zero
+    # for exactly the planted entry the guard below exists to surface (Step 3.5
+    # fix-delta gate). Including is_symlink() routes every symlink, dangling or
+    # not, into the loud rejection arm.
+    manifest_files = sorted(p for p in manifests_dir.iterdir() if p.suffix == ".json" and (p.is_file() or p.is_symlink()))
     for position, path in enumerate(manifest_files):
         if path.is_symlink():
             # AC #61: reject symlinks before opening. The top-level dirs route
@@ -1312,8 +1370,16 @@ def join_local_imports(rows: list[EligibleLifecycle], bundles_dir: Path, max_byt
 
 
 def _classify_source_status(bundle: Path, max_bytes: int, stats: "dict | None" = None) -> str:
-    if not bundle.exists() or not bundle.is_dir():
-        return SOURCE_ELIGIBLE_NOT_IMPORTED
+    # SYMLINK CHECKS RUN BEFORE exists() CHECKS, deliberately: exists()
+    # follows symlinks, so a DANGLING symlink reads as "absent" and would
+    # silently take the not-imported/legacy/no-transcript arms with no
+    # breadcrumb — is_symlink() (an lstat) is true for a dangling link too,
+    # so ordering it first keeps every planted symlink loud (Step 3.5
+    # fix-delta gate). Residual, accepted for the local-only 0600-output
+    # threat model: the is_symlink()-then-open sequence is check-then-open —
+    # a swap between the two is not excluded (no O_NOFOLLOW open); the
+    # extraction-site re-check narrows the window, and the census output
+    # never leaves the machine.
     if bundle.is_symlink():
         # AC #61: a symlinked bundle directory redirects every child read
         # out of the admitted root — reject before opening anything under it
@@ -1324,16 +1390,18 @@ def _classify_source_status(bundle: Path, max_bytes: int, stats: "dict | None" =
             file=sys.stderr,
         )
         return SOURCE_UNREADABLE
+    if not bundle.exists() or not bundle.is_dir():
+        return SOURCE_ELIGIBLE_NOT_IMPORTED
     metadata = bundle / "metadata.json"
     transcript = bundle / "transcript.jsonl"
+    if metadata.is_symlink():
+        print(
+            f"devflow verification-baseline: rejecting symlinked metadata.json in {bundle.name} "
+            "(AC #61: symlinks under admitted roots are never followed)",
+            file=sys.stderr,
+        )
+        return SOURCE_UNREADABLE
     if metadata.exists():
-        if metadata.is_symlink():
-            print(
-                f"devflow verification-baseline: rejecting symlinked metadata.json in {bundle.name} "
-                "(AC #61: symlinks under admitted roots are never followed)",
-                file=sys.stderr,
-            )
-            return SOURCE_UNREADABLE
         try:
             meta_text = metadata.read_text(encoding="utf-8")
             _count_input_bytes(stats, len(meta_text.encode("utf-8")))
@@ -1353,6 +1421,17 @@ def _classify_source_status(bundle: Path, max_bytes: int, stats: "dict | None" =
     else:
         # Legacy/absent metadata -> treat as unsupported source version.
         return SOURCE_UNSUPPORTED
+    if transcript.is_symlink():
+        # AC #61: never follow a symlinked transcript (same class as the
+        # metadata/bundle-dir rejections above). Ordered BEFORE exists():
+        # a dangling transcript symlink would otherwise silently take the
+        # no-transcript arm with no breadcrumb.
+        print(
+            f"devflow verification-baseline: rejecting symlinked transcript.jsonl in {bundle.name} "
+            "(AC #61: symlinks under admitted roots are never followed)",
+            file=sys.stderr,
+        )
+        return SOURCE_UNREADABLE
     if not transcript.exists():
         # No transcript: what does the (success-only) stop-attempts log say?
         # unreadable log -> source_unreadable (never a silent "no failure");
@@ -1366,15 +1445,6 @@ def _classify_source_status(bundle: Path, max_bytes: int, stats: "dict | None" =
         if state in ("uncaptured", "captured"):
             return SOURCE_IMPORT_FAILED
         return SOURCE_MISSING
-    if transcript.is_symlink():
-        # AC #61: never follow a symlinked transcript (same class as the
-        # metadata/bundle-dir rejections above).
-        print(
-            f"devflow verification-baseline: rejecting symlinked transcript.jsonl in {bundle.name} "
-            "(AC #61: symlinks under admitted roots are never followed)",
-            file=sys.stderr,
-        )
-        return SOURCE_UNREADABLE
     try:
         size = transcript.stat().st_size
     except OSError:
@@ -1912,6 +1982,16 @@ def extract_verification_lifecycles(
             occurrences = wfr.detect_occurrences(events, registry)
             # Use the manifest's consumer to scope the root occurrence; fall back
             # to the first top-level occurrence of any registered workflow.
+            # Share the producer's own boundary contract (Step 3.5 fix-delta
+            # gate): resolve_boundaries is the recorder's boundary logic —
+            # explicit completion markers (exact), else the next top-level /
+            # same-workflow boundary (approximate) — so lifecycle spans here
+            # can never drift from the recorder's. detect_occurrences alone
+            # never sets end_event; a hand-rolled next-start bound both
+            # re-derived this contract and missed the completion-marker arm.
+            # Pure event math: no subprocess, offline guarantee unchanged
+            # (behaviorally pinned by test_analyzer_spawns_no_process_end_to_end).
+            wfr.resolve_boundaries(events, occurrences)
             root = _select_root_occurrence(occurrences, row.consumer)
             if root is None:
                 # A source-available transcript in which no registered root
@@ -1935,18 +2015,10 @@ def extract_verification_lifecycles(
                     file=sys.stderr,
                 )
                 continue
+            # end_event is None only when resolve_boundaries found no marker,
+            # no later boundary, and no later event — the single-lifecycle
+            # tail case, where the transcript end is the span end.
             end_idx = root.end_event if root.end_event is not None else (len(events) - 1)
-            if root.end_event is None:
-                # An open-ended lifecycle is bounded by the NEXT top-level
-                # occurrence's start: without this, a transcript carrying two
-                # lifecycles (AC #63's concurrent-lifecycles row) attributed
-                # the sibling lifecycle's launches to this row's consumer
-                # (PR #531 review-and-fix local iteration, caught by the new
-                # concurrent-lifecycles fixture).
-                later_starts = [o.start_event for o in occurrences
-                                if o.mode == "top-level" and o.start_event > root.start_event]
-                if later_starts:
-                    end_idx = min(later_starts) - 1
             row.provenance["lifecycle_id"] = f"{sid}\x1f{root.occurrence_id}"
             reqs, launches_in = _extract_from_lifecycle(events, root, end_idx, sid, row.consumer,
                                                         row.eligibility_state)

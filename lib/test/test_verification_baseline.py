@@ -3066,6 +3066,92 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
             row.source = vb.SOURCE_CLOUD  # local-domain status on a cloud row
         self.assertEqual(row.source, vb.SOURCE_LOCAL)
 
+    # Step 3.5 inner attempt (F1): hyphen-preceded secret assignments the env
+    # lookbehind now refuses must still be REDACTED — via the widened flag
+    # pattern or the whitespace-anchored assignment fallback — never leaked
+    # with secret_affected=False (the worse direction).
+    def test_hyphen_preceded_assignments_still_redacted(self) -> None:
+        for cmd, want_slot in (
+            ("--api_key=hunter2 lib/test/run.sh", "flag:api_key"),
+            ("--auth_token=hunter2 lib/test/run.sh", "flag:auth_token"),
+            ("-key=hunter2 lib/test/run.sh", "flag:key"),
+            ("-Dapikey=hunter2 lib/test/run.sh", "assign:DAPIKEY"),
+            ("curl -H X-API-KEY=hunter2 example", "assign:X-API-KEY"),
+        ):
+            b = vb._binding_identity(cmd)
+            self.assertTrue(b.secret_affected, cmd)
+            self.assertNotIn("hunter2", b.redacted_display, cmd)
+            self.assertIn(want_slot, b.secret_slots, cmd)
+            # No unkeyed digest of secret material: digest over redacted form.
+            self.assertNotEqual(b.digest, hashlib.sha256(vb._canonical_command(cmd).encode("utf-8")).hexdigest(), cmd)
+        # Negative controls: non-secret names stay untouched, and the attached
+        # --flag form keeps its clean single flag: slot (no phantom, no assign:).
+        for cmd in ("--pattern=foo lib/test/run.sh", "curl -H X-REQUEST-ID=abc example", "PATH=/usr/bin lib/test/run.sh"):
+            self.assertFalse(vb._binding_identity(cmd).secret_affected, cmd)
+        b2 = vb._binding_identity("--api-key=secretval lib/test/run.sh")
+        self.assertEqual(list(b2.secret_slots), ["flag:api-key"])
+
+    # Step 3.5 inner attempt (F1): already-substituted markers are never
+    # re-processed by the fallback (no marker mangling, no slot pollution).
+    def test_fallback_never_reprocesses_markers(self) -> None:
+        b = vb._binding_identity("TOKEN=abc --api-key=secretval X-API-KEY=h lib/test/run.sh")
+        self.assertEqual(sorted(s.split(":")[0] for s in b.secret_slots), ["assign", "env", "flag"])
+        self.assertNotIn("hunter", b.redacted_display)
+        self.assertNotIn("<assign:--API-KEY>", b.redacted_display)
+        self.assertIn("<env:TOKEN>", b.redacted_display)
+        self.assertIn("<flag:api-key>", b.redacted_display)
+        self.assertIn("<assign:X-API-KEY>", b.redacted_display)
+
+    # Step 3.5 inner attempt (F3): the source arm validates the NEW source
+    # value itself, not only the pair.
+    def test_source_reassignment_rejects_bogus_source(self) -> None:
+        row = vb.EligibleLifecycle(
+            source=vb.SOURCE_CLOUD, surrogate_id="sr-2", consumer="review",
+            subject={}, identity={}, eligibility_state=ELIGIBILITY_CONFIRMED,
+            eligibility_evidence="cloud", host_profile=None,
+            source_status=vb.CLOUD_SOURCE_AVAILABLE, provenance={},
+        )
+        with self.assertRaises(ValueError):
+            row.source = "bogus"
+        self.assertEqual(row.source, vb.SOURCE_CLOUD)
+
+    # Step 3.5 inner attempt (F4a): a broken symlink named *.json is COUNTED
+    # (unknown-manifest row + breadcrumb), never silently excluded.
+    def test_broken_symlinked_manifest_is_counted_not_silently_excluded(self) -> None:
+        link = self.manifests / "s-dangling.json"
+        link.symlink_to(Path(self.tmp) / "does-not-exist.json")
+        registry = wfr.load_registry(REGISTRY)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rows = vb.build_local_census(self.manifests, registry, None)
+        self.assertEqual(len(rows), 1)
+        self.assertIn("symlink", err.getvalue())
+
+    # Step 3.5 inner attempt (F4b): a DANGLING metadata.json / transcript /
+    # bundle-dir symlink is rejected with a breadcrumb, not silently
+    # misclassified through the exists()-follows-symlinks arms.
+    def test_dangling_metadata_symlink_is_rejected(self) -> None:
+        sid = "s-dang-meta"
+        write_bundle(self.bundles, sid, transcript(user("/devflow:implement 527")))
+        m = self.bundles / sid / "metadata.json"
+        m.unlink()
+        m.symlink_to(Path(self.tmp) / "gone.json")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            status = vb._classify_source_status(self.bundles / sid, vb.DEFAULT_MAX_SOURCE_BYTES)
+        self.assertEqual(status, SOURCE_UNREADABLE)
+        self.assertIn("symlink", err.getvalue())
+
+    def test_dangling_bundle_dir_symlink_is_rejected(self) -> None:
+        sid = "s-dang-dir"
+        link = self.bundles / sid
+        link.symlink_to(Path(self.tmp) / "gone-dir")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            status = vb._classify_source_status(self.bundles / sid, vb.DEFAULT_MAX_SOURCE_BYTES)
+        self.assertEqual(status, SOURCE_UNREADABLE)
+        self.assertIn("symlink", err.getvalue())
+
     # FP-4: the exact join arm requires the same source event AND the same
     # tool_use — one assistant event can carry multiple Bash tool_uses.
     def test_join_exact_requires_same_tool_use(self) -> None:
