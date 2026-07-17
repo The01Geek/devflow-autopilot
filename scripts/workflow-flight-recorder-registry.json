@@ -5,6 +5,11 @@
       "path": "lib/test/modules/workflow-flight-recorder.sh",
       "minimum_assertions": 68,
       "description": "Native inventory, explicit import, constrained analysis, and focused Python coverage"
+    },
+    "review-and-fix-contract": {
+      "path": "lib/test/modules/review-and-fix-contract.sh",
+      "minimum_assertions": 64,
+      "description": "Focused review-and-fix iteration, guardrail, convergence, telemetry, and prompt-composition contracts"
     }
   },
   "workflows": {

@@ -1018,83 +1018,10 @@ assert_eq "deferred.labels: SKILL routes a failed label-apply to a durable workp
 # when deferred work was filed but no issue numbers were captured).
 assert_pin_unique "deferred.labels: SKILL Phase 4.0 surfaces an empty-issue-numbers capture" 'captured no issue numbers' "$DEF_SKILL"
 
-# ────────────────────────────────────────────────────────────────────────────
-echo "devflow_review_and_fix.max_iterations (schema + resolution)"
-# ────────────────────────────────────────────────────────────────────────────
-# The /devflow:review-and-fix fix-loop cap is read from config via config-get.sh
-# (default 5) and then clamped INLINE in skills/review-and-fix/SKILL.md: a value
-# below 1 → floor 1, a non-integer/empty/unparseable value (or a resolver failure)
-# → 5, with no upper bound. The clamp itself is prompt bash (not a script — AC3
-# mandates the SKILL read directly via config-get.sh), so we pin (a) the
-# schema/example contract, (b) the resolver read behavior that feeds the clamp,
-# and (c) the clamp logic via a function kept byte-aligned with the SKILL block.
-MAXI_SCHEMA="$LIB/../.devflow/config.schema.json"
-MAXI_EXAMPLE="$LIB/../.devflow/config.example.json"
-MAXI_PROP='.properties.devflow_review_and_fix.properties.max_iterations'
-assert_eq "max_iterations: schema type is integer" "integer" \
-  "$(jq -r "$MAXI_PROP.type" "$MAXI_SCHEMA")"
-assert_eq "max_iterations: schema minimum is 1" "1" \
-  "$(jq -r "$MAXI_PROP.minimum" "$MAXI_SCHEMA")"
-assert_eq "max_iterations: schema default is 5" "5" \
-  "$(jq -r "$MAXI_PROP.default" "$MAXI_SCHEMA")"
-assert_eq "max_iterations: schema has a non-empty description" "yes" \
-  "$(jq -e "$MAXI_PROP.description | type == \"string\" and (length > 0)" "$MAXI_SCHEMA" >/dev/null && echo yes || echo no)"
-assert_eq "max_iterations: example value matches schema default" \
-  "$(jq -r "$MAXI_PROP.default" "$MAXI_SCHEMA")" \
-  "$(jq -r '.devflow_review_and_fix.max_iterations' "$MAXI_EXAMPLE")"
-
-# Resolver-read behavior (the part the SKILL invokes; the clamp is downstream).
-MAXI_CFG="$(mktemp)"
-printf '%s' '{"devflow_review_and_fix":{"max_iterations":9}}' > "$MAXI_CFG"
-assert_eq "max_iterations: configured integer read back verbatim" "9" \
-  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
-# Key absent → resolver emits the default 5 (the no-config / unset case; AC: default 5).
-printf '%s' '{"devflow_review_and_fix":{}}' > "$MAXI_CFG"
-assert_eq "max_iterations: unset key → resolver default 5" "5" \
-  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
-assert_eq "max_iterations: missing config file → resolver default 5" "5" \
-  "$("$CG" .devflow_review_and_fix.max_iterations 5 /no/such/config.json)"
-# A below-floor value (0) and a non-integer ("abc") are passed through verbatim by
-# the resolver — the SKILL's inline clamp turns these into 1 and 5 respectively.
-printf '%s' '{"devflow_review_and_fix":{"max_iterations":0}}' > "$MAXI_CFG"
-assert_eq "max_iterations: below-floor value passed through to clamp (0)" "0" \
-  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
-printf '%s' '{"devflow_review_and_fix":{"max_iterations":"abc"}}' > "$MAXI_CFG"
-assert_eq "max_iterations: non-integer value passed through to clamp (abc)" "abc" \
-  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
-rm -f "$MAXI_CFG"
-
-# The SKILL's inline clamp, applied to the resolver output above. Mirrors the exact
-# logic in skills/review-and-fix/SKILL.md so the floor/fallback/no-upper-bound ACs
-# are exercised, not just asserted in prose. Keep byte-aligned with the SKILL block.
-maxi_clamp() {
-  local v="$1" rc="${2:-0}"
-  if [ "$rc" -ne 0 ] || ! printf '%s' "$v" | grep -Eq '^-?[0-9]+$'; then
-    printf '5\n'
-  elif [ "$v" -lt 1 ]; then
-    printf '1\n'
-  else
-    printf '%s\n' "$v"
-  fi
-}
-assert_eq "max_iterations clamp: valid value honored"          "9"  "$(maxi_clamp 9)"
-assert_eq "max_iterations clamp: large value honored (no cap)"  "42" "$(maxi_clamp 42)"
-assert_eq "max_iterations clamp: 0 → floor 1"                  "1"  "$(maxi_clamp 0)"
-assert_eq "max_iterations clamp: negative → floor 1"           "1"  "$(maxi_clamp -3)"
-assert_eq "max_iterations clamp: non-integer → 5"              "5"  "$(maxi_clamp abc)"
-assert_eq "max_iterations clamp: float → 5"                    "5"  "$(maxi_clamp 2.5)"
-assert_eq "max_iterations clamp: empty → 5"                    "5"  "$(maxi_clamp '')"
-assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_clamp '' 2)"
-
-# Drift guard: maxi_clamp above is a hand-maintained copy of the SKILL's inline
-# clamp, so the clamp assertions would keep passing even if the *shipped* clamp in
-# SKILL.md were edited. Pin the load-bearing tokens in the real SKILL so a change to
-# the regex (negative-aware), the below-1 floor, or the default-5 fallback fails here
-# instead of silently passing against the copy.
+# The focused review-and-fix contract module owns the max-iteration resolver and
+# clamp checks. The global suite keeps this path variable because later global
+# guard and mutation proofs still target the same shipped skill.
 MAXI_SKILL="$LIB/../skills/review-and-fix/SKILL.md"
-assert_pin_unique "max_iterations clamp: SKILL keeps the negative-aware integer regex" "'^-?[0-9]+\$'" "$MAXI_SKILL"
-assert_pin_unique "max_iterations clamp: SKILL keeps the below-1 floor" '"$MAX_ITERS" -lt 1' "$MAXI_SKILL"
-assert_pin_unique "max_iterations clamp: SKILL keeps the default-5 fallback" 'MAX_ITERS=5' "$MAXI_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "severity thresholds (schema + example + config-get resolution + SKILL pins) (#251)"
@@ -40946,6 +40873,12 @@ assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda
 # failure through an independent boundary tally.
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
+if ! devflow_run_full_suite_module "$LIB/test/modules/review-and-fix-contract.sh" \
+  "review-and-fix-contract" 64; then
+  printf 'ERROR: review-and-fix-contract boundary could not record its result\n'
+  exit 1
+fi
+
 if ! devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh" \
   "workflow-flight-recorder" 68; then
   printf 'ERROR: workflow-flight-recorder boundary could not record its result\n'
