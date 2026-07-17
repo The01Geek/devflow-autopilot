@@ -3797,7 +3797,6 @@ assert_pin_unique "#464 AC6: overview §11 records the deliberate Stage-B audito
 #    knowingly allowlisted. Reuses the #312/#443 create-issue file var CI312_SKILL
 #    and the #465 §11 doc var OG_OVERVIEW_DOC.
 CI559_SKILL="$CI312_SKILL"
-CI559_OVERVIEW="$OG_OVERVIEW_DOC"
 
 # ci559_classify FILE -> prints "bin1=N bin2=N bin3=N unresolved=N" on stdout
 # (per-unresolved diagnostics to stderr). The two key phrases, the by-name
@@ -3913,9 +3912,9 @@ assert_pin_unique "#559: the five per-site evidence-line anchors are enumerated"
   "at Step 3.5 item 5, immediately after that item's gate re-run; at Step 3.5 item 6, immediately before the initial Step 3.6 dispatch's pre-dispatch draft write" "$CI559_SKILL"
 # SYSTEM_OVERVIEW §11 documents the procedure in both revise-loop descriptions (AC 13).
 assert_pin_unique "#559: overview §11 (Step 3.5 loop) documents the Revision-delta verification procedure" \
-  "walks the revision's edit-batch delta across six classes" "$CI559_OVERVIEW"
+  "walks the revision's edit-batch delta across six classes" "$OG_OVERVIEW_DOC"
 assert_pin_unique "#559: overview §11 (Step 3.6/Step 4 loop) documents the Revision-delta verification procedure" \
-  "runs the shared **Revision-delta verification** procedure over the revision's delta" "$CI559_OVERVIEW"
+  "runs the shared **Revision-delta verification** procedure over the revision's delta" "$OG_OVERVIEW_DOC"
 
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
