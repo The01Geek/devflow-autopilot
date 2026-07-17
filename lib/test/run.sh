@@ -25823,6 +25823,22 @@ assert_pin_red_under "#563 implement extension keeps the full suite as the compl
 assert_pin_red_under "#563 review-and-fix extension keeps the full suite as the review gate" \
   'A focused result never discharges a review/fix gate.' \
   's|A focused result never discharges a review/fix gate\.|A focused result may discharge a review/fix gate.|' "$WSR_RAF"
+for _WSR_FOCUSED_POLICY in "$WSR_IMPL" "$WSR_RAF"; do
+  _WSR_FOCUSED_NAME="${_WSR_FOCUSED_POLICY##*/}"
+  assert_pin_red_under "#563 $_WSR_FOCUSED_NAME records the explicitly selected module ID" \
+    'Explicitly record the selected ID and' \
+    's/Explicitly record the selected ID and/Use the selected ID and/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#563 $_WSR_FOCUSED_NAME prohibits automatic changed-file routing" \
+    'Do not infer or automate changed-file-to-module routing.' \
+    's/Do not infer or automate changed-file-to-module routing\./Infer changed-file-to-module routing automatically./' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#563 $_WSR_FOCUSED_NAME retains every repository lint gate" \
+    'plus every lint gate required by `CLAUDE.md`' \
+    's/ plus every lint gate required by `CLAUDE\.md`//' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#563 $_WSR_FOCUSED_NAME rejects nonempty skips as clean" \
+    'A nonempty skip tally is not clean.' \
+    's/A nonempty skip tally is not clean\./A nonempty skip tally may be clean./' "$_WSR_FOCUSED_POLICY"
+done
+unset _WSR_FOCUSED_POLICY _WSR_FOCUSED_NAME
 
 # (a) implement.md routing-rule operative sentence.
 assert_pin_unique "#506 implement.md carries the prompt-surface routing operative sentence" \

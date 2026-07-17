@@ -543,6 +543,27 @@ class ModuleRunnerTests(unittest.TestCase):
                 )
                 self.assertNotIn("mkdir: /nested", result.stdout)
 
+    def test_abnormal_module_exit_removes_allocated_workspace(self) -> None:
+        module = self.modules_dir / "workflow-flight-recorder.sh"
+        module_text = module.read_text(encoding="utf-8")
+        post_allocation = 'IFR_PROJECTS="$IFR_ROOT/native-projects"\n'
+        self.assertEqual(module_text.count(post_allocation), 1)
+        module.write_text(
+            module_text.replace(post_allocation, "exit 97\n", 1),
+            encoding="utf-8",
+        )
+        controlled_tmp = self.root / "abnormal-exit-tmp"
+        controlled_tmp.mkdir()
+
+        result = self._run(
+            "workflow-flight-recorder",
+            extra_env={"TMPDIR": str(controlled_tmp)},
+        )
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("module process exited with status 97", result.stdout)
+        self.assertEqual(list(controlled_tmp.glob("devflow-wfr.*")), [])
+
     def test_controlled_failure_is_nonzero_and_recapped_in_the_persisted_log(self) -> None:
         result = self._run(
             "sample", extra_env={"DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE": "1"}

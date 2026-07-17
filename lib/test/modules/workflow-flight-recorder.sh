@@ -42,6 +42,16 @@ if [ "$IFR_ROOT_VALID" -ne 1 ]; then
   printf 'could not allocate workflow-flight-recorder workspace\n' >&2
   return 1
 fi
+_devflow_wfr_cleanup() {
+  [ -z "${IFR_ROOT:-}" ] || rm -rf "$IFR_ROOT"
+}
+_devflow_wfr_cleanup_on_signal() {
+  _devflow_wfr_cleanup
+  trap - EXIT HUP INT TERM
+  exit 1
+}
+trap '_devflow_wfr_cleanup' EXIT
+trap '_devflow_wfr_cleanup_on_signal' HUP INT TERM
 IFR_PROJECTS="$IFR_ROOT/native-projects"
 mkdir -p "$IFR_ROOT/nested" "$IFR_PROJECTS" "$IFR_ROOT/skills/implement/phases" \
   "$IFR_ROOT/skills/review" "$IFR_ROOT/skills/review-and-fix" "$IFR_ROOT/skills/docs"
@@ -222,4 +232,6 @@ devflow_run_focused_python_test \
   "workflow analyzer: focused Python tests pass" \
   "$LIB/test/test_workflow_analyzer.py" "$IFR_ROOT/analyzer-unit.out"
 
-rm -rf "$IFR_ROOT"
+_devflow_wfr_cleanup
+trap - EXIT HUP INT TERM
+unset -f _devflow_wfr_cleanup _devflow_wfr_cleanup_on_signal
