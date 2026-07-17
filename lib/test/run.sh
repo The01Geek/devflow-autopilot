@@ -8725,6 +8725,18 @@ assert_eq "#547 RED: provenance references are not dependencies" "PROCEED" "$P54
 assert_eq "#547 RED: provenance references return success" "0" "$P547_PROVENANCE_RC"
 assert_eq "#547 RED: unresolvable dependency is unavailable" "UNAVAILABLE 13" "$P547_UNRESOLVED"
 assert_eq "#547 RED: unresolvable dependency returns unavailable exit class" "3" "$P547_UNRESOLVED_RC"
+# An unreadable --body-file is the read-failure UNAVAILABLE arm (distinct from the
+# state-resolution UNAVAILABLE above): the helper must fail closed to the same
+# terminal-Blocked class, never read as a clean dependency set.
+P547_BADFILE="$(PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies --body-file "$P547D/does-not-exist.md" 2>/dev/null)"; P547_BADFILE_RC=$?
+assert_eq "#547 RED: unreadable --body-file is unavailable (read-failure arm)" "UNAVAILABLE body" "$P547_BADFILE"
+assert_eq "#547 RED: unreadable --body-file returns the unavailable exit class" "3" "$P547_BADFILE_RC"
+# A malformed invocation (missing input flag) must NOT exit with argparse's default
+# code 2 — that is the BLOCKED contract code the §1.3.5 gate maps to "open
+# dependencies", which would misdiagnose a bad argument as a real blocker. The
+# _Parser override routes usage errors to the UNAVAILABLE class (exit 3) instead.
+PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies >/dev/null 2>&1; P547_USAGE_RC=$?
+assert_eq "#547: a usage error exits UNAVAILABLE(3), not the BLOCKED code (2)" "3" "$P547_USAGE_RC"
 rm -rf "$P547D"
 
 # ── issue #254: declared sequencing-dependency vocabulary stays coupled. ───
