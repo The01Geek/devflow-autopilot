@@ -288,15 +288,15 @@ For each subagent present in `$OVERRIDES`, build its `--agents` entry from the r
 
 ## The engine bundle
 
-This root holds the run's shared state, the cross-phase invariants above, and the routing below. **Every phase's authoritative procedure lives in its own reference file under `phases/`**; the routing table's orientation text is deliberately non-actionable.
+This root holds the run's shared state, the cross-phase invariants above, and the routing below.
 
-**Resolve the Review root once here, and re-resolve it at every entry.** Run:
+**Resolve the Review root here.** Run:
 
 ```bash
 echo "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"
 ```
 
-Treat the printed path as `<skill-dir>` — a **textual** substitution you make when emitting each command below, never a shell variable (see *Portable helper anchor* above). The **canonical Review root** is `<skill-dir>/SKILL.md`, and **every reference resolves relative to that located root**, at `<skill-dir>/phases/<file>` — never relative to the working directory, which finds nothing under a vendored install (`.devflow/vendor/devflow/skills/review/…`) and strands the engine. **Fail closed:** if the command prints empty or the unsubstituted `<absolute skill base directory this runner reports in context>` placeholder, stop and report that the Review root did not resolve; run no phase.
+Treat the printed path as `<skill-dir>` — a **textual** substitution you make when emitting each command below, never a shell variable. The **canonical Review root** is `<skill-dir>/SKILL.md`, and **every reference resolves relative to that located root**, at `<skill-dir>/phases/<file>` — never relative to the working directory, which finds nothing under a vendored install (`.devflow/vendor/devflow/skills/review/…`) and strands the engine. **Fail closed:** if the command prints empty or the unsubstituted `<absolute skill base directory this runner reports in context>` placeholder, stop and report that the Review root did not resolve; run no phase.
 
 ### Root identity
 
@@ -306,13 +306,15 @@ At engine entry (Phase 0), hash the root and its references:
 git hash-object <skill-dir>/SKILL.md <skill-dir>/phases/phase-0-setup.md <skill-dir>/phases/phase-0-3-6-blocker-recheck.md <skill-dir>/phases/phase-0-6-stale-prose-lint.md <skill-dir>/phases/phase-1-checklist.md <skill-dir>/phases/phase-2-verification.md <skill-dir>/phases/phase-3-agents.md <skill-dir>/phases/phase-4-verdict.md <skill-dir>/phases/phase-4-1-7-stale-adjudication.md <skill-dir>/phases/phase-4-4-github-post.md
 ```
 
-With the **Write tool**, author the **bundle manifest** — canonical root path, root hash, and each reference's path and hash — to `.devflow/tmp/review/<slug>/<run-id>/root-identity.json` (the run-scoped dir Phase 0.2 created; `Write(.devflow/tmp/**)` is the probe-permitted shape).
+**Fail closed:** if it errors, is refused, prints empty, or prints fewer hashes than paths, report identity as underived, author no manifest, and run no phase.
 
-Re-deriving identity means: re-run the anchor `echo`, `Read` the manifest, and re-run `git hash-object` on the root and the reference you are about to read. Compaction is why a remembered value is never enough. Then require the same identity:
+With the **Write tool**, author the **bundle manifest** — canonical root path, root hash, and each reference's path and hash — to `.devflow/tmp/review/<slug>/<run-id>/root-identity.json` (the run-scoped dir Phase 0.2 created).
+
+Re-deriving identity means: re-run the anchor `echo`, `Read` the manifest, and re-run `git hash-object` on the root and the reference you are about to read. Then require the same identity:
 
 | Fires when | Stop label |
 |---|---|
-| re-derivation errored, was refused, printed empty, or returned fewer hashes than paths | `identity: underived` |
+| no hash is available for the root or the reference about to be read — the manifest lacks its entry, or derivation errored, was refused, printed empty, or returned fewer hashes than paths | `identity: underived` |
 | manifest absent, unreadable, or unparseable | `identity: state-missing` |
 | re-resolved root path differs from the manifest's canonical root path | `identity: root-moved` |
 | a re-derived hash differs from the manifest's hash for that path | `identity: mismatch` |

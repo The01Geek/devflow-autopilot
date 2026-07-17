@@ -31072,6 +31072,31 @@ assert_pin_unique "#529 AC15 pressure: the root routes 4.4 as standalone-only (r
   'skips 4.4 entirely' "$REVIEW_ROOT"
 assert_eq "#529 AC15 pressure: the root gates 0.3.6 to standalone PR mode and 0.6 on its config key" "yes|yes" \
   "$(grep -qF 'standalone PR mode only' "$REVIEW_ROOT" && echo yes || echo no)|$(grep -qF 'devflow_review.stale_prose.enabled' "$REVIEW_ROOT" && echo yes || echo no)"
+# The pin above CANNOT carry 0.3.6's real predicate: the under-specified row it
+# replaced ("standalone PR mode only") contains that literal verbatim, so reverting
+# the correction leaves it green. That under-specification is not cosmetic — it led a
+# blinded reviewer to conclude an ordinary standalone pass loads the blocker
+# reference, and to file a REJECT over a growth figure that does not exist. Pin the
+# two facts the row was missing, each of which the revert deletes.
+assert_pin_unique "#529 the root's 0.3.6 row carries its PRECONDITION (a prior REJECT driven solely by carve-out blockers)" \
+  'only over a prior REJECT driven **solely** by carve-out blockers' "$REVIEW_ROOT"
+assert_pin_unique "#529 the root's 0.3.6 row states the fast path REPLACES phases 1-3 (it is never a sum term)" \
+  'replaces Phases 1–3' "$REVIEW_ROOT"
+# 4.1.7 PRODUCES the adjudications 4.2 CONSUMES. Pre-split, physical adjacency
+# enforced that order; the split let a pass reach 4.2 first and REJECT on a
+# stale-prose false positive at severity: critical. The ordering now lives at two
+# sites — the root's routing row and the seam in the verdict reference — so pin BOTH:
+# a lockstep pair, and either half alone would leave the other free to drift.
+assert_pin_unique "#529 the root's 4.1.7 routing row carries the ordering cue (after 4.1.6, before 4.2)" \
+  'runs after 4.1.6 and **before** 4.2' "$REVIEW_ROOT"
+assert_pin_unique "#529 the verdict reference points at 4.1.7 AT the 4.1.6->4.2 seam (the split dropped this)" \
+  'Phase 4.1.7 runs at this seam' "$LIB/../skills/review/phases/phase-4-verdict.md"
+# The identity table's own fail-open fix. Every other row fires on a value being
+# present-and-wrong, so an absent hash made nothing differ and the gate passed on an
+# unverified bundle. Nothing pinned any identity label, so the whole table could be
+# deleted green.
+assert_pin_unique "#529 the root's identity table fires on an UNDERIVED hash, not only a present-and-wrong one" \
+  '`identity: underived`' "$REVIEW_ROOT"
 # A shadow entry is a phase entry — the identity re-derivation must bind it, or a
 # compacted shadow pass would read the bundle without re-checking it.
 assert_pin_unique "#529 AC15 pressure: the root binds shadow entry to the identity re-derivation" \
@@ -31109,9 +31134,12 @@ assert_eq "#529 AC3: the default per-pass unique path is within the 28,700-word 
 # default member still cleared 20,000), and RB_EXT_W is consumed only inside `$(( ))`,
 # where an empty value silently becomes 0. So check each operand at its source
 # instead: every member usable and word-bearing, and the member set the expected size.
+# Every set that feeds a published figure is swept, not just the default one: the AC5
+# rows sum _rb_standalone / _rb_raf, and an unreadable member there SHRINKS the count,
+# which makes their "decreased by" assertions pass MORE easily.
 assert_eq "#529 every budget operand was really measured (no member silently skipped)" "yes" \
   "$(_rb_ok=yes
-     for _m in "${_rb_default[@]}"; do
+     for _m in "${_rb_default[@]}" "${_rb_standalone[@]}" "${_rb_raf[@]}"; do
        _bundle_member_usable "$_m" || _rb_ok=no
        [ "$(wc -w < "$_m" 2>/dev/null | tr -d ' ')" -gt 0 ] 2>/dev/null || _rb_ok=no
      done
@@ -31151,14 +31179,17 @@ assert_eq "#529 AC5: a non-numeric measurement reports unavailable, never a bogu
 # The missing-row-NAME arm — the block header claims "every arm, and the ARM ORDER",
 # but nothing pinned that arm's message or its precedence: deleting it, or folding it
 # into the unestablished-operand arm below it, left every assertion GREEN. Both halves
-# are needed. This half pins the message (a fold reports "delta unavailable" — naming
-# a cause the code observed to be FALSE, since no measurement is missing).
+# below are needed, and neither subsumes the other — weakening the arm's condition is
+# caught only by the second, reordering it below its neighbour only by the first.
+# This half pins the message AND its precedence over the unavailable arm: BOTH arms
+# match this all-empty input, so arm ORDER alone decides which one fires.
 assert_eq "#529 AC5: a missing row NAME is reported as a caller bug, not as a missing measurement" "yes" \
   "$("$RB_DBD" '' '' '' | grep -qF 'delta not reported: the caller passed no row name' && echo yes || echo no)"
-# This half pins PRECEDENCE over the growth arm: with a real growth and no row name,
-# the missing-name arm must win. Deleting it emits an unattributable
-# "justified-growth:  grew by 37" naming no row — the warning AC5 exists to make
-# actionable, fired at nobody.
+# This half pins precedence over the GROWTH arm, and here the misreport would be a
+# falsehood rather than a mere mislabel: both measurements are established, so an arm
+# reporting "delta unavailable" would name a cause the code observed to be FALSE.
+# Deleting the arm instead emits an unattributable "justified-growth:  grew by 37"
+# naming no row — the warning AC5 exists to make actionable, fired at nobody.
 assert_eq "#529 AC5: the missing-row-name arm PRECEDES the growth arm (a nameless growth warning is never emitted)" "yes" \
   "$(RB_A1="$("$RB_DBD" '' 100 137)"; printf '%s' "$RB_A1" | grep -qF 'the caller passed no row name' \
      && ! printf '%s' "$RB_A1" | grep -qF '::warning::' && echo yes || echo no)"
@@ -31174,6 +31205,35 @@ RB_BASE_EXT_BYTES=$(git -C "$LIB/.." show origin/main:.devflow/prompt-extensions
 # The AC5 rows measure the sets that REALLY execute, never the AC3 default set.
 RB_STANDALONE_BYTES=$(cat "${_rb_standalone[@]}" | wc -c | tr -d ' ')
 RB_RAF_BYTES=$(cat "${_rb_raf[@]}" | wc -c | tr -d ' ')
+# ── Bind each selector to its PRODUCER, not merely to the stem list ───────────
+# The membership guards above prove a selector names a REAL stem. They do NOT prove
+# it names the RIGHT one, and the stem list cannot: point the standalone-only
+# selector at `phase-3-agents` and it is still a real default stem, so that guard
+# stays green while _rb_raf drops the wrong 43KB member and the decrease row — which
+# only asks "did it shrink?" — stays green too, publishing a silently wrong figure.
+# The fact each selector encodes is produced by the ROOT's routing table, so assert
+# it there: 4.4 is the reference the root routes standalone-only, and the stale-lint
+# gate is the one the root documents as defaulting true (which is WHY standalone
+# must carry it). These fail closed if a routing row is reworded away.
+assert_eq "#529 AC5: the standalone-only selector names the phase the ROOT routes standalone-only (bound to its producer)" \
+  "yes" "$(grep -F "\`${REVIEW_STANDALONE_ONLY_STEM}.md\`" "$REVIEW_ROOT" | grep -qF '**standalone only' && echo yes || echo no)"
+assert_eq "#529 AC5: the stale-lint selector names the phase whose gate the ROOT documents as defaulting true" \
+  "yes" "$(grep -F "\`${REVIEW_STALE_LINT_STEM}.md\`" "$REVIEW_ROOT" | grep -qF 'defaults **true**' && echo yes || echo no)"
+# ── Anti-vacuity, hoisted OUT of the baseline gate ────────────────────────────
+# These compare two LIVE measurements and need no origin/main baseline, so gating
+# them on one would silently retire the backstop on exactly the hosts that take the
+# skip below.
+# The standalone set must really CARRY the stale-lint reference: if it collapses onto
+# the default set the -34401 overstatement is back, and both rows below would still
+# read "decreased by" — green, and wrong.
+assert_eq "#529 AC5: the standalone set is strictly LARGER than the AC3 default set (it carries the stale-lint reference)" \
+  "yes" "$([ "$RB_STANDALONE_BYTES" -gt "$(cat "${_rb_default[@]}" | wc -c | tr -d ' ')" ] && echo yes || echo no)"
+# _rb_raf's DEFINING property is that it EXCLUDES the standalone-only reference.
+# Delete the `continue` that implements the exclusion and raf becomes standalone —
+# both still shrink against the baseline, so the decrease row cannot notice. Pin the
+# exclusion by its size: the two sets must differ by exactly that file.
+assert_eq "#529 AC5: the raf set really EXCLUDES the standalone-only reference (the sets differ by exactly that file)" \
+  "yes" "$([ "$((RB_STANDALONE_BYTES - RB_RAF_BYTES))" -eq "$(wc -c < "$LIB/../skills/review/phases/${REVIEW_STANDALONE_ONLY_STEM}.md" | tr -d ' ')" ] && echo yes || echo no)"
 # RB_BASE_EXT_BYTES is summed into the baseline below, where an empty value would
 # silently sum as 0 and UNDERSTATE the baseline — making a decrease easier to claim.
 # Its live twin RB_EXT_W already carries exactly this check; the baseline operand had
@@ -31181,18 +31241,32 @@ RB_RAF_BYTES=$(cat "${_rb_raf[@]}" | wc -c | tr -d ' ')
 if [ -n "$RB_BASE_BYTES" ] && [ "$RB_BASE_BYTES" -gt 0 ] 2>/dev/null \
    && [ -n "$RB_BASE_EXT_BYTES" ] && [ "$RB_BASE_EXT_BYTES" -gt 0 ] 2>/dev/null; then
   RB_BASELINE=$((RB_BASE_BYTES + RB_BASE_EXT_BYTES))
+  # Captured once: the SAME emitted line is asserted to shrink AND to have been fed
+  # the standalone set. Re-invoking would let the two assertions diverge.
+  RB_SA_OUT="$("$RB_DBD" 'standalone execution-weighted bytes' "$RB_BASELINE" "$RB_STANDALONE_BYTES")"
+  RB_RAF_OUT="$("$RB_DBD" 'normal+shadow bytes' "$((RB_BASELINE * 2))" "$((RB_RAF_BYTES * 2))")"
   assert_eq "#529 AC5: standalone execution-weighted traffic decreased against the LIVE baseline" "yes" \
-    "$("$RB_DBD" 'standalone execution-weighted bytes' "$RB_BASELINE" "$RB_STANDALONE_BYTES" | grep -qF 'decreased by' && echo yes || echo no)"
+    "$(printf '%s' "$RB_SA_OUT" | grep -qF 'decreased by' && echo yes || echo no)"
   assert_eq "#529 AC5: one normal-plus-shadow pass decreased against the LIVE baseline" "yes" \
-    "$("$RB_DBD" 'normal+shadow bytes' "$((RB_BASELINE * 2))" "$((RB_RAF_BYTES * 2))" | grep -qF 'decreased by' && echo yes || echo no)"
-  # Anti-vacuity: the standalone row must really CARRY the stale-lint reference. If it
-  # ever equals the default set again, the -34401 overstatement is back and the two
-  # rows above would still read "decreased by" — green, and wrong.
-  assert_eq "#529 AC5: the standalone set is strictly LARGER than the AC3 default set (it carries the stale-lint reference)" \
-    "yes" "$([ "$RB_STANDALONE_BYTES" -gt "$(cat "${_rb_default[@]}" | wc -c | tr -d ' ')" ] && echo yes || echo no)"
-else
+    "$(printf '%s' "$RB_RAF_OUT" | grep -qF 'decreased by' && echo yes || echo no)"
+  # THE original defect was the row being fed the AC3 default set. Asserting the
+  # CONSTRUCTION of _rb_standalone cannot catch that — it is larger by construction,
+  # so it proves nothing about what the row above actually passed. Assert the operand
+  # the reporter ECHOES instead: revert either row to the default bytes and this turns
+  # RED while "decreased by" stays green.
+  assert_eq "#529 AC5: the standalone row is FED the standalone set (not the AC3 default set — the original defect)" \
+    "yes" "$(printf '%s' "$RB_SA_OUT" | grep -qF "after $RB_STANDALONE_BYTES)" && echo yes || echo no)"
+  assert_eq "#529 AC5: the normal-plus-shadow row is FED the raf set, doubled" \
+    "yes" "$(printf '%s' "$RB_RAF_OUT" | grep -qF "after $((RB_RAF_BYTES * 2)))" && echo yes || echo no)"
+# The predicate above has TWO independent causes; a single message naming only the
+# first would assert a state the code observed to be false (and misclassify it). Each
+# cause gets its own arm, its own kind, and its own remedy.
+elif [ -z "$RB_BASE_BYTES" ] || [ "$RB_BASE_BYTES" -eq 0 ] 2>/dev/null; then
   skip "#529 AC5 live execution-weighted comparison" host-capability \
     "origin/main is unavailable, so the pre-split baseline could not be measured"
+else
+  skip "#529 AC5 live execution-weighted comparison" blocking-gate \
+    "origin/main resolved but its .devflow/prompt-extensions/review.md did not — the baseline extension path moved; re-point it"
 fi
 
 # ── The extractor discriminates BETWEEN the two allowlists (it is not a
