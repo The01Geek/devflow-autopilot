@@ -2123,6 +2123,58 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
         self.assertEqual(snap["dropped_run_count"], 1)
         self.assertFalse(snap["pagination_complete"])
 
+    # --- Shadow (pr-test-analyzer): AC #527-2 ("launches no verification
+    #     command and invokes no repository-provided executable") was pinned
+    #     only TEXTUALLY — two run.sh grep counts over the module's source.
+    #     Those catch the realistic regression (a developer reintroducing
+    #     `subprocess.run`) but are blind to any spelling they do not enumerate,
+    #     including dynamic construction: appending
+    #     `importlib.import_module("subpro"+"cess")` leaves BOTH pins reading 0.
+    #     A guarantee about what the code DOES should be proven by what it does,
+    #     so this drives the real entry point with every process-spawning
+    #     primitive tripwired. This is the behavioral half the grep pins cannot
+    #     give; they stay as the cheap desk-speed backstop. -------------------
+    def test_analyzer_spawns_no_process_end_to_end(self) -> None:
+        import multiprocessing
+        import subprocess as _sp
+
+        write_manifest(self.manifests, "s-offline")
+        write_bundle(self.bundles, "s-offline",
+                     transcript(user("/devflow:implement #1"),
+                                bash_call("t1", "pytest tests/"),
+                                tool_result("t1", "exit code 0")))
+        spawned: list[str] = []
+
+        def tripwire(name):
+            def _boom(*a, **k):
+                spawned.append(name)
+                raise AssertionError(f"analyzer spawned a process via {name}: {a!r}")
+            return _boom
+
+        # Every primitive that can start a process, not just the spelled-out
+        # ones the grep pins enumerate — os.system/popen/exec*/spawn*/fork,
+        # subprocess.*, and multiprocessing. Patched on the MODULES, so a
+        # dynamically-imported reference (importlib.import_module("subpro"+"cess")
+        # returns this same module object) is tripwired too — which is exactly
+        # the evasion the textual pins cannot see.
+        targets = [
+            (_sp, "run"), (_sp, "Popen"), (_sp, "call"), (_sp, "check_call"),
+            (_sp, "check_output"), (_sp, "getoutput"),
+            (os, "system"), (os, "popen"), (os, "execv"), (os, "execve"),
+            (os, "execvp"), (os, "posix_spawn"), (os, "fork"),
+            (multiprocessing, "Process"),
+        ]
+        with contextlib.ExitStack() as stack:
+            for mod, attr in targets:
+                if hasattr(mod, attr):
+                    stack.enter_context(
+                        mock.patch.object(mod, attr, tripwire(f"{mod.__name__}.{attr}")))
+            out = Path(self.tmp) / "offline-out"
+            rc = main(["--manifests", str(self.manifests), "--bundles", str(self.bundles),
+                       "--registry", str(REGISTRY), "--out-dir", str(out)])
+        self.assertEqual(rc, 0)
+        self.assertEqual(spawned, [], f"analyzer spawned process(es): {spawned}")
+
     # --- Shadow Important: the owning-lifecycle eligibility state is the value
     #     the VC-2 fix exists to make visible, but it was smuggled through the
     #     untyped `provenance` bag with a silent `or "unrecorded"` fallback on
@@ -2173,6 +2225,43 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
                          "stdout contradicted the artifact it just wrote")
         self.assertIn("WARNING", err.getvalue(),
                       "dropped-row degradation was silent — the operator must see it")
+
+    # --- Shadow (pr-test-analyzer): two fetch-layer branches were undriven.
+    #     Both decide `pagination_complete`, which is the operand the analyzer
+    #     reads as "cloud coverage unavailable, never zero" — an untested branch
+    #     here is an untested arm of that whole contract. ---------------------
+    def test_first_runs_page_transport_failure_marks_incomplete(self) -> None:
+        # Only a JOBS-page failure was covered; a failure on the FIRST runs page
+        # (gh down / non-dict response) was never exercised.
+        for bad in (None, "not-a-dict", {"workflow_runs": "not-a-list"}):
+            with self.subTest(bad=bad):
+                exp = _load_export_census()
+                exp._gh_json = lambda gh, args, _b=bad: _b
+                runs, jobs, complete = exp.fetch_runs_and_jobs("gh", "o/r", ["wf.yml"], "a", "b")
+                self.assertFalse(complete, "a first-page transport failure must mark the census incomplete")
+                self.assertEqual(runs, [])
+
+    def test_runs_pagination_hard_cap_marks_incomplete(self) -> None:
+        # The `page > 200` hard cap flips pagination_complete to False. Undriven,
+        # so a cap that silently returned a partial census as complete would not
+        # have been caught. Every page is full (== per_page) so the loop never
+        # breaks on a short page and must terminate on the cap alone.
+        exp = _load_export_census()
+        full_page = [{"id": i, "path": "wf.yml", "name": "W", "run_attempt": 1,
+                      "created_at": "c", "conclusion": "success", "status": "completed"}
+                     for i in range(100)]
+        calls = {"n": 0}
+
+        def fake_gh_json(gh, args):
+            if "jobs" in " ".join(args):
+                return {"jobs": [], "total_count": 0}
+            calls["n"] += 1
+            return {"workflow_runs": full_page}
+
+        exp._gh_json = fake_gh_json
+        runs, jobs, complete = exp.fetch_runs_and_jobs("gh", "o/r", ["wf.yml"], "a", "b")
+        self.assertFalse(complete, "the page>200 hard cap must mark the census incomplete")
+        self.assertLessEqual(calls["n"], 201, "the hard cap must bound the runs loop")
 
     # --- Phase-2 VC-33 FAIL: consumer_approximate is dropped by its only
     #     reader, so a stratifier cannot tell devflow.yml's multiplexed
