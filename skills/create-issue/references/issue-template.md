@@ -518,10 +518,13 @@ variable assigned in one statement and read in a later statement of the same inl
 stripped by some runners' marshaling — the cross-statement hazard this repo bans), and go
 through a file rather than a `"$(…)"` capture: command substitution strips trailing newlines
 and a re-emitting `printf '%s\n'` re-adds exactly one, mutating the posted bytes against the
-recorded body-only digest (a false attestation mismatch). The file round-trip is **byte-exact**:
+recorded body-only digest (a false attestation mismatch). The file round-trip is **byte-exact**.
+Substitute `<main-root>` with the main working-tree root Step 4 sub-step 2 already resolved
+via `resolve-main-root.sh` (the root whose `.devflow/tmp` that sub-step already created —
+a cwd-relative `.devflow/tmp/` may not exist inside a linked worktree checkout):
 
 ```bash
-python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py emit-body "<slug>" --nonce "<nonce>" --draft-file "<absolute issue-draft-<slug>.md path>" > .devflow/tmp/issue-body-<slug>.md && test -s .devflow/tmp/issue-body-<slug>.md && cat .devflow/tmp/issue-body-<slug>.md | gh issue create --title "Action-oriented title here" --body-file -
+python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py emit-body "<slug>" --nonce "<nonce>" --draft-file "<absolute issue-draft-<slug>.md path>" > "<main-root>/.devflow/tmp/issue-body-<slug>.md" && test -s "<main-root>/.devflow/tmp/issue-body-<slug>.md" && cat "<main-root>/.devflow/tmp/issue-body-<slug>.md" | gh issue create --title "Action-oriented title here" --body-file -
 ```
 
 **On an embed- or inline-arm epoch** there is no trustworthy canonical file, so the body is

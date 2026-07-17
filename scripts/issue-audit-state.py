@@ -480,6 +480,10 @@ def _validate(doc, slug):
             raise StateError('the creation record is not an object')
         if 'body_only_digest' not in creation:
             raise StateError('the creation record is missing its body_only_digest')
+        att = creation.get('attestation')
+        if att is not None and att not in ('match', 'mismatch', 'attestation-unavailable'):
+            raise StateError(f'the creation record names an attestation status outside '
+                             f'the canonical set: {att!r}')
     return doc
 
 
@@ -1159,7 +1163,9 @@ def cmd_record_creation_attestation(args):
             except _DigestError as exc:
                 _fail('record-creation-attestation', str(exc))
             status = 'match' if got == doc['creation']['body_only_digest'] else 'mismatch'
-    doc['creation']['attestation'] = {'status': status}
+    # Stored as the BARE status token — the summary field renders it verbatim into the
+    # single-line key=value surface, so a nested object here would corrupt that line.
+    doc['creation']['attestation'] = status
     try:
         save_state(doc, args.slug)
     except StateError as exc:

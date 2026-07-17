@@ -41409,6 +41409,24 @@ if [ -d "$IT_SB" ]; then
 
     # attestation-in-summary: with no creation epoch the summary reads attestation=none
     python3 "$IAS" query-summary it --nonce "$N" > .it-summary 2>/dev/null
+
+    # end-to-end attestation surfacing: bind creation to round 1, attest with WRONG
+    # bytes, and the summary's trailing field must read the bare token (never a dict
+    # repr — the PR #552 fix-delta gate's Critical)
+    python3 "$IAS" record-creation-epoch it --nonce "$N" --round 1 > /dev/null 2>&1
+    printf 'entirely different bytes\n' | python3 "$IAS" record-creation-attestation it \
+      --nonce "$N" > .it-att-out 2>/dev/null
+    python3 "$IAS" query-summary it --nonce "$N" > .it-summary2 2>/dev/null
+
+    # findings-count gate: a REFUSED completion (absent carriage on the file arm)
+    # carrying --findings-count must NOT record the tally; a later clean retry that
+    # omits its own count leaves the summary at none, never the unproven 5
+    N3="$(python3 "$IAS" init it3 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch it3 --nonce "$N3" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return it3 --nonce "$N3" --round 1 --verdict FILE \
+      --findings-count 5 > /dev/null 2>&1   # no carriage id: refused, feeds retry accounting
+    python3 "$IAS" query-summary it3 --nonce "$N3" > .it-fc-summary 2>/dev/null
   )
   assert_eq "#546 illegal_transition_rows: a return before any dispatch refuses non-zero" \
     "1" "$(cat "$IT_SB/.it-r1-rc" 2>/dev/null)"
@@ -41447,6 +41465,12 @@ if [ -d "$IT_SB" ]; then
   # attestation-in-summary: the status field is part of the rendered summary line
   assert_eq "#546 illegal_transition_rows: query-summary surfaces the attestation field (none when no epoch)" \
     "1" "$(grep -c 'attestation=none' "$IT_SB/.it-summary" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a mismatching attestation is surfaced end-to-end as the bare token" \
+    "1" "$(grep -c 'attestation=mismatch$' "$IT_SB/.it-summary2" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: record-creation-attestation reports the mismatch on its own output too" \
+    "attestation=mismatch" "$(cat "$IT_SB/.it-att-out" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a refused completion's --findings-count is never recorded" \
+    "1" "$(grep -c 'findings_count=none' "$IT_SB/.it-fc-summary" 2>/dev/null)"
   rm -rf "$IT_SB"
 fi
 
