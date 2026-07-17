@@ -329,7 +329,17 @@ def _validate_admitted_path(raw: str, must_exist: bool = False) -> Path:
     # Reject path-traversal/root-escape syntactically before any filesystem call.
     if candidate.is_absolute() and not _within_repo_root(candidate):
         raise ValueError(f"path escapes the admitted root: {raw}")
-    normalized = (Path(os.getcwd()) / candidate).resolve(strict=False)
+    # Fail CLOSED on a symlink loop here, not just in the strict=True branch
+    # below. resolve(strict=False) is version-divergent on an unresolvable loop:
+    # Python <=3.12 raises RuntimeError (ELOOP), Python >=3.13 returns the path
+    # unresolved. Catch both the raising forms (RuntimeError on <=3.12, OSError
+    # defensively) so the loop is rejected identically on every interpreter
+    # (issue #527: the >=3.13 non-raising path still fails closed via the
+    # is_symlink()/strict=True block below).
+    try:
+        normalized = (Path(os.getcwd()) / candidate).resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"path could not be resolved (fail-closed): {raw}: {exc}") from exc
     if not _within_repo_root(normalized):
         raise ValueError(f"resolved path escapes the admitted root: {normalized}")
     # Primary symlink protection is the resolve()+_within_repo_root containment
