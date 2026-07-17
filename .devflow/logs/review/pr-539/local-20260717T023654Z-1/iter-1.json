@@ -63,5 +63,30 @@
   "sweep_defs_read": ["skills/implement/phases/phase-2-implement.md: coupled-mirror prose (2.3.0/2.3.0a), hasty-guard-rewrite (2.3.0c), self-authored-claim drift (2.3.4a)"],
   "sweep_evidence": {"status": "ran", "notes": "delta is prose-xref corrections + test pins + budget-number reconciliation; coupled-mirror sweep reconciled budget doc + run.sh growth pin (+1,207); no product/runtime code, so operand-contract/input-shape matrix inapplicable; no new stale xrefs introduced (targets verified to exist)"},
   "test_first_gate": [],
-  "telemetry": "unavailable"
+  "telemetry": "unavailable",
+  "fix_delta_gate": {"result": "clean", "reviewed_delta": "56d4f924..d26795a1", "note": "pins in scope + non-vacuous, $P530_ERRH resolves, budget consistent, no stale literals, all 4 xref targets exist"},
+  "shadow": {
+    "ran_at": "2026-07-17T03:10:00Z",
+    "trigger": "early (engine_self_modifying, after iteration 1)",
+    "reviewed_sha": "d26795a1",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:code-reviewer", "severity": "Important", "description": "budget.md:60 AFTER-bundle Words cell 37,397 stale; = root+Sigma-refs = 37,408 (fix-introduced, unguarded by run.sh)", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [60, 60], "kind": "doc_arithmetic_inconsistency"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "fix-delta-gate.md:18 '(above)' pointer to Over-grade calibration gate which lives in shadow-review.md", "defect_signature": {"file": "skills/review-and-fix/references/fix-delta-gate.md", "line_range": [18, 18], "kind": "broken_xref"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "loop-exit.md:201 relative link ../../docs/efficiency-trace.md broken by depth change; needs ../../../", "defect_signature": {"file": "skills/review-and-fix/references/loop-exit.md", "line_range": [201, 201], "kind": "broken_xref"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "nav-field pins match bundle-wide not schema-block-scoped; a relocation-out-of-block stays green", "defect_signature": {"file": "lib/test/run.sh", "line_range": [164, 169], "kind": "test_gap"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "run.sh:8323 stale comment '$MAXI_SKILL = skills/review-and-fix/SKILL.md' (now MAXI_BUNDLE)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [8323, 8323], "kind": "test_gap"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "reference-body one-pin-deep on large references (residual, not a regression)", "defect_signature": {"file": "skills/review-and-fix/references/shadow-review.md", "line_range": [1, 1], "kind": "test_gap"}}
+    ],
+    "phase2_fails": [],
+    "over_grade_calibration": "bundle-row Important corroborated x2 (code-reviewer Important + final-pass Suggestion); recorded severity-calibrated note (low blast radius, informational cell) but fixed regardless; the two broken_xref Importants are genuine (real broken pointers), not over-grades; promotion not wasted",
+    "comparison": {"shadow_total": 6, "overlap_with_iter_1": 0, "new": 6, "new_critical": 0, "new_important": 3},
+    "promoted_to_iter_next": true
+  }
 }

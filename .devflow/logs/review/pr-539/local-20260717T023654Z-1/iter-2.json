@@ -1,0 +1,61 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-17T03:12:00Z",
+  "fix_commit_sha": "273143f4",
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "fix_files": [
+    "skills/review-and-fix/references/fix-delta-gate.md",
+    "skills/review-and-fix/references/loop-exit.md",
+    "skills/review-and-fix/references/fixing.md",
+    "lib/test/run.sh",
+    "docs/review-and-fix-budget.md"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional (promoted iter: Phase 1+2 skipped; inputs are a Phase 1+2+3 shadow result)"
+  },
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "budget.md:60 bundle Words cell stale 37,397; corrected to 37,413 (root+Sigma-refs after iter-2 ref growth)", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [60, 60], "kind": "doc_arithmetic_inconsistency"}, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "fix-delta-gate.md:18 (above) -> shadow-review.md Step 2.6 explicit ref", "defect_signature": {"file": "skills/review-and-fix/references/fix-delta-gate.md", "line_range": [18, 18], "kind": "broken_xref"}, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "loop-exit.md:201 ../../ -> ../../../ markdown link", "defect_signature": {"file": "skills/review-and-fix/references/loop-exit.md", "line_range": [201, 201], "kind": "broken_xref"}, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "orchestrator-class-sweep", "severity": "Important", "description": "fixing.md:100 'Loop-exit rule below' sibling missed in iter-1; found by iter-2 class-sweep; -> references/loop-exit.md", "defect_signature": {"file": "skills/review-and-fix/references/fixing.md", "line_range": [100, 100], "kind": "broken_xref"}, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "nav-field pins tightened to ### Schema block scope via LR_SCHEMA_ALL + assert_eq membership", "defect_signature": {"file": "lib/test/run.sh", "line_range": [164, 172], "kind": "test_gap"}, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "run.sh:8323 stale $MAXI_SKILL comment corrected to name MAXI_BUNDLE", "defect_signature": {"file": "lib/test/run.sh", "line_range": [8323, 8323], "kind": "test_gap"}, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "S-1-bundle", "decision": "applied", "commit": "273143f4"},
+    {"finding_id": "S-2-fixdeltagate-xref", "decision": "applied", "commit": "273143f4"},
+    {"finding_id": "S-3-loopexit-link", "decision": "applied", "commit": "273143f4"},
+    {"finding_id": "S-4-fixing-xref-sweep", "decision": "applied", "commit": "273143f4"},
+    {"finding_id": "S-5-navpin-scope", "decision": "applied", "commit": "273143f4"},
+    {"finding_id": "S-6-stale-comment", "decision": "applied", "commit": "273143f4"},
+    {"finding_id": "S-7-refbody-onepin", "decision": "advisory", "source_file": "skills/review-and-fix/references/shadow-review.md", "claim_text": "large-reference body one-pin-deep", "skip_category": "uncategorized", "evidence": "shadow pr-test-analyzer explicitly framed this as 'residual, not a regression'; inherent to prose pinning; no specific actionable clause; the split reduced no prior coverage (MAXI_BUNDLE preserves every prior pin) and the PR added targeted pins for the highest-value clauses"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 6,
+    "fix_diff_lines": 40,
+    "critical_important_code_fixes": 0,
+    "new_corroborated_critical_count": 0,
+    "note": "all iter-2 fixes are prose xref corrections + doc-cell + test-pin/comment changes; ZERO product/runtime code fixes -> convergence conditions 1 (few code fixes) and 2 (small code diff) satisfied"
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UPDATED", "behind_by": 1},
+  "stale_prose_check": "rc=0 (no STALE rows)",
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 155,
+    "skipped_checks": [
+      {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty during run (grades committed HEAD; runs live on CI clean checkout)"}
+    ]
+  },
+  "sweep_defs_read": ["skills/implement/phases/phase-2-implement.md: coupled-mirror prose (2.3.0/2.3.0a), self-authored-claim drift (2.3.4a)"],
+  "sweep_evidence": {"status": "ran", "notes": "broken_xref class-sweep across all reference files found a 3rd sibling (fixing.md:100) the shadow missed; depth-relative markdown-link sweep confirmed loop-exit.md:201 the only such link; coupled-mirror sweep reconciled budget doc + run.sh growth pin (+1,212); no new stale xrefs introduced"},
+  "test_first_gate": [{"decision": "test-pin tightening (nav-field schema-block scope)", "command": "copy-based mutation: remove pending_dispatch from ### Schema block", "result": "RED confirmed (field absent from LR_SCHEMA_ALL -> assert_eq no != yes)", "evidence": "mutation-proven the tightened pin catches relocation-out-of-block; restored copy"}],
+  "telemetry": "unavailable"
+}
