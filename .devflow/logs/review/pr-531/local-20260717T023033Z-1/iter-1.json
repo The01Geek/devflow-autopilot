@@ -1118,5 +1118,290 @@
       "tokens": 87938,
       "wall_clock_s": 2400
     }
+  },
+  "shadow": {
+    "ran_at": "2026-07-17T05:00:00Z",
+    "trigger": "early (engine_self_modifying, after iteration 1)",
+    "reviewed_sha": "8d39d1c8eda0b04d6e210471990818a340830889",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Important",
+        "description": "ReDoS in SECRET_SHORT_U (measured hang on quote-dense colon-less -u input)",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            240,
+            250
+          ],
+          "kind": "security"
+        }
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Critical",
+        "description": "ReDoS in SECRET_SHORT_U (25s @ 40 quotes, independently reproduced)",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            240,
+            250
+          ],
+          "kind": "security"
+        }
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Critical",
+        "description": "ReDoS in SECRET_SHORT_U (independently reproduced)",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            240,
+            250
+          ],
+          "kind": "security"
+        }
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Critical",
+        "description": "real Claude Code tool-rejection string not matched -> denied request counted as launch, can fabricate candidate_transport_retry",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            1342,
+            1387
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "is_error denial gate has no attributed negative test; incidental Permission denied in failing-test output reclassifies a launch",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            1369,
+            1385
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "denial/cancel substring reclassification on failing-test output (corroborates)",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            1369,
+            1385
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Important",
+        "description": "SECRET_ENV_ASSIGNMENT false-positives on PATH=/PATTERN=/KEYWORDS=",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            223,
+            226
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Critical",
+        "description": "documented_falsehood: _count_input_bytes 'counts each read' universal contradicted by registry counted once",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            277,
+            280
+          ],
+          "kind": "documented_falsehood"
+        }
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Critical",
+        "description": "documented_falsehood: 'artifacts carry created_at/source_snapshot_hash/expires_at' false for manual_review.json",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            22,
+            22
+          ],
+          "kind": "documented_falsehood"
+        }
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Critical",
+        "description": "documented_falsehood: registry command-job consumer:review attribution false (job routes 3 commands)",
+        "defect_signature": {
+          "file": "scripts/workflow-flight-recorder-registry.json",
+          "line_range": [
+            66,
+            72
+          ],
+          "kind": "documented_falsehood"
+        }
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "exporter drops corrupt/id-less runs silently while pagination_complete stays true",
+        "defect_signature": {
+          "file": "scripts/export-workflow-lifecycle-census.py",
+          "line_range": [
+            56,
+            63
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "snapshot_hash recorded but never verified by read_cloud_census (tamper/corruption undetected)",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            2089,
+            2111
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "malformed_row_count buried; all-malformed census reads available",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            2144,
+            2251
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "partial-corrupt stop-attempts lines skipped -> captured claim reads no-contradiction",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            1153,
+            1181
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:checklist-generator (batch1 VC-20)",
+        "severity": "Suggestion",
+        "description": "lifecycle_id=None empty-set fall-through to candidate path",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            1768,
+            1771
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "shallow dict(ws) still aliases covered_roots list",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            1660,
+            1668
+          ],
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "_stop_attempts_state return annotation list[int] should be list[int | None]",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            1130,
+            1130
+          ],
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "agent": "devflow:type-design-analyzer",
+        "severity": "Suggestion",
+        "description": "dual join-confidence semantics (unused pairwise join_confidence vs _classify_relationship); group consumer=members[0]",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            1699,
+            1832
+          ],
+          "kind": "type_design"
+        }
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Important",
+        "description": "OUT OF SCOPE / false positive: .devflow/config.json GLM-routing changes NOT in the PR diff (origin/main...HEAD shows zero config.json changes; reviewer read working-tree/branch-trailing-main state)",
+        "defect_signature": {
+          "file": ".devflow/config.json",
+          "line_range": [
+            27,
+            40
+          ],
+          "kind": "other"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 20,
+      "overlap_with_iter_N": 2,
+      "new": 17,
+      "new_critical": 4,
+      "new_important": 8
+    },
+    "promoted_to_iter_next": true,
+    "note": "config.json finding (final-pass #3) confirmed a false positive: git diff origin/main...HEAD has zero config.json changes. All other findings promoted to iteration 2."
   }
 }
