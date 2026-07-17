@@ -2431,8 +2431,12 @@ assert_pin_unique "#557: system overview documents the evidence gate" \
   '**Evidence-aware post-shadow grading of parked findings (issue #557).**' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 # Condition (c) anchored-rationale operative rule and condition (b) normalization —
 # load-bearing preserve-arm sub-rules; pinned present so a silent removal turns the desk RED.
-assert_pin_unique "#557: condition (c) — a Yes-downgrade row at/above FIX_THRESHOLD with null source fails (c)" \
-  'A Yes-downgrade row at or above `$FIX_THRESHOLD` with null `source` **fails (c)**' "$ST_RAF"
+# Condition (c) — behavioral DIRECTION pin: inverting "fails (c)" → "passes (c)" re-introduces
+# citationless-suppression (a null-source Yes-downgrade at/above FIX_THRESHOLD suppressing a
+# re-raise), so the pin flips PASS->FAIL. A presence pin would catch deletion but not inversion.
+assert_pin_red_under "#557: condition (c) null-source-fails is operative (citationless-suppression goes RED)" \
+  'A Yes-downgrade row at or above `$FIX_THRESHOLD` with null `source` **fails (c)**' \
+  's/with null `source` \*\*fails \(c\)\*\*/with null `source` passes (c)/' "$ST_RAF"
 assert_pin_unique "#557: condition (b) component-wise severity normalization is present" \
   'split the persisted label on `/`, map each component case-insensitively' "$ST_RAF"
 # AC9(i): silent-preservation regression. The OPERATIVE guard is the disposition routing
@@ -2455,11 +2459,12 @@ assert_pin_red_under "#557: condition (a) equivalent-requirement is operative (b
 # AC9(iii): stale-parking preservation regression (a fixed-then-regressed member's re-raise
 # read as corroboration). The OPERATIVE guard is the reconciled population's "minus any member
 # that did not survive unfixed" set operation. The mutation re-introduces the regression by
-# flipping the population to INCLUDE later-fixed members ("plus every member …") AND flipping
-# the appositive ("is excluded" → "is included"), so both enforcers of the exclusion are broken.
+# flipping ALL THREE clauses that enforce the exclusion: the population set-op ("minus" → "plus
+# every member …"), the appositive ("is excluded" → "is included"), and the consequence clause
+# ("never claims a fixed-then-regressed member …" → "claims …"), so no clause re-enforces it.
 assert_pin_red_under "#557: survived-unfixed reconciliation is operative (stale-parking preservation goes RED)" \
   '**minus** any member that did not survive unfixed' \
-  's/\*\*minus\*\* any member that did not survive unfixed/**plus** every member including later-fixed ones/; s/is \*\*excluded\*\*, so the overlap rule/is included, so the overlap rule/' "$ST_RAF"
+  's/\*\*minus\*\* any member that did not survive unfixed/**plus** every member including later-fixed ones/; s/is \*\*excluded\*\*, so the overlap rule/is included, so the overlap rule/; s/never claims a fixed-then-regressed member/claims a fixed-then-regressed member/' "$ST_RAF"
 # #425 shadow-not-scoped behavioral-fix pin (placed here, below the assert_pin_red_under
 # definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
