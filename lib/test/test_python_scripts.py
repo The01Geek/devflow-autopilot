@@ -4024,6 +4024,11 @@ assert_eq("#546 shadow-round: ... while a genuinely staled event-ordering epoch 
           "marks stale with no digest supplied", True,
           issue_audit_state.summary_fields(
               _state([_round(1, 'embed', 'FILE')], revisions=(1,)), None)['stale_token'])
+assert_eq("#546 shadow-round: a file-arm epoch whose clean round a revision postdates "
+          "marks stale even with no digest supplied (positive invalidation evidence)",
+          True,
+          issue_audit_state.summary_fields(
+              _state([_round(1, 'file', 'FILE')], revisions=(1,)), None)['stale_token'])
 
 # (4) A dispatch recorded for a pending retry clears the pending action: next-action
 # then answers the fail-closed awaiting token, never the already-spent retry action.

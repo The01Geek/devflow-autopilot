@@ -891,7 +891,12 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         if stale and current_digest is None:
             latest_clean = next((r for r in reversed(done)
                                  if r.get('outcome') == 'FILE'), None)
-            if latest_clean is not None and latest_clean['attempts'][-1]['arm'] == 'file':
+            if (latest_clean is not None
+                    and latest_clean['attempts'][-1]['arm'] == 'file'
+                    and not _revision_postdates(state, latest_clean)):
+                # ...unless a recorded revision positively postdates the clean round —
+                # that invalidation needs no digest comparison, so the stale marker
+                # stays honest even when no draft file was supplied.
                 stale = False
     return {
         'state': 'ok',
