@@ -40942,7 +40942,7 @@ assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh" \
-  "workflow-flight-recorder" 66; then
+  "workflow-flight-recorder" 68; then
   printf 'ERROR: workflow-flight-recorder boundary could not record its result\n'
   exit 1
 fi

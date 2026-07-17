@@ -73,8 +73,16 @@ cleanup() {
   [ -z "$DETAILS_FILE" ] || rm -f "$DETAILS_FILE"
 }
 trap cleanup EXIT
+# Bash skips the EXIT trap on an untrapped fatal signal, so mirror the module's
+# signal handling: clean up, then re-raise a nonzero exit.
+trap 'cleanup; trap - EXIT HUP INT TERM; exit 1' HUP INT TERM
 
-SELECTOR_STDERR="$(mktemp)" || selector_error "could not allocate selector diagnostics"
+# Explicit ${TMPDIR:-/tmp}-rooted templates: bare `mktemp` does not honor a
+# runtime TMPDIR override on macOS/BSD (it uses the Darwin confstr temp dir),
+# so a bare call would silently ignore the caller's TMPDIR (CLAUDE.md: no
+# GNU-only behavior assumptions).
+SELECTOR_STDERR="$(mktemp "${TMPDIR:-/tmp}/devflow-module-selector.XXXXXX")" || \
+  selector_error "could not allocate selector diagnostics"
 MODULE_SELECTION="$(python3 - "$REGISTRY" "$MODULE_ID" "$REPO_ROOT" 2>"$SELECTOR_STDERR" <<'PY'
 from __future__ import annotations
 
@@ -193,14 +201,23 @@ case "$MODULE_SELECTION" in
 esac
 MODULE_PATH="${MODULE_SELECTION%%$'\n'*}"
 MIN_ASSERTIONS="${MODULE_SELECTION#*$'\n'}"
+# Re-validate both tuple fields at the consumer (the selector prints the path
+# verbatim, so a pathological path could smuggle extra lines into the tuple; a
+# non-numeric floor would make the later [ -lt ] comparison error inside an
+# elif and silently skip the assertion-floor gate — a fail-open).
+[ -n "$MODULE_PATH" ] || selector_error "selected mapping resolved an empty module path"
+case "$MIN_ASSERTIONS" in
+  ''|*[!0-9]*) selector_error "selected mapping did not provide a numeric assertion floor" ;;
+esac
 
 # No log directory or module-side effect exists before the exact selection above succeeds.
 mkdir -p "$LOG_DIR" || selector_error "could not create log directory: $LOG_DIR"
 LOG_FILE="$(mktemp "$LOG_DIR/$MODULE_ID.log.XXXXXX")" || \
   selector_error "could not allocate module log in: $LOG_DIR"
 
-RESULTS_FILE="$(mktemp)" || selector_error "could not allocate the assertion tally"
-DETAILS_FILE="$(mktemp)" || {
+RESULTS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-results.XXXXXX")" || \
+  selector_error "could not allocate the assertion tally"
+DETAILS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-details.XXXXXX")" || {
   selector_error "could not allocate failure details"
 }
 
@@ -215,7 +232,7 @@ DETAILS_FILE="$(mktemp)" || {
     value="${value//$'\t'/ }"
     value="${value//$'\r'/ }"
     value="${value//$'\n'/\\n}"
-    printf '%s' "${value:-\(empty\)}"
+    printf '%s' "${value:-(empty)}"
   }
 
   assert_eq() {

@@ -15,7 +15,6 @@ import subprocess
 import tempfile
 import time
 import unittest
-from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -159,6 +158,73 @@ class ModuleRunnerTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Usage:", result.stderr)
+
+    def test_repository_module_runs_green_through_the_real_runner(self) -> None:
+        # The focused path the prompt extensions steer agents to: the REAL
+        # runner + REAL registry + REAL module, end to end. This is the only
+        # execution proving the runner's environment contract (LIB,
+        # RESULTS_FILE, assert_eq, sourced harness) satisfies the module's
+        # actual needs — the full suite exercises the module only through the
+        # harness boundary, not through this runner.
+        with tempfile.TemporaryDirectory() as log_dir:
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER_SOURCE),
+                    "--log-dir",
+                    log_dir,
+                    "workflow-flight-recorder",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(
+                result.returncode,
+                0,
+                result.stdout[-4000:] + result.stderr[-4000:],
+            )
+            self.assertRegex(
+                result.stdout,
+                r"Module workflow-flight-recorder: [0-9]+ passed, 0 failed",
+            )
+            self.assertTrue(list(Path(log_dir).iterdir()))
+
+    def test_relative_registry_and_log_dir_resolve_against_repo_root(self) -> None:
+        custom_dir = self.root / "custom"
+        custom_dir.mkdir()
+        (custom_dir / "reg.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "workflows": {"placeholder": {}},
+                    "test_modules": {
+                        "sample": {
+                            "path": "lib/test/modules/sample.sh",
+                            "minimum_assertions": 1,
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = self._run_args(
+            "--registry",
+            "custom/reg.json",
+            "--log-dir",
+            "custom-logs",
+            "sample",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        log = self._log_path(result)
+        # Compare physical paths: the runner resolves REPO_ROOT with pwd -P,
+        # while the sandbox root may sit behind a symlink (macOS /var -> /private/var).
+        self.assertEqual(log.parent, (self.root / "custom-logs").resolve())
+        self.assertTrue(log.is_file())
 
     def test_unknown_selector_fails_before_any_module_body_or_log(self) -> None:
         result = self._run("unknown")
@@ -637,17 +703,34 @@ class ModuleRunnerTests(unittest.TestCase):
             self.assertTrue(ready.exists(), "blocking module did not start")
             self.assertEqual(len(list(controlled_tmp.iterdir())), 2)
         finally:
+            # The runner's HUP/INT/TERM trap runs only after the module's
+            # foreground command (sleep 5) returns, so give SIGTERM time to be
+            # honored and fall back to SIGKILL rather than hanging the test.
             process.terminate()
-            process.communicate(timeout=3)
+            try:
+                process.communicate(timeout=8)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
 
-    def test_parent_failure_flag_does_not_contaminate_unforced_child_runs(self) -> None:
-        with mock.patch.dict(
-            os.environ, {"DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE": "1"}
-        ):
-            result = self._run("sample")
+    def test_forced_failure_injection_fires_only_when_the_flag_is_present(self) -> None:
+        # RED half: the flag deliberately passed through fires the injection.
+        # (extra_env is applied after the helper's scrub, so this reaches bash.)
+        forced = self._run(
+            "sample", extra_env={"DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE": "1"}
+        )
+        self.assertNotEqual(forced.returncode, 0, forced.stdout + forced.stderr)
+        self.assertIn(
+            "controlled experimental failure injection", forced.stdout
+        )
 
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Module sample: 1 passed, 0 failed", result.stdout)
+        # GREEN half / no-fire control: without the flag the same module is clean.
+        unforced = self._run("sample")
+        self.assertEqual(unforced.returncode, 0, unforced.stdout + unforced.stderr)
+        self.assertIn("Module sample: 1 passed, 0 failed", unforced.stdout)
+        self.assertNotIn(
+            "controlled experimental failure injection", unforced.stdout
+        )
 
     def test_repository_registry_maps_the_extracted_recorder_module(self) -> None:
         registry = json.loads(
@@ -665,7 +748,7 @@ class ModuleRunnerTests(unittest.TestCase):
             registry["test_modules"]["workflow-flight-recorder"][
                 "minimum_assertions"
             ],
-            66,
+            68,
         )
         module = ROOT / "lib/test/modules/workflow-flight-recorder.sh"
         self.assertTrue(module.is_file())
@@ -721,7 +804,12 @@ class ModuleRunnerTests(unittest.TestCase):
         ]
         self.assertTrue(result_tally_traps)
         self.assertTrue(
-            all('"$IMPL_SKILL_BUNDLE"' in line for line in result_tally_traps),
+            all(
+                '"$IMPL_SKILL_BUNDLE"' in line
+                and '"$MODULE_FAILURES_FILE"' in line
+                and '"$SKIPS_FILE"' in line
+                for line in result_tally_traps
+            ),
             result_tally_traps,
         )
 

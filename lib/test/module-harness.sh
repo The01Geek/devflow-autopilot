@@ -21,7 +21,10 @@ _devflow_valid_result_count() {
 devflow_run_focused_python_test() { # assertion-name script-path output-path
   local assertion_name="$1" script_path="$2" output_path="$3" test_rc
 
-  if python3 "$script_path" > "$output_path" 2>&1; then
+  # PYTHON_COLORS=0 keeps the captured diagnostics deterministic: a host that
+  # forces color (FORCE_COLOR) would otherwise interleave ANSI codes into the
+  # traceback text that downstream assertions and human readers match against.
+  if PYTHON_COLORS=0 python3 "$script_path" > "$output_path" 2>&1; then
     test_rc=0
   else
     test_rc=$?
@@ -88,7 +91,7 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
     return 0
   fi
 
-  if ! module_results_file="$(mktemp)"; then
+  if ! module_results_file="$(mktemp "${TMPDIR:-/tmp}/devflow-module-tally.XXXXXX")"; then
     _devflow_record_module_failure || return 1
     printf '  FAIL  test module %s — could not allocate private result tally\n' \
       "$module_name" >&2
@@ -100,11 +103,16 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
     # runner even when a future caller does not enable nounset globally.
     set -u
     # The module receives RESULTS_FILE by contract, but never the independent
-    # boundary-failure channel or the shared suite tally used to grade its own
-    # process behavior. A private tally prevents an over-broad module write from
-    # changing any verdict recorded before this boundary.
+    # boundary-failure channel, the shared skip tally, or the shared suite tally
+    # used to grade its own process behavior. A private tally prevents an
+    # over-broad module write from changing any verdict recorded before this
+    # boundary. (Deliberate dialect note: on an invalid record the full suite
+    # voids the module's whole private tally as unreadable, while the focused
+    # runner counts the valid records and adds one failure — full-suite
+    # contamination voids the contribution; focused runs preserve diagnostics.)
     RESULTS_FILE="$module_results_file"
     unset MODULE_FAILURES_FILE
+    unset SKIPS_FILE
     # shellcheck source=/dev/null disable=SC1090
     . "$module_path"
   )

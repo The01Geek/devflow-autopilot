@@ -147,6 +147,14 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("FOLD_CLOSED", result.stdout.splitlines())
 
+    def test_module_failure_fold_rejects_a_non_numeric_operand(self) -> None:
+        result = self._run_support_driver(
+            'if devflow_fold_module_failures "abc"; then echo FOLD_OPEN; else echo FOLD_CLOSED; fi\n'
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("FOLD_CLOSED", result.stdout.splitlines())
+
     def test_focused_python_failure_prints_captured_diagnostics(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: MIT
 # shellcheck shell=bash
 # Sourceable workflow-flight-recorder test module.
-# Contract: the caller sets LIB and RESULTS_FILE and defines assert_eq.
-# The module owns all other fixtures and removes its temporary workspace.
+# Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
+# lib/test/module-harness.sh first (this module calls that harness's focused
+# Python-test helper). The module owns all other fixtures and removes its
+# temporary workspace.
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "workflow flight recorder: native inventory, explicit import, and constrained analysis"
@@ -39,6 +41,16 @@ case "$IFR_ROOT" in
     ;;
 esac
 if [ "$IFR_ROOT_VALID" -ne 1 ]; then
+  # A directory mktemp allocated but validation rejected would otherwise be
+  # orphaned. Remove it only when it is a real, non-symlink directory that
+  # still matches the requested prefix — never follow a symlink escape.
+  case "$IFR_ROOT" in
+    "$IFR_PREFIX"?*)
+      if [ -d "$IFR_ROOT" ] && [ ! -L "$IFR_ROOT" ]; then
+        rm -rf "$IFR_ROOT"
+      fi
+      ;;
+  esac
   printf 'could not allocate workflow-flight-recorder workspace\n' >&2
   return 1
 fi
@@ -124,6 +136,11 @@ assert_eq "flight recorder: local recorder fixture has no Stop command" "no" \
   "$(jq -r '.hooks.Stop[]?.hooks[]?.command // empty' "$IFR_SETTINGS_FIXTURE" | \
       grep -Eq 'capture-(implement-session|workflow-manifest)\.py' && echo yes || echo no)"
 IFR_STOP_EXAMPLE="$(awk '/^- \*`Stop` hook \(local-tier only\)\.\*/ { found=1 } found { print } found && /^  > \*\*Note/ { exit }' "$LIB/../docs/efficiency-trace.md")"
+# Positive control first: an empty extraction (awk absent, doc anchor drifted)
+# would make the negative assertion below pass vacuously — the exact fail-open
+# a no-recorder-command check must not have.
+assert_eq "flight recorder: documented local Stop example excerpt extracted non-empty" "yes" \
+  "$([ -n "$IFR_STOP_EXAMPLE" ] && echo yes || echo no)"
 assert_eq "flight recorder: documented local Stop example has no recorder command" "no" \
   "$(printf '%s' "$IFR_STOP_EXAMPLE" | grep -Eq 'capture-(implement-session|workflow-manifest)\.py' && echo yes || echo no)"
 
@@ -222,6 +239,10 @@ IFR_PRIOR_REPORT="$(cat "$IFR_BUNDLE/run-report.md" 2>/dev/null || true)"
   python3 "$IFR_ANALYZE" --acknowledge-provider-access sid-a >/dev/null 2>"$IFR_ROOT/single-issue.err")
 IFR_SINGLE_RC=$?
 assert_eq "flight recorder analyzer: a single-run issue block is rejected" "1" "$IFR_SINGLE_RC"
+# Attribute the rejection to the intended guard: any unrelated rc-1 crash would
+# satisfy the exit-code assertion alone, so pin the guard's own diagnostic.
+assert_eq "flight recorder analyzer: rejection names the single-session issue-draft guard" "1" \
+  "$(grep -cF "single-session analysis cannot publish issue drafts" "$IFR_ROOT/single-issue.err")"
 assert_eq "flight recorder analyzer: rejected output publishes no replacement report" "$IFR_PRIOR_REPORT" \
   "$(cat "$IFR_BUNDLE/run-report.md" 2>/dev/null || true)"
 
