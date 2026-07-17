@@ -41150,9 +41150,19 @@ if [ -d "$CB_SB" ]; then
     # The body-emitting query's bytes hash to the recorded body-only digest (round-trip).
     python3 "$IAS" emit-body cb --nonce "$N" --draft-file d.md \
       | python3 "$IAS" record-creation-attestation cb --nonce "$N" > .cb-match
+    # The attestation is forward-only (round-3 hardening): the mismatch and
+    # fetch-failure arms each get their OWN epoch on a fresh slug.
+    for CASE in mm uv; do
+      NC="$(python3 "$IAS" init "cb$CASE" | sed 's/nonce=//')"
+      python3 "$IAS" record-dispatch "cb$CASE" --nonce "$NC" --round 1 --arm file --draft-file d.md > /dev/null
+      python3 "$IAS" record-return "cb$CASE" --nonce "$NC" --round 1 --verdict FILE \
+        --findings-count 0 --carriage-object-id "$OID" > /dev/null
+      python3 "$IAS" record-creation-epoch "cb$CASE" --nonce "$NC" --round 1 > /dev/null
+      printf '%s\n' "$NC" > ".cb-nonce-$CASE"
+    done
     printf 'a different body entirely\n' \
-      | python3 "$IAS" record-creation-attestation cb --nonce "$N" > .cb-mismatch
-    python3 "$IAS" record-creation-attestation cb --nonce "$N" --attestation-unavailable > .cb-unavail
+      | python3 "$IAS" record-creation-attestation cbmm --nonce "$(cat .cb-nonce-mm)" > .cb-mismatch
+    python3 "$IAS" record-creation-attestation cbuv --nonce "$(cat .cb-nonce-uv)" --attestation-unavailable > .cb-unavail
   )
   assert_eq "#546 creation_binding_rows: the emitted body attests clean against the recorded body-only digest" \
     "attestation=match" "$(cat "$CB_SB/.cb-match" 2>/dev/null)"
@@ -41490,11 +41500,11 @@ if [ -d "$IT_SB" ]; then
   rm -rf "$IT_SB"
 fi
 
-# shadow_round_rows (#546, PR #552 shadow review) — producer-side CLI drives the blinded
-# shadow pass showed were only covered against hand-built records: the embed-arm sentinel
+# shadow_round_rows (#546, PR #552 shadow review) — producer-side CLI drives for the
+# seams the blinded shadow pass showed were only covered against hand-built records: the embed-arm sentinel
 # carriage round-trip with the TOOL-generated sentinels, the record-override producer vs
 # the eligibility consumer, the per-query foreign-nonce fail-closed answers, query-arm's
-# recorded-fact read-back (no --prior-unreadable flag), record-degraded reaching the
+# recorded-fact read-back (without passing --prior-unreadable), record-degraded reaching the
 # summary, and the pending-cleared-at-dispatch next-action answer.
 SR_SB="$(git_sandbox '#546 shadow_round_rows')"
 if [ -d "$SR_SB" ]; then
@@ -41583,6 +41593,72 @@ if [ -d "$SR_SB" ]; then
   assert_eq "#546 shadow_round_rows: record-degraded surfaces in the summary" \
     "1" "$(grep -c 'degraded=yes' "$SR_SB/.sr-deg-summary" 2>/dev/null)"
   rm -rf "$SR_SB"
+fi
+
+# iter3_hardening_rows (#546, PR #552 review round 3) — CLI drives for the round-3 guards:
+# the after-round operand validation (the sole event-ordering invalidation evidence must
+# never fail open on a caller-supplied value), the forward-only attestation, the premature
+# cap-reached refusal, the init load-failure detail, and the unsafe-slug CLI seam.
+I3_SB="$(git_sandbox '#546 iter3_hardening_rows')"
+if [ -d "$I3_SB" ]; then
+  (
+    cd "$I3_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+
+    N4="$(python3 "$IAS" init it4 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch it4 --nonce "$N4" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return it4 --nonce "$N4" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 0 \
+      > /dev/null 2> .i3-ar-low; printf '%s' "$?" > .i3-ar-low-rc
+    python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 2 \
+      > /dev/null 2> .i3-ar-high; printf '%s' "$?" > .i3-ar-high-rc
+    python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 1 > .i3-ar-ok 2>&1
+
+    N5="$(python3 "$IAS" init it5 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch it5 --nonce "$N5" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return it5 --nonce "$N5" --round 1 --verdict FILE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch it5 --nonce "$N5" --round 1 > /dev/null 2>&1
+    printf 'other bytes\n' | python3 "$IAS" record-creation-attestation it5 \
+      --nonce "$N5" > /dev/null 2>&1
+    printf 'body\n' | python3 "$IAS" record-creation-attestation it5 \
+      --nonce "$N5" > /dev/null 2> .i3-att-again; printf '%s' "$?" > .i3-att-again-rc
+    python3 "$IAS" record-creation-epoch it5 --nonce "$N5" --round 1 \
+      > /dev/null 2> .i3-rebind; printf '%s' "$?" > .i3-rebind-rc
+
+    N6="$(python3 "$IAS" init it6 | sed 's/nonce=//')"
+    python3 "$IAS" record-override it6 --nonce "$N6" --kind cap-reached \
+      > /dev/null 2> .i3-cap; printf '%s' "$?" > .i3-cap-rc
+
+    printf 'not json' > .devflow/tmp/issue-audit-state-it7.json
+    python3 "$IAS" init it7 --nonce deadbeef > /dev/null 2> .i3-corrupt; printf '%s' "$?" > .i3-corrupt-rc
+
+    python3 "$IAS" init 'a/b' > /dev/null 2> .i3-slug; printf '%s' "$?" > .i3-slug-rc
+  )
+  assert_eq "#546 iter3_hardening_rows: an after-round below the last completed round refuses (the fail-open shape)" \
+    "1" "$(grep -c 'does not name a plausible round' "$I3_SB/.i3-ar-low" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: ... non-zero" "1" "$(cat "$I3_SB/.i3-ar-low-rc" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: an after-round above the last recorded round refuses" \
+    "1" "$(cat "$I3_SB/.i3-ar-high-rc" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: the truthful after-round is accepted" \
+    "ordinal=1" "$(cat "$I3_SB/.i3-ar-ok" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: a second attestation refuses (forward-only tamper evidence)" \
+    "1" "$(grep -c 'cannot be overwritten' "$I3_SB/.i3-att-again" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: an epoch re-bind after attestation refuses" \
+    "1" "$(grep -c 'silently discard that tamper evidence' "$I3_SB/.i3-rebind" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: a premature cap-reached override refuses" \
+    "1" "$(grep -c 'before the ceiling' "$I3_SB/.i3-cap" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: init --nonce over a corrupt state file names the load failure" \
+    "1" "$(grep -c 'the load failed' "$I3_SB/.i3-corrupt" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: an unsafe slug refuses at the CLI seam with the named breadcrumb" \
+    "1" "$(grep -c 'not a safe path segment' "$I3_SB/.i3-slug" 2>/dev/null)"
+  rm -rf "$I3_SB"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────

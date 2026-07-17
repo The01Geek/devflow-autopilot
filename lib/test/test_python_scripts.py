@@ -3650,6 +3650,8 @@ _TRANSITION_ROWS = [
     ('creation-attestation', 'body-mismatches', True),
     ('creation-attestation', 'fetch-failed', True),
     ('creation-attestation', 'no-epoch-recorded', False),
+    ('creation-attestation', 'already-recorded', False),
+    ('creation-epoch', 'rebind-after-attestation', False),
 ]
 
 # table_test_lockstep_count — the exact-count lockstep. Derived from the module's own
@@ -4045,6 +4047,18 @@ assert_raises("#546 shadow-round: a path-escaping slug raises StateError",
 assert_raises("#546 shadow-round: a slash-carrying slug raises StateError",
               issue_audit_state.StateError,
               lambda: issue_audit_state.state_path('a/b'))
+
+print()
+print("issue-audit-state: iteration-3 hardening (issue #546, PR #552 review)")
+
+# after-round is validated against recorded facts: a value below the last completed
+# round (which would fail the event-ordering staleness guard OPEN) and a value above
+# the last recorded round are both refused; the truthful value is accepted.
+_malformed('a negative findings_count',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'), findings_count=-3)]))
+_malformed('a non-boolean reinit_forced', dict(_GOOD, reinit_forced='yes'))
+assert_eq("#546 iter3: _TRANSITION_REASONS gains attestation-already-recorded",
+          True, 'attestation-already-recorded' in issue_audit_state._TRANSITION_REASONS)
 
 # (3) An unreadable/unhashable supplied draft refuses with the DISTINCT reason
 # draft-undigestible in approve mode — never misattributed as unaudited-revision,

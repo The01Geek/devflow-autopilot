@@ -121,8 +121,11 @@ _GROUNDS = ('file-identity', 'event-ordering', 'override')
 _MAX_AUTOMATIC_REAUDITS = 1
 _USER_ROUND_CAP = 3
 
-# ── The transition table (the single in-module source of truth) ─────────────────
-# One row per transition. Every row names the tokens it references; the import-time
+# ── The transition table (the vocabulary registry and lockstep record) ─────────────────
+# One row per transition. The verdict-on-arm rows are consulted at runtime by
+# _legality(); the other events' rows are the audited record of each cmd_* guard,
+# kept honest by the tests' count-and-content lockstep rather than by a runtime read.
+# Every row names the tokens it references; the import-time
 # assert below rejects any token outside its canonical set, so a renamed arm, verdict,
 # marker, override kind or reason token fails the import loudly instead of silently
 # routing a lifecycle event to a rule that no longer matches. The tests derive their
@@ -213,6 +216,13 @@ TRANSITIONS = (
     _row('creation-attestation', 'fetch-failed', result='attestation-unavailable'),
     _row('creation-attestation', 'no-epoch-recorded', legal=False,
          result='illegal-attestation', reason='no-epoch-to-attest'),
+    # The attestation is tamper-evidence: once recorded it is forward-only. A second
+    # attestation, and an epoch re-bind that would silently reset a recorded one,
+    # are both illegal — a recorded mismatch must never be overwritable.
+    _row('creation-attestation', 'already-recorded', legal=False,
+         result='illegal-attestation', reason='attestation-already-recorded'),
+    _row('creation-epoch', 'rebind-after-attestation', legal=False,
+         result='illegal-epoch', reason='attestation-already-recorded'),
 )
 
 
@@ -262,7 +272,7 @@ def _assert_transition_tokens():
 _TRANSITION_REASONS = (
     'reinit-requires-force', 'foreign-nonce', 'round-not-open', 'duplicate-return',
     'unreadable-illegal-on-arm', 'no-round-to-revise', 'no-round-to-bind',
-    'no-epoch-to-attest',
+    'no-epoch-to-attest', 'attestation-already-recorded',
 )
 _ALL_REASONS = set(_ELIGIBILITY_REASONS) | set(_TRANSITION_REASONS)
 
@@ -300,7 +310,11 @@ def _repo_root():
     """
     try:
         r = _run(['git', 'rev-parse', '--show-toplevel'])
-    except (subprocess.CalledProcessError, OSError):
+    except (subprocess.CalledProcessError, OSError) as exc:
+        # The anchor SELECTION is changing (cwd fallback): breadcrumb the cause so a
+        # split-state mystery (state one directory up, fresh file here) is diagnosable.
+        print(f'issue-audit-state.py: git rev-parse failed ({exc}); anchoring state '
+              f'to the current directory', file=sys.stderr)
         return None
     root = r.stdout.decode('utf-8', 'replace').strip()
     return Path(root) if root else None
@@ -464,8 +478,10 @@ def _validate(doc, slug):
             raise StateError(f'round {num} names an outcome outside the canonical set: '
                              f'{rnd["outcome"]!r}')
         fc = rnd.get('findings_count')
-        if fc is not None and (not isinstance(fc, int) or isinstance(fc, bool)):
-            raise StateError(f'round {num} findings_count {fc!r} is not an integer')
+        if fc is not None and (not isinstance(fc, int) or isinstance(fc, bool)
+                               or fc < 0):
+            raise StateError(f'round {num} findings_count {fc!r} is not a '
+                             f'non-negative integer')
         # `pending` decides the next dispatch, so a hand-corrupted value outside the closed
         # answer set must fail closed here rather than reach the skill as an unroutable token.
         pend = rnd.get('pending')
@@ -510,6 +526,9 @@ def _validate(doc, slug):
         val = doc.get(key, 0)
         if not isinstance(val, int) or isinstance(val, bool):
             raise StateError(f'{key} {val!r} is not an integer')
+    rf = doc.get('reinit_forced')
+    if rf is not None and not isinstance(rf, bool):
+        raise StateError(f'reinit_forced {rf!r} is not a boolean')
     creation = doc.get('creation')
     if creation is not None:
         if not isinstance(creation, dict):
@@ -1112,6 +1131,9 @@ def cmd_record_return(args):
     # later clean retry that omits its own count.
     if cls in ('accept-file', 'accept-revise'):
         if args.findings_count is not None:
+            if args.findings_count < 0:
+                _fail('record-return', f'--findings-count {args.findings_count} is '
+                                       'negative; a findings tally cannot be')
             rnd['findings_count'] = args.findings_count
         if args.consumer_dimensions_appended:
             rnd['consumer_dimensions_appended'] = True
@@ -1144,6 +1166,20 @@ def cmd_record_revision(args):
     doc = _load_for_mutation('record-revision', args.slug, args.nonce)
     if not doc['rounds']:
         _fail('record-revision', 'no rounds are recorded; there is nothing to revise')
+    # --after-round is the SOLE invalidation evidence on the event-ordering ground
+    # (_revision_postdates keys eligibility and T2 on it), so a caller-supplied value
+    # below the last completed round would fail that guard OPEN — a revised draft would
+    # still answer eligible. Validate the operand against recorded facts: it must name
+    # a round at or above the last completed one and no higher than the last recorded.
+    last_num = doc['rounds'][-1]['round']
+    lc = last_completed(doc)
+    floor = lc['round'] if lc else 0
+    if args.after_round < floor or args.after_round > last_num:
+        _fail('record-revision',
+              f'--after-round {args.after_round} does not name a plausible round: the '
+              f'last completed round is {floor} and the last recorded round is '
+              f'{last_num} (a value below the last completed round would fail the '
+              f'event-ordering staleness guard open)')
     doc['revisions'].append({'ordinal': len(doc['revisions']) + 1,
                              'after_round': args.after_round})
     try:
@@ -1168,6 +1204,11 @@ def cmd_record_override(args):
                              'recorded_at_ordinal': len(doc['revisions']),
                              'draft_digest': digest})
     if args.kind == 'cap-reached':
+        if doc.get('user_rounds_used', 0) < _USER_ROUND_CAP:
+            _fail('record-override',
+                  f'cap-reached recorded before the ceiling: user_rounds_used is '
+                  f'{doc.get("user_rounds_used", 0)} of {_USER_ROUND_CAP} — a premature '
+                  f'cap record would silently burn the remaining user rounds')
         doc['user_rounds_used'] = _USER_ROUND_CAP
     try:
         save_state(doc, args.slug)
@@ -1210,6 +1251,10 @@ def cmd_record_creation_epoch(args):
     if rnd is None:
         _fail('record-creation-epoch', f'no round {args.round} is recorded to bind '
                                        'creation to')
+    if (doc.get('creation') or {}).get('attestation') is not None:
+        _fail('record-creation-epoch',
+              'an attestation is already recorded; re-binding the creation epoch would '
+              'silently discard that tamper evidence')
     attempt = rnd['attempts'][-1]
     doc['creation'] = {'epoch_round': args.round, 'epoch_arm': attempt['arm'],
                        'body_only_digest': attempt['body_digest'], 'attestation': None}
@@ -1225,6 +1270,10 @@ def cmd_record_creation_attestation(args):
     if not doc.get('creation'):
         _fail('record-creation-attestation', 'no creation epoch is recorded; there is '
                                              'nothing to attest against')
+    if doc['creation'].get('attestation') is not None:
+        _fail('record-creation-attestation',
+              'an attestation is already recorded for this epoch; the attestation is '
+              'forward-only tamper evidence and cannot be overwritten')
     if args.attestation_unavailable:
         status = 'attestation-unavailable'
     else:
