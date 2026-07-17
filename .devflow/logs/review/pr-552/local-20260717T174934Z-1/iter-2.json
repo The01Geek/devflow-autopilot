@@ -1,0 +1,13 @@
+{
+  "iter": 2,
+  "fix_commit_sha": "909ce558475809f1e12174b15086ad10f4133b7d",
+  "fix_files": [
+    "lib/test/run.sh",
+    "lib/test/test_python_scripts.py",
+    "scripts/issue-audit-state.py",
+    "skills/create-issue/references/issue-template.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
