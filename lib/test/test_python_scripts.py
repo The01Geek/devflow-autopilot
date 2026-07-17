@@ -3609,10 +3609,13 @@ assert_eq("#546 eligibility_unaudited_revision_regression: a refused answer issu
 print()
 print("issue-audit-state: the transition table (issue #546)")
 
-# Every legal and illegal transition is driven by exactly one row here. The lockstep
-# assert below derives the expected count from the module's OWN table, so a row added
-# to the module without a row added here turns the suite RED rather than shipping an
-# untested transition.
+# One row here per module table row, counted and content-matched in LOCKSTEP (a
+# metadata lockstep over event/condition/legality — not itself a behavioral drive;
+# the behavioral arms are driven by the function-level rows below and the CLI blocks
+# in the shell suite, including the illegal-mutation guards). The lockstep assert
+# derives the expected count from the module's OWN table, so a row added to the
+# module without a row added here turns the suite RED rather than shipping an
+# untracked transition.
 _TRANSITION_ROWS = [
     ('init', 'cold-start-no-nonce', True),
     ('init', 'same-run-nonce-no-rounds', True),
@@ -3933,6 +3936,89 @@ _malformed('a round missing a required key', dict(_GOOD, rounds=[{'round': 1}]))
 assert_eq("#546 malformed-state matrix (valid-falsy control): an empty rounds list is "
           "valid state, not a malformed shape",
           's', issue_audit_state._validate(dict(_GOOD), 's')['slug'])
+
+print()
+print("issue-audit-state: review-round hardening (issue #546, PR #552 review)")
+
+# (1) Malformed read-surface fields the QUERIES consume. Pre-fix, each of these passed
+# _validate and then crashed a query (AttributeError/TypeError) — a crashed read
+# presented as a non-zero query exit, violating the two-class contract.
+_malformed('a revision record that is not an object', dict(_GOOD, revisions=['x']))
+_malformed('a revision record missing its ordinal', dict(_GOOD, revisions=[{'after_round': 0}]))
+_malformed('a non-integer revision ordinal',
+           dict(_GOOD, revisions=[{'ordinal': 'one', 'after_round': 0}]))
+_malformed('a non-integer after_round on a revision record',
+           dict(_GOOD, revisions=[{'ordinal': 1, 'after_round': 'zero'}]))
+_malformed('a non-integer automatic_reaudits_used counter',
+           dict(_GOOD, automatic_reaudits_used='two'))
+_malformed('a non-integer user_rounds_used counter', dict(_GOOD, user_rounds_used='three'))
+_malformed('a creation record that is not an object', dict(_GOOD, creation='yes'))
+_malformed('a creation record missing its body_only_digest',
+           dict(_GOOD, creation={'epoch_round': 1}))
+assert_eq("#546 review-round (valid-falsy control): creation=None is a legal live state",
+          's', issue_audit_state._validate(dict(_GOOD, creation=None), 's')['slug'])
+
+# (2) The creation-attestation status is surfaced in the audit-summary fields (AC:
+# "a mismatch is surfaced in the reported outcome and the audit-summary fields").
+_att_state = _state([_round(1, 'file', 'FILE', 'D1')])
+_att_state['creation'] = {'epoch_round': 1, 'epoch_arm': 'file',
+                          'body_only_digest': 'BD1', 'attestation': 'mismatch'}
+assert_eq("#546 attestation_summary_rows: a recorded attestation mismatch is surfaced "
+          "in the summary fields", 'mismatch',
+          issue_audit_state.summary_fields(_att_state, 'D1')['attestation'])
+assert_eq("#546 attestation_summary_rows: no creation epoch -> attestation reads none "
+          "(unknown is not a pass)", 'none',
+          issue_audit_state.summary_fields(_clean_file, 'D1')['attestation'])
+
+# (3) An unreadable/unhashable supplied draft refuses with the DISTINCT reason
+# draft-undigestible in approve mode — never misattributed as unaudited-revision,
+# and never eligible on any ground (fail closed, overrides included).
+assert_eq("#546 draft_undigestible_rows: digest failure refuses with its own reason, "
+          "not unaudited-revision",
+          ('not-eligible', 'draft-undigestible'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([_round(1, 'file', 'FILE', 'D1')]), 'approve', None,
+                  digest_failed=True)))
+assert_eq("#546 draft_undigestible_rows: a digest failure blocks even the override ground",
+          'draft-undigestible',
+          issue_audit_state.evaluate_eligibility(
+              _state([_round(1, 'file', 'FILE', 'D1')],
+                     overrides=[{'kind': 'user-decline', 'surface': 't1t2-boundary',
+                                 'recorded_at_ordinal': 0, 'draft_digest': None}]),
+              'approve', None, digest_failed=True)['reason'])
+
+# (4) An open, unreturned round answers a fail-closed token, never `proceed`.
+_open_round = _state([dict(_round(1, 'file', None), outcome=None)])
+assert_eq("#546 next_action_rows: an open unreturned round answers "
+          "round-open-awaiting-return, never proceed",
+          'round-open-awaiting-return',
+          issue_audit_state.next_action(_open_round, 1))
+
+# (5) split_body edge-case rows — the producer of the body-only digest, driven directly.
+_sb = issue_audit_state.split_body
+assert_eq("#546 split_body_rows: no title heading -> whole content is the body",
+          b'plain text\nmore\n', _sb(b'plain text\nmore\n'))
+assert_eq("#546 split_body_rows: a level-2 heading first is NOT a title",
+          b'## Context\nbody\n', _sb(b'## Context\nbody\n'))
+assert_eq("#546 split_body_rows: a bare '#' line is accepted as the title",
+          b'body\n', _sb(b'#\n\nbody\n'))
+assert_eq("#546 split_body_rows: leading blank lines are skipped before the title",
+          b'body\n', _sb(b'\n\n# Title\n\nbody\n'))
+assert_eq("#546 split_body_rows: a title-only draft yields an empty body",
+          b'', _sb(b'# Title\n'))
+assert_eq("#546 split_body_rows: CRLF line endings are preserved byte-for-byte",
+          b'body\r\nmore\r\n', _sb(b'# Title\r\n\r\nbody\r\nmore\r\n'))
+
+# (6) findings_count from a REFUSED completion (failed carriage / no parseable verdict)
+# is never recorded onto the round — an unproven tally must not leak into the summary.
+# Driven at the classify/record seam: classify_return refuses, and the recording gate
+# keys on the accepted classifications only (exercised end-to-end by the run.sh CLI
+# block; here the pure gate predicate is pinned).
+assert_eq("#546 refused_return_rows: a refused completion classification is never an "
+          "accepted one", False,
+          issue_audit_state.classify_return('file', 'FILE', True, False)
+          in ('accept-file', 'accept-revise'))
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

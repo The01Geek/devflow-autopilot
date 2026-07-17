@@ -30,7 +30,11 @@ TWO-CLASS CLI CONTRACT (the skill branches on exactly this):
     an illegal transition and for an unpersistable state alike.
   * `emit-body` is neither: it is a gated emitter. It exits 0 with the audited body
     bytes when eligibility grounds them, and non-zero with EMPTY stdout otherwise —
-    so a caller that ignores the exit code cannot post an unaudited body.
+    so on the file-identity ground a caller that ignores the exit code cannot post an
+    unaudited body. On the event-ordering and override grounds the gate refuses bytes
+    a recorded revision has staled, but it cannot byte-bind what it emits (those
+    grounds record no trustworthy digest — the disclosed weaker identity); the
+    post-hoc creation attestation is the detection surface for that residual.
 
 WINDOWS-SAFETY (#275/#295): this module never executes a `.sh` helper ([WinError 193])
 and reads no config file. Its only subprocess is native `git`, and its state file is
@@ -104,10 +108,11 @@ _DEGRADED_REASONS = ('no-subagent-tool', 'dispatch-error', 'no-parseable-verdict
 _NEXT_ACTIONS = (
     'dispatch-embed-retry', 'dispatch-retry-same-arm', 'dispatch-inline-degraded',
     'proceed', 'revise-and-reaudit', 'revise-then-evaluate-offer', 'round-closed-no-verdict',
+    'round-open-awaiting-return',
 )
 _ELIGIBILITY_REASONS = (
     'unaudited-revision', 'stale-override', 'no-verdict-round', 'state-unestablished',
-    'foreign-nonce', 'no-revision-recorded',
+    'foreign-nonce', 'no-revision-recorded', 'draft-undigestible',
 )
 _GROUNDS = ('file-identity', 'event-ordering', 'override')
 
@@ -210,6 +215,12 @@ TRANSITIONS = (
 )
 
 
+def _require(cond, msg):
+    """An import-time invariant that survives `python3 -O` (a bare `assert` does not)."""
+    if not cond:
+        raise AssertionError(msg)
+
+
 def _assert_transition_tokens():
     """Fail the import loudly when a transition names a token outside its set.
 
@@ -220,29 +231,29 @@ def _assert_transition_tokens():
     """
     for r in TRANSITIONS:
         where = f"{r['event']}/{r['condition']}"
-        assert r['event'] in _EVENTS, (
-            f'issue-audit-state: transition {where} names an event not in _EVENTS')
-        assert r['arm'] is None or r['arm'] in _ARMS, (
-            f'issue-audit-state: transition {where} names an arm not in _ARMS: {r["arm"]}')
-        assert r['verdict'] is None or r['verdict'] in _VERDICTS, (
-            f'issue-audit-state: transition {where} names a verdict not in _VERDICTS: '
-            f'{r["verdict"]}')
-        assert r['reason'] is None or r['reason'] in _ALL_REASONS, (
-            f'issue-audit-state: transition {where} names a reason token not in the '
-            f'canonical reason sets: {r["reason"]}')
+        _require(r['event'] in _EVENTS,
+                 f'issue-audit-state: transition {where} names an event not in _EVENTS')
+        _require(r['arm'] is None or r['arm'] in _ARMS,
+                 f'issue-audit-state: transition {where} names an arm not in _ARMS: {r["arm"]}')
+        _require(r['verdict'] is None or r['verdict'] in _VERDICTS,
+                 f'issue-audit-state: transition {where} names a verdict not in _VERDICTS: '
+                 f'{r["verdict"]}')
+        _require(r['reason'] is None or r['reason'] in _ALL_REASONS,
+                 f'issue-audit-state: transition {where} names a reason token not in the '
+                 f'canonical reason sets: {r["reason"]}')
         # `_RESULTS` is declared INDEPENDENTLY of the table (never derived from it): an
         # assert whose comparand is built from the very rows it checks is a tautology that
         # cannot fail, which is a false signal of coverage rather than a guard.
-        assert r['result'] is None or r['result'] in _RESULTS, (
-            f'issue-audit-state: transition {where} names a result not in _RESULTS: '
-            f'{r["result"]}')
+        _require(r['result'] is None or r['result'] in _RESULTS,
+                 f'issue-audit-state: transition {where} names a result not in _RESULTS: '
+                 f'{r["result"]}')
     # The arm x verdict cross product must be total — an unrouted combination would
     # fall through to whatever the caller improvised, which is the prose failure mode.
     covered = {(r['arm'], r['verdict']) for r in TRANSITIONS
                if r['condition'] == 'verdict-on-arm'}
-    assert covered == {(a, v) for a in _ARMS for v in _VERDICTS}, (
-        'issue-audit-state: the arm x verdict cross product is not total: missing '
-        f'{ {(a, v) for a in _ARMS for v in _VERDICTS} - covered }')
+    _require(covered == {(a, v) for a in _ARMS for v in _VERDICTS},
+             'issue-audit-state: the arm x verdict cross product is not total: missing '
+             f'{ {(a, v) for a in _ARMS for v in _VERDICTS} - covered }')
 
 
 # Reason tokens a transition row may carry: the eligibility reasons plus the
@@ -254,14 +265,12 @@ _TRANSITION_REASONS = (
 )
 _ALL_REASONS = set(_ELIGIBILITY_REASONS) | set(_TRANSITION_REASONS)
 
-assert set(_EMBED_MARKER_TEXT) == set(_EMBED_MARKER_TOKENS), (
-    'issue-audit-state: _EMBED_MARKER_TEXT keys must exactly match _EMBED_MARKER_TOKENS: '
-    f'{set(_EMBED_MARKER_TEXT) ^ set(_EMBED_MARKER_TOKENS)}'
-)
-assert set(_ROUND_OUTCOMES) <= set(_VERDICTS) | {'no-verdict'}, (
-    'issue-audit-state: _ROUND_OUTCOMES names an outcome that is neither a verdict '
-    'nor the decided verdict-less terminal'
-)
+_require(set(_EMBED_MARKER_TEXT) == set(_EMBED_MARKER_TOKENS),
+         'issue-audit-state: _EMBED_MARKER_TEXT keys must exactly match _EMBED_MARKER_TOKENS: '
+         f'{set(_EMBED_MARKER_TEXT) ^ set(_EMBED_MARKER_TOKENS)}')
+_require(set(_ROUND_OUTCOMES) <= set(_VERDICTS) | {'no-verdict'},
+         'issue-audit-state: _ROUND_OUTCOMES names an outcome that is neither a verdict '
+         'nor the decided verdict-less terminal')
 _assert_transition_tokens()
 
 
@@ -285,8 +294,8 @@ def _repo_root():
 
     Memoized: the value cannot change within a process (the cwd never moves mid-run), but
     `state_path()` is called by both `load_state` and `save_state`, so every mutation would
-    otherwise re-spawn `git rev-parse` for the same answer. The explicit `root=` argument
-    the tests use bypasses this entirely.
+    otherwise re-spawn `git rev-parse` for the same answer. An explicit `root=` argument
+    bypasses this entirely (the shell tests instead anchor by `git init`-ing each sandbox).
     """
     try:
         r = _run(['git', 'rev-parse', '--show-toplevel'])
@@ -348,9 +357,10 @@ def split_body(raw):
     The body-only digest is what a created issue's fetched body is attested against,
     so the split rule is decided rather than heuristic:
       * leading blank lines are skipped when looking for the title;
-      * the title is a level-1 (`# `) heading and only the first non-blank line is
-        ever inspected — a `##` there means there is no title, and any later heading
-        is ordinary body content;
+      * the title is a level-1 (`# `) heading — a bare `#` line is accepted as a
+        title too — and only the first non-blank line is ever inspected; a `##`
+        there means there is no title, and any later heading is ordinary body
+        content;
       * when no title heading is found the whole content is the body;
       * blank separator lines between the title and the body are dropped;
       * line endings are preserved verbatim (bytes throughout, never decoded), so a
@@ -449,6 +459,27 @@ def _validate(doc, slug):
     for ov in doc['overrides']:
         if not isinstance(ov, dict) or ov.get('kind') not in _OVERRIDE_KINDS:
             raise StateError('an override record names a kind outside the canonical set')
+    # Read-surface fields the QUERIES consume must be shape-checked here too: a
+    # corrupted revision record, counter, or creation record would otherwise crash a
+    # query (AttributeError/TypeError), presenting a crashed read as a non-zero query
+    # exit — the exact two-class-contract violation _validate exists to prevent.
+    for rev in doc['revisions']:
+        if not isinstance(rev, dict):
+            raise StateError('a revision record is not an object')
+        for key in ('ordinal', 'after_round'):
+            val = rev.get(key)
+            if not isinstance(val, int) or isinstance(val, bool):
+                raise StateError(f'a revision record {key} {val!r} is not an integer')
+    for key in ('automatic_reaudits_used', 'user_rounds_used'):
+        val = doc.get(key, 0)
+        if not isinstance(val, int) or isinstance(val, bool):
+            raise StateError(f'{key} {val!r} is not an integer')
+    creation = doc.get('creation')
+    if creation is not None:
+        if not isinstance(creation, dict):
+            raise StateError('the creation record is not an object')
+        if 'body_only_digest' not in creation:
+            raise StateError('the creation record is missing its body_only_digest')
     return doc
 
 
@@ -473,12 +504,22 @@ def load_state(slug, root=None):
 def save_state(doc, slug, root=None):
     """Persist atomically. Raises StateError when the state cannot be persisted."""
     path = state_path(slug, root)
+    # Re-validate at the construction boundary: a mutation bug that assembled an
+    # invalid document fails HERE, loudly, instead of persisting silently and
+    # collapsing the whole file to unestablished at the next load.
+    _validate(doc, slug)
     tmp = path.with_suffix('.json.tmp')
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_text(json.dumps(doc, indent=2, sort_keys=True) + '\n', encoding='utf-8')
         os.replace(tmp, path)
     except OSError as exc:
+        # Best-effort cleanup of a partial temp file so a failed persist never leaves
+        # a stray .json.tmp in the evidence-bearing tmp directory.
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
         raise StateError(f'could not persist state to {path}: {exc}') from exc
     return path
 
@@ -598,7 +639,7 @@ def _valid_override(state, current_digest):
     return None
 
 
-def evaluate_eligibility(state, mode, current_digest=None):
+def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
     """Presentation eligibility.
 
     `approve` gates the presentation-for-approval of bytes with no pending re-audit
@@ -628,6 +669,11 @@ def evaluate_eligibility(state, mode, current_digest=None):
 
     if state is None:
         return _no('state-unestablished')
+    if digest_failed:
+        # A supplied draft file that could not be read or hashed never grounds
+        # eligibility on ANY ground (overrides included) — fail closed with the
+        # distinct reason, never misattributed as unaudited-revision.
+        return _no('draft-undigestible')
 
     clean = None
     for rnd in reversed(completed_rounds(state)):
@@ -704,7 +750,11 @@ def next_action(state, round_no):
     # `pending` is written by `record-return` from the round's own retry accounting; this
     # query only reads it, so the retry arm cannot be re-derived (and re-decided) differently
     # here than it was recorded. One field, one read — no order-dependent if-chain.
-    return _checked_action(rnd.get('pending') or 'proceed')
+    # An open round with NO pending action is a dispatch whose return was never
+    # recorded: answer the fail-closed awaiting token, never `proceed` (an orchestrator
+    # in a confused mid-round state must not be told to walk past an audit it never
+    # received).
+    return _checked_action(rnd.get('pending') or 'round-open-awaiting-return')
 
 
 def _checked_action(token):
@@ -765,7 +815,8 @@ def summary_fields(state, current_digest=None):
         return {'state': 'unestablished', 'findings_count': None, 'revisions_applied': 0,
                 'verdict': None, 'rounds_run': 0, 'consumer_dimensions_appended': False,
                 'degraded': False, 'user_declined': False, 'cap_reached': False,
-                'markers': [], 'token': None, 'stale_token': False, 'reinit_forced': False}
+                'markers': [], 'token': None, 'stale_token': False, 'reinit_forced': False,
+                'attestation': None}
     done = completed_rounds(state)
     # Cumulative across every round this run: "how many things did the auditors
     # collectively flag", not merely the last round's tally.
@@ -798,6 +849,10 @@ def summary_fields(state, current_digest=None):
         'token': token,
         'stale_token': stale,
         'reinit_forced': bool(state.get('reinit_forced')),
+        # The creation-attestation status is part of the audit-summary field set (a
+        # mismatch is surfaced here, not only in record-creation-attestation's own
+        # output): 'match' | 'mismatch' | 'attestation-unavailable' | 'none'.
+        'attestation': (state.get('creation') or {}).get('attestation') or 'none',
     }
 
 
@@ -972,10 +1027,14 @@ def cmd_record_return(args):
         else:
             rnd['no_parseable_retry_used'] = True
             rnd['pending'] = 'dispatch-retry-same-arm'
-    if args.findings_count is not None:
-        rnd['findings_count'] = args.findings_count
-    if args.consumer_dimensions_appended:
-        rnd['consumer_dimensions_appended'] = True
+    # Evidence from a REFUSED completion (failed carriage / no parseable verdict) is
+    # never recorded: an unproven findings tally must not leak into the summary via a
+    # later clean retry that omits its own count.
+    if cls in ('accept-file', 'accept-revise'):
+        if args.findings_count is not None:
+            rnd['findings_count'] = args.findings_count
+        if args.consumer_dimensions_appended:
+            rnd['consumer_dimensions_appended'] = True
     try:
         save_state(doc, args.slug)
     except StateError as exc:
@@ -1186,12 +1245,18 @@ def cmd_query_eligibility(args):
         print('eligible=no reason=foreign-nonce')
         return
     digest = None
+    digest_failed = False
     if args.draft_file:
         try:
             digest = hash_file(args.draft_file)
-        except _DigestError:
-            digest = None
-    r = evaluate_eligibility(state, args.mode, digest)
+        except _DigestError as exc:
+            # Surface the real cause — a swallowed digest failure would misattribute
+            # the refusal as unaudited-revision. Queries stay exit-0; this is a
+            # breadcrumb, not a failure exit.
+            print(f'query: could not hash draft file {args.draft_file}: {exc}',
+                  file=sys.stderr)
+            digest_failed = True
+    r = evaluate_eligibility(state, args.mode, digest, digest_failed=digest_failed)
     if args.mode == 'iterate':
         if r['answer'] == 'iterate-ok':
             print(f'iterate=ok ordinal={r["ordinal"]}')
@@ -1212,8 +1277,10 @@ def cmd_query_summary(args):
     if args.draft_file:
         try:
             digest = hash_file(args.draft_file)
-        except _DigestError:
-            digest = None
+        except _DigestError as exc:
+            # Same breadcrumb discipline as query-eligibility: never a silent swallow.
+            print(f'query: could not hash draft file {args.draft_file}: {exc}',
+                  file=sys.stderr)
     f = summary_fields(state, digest)
     fc = 'none' if f['findings_count'] is None else str(f['findings_count'])
     token = f['token'] or ('stale-token' if f['stale_token'] else 'none')
@@ -1224,7 +1291,8 @@ def cmd_query_summary(args):
           f'consumer_dimensions_appended={_yn(f["consumer_dimensions_appended"])} '
           f'degraded={_yn(f["degraded"])} user_declined={_yn(f["user_declined"])} '
           f'cap_reached={_yn(f["cap_reached"])} markers={markers} token={token} '
-          f'reinit_forced={_yn(f["reinit_forced"])}')
+          f'reinit_forced={_yn(f["reinit_forced"])} '
+          f'attestation={f["attestation"] or "none"}')
 
 
 def _yn(v):

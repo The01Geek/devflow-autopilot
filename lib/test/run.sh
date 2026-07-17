@@ -3567,8 +3567,9 @@ assert_pin_unique "#522: embed arm out-of-bounds names exactly the 5 files (draf
 #   event log is deleted-leftover-first at first dispatch→ this file's #546 reinit_force_rows
 #                                                         (the cold-start wipe `init` now owns)
 #   canonical write fires at exactly the 4 sites       → subsumed by the surviving pin (1) above
-#                                                         ("before every dispatch" is strictly
-#                                                          stronger than a 4-site enumeration),
+#                                                         (the per-round pre-dispatch write
+#                                                          instruction — a within-round retry
+#                                                          reuses the round's write),
 #                                                         + `query-arm --write-landed`
 #   orchestrator string-compares sentinels, rejects     → py #546 carriage_evidence_rows
 #     a mismatch                                          (the tool owns the compare now)
@@ -3660,7 +3661,7 @@ assert_pin_unique "#546: the verdict token's absence is classified by the tool, 
 # next_action_budget_rows below, and the skill naming a token the tool cannot answer (or the tool
 # growing an arm the skill never obeys) is the drift this pin plus those rows catch together.
 assert_pin_unique "#546: query-next-action's answer is obeyed verbatim from its closed answer set" \
-  '**Obey the answer verbatim** — it is one of `dispatch-embed-retry`, `dispatch-retry-same-arm`, `dispatch-inline-degraded`, `proceed`, `revise-and-reaudit`, `revise-then-evaluate-offer`, or `round-closed-no-verdict`' \
+  '**Obey the answer verbatim** — it is one of `dispatch-embed-retry`, `dispatch-retry-same-arm`, `dispatch-inline-degraded`, `proceed`, `revise-and-reaudit`, `revise-then-evaluate-offer`, `round-open-awaiting-return`, or `round-closed-no-verdict`' \
   "$CI443_SKILL"
 # A finding can be wrong: the run verifies each against the code before acting. No tool can do
 # this — it is the one step in the loop that requires reading the repository.
@@ -40978,7 +40979,12 @@ if [ -d "$IAS_SB" ]; then
   assert_eq "#546 cli_roundtrip_restricted_path: a clean round on the revised bytes grounds eligible" \
     "1" "$(grep -c 'eligible=yes ground=file-identity' "$IAS_SB/.rt-elig-ok" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: the summary carries the same token the eligibility answer issued" \
-    "1" "$(grep -oF -- "$(sed -E 's/.* token=([^ ]+).*/\1/' "$IAS_SB/.rt-elig-ok" 2>/dev/null)" "$IAS_SB/.rt-summary" 2>/dev/null | grep -c .)"
+    "$(sed -nE 's/.* token=([^ ]+).*/\1/p' "$IAS_SB/.rt-elig-ok" 2>/dev/null)" \
+    "$(sed -nE 's/.* token=([^ ]+) .*/\1/p' "$IAS_SB/.rt-summary" 2>/dev/null)"
+  # Positive control for the exact-compare above: an empty extraction on BOTH sides would
+  # pass vacuously (empty == empty), so pin the issued token non-empty independently.
+  assert_eq "#546 cli_roundtrip_restricted_path: the issued eligibility token is non-empty" \
+    "1" "$(sed -nE 's/.* token=([^ ]+).*/\1/p' "$IAS_SB/.rt-elig-ok" 2>/dev/null | grep -c .)"
   assert_eq "#546 cli_roundtrip_restricted_path: emit-body emits the body below the title heading" \
     "Body line one (revised).
 Body line two." "$(cat "$IAS_SB/.rt-body" 2>/dev/null)"
@@ -41345,6 +41351,103 @@ print(m._USER_ROUND_CAP)" "$IAS" 2>/dev/null)"
   assert_eq "#546 user_round_cap_rows: a refused offer is not counted — the recorded state stops AT the ceiling" \
     "${UC_CAP:-3}" "$(cat "$UC_SB/.uc-used" 2>/dev/null)"
   rm -rf "$UC_SB"
+fi
+
+# illegal_transition_rows (#546, PR #552 review) — behavioral drives for the mutation-path
+# illegal-transition guards. The python-side _TRANSITION_ROWS lockstep is metadata-only
+# (it counts and content-matches the table); THESE rows prove each guard actually refuses
+# at the CLI, non-zero, with its own named breadcrumb — so a refactor that drops a guard
+# (e.g. the duplicate-return check, letting a second verdict overwrite a round's outcome)
+# goes RED here instead of shipping. Also drives the open-round fail-closed next-action
+# answer (round-open-awaiting-return, never `proceed`).
+IT_SB="$(git_sandbox '#546 illegal_transition_rows')"
+if [ -d "$IT_SB" ]; then
+  (
+    cd "$IT_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+    N="$(python3 "$IAS" init it | sed 's/nonce=//')"
+
+    # return before any dispatch
+    python3 "$IAS" record-return it --nonce "$N" --round 1 --verdict FILE \
+      > .it-r1-out 2> .it-r1-err; printf '%s' "$?" > .it-r1-rc
+
+    python3 "$IAS" record-dispatch it --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > .it-disp 2>&1
+
+    # open round: next-action answers the fail-closed awaiting token, never proceed
+    python3 "$IAS" query-next-action it --nonce "$N" --round 1 > .it-open-na 2>/dev/null
+
+    # a second round cannot open while round 1 is still open
+    python3 "$IAS" record-dispatch it --nonce "$N" --round 2 --arm file \
+      --draft-file draft.md > /dev/null 2> .it-open-err; printf '%s' "$?" > .it-open-rc
+
+    # revision with zero completed rounds is legal only after rounds exist; drive the
+    # zero-rounds guard in a SEPARATE fresh slug
+    N2="$(python3 "$IAS" init it2 | sed 's/nonce=//')"
+    python3 "$IAS" record-revision it2 --nonce "$N2" --after-round 0 \
+      > /dev/null 2> .it-rev-err; printf '%s' "$?" > .it-rev-rc
+
+    # creation-epoch with no such round / attestation with no epoch (fresh slug it2)
+    python3 "$IAS" record-creation-epoch it2 --nonce "$N2" --round 1 \
+      > /dev/null 2> .it-epoch-err; printf '%s' "$?" > .it-epoch-rc
+    printf 'x' | python3 "$IAS" record-creation-attestation it2 --nonce "$N2" \
+      > /dev/null 2> .it-att-err; printf '%s' "$?" > .it-att-rc
+
+    # close round 1 cleanly, then: duplicate return / dispatch reopening a closed round /
+    # out-of-order round number
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+    python3 "$IAS" record-return it --nonce "$N" --round 1 --verdict FILE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-return it --nonce "$N" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2> .it-dup-err; printf '%s' "$?" > .it-dup-rc
+    python3 "$IAS" record-dispatch it --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2> .it-reopen-err; printf '%s' "$?" > .it-reopen-rc
+    python3 "$IAS" record-dispatch it --nonce "$N" --round 0 --arm file \
+      --draft-file draft.md > /dev/null 2> .it-ooo-err; printf '%s' "$?" > .it-ooo-rc
+
+    # attestation-in-summary: with no creation epoch the summary reads attestation=none
+    python3 "$IAS" query-summary it --nonce "$N" > .it-summary 2>/dev/null
+  )
+  assert_eq "#546 illegal_transition_rows: a return before any dispatch refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-r1-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the verdict-precedes-dispatch guard" \
+    "1" "$(grep -c 'cannot precede its dispatch' "$IT_SB/.it-r1-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: an open unreturned round answers round-open-awaiting-return, never proceed" \
+    "1" "$(grep -c 'round-open-awaiting-return' "$IT_SB/.it-open-na" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a dispatch while an earlier round is open refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-open-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the still-open guard" \
+    "1" "$(grep -c 'is still open' "$IT_SB/.it-open-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a revision with zero rounds refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-rev-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the nothing-to-revise guard" \
+    "1" "$(grep -c 'nothing to revise' "$IT_SB/.it-rev-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a creation epoch with no such round refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-epoch-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the no-round-to-bind guard" \
+    "1" "$(grep -c 'is recorded to bind' "$IT_SB/.it-epoch-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: an attestation with no epoch refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-att-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the nothing-to-attest guard" \
+    "1" "$(grep -c 'nothing to attest against' "$IT_SB/.it-att-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a duplicate return refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-dup-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the duplicate-return guard" \
+    "1" "$(grep -c 'duplicate return is illegal' "$IT_SB/.it-dup-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a dispatch cannot reopen a closed round" \
+    "1" "$(cat "$IT_SB/.it-reopen-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the already-closed guard" \
+    "1" "$(grep -c 'cannot reopen it' "$IT_SB/.it-reopen-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: an out-of-order round number refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-ooo-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the out-of-order guard" \
+    "1" "$(grep -c 'is out of order' "$IT_SB/.it-ooo-err" 2>/dev/null)"
+  # attestation-in-summary: the status field is part of the rendered summary line
+  assert_eq "#546 illegal_transition_rows: query-summary surfaces the attestation field (none when no epoch)" \
+    "1" "$(grep -c 'attestation=none' "$IT_SB/.it-summary" 2>/dev/null)"
+  rm -rf "$IT_SB"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
