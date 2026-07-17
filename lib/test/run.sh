@@ -2439,7 +2439,7 @@ rm -f "$ACRU_STEP7" "$ACRU_SEDCTR"
 # validates FIRST — a malformed/wrong-dialect pattern errors at step 2, and a numeric grep -c
 # is numeric at both sites — so NO black-box fixture reaches step 7 with a step-2-clean pattern
 # that then breaks at step 7. A white-box test would have to shadow grep and pin the helper's
-# exact internal grep-call index (8th call), which rots on any refactor touching an earlier grep
+# exact internal grep-call index, which rots on any refactor touching an earlier grep
 # and pins implementation shape rather than behavior. REVISIT if step 7 ever counts a DIFFERENT
 # pattern than step 2 (then the two sites diverge and a black-box fixture becomes possible).
 # PATTERN-ERROR: the PATTERN is a malformed ERE (unbalanced `[`) → counting grep exits rc>=2.
