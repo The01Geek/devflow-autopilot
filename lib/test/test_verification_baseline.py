@@ -377,6 +377,14 @@ class ExtractionTests(_TmpDirTestCase):
         self.assertIn("env:TOKEN", binding.secret_slots)
         self.assertNotIn("abc123", binding.redacted_display)
         self.assertNotIn("abc123", binding.digest)
+        # assertNotIn(secret, digest) alone is vacuous — a 64-char sha256 hex
+        # almost never CONTAINS the secret whether or not redaction ran (PR #531
+        # review, test-quality note). Pin the real property instead: the digest
+        # is computed over the REDACTED form (== sha256(redacted_display here —
+        # the command is short, so display == redacted)), and is NOT the digest
+        # of the raw canonical command (no unkeyed digest of secret material).
+        self.assertEqual(binding.digest, hashlib.sha256(binding.redacted_display.encode("utf-8")).hexdigest())
+        self.assertNotEqual(binding.digest, hashlib.sha256(vb._canonical_command("TOKEN=abc123 lib/test/run.sh").encode("utf-8")).hexdigest())
         # Same command shape with a different secret -> same redacted digest.
         binding2 = vb._binding_identity("TOKEN=xyz999 lib/test/run.sh")
         self.assertEqual(binding.digest, binding2.digest)
@@ -633,7 +641,13 @@ class ReviewFixFollowupTests(unittest.TestCase):
             b = vb._binding_identity(f"{flag} sk-secret123 lib/test/run.sh")
             self.assertTrue(b.secret_affected, f"{flag} should be secret-affected")
             self.assertNotIn("sk-secret123", b.redacted_display)
-            self.assertNotIn("sk-secret123", b.digest)
+            # The NotIn-digest form alone is vacuous (see
+            # test_secret_redaction_boundary); pin that the digest is not the
+            # digest of the raw canonical command instead.
+            self.assertNotEqual(
+                b.digest,
+                hashlib.sha256(vb._canonical_command(f"{flag} sk-secret123 lib/test/run.sh").encode("utf-8")).hexdigest(),
+                f"{flag}: digest must be of the redacted form, not the raw command")
         # --pattern must NOT be flagged (contains 'pat' but is not a secret flag).
         nopat = vb._binding_identity("--pattern '*.py' lib/test/run.sh")
         self.assertFalse(nopat.secret_affected)
@@ -2493,6 +2507,19 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
             row.set_source_status(vb.SOURCE_UNAVAILABLE)
         self.assertEqual(row.source_status, vb.SOURCE_AVAILABLE,
                          "a rejected mutation must leave the row unchanged")
+        # __setattr__ enforcement (PR #531 standalone review, type-design
+        # suggestion 2): the field is publicly assignable, so the invariant held
+        # only by the convention that every site calls set_source_status. A
+        # DIRECT assignment must be validated identically — by construction,
+        # not convention.
+        with self.assertRaises(ValueError):
+            row.source_status = "sorce_avilable"
+        with self.assertRaises(ValueError):
+            row.source_status = vb.SOURCE_UNAVAILABLE  # cloud-only on a local row
+        self.assertEqual(row.source_status, vb.SOURCE_AVAILABLE,
+                         "a rejected direct assignment must leave the row unchanged")
+        row.source_status = vb.SOURCE_MISSING  # a valid direct assignment still works
+        self.assertEqual(row.source_status, vb.SOURCE_MISSING)
 
     # --- Final convergence shadow, LIVE: build_local_census returned [] with no
     #     breadcrumb when the manifests dir was absent. It is the sole producer
@@ -2570,6 +2597,139 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
         a, b = _candidate_pair_with_consumers(None, None)
         rel, _conf = vb._classify_relationship([a, b])
         self.assertEqual(rel, vb.REL_CANDIDATE_TRANSPORT_RETRY)
+
+class Pr531StandaloneReviewFindingsTests(_TmpDirTestCase):
+    """Fixes for PR #531's standalone review verdict (APPROVE with notes)."""
+
+    # --- Important 1: metrics.local_actual_launches_by_lifecycle_eligibility
+    #     and the report's ⚠️ ineligible-launch warning were validated only as
+    #     a field, never end-to-end — a regression dropping the warning branch
+    #     or mis-bucketing the numerator stayed green. Drive the whole pipeline:
+    #     an ineligible-but-importable row's launch must land in the ineligible
+    #     bucket AND surface the incoherent-numerator warning in report.md. ----
+    def test_ineligible_launch_buckets_and_warns_end_to_end(self) -> None:
+        write_manifest(self.manifests, "s1", workflow="not-a-real-workflow")
+        write_bundle(self.bundles, "s1", transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "tu"),
+            tool_result("tu", "exit code 0")))
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles),
+                   "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        run = sorted(self.out.iterdir())[-1]
+        baseline = json.loads((run / "verification_baseline.json").read_text(encoding="utf-8"))
+        by_elig = baseline["metrics"]["local_actual_launches_by_lifecycle_eligibility"]
+        self.assertEqual(by_elig[vb.ELIGIBILITY_INELIGIBLE], 1,
+                         "the launch's owning row is confirmed_ineligible; it must bucket there")
+        self.assertEqual(by_elig[vb.ELIGIBILITY_CONFIRMED], 0)
+        self.assertEqual(baseline["metrics"]["eligible_lifecycles"], 0)
+        self.assertEqual(baseline["metrics"]["local_actual_launches"], 1)
+        report = (run / "report.md").read_text(encoding="utf-8")
+        self.assertIn("NOT in the eligible denominator", report,
+                      "the incoherent-numerator warning must be readable in the report")
+        self.assertIn("non-comparable", report)
+
+    def test_coherent_numerator_report_carries_no_warning(self) -> None:
+        # Positive control on the same fixture shape: an ELIGIBLE row's launch
+        # buckets confirmed and the warning branch stays silent — so the test
+        # above is attributing the warning to the ineligible launch, not to an
+        # always-on line.
+        write_manifest(self.manifests, "s1")
+        write_bundle(self.bundles, "s1", transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "tu"),
+            tool_result("tu", "exit code 0")))
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles),
+                   "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        run = sorted(self.out.iterdir())[-1]
+        baseline = json.loads((run / "verification_baseline.json").read_text(encoding="utf-8"))
+        by_elig = baseline["metrics"]["local_actual_launches_by_lifecycle_eligibility"]
+        self.assertEqual(by_elig[vb.ELIGIBILITY_CONFIRMED], 1)
+        self.assertEqual(by_elig[vb.ELIGIBILITY_INELIGIBLE], 0)
+        report = (run / "report.md").read_text(encoding="utf-8")
+        self.assertNotIn("NOT in the eligible denominator", report)
+
+    # --- Important 2: manual_review_sample composition (top-duration decile
+    #     with inclusive ties, the min(50, max(20, ceil(0.1*remainder))) clamp,
+    #     high-cost/remainder disjointness) was unasserted beyond determinism. -
+    def _duration_groups(self, durations: "tuple[int, ...]") -> list:
+        launches = []
+        for i, dur in enumerate(durations):
+            for j, auth in enumerate((START_CONFIRMED_RESULT_MISSING, START_CONFIRMED_TERMINAL)):
+                la = make_launch(f"m{i}-{j}", lifecycle_id=f"L{i}", binding_digest=f"D{i}", start_auth=auth)
+                la.timing["duration_ms"] = dur
+                launches.append(la)
+        return group_launches(launches)
+
+    def test_manual_review_sample_composition(self) -> None:
+        groups = self._duration_groups(tuple((i + 1) * 1000 for i in range(40)))
+        self.assertEqual(len(groups), 40)
+        s = manual_review_sample(groups, "deadbeef")
+        # Top decile: ceil(0.1 * 40) = 4 -> exactly the four longest durations.
+        expected_high = {g.group_id for g in groups if g.duration_ms >= 37000}
+        self.assertEqual(set(s["high_cost_ids"]), expected_high)
+        self.assertEqual(len(s["high_cost_ids"]), 4)
+        # Clamp: remainder = 36 -> min(50, max(20, ceil(3.6))) = 20.
+        self.assertEqual(len(s["remainder_selected_ids"]), 20)
+        # Disjointness + union: selected = high_cost ++ remainder, no overlap.
+        self.assertFalse(set(s["high_cost_ids"]) & set(s["remainder_selected_ids"]))
+        self.assertEqual(s["selected_ids"], s["high_cost_ids"] + s["remainder_selected_ids"])
+        self.assertEqual(len(s["eligible_population"]), 40)
+
+    def test_manual_review_sample_decile_includes_ties(self) -> None:
+        # Five groups, three tied at the max duration: decile_count =
+        # max(1, ceil(0.5)) = 1, threshold = the max, and ALL THREE tied groups
+        # are high-cost (the AC's "top duration decile with inclusive ties"),
+        # not just one. The remainder clamp is additionally capped at the
+        # remainder population: max(20, ceil(0.2)) = 20 -> min(20, 2) = 2.
+        groups = self._duration_groups((9000, 9000, 9000, 2000, 1000))
+        s = manual_review_sample(groups, "deadbeef")
+        self.assertEqual(len(s["high_cost_ids"]), 3, "inclusive ties: every group at the threshold")
+        self.assertEqual(len(s["remainder_selected_ids"]), 2, "clamp capped at len(remainder)")
+        self.assertEqual(len(s["selected_ids"]), 5)
+
+    # --- Suggestion 4: SECRET_FLAG's `[ =]` separator mis-parsed space-padded
+    #     `=`: `--token = x` consumed the bare `=` AS the value (real secret
+    #     leaked with secret_affected=True), and `--token= x` matched nothing
+    #     (leaked with secret_affected=False). Fixed for both siblings. --------
+    def test_space_padded_flag_secret_separator_redacted(self) -> None:
+        for cmd in ("deploy --token = hunter2 lib/test/run.sh",
+                    "deploy --token= hunter2 lib/test/run.sh",
+                    "deploy --token =hunter2 lib/test/run.sh"):
+            b = vb._binding_identity(cmd)
+            self.assertTrue(b.secret_affected, cmd)
+            self.assertNotIn("hunter2", b.redacted_display, cmd)
+            self.assertNotEqual(
+                b.digest,
+                hashlib.sha256(vb._canonical_command(cmd).encode("utf-8")).hexdigest(),
+                f"{cmd}: digest must be of the redacted form")
+        # Negative control: a non-secret flag with the same padded shape stays
+        # untouched (the segment-boundary anchor still rejects `--pattern`).
+        n = vb._binding_identity("grep --pattern = foo lib/test/run.sh")
+        self.assertFalse(n.secret_affected)
+
+    # --- Suggestion 1: the baseline envelope now holds the TYPED records until
+    #     to_dict() (the write boundary), so the validated-record guarantees
+    #     survive up to serialization instead of being erased at construction. -
+    def test_baseline_envelope_holds_typed_records(self) -> None:
+        write_manifest(self.manifests, "s1")
+        write_bundle(self.bundles, "s1", transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "tu"),
+            tool_result("tu", "exit code 0")))
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles),
+                   "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        # The serialized artifact is unchanged in shape (dicts all the way down).
+        run = sorted(self.out.iterdir())[-1]
+        baseline = json.loads((run / "verification_baseline.json").read_text(encoding="utf-8"))
+        self.assertIsInstance(baseline["verification_process_launches"][0], dict)
+        # And the envelope's own contract: to_dict() converts typed records.
+        annots = vb.VerificationBaseline.__annotations__
+        self.assertEqual(annots["verification_process_launches"], "list[VerificationProcessLaunch]")
+        self.assertEqual(annots["relationship_groups"], "list[RelationshipGroup]")
+
 
 if __name__ == "__main__":
     unittest.main()

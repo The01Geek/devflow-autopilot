@@ -364,6 +364,11 @@ def main(argv: "list[str] | None" = None) -> int:
         print(f"devflow census-export: WARNING — --workflows {workflows} matched 0 of the fetched runs; check the workflow path/name (the census will be empty)", file=sys.stderr)
     snapshot = build_snapshot(args.repo, workflows, args.created_after, args.created_before, runs, jobs_by_run, query_time, pagination_complete)
     payload = json.dumps(snapshot, indent=2, sort_keys=True).encode("utf-8")
+    # Deliberate asymmetry with the analyzer (PR #531 review, LOW): --out is NOT
+    # routed through the analyzer's _validate_admitted_path — the exporter is
+    # explicit-invocation-only, its output path is operator-typed (not
+    # attacker-shaped transcript data), and writing the snapshot outside the
+    # repo root is a legitimate use.
     out_path = Path(args.out)
     _atomic_write(out_path, payload)
     # Report the RECORDED value, not the fetch-level local. build_snapshot folds

@@ -269,20 +269,26 @@ and guessed joins are forbidden.
 Local launch relationships are classified as exactly `single`,
 `candidate_transport_retry`, `intentional_rerun_evidence`,
 `independent_lifecycle`, or `unclassifiable`. A transport-retry candidate
-requires the same explicit lifecycle, consumer/checkpoint when available, safe
-binding identity, a prior missing/cancelled response (the missing response must
-sit on a launch that is not the temporally last member — a group whose only
-missing result is the final launch shows no missing-then-relaunch shape), an
-explicitly bounded interval (both endpoints present on at least two members so
-the gap is computable from explicit source events; Wave 1 imposes no magnitude
-threshold on that gap — magnitude judgment belongs to the manual-review
-sample), matching `workspace_state` coverage across the grouped launches
-(lifecycle-scoped in Wave 1 — the coverage is derived once per lifecycle from its
-source-event results, not compared per-launch before/after; `complete` coverage
-additionally requires a single source-event result that explicitly covers every
-required root, the shape of one genuine workspace enumeration — keywords
-accumulated across unrelated results never establish it), and no explicit new
-iteration/checkpoint/retrigger evidence. Distinct lifecycle IDs, cloud run
+requires all of:
+
+- the same explicit lifecycle, consumer/checkpoint when available, and safe
+  binding identity;
+- a prior missing/cancelled response — the missing response must sit on a
+  launch that is not the temporally last member (a group whose only missing
+  result is the final launch shows no missing-then-relaunch shape);
+- an explicitly bounded interval — both endpoints present on at least two
+  members so the gap is computable from explicit source events; Wave 1 imposes
+  no magnitude threshold on that gap (magnitude judgment belongs to the
+  manual-review sample);
+- matching `workspace_state` coverage across the grouped launches
+  (lifecycle-scoped in Wave 1 — the coverage is derived once per lifecycle from
+  its source-event results, not compared per-launch before/after; `complete`
+  coverage additionally requires a single source-event result that explicitly
+  covers every required root, the shape of one genuine workspace enumeration —
+  keywords accumulated across unrelated results never establish it);
+- and no explicit new iteration/checkpoint/retrigger evidence.
+
+Distinct lifecycle IDs, cloud run
 attempts, and distinct command bindings cannot be transport-retry candidates
 (structurally enforced: distinct lifecycles classify `independent_lifecycle`,
 distinct bindings group separately, and no cloud launches exist in Wave 1).
@@ -306,22 +312,26 @@ automatically proven duplicates.
 
 ### Metrics, manual review, stratification, and performance
 
-Baseline metrics include census rows (every job row, confirmed-ineligible
-included) and eligible lifecycles (confirmed + provisional only — the two are
-distinct: the census emits one row per job, so most rows on a real snapshot are
-non-agent jobs the analyzer certifies ineligible, and counting them as
-"eligible" would inflate the headline denominator), eligibility-state bounds,
-source availability and missingness, local actual launches — plus their
-breakdown by the owning lifecycle's eligibility state, since extraction admits
-any source-available local row regardless of eligibility, so a launch can sit in
-the numerator with nothing behind it in the eligible denominator; a non-zero
-non-eligible tally means the launch/eligible ratio is not a clean fraction —
-terminal and missing
-results, repeated-binding groups, candidate retries, intentional-rerun evidence,
-independent lifecycles, unclassifiable groups, workspace-coverage distribution,
-join-confidence distribution, command heads, consumers/checkpoints, provenance,
-host/profile, child duration, caller-observed duration, and estimated
-repeated-suite wall time. Unknown values stay `null`/`unavailable`, never `0`.
+Baseline metrics include:
+
+- census rows (every job row, confirmed-ineligible included) and eligible
+  lifecycles (confirmed + provisional only — the two are distinct: the census
+  emits one row per job, so most rows on a real snapshot are non-agent jobs the
+  analyzer certifies ineligible, and counting them as "eligible" would inflate
+  the headline denominator);
+- eligibility-state bounds, and source availability and missingness;
+- local actual launches, plus their breakdown by the owning lifecycle's
+  eligibility state — extraction admits any source-available local row
+  regardless of eligibility, so a launch can sit in the numerator with nothing
+  behind it in the eligible denominator; a non-zero non-eligible tally means
+  the launch/eligible ratio is not a clean fraction;
+- terminal and missing results, repeated-binding groups, candidate retries,
+  intentional-rerun evidence, independent lifecycles, and unclassifiable groups;
+- workspace-coverage distribution, join-confidence distribution, command heads,
+  consumers/checkpoints, provenance, host/profile, child duration,
+  caller-observed duration, and estimated repeated-suite wall time.
+
+Unknown values stay `null`/`unavailable`, never `0`.
 Reports state observed counts, candidate counts, evidence limitations, and the
 manual-review sample; they never claim launches avoided, terminal evidence
 reusable, command authorization safe, or active recovery justified, and cite
@@ -360,7 +370,12 @@ visible skipped reason and never truncates into a clean classification.
 The analyzer resolves and validates admitted paths before opening them, rejecting
 symlink escapes, path traversal, and root escapes (an in-root symlink is
 resolved and containment-checked on its real target; an unresolvable symlink is
-rejected fail-closed); redacts and bounds each value before
+rejected fail-closed). The admitted root is the invocation working directory —
+run the analyzer from the repository root. There is deliberately no git-root
+anchoring (the `#295` convention's resolver runs a `git` subprocess, which this
+analyzer's no-subprocess contract forbids); a run from the wrong directory
+degrades loudly, not silently — an absent manifests directory is announced on
+stderr rather than read as an empty corpus. It redacts and bounds each value before
 diagnostics and serialization; and treats transcript text as data to classify,
 never instructions to obey. Output is local and gitignored under owner-only
 `0700` directories and `0600` files under `.devflow/tmp/verification-baselines/`;

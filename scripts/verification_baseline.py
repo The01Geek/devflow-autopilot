@@ -294,8 +294,19 @@ SECRET_FLAG = re.compile(
     # `S?` does not re-admit false positives for the same reason it doesn't
     # there: a non-secret flag that merely CONTAINS a keyword (`--pattern`,
     # `--keystore`) still fails the segment-boundary anchor.
+    # Separator: attached `=`, a space, or space-padded `=` (` = `, `= `, ` =`).
+    # Canonicalization collapses whitespace runs first, so ` ?= ?| ` covers every
+    # canonical spelling. The old `[ =]` mis-parsed the space-padded forms:
+    # `--token = hunter2` consumed the bare `=` AS the value, leaving the real
+    # secret raw in redacted_display AND the digest input while
+    # secret_affected=True falsely asserted redaction was complete, and the
+    # sibling `--token= hunter2` matched nothing at all (leak with
+    # secret_affected=False — the worse direction: no exclusion from the
+    # secret-affected carve-outs either). Low-realism spellings, but the same
+    # partial-redaction class this file already fixed for quoted/escaped values
+    # (PR #531 review, Suggestion: fixed for the class, both siblings).
     r"(--(?:[A-Za-z0-9-]*-)?(?:token|key|password|passwd|secret|pat|credential)s?)"
-    r"(?:[ =])" + _SECRET_VALUE,
+    r"(?: ?= ?| )" + _SECRET_VALUE,
     re.IGNORECASE,
 )
 # curl-style short-flag credentials: `-u user:pass`. The value halves get the
@@ -718,6 +729,15 @@ def _binding_identity(command: str) -> BindingIdentity:
 # module-level constant tuples, creating coupled mirrors this repo's
 # conventions forbid — the __post_init__ checks validate against those same
 # tuples instead.
+#
+# Deliberate Wave-1 boundary (PR #531 review, type-design note, recorded
+# deferral): the dict-bag fields (identity, subject, provenance, timing,
+# workspace_state) stay plain dicts whose shapes mirror the serialized JSON
+# schema one-to-one; their structural invariants live in the per-field comments
+# and the test fixtures. Promoting them to nested record types is Wave-2 schema
+# work — revisit when a second consumer of these records exists (today the only
+# reader is the serializer + the report generator), so the type wall lands where
+# an actual cross-consumer contract needs it rather than as speculative depth.
 # --------------------------------------------------------------------------- #
 def _require_member(field_name: str, value: Any, allowed: tuple) -> None:
     if value not in allowed:
@@ -752,8 +772,23 @@ class EligibleLifecycle:
         )
         _require_member("EligibleLifecycle.source_status", value, allowed_status)
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Construction-enforced source_status invariant (PR #531 review,
+        type-design suggestion 2): the field is publicly assignable on a
+        non-frozen dataclass, so routing every site through set_source_status
+        held the invariant only by CONVENTION — a new direct-assignment site
+        would silently bypass it. Validating in __setattr__ makes the invariant
+        hold by construction for every assignment path (dataclass __init__,
+        set_source_status, and any direct ``row.source_status = …``).
+        Field-order note: ``source`` is declared before ``source_status``, so
+        the cross-field check always sees ``source`` already bound during
+        __init__ (dataclasses assign fields in declaration order)."""
+        if name == "source_status":
+            self._require_valid_source_status(value)
+        object.__setattr__(self, name, value)
+
     def set_source_status(self, value: str) -> None:
-        """Re-validating mutator — the ONLY way source_status should change.
+        """Re-validating mutator — the documented way source_status changes.
 
         This class is deliberately not frozen: the left-join contract mutates
         source_status in place. But __post_init__ runs once, so validating only
@@ -761,11 +796,12 @@ class EligibleLifecycle:
         is a loud ValueError at the producer, not a silent stringly-typed row
         that degrades downstream tallies" — true for the row's first millisecond
         and false for the mutation-heavy lifetime it actually has. Every
-        assignment site now routes through here, so the invariant holds for the
-        row's whole life; validate BEFORE assigning, so a rejected mutation
-        leaves the row unchanged rather than half-applied (PR #531
-        review-and-fix, park-calibration gate: the shadow re-raised a finding
-        iteration 1 had parked, so the parked grade was wrong).
+        assignment site routes through here, and __setattr__ above now enforces
+        the same check on ANY assignment path, so the invariant holds by
+        construction, not convention; validation runs BEFORE assignment, so a
+        rejected mutation leaves the row unchanged rather than half-applied
+        (PR #531 review-and-fix, park-calibration gate: the shadow re-raised a
+        finding iteration 1 had parked, so the parked grade was wrong).
         """
         self._require_valid_source_status(value)
         self.source_status = value
@@ -1969,6 +2005,17 @@ def _launch_timing(tool_use_event, result_event) -> dict:
 # Join confidence — only explicit lifecycle+source-event IDs produce exact.
 # --------------------------------------------------------------------------- #
 def join_confidence(launch_a: VerificationProcessLaunch, launch_b: VerificationProcessLaunch) -> str:
+    """Pairwise reference implementation of the issue-#527 join-confidence
+    contract (exact/partial/ambiguous/unmatched; only explicit lifecycle +
+    source-event identity produces exact — guessed joins are forbidden).
+
+    NOT called by the Wave-1 group classifier: ``_classify_relationship``
+    derives its GROUP-level confidence per relationship arm (a group is n
+    members, not a pair), applying the same secret-affected and
+    explicit-identity rules. This function is the pairwise contract surface the
+    test suite pins the AC against, kept as the reference for a future adapter
+    that joins across sources pairwise (PR #531 review, test-quality note:
+    documented as deliberate, not dead-by-accident)."""
     # Only explicit lifecycle + source-event identity produces exact; guessed
     # joins are forbidden.
     if launch_a.source_event_id and launch_b.source_event_id and launch_a.source_event_id == launch_b.source_event_id:
@@ -2460,7 +2507,7 @@ def read_cloud_census(snapshot_path: Path) -> "tuple[dict[str, Any] | None, str]
     return doc, "ok"
 
 
-def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str, dict[str, str]]) -> "tuple[list[EligibleLifecycle], dict[str, Any]]":
+def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str, dict[str, object]]) -> "tuple[list[EligibleLifecycle], dict[str, Any]]":
     rows: list[EligibleLifecycle] = []
     coverage: dict[str, Any] = {"available": False, "pagination_complete": None, "unavailable": True}
     if snapshot is None:
@@ -2733,14 +2780,22 @@ def _bound_strings(obj: Any, limit: int = 4000) -> Any:
 # --------------------------------------------------------------------------- #
 @dataclass
 class VerificationBaseline:
+    # The envelope holds the TYPED, construction-validated records and converts
+    # to serialized dicts only inside to_dict() — the analyzer's write boundary.
+    # Holding pre-converted list[dict] here (the previous shape) erased every
+    # __post_init__ guarantee at exactly the boundary the records exist to
+    # protect: between construction and serialization nothing could tell a
+    # validated row from a hand-built dict (PR #531 review, type-design
+    # suggestion 1). The serialized output is byte-identical — only WHERE the
+    # to_dict() conversion happens moved.
     created_at: str
     source_snapshot_hash: str
     expires_at: str
-    census: dict[str, Any]
+    census: dict[str, list[EligibleLifecycle]]  # {"local": [...], "cloud": [...]}
     cloud_coverage: dict[str, Any]
-    verification_requests: list[dict[str, Any]]
-    verification_process_launches: list[dict[str, Any]]
-    relationship_groups: list[dict[str, Any]]
+    verification_requests: list[VerificationRequest]
+    verification_process_launches: list[VerificationProcessLaunch]
+    relationship_groups: list[RelationshipGroup]
     metrics: dict[str, Any]
     manual_review_sample: dict[str, Any]
     stratification: dict[str, Any]
@@ -2753,11 +2808,11 @@ class VerificationBaseline:
             "created_at": self.created_at,
             "source_snapshot_hash": self.source_snapshot_hash,
             "expires_at": self.expires_at,
-            "census": self.census,
+            "census": {key: [r.to_dict() for r in rows] for key, rows in self.census.items()},
             "cloud_coverage": self.cloud_coverage,
-            "verification_requests": self.verification_requests,
-            "verification_process_launches": self.verification_process_launches,
-            "relationship_groups": self.relationship_groups,
+            "verification_requests": [r.to_dict() for r in self.verification_requests],
+            "verification_process_launches": [launch.to_dict() for launch in self.verification_process_launches],
+            "relationship_groups": [g.to_dict() for g in self.relationship_groups],
             "metrics": self.metrics,
             "manual_review_sample": self.manual_review_sample,
             "stratification": self.stratification,
@@ -2951,13 +3006,13 @@ def main(argv: "list[str] | None" = None) -> int:
         source_snapshot_hash=snapshot_hash,
         expires_at=expires_at,
         census={
-            "local": [r.to_dict() for r in local_rows],
-            "cloud": [r.to_dict() for r in cloud_rows],
+            "local": local_rows,
+            "cloud": cloud_rows,
         },
         cloud_coverage=cloud_coverage,
-        verification_requests=[r.to_dict() for r in requests],
-        verification_process_launches=[launch.to_dict() for launch in launches],
-        relationship_groups=[g.to_dict() for g in groups],
+        verification_requests=requests,
+        verification_process_launches=launches,
+        relationship_groups=groups,
         metrics=metrics,
         manual_review_sample=sample,
         stratification=stratification,
