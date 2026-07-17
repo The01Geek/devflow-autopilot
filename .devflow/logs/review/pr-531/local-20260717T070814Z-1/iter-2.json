@@ -1,0 +1,33 @@
+{
+  "started_at": "2026-07-17T07:08:14Z",
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "base_checkpoint": {
+    "token": "UP_TO_DATE",
+    "behind_by": null
+  },
+  "iter": 2,
+  "fix_commit_sha": "8b0cc29e",
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "fix_files": [
+    "lib/test/test_verification_baseline.py"
+  ],
+  "note": "Early-shadow promotion (pr-test-analyzer): offline AC proven behaviorally (drives main() with every stdlib spawn primitive tripwired; RED against the dynamic-construction evasion both grep pins miss) + the two undriven fetch arms. Inner attempt 1 fixed a gate-caught near-vacuous fixture (swapped bash_call args -> 0 launches) and added a positive control.",
+  "verification_evidence": {
+    "command": "python3 lib/test/test_verification_baseline.py",
+    "result": "pass",
+    "skipped_checks": [],
+    "duration_s": 1
+  },
+  "telemetry": "unavailable"
+}

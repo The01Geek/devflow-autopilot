@@ -1,0 +1,36 @@
+{
+  "started_at": "2026-07-17T07:08:14Z",
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "base_checkpoint": {
+    "token": "UP_TO_DATE",
+    "behind_by": null
+  },
+  "iter": 5,
+  "fix_commit_sha": "1fba1ac3",
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "fix_files": [
+    "scripts/verification_baseline.py",
+    "scripts/export-workflow-lifecycle-census.py",
+    "lib/test/test_verification_baseline.py"
+  ],
+  "note": "Final-shadow promotion: FIFTH secret leak of the same class (SECRET_URL escape-blind -> whole credential leaked with secret_affected=False, worse than the prior four) + the LIVE silent-empty local census on an absent manifests dir + a bool run-id dict-key collision. This is the cap iteration.",
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "skipped_checks": [],
+    "duration_s": 118,
+    "detail": "8260 passed, 0 failed, no skip line; 158 focused tests exit 0; ruff+shellcheck clean"
+  },
+  "telemetry": "unavailable"
+}

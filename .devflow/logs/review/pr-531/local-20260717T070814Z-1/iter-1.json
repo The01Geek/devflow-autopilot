@@ -1,0 +1,858 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-17T07:08:14Z",
+  "fix_commit_sha": "9721de7c2755b1dd331249eee67eb293f89962ca",
+  "fix_files": [
+    ".changeset/issue-527-verification-baseline.md",
+    "docs/workflow-flight-recorder.md",
+    "lib/test/test_verification_baseline.py",
+    "scripts/export-workflow-lifecycle-census.py",
+    "scripts/verification_baseline.py",
+    "scripts/workflow-flight-recorder-registry.json"
+  ],
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit_note": "true (composes; forced the Phase 3.1.5 completeness-critic pass) - not persisted as a profile flag by contract",
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "checklist_summary": {
+    "generated": 35,
+    "batches": 2,
+    "deduped_to": 35,
+    "lite": 2,
+    "agent": 33,
+    "pass": 31,
+    "fail": 4,
+    "inconclusive": 0,
+    "note": "35 raw items from 2 generator batches; Phase 1.5 deduper found no cross-batch duplicates."
+  },
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "analyzer launches no verification command / no subprocess (AC #527-2)",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:verification_baseline.py:no-subprocess-no-network",
+      "verdict": "PASS",
+      "evidence": "no subprocess/os.system/os.exec*/os.spawn*/fork/multiprocessing/eval/ctypes call sites; traced every wfr.* call site - parse_events/detect_occurrences/load_registry never reach _observe_git/_run_git",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "claim": "provisional/unknown rows never promoted, never silently omitted",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:verification_baseline.py:provisional-unknown-never-promoted-never-omitted",
+      "verdict": "FAIL",
+      "evidence": "row-presence half TRUE; but extract_verification_lifecycles filters only on source==LOCAL and source_status==AVAILABLE with NO eligibility check, so an ineligible-but-importable row contributes launches to the numerator while its eligibility bucket records confirmed_ineligible - live repro: eligibility_state_bounds{confirmed_ineligible:1,confirmed_eligible:0} with local_actual_launches=1",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "claim": "only explicit lifecycle+source-event identities produce exact join confidence",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:verification_baseline.py:join-confidence-exact-only-explicit-identity",
+      "verdict": "PASS",
+      "evidence": "empirically: empty-string lifecycle_ids short-circuit the falsy guard and fall to partial, never exact",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "claim": "distinct lifecycle IDs / run attempts / bindings / consumer roles / iterations / checkpoints / commits / merges / retriggers cannot be transport-retry candidates",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:verification_baseline.py:distinct-lifecycle-retrigger-never-candidate",
+      "verdict": "FAIL",
+      "evidence": "_classify_relationship never reads consumer_skill; empirically two members sharing lifecycle_id+digest+workspace with DIFFERENT consumer_skill returned ('candidate_transport_retry','exact') - the AC's consumer-roles dimension was foreclosed by nothing",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-5",
+      "claim": "absent/incomplete cloud census makes coverage unavailable, never zero",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:verification_baseline.py:cloud-coverage-unavailable-never-zero",
+      "verdict": "PASS",
+      "evidence": "build_cloud_census(None,{}) -> unavailable:True; pagination_complete=False -> unavailable:True; genuinely-empty complete window -> available:True (distinct)",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-6",
+      "claim": "secret redaction: no raw secret and no unkeyed digest of secret material persists, for every recognized pattern class",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:verification_baseline.py:secret-redaction-no-leak-quoted-values",
+      "verdict": "FAIL",
+      "evidence": "backslash-escaped whitespace is not a word boundary in shell but the bare-char class stops at it: API_KEY=my\\ secret\\ value -> 'API_KEY=<env:API_KEY> secret\\ value' leaks into redacted_display AND the digest with secret_affected=True; also --flag, -u halves, and escaped quotes inside dquotes",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-7",
+      "claim": "redaction regexes are ReDoS-safe (quote-exclusion prevents exponential backtracking)",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:verification_baseline.py:redos-safe-quote-exclusion",
+      "verdict": "PASS",
+      "evidence": "max 1.1ms across quote-dense/colon-less adversarial inputs up to 20k chars",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-8",
+      "claim": "wfr public API shape (SAFE_ID/parse_events/detect_occurrences) matches call sites",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:verification_baseline.py:wfr-public-api-shape",
+      "verdict": "PASS",
+      "evidence": "Event/Occurrence dataclass fields match every attribute access",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-9",
+      "claim": "manifest shape matches capture_prompt_manifest writer ({value,source} dicts)",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:verification_baseline.py:manifest-shape-matches-writer",
+      "verdict": "PASS",
+      "evidence": "writer at workflow_flight_recorder.py:1275-1307 emits exactly the keys/shapes the consumer reads",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-10",
+      "claim": "bundle metadata.json schema_version == 2",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:verification_baseline.py:bundle-metadata-schema-version-2",
+      "verdict": "PASS",
+      "evidence": "writer stamps schema_version 2 at workflow_flight_recorder.py:1449; consumer checks ==2",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-11",
+      "claim": "stop-attempts.jsonl success-only writer contract",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:verification_baseline.py:stop-attempts-log-success-only-contract",
+      "verdict": "PASS",
+      "evidence": "_append_bundle_attempt hardcodes result:'captured' with no branch producing another value",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-12",
+      "claim": "load_cloud_mappings expects cloud_mappings.schema_version==1 + agent_jobs shape",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:verification_baseline.py:cloud-mappings-registry-shape",
+      "verdict": "PASS",
+      "evidence": "matches registry exactly",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-13",
+      "claim": "run.sh pins the registry review first-message forms + cloud_mappings literals",
+      "file": "lib/test/run.sh",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:workflow-flight-recorder-registry.json:review-first-message-forms-present",
+      "verdict": "PASS",
+      "evidence": "grep -cF: 1 each",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-14",
+      "claim": "run.sh pins zero subprocess call sites in verification_baseline.py",
+      "file": "lib/test/run.sh",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:verification_baseline.py:no-subprocess-run-call-literal",
+      "verdict": "PASS",
+      "evidence": "grep -cE: 0 (both narrow and widened sweeps)",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-15",
+      "claim": "test fixtures mirror the real writer shapes (no mock-vs-real divergence)",
+      "file": "lib/test/test_verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "test_mock_alignment:test_verification_baseline.py:fixture-shapes-match-real-writer",
+      "verdict": "PASS",
+      "evidence": "manifest()/write_bundle()/transcript() match capture_prompt_manifest/_append_bundle_attempt/parse_events exactly",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-16",
+      "claim": "mutation tests prove candidate classification fails closed on all five evidence dimensions",
+      "file": "lib/test/test_verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:test_verification_baseline.py:mutation-tests-fail-closed-five-dimensions",
+      "verdict": "PASS",
+      "evidence": "CandidateFailsClosedTests covers all five, each flipping away from REL_CANDIDATE_TRANSPORT_RETRY; a sixth (interval_bounded) additionally covered",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-17",
+      "claim": "row-local surrogate IDs never coalesce unknown natural keys",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:verification_baseline.py:surrogate-id-never-coalesces-unknown-keys",
+      "verdict": "PASS",
+      "evidence": "position is always an identity part",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-18",
+      "claim": "event.raw mirrors the original transcript line dict",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:verification_baseline.py:event-raw-shape-matches-wfr-parse-events",
+      "verdict": "PASS",
+      "evidence": "parse_events builds Event(raw=record) with record the literal json.loads(line)",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-19",
+      "claim": "output is gitignored under 0700 dirs / 0600 files",
+      "file": "docs/workflow-flight-recorder.md",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:gitignore:verification-baselines-dir-gitignored",
+      "verdict": "PASS",
+      "evidence": "git check-ignore -v confirms /.devflow/* with no re-including negation; DIR_MODE 0o700 / FILE_MODE 0o600 applied",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-20",
+      "claim": "exporter snapshot row shape matches the analyzer's reader",
+      "file": "scripts/export-workflow-lifecycle-census.py",
+      "verification_mode": "agent",
+      "claim_signature": "api_contract:export-workflow-lifecycle-census.py:snapshot-row-shape-matches-consumer",
+      "verdict": "PASS",
+      "evidence": "every key the consumer reads is written by the producer",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-21",
+      "claim": "CLOUD_SNAPSHOT_SCHEMA == exporter SNAPSHOT_SCHEMA (1)",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "api_contract:verification_baseline.py:cloud-snapshot-schema-version-matches-exporter",
+      "verdict": "PASS",
+      "evidence": "both 1",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-22",
+      "claim": "Wave-1 forbidden surface unchanged (no skills/agents/workflows/config/workpad writer)",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:pr-531:wave1-forbidden-surface-unchanged",
+      "verdict": "PASS",
+      "evidence": "git diff --name-only shows only docs/scripts/lib-test/changeset/registry",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-23",
+      "claim": "oversized source records a visible skipped reason, never truncates into a clean classification",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:verification_baseline.py:oversized-source-never-truncated-clean",
+      "verdict": "PASS",
+      "evidence": "max_bytes check + continue precedes parse_events",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-24",
+      "claim": "only explicit process-start evidence creates a launch",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:verification_baseline.py:launch-requires-explicit-process-start-evidence",
+      "verdict": "PASS",
+      "evidence": "_exit_evidence returns None on falsy result -> _only_explicit_process_start False -> no launch",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-25",
+      "claim": "snapshot hash + manual-review seed are reproducible (no set/dict order leakage)",
+      "file": "scripts/verification_baseline.py",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:verification_baseline.py:deterministic-hash-and-sample-seed-reproducible",
+      "verdict": "PASS",
+      "evidence": "identical across PYTHONHASHSEED=1/42/999/random in separate processes",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-26",
+      "claim": "load_registry ignores the additive cloud_mappings key; recorder unaffected",
+      "file": "scripts/workflow-flight-recorder-registry.json",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:workflow-flight-recorder-registry.json:load-registry-ignores-cloud-mappings",
+      "verdict": "PASS",
+      "evidence": "load_registry reads only schema_version + workflows; recorder's own 48 tests pass",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-27",
+      "claim": "the recorder is unaffected by cloud_mappings under all conditions",
+      "file": "scripts/workflow-flight-recorder-registry.json",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:workflow-flight-recorder-registry.json:load-registry-ignores-cloud-mappings-unaffected",
+      "verdict": "PASS",
+      "evidence": "no whole-document dict iteration anywhere",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-28",
+      "claim": "any unlisted (workflow_file, job) is ineligible by omission with no other path to eligibility",
+      "file": "scripts/workflow-flight-recorder-registry.json",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:workflow-flight-recorder-registry.json:unlisted-job-ineligible-by-omission",
+      "verdict": "PASS",
+      "evidence": "mapping is None short-circuits; every other branch is gated behind mapping non-None",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-29",
+      "claim": "eligibility keys on job-level scheduled/started status, not the step name",
+      "file": "scripts/workflow-flight-recorder-registry.json",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:workflow-flight-recorder-registry.json:eligibility-keys-job-level-status-not-step-name",
+      "verdict": "PASS",
+      "evidence": "agent_step is stored but never read as a condition; skipped excluded explicitly",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-30",
+      "claim": "'review / run' is the real Actions jobs-API name for the reusable-workflow call",
+      "file": "scripts/workflow-flight-recorder-registry.json",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:workflow-flight-recorder-registry.json:review-run-job-name-matches-jobs-api",
+      "verdict": "PASS",
+      "evidence": "DECISIVE: gh api on real run 29560335610 returned a job literally named 'review / run'",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-31",
+      "claim": "devflow-runner.yml is workflow_call-only so it carries no entry",
+      "file": "scripts/workflow-flight-recorder-registry.json",
+      "verification_mode": "agent",
+      "claim_signature": "absolute_claim:workflow-flight-recorder-registry.json:runner-yml-never-standalone-entry",
+      "verdict": "PASS",
+      "evidence": "on: block declares only workflow_call",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-32",
+      "claim": "devflow.yml 'command' job multiplexes exactly the three named commands",
+      "file": "scripts/workflow-flight-recorder-registry.json",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:workflow-flight-recorder-registry.json:command-job-multiplexes-three-commands",
+      "verdict": "PASS",
+      "evidence": "resolve-command-trigger.sh resolves exactly review, review-and-fix, pr-description; implement excluded",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-33",
+      "claim": "consumer_approximate is read/surfaced downstream, not silently ignored",
+      "file": "scripts/workflow-flight-recorder-registry.json",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:workflow-flight-recorder-registry.json:consumer-approximate-field-consumed",
+      "verdict": "FAIL",
+      "evidence": "the literal appears ONLY in the registry JSON and the docs; load_cloud_mappings builds entries from consumer/routed_command/agent_step only, silently dropping it; build_cloud_census never reads it - an inert key the comment instructs downstream to honor",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-34",
+      "claim": "load_cloud_mappings parses the exact added JSON shape",
+      "file": "scripts/workflow-flight-recorder-registry.json",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:workflow-flight-recorder-registry.json:load-cloud-mappings-schema-shape-match",
+      "verdict": "PASS",
+      "evidence": "all 3 entries survive a live load",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-35",
+      "claim": "the new review entry matches WorkflowDefinition's expected shape",
+      "file": "scripts/workflow-flight-recorder-registry.json",
+      "verification_mode": "agent",
+      "claim_signature": "dependency_interaction:workflow-flight-recorder-registry.json:review-entry-shape-matches-workflowdefinition",
+      "verdict": "PASS",
+      "evidence": "live load_registry returns a well-formed WorkflowDefinition for 'review'",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Critical",
+      "description": "Malformed run rows defeat the exporter's drop guard: build_snapshot's isinstance guard is unreachable from the real fetch path. With --workflows set the comprehension discards the non-dict uncounted (measured pagination_complete=True dropped_run_count=0 - a shape-drifted census self-certifying complete over a shrunk denominator); with --workflows empty the non-dict reaches run.get('id') -> AttributeError.",
+      "defect_signature": {
+        "file": "scripts/export-workflow-lifecycle-census.py",
+        "line_range": [
+          214,
+          225
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Critical",
+      "description": "documented_falsehood: the diff-added claim 'a shape-drifted census never self-certifies complete' is false against HEAD given the above. Self-contradicting diff -> non-demotable REJECT carve-out.",
+      "defect_signature": {
+        "file": "docs/workflow-flight-recorder.md",
+        "line_range": [
+          212,
+          214
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "eligible_lifecycles counts confirmed-ineligible rows (5x inflation measured: reports 5, actual 1). Site 2743 (stdout summary) prints the inflated figure with no adjacent bounds disclosure.",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          2025,
+          2025
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "consumer_approximate is dropped by its only reader (load_cloud_mappings builds entries from three keys), so a stratifier cannot tell devflow.yml's multiplexed command attribution from an exact one.",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          864,
+          868
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:completeness-critic",
+      "severity": "Important",
+      "description": "matcher-probe.yml's five claude-code-action jobs are absent from cloud_mappings.agent_jobs with no documented exclusion rationale, unlike the documented carve-outs for devflow-runner.yml and devflow.yml. Independent signal: grep -l claude-code-action over .github/workflows/*.yml.",
+      "defect_signature": {
+        "file": "scripts/workflow-flight-recorder-registry.json",
+        "line_range": [
+          55,
+          55
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "severity-calibrated"
+    },
+    {
+      "agent": "devflow:completeness-critic",
+      "severity": "Suggestion",
+      "description": "The run.sh subprocess-absence pins' regex alternations are blind to os.exec*/os.spawn*/os.fork/multiprocessing/asyncio.create_subprocess_*/eval/ctypes. Latent forward-looking guard gap - the module contains none of these today.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          41100,
+          41102
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "The two new run.sh absence pins are plain assert_eq grep-count checks rather than routed through assert_pin_red_under, bypassing the repo's pin-auditability convention. Verified mutation-provably correct by hand.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          41086,
+          41100
+        ],
+        "kind": "style"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "PR description claims '37 unittests' and '5 mutation tests'; actual is 133 test_ methods and 6 mutation tests. PR body only - no tracked diff-added file repeats the counts, so not a self-contradicting-diff carve-out subject.",
+      "defect_signature": {
+        "file": "PR body",
+        "line_range": null,
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "EligibleLifecycle validates the source/source_status pairing once at construction but source_status is mutated in place afterward with no re-validation; latent, both mutation sites assign in-set values.",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          634,
+          670
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "frozen=True is one level shallow: dict/list fields (timing, workspace_state, provenance, members) remain mutable in place, so the design's 'nothing mutates them after construction' claim is not literally true for nested containers. No live call site mutates them.",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          717,
+          736
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "RelationshipGroup.__post_init__ does not assert len(members) >= 1; an empty-members group would silently produce duration_ms=None rather than raising. Latent - group_launches always passes non-empty.",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          771,
+          786
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "C1-census-guard-unreachable",
+      "decision": "applied",
+      "commit": "9721de7c"
+    },
+    {
+      "finding_id": "C2-doc-self-certifies-falsehood",
+      "decision": "applied",
+      "commit": "9721de7c"
+    },
+    {
+      "finding_id": "VC-6-escaped-secret-leak",
+      "decision": "applied",
+      "commit": "9721de7c"
+    },
+    {
+      "finding_id": "VC-4-consumer-roles-candidate",
+      "decision": "applied",
+      "commit": "9721de7c"
+    },
+    {
+      "finding_id": "VC-2-numerator-denominator",
+      "decision": "applied",
+      "commit": "9721de7c"
+    },
+    {
+      "finding_id": "I1-eligible-lifecycles-inflation",
+      "decision": "applied",
+      "commit": "9721de7c"
+    },
+    {
+      "finding_id": "VC-33-consumer-approximate-inert",
+      "decision": "applied",
+      "commit": "9721de7c"
+    },
+    {
+      "finding_id": "I3-matcher-probe-omission",
+      "decision": "severity-calibrated",
+      "source_file": "scripts/workflow-flight-recorder-registry.json",
+      "claim_text": "matcher-probe.yml's five claude-code-action jobs are absent from agent_jobs with no documented rationale, contradicting the registry's 'ineligible by omission' framing",
+      "original_severity": "Important",
+      "calibrated_severity": "Suggestion",
+      "evidence": "Over-grade gate shape 2 (diagnostic-only, no behavioral fail-direction): the registry's sentence 'any job whose (workflow_file, job) is not listed below is ineligible by omission' is LITERALLY TRUE of matcher-probe's jobs - they are ineligible, by omission, exactly as stated - so the finding is not a documented_falsehood and the kind is mis-filed. Independently verified: matcher-probe.yml is repo-internal probe infrastructure, is not shipped by install.sh, and runs no consumer lifecycle, so its omission is correct; the gap is a missing rationale, i.e. documentation completeness with no wrong output, no corrupted state, no skipped guard. Recorded technical evaluation, did not auto-demote. Fixed anyway (cheap, and it makes oversight distinguishable from intent)."
+    },
+    {
+      "finding_id": "S-subprocess-pin-blind-spots",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "subprocess-absence pins blind to os.exec*/os.spawn*/fork/multiprocessing/asyncio/eval/ctypes",
+      "skip_category": "uncategorized",
+      "evidence": "Real but below the important fix threshold, and latent by the critic's own measurement: the module contains none of these spellings today (verified by an independent read of its import list and call surface), so nothing is currently undetected. Widening the alternation is a forward-looking guard improvement, not a live defect."
+    },
+    {
+      "finding_id": "S-pins-bypass-assert_pin_red_under",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "the two new absence pins are plain assert_eq grep counts rather than assert_pin_red_under",
+      "skip_category": "uncategorized",
+      "evidence": "Below threshold and self-described by the reporting agent as a style/convention nit, not a functional gap: it independently mutation-verified both pins DO go RED under the guarded regression (a reintroduced subprocess call). The pins are non-vacuous; only their routing differs from convention."
+    },
+    {
+      "finding_id": "S-pr-body-test-counts",
+      "decision": "deferred",
+      "source_file": "PR body",
+      "claim_text": "PR description claims 37 unittests / 5 mutation tests; actual 133 / 6",
+      "skip_category": "uncategorized",
+      "evidence": "Below threshold. Verified the counts appear in NO tracked diff-added file (grep over the diff), so this is not a self-contradicting-diff carve-out subject - the PR body is not part of the reviewed diff. Corrected out-of-band in the PR description rather than by a code change."
+    },
+    {
+      "finding_id": "S-type-design-nested-mutability",
+      "decision": "deferred",
+      "source_file": "scripts/verification_baseline.py",
+      "claim_text": "frozen=True is shallow; nested dict/list fields remain mutable; EligibleLifecycle re-validation gap; RelationshipGroup non-empty members",
+      "skip_category": "uncategorized",
+      "evidence": "Three Low/type_design findings, all explicitly latent by the reporting agent's own grep: no live call site performs the in-place mutation any of them describes. Below the important threshold; a design hardening for a future extension, not a defect in this PR as shipped."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 8,
+    "fix_diff_lines": 184,
+    "fix_diff_lines_note": "code-only (scripts/) portion of the 354-line fix commit; the remainder is tests, docs, and the changeset, which do not count toward the convergence tally by the severity/surface rule",
+    "new_corroborated_critical_count": 2
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "stale_prose_check": {
+    "exit_code": 0,
+    "stale_rows": 0,
+    "rows": [
+      "UNRESOLVABLE\tR3\tdocs/workflow-flight-recorder.md\t276\tcount-locked: recognition-only (2 members)",
+      "VERIFIED\tR4\tlib/test/test_verification_baseline.py\t868\tdeny-absolute on `&&`: no contradicting permit found",
+      "UNRESOLVABLE\tR3\tscripts/verification_baseline.py\t21\tcount-locked: recognition-only (600 files)",
+      "UNRESOLVABLE\tR3\tscripts/verification_baseline.py\t485\tcount-locked: recognition-only (2 rows)",
+      "VERIFIED\tR4\tscripts/verification_baseline.py\t1274\tdeny-absolute on `|`: no contradicting permit found",
+      "UNRESOLVABLE\tR3\tscripts/verification_baseline.py\t1864\tcount-locked: '1 check' claim but no adjacent assertion block",
+      "UNRESOLVABLE\tR3\tscripts/verification_baseline.py\t1918\tcount-locked: recognition-only (2 members)",
+      "UNRESOLVABLE\tR3\tscripts/verification_baseline.py\t2733\tcount-locked: recognition-only (3 fields)"
+    ],
+    "note": "Exit 0 = no STALE rows, so nothing gates. UNRESOLVABLE rows are informational by engine contract. The repo extension's count-locked pin-or-don't-write policy was considered: every count-locked row here is an in-code comment describing local structure (a recognition-only bound), not a repo-wide enumeration whose drift a pin would catch; none were newly authored by this iteration's fix."
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 118,
+    "skipped_checks": [],
+    "note": "8260 passed, 0 failed. The summary carried NO skip line, which by the runner's own contract means zero self-skipped checks - a genuinely clean run, not a laundered one. Run on a CLEAN tree (committed first) so the #434 stale-prose self-scan actually executed rather than self-skipping on a dirty tree. Also: python3 lib/test/test_verification_baseline.py -> 143 tests exit 0; test_workflow_flight_recorder.py -> 48 tests exit 0; ruff clean; shellcheck clean."
+  },
+  "base_checkpoint": {
+    "token": "UP_TO_DATE",
+    "behind_by": null
+  },
+  "test_first_gate": [
+    {
+      "decision": "automated test applies (redaction is a pure function with an observable return)",
+      "command": "python3 lib/test/test_verification_baseline.py Pr531ReviewAndFixIter1Tests.test_escaped_whitespace_secret_value_fully_redacted",
+      "result": "RED before fix, GREEN after",
+      "evidence": "Written before the fix. Failed for the right reason on all 5 subTests, each naming a real leaked fragment, e.g. \"'secret' unexpectedly found in 'API_KEY= secret\\\\ value pytest'\". Mutation MUT2 (neutralise _ESC_CHUNK) -> RED."
+    },
+    {
+      "decision": "automated test applies (fetch layer is drivable with a stubbed _gh_json)",
+      "command": "python3 lib/test/test_verification_baseline.py Pr531ReviewAndFixIter1Tests.test_fetch_layer_does_not_silently_discard_malformed_run",
+      "result": "RED before fix, GREEN after",
+      "evidence": "Written before the fix. Failed with '0 != 1 : malformed run was discarded uncounted before build_snapshot' (the fail-open) and the sibling test with AttributeError at line 224 (the crash). Deliberately drives the real fetch path - the pre-existing exporter test called build_snapshot directly, bypassing the layer that swallowed the row. Mutation MUT3 -> RED."
+    },
+    {
+      "decision": "automated test applies",
+      "command": "python3 lib/test/test_verification_baseline.py Pr531ReviewAndFixIter1Tests.test_consumer_approximate_is_carried_by_its_reader",
+      "result": "RED before fix, GREEN after",
+      "evidence": "Written before the fix. Failed 'None is not true : consumer_approximate dropped by load_cloud_mappings'. Mutation MUT4 -> RED."
+    },
+    {
+      "decision": "automated test applies",
+      "command": "python3 lib/test/test_verification_baseline.py Pr531ReviewAndFixIter1Tests.test_distinct_consumer_roles_are_never_a_transport_retry_candidate",
+      "result": "RED before fix, GREEN after",
+      "evidence": "Written before the fix. Failed 'candidate_transport_retry == candidate_transport_retry'. Carries TWO positive controls (same-consumer and unrecorded-None-consumer pairs must STILL reach candidate) so a guard that forecloses everything cannot pass. Mutations: MUT6 (remove the foreclosure) -> RED; MUT7 (over-broad guard admitting None, len>=1) -> controls RED."
+    },
+    {
+      "decision": "GATE VIOLATION, disclosed: the I1/VC-2 metric fix was authored BEFORE its test",
+      "command": "python3 lib/test/test_verification_baseline.py Pr531ReviewAndFixIter1Tests.test_eligible_lifecycles_excludes_confirmed_ineligible",
+      "result": "GREEN on first run (test written after the fix)",
+      "evidence": "Recorded honestly rather than presented as a clean gate. Remediated with the stronger evidence the gate exists to obtain: mutation MUT1 (revert eligible_denominator to len(rows)) -> RED, and MUT5 (revert the schema bump) -> RED, both on fresh file copies with an `assert old in s` proving the mutation actually applied. So the pin is proven non-vacuous against the guarded regression even though the red-before-green ordering was not observed."
+    },
+    {
+      "decision": "no automated test applies (registry comment prose - the matcher-probe carve-out record)",
+      "command": "adversarial dry-trace, scoped to the fix delta",
+      "result": "pass",
+      "evidence": "Phase-2.4-style trace: the added sentence makes three checkable claims, each verified against HEAD rather than asserted - (1) matcher-probe.yml runs claude-code-action [grep -l over .github/workflows/*.yml: confirmed]; (2) its jobs are probe/implement-probe/schedulewakeup-probe/execfile-shape-probe/hook-probe [job-key grep: confirmed]; (3) it is not shipped by install.sh [grep install.sh: no match, confirmed]. Shape matrix over the JSON: the file still parses, load_registry and load_cloud_mappings both still load it, and the recorder's own 48 tests pass."
+    }
+  ],
+  "sweep_defs_read": {
+    "source": "NOT READ - degraded",
+    "sweeps": [],
+    "note": "sweeps: unrunnable (phase-2 source unreadable at <skill-dir>/../implement/phases/phase-2-implement.md). This branch predates the #529 bundle split and the executing engine here is the repo-own monolithic skills/review/SKILL.md; the installed devflow plugin's implement phase-2 sibling was not resolved from this worktree. Per the item-3b degraded arm this is recorded visibly rather than skipped silently, and Step 3.5 (blinded fix-delta gate) plus the Step 2.6 shadow are named as the covering backstop for this iteration's delta."
+  },
+  "sweep_evidence": {
+    "status": "degraded",
+    "reason": "phase-2 source unreadable from this worktree; backstops named (Step 3.5 + shadow)",
+    "performed_anyway": [
+      "Class sweep (item 3): the VC-6 redaction finding was generalised from the one cited spelling to its whole defect_signature.kind class across the changed surface - env assignment, --flag, -u halves, and escaped quotes inside double quotes were all probed and fixed together, rather than fixing only the reported instance.",
+      "Coupled-site sweep: git grep + a whitespace-normalized (tr -s) sweep for 'eligible_lifecycles'/'eligible lifecycles' across .md/.py/.sh/.json found the docs enumeration in docs/workflow-flight-recorder.md, updated in the SAME commit; the changeset was updated in the same commit for the schema bump.",
+      "Mechanism-scoped comment re-sweep (item 3a): the fixes changed mechanisms (a regex, a filter predicate, a metric derivation), so the comments describing those mechanisms were re-verified and rewritten in place."
+    ]
+  },
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 45
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 20
+    },
+    "phase_0_6": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 3
+    },
+    "phase_1": {
+      "calls": 2,
+      "tokens": 202441,
+      "wall_clock_s": 153
+    },
+    "phase_1_5": {
+      "calls": 1,
+      "tokens": 70123,
+      "wall_clock_s": 81
+    },
+    "phase_2": {
+      "calls": 6,
+      "tokens": 451915,
+      "wall_clock_s": 161
+    },
+    "phase_3": {
+      "calls": 7,
+      "tokens": 542416,
+      "wall_clock_s": 422
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5,
+      "webfetches": 0
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 60
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-17T07:30:00Z",
+    "reviewed_sha": "9721de7c",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "trigger": "early (engine_self_modifying, after iteration 1; iter-1 routed to fixes so the convergence-time trigger had not run)",
+    "phase3_findings": [
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Critical",
+        "description": "SECRET_SHORT_U whole-operand-quoted alternatives not escape-aware -> -u \"user:pa\\\"ss\" leaks the tail",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            314,
+            321
+          ],
+          "kind": "security"
+        }
+      },
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Important",
+        "description": "main() reports the fetch-level pagination_complete, contradicting the artifact it wrote and silencing its own warning",
+        "defect_signature": {
+          "file": "scripts/export-workflow-lifecycle-census.py",
+          "line_range": [
+            336,
+            343
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:type-design-analyzer",
+        "severity": "Important",
+        "description": "lifecycle_eligibility_state smuggled through the untyped provenance bag with a silent 'unrecorded' fallback",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            1717,
+            1822
+          ],
+          "kind": "type_design"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 6,
+      "overlap_with_iter_N": 3,
+      "new": 3,
+      "new_critical": 1,
+      "new_important": 2
+    },
+    "promoted_to_iter_next": true
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "started_at": "2026-07-17T07:08:14Z",
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "base_checkpoint": {
+    "token": "UP_TO_DATE",
+    "behind_by": null
+  },
+  "iter": 3,
+  "fix_commit_sha": "d9139454",
+  "loop_role": "promoted",
+  "promotion_provenance": "park-calibration-pre-shadow",
+  "fix_files": [
+    "scripts/verification_baseline.py",
+    "lib/test/test_verification_baseline.py"
+  ],
+  "note": "Park-calibration gate fired: the shadow re-raised a finding iter 1 had parked, so the parked grade was wrong. EligibleLifecycle.source_status validated only in __post_init__ while six sites mutated it in place; added a re-validating set_source_status sharing one check with the constructor.",
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "skipped_checks": [],
+    "duration_s": 118,
+    "detail": "8260 passed, 0 failed, no skip line"
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  },
+  "telemetry": "unavailable"
+}

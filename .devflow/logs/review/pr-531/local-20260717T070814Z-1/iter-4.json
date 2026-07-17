@@ -1,0 +1,201 @@
+{
+  "started_at": "2026-07-17T07:08:14Z",
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "base_checkpoint": {
+    "token": "UP_TO_DATE",
+    "behind_by": null
+  },
+  "iter": 4,
+  "fix_commit_sha": "3ce2d82f",
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "fix_files": [
+    "scripts/verification_baseline.py",
+    "scripts/export-workflow-lifecycle-census.py",
+    "lib/test/test_verification_baseline.py"
+  ],
+  "note": "Convergence-shadow promotion: Critical plural --flag secret leak (--tokens/--api-keys/--secrets/--credentials unredacted with secret_affected=False, skipping the carve-outs) + two documented_falsehoods the loop itself authored (load_cloud_mappings return annotation vs its bool value; a 'loud ValueError' claim defeated by a defaulted field) + a fatal unhashable run id + two silent stat sites.",
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "skipped_checks": [],
+    "duration_s": 118,
+    "detail": "8260 passed, 0 failed, no skip line"
+  },
+  "shadow": {
+    "ran_at": "2026-07-17T08:05:00Z",
+    "reviewed_sha": "1fba1ac3",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "trigger": "convergence-time (Step 4.5 early-exit, tentative non-REJECT)",
+    "reviewed_sha_note": "shadow reviewed 3ce2d82f; the Loop-Exit post-shadow edit gate fired on HEAD=1fba1ac3, ran a bounded blinded delta-review over 3ce2d82f..HEAD, found it CLEAN (no new Critical/Important), so reviewed_sha advanced to HEAD per the gate's clean arm.",
+    "phase3_findings": [
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Critical",
+        "description": "SECRET_URL escape-blind: https://user:pa\\ ss@host leaks the WHOLE credential with secret_affected=False (also skipping the secret-affected carve-outs)",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            369,
+            369
+          ],
+          "kind": "security"
+        },
+        "fix_decision": "applied (iter 5)"
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "build_local_census silently returns [] on an absent manifests dir -> census_rows 0 reads as a genuinely empty corpus (LIVE)",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            1011,
+            1014
+          ],
+          "kind": "logic_error"
+        },
+        "fix_decision": "applied (iter 5)"
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Critical",
+        "description": "join_confidence() is dead code — AC #6's join-confidence semantics are on no executing path; RelationshipGroup.join_confidence is populated by _classify_relationship's group-classification confidence, and test_join_confidence_classes exercises the dead function, so the green suite is false assurance for that AC",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            1971,
+            2016
+          ],
+          "kind": "logic_error"
+        },
+        "fix_decision": "UNRESOLVED — surfaced at the iteration cap"
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Important",
+        "description": "_source_event_id omits tool_use_id, so multiple tool_uses in one event collide; latent only while join_confidence is dead — fix together",
+        "defect_signature": {
+          "file": "scripts/verification_baseline.py",
+          "line_range": [
+            585,
+            587
+          ],
+          "kind": "logic_error"
+        },
+        "fix_decision": "UNRESOLVED — surfaced at the iteration cap"
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "--out path lacks the traversal/containment validation used elsewhere",
+        "defect_signature": {
+          "file": "scripts/export-workflow-lifecycle-census.py",
+          "line_range": [
+            367,
+            368
+          ],
+          "kind": "security"
+        },
+        "fix_decision": "deferred (below threshold)"
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 9,
+      "overlap_with_iter_N": 4,
+      "new": 5,
+      "new_critical": 2,
+      "new_important": 2
+    },
+    "promoted_to_iter_next": true
+  },
+  "parked_class_sweep": {
+    "classes": [
+      {
+        "kind_literal": "test_gap",
+        "sites_examined": [
+          "lib/test/run.sh:41086-41108"
+        ],
+        "new_siblings": []
+      },
+      {
+        "kind_literal": "style",
+        "sites_examined": [
+          "lib/test/run.sh:41086-41108"
+        ],
+        "new_siblings": []
+      },
+      {
+        "kind_literal": "type_design",
+        "sites_examined": [
+          "scripts/verification_baseline.py dataclasses"
+        ],
+        "new_siblings": [
+          {
+            "finding_id": "CS-1",
+            "site": "VerificationRequest (frozen w/ mutable dict fields)",
+            "severity": "Suggestion",
+            "disposition": "advisory",
+            "marker": "parked-sibling: class-sweep"
+          },
+          {
+            "finding_id": "CS-2",
+            "site": "VerificationProcessLaunch (frozen w/ mutable dict fields)",
+            "severity": "Suggestion",
+            "disposition": "advisory",
+            "marker": "parked-sibling: class-sweep"
+          },
+          {
+            "finding_id": "CS-3",
+            "site": "RelationshipGroup.members list on a frozen class",
+            "severity": "Suggestion",
+            "disposition": "advisory",
+            "marker": "parked-sibling: class-sweep"
+          }
+        ]
+      },
+      {
+        "kind_literal": "comment_drift",
+        "sites_examined": [
+          "docs/*.md, changeset, registry comment"
+        ],
+        "new_siblings": []
+      }
+    ],
+    "truncation": null,
+    "dispatch": "verified",
+    "note": "All siblings below $FIX_THRESHOLD and latent (no live in-place mutation) -> parked advisory, no promotion. The sweep also independently re-counted the test claims (150 tests / 6 mutation) and found no stale counted claim."
+  },
+  "telemetry": "unavailable"
+}
