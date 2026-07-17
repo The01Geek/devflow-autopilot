@@ -500,10 +500,31 @@ to issue/PR 2 and misleads readers. For an ordinal, count, or list position, spe
 explicitly approved creating it (Step 4 of the calling skill). Never post a draft the user
 has not confirmed.
 
-Create the issue **directly** — pipe the rendered body to `gh` via stdin with a quoted
-heredoc so backticks and `$` in the markdown are not expanded. Do **not** source the body
-from a file with `--body-file` (the `.devflow/tmp/issue-draft-<slug>.md` preview copy from
-Step 4 is for the user's eyes only — never the posting source):
+Create the issue **directly**, sourcing the body from the **single presentation source** — the
+same bytes the user approved. Which source that is depends on the epoch's arm:
+
+**On a file-arm epoch**, the body comes from the gated canonical file, via the state owner's
+`emit-body` query. **Do not pipe it into `gh`**:
+
+```bash
+# WRONG — a refused emit-body exits non-zero with EMPTY stdout, and without pipefail
+# `gh` still runs and creates an EMPTY-BODIED issue:
+#   python3 .../issue-audit-state.py emit-body "<slug>" ... | gh issue create --body-file -
+```
+
+Instead **capture the output, guard it non-empty, and only then post** — so a refusal stops
+creation rather than filing an empty issue:
+
+```bash
+BODY_BYTES="$(python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py emit-body "<slug>" --nonce "<nonce>" --draft-file "<absolute issue-draft-<slug>.md path>")"
+[ -n "$BODY_BYTES" ] || { echo "emit-body refused or produced nothing — NOT creating the issue"; exit 1; }
+printf '%s\n' "$BODY_BYTES" | gh issue create --title "Action-oriented title here" --body-file -
+```
+
+**On an embed- or inline-arm epoch** there is no trustworthy canonical file, so the body is
+re-emitted from context through a quoted heredoc (quoted so backticks and `$` in the markdown
+are not expanded). This is a **disclosed residual**, not the preferred path — the re-emission is
+not byte-identical-by-construction the way `emit-body` is:
 
 ```bash
 gh issue create --title "Action-oriented title here" --body-file - <<'BODY'

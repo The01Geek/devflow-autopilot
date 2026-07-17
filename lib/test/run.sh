@@ -40754,6 +40754,301 @@ fi
 # ────────────────────────────────────────────────────────────────────────────
 echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"
 # ────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
+echo "issue #546: issue-audit-state.py — the create-issue audit-lifecycle state owner"
+
+IAS="$LIB/../scripts/issue-audit-state.py"
+
+# help_surface_pin — pinned against the RENDERED --help output, whitespace-normalized.
+# Never a source grep on the argparse help= strings: those are concatenated across
+# adjacent literals, so a source pin would live on no single line (#375).
+# NO_COLOR/PYTHON_COLORS: argparse colorizes its help on python >= 3.13 when the
+# rendering path allows it, and the ANSI escapes would land INSIDE a pinned phrase and
+# fail the match on exactly the newer interpreters this repo supports.
+IAS_HELP_546="$(NO_COLOR=1 PYTHON_COLORS=0 python3 "$IAS" --help 2>&1 | tr -s '[:space:]' ' ')"
+assert_eq "#546 help_surface_pin: --help states the query exit-0 contract (rendered)" \
+  "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'Queries always exit 0 and print a decided token' | grep -c .)"
+assert_eq "#546 help_surface_pin: --help states the mutation breadcrumb contract (rendered)" \
+  "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'mutations exit non-zero with a named breadcrumb' | grep -c .)"
+# The subcommand roster renders in the PARENT help (a subparser's own --help does not
+# repeat its help= string), so the mode enumeration is pinned there.
+assert_eq "#546 help_surface_pin: the eligibility query renders both decided modes" \
+  "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'Presentation eligibility in approve or iterate mode' | grep -c .)"
+assert_eq "#546 help_surface_pin: the gated emitter renders its refusal contract" \
+  "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'refuses with empty stdout when not eligible' | grep -c .)"
+
+# cli_roundtrip_restricted_path — the full lifecycle end-to-end under a PATH holding only
+# git and python3, proving no value that decides a selection or an emitted result is derived
+# through a non-preflight PATH tool (guard-class 2). Also asserts the run creates no file
+# besides the state JSON.
+IAS_SB="$(git_sandbox '#546 cli_roundtrip_restricted_path')"
+if [ -d "$IAS_SB" ]; then
+  (
+    cd "$IAS_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# Draft title\n\nBody line one.\nBody line two.\n' > draft.md
+
+    # A genuinely restricted PATH: a scratch bin dir holding symlinks to ONLY git and
+    # python3. Adding the DIRECTORIES those binaries live in would not restrict anything
+    # — git ships in /usr/bin, which also carries tr/sed/awk/wc AND (on macOS) an older
+    # system python3 that would shadow the real interpreter and silently answer the
+    # version guard instead of running the tool.
+    mkdir -p restricted-bin
+    ln -sf "$(command -v git)" restricted-bin/git
+    ln -sf "$(command -v python3)" restricted-bin/python3
+    RESTRICTED="$IAS_SB/restricted-bin"
+
+    NONCE="$(PATH="$RESTRICTED" python3 "$IAS" init rt | sed 's/nonce=//')"
+    printf 'nonce=%s\n' "$NONCE" > .rt-nonce
+
+    PATH="$RESTRICTED" python3 "$IAS" query-arm rt --nonce "$NONCE" \
+      --write-landed yes --draft-file draft.md > .rt-arm
+    PATH="$RESTRICTED" python3 "$IAS" record-dispatch rt --nonce "$NONCE" \
+      --round 1 --arm file --draft-file draft.md > .rt-dispatch
+    OID="$(PATH="$RESTRICTED" git hash-object --stdin --no-filters < draft.md)"
+    PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 1 \
+      --verdict REVISE --findings-count 2 --carriage-object-id "$OID" > .rt-return
+    PATH="$RESTRICTED" python3 "$IAS" query-next-action rt --nonce "$NONCE" --round 1 > .rt-next
+    PATH="$RESTRICTED" python3 "$IAS" query-triggers rt --nonce "$NONCE" > .rt-trig
+
+    # Revise the draft, record it, then assert approve mode refuses the unaudited bytes.
+    printf '# Draft title\n\nBody line one (revised).\nBody line two.\n' > draft.md
+    PATH="$RESTRICTED" python3 "$IAS" record-revision rt --nonce "$NONCE" --after-round 1 > .rt-rev
+    PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
+      --mode approve --draft-file draft.md > .rt-elig-bad
+    PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
+      --mode iterate --draft-file draft.md > .rt-elig-iter
+
+    # A clean round on the revised bytes, then approve mode must ground eligible.
+    PATH="$RESTRICTED" python3 "$IAS" record-dispatch rt --nonce "$NONCE" \
+      --round 2 --arm file --draft-file draft.md > /dev/null
+    OID2="$(PATH="$RESTRICTED" git hash-object --stdin --no-filters < draft.md)"
+    PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 2 \
+      --verdict FILE --findings-count 0 --carriage-object-id "$OID2" > /dev/null
+    PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
+      --mode approve --draft-file draft.md > .rt-elig-ok
+    PATH="$RESTRICTED" python3 "$IAS" query-summary rt --nonce "$NONCE" \
+      --draft-file draft.md > .rt-summary
+    PATH="$RESTRICTED" python3 "$IAS" emit-body rt --nonce "$NONCE" --draft-file draft.md > .rt-body
+    printf '%s\n' "$(ls .devflow/tmp)" > .rt-files
+  )
+
+  assert_eq "#546 cli_roundtrip_restricted_path: query-arm routes a landed write to the file arm" \
+    "arm=file marker=none" "$(cat "$IAS_SB/.rt-arm" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: a REVISE return classifies accept-revise" \
+    "classification=accept-revise outcome=REVISE" "$(cat "$IAS_SB/.rt-return" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: the automatic re-audit is the next action" \
+    "action=revise-and-reaudit" "$(cat "$IAS_SB/.rt-next" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: T1 holds after a REVISE round" \
+    "1" "$(grep -c 't1=hold' "$IAS_SB/.rt-trig" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: approve mode refuses just-revised, not-yet-re-audited bytes" \
+    "eligible=no reason=unaudited-revision" "$(cat "$IAS_SB/.rt-elig-bad" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: iterate mode answers ok for the same bytes" \
+    "iterate=ok ordinal=1" "$(cat "$IAS_SB/.rt-elig-iter" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: a clean round on the revised bytes grounds eligible" \
+    "1" "$(grep -c 'eligible=yes ground=file-identity' "$IAS_SB/.rt-elig-ok" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: the summary carries the same token the eligibility answer issued" \
+    "1" "$(grep -oF -- "$(sed -E 's/.* token=([^ ]+).*/\1/' "$IAS_SB/.rt-elig-ok" 2>/dev/null)" "$IAS_SB/.rt-summary" 2>/dev/null | grep -c .)"
+  assert_eq "#546 cli_roundtrip_restricted_path: emit-body emits the body below the title heading" \
+    "Body line one (revised).
+Body line two." "$(cat "$IAS_SB/.rt-body" 2>/dev/null)"
+  # The tool's own artifact population is exactly one file: the state JSON.
+  assert_eq "#546 cli_roundtrip_restricted_path: the run creates no file besides the state JSON" \
+    "issue-audit-state-rt.json" "$(cat "$IAS_SB/.rt-files" 2>/dev/null)"
+  rm -rf "$IAS_SB"
+fi
+
+# digest_filter_mode_rows — the content-filter fixtures. The tool hashes via
+# `git hash-object --stdin --no-filters` at EVERY compare site; the path-mode form applies
+# clean/CRLF filters and would return a different object ID for the same bytes under
+# `core.autocrlf=true` (and under `* text=auto`), so a dispatch digest and an eligibility
+# digest taken on an untouched CRLF draft would disagree and refuse a clean draft. Each row
+# asserts the dispatch digest, the digest the amended auditor instruction produces
+# (`git hash-object --no-filters`), and the eligibility digest agree byte-for-byte.
+for FILTER_MODE in autocrlf textauto; do
+  CRLF_SB="$(git_sandbox "#546 digest_filter_mode_rows ($FILTER_MODE)")"
+  [ -d "$CRLF_SB" ] || continue
+  (
+    cd "$CRLF_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    if [ "$FILTER_MODE" = autocrlf ]; then
+      git config core.autocrlf true
+    else
+      printf '* text=auto\n' > .gitattributes
+    fi
+    printf '# T\r\n\r\nCRLF body line.\r\n' > draft.md
+    NONCE="$(python3 "$IAS" init crlf | sed 's/nonce=//')"
+    # The dispatch digest, as the tool records it.
+    python3 "$IAS" record-dispatch crlf --nonce "$NONCE" --round 1 --arm file \
+      --draft-file draft.md | sed -E 's/.*digest=([0-9a-f]+) body_digest.*/\1/' > .crlf-dispatch
+    # The digest the AMENDED auditor instruction produces.
+    git hash-object --no-filters draft.md > .crlf-auditor
+    # The eligibility digest (the tool re-reads the file's bytes in binary and re-hashes).
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+    python3 "$IAS" record-return crlf --nonce "$NONCE" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" query-eligibility crlf --nonce "$NONCE" --mode approve \
+      --draft-file draft.md | sed -E 's/.*key=([0-9a-f]+).*/\1/' > .crlf-elig
+    # The path-mode form, recorded ONLY to show the divergence this rule exists to avoid.
+    git hash-object draft.md > .crlf-pathmode
+  )
+  assert_eq "#546 digest_filter_mode_rows ($FILTER_MODE): the dispatch digest and the amended auditor instruction agree" \
+    "$(cat "$CRLF_SB/.crlf-auditor" 2>/dev/null)" "$(cat "$CRLF_SB/.crlf-dispatch" 2>/dev/null)"
+  assert_eq "#546 digest_filter_mode_rows ($FILTER_MODE): the eligibility digest agrees with the dispatch digest" \
+    "$(cat "$CRLF_SB/.crlf-dispatch" 2>/dev/null)" "$(cat "$CRLF_SB/.crlf-elig" 2>/dev/null)"
+  assert_eq "#546 digest_filter_mode_rows ($FILTER_MODE): a clean CRLF draft grounds eligible (no filter-induced false mismatch)" \
+    "$(cat "$CRLF_SB/.crlf-auditor" 2>/dev/null)" "$(cat "$CRLF_SB/.crlf-elig" 2>/dev/null)"
+  rm -rf "$CRLF_SB"
+done
+
+# The stale pre-cutover markdown event log is INERT: a leftover .md beside an absent JSON
+# reads as unestablished and is never parsed.
+MD_SB="$(git_sandbox '#546 stale pre-cutover .md event log is inert')"
+if [ -d "$MD_SB" ]; then
+  (
+    cd "$MD_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf 'round 1 dispatched (file arm), digest abc123\nrevised after round 1\n' \
+      > .devflow/tmp/issue-audit-state-legacy.md
+    python3 "$IAS" query-eligibility legacy --nonce whatever --mode approve > .md-elig 2>/dev/null
+    python3 "$IAS" query-triggers legacy --nonce whatever > .md-trig 2>/dev/null
+  )
+  assert_eq "#546 malformed-state matrix: a stale pre-cutover .md leftover is never read — state is unestablished" \
+    "eligible=no reason=state-unestablished" "$(cat "$MD_SB/.md-elig" 2>/dev/null)"
+  assert_eq "#546 malformed-state matrix: ... and T2 holds on unestablished state (unknown is not zero)" \
+    "1" "$(grep -c 't2=hold reason=state-unestablished' "$MD_SB/.md-trig" 2>/dev/null)"
+  rm -rf "$MD_SB"
+fi
+
+# query_exit_contract_matrix — every query class against a malformed state file: exit 0 with
+# a fail-closed token, never a crash presented as a value. Mutations exit non-zero.
+QM_SB="$(git_sandbox '#546 query_exit_contract_matrix')"
+if [ -d "$QM_SB" ]; then
+  for SHAPE in empty malformed array scalar; do
+    (
+      cd "$QM_SB" || exit 1
+      mkdir -p .devflow/tmp
+      case "$SHAPE" in
+        empty)     : > .devflow/tmp/issue-audit-state-m.json ;;
+        malformed) printf '{not json' > .devflow/tmp/issue-audit-state-m.json ;;
+        array)     printf '[]' > .devflow/tmp/issue-audit-state-m.json ;;
+        scalar)    printf '"nope"' > .devflow/tmp/issue-audit-state-m.json ;;
+      esac
+      printf '# T\n\nB\n' > d.md
+      for Q in "query-eligibility m --nonce n --mode approve --draft-file d.md" \
+               "query-triggers m --nonce n" \
+               "query-next-action m --nonce n --round 1" \
+               "query-summary m --nonce n" \
+               "query-nonce m"; do
+        # shellcheck disable=SC2086
+        python3 "$IAS" $Q > /dev/null 2>&1 || printf '%s\n' "NONZERO: $Q" >> ".qm-$SHAPE"
+      done
+      python3 "$IAS" record-revision m --nonce n --after-round 1 > /dev/null 2>&1 \
+        && printf 'MUTATION-EXITED-ZERO\n' >> ".qm-mut-$SHAPE"
+    )
+    assert_eq "#546 query_exit_contract_matrix ($SHAPE): every query class exits 0 with a fail-closed answer" \
+      "" "$(cat "$QM_SB/.qm-$SHAPE" 2>/dev/null)"
+    assert_eq "#546 query_exit_contract_matrix ($SHAPE): a mutation against untrustworthy state exits non-zero" \
+      "" "$(cat "$QM_SB/.qm-mut-$SHAPE" 2>/dev/null)"
+  done
+  rm -rf "$QM_SB"
+fi
+
+# reinit_force_rows — a same-run re-init over recorded rounds is illegal without --force;
+# forced is recorded and surfaces as reinit_forced; a cold start (no nonce) is the ported
+# delete-first wipe and raises no alarm.
+RI_SB="$(git_sandbox '#546 reinit_force_rows')"
+if [ -d "$RI_SB" ]; then
+  (
+    cd "$RI_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nB\n' > d.md
+    N="$(python3 "$IAS" init ri | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch ri --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" init ri --nonce "$N" > .ri-unforced 2>&1 && printf 'EXITED-ZERO\n' >> .ri-unforced
+    python3 "$IAS" init ri --nonce "$N" --force > /dev/null 2>&1
+    python3 "$IAS" query-summary ri --nonce "$N" > .ri-forced
+    # Cold start over the same slug: the ported delete-first wipe, no alarm, new nonce.
+    N2="$(python3 "$IAS" init ri | sed 's/nonce=//')"
+    [ "$N2" != "$N" ] && printf 'new-nonce\n' > .ri-cold
+    # A's now-foreign nonce is rejected after B's cold-start re-init.
+    python3 "$IAS" record-revision ri --nonce "$N" --after-round 1 > /dev/null 2>&1 \
+      || printf 'rejected\n' > .ri-foreign
+  )
+  assert_eq "#546 reinit_force_rows: a same-run re-init over recorded rounds is refused without --force" \
+    "0" "$(grep -c 'EXITED-ZERO' "$RI_SB/.ri-unforced" 2>/dev/null)"
+  assert_eq "#546 reinit_force_rows: ... and the refusal names the force requirement" \
+    "1" "$(grep -c 'illegal transition without --force' "$RI_SB/.ri-unforced" 2>/dev/null)"
+  assert_eq "#546 reinit_force_rows: a forced same-run re-init surfaces as reinit_forced=yes" \
+    "1" "$(grep -c 'reinit_forced=yes' "$RI_SB/.ri-forced" 2>/dev/null)"
+  assert_eq "#546 reinit_force_rows: a cold-start re-init (no nonce) wipes and mints a new nonce, no alarm" \
+    "new-nonce" "$(cat "$RI_SB/.ri-cold" 2>/dev/null)"
+  assert_eq "#546 reinit_force_rows: after a foreign cold start, the prior run's nonce is rejected" \
+    "rejected" "$(cat "$RI_SB/.ri-foreign" 2>/dev/null)"
+  rm -rf "$RI_SB"
+fi
+
+# creation_binding_rows — the attestation is honest: match, mismatch, and a failed fetch
+# reported as attestation-unavailable, never as a pass.
+CB_SB="$(git_sandbox '#546 creation_binding_rows')"
+if [ -d "$CB_SB" ]; then
+  (
+    cd "$CB_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nThe body.\n' > d.md
+    N="$(python3 "$IAS" init cb | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch cb --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
+    OID="$(git hash-object --stdin --no-filters < d.md)"
+    python3 "$IAS" record-return cb --nonce "$N" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" record-creation-epoch cb --nonce "$N" --round 1 > /dev/null
+    # The body-emitting query's bytes hash to the recorded body-only digest (round-trip).
+    python3 "$IAS" emit-body cb --nonce "$N" --draft-file d.md \
+      | python3 "$IAS" record-creation-attestation cb --nonce "$N" > .cb-match
+    printf 'a different body entirely\n' \
+      | python3 "$IAS" record-creation-attestation cb --nonce "$N" > .cb-mismatch
+    python3 "$IAS" record-creation-attestation cb --nonce "$N" --attestation-unavailable > .cb-unavail
+  )
+  assert_eq "#546 creation_binding_rows: the emitted body attests clean against the recorded body-only digest" \
+    "attestation=match" "$(cat "$CB_SB/.cb-match" 2>/dev/null)"
+  assert_eq "#546 creation_binding_rows: a divergent created body is surfaced as a mismatch" \
+    "attestation=mismatch" "$(cat "$CB_SB/.cb-mismatch" 2>/dev/null)"
+  assert_eq "#546 creation_binding_rows: a failed fetch reports attestation-unavailable, never a pass" \
+    "attestation=attestation-unavailable" "$(cat "$CB_SB/.cb-unavail" 2>/dev/null)"
+  rm -rf "$CB_SB"
+fi
+
+# emit-body is the gated emitter: it refuses with EMPTY stdout so a caller that pipes it
+# into `gh issue create --body-file -` without pipefail cannot post an unaudited body.
+EB_SB="$(git_sandbox '#546 emit-body is gated')"
+if [ -d "$EB_SB" ]; then
+  (
+    cd "$EB_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nB\n' > d.md
+    N="$(python3 "$IAS" init eb | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch eb --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
+    OID="$(git hash-object --stdin --no-filters < d.md)"
+    python3 "$IAS" record-return eb --nonce "$N" --round 1 --verdict REVISE \
+      --findings-count 1 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" emit-body eb --nonce "$N" --draft-file d.md > .eb-out 2> .eb-err
+    printf 'rc=%s\n' "$?" > .eb-rc
+  )
+  assert_eq "#546 emit-body is gated: an unaudited draft is refused with a non-zero exit" \
+    "rc=1" "$(cat "$EB_SB/.eb-rc" 2>/dev/null)"
+  assert_eq "#546 emit-body is gated: ... and stdout is EMPTY, so an unguarded pipe cannot post an unaudited body" \
+    "" "$(cat "$EB_SB/.eb-out" 2>/dev/null)"
+  assert_eq "#546 emit-body is gated: ... and the refusal names the eligibility reason" \
+    "1" "$(grep -c 'refusing to emit an unaudited body' "$EB_SB/.eb-err" 2>/dev/null)"
+  rm -rf "$EB_SB"
+fi
+
 PY_OUT="$(python3 "$(dirname "$0")/test_python_scripts.py" 2>&1)"
 PY_RC=$?
 PY_SUMMARY="$(echo "$PY_OUT" | awk '/passed,/ { p=$1; f=$3 } END { print p" "f }')"

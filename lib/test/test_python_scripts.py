@@ -3608,5 +3608,333 @@ assert_eq("#546 eligibility_unaudited_revision_regression: a refused answer issu
           None, _regression['token'])
 
 print()
+print("issue-audit-state: the transition table (issue #546)")
+
+# Every legal and illegal transition is driven by exactly one row here. The lockstep
+# assert below derives the expected count from the module's OWN table, so a row added
+# to the module without a row added here turns the suite RED rather than shipping an
+# untested transition.
+_TRANSITION_ROWS = [
+    ('init', 'cold-start-no-nonce', True),
+    ('init', 'same-run-nonce-no-rounds', True),
+    ('init', 'same-run-nonce-over-rounds-unforced', False),
+    ('init', 'same-run-nonce-over-rounds-forced', True),
+    ('init', 'foreign-nonce', False),
+    ('dispatch', 'file-arm-write-landed', True),
+    ('dispatch', 'embed-arm-entry', True),
+    ('dispatch', 'inline-arm-entry', True),
+    ('dispatch', 'no-open-round', False),
+    ('return', 'verdict-on-arm', True),      # file/FILE
+    ('return', 'verdict-on-arm', True),      # file/REVISE
+    ('return', 'verdict-on-arm', True),      # file/DRAFT-UNREADABLE
+    ('return', 'verdict-on-arm', True),      # embed/FILE
+    ('return', 'verdict-on-arm', True),      # embed/REVISE
+    ('return', 'verdict-on-arm', False),     # embed/DRAFT-UNREADABLE — illegal
+    ('return', 'verdict-on-arm', True),      # inline/FILE
+    ('return', 'verdict-on-arm', True),      # inline/REVISE
+    ('return', 'verdict-on-arm', False),     # inline/DRAFT-UNREADABLE — illegal
+    ('return', 'no-verdict-line', True),
+    ('return', 'carriage-absent-or-mismatched', True),
+    ('return', 'no-open-round', False),
+    ('return', 'round-already-returned', False),
+    ('revision', 'after-completed-round', True),
+    ('revision', 'no-rounds-recorded', False),
+    ('override', 'user-decline-recorded', True),
+    ('override', 'cap-reached-recorded', True),
+    ('degraded', 'inline-arm-entered', True),
+    ('creation-epoch', 'bound-to-round', True),
+    ('creation-epoch', 'no-round-recorded', False),
+    ('creation-attestation', 'body-matches', True),
+    ('creation-attestation', 'body-mismatches', True),
+    ('creation-attestation', 'fetch-failed', True),
+    ('creation-attestation', 'no-epoch-recorded', False),
+]
+
+# table_test_lockstep_count — the exact-count lockstep. Derived from the module's own
+# table, never a literal transcribed by hand.
+assert_eq("#546 table_test_lockstep_count: one driven test row per module transition row",
+          len(issue_audit_state.TRANSITIONS), len(_TRANSITION_ROWS))
+
+# Each driven row corresponds, in order, to a real (event, condition, legal) triple in
+# the module's table — so the counts matching is not a coincidence of two equal numbers.
+assert_eq("#546 table_test_lockstep_count: each driven row matches its module row's "
+          "event/condition/legality, in order",
+          [(r['event'], r['condition'], r['legal']) for r in issue_audit_state.TRANSITIONS],
+          _TRANSITION_ROWS)
+
+# arm_routing_rows — arm decisions from recorded facts alone, and the three marker
+# literals byte-for-byte.
+for (landed, hash_ok, prior, want_arm, want_marker) in [
+    (True, True, False, 'file', None),
+    (False, True, False, 'embed', 'write-failed'),
+    (True, False, False, 'embed', 'digest-unrecorded'),
+    (True, True, True, 'embed', 'file-unreadable'),
+    (False, False, True, 'embed', 'file-unreadable'),   # a prior unreadable wins
+]:
+    assert_eq(f"#546 arm_routing_rows: landed={landed} hash_ok={hash_ok} prior={prior}",
+              (want_arm, want_marker),
+              issue_audit_state.route_arm(landed, hash_ok, prior))
+
+assert_eq("#546 arm_routing_rows: the three embed markers are preserved verbatim",
+          ['draft embedded (file write failed)',
+           'draft embedded (file unreadable)',
+           'draft embedded (digest unrecorded)'],
+          [issue_audit_state._EMBED_MARKER_TEXT[t]
+           for t in ('write-failed', 'file-unreadable', 'digest-unrecorded')])
+
+# carriage_evidence_rows / budget_retry_rows — classification, incl. the fixed retry
+# precedence. Absent carriage evidence must behave EXACTLY like mismatched evidence.
+for (arm, verdict, has_line, carriage, want) in [
+    ('file', 'FILE', True, True, 'accept-file'),
+    ('file', 'REVISE', True, True, 'accept-revise'),
+    ('file', 'DRAFT-UNREADABLE', True, True, 'retry-embed'),
+    ('embed', 'FILE', True, True, 'accept-file'),
+    ('embed', 'DRAFT-UNREADABLE', True, True, 'no-parseable-verdict'),
+    ('inline', 'DRAFT-UNREADABLE', True, True, 'no-parseable-verdict'),
+    # carriage mismatched vs. absent — the same classification, fail closed
+    ('file', 'FILE', True, False, 'no-parseable-verdict'),
+    ('embed', 'REVISE', True, False, 'no-parseable-verdict'),
+    # a return that is both unreadable-prose AND verdict-less is classified by the
+    # ABSENT VERDICT LINE — the fixed precedence
+    ('file', None, False, True, 'no-parseable-verdict'),
+    ('file', 'DRAFT-UNREADABLE', False, True, 'no-parseable-verdict'),
+]:
+    assert_eq(f"#546 carriage_evidence_rows/budget_retry_rows: arm={arm} verdict={verdict} "
+              f"line={has_line} carriage={carriage}",
+              want, issue_audit_state.classify_return(arm, verdict, has_line, carriage))
+
+
+def _state(rounds, revisions=(), overrides=(), nonce='n0', reinit=False):
+    return {'schema_version': issue_audit_state.SCHEMA_VERSION, 'slug': 's',
+            'nonce': nonce, 'reinit_forced': reinit, 'automatic_reaudits_used': 0,
+            'user_rounds_used': 0, 'rounds': list(rounds),
+            'revisions': [{'ordinal': i + 1, 'after_round': r}
+                          for i, r in enumerate(revisions)],
+            'overrides': list(overrides), 'creation': None}
+
+
+def _round(num, arm, outcome, digest='D1', findings=0, degraded=False, markers=()):
+    return {'round': num,
+            'attempts': [{'arm': arm, 'digest': digest, 'body_digest': 'B' + digest,
+                          'sentinel_open': None, 'sentinel_close': None}],
+            'no_parseable_retry_used': False, 'unreadable_retry_used': False,
+            'outcome': outcome, 'findings_count': findings,
+            'consumer_dimensions_appended': False, 'embed_markers': list(markers),
+            'degraded': degraded}
+
+
+# eligibility_grounds_table — the two approve-mode grounds and every not-eligible class.
+_clean_file = _state([_round(1, 'file', 'FILE', 'D1')])
+assert_eq("#546 eligibility_grounds_table: file-arm clean verdict, digest current -> eligible",
+          ('eligible', 'file-identity'),
+          (lambda r: (r['answer'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(_clean_file, 'approve', 'D1')))
+
+# eligibility_byte_source_rows — the clean-run re-presentation row (no drift-induced
+# false mismatch) and the revision-landed row.
+assert_eq("#546 eligibility_byte_source_rows: an untouched clean draft re-presents "
+          "eligible (no drift false-negative)",
+          'eligible',
+          issue_audit_state.evaluate_eligibility(_clean_file, 'approve', 'D1')['answer'])
+assert_eq("#546 eligibility_byte_source_rows: a rewritten file refuses as unaudited-revision",
+          ('not-eligible', 'unaudited-revision'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([_round(1, 'file', 'FILE', 'D1')], revisions=(1,)),
+                  'approve', 'D2')))
+
+# The file-arm fail-closed row: the canonical file is absent at query time.
+assert_eq("#546 eligibility_grounds_table: a file-arm epoch whose canonical file is "
+          "absent at query time answers not-eligible (fail closed)",
+          'not-eligible',
+          issue_audit_state.evaluate_eligibility(_clean_file, 'approve', None)['answer'])
+
+# The event-ordering ground: embed/inline arms, where no trustworthy canonical file exists.
+for arm in ('embed', 'inline'):
+    assert_eq(f"#546 eligibility_grounds_table: {arm}-arm clean verdict with no later "
+              "revision -> eligible via the event-ordering ground",
+              ('eligible', 'event-ordering'),
+              (lambda r: (r['answer'], r['ground']))(
+                  issue_audit_state.evaluate_eligibility(
+                      _state([_round(1, arm, 'FILE', 'D1')]), 'approve', None)))
+    assert_eq(f"#546 eligibility_grounds_table: {arm}-arm clean verdict PLUS a later "
+              "revision -> unaudited-revision",
+              ('not-eligible', 'unaudited-revision'),
+              (lambda r: (r['answer'], r['reason']))(
+                  issue_audit_state.evaluate_eligibility(
+                      _state([_round(1, arm, 'FILE', 'D1')], revisions=(1,)),
+                      'approve', None)))
+
+assert_eq("#546 eligibility_grounds_table: unestablished state -> state-unestablished",
+          ('not-eligible', 'state-unestablished'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(None, 'approve', 'D1')))
+assert_eq("#546 eligibility_grounds_table: fresh init, zero rounds -> no-verdict-round",
+          ('not-eligible', 'no-verdict-round'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(_state([]), 'approve', 'D1')))
+assert_eq("#546 eligibility_grounds_table: the inline arm's verdict-less terminal -> "
+          "no-verdict-round",
+          ('not-eligible', 'no-verdict-round'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([_round(1, 'inline', 'no-verdict', 'D1')]), 'approve', 'D1')))
+
+# override_epoch_rows — a current override grounds eligible; a stale one refuses.
+_cur_override = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1,), overrides=[
+    {'kind': 'user-decline', 'surface': 'step4-offer', 'recorded_at_ordinal': 1,
+     'draft_digest': 'D2'}])
+assert_eq("#546 override_epoch_rows: an override recorded at the current ordinal and "
+          "digest grounds eligible",
+          ('eligible', 'override'),
+          (lambda r: (r['answer'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(_cur_override, 'approve', 'D2')))
+_stale_override = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1, 1), overrides=[
+    {'kind': 'user-decline', 'surface': 'step4-offer', 'recorded_at_ordinal': 1,
+     'draft_digest': 'D2'}])
+assert_eq("#546 override_epoch_rows: a later revision invalidates an earlier override "
+          "-> stale-override",
+          ('not-eligible', 'stale-override'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(_stale_override, 'approve', 'D3')))
+assert_eq("#546 override_epoch_rows: an override whose recorded digest no longer matches "
+          "does not re-arm",
+          'not-eligible',
+          issue_audit_state.evaluate_eligibility(_cur_override, 'approve', 'D9')['answer'])
+
+# approval_override_row — the accepted-re-audit -> REVISE -> revise terminal: an explicit
+# user approval recorded as the third user-decline surface grounds eligible.
+_approval_terminal = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1,), overrides=[
+    {'kind': 'user-decline', 'surface': 'step4-approval-after-exhausted-offer',
+     'recorded_at_ordinal': 1, 'draft_digest': 'D2'}])
+assert_eq("#546 approval_override_row: explicit approval past the exhausted offer surface "
+          "grounds eligible (the audit informs, it never deadlocks filing)",
+          'eligible',
+          issue_audit_state.evaluate_eligibility(_approval_terminal, 'approve', 'D2')['answer'])
+
+# iterate_mode_rows — iterate-ok on recorded-revision bytes; approve refuses the same state.
+_mid_iterate = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1,))
+assert_eq("#546 iterate_mode_rows: just-revised bytes answer iterate-ok in iterate mode",
+          'iterate-ok',
+          issue_audit_state.evaluate_eligibility(_mid_iterate, 'iterate', 'D2')['answer'])
+assert_eq("#546 iterate_mode_rows: the SAME state refuses in approve mode "
+          "(iterate-ok is never a ground for approval)",
+          ('not-eligible', 'unaudited-revision'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(_mid_iterate, 'approve', 'D2')))
+assert_eq("#546 iterate_mode_rows: iterate mode with no revision recorded refuses",
+          ('not-eligible', 'no-revision-recorded'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(_state([]), 'iterate', None)))
+
+# eligibility_token_rows — deterministic, idempotent, digest-bound.
+_t1 = issue_audit_state.evaluate_eligibility(_clean_file, 'approve', 'D1')['token']
+_t2 = issue_audit_state.evaluate_eligibility(_clean_file, 'approve', 'D1')['token']
+assert_eq("#546 eligibility_token_rows: repeated queries re-emit an identical token",
+          _t1, _t2)
+assert_eq("#546 eligibility_token_rows: an eligible answer emits a token", True,
+          bool(_t1) and _t1.startswith('eat_'))
+assert_eq("#546 eligibility_token_rows: tokens differ across digests", False,
+          _t1 == issue_audit_state.issue_token('n0', 'file-identity', 'D2'))
+assert_eq("#546 eligibility_token_rows: tokens differ across run nonces", False,
+          issue_audit_state.issue_token('n0', 'file-identity', 'D1')
+          == issue_audit_state.issue_token('n1', 'file-identity', 'D1'))
+assert_eq("#546 eligibility_token_rows: summary re-emits the expected token as the "
+          "string-compare comparand",
+          _t1, issue_audit_state.summary_fields(_clean_file, 'D1')['token'])
+# A token issued on D1 is NOT re-emitted after a revision record: the stale marker appears.
+_revised = _state([_round(1, 'file', 'FILE', 'D1')], revisions=(1,))
+_sf = issue_audit_state.summary_fields(_revised, 'D2')
+assert_eq("#546 eligibility_token_rows: after a revision the pre-revision token is not "
+          "re-emitted", None, _sf['token'])
+assert_eq("#546 eligibility_token_rows: ... and the distinct stale-token marker appears "
+          "instead", True, _sf['stale_token'])
+
+# t1_t2_rows — including state_unestablished_t2_holds.
+assert_eq("#546 t1_t2_rows: T1 holds when the most recent completed round is REVISE",
+          (True, False),
+          (lambda t: (t['t1'], t['t2']))(
+              issue_audit_state.evaluate_triggers(_state([_round(1, 'file', 'REVISE')]))))
+assert_eq("#546 t1_t2_rows: T1 does not hold on a clean FILE round",
+          False,
+          issue_audit_state.evaluate_triggers(_clean_file)['t1'])
+assert_eq("#546 t1_t2_rows: T2 holds when a revision postdates the last completed round",
+          True,
+          issue_audit_state.evaluate_triggers(
+              _state([_round(1, 'file', 'FILE')], revisions=(1,)))['t2'])
+assert_eq("#546 t1_t2_rows/state_unestablished_t2_holds: unestablished state -> T2 holds "
+          "with reason state-unestablished (unknown is not zero)",
+          (False, True, 'state-unestablished'),
+          (lambda t: (t['t1'], t['t2'], t['reason']))(
+              issue_audit_state.evaluate_triggers(None)))
+assert_eq("#546 t1_t2_rows: the verdict-less terminal -> T1 does not hold, T2 does",
+          (False, True),
+          (lambda t: (t['t1'], t['t2']))(
+              issue_audit_state.evaluate_triggers(
+                  _state([_round(1, 'inline', 'no-verdict')]))))
+assert_eq("#546 t1_t2_rows: zero completed rounds -> neither trigger holds",
+          (False, False),
+          (lambda t: (t['t1'], t['t2']))(issue_audit_state.evaluate_triggers(_state([]))))
+
+# Valid-falsy: a recorded findings count of 0 is a REAL zero, distinct from unestablished.
+assert_eq("#546 valid-falsy: a recorded findings count of 0 is a real zero", 0,
+          issue_audit_state.summary_fields(
+              _state([_round(1, 'file', 'FILE', findings=0)]), 'D1')['findings_count'])
+assert_eq("#546 valid-falsy: no completed round -> findings count is None, not 0 "
+          "(unknown is not zero)",
+          None, issue_audit_state.summary_fields(_state([]), None)['findings_count'])
+assert_eq("#546 valid-falsy: an empty rounds list is a legal live state that answers, "
+          "never an error",
+          'ok', issue_audit_state.summary_fields(_state([]), None)['state'])
+
+print()
+print("issue-audit-state: the malformed-state matrix (issue #546)")
+
+# The CLAUDE.md adversarial input-shape matrix, widened to this tool-owned state JSON.
+# Every row must raise StateError (queries then answer state-unestablished, exit 0;
+# mutations exit non-zero with a named breadcrumb) — never a crash presented as a value.
+_GOOD = {'schema_version': issue_audit_state.SCHEMA_VERSION, 'slug': 's', 'nonce': 'n0',
+         'rounds': [], 'revisions': [], 'overrides': []}
+
+
+def _malformed(name, doc, slug='s'):
+    assert_raises(f"#546 malformed-state matrix: {name}", issue_audit_state.StateError,
+                  lambda: issue_audit_state._validate(doc, slug))
+
+
+_malformed('wrong-type top level (array)', [])
+_malformed('wrong-type top level (bare scalar)', 'nope')
+_malformed('wrong-type top level (null)', None)
+_malformed('missing required key (nonce)', {k: v for k, v in _GOOD.items() if k != 'nonce'})
+_malformed('missing required key (rounds)', {k: v for k, v in _GOOD.items() if k != 'rounds'})
+_malformed('schema-version mismatch', dict(_GOOD, schema_version=999))
+_malformed('slug mismatch', dict(_GOOD, slug='other'))
+_malformed('wrong-type field (rounds is an object)', dict(_GOOD, rounds={}))
+_malformed('wrong-type field (nonce is an int)', dict(_GOOD, nonce=7))
+_malformed('empty nonce', dict(_GOOD, nonce=''))
+_malformed('duplicate round numbers',
+           dict(_GOOD, rounds=[_round(1, 'file', 'FILE'), _round(1, 'file', 'FILE')]))
+_malformed('out-of-order round numbers',
+           dict(_GOOD, rounds=[_round(2, 'file', 'FILE'), _round(1, 'file', 'FILE')]))
+_malformed('an arm outside the canonical set',
+           dict(_GOOD, rounds=[_round(1, 'bogus-arm', 'FILE')]))
+_malformed('an outcome outside the canonical set',
+           dict(_GOOD, rounds=[_round(1, 'file', 'MAYBE')]))
+_malformed('an embed marker outside the canonical set',
+           dict(_GOOD, rounds=[_round(1, 'embed', 'FILE', markers=('bogus',))]))
+_malformed('an override kind outside the canonical set',
+           dict(_GOOD, overrides=[{'kind': 'bogus', 'recorded_at_ordinal': 0}]))
+_malformed('wrong-type findings_count (a string)',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'), findings_count='two')]))
+_malformed('a round with no attempts recorded',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'), attempts=[])]))
+_malformed('a round missing a required key', dict(_GOOD, rounds=[{'round': 1}]))
+
+# The valid-falsy control: an empty rounds list is NOT malformed — it must validate.
+assert_eq("#546 malformed-state matrix (valid-falsy control): an empty rounds list is "
+          "valid state, not a malformed shape",
+          's', issue_audit_state._validate(dict(_GOOD), 's')['slug'])
+
+print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)
