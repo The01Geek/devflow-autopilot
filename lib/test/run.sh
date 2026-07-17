@@ -31378,39 +31378,46 @@ assert_eq "#529 shapes scans every source in the bundle (a violation in a refere
        | grep -qF 'bundle-badshape.md' && echo yes || echo no)"
 
 # ── #529 AC2/AC3 budget contract ─────────────────────────────────────────────
-# Words are `LC_ALL=C wc -w`, and THE LOCALE IS PART OF THE METHOD — a bare `wc -w`
-# is not a measurement, it is a measurement PLUS the host's locale, and the two
-# disagree on this bundle. `wc -w` splits on whitespace, but WHICH codepoints count
-# as whitespace is locale-dependent: under a UTF-8 locale BSD `wc` (macOS) treats the
-# `≠` (U+2260) in the root's `rc≠0` prose as a word separator and scores `rc≠0` as
-# TWO words; under LC_ALL=C it is one. That single character class is worth +12 words
-# on the complete bundle, and it is exactly how the pre-#529 figures were derived:
-# they were measured on macOS in a UTF-8 locale, so they reproduced at the author's
-# desk and NOWHERE else. CI measured the same bytes, got the C-locale count, and the
-# AC4 record loop below turned red on a record that was never wrong about the bundle —
-# only about the host. Pinning LC_ALL=C fixes the method to the one reading both BSD
-# and GNU `wc` agree on (in the C locale both are byte-wise `isspace`, which POSIX
-# mandates), so the published figure is reproducible on any host.
-# The old comment claimed `wc -w` was "the only method reproducing the baseline" and
-# read "~10 words higher than python's str.split()". Both were artifacts of the
-# unpinned locale: under LC_ALL=C, `wc -w` and `str.split()` agree EXACTLY (28,687 on
-# the default path), so the counting method no longer decides the verdict — which is
-# the point. AC3's headroom is still thin, so the figures stay pinned to the record.
-# `wc` is not preflight-guaranteed, but this is the TEST harness (which already
-# hard-depends on grep for its own PASS/FAIL selection), not a shipped helper —
-# guard-class 2 governs shipped code.
+# WORDS ARE COUNTED BY python3, NEVER BY `wc -w`. This is not a style preference —
+# `wc -w` does not have one answer on this bundle. GNU and BSD `wc` disagree, and NO
+# locale reconciles them, because they disagree in two different directions:
+#   * LC_ALL=C: GNU `wc` counts a word as a run of PRINTABLE characters, and in the C
+#     locale a byte >= 0x80 is not printable — so a token made entirely of non-ASCII
+#     (every spaced ` — `, ` → `, ` ⇒ `) contains no printable byte and GNU does not
+#     count it AT ALL, while BSD counts it as a word. On this bundle that is 595
+#     dropped words on the default path (28,687 BSD vs 28,092 GNU) — a 2% silent
+#     undercount, measured on CI, not theorised.
+#   * a UTF-8 locale: BSD `wc` treats the `≠` (U+2260) in the root's `rc≠0` prose as a
+#     word separator and scores `rc≠0` as TWO words; GNU does not. Worth +12 words.
+# So `wc -w` measures the bundle PLUS the host, and every figure this record published
+# before 2026-07-17 was a macOS-BSD reading that reproduced at one desk and nowhere
+# else. CI counted the same BYTES (its byte rows passed throughout) and a different
+# number of words, and the AC4 loop below correctly reported the record as stale
+# against a record that was right about the bundle and wrong about the host.
+# python3's str.split() is one deterministic implementation on every host, and unlike
+# `wc` it is preflight-GUARANTEED (CLAUDE.md: python3 is a hard prerequisite; `wc` is
+# named as a tool a value must NOT depend on precisely because a host may differ).
+# It counts whitespace-delimited tokens — the natural reading, and the one BSD `wc`
+# agrees with in the C locale, which is why the published figures are unchanged by
+# this switch: only the method that produces them is now host-independent.
+_rb_words() {
+  # Replicates `cat "$@" | <count>`: raw concatenation, no separator inserted, so a
+  # member with no trailing newline joins exactly as `cat` would join it.
+  python3 -c 'import sys
+print(len("".join(open(f, encoding="utf-8").read() for f in sys.argv[1:]).split()))' "$@"
+}
 # The default-path member list derives from REVIEW_DEFAULT_PHASE_STEMS — the same
 # single source the bundle is built from. A hardcoded path list here would let a
 # newly-added reference join the bundle while silently escaping the AC3
 # measurement, and the ceiling would keep passing while under-measuring.
 RB_EXT="$LIB/../.devflow/prompt-extensions/review.md"
-RB_ROOT_W=$(LC_ALL=C wc -w < "$REVIEW_ROOT" | tr -d ' ')
-RB_EXT_W=$(LC_ALL=C wc -w < "$RB_EXT" | tr -d ' ')
+RB_ROOT_W=$(_rb_words "$REVIEW_ROOT")
+RB_EXT_W=$(_rb_words "$RB_EXT")
 _rb_default=("$REVIEW_ROOT" "$RB_EXT")
 for _s in $REVIEW_DEFAULT_PHASE_STEMS; do
   _rb_default+=("$LIB/../skills/review/phases/${_s}.md")
 done
-RB_DEFAULT_W=$(cat "${_rb_default[@]}" | LC_ALL=C wc -w | tr -d ' ')
+RB_DEFAULT_W=$(_rb_words "${_rb_default[@]}")
 # ── AC5's execution-weighted sets are NOT the AC3 default set ─────────────────
 # AC3 measures a hypothetical path ("no blocker fast path and no stale-prose
 # predicate"); AC5 measures paths that REALLY execute. Conflating them published a
@@ -31563,13 +31570,13 @@ assert_eq "#529 AC2: root + shipped extension is within the 8,500-word ceiling" 
   "$([ "$((RB_ROOT_W + RB_EXT_W))" -le 8500 ] && echo yes || echo no)"
 # The baseline is the frozen pre-split root+extension at rev 4e2ae406 (its 237,113
 # bytes are the RB_BASELINE_BYTES literal below, which is how that rev is identified).
-# 33,815 is that rev re-measured under the pinned LC_ALL=C method. Issue #529 states
-# the baseline as 33,827: that is the SAME bytes counted in a UTF-8 locale on BSD wc
-# (the +12 `≠` artifact described above), not a different baseline. Both operands of a
-# reduction must be counted the same way or the difference is meaningless, so the
-# frozen half is restated in the pinned method rather than left at the issue's figure.
+# 33,815 is that rev re-measured with _rb_words. Issue #529 states the baseline as
+# 33,827: that is the SAME bytes read by BSD `wc` in a UTF-8 locale (the +12 `≠`
+# artifact described above), not a different baseline. Both operands of a reduction
+# must be counted the same way or the difference is meaningless, so the frozen half is
+# restated in the pinned method rather than left at the issue's figure.
 # The AC's own >= 25,327 threshold is unchanged — it is the contract, not a measurement
-# — and the split clears it either way (25,590 under C; 25,599 under the old method).
+# — and the split clears it either way (25,590 measured; 25,599 under the old method).
 assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baseline" "yes" \
   "$([ "$((33815 - RB_ROOT_W - RB_EXT_W))" -ge 25327 ] && echo yes || echo no)"
 assert_eq "#529 AC3: the default per-pass unique path is within the 28,700-word ceiling" "yes" \
@@ -31588,7 +31595,7 @@ assert_eq "#529 every budget operand was really measured (no member silently ski
   "$(_rb_ok=yes
      for _m in "${_rb_default[@]}" "${_rb_standalone[@]}" "${_rb_raf[@]}"; do
        _bundle_member_usable "$_m" || _rb_ok=no
-       [ "$(wc -w < "$_m" 2>/dev/null | tr -d ' ')" -gt 0 ] 2>/dev/null || _rb_ok=no
+       [ "$(_rb_words "$_m" 2>/dev/null)" -gt 0 ] 2>/dev/null || _rb_ok=no
      done
      printf '%s' "$_rb_ok")"
 assert_eq "#529 the default-path member set is the expected size (root + ext + 6 non-gated)" "8" \
@@ -31598,8 +31605,8 @@ assert_eq "#529 the default-path member set is the expected size (root + ext + 6
 assert_eq "#529 RB_EXT_W is really measured (an absent extension cannot silently sum as 0)" "yes" \
   "$([ -n "$RB_EXT_W" ] && [ "$RB_EXT_W" -gt 0 ] 2>/dev/null && echo yes || echo no)"
 # The checked-in record must exist and carry the ceilings it claims (AC4).
-assert_pin_unique "#529 AC4: the budget table records the LC_ALL=C wc -w measurement method" \
-  'Words are `LC_ALL=C wc -w`' "$LIB/../docs/review-bundle-budget.md"
+assert_pin_unique "#529 AC4: the budget table records the python3 measurement method (never wc -w)" \
+  'Words are counted by `python3`' "$LIB/../docs/review-bundle-budget.md"
 assert_pin_unique "#529 AC4: the budget table states the default-path formula's exactly-once rule" \
   'each counted **exactly once**' "$LIB/../docs/review-bundle-budget.md"
 assert_pin_unique "#529 AC4: the budget table disclaims any retained-context reading" \
@@ -31729,7 +31736,7 @@ _rb_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
 # stale figure has nowhere to hide.
 _rb_ceil4() { echo $(( ($1 + 3) / 4 )); }
 _rb_growth_bytes=$(( $(cat "${_review_members[@]}" "$RB_EXT" | wc -c | tr -d ' ') - RB_BASELINE_BYTES ))
-_rb_shipped_w=$(cat "${_rb_standalone[@]}" | LC_ALL=C wc -w | tr -d ' ')
+_rb_shipped_w=$(_rb_words "${_rb_standalone[@]}")
 while IFS='~' read -r _rbn _rbe; do
   [ -n "$_rbn" ] || continue
   assert_eq "#529 AC4: the budget record and the code agree on $_rbn (a stale figure cannot ship green)" "yes" \

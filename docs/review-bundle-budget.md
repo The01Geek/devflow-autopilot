@@ -7,20 +7,25 @@ budget contract later changes are held to.
 
 ## How these numbers are measured
 
-- **Words are `LC_ALL=C wc -w`.** The locale is part of the method, not decoration. `wc -w` splits
-  on whitespace, but *which* codepoints are whitespace is locale-dependent: under a UTF-8 locale,
-  BSD `wc` (macOS) treats the `≠` (U+2260) in the root's `rc≠0` prose as a word separator and scores
-  `rc≠0` as **two** words; under `LC_ALL=C` it is one. That one character class is worth +12 words on
-  the complete bundle. Every figure on this page before 2026-07-17 was measured with a bare `wc -w`
-  on macOS in a UTF-8 locale, so it reproduced at one desk and nowhere else — CI counted the same
-  bytes, got the C-locale figure, and the AC4 reconciliation went red against a record that was
-  never wrong about the bundle, only about the host. `LC_ALL=C` fixes the method to the reading BSD
-  and GNU `wc` agree on (in the C locale both are byte-wise `isspace`, which POSIX mandates).
-  Measure with `LC_ALL=C wc -w`.
-- **A corollary worth keeping:** under `LC_ALL=C`, `wc -w` and Python's `str.split()` agree exactly
-  (28,687 on the default path). The "these two methods disagree by ~10 words, so the method decides
-  the verdict" warning this page used to carry was describing the locale artifact above, not a real
-  property of the two counters.
+- **Words are counted by `python3`** — `len(text.split())` over the raw concatenation of the member
+  files (`lib/test/run.sh`'s `_rb_words`) — and **never by `wc -w`**. This is not a style
+  preference: `wc -w` has no single answer on this bundle. GNU and BSD `wc` disagree, and no locale
+  reconciles them, because they disagree in *two different directions*:
+  - **Under `LC_ALL=C`**, GNU `wc` counts a word as a run of *printable* characters, and in the C
+    locale a byte ≥ `0x80` is not printable — so a token made entirely of non-ASCII (every spaced
+    ` — `, ` → `, ` ⇒ ` in this prose) contains no printable byte and GNU **does not count it at
+    all**, while BSD counts it as a word. On the default path that is **595 words** silently
+    dropped (28,687 BSD vs 28,092 GNU) — a 2% undercount, observed on CI, not theorised.
+  - **Under a UTF-8 locale**, BSD `wc` treats the `≠` (U+2260) in the root's `rc≠0` prose as a word
+    separator and scores `rc≠0` as **two** words; GNU does not. Worth +12 words.
+
+  So `wc -w` measures the bundle *plus the host*. Every figure on this page before 2026-07-17 was a
+  macOS/BSD reading that reproduced at one desk and nowhere else: CI counted the same **bytes** (its
+  byte rows passed throughout) but a different number of words, and the AC4 reconciliation went red
+  against a record that was right about the bundle and wrong about the host. `python3` is one
+  deterministic implementation everywhere, and — unlike `wc` — it is a preflight-guaranteed
+  prerequisite. It counts whitespace-delimited tokens: the natural reading, and the one BSD `wc` in
+  the C locale agrees with, which is why switching to it left every published figure unchanged.
 - **Bytes** are `wc -c`; **lines** are `wc -l`.
 - **Approximate tokens** are `ceil(bytes / 4)` — the same heuristic
   [`docs/workflow-flight-recorder.md`](workflow-flight-recorder.md) uses, and explicitly *not*
@@ -31,7 +36,7 @@ budget contract later changes are held to.
   reproducible only against the stated convention.
 - **Baseline ("before")** is `origin/main` at the split — rev `4e2ae406`: `skills/review/SKILL.md` +
   `.devflow/prompt-extensions/review.md`, together 237,113 B. Issue #529 states this baseline as
-  **33,827 words**; that is the same bytes counted in a UTF-8 locale (the `≠` artifact above).
+  **33,827 words**; that is the same bytes read by BSD `wc` in a UTF-8 locale (the `≠` artifact above).
   Re-measured under the pinned method it is **33,815 words**, and that is the figure this page and
   `lib/test/run.sh` use — a reduction whose two operands were counted differently is not a
   measurement. The baseline is frozen: a historical measurement cannot change, so only the *after*
@@ -92,7 +97,8 @@ budget contract later changes are held to.
 
 AC3's margin is **thin by construction** — the ceiling sits just above what the split can achieve.
 Adding words to the root or to any non-gated reference spends that margin directly. Re-measure with
-`LC_ALL=C wc -w` before adding prose to either.
+the `python3` counter above (`lib/test/run.sh`'s `_rb_words`) before adding prose to either — a
+`wc -w` reading will disagree with the record on some hosts.
 
 ### The AC3 metric is not the shipped default
 
