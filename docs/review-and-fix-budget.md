@@ -7,14 +7,16 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 (root ≤ 3,000 words; root + live extension ≤ 5,500 words; root + extension + max active step
 ≤ 15,000 words).
 
-> **Maintainer note — the root budget is razor-thin.** The root measures **2,994 / 3,000 words**
-> (~6 words of headroom). Any non-trivial addition to `skills/review-and-fix/SKILL.md` will trip
-> the `#530 budget` guard; externalize new procedure into a reference (or trim) rather than
-> growing the root. Re-run the measurement below (always the python3 word counter — see
-> Counting method; never a bare `wc -w`)
-> and reconcile the numbers in this table and the `+1,254` figure pinned in `lib/test/run.sh`
-> whenever the root or a reference changes; the `#530 budget` guard recomputes the cumulative
-> sum and the growth arithmetic from the live files, so a stale table cell goes RED at the desk.
+> **Maintainer note — the root is the tightest budget.** The root sits below its 3,000-word
+> ceiling (see the **AFTER — plugin root** row and the ceilings table below; the `#530 budget`
+> guard binds that Measured cell to the live python3 count, so it cannot silently drift). Any
+> non-trivial addition to `skills/review-and-fix/SKILL.md` risks tripping the guard; externalize
+> new procedure into a reference (or trim) rather than growing the root. Re-run the measurement
+> below (always the python3 word counter — see Counting method; never a bare `wc -w`) and
+> reconcile this table against the growth-delta figure pinned in `lib/test/run.sh` whenever the
+> root or a reference changes; the `#530 budget` guard binds the ceiling constants, the Measured
+> cells, and the cumulative-path and growth-delta cells to live measurements, so a stale one of
+> those goes RED at the desk.
 
 ## Counting method & formulas
 

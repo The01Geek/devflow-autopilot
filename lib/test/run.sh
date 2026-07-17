@@ -31903,6 +31903,22 @@ _raf_doc_growth="${_raf_doc_growth%% words*}"
 _raf_doc_growth="${_raf_doc_growth//,/}"
 assert_eq "#530 budget: pinned growth delta is arithmetically true (measured cumulative $RAF_CUM_W − frozen monolith 36201 − extension $RAF_EXT_W)" \
   "$((RAF_CUM_W - 36201 - RAF_EXT_W))" "${_raf_doc_growth:-unparsed}"
+# #539 review (silent-failure-hunter/code-reviewer/pr-test-analyzer): bind the three doc
+# "Measured" cells to the same live counts, closing the stale-Measured-cell class the
+# maintainer note now claims coverage of (previously only the cumulative cell + growth delta
+# were bound, so a stale Measured cell shipped desk-green). Same non-vacuous case-match as the
+# cumulative pin: a wrong cell won't contain `| <measured> |` after comma-strip → RED. Each row
+# is grepped by its unique ceilings-table label, and its Value and Measured columns differ, so
+# `| <measured> |` cannot collide with the ceiling constant.
+_raf_root_row="$(grep -F '| Plugin root ≤' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc root Measured cell matches fresh measurement ($RAF_ROOT_W)" "yes" \
+  "$(case "${_raf_root_row//,/}" in *"| $RAF_ROOT_W |"*) echo yes;; *) echo no;; esac)"
+_raf_load_row="$(grep -F 'Root + live extension (initial load) ≤' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc initial-load Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
+  "$(case "${_raf_load_row//,/}" in *"| $((RAF_ROOT_W+RAF_EXT_W)) |"*) echo yes;; *) echo no;; esac)"
+_raf_maxstep_row="$(grep -F 'Root + extension + max active step ≤' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc max-step Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)))" "yes" \
+  "$(case "${_raf_maxstep_row//,/}" in *"| $((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)) |"*) echo yes;; *) echo no;; esac)"
 
 # ── #530 pressure tests (AC16): the split preserves every named control-flow scenario ──
 # Each scenario's operative behavioral literal must survive the split AND land in the

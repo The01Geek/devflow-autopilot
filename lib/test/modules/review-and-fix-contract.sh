@@ -43,10 +43,13 @@ _raf_cleanup() {
 trap _raf_cleanup EXIT
 
 # Build the shipped review-and-fix bundle (#539): thin root + every reference, in a
-# stable order, into a single .md the content pins grep. A missing/empty/unreadable
-# member records a suite FAIL instead of silently dropping — a partial bundle would
-# turn absence/count pins into vacuous passes. RAF_EXPECTED_REFS pins the exact
-# reference set so a fully-deleted reference (which merely shrinks the glob) is caught.
+# stable order, into a single .md the content pins grep. Members come from the FIXED
+# RAF_EXPECTED_REFS list (this module builds no glob — unlike run.sh's MAXI_BUNDLE),
+# so the deletion/emptiness guard is the per-member `[ -r ] && [ -s ]` check below,
+# which records a suite FAIL (fail-closed) when a named reference is missing, empty, or
+# unreadable — a partial bundle would otherwise turn absence/count pins into vacuous passes.
+# The member-count assertion is a lockstep self-consistency check on the RAF_EXPECTED_REFS
+# literal itself (it catches an accidental edit to that list); it is NOT the deletion guard.
 RAF_SKILL="$_raf_tmp_root/review-and-fix-bundle.md"
 : > "$RAF_SKILL"
 RAF_EXPECTED_REFS="convergence.md error-handling.md fix-delta-gate.md fixing.md loop-control.md loop-exit.md pre-fix-gates.md shadow-review.md"
@@ -60,7 +63,8 @@ for _rm in "${_raf_bundle_members[@]}"; do
     echo FAIL >> "$RESULTS_FILE"
   fi
 done
-# 9 = thin root + 8 references (kept in lockstep with run.sh's RAF_EXPECTED_REFS / #530 block).
+# 9 = thin root + 8 references (the same 8-name set run.sh's #530 budget block pins; run.sh
+# names them via a glob + a remote 8-name pin, not a variable named RAF_EXPECTED_REFS).
 assert_eq "raf module: bundle assembled all 9 members (thin root + 8 references)" "9" \
   "${#_raf_bundle_members[@]}"
 
