@@ -28,7 +28,12 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
     test_rc=0
   else
     test_rc=$?
-    sed 's/^/    /' "$output_path"
+    # Pure-bash indent: piping through sed (a non-preflight PATH tool) would
+    # lose the whole captured traceback when sed is absent — the diagnostics
+    # must never fail open even though the verdict below fails closed.
+    while IFS= read -r _devflow_line || [ -n "$_devflow_line" ]; do
+      printf '    %s\n' "$_devflow_line"
+    done < "$output_path"
   fi
   assert_eq "$assertion_name" "0" "$test_rc"
 }
@@ -60,6 +65,10 @@ devflow_fold_module_failures() { # current-failure-count
   printf '%s\n' "$((current_failures + module_failures))"
 }
 
+# Return contract: rc 0 means the boundary HANDLED the module (including a
+# failing module — the failure is recorded in MODULE_FAILURES_FILE); rc 1 means
+# the boundary-failure channel itself is unusable and the caller must abort.
+# rc 0 is NOT "module passed" — always fold MODULE_FAILURES_FILE afterwards.
 devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   local module_path="$1" module_name="$2" minimum_assertions="$3"
   local module_results_file="" module_rc assertion_count

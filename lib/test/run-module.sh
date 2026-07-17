@@ -13,8 +13,20 @@ REGISTRY="$REPO_ROOT/scripts/workflow-flight-recorder-registry.json"
 LOG_DIR="$REPO_ROOT/.devflow/tmp/test-module-logs"
 MODULE_ID=""
 
+# Fail closed on BOTH the source and its outcome: a failed top-level `.` does
+# not stop bash (no set -e here), and the floor is only an incidental backstop —
+# with any floor slack a missing harness would run the module green while its
+# focused Python suites silently never execute (guard-class 1: verify the
+# outcome, not the precondition).
 # shellcheck source=lib/test/module-harness.sh disable=SC1091
-. "$TEST_DIR/module-harness.sh"
+. "$TEST_DIR/module-harness.sh" || {
+  printf 'selector error: could not source %s\n' "$TEST_DIR/module-harness.sh" >&2
+  exit 2
+}
+type devflow_run_focused_python_test >/dev/null 2>&1 || {
+  printf 'selector error: module-harness.sh did not define its contract functions\n' >&2
+  exit 2
+}
 
 usage() {
   printf 'Usage: bash lib/test/run-module.sh [--registry PATH] [--log-dir PATH] MODULE\n' >&2
@@ -73,8 +85,9 @@ cleanup() {
   [ -z "$DETAILS_FILE" ] || rm -f "$DETAILS_FILE"
 }
 trap cleanup EXIT
-# Bash skips the EXIT trap on an untrapped fatal signal, so mirror the module's
-# signal handling: clean up, then re-raise a nonzero exit.
+# Trap HUP/INT/TERM explicitly so cleanup runs at a deterministic point and the
+# runner exits 1 (not 128+sig), independent of any shell-version variation in
+# EXIT-trap-on-signal behavior.
 trap 'cleanup; trap - EXIT HUP INT TERM; exit 1' HUP INT TERM
 
 # Explicit ${TMPDIR:-/tmp}-rooted templates: bare `mktemp` does not honor a
@@ -119,8 +132,10 @@ try:
     document = json.loads(
         registry_path.read_text(encoding="utf-8"), object_pairs_hook=unique_object
     )
-except (OSError, json.JSONDecodeError, UnicodeError, ValueError):
-    selector_error(f"registry is unreadable or malformed: {registry_path}")
+except (OSError, json.JSONDecodeError, UnicodeError, ValueError) as error:
+    # Carry the cause: a duplicate-key ValueError or a permission OSError would
+    # otherwise be misread as a JSON-syntax problem.
+    selector_error(f"registry is unreadable or malformed: {registry_path} ({error})")
 
 if (
     not isinstance(document, dict)
@@ -214,16 +229,17 @@ case "$MIN_ASSERTIONS" in
   ''|*[!0-9]*|????????*) selector_error "selected mapping did not provide a numeric assertion floor" ;;
 esac
 
-# No log directory or module-side effect exists before the exact selection above succeeds.
-mkdir -p "$LOG_DIR" || selector_error "could not create log directory: $LOG_DIR"
-LOG_FILE="$(mktemp "$LOG_DIR/$MODULE_ID.log.XXXXXX")" || \
-  selector_error "could not allocate module log in: $LOG_DIR"
-
+# No log directory or module-side effect exists before the exact selection above
+# succeeds. The tallies are allocated BEFORE the persistent log so a failed
+# tally allocation can never leave an empty, summary-less log behind.
 RESULTS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-results.XXXXXX")" || \
   selector_error "could not allocate the assertion tally"
 DETAILS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-details.XXXXXX")" || {
   selector_error "could not allocate failure details"
 }
+mkdir -p "$LOG_DIR" || selector_error "could not create log directory: $LOG_DIR"
+LOG_FILE="$(mktemp "$LOG_DIR/$MODULE_ID.log.XXXXXX")" || \
+  selector_error "could not allocate module log in: $LOG_DIR"
 
 (
   set -u
@@ -241,15 +257,21 @@ DETAILS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-details.XXXXXX")" || {
 
   assert_eq() {
     local name="$1" expected="$2" actual="$3"
+    # Tally appends are checked (mirrors _devflow_record_module_failure's
+    # contract): a lost record must abort the module process loudly, never
+    # silently thin the count the floor is graded on.
     if [ "$expected" = "$actual" ]; then
-      printf 'PASS\n' >> "$RESULTS_FILE"
+      printf 'PASS\n' >> "$RESULTS_FILE" || {
+        printf 'FATAL: could not record assertion result\n' >&2; exit 1; }
       printf '  PASS  %s\n' "$name"
     else
-      printf 'FAIL\n' >> "$RESULTS_FILE"
+      printf 'FAIL\n' >> "$RESULTS_FILE" || {
+        printf 'FATAL: could not record assertion result\n' >&2; exit 1; }
       printf '%s\t%s\t%s\n' \
         "$(sanitize_result_field "$name")" \
         "$(sanitize_result_field "$expected")" \
-        "$(sanitize_result_field "$actual")" >> "$DETAILS_FILE"
+        "$(sanitize_result_field "$actual")" >> "$DETAILS_FILE" || {
+        printf 'FATAL: could not record failure details\n' >&2; exit 1; }
       printf '  FAIL  %s\n         expected: %s\n         actual:   %s\n' \
         "$name" "$expected" "$actual"
     fi

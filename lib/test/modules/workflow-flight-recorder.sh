@@ -5,7 +5,9 @@
 # Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
 # lib/test/module-harness.sh first (this module calls that harness's focused
 # Python-test helper). The module owns all other fixtures and removes its
-# temporary workspace.
+# temporary workspace. Modules may not self-skip: skip() is not part of this
+# contract (the full-suite boundary withholds SKIPS_FILE and the focused runner
+# defines no skip helper) — keep skippable gates in the full suite.
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "workflow flight recorder: native inventory, explicit import, and constrained analysis"

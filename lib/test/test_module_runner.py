@@ -245,6 +245,33 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertFalse((custom_dir / "custom-logs").exists())
         self.assertTrue(log.is_file())
 
+    def test_missing_harness_fails_closed_before_selection(self) -> None:
+        # Guard-class 1 (existence-vs-sourceability): a failed top-level source
+        # must stop the runner — bash otherwise continues, and with any floor
+        # slack the module would run green while the harness helpers silently
+        # never execute.
+        (self.test_dir / "module-harness.sh").unlink()
+
+        result = self._run("sample")
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("could not source", result.stderr)
+        self.assertFalse(self.marker.exists())
+        self.assertFalse((self.root / ".devflow/tmp/test-module-logs").exists())
+
+    def test_harness_missing_contract_function_fails_closed(self) -> None:
+        # Outcome check, not just source rc: a harness copy that sources
+        # cleanly but no longer defines its contract functions must refuse.
+        (self.test_dir / "module-harness.sh").write_text(
+            "# stub harness with no contract functions\n", encoding="utf-8"
+        )
+
+        result = self._run("sample")
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("did not define its contract functions", result.stderr)
+        self.assertFalse(self.marker.exists())
+
     def test_unknown_selector_fails_before_any_module_body_or_log(self) -> None:
         result = self._run("unknown")
 
@@ -489,6 +516,7 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertIn("module path is not a readable file", result.stderr)
         self.assertFalse(self.marker.exists())
 
+    @unittest.skipIf(os.geteuid() == 0, "root reads chmod-0 files; test needs a non-root euid")
     def test_unreadable_module_file_is_rejected_before_source(self) -> None:
         module = self.modules_dir / "sample.sh"
         module.chmod(0)

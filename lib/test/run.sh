@@ -40952,11 +40952,11 @@ fi
 MODULE_RUNNER_OUT="$(python3 "$LIB/test/test_module_runner.py" 2>&1)"
 MODULE_RUNNER_RC=$?
 assert_eq "test module runner: focused Python tests pass" "0" "$MODULE_RUNNER_RC"
-[ "$MODULE_RUNNER_RC" -eq 0 ] || printf '%s\n' "$MODULE_RUNNER_OUT" | sed 's/^/    /'
+[ "$MODULE_RUNNER_RC" -eq 0 ] || while IFS= read -r _mr_line || [ -n "$_mr_line" ]; do printf '    %s\n' "$_mr_line"; done <<< "$MODULE_RUNNER_OUT"
 MODULE_HARNESS_OUT="$(python3 "$LIB/test/test_module_harness.py" 2>&1)"
 MODULE_HARNESS_RC=$?
 assert_eq "test module full-suite boundary: focused Python tests pass" "0" "$MODULE_HARNESS_RC"
-[ "$MODULE_HARNESS_RC" -eq 0 ] || printf '%s\n' "$MODULE_HARNESS_OUT" | sed 's/^/    /'
+[ "$MODULE_HARNESS_RC" -eq 0 ] || while IFS= read -r _mh_line || [ -n "$_mh_line" ]; do printf '    %s\n' "$_mh_line"; done <<< "$MODULE_HARNESS_OUT"
 
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
