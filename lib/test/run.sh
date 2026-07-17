@@ -1130,6 +1130,15 @@ for _m in "${_maxi_members[@]}"; do
     echo FAIL >> "$RESULTS_FILE"
   fi
 done
+# #539 review (Suggestion, fail-open-glob-shrink): the fail-closed _impl_bundle_member_usable
+# predicate above catches a present-but-empty/unreadable member, but a FULLY DELETED reference
+# just shrinks the references/*.md glob — the loop would assemble a smaller bundle and every
+# $MAXI_BUNDLE pin would still pass against the surviving content. The exact 8-name set is pinned
+# in the #530 budget block ~30k lines below, but that coupling is remote; assert the member count
+# adjacent to the build so a dropped reference is caught where the bundle is built. 9 = thin root
+# + 8 references (kept in lockstep with RAF_EXPECTED_REFS in the #530 budget block).
+assert_eq "#530/#539 review-and-fix bundle assembled all 9 members (thin root + 8 references)" "9" \
+  "${#_maxi_members[@]}"
 MAXI_SKILL="$MAXI_BUNDLE"
 assert_pin_unique "max_iterations clamp: SKILL keeps the negative-aware integer regex" "'^-?[0-9]+\$'" "$MAXI_SKILL"
 assert_pin_unique "max_iterations clamp: SKILL keeps the below-1 floor" '"$MAX_ITERS" -lt 1' "$MAXI_SKILL"
@@ -25246,7 +25255,7 @@ for a in $PRT_AGENTS; do
   # positively so a future edit that desyncs review-and-fix's example roster from the
   # engine's actual dispatch set turns this row red instead of shipping silently.
   assert_eq "#141 fix-loop skill references devflow:$a (review-and-fix roster rewired)" \
-    "yes" "$(grep -qF "devflow:$a" "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin
+    "yes" "$(grep -qF "devflow:$a" "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin. #539 review (Suggestion): scan the whole root+references bundle so roster prose migrating into a reference stays covered.
   assert_eq "#141 agents/$a.md frontmatter declares name: $a (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $a\$" "$FDROOT/agents/$a.md" && echo yes || echo no)"
   assert_eq "#141 resolver allowlists devflow:$a (override key resolves)" \
@@ -25460,7 +25469,7 @@ assert_eq "#142 resolver allowlists devflow:requesting-code-review (override key
 assert_eq "#142 config schema declares the devflow:requesting-code-review override key" \
   "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/.devflow/config.schema.json" && echo yes || echo no)"
 assert_eq "#142 fix-loop skill applies devflow:receiving-code-review principles (call-site rewired)" \
-  "yes" "$(grep -qF 'devflow:receiving-code-review' "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'devflow:receiving-code-review' appears twice in the target SKILL
+  "yes" "$(grep -qF 'devflow:receiving-code-review' "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'devflow:receiving-code-review' appears more than once in the root+references bundle (#539 review Suggestion: bundle, not thin root)
 
 # ── #506 prompt-surface edit routing evidence gate ───────────────────────────
 # Repo policy (extension-not-engine): editing a prompt-surface file (SKILL.md, an implement
@@ -31263,7 +31272,7 @@ RAF_BUDGET_DOC="$LIB/../docs/review-and-fix-budget.md"
 assert_eq "#530 budget: checked-in budget table exists" "yes" \
   "$([ -f "$RAF_BUDGET_DOC" ] && echo yes || echo no)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,198 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,196 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -31362,6 +31371,33 @@ assert_pin_unique "#530 pressure(routing): root failure-map carries the error-ha
   '| `error-handling.md` | Contextual guidance' "$P530_ROOT"
 assert_eq "#530 pressure(routing): root names references/error-handling.md (contextual pointer)" "yes" \
   "$(grep_present "references/error-handling.md" "$P530_ROOT")"
+# #539 review (Important, test_gap): before this block ONLY the loop-control and error-handling
+# failure-map rows were pinned — the other six carried the load-bearing degradation outcomes
+# (STOP-before-mutation, not_verified, persistence backstop, non-convergence) with no operative
+# pin, so weakening any row body shipped desk-green. Pin each remaining row's operative outcome
+# clause against the root so a silent downgrade of the fail-closed contract goes RED at the desk.
+assert_pin_unique "#530/#539 failure-map: pre-fix-gates row STOPs before any mutation" \
+  '| `pre-fix-gates.md` | **STOP before any mutation.** No fix without gate coverage.' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: shadow-review row records not_verified (prohibits clean approve)" \
+  '| `shadow-review.md` | Record `shadow.coverage: "not_verified"`' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: fixing row STOPs before any mutation" \
+  '| `fixing.md` | **STOP before any mutation.** Never apply a fix blind.' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: fix-delta-gate row records a not-verified fix-delta outcome" \
+  '| `fix-delta-gate.md` | Record a not-verified fix-delta outcome' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: convergence row treats unreadable as a failed condition" \
+  '| `convergence.md` | Treat as "a convergence condition failed"' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: loop-exit row runs the persistence backstop directly" \
+  '| `loop-exit.md` | Run the persistence backstop directly' "$P530_ROOT"
+# #539 review (Suggestion 2, degradation-mapping-mismatch): the shadow-review unreadable row now
+# branches by trigger context — an EARLY engine_self_modifying trigger continues the loop rather
+# than terminating a non-converged loop early. Pin that branch so it cannot silently regress to a
+# blanket "proceed to Loop Exit".
+assert_pin_unique "#530/#539 failure-map: early engine_self_modifying shadow trigger continues the loop (not an early terminate)" \
+  'an **early** `engine_self_modifying` trigger (after iteration 1) instead continues the loop as in the `convergence.md` row' "$P530_ROOT"
+# #539 review (Suggestion 1, unverified-assumption): the always-resident re-read rule now defines
+# the ABSENT-operand path explicitly — fail closed, never fall back to conversational memory.
+assert_pin_unique "#530/#539 re-read rule: an absent durable operand fails closed, never falls back to recall" \
+  '**Absent operand → fail closed, never recall.**' "$P530_ROOT"
 # ── #530 (silent-failure review): pin the START/END markers the fail-closed Reference-loading
 # contract hinges on. The runtime completeness check treats a reference as unreadable unless its
 # first non-blank line is `# Reference: <title>` and its last non-blank line is the canonical

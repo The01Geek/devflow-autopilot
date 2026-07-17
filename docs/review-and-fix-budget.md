@@ -7,12 +7,12 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 (root ≤ 3,000 words; root + live extension ≤ 5,500 words; root + extension + max active step
 ≤ 15,000 words).
 
-> **Maintainer note — the root budget is razor-thin.** The root measures **2,996 / 3,000 words**
-> (~4 words of headroom). Any non-trivial addition to `skills/review-and-fix/SKILL.md` will trip
+> **Maintainer note — the root budget is razor-thin.** The root measures **2,994 / 3,000 words**
+> (~6 words of headroom). Any non-trivial addition to `skills/review-and-fix/SKILL.md` will trip
 > the `#530 budget` guard; externalize new procedure into a reference (or trim) rather than
 > growing the root. Re-run the measurement below (always the python3 word counter — see
 > Counting method; never a bare `wc -w`)
-> and reconcile the numbers in this table and the `+1,198` figure pinned in `lib/test/run.sh`
+> and reconcile the numbers in this table and the `+1,196` figure pinned in `lib/test/run.sh`
 > whenever the root or a reference changes; the `#530 budget` guard recomputes the cumulative
 > sum and the growth arithmetic from the live files, so a stale table cell goes RED at the desk.
 
@@ -27,7 +27,7 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
   skew got this file's original macOS-measured counts rejected by a Linux reviewer re-measuring
   the same HEAD. And under `LC_ALL=C`, GNU `wc` counts only whitespace-runs containing a
   printable ASCII byte, so the standalone em-dash tokens this prose uses heavily count as words
-  on macOS/BSD but not on Linux CI (observed: 39,826 vs 39,053 for identical cumulative bytes).
+  on macOS/BSD but not on Linux CI (observed on an earlier round of this branch: 39,826 vs 39,053 for identical cumulative bytes).
   `bytes.split()` is byte-identical everywhere; on this corpus it equals BSD `LC_ALL=C wc -w`.
   Totals here can therefore differ by a few words from earlier unpinned measurements quoted in
   issue #530 (its 38,634-word baseline was a BSD-UTF-8 count of the same bytes).
@@ -55,11 +55,11 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | **BEFORE** — monolith | `skills/review-and-fix/SKILL.md` (pre-split) | 1,134 | 36,201 | 250,928 | 47,061 |
 | **BEFORE** — always-loaded | monolith + live extension | 1,330 | 38,628 | 266,909 | 50,216 |
 | live extension | `.devflow/prompt-extensions/review-and-fix.md` | 196 | 2,427 | 15,981 | 3,155 |
-| **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 286 | **2,996** | 23,352 | 3,895 |
-| **AFTER** — actual initial load | root + live extension | 482 | **5,423** | 39,333 | 7,050 |
-| **AFTER** — bundle | root + all `references/*.md` | 1,236 | 37,399 | 259,854 | 48,619 |
-| **AFTER** — normal cumulative path | root + extension + Σ references | — | 39,826 | — | 51,774 |
-| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **14,988** | — | 19,484 |
+| **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 286 | **2,994** | 23,471 | 3,892 |
+| **AFTER** — actual initial load | root + live extension | 482 | **5,421** | 39,452 | 7,047 |
+| **AFTER** — bundle | root + all `references/*.md` | 1,236 | 37,397 | 259,973 | 48,616 |
+| **AFTER** — normal cumulative path | root + extension + Σ references | — | 39,824 | — | 51,771 |
+| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **14,986** | — | 19,482 |
 | reference: `shadow-review.md` | Step 2.6 | 214 | 9,565 | 66,503 | 12,435 |
 | reference: `fixing.md` | Step 3 | 154 | 8,320 | 56,116 | 10,816 |
 | reference: `loop-exit.md` | Loop Exit | 270 | 6,488 | 44,465 | 8,434 |
@@ -73,25 +73,25 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 
 | Ceiling | Value | Measured | Result |
 | --- | --- | ---: | :--: |
-| Plugin root ≤ 3,000 words | 3,000 | 2,996 | ✅ |
-| Root + live extension (initial load) ≤ 5,500 words | 5,500 | 5,423 | ✅ |
-| Root + extension + max active step ≤ 15,000 words | 15,000 | 14,988 | ✅ |
+| Plugin root ≤ 3,000 words | 3,000 | 2,994 | ✅ |
+| Root + live extension (initial load) ≤ 5,500 words | 5,500 | 5,421 | ✅ |
+| Root + extension + max active step ≤ 15,000 words | 15,000 | 14,986 | ✅ |
 
 ## Net mandatory-prompt reduction, and the named justified-growth warning
 
-- **Mandatory (always-loaded) prompt: net reduction of 33,205 words** — from 38,628 (monolith +
-  extension, *all* of it loaded on every invocation) to 5,423 (thin root + extension). This is the
+- **Mandatory (always-loaded) prompt: net reduction of 33,207 words** — from 38,628 (monolith +
+  extension, *all* of it loaded on every invocation) to 5,421 (thin root + extension). This is the
   reduction the split exists to deliver: at least 33,134 words below the measured combined baseline
-  (33,205 ≥ 33,134). Everything else now loads on demand, one step reference at a time.
+  (33,207 ≥ 33,134). Everything else now loads on demand, one step reference at a time.
 
-- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,198 words.**
+- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,196 words.**
   The *normal cumulative path* (root + extension + every reference a full run loads in sequence)
-  is 39,826 words vs. 38,628 before — a net **growth of +1,198 words**. This growth is the routing
+  is 39,824 words vs. 38,628 before — a net **growth of +1,196 words**. This growth is the routing
   text the split adds: the *Step routing* table, the *Reference-loading contract* (entry-gate,
   canonical-boundary rule, per-reference failure map, always-resident re-read rule), the condensed
   terminal verdict→chat mapping, the durable-operand schema fields, and the per-reference
   `# Reference:` headers / `<!-- END … -->` markers. It is **justified**: the split trades this
-  small (+3.1%) cumulative increase for a 33,205-word reduction in the *mandatory* prompt, on-demand
-  sequential loading (only one step reference resident at a time — peak 14,988 words, not 39,826),
+  small (+3.1%) cumulative increase for a 33,207-word reduction in the *mandatory* prompt, on-demand
+  sequential loading (only one step reference resident at a time — peak 14,986 words, not 39,824),
   and fail-closed reference handling. Cumulative token spend on a full run is not the metric the
   split optimizes; peak-context and per-step focus are.

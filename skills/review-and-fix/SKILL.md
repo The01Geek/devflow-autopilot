@@ -238,29 +238,29 @@ Every loop step's authoritative procedure lives in a file under `skills/review-a
 
 ## Reference-loading contract (fail-closed)
 
-Every step reference loads at entry, **before any action in that step**, and a reference that cannot be loaded whole takes the mapped fail-closed outcome below — never an improvised step from memory of an earlier read or from this table's one-line stub.
+Every step reference loads at entry, **before any action in that step**, and a reference that cannot be loaded whole takes the mapped fail-closed outcome below — never an improvised step from memory.
 
 **Entry-gate read shape** (mirrors `skills/implement/SKILL.md`'s phase entry-gates):
 
-1. **Stamp the position** (best-effort Write, non-blocking): set `current_step` (and `current_substep` when meaningful) in the active `iter-<N>.json` before reading the reference, so a compacted/resumed run recovers where it is from the record, not recall.
-2. **Read the reference.** Resolve the skill directory per the *Portable helper anchor* rule at the top of this file and `Read` `<skill-dir>/references/<name>.md` (the vendored-consumer layout resolves the same path).
+1. **Stamp the position** (best-effort Write, non-blocking): set `current_step` (and `current_substep` when meaningful) in the active `iter-<N>.json` before reading, so a compacted/resumed run recovers its position from the record, not recall.
+2. **Read the reference.** Resolve the skill directory per the *Portable helper anchor* rule above and `Read` `<skill-dir>/references/<name>.md` (the vendored layout resolves the same path).
 3. **Completeness check — the single ordered start/end boundary rule.** The returned content's first non-blank line MUST be the reference's canonical `# Reference: <title>` heading and its last non-blank line MUST be the canonical `<!-- END <name>.md -->` marker, **each occurring exactly once, in that order**. A `Read` failure, an empty result, a truncated result, a result missing either marker, a **duplicated** marker, a **reversed** order (END before START), or a marker at a **noncanonical** position (not at the document edge) all mean **reference unreadable** and take the failure-map row below.
-4. On success, execute the reference's procedure. On failure, apply the failure-map row — do not proceed into the step.
+4. On success, execute the reference's procedure; on failure, apply the failure-map row — do not enter the step.
 
-**Failure-map (per reference — fail-closed; each degrades exactly as the engine already degrades on the equivalent runtime failure):**
+**Failure-map (per reference; each degrades exactly as the engine already degrades):**
 
 | Unreadable reference | Outcome |
 | --- | --- |
-| `pre-fix-gates.md` | **STOP before any mutation.** No fix may be attempted without gate coverage. Record a `blocked`-kind reflection naming the reference; the loop reports non-convergence. |
-| `shadow-review.md` | Record `shadow.coverage: "not_verified"` on the active iter (the existing outcome-3 shape) and proceed to Loop Exit with the tentative verdict reported not-verified — **prohibits a clean approve**. |
-| `fixing.md` | **STOP before any mutation.** Never apply a fix blind. Record a `blocked`-kind reflection; the loop reports non-convergence. |
-| `fix-delta-gate.md` | Record a not-verified fix-delta outcome (the existing gate-subagent-failure shape) that **prohibits a clean APPROVE-family verdict** for this run — the same effect as an unresolved over-grade flag. (The formal `reference_reads.fix_delta` schema field is deferred to the AC8 follow-up; the behavioral outcome is delivered here.) |
-| `convergence.md` | Treat as "a convergence condition failed" — never early-exit: loop back to Step 1 for iteration N+1, or at the cap proceed to Loop Exit reporting non-convergence. Mark non-convergence explicitly. |
-| `loop-exit.md` | Run the persistence backstop directly (`lib/efficiency-trace.sh --persist`) to floor the telemetry record, record an **incomplete terminal state** reflection, and emit a generic non-clean chat message instead of any APPROVE-family template — **prohibits a clean approve**. |
-| `loop-control.md` | The loop spine (config, Iteration Start, Steps 0.5/0.9/1/2), loaded at loop entry: **STOP before any mutation** — the loop cannot run the engine or a fix without it. Record a `blocked` reflection; report non-convergence. |
-| `error-handling.md` | Contextual guidance (When NOT to use / Error Handling / Common Mistakes), not a loop step — **best-effort**: log and continue; its absence degrades only guidance, never a gate. |
+| `pre-fix-gates.md` | **STOP before any mutation.** No fix without gate coverage. Record a `blocked` reflection; report non-convergence. |
+| `shadow-review.md` | Record `shadow.coverage: "not_verified"` on the active iter (the existing outcome-3 shape) — **prohibits a clean approve**. Then branch on the **trigger context**: a **convergence-time** trigger proceeds to Loop Exit reported not-verified; an **early** `engine_self_modifying` trigger (after iteration 1) instead continues the loop as in the `convergence.md` row — not an early terminate of a non-converged loop. |
+| `fixing.md` | **STOP before any mutation.** Never apply a fix blind. Record a `blocked` reflection; report non-convergence. |
+| `fix-delta-gate.md` | Record a not-verified fix-delta outcome (the existing gate-subagent-failure shape) that **prohibits a clean APPROVE-family verdict** for this run — the same effect as an unresolved over-grade flag (the formal `reference_reads.fix_delta` field is the #541 follow-up; the behavioral outcome ships here). |
+| `convergence.md` | Treat as "a convergence condition failed" — never early-exit: loop back to Step 1 for iteration N+1, or at the cap proceed to Loop Exit reporting non-convergence. |
+| `loop-exit.md` | Run the persistence backstop directly (`lib/efficiency-trace.sh --persist`), record an **incomplete terminal state** reflection, and emit a generic non-clean chat message (never an APPROVE-family template) — **prohibits a clean approve**. |
+| `loop-control.md` | The loop spine (config, Iteration Start, Steps 0.5/0.9/1/2), loaded at loop entry: **STOP before any mutation**. Record a `blocked` reflection; report non-convergence. |
+| `error-handling.md` | Contextual guidance (not a loop step) — **best-effort**: log and continue; its absence degrades only guidance, never a gate. |
 
-**Always-resident re-read rule (issue #530 — never leaves the root, for eviction resistance).** After **every** `Agent`/`Task`/`Skill`-tool return while executing a reference's procedure, and **before the next cross-reference routing action**, re-`Read` the active reference — identified by `current_step`/`current_substep` in the active `iter-<N>.json`, **not** by conversational memory — and resume the interrupted substep; never re-dispatch the agent/skill that just returned. The durable operands are the step predicate; **agent recall is never the sole predicate**.
+**Always-resident re-read rule (issue #530 — never leaves the root, for eviction resistance).** After **every** `Agent`/`Task`/`Skill`-tool return while executing a reference, and **before the next cross-reference routing action**, re-`Read` the active reference — identified by `current_step`/`current_substep` in the active `iter-<N>.json`, **not** by conversational memory — and resume the interrupted substep; never re-dispatch the agent/skill that just returned. The durable operands are the step predicate; **agent recall is never the sole predicate**. **Absent operand → fail closed, never recall.** An absent `current_step`/`current_substep` (unstamped, or an unreadable `iter-<N>.json`) is re-stamped from the last reference entry-gate, or — if unrecoverable — takes the step's fail-closed not-verified failure-map outcome; it is **never** inferred from conversational memory.
 
 
 ### Step 4: Continue Loop
