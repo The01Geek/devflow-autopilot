@@ -3818,7 +3818,12 @@ assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the
 # D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 8 after
 # issue #464 (merged) appended the "Mutation evidence for behavioral-fix pins" dimension; #467
 # sharpened the existing case-matrix bullet in place, adding no row.
-assert_eq "#467 D3: create-issue extension is 8 dimension bullets (7 base + #464's dimension; #467 added none)" "8" \
+# Count reconciled 8 -> 9 to match the extension as shipped on main: commit 760c0902
+# ("fix: enable execution diagnostics and adjust severity thresholds in config") added a
+# `- **Deployment-variance silence.**` bullet to .devflow/prompt-extensions/create-issue.md
+# without updating this coupled pin, leaving origin/main red on #467 D3. This reconciliation
+# is base-merge fallout carried in via PR #552's Checkpoint-3 update, NOT part of issue #546.
+assert_eq "#467 D3: create-issue extension is 9 dimension bullets (7 base + #464's dimension + 760c0902's deployment-variance guard bullet)" "9" \
   "$(grep -c '^- \*\*' "$CI443_EXT")"
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
