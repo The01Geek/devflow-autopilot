@@ -8218,8 +8218,8 @@ assert_pin_red_under "#376 w2-phase-five-kinds: phase-2-implement.md §2.3.4 ste
 # Two coupled skill edits, each new operative sentence pinned through assert_pin_red_under
 # (#375) with a mutation that removes ONLY that operative sentence — so a framing-only pin is
 # reported RED at the desk, per AC8. The default file for assert_pin_red_under is $MAXI_SKILL
-# (the reassembled root+references bundle MAXI_BUNDLE; Step 3 item 3b now lives in
-# references/fixing.md within it), so the Edit-1 (Step 3 item 3b) pins omit the file arg;
+# (the reassembled root+references bundle MAXI_BUNDLE; item 3b of Step 3 now lives in
+# references/fixing.md within it), so the Edit-1 (item 3b of Step 3) pins omit the file arg;
 # the Edit-2 (§3.2) pins target phase-3-review.md by path so AC5's count assertion reads the
 # owning phase file, not the merged bundle.
 P3_FILE="$IMPL_PHASES_DIR/phase-3-review.md"
