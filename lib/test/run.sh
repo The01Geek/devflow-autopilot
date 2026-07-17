@@ -12391,6 +12391,10 @@ assert_pin_unique "#560 AC1: mandate names TaskCreate/TaskUpdate and update_plan
   '`TaskCreate`/`TaskUpdate` (newer Claude Code sessions), or `update_plan` (Codex CLI)' "$CI_SKILL_560"
 assert_pin_unique "#560 AC1: mandate routes to the inline fallback when no task tool is usable" \
   'when the runner exposes no task-tracking tool or the exposed one is disabled or unusable' "$CI_SKILL_560"
+# AC2: the Step 2 slug sentence is amended to reuse this invocation's checklist-bound slug
+# (per-site completeness — a revert of this out-of-section clause turns its own pin RED).
+assert_pin_unique "#560 AC2: Step 2 slug sentence reuses the invocation-bound checklist slug" \
+  'binding it here only when this invocation has bound none' "$CI_SKILL_560"
 # AC3: the status-transition sentence keeps in_progress/completed canonical + nearest-equivalents.
 assert_pin_unique "#560 AC3: status-transition sentence names the nearest-equivalents rule" \
   'a task tool whose status fields differ uses its nearest equivalents' "$CI_SKILL_560"
