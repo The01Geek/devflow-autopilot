@@ -3978,6 +3978,69 @@ assert_eq("#546 draft_undigestible_rows: the summary never renders a live token 
           (lambda f: (f['token'], f['stale_token']))(
               issue_audit_state.summary_fields(_clean_file, None, digest_failed=True)))
 
+print()
+print("issue-audit-state: shadow-round hardening (issue #546, PR #552 shadow review)")
+
+# (1) Read-surface sub-shapes the mutations index unconditionally: a corrupted attempt
+# record (missing digest/body_digest, non-string sentinel), a malformed override record
+# (bad surface, non-int ordinal), a non-sequential revision ordinal chain, and an
+# off-set creation attestation must all collapse to StateError — never a KeyError
+# traceback from a mutation that promised a named breadcrumb.
+_malformed('an attempt record missing its digest',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'),
+                                    attempts=[{'arm': 'file', 'body_digest': 'B'}])]))
+_malformed('an attempt record missing its body_digest',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'),
+                                    attempts=[{'arm': 'file', 'digest': 'D'}])]))
+_malformed('a non-string attempt sentinel',
+           dict(_GOOD, rounds=[dict(_round(1, 'embed', 'FILE'),
+                                    attempts=[{'arm': 'embed', 'digest': 'D',
+                                               'body_digest': 'B', 'sentinel_open': 7,
+                                               'sentinel_close': 'X'}])]))
+_malformed('an override record with a surface outside the canonical set',
+           dict(_GOOD, overrides=[{'kind': 'user-decline', 'surface': 'bogus',
+                                   'recorded_at_ordinal': 0, 'draft_digest': None}]))
+_malformed('an override record with a non-integer recorded_at_ordinal',
+           dict(_GOOD, overrides=[{'kind': 'user-decline', 'surface': 't1t2-boundary',
+                                   'recorded_at_ordinal': 'zero', 'draft_digest': None}]))
+_malformed('a revision ordinal chain that is not 1..N',
+           dict(_GOOD, revisions=[{'ordinal': 2, 'after_round': 0}]))
+_malformed('a creation attestation outside the canonical set',
+           dict(_GOOD, creation={'body_only_digest': 'B', 'attestation': 'maybe'}))
+
+# (2) evaluate_eligibility's mode is a closed set like every other vocabulary: an
+# off-set mode must raise loudly, never silently take the permissive approve path.
+assert_raises("#546 shadow-round: an off-vocabulary eligibility mode raises, never "
+              "defaults to approve", AssertionError,
+              lambda: issue_audit_state.evaluate_eligibility(_clean_file, 'aprove', 'D1'))
+
+# (3) A file-arm clean round queried with NO digest supplied must not claim the token
+# went stale (nothing was compared) — token None, stale_token False.
+assert_eq("#546 shadow-round: absent draft digest on a file-arm epoch never renders "
+          "stale-token", (None, False),
+          (lambda f: (f['token'], f['stale_token']))(
+              issue_audit_state.summary_fields(_clean_file, None)))
+assert_eq("#546 shadow-round: ... while a genuinely staled event-ordering epoch still "
+          "marks stale with no digest supplied", True,
+          issue_audit_state.summary_fields(
+              _state([_round(1, 'embed', 'FILE')], revisions=(1,)), None)['stale_token'])
+
+# (4) A dispatch recorded for a pending retry clears the pending action: next-action
+# then answers the fail-closed awaiting token, never the already-spent retry action.
+_pending_round = _state([dict(_round(1, 'file', None), outcome=None,
+                              pending='dispatch-embed-retry')])
+assert_eq("#546 shadow-round: pending survives until the retry dispatch is recorded",
+          'dispatch-embed-retry',
+          issue_audit_state.next_action(_pending_round, 1))
+
+# (5) A slug that escapes .devflow/tmp is refused as untrustworthy state, fail closed.
+assert_raises("#546 shadow-round: a path-escaping slug raises StateError",
+              issue_audit_state.StateError,
+              lambda: issue_audit_state.state_path('../../evil'))
+assert_raises("#546 shadow-round: a slash-carrying slug raises StateError",
+              issue_audit_state.StateError,
+              lambda: issue_audit_state.state_path('a/b'))
+
 # (3) An unreadable/unhashable supplied draft refuses with the DISTINCT reason
 # draft-undigestible in approve mode — never misattributed as unaudited-revision,
 # and never eligible on any ground (fail closed, overrides included).

@@ -41490,6 +41490,101 @@ if [ -d "$IT_SB" ]; then
   rm -rf "$IT_SB"
 fi
 
+# shadow_round_rows (#546, PR #552 shadow review) — producer-side CLI drives the blinded
+# shadow pass showed were only covered against hand-built records: the embed-arm sentinel
+# carriage round-trip with the TOOL-generated sentinels, the record-override producer vs
+# the eligibility consumer, the per-query foreign-nonce fail-closed answers, query-arm's
+# recorded-fact read-back (no --prior-unreadable flag), record-degraded reaching the
+# summary, and the pending-cleared-at-dispatch next-action answer.
+SR_SB="$(git_sandbox '#546 shadow_round_rows')"
+if [ -d "$SR_SB" ]; then
+  (
+    cd "$SR_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+
+    # embed-arm sentinel round-trip: dispatch on stdin, capture the tool-generated pair
+    N="$(python3 "$IAS" init es | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch es --nonce "$N" --round 1 --arm embed \
+      --marker write-failed < draft.md > .sr-disp 2>&1
+    SO="$(sed -nE 's/.* sentinel_open=([^ ]+).*/\1/p' .sr-disp)"
+    SC="$(sed -nE 's/.* sentinel_close=([^ ]+).*/\1/p' .sr-disp)"
+    # mismatched sentinel first: refused (no outcome; retry accounting)
+    python3 "$IAS" record-return es --nonce "$N" --round 1 --verdict FILE \
+      --carriage-sentinel-open "WRONG" --carriage-sentinel-close "$SC" > .sr-bad 2>&1
+    # then the genuine pair: accepted, round closes FILE
+    python3 "$IAS" record-return es --nonce "$N" --round 1 --verdict FILE \
+      --carriage-sentinel-open "$SO" --carriage-sentinel-close "$SC" > .sr-good 2>&1
+    python3 "$IAS" query-triggers es --nonce "$N" > .sr-trig 2>/dev/null
+
+    # record-override producer -> eligibility consumer round-trip (file-arm epoch)
+    N2="$(python3 "$IAS" init ov | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch ov --nonce "$N2" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+    python3 "$IAS" record-return ov --nonce "$N2" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-override ov --nonce "$N2" --kind user-decline \
+      --surface t1t2-boundary --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" query-eligibility ov --nonce "$N2" --mode approve \
+      --draft-file draft.md > .sr-ov-elig 2>/dev/null
+    python3 "$IAS" record-revision ov --nonce "$N2" --after-round 1 > /dev/null 2>&1
+    python3 "$IAS" query-eligibility ov --nonce "$N2" --mode approve \
+      --draft-file draft.md > .sr-ov-stale 2>/dev/null
+
+    # foreign-nonce fail-closed answers, one per query class
+    python3 "$IAS" query-arm ov --nonce badnonce --write-landed yes \
+      --draft-file draft.md > .sr-fn-arm 2>/dev/null
+    python3 "$IAS" query-next-action ov --nonce badnonce --round 1 > .sr-fn-na 2>/dev/null
+    python3 "$IAS" query-eligibility ov --nonce badnonce --mode approve \
+      --draft-file draft.md > .sr-fn-elig 2>/dev/null
+
+    # recorded-fact read-back: a file-arm DRAFT-UNREADABLE return, then query-arm
+    # WITHOUT --prior-unreadable still routes embed/file-unreadable from state alone
+    N3="$(python3 "$IAS" init rb | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch rb --nonce "$N3" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return rb --nonce "$N3" --round 1 --verdict DRAFT-UNREADABLE \
+      > /dev/null 2>&1
+    python3 "$IAS" query-arm rb --nonce "$N3" --write-landed yes \
+      --draft-file draft.md > .sr-rb-arm 2>/dev/null
+    # pending-cleared-at-dispatch: record the embed retry dispatch, then next-action
+    # answers the awaiting token, never the already-spent retry action
+    python3 "$IAS" record-dispatch rb --nonce "$N3" --round 1 --arm embed \
+      --marker file-unreadable < draft.md > /dev/null 2>&1
+    python3 "$IAS" query-next-action rb --nonce "$N3" --round 1 > .sr-rb-na 2>/dev/null
+
+    # record-degraded reaches the summary
+    python3 "$IAS" record-degraded rb --nonce "$N3" --round 1 \
+      --reason no-subagent-tool > .sr-deg 2>&1
+    python3 "$IAS" query-summary rb --nonce "$N3" > .sr-deg-summary 2>/dev/null
+  )
+  assert_eq "#546 shadow_round_rows: a mismatched embed sentinel refuses the completion" \
+    "1" "$(grep -c 'classification=no-parseable-verdict' "$SR_SB/.sr-bad" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: the tool-generated sentinel pair round-trips to an accepted FILE close" \
+    "1" "$(grep -c 'outcome=FILE' "$SR_SB/.sr-good" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: ... confirmed closed via query-triggers (no pending offer trigger)" \
+    "1" "$(grep -c 't1=not-hold t2=not-hold' "$SR_SB/.sr-trig" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: a CLI-recorded override grounds eligibility (producer/consumer agree)" \
+    "1" "$(grep -c 'eligible=yes ground=override' "$SR_SB/.sr-ov-elig" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: a later revision stales the CLI-recorded override" \
+    "eligible=no reason=stale-override" "$(cat "$SR_SB/.sr-ov-stale" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: query-arm fails closed on a foreign nonce" \
+    "arm=embed marker=digest-unrecorded reason=foreign-nonce" "$(cat "$SR_SB/.sr-fn-arm" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: query-next-action fails closed on a foreign nonce" \
+    "action=round-closed-no-verdict reason=foreign-nonce" "$(cat "$SR_SB/.sr-fn-na" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: query-eligibility fails closed on a foreign nonce" \
+    "eligible=no reason=foreign-nonce" "$(cat "$SR_SB/.sr-fn-elig" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: query-arm reads the recorded DRAFT-UNREADABLE fact back from state (no caller flag)" \
+    "1" "$(grep -c 'arm=embed marker=file-unreadable' "$SR_SB/.sr-rb-arm" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: a recorded retry dispatch clears pending — next-action answers the awaiting token" \
+    "action=round-open-awaiting-return" "$(cat "$SR_SB/.sr-rb-na" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: record-degraded surfaces in the summary" \
+    "1" "$(grep -c 'degraded=yes' "$SR_SB/.sr-deg-summary" 2>/dev/null)"
+  rm -rf "$SR_SB"
+fi
+
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)

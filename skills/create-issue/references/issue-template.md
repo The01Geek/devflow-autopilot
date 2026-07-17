@@ -521,10 +521,15 @@ and a re-emitting `printf '%s\n'` re-adds exactly one, mutating the posted bytes
 recorded body-only digest (a false attestation mismatch). The file round-trip is **byte-exact**.
 Substitute `<main-root>` with the main working-tree root Step 4 sub-step 2 already resolved
 via `resolve-main-root.sh` (the root whose `.devflow/tmp` that sub-step already created —
-a cwd-relative `.devflow/tmp/` may not exist inside a linked worktree checkout):
+a cwd-relative `.devflow/tmp/` may not exist inside a linked worktree checkout). The
+guarded file is handed to `gh` directly via `--body-file <path>` — never re-piped through
+`cat`, whose absence (a non-preflight PATH tool) would feed `gh` empty stdin and create the
+empty-bodied issue the guard exists to prevent; this temp file IS the gated `emit-body`
+output, so the old never-`--body-file` rule (which banned the unaudited preview copy) does
+not apply to it:
 
 ```bash
-python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py emit-body "<slug>" --nonce "<nonce>" --draft-file "<absolute issue-draft-<slug>.md path>" > "<main-root>/.devflow/tmp/issue-body-<slug>.md" && test -s "<main-root>/.devflow/tmp/issue-body-<slug>.md" && cat "<main-root>/.devflow/tmp/issue-body-<slug>.md" | gh issue create --title "Action-oriented title here" --body-file -
+python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py emit-body "<slug>" --nonce "<nonce>" --draft-file "<absolute issue-draft-<slug>.md path>" > "<main-root>/.devflow/tmp/issue-body-<slug>.md" && test -s "<main-root>/.devflow/tmp/issue-body-<slug>.md" && gh issue create --title "Action-oriented title here" --body-file "<main-root>/.devflow/tmp/issue-body-<slug>.md"
 ```
 
 **On an embed- or inline-arm epoch** there is no trustworthy canonical file, so the body is

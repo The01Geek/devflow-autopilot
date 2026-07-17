@@ -100,6 +100,7 @@ _EMBED_MARKER_TEXT = {
     'digest-unrecorded': 'draft embedded (digest unrecorded)',
 }
 
+_ATTESTATIONS = ('match', 'mismatch', 'attestation-unavailable')
 _OVERRIDE_KINDS = ('user-decline', 'cap-reached')
 _OVERRIDE_SURFACES = (
     't1t2-boundary', 'step4-offer', 'step4-approval-after-exhausted-offer',
@@ -311,6 +312,12 @@ def state_path(slug, root=None):
     Deliberately NOT the main-worktree root the draft file uses: sharing one record
     across concurrent worktree runs would let a foreign cold-start wipe this run's state.
     """
+    # The slug keys a filesystem path (guard-class 2): an escaping shape would read,
+    # write, and — worst — cold-start-DELETE outside .devflow/tmp. Fail closed.
+    import re as _re
+    if not _re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', slug or ''):
+        raise StateError(f'slug {slug!r} is not a safe path segment '
+                         f'([A-Za-z0-9][A-Za-z0-9._-]*)')
     base = root if root is not None else (_repo_root() or Path.cwd())
     return Path(base) / '.devflow' / 'tmp' / f'issue-audit-state-{slug}.json'
 
@@ -440,6 +447,19 @@ def _validate(doc, slug):
             if att['arm'] not in _ARMS:
                 raise StateError(f'round {num} names an arm outside the canonical set: '
                                  f'{att["arm"]!r}')
+            # Mutation paths index these unconditionally (_carriage_ok, creation-epoch):
+            # a corrupted field must collapse HERE to a named breadcrumb, never surface
+            # later as a raw KeyError traceback.
+            for key in ('digest', 'body_digest'):
+                val = att.get(key)
+                if not isinstance(val, str) or not val:
+                    raise StateError(f'round {num} has an attempt whose {key} is missing '
+                                     f'or not a non-empty string')
+            for key in ('sentinel_open', 'sentinel_close'):
+                val = att.get(key)
+                if val is not None and not isinstance(val, str):
+                    raise StateError(f'round {num} has an attempt whose {key} is not a '
+                                     f'string')
         if rnd['outcome'] is not None and rnd['outcome'] not in _ROUND_OUTCOMES:
             raise StateError(f'round {num} names an outcome outside the canonical set: '
                              f'{rnd["outcome"]!r}')
@@ -459,17 +479,33 @@ def _validate(doc, slug):
     for ov in doc['overrides']:
         if not isinstance(ov, dict) or ov.get('kind') not in _OVERRIDE_KINDS:
             raise StateError('an override record names a kind outside the canonical set')
+        surface = ov.get('surface')
+        if surface is not None and surface not in _OVERRIDE_SURFACES:
+            raise StateError(f'an override record names a surface outside the canonical '
+                             f'set: {surface!r}')
+        rao = ov.get('recorded_at_ordinal')
+        if not isinstance(rao, int) or isinstance(rao, bool):
+            raise StateError(f'an override record recorded_at_ordinal {rao!r} is not an '
+                             f'integer')
+        dd = ov.get('draft_digest')
+        if dd is not None and not isinstance(dd, str):
+            raise StateError('an override record draft_digest is not a string')
     # Read-surface fields the QUERIES consume must be shape-checked here too: a
     # corrupted revision record, counter, or creation record would otherwise crash a
     # query (AttributeError/TypeError), presenting a crashed read as a non-zero query
     # exit — the exact two-class-contract violation _validate exists to prevent.
-    for rev in doc['revisions']:
+    for i, rev in enumerate(doc['revisions']):
         if not isinstance(rev, dict):
             raise StateError('a revision record is not an object')
         for key in ('ordinal', 'after_round'):
             val = rev.get(key)
             if not isinstance(val, int) or isinstance(val, bool):
                 raise StateError(f'a revision record {key} {val!r} is not an integer')
+        # revision_ordinal() is len(revisions); the stored ordinals must agree with it
+        # (a 1..N chain) or the record tells a different story than the derivation.
+        if rev['ordinal'] != i + 1:
+            raise StateError(f'revision ordinal chain broken: position {i + 1} holds '
+                             f'ordinal {rev["ordinal"]}')
     for key in ('automatic_reaudits_used', 'user_rounds_used'):
         val = doc.get(key, 0)
         if not isinstance(val, int) or isinstance(val, bool):
@@ -481,7 +517,7 @@ def _validate(doc, slug):
         if 'body_only_digest' not in creation:
             raise StateError('the creation record is missing its body_only_digest')
         att = creation.get('attestation')
-        if att is not None and att not in ('match', 'mismatch', 'attestation-unavailable'):
+        if att is not None and att not in _ATTESTATIONS:
             raise StateError(f'the creation record names an attestation status outside '
                              f'the canonical set: {att!r}')
     return doc
@@ -650,7 +686,8 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
     offer, and the creation step itself. It answers `eligible` on exactly two grounds:
       (a) a completed `VERDICT: FILE` round whose identity holds for the current draft
           — on a file-arm round, its recorded dispatch digest equals the current
-          canonical-file digest (an absent file answers not-eligible, fail closed); on
+          canonical-file digest (an absent or unreadable file answers not-eligible —
+          at the CLI with the distinct reason draft-undigestible — fail closed); on
           an embed-arm or inline-arm round, where no trustworthy canonical file exists,
           identity holds when no revision record postdates the round (the event-ordering
           ground — weaker than byte identity, and disclosed as such).
@@ -661,8 +698,15 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
     never a ground for creation.
 
     Reason precedence when several could apply is decided, not incidental:
-      state-unestablished > no-verdict-round > stale-override > unaudited-revision.
+      state-unestablished > draft-undigestible > no-verdict-round > stale-override >
+      unaudited-revision.
     """
+    if mode not in ('approve', 'iterate'):
+        # The mode is a closed vocabulary like every other: an off-set value must
+        # never silently take the permissive approve path.
+        raise AssertionError(
+            f'issue-audit-state: eligibility queried with mode {mode!r}, which is not '
+            f"one of ('approve', 'iterate')")
     if mode == 'iterate':
         if state is None:
             return _no('state-unestablished')
@@ -840,8 +884,15 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # breadcrumb names the real cause; rendering stale-token here would be the
         # same misattribution the draft-undigestible reason exists to prevent.
         # A clean round exists but no longer grounds eligibility: whatever token was
-        # issued on those bytes has been invalidated.
+        # issued on those bytes has been invalidated. One carve-out: a file-arm clean
+        # epoch queried with NO digest supplied was never compared at all — claiming
+        # stale there would be the same misattribution in another coat.
         stale = any(r.get('outcome') == 'FILE' for r in done)
+        if stale and current_digest is None:
+            latest_clean = next((r for r in reversed(done)
+                                 if r.get('outcome') == 'FILE'), None)
+            if latest_clean is not None and latest_clean['attempts'][-1]['arm'] == 'file':
+                stale = False
     return {
         'state': 'ok',
         'findings_count': sum(counts) if counts else None,
@@ -873,14 +924,20 @@ def _new_doc(slug, nonce):
 
 
 def cmd_init(args):
+    load_error = None
     try:
         existing = load_state(args.slug)
-    except StateError:
+    except StateError as exc:
         existing = None
+        load_error = str(exc)
     if args.nonce:
         if existing is None:
+            # Carry the load failure's own detail: "no readable state file" alone would
+            # mask a present-but-corrupt file behind a message recommending the
+            # budget-resetting cold start.
+            detail = f' (the load failed: {load_error})' if load_error else ''
             _fail('init', 'a nonce was supplied but no readable state file exists for '
-                          f'slug {args.slug!r}; omit --nonce for a cold start')
+                          f'slug {args.slug!r}{detail}; omit --nonce for a cold start')
         if existing['nonce'] != args.nonce:
             _fail('init', 'nonce mismatch — this call does not belong to the run that '
                           'owns this state file; refusing to re-init a foreign run')
@@ -893,7 +950,12 @@ def cmd_init(args):
     else:
         # Cold start: the ported delete-leftover-first rule. Raises no alarm.
         doc = _new_doc(args.slug, secrets.token_hex(8))
-        path = state_path(args.slug)
+        try:
+            path = state_path(args.slug)
+        except StateError as exc:
+            # An unsafe slug must fail with the named breadcrumb BEFORE the delete-first
+            # unlink can act on an escaped path.
+            _fail('init', str(exc))
         try:
             path.unlink()
         except FileNotFoundError:
@@ -972,6 +1034,11 @@ def cmd_record_dispatch(args):
     elif rnd.get('outcome') is not None:
         _fail('record-dispatch', f'round {args.round} is already closed with outcome '
                                  f'{rnd["outcome"]!r}; a dispatch cannot reopen it')
+    # This dispatch consumes any pending retry action: between this dispatch and its
+    # record-return, next-action must answer round-open-awaiting-return, never re-issue
+    # the already-spent retry (a duplicate dispatch would append a second attempt whose
+    # digest/sentinels become the carriage comparand).
+    rnd['pending'] = None
     rnd['attempts'].append(attempt)
     if args.marker:
         if args.marker not in _EMBED_MARKER_TOKENS:
@@ -1208,7 +1275,12 @@ def cmd_query_arm(args):
     hash_ok = True
     try:
         hash_file(args.draft_file)
-    except _DigestError:
+    except _DigestError as exc:
+        # Same breadcrumb discipline as the sibling queries: the CAUSE (missing file,
+        # permission, git absent) must never be silently collapsed onto the
+        # digest-unrecorded marker.
+        print(f'query: could not hash draft file {args.draft_file}: {exc}',
+              file=sys.stderr)
         hash_ok = False
     state = _query_state(args.slug)
     if state is not None and state['nonce'] != args.nonce:
