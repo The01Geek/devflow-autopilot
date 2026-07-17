@@ -4251,7 +4251,7 @@ assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the named-assertion
 # operative line; the mutation pattern is a metachar-free sub-phrase of that line, so it
 # addresses it cleanly. NOTE these are self-referential *dogfood* pins, not a demonstration of
 # assert_pin_red_under's discrimination over assert_pin_red_on_removal: two of the three targets
-# (phase-2-implement.md, review-and-fix/SKILL.md) hold the whole rule on a single markdown line,
+# (phase-2-implement.md, review-and-fix/references/fixing.md) hold the whole rule on a single markdown line,
 # so `/phrase/d` there IS a whole-line strip byte-equivalent to assert_pin_red_on_removal's
 # grep -vF (only $EXT_IMPL, hard-wrapped across lines, splits operative from framing). The
 # operative-vs-framing discrimination the primitive adds is proven by the synthetic 'op'/'frame'
@@ -4482,7 +4482,7 @@ assert_pin_unique "#236 (B) phase-3.3: bounded re-review re-runs the observabili
 #   (2) the Phase 3.3 seam authors .devflow/tmp scratch with the Write tool, not `>`;
 #   (3) a cloud claude-code-action denial is NOT the local-tier classifier and NOT license
 #       to leave the instrumented loop.
-# The (1) obligation lives in review-and-fix/SKILL.md ($MAXI_SKILL) and is ALSO restated for
+# The (1) obligation lives in review-and-fix/references/fixing.md ($MAXI_SKILL bundle) and is ALSO restated for
 # the inline driver at the implement Phase 3.3 seam (phases/phase-3-review.md, inside
 # $DEF_SKILL); (2)+(3) live at that seam too. Each behavioral operative sentence is pinned
 # removal-proof (assert_pin_red_on_removal, PASS->FAIL on a targeted half-revert) — including
@@ -10195,8 +10195,8 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   # The invocation line alone is half the contract — the step must also tell the
   # model to HONOR the helper's exit code (surface a non-zero exit, don't silently
   # proceed). Pin a BLOCK-UNIQUE fragment of that prose, NOT a generic one: the
-  # phrase "exits non-zero" recurs elsewhere in review/SKILL.md and
-  # review-and-fix/SKILL.md (their dismiss-stale / config-get prose), so a generic
+  # phrase "exits non-zero" recurs elsewhere in review/SKILL.md and the
+  # review-and-fix references (their dismiss-stale / config-get prose), so a generic
   # grep would false-pass for those two skills even if the prompt-extension block's
   # own exit-code prose were deleted. This fragment appears ONLY in the block, so
   # the guard goes red iff the block's exit-code handling is actually removed.
@@ -31294,7 +31294,7 @@ RAF_BUDGET_DOC="$LIB/../docs/review-and-fix-budget.md"
 assert_eq "#530 budget: checked-in budget table exists" "yes" \
   "$([ -f "$RAF_BUDGET_DOC" ] && echo yes || echo no)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,212 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,216 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute

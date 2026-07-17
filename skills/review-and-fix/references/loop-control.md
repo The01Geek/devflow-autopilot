@@ -127,7 +127,7 @@ Compute:
    ```bash
    git diff --name-only ${PREV_FIX_COMMIT}~1 ${PREV_FIX_COMMIT}
    ```
-   where `${PREV_FIX_COMMIT}` is the `fix_commit_sha` recorded in `iter-<N-1>.json`. If `iter-<N-1>.json` itself is missing or unreadable, the lifecycle note (see "Persistent workpad → Lifecycle" above) already covers this: skip the handoff optimizations entirely (Phase 1 runs without the prior-checklist variance-recovery block; Phase 2.0.5 reuses nothing; Phase 3 runs without prior-findings context) and proceed to Step 1. Do not attempt partial recovery from `HEAD~1` — without the prior checklist, `fix_files` alone has no downstream consumer.
+   where `${PREV_FIX_COMMIT}` is the `fix_commit_sha` recorded in `iter-<N-1>.json`. If `iter-<N-1>.json` itself is missing or unreadable, the lifecycle note (see the root `SKILL.md`'s `### Lifecycle` "Iter N start" bullet) already covers this: skip the handoff optimizations entirely (Phase 1 runs without the prior-checklist variance-recovery block; Phase 2.0.5 reuses nothing; Phase 3 runs without prior-findings context) and proceed to Step 1. Do not attempt partial recovery from `HEAD~1` — without the prior checklist, `fix_files` alone has no downstream consumer.
 
 2. **Prior checklist** (`prior_checklist`). The full `checklist` array from `iter-<N-1>.json`, including each item's `claim_signature` and `verdict`.
 
