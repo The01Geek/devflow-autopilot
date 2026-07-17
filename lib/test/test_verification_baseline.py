@@ -2324,6 +2324,36 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
         # The full per-state split stays published — nothing is hidden by the split.
         self.assertEqual(m["eligibility_state_bounds"][vb.ELIGIBILITY_INELIGIBLE], 2)
 
+    # --- Park-calibration gate (the shadow re-raised a finding iteration 1 had
+    #     parked, so it was mis-graded): EligibleLifecycle is deliberately NOT
+    #     frozen — the left-join contract mutates source_status in place — but
+    #     __post_init__ runs ONCE, so the class's own documented guarantee ("an
+    #     invalid enum value is a loud ValueError at the producer, not a silent
+    #     stringly-typed row that degrades downstream tallies") held only for the
+    #     row's first millisecond. The six in-place assignment sites bypassed the
+    #     check entirely, so a typo'd or cloud-only status assigned onto a local
+    #     row would sail through — the invariant asserted in prose, unenforced
+    #     across the lifetime it actually matters for. -------------------------
+    def test_source_status_mutation_is_revalidated(self) -> None:
+        row = vb.EligibleLifecycle(
+            source=vb.SOURCE_LOCAL, surrogate_id="s0", consumer=None, subject=None,
+            identity={"session_id": "s0"}, eligibility_state=vb.ELIGIBILITY_CONFIRMED,
+            eligibility_evidence="test", host_profile=None,
+            source_status=vb.SOURCE_ELIGIBLE_NOT_IMPORTED, provenance={},
+        )
+        # A valid in-set transition still works (the join contract is preserved).
+        row.set_source_status(vb.SOURCE_AVAILABLE)
+        self.assertEqual(row.source_status, vb.SOURCE_AVAILABLE)
+        # A typo is a loud ValueError at the producer, not a silent row.
+        with self.assertRaises(ValueError):
+            row.set_source_status("sorce_avilable")
+        # A CLOUD-only status on a LOCAL row is the cross-field invariant
+        # __post_init__ enforces at construction; it must hold on mutation too.
+        with self.assertRaises(ValueError):
+            row.set_source_status(vb.SOURCE_UNAVAILABLE)
+        self.assertEqual(row.source_status, vb.SOURCE_AVAILABLE,
+                         "a rejected mutation must leave the row unchanged")
+
     def test_baseline_schema_version_moved_with_the_metric_rename(self) -> None:
         # eligible_lifecycles changed MEANING; a reader treating it as the row
         # total would silently mis-read. Not additive => version moves.

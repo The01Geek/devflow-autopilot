@@ -706,11 +706,34 @@ class EligibleLifecycle:
     def __post_init__(self) -> None:
         _require_member("EligibleLifecycle.source", self.source, (SOURCE_LOCAL, SOURCE_CLOUD))
         _require_member("EligibleLifecycle.eligibility_state", self.eligibility_state, ELIGIBILITY_STATES)
+        self._require_valid_source_status(self.source_status)
+
+    def _require_valid_source_status(self, value: str) -> None:
+        """The source-conditional status check, shared by construction AND
+        mutation so the two cannot drift into different accepted sets."""
         allowed_status = (
             LOCAL_SOURCE_STATUSES if self.source == SOURCE_LOCAL
             else (CLOUD_SOURCE_AVAILABLE, SOURCE_UNAVAILABLE)
         )
-        _require_member("EligibleLifecycle.source_status", self.source_status, allowed_status)
+        _require_member("EligibleLifecycle.source_status", value, allowed_status)
+
+    def set_source_status(self, value: str) -> None:
+        """Re-validating mutator — the ONLY way source_status should change.
+
+        This class is deliberately not frozen: the left-join contract mutates
+        source_status in place. But __post_init__ runs once, so validating only
+        there made the class's own documented guarantee — "an invalid enum value
+        is a loud ValueError at the producer, not a silent stringly-typed row
+        that degrades downstream tallies" — true for the row's first millisecond
+        and false for the mutation-heavy lifetime it actually has. Every
+        assignment site now routes through here, so the invariant holds for the
+        row's whole life; validate BEFORE assigning, so a rejected mutation
+        leaves the row unchanged rather than half-applied (PR #531
+        review-and-fix, park-calibration gate: the shadow re-raised a finding
+        iteration 1 had parked, so the parked grade was wrong).
+        """
+        self._require_valid_source_status(value)
+        self.source_status = value
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1123,12 +1146,12 @@ def join_local_imports(rows: list[EligibleLifecycle], bundles_dir: Path, max_byt
             continue
         sid = row.identity.get("session_id")
         if not sid:
-            row.source_status = SOURCE_MISSING
+            row.set_source_status(SOURCE_MISSING)
             out.append(row)
             continue
         bundle = bundles_dir / sid
         status = _classify_source_status(bundle, max_bytes, stats)
-        row.source_status = status
+        row.set_source_status(status)
         out.append(row)
     return out
 
@@ -1662,11 +1685,11 @@ def extract_verification_lifecycles(
         try:
             raw = transcript.read_bytes()
         except OSError:
-            row.source_status = SOURCE_UNREADABLE
+            row.set_source_status(SOURCE_UNREADABLE)
             continue
         _count_input_bytes(stats, len(raw))
         if len(raw) > max_bytes:
-            row.source_status = SOURCE_UNSUPPORTED
+            row.set_source_status(SOURCE_UNSUPPORTED)
             continue
         if not raw.strip():
             # Empty transcript: available, but no events to extract.
@@ -1674,7 +1697,7 @@ def extract_verification_lifecycles(
         try:
             events = wfr.parse_events(raw)
         except ValueError:
-            row.source_status = SOURCE_UNREADABLE
+            row.set_source_status(SOURCE_UNREADABLE)
             continue
         if stats is not None:
             stats["extraction_attempted_count"] = stats.get("extraction_attempted_count", 0) + 1
@@ -1700,7 +1723,7 @@ def extract_verification_lifecycles(
             # classification), with a LOUD stderr breadcrumb naming the session
             # id + exception type only — no raw transcript text ever reaches
             # errors/logs (the redaction boundary).
-            row.source_status = SOURCE_UNSUPPORTED
+            row.set_source_status(SOURCE_UNSUPPORTED)
             # Attribute the cause on the row and count it separately from the
             # other SOURCE_UNSUPPORTED producers (size breach, unknown schema),
             # so an analyzer-side defect that degrades EVERY transcript is
