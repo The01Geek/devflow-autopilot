@@ -1,0 +1,56 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-17T00:00:00Z",
+  "loop_role": "fix",
+  "fix_commit_sha": "f5ed7c75f79de552d93cd537b208cb7500b4fce6",
+  "fix_files": [".changeset/issue-530-review-and-fix-split.md", ".devflow/prompt-extensions/review-and-fix.md", "docs/review-and-fix-budget.md", "lib/test/run.sh", "skills/review-and-fix/SKILL.md", "skills/review-and-fix/references/loop-control.md"],
+  "current_step": "loop-exit",
+  "current_substep": "persist_observability",
+  "pending_dispatch": null,
+  "fix_severity_threshold": "suggestion",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:requesting-code-review",
+    "devflow:type-design-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": true, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent":"devflow:code-reviewer","severity":"Important","description":"loop-control was missing from current_step routing","defect_signature":{"file":"skills/review-and-fix/SKILL.md","line_range":[224,237],"kind":"missing_state_routing"},"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"devflow:comment-analyzer","severity":"Critical","description":"prompt-budget measurements were stale against HEAD","defect_signature":{"file":"docs/review-and-fix-budget.md","line_range":[7,95],"kind":"documented_falsehood"},"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"devflow:code-reviewer","severity":"Important","description":"pending_dispatch producer and clear obligations were not operative","defect_signature":{"file":"skills/review-and-fix/references/loop-control.md","line_range":[31,31],"kind":"missing_state_producer"},"step25_classification":"codebase","fix_decision":"applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id":"F-1","decision":"applied"},
+    {"finding_id":"F-2","decision":"applied"},
+    {"finding_id":"F-3","decision":"applied"},
+    {"finding_id":"F-4","decision":"pushed_back","source_file":"skills/review-and-fix/SKILL.md","claim_text":"add reference_reads.fix_delta in this PR","skip_category":"already-tracked","evidence":"Explicitly deferred by issue #530 to follow-up #541."},
+    {"finding_id":"F-5","decision":"pushed_back","source_file":"lib/test/run.sh","claim_text":"replace prompt-contract pressure assertions with an executable state-machine harness","skip_category":"claim-quality","evidence":"The deliverable is an agent instruction artifact with no executable state machine; the suite mutation-pins operative routing and failure-map clauses, matching issue #530's checked implementation plan."}
+  ],
+  "convergence_inputs": {"fixes_applied": 3, "fix_diff_lines": 90, "new_corroborated_critical_count": 1},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status":"not-run","reason":"review fixes limited to instruction prose, measurements, and contract pins"},
+  "test_first_gate": [{"decision":"model-context instruction verification","command":"multi-agent blinded review plus full suite","result":"pass-with-environment-caveat","evidence":"8353 passed; one unrelated ambient-git-identity positive-control failure and one pre-existing skip"}],
+  "verification_evidence": {"command":"bash lib/test/run.sh; shellcheck; ruff check; git diff --check","result":"pass","duration_s":300,"skipped_checks":[{"check":"tb(#441 AC8) identity-less positive control","kind":"host-environment check","reason":"ambient Git identity remains usable despite fixture config"},{"check":"suite-reported skip","kind":"pre-existing environment-dependent check","reason":"runner reported one skip"}]},
+  "telemetry": "unavailable",
+  "base_checkpoint": {"token":"UP_TO_DATE","behind_by":null},
+  "shadow": {
+    "ran_at": "2026-07-17T00:30:00Z",
+    "reviewed_sha": "f5ed7c75f79de552d93cd537b208cb7500b4fce6",
+    "verdict": null,
+    "coverage": "not_verified",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [],
+    "expected_reviewers": ["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:requesting-code-review","devflow:type-design-analyzer","devflow:pr-test-analyzer"],
+    "reason": "fresh-context shadow roster could not be established after the iteration reviewer contexts were consumed; no partial shadow was treated as agreement",
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total":0,"overlap_with_iter_N":0,"new":0,"new_critical":0,"new_important":0},
+    "promoted_to_iter_next": false
+  }
+}
