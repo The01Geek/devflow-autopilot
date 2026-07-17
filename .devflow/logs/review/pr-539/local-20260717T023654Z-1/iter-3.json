@@ -53,5 +53,25 @@
   "sweep_defs_read": ["skills/implement/phases/phase-2-implement.md: coupled-mirror prose (2.3.0/2.3.0a)"],
   "sweep_evidence": {"status": "ran", "notes": "repo-wide class-sweep for stale 'review-and-fix/SKILL.md Step N / item N' pointers; fixed precise action/edit-target pointers, calibrated conceptual cross-references to advisory; CHANGELOG.md historical mentions deliberately NOT rewritten (point-in-time records)"},
   "test_first_gate": [],
-  "telemetry": "unavailable"
+  "telemetry": "unavailable",
+  "shadow": {
+    "ran_at": "2026-07-17T04:20:00Z",
+    "trigger": "convergence-time (promoted iter 3)",
+    "reviewed_sha": "7339707e",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "F1-F7: 7 stale location comments in run.sh + efficiency-trace.sh naming pre-split locations for relocated review-and-fix content (comprehensive enumeration)", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [41, 1000], "kind": "stale_comment"}},
+      {"agent": "devflow:code-reviewer", "severity": "Important", "description": "efficiency-trace.sh:1000 RUN_ID= line pointer -> references/loop-control.md (corroborates comment-analyzer F7)", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [1000, 1000], "kind": "documented_falsehood"}}
+    ],
+    "phase2_fails": [],
+    "notes": "silent-failure, pr-test, final-pass all CLEAN (substantive content validated 3rd time); comment-analyzer provided the comprehensive stale-comment enumeration (F1-F7) that iteration 4 addressed in one class-sweep",
+    "comparison": {"shadow_total": 8, "overlap_with_iter_3": 0, "new": 8, "new_critical": 0, "new_important": 2},
+    "promoted_to_iter_next": true
+  }
 }

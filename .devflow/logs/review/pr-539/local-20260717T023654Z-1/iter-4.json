@@ -1,0 +1,48 @@
+{
+  "iter": 4,
+  "started_at": "2026-07-17T04:22:00Z",
+  "fix_commit_sha": "b03a76c8",
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "fix_files": ["lib/efficiency-trace.sh", "lib/test/run.sh"],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional (promoted iter: inputs are the final-shadow Phase 1+2+3 result)"
+  },
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "F1-F7 comprehensive stale-location-comment sweep in run.sh + efficiency-trace.sh", "defect_signature": {"file": "lib/test/run.sh", "line_range": [1038, 18917], "kind": "stale_comment"}, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "SC-F4-F7-efftrace-loopexit-runid", "decision": "applied", "commit": "b03a76c8", "evidence": "efficiency-trace.sh: SKILL.md Loop Exit -> references/loop-exit.md (F4/F5/F6); RUN_ID= line -> references/loop-control.md (F7)"},
+    {"finding_id": "SC-F2-runsh-clamp", "decision": "applied", "commit": "b03a76c8", "evidence": "run.sh max_iterations clamp comments -> references/loop-control.md"},
+    {"finding_id": "SC-F3-runsh-step26", "decision": "applied", "commit": "b03a76c8", "evidence": "run.sh Step-2.6 shadow-not-scoped boundary -> references/shadow-review.md"},
+    {"finding_id": "SC-F1-runsh-strafm", "decision": "applied", "commit": "b03a76c8", "evidence": "run.sh $ST_RAF comment -> names MAXI_BUNDLE + references/shadow-review.md"},
+    {"finding_id": "SC-testnames-T5-T1", "decision": "applied", "commit": "b03a76c8", "evidence": "run.sh T5/T1 assertion description strings 'SKILL.md item 6' -> 'fixing.md item 6' (pinned literals unchanged)"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 5,
+    "fix_diff_lines": 14,
+    "critical_important_code_fixes": 0,
+    "new_corroborated_critical_count": 0,
+    "note": "iter-4 is comment + assertion-description-string only; ZERO product/runtime code, ZERO pin-literal changes -> convergence conditions 1+2 satisfied; class-boundary carefully respected (implement/review skill + ### Schema + code refs NOT touched)"
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "stale_prose_check": "rc=0 clean",
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 150,
+    "skipped_checks": [
+      {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty during run (grades committed HEAD; runs live on CI clean checkout)"}
+    ]
+  },
+  "sweep_defs_read": ["comprehensive grep of both lib/test/run.sh + lib/efficiency-trace.sh for all review-and-fix SKILL.md location refs; classified each as moved (fix) vs retained/implement/review/code (keep)"],
+  "sweep_evidence": {"status": "ran", "notes": "definitive class-sweep informed by the final shadow comment-analyzer's comprehensive F1-F7 enumeration; verified post-sweep that only legitimate refs remain (root file path, ### Schema at efficiency-trace.sh:275, implement-skill deferred.labels block, review-skill Phase 1.4/3.x, code/fixtures)"},
+  "test_first_gate": [],
+  "telemetry": "unavailable"
+}
