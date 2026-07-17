@@ -281,7 +281,20 @@ SECRET_FLAG = re.compile(
     # ``--secret-key``). Anchoring the keyword at a segment boundary avoids false-positiving
     # on common flags like ``--pattern`` (which contains ``pat``) while still catching every
     # compound secret flag the previous exact-match form missed.
-    r"(--(?:[A-Za-z0-9-]*-)?(?:token|key|password|passwd|secret|pat|credential))"
+    # The trailing `S?` mirrors SECRET_ENV_ASSIGNMENT's, and for the same
+    # reason: the plural/compound spellings are real (`--tokens`, `--api-keys`,
+    # `--secrets`, `--credentials`). Without it the keyword had to be followed
+    # immediately by `[ =]`, so `--tokens` matched nothing at all and the raw
+    # value reached redacted_display AND the digest with secret_affected=False —
+    # which additionally skipped the secret-affected carve-outs in
+    # join_confidence / _classify_relationship, so a credential-bearing binding
+    # was treated as a clean `exact` match. The env sibling was given `S?` by an
+    # earlier iteration of this same PR; this one was left behind — the same
+    # class fix, one regex over (PR #531 review-and-fix, convergence shadow).
+    # `S?` does not re-admit false positives for the same reason it doesn't
+    # there: a non-secret flag that merely CONTAINS a keyword (`--pattern`,
+    # `--keystore`) still fails the segment-boundary anchor.
+    r"(--(?:[A-Za-z0-9-]*-)?(?:token|key|password|passwd|secret|pat|credential)s?)"
     r"(?:[ =])" + _SECRET_VALUE,
     re.IGNORECASE,
 )
@@ -816,13 +829,23 @@ class VerificationProcessLaunch:
     # The eligibility state of the census row this launch was extracted from.
     # A REAL validated field, not a `provenance` dict key: this is the value the
     # numerator/denominator visibility fix exists to publish, so a call site that
-    # forgot it — or a renamed key — must be a loud ValueError at the producer,
-    # not a silent collapse into an "unrecorded" bucket indistinguishable from a
+    # forgot it — or a renamed key — must be a loud error at the producer, not a
+    # silent collapse into an "unrecorded" bucket indistinguishable from a
     # genuine omission. Every other taxonomy value on this class is
     # _require_member-validated; asserting this one's invariant in prose while
     # leaving it in an unvalidated bag is the stringly-typed hazard this module's
     # own comments warn against (PR #531 review-and-fix iter-1, shadow).
-    owning_lifecycle_eligibility_state: str = ELIGIBILITY_UNKNOWN
+    #
+    # REQUIRED — no default. A default of ELIGIBILITY_UNKNOWN is a full member of
+    # ELIGIBILITY_STATES, so it passes _require_member cleanly: an omitting call
+    # site would have silently received it and landed in the same bucket as a row
+    # whose eligibility genuinely could not be established — reproducing the
+    # exact silent-collapse this field exists to prevent, one layer down, while
+    # the comment above claimed otherwise. _require_member cannot tell "explicitly
+    # unknown" from "never set"; only the absence of a default can, and it makes
+    # a forgetful call site a TypeError at construction (PR #531 review-and-fix,
+    # convergence shadow: the claim above was false against the defaulted field).
+    owning_lifecycle_eligibility_state: str
     retrigger_evidence: bool = False  # explicit iteration/checkpoint/post-fix/base-merge/human-retrigger; Wave 1 extraction never sets this True (no markers extracted), but the field carries the guard the candidate classification requires.
     schema_version: int = VERIFICATION_PROCESS_LAUNCH_SCHEMA
 
@@ -897,7 +920,7 @@ class RelationshipGroup:
 # --------------------------------------------------------------------------- #
 # Cloud mappings loader (additive registry section; load_registry ignores it).
 # --------------------------------------------------------------------------- #
-def load_cloud_mappings(registry_path: Path) -> dict[str, dict[str, str]]:
+def load_cloud_mappings(registry_path: Path) -> dict[str, dict[str, object]]:
     """Return {(workflow_file, job): agent_job_entry} from the registry's
     additive cloud_mappings section. Returns {} when the section is absent
     (cloud census is optional; silent, by design) OR when it is present but
@@ -2789,8 +2812,15 @@ def main(argv: "list[str] | None" = None) -> int:
         # The registry file is read twice (load_registry + load_cloud_mappings);
         # its size is counted once — the input is one file.
         _count_input_bytes(stats, registry_path.stat().st_size)
-    except OSError:
-        pass
+    except OSError as exc:
+        # Breadcrumb, not a silent pass: input_bytes is best-effort telemetry
+        # (it decides nothing), but every other degradation in this module names
+        # itself on stderr, and an unexplained undercount in the tool's own
+        # "measured input" line is the shape a reader cannot distinguish from a
+        # correct small number (PR #531 review-and-fix, convergence shadow).
+        print(f"devflow verification-baseline: could not stat {registry_path} for input-byte "
+              f"accounting ({type(exc).__name__}); input_bytes undercounts by that file",
+              file=sys.stderr)
 
     # 1. Local census (denominator, from start manifests).
     local_rows = build_local_census(manifests_dir, registry, stats)
@@ -2812,8 +2842,13 @@ def main(argv: "list[str] | None" = None) -> int:
             cloud_snapshot, cloud_reason = read_cloud_census(cloud_path)
             try:
                 _count_input_bytes(stats, cloud_path.stat().st_size)
-            except OSError:
-                pass
+            except OSError as exc:
+                # Same breadcrumb rule as the registry stat above — this scope
+                # already prints diagnostics for the cloud-census arms just
+                # below, so a silent stat failure here was the one gap.
+                print(f"devflow verification-baseline: could not stat {cloud_path} for input-byte "
+                      f"accounting ({type(exc).__name__}); input_bytes undercounts by that file",
+                      file=sys.stderr)
             if cloud_snapshot is None and cloud_reason != "absent":
                 # Distinguish a corrupt/schema-mismatch file from a missing flag so an
                 # operator who passed --cloud-census can tell why coverage is unavailable.

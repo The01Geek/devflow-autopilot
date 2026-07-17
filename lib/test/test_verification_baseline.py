@@ -180,6 +180,11 @@ def make_launch(
         phase_checkpoint=None, command_head="lib/test/run.sh", binding=binding, start_authorization=start_auth,
         timing=timing, workspace_state=ws, result_presence=result_presence, exit_evidence=None,
         skipped_check_evidence=None, provenance={"session_id": "s"}, retrigger_evidence=retrigger,
+        # Required (no default) by design: a defaulted ELIGIBILITY_UNKNOWN would
+        # pass validation and silently bucket an omitting call site with rows
+        # whose eligibility genuinely could not be established. This fixture
+        # models the ordinary case — a launch extracted from an eligible row.
+        owning_lifecycle_eligibility_state=ELIGIBILITY_CONFIRMED,
     )
 
 
@@ -2060,6 +2065,48 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
                 self.assertTrue(b.secret_affected)
                 self.assertNotIn("pass", b.redacted_display.replace("<flag:u>", ""))
 
+    # --- Convergence shadow, Critical: SECRET_ENV_ASSIGNMENT carries a trailing
+    #     `S?` precisely so plural/compound names (API_KEYS=, GITHUB_TOKENS=,
+    #     SECRETS=) stay covered — a fix an earlier iteration made after
+    #     suffix-anchoring dropped them. Its sibling SECRET_FLAG never got the
+    #     same admission, so `--tokens`/`--api-keys`/`--secrets`/`--credentials`
+    #     did not fire at all: the raw value reached redacted_display AND the
+    #     digest with secret_affected=False, which additionally skips the
+    #     secret-affected carve-outs in join_confidence/_classify_relationship,
+    #     so a credential-bearing binding was treated as a clean `exact` match.
+    #     The same class fix, one sibling regex over. -------------------------
+    def test_plural_flag_secrets_are_redacted(self) -> None:
+        for command, leak in (
+            ("mytool --tokens abc123def", "abc123def"),
+            ("mytool --api-keys sk-xyz789", "sk-xyz789"),
+            ("tool --secrets hunter2", "hunter2"),
+            ("tool --credentials pw1", "pw1"),
+            ("tool --passwords pw2", "pw2"),
+            ("tool --auth-tokens tok3", "tok3"),
+        ):
+            with self.subTest(command=command):
+                b = vb._binding_identity(command)
+                self.assertTrue(b.secret_affected,
+                                f"secret_affected False for {command!r} — the leak also skips "
+                                "the secret-affected carve-outs")
+                self.assertNotIn(leak, b.redacted_display,
+                                 f"secret {leak!r} survived in {b.redacted_display!r}")
+
+    def test_singular_flag_secrets_still_redacted_and_no_false_positives(self) -> None:
+        # Positive controls: the plural admission must not break the singular
+        # forms, nor start firing on ordinary non-secret flags.
+        for command, leak in (("mytool --token abc123def", "abc123def"),
+                              ("mytool --api-key sk-xyz789", "sk-xyz789")):
+            with self.subTest(command=command):
+                b = vb._binding_identity(command)
+                self.assertTrue(b.secret_affected)
+                self.assertNotIn(leak, b.redacted_display)
+        for command in ("grep --pattern foo lib/", "tool --keystore /etc/ks",
+                        "lib/test/run.sh", "pytest -k tokens"):
+            with self.subTest(command=command):
+                self.assertFalse(vb._binding_identity(command).secret_affected,
+                                 f"false positive on {command!r}")
+
     def test_escaped_value_redaction_is_not_redos_prone(self) -> None:
         # The escape alternative must not re-admit the backtracking pair the
         # quote-exclusion closed: a backslash is consumable by exactly ONE
@@ -2249,6 +2296,48 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
                          "stdout contradicted the artifact it just wrote")
         self.assertIn("WARNING", err.getvalue(),
                       "dropped-row degradation was silent — the operator must see it")
+
+    # --- Convergence shadow, Important: `id` was null-checked but never
+    #     shape-checked, and it is used as a dict key (jobs_by_run). A
+    #     shape-drifted non-scalar id is unhashable, so it raised TypeError out
+    #     of fetch_runs_and_jobs and killed the whole export with NO snapshot
+    #     written — the "incomplete snapshot reads unavailable, never zero"
+    #     contract never got the chance to apply. Same failure class as the
+    #     non-dict guard one branch over; shape drift is this file's declared
+    #     threat model, so a non-scalar id sits inside it. ---------------------
+    def test_non_scalar_run_id_is_counted_not_fatal(self) -> None:
+        for bad_id in ({"node_id": "x"}, ["list"], {"a": 1}):
+            with self.subTest(bad_id=bad_id):
+                exp = _load_export_census()
+                calls = {"n": 0}
+
+                def fake_gh_json(gh, args, _b=bad_id):
+                    calls["n"] += 1
+                    if "jobs" in " ".join(args):
+                        # A real job, so the GOOD run actually yields a census row
+                        # (rows are per-job) — otherwise "the good row survives"
+                        # would assert nothing.
+                        return {"jobs": [{"name": "job", "started_at": "s",
+                                          "completed_at": "e", "conclusion": "success",
+                                          "status": "completed"}], "total_count": 1}
+                    if calls["n"] == 1:
+                        return {"workflow_runs": [
+                            {"id": _b, "path": "wf.yml"},
+                            {"id": 7, "path": "wf.yml", "name": "W", "run_attempt": 1,
+                             "created_at": "c", "conclusion": "success", "status": "completed"}]}
+                    return {"workflow_runs": []}
+
+                exp._gh_json = fake_gh_json
+                # Must not raise: the export surviving is the whole point.
+                runs, jobs, complete = exp.fetch_runs_and_jobs("gh", "o/r", ["wf.yml"], "a", "b")
+                buf = io.StringIO()
+                with contextlib.redirect_stderr(buf):
+                    snap = exp.build_snapshot("o/r", ["wf.yml"], "a", "b", runs, jobs, "t", complete)
+                self.assertEqual(snap["dropped_run_count"], 1,
+                                 "the shape-drifted row must be counted, not silently dropped")
+                self.assertFalse(snap["pagination_complete"],
+                                 "a dropped row must make the census read unavailable")
+                self.assertEqual(snap["row_count"], 1, "the good row must still be censused")
 
     # --- Shadow (pr-test-analyzer): two fetch-layer branches were undriven.
     #     Both decide `pagination_complete`, which is the operand the analyzer

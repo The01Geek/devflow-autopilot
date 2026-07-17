@@ -65,7 +65,17 @@ def build_snapshot(repo: str, workflow_set: list[str], closed_after: str, closed
             dropped_runs += 1
             continue
         run_id = run.get("id")
-        if run_id is None:
+        if not isinstance(run_id, (int, str)):
+            # Covers `id` absent (None) AND `id` present but non-scalar. A
+            # non-scalar id is unhashable, and it is used as a dict key
+            # (jobs_by_run) — so an API shape drift there raised TypeError out of
+            # fetch_runs_and_jobs and killed the whole export with no snapshot
+            # written at all, meaning the "incomplete snapshot reads unavailable,
+            # never zero" contract never got the chance to apply. That is the
+            # same failure class the non-dict guard above closed one branch over;
+            # this file's declared threat model IS shape drift, so a non-scalar
+            # id sits inside it. Count it as malformed like any other drifted
+            # row (PR #531 review-and-fix, convergence shadow).
             dropped_runs += 1
             continue
         wf_path = run.get("path") or run.get("workflow_file")
@@ -240,7 +250,15 @@ def fetch_runs_and_jobs(gh: str, repo: str, workflows: list[str], created_after:
             # (PR #531 review-and-fix iter-1, code-reviewer Critical).
             continue
         run_id = run.get("id")
-        if run_id is None:
+        if not isinstance(run_id, (int, str)):
+            # A non-scalar id is UNHASHABLE and this loop uses it as a
+            # jobs_by_run key, so the bare `is None` check let a shape-drifted
+            # row raise TypeError here and take down the whole export before any
+            # snapshot could be written. Skipping fetches no jobs for it; the row
+            # still reaches build_snapshot, whose matching guard counts it into
+            # dropped_runs and folds that into pagination_complete=False — the
+            # analyzer then reads the census as unavailable rather than the
+            # export dying (PR #531 review-and-fix, convergence shadow).
             continue
         # Page the jobs endpoint the SAME way as runs — a run with a large matrix
         # can have >100 jobs, and a single per_page=100 fetch silently truncated
