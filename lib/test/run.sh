@@ -3234,15 +3234,25 @@ assert_pin_red_under "#443: on-disk drafting artifacts are declared out of bound
 assert_pin_red_under "#443: Step 3.6 dispatch waits for the completed result (synchronous)" \
   "wait for the subagent's completed result before proceeding" \
   's/completed result before proceeding//' "$CI443_SKILL"
-# Degraded arm (maps to the degraded-arm AC): removing the enumerated-failures gate turns the
-# attempt-first dispatch into a pre-detected skip.
-assert_pin_red_under "#443: degraded arm fires only on the enumerated failures (attempt-first)" \
-  'Fall to the degraded arm **only** on the enumerated failures' \
-  's/on the enumerated failures//' "$CI443_SKILL"
-# Re-audit offer in the Step 4 revision loop (maps to the revision-loop AC).
+# Degraded arm (maps to the degraded-arm AC). The #546 cutover moved this arm's ENTRY
+# classification into the tool (`query-next-action` answers `dispatch-inline-degraded`, driven
+# by run.sh's #546 next_action_budget_rows), so the old enumerated-failures literal is gone.
+# What did NOT move is the attempt-first discipline: no state owner can stop an orchestrator
+# from pre-detecting a nested context and skipping a dispatch it therefore never makes, so
+# this stays a prose-only guarantee and keeps its pin. The mutation excises the never-
+# pre-detect clause, re-introducing exactly that pre-detected skip.
+assert_pin_red_under "#443: degraded arm is attempt-first, never pre-detected" \
+  'never pre-detect a nested context and skip' \
+  's/never pre-detect a nested context and skip//' "$CI443_SKILL"
+# Re-audit offer in the Step 4 revision loop (maps to the revision-loop AC). Repointed by the
+# #546 cutover's delta 9, which reordered the loop so the offer resolves BEFORE the confirm/
+# edit approval question; the offer itself survives verbatim as a prose obligation (the tool
+# owns the ceiling, never whether the orchestrator asks). Inverting the offer into a skip
+# re-introduces the ship-an-unaudited-revision channel.
 assert_pin_red_under "#443: Step 4 revision loop offers a fresh re-audit" \
-  'ask whether to dispatch a fresh Step 3.6 audit of the revised draft' \
-  's/dispatch a fresh Step 3.6 audit//' "$CI443_SKILL"
+  '**offer a fresh re-audit** via the runner' \
+  's/\*\*offer a fresh re-audit\*\* via the runner/skip any re-audit and proceed via the runner/' \
+  "$CI443_SKILL"
 # Dispatch-time fresh re-load of the extension (maps to the forwarding-freshness AC): removing
 # the fresh re-load lets a compaction-evicted turn-one load silently drop consumer dimensions.
 assert_pin_red_under "#443: consumer audit dimensions are re-loaded FRESH at dispatch time" \
@@ -3276,10 +3286,22 @@ rm -f "$CI443_MUT"
 assert_pin_red_under "#443: bounded re-audit never deadlocks filing" \
   'the audit informs, it never deadlocks filing' 's/never deadlocks filing//' "$CI443_SKILL"
 # Mandatory never-silent audit summary line (maps to the audit-summary AC): the feature's
-# observability contract — a skipped/degraded audit must always render a summary line.
+# observability contract — a skipped/degraded audit must always render a summary line. The
+# #546 cutover moved the summary's FIELD SET to `query-summary` (a tool surface, driven by
+# run.sh's #546 cli_roundtrip_restricted_path) but the mandatory-render contract is prose and
+# survives the cutover with its pin: the tool can report the fields, it cannot make an
+# orchestrator render the line. Repointed to the amended wording ("the audit ran", not "it
+# ran"). The mutation excises the operative evidence clause.
 assert_pin_red_under "#443: audit summary line is the mandatory never-silent evidence" \
-  'the summary line is the evidence it ran and which arm it took' \
-  's/the evidence it ran and which arm it took//' "$CI443_SKILL"
+  'the summary line is the evidence the audit ran and which arm it took' \
+  's/the evidence the audit ran and which arm it took//' "$CI443_SKILL"
+# The two surviving halves of the same contract, pinned as surfaces (the AC requires the
+# summary-line contract sentence to survive the cutover): the line always renders, and a
+# skipped/degraded audit is never silent.
+assert_pin_unique "#443: the audit summary line always renders (even on a clean zero-findings FILE)" \
+  '**The audit summary line is mandatory and always renders**' "$CI443_SKILL"
+assert_pin_unique "#443: a skipped or degraded audit is never silent" \
+  'A skipped or degraded audit is **never silent**' "$CI443_SKILL"
 # Step 4 presentation gate (maps to the artifact-gate AC): the seam that makes Step 3.6
 # mandatory rather than skippable — removing the presence check lets an un-audited draft show.
 assert_pin_red_under "#443: Step 4 presentation gate confirms this run's audit artifact exists" \
@@ -3321,14 +3343,74 @@ assert_pin_unique "#443: audit summary renders the word degraded whenever the de
 # ── issue #522: Step 3.6 audits the canonical DRAFT FILE (not a hand-condensed copy), offers
 #    user-chosen audit rounds past the automatic cap, and Step 3.5 self-checks the audit
 #    dimensions. Same skill-contract mechanism as #443: pins over the rendered SKILL surface,
-#    no runtime code path in CI. Nine behavioral-fix pins in this block use assert_pin_red_under
-#    with a sed -E mutation that RE-INTRODUCES the named defect (each mutation excises or
-#    inverts the operative clause so its removal/inversion alone re-opens the guarded
-#    regression) — the four immediately below (pins 1/2 excise a clause, pins 3/4 invert/negate
-#    it: "is not on" → "is on"; "exactly these 2 offer triggers" → "no offer triggers"), plus
-#    the write-time-digest compare, the file-arm-routes-to-embed (unrecorded comparand), the
-#    write-landing-route, T1, and T2 behavioral-fix pins further down. The remaining #522 pins
-#    are surface-presence pins (assert_pin_unique, or pin_count>=1 for a marker that recurs).
+#    no runtime code path in CI.
+#
+#    ISSUE #546 CUTOVER — READ BEFORE ADDING A PIN HERE. The deterministic half of the Step
+#    3.6 lifecycle no longer lives in this prose: transition legality, round numbering, the
+#    automatic budget, retry bounds and their precedence, dispatch-arm routing, digest and
+#    sentinel generation and comparison, the T1/T2 triggers, override records, presentation
+#    eligibility, and the audit-summary field set are all owned by `scripts/issue-audit-state.py`.
+#    Every #522 pin whose literal asserted one of those guarantees was reconciled in the #546
+#    cutover: the guarantee is now driven as a TOOL test (the `#546` blocks in this file and in
+#    test_python_scripts.py), not asserted as a sentence a skill could silently paraphrase away.
+#    A pin deleted there is named at its replacement below. What SURVIVES here is the prose-only
+#    residue — the obligations no in-process tool can force on an orchestrator that simply never
+#    calls it (dispatch discipline, the information diet, the auditor's own instructions, the
+#    offers, the mandatory summary render) — plus the obey-the-tool contract itself, which is the
+#    seam the whole cutover rests on. Do not re-pin a tool-owned guarantee as prose: a prose pin
+#    over a value the tool decides is the coupled-mirror hazard, and the tool is the source of
+#    truth. Behavioral-fix pins here use assert_pin_red_under with a sed -E mutation that
+#    RE-INTRODUCES the named defect (excising or inverting the operative clause so its removal
+#    alone re-opens the guarded regression); the rest are surface-presence pins.
+#
+# (0) OBEY THE TOOL — the headline pin of the #546 cutover, and the one guarantee the tool
+#     provably cannot enforce on itself: `query-eligibility` can only answer the runs that call
+#     it (the skill's own "Honest scope of this gate" paragraph concedes this). The operative
+#     sentence is the one that binds PRESENTATION to the tool's answer; excising it alone
+#     re-introduces prose-decided eligibility — an orchestrator that is "certain the draft is
+#     clean" presenting on its own judgment, which is exactly issue #546's motivating
+#     regression. The surrounding sentences ("the lifecycle is owned by … not by this prose",
+#     "the tool's answer *is* the decision") are FRAMING: they describe the ownership without
+#     binding any act to an answer, so pinning one of them would stay GREEN under this mutation.
+assert_pin_red_under "#546: presentation eligibility is the tool's answer, never prose-decided" \
+  'is presented for approval only after `query-eligibility --mode approve` answers `eligible=yes`' \
+  's|\*\*A draft you are certain is clean is presented for approval only after `query-eligibility --mode approve` answers `eligible=yes`\.\*\* ||' \
+  "$CI443_SKILL"
+# The obey-the-tool contract's two supporting prose obligations (surfaces, not mutations): the
+# record-and-obey loop, and the closed prohibition on re-deriving a tool-owned decision.
+assert_pin_unique "#546: the step records each lifecycle event through the tool and obeys its answer" \
+  'records each lifecycle event through that tool and obeys the answer it returns' "$CI443_SKILL"
+assert_pin_unique "#546: no tool-owned decision is ever re-derived from this prose" \
+  'Never re-derive a transition, a budget, a retry bound, a dispatch arm, or eligibility from this prose' \
+  "$CI443_SKILL"
+# An illegal-transition rejection is NOT unavailability (SKILL.md's contract line). Without
+# this rule a rejected mutation routes to the `state-owner unavailable` fallback — turning the
+# tool's fail-closed refusal into a licence to improvise around it, which is the fail-open the
+# whole state-owner cutover exists to close.
+assert_pin_unique "#546: an illegal-transition rejection is not an unavailability signal" \
+  '**An illegal-transition rejection is NOT an unavailability signal.**' "$CI443_SKILL"
+assert_pin_unique "#546: an illegal transition never routes to the state-owner-unavailable fallback" \
+  'Never route an illegal transition to the `state-owner unavailable` fallback below' "$CI443_SKILL"
+# The `state-owner unavailable` fallback: its DISTINCT marker (distinct from `degraded`, which
+# keeps meaning the inline arm — the two never substitute, so the breadcrumb stays honest:
+# CLAUDE.md guard-class 2), its closed 2-class entry set, and its one-round/one-question bound.
+# The bare marker string recurs (6x in the fallback's own prose), so the marker is pinned via
+# its unique defining sentence rather than a bare-literal assert_pin_unique.
+assert_pin_unique "#546: the state-owner-unavailable fallback carries its own distinct summary marker" \
+  'The audit summary line carries the distinct marker **`state-owner unavailable`**' "$CI443_SKILL"
+assert_pin_unique "#546: the state-owner-unavailable marker is distinct from the degraded marker" \
+  'is **distinct from `degraded`**' "$CI443_SKILL"
+assert_pin_unique "#546: exactly 2 classes route to the state-owner-unavailable fallback" \
+  'Exactly **2 classes** route here, and nothing else' "$CI443_SKILL"
+assert_pin_unique "#546: the state-owner-unavailable fallback is bounded to one round and one question" \
+  'bounded to one round and one question' "$CI443_SKILL"
+# The fallback is never silent either (the AC's "a fallback lifecycle is never silent"), and it
+# never reconstructs a round's findings from memory.
+assert_pin_unique "#546: the state-owner-unavailable fallback still renders the mandatory summary line" \
+  'A fallback lifecycle is **never silent**' "$CI443_SKILL"
+assert_pin_unique "#546: a memory-reconstructed findings summary is never a legal discharge" \
+  '**A findings summary reconstructed from memory and presented as a round'"'"'s real findings is never a legal discharge.**' \
+  "$CI443_SKILL"
 # (1) Pre-dispatch canonical write — removing it re-opens the condensation-drift channel (the
 #     auditor audits a hand-condensed copy instead of the exact file the implementer reads).
 assert_pin_red_under "#522: Step 3.6 writes the canonical draft file before every dispatch" \
@@ -3344,46 +3426,73 @@ assert_pin_red_under "#522: audit prompt reads the draft file as the sole draft 
 assert_pin_red_under "#522: draft file is NOT on the file-arm out-of-bounds list" \
   'is **not** on the file-arm out-of-bounds list' \
   's/is \*\*not\*\* on the file-arm out-of-bounds list/is on the file-arm out-of-bounds list/' "$CI443_SKILL"
-# (4) Two-trigger user-chosen-rounds offer — deleting the trigger evaluation re-opens the
-#     ship-unconverged channel (the run proceeds to Step 4 without offering another round).
-assert_pin_red_under "#522: Step 3.6->4 boundary evaluates the two user-chosen-round triggers" \
-  'evaluate exactly these **2 offer triggers**' \
-  's/evaluate exactly these \*\*2 offer triggers\*\*/evaluate no offer triggers/' "$CI443_SKILL"
-# Surface-presence pins (no mutation obligation) for the following markers (the
-# write-landing-route / T1 / T2 behavioral-fix pins live further down).
-assert_eq "#522: embed arm carries the file-write-failed marker" "yes" \
-  "$([ "$(pin_count 'draft embedded (file write failed)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
-assert_eq "#522: embed arm carries the file-unreadable marker" "yes" \
-  "$([ "$(pin_count 'draft embedded (file unreadable)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
-# Distinct marker for the unrecorded-comparand entry path (iteration-2 re-gate: the write
-# actually landed there, so reusing the file-write-failed marker would be a misdirected
-# breadcrumb — CLAUDE.md guard-class-2). The distinct marker keeps the breadcrumb honest.
-assert_eq "#522: embed arm carries the distinct digest-unrecorded marker" "yes" \
-  "$([ "$(pin_count 'draft embedded (digest unrecorded)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
-assert_pin_unique "#522: audit summary line states the total number of audit rounds run" \
-  'the total number of audit rounds run' "$CI443_SKILL"
+# (4) The user-chosen-rounds OFFER at the Step 3.6 → Step 4 boundary. #546 moved the trigger
+#     EVALUATION into the tool (`query-triggers` answers `t1=…  t2=…  reason=…`), so the old
+#     "evaluate exactly these **2 offer triggers**" literal is gone; T1, T2, and the
+#     unestablished-state arm are now driven as tool rows (test_python_scripts.py's #546
+#     t1_t2_rows — incl. "unestablished state -> T2 holds"; this file's #546
+#     cli_roundtrip_restricted_path T1 row and the stale-.md "T2 holds on unestablished state"
+#     row). What stays prose is WHETHER THE RUN ASKS — a tool can answer `t1=hold` all day and
+#     never make an orchestrator open its mouth. Inverting the offer into a silent proceed
+#     re-opens the ship-unconverged channel this boundary exists to close.
+assert_pin_red_under "#522: a held trigger offers one more audit round at the Step 3.6->4 boundary" \
+  'While **either** holds, **offer one more audit round via the runner' \
+  's/While \*\*either\*\* holds, \*\*offer one more audit round/While either holds, proceed to Step 4 without offering a round/' \
+  "$CI443_SKILL"
+# The offer's non-silent arms, which stay prose obligations on the orchestrator: a silent
+# non-response never dispatches and never proceeds (unknown is not consent), and the
+# unestablished-state reason is NAMED in the offer rather than collapsed onto "no trigger"
+# (unknown is not zero — CLAUDE.md's rule, and the tool's `reason=state-unestablished` is the
+# operand this prose must actually surface).
+assert_pin_unique "#522: the boundary offer names which trigger fired, and the unestablished state when unknown" \
+  'naming the unestablished state when `reason=state-unestablished` — unknown is not zero' \
+  "$CI443_SKILL"
+assert_pin_unique "#522: a silent non-response at the boundary offer never dispatches and never proceeds" \
+  '**pause and re-ask in the final chat message; never dispatch and never proceed on silence.**' \
+  "$CI443_SKILL"
+# The per-run ceiling is the tool's (`record-offer` refuses an accepted offer past
+# `_USER_ROUND_CAP`; driven by this file's #546 user_round_cap_rows), so the old
+# "User-chosen rounds are capped at 3 per run" prose literal is gone. The prose obligation that
+# REPLACED it — never count rounds yourself — is what keeps an orchestrator from re-deriving
+# the ceiling it just delegated, so it keeps a pin here.
+assert_pin_unique "#546: the tool owns the per-run offer ceiling; the run never counts rounds itself" \
+  'the tool owns the per-run ceiling and refuses an accepted offer past it, so **never count rounds yourself**' \
+  "$CI443_SKILL"
+# Audit-summary field surfaces. The FIELD SET is the tool's (`query-summary`), so the old
+# "the total number of audit rounds run" prose literal is gone (driven by this file's #546
+# cli_roundtrip_restricted_path summary row + the eligibility-token round-trip). What survives
+# is the prose obligation to render what the query reports rather than a recollected summary —
+# the misdirected-breadcrumb guard (CLAUDE.md guard-class 2) — plus each flag literal the
+# rendering site must carry.
+assert_pin_unique "#546: the summary line's fields are read from query-summary, never recollected" \
+  '**Do not assemble its fields from your own recollection of the run — read them from `query-summary`**' \
+  "$CI443_SKILL"
 assert_pin_unique "#522: audit summary carries the declined-further-audit phrase" \
   'user declined further audit' "$CI443_SKILL"
-assert_pin_unique "#522: user-chosen rounds are capped at 3 per run" \
-  'User-chosen rounds are capped at 3 per run' "$CI443_SKILL"
-assert_pin_unique "#522: audit event-log is the round record the user-chosen-rounds offer reads" \
-  'the round record the user-chosen-rounds offer reads' "$CI443_SKILL"
-assert_pin_unique "#522: unestablished event log treats trigger T2 as holding" \
-  'T2 below is treated as holding' "$CI443_SKILL"
 assert_pin_unique "#522: Step 3.5 self-checks the draft against the audit dimensions" \
   'Self-check the draft against the Step 3.6 audit dimensions' "$CI443_SKILL"
 assert_pin_unique "#522: Step 3.5 summary reports the dimension self-check (falsifiable zero)" \
   'no dimension-checklist finding' "$CI443_SKILL"
 # Template out-of-bounds ENUMERATION pin (closes the narration-vs-template drift the pin (3)
 # narration pin alone leaves open — a regression re-adding the draft to the audit-prompt
-# TEMPLATE's 3-file list would keep pin (3)'s narration sentence GREEN; this pins the
-# template's exact 3-reasoning-artifact list, so re-adding the draft there flips it RED).
-assert_pin_unique "#522: audit-prompt template out-of-bounds names exactly the 3 reasoning artifacts" \
-  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
-# Automatic budget unchanged (AC 'Automatic budget unchanged'): the user-chosen rounds must
-# not silently widen the automatic loop past one audit + one automatic re-audit.
-assert_pin_unique "#522: automatic budget stays one audit plus at most one automatic re-audit" \
-  'one audit plus **at most one** automatic re-audit' "$CI443_SKILL"
+# TEMPLATE's out-of-bounds list would keep pin (3)'s narration sentence GREEN; this pins the
+# template's exact reasoning-artifact list, so re-adding the draft there flips it RED).
+# #546 widened the list from 3 files to 4: the state owner's record `issue-audit-state-<slug>.json`
+# joined it, and the RETIRED `.md` event log stays named — a pre-cutover leftover on disk
+# re-anchors an auditor on prior verdicts exactly as the live file did, and this skill no longer
+# writes (or deletes) that path, so only the out-of-bounds declaration covers it.
+assert_pin_unique "#522: audit-prompt template out-of-bounds names exactly the 4 reasoning artifacts" \
+  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
+# The retired-.md rationale is itself pinned: it is the one out-of-bounds entry with no live
+# producer, so a future reader who "tidies" it away silently re-opens the re-anchoring channel.
+assert_pin_unique "#546: the retired .md event log stays declared out of bounds (pre-cutover leftovers re-anchor)" \
+  'The retired `.md` path stays named even though this skill no longer writes it' "$CI443_SKILL"
+# NOTE (#546): the "automatic budget stays one audit plus **at most one** automatic re-audit"
+# pin was DELETED here, not repointed — `_MAX_AUTOMATIC_REAUDITS` moved into the tool, so a
+# prose pin over it is exactly the coupled-mirror hazard the cutover removes. Its replacement
+# is next_action_budget_rows in this file's #546 block, which drives `query-next-action`'s
+# retry/budget arms directly — including the ceiling itself: three consecutive REVISE rounds
+# must yield one automatic re-audit and then fall through to the user-chosen-offer evaluation.
 # Coupled doc site (AC 'Coupled sites updated in the same change'): the §11 item 5 overview
 # must carry the new file-first contract, not the retired "only the rendered title and body".
 CI522_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
@@ -3393,15 +3502,23 @@ assert_pin_unique "#522: overview §11 item 5 describes the file-first sole-draf
 # operative anti-corruption contract): the auditor must return a full-content git hash-object
 # digest of the file it read so the orchestrator can compare and reject foreign bytes —
 # a full-content digest catches an interior overwrite that boundary-line sampling would miss.
+# AMENDED by #546: the instruction now names `git hash-object --no-filters`. The flag is
+# load-bearing, not cosmetic — the tool hashes via `git hash-object --stdin --no-filters` at
+# every site, and path-mode hashing applies clean/CRLF filters that diverge from stdin hashing
+# on the SAME bytes, so a filter-free auditor instruction is what makes the dispatch digest,
+# the auditor-quoted digest, and the eligibility digest agree on every host. Dropping the flag
+# would make a clean CRLF draft refuse as a false mismatch — driven by this file's #546
+# digest_filter_mode_rows (autocrlf + text=auto fixtures).
 assert_pin_unique "#522: file-arm carriage check returns a full-content git hash-object digest for identity compare" \
-  'run `git hash-object` on the draft file it read and quote the printed object ID verbatim in its return' "$CI443_SKILL"
+  'run `git hash-object --no-filters` on the draft file it read and quote the printed object ID verbatim in its return' "$CI443_SKILL"
 # Template-side git-hash-object instruction (iteration-4 review finding C: narration-vs-template
 # drift). The pin above pins the AUTHOR-FACING narration wording; the DISPATCHED audit-prompt
 # template carries its own copy (different wording), and a regression removing the template's
 # instruction leaves the narration pin GREEN while the auditor is no longer asked to hash —
 # silently disabling the whole identity check. Symmetric with the out-of-bounds template pin.
+# (AMENDED by #546 to `--no-filters`, for the digest_filter_mode_rows reason above.)
 assert_pin_unique "#522: audit-prompt template instructs the auditor to return a git hash-object digest" \
-  'run `git hash-object` on that draft file and quote the object ID it prints verbatim' "$CI443_SKILL"
+  'run `git hash-object --no-filters` on that draft file and quote the object ID it prints verbatim' "$CI443_SKILL"
 # Template-side DRAFT-UNREADABLE emit condition (iteration-4 review finding F): the only other
 # guard over this token is a non-discriminating pin_count>=1 that stays GREEN as long as the
 # token survives anywhere; this pins the template's operative emit-condition sentence so deleting
@@ -3412,109 +3529,143 @@ assert_pin_unique "#522: audit-prompt template states the DRAFT-UNREADABLE emit 
 # file-arm-only third verdict value — deleting this carve-out re-opens a spurious emit.
 assert_pin_unique "#522: degraded inline arm emits no VERDICT: DRAFT-UNREADABLE" \
   'emits **no `VERDICT: DRAFT-UNREADABLE`**' "$CI443_SKILL"
-# Embed-arm 4-file out-of-bounds list (the inverse of the file arm's 3-file list — re-adds
-# the draft path): symmetric with the file-arm template-enumeration pin above.
-assert_pin_unique "#522: embed arm out-of-bounds names exactly the 4 files (draft re-added)" \
-  'On this arm the out-of-bounds declaration names exactly these 4 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
-# Carriage COMPARE-AND-REJECT (the ENFORCEMENT half of the anti-corruption check — the auditor's
-# quote obligation is pinned above, but the orchestrator's string-compare-and-reject is what
-# actually rejects foreign bytes; deleting it makes the identity check decorative).
-# Behavioral-fix pin (iteration-4 review finding A, corroborated x3): the comparand MUST be the
-# write-time digest captured at dispatch, NEVER a compare-time re-hash of the on-disk file — a
-# re-hash sees the same foreign bytes the auditor did and passes a concurrent overwrite
-# vacuously, leaving the write-to-read race the check exists to close wide open. The mutation
-# reverts the comparand to "`git hash-object` of the file it wrote" (the compare-time re-hash),
-# re-introducing exactly that fail-open, so the pin goes RED.
-assert_pin_red_under "#522: file-arm compare uses the write-time digest, never a compare-time re-hash" \
-  'against the write-time digest recorded in the event log for this round' \
-  's/against the write-time digest recorded in the event log for this round/against the `git hash-object` of the file it wrote for this round/' "$CI443_SKILL"
-# Fail-CLOSED on missing evidence (iteration-4 review finding B): an absent/unparseable object ID
-# is treated as a failed completion, not just a mismatch — the guard must not pass on the inputs
-# where its evidence is missing.
-assert_pin_unique "#522: file-arm compare fails closed on an absent or unparseable object ID" \
-  'an absent or unparseable object ID in the return' "$CI443_SKILL"
-# Absent-comparand routing (iteration-4 shadow finding: split-anchor fail-open). The write-time
-# digest lives ONLY in the (cwd/worktree-anchored) event log, while the draft file is
-# main-root-anchored — the two roots can fail independently, so a landed draft write + failed
-# event-log write leaves the file-arm compare with no comparand. The routing is an IMPERATIVE
-# pre-dispatch check (confirm the digest was recorded, else route to embed), not a stated
-# invariant. Behavioral-fix pin: the mutation makes the file arm proceed regardless, re-opening
-# the compare-against-absent-comparand fail-open.
-assert_pin_red_under "#522: file-arm routes to the embed arm when its write-time comparand is unrecorded" \
-  'if it was not recorded, route to the write-failure embed arm instead' \
-  's/if it was not recorded, route to the write-failure embed arm instead/proceed on the file arm regardless/' "$CI443_SKILL"
-# Compare-time backstop (iteration-4 re-shadow finding: policy-without-mechanism). Symmetric to
-# the absent-object-ID arm — an absent recorded comparand at compare time is itself a failed
-# completion, so the compare can never be vacuously satisfied by a missing write-time digest.
-assert_pin_unique "#522: absent recorded write-time digest at compare time is a failed completion" \
-  'an absent or unreadable recorded write-time digest at compare time is itself a failed completion' "$CI443_SKILL"
-# Event-log RECORD producer (iteration-4 shadow gap: the compare's comparand producer). The
-# compare pin above asserts the orchestrator compares against the write-time digest recorded in
-# the event log; this pins that the event log actually RECORDS that digest at dispatch. Dropping
-# it leaves the identity check with no comparand while the consumer pin stays GREEN.
-assert_pin_unique "#522: event log records the write-time git hash-object digest at each file-arm dispatch" \
-  'git hash-object` of the dispatched `issue-draft-<slug>.md` on the file arm' "$CI443_SKILL"
-# T2 producer (iteration-4 shadow gap): the T2 behavioral pin verifies the temporal test, but
-# the producer — that the revision step writes a `revised after round N` record — is unpinned.
-# Dropping it leaves T2's postdates-test with nothing to fire on.
-assert_pin_unique "#522: revision step writes a revised-after-round-N event-log record" \
-  'record written **as part of the revision step itself**' "$CI443_SKILL"
-# Event-log delete-leftover-first precondition (iteration-4 convergence-shadow gap): the "log
-# contains only this run's rounds" invariant T1/T2 rest on. Dropping delete-first lets a stale
-# prior-run event log survive, so the postdates-test fires against foreign records.
-assert_pin_unique "#522: event log is deleted-leftover-first at the run's first dispatch" \
-  "deleted-leftover-first at the run's first dispatch" "$CI443_SKILL"
-# Round-initiating-sites enumeration (iteration-4 convergence-shadow gap): the canonical-write
-# pin guards the general instruction, but not that the enumeration names all four sites (the
-# symmetric surface to the out-of-bounds enumerations this block already pins).
-assert_pin_unique "#522: canonical write fires at exactly the 4 round-initiating sites" \
-  'at exactly these 4 round-initiating sites' "$CI443_SKILL"
-# Sub-step 3 summary marker enumeration lists all THREE embed-arm markers (iteration-4
-# convergence-shadow: the summary-rendering site omitted the digest-unrecorded marker the
-# embed-arm paragraph defines — the multi-state-contract drift Step 3.5's own check targets).
-assert_pin_unique "#522: sub-step 3 summary enumerates the digest-unrecorded embed marker" \
-  'or `draft embedded (digest unrecorded)` (one per embed-arm entry path)' "$CI443_SKILL"
-assert_pin_unique "#522: embed-arm orchestrator string-compares sentinels and rejects a mismatch" \
-  'string-compares them (bash builtins only, never a non-preflight PATH tool) against the dispatched values' "$CI443_SKILL"
-# Embed-arm auditor QUOTE obligation (iteration-4 review finding G): the compare pin above pins
-# the ENFORCEMENT half; this pins the half that PRODUCES the values compared. Deleting the
-# auditor's quote obligation makes the compare compare-against-nothing — the mirror of the
-# file-arm pair, which pins both the quote obligation and the compare.
+# Embed-arm out-of-bounds list (the inverse of the file arm's list — re-adds the draft path):
+# symmetric with the file-arm template-enumeration pin above. #546 widened it 4 → 5 files, in
+# lockstep with the file arm's 3 → 4: the state `.json` and the retired `.md` are both named.
+assert_pin_unique "#522: embed arm out-of-bounds names exactly the 5 files (draft re-added)" \
+  'On this arm the out-of-bounds declaration names exactly these 5 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
+# ── #546 RECONCILIATION: the carriage COMPARE, the event log, the retry bounds, and T1/T2.
+#
+# The #522 block used to pin, as prose, the whole deterministic half of the carriage/identity
+# check and the round record. Every one of those literals is gone from the skill, because the
+# ORCHESTRATOR no longer performs any of it — `issue-audit-state.py` does. The pins below are
+# the surviving prose residue only; each deleted pin's guarantee is named against the tool test
+# that now carries it, so the reconciliation is auditable rather than a silent drop:
+#
+#   deleted prose pin                                  → the tool test that now carries it
+#   ---------------------------------------------------------------------------------------
+#   compare uses the write-time digest, never a re-hash → py #546 carriage_evidence_rows
+#                                                         (+ #546 digest_filter_mode_rows here,
+#                                                          which proves the dispatch/auditor/
+#                                                          eligibility digests agree)
+#   compare fails closed on an absent/unparseable ID   → py #546 carriage_evidence_rows
+#                                                         ("carriage mismatched vs. absent — the
+#                                                          same classification, fail closed")
+#   absent recorded write-time digest at compare time  → py #546 carriage_evidence_rows (same
+#                                                         rows: absent evidence == mismatched)
+#   file arm routes to embed on unrecorded comparand   → py #546 arm_routing_rows
+#                                                         (hash_ok=False → embed/digest-unrecorded)
+#   the 3 embed markers (write-failed / file-unreadable → py #546 arm_routing_rows, which asserts
+#     / digest-unrecorded) + the summary's marker list    _EMBED_MARKER_TEXT byte-for-byte; the
+#                                                         summary re-emits them via query-summary
+#   event log records the write-time digest at dispatch → this file's #546
+#                                                         cli_roundtrip_restricted_path
+#                                                         (record-dispatch prints digest=)
+#   revision step writes a revised-after-round-N record → py #546 _TRANSITION_ROWS
+#                                                         (revision/after-completed-round legal,
+#                                                          revision/no-rounds-recorded illegal)
+#   event log is deleted-leftover-first at first dispatch→ this file's #546 reinit_force_rows
+#                                                         (the cold-start wipe `init` now owns)
+#   canonical write fires at exactly the 4 sites       → subsumed by the surviving pin (1) above
+#                                                         ("before every dispatch" is strictly
+#                                                          stronger than a 4-site enumeration),
+#                                                         + `query-arm --write-landed`
+#   orchestrator string-compares sentinels, rejects     → py #546 carriage_evidence_rows
+#     a mismatch                                          (the tool owns the compare now)
+#   file-arm DRAFT-UNREADABLE re-dispatches once        → #546 next_action_budget_rows (below)
+#   embed-arm DRAFT-UNREADABLE never re-dispatches      → #546 next_action_budget_rows (below)
+#     to the file arm
+#   T1 fires on the last round's VERDICT: REVISE       → py #546 t1_t2_rows
+#   T2 fires when a revision postdates the last round  → py #546 t1_t2_rows
+#   audit summary states the total rounds run          → this file's #546 roundtrip summary row
+#   user-chosen rounds capped at 3 per run             → #546 user_round_cap_rows (below)
+#   automatic budget = 1 audit + at most 1 re-audit    → #546 next_action_budget_rows (below)
+#                                                         (the ceiling is driven end-to-end)
+#
+# What CANNOT move to the tool, and therefore keeps a prose pin: the auditor's own instructions
+# (the tool never talks to the auditor), the orchestrator's obligation to FORWARD what the
+# auditor quoted instead of comparing or inventing it, and the observation the routing rests on.
+#
+# Forward-don't-compare (the file arm). The tool owns the comparison, so the orchestrator's only
+# remaining job is to hand over what it received verbatim — and, critically, to hand over
+# NOTHING when the auditor quoted nothing. Inventing an object ID would manufacture exactly the
+# proof the check exists to demand, and the tool would pass the manufactured evidence: this is
+# the one carriage fail-open the tool provably cannot close from the inside, which is why it
+# stays pinned as prose. The mutation excises the omit-when-absent rule.
+assert_pin_red_under "#546: an absent carriage object ID is forwarded as absent, never invented" \
+  'Omit `--carriage-object-id` when the return quoted none' \
+  's/Omit `--carriage-object-id` when the return quoted none — an absent value is evidence the tool needs, and inventing one would manufacture the proof the check exists to demand\.//' \
+  "$CI443_SKILL"
+assert_pin_unique "#546: the quoted object ID is forwarded verbatim and the tool's classification obeyed" \
+  '**Forward that quoted object ID verbatim to `record-return --carriage-object-id <the ID the auditor quoted>` and obey the classification the tool returns.**' \
+  "$CI443_SKILL"
+assert_pin_unique "#546: the orchestrator never compares the carriage digest itself" \
+  'Do not compare it yourself: the tool holds the write-time digest it recorded at dispatch and owns the comparison' \
+  "$CI443_SKILL"
+# The write-time-vs-re-hash RATIONALE survives in prose (as the "why" behind a tool behavior that
+# IS driven by py #546 carriage_evidence_rows). Pinned as a surface, not a mutation: the
+# mechanism is the tool's, so this sentence documents rather than decides.
+assert_pin_unique "#546: the tool compares against the dispatch-time digest, never a compare-time re-hash" \
+  'never a fresh compare-time re-hash of the on-disk file — a re-hash would see the same foreign bytes the auditor did and pass a concurrent overwrite vacuously' \
+  "$CI443_SKILL"
+# Forward-don't-compare (the embed arm) — the exact mirror, plus the half the tool cannot own:
+# the orchestrator must bracket the body with the tokens the TOOL generated. Choosing its own
+# tokens would compare against a value the tool never recorded, which the tool would then read
+# as a mismatch it can neither explain nor prevent.
+assert_pin_red_under "#546: the embed arm brackets the body with the tool-generated sentinels only" \
+  'Bracket the embedded body with **exactly those printed tokens** — never tokens you choose yourself' \
+  's/ — never tokens you choose yourself, which would compare against a value the tool never recorded//' \
+  "$CI443_SKILL"
+assert_pin_unique "#546: the quoted sentinel pair is forwarded and the tool's classification obeyed" \
+  '**Forward the quoted pair to `record-return --carriage-sentinel-open <quoted> --carriage-sentinel-close <quoted>` and obey the classification returned**' \
+  "$CI443_SKILL"
+# Embed-arm auditor QUOTE obligation (iteration-4 review finding G): the half that PRODUCES the
+# values the tool compares. Deleting the auditor's quote obligation makes the compare
+# compare-against-nothing — and this instruction lives in the dispatch prompt, a surface no tool
+# can reach, so it stays prose. (Its file-arm twin is the `--no-filters` hash pin above.)
 assert_pin_unique "#522: embed-arm auditor must quote both sentinels plus body boundary lines" \
   'quote both sentinels plus the body'\''s first and last lines verbatim' "$CI443_SKILL"
-# DRAFT-UNREADABLE recovery action (what makes the third verdict value non-terminal): a file-arm
-# unreadable draft re-dispatches once on the embed arm — deleting it strands the third value.
-assert_pin_unique "#522: file-arm DRAFT-UNREADABLE re-dispatches exactly once on the embed arm" \
-  '**re-dispatch exactly once on the embed arm**' "$CI443_SKILL"
-# DRAFT-UNREADABLE termination invariant (iteration-4 review finding D): an embed-arm
-# DRAFT-UNREADABLE is illegal and must NOT trigger a second file-arm re-dispatch — removing this
-# clause re-opens a potential re-dispatch loop (the loop-termination guard the re-dispatch pin
-# above does not itself cover).
-assert_pin_unique "#522: embed-arm DRAFT-UNREADABLE never triggers a second file-arm re-dispatch" \
-  '**never** a second file-arm re-dispatch' "$CI443_SKILL"
-# Write-landing route condition (issue #522 iteration-3 review I3): the read-only signal that
-# routes to the embed arm is a failed delete OR a write that did not land. Excising the
-# "OR a write that did not land" arm re-opens the fail-open where a fresh-slug read-only sandbox
-# lets `rm` succeed vacuously while the write still fails, sending an UNWRITTEN path down the
-# file arm (the auditor then reads a stale/absent file). Behavioral-fix pin: the mutation
-# removes the write-landing arm, so keying routing on the delete alone comes back.
-assert_pin_red_under "#522: embed-arm routing keys on a failed delete OR a write that did not land" \
-  'a failed delete OR a write that did not land' \
-  's/ OR a write that did not land//' "$CI443_SKILL"
-# Trigger T1 firing condition: the user-chosen-round offer fires when the most recent completed
-# audit round returned VERDICT: REVISE. Inverting REVISE->FILE makes T1 fire on the wrong
-# verdict (offering another round after a clean FILE and withholding it on an unconverged
-# REVISE) — the exact demonstrably-unconverged signal T1 exists to catch.
-assert_pin_red_under "#522: user-chosen offer trigger T1 fires on the last round's VERDICT: REVISE" \
-  'the most recent completed audit round returned `VERDICT: REVISE`' \
-  's/most recent completed audit round returned `VERDICT: REVISE`/most recent completed audit round returned `VERDICT: FILE`/' "$CI443_SKILL"
-# Trigger T2 firing condition: T2 holds when a `revised after round N` record POSTDATES the last
-# completed round's record in the event log (content no audit round has seen). Inverting
-# postdates->predates flips the temporal test so T2 never fires on genuinely-newer revisions —
-# re-opening the ship-unaudited-revision channel T2 closes.
-assert_pin_red_under "#522: user-chosen offer trigger T2 fires when a revision postdates the last round" \
-  '**postdates the last completed round' \
-  's/postdates/predates/' "$CI443_SKILL"
+# Write-landing OBSERVATION (issue #522 iteration-3 review I3, repointed by #546). The ROUTING
+# moved to `query-arm` (py #546 arm_routing_rows), but the routing's operand did not: whether
+# the write landed is an observation only the orchestrator can make, and `query-arm` is only as
+# honest as the `--write-landed` it is handed. The original fail-open is unchanged — on a fresh
+# `<slug>` with no leftover, a read-only sandbox lets `rm` succeed vacuously while the write
+# still fails, so an orchestrator that INFERS landing from the delete reports `--write-landed yes`
+# for an unwritten path and the tool routes it to the file arm on false evidence. The mutation
+# excises the confirm-explicitly rule, restoring exactly that inference.
+assert_pin_red_under "#522: write-landing is confirmed explicitly, never inferred from the delete" \
+  'rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails' \
+  's/ rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails//' \
+  "$CI443_SKILL"
+# ... and that the observation is REPORTED to the tool rather than acted on: the orchestrator
+# observes, the tool decides. This is the seam the arm-routing rows sit behind.
+assert_pin_unique "#546: the write-landing observation is reported to the tool, which decides the arm" \
+  'pass it as `--write-landed yes|no` to `query-arm`, which decides the arm' "$CI443_SKILL"
+assert_pin_unique "#546: the dispatch arm is the tool's answer, never the orchestrator's" \
+  '**The arm is the tool'\''s answer, never yours.**' "$CI443_SKILL"
+# Verdict EXTRACTION is LLM work; verdict CLASSIFICATION is not. The tool validates the token
+# fail-closed against its closed set (py #546 carriage_evidence_rows / classify_return), but it
+# can only classify what it is handed — so "omit --verdict on an unparseable return" and "never
+# pass a token the auditor did not emit" are prose obligations, the exact twin of the carriage
+# omit-when-absent rule above. Mapping an unparseable return onto a verdict is how a run
+# manufactures a clean FILE the auditor never returned.
+assert_pin_red_under "#546: an unparseable return is never mapped onto a verdict token" \
+  'Never map an unparseable return onto a verdict token yourself, and never pass a token the auditor did not emit' \
+  's/Never map an unparseable return onto a verdict token yourself, and never pass a token the auditor did not emit; the tool validates the token fail-closed against its closed set\.//' \
+  "$CI443_SKILL"
+assert_pin_unique "#546: the verdict token's absence is classified by the tool, not by the run" \
+  '**Omit `--verdict` entirely when the return carried no parseable `VERDICT:` line**' "$CI443_SKILL"
+# The next-action answer set is the tool's closed vocabulary, and the prose obligation is to obey
+# it verbatim. Pinned as a COUPLED PAIR with the tool: every token named here is driven by #546
+# next_action_budget_rows below, and the skill naming a token the tool cannot answer (or the tool
+# growing an arm the skill never obeys) is the drift this pin plus those rows catch together.
+assert_pin_unique "#546: query-next-action's answer is obeyed verbatim from its closed answer set" \
+  '**Obey the answer verbatim** — it is one of `dispatch-embed-retry`, `dispatch-retry-same-arm`, `dispatch-inline-degraded`, `proceed`, `revise-and-reaudit`, `revise-then-evaluate-offer`, or `round-closed-no-verdict`' \
+  "$CI443_SKILL"
+# A finding can be wrong: the run verifies each against the code before acting. No tool can do
+# this — it is the one step in the loop that requires reading the repository.
+assert_pin_unique "#546: findings are verified against the code before any revise action" \
+  '**verify each finding against the code before acting** (a finding can be wrong)' "$CI443_SKILL"
 
 # ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
@@ -40716,44 +40867,6 @@ assert_eq "workflow analyzer: focused Python tests pass" "0" "$?"
 rm -rf "$IFR_ROOT"
 
 # ────────────────────────────────────────────────────────────────────────────
-PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
-FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
-# SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
-# PASS/FAIL above — a self-skipping check appended one line to it via skip(). This is the
-# authoritative K the renderer prints; SKIPS_FILE is read by the renderer only to list each
-# skipped check.
-SKIP=$(grep -c . "$SKIPS_FILE" || true)
-# The `|| true` absorbs ONLY the benign empty-log case (grep -c still prints "0", rc 1). A
-# real grep error (rc >= 2) prints NOTHING, leaving SKIP empty — and an empty value coerced
-# downstream to 0 would launder an unestablished tally into "nothing skipped" (unknown is
-# not zero). Fail CLOSED: refuse to render a summary over a tally that could not be derived.
-# The derivability test itself is devflow_tally_is_derivable (lib/test/summary.sh) — the SAME
-# predicate the renderer's unavailable-tally arm uses, so the two cannot drift apart and the
-# suite drives it directly instead of grepping a `case` glob. The two fail-closed RESPONSES
-# stay distinct and are deliberate defense-in-depth: this one aborts the run, the renderer's
-# prints a loud unavailable line for any other caller.
-if ! devflow_tally_is_derivable "$SKIP"; then
-  printf 'ERROR: SKIP tally underivable from %s (grep error, not an empty log) — refusing to report it as 0 skipped\n' "$SKIPS_FILE"
-  exit 1
-fi
-# PASS and FAIL take the SAME fail-closed guard (#456 round 3): each is a `grep -c` derivation
-# with the same rc>=2 empty-value failure shape. Without the guard an emptied PASS is silently
-# laundered back into a number by the python-tally arithmetic below (`$((PASS + PY_PASS))`
-# evaluates an empty variable as 0), rendering a confident under-count; an emptied FAIL on the
-# python-green path aborts at the exit predicate with a bare `[: -eq` error that names nothing.
-# Unknown is not zero for ANY of the three tallies — refuse loudly, up front.
-if ! devflow_tally_is_derivable "$PASS"; then
-  printf 'ERROR: PASS tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
-  exit 1
-fi
-if ! devflow_tally_is_derivable "$FAIL"; then
-  printf 'ERROR: FAIL tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
-  exit 1
-fi
-
-# ────────────────────────────────────────────────────────────────────────────
-echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"
-# ────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────
 echo "issue #546: issue-audit-state.py — the create-issue audit-lifecycle state owner"
 
@@ -41049,6 +41162,208 @@ if [ -d "$EB_SB" ]; then
   rm -rf "$EB_SB"
 fi
 
+# next_action_budget_rows — the retry/budget arms of `query-next-action`, driven end-to-end
+# through the CLI. Added by the #546 pin reconciliation: these carry the guarantees the deleted
+# #522 prose pins used to assert — "file-arm DRAFT-UNREADABLE re-dispatches exactly once on the
+# embed arm", "an embed-arm DRAFT-UNREADABLE never triggers a second file-arm re-dispatch", and
+# the automatic-budget arm. classify_return is unit-driven in test_python_scripts.py; what is
+# driven HERE is next_action's answer, which no python row covered.
+#
+# Every one of the tool's seven answer tokens is driven here. Two of them were dead code when
+# the cutover's pin reconciliation first drove this surface, and the rows below are the
+# regression guard for both — each was a real defect the deleted #522 prose pin had been the
+# only thing nominally protecting, so a cutover that deleted the pin without driving the arm
+# would have shipped the guarantee enforced NOWHERE (not in prose, not in the tool):
+#   1. `revise-then-evaluate-offer` was unreachable: `_MAX_AUTOMATIC_REAUDITS` was compared
+#      against `automatic_reaudits_used`, but nothing ever incremented that counter, so the
+#      automatic re-audit loop was unbounded (four consecutive REVISE rounds all answered
+#      `revise-and-reaudit`). The counter is now spent where the round actually opens.
+#   2. `dispatch-retry-same-arm` was unreachable: `record-return` set `no_parseable_retry_used`
+#      and read it in the same branch, so the FIRST no-parseable-verdict return already looked
+#      like the second and skipped the same-arm retry. The flag is now read before it is set.
+NA_SB="$(git_sandbox '#546 next_action_budget_rows')"
+if [ -d "$NA_SB" ]; then
+  (
+    cd "$NA_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nB\n' > d.md
+    OID="$(git hash-object --stdin --no-filters < d.md)"
+
+    # A clean FILE round proceeds.
+    NF="$(python3 "$IAS" init nf | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch nf --nonce "$NF" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-return nf --nonce "$NF" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" query-next-action nf --nonce "$NF" --round 1 > .na-file
+
+    # The DRAFT-UNREADABLE chain, in one round: the file arm's unreadable draft re-dispatches
+    # ONCE on the embed arm; the embed arm's own DRAFT-UNREADABLE (an illegal verdict on that
+    # arm) must NOT re-dispatch to the file arm again — it routes to the inline degraded arm,
+    # which terminates the chain.
+    NU="$(python3 "$IAS" init nu | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch nu --nonce "$NU" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-return nu --nonce "$NU" --round 1 --verdict DRAFT-UNREADABLE \
+      --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" query-next-action nu --nonce "$NU" --round 1 > .na-unreadable-1
+    # The re-dispatch reuses the SAME round — no second round record.
+    python3 "$IAS" record-dispatch nu --nonce "$NU" --round 1 --arm embed \
+      --marker file-unreadable < d.md > /dev/null
+    python3 "$IAS" record-return nu --nonce "$NU" --round 1 --verdict DRAFT-UNREADABLE > /dev/null
+    python3 "$IAS" query-next-action nu --nonce "$NU" --round 1 > .na-unreadable-2
+    python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['rounds']))" \
+      .devflow/tmp/issue-audit-state-nu.json > .na-rounds
+
+    # The inline arm past both defined retries closes the round verdict-less rather than
+    # looping — the termination invariant.
+    NT="$(python3 "$IAS" init nt | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch nt --nonce "$NT" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-return nt --nonce "$NT" --round 1 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" record-dispatch nt --nonce "$NT" --round 1 --arm inline < d.md > /dev/null
+    python3 "$IAS" record-return nt --nonce "$NT" --round 1 > /dev/null
+    python3 "$IAS" query-next-action nt --nonce "$NT" --round 1 > .na-terminal
+
+    # The AUTOMATIC BUDGET: one initial round plus AT MOST ONE automatic re-audit. Three
+    # consecutive REVISE rounds — the first must be offered the automatic re-audit, and
+    # every later one must fall through to the user-chosen-offer evaluation. Regression
+    # guard: the counter was once never incremented, so this loop was unbounded.
+    NB="$(python3 "$IAS" init nb | sed 's/nonce=//')"
+    for R in 1 2 3; do
+      python3 "$IAS" record-dispatch nb --nonce "$NB" --round "$R" --arm file \
+        --draft-file d.md > /dev/null
+      python3 "$IAS" record-return nb --nonce "$NB" --round "$R" --verdict REVISE \
+        --findings-count 1 --carriage-object-id "$OID" > /dev/null
+      python3 "$IAS" query-next-action nb --nonce "$NB" --round "$R" >> .na-budget
+    done
+
+    # The NO-PARSEABLE-VERDICT retry precedence: the FIRST such completion retries on the
+    # same arm; only the SECOND routes to the inline degraded arm. Regression guard: the
+    # retry flag was once set and read in one branch, so the first completion skipped the
+    # same-arm retry entirely.
+    NP="$(python3 "$IAS" init np | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch np --nonce "$NP" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-return np --nonce "$NP" --round 1 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" query-next-action np --nonce "$NP" --round 1 > .na-npv-1
+    python3 "$IAS" record-return np --nonce "$NP" --round 1 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" query-next-action np --nonce "$NP" --round 1 > .na-npv-2
+  )
+  assert_eq "#546 next_action_budget_rows: a clean FILE round proceeds" \
+    "action=proceed" "$(cat "$NA_SB/.na-file" 2>/dev/null)"
+  assert_eq "#546 next_action_budget_rows: a file-arm DRAFT-UNREADABLE re-dispatches on the embed arm" \
+    "action=dispatch-embed-retry" "$(cat "$NA_SB/.na-unreadable-1" 2>/dev/null)"
+  # DRAFT-UNREADABLE is illegal on the embed arm (the auditor was handed the bytes inline, so
+  # it cannot truthfully report the draft unreadable), and is classified as that round's first
+  # no-parseable-verdict completion — which retries on the same arm. The guarantee this row
+  # carries is the one the deleted #522 pin protected: whatever it routes to, it is never a
+  # second file-arm re-dispatch, and the unreadable re-dispatch is spent (once per round).
+  assert_eq "#546 next_action_budget_rows: an embed-arm DRAFT-UNREADABLE never re-dispatches to the file arm" \
+    "action=dispatch-retry-same-arm" "$(cat "$NA_SB/.na-unreadable-2" 2>/dev/null)"
+  assert_eq "#546 next_action_budget_rows: the unreadable re-dispatch reuses the round — no second round record" \
+    "1" "$(cat "$NA_SB/.na-rounds" 2>/dev/null)"
+  assert_eq "#546 next_action_budget_rows: the inline arm past both defined retries closes the round verdict-less" \
+    "action=round-closed-no-verdict" "$(cat "$NA_SB/.na-terminal" 2>/dev/null)"
+  # The automatic budget is spent exactly once: the ceiling is enforced by the tool, so a
+  # REVISE loop always terminates into the offer evaluation rather than re-auditing forever.
+  assert_eq "#546 next_action_budget_rows: the automatic budget grants exactly one re-audit, then falls through to the offer" \
+    "action=revise-and-reaudit
+action=revise-then-evaluate-offer
+action=revise-then-evaluate-offer" "$(cat "$NA_SB/.na-budget" 2>/dev/null)"
+  assert_eq "#546 next_action_budget_rows: the FIRST no-parseable-verdict completion retries on the same arm" \
+    "action=dispatch-retry-same-arm" "$(cat "$NA_SB/.na-npv-1" 2>/dev/null)"
+  assert_eq "#546 next_action_budget_rows: only the SECOND no-parseable-verdict completion routes to the inline degraded arm" \
+    "action=dispatch-inline-degraded" "$(cat "$NA_SB/.na-npv-2" 2>/dev/null)"
+  rm -rf "$NA_SB"
+fi
+
+# user_round_cap_rows — the per-run user-chosen-round ceiling. Added by the #546 pin
+# reconciliation: this carries the guarantee the deleted #522 "User-chosen rounds are capped at
+# 3 per run" prose pin used to assert. The skill delegates the count outright ("the tool owns
+# the per-run ceiling … never count rounds yourself", pinned in the #522 block), so the ceiling
+# must actually refuse — an accepted offer past it exits NON-ZERO with a named breadcrumb, the
+# mutation contract, never a silent clamp an orchestrator could read as success.
+# The expected count is derived from the module's OWN constant, never transcribed by hand: a
+# literal 3 here would keep passing while the tool's cap drifted underneath it.
+UC_SB="$(git_sandbox '#546 user_round_cap_rows')"
+if [ -d "$UC_SB" ]; then
+  UC_CAP="$(python3 -c "import importlib.util,sys
+spec = importlib.util.spec_from_file_location('ias', sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(m._USER_ROUND_CAP)" "$IAS" 2>/dev/null)"
+  (
+    cd "$UC_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    N="$(python3 "$IAS" init uc | sed 's/nonce=//')"
+    # Accept exactly cap offers, then one more: the ceiling+1th must be refused.
+    I=0
+    while [ "$I" -lt "${UC_CAP:-3}" ]; do
+      python3 "$IAS" record-offer uc --nonce "$N" --accepted > /dev/null 2>&1 \
+        || printf 'REFUSED-EARLY at %s\n' "$I" >> .uc-early
+      I=$((I + 1))
+    done
+    python3 "$IAS" record-offer uc --nonce "$N" --accepted > .uc-over-out 2> .uc-over-err \
+      && printf 'EXITED-ZERO\n' >> .uc-over-out
+    # A DECLINED offer past the ceiling is not a round and is never refused — the cap governs
+    # accepted rounds only, so a decline can always be recorded (it is how the run proceeds).
+    python3 "$IAS" record-offer uc --nonce "$N" > /dev/null 2>&1 || printf 'DECLINE-REFUSED\n' > .uc-decline
+    python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['user_rounds_used'])" \
+      .devflow/tmp/issue-audit-state-uc.json > .uc-used
+  )
+  assert_eq "#546 user_round_cap_rows: the module exposes a per-run user-round cap" \
+    "1" "$([ -n "$UC_CAP" ] && echo 1 || echo 0)"
+  assert_eq "#546 user_round_cap_rows: every offer up to the ceiling is accepted" \
+    "" "$(cat "$UC_SB/.uc-early" 2>/dev/null)"
+  assert_eq "#546 user_round_cap_rows: an accepted offer past the ceiling exits non-zero, never a silent clamp" \
+    "" "$(cat "$UC_SB/.uc-over-out" 2>/dev/null)"
+  assert_eq "#546 user_round_cap_rows: ... and the refusal breadcrumb names the ceiling" \
+    "1" "$(grep -c "capped at ${UC_CAP:-3} per run" "$UC_SB/.uc-over-err" 2>/dev/null)"
+  assert_eq "#546 user_round_cap_rows: a DECLINED offer past the ceiling is never refused (the cap governs accepted rounds)" \
+    "" "$(cat "$UC_SB/.uc-decline" 2>/dev/null)"
+  # The refusal is not merely a non-zero exit: the refused offer must not have been counted
+  # either, or a retried offer would walk the counter past the ceiling one refusal at a time.
+  assert_eq "#546 user_round_cap_rows: a refused offer is not counted — the recorded state stops AT the ceiling" \
+    "${UC_CAP:-3}" "$(cat "$UC_SB/.uc-used" 2>/dev/null)"
+  rm -rf "$UC_SB"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
+FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
+# SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
+# PASS/FAIL above — a self-skipping check appended one line to it via skip(). This is the
+# authoritative K the renderer prints; SKIPS_FILE is read by the renderer only to list each
+# skipped check.
+SKIP=$(grep -c . "$SKIPS_FILE" || true)
+# The `|| true` absorbs ONLY the benign empty-log case (grep -c still prints "0", rc 1). A
+# real grep error (rc >= 2) prints NOTHING, leaving SKIP empty — and an empty value coerced
+# downstream to 0 would launder an unestablished tally into "nothing skipped" (unknown is
+# not zero). Fail CLOSED: refuse to render a summary over a tally that could not be derived.
+# The derivability test itself is devflow_tally_is_derivable (lib/test/summary.sh) — the SAME
+# predicate the renderer's unavailable-tally arm uses, so the two cannot drift apart and the
+# suite drives it directly instead of grepping a `case` glob. The two fail-closed RESPONSES
+# stay distinct and are deliberate defense-in-depth: this one aborts the run, the renderer's
+# prints a loud unavailable line for any other caller.
+if ! devflow_tally_is_derivable "$SKIP"; then
+  printf 'ERROR: SKIP tally underivable from %s (grep error, not an empty log) — refusing to report it as 0 skipped\n' "$SKIPS_FILE"
+  exit 1
+fi
+# PASS and FAIL take the SAME fail-closed guard (#456 round 3): each is a `grep -c` derivation
+# with the same rc>=2 empty-value failure shape. Without the guard an emptied PASS is silently
+# laundered back into a number by the python-tally arithmetic below (`$((PASS + PY_PASS))`
+# evaluates an empty variable as 0), rendering a confident under-count; an emptied FAIL on the
+# python-green path aborts at the exit predicate with a bare `[: -eq` error that names nothing.
+# Unknown is not zero for ANY of the three tallies — refuse loudly, up front.
+if ! devflow_tally_is_derivable "$PASS"; then
+  printf 'ERROR: PASS tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
+  exit 1
+fi
+if ! devflow_tally_is_derivable "$FAIL"; then
+  printf 'ERROR: FAIL tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
+  exit 1
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"
 PY_OUT="$(python3 "$(dirname "$0")/test_python_scripts.py" 2>&1)"
 PY_RC=$?
 PY_SUMMARY="$(echo "$PY_OUT" | awk '/passed,/ { p=$1; f=$3 } END { print p" "f }')"

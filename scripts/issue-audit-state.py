@@ -656,15 +656,14 @@ def next_action(state, round_no):
         return 'revise-then-evaluate-offer'
     if outcome == 'no-verdict':
         return 'round-closed-no-verdict'
+    # The pending flags are set by `record-return` from the round's own retry accounting;
+    # this query only reads them, so the retry arms cannot be re-derived (and re-decided)
+    # differently here than they were recorded.
     if rnd.get('pending_embed_retry'):
         return 'dispatch-embed-retry'
+    if rnd.get('pending_inline_degraded'):
+        return 'dispatch-inline-degraded'
     if rnd.get('pending_no_verdict_retry'):
-        arm = rnd['attempts'][-1]['arm']
-        # Exactly one no-parseable-verdict retry per round; a second such completion
-        # routes to the inline degraded arm — unless we are already on it, where the
-        # round closes verdict-less (the arm past both defined retries).
-        if rnd.get('no_parseable_retry_used'):
-            return 'round-closed-no-verdict' if arm == 'inline' else 'dispatch-inline-degraded'
         return 'dispatch-retry-same-arm'
     return 'proceed'
 
@@ -834,6 +833,15 @@ def cmd_record_dispatch(args):
             _fail('record-dispatch',
                   f'round {doc["rounds"][-1]["round"]} is still open; record its return '
                   f'before dispatching round {args.round}')
+        # Spend the automatic re-audit budget HERE, where the round actually opens.
+        # A new round whose predecessor closed REVISE is the automatic re-audit while the
+        # budget is unspent; once it is spent, a further round can only be a user-chosen
+        # one (whose ceiling `record-offer` enforces). Deriving this from recorded facts
+        # keeps the orchestrator from having to declare which budget a round draws on.
+        prev = doc['rounds'][-1] if doc['rounds'] else None
+        if (prev is not None and prev.get('outcome') == 'REVISE'
+                and doc.get('automatic_reaudits_used', 0) < _MAX_AUTOMATIC_REAUDITS):
+            doc['automatic_reaudits_used'] = doc.get('automatic_reaudits_used', 0) + 1
         rnd = {'round': args.round, 'attempts': [], 'no_parseable_retry_used': False,
                'unreadable_retry_used': False, 'outcome': None, 'findings_count': None,
                'consumer_dimensions_appended': False, 'embed_markers': [],
@@ -878,7 +886,6 @@ def cmd_record_return(args):
         rnd['outcome'] = 'FILE'
     elif cls == 'accept-revise':
         rnd['outcome'] = 'REVISE'
-        doc['automatic_reaudits_used'] = doc.get('automatic_reaudits_used', 0)
     elif cls == 'retry-embed':
         if rnd.get('unreadable_retry_used'):
             # Exactly one DRAFT-UNREADABLE re-dispatch per round.
@@ -888,11 +895,16 @@ def cmd_record_return(args):
             rnd['pending_embed_retry'] = True
     if cls == 'no-parseable-verdict':
         rnd.pop('pending_embed_retry', None)
-        if rnd.get('no_parseable_retry_used') and arm == 'inline':
-            # The arm past both defined retries: the round closes verdict-less.
-            rnd['outcome'] = 'no-verdict'
-        elif rnd.get('no_parseable_retry_used'):
-            rnd['pending_no_verdict_retry'] = True
+        # Read the retry flag BEFORE setting it: exactly one no-parseable-verdict retry
+        # per round, and only a SECOND such completion routes to the inline degraded arm.
+        # Setting and reading it in one branch would make the first completion look like
+        # the second and skip the same-arm retry entirely.
+        if rnd.get('no_parseable_retry_used'):
+            if arm == 'inline':
+                # The arm past both defined retries: the round closes verdict-less.
+                rnd['outcome'] = 'no-verdict'
+            else:
+                rnd['pending_inline_degraded'] = True
         else:
             rnd['no_parseable_retry_used'] = True
             rnd['pending_no_verdict_retry'] = True
