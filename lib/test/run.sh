@@ -31733,7 +31733,7 @@ _rb_shipped_w=$(cat "${_rb_standalone[@]}" | LC_ALL=C wc -w | tr -d ' ')
 while IFS='~' read -r _rbn _rbe; do
   [ -n "$_rbn" ] || continue
   assert_eq "#529 AC4: the budget record and the code agree on $_rbn (a stale figure cannot ship green)" "yes" \
-    "$(grep -qF -- "$_rbe" "$RB_DOC" && echo yes || echo no)"
+    "$(grep -qF -- "$_rbe" "$RB_DOC" && echo yes || echo "no — the record does not carry the LIVE figure, which measures HERE as: $_rbe")"
 done <<RECORD
 frozen pre-split baseline, as the record's "before" column spells it~$(_rb_grouped "$RB_BASELINE_BYTES") / $(_rb_grouped "$(_rb_ceil4 "$RB_BASELINE_BYTES")")
 AC3 default-path words~**$(_rb_grouped "$RB_DEFAULT_W")**
