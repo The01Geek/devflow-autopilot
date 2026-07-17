@@ -40872,6 +40872,22 @@ echo "issue #546: issue-audit-state.py — the create-issue audit-lifecycle stat
 
 IAS="$LIB/../scripts/issue-audit-state.py"
 
+# §11 coupled doc site: the overview must describe the TOOL-owned lifecycle, not the retired
+# prose state machine. Coupled with the SKILL cutover — a reader who trusts §11's description
+# of where the rules live would otherwise be sent to prose that no longer decides anything.
+IAS_OVERVIEW_546="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_pin_unique "#546: overview §11 states the lifecycle is tool-owned, not prose-owned" \
+  '**The lifecycle itself is owned by a tested state-owner CLI, not by prose (issue #546).**' \
+  "$IAS_OVERVIEW_546"
+assert_pin_unique "#546: overview §11 names the JSON state file that replaced the markdown event log" \
+  'persists to a cwd/worktree-anchored `.devflow/tmp/issue-audit-state-<slug>.json`, replacing the markdown event log' \
+  "$IAS_OVERVIEW_546"
+# Honest-claims discipline (CLAUDE.md §21): the gate NARROWS the prose-compliance gap. A future
+# edit that upgrades this to a closure claim is the overclaim this pin exists to catch.
+assert_pin_unique "#546: overview §11 keeps the narrows-never-closes honest-claims framing" \
+  'it does not close it, since no in-process component can force an orchestrator that never invokes it' \
+  "$IAS_OVERVIEW_546"
+
 # help_surface_pin — pinned against the RENDERED --help output, whitespace-normalized.
 # Never a source grep on the argparse help= strings: those are concatenated across
 # adjacent literals, so a source pin would live on no single line (#375).
