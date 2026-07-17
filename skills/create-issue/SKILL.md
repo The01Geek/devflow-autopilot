@@ -248,7 +248,7 @@ python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports 
 The variants, each obeying the same contract:
 
 - **Revise-and-recover:** … `record-return` (REVISE) → `query-next-action` (`revise-and-reaudit`) → revise → `record-revision` → `query-eligibility --mode iterate` for the in-loop re-show → resolve the re-audit offer → re-dispatch → … → `approve`.
-- **DRAFT-UNREADABLE retry:** `record-return --verdict DRAFT-UNREADABLE` → `query-next-action` → `dispatch-embed-retry` → `record-dispatch --arm embed` (bytes on stdin, **same round** — no second round record).
+- **DRAFT-UNREADABLE retry:** `record-return --verdict DRAFT-UNREADABLE` → `query-next-action` → `dispatch-embed-retry` → `record-dispatch --arm embed --marker file-unreadable` (bytes on stdin, **same round** — no second round record); the embed arm hard-requires `--marker`, and `file-unreadable` is the marker `query-arm` answers for a prior `DRAFT-UNREADABLE`.
 - **Degraded/inline:** `record-dispatch --arm inline` (bytes on stdin) + `record-degraded --reason <no-subagent-tool|dispatch-error|no-parseable-verdict-exhausted>`.
 
 **Fallback — `state-owner unavailable`.** Exactly **2 classes** route here, and nothing else:

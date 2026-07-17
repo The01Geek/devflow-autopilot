@@ -1279,7 +1279,13 @@ def cmd_record_creation_epoch(args):
     if rnd is None:
         _fail('record-creation-epoch', f'no round {args.round} is recorded to bind '
                                        'creation to')
-    if (doc.get('creation') or {}).get('attestation') is not None:
+    if rnd.get('outcome') is None:
+        _fail('record-creation-epoch', f'round {args.round} is still open; creation '
+                                       'can only bind a completed round')
+    if (doc.get('creation') or {}).get('attestation') not in (None,
+                                                               'attestation-unavailable'):
+        # attestation-unavailable is NOT tamper evidence (it is the honest unknown), so
+        # a corrective retry may re-bind past it; match/mismatch stay frozen.
         _fail('record-creation-epoch',
               'an attestation is already recorded; re-binding the creation epoch would '
               'silently discard that tamper evidence')
@@ -1298,7 +1304,7 @@ def cmd_record_creation_attestation(args):
     if not doc.get('creation'):
         _fail('record-creation-attestation', 'no creation epoch is recorded; there is '
                                              'nothing to attest against')
-    if doc['creation'].get('attestation') is not None:
+    if doc['creation'].get('attestation') not in (None, 'attestation-unavailable'):
         _fail('record-creation-attestation',
               'an attestation is already recorded for this epoch; the attestation is '
               'forward-only tamper evidence and cannot be overwritten')
@@ -1413,7 +1419,10 @@ def cmd_query_next_action(args):
 def cmd_query_triggers(args):
     state = _query_state(args.slug)
     if state is not None and state['nonce'] != args.nonce:
-        state = None
+        # Fail closed like the sibling queries, but NAME the cause: the state file is
+        # valid, the caller is foreign — 'state-unestablished' would misattribute.
+        print('t1=not-hold t2=hold reason=foreign-nonce')
+        return
     t = evaluate_triggers(state)
     reason = t['reason'] or ''
     print(f't1={"hold" if t["t1"] else "not-hold"} '
@@ -1453,6 +1462,11 @@ def cmd_query_eligibility(args):
 def cmd_query_summary(args):
     state = _query_state(args.slug)
     if state is not None and state['nonce'] != args.nonce:
+        # The rendered line stays the fail-closed unestablished shape, but the CAUSE is
+        # named on stderr so a transcript reader can tell a foreign nonce from a
+        # missing/corrupt record.
+        print(f'query: nonce mismatch for slug {args.slug} (the state file is owned by '
+              f'another run); answering unestablished', file=sys.stderr)
         state = None
     digest = None
     digest_failed = False

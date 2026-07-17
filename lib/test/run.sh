@@ -42141,6 +42141,39 @@ if [ -d "$I5_SB" ]; then
       --carriage-object-id "$OID" > /dev/null 2>&1
     for _i in 1 2 3; do python3 "$IAS" record-offer i5e --nonce "$N5" --accepted > /dev/null 2>&1; done
     python3 "$IAS" record-override i5e --nonce "$N5" --kind cap-reached > .i5-cap-ok 2>&1; printf '%s' "$?" > .i5-cap-ok-rc
+
+    # bounded-tolerance negative control: TWO extra newlines stay a mismatch. Fresh slug
+    # (the i5c epoch above is already attested match — forward-only).
+    N6="$(python3 "$IAS" init i5f | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5f --nonce "$N6" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i5f --nonce "$N6" --round 1 --verdict FILE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch i5f --nonce "$N6" --round 1 > /dev/null 2>&1
+    { python3 "$IAS" emit-body i5f --nonce "$N6" --draft-file draft.md; printf '\n\n'; } \
+      | python3 "$IAS" record-creation-attestation i5f --nonce "$N6" > .i5-att-nl2 2> .i5-att-nl2-err
+
+    # foreign-nonce trigger naming
+    python3 "$IAS" query-triggers i5f --nonce badnonce > .i5-fn-trig 2>/dev/null
+
+    # attestation-unavailable is re-attestable: record unavailable, then a corrective
+    # retry attests the genuine bytes to match
+    N7="$(python3 "$IAS" init i5g | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5g --nonce "$N7" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i5g --nonce "$N7" --round 1 --verdict FILE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch i5g --nonce "$N7" --round 1 > /dev/null 2>&1
+    python3 "$IAS" record-creation-attestation i5g --nonce "$N7" --attestation-unavailable > /dev/null 2>&1
+    python3 "$IAS" emit-body i5g --nonce "$N7" --draft-file draft.md \
+      | python3 "$IAS" record-creation-attestation i5g --nonce "$N7" > .i5-uv-reattest 2>&1
+
+    # creation cannot bind an open round
+    N8="$(python3 "$IAS" init i5h | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5h --nonce "$N8" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch i5h --nonce "$N8" --round 1 \
+      > /dev/null 2> .i5-open-epoch; printf '%s' "$?" > .i5-open-epoch-rc
   )
   assert_eq "#546 iter5_hardening_rows: an unrequested re-dispatch on an open round refuses" \
     "1" "$(grep -c 'a re-dispatch was not requested' "$I5_SB/.i5-redisp" 2>/dev/null)"
@@ -42156,6 +42189,14 @@ if [ -d "$I5_SB" ]; then
     "1:1" "$(cat "$I5_SB/.i5-empty-rc" 2>/dev/null):$(grep -c 'empty body below its title' "$I5_SB/.i5-empty-err" 2>/dev/null)"
   assert_eq "#546 iter5_hardening_rows: one fetch-framing trailing newline still attests match (disclosed)" \
     "attestation=match:1" "$(cat "$I5_SB/.i5-att-nl" 2>/dev/null):$(grep -c 'matched modulo' "$I5_SB/.i5-att-nl-err" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: TWO extra newlines stay a mismatch (the tolerance is bounded to exactly one)" \
+    "attestation=mismatch:0" "$(cat "$I5_SB/.i5-att-nl2" 2>/dev/null):$(grep -c 'matched modulo' "$I5_SB/.i5-att-nl2-err" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: query-triggers names a foreign nonce instead of misattributing unestablished" \
+    "t1=not-hold t2=hold reason=foreign-nonce" "$(cat "$I5_SB/.i5-fn-trig" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: an attestation-unavailable record may be re-attested (it is the honest unknown, not tamper evidence)" \
+    "attestation=match" "$(cat "$I5_SB/.i5-uv-reattest" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: creation cannot bind an OPEN round" \
+    "1" "$(grep -c 'still open; creation can only bind' "$I5_SB/.i5-open-epoch" 2>/dev/null)"
   assert_eq "#546 iter5_hardening_rows: cap-reached at the ceiling is accepted (accept side)" \
     "0" "$(cat "$I5_SB/.i5-cap-ok-rc" 2>/dev/null)"
   rm -rf "$I5_SB"
