@@ -41,6 +41,7 @@ concurrent worktree runs, letting a foreign delete-first wipe this run's state.
 """
 
 import argparse
+import functools
 import hashlib
 import json
 import os
@@ -264,8 +265,15 @@ def _run(cmd, *, data=None):
     )
 
 
+@functools.lru_cache(maxsize=1)
 def _repo_root():
-    """The git repo root, or None. Native `git` subprocess — never a `.sh` exec (#275)."""
+    """The git repo root, or None. Native `git` subprocess — never a `.sh` exec (#275).
+
+    Memoized: the value cannot change within a process (the cwd never moves mid-run), but
+    `state_path()` is called by both `load_state` and `save_state`, so every mutation would
+    otherwise re-spawn `git rev-parse` for the same answer. The explicit `root=` argument
+    the tests use bypasses this entirely.
+    """
     try:
         r = _run(['git', 'rev-parse', '--show-toplevel'])
     except (subprocess.CalledProcessError, OSError):
@@ -630,11 +638,23 @@ def evaluate_eligibility(state, mode, current_digest=None):
 
 
 def _yes(state, ground, key):
+    # The ground is printed and feeds the eligibility token's derivation, so an
+    # off-vocabulary ground would mint a token no reader can attribute to a known ground.
+    if ground not in _GROUNDS:
+        raise AssertionError(
+            f'issue-audit-state: eligibility answered on ground {ground!r}, which is not '
+            f'in _GROUNDS')
     return {'answer': 'eligible', 'reason': None, 'ground': ground,
             'token': issue_token(state['nonce'], ground, key), 'key': key}
 
 
 def _no(reason):
+    # Every refusal carries a machine-readable reason from the canonical set: the skill
+    # routes on these tokens, so an unlisted one is a refusal it cannot act on.
+    if reason not in _ELIGIBILITY_REASONS:
+        raise AssertionError(
+            f'issue-audit-state: eligibility refused with reason {reason!r}, which is not '
+            f'in _ELIGIBILITY_REASONS')
     return {'answer': 'not-eligible', 'reason': reason, 'ground': None, 'token': None}
 
 
@@ -660,12 +680,27 @@ def next_action(state, round_no):
     # this query only reads them, so the retry arms cannot be re-derived (and re-decided)
     # differently here than they were recorded.
     if rnd.get('pending_embed_retry'):
-        return 'dispatch-embed-retry'
+        return _checked_action('dispatch-embed-retry')
     if rnd.get('pending_inline_degraded'):
-        return 'dispatch-inline-degraded'
+        return _checked_action('dispatch-inline-degraded')
     if rnd.get('pending_no_verdict_retry'):
-        return 'dispatch-retry-same-arm'
-    return 'proceed'
+        return _checked_action('dispatch-retry-same-arm')
+    return _checked_action('proceed')
+
+
+def _checked_action(token):
+    """Fail closed on an answer outside the canonical set.
+
+    The skill is contractually required to obey this answer verbatim against a closed
+    vocabulary it enumerates. An answer outside `_NEXT_ACTIONS` is therefore a token the
+    skill has no route for — it would read as an unrecognized string mid-lifecycle. Making
+    the set constrain the return keeps `_NEXT_ACTIONS` load-bearing rather than decorative.
+    """
+    if token not in _NEXT_ACTIONS:
+        raise AssertionError(
+            f'issue-audit-state: next_action produced {token!r}, which is not in '
+            f'_NEXT_ACTIONS — the skill obeys this answer against a closed set')
+    return token
 
 
 def _find_round(state, round_no):
