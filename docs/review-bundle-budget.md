@@ -138,13 +138,16 @@ stale-lint reference the gate loads by default, and reported the standalone row 
 overstated the true reduction by the whole stale-lint reference (~16 KB). The rows above are measured
 against the sets each path really loads.
 
-`lib/test/run.sh` asserts these two rows **live** rather than comparing checked-in constants: it
-re-measures the real member sets on every run, and compares them against the real `origin/main`
-baseline whenever that baseline resolves — so a bundle that grew past its baseline turns the suite's
-reading of this table red instead of leaving the numbers above quietly wrong. When `origin/main` does
-not resolve (a shallow or fresh clone — CI sets `fetch-depth: 0` precisely so it does), the baseline
-comparison **self-skips** and those two rows go unverified for that run; the member-set checks still
-run. A skipped check is never a clean pass.
+`lib/test/run.sh` re-measures the **after** side of these rows from the real member sets on every
+run and compares it against a **frozen** pre-split baseline — so a bundle that grew past that
+baseline turns the suite red instead of leaving the numbers above quietly wrong. Only the *after*
+needs to be live; the baseline is a historical measurement of a commit that no longer moves, and it
+is checked in as a constant on purpose. **Do not "restore" a live `origin/main` read here.** That is
+what the code used to do, and it was a trap: once this split merges, `origin/main` *is* the split, so
+the baseline would collapse from the monolith's bytes to the thin root's, both rows would invert into
+a growth warning, and the required CI job would go red on the merge commit and on every pull request
+after it — green in the PR that introduced it, red forever after. The AC4 record checks below assert
+that the constant and this page publish the same number, so the two cannot drift apart.
 
 ## Justified growth
 

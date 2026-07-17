@@ -31224,9 +31224,8 @@ assert_eq "#529 AC5: the reporter never gates the suite (exit 0 on every arm)" "
 # from the real member sets every run, so a bundle that grows past the baseline still
 # turns these red. Only the BEFORE is frozen, because a historical measurement cannot
 # change. The doc publishes the same number as its "before" column, and the growth pin
-# already uses this literal; the assertion below keeps code and record coupled.
-# The record publishes this same number as its "before" column; the record loop below
-# asserts they agree, so code and record cannot drift apart.
+# already uses this literal, and the AC4 record loop below asserts the two agree, so
+# code and record cannot drift apart.
 RB_BASELINE_BYTES=237113
 # The AC5 rows measure the sets that REALLY execute, never the AC3 default set.
 RB_STANDALONE_BYTES=$(cat "${_rb_standalone[@]}" | wc -c | tr -d ' ')
@@ -31245,10 +31244,9 @@ assert_eq "#529 AC5: the standalone-only selector names the phase the ROOT route
   "yes" "$(grep -F "\`${REVIEW_STANDALONE_ONLY_STEM}.md\`" "$REVIEW_ROOT" | grep -qF '**standalone only' && echo yes || echo no)"
 assert_eq "#529 AC5: the stale-lint selector names the phase whose gate the ROOT documents as defaulting true" \
   "yes" "$(grep -F "\`${REVIEW_STALE_LINT_STEM}.md\`" "$REVIEW_ROOT" | grep -qF 'defaults **true**' && echo yes || echo no)"
-# ── Anti-vacuity, hoisted OUT of the baseline gate ────────────────────────────
-# These compare two LIVE measurements and need no origin/main baseline, so gating
-# them on one would silently retire the backstop on exactly the hosts that take the
-# skip below.
+# ── Anti-vacuity backstops ───────────────────────────────────────────────────
+# These compare two LIVE measurements against each other and read no baseline at all,
+# so they hold on every host.
 # The standalone set must really CARRY the stale-lint reference: if it collapses onto
 # the default set the -34401 overstatement is back, and both rows below would still
 # read "decreased by" — green, and wrong.
@@ -31292,10 +31290,10 @@ _rb_growth_bytes=$(( $(cat "${_review_members[@]}" "$RB_EXT" | wc -c | tr -d ' '
 _rb_shipped_w=$(cat "${_rb_standalone[@]}" | wc -w | tr -d ' ')
 while IFS='~' read -r _rbn _rbe; do
   [ -n "$_rbn" ] || continue
-  assert_eq "#529 AC4: the budget record publishes the LIVE $_rbn (a stale constant cannot ship green)" "yes" \
+  assert_eq "#529 AC4: the budget record and the code agree on $_rbn (a stale figure cannot ship green)" "yes" \
     "$(grep -qF -- "$_rbe" "$RB_DOC" && echo yes || echo no)"
 done <<RECORD
-pre-split baseline (the frozen "before" column)~$(_rb_grouped "$RB_BASELINE_BYTES") / $(_rb_grouped "$(_rb_ceil4 "$RB_BASELINE_BYTES")")
+frozen pre-split baseline, as the record's "before" column spells it~$(_rb_grouped "$RB_BASELINE_BYTES") / $(_rb_grouped "$(_rb_ceil4 "$RB_BASELINE_BYTES")")
 AC3 default-path words~**$(_rb_grouped "$RB_DEFAULT_W")**
 AC2 root+extension words~**$(_rb_grouped "$((RB_ROOT_W + RB_EXT_W))")**
 standalone execution-weighted bytes~$(_rb_grouped "$RB_STANDALONE_BYTES") B
