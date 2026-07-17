@@ -138,6 +138,8 @@ If the sweep demonstrates no falsehood, add the line `truthfulness sweep: no fin
 
 **#504 displaced-path routing (this sweep).** When verifying a flagged claim about a path the run's ground-truth block lists as #458-displaced, the working-tree copy is base-ref/stub bytes (not HEAD) — verify against `git show <head>:<path>` + the cached diff, never a working-tree read; a base-state claim via `git show $PR_BASE_SHA:<path>`. On a routed-read error where the cached diff does not evidence the path as deleted at head, probe `git cat-file -e <head>:<path>` and leave the finding INCONCLUSIVE (never working-tree/fetch fallback). Listed paths stay fully in review scope (channel, not depth). Inert with no displaced list; per-mode head binding and the full fail direction live in the truthfulness-contract routing (the `defect_signature` block pasted to every Phase-3 agent).
 
+**Phase 4.1.7 runs at this seam — after 4.1.6, before 4.2 — when its gate is met**; 4.2 consumes its adjudications.
+
 ### 4.2 Determine verdict
 
 **Resolve the verdict-severity threshold once, before applying the rules.** Read `devflow_review.verdict_severity_threshold` (default `critical`) via the same portable skill-dir-anchored, no-`bash`-prefix `config-get.sh` invocation the live-progress-comment gate uses. `config-get.sh` reads the value but does **not** validate the enum — it coerces any JSON value to a string — so validate the enum **inline** and fall back to the default `critical` on a resolver failure (rc≠0) or any value outside the enum, with a **specific breadcrumb naming the key and the fallback value** (never aborting the review):

@@ -30986,6 +30986,36 @@ for _s in $REVIEW_DEFAULT_PHASE_STEMS; do
   _rb_default+=("$LIB/../skills/review/phases/${_s}.md")
 done
 RB_DEFAULT_W=$(cat "${_rb_default[@]}" | wc -w | tr -d ' ')
+# ── AC5's execution-weighted sets are NOT the AC3 default set ─────────────────
+# AC3 measures a hypothetical path ("no blocker fast path and no stale-prose
+# predicate"); AC5 measures paths that REALLY execute. Conflating them published a
+# -34401 standalone reduction that overstated the real one by the whole stale-lint
+# reference (~16k bytes) and pinned a decrease to a set nobody runs:
+#   standalone  = default set + the stale-lint reference. Its gate
+#     `devflow_review.stale_prose.enabled` defaults TRUE in the shipped config, so
+#     an ORDINARY standalone pass reads it. Includes 4.4 (standalone posts to GitHub).
+#   normal+shadow (/devflow:review-and-fix) = the same, MINUS the standalone-only 4.4
+#     (the root routes it "standalone only"), read TWICE — its own membership, not a
+#     doubling of the standalone row.
+# The blocker re-check is in NEITHER: its predicate needs a prior REJECT driven
+# solely by carve-out blockers, so an ordinary pass never loads it, and on a hit it
+# REPLACES phases 1-3 rather than adding to them — never a sum term.
+REVIEW_STALE_LINT_STEM="phase-0-6-stale-prose-lint"
+REVIEW_STANDALONE_ONLY_STEM="phase-4-4-github-post"
+# Fail closed on a rename: these two stems are SELECTORS over the stem sets, so if
+# either stops naming a real member the standalone set silently collapses onto the
+# default set — resurrecting the very bug this block fixes, vacuously green.
+assert_eq "#529 AC5: the stale-lint selector names a real GATED stem (a rename cannot silently empty the standalone set)" \
+  "yes" "$(case " $REVIEW_GATED_PHASE_STEMS " in *" $REVIEW_STALE_LINT_STEM "*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#529 AC5: the standalone-only selector names a real DEFAULT stem (a rename cannot silently keep 4.4 in the shadow set)" \
+  "yes" "$(case " $REVIEW_DEFAULT_PHASE_STEMS " in *" $REVIEW_STANDALONE_ONLY_STEM "*) echo yes ;; *) echo no ;; esac)"
+_rb_standalone=("${_rb_default[@]}" "$LIB/../skills/review/phases/${REVIEW_STALE_LINT_STEM}.md")
+_rb_raf=("$REVIEW_ROOT" "$RB_EXT")
+for _s in $REVIEW_DEFAULT_PHASE_STEMS; do
+  [ "$_s" = "$REVIEW_STANDALONE_ONLY_STEM" ] && continue
+  _rb_raf+=("$LIB/../skills/review/phases/${_s}.md")
+done
+_rb_raf+=("$LIB/../skills/review/phases/${REVIEW_STALE_LINT_STEM}.md")
 # Directory reconciliation (the IMPL_PHASE_STEMS precedent): the real phases/*.md
 # set must equal REVIEW_PHASE_STEMS, so a reference added on disk but not
 # registered — or registered but deleted — turns the suite RED here instead of
@@ -31118,6 +31148,20 @@ assert_eq "#529 AC5: an unestablished measurement reports unavailable, never 0/n
   "$("$RB_DBD" 'r' '' 5 | grep -qF 'delta unavailable' && echo yes || echo no)"
 assert_eq "#529 AC5: a non-numeric measurement reports unavailable, never a bogus delta" "yes" \
   "$("$RB_DBD" 'r' abc 5 | grep -qF 'delta unavailable' && echo yes || echo no)"
+# The missing-row-NAME arm — the block header claims "every arm, and the ARM ORDER",
+# but nothing pinned that arm's message or its precedence: deleting it, or folding it
+# into the unestablished-operand arm below it, left every assertion GREEN. Both halves
+# are needed. This half pins the message (a fold reports "delta unavailable" — naming
+# a cause the code observed to be FALSE, since no measurement is missing).
+assert_eq "#529 AC5: a missing row NAME is reported as a caller bug, not as a missing measurement" "yes" \
+  "$("$RB_DBD" '' '' '' | grep -qF 'delta not reported: the caller passed no row name' && echo yes || echo no)"
+# This half pins PRECEDENCE over the growth arm: with a real growth and no row name,
+# the missing-name arm must win. Deleting it emits an unattributable
+# "justified-growth:  grew by 37" naming no row — the warning AC5 exists to make
+# actionable, fired at nobody.
+assert_eq "#529 AC5: the missing-row-name arm PRECEDES the growth arm (a nameless growth warning is never emitted)" "yes" \
+  "$(RB_A1="$("$RB_DBD" '' 100 137)"; printf '%s' "$RB_A1" | grep -qF 'the caller passed no row name' \
+     && ! printf '%s' "$RB_A1" | grep -qF '::warning::' && echo yes || echo no)"
 assert_eq "#529 AC5: the reporter never gates the suite (exit 0 on every arm)" "0|0|0|0" \
   "$("$RB_DBD" r 1 2 >/dev/null; printf '%s' $?; printf '|'; "$RB_DBD" r 2 1 >/dev/null; printf '%s' $?; printf '|'; \
      "$RB_DBD" r '' 1 >/dev/null; printf '%s' $?; printf '|'; "$RB_DBD" >/dev/null 2>&1; printf '%s' $?)"
@@ -31127,13 +31171,25 @@ assert_eq "#529 AC5: the reporter never gates the suite (exit 0 on every arm)" "
 # bundle grew, leaving the justified-growth warning wired to nothing.
 RB_BASE_BYTES=$(git -C "$LIB/.." show origin/main:skills/review/SKILL.md 2>/dev/null | wc -c | tr -d ' ')
 RB_BASE_EXT_BYTES=$(git -C "$LIB/.." show origin/main:.devflow/prompt-extensions/review.md 2>/dev/null | wc -c | tr -d ' ')
-RB_LIVE_BYTES=$(cat "${_rb_default[@]}" | wc -c | tr -d ' ')
-if [ -n "$RB_BASE_BYTES" ] && [ "$RB_BASE_BYTES" -gt 0 ] 2>/dev/null; then
+# The AC5 rows measure the sets that REALLY execute, never the AC3 default set.
+RB_STANDALONE_BYTES=$(cat "${_rb_standalone[@]}" | wc -c | tr -d ' ')
+RB_RAF_BYTES=$(cat "${_rb_raf[@]}" | wc -c | tr -d ' ')
+# RB_BASE_EXT_BYTES is summed into the baseline below, where an empty value would
+# silently sum as 0 and UNDERSTATE the baseline — making a decrease easier to claim.
+# Its live twin RB_EXT_W already carries exactly this check; the baseline operand had
+# none, so both halves of every comparison are now proven measured before use.
+if [ -n "$RB_BASE_BYTES" ] && [ "$RB_BASE_BYTES" -gt 0 ] 2>/dev/null \
+   && [ -n "$RB_BASE_EXT_BYTES" ] && [ "$RB_BASE_EXT_BYTES" -gt 0 ] 2>/dev/null; then
   RB_BASELINE=$((RB_BASE_BYTES + RB_BASE_EXT_BYTES))
   assert_eq "#529 AC5: standalone execution-weighted traffic decreased against the LIVE baseline" "yes" \
-    "$("$RB_DBD" 'standalone execution-weighted bytes' "$RB_BASELINE" "$RB_LIVE_BYTES" | grep -qF 'decreased by' && echo yes || echo no)"
+    "$("$RB_DBD" 'standalone execution-weighted bytes' "$RB_BASELINE" "$RB_STANDALONE_BYTES" | grep -qF 'decreased by' && echo yes || echo no)"
   assert_eq "#529 AC5: one normal-plus-shadow pass decreased against the LIVE baseline" "yes" \
-    "$("$RB_DBD" 'normal+shadow bytes' "$((RB_BASELINE * 2))" "$((RB_LIVE_BYTES * 2))" | grep -qF 'decreased by' && echo yes || echo no)"
+    "$("$RB_DBD" 'normal+shadow bytes' "$((RB_BASELINE * 2))" "$((RB_RAF_BYTES * 2))" | grep -qF 'decreased by' && echo yes || echo no)"
+  # Anti-vacuity: the standalone row must really CARRY the stale-lint reference. If it
+  # ever equals the default set again, the -34401 overstatement is back and the two
+  # rows above would still read "decreased by" — green, and wrong.
+  assert_eq "#529 AC5: the standalone set is strictly LARGER than the AC3 default set (it carries the stale-lint reference)" \
+    "yes" "$([ "$RB_STANDALONE_BYTES" -gt "$(cat "${_rb_default[@]}" | wc -c | tr -d ' ')" ] && echo yes || echo no)"
 else
   skip "#529 AC5 live execution-weighted comparison" host-capability \
     "origin/main is unavailable, so the pre-split baseline could not be measured"

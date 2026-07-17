@@ -43,7 +43,7 @@ When the block IS present:
 
 **Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
 
-**In cloud, the resolved anchor IS the command's leading token, and it must resolve to the vendored literal.** On the cloud `review` runner the anchor variable is set, so each helper call written through the portable anchor (`…/../../<dir>/<helper>`) resolves — as the command's *leading token* — under `.devflow/vendor/devflow/<dir>/<helper>`, which the read-only `review` allowlist grants (the matcher probe confirms a repo-relative vendored-literal helper path executes: `.github/workflows/matcher-probe.yml` row 5). Emit the resolved literal path as the leading token, never the *unexpanded* anchor placeholder itself — the probe confirms the unexpanded anchor form is denied (row 4). Non-cloud runners keep the anchor recipe above unchanged (they substitute their own reported base directory).
+**In cloud, the resolved anchor IS the command's leading token, and it must resolve to the vendored literal.** On the cloud `review` runner the anchor variable is set, so each helper call written through the portable anchor (`…/../../<dir>/<helper>`) resolves — as the command's *leading token* — under `.devflow/vendor/devflow/<dir>/<helper>`, which the read-only `review` allowlist grants (the matcher probe confirms a repo-relative vendored-literal helper path executes: `.github/workflows/matcher-probe.yml` row 5). Non-cloud runners keep the anchor recipe above unchanged (they substitute their own reported base directory).
 
 **Cloud command-shape discipline.** The cloud `review` runner's harness denies whole command *shapes* even when the command *head* is granted — silently, burning budget until a run can end with no verdict. Keep every command you emit to a **permitted** shape; the denied shapes below are keyed to the empirical matcher probe (`.github/workflows/matcher-probe.yml`, re-runnable after any action/CLI upgrade — that workflow's table is the evidence of record).
 
@@ -308,10 +308,11 @@ git hash-object <skill-dir>/SKILL.md <skill-dir>/phases/phase-0-setup.md <skill-
 
 With the **Write tool**, author the **bundle manifest** — canonical root path, root hash, and each reference's path and hash — to `.devflow/tmp/review/<slug>/<run-id>/root-identity.json` (the run-scoped dir Phase 0.2 created; `Write(.devflow/tmp/**)` is the probe-permitted shape).
 
-**Every phase entry — and every shadow entry** (`/devflow:review-and-fix` Step 2.6 re-enters this engine and is one) — **re-derives identity before acting, never trusting a value it merely remembers.** Compaction is the reason: re-run the anchor `echo`, `Read` the manifest, and re-run `git hash-object` on the root and the reference you are about to read. Then require the same identity:
+Re-deriving identity means: re-run the anchor `echo`, `Read` the manifest, and re-run `git hash-object` on the root and the reference you are about to read. Compaction is why a remembered value is never enough. Then require the same identity:
 
 | Fires when | Stop label |
 |---|---|
+| re-derivation errored, was refused, printed empty, or returned fewer hashes than paths | `identity: underived` |
 | manifest absent, unreadable, or unparseable | `identity: state-missing` |
 | re-resolved root path differs from the manifest's canonical root path | `identity: root-moved` |
 | a re-derived hash differs from the manifest's hash for that path | `identity: mismatch` |
@@ -341,19 +342,19 @@ After the `Read`: **quote the body's literal first and last lines**, and let `S`
 
 ### Phase routing
 
-**Entry-gate (mandatory, on every entry).** Before any action in a phase: re-derive **root identity**, `Read` its reference, and clear the **boundary contract** — all three, in that order, every time you (re-)enter it, never relying on an earlier read or a remembered summary — then follow the reference exactly. On any failure, halt that phase with its attributable label above, naming the phase.
+**Entry-gate (mandatory, on every phase entry — and every shadow entry**, as `/devflow:review-and-fix` Step 2.6 re-enters this engine**).** Before any action in a phase: re-derive **root identity**, `Read` its reference, and clear the **boundary contract** — all three, in that order, never from an earlier read or a remembered summary — then follow the reference exactly.
 
 | Phase | Reference under `<skill-dir>/phases/` | Loaded when | Orientation only — the reference is authoritative |
 |---|---|---|---|
 | 0 | `phase-0-setup.md` | always | PR/branch resolution, diff scope + cache, live-comment seed, issue discovery, five-flag classification (0.1–0.5) |
-| 0.3.6 | `phase-0-3-6-blocker-recheck.md` | **standalone PR mode only** | blocker re-check — evaluate right after 0.3.5 and **before** 0.4/0.5; on a hit, 0.4/0.5 outputs are never consumed. Absent from the default Implement and fix-loop paths |
+| 0.3.6 | `phase-0-3-6-blocker-recheck.md` | **standalone PR mode only**, and only over a prior REJECT driven **solely** by carve-out blockers — never an ordinary pass | blocker re-check — evaluate right after 0.3.5 and **before** 0.4/0.5; on a hit it **replaces Phases 1–3**, ending the run with a re-verdict, so 0.4/0.5 outputs are never consumed. Absent from the default Implement and fix-loop paths |
 | 0.6 | `phase-0-6-stale-prose-lint.md` | config `devflow_review.stale_prose.enabled` — defaults **true**; only an explicit `false` disables | stale-prose lint; runs immediately after 0.5 |
 | 1 | `phase-1-checklist.md` | always | checklist generation, then 1.5 dedup |
 | 2 | `phase-2-verification.md` | always | checklist verification |
 | 3 | `phase-3-agents.md` | always | review agents, per-agent prompts, `defect_signature` contract |
 | 4 | `phase-4-verdict.md` | always | 4.0–4.1.6, 4.2 verdict, 4.3 present report, 4.5 telemetry |
-| 4.1.7 | `phase-4-1-7-stale-adjudication.md` | **PR mode only**, and only over STALE findings from 0.6 being adjudicated false positives | stale-finding adjudication |
-| 4.4 | `phase-4-4-github-post.md` | **standalone only, PR mode only** (`$ARGUMENTS` is a PR number) | post the verdict to GitHub. `/devflow:review-and-fix` — normal **and** shadow passes — runs the bundle through 4.3 and **skips 4.4 entirely** |
+| 4.1.7 | `phase-4-1-7-stale-adjudication.md` | **PR mode only**, and only over STALE findings from 0.6 being adjudicated false positives | stale-finding adjudication; runs after 4.1.6 and **before** 4.2 |
+| 4.4 | `phase-4-4-github-post.md` | **standalone only, PR mode only** (`$ARGUMENTS` is a PR number) | post the verdict to GitHub. `/devflow:review-and-fix` **skips 4.4 entirely** — shadow passes included |
 
 A gated phase whose condition is unmet is neither loaded nor run; evaluate each gate from the state earlier phases established, never from a guess.
 
