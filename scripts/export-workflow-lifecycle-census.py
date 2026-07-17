@@ -78,8 +78,18 @@ def build_snapshot(repo: str, workflow_set: list[str], closed_after: str, closed
                 "started_at": job.get("started_at"),
                 "run_started_at": run.get("run_started_at"),
                 "completed_at": job.get("completed_at"),
-                "conclusion": job.get("conclusion") or run.get("conclusion"),
-                "status": job.get("status") or run.get("status"),
+                # conclusion/status are JOB-level ONLY (null when the jobs API
+                # omits them) — the analyzer's eligibility guard reads them as
+                # per-job evidence, so folding in the run-level values would
+                # promote a job with no job-level evidence to
+                # confirmed_eligible on the run's say-so: the same fail-open
+                # the started_at/run_started_at split above closes (PR #531
+                # iteration-1; the run-level values are carried separately for
+                # reference, exactly like run_started_at).
+                "conclusion": job.get("conclusion"),
+                "status": job.get("status"),
+                "run_conclusion": run.get("conclusion"),
+                "run_status": run.get("status"),
                 "html_url": job.get("html_url") or run.get("html_url"),
             })
     rows_payload = json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -122,8 +132,17 @@ def _gh_json(gh: str, args: list[str]) -> Any:
         return None
     if proc.returncode != 0 or not proc.stdout.strip():
         stderr = (proc.stderr or "").strip()
-        if stderr:
-            print(f"devflow census-export: gh failed (rc={proc.returncode}): {stderr[:300]}", file=sys.stderr)
+        # Breadcrumb UNCONDITIONALLY: an rc!=0 with empty stderr, and an rc==0
+        # with empty stdout, previously degraded with no diagnostic at all —
+        # the indistinguishable reasonless pagination_complete=False this
+        # function's docstring says was fixed (PR #531 iteration-1,
+        # silent-failure finding 4). Name the rc and whether stdout was empty.
+        print(
+            f"devflow census-export: gh failed (rc={proc.returncode}, stdout "
+            f"{'empty' if not proc.stdout.strip() else 'present'})"
+            + (f": {stderr[:300]}" if stderr else " — no stderr from gh"),
+            file=sys.stderr,
+        )
         return None
     try:
         return json.loads(proc.stdout)
@@ -225,8 +244,11 @@ def _atomic_write(path: Path, data: bytes) -> None:
     parent.mkdir(parents=True, exist_ok=True)
     try:
         os.chmod(parent, DIR_MODE)
-    except OSError:
-        pass
+    except OSError as exc:
+        # Same class-sweep fix as the analyzer's _atomic_write (PR #531
+        # iteration-1): a failed hardening chmod stays best-effort but is
+        # surfaced, never silent.
+        print(f"devflow census-export: could not chmod {parent} to 0700 ({exc}); artifacts may carry umask permissions", file=sys.stderr)
     import tempfile
     fd, tmp = tempfile.mkstemp(dir=str(parent), prefix=".census-")
     try:

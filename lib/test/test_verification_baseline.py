@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import importlib.util
+import hashlib
 import io
 import json
 import os
@@ -161,7 +162,9 @@ def make_launch(
     finished: str = "2026-07-16T01:02:00Z",
     result_presence: bool = True,
 ) -> VerificationProcessLaunch:
-    binding = BindingIdentity(digest=binding_digest, secret_affected=secret_affected, secret_slots=("env:TOKEN",) if secret_affected else (), redacted_display="lib/test/run.sh")
+    # BindingIdentity now validates its digest shape at construction; derive a
+    # real sha256 from the seed so distinct seeds stay distinct bindings.
+    binding = BindingIdentity(digest=hashlib.sha256(binding_digest.encode("utf-8")).hexdigest(), secret_affected=secret_affected, secret_slots=("env:TOKEN",) if secret_affected else (), redacted_display="lib/test/run.sh")
     ws = {
         "covered_roots": ["head", "index", "submodule", "tracked", "untracked", "ignored_gen_dep"] if ws_coverage == "complete" else ["head"],
         "observation_method": "source_event_results",
@@ -216,6 +219,15 @@ class RegistryAndCensusTests(_TmpDirTestCase):
         cm = load_cloud_mappings(REGISTRY)
         self.assertTrue(any("\x1fclaude" in k for k in cm))
         self.assertEqual(cm[".github/workflows/devflow-implement.yml\x1fclaude"]["consumer"], "implement")
+        # PR #531 iter-1 VC-40: devflow-review.yml's `review` job is a reusable-
+        # workflow call (uses: devflow-runner.yml) — the Actions jobs API reports
+        # the nested agent job as "review / run" (caller-job / called-job), so the
+        # mapping must key on that literal or every auto-review census row is
+        # silently non-agent. The bare "review" key must NOT be present, and the
+        # workflow_call-only devflow-runner.yml never appears as its own run.
+        self.assertIn(".github/workflows/devflow-review.yml\x1freview / run", cm)
+        self.assertNotIn(".github/workflows/devflow-review.yml\x1freview", cm)
+        self.assertFalse(any(k.startswith(".github/workflows/devflow-runner.yml\x1f") for k in cm))
 
     def test_confirmed_eligible_for_exact_slash_command(self) -> None:
         write_manifest(self.manifests, "sess-1")
@@ -264,12 +276,21 @@ class RegistryAndCensusTests(_TmpDirTestCase):
         # source_unreadable: malformed JSONL.
         write_manifest(self.manifests, "s-unr")
         write_bundle(self.bundles, "s-unr", b"{not jsonline\n")
-        # import_failed: stop-attempts error, no transcript.
+        # import_failed: a stop-attempts log in the REAL writer shape
+        # (_append_bundle_attempt emits success-only {result: "captured", ...}
+        # entries) claiming a capture, but no transcript survived — the
+        # capture-claimed-artifact-gone inconsistency (PR #531 iter-1 VC-5:
+        # the old fixture used error/bytes_verified/ok keys the recorder never
+        # writes, so the reader's failure arm matched a shape no writer produces).
         write_manifest(self.manifests, "s-failed")
         d = self.bundles / "s-failed"
         d.mkdir(parents=True, exist_ok=True)
         (d / "metadata.json").write_text(json.dumps({"schema_version": 2}), encoding="utf-8")
-        (d / "stop-attempts.jsonl").write_text(json.dumps({"error": "byte mismatch"}) + "\n", encoding="utf-8")
+        (d / "stop-attempts.jsonl").write_text(
+            json.dumps({"captured_at": "2026-07-16T01:00:00Z", "transcript_bytes": 123,
+                        "transcript_sha256": "aa", "event_count": 2,
+                        "result": "captured", "source": "stop_hook"}) + "\n",
+            encoding="utf-8")
         rows = build_local_census(self.manifests, reg)
         rows = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
         by = {r.identity.get("session_id"): r.source_status for r in rows}
@@ -425,7 +446,7 @@ class CandidateFailsClosedTests(unittest.TestCase):
 
     def test_mutation_binding_removed(self) -> None:
         a, b = candidate_pair()
-        b = dataclasses.replace(b, binding=BindingIdentity(digest="different", secret_affected=False, secret_slots=(), redacted_display="other"))
+        b = dataclasses.replace(b, binding=BindingIdentity(digest=hashlib.sha256(b"different").hexdigest(), secret_affected=False, secret_slots=(), redacted_display="other"))
         groups = group_launches([a, b])
         # Different bindings -> two single-member groups, no candidate.
         self.assertEqual(len(groups), 2)
@@ -486,6 +507,10 @@ class SamplingReportOutputTests(_TmpDirTestCase):
         write_bundle(self.bundles, "s1", transcript(user("/devflow:implement 527")))
         main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
         run = sorted(self.out.iterdir())[-1]
+        # BOTH halves of the claimed hardening: the parent baseline dir AND the
+        # per-run subdir are 0700 (PR #531 iter-1: the parent-half of the chmod
+        # loop was unasserted, so dropping out_dir from it stayed green).
+        self.assertEqual(stat.S_IMODE(self.out.stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE(run.stat().st_mode), 0o700)
         for f in run.iterdir():
             self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o600)
@@ -797,7 +822,7 @@ class Issue527ReviewFixTests(_TmpDirTestCase):
                 rc = main(["--cleanup", "--out-dir", str(self.out)])
         self.assertNotEqual(rc, 0)
         self.assertIn("fail", buf.getvalue().lower())
-        # The unremovable artifact is still present (fix restores real perms in teardown).
+        # The unremovable artifact is still present (unlink is mocked; nothing on disk was actually removed).
         self.assertTrue((self.out / "baseline.json").exists())
 
     # --- G-A: eligibility must key on invocation_evidence, NOT the always-True
@@ -1105,9 +1130,11 @@ class Pr531ReceivingReviewFixTests(_TmpDirTestCase):
     def test_import_failed_tri_state_none_on_oserror(self) -> None:
         d = self.bundles / "s-tri"
         d.mkdir(parents=True)
-        (d / "stop-attempts.jsonl").write_text(json.dumps({"error": "x"}) + "\n", encoding="utf-8")
-        # Positive control on the same fixture: readable log with an error and
-        # no success -> True (the tri-state's failure arm still works).
+        # Real writer shape: an attempts log whose entries never reached
+        # `result: "captured"` is an attempted-but-never-successful import.
+        (d / "stop-attempts.jsonl").write_text(json.dumps({"result": "started", "source": "stop_hook"}) + "\n", encoding="utf-8")
+        # Positive control on the same fixture: readable log with no captured
+        # entry -> True (the tri-state's failure arm still works).
         self.assertIs(vb._import_failed(d), True)
         with mock.patch("pathlib.Path.read_text", side_effect=OSError("denied")):
             self.assertIsNone(vb._import_failed(d))
@@ -1375,6 +1402,209 @@ class ExporterSubprocessTests(_TmpDirTestCase):
         snap = json.loads(out.read_text(encoding="utf-8"))
         self.assertFalse(snap["pagination_complete"])
         self.assertIn("pagination incomplete", buf.getvalue())
+
+
+class Pr531Iter1FixLoopTests(_TmpDirTestCase):
+    """Regression tests for the PR #531 review-and-fix iteration-1 findings."""
+
+    # --- VC-21: secret redaction must cover quoted values and curl -u creds. ---
+    def test_quoted_env_secret_value_fully_redacted(self) -> None:
+        b = vb._binding_identity('export TOKEN="my secret value" && lib/test/run.sh')
+        self.assertTrue(b.secret_affected)
+        for fragment in ("my secret value", "secret value", "my secret"):
+            self.assertNotIn(fragment, b.redacted_display)
+        # The digest is computed over the redacted form: same shape with a
+        # different quoted secret -> same digest (no secret material digested).
+        b2 = vb._binding_identity('export TOKEN="other hidden words" && lib/test/run.sh')
+        self.assertEqual(b.digest, b2.digest)
+
+    def test_single_quoted_env_secret_value_fully_redacted(self) -> None:
+        b = vb._binding_identity("PASSWORD='p q r' lib/test/run.sh")
+        self.assertTrue(b.secret_affected)
+        self.assertNotIn("p q r", b.redacted_display)
+
+    def test_quoted_flag_secret_value_fully_redacted(self) -> None:
+        b = vb._binding_identity('mytool --token="quoted secret words" lib/test/run.sh')
+        self.assertTrue(b.secret_affected)
+        self.assertNotIn("quoted secret words", b.redacted_display)
+
+    def test_curl_short_u_credentials_redacted(self) -> None:
+        b = vb._binding_identity("curl -u deploy:MYPASS123 https://example.invalid/x")
+        self.assertTrue(b.secret_affected)
+        self.assertNotIn("MYPASS123", b.redacted_display)
+        self.assertIn("url-cred" if "url-cred" in b.secret_slots else "flag:u", b.secret_slots)
+
+    # --- F4: a cancelled/action_required completed job with no job-level
+    #         started_at must never read confirmed_eligible. -----------------
+    def _census_row_state(self, conclusion: str, started_at: "str | None") -> str:
+        snapshot = {
+            "schema_version": 1, "snapshot_hash": "h", "query_time": "t",
+            "pagination_complete": True, "repository": "o/r",
+            "rows": [{"workflow_file": ".github/workflows/devflow-implement.yml",
+                      "job": "claude", "run_id": 1, "run_attempt": 1,
+                      "started_at": started_at, "status": "completed",
+                      "conclusion": conclusion}],
+        }
+        cm = load_cloud_mappings(REGISTRY)
+        rows, _cov = vb.build_cloud_census(snapshot, cm)
+        return rows[0].eligibility_state
+
+    def test_cancelled_never_started_cloud_job_not_confirmed(self) -> None:
+        # A run cancelled while the job was queued: status=completed,
+        # conclusion=cancelled, started_at=None — the agent step never ran.
+        self.assertEqual(self._census_row_state("cancelled", None), ELIGIBILITY_INELIGIBLE)
+
+    def test_action_required_never_started_cloud_job_not_confirmed(self) -> None:
+        self.assertEqual(self._census_row_state("action_required", None), ELIGIBILITY_INELIGIBLE)
+
+    def test_cancelled_with_job_start_is_confirmed(self) -> None:
+        # Cancellation AFTER the job started is genuine start evidence.
+        self.assertEqual(self._census_row_state("cancelled", "2026-07-16T01:00:00Z"), ELIGIBILITY_CONFIRMED)
+
+    # --- F3: "prior missing/cancelled response" requires the missing evidence
+    #         on a member that is NOT the temporally last launch. ------------
+    def test_missing_response_on_last_launch_is_not_prior(self) -> None:
+        first = make_launch("a", start_auth=START_CONFIRMED_TERMINAL,
+                            started="2026-07-16T01:01:00Z", finished="2026-07-16T01:02:00Z")
+        last = make_launch("b", start_auth=START_CONFIRMED_RESULT_MISSING,
+                           started="2026-07-16T01:03:00Z", finished="2026-07-16T01:04:00Z")
+        rel, _conf = vb._classify_relationship([first, last])
+        self.assertNotEqual(rel, REL_CANDIDATE_TRANSPORT_RETRY)
+
+    def test_missing_response_before_relaunch_is_still_candidate(self) -> None:
+        first = make_launch("a", start_auth=START_CONFIRMED_RESULT_MISSING,
+                            started="2026-07-16T01:01:00Z", finished="2026-07-16T01:02:00Z")
+        last = make_launch("b", start_auth=START_CONFIRMED_TERMINAL,
+                           started="2026-07-16T01:03:00Z", finished="2026-07-16T01:04:00Z")
+        rel, conf = vb._classify_relationship([first, last])
+        self.assertEqual(rel, REL_CANDIDATE_TRANSPORT_RETRY)
+        self.assertEqual(conf, CONFIDENCE_EXACT)
+
+    def test_list_order_is_the_fallback_when_timing_is_unbounded(self) -> None:
+        # Members arrive in event order; a missing-timestamp member cannot be
+        # sorted, so list position decides "last".
+        first = make_launch("a", start_auth=START_CONFIRMED_TERMINAL)
+        last = make_launch("b", start_auth=START_CONFIRMED_RESULT_MISSING)
+        object.__setattr__(last, "timing", {"started_at": None, "finished_at": None, "duration_ms": None, "caller_observed_duration_ms": None})
+        rel, _conf = vb._classify_relationship([first, last])
+        self.assertNotEqual(rel, REL_CANDIDATE_TRANSPORT_RETRY)
+
+    # --- F8: a backslash-escaped quote inside a double-quoted argument must
+    #         not flip quote state and manufacture a verification segment. ---
+    def test_escaped_quote_does_not_split_segments(self) -> None:
+        self.assertEqual(
+            vb._classify_taxonomy('git commit -m "note \\" and && pytest later"'),
+            KIND_OTHER_COMMAND)
+
+    def test_odd_escaped_quote_count_stays_one_segment(self) -> None:
+        self.assertEqual(
+            vb._classify_taxonomy('git commit -m "a \\" b \\" c \\" && pytest d"'),
+            KIND_OTHER_COMMAND)
+
+    def test_unquoted_chain_still_splits(self) -> None:
+        self.assertEqual(vb._classify_taxonomy('echo "x" && pytest tests/'), KIND_VERIFICATION)
+
+    # --- VC-5/SFH-2/SFH-3: stop-attempts reader aligned to the real writer. --
+    def test_all_corrupt_stop_attempts_routes_unreadable(self) -> None:
+        write_manifest(self.manifests, "s-corrupt")
+        d = self.bundles / "s-corrupt"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "metadata.json").write_text(json.dumps({"schema_version": 2}), encoding="utf-8")
+        # Valid UTF-8, non-blank lines, zero parseable JSON entries: the failure
+        # log itself is unusable — never "no failure evidence".
+        (d / "stop-attempts.jsonl").write_text("{truncated\n%%%garbage\n", encoding="utf-8")
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        rows = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
+        self.assertEqual(rows[0].source_status, SOURCE_UNREADABLE)
+
+    def test_captured_claim_with_missing_transcript_is_import_failed(self) -> None:
+        write_manifest(self.manifests, "s-gone")
+        d = self.bundles / "s-gone"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "metadata.json").write_text(json.dumps({"schema_version": 2}), encoding="utf-8")
+        (d / "stop-attempts.jsonl").write_text(
+            json.dumps({"result": "captured", "transcript_bytes": 999}) + "\n", encoding="utf-8")
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        rows = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
+        self.assertEqual(rows[0].source_status, SOURCE_IMPORT_FAILED)
+
+    def test_empty_transcript_with_nonzero_capture_claim_is_import_failed(self) -> None:
+        write_manifest(self.manifests, "s-empty")
+        write_bundle(self.bundles, "s-empty", b"",
+                     stop_attempts=[{"result": "captured", "transcript_bytes": 999}])
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        rows = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
+        self.assertEqual(rows[0].source_status, SOURCE_IMPORT_FAILED)
+
+    def test_empty_transcript_with_zero_byte_capture_is_available(self) -> None:
+        write_manifest(self.manifests, "s-empty0")
+        write_bundle(self.bundles, "s-empty0", b"",
+                     stop_attempts=[{"result": "captured", "transcript_bytes": 0}])
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        rows = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
+        self.assertEqual(rows[0].source_status, SOURCE_AVAILABLE)
+
+    # --- F13: an extraction failure is counted and attributed, and a
+    #         total-failure run announces itself. ----------------------------
+    def test_extraction_failure_counter_and_provenance(self) -> None:
+        write_manifest(self.manifests, "s-iso")
+        write_bundle(self.bundles, "s-iso", transcript(
+            user("/devflow:implement 527"), bash_call("lib/test/run.sh", "tu1"),
+            tool_result("tu1", "exit code 0")))
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        rows = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
+        stats: dict = {}
+        with mock.patch.object(vb.wfr, "detect_occurrences", side_effect=KeyError("boom")):
+            import io as _io
+            buf = _io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                _reqs, _launches, rows = vb.extract_verification_lifecycles(
+                    rows, self.bundles, wfr.load_registry(REGISTRY), 64 * 1024 * 1024, stats)
+        self.assertEqual(stats.get("extraction_failure_count"), 1)
+        self.assertEqual(rows[0].provenance.get("extraction_error"), "KeyError")
+
+    # --- F5: the exporter's conclusion/status are job-level only; run-level
+    #         values ride in separate reference keys (like run_started_at). --
+    def test_export_conclusion_and_status_are_job_level_only(self) -> None:
+        exp = _load_export_census()
+        runs = [{"id": 7, "path": ".github/workflows/devflow-implement.yml", "name": "DevFlow Implement",
+                 "run_attempt": 1, "created_at": "c", "run_started_at": "rs",
+                 "conclusion": "success", "status": "completed", "html_url": "u"}]
+        jobs = {7: [{"name": "claude", "started_at": None, "completed_at": None,
+                     "conclusion": None, "status": None, "html_url": None}]}
+        snap = exp.build_snapshot("o/r", ["wf"], "a", "b", runs, jobs, "t", True)
+        row = snap["rows"][0]
+        self.assertIsNone(row["conclusion"])
+        self.assertIsNone(row["status"])
+        self.assertEqual(row["run_conclusion"], "success")
+        self.assertEqual(row["run_status"], "completed")
+
+    # --- Type-design hardening: BindingIdentity validates its own invariants. -
+    def test_binding_identity_post_init_validation(self) -> None:
+        with self.assertRaises(ValueError):
+            BindingIdentity(digest="not-hex!", secret_affected=False, secret_slots=(), redacted_display="x")
+        with self.assertRaises(ValueError):
+            BindingIdentity(digest="a" * 64, secret_affected=True, secret_slots=(), redacted_display="x")
+        with self.assertRaises(ValueError):
+            BindingIdentity(digest="a" * 64, secret_affected=False, secret_slots=("env:T",), redacted_display="x")
+        with self.assertRaises(ValueError):
+            BindingIdentity(digest="a" * 64, secret_affected=False, secret_slots=(), redacted_display="x" * 501)
+
+    # --- Coupled-mirror guard: every record field survives into to_dict(). ---
+    def test_to_dict_carries_every_field(self) -> None:
+        import dataclasses as _dc
+        launch = make_launch("a")
+        req = vb.VerificationRequest(
+            request_id="r", source_event_id="e", lifecycle_id=None, tool_use_id="t",
+            consumer_skill=None, phase_checkpoint=None, command_head="x",
+            binding=launch.binding, request_kind=KIND_VERIFICATION,
+            authorization_start=START_UNKNOWN, timing={}, result_presence=None,
+            exit_evidence=None, skipped_check_evidence=None, provenance={},
+        )
+        for rec in (launch, req, launch.binding):
+            keys = set(rec.to_dict().keys())
+            for f in _dc.fields(rec):
+                self.assertIn(f.name, keys, f"{type(rec).__name__}.{f.name} missing from to_dict")
 
 
 if __name__ == "__main__":

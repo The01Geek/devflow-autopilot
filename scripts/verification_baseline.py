@@ -203,9 +203,15 @@ NON_VERIFICATION_HEADS = frozenset(
 # Secret-bearing token patterns (canonicalize+redact before digesting). Matched
 # values are replaced with typed markers; the digest is of the redacted form, so
 # no secret material reaches the binding identity. A redacted digest alone never
-# establishes an exact match (see _join_confidence).
+# establishes an exact match (see join_confidence).
+# A secret VALUE is a quoted string (whole, including internal whitespace) or a
+# bare non-whitespace run. `(\S+)` alone stops at the first space INSIDE a quoted
+# value, leaving the raw remainder in the redacted display AND in the digest —
+# the PR #531 iteration-1 leak (a quoted env secret with spaces survived
+# redaction in fragments). Quoted forms must be consumed whole.
+_SECRET_VALUE = r"(\"[^\"]*\"|'[^']*'|\S+)"
 SECRET_ENV_ASSIGNMENT = re.compile(
-    r"\b([A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|PASS|PAT|CREDENTIAL|PRIVATE_KEY)[A-Z0-9_]*)=(\S+)",
+    r"\b([A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|PASS|PAT|CREDENTIAL|PRIVATE_KEY)[A-Z0-9_]*)=" + _SECRET_VALUE,
     re.IGNORECASE,
 )
 SECRET_FLAG = re.compile(
@@ -215,9 +221,13 @@ SECRET_FLAG = re.compile(
     # on common flags like ``--pattern`` (which contains ``pat``) while still catching every
     # compound secret flag the previous exact-match form missed.
     r"(--(?:[A-Za-z0-9-]*-)?(?:token|key|password|passwd|secret|pat|credential))"
-    r"(?:[ =])(\S+)",
+    r"(?:[ =])" + _SECRET_VALUE,
     re.IGNORECASE,
 )
+# curl-style short-flag credentials: `-u user:pass` (colon required, so a bare
+# `-u` boolean flag — e.g. `sort -u` — never matches). The colon requirement
+# keeps the false-positive rate near zero while closing the raw-credential leak.
+SECRET_SHORT_U = re.compile(r"(-u[ =])([^\s:]+:\S+)")
 SECRET_URL = re.compile(r"(https?://)[^/\s:@]+:[^/\s:@]+@")
 BEARER_TOKEN = re.compile(r"(Bearer\s+)([A-Za-z0-9._\-+/=]+)", re.IGNORECASE)
 
@@ -243,7 +253,11 @@ def _count_input_bytes(stats: "dict | None", n: int) -> None:
     previously summed only the short per-row eligibility_evidence strings — a
     self-measurement tool under-reporting its own measured input by orders of
     magnitude (issue #527 review finding). Only successfully-read content is
-    counted (an unreadable file contributes no bytes because none were read)."""
+    counted (an unreadable file contributes no bytes because none were read).
+    A source read more than once counts each read (e.g. a transcript is read
+    at classification time and again at extraction time): the figure measures
+    real read I/O, not the deduplicated corpus size — a deliberate, disclosed
+    reading (PR #531 iteration-1 note)."""
     if stats is not None:
         stats["input_bytes"] = stats.get("input_bytes", 0) + n
 
@@ -252,12 +266,18 @@ def _count_input_bytes(stats: "dict | None", n: int) -> None:
 # Path validation (reject symlinks, traversal, root escapes before opening).
 # --------------------------------------------------------------------------- #
 def _validate_admitted_path(raw: str, must_exist: bool = False) -> Path:
-    """Resolve an admitted path, rejecting symlinks/traversal/root escapes.
+    """Resolve an admitted path, rejecting symlink escapes, traversal, and root escapes.
 
     Transcript text and cloud-snapshot paths are attacker-shaped data; never
-    open them raw. Admits paths under the process cwd (the repo root) and the
-    gitignored .devflow/tmp tree, normalized and realpath-checked so a symlink
-    or a ``..`` escape cannot reach outside the admitted root.
+    open them raw. Admits paths under the process cwd (ASSUMED to be the repo
+    root — invoke the analyzer from the repo root; there is no git-root
+    anchoring here, and the default relative paths stop resolving from a
+    subdirectory), normalized and realpath-checked so a symlink escape or a
+    ``..`` escape cannot reach outside the admitted root. An in-root symlink
+    resolving to an in-root target is admitted (the containment check runs on
+    the resolved target); what is rejected is every ESCAPE — symlink escapes,
+    traversal escapes, root escapes — plus any unresolvable symlink
+    (fail-closed).
     """
     if not isinstance(raw, str) or not raw:
         raise ValueError("path must be a non-empty string")
@@ -306,8 +326,12 @@ def _atomic_write(path: Path, data: bytes) -> None:
     parent.mkdir(parents=True, exist_ok=True)
     try:
         os.chmod(parent, DIR_MODE)
-    except OSError:
-        pass
+    except OSError as exc:
+        # Best-effort hardening stays best-effort (the run continues), but a
+        # failed chmod silently degrades the documented owner-only promise —
+        # surface it so the degraded permission state is auditable
+        # (PR #531 iteration-1, silent-failure finding 6).
+        print(f"devflow verification-baseline: could not chmod {parent} to 0700 ({exc}); artifacts may carry umask permissions", file=sys.stderr)
     tmp_fd, tmp_path = tempfile_staged(parent)
     try:
         with os.fdopen(tmp_fd, "wb") as handle:
@@ -317,7 +341,9 @@ def _atomic_write(path: Path, data: bytes) -> None:
         os.chmod(tmp_path, FILE_MODE)
         os.replace(tmp_path, path)
     finally:
-        if os.path.exists(tmp_path) and tmp_path != path:
+        # str-vs-Path: tmp_path is a str; compare like-for-like (the sibling
+        # exporter already does) so the guard is live, not vacuously true.
+        if os.path.exists(tmp_path) and tmp_path != str(path):
             try:
                 os.unlink(tmp_path)
             except OSError:
@@ -394,10 +420,27 @@ def _source_event_id(session_id: str, event_index: int) -> str:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class BindingIdentity:
-    digest: str  # keyed digest of the REDACTED canonical command (no secret material)
+    # SHA-256 of the REDACTED canonical command (computed after secret redaction,
+    # so no secret material is digested; NOT an HMAC — a same-shape command
+    # yields the same digest by design, see test_secret_redaction_boundary).
+    digest: str
     secret_affected: bool
     secret_slots: tuple[str, ...]  # typed markers, e.g. ("env:TOKEN", "flag:key", "url-cred", "bearer")
     redacted_display: str  # canonical + redacted, length-bounded (local record only)
+
+    def __post_init__(self) -> None:
+        # Construction-time invariants (issue #527 review, type-design note):
+        # the factory (_binding_identity) is the intended constructor, but a
+        # direct construction / dataclasses.replace must not be able to put an
+        # unredacted-looking payload into the record silently. The full
+        # "digest is of the redacted form" property cannot be checked in-type;
+        # these are the checkable halves.
+        if not re.fullmatch(r"[0-9a-f]{64}", self.digest):
+            raise ValueError("BindingIdentity.digest must be a lowercase sha256 hex digest")
+        if self.secret_affected != bool(self.secret_slots):
+            raise ValueError("BindingIdentity.secret_affected must equal bool(secret_slots)")
+        if len(self.redacted_display) > 500:
+            raise ValueError("BindingIdentity.redacted_display must be length-bounded (<=500)")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -420,9 +463,19 @@ def _canonical_command(command: str) -> str:
 def _redact_secrets(command: str) -> "tuple[str, bool, list[str]]":
     """Canonicalize + redact secret-bearing tokens before digesting.
 
-    Returns (redacted_command, secret_affected, typed_slots). No raw secret and
-    no unkeyed digest of secret material ever leaves this function: the digest
-    (in BindingIdentity) is computed over ``redacted_command``.
+    Returns (redacted_command, secret_affected, typed_slots). For every
+    RECOGNIZED pattern class (env assignment incl. quoted values, --flag
+    secrets incl. quoted values, `-u user:pass`, URL credentials, Bearer
+    tokens), no raw secret and no unkeyed digest of secret material leaves
+    this function: the digest (in BindingIdentity) is computed over
+    ``redacted_command``. Known Wave-1 limitation (documented, not guessed
+    at): a secret passed through a shape OUTSIDE these classes — e.g. a bare
+    positional password, or a bespoke short flag other than ``-u`` — is not
+    recognized and therefore not redacted; extending the class set is the
+    remedy, and the conservative direction (per issue #527's gotcha) is that
+    an over-broad redaction lowers confidence rather than merging commands,
+    so new classes should prefer precision (like ``-u``'s colon requirement)
+    over recall.
     """
     redacted = command
     slots: list[str] = []
@@ -440,6 +493,12 @@ def _redact_secrets(command: str) -> "tuple[str, bool, list[str]]":
         return f"{match.group(1)}=<flag:{flag.lstrip('-')}>"
 
     redacted = SECRET_FLAG.sub(flag_repl, redacted)
+
+    def short_u_repl(match: "re.Match[str]") -> str:
+        slots.append("flag:u")
+        return f"{match.group(1)}<flag:u>"
+
+    redacted = SECRET_SHORT_U.sub(short_u_repl, redacted)
 
     def url_repl(match: "re.Match[str]") -> str:
         slots.append("url-cred")
@@ -751,15 +810,22 @@ def build_local_census(manifests_dir: Path, registry: dict, stats: "dict | None"
     for position, path in enumerate(manifest_files):
         try:
             raw = path.read_text(encoding="utf-8")
-            doc = json.loads(raw)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError):
             # Unreadable manifest -> denominator row with eligibility_unknown.
             # UnicodeDecodeError (a ValueError) is caught explicitly: a
             # non-UTF-8 manifest is a source_unreadable denominator row, never
             # an analyzer abort (issue #527 review finding).
             rows.append(_unknown_manifest_row(path, position))
             continue
+        # Count the bytes BEFORE the decode attempt: a manifest that was read
+        # but fails JSON-decode was still read, and the docstring's "none were
+        # read" carve-out covers only unreadable files (PR #531 iteration-1).
         _count_input_bytes(stats, len(raw.encode("utf-8")))
+        try:
+            doc = json.loads(raw)
+        except json.JSONDecodeError:
+            rows.append(_unknown_manifest_row(path, position))
+            continue
         if not isinstance(doc, dict):
             rows.append(_unknown_manifest_row(path, position))
             continue
@@ -933,13 +999,16 @@ def _classify_source_status(bundle: Path, max_bytes: int, stats: "dict | None" =
         # Legacy/absent metadata -> treat as unsupported source version.
         return SOURCE_UNSUPPORTED
     if not transcript.exists():
-        # A stop-attempts failure with no transcript -> import_failed. An
-        # unreadable stop-attempts log (None) -> source_unreadable, never a
-        # silent "no failure" (issue #527 review, suggestion 1).
-        failed = _import_failed(bundle, stats)
-        if failed is None:
+        # No transcript: what does the (success-only) stop-attempts log say?
+        # unreadable log -> source_unreadable (never a silent "no failure");
+        # a log with entries but no captured success -> attempted-but-failed;
+        # a log CLAIMING a capture whose artifact is gone -> import_failed
+        # (capture-claimed-artifact-gone inconsistency); no log at all ->
+        # source_missing (nothing was ever attempted through the stop hook).
+        state, _claims = _stop_attempts_state(bundle, stats)
+        if state == "unreadable":
             return SOURCE_UNREADABLE
-        if failed:
+        if state in ("uncaptured", "captured"):
             return SOURCE_IMPORT_FAILED
         return SOURCE_MISSING
     try:
@@ -951,8 +1020,18 @@ def _classify_source_status(bundle: Path, max_bytes: int, stats: "dict | None" =
         # never truncates into a clean classification.
         return SOURCE_UNSUPPORTED
     if size == 0:
-        # An empty transcript is available but event-less (no launches); it is
-        # not unreadable — the import succeeded, the session was simply empty.
+        # An empty transcript is available-but-event-less ONLY when the
+        # stop-attempts log does not contradict it. Short-circuiting to
+        # available unconditionally read an import failure as a clean empty
+        # session (PR #531 iteration-1, silent-failure finding 3): a log
+        # claiming a non-zero-byte capture beside a 0-byte transcript is an
+        # import failure, and an unreadable log is unreadable here exactly as
+        # on the no-transcript path.
+        state, claims = _stop_attempts_state(bundle, stats)
+        if state == "unreadable":
+            return SOURCE_UNREADABLE
+        if state == "captured" and any(c > 0 for c in claims):
+            return SOURCE_IMPORT_FAILED
         return SOURCE_AVAILABLE
     # Read once and reuse for the parse check (parse_events validates JSONL).
     try:
@@ -965,44 +1044,100 @@ def _classify_source_status(bundle: Path, max_bytes: int, stats: "dict | None" =
         wfr.parse_events(raw)
     except ValueError:
         return SOURCE_UNREADABLE
-    failed = _import_failed(bundle, stats)
-    if failed is None:
+    # A usable transcript is the artifact that matters; the log is consulted
+    # only for its own readability (an unreadable failure log is still a
+    # telemetry defect worth surfacing as unreadable rather than laundering).
+    state, _claims = _stop_attempts_state(bundle, stats)
+    if state == "unreadable":
         return SOURCE_UNREADABLE
-    if failed:
-        return SOURCE_IMPORT_FAILED
     return SOURCE_AVAILABLE
 
 
 def _import_failed(bundle: Path, stats: "dict | None" = None) -> "bool | None":
-    """Tri-state: True = import failed, False = no failure evidence, None = the
-    stop-attempts log itself could not be read/decoded (OSError or a non-UTF-8
-    file). ``None`` routes the caller to source_unreadable rather than coercing
-    an unreadable failure-log to "no failure" — returning False there failed
-    open on exactly the input the log exists to explain (issue #527 review)."""
+    """Tri-state, aligned to the REAL stop-attempts writer contract
+    (workflow_flight_recorder._append_bundle_attempt): the log records
+    SUCCESS-ONLY entries — ``{captured_at, transcript_bytes, transcript_sha256,
+    event_count, result: "captured", source}`` — appended once per successful
+    capture/verified import. It never records failures, so failure detection is
+    structural, not key-based (PR #531 iteration-1 VC-5: the previous reader
+    branched on ``error``/``bytes_verified``/``ok`` keys no writer ever
+    produces, so its failure arm was dead code against real bundles).
+
+    Returns:
+      * ``None``  — the log itself is unusable: unreadable/undecodable, or it
+        has non-blank lines none of which parse as JSON objects (an
+        all-corrupt failure log is never "no failure evidence" — that read
+        fails open on exactly the input the log exists to explain).
+      * ``True``  — the log exists but records no successful capture
+        (attempted-but-never-captured).
+      * ``False`` — no log at all (nothing attempted through the stop-hook
+        path), or the log records at least one successful capture. Whether a
+        claimed capture is contradicted by the on-disk transcript is the
+        CALLER's cross-check (via ``_stop_attempts_state`` directly) — this
+        function never reports that contradiction.
+
+    The transcript-presence cross-check lives in the caller because only the
+    caller knows whether a usable transcript exists; this function answers
+    "what does the log alone say about capture success?" via the
+    ``captured_byte_claims`` list ``_stop_attempts_state`` returns.
+    """
+    state, claims = _stop_attempts_state(bundle, stats)
+    if state == "unreadable":
+        return None
+    if state == "none":
+        return False
+    if state == "uncaptured":
+        return True
+    # state == "captured": the log says a capture succeeded; consistency with
+    # the on-disk transcript is the caller's cross-check, never reported here.
+    del claims
+    return False
+
+
+def _stop_attempts_state(bundle: Path, stats: "dict | None" = None) -> "tuple[str, list[int]]":
+    """Read stop-attempts.jsonl in the writer's real shape.
+
+    Returns (state, captured_byte_claims) where state is one of:
+    ``none`` (no log), ``unreadable`` (I/O or decode failure, or non-blank
+    lines with zero parseable JSON objects), ``uncaptured`` (log present, no
+    ``result == "captured"`` entry), ``captured`` (at least one captured
+    entry). ``captured_byte_claims`` lists each captured entry's
+    ``transcript_bytes`` when it is an int (for the caller's consistency
+    check against the actual transcript)."""
     attempts = bundle / "stop-attempts.jsonl"
     if not attempts.exists():
-        return False
+        return "none", []
     try:
         text = attempts.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        return None
+        return "unreadable", []
     _count_input_bytes(stats, len(text.encode("utf-8")))
-    saw_success = False
-    saw_error = False
+    nonblank = 0
+    parsed = 0
+    claims: list[int] = []
+    captured = False
     for line in text.splitlines():
         if not line.strip():
             continue
+        nonblank += 1
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
             continue
         if not isinstance(entry, dict):
             continue
-        if entry.get("error"):
-            saw_error = True
-        if entry.get("bytes_verified") is True or entry.get("ok") is True:
-            saw_success = True
-    return saw_error and not saw_success
+        parsed += 1
+        if entry.get("result") == "captured":
+            captured = True
+            tb = entry.get("transcript_bytes")
+            if isinstance(tb, int):
+                claims.append(tb)
+    if nonblank and not parsed:
+        # Valid UTF-8 but wholly JSON-corrupt: the failure log is unusable.
+        return "unreadable", []
+    if captured:
+        return "captured", claims
+    return "uncaptured", []
 
 
 # --------------------------------------------------------------------------- #
@@ -1021,9 +1156,12 @@ def _strip_env_prefix(command: str) -> str:
     ``nice``/``nohup``/``timeout`` — are NOT unwrapped, so a verification
     launch behind one of them classifies by the wrapper's own head (``find`` is
     a read-only inspection head, so it reads other_command) or by pattern match
-    over the whole segment (``xargs pytest`` matches the pattern set). This can
-    under-count wrapped launches; the conservative direction (an under-count of
-    candidates, never a fabricated one)."""
+    over the whole segment (``xargs pytest`` matches the pattern set). The same
+    gap covers PIPELINES: ``|`` is not a split delimiter, so a piped launch
+    (``cat data | pytest``) classifies by the pipe-head (``cat`` →
+    other_command). Both can under-count wrapped/piped launches; the
+    conservative direction (an under-count of candidates, never a fabricated
+    one)."""
     head = command.strip().split(None, 1)[0] if command.strip() else ""
     while head and (
         ("=" in head and not head.startswith("/") and not head.startswith("-"))
@@ -1055,8 +1193,9 @@ def _split_top_level_segments(command: str) -> list[str]:
     # delimiter inside a quoted argument (`git commit -m "refactor && pytest"`)
     # does not manufacture a spurious verification segment out of the quoted text
     # (issue #527 review finding — the quoted-delimiter false-positive that the
-    # naive re.split left open). Not a full shell parser: it tracks only quote
-    # state, which is sufficient to keep a quoted delimiter from splitting.
+    # naive re.split left open). Not a full shell parser: it tracks quote
+    # state plus backslash escapes (inside double quotes and outside quotes),
+    # which is sufficient to keep a quoted or escaped delimiter from splitting.
     segments: list[str] = []
     buf: list[str] = []
     quote: str | None = None
@@ -1065,10 +1204,29 @@ def _split_top_level_segments(command: str) -> list[str]:
     while i < n:
         ch = command[i]
         if quote:
+            # Inside double quotes a backslash escapes the next character
+            # (POSIX), so `\"` is a literal quote and must NOT flip quote
+            # state — an odd count of escaped quotes otherwise exposes a
+            # quoted `&&` as a top-level delimiter and fabricates a
+            # verification segment out of quoted prose (PR #531 iteration-1).
+            # Inside single quotes a backslash is literal (POSIX), so no
+            # escape handling applies there.
+            if quote == '"' and ch == "\\" and i + 1 < n:
+                buf.append(ch)
+                buf.append(command[i + 1])
+                i += 2
+                continue
             buf.append(ch)
             if ch == quote:
                 quote = None
             i += 1
+            continue
+        if ch == "\\" and i + 1 < n:
+            # Outside quotes a backslash escapes the next character, so an
+            # escaped quote (`\"`) does not OPEN quote state either.
+            buf.append(ch)
+            buf.append(command[i + 1])
+            i += 2
             continue
         if ch in ("'", '"'):
             quote = ch
@@ -1329,6 +1487,15 @@ def extract_verification_lifecycles(
             # id + exception type only — no raw transcript text ever reaches
             # errors/logs (the redaction boundary).
             row.source_status = SOURCE_UNSUPPORTED
+            # Attribute the cause on the row and count it separately from the
+            # other SOURCE_UNSUPPORTED producers (size breach, unknown schema),
+            # so an analyzer-side defect that degrades EVERY transcript is
+            # visible as extraction_failure_count == attempted rows instead of
+            # masquerading as a clean exit-0 baseline over an unsupported
+            # corpus (PR #531 iteration-1, silent-failure finding 5).
+            row.provenance["extraction_error"] = type(exc).__name__
+            if stats is not None:
+                stats["extraction_failure_count"] = stats.get("extraction_failure_count", 0) + 1
             print(
                 f"devflow verification-baseline: extraction failed for session {sid} "
                 f"({type(exc).__name__}); row degraded to {SOURCE_UNSUPPORTED}",
@@ -1446,7 +1613,13 @@ def _extract_from_lifecycle(events, root, end_idx, sid, consumer):
                     binding=binding,
                     start_authorization=auth,
                     timing=launch_timing,
-                    workspace_state=ws,
+                    # Per-launch copy: ws is computed once per lifecycle, and the
+                    # frozen dataclass is shallow-frozen — sharing one dict object
+                    # across every launch would let a future in-place mutation of
+                    # one launch's workspace_state alias into all of them, directly
+                    # under the coverage gate _classify_relationship keys on
+                    # (PR #531 iteration-1, type-design note).
+                    workspace_state=dict(ws),
                     result_presence=result is not None,
                     exit_evidence=ev,
                     skipped_check_evidence=None,
@@ -1570,11 +1743,32 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     # a future adapter that admits other start classes into launches still
     # counts them as prior-missing evidence instead of silently weakening this
     # candidate requirement.
+    # "PRIOR missing/cancelled response" is an ordering requirement, not a
+    # set-membership one (PR #531 iteration-1): the missing response must
+    # precede a relaunch, so the evidence must sit on a member that is NOT the
+    # temporally last launch. A group whose ONLY missing response is the final
+    # launch (run 1 completed cleanly, run 2's result was lost) shows no
+    # missing-response-then-relaunch shape and is not a transport-retry
+    # candidate. Members arrive in event order (extraction appends in
+    # transcript order); when every member carries a started_at the explicit
+    # timestamps decide the order, otherwise event order is the documented
+    # fallback.
+    ordered = members
+    if all(m.timing.get("started_at") for m in members):
+        ordered = sorted(members, key=lambda m: str(m.timing.get("started_at")))
     has_prior_missing = any(
         m.start_authorization in (START_DENIED_PRE, START_CANCELLED_PRE, START_CONFIRMED_RESULT_MISSING, START_UNKNOWN)
         or m.result_presence is False
-        for m in members
+        for m in ordered[:-1]
     )
+    # "Explicitly bounded interval" = both endpoints (started_at AND
+    # finished_at) are present on at least two members, so the gap between the
+    # missing-result launch and its successor is computable from explicit
+    # source events. Wave 1 deliberately imposes NO magnitude threshold on
+    # that gap (a max-gap constant would be an analyst-invented cutoff the
+    # issue never authorized); the candidate is conservative-by-evidence, and
+    # the manual-review sample is where magnitude judgment happens. The doc
+    # sentence in docs/workflow-flight-recorder.md states the same reading.
     bounded = [m for m in members if m.timing.get("started_at") and m.timing.get("finished_at")]
     interval_bounded = len(bounded) >= 2
     if has_prior_missing and interval_bounded:
@@ -1914,7 +2108,21 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
         # job start and is deliberately not used as a fallback.
         status = str(raw.get("status") or "")
         conclusion = raw.get("conclusion")
-        completed_and_ran = status == "completed" and conclusion not in (None, "skipped")
+        # `cancelled` and `action_required` are the two terminal conclusions a
+        # job can carry WITHOUT its step ever running (a run cancelled while
+        # the job was queued; an approval never granted): status="completed" +
+        # that conclusion + started_at=null is exactly the never-started shape,
+        # so a non-skipped conclusion alone is NOT start evidence — treating it
+        # as such failed open on the stall-backstop's own cancelled runs
+        # (PR #531 iteration-1; the same fail-open class the skipped/queued
+        # arms already close). For these conclusions the job-level started_at
+        # is the only admissible start evidence.
+        _non_start_conclusions = ("cancelled", "action_required")
+        completed_and_ran = (
+            status == "completed"
+            and conclusion not in (None, "skipped")
+            and conclusion not in _non_start_conclusions
+        )
         # A SKIPPED job never ran its agent step, so it is never "started" —
         # regardless of whether the Actions API populated a started_at for it. The
         # trailing `bool(started_at)` must not re-admit a skipped job: keying the
@@ -1925,14 +2133,20 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
             status in ("queued", "in_progress") or completed_and_ran or bool(started_at)
         ) and conclusion != "skipped"
         # A job is evidenced STARTED only when it completed with a real
-        # conclusion or is in_progress with a job-level started_at. A queued
+        # start-implying conclusion, is in_progress with a job-level
+        # started_at, or carries a cancelled/action_required conclusion WITH a
+        # job-level started_at (cancellation after a genuine start). A queued
         # job (or an in_progress row the API has not stamped a job start on,
         # or a bare started_at under an unknown status) is scheduled but not
         # evidenced-started: it stays provisional_candidate — in the
         # denominator, never confirmed, never promoted — instead of
         # over-claiming the confirmed eligible denominator (issue #527 review,
         # suggestion 3).
-        started_evidenced = completed_and_ran or (status == "in_progress" and bool(started_at))
+        started_evidenced = (
+            completed_and_ran
+            or (status == "in_progress" and bool(started_at))
+            or (status == "completed" and conclusion in _non_start_conclusions and bool(started_at))
+        )
         if mapping is None:
             # Precheck/dedupe/telemetry/relay/skipped non-agent jobs: ineligible.
             state = ELIGIBILITY_INELIGIBLE
@@ -2248,7 +2462,20 @@ def main(argv: "list[str] | None" = None) -> int:
         "lifecycle_count": len(all_rows),
         "event_count": None,  # not aggregated across sources in Wave 1 (per-source only)
         "skipped_unsupported_source_count": sum(1 for r in all_rows if r.source_status in (SOURCE_UNSUPPORTED, SOURCE_UNREADABLE)),
+        # Extraction failures are counted separately from the other
+        # source_unsupported producers so a systemic analyzer defect (every
+        # transcript degrading) is visible in the artifact, not just stderr.
+        "extraction_failure_count": stats.get("extraction_failure_count", 0),
     }
+    if performance["extraction_failure_count"] and performance["extraction_failure_count"] >= sum(
+        1 for r in all_rows if r.source == SOURCE_LOCAL and r.source_status in (SOURCE_AVAILABLE, SOURCE_UNSUPPORTED)
+    ):
+        print(
+            "devflow verification-baseline: WARNING — extraction failed for EVERY "
+            "attempted transcript; this baseline measured nothing (an analyzer-side "
+            "defect, not a clean corpus)",
+            file=sys.stderr,
+        )
 
     created_at = _now_iso()
     expires_at = _expires_at(created_at, args.ttl_seconds)
@@ -2275,7 +2502,10 @@ def main(argv: "list[str] | None" = None) -> int:
     # length): serialize once, set output_bytes on the serialized dict, and
     # re-serialize that — avoiding a second to_dict()/_bound_strings() walk of
     # the whole baseline. generate_report does not read baseline.performance, so
-    # the live object's output_bytes is mirrored only for parity.
+    # the live object's output_bytes is mirrored only for parity. The recorded
+    # value is the FIRST serialization's length, so it can differ from the
+    # written file's byte count by the few digits the field substitution adds —
+    # a disclosed approximation (a fixed point is not chased).
     doc = baseline.to_dict()
     payload = json.dumps(doc, indent=2, sort_keys=True).encode("utf-8")
     performance["output_bytes"] = len(payload)
@@ -2293,8 +2523,8 @@ def main(argv: "list[str] | None" = None) -> int:
     for _d in (out_dir, out_subdir):
         try:
             os.chmod(_d, DIR_MODE)
-        except OSError:
-            pass
+        except OSError as exc:
+            print(f"devflow verification-baseline: could not chmod {_d} to 0700 ({exc}); artifacts may carry umask permissions", file=sys.stderr)
     _atomic_write(out_subdir / "verification_baseline.json", payload)
     _atomic_write(out_subdir / "report.md", report.encode("utf-8"))
     # Manual-review artifact (initially empty adjudication; reviewers fill it).

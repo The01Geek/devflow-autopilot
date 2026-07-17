@@ -238,9 +238,15 @@ Each request and confirmed launch records source event ID, explicit lifecycle ID
 when present, tool-use ID, consumer skill (inferred only from classified
 first-message forms), command head, redacted display, safe binding identity,
 timing, result presence, exit evidence, skipped-check evidence, and source
-provenance. (Phase/checkpoint is not extracted in Wave 1 and is left null.)
+provenance. (Phase/checkpoint and skipped-check evidence are not extracted in
+Wave 1 and are left null — the fields exist on the records for a future
+adapter; no Wave-1 code parses a suite's skip lines.)
 Secret-bearing bindings persist
-no raw secret and no unkeyed digest of secret material: commands are
+no raw secret and no unkeyed digest of secret material for every recognized
+secret pattern class (env assignments including quoted values, `--flag`
+secrets including quoted values, `-u user:pass` credentials, URL credentials,
+Bearer tokens; a secret passed through a shape outside these classes is a
+documented recognition limitation of Wave 1): commands are
 canonicalized and redacted before digesting, typed secret-slot markers and
 `secret_affected` are recorded, and a redacted digest alone cannot establish an
 exact binding match — secret-affected exact matches require the same explicit
@@ -255,17 +261,29 @@ Local launch relationships are classified as exactly `single`,
 `candidate_transport_retry`, `intentional_rerun_evidence`,
 `independent_lifecycle`, or `unclassifiable`. A transport-retry candidate
 requires the same explicit lifecycle, consumer/checkpoint when available, safe
-binding identity, a prior missing/cancelled response, an explicitly bounded
-interval, matching `workspace_state` coverage across the grouped launches
+binding identity, a prior missing/cancelled response (the missing response must
+sit on a launch that is not the temporally last member — a group whose only
+missing result is the final launch shows no missing-then-relaunch shape), an
+explicitly bounded interval (both endpoints present on at least two members so
+the gap is computable from explicit source events; Wave 1 imposes no magnitude
+threshold on that gap — magnitude judgment belongs to the manual-review
+sample), matching `workspace_state` coverage across the grouped launches
 (lifecycle-scoped in Wave 1 — the coverage is derived once per lifecycle from its
 source-event results, not compared per-launch before/after; `complete` coverage
 additionally requires a single source-event result that explicitly covers every
 required root, the shape of one genuine workspace enumeration — keywords
 accumulated across unrelated results never establish it), and no explicit new
 iteration/checkpoint/retrigger evidence. Distinct lifecycle IDs, cloud run
-attempts, command bindings, consumer roles, explicit iterations, explicit
-checkpoints, post-fix commits, base merges, and human retriggers cannot be
-transport-retry candidates. `workspace_state` declares each covered root and
+attempts, and distinct command bindings cannot be transport-retry candidates
+(structurally enforced: distinct lifecycles classify `independent_lifecycle`,
+distinct bindings group separately, and no cloud launches exist in Wave 1).
+Explicit iteration/checkpoint, post-fix-commit, base-merge, and human-retrigger
+evidence, when marked on a launch, also excludes its group — but Wave-1
+extraction records no such markers (`retrigger_evidence` is never set from
+native events), so these exclusions are inert until a future adapter populates
+`retrigger_evidence`; until then a same-session rerun after such an event can
+still classify `candidate_transport_retry` when the other requirements hold —
+a candidate, never a proven duplicate. `workspace_state` declares each covered root and
 observation method (HEAD, index, submodule state, all tracked files, all
 untracked files, and each ignored/generated/dependency root) from explicit
 source-event results, not analyzer-time inspection; unknown, excluded,
@@ -312,14 +330,19 @@ report generation use deterministic Python standard-library code with no
 model/provider call, network access, shell, plugin, or tool-enabled analyst; the
 census export is the sole networked step and writes only the immutable Actions
 metadata snapshot. Performance reporting includes analyzer wall time, peak
-memory, input bytes, output bytes, lifecycle count, event count, and
-skipped/unsupported source count; a source-level limit breach records a visible
-skipped reason and never truncates into a clean classification.
+memory, input bytes, output bytes, lifecycle count, event count,
+skipped/unsupported source count, and extraction-failure count (extraction
+failures are tallied separately from the other unsupported-source producers, so
+an analyzer-side defect degrading every transcript is visible in the artifact
+rather than reading as a clean baseline); a source-level limit breach records a
+visible skipped reason and never truncates into a clean classification.
 
 ### Security boundaries
 
 The analyzer resolves and validates admitted paths before opening them, rejecting
-symlinks, path traversal, and root escapes; redacts and bounds each value before
+symlink escapes, path traversal, and root escapes (an in-root symlink is
+resolved and containment-checked on its real target; an unresolvable symlink is
+rejected fail-closed); redacts and bounds each value before
 diagnostics and serialization; and treats transcript text as data to classify,
 never instructions to obey. Output is local and gitignored under owner-only
 `0700` directories and `0600` files under `.devflow/tmp/verification-baselines/`;

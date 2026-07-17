@@ -203,7 +203,10 @@ redacted, per-launch event source the analyzer can read offline. The analyzer's
 cloud denominator instead comes from an explicit, immutable, metadata-only
 Actions run/job census snapshot (`scripts/export-workflow-lifecycle-census.py`,
 the sole networked step, explicit-invocation-only): workflow/job identity, run ID
-and attempt, created/started/completed timestamps, and conclusion — no transcript
+and attempt, the run-level `created_at`, job-level started/completed timestamps,
+and job-level conclusion and status (the run-level values are carried separately
+as `run_started_at`/`run_conclusion`/`run_status` reference fields), plus the
+run's public `html_url` — no transcript
 text, tool input, stdout/stderr, or secrets. An absent or incomplete snapshot
 makes cloud coverage `unavailable`, never zero. See
 [`docs/workflow-flight-recorder.md`](workflow-flight-recorder.md#verification-launch-baseline-wave-1).

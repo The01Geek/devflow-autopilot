@@ -40724,6 +40724,12 @@ assert_eq "verification baseline: focused Python tests pass" "0" "$?"
 # subprocess for read-only git; the analyzer never calls those functions.)
 assert_eq "verification baseline: analyzer invokes no subprocess" "0" \
   "$(grep -cE 'subprocess\.(run|Popen|call|check_output|check_call)' "$LIB/../scripts/verification_baseline.py" || true)"
+# Widened evasion sweep (PR #531 review): the dotted-call pin alone is evadable
+# by `from subprocess import run`, `subprocess.getoutput`, `os.system`,
+# `os.popen`, or `pty.spawn` — none of which it matches. The module legitimately
+# imports no subprocess machinery at all, so pin the absence of every spelling.
+assert_eq "verification baseline: no subprocess import or shell-out spelling" "0" \
+  "$(grep -cE '(^|[^a-zA-Z_])(import subprocess|from subprocess import|os\.system|os\.popen|getoutput|check_output|pty\.spawn|import pty)' "$LIB/../scripts/verification_baseline.py" || true)"
 # Registry coupled pins (the test_workflow_flight_recorder registry test asserts
 # the 5-workflow set; these pin the #527 additions the analyzer depends on).
 assert_eq "verification baseline: registry has the review first-message forms" "1" \
