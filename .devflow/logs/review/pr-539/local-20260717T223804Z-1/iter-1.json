@@ -1,15 +1,40 @@
 {
   "iter": 1,
-  "fix_commit_sha": "f5ed7c75f79de552d93cd537b208cb7500b4fce6",
-  "fix_files": [
-    ".changeset/issue-530-review-and-fix-split.md",
-    ".devflow/prompt-extensions/review-and-fix.md",
-    "docs/review-and-fix-budget.md",
-    "lib/test/run.sh",
-    "skills/review-and-fix/SKILL.md",
-    "skills/review-and-fix/references/loop-control.md"
-  ],
+  "started_at": "2026-07-17T22:38:04Z",
+  "fix_commit_sha": "4e0044ad",
+  "fix_files": ["docs/review-and-fix-budget.md", "lib/test/modules/review-and-fix-contract.sh", "lib/test/run.sh"],
   "loop_role": "fix",
-  "synthesized": true,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "budget-doc maintainer note claims root 2,994/~6 headroom; actual 2,945/~55 (documented falsehood, self-contradicting)", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [10, 11], "kind": "documented_falsehood"}, "corroboration_count": 4, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "budget-doc note cites '+1,254 pinned in run.sh'; real pin is +1,116 (phantom figure)", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [15, 15], "kind": "documented_falsehood"}, "corroboration_count": 4, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "budget note overstates guard coverage ('stale table cell goes RED') but only cumulative/growth/ceiling cells were bound, not the Measured cells", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [16, 17], "kind": "partial-guard-coverage"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "contract-module member-count assertion comment misattributes guard to a nonexistent glob and a nonexistent run.sh RAF_EXPECTED_REFS variable", "defect_signature": {"file": "lib/test/modules/review-and-fix-contract.sh", "line_range": [48, 65], "kind": "misleading-comment"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "PR body cites +1,198 growth / 33,212 reduction, divergent from pinned +1,116 / 33,256 (PR body ungated, cosmetic)", "defect_signature": {"file": "PR-539-body", "line_range": [0, 0], "kind": "narrative-count-drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F1", "decision": "applied", "commit": "4e0044ad"},
+    {"finding_id": "F2", "decision": "applied", "commit": "4e0044ad"},
+    {"finding_id": "F3", "decision": "applied", "commit": "4e0044ad"},
+    {"finding_id": "F4", "decision": "applied", "commit": "4e0044ad"},
+    {"finding_id": "F5", "decision": "deferred", "source_file": "PR-539-body", "claim_text": "PR body cites +1,198 growth / 33,212 reduction", "skip_category": "out-of-scope", "evidence": "the PR body is not part of the reviewed branch diff (three-dot vs main); it is an ungated GitHub artifact, corrected separately"}
+  ],
+  "convergence_inputs": {"fixes_applied": 4, "fix_diff_lines": 40, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 180, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD) — runs live in CI"}]},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
   "telemetry": "unavailable"
 }
