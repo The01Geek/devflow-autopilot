@@ -41426,7 +41426,18 @@ if [ -d "$IT_SB" ]; then
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return it3 --nonce "$N3" --round 1 --verdict FILE \
       --findings-count 5 > /dev/null 2>&1   # no carriage id: refused, feeds retry accounting
+    # then CLOSE the round cleanly, omitting --findings-count: pre-fix behavior would
+    # surface the refused return's unproven 5 in the summary (the vacuity the fix-delta
+    # re-gate caught — an open round's count never reaches the summary either way)
+    OID3="$(git hash-object --stdin --no-filters < draft.md)"
+    python3 "$IAS" record-return it3 --nonce "$N3" --round 1 --verdict FILE \
+      --carriage-object-id "$OID3" > /dev/null 2>&1
     python3 "$IAS" query-summary it3 --nonce "$N3" > .it-fc-summary 2>/dev/null
+
+    # draft-undigestible CLI seam: an unreadable --draft-file refuses with the distinct
+    # reason on stdout AND the named stderr breadcrumb (never unaudited-revision)
+    python3 "$IAS" query-eligibility it --nonce "$N" --mode approve \
+      --draft-file no-such-draft.md > .it-undig-out 2> .it-undig-err; printf '%s' "$?" > .it-undig-rc
   )
   assert_eq "#546 illegal_transition_rows: a return before any dispatch refuses non-zero" \
     "1" "$(cat "$IT_SB/.it-r1-rc" 2>/dev/null)"
@@ -41469,8 +41480,13 @@ if [ -d "$IT_SB" ]; then
     "1" "$(grep -c 'attestation=mismatch$' "$IT_SB/.it-summary2" 2>/dev/null)"
   assert_eq "#546 illegal_transition_rows: record-creation-attestation reports the mismatch on its own output too" \
     "attestation=mismatch" "$(cat "$IT_SB/.it-att-out" 2>/dev/null)"
-  assert_eq "#546 illegal_transition_rows: a refused completion's --findings-count is never recorded" \
+  assert_eq "#546 illegal_transition_rows: a refused completion's --findings-count is never recorded (clean close omitting its own count reads none, not the unproven 5)" \
     "1" "$(grep -c 'findings_count=none' "$IT_SB/.it-fc-summary" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: an unreadable draft file refuses draft-undigestible at exit 0" \
+    "eligible=no reason=draft-undigestible:0" \
+    "$(cat "$IT_SB/.it-undig-out" 2>/dev/null):$(cat "$IT_SB/.it-undig-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... with the named stderr breadcrumb" \
+    "1" "$(grep -c 'could not hash draft file' "$IT_SB/.it-undig-err" 2>/dev/null)"
   rm -rf "$IT_SB"
 fi
 

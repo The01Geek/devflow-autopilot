@@ -805,7 +805,7 @@ def route_arm(write_landed, hash_ok, prior_unreadable):
     return 'file', None
 
 
-def summary_fields(state, current_digest=None):
+def summary_fields(state, current_digest=None, digest_failed=False):
     """The audit-summary-line field set, derived from recorded state.
 
     The eligibility token is DERIVED here rather than read back from state: queries
@@ -831,10 +831,14 @@ def summary_fields(state, current_digest=None):
             if mk not in markers:
                 markers.append(mk)
     last = last_completed(state)
-    elig = evaluate_eligibility(state, 'approve', current_digest)
+    elig = evaluate_eligibility(state, 'approve', current_digest,
+                                digest_failed=digest_failed)
     token = elig['token']
     stale = False
-    if token is None:
+    if token is None and not digest_failed:
+        # An undigestible draft is NOT evidence the token went stale — the stderr
+        # breadcrumb names the real cause; rendering stale-token here would be the
+        # same misattribution the draft-undigestible reason exists to prevent.
         # A clean round exists but no longer grounds eligibility: whatever token was
         # issued on those bytes has been invalidated.
         stale = any(r.get('outcome') == 'FILE' for r in done)
@@ -1280,14 +1284,18 @@ def cmd_query_summary(args):
     if state is not None and state['nonce'] != args.nonce:
         state = None
     digest = None
+    digest_failed = False
     if args.draft_file:
         try:
             digest = hash_file(args.draft_file)
         except _DigestError as exc:
-            # Same breadcrumb discipline as query-eligibility: never a silent swallow.
+            # Same breadcrumb discipline as query-eligibility: never a silent swallow —
+            # and the failure threads into the eligibility derivation so the summary can
+            # never render a live token the approve gate would refuse.
             print(f'query: could not hash draft file {args.draft_file}: {exc}',
                   file=sys.stderr)
-    f = summary_fields(state, digest)
+            digest_failed = True
+    f = summary_fields(state, digest, digest_failed=digest_failed)
     fc = 'none' if f['findings_count'] is None else str(f['findings_count'])
     token = f['token'] or ('stale-token' if f['stale_token'] else 'none')
     markers = ','.join(f['markers']) if f['markers'] else 'none'

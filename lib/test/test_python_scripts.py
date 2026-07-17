@@ -3970,6 +3970,14 @@ assert_eq("#546 attestation_summary_rows: no creation epoch -> attestation reads
           "(unknown is not a pass)", 'none',
           issue_audit_state.summary_fields(_clean_file, 'D1')['attestation'])
 
+# The summary derivation threads digest_failed like the approve gate does: an
+# undigestible draft yields NO live token and NO false stale-token marker.
+assert_eq("#546 draft_undigestible_rows: the summary never renders a live token for an "
+          "undigestible draft",
+          (None, False),
+          (lambda f: (f['token'], f['stale_token']))(
+              issue_audit_state.summary_fields(_clean_file, None, digest_failed=True)))
+
 # (3) An unreadable/unhashable supplied draft refuses with the DISTINCT reason
 # draft-undigestible in approve mode — never misattributed as unaudited-revision,
 # and never eligible on any ground (fail closed, overrides included).
