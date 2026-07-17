@@ -3752,12 +3752,13 @@ assert_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mut
   'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$MAXI_SKILL"
 assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
   'input-type analogue** for the widened surfaces' "$CI443_EXT"
-# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 9 after
-# issue #464 appended the mutation-evidence dimension and main added deployment variance; #467
-# sharpened the existing case-matrix bullet in place, adding no row.
+# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 9:
+# 7 base + #464's "Mutation evidence for behavioral-fix pins" dimension + the
+# "Deployment-variance silence" dimension main commit 760c0902 appended; #467 sharpened the
+# existing case-matrix bullet in place, adding no row.
 assert_pin_unique "base-update: create-issue extension carries the deployment-variance dimension" \
   'Deployment-variance silence.' "$CI443_EXT"
-assert_eq "#467 D3: create-issue extension is 9 dimension bullets (deployment variance reconciled)" "9" \
+assert_eq "#467 D3: create-issue extension is 9 dimension bullets (7 base + #464's + 760c0902's deployment-variance dimension)" "9" \
   "$(grep -c '^- \*\*' "$CI443_EXT")"
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
@@ -27528,11 +27529,15 @@ DGH_BARE="$(grep -rnE '(^|[[:space:]`;|&(])gh[[:space:]]+(api|pr|issue|label|rep
   "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null \
   | grep -v '/test/' | grep -v 'resolve-gh\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE '(echo|printf) ' | grep -c . || true)"
 assert_eq "#245 peer-completeness: no non-comment bare gh <subcommand> call survives outside the resolver" "0" "$DGH_BARE"
-# Per-script Python routing pins: each of the four Python gh-callers reads the
+# Per-script Python routing pins: each of the six Python gh-callers reads the
 # documented DEVFLOW_GH override and keeps no bare-"gh" argv0 literal. T4/T8
 # exercise parse-acs.py dynamically; these static pins keep a revert in any of
-# the other three (the silent-label-loss regression of #3493) from staying green.
-for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py; do
+# the others (the silent-label-loss regression of #3493) from staying green.
+# export-workflow-lifecycle-census.py joined the set in PR #531 (issue #527);
+# build-experiment-records.py was the pre-existing sixth the PR #531
+# early-shadow completeness critic's independent enumeration surfaced
+# (grep -l DEVFLOW_GH over scripts/*.py) — the loop had under-counted it.
+for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py export-workflow-lifecycle-census.py build-experiment-records.py; do
   assert_eq "#245 python routing: $DGH_PY reads DEVFLOW_GH (or-\"gh\" form)" "1" \
     "$(grep -cF 'os.environ.get("DEVFLOW_GH") or "gh"' "$DGH_ROOT/scripts/$DGH_PY" || true)"
   assert_eq "#245 python routing: $DGH_PY keeps no bare-\"gh\" argv0 literal" "0" \
@@ -41035,6 +41040,34 @@ if ! devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.s
   printf 'ERROR: workflow-flight-recorder boundary could not record its result\n'
   exit 1
 fi
+
+VB_ROOT="$(mktemp -d)"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "verification-launch baseline analyzer (issue #527, Wave 1)"
+# ────────────────────────────────────────────────────────────────────────────
+python3 "$LIB/test/test_verification_baseline.py" >"$VB_ROOT/vb-unit.out" 2>&1
+assert_eq "verification baseline: focused Python tests pass" "0" "$?"
+# The analyzer is offline (AC #527-2: read-only, launches no verification
+# command and invokes no repository-provided executable) — no subprocess call
+# site in the module. (It imports workflow_flight_recorder, which itself uses
+# subprocess for read-only git; the analyzer never calls those functions.)
+assert_eq "verification baseline: analyzer invokes no subprocess" "0" \
+  "$(grep -cE 'subprocess\.(run|Popen|call|check_output|check_call)' "$LIB/../scripts/verification_baseline.py" || true)"
+# Widened evasion sweep (PR #531 review): the dotted-call pin alone is evadable
+# by `from subprocess import run`, `subprocess.getoutput`, `os.system`,
+# `os.popen`, or `pty.spawn` — none of which it matches. The module legitimately
+# imports no subprocess machinery at all, so pin the absence of every spelling.
+assert_eq "verification baseline: no subprocess import or shell-out spelling" "0" \
+  "$(grep -cE '(^|[^a-zA-Z_])(import subprocess|from subprocess import|os\.system|os\.popen|getoutput|check_output|pty\.spawn|import pty)' "$LIB/../scripts/verification_baseline.py" || true)"
+# Registry coupled pins (the test_workflow_flight_recorder registry test asserts
+# the 5-workflow set; these pin the #527 additions the analyzer depends on).
+assert_eq "verification baseline: registry has the review first-message forms" "1" \
+  "$(grep -cF '"/devflow:review", "/review"' "$LIB/../scripts/workflow-flight-recorder-registry.json" || true)"
+assert_eq "verification baseline: registry has the cloud_mappings section" "1" \
+  "$(grep -cF '"cloud_mappings"' "$LIB/../scripts/workflow-flight-recorder-registry.json" || true)"
+
+rm -rf "$VB_ROOT"
 
 # These integration tests live outside the module whose registration and source
 # boundary they pin, so deleting that boundary cannot delete the test execution.
