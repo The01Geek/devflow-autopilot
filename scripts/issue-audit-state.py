@@ -605,6 +605,30 @@ def _validate(doc, slug):
                 not isinstance(umr, int) or isinstance(umr, bool) or umr < 0):
             raise StateError(f'round {num} unresolved_must_revise {umr!r} is not a '
                              f'non-negative integer or the literal {_UNESTABLISHED!r}')
+        # Re-assert the record-time verdict<->count agreement at the READ boundary, exactly as
+        # the revision after_round<floor_round guard is re-checked here: cmd_record_adjudication
+        # enforces FILE<=>0 / REVISE<=>>=1 and unresolved<=must_revise on write, but a
+        # hand-corrupted state file must not smuggle a self-inconsistent payload (e.g.
+        # adjudicated_verdict='FILE' with unresolved_must_revise=5) past that gate to reach
+        # T1/convergence/summary as if established. Only enforce when both operands are present
+        # and the count is settled — an _UNESTABLISHED count agrees with neither verdict and
+        # (per the write path) can only accompany REVISE, which is checked too.
+        if av is not None:
+            if umr == _UNESTABLISHED and av == 'FILE':
+                raise StateError(f'round {num} adjudicated verdict FILE cannot pair with an '
+                                 f'{_UNESTABLISHED!r} unresolved must-revise count')
+            if isinstance(umr, int) and not isinstance(umr, bool):
+                if av == 'FILE' and umr != 0:
+                    raise StateError(f'round {num} adjudicated verdict FILE disagrees with '
+                                     f'unresolved_must_revise {umr} (FILE requires 0)')
+                if av == 'REVISE' and umr < 1:
+                    raise StateError(f'round {num} adjudicated verdict REVISE disagrees with '
+                                     f'unresolved_must_revise {umr} (REVISE requires >= 1)')
+                mrc = rnd.get('must_revise_count')
+                if (isinstance(mrc, int) and not isinstance(mrc, bool)
+                        and mrc >= 0 and umr > mrc):
+                    raise StateError(f'round {num} unresolved_must_revise {umr} exceeds '
+                                     f'must_revise_count {mrc} (unresolved is a subset)')
     for ov in doc['overrides']:
         if not isinstance(ov, dict) or ov.get('kind') not in _OVERRIDE_KINDS:
             raise StateError('an override record names a kind outside the canonical set')
@@ -792,10 +816,12 @@ def _revision_postdates(state, rnd):
 def _unresolved_int(rnd):
     """The round's adjudicated unresolved-must-revise count as a concrete int, else None.
 
-    `None` covers every case that is NOT a settled non-negative integer: a round that was
-    never adjudicated (`unresolved_must_revise is None`) and one adjudicated but
-    unestablished (the literal `_UNESTABLISHED`). A bool is not an int here (Python's
-    `isinstance(True, int)` is True), so it is excluded explicitly.
+    `None` covers every case that is NOT a settled integer: a round that was never
+    adjudicated (`unresolved_must_revise is None`) and one adjudicated but unestablished (the
+    literal `_UNESTABLISHED`). A bool is not an int here (Python's `isinstance(True, int)` is
+    True), so it is excluded explicitly. Non-negativity is enforced upstream by `_validate`
+    (and by `cmd_record_adjudication` at the write boundary), so any stored int reaching here
+    is already >= 0.
     """
     v = rnd.get('unresolved_must_revise')
     if isinstance(v, bool) or not isinstance(v, int):
@@ -810,12 +836,17 @@ def evaluate_triggers(state):
     must-revise count, never the raw `VERDICT: REVISE` token: it holds only when at least
     one verified unresolved must-revise finding remains (a settled count ≥ 1). An
     un-adjudicated or unestablished count does NOT hold T1 — a *verified* finding is
-    required — while T2's fail-closed coverage catches the unknown-state cases.
-    T2 is UNCHANGED: it holds when a revision record postdates the last completed round's
-    record; when the last completed round hit the verdict-less (`no-verdict`) terminal (the
-    content is effectively unaudited); and whenever state is unestablishable (unknown is not
-    zero: an unreadable state means the content is effectively unaudited, so the boundary
-    offer must fire rather than be silently skipped).
+    required.
+    T2 provides the fail-closed unknown-state coverage: it holds when a revision record
+    postdates the last completed round's record; when the last completed round hit the
+    verdict-less (`no-verdict`) terminal (the content is effectively unaudited); when a
+    completed **REVISE** round has NOT been adjudicated yet (the pre-#548 raw-REVISE token used
+    to fire the offer, so an un-adjudicated REVISE round must not silently drop it — the offer
+    fires rather than being skipped, exactly the absent-comparand fail-closed the guard would
+    otherwise fail open on); and whenever state is unestablishable (unknown is not zero). The
+    reason is surfaced whenever T2 holds on an unknown state. An un-adjudicated *FILE* round is
+    NOT this case — its raw signal is clean and pre-#548 it fired no offer, so T2's behavior on
+    it is unchanged.
     """
     if state is None:
         return {'t1': False, 't2': True, 'reason': 'state-unestablished'}
@@ -825,12 +856,24 @@ def evaluate_triggers(state):
     u = _unresolved_int(last)
     t1 = u is not None and u >= 1
     t2 = _revision_postdates(state, last)
+    reason = None
     if last.get('outcome') == 'no-verdict':
         # The verdict-less terminal: T1 does not hold (there is no adjudicated must-revise
         # finding on an unaudited round), but the content is effectively unaudited, so T2 is
         # treated as holding and the boundary offer fires naming the state.
         t2 = True
-    return {'t1': t1, 't2': t2, 'reason': None}
+        reason = 'no-verdict-round'
+    elif last.get('outcome') == 'REVISE' and last.get('adjudicated_verdict') is None:
+        # An accepted REVISE round that was never adjudicated: T1's comparand
+        # (`unresolved_must_revise`) is absent, so T1 reads None → not-hold. Pre-#548 the raw
+        # REVISE token fired T1 unconditionally, so without this arm the boundary offer would be
+        # SILENTLY dropped on exactly the un-adjudicated REVISE round it exists to catch — a
+        # guard failing open where it claims to fail closed. The adjudication lifecycle is
+        # unknown here, so fail closed to the offer and surface the reason. A clean FILE round
+        # left un-adjudicated is deliberately NOT this case (pre-#548 it fired no offer either).
+        t2 = True
+        reason = 'unadjudicated-round'
+    return {'t1': t1, 't2': t2, 'reason': reason}
 
 
 def evaluate_convergence(state):
@@ -1609,7 +1652,11 @@ def cmd_record_adjudication(args):
     unresolved-must-revise count) AFTER that boundary, before any T1/convergence/summary
     query. The raw auditor verdict stays recorded as provenance; a raw token never
     substitutes for adjudication, so the state owner accepts this payload only when the
-    adjudicated verdict and the unresolved-must-revise count agree.
+    adjudicated verdict and the unresolved-must-revise count agree — checked when that count
+    is established. A `FILE` verdict asserts convergence-worthiness, so it may NOT pair with
+    an `unestablished` count (that is precisely a not-established state); a `REVISE` count may
+    be `unestablished` (a verified finding may exist though the tally was not established), and
+    that is the only verdict the `unestablished` count pairs with.
     """
     doc = _load_for_mutation('record-adjudication', args.slug, args.nonce)
     rnd = _find_round(doc, args.round)
@@ -1630,6 +1677,16 @@ def cmd_record_adjudication(args):
     raw = args.unresolved_must_revise
     if raw == _UNESTABLISHED:
         unresolved = _UNESTABLISHED
+        # A FILE verdict asserts convergence-worthiness, which an unknown unresolved count
+        # cannot support: FILE means "zero unresolved must-revise findings", and an
+        # unestablished count is precisely a not-established state, not a zero. Reject the
+        # pairing so a self-inconsistent `FILE + unestablished` record can never reach the
+        # summary/consumers. REVISE + unestablished is the only legal unestablished pairing.
+        if args.verdict == 'FILE':
+            _fail('record-adjudication', 'adjudicated verdict FILE cannot pair with an '
+                                         f'{_UNESTABLISHED!r} unresolved must-revise count: '
+                                         'a FILE verdict requires zero unresolved findings, '
+                                         'and an unestablished count is not a zero')
     else:
         try:
             unresolved = int(raw)
@@ -1655,6 +1712,13 @@ def cmd_record_adjudication(args):
                                          f'unresolved must-revise count {unresolved}: a '
                                          f'REVISE verdict requires at least one verified '
                                          f'unresolved must-revise finding')
+        # Unresolved must-revise findings are a subset of the round's must-revise findings, so
+        # the unresolved count can never exceed the total. A record that violates this is
+        # self-inconsistent; reject it rather than let a nonsensical tally reach the summary.
+        if unresolved > args.must_revise:
+            _fail('record-adjudication', f'unresolved must-revise count {unresolved} exceeds '
+                                         f'the must-revise total {args.must_revise}: unresolved '
+                                         f'findings are a subset of must-revise findings')
     rnd['adjudicated_verdict'] = args.verdict
     rnd['must_revise_count'] = args.must_revise
     rnd['advisory_count'] = args.advisory
