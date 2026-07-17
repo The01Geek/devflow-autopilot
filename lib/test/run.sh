@@ -42572,14 +42572,20 @@ if [ -d "$RD_SB" ]; then
     printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd2 --nonce "$N2" --round 1 \
       --arm inline > /dev/null 2> .rd-inline; printf '%s' "$?" > .rd-inline-rc
 
-    # negative: an EMBED-arm round's same-arm retry gains no file escalation — the
-    # carve-out is file->embed only, never the reverse
+    # negative: an INLINE-arm round's same-arm retry gains NO embed escalation. This is
+    # the row that actually pins the scoping. Asserting that an embed round refuses the
+    # FILE arm would be vacuous — the escalation only ever appends 'embed', so no
+    # mutation of the scoping could permit 'file' and such a row would exercise only the
+    # pre-existing base guard. Dropping the `same == 'file'` condition instead widens the
+    # escalation to EVERY same-arm retry, and inline — the terminal degraded arm, which
+    # the docstring explicitly disclaims — is where that shows.
     N3="$(python3 "$IAS" init rd3 | sed 's/nonce=//')"
     printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd3 --nonce "$N3" --round 1 \
-      --arm embed --marker write-failed > /dev/null 2>&1
+      --arm inline > /dev/null 2>&1
     python3 "$IAS" record-return rd3 --nonce "$N3" --round 1 > /dev/null 2>&1
-    python3 "$IAS" record-dispatch rd3 --nonce "$N3" --round 1 --arm file \
-      --draft-file d2.md > /dev/null 2> .rd-embedround; printf '%s' "$?" > .rd-embedround-rc
+    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd3 --nonce "$N3" --round 1 \
+      --arm embed --marker write-failed > /dev/null 2> .rd-inlineround
+    printf '%s' "$?" > .rd-inlineround-rc
 
     # negative: the escalation never goes unmarked (it must stay recorded evidence)
     N4="$(python3 "$IAS" init rd4 | sed 's/nonce=//')"
@@ -42599,8 +42605,8 @@ if [ -d "$RD_SB" ]; then
     "1" "$(grep -c 'arm=embed' "$RD_SB/.rd-escalate" 2>/dev/null)"
   assert_eq "#546 retry_arm_deadlock_rows: a same-arm retry still refuses the inline arm" \
     "1:1" "$(cat "$RD_SB/.rd-inline-rc" 2>/dev/null):$(grep -c 'does not permit a dispatch on the inline arm' "$RD_SB/.rd-inline" 2>/dev/null)"
-  assert_eq "#546 retry_arm_deadlock_rows: an embed round's same-arm retry gains no file escalation (scoped file->embed only)" \
-    "1:1" "$(cat "$RD_SB/.rd-embedround-rc" 2>/dev/null):$(grep -c 'does not permit a dispatch on the file arm' "$RD_SB/.rd-embedround" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: an INLINE round's same-arm retry gains no embed escalation (the scoping is file-only)" \
+    "1:1" "$(cat "$RD_SB/.rd-inlineround-rc" 2>/dev/null):$(grep -c 'does not permit a dispatch on the embed arm' "$RD_SB/.rd-inlineround" 2>/dev/null)"
   assert_eq "#546 retry_arm_deadlock_rows: the escalated embed dispatch still requires its cause marker" \
     "1:1" "$(cat "$RD_SB/.rd-nomarker-rc" 2>/dev/null):$(grep -c 'requires --marker naming the entry cause' "$RD_SB/.rd-nomarker" 2>/dev/null)"
   rm -rf "$RD_SB"

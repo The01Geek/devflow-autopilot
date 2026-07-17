@@ -1224,15 +1224,24 @@ def cmd_record_dispatch(args):
         except OSError as exc:
             _fail('record-dispatch', f'could not read draft file {args.draft_file}: {exc}')
     else:
+        # The sibling draft-file read above routes its failure through _fail; stdin is the
+        # same external input and gets the same treatment, or a broken fd 0 escapes as a
+        # raw traceback — breaking the mutation contract (non-zero WITH a named
+        # breadcrumb) the caller parses, and handing its stderr classification a Python
+        # traceback rather than one of this tool's own vocabulary strings.
+        #
+        # TWO distinct failures, deliberately handled separately. A CLOSED fd 0 does not
+        # raise from the read at all: CPython sets `sys.stdin = None` at startup, so the
+        # attribute access itself is what fails (AttributeError, never OSError) — an
+        # `except OSError` around the read is blind to exactly the shape the skill's shell
+        # pipelines can produce. Test the object first; keep the except for a genuine
+        # read-time error (an I/O failure part-way through a redirected file).
+        if sys.stdin is None:
+            _fail('record-dispatch', 'could not read draft bytes from stdin: no stdin is '
+                                     'attached (fd 0 is closed)')
         try:
             data = sys.stdin.buffer.read()
         except OSError as exc:
-            # The sibling draft-file read above routes its OSError through _fail; stdin is
-            # the same external input and gets the same treatment. Unguarded, a closed or
-            # broken fd 0 (plausible from the skill's shell-pipeline recipes) escapes as a
-            # raw traceback — breaking the mutation contract (non-zero WITH a named
-            # breadcrumb) the caller parses, and handing its stderr classification a
-            # Python traceback rather than one of this tool's own vocabulary strings.
             _fail('record-dispatch', f'could not read draft bytes from stdin: {exc}')
         if not data:
             _fail('record-dispatch', f'the {args.arm} arm requires the draft bytes on '
@@ -1548,14 +1557,20 @@ def cmd_record_creation_attestation(args):
     if args.attestation_unavailable:
         status = 'attestation-unavailable'
     else:
+        # Fail with the named breadcrumb rather than a raw traceback: this command IS the
+        # tamper-detection surface, so a crash here would leave the run with no
+        # attestation record at all — rendering `attestation=none` ("before any creation
+        # attempt"), the never-attempted misattribution that `attestation-unavailable`
+        # exists to prevent. A closed fd 0 fails at the ATTRIBUTE access (CPython sets
+        # `sys.stdin = None`), not from the read, so it is tested separately — an
+        # `except OSError` alone is blind to it. See record-dispatch's twin.
+        if sys.stdin is None:
+            _fail('record-creation-attestation',
+                  'could not read the fetched body from stdin: no stdin is attached '
+                  '(fd 0 is closed)')
         try:
             data = sys.stdin.buffer.read()
         except OSError as exc:
-            # Fail with the named breadcrumb rather than a raw traceback: this command IS
-            # the tamper-detection surface, so a crash here would leave the run with no
-            # attestation record at all — rendering `attestation=none` ("before any
-            # creation attempt"), the never-attempted misattribution that
-            # `attestation-unavailable` exists to prevent.
             _fail('record-creation-attestation',
                   f'could not read the fetched body from stdin: {exc}')
         # Empty fetched bytes are COMPARED, not laundered into unavailable: an empty
