@@ -555,7 +555,7 @@ def _validate(doc, slug):
     for i, rev in enumerate(doc['revisions']):
         if not isinstance(rev, dict):
             raise StateError('a revision record is not an object')
-        for key in ('ordinal', 'after_round'):
+        for key in ('ordinal', 'after_round', 'floor_round'):
             val = rev.get(key)
             if not isinstance(val, int) or isinstance(val, bool):
                 raise StateError(f'a revision record {key} {val!r} is not an integer')
@@ -564,6 +564,19 @@ def _validate(doc, slug):
         if rev['ordinal'] != i + 1:
             raise StateError(f'revision ordinal chain broken: position {i + 1} holds '
                              f'ordinal {rev["ordinal"]}')
+        # Re-check record-revision's OWN guard at the read boundary, against the floor
+        # that call recorded. `after_round` is the sole invalidation evidence on the
+        # event-ordering ground (_revision_postdates keys eligibility and T2 on it), so a
+        # value below the floor fails that guard OPEN — a revised, never-audited draft
+        # answers eligible and emit-body emits it at exit 0. The write boundary refuses
+        # that value, but this is the gate: a hand-corrupted record must not smuggle it
+        # past, exactly as _valid_override re-checks its own write guards here.
+        if rev['after_round'] < rev['floor_round']:
+            raise StateError(
+                f'revision {rev["ordinal"]} names after_round {rev["after_round"]} '
+                f'below the floor {rev["floor_round"]} recorded with it (a value below '
+                f'the last completed round fails the event-ordering staleness guard '
+                f'open)')
     for key in ('automatic_reaudits_used', 'user_rounds_used'):
         val = doc.get(key, 0)
         if not isinstance(val, int) or isinstance(val, bool):
@@ -1446,8 +1459,16 @@ def cmd_record_revision(args):
               f'last completed round is {floor} and the last recorded round is '
               f'{last_num} (a value below the last completed round would fail the '
               f'event-ordering staleness guard open)')
+    # Persist the floor this call validated against, so _validate can re-check the same
+    # rule at the READ boundary — the treatment _valid_override already gets, which
+    # `after_round` did not inherit. The floor is NOT reconstructible at load: rounds
+    # complete forward, so the CURRENT last-completed round is >= the floor that applied
+    # when this revision was recorded, and re-deriving it would wrongly reject a
+    # legitimately-older revision (recorded when only round 1 was complete, now with
+    # round 3 complete). Recording it is what makes the invariant checkable later.
     doc['revisions'].append({'ordinal': len(doc['revisions']) + 1,
-                             'after_round': args.after_round})
+                             'after_round': args.after_round,
+                             'floor_round': floor})
     try:
         save_state(doc, args.slug)
     except StateError as exc:

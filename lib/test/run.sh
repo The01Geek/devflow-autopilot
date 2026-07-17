@@ -42605,6 +42605,42 @@ if [ -d "$RD_SB" ]; then
     python3 "$IAS" record-dispatch rd5 --nonce "$N5" --round 1 --arm embed \
       --marker write-failed 0<&- > /dev/null 2> .rd-nostdin
     printf '%s' "$?" > .rd-nostdin-rc
+    # after_round's READ boundary — the sibling of the override read guard, found by the
+    # parked-class sweep. after_round is the SOLE invalidation evidence on the
+    # event-ordering ground, so a value below the floor fails that guard OPEN: a revised,
+    # never-audited draft answers eligible and emit-body emits it at exit 0. The write
+    # boundary refuses it; this proves the read boundary does too. The positive control
+    # keeps the fixture honest — a revision legitimately recorded while its round is
+    # still open carries floor 0 and must STILL be accepted.
+    N7="$(python3 "$IAS" init rd7 | sed 's/nonce=//')"
+    printf '# T\n\nORIG\n' > d7.md
+    printf '# T\n\nORIG\n' | python3 "$IAS" record-dispatch rd7 --nonce "$N7" --round 1 \
+      --arm embed --marker write-failed > /dev/null 2>&1
+    RD7_OPEN="$(python3 -c "import json,pathlib;print(json.loads(pathlib.Path('.devflow/tmp/issue-audit-state-rd7.json').read_text())['rounds'][0]['attempts'][-1]['sentinel_open'])")"
+    RD7_CLOSE="$(python3 -c "import json,pathlib;print(json.loads(pathlib.Path('.devflow/tmp/issue-audit-state-rd7.json').read_text())['rounds'][0]['attempts'][-1]['sentinel_close'])")"
+    python3 "$IAS" record-return rd7 --nonce "$N7" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-sentinel-open "$RD7_OPEN" \
+      --carriage-sentinel-close "$RD7_CLOSE" > /dev/null 2>&1
+    python3 "$IAS" record-revision rd7 --nonce "$N7" --after-round 1 > /dev/null 2>&1
+    printf '# T\n\nREVISED never audited\n' > d7.md
+    python3 - <<'PY' > /dev/null 2>&1
+import json, pathlib
+p = pathlib.Path('.devflow/tmp/issue-audit-state-rd7.json')
+d = json.loads(p.read_text())
+d['revisions'][0]['after_round'] = 0        # below the floor recorded with it
+p.write_text(json.dumps(d))
+PY
+    python3 "$IAS" query-eligibility rd7 --nonce "$N7" --mode approve \
+      --draft-file d7.md > .rd-afterround 2>/dev/null
+    python3 "$IAS" emit-body rd7 --nonce "$N7" --draft-file d7.md \
+      > .rd-afterround-emit 2>/dev/null; printf '%s' "$?" > .rd-afterround-emit-rc
+    # positive control: floor 0 is legitimate while the round is still open
+    N8="$(python3 "$IAS" init rd8 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch rd8 --nonce "$N8" --round 1 --arm file \
+      --draft-file d2.md > /dev/null 2>&1
+    python3 "$IAS" record-revision rd8 --nonce "$N8" --after-round 0 \
+      > .rd-floor0 2>&1; printf '%s' "$?" > .rd-floor0-rc
+
     # the attestation twin: bind a real epoch first so the read is actually reached
     N6="$(python3 "$IAS" init rd6 | sed 's/nonce=//')"
     python3 "$IAS" record-dispatch rd6 --nonce "$N6" --round 1 --arm file \
@@ -42634,6 +42670,12 @@ if [ -d "$RD_SB" ]; then
     "1:1" "$(cat "$RD_SB/.rd-nostdin-rc" 2>/dev/null):$(grep -c 'no stdin is attached (fd 0 is closed)' "$RD_SB/.rd-nostdin" 2>/dev/null)"
   assert_eq "#546 retry_arm_deadlock_rows: ... and on record-creation-attestation, the tamper-detection surface" \
     "1:1" "$(cat "$RD_SB/.rd-nostdin-att-rc" 2>/dev/null):$(grep -c 'no stdin is attached (fd 0 is closed)' "$RD_SB/.rd-nostdin-att" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: an after_round below its recorded floor is refused at the READ boundary (the event-ordering fail-open)" \
+    "eligible=no reason=state-unestablished" "$(cat "$RD_SB/.rd-afterround" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: ... and emit-body refuses it with the empty-stdout signature" \
+    "1:" "$(cat "$RD_SB/.rd-afterround-emit-rc" 2>/dev/null):$(cat "$RD_SB/.rd-afterround-emit" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: ... while a floor-0 revision recorded against a still-open round stays legal (positive control)" \
+    "0" "$(cat "$RD_SB/.rd-floor0-rc" 2>/dev/null)"
   rm -rf "$RD_SB"
 fi
 
