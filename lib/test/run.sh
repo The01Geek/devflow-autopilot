@@ -3654,8 +3654,8 @@ assert_pin_unique "#467 C3: quality-checklist mirror for the trust-boundary clos
   'transitive source/exec/import closure of its entry points' "$CI312_TMPL"
 # Cluster D — Move 2a introduction trigger (template) + waiver-non-conforming clause; the
 # three-site best-effort-parser widening (CLAUDE.md, implement Phase 2.4, review-and-fix
-# fix-delta gate); extension sharpening (whole-file dimension count held at 8 — 7 base + #464's
-# dimension; #467 added none, matching the D3 guard below). The six-shape
+# fix-delta gate); extension sharpening (whole-file dimension count held at 9 after the
+# deployment-variance dimension added on main; #467 added none, matching the D3 guard below). The six-shape
 # SIXSHAPE_SET lockstep pins above stay green — the widening references the set, never restates it.
 assert_pin_unique "#467 D1: Move 2a carries the introduction trigger" \
   'Move 2a also fires on *introduction*, not only on narrowing' "$CI312_TMPL"
@@ -3669,10 +3669,12 @@ assert_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mut
   'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$MAXI_SKILL"
 assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
   'input-type analogue** for the widened surfaces' "$CI443_EXT"
-# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 8 after
-# issue #464 (merged) appended the "Mutation evidence for behavioral-fix pins" dimension; #467
+# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 9 after
+# issue #464 appended the mutation-evidence dimension and main added deployment variance; #467
 # sharpened the existing case-matrix bullet in place, adding no row.
-assert_eq "#467 D3: create-issue extension is 8 dimension bullets (7 base + #464's dimension; #467 added none)" "8" \
+assert_pin_unique "base-update: create-issue extension carries the deployment-variance dimension" \
+  'Deployment-variance silence.' "$CI443_EXT"
+assert_eq "#467 D3: create-issue extension is 9 dimension bullets (deployment variance reconciled)" "9" \
   "$(grep -c '^- \*\*' "$CI443_EXT")"
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
