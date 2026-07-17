@@ -31329,6 +31329,28 @@ assert_eq "#363 every review-skill bash head is granted by devflow.yml command a
   "" "$(python3 "$ECH" ungranted "$REVIEW_BUNDLE" \
         "$LIB/../.github/workflows/devflow.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
 
+# ── #540 exercise the file-union loop over the REAL member paths, not the
+# ── concatenated bundle. The two contract pins above pass a single temp file, so
+# ── a regression in `_heads_of_all` (reading only the first FILE, dropping the
+# ── rest) would still see every head — the concatenation hides the bug. Passing
+# ── the real root + phase references as separate FILE args drives the multi-file
+# ── loop that the shipped review/manual-command/implement scans actually use.
+assert_eq "#540 the multi-file union over the REAL review members is granted by devflow-runner.yml review profile" \
+  "" "$(python3 "$ECH" ungranted "${_review_members[@]}" \
+        "$LIB/../.github/workflows/devflow-runner.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
+assert_eq "#540 the multi-file union over the REAL review members is granted by devflow.yml command allowlist" \
+  "" "$(python3 "$ECH" ungranted "${_review_members[@]}" \
+        "$LIB/../.github/workflows/devflow.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
+assert_eq "#540 the multi-file heads union over the REAL members equals the concatenated-bundle head set" \
+  "$(python3 "$ECH" heads "$REVIEW_BUNDLE" | tr '\n' ' ' | sed 's/ *$//')" \
+  "$(python3 "$ECH" heads "${_review_members[@]}" | tr '\n' ' ' | sed 's/ *$//')"
+# Shapes scanner over the real members too — its `--profile review` scan drives
+# the same per-FILE loop, so a union regression there is caught over the real
+# surface, not only the synthetic bundle-badshape fixture below.
+assert_eq "#540 the shapes scanner reports no denied shape across the REAL review members (review profile)" \
+  "" "$(python3 "$LIB/test/extract-command-shapes.py" --profile review \
+        "${_review_members[@]}" 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
+
 # ── Anti-vacuity: the pin must actually be able to go RED. A fixture skill whose
 # ── head no fixture profile grants must be REPORTED, or the two pins above are
 # ── passing because the extractor found nothing, not because everything is granted.
@@ -31737,6 +31759,17 @@ _rb_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
 _rb_ceil4() { echo $(( ($1 + 3) / 4 )); }
 _rb_growth_bytes=$(( $(cat "${_review_members[@]}" "$RB_EXT" | wc -c | tr -d ' ') - RB_BASELINE_BYTES ))
 _rb_shipped_w=$(_rb_words "${_rb_standalone[@]}")
+# #540: the "Max incremental phase read" row published two figures — the largest
+# single reference by WORDS (phase-4-verdict.md, 6,051) and, in the prose, by BYTES
+# (phase-3-agents.md, 43,397 B) — that were the only new budget numbers not tied to a
+# live measurement, so a future edit to either file could silently falsify them.
+# Measure both maxima live over the real reference set (the nine phases/, never the
+# root) and let the RECORD rows below assert the doc still spells them. The two
+# maxima are different files by construction, so each is measured independently.
+RB_MAXPHASE_WORDS=$(python3 -c 'import sys
+print(max(len(open(f, encoding="utf-8").read().split()) for f in sys.argv[1:]))' "$LIB"/../skills/review/phases/*.md)
+RB_MAXPHASE_BYTES=$(python3 -c 'import os, sys
+print(max(os.path.getsize(f) for f in sys.argv[1:]))' "$LIB"/../skills/review/phases/*.md)
 while IFS='~' read -r _rbn _rbe; do
   [ -n "$_rbn" ] || continue
   assert_eq "#529 AC4: the budget record and the code agree on $_rbn (a stale figure cannot ship green)" "yes" \
@@ -31749,6 +31782,8 @@ standalone execution-weighted bytes~$(_rb_grouped "$RB_STANDALONE_BYTES") B
 normal-plus-shadow execution-weighted bytes (and its per-pass token rounding)~$(_rb_grouped "$((RB_RAF_BYTES * 2))") / $(_rb_grouped "$(( $(_rb_ceil4 "$RB_RAF_BYTES") * 2 ))")
 complete-bundle growth in bytes~$(_rb_grouped "$_rb_growth_bytes") bytes
 shipped-default path words (the non-gating honest row)~**$(_rb_grouped "$_rb_shipped_w")**
+max incremental phase read words (largest single reference by words)~ $(_rb_grouped "$RB_MAXPHASE_WORDS") /
+max incremental phase read bytes (largest single reference by bytes, prose row)~$(_rb_grouped "$RB_MAXPHASE_BYTES") B
 RECORD
 # Captured once: the SAME emitted line is asserted to shrink AND to have been fed the
 # standalone set. Re-invoking would let the two assertions diverge. No skip arm is
