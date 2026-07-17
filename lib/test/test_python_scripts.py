@@ -3783,6 +3783,27 @@ assert_eq("#546 eligibility_grounds_table: the inline arm's verdict-less termina
           (lambda r: (r['answer'], r['reason']))(
               issue_audit_state.evaluate_eligibility(
                   _state([_round(1, 'inline', 'no-verdict', 'D1')]), 'approve', 'D1')))
+# A no-verdict round does NOT shadow an older clean FILE round on unchanged bytes: the
+# clean-scan breaks on REVISE (a positive "needs changes" signal) but falls through a
+# no-verdict round (an inconclusive re-audit, not a revocation), so bytes cleanly
+# audited in the FILE round still ground eligibility. Pin the current, deliberate
+# behavior in BOTH directions so a regression that adds no-verdict to the break set
+# (invalidating a legitimately-clean draft) turns the suite RED.
+assert_eq("#546 eligibility_grounds_table: a newer no-verdict round does NOT shadow an "
+          "older clean FILE round on unchanged bytes",
+          ('eligible', 'file-identity'),
+          (lambda r: (r['answer'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([_round(1, 'file', 'FILE', 'D1'),
+                          _round(2, 'inline', 'no-verdict', 'D1')]), 'approve', 'D1')))
+# ...but a newer REVISE round DOES invalidate the older clean FILE round (the contrast
+# that proves the no-verdict fall-through above is deliberate, not a scan bug).
+assert_eq("#546 eligibility_grounds_table: a newer REVISE round DOES invalidate an older "
+          "clean FILE round",
+          'not-eligible',
+          issue_audit_state.evaluate_eligibility(
+              _state([_round(1, 'file', 'FILE', 'D1'),
+                      _round(2, 'file', 'REVISE', 'D1')]), 'approve', 'D1')['answer'])
 
 # override_epoch_rows — a current override grounds eligible; a stale one refuses.
 _cur_override = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1,), overrides=[
@@ -3853,6 +3874,22 @@ assert_eq("#546 eligibility_token_rows: after a revision the pre-revision token 
           "re-emitted", None, _sf['token'])
 assert_eq("#546 eligibility_token_rows: ... and the distinct stale-token marker appears "
           "instead", True, _sf['stale_token'])
+# The OVERRIDE ground can also issue a token — over a REVISE/no-verdict epoch with NO
+# FILE round in `done` at all — so a later revision must stale THAT token too, or a
+# replayed override-ground token renders `token=none` (indistinguishable from
+# never-eligible) instead of the distinct stale marker. Regression pin for the
+# override-ground fail-open: `stale` keyed only on `any(outcome == 'FILE')` missed it.
+_ovr_staled_sf = issue_audit_state.summary_fields(_stale_override, 'D3')
+assert_eq("#546 eligibility_token_rows: a staled OVERRIDE-ground token (no FILE round) "
+          "does not re-emit", None, _ovr_staled_sf['token'])
+assert_eq("#546 eligibility_token_rows: ... and renders the distinct stale-token marker, "
+          "not token=none (override-ground fail-open regression)",
+          True, _ovr_staled_sf['stale_token'])
+# The still-current override (a token IS live) must NOT render stale — guards against the
+# fix over-firing the marker on a legitimately-eligible override.
+_ovr_live_sf = issue_audit_state.summary_fields(_cur_override, 'D2')
+assert_eq("#546 eligibility_token_rows: a still-current override renders its live token, "
+          "not the stale marker", False, _ovr_live_sf['stale_token'])
 
 # t1_t2_rows — including state_unestablished_t2_holds.
 assert_eq("#546 t1_t2_rows: T1 holds when the most recent completed round is REVISE",
@@ -3890,6 +3927,23 @@ assert_eq("#546 valid-falsy: no completed round -> findings count is None, not 0
 assert_eq("#546 valid-falsy: an empty rounds list is a legal live state that answers, "
           "never an error",
           'ok', issue_audit_state.summary_fields(_state([]), None)['state'])
+# rounds_run is its OWN derivation (len(state['rounds'])), distinct from revisions_applied
+# and verdict — pin its VALUE (not just its presence in the field set) over a multi-round
+# fixture so a regression emitting len(completed_rounds) or an off-by-one turns RED. This
+# re-establishes the deleted #522 "audit summary states the total rounds run" guarantee.
+_two_rounds = _state([_round(1, 'file', 'REVISE', 'D1'), _round(2, 'file', 'FILE', 'D1')])
+assert_eq("#546 summary rounds_run: the total number of rounds run is reported by value",
+          2, issue_audit_state.summary_fields(_two_rounds, 'D1')['rounds_run'])
+# An open (uncompleted) round still counts toward rounds_run (len of state['rounds'], not
+# completed_rounds) — the discriminator against the len(completed_rounds) regression.
+_open_plus_done = _state([_round(1, 'file', 'FILE', 'D1')])
+_open_plus_done['rounds'].append({'round': 2, 'attempts': [], 'no_parseable_retry_used': False,
+                                  'unreadable_retry_used': False, 'outcome': None,
+                                  'findings_count': None, 'consumer_dimensions_appended': False,
+                                  'embed_markers': [], 'degraded': False})
+assert_eq("#546 summary rounds_run: an open round still counts (len(rounds), not "
+          "len(completed_rounds))",
+          2, issue_audit_state.summary_fields(_open_plus_done, 'D1')['rounds_run'])
 
 print()
 print("issue-audit-state: the malformed-state matrix (issue #546)")
@@ -3951,6 +4005,18 @@ _malformed('a non-integer revision ordinal',
            dict(_GOOD, revisions=[{'ordinal': 'one', 'after_round': 0}]))
 _malformed('a non-integer after_round on a revision record',
            dict(_GOOD, revisions=[{'ordinal': 1, 'after_round': 'zero'}]))
+# The per-round retry booleans DRIVE dispatch routing, so a hand-corrupted non-bool must
+# fail closed at the read boundary exactly like pending/outcome/findings_count above: a
+# falsy-corrupted unreadable_retry_used would admit a SECOND DRAFT-UNREADABLE re-dispatch,
+# a fail OPEN of the 'exactly one per round' bound this boundary exists to catch.
+_bad_unreadable = _round(1, 'file', 'FILE')
+_bad_unreadable['unreadable_retry_used'] = 'yes'
+_malformed('a non-boolean unreadable_retry_used (routing-decision fail-open)',
+           dict(_GOOD, rounds=[_bad_unreadable]))
+_bad_noparse = _round(1, 'file', 'FILE')
+_bad_noparse['no_parseable_retry_used'] = 1
+_malformed('a non-boolean no_parseable_retry_used (routing-decision fail-open)',
+           dict(_GOOD, rounds=[_bad_noparse]))
 _malformed('a non-integer automatic_reaudits_used counter',
            dict(_GOOD, automatic_reaudits_used='two'))
 _malformed('a non-integer user_rounds_used counter', dict(_GOOD, user_rounds_used='three'))
@@ -4032,8 +4098,35 @@ _malformed('an override record with a surface outside the canonical set',
 _malformed('an override record with a non-integer recorded_at_ordinal',
            dict(_GOOD, overrides=[{'kind': 'user-decline', 'surface': 't1t2-boundary',
                                    'recorded_at_ordinal': 'zero', 'draft_digest': None}]))
-_malformed('a revision ordinal chain that is not 1..N',
-           dict(_GOOD, revisions=[{'ordinal': 2, 'after_round': 0}]))
+# De-vacuumed: the old fixture omitted `floor_round`, so it was rejected by the
+# floor_round-not-integer precondition and NEVER reached the ordinal-chain guard it
+# names — a regression deleting that guard would have kept it green. Supply floor_round
+# so the fixture is well-formed up to the ordinal-chain check, and ATTRIBUTE the reject
+# to that guard's own breadcrumb (not a bare StateError) so a sibling guard firing first
+# can no longer masquerade as this rejection.
+try:
+    issue_audit_state._validate(
+        dict(_GOOD, revisions=[{'ordinal': 2, 'after_round': 0, 'floor_round': 0}]), 's')
+    assert_eq("#546 malformed-state matrix: a revision ordinal chain that is not 1..N",
+              "raised StateError", "no exception raised")
+except issue_audit_state.StateError as _e:
+    assert_eq("#546 malformed-state matrix: a revision ordinal chain that is not 1..N "
+              "(rejected by the ordinal-chain guard, not a precondition)",
+              True, 'ordinal chain broken' in str(_e))
+# The read-boundary staleness gate: a WELL-FORMED revision record (all three ints, valid
+# ordinal chain) whose after_round < floor_round must be rejected here — the source flags
+# this as "the gate": below-floor after_round fails the event-ordering staleness guard
+# OPEN, so a revised-never-audited draft would answer eligible and emit-body would emit it
+# at exit 0. Only the WRITE boundary was tested before; this pins the READ boundary.
+try:
+    issue_audit_state._validate(
+        dict(_GOOD, revisions=[{'ordinal': 1, 'after_round': 0, 'floor_round': 1}]), 's')
+    assert_eq("#546 malformed-state matrix: a below-floor after_round (read-boundary "
+              "staleness gate)", "raised StateError", "no exception raised")
+except issue_audit_state.StateError as _e:
+    assert_eq("#546 malformed-state matrix: a below-floor after_round is rejected at the "
+              "read boundary (fail-open staleness gate)",
+              True, 'below the floor' in str(_e))
 _malformed('a creation attestation outside the canonical set',
            dict(_GOOD, creation={'body_only_digest': 'B', 'attestation': 'maybe'}))
 

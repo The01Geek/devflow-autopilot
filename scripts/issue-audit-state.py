@@ -157,9 +157,13 @@ _USER_ROUND_CAP = 3
 # (b) a drift between a row and its guard actually reaches main, or (c) the cmd_* guards are
 # reworked such that consulting legal/reason from the rows stops being a rewrite of each one.
 # Every row names the tokens it references; the import-time
-# assert below rejects any token outside its canonical set, so a renamed arm, verdict,
-# marker, override kind or reason token fails the import loudly instead of silently
-# routing a lifecycle event to a rule that no longer matches. The tests derive their
+# assert below rejects any token outside its canonical set, so a renamed event, arm,
+# verdict, reason or result token fails the import loudly instead of silently
+# routing a lifecycle event to a rule that no longer matches. (Embed markers and
+# override kinds are not transition-row columns, so the transition assert cannot name
+# them; they are guarded independently — markers by the `_EMBED_MARKER_TEXT` ↔
+# `_EMBED_MARKER_TOKENS` equality assert below, override kinds by argparse `choices=`
+# and `_validate`.) The tests derive their
 # expected row count from this table (`len(TRANSITIONS)`), so a row added here without
 # a matching test row turns the suite RED.
 #
@@ -266,10 +270,12 @@ def _require(cond, msg):
 def _assert_transition_tokens():
     """Fail the import loudly when a transition names a token outside its set.
 
-    A transition referencing an unknown event type, arm, verdict, marker, override
-    kind or reason token is a rule that can never fire — the exact silent-drift this
-    module exists to remove from prose. Import fails rather than routing a live
-    lifecycle event to a stale rule.
+    A transition referencing an unknown event type, arm, verdict, reason or result
+    token is a rule that can never fire — the exact silent-drift this module exists to
+    remove from prose. Import fails rather than routing a live lifecycle event to a
+    stale rule. (Embed markers and override kinds are not transition-row columns, so
+    this assert cannot name them; they are guarded independently — see the
+    `_EMBED_MARKER_TEXT`/`_EMBED_MARKER_TOKENS` equality assert and `_validate`.)
     """
     for r in TRANSITIONS:
         where = f"{r['event']}/{r['condition']}"
@@ -396,7 +402,16 @@ def hash_bytes(data):
         raise _DigestError(f'git hash-object failed: {err}') from exc
     except OSError as exc:
         raise _DigestError(f'could not execute git: {exc}') from exc
-    return r.stdout.decode('ascii', 'replace').strip()
+    oid = r.stdout.decode('ascii', 'replace').strip()
+    if not oid:
+        # `_DigestError` is otherwise raised only on a non-zero exit / OSError, but a
+        # shimmed or broken `git` can exit 0 with empty stdout. An empty object ID must
+        # never read as a successful digest: `''` compares equal to another `''` on the
+        # override ground (`_valid_override`'s `want != current_digest`), which would
+        # ground eligibility on unaudited bytes. Fail closed at the single source that
+        # feeds every compare site rather than trusting each site to reject `''`.
+        raise _DigestError('git hash-object returned an empty object id on exit 0')
+    return oid
 
 
 def hash_file(path):
@@ -530,6 +545,20 @@ def _validate(doc, slug):
                                              'dispatch-inline-degraded'):
             raise StateError(f'round {num} names a pending action outside the canonical '
                              f'set: {pend!r}')
+        # The per-round retry booleans DECIDE dispatch routing (`no_parseable_retry_used`
+        # gates the same-arm-vs-inline escalation; `unreadable_retry_used` gates the
+        # DRAFT-UNREADABLE embed retry and the `prior_unreadable` route), so a
+        # hand-corrupted or absent value must fail closed here for exactly the reason
+        # `pending`/`findings_count`/`outcome` above do — a falsy-corrupted
+        # `unreadable_retry_used` would admit a SECOND DRAFT-UNREADABLE re-dispatch,
+        # breaching the "exactly one per round" bound (a fail OPEN this read boundary
+        # exists to catch). `degraded`/`consumer_dimensions_appended` feed the summary
+        # line, so shape them too rather than trusting a corrupted flag.
+        for bkey in ('no_parseable_retry_used', 'unreadable_retry_used',
+                     'degraded', 'consumer_dimensions_appended'):
+            bval = rnd.get(bkey)
+            if bval is not None and not isinstance(bval, bool):
+                raise StateError(f'round {num} {bkey} {bval!r} is not a boolean')
         for mk in rnd.get('embed_markers', []):
             if mk not in _EMBED_MARKER_TOKENS:
                 raise StateError(f'round {num} names an embed marker outside the '
@@ -546,8 +575,11 @@ def _validate(doc, slug):
             raise StateError(f'an override record recorded_at_ordinal {rao!r} is not an '
                              f'integer')
         dd = ov.get('draft_digest')
-        if dd is not None and not isinstance(dd, str):
-            raise StateError('an override record draft_digest is not a string')
+        if dd is not None and (not isinstance(dd, str) or not dd):
+            # Non-empty when present, mirroring the round `digest`/`body_digest` rule: an
+            # empty bound digest would compare equal to an empty computed digest on the
+            # override ground and ground eligibility on unaudited bytes (fail open).
+            raise StateError('an override record draft_digest is not a non-empty string')
     # Read-surface fields the QUERIES consume must be shape-checked here too: a
     # corrupted revision record, counter, or creation record would otherwise crash a
     # query (AttributeError/TypeError), presenting a crashed read as a non-zero query
@@ -719,10 +751,12 @@ def evaluate_triggers(state):
     """T1/T2, evaluated from recorded state.
 
     T1 holds when the most recent completed round's verdict is `VERDICT: REVISE`.
-    T2 holds when a revision record postdates the last completed round's record —
-    and additionally whenever state is unestablishable (unknown is not zero: an
-    unreadable state means the content is effectively unaudited, so the boundary
-    offer must fire rather than be silently skipped).
+    T2 holds in three cases: when a revision record postdates the last completed
+    round's record; when the last completed round hit the verdict-less (`no-verdict`)
+    terminal (the content is effectively unaudited); and whenever state is
+    unestablishable (unknown is not zero: an unreadable state means the content is
+    effectively unaudited, so the boundary offer must fire rather than be silently
+    skipped).
     """
     if state is None:
         return {'t1': False, 't2': True, 'reason': 'state-unestablished'}
@@ -1037,10 +1071,11 @@ def summary_fields(state, current_digest=None, digest_failed=False):
 
     The eligibility token is DERIVED here rather than read back from state: queries
     are read-only, so nothing recorded it at issue time. A token is re-emitted only
-    while its issuing digest (or, on the event-ordering ground, ordinal) is still
-    current; otherwise the distinct stale-token marker is emitted, so a reader
-    string-comparing the transcript's token against the state file sees a replayed
-    pre-revision token fail to match.
+    while its issuing ground still holds; once a later revision invalidates it — a
+    FILE round's digest, an event-ordering ordinal, or a recorded override — the
+    distinct stale-token marker is emitted, so a reader string-comparing the
+    transcript's token against the state file sees a replayed pre-revision token fail
+    to match.
     """
     if state is None:
         return _summary(state='unestablished', findings_count=None, revisions_applied=0,
@@ -1066,12 +1101,22 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # An undigestible draft is NOT evidence the token went stale — the stderr
         # breadcrumb names the real cause; rendering stale-token here would be the
         # same misattribution the draft-undigestible reason exists to prevent.
-        # A clean round exists but no longer grounds eligibility: whatever token was
-        # issued on those bytes has been invalidated. One carve-out: a file-arm clean
-        # epoch queried with NO digest supplied was never compared at all — claiming
-        # stale there would be the same misattribution in another coat.
+        # A token that was issued and is now invalidated should render stale-token, so
+        # a reader string-comparing a replayed token still sees a positive mismatch.
+        # TWO grounds can issue a token, so both must be able to stale it:
+        #   - a clean FILE round (its token staled by a later revision), covered by the
+        #     `any(outcome == 'FILE')` scan below; and
+        #   - a still-recorded override (staled by a later revision — eligibility then
+        #     refuses `stale-override`), which can exist on a REVISE/no-verdict epoch
+        #     with NO FILE round in `done` at all, so the FILE scan alone missed it and
+        #     rendered `token=none` — the override-ground fail-open this OR closes.
+        override_staled = elig.get('reason') == 'stale-override'
         stale = any(r.get('outcome') == 'FILE' for r in done)
-        if stale and current_digest is None:
+        if stale and not override_staled and current_digest is None:
+            # One carve-out, scoped to the FILE-round ground only (never the override
+            # ground, which the OR below restores): a file-arm clean epoch queried with
+            # NO digest supplied was never compared at all — claiming stale there would
+            # be the same misattribution in another coat.
             latest_clean = next((r for r in reversed(done)
                                  if r.get('outcome') == 'FILE'), None)
             if (latest_clean is not None
@@ -1081,6 +1126,7 @@ def summary_fields(state, current_digest=None, digest_failed=False):
                 # that invalidation needs no digest comparison, so the stale marker
                 # stays honest even when no draft file was supplied.
                 stale = False
+        stale = stale or override_staled
     return _summary(
         state='ok',
         findings_count=sum(counts) if counts else None,
@@ -1146,7 +1192,13 @@ def cmd_init(args):
                           'evidence and render the summary as though no creation had '
                           'been attempted')
         doc = _new_doc(args.slug, args.nonce)
-        doc['reinit_forced'] = bool(existing['rounds'] and args.force)
+        # Sticky once set: a forced re-init wipes rounds, so a LATER same-nonce re-init
+        # takes the no-rounds echo path (rounds now empty, so the --force guard above no
+        # longer fires) and would otherwise recompute this as False — laundering the
+        # budget-reset disclosure in two legal calls. Preserve a prior `reinit_forced`
+        # so `query-summary` cannot lose the evidence that this run took a fresh budget.
+        doc['reinit_forced'] = (bool(existing.get('reinit_forced'))
+                                or bool(existing['rounds'] and args.force))
     else:
         # Cold start: the ported delete-leftover-first rule. Raises no alarm.
         doc = _new_doc(args.slug, secrets.token_hex(8))
@@ -1497,10 +1549,11 @@ def cmd_record_override(args):
               'no round has completed, so there is no audit for an override to '
               'override: recording one here would ground eligibility on a draft the '
               'tool never audited')
-    if epoch['attempts'][-1]['arm'] == 'file' and digest is None:
+    if epoch['attempts'][-1]['arm'] == 'file' and not digest:
         # --draft-file is optional in the argparse surface because the embed/inline arms
         # have no trustworthy canonical file to bind. On a file-arm epoch one exists, so
         # an unbound override would skip the byte comparison entirely and pass ANY bytes.
+        # `not digest` (not `digest is None`) so an empty-string digest is refused too.
         _fail('record-override',
               'the current epoch is a file-arm round, so this override must bind the '
               'draft it permits: pass --draft-file (an override with no recorded digest '

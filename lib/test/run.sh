@@ -3578,7 +3578,7 @@ assert_pin_unique "#522: embed arm out-of-bounds names exactly the 5 files (draf
 #     to the file arm
 #   T1 fires on the last round's VERDICT: REVISE       → py #546 t1_t2_rows
 #   T2 fires when a revision postdates the last round  → py #546 t1_t2_rows
-#   audit summary states the total rounds run          → this file's #546 roundtrip summary row
+#   audit summary states the total rounds run          → py #546 summary rounds_run
 #   user-chosen rounds capped at 3 per run             → #546 user_round_cap_rows (below)
 #   automatic budget = 1 audit + at most 1 re-audit    → #546 next_action_budget_rows (below)
 #                                                         (the ceiling is driven end-to-end)
@@ -41432,7 +41432,11 @@ fi
 # a fail-closed token, never a crash presented as a value. Mutations exit non-zero.
 QM_SB="$(git_sandbox '#546 query_exit_contract_matrix')"
 if [ -d "$QM_SB" ]; then
-  for SHAPE in empty malformed array scalar; do
+  # `missing` is the AC-named row the matrix previously omitted: a genuinely ABSENT state
+  # file (load_state's FileNotFoundError branch) must answer every query class fail-closed
+  # at exit 0, exactly like the corrupt shapes — the `rm -f` arm guarantees no prior shape's
+  # file lingers in the reused sandbox.
+  for SHAPE in missing empty malformed array scalar; do
     (
       cd "$QM_SB" || exit 1
       # git init is load-bearing, not boilerplate: state_path() anchors to the git root, so
@@ -41442,6 +41446,7 @@ if [ -d "$QM_SB" ]; then
       git init -q . 2>/dev/null
       mkdir -p .devflow/tmp
       case "$SHAPE" in
+        missing)   rm -f .devflow/tmp/issue-audit-state-m.json ;;
         empty)     : > .devflow/tmp/issue-audit-state-m.json ;;
         malformed) printf '{not json' > .devflow/tmp/issue-audit-state-m.json ;;
         array)     printf '[]' > .devflow/tmp/issue-audit-state-m.json ;;
@@ -41482,6 +41487,11 @@ if [ -d "$RI_SB" ]; then
     python3 "$IAS" init ri --nonce "$N" > .ri-unforced 2>&1 && printf 'EXITED-ZERO\n' >> .ri-unforced
     python3 "$IAS" init ri --nonce "$N" --force > /dev/null 2>&1
     python3 "$IAS" query-summary ri --nonce "$N" > .ri-forced
+    # Sticky: the --force above wiped the rounds, so a LATER same-nonce re-init (no --force)
+    # is legal via the no-rounds echo path and must PRESERVE reinit_forced=yes — otherwise
+    # the budget-reset disclosure is launderable in two legal calls (issue #552 review I4).
+    python3 "$IAS" init ri --nonce "$N" > /dev/null 2>&1
+    python3 "$IAS" query-summary ri --nonce "$N" > .ri-sticky
     # Cold start over the same slug: the ported delete-first wipe, no alarm, new nonce.
     N2="$(python3 "$IAS" init ri | sed 's/nonce=//')"
     [ "$N2" != "$N" ] && printf 'new-nonce\n' > .ri-cold
@@ -41495,6 +41505,8 @@ if [ -d "$RI_SB" ]; then
     "1" "$(grep -c 'illegal transition without --force' "$RI_SB/.ri-unforced" 2>/dev/null)"
   assert_eq "#546 reinit_force_rows: a forced same-run re-init surfaces as reinit_forced=yes" \
     "1" "$(grep -c 'reinit_forced=yes' "$RI_SB/.ri-forced" 2>/dev/null)"
+  assert_eq "#546 reinit_force_rows: a later same-nonce echo re-init PRESERVES reinit_forced=yes (not launderable)" \
+    "1" "$(grep -c 'reinit_forced=yes' "$RI_SB/.ri-sticky" 2>/dev/null)"
   assert_eq "#546 reinit_force_rows: a cold-start re-init (no nonce) wipes and mints a new nonce, no alarm" \
     "new-nonce" "$(cat "$RI_SB/.ri-cold" 2>/dev/null)"
   assert_eq "#546 reinit_force_rows: after a foreign cold start, the prior run's nonce is rejected" \
