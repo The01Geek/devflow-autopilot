@@ -1,13 +1,51 @@
 {
   "iter": 2,
-  "fix_commit_sha": "909ce558475809f1e12174b15086ad10f4133b7d",
-  "fix_files": [
-    "lib/test/run.sh",
-    "lib/test/test_python_scripts.py",
-    "scripts/issue-audit-state.py",
-    "skills/create-issue/references/issue-template.md"
+  "started_at": "2026-07-17T18:20:00Z",
+  "fix_commit_sha": "40829b35",
+  "fix_files": ["scripts/issue-audit-state.py"],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": true, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_dispatched": [],
+  "checklist": [],
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "diff-added comment at :206 names non-existent symbol _classify_return", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [206, 206], "kind": "comment_drift"}, "corroboration_count": 1, "fix_decision": "applied"}
   ],
-  "loop_role": "fix",
-  "synthesized": true,
-  "telemetry": "unavailable"
+  "fix_decisions": [
+    {"finding_id": "F-classify-return-symbol", "decision": "applied", "commit": "40829b35"}
+  ],
+  "convergence_inputs": {"fixes_applied": 1, "fix_diff_lines": 1, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 200, "skipped_checks": []},
+  "test_first_gate": [],
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status": "comment-only production change; no automated-test surface; verified corrected symbol matches classify_return def (line 702). Step 3.5 gate: N/A (comment delta, no guard/predicate/parser)."},
+  "telemetry": {"phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0}, "step_2_6": {"calls": 6, "tokens": 700000, "wall_clock_s": 440}},
+  "shadow": {
+    "ran_at": "2026-07-17T18:35:00Z",
+    "reviewed_sha": "40829b35",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "cmd_record_creation_epoch does not enforce --draft-file on a file-arm epoch (over-alarming false-mismatch risk)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1637, 1644], "kind": "unverified-assumption"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "query-summary foreign-nonce branch not driven at CLI (over-grade calibrated Important->Suggestion)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1830, 1838], "kind": "test_gap"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "query-arm --write-landed no CLI seam untested", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1775, 1775], "kind": "test_gap"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "classify_return transposed-arg fail-closed claim unverified", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [81, 92], "kind": "test_gap"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": ":1108 'TWO grounds' comment imprecise vs three-member _GROUNDS (code correct)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1108, 1114], "kind": "comment_drift"}},
+      {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "override surface write/read guard asymmetry (latent, no reader branches on surface)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [568, 574], "kind": "type_design"}},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "_state test helper omits floor_round (fixtures not round-trippable); redundant assertion 4344-4352", "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [3735, 3736], "kind": "test_gap"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 7, "overlap_with_iter_N": 0, "new": 7, "new_critical": 0, "new_important": 0},
+    "over_grade_calibration": [
+      {"finding": "query-summary foreign-nonce test_gap", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "single-source from empirical over-grader pr-test-analyzer, uncorroborated, no Phase-2 FAIL; the state=None reset guard exists and works, only the CLI test is missing (latent-regression protection, not a live fail-open) -> shape 3 + shape 1. Chose to FIX (add the test) as a clearly-correct low-risk coverage addition given FIX_THRESHOLD=suggestion."}
+    ],
+    "promoted_to_iter_next": true,
+    "note": "Convergence-time shadow after iter 2. New findings promoted to iter 3: fixed query-summary foreign-nonce + query-arm write-landed-no + classify_return transposed tests + :1108 comment reword. Pushed back (recorded): --draft-file enforcement (incorrect prescription - would break the file-identity no-op + cb test; skill honors contract; fail-safe over-alarm), surface asymmetry (latent), dataclass/factory (disclosed trade-off), _state floor_round (cosmetic, shared-helper risk), redundant assertion (harmless)."
+  }
 }

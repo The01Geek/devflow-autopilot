@@ -1,14 +1,59 @@
 {
   "iter": 1,
-  "fix_commit_sha": "53f6996e1c6da282e3c2a5ed3e74f6f47768245c",
-  "fix_files": [
-    "lib/test/run.sh",
-    "lib/test/test_python_scripts.py",
-    "scripts/issue-audit-state.py",
-    "skills/create-issue/SKILL.md",
-    "skills/create-issue/references/issue-template.md"
-  ],
+  "started_at": "2026-07-17T17:49:34Z",
+  "fix_commit_sha": "643cb90c",
+  "fix_files": ["lib/test/test_python_scripts.py", "lib/test/run.sh"],
   "loop_role": "fix",
-  "synthesized": true,
-  "telemetry": "unavailable"
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": true, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+  "checklist": [
+    {"id": "VC-15", "claim": "SPDX header present in issue-audit-state.py", "verification_mode": "lite", "verdict": "PASS"},
+    {"id": "VC-16", "claim": "SPDX header present in test_python_scripts.py", "verification_mode": "lite", "verdict": "PASS"},
+    {"id": "VC-17", "claim": "engine-surface change carries a bump: changeset", "verification_mode": "lite", "verdict": "PASS"},
+    {"id": "VC-1..14,18..26", "claim": "CLI-contract / digest / coupled-site claims (verified by code-reviewer + requesting-code-review against argparse surface and shipped code)", "verification_mode": "agent", "verdict": "PASS"}
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "main() has no top-level catch-all; queries-always-exit-0 holds by construction not enforcement", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [2026, 2027], "kind": "unhandled_exception"}, "corroboration_count": 1, "fix_decision": "pushed_back"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "hash_bytes empty-OID fail-closed branch (407-416) untested", "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": null, "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "emit-body foreign-nonce refusal not directly driven", "defect_signature": {"file": "lib/test/run.sh", "line_range": null, "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "record shape coupled across 3 sites (disclosed accepted trade-off)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1370, 1373], "kind": "type_design"}, "corroboration_count": 1, "fix_decision": "pushed_back"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "creation record referential integrity validated weaker than sibling revision (epoch_round has no reader today)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [621, 648], "kind": "type_design"}, "corroboration_count": 1, "fix_decision": "pushed_back"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "attestation=none conflates never-attempted vs epoch-bound-unattested (skill layer mitigates)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1150, 1150], "kind": "comment_drift"}, "corroboration_count": 1, "fix_decision": "pushed_back"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-hashbytes-testgap", "decision": "applied", "commit": "643cb90c"},
+    {"finding_id": "F-emitbody-nonce-testgap", "decision": "applied", "commit": "643cb90c"},
+    {"finding_id": "F-main-catchall", "decision": "pushed_back", "source_file": "scripts/issue-audit-state.py", "claim_text": "main() lacks a top-level exception guard", "skip_category": "claim-quality", "evidence": "Contract holds by construction and is covered by the malformed-state matrix + per-command guards; agent could not construct a crashing input. A blanket except-Exception -> fail-closed-token in a state owner would launder a genuine query-path logic bug into a silent token, against the repo's 'never launder unknown onto a value' philosophy; the loud crash is more diagnosable and the skill's no-parseable-token fallback already degrades it safely."},
+    {"finding_id": "F-record-coupling", "decision": "pushed_back", "source_file": "scripts/issue-audit-state.py", "claim_text": "record shape lives in 3 coupled sites; use dataclasses", "skip_category": "out-of-scope", "evidence": "Disclosed accepted trade-off documented in-code with a stated revisit trigger; save_state re-validation bounds it to a loud persist-time failure (not fail-open). Prescription reverses a documented design decision."},
+    {"finding_id": "F-creation-refint", "decision": "pushed_back", "source_file": "scripts/issue-audit-state.py", "claim_text": "creation.epoch_round not cross-ref validated like revision", "skip_category": "out-of-scope", "evidence": "epoch_round/epoch_arm have no reader today (disclosed in-code); validating a reader-less field adds surface without closing a reachable fail-direction. Latent, not a live defect."},
+    {"finding_id": "F-attestation-none", "decision": "pushed_back", "source_file": "scripts/issue-audit-state.py", "claim_text": "attestation=none conflates two states", "skip_category": "claim-quality", "evidence": "Graded cosmetic and already mitigated in the skill layer (mandated 'attestation errored post-fetch' override). Changing the _SUMMARY_FIELDS token vocabulary risks coupled-site churn (lockstep tests + skill prose + run.sh pins) disproportionate to a narrow already-covered window."}
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 34, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 200, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (pre-commit run); re-ran clean on committed HEAD -> PASS, 0 skipped"}]},
+  "test_first_gate": [
+    {"decision": "regression test for existing hash_bytes empty-OID guard", "command": "python3 lib/test/test_python_scripts.py", "result": "pass", "evidence": "mutation-verified RED: neutralizing the empty-OID guard makes hash_bytes return '' -> assertion fails"},
+    {"decision": "regression test for existing emit-body foreign-nonce refusal", "command": "lib/test/run.sh (embed_arm_emit_rows)", "result": "pass", "evidence": "mutation-verified RED: neutralizing _check_nonce makes foreign-nonce emit-body emit the body -> all 3 assertions fail"}
+  ],
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status": "test-only delta; #62/#98 operand-contract N/A; Step 3.5 fix-delta gate CLEAN (blinded reviewer verified non-vacuity + byte-for-byte breadcrumb match)"},
+  "telemetry": {"phase_3": {"calls": 7, "tokens": 736000, "wall_clock_s": 450}, "step_3_5": {"calls": 1, "tokens": 58000, "wall_clock_s": 67}},
+  "shadow": {
+    "ran_at": "2026-07-17T18:10:00Z",
+    "reviewed_sha": "643cb90c",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "diff-added comment at :206 names non-existent symbol _classify_return (real function is classify_return)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [206, 206], "kind": "comment_drift"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 6, "overlap_with_iter_N": 5, "new": 1, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": true,
+    "note": "Early shadow trigger (engine_self_modifying, after iter 1 which routed to fixes). New finding is a diff-added comment naming a symbol the code lacks -> promoted to iter 2 as the conservative resolution (fixable, clearly-correct one-token correction)."
+  }
 }

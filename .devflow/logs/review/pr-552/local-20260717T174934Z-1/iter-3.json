@@ -1,13 +1,58 @@
 {
   "iter": 3,
-  "fix_commit_sha": "60a187516573bb0015b8ec9b2aabb8bbbc427830",
-  "fix_files": [
-    "lib/test/run.sh",
-    "lib/test/test_python_scripts.py",
-    "scripts/issue-audit-state.py",
-    "skills/create-issue/SKILL.md"
+  "started_at": "2026-07-17T18:45:00Z",
+  "fix_commit_sha": "66194aee",
+  "fix_files": ["lib/test/run.sh", "lib/test/test_python_scripts.py", "scripts/issue-audit-state.py"],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": true, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_dispatched": [],
+  "checklist": [],
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "query-summary foreign-nonce CLI coverage (cross-run contamination branch)", "defect_signature": {"file": "lib/test/run.sh", "line_range": null, "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "query-arm --write-landed no CLI seam coverage", "defect_signature": {"file": "lib/test/run.sh", "line_range": null, "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "classify_return transposition safety property pin", "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": null, "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": ":1108 TWO-grounds comment clarity reword", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1108, 1114], "kind": "comment_drift"}, "corroboration_count": 1, "fix_decision": "applied"}
   ],
-  "loop_role": "fix",
-  "synthesized": true,
-  "telemetry": "unavailable"
+  "fix_decisions": [
+    {"finding_id": "F-query-summary-nonce-test", "decision": "applied", "commit": "66194aee"},
+    {"finding_id": "F-query-arm-writelanded-test", "decision": "applied", "commit": "66194aee"},
+    {"finding_id": "F-classify-return-transposed-test", "decision": "applied", "commit": "66194aee"},
+    {"finding_id": "F-two-grounds-comment", "decision": "applied", "commit": "66194aee"}
+  ],
+  "convergence_inputs": {"fixes_applied": 4, "fix_diff_lines": 62, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 205, "skipped_checks": []},
+  "test_first_gate": [
+    {"decision": "regression test for existing query-summary foreign-nonce state=None reset", "command": "lib/test/run.sh (cli_seam_query_coverage_rows)", "result": "pass", "evidence": "mutation-verified RED: removing the state=None reset renders the real summary (state=ok token=eat_...) under a foreign nonce -> assertion fails"},
+    {"decision": "regression test for query-arm --write-landed no routing", "command": "lib/test/run.sh (cli_seam_query_coverage_rows)", "result": "pass", "evidence": "mutation-verified RED: inverting the write-landed comparison routes no->file arm -> assertion fails"},
+    {"decision": "pin classify_return transposed-arg fail-closed", "command": "python3 lib/test/test_python_scripts.py", "result": "pass", "evidence": "mutation-verified RED: neutralizing the verdict-not-in-_VERDICTS guard makes the transposed call raise KeyError instead of 'no-parseable-verdict'"}
+  ],
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status": "fix-triggered class-sweep over the test_gap class (query-subcommand CLI-seam coverage); delta is test-only + 1 comment reword. Step 3.5 gate: CLEAN by inspection (no new production guard/predicate/parser; all 3 test additions mutation-proven RED; comment reword verified accurate vs _GROUNDS)."},
+  "telemetry": {"phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0}, "step_2_6": {"calls": 6, "tokens": 780000, "wall_clock_s": 440}},
+  "shadow": {
+    "ran_at": "2026-07-17T19:00:00Z",
+    "reviewed_sha": "66194aee",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "3 LOW error-handling notes (all fail-closed/over-alarming/moot): --draft-file omission on file-arm epoch; query-arm routes from None state; emit-body does not thread digest_failed (verified safe)"},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "2 imprecise-comment nits (no documented_falsehood): issue_token docstring omits 'ground'; _repo_root docstring attributes root= that lives on state_path"},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "5 untested-breadcrumb test_gaps for fail-loud guards (empty-stdin, epoch-hash-failure, file-arm dispatch guards, user-decline missing --surface, record-degraded no-such-round); over-grade calibrated Important->Suggestion (single-source empirical over-grader; all guards fail loud, no live fail-open)"}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 10, "overlap_with_iter_N": 0, "new": 10, "new_critical": 0, "new_important": 0},
+    "over_grade_calibration": [
+      {"finding": "pr-test-analyzer rating-5/6 untested-breadcrumb test_gaps", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "single-source from empirical over-grader pr-test-analyzer, uncorroborated, no Phase-2 FAIL; the agent itself states all guards fail loud (non-zero + breadcrumb) so the risk is a regression silently deleting a guard, not a live fail-open -> shape 1 + shape 3. Recorded technical evaluation; no promotion warranted."}
+    ],
+    "park_calibration_gate": "clean: no parked finding matched a mis-grade shape (the re-raised --draft-file finding is LOW/over-alarming, matching the parked grade; not a fail-open guard, breadcrumb-overclaim, or unhonorable-deferral)",
+    "promoted_to_iter_next": false,
+    "note": "Convergence-time shadow after iter 3. No new Critical/Important survives over-grade calibration; no documented_falsehood; requesting-code-review and code-reviewer both clean/'ready to merge'. Remaining findings are the diminishing-returns tail (untested fail-loud breadcrumbs + comment-precision nits in a 2031-line CLI). Decide outcome 1: converge. Post-shadow edit gate: HEAD == reviewed_sha (66194aee)."
+  }
 }
