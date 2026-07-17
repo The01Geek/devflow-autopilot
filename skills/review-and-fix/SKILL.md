@@ -244,7 +244,7 @@ Compute `RUN_ID` **once at loop start, before iteration 1, and hold the literal 
       {
         "parked_finding_ref": {"iter": 1, "index": 4},
         "parked_finding_id": "F-15",
-        "shadow_finding_index": 0,
+        "shadow_finding_index": 0, /* indexes THIS iteration's shadow.phase3_findings, shown here as the empty null-template above; in a real preservation run that array holds the paired re-raise at index 0 */
         "relation": "equivalent",
         "rationale": "shadow re-raises the same Postgres lock-mode claim on the same evidentiary basis, adding no new failing input",
         "operands_present": true,
