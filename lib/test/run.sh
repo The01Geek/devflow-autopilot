@@ -2432,8 +2432,8 @@ assert_pin_unique "#557: system overview documents the evidence gate" \
 # AC9(i): the fail-closed arm's operative sentence — deleting it re-introduces the
 # silent-preservation regression, so the pin must flip PASS->FAIL under that mutation.
 assert_pin_red_under "#557: fail-closed-to-promotion sentence is operative (silent-preservation regression goes RED)" \
-  'silent preservation and a silent skip are both non-conforming' \
-  's/silent preservation and a silent skip are both non-conforming//' "$ST_RAF"
+  'silent preservation and a silent skip are each non-conforming' \
+  's/silent preservation and a silent skip are each non-conforming//' "$ST_RAF"
 # AC9(ii): the equivalent-only qualifier — deleting it re-opens blanket equal-or-lower-severity
 # suppression (preservation on severity alone), the regression this issue forbids.
 assert_pin_red_under "#557: equivalent-only qualifier is operative (blanket-severity-suppression goes RED)" \
@@ -39570,7 +39570,12 @@ git config --file "$CFG487" "http.https://github.com/.extraheader" \
 _a487_hdr() { git config --file "$CFG487" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null; }
 
 # Arm 1 — missing inputs → clean exit 0 with a stderr breadcrumb.
-_a1_err="$(DEVFLOW_REFRESH_CONFIG_FILE="$D487/none" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
+# DEVFLOW_APP_ID is pinned EMPTY here (this arm asserts the DEVFLOW_APP_ID-empty guard
+# breadcrumb): the assertion below keys on that path, so the ambient value must not leak in.
+# Without this pin the arm fails on a runner that EXPORTS DEVFLOW_APP_ID (e.g. the DevFlow
+# cloud implement job), where the refresher takes the non-empty path and never emits the
+# guard warning — a test-isolation artifact, not a real regression.
+_a1_err="$(DEVFLOW_APP_ID= DEVFLOW_REFRESH_CONFIG_FILE="$D487/none" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
   bash "$REFRESH_SH" cycle </dev/null 2>&1 1>/dev/null)"; _a1_rc=$?
 assert_eq "#487 arm1: missing inputs exits 0" "0" "$_a1_rc"
 assert_eq "#487 arm1: emits the SPECIFIC guard ::warning:: (DEVFLOW_APP_ID empty), not just any breadcrumb" "yes" \
