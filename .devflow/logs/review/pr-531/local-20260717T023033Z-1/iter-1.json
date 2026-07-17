@@ -1,0 +1,1122 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-17T02:30:33Z",
+  "fix_commit_sha": "351df0f512052e3974d425c2c5e7b2341b7e7fff",
+  "fix_files": [
+    "docs/execution-file-shape.md",
+    "docs/workflow-flight-recorder.md",
+    "lib/test/run.sh",
+    "lib/test/test_verification_baseline.py",
+    "scripts/export-workflow-lifecycle-census.py",
+    "scripts/verification_baseline.py",
+    "scripts/workflow-flight-recorder-registry.json"
+  ],
+  "loop_role": "fix",
+  "fix_severity_threshold": "important",
+  "checklist": [
+    {
+      "id": "VC-1",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:verification_baseline.py:wfr-public-api-signatures",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:verification_baseline.py:event-occurrence-attribute-shape",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:verification_baseline.py:no-subprocess-transitively",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:workflow_flight_recorder.py:manifest-shape-invocation-evidence",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-5",
+      "verification_mode": "agent",
+      "verdict": "FAIL",
+      "claim_signature": "data_format_assumption:verification_baseline.py:bundle-layout-schema-v2-stop-attempts-keys",
+      "evidence": "stop-attempts reader keyed on error/bytes_verified/ok; the sole writer _append_bundle_attempt emits success-only {result:'captured',...} entries",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-6",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:workflow-flight-recorder-registry.json:implement-claude-consumer-and-review-order",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-7",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:devflow-workflows:job-name-matches-api-job-name",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-8",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:workflow-flight-recorder-registry.json:five-workflows-review-subject",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-9",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:run.sh:ifr-root-scope-for-527-block",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-10",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:export-workflow-lifecycle-census.py:fake-gh-arg-parsing-matches-real-args",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-11",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:export-workflow-lifecycle-census.py:actions-api-field-names",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-12",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:export-census-snapshot:round-trip-key-set",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-13",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:verification_baseline.py:absent-incomplete-census-unavailable-never-zero",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-14",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:verification_baseline.py:scattered-keywords-never-complete",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-15",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:verification_baseline.py:path-validation-rejects-all-escapes",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-16",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:verification_baseline.py:cwd-vs-repo-root-anchoring",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-17",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:workflow-flight-recorder.md:wave1-anchor-heading",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-18",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:verification_baseline.py:default-out-dir-matches-docs",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-19",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:gitignore:verification-baselines-ignored",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-20",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:verification_baseline.py:sampling-formula-matches-docs",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-21",
+      "verification_mode": "agent",
+      "verdict": "FAIL",
+      "claim_signature": "absolute_claim:verification_baseline.py:no-raw-secret-no-exact-secret-match",
+      "evidence": "quoted env secret with spaces leaks raw fragments into redacted_display AND digest ((\\S+) stops at first in-quote space); -p short flag and curl -u user:pass shapes missed entirely",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-22",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:verification_baseline.py:candidate-fails-closed-all-guards",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-23",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:verification_baseline.py:occurrence-id-per-transcript-counter",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-24",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:verification_baseline.py:incidental-cancel-words-never-reclassify",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-25",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:verification_baseline.py:native-transcript-tool-use-shape",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-26",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:verification_baseline.py:enum-literals-match-issue-acs",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-27",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:export-workflow-lifecycle-census.py:spdx-header",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-28",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:issue-527-verification-baseline.md:changeset-bump-patch",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-29",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:export-workflow-lifecycle-census.py:devflow-gh-convention-and-pins",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-30",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:verification_baseline.py:unknown-never-zero-metrics-sweep",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-31",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:execution-file-shape.md:snapshot-field-enumeration",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-32",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:verification_baseline.py:redaction-boundary-stderr-report",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-33",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:test_verification_baseline.py:private-helper-signatures",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-34",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:verification_baseline.py:cleanup-unlink-patch-scope",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-35",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:verification_baseline.py:no-forbidden-join-keys",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-36",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:verification_baseline.py:denominator-rows-never-dropped",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-37",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:export-workflow-lifecycle-census.py:gh-api-field-semantics",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-38",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:workflow-flight-recorder-registry.json:cloud-mappings-key-names",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-39",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:workflow-flight-recorder-registry.json:implement-yml-job-claude",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-40",
+      "verification_mode": "agent",
+      "verdict": "FAIL",
+      "claim_signature": "dependency_interaction:workflow-flight-recorder-registry.json:review-yml-job-review",
+      "evidence": "devflow-review.yml's review job is a reusable-workflow call; the live jobs API (run 29550099462) reports the executed agent job as 'review / run', so the mapped literal 'review' never matches a real census row",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-41",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:workflow-flight-recorder-registry.json:devflow-yml-job-command",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-42",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:workflow-flight-recorder-registry.json:runner-yml-job-run",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-43",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:workflow-flight-recorder-registry.json:consumer-values-join",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-44",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:workflow-flight-recorder-registry.json:review-entry-shape-valid",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-45",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:workflow-flight-recorder-registry.json:load-registry-ignores-cloud-mappings",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-46",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:workflow-flight-recorder-registry.json:unlisted-job-ineligible-by-omission",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-47",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:workflow-flight-recorder-registry.json:eligibility-job-level-not-step-name",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-48",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:workflow-flight-recorder-registry.json:local-review-first-message-forms",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-49",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:workflow-flight-recorder-registry.json:repo-identity-allowlist-half",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "id": "F1",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "Doc universal 'explicit iterations/checkpoints/post-fix commits/base merges/human retriggers cannot be transport-retry candidates' is inert in Wave 1 (retrigger_evidence never set) \u2014 self-contradicting diff",
+      "defect_signature": {
+        "file": "docs/workflow-flight-recorder.md",
+        "line_range": [
+          265,
+          268
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F2",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "'keyed digest' comment claims an HMAC property the plain SHA-256 lacks",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          397,
+          397
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F3",
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "has_prior_missing lacks the documented ordering (missing response on the LAST launch still classified candidate)",
+      "defect_signature": {
+        "file": "docs/workflow-flight-recorder.md",
+        "line_range": [
+          255,
+          260
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F4",
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "cancelled/action_required completed job with null started_at reads confirmed_eligible (fail-open)",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          1917,
+          1943
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F5",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "exporter folds run-level conclusion/status into job rows (fail-open denominator inflation)",
+      "defect_signature": {
+        "file": "scripts/export-workflow-lifecycle-census.py",
+        "line_range": [
+          81,
+          82
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F6",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "'rejecting symlinks' doc/docstring claim false against HEAD (in-root symlinks admitted by containment design)",
+      "defect_signature": {
+        "file": "docs/workflow-flight-recorder.md",
+        "line_range": [
+          321,
+          322
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F7",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "docs present skipped-check evidence as recorded; it is hardcoded None with no extraction code",
+      "defect_signature": {
+        "file": "docs/workflow-flight-recorder.md",
+        "line_range": [
+          237,
+          241
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F8",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "backslash-escaped quote defeats _split_top_level_segments and fabricates verification launches (non-conservative)",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          1053,
+          1099
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F9",
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "'explicitly bounded interval' implemented as endpoints-present with no magnitude bound",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          1578,
+          1580
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "severity-calibrated"
+    },
+    {
+      "id": "F10",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "_import_failed coerces an all-corrupt stop-attempts log to 'no failure' (fail-open)",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          992,
+          1005
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F11",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "empty transcript short-circuits past the import-failed check (import failure read as clean available)",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          953,
+          956
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F12",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "_gh_json silent-None branches (rc!=0 empty-stderr; rc==0 empty-stdout) \u2014 diagnostic-only surface",
+      "defect_signature": {
+        "file": "scripts/export-workflow-lifecycle-census.py",
+        "line_range": [
+          123,
+          126
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F13",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "broad except conflates analyzer defects with source_unsupported; 100%-degraded run exits 0 clean",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          1320,
+          1337
+        ],
+        "kind": "unhandled_exception"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F14",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "silent chmod swallows degrade the 0700/0600 promise with no breadcrumb \u2014 diagnostic-only impact, best-effort path",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          2293,
+          2297
+        ],
+        "kind": "security"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F15",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "parent out_dir 0700 hardening unasserted (regression dropping it stays green)",
+      "defect_signature": {
+        "file": "lib/test/test_verification_baseline.py",
+        "line_range": [
+          484,
+          491
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F16",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "run.sh no-subprocess pin evadable by from-import/os.system/getoutput/pty spellings",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          40725,
+          40726
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F17",
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "BindingIdentity has no construction-time validation (security-boundary record)",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          395,
+          410
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F18",
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "shared workspace_state dict aliased across every launch of a lifecycle (shallow-frozen records)",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          1371,
+          1454
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F19",
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "to_dict hand-mirrors field lists (coupled-mirror omission risk)",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          518,
+          661
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F20",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "stale test comment '(fix restores real perms in teardown)'",
+      "defect_signature": {
+        "file": "lib/test/test_verification_baseline.py",
+        "line_range": [
+          800,
+          800
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F21",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "docstring 'process cwd (the repo root)' states an assumption as fact",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          286,
+          293
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F22",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "pipelines are an undocumented taxonomy gap (wrapper-gap disclosure omits |)",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          1018,
+          1026
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F23",
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "_atomic_write dead-typed tmp_path != path guard (str vs Path, always True)",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          320,
+          320
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F24",
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "performance self-measurement drifts (output_bytes pre/post, input_bytes double-count, manifest decode-fail count)",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          2276,
+          2283
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F25",
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "EligibleLifecycle mutation-path invariants construction-only (set_source_status hardening)",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          509,
+          516
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "id": "F26",
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "VerificationBaseline holds pre-serialized dicts, erasing record typing at the aggregate boundary",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": [
+          2070,
+          2101
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "id": "F27",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "minor untested branches: _bound_strings truncation, small-population sampling cap, main rc=2 arms, exporter zero-match warning",
+      "defect_signature": {
+        "file": "scripts/verification_baseline.py",
+        "line_range": null,
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "VC-5",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "VC-21",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "VC-40",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F1",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F2",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F3",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F4",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F5",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F6",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F7",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F8",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F9",
+      "decision": "severity-calibrated",
+      "source_file": "scripts/verification_baseline.py",
+      "claim_text": "'explicitly bounded interval' has no magnitude bound",
+      "original_severity": "Important",
+      "calibrated_severity": "Suggestion",
+      "evidence": "over-grade shape 2 boundary case: the observable behavior is an ambiguous doc phrase, not a wrong output \u2014 code-reviewer independently judged the endpoints-present reading 'defensible' and dropped it below threshold; a max-gap constant would be an analyst-invented cutoff issue #527 never authorized, and the manual-review sample is the designed magnitude judge. Fixed as documentation (both doc sentence and code comment now state the endpoints-present meaning explicitly and why no threshold exists), not as a behavior change"
+    },
+    {
+      "finding_id": "F10",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F11",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F12",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F13",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F14",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F15",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F16",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F17",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F18",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F19",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F20",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F21",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F22",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F23",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F24",
+      "decision": "applied",
+      "commit": "351df0f5"
+    },
+    {
+      "finding_id": "F25",
+      "decision": "deferred",
+      "source_file": "scripts/verification_baseline.py",
+      "claim_text": "EligibleLifecycle set_source_status mutation-path validation",
+      "skip_category": "uncategorized",
+      "evidence": "real but minor design hardening on a documented, deliberate non-frozen design; all current mutation sites assign valid constants (analyzer confirmed 'design hardening, not a live bug'); not worth a fix-loop iteration"
+    },
+    {
+      "finding_id": "F26",
+      "decision": "deferred",
+      "source_file": "scripts/verification_baseline.py",
+      "claim_text": "VerificationBaseline typed-records envelope",
+      "skip_category": "uncategorized",
+      "evidence": "single-constructor single-consumer envelope the analyzer itself graded 'acceptable as shipped'; refactor churn without behavioral gain"
+    },
+    {
+      "finding_id": "F27",
+      "decision": "deferred",
+      "source_file": "scripts/verification_baseline.py",
+      "claim_text": "minor diagnostic-branch tests (_bound_strings, sampling cap boundary, rc=2 arms)",
+      "skip_category": "uncategorized",
+      "evidence": "diagnostic-only fail-benign branches per the reporting agent's own grading (3/10); not worth a fix-loop iteration"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 25,
+    "fix_diff_lines": 685,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "test_first_gate": [
+    {
+      "decision": "RED observed pre-fix for all behavioral tests",
+      "command": "python3 lib/test/test_verification_baseline.py @ 218c5bf1",
+      "result": "FAILED (failures=15, errors=1) \u2014 exactly the new/updated tests",
+      "evidence": "see iter-1-gate-evidence.json; controls passed pre-fix"
+    }
+  ],
+  "sweep_defs_read": {
+    "source": "skills/implement/phases/phase-2-implement.md (repo-own checkout, read through the '### 2.4 Test' boundary)",
+    "sweeps": [
+      "2.3.0",
+      "2.3.0a",
+      "2.3.0b",
+      "2.3.0c",
+      "2.3.1",
+      "2.3.2",
+      "2.3.3",
+      "2.3.4",
+      "2.3.4a",
+      "2.3.5",
+      "2.3.6",
+      "2.3.7"
+    ]
+  },
+  "sweep_evidence": {
+    "classification": "modifies contracts (stop-attempts reader, snapshot row keys, registry mapping) + adds guards + adds a performance-dict member; no deletions of methods/files; no new cardinality-sensitive collections",
+    "selected": [
+      "2.3.0",
+      "2.3.0a",
+      "2.3.0b",
+      "2.3.0c",
+      "2.3.3",
+      "2.3.4",
+      "2.3.4a",
+      "2.3.5",
+      "2.3.6"
+    ],
+    "2.3.0": "stop-attempts reader consumers: _classify_source_status (same change) + tests (realigned to writer shape); snapshot-row consumers: read_cloud_census/build_cloud_census re-checked (absent job status routes provisional/ineligible); registry consumers: load_cloud_mappings (data), tests updated",
+    "2.3.0a": "chmod-breadcrumb rule applied at all 3 peer sites (analyzer _atomic_write, analyzer main loop, exporter _atomic_write); quoted-value handling at both env+flag patterns (Bearer disclosed out)",
+    "2.3.0b": "performance dict gained extraction_failure_count -> doc enumeration in workflow-flight-recorder.md reconciled; snapshot rows gained run_conclusion/run_status -> execution-file-shape.md reconciled",
+    "2.3.0c": "operand tables: cancelled-arm comparands (status/conclusion/started_at, producer = exporter job-level-only; absent -> null -> provisional/ineligible, decided); _stop_attempts_state arms (none/unreadable/uncaptured/captured + non-int tb skipped); ordering fallback (started_at absent -> list order, decided); BindingIdentity post-init self-fields",
+    "2.3.4": "external-output reproduction: nested reusable-call job name reproduced from live jobs API run 29550099462 -> 'review / run' observed bytes; gh --field/--method semantics verified live by VC-37 verifier",
+    "2.3.4a": "3a mechanism-scoped comment-analyzer re-dispatch: 4 stale/false comments found (2 in the new docstring, 1 splitter comment, 1 doc parenthetical) plus 1 opportunistic pre-existing (_join_confidence name) \u2014 all fixed before the iteration's single fix commit 351df0f5",
+    "2.3.6": "new guards fail closed with specific breadcrumbs (all-corrupt log -> unreadable; gh breadcrumb unconditional naming rc + stdout state; chmod failures named per path); no new swallowed errors"
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh (direct leading-token form)",
+    "result": "pass",
+    "duration_s": 780,
+    "skipped_checks": [
+      {
+        "check": "#434 stale-prose self-scan",
+        "kind": "blocking-gate",
+        "reason": "working tree dirty (this check grades committed HEAD); runs live in CI on the pushed commit"
+      }
+    ]
+  },
+  "base_checkpoint": {
+    "token": "UP_TO_DATE",
+    "behind_by": null
+  },
+  "stale_prose_check": {
+    "rc": 0,
+    "stale_rows": [],
+    "informational": "4 UNRESOLVABLE R3 recognition-only rows + 2 VERIFIED R4 rows; no STALE"
+  },
+  "mutation_checks": "9 mutations applied on copies, each pin observed RED, copies discarded: cancelled-eligibility guard, prior-missing ordering, splitter escape, quoted secret value, stop-attempts import-failed arm, exporter job-level conclusion/status, parent out_dir 0700, registry review/run mapping, widened subprocess pin",
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 180
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 30
+    },
+    "phase_1": {
+      "calls": 2,
+      "tokens": 214087,
+      "wall_clock_s": 305
+    },
+    "phase_1_5": {
+      "calls": 1,
+      "tokens": 78122,
+      "wall_clock_s": 215
+    },
+    "phase_2": {
+      "calls": 41,
+      "tokens": 2662000,
+      "wall_clock_s": 900
+    },
+    "phase_3": {
+      "calls": 6,
+      "tokens": 991628,
+      "wall_clock_s": 365
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 10,
+      "webfetches": 0
+    },
+    "phase_4_x": {
+      "calls": 1,
+      "tokens": 87938,
+      "wall_clock_s": 2400
+    }
+  }
+}
