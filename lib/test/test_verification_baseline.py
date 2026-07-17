@@ -74,6 +74,30 @@ from verification_baseline import (  # noqa: E402
 
 REGISTRY = ROOT / "scripts/workflow-flight-recorder-registry.json"
 
+# Issue #535's compatibility matrix has analyzer-owned and recorder-owned rows.
+# The latter stay at the recorder boundary because the analyzer deliberately
+# never invokes Git or inspects the execution platform.
+COMPATIBILITY_FIXTURE_OWNERS = {
+    "absent manifests": "test_verification_baseline.py::test_absent_manifests_dir_is_announced_not_silently_empty",
+    "legacy manifests": "test_verification_baseline.py::test_legacy_manifest_missing_candidate_is_counted_unknown",
+    "zero command launches": "test_verification_baseline.py::test_empty_successful_result_is_start_unknown",
+    "multiple launches": "test_verification_baseline.py::test_relationship_end_to_end",
+    "linked worktrees": "test_verification_baseline.py::test_shared_worktree_detached_manifest_processes_locally",
+    "nested repositories": "test_verification_baseline.py::test_platform_and_repository_manifest_shapes_process_normally",
+    "shallow clones": "test_verification_baseline.py::test_platform_and_repository_manifest_shapes_process_normally",
+    "detached HEAD": "test_verification_baseline.py::test_detached_no_remote_manifest_processes",
+    "no remote": "test_verification_baseline.py::test_detached_no_remote_manifest_processes",
+    "Unicode and spaced paths": "test_verification_baseline.py::test_unicode_and_spaced_paths_process_normally",
+    "Linux/macOS/WSL/Git Bash/MSYS2": "test_verification_baseline.py::test_platform_and_repository_manifest_shapes_process_normally",
+    "local native sessions": "test_verification_baseline.py::test_relationship_end_to_end",
+    "cloud execution files": "test_verification_baseline.py::test_cloud_execution_file_is_not_analyzer_input_without_snapshot_flag",
+    "missing tool results": "test_verification_baseline.py::test_authorization_start_classes",
+    "compaction": "test_verification_baseline.py::test_compaction_event_mid_lifecycle_is_tolerated",
+    "cancellation": "test_verification_baseline.py::test_authorization_start_classes",
+    "concurrent lifecycles": "test_verification_baseline.py::test_concurrent_lifecycles_in_one_transcript_scope_correctly",
+    "corrupted sources": "test_verification_baseline.py::test_non_utf8_bundle_metadata_is_unreadable",
+}
+
 
 # --------------------------------------------------------------------------- #
 # Transcript/manifest/bundle builders.
@@ -3183,6 +3207,75 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         runs = sorted(self.out.iterdir())
         doc = json.loads((runs[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
         self.assertEqual(len(doc["verification_process_launches"]), 1)
+
+    def test_shared_worktree_detached_manifest_processes_locally(self) -> None:
+        """Recorder-owned git topology remains inert analyzer metadata."""
+        sid = "s-shared-worktree"
+        doc_manifest = manifest(sid)
+        doc_manifest["cwd"] = "/worktrees/linked copy"
+        doc_manifest["repository_root"] = "/repo"
+        doc_manifest["storage_root"] = "/repo/.git"
+        doc_manifest["storage_root_source"] = "git_common_dir"
+        doc_manifest["git"] = {"head_sha": "abc", "branch": None, "dirty_tree": False}
+        (self.manifests / f"{sid}.json").write_text(json.dumps(doc_manifest), encoding="utf-8")
+        write_bundle(self.bundles, sid, transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "t1"),
+            tool_result("t1", "ok; exit code 0"),
+        ))
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        doc = json.loads((sorted(self.out.iterdir())[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(doc["verification_process_launches"]), 1)
+
+    def test_cloud_execution_file_is_not_analyzer_input_without_snapshot_flag(self) -> None:
+        """Cloud execution artifacts cannot create launch claims by proximity."""
+        sid = "s-local-only"
+        write_manifest(self.manifests, sid)
+        write_bundle(self.bundles, sid, transcript(user("/devflow:implement 527")))
+        (self.bundles / "cloud-execution.json").write_text(
+            json.dumps({"runs": [{"id": "fictitious-cloud-launch"}]}), encoding="utf-8"
+        )
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        doc = json.loads((sorted(self.out.iterdir())[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+        self.assertTrue(doc["cloud_coverage"]["unavailable"])
+        self.assertNotIn("fictitious-cloud-launch", json.dumps(doc))
+
+    def test_platform_and_repository_manifest_shapes_process_normally(self) -> None:
+        """Platform and repository topology paths are opaque analyzer evidence."""
+        shapes = {
+            "nested": ("/repo/vendor/nested", "/repo/vendor/nested", "/repo/.git"),
+            "shallow": ("/repo", "/repo", "/repo/.git"),
+            "linux": ("/home/dev/repo", "/home/dev/repo", "/home/dev/repo/.git"),
+            "macos": ("/Users/dev/repo", "/Users/dev/repo", "/Users/dev/repo/.git"),
+            "wsl": ("/mnt/c/Users/dev/repo", "/mnt/c/Users/dev/repo", "/mnt/c/Users/dev/repo/.git"),
+            "git-bash": ("/c/Users/dev/repo", "/c/Users/dev/repo", "/c/Users/dev/repo/.git"),
+            "msys2": ("/mingw64/home/dev/repo", "/mingw64/home/dev/repo", "/mingw64/home/dev/repo/.git"),
+        }
+        for name, (cwd, repository_root, storage_root) in shapes.items():
+            sid = f"s-{name}"
+            doc_manifest = manifest(sid)
+            doc_manifest.update({"cwd": cwd, "repository_root": repository_root, "storage_root": storage_root})
+            (self.manifests / f"{sid}.json").write_text(json.dumps(doc_manifest), encoding="utf-8")
+            write_bundle(self.bundles, sid, transcript(user("/devflow:implement 527")))
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        doc = json.loads((sorted(self.out.iterdir())[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(doc["metrics"]["eligible_lifecycles"], len(shapes))
+
+    def test_compatibility_fixture_inventory_names_every_matrix_row(self) -> None:
+        self.assertEqual(set(COMPATIBILITY_FIXTURE_OWNERS), {
+            "absent manifests", "legacy manifests", "zero command launches", "multiple launches",
+            "linked worktrees", "nested repositories", "shallow clones", "detached HEAD", "no remote",
+            "Unicode and spaced paths", "Linux/macOS/WSL/Git Bash/MSYS2", "local native sessions",
+            "cloud execution files", "missing tool results", "compaction", "cancellation",
+            "concurrent lifecycles", "corrupted sources",
+        })
+        for owner in COMPATIBILITY_FIXTURE_OWNERS.values():
+            path, test_name = owner.split("::")
+            self.assertTrue((ROOT / "lib/test" / path).is_file())
+            self.assertRegex(test_name, r"^test_")
 
     # TD-1: the source/source_status pair is guarded in BOTH directions —
     # reassigning `source` re-validates the already-bound source_status.
