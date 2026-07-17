@@ -17,10 +17,12 @@ precondition.
 Before choosing an iteration test, use the finding context or test plan to identify a candidate
 module, then confirm its exact ID in `scripts/workflow-flight-recorder-registry.json` and inspect
 the registered module when needed to establish coverage. Explicitly record the selected ID and
-use `bash lib/test/run-module.sh <module-id>` for the RED/GREEN loop. If the classifier denies
-the `bash` wrapper, retry the same command with the runner path as the leading token:
-`lib/test/run-module.sh <module-id>`. Do not infer or automate changed-file-to-module routing.
-When no registered module covers the fix, use the full suite during iteration.
+use `bash lib/test/run-module.sh <module-id>` for the RED/GREEN loop. Selection is explicit:
+Do not infer or automate changed-file-to-module routing. For **local review-and-fix contract iteration only**,
+select `review-and-fix-contract` and run exactly `bash lib/test/run-module.sh review-and-fix-contract` for the RED/GREEN loop. If the local classifier denies the `bash` wrapper, retry the same command with the runner path as the leading token:
+`lib/test/run-module.sh review-and-fix-contract`. When no registered module covers the fix, use
+the full suite during iteration. Cloud-tier runs continue using the already-permitted complete
+suite without requesting new permissions.
 
 A focused result never discharges a review/fix gate. Before a commit, phase completion, push,
 or completion claim, run `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md`
