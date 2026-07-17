@@ -10,7 +10,7 @@ You are the review-and-fix orchestrator. Run /devflow:review's review engine, fi
 
 **Input:** `$ARGUMENTS` may contain an optional PR number and/or the flag `--push-each-iteration`. Parse the two independently — either, both, or neither may be present (`863`, `--push-each-iteration`, `863 --push-each-iteration`, or empty). If no PR number is given, review and fix the current branch. The numeric token (if any) is `$PR_NUMBER` throughout this skill.
 
-**`--push-each-iteration` (default off).** When set, the loop `git push`es after each iteration's fix commit (Step 3, item 6) so the remote PR branch and its CI track every iteration, and each iteration's push plus the Loop-Exit push run through the base-branch update checkpoint (`scripts/update-branch-checkpoint.sh`, Checkpoint 3, issue #448, gated by `devflow_implement.update_branch_checkpoints`). When absent (the default for direct users), fix commits stay local and the base is never touched. Either way the flag never posts a verdict to GitHub — the skill is silent on verdicts by design (see *Engine source of truth*) — and Loop Exit's mandatory `--persist` still pushes the `devflow-telemetry` branch on every writable run (see *Persisting observability artifacts*). `/devflow:implement` sets it at Phase 3.3 (a live draft PR with CI). Loop correctness is orthogonal: the loop sees its own fixes regardless (current-branch mode diffs local `HEAD`; PR mode uses Step 1's head-override).
+**`--push-each-iteration` (default off).** When set, each fix and Loop Exit use the gated base checkpoint and push, keeping the PR and CI current. Otherwise fix commits stay local and the base is untouched. The flag never posts a GitHub verdict; mandatory telemetry persistence remains independent. Loop correctness uses local `HEAD` (with the PR head override), not pushed state.
 
 **Key principle:** You perform fixes DIRECTLY in this session. Do NOT delegate fixes to a subagent. You need full conversation context to apply `devflow:receiving-code-review` principles (technical evaluation, pushback, verification).
 
@@ -31,7 +31,7 @@ This skill wraps /devflow:review's four-phase engine in a fix loop. Phases 0 thr
 
 This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. The final report is emitted to chat only; the human reviewer decides whether to convert it into a formal merge signal by running `/devflow:review <PR>` separately. On top of the engine it adds the loop wrapper documented in the references: a **fix-delta handoff** (Step 0.9), a run-scoped **persistent workpad** (`.devflow/tmp/review/<slug>/<run-id>/iter-<N>.json`), a **shadow review pass** (Step 2.6), a **`## Coverage` section** and **per-phase telemetry summary** at Loop Exit.
 
-**Maintainer rule.** Engine changes belong in /devflow:review's SKILL.md; this file should only touch the loop wrapper, the workpad, the fix-delta handoff (Step 0.9), the Step 2.5 verification gate, the Step 2.6 shadow review, the fix step, the convergence check, the telemetry summary, or Loop Exit's chat output. **Violating the letter of these phases is violating the spirit** — even when a paraphrase looks faithful, the downstream agents are calibrated to /devflow:review's exact wording.
+**Maintainer rule.** Engine changes belong in /devflow:review's SKILL.md; this file owns only the loop wrapper and its routed steps. Downstream agents depend on the engine's exact wording.
 
 ---
 
@@ -229,6 +229,7 @@ Every loop step's authoritative procedure lives in a file under `skills/review-a
 
 | Step (`current_step`) | Reference file | Fires when |
 | --- | --- | --- |
+| `loop-control` — Iteration setup + Steps 0.5–2 | `references/loop-control.md` | loop entry, and throughout config resolution, branch sync, fix-delta handoff, review-engine execution, and verdict routing |
 | `2.5` — Pre-fix verification gate + Parked-class sweep | `references/pre-fix-gates.md` | Step 2 routed to a fix path (REJECT, a REJECT-driver, or an at-or-above-`$FIX_THRESHOLD` finding), **or** a tentative non-REJECT verdict carries parked findings needing the pre-shadow parked-class sweep |
 | `2.6` — Shadow review | `references/shadow-review.md` | a tentative non-REJECT verdict at convergence time, **or** the `engine_self_modifying` early-shadow trigger after iteration 1 |
 | `3` — Fix Findings | `references/fixing.md` | after the Step 2.5 gate resolves the effective fix set |
@@ -242,7 +243,7 @@ Every step reference loads at entry, **before any action in that step**, and a r
 
 **Entry-gate read shape** (mirrors `skills/implement/SKILL.md`'s phase entry-gates):
 
-1. **Stamp the position** (best-effort Write, non-blocking): set `current_step` (and `current_substep` when meaningful) in the active `iter-<N>.json` before reading, so a compacted/resumed run recovers its position from the record, not recall.
+1. **Stamp the position** (best-effort Write, non-blocking): set `current_step` (and `current_substep` when meaningful) in the active `iter-<N>.json` before reading, so a compacted/resumed run recovers its position from the record, not recall. Use `current_step: "loop-control"` while executing config resolution and Steps 0.5–2. Immediately before every `Agent`/`Task`/`Skill` dispatch, also write `pending_dispatch: {kind, roster, dispatched_at}`. Clear it after the returned attempt is joined or dispositioned, including failure, timeout, exhausted-retry, and not-verified outcomes; retain it only while the attempt is unresolved. A dispatch without those writes has not satisfied the continuation contract.
 2. **Read the reference.** Resolve the skill directory per the *Portable helper anchor* rule above and `Read` `<skill-dir>/references/<name>.md` (the vendored layout resolves the same path).
 3. **Completeness check — the single ordered start/end boundary rule.** The returned content's first non-blank line MUST be the reference's canonical `# Reference: <title>` heading and its last non-blank line MUST be the canonical `<!-- END <name>.md -->` marker, **each occurring exactly once, in that order**. A `Read` failure, an empty result, a truncated result, a result missing either marker, a **duplicated** marker, a **reversed** order (END before START), or a marker at a **noncanonical** position (not at the document edge) all mean **reference unreadable** and take the failure-map row below.
 4. On success, execute the reference's procedure; on failure, apply the failure-map row — do not enter the step.
@@ -283,4 +284,3 @@ The externally-visible terminal contract — which converged verdict produces wh
 
 
 See `references/error-handling.md` for *When NOT to use*, *Error Handling*, and *Common Mistakes*.
-

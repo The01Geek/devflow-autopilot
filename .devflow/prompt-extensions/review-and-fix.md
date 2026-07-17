@@ -40,10 +40,6 @@ parse/source, so the precondition passes while the outcome it stands in for neve
   check the function is defined after sourcing — `. <file> 2>/dev/null; type <fn> >/dev/null 2>&1 || { breadcrumb; fail-closed; }` — not that the file exists. For a parsed value, check the
   parse produced a usable value. Fail **closed** with a specific breadcrumb when the outcome
   check fails, never silently continue as if the sibling loaded.
-- **#247 reproduction (local instance):** a resolver sibling guarded by `[ -f file ] && . file`
-  fails open when the sibling exists but is unreadable or corrupt — the guard reports "present"
-  and the run proceeds without the function the sibling was supposed to define. The corrected
-  guard verifies `type <fn>` (the outcome) instead of the file's mere existence (the precondition).
 
 ## Guard-class shape 2 — tr-dependence (an external PATH tool whose absence silently changes output)
 
@@ -61,10 +57,7 @@ selects the wrong directory / writes the wrong file / no-ops a gate, with no err
   make the failure observable — check the derived value is non-empty/well-formed before it is
   used to select or emit, and fail closed with a breadcrumb naming the tool if it is not. A
   value that is *only* correct when an un-guaranteed tool is present is an unverified boundary.
-- **#247 reproduction (local instance):** a name or path derived through `tr` (e.g. a sanitized
-  branch slug built with `tr '/' '-' | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-'`) silently
-  degrades on a `PATH` without `tr` — the slug comes back empty or unnormalized and the run then
-  reads/writes the wrong slug directory, with no error to signal the degraded selection.
+- **#247 reproduction:** a derived slug degrades on a `PATH` without `tr` and selects the wrong directory.
 
 ## Guard-class shape 3 — vacuous negative test (attribute the rejection, carry a positive control)
 
@@ -84,16 +77,7 @@ assertion stays green even against a mutant that disables the very guard the tes
   control on the same fixture**: a companion assertion that the fixture is otherwise valid and the call
   would succeed but for the one property under test, so an unrelated precondition rejecting the fixture
   cannot masquerade as the rejection under test.
-- **#340 reproduction (local instance):** *Refusal from an unrelated precondition:* a test asserting "a
-  `--reflection` does not satisfy the `--note` requirement" passed against a fixture with no
-  `## Devflow Reflection` section. The call was rejected by `section '## Devflow Reflection' not found`.
-  The test never reached the guard it named. *Refusal from the wrong guard:* a test asserting "the
-  per-pair guard refuses an append onto a ticked row" passed on a mutant that made the per-pair guard
-  skip `[x]` rows entirely — because the state backstop rejected the call one step later. Exit code and
-  no-PATCH assertions stayed green on the exact mutant the test existed to kill. Only pinning the
-  rejecting guard's own message (`net-adds` absent, offending pair named) turned it red. **PR #340 cost
-  this would have eliminated:** the two vacuous tests written during that session, and the round-0 review
-  findings about untested `--reflection` and missing no-false-fire controls.
+- **PR #340 cost this would have eliminated:** two vacuous tests and their follow-up findings.
 
 ## Guard-class shape 4 — re-derived consumer contract (write the guard as the operation it protects)
 
@@ -112,15 +96,7 @@ subset of separators) rather than the value the consumer actually operates on.
   code, before writing the predicate; then write the guard **as** that operation (share its contract by
   construction, so the accepted sets are identical and cannot drift). Before writing any new predicate
   over a string or shape, grep the file for an existing idiom doing the same job and reuse it.
-- **#340 reproduction (local instance):** First, `_pair_appends_post_merge(old, new)` decided whether a
-  rewrite appended the tag by inspecting the **OLD argument string** rather than the row the rewrite
-  would actually resolve — a re-derivation of `_find_checkbox_row`'s contract. Second, and after the
-  principle had been read: a guard rejecting a multi-line `NEW` was written as `'\n' in s or '\r' in s`.
-  Its consumer is `str.splitlines()`, which splits on ten separators. Eight of them — `\v`, `\f`,
-  `\x1c`, `\x1d`, `\x1e`, NEL, LS, PS — passed the guard and still split the checkbox row, injecting a
-  phantom `- [x]` acceptance-criterion row at exit 0. The correct idiom, `' '.join(text.splitlines())`,
-  already existed ten lines above in the same file. **PR #340 cost this would have eliminated:** the
-  original round-0 Important finding, and the whole of iteration 4.
+- **PR #340 cost this would have eliminated:** the original guard defect and an extra review iteration.
 
 ## Probe rule — run interpreter- and environment-dependent probes under the real interpreter
 

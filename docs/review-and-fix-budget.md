@@ -53,17 +53,17 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | Row | Included paths | Lines | Words | Bytes | ≈Tokens |
 | --- | --- | ---: | ---: | ---: | ---: |
 | **BEFORE** — monolith | `skills/review-and-fix/SKILL.md` (pre-split) | 1,134 | 36,201 | 250,928 | 47,061 |
-| **BEFORE** — always-loaded | monolith + live extension | 1,330 | 38,628 | 266,909 | 50,216 |
-| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 196 | 2,427 | 15,981 | 3,155 |
-| **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 286 | **2,994** | 23,467 | 3,892 |
-| **AFTER** — actual initial load | root + live extension | 482 | **5,421** | 39,448 | 7,047 |
-| **AFTER** — bundle | root + all `references/*.md` | 1,239 | 37,455 | 260,470 | 48,692 |
-| **AFTER** — normal cumulative path | root + extension + Σ references | — | 39,882 | — | 51,847 |
-| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **14,988** | — | 19,484 |
+| **BEFORE** — always-loaded | monolith + live extension | 1,320 | 38,408 | 265,543 | 49,930 |
+| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 186 | 2,207 | 14,615 | 2,869 |
+| **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 286 | **2,945** | 23,219 | 3,828 |
+| **AFTER** — actual initial load | root + live extension | 472 | **5,152** | 37,834 | 6,698 |
+| **AFTER** — bundle | root + all `references/*.md` | 1,239 | 37,317 | 260,296 | 48,512 |
+| **AFTER** — normal cumulative path | root + extension + Σ references | — | 39,524 | — | 51,381 |
+| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **14,719** | — | 19,135 |
 | reference: `shadow-review.md` | Step 2.6 | 214 | 9,567 | 66,549 | 12,437 |
 | reference: `fixing.md` | Step 3 | 154 | 8,319 | 56,217 | 10,815 |
 | reference: `loop-exit.md` | Loop Exit | 273 | 6,532 | 44,729 | 8,492 |
-| reference: `loop-control.md` | workpad + field semantics + Main Loop + Steps 0.5–2 | 184 | 4,846 | 33,858 | 6,300 |
+| reference: `loop-control.md` | workpad + field semantics + Main Loop + Steps 0.5–2 | 184 | 4,757 | 33,250 | 6,184 |
 | reference: `pre-fix-gates.md` | Step 2.5 + parked-class sweep | 49 | 1,996 | 14,341 | 2,595 |
 | reference: `fix-delta-gate.md` | Step 3.5 | 27 | 1,379 | 9,349 | 1,793 |
 | reference: `error-handling.md` | When NOT to use + Error Handling + Common Mistakes | 28 | 1,055 | 6,880 | 1,372 |
@@ -73,25 +73,25 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 
 | Ceiling | Value | Measured | Result |
 | --- | --- | ---: | :--: |
-| Plugin root ≤ 3,000 words | 3,000 | 2,994 | ✅ |
-| Root + live extension (initial load) ≤ 5,500 words | 5,500 | 5,421 | ✅ |
-| Root + extension + max active step ≤ 15,000 words | 15,000 | 14,988 | ✅ |
+| Plugin root ≤ 3,000 words | 3,000 | 2,945 | ✅ |
+| Root + live extension (initial load) ≤ 5,500 words | 5,500 | 5,152 | ✅ |
+| Root + extension + max active step ≤ 15,000 words | 15,000 | 14,719 | ✅ |
 
 ## Net mandatory-prompt reduction, and the named justified-growth warning
 
-- **Mandatory (always-loaded) prompt: net reduction of 33,207 words** — from 38,628 (monolith +
-  extension, *all* of it loaded on every invocation) to 5,421 (thin root + extension). This is the
+- **Mandatory (always-loaded) prompt: net reduction of 33,256 words** — from 38,408 (monolith +
+  extension, *all* of it loaded on every invocation) to 5,152 (thin root + extension). This is the
   reduction the split exists to deliver: at least 33,134 words below the measured combined baseline
-  (33,207 ≥ 33,134). Everything else now loads on demand, one step reference at a time.
+  (33,256 ≥ 33,134). Everything else now loads on demand, one step reference at a time.
 
-- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,254 words.**
+- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,116 words.**
   The *normal cumulative path* (root + extension + every reference a full run loads in sequence)
-  is 39,882 words vs. 38,628 before — a net **growth of +1,254 words**. This growth is the routing
+  is 39,524 words vs. 38,408 before — a net **growth of +1,116 words**. This growth is the routing
   text the split adds: the *Step routing* table, the *Reference-loading contract* (entry-gate,
   canonical-boundary rule, per-reference failure map, always-resident re-read rule), the condensed
   terminal verdict→chat mapping, the durable-operand schema fields, and the per-reference
   `# Reference:` headers / `<!-- END … -->` markers. It is **justified**: the split trades this
-  small (+3.2%) cumulative increase for a 33,207-word reduction in the *mandatory* prompt, on-demand
-  sequential loading (only one step reference resident at a time — peak 14,988 words, not 39,882),
+  small (+2.9%) cumulative increase for a 33,256-word reduction in the *mandatory* prompt, on-demand
+  sequential loading (only one step reference resident at a time — peak 14,719 words, not 39,524),
   and fail-closed reference handling. Cumulative token spend on a full run is not the metric the
   split optimizes; peak-context and per-step focus are.

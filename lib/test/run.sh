@@ -31723,7 +31723,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"| $_raf_ceil |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,254 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,116 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -31760,6 +31760,12 @@ P530_PFG="$LIB/../skills/review-and-fix/references/pre-fix-gates.md"
 P530_FDG="$LIB/../skills/review-and-fix/references/fix-delta-gate.md"
 P530_CV="$LIB/../skills/review-and-fix/references/convergence.md"
 P530_LE="$LIB/../skills/review-and-fix/references/loop-exit.md"
+assert_pin_unique "#530 continuation: loop-control has an explicit current_step route" \
+  '| `loop-control` — Iteration setup + Steps 0.5–2 | `references/loop-control.md` |' "$P530_ROOT"
+assert_pin_unique "#530 continuation: pending dispatch is stamped before every dispatch" \
+  'Immediately before every `Agent`/`Task`/`Skill` dispatch, also write `pending_dispatch:' "$P530_ROOT"
+assert_pin_unique "#530 continuation: pending dispatch clears only after parse and join" \
+  'Clear it after the returned attempt is joined or dispositioned, including failure, timeout, exhausted-retry, and not-verified outcomes' "$P530_ROOT"
 # 1. immediate APPROVE — Step 2 clean-APPROVE arm (loop-control)
 assert_pin_unique "#530 pressure(immediate APPROVE): Step 2 clean-APPROVE arm in loop-control" \
   'tentative final verdict `APPROVE`' "$P530_LC"
