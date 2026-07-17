@@ -1035,7 +1035,7 @@ assert_pin_unique "deferred.labels: SKILL Phase 4.0 surfaces an empty-issue-numb
 echo "devflow_review_and_fix.max_iterations (schema + resolution)"
 # ────────────────────────────────────────────────────────────────────────────
 # The /devflow:review-and-fix fix-loop cap is read from config via config-get.sh
-# (default 5) and then clamped INLINE in skills/review-and-fix/SKILL.md: a value
+# (default 5) and then clamped INLINE in skills/review-and-fix/references/loop-control.md: a value
 # below 1 → floor 1, a non-integer/empty/unparseable value (or a resolver failure)
 # → 5, with no upper bound. The clamp itself is prompt bash (not a script — AC3
 # mandates the SKILL read directly via config-get.sh), so we pin (a) the
@@ -1068,7 +1068,7 @@ assert_eq "max_iterations: unset key → resolver default 5" "5" \
 assert_eq "max_iterations: missing config file → resolver default 5" "5" \
   "$("$CG" .devflow_review_and_fix.max_iterations 5 /no/such/config.json)"
 # A below-floor value (0) and a non-integer ("abc") are passed through verbatim by
-# the resolver — the SKILL's inline clamp turns these into 1 and 5 respectively.
+# the resolver — the review-and-fix inline clamp (references/loop-control.md) turns these into 1 and 5 respectively.
 printf '%s' '{"devflow_review_and_fix":{"max_iterations":0}}' > "$MAXI_CFG"
 assert_eq "max_iterations: below-floor value passed through to clamp (0)" "0" \
   "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
@@ -1077,9 +1077,9 @@ assert_eq "max_iterations: non-integer value passed through to clamp (abc)" "abc
   "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
 rm -f "$MAXI_CFG"
 
-# The SKILL's inline clamp, applied to the resolver output above. Mirrors the exact
-# logic in skills/review-and-fix/SKILL.md so the floor/fallback/no-upper-bound ACs
-# are exercised, not just asserted in prose. Keep byte-aligned with the SKILL block.
+# The review-and-fix inline clamp, applied to the resolver output above. Mirrors the exact
+# logic in skills/review-and-fix/references/loop-control.md so the floor/fallback/no-upper-bound ACs
+# are exercised, not just asserted in prose. Keep byte-aligned with the references/loop-control.md clamp block.
 maxi_clamp() {
   local v="$1" rc="${2:-0}"
   if [ "$rc" -ne 0 ] || ! printf '%s' "$v" | grep -Eq '^-?[0-9]+$'; then
@@ -1099,9 +1099,9 @@ assert_eq "max_iterations clamp: float → 5"                    "5"  "$(maxi_cl
 assert_eq "max_iterations clamp: empty → 5"                    "5"  "$(maxi_clamp '')"
 assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_clamp '' 2)"
 
-# Drift guard: maxi_clamp above is a hand-maintained copy of the SKILL's inline
+# Drift guard: maxi_clamp above is a hand-maintained copy of the review-and-fix inline
 # clamp, so the clamp assertions would keep passing even if the *shipped* clamp in
-# SKILL.md were edited. Pin the load-bearing tokens in the real SKILL so a change to
+# references/loop-control.md were edited. Pin the load-bearing tokens in the real bundle so a change to
 # the regex (negative-aware), the below-1 floor, or the default-5 fallback fails here
 # instead of silently passing against the copy.
 # #530: review-and-fix is now a thin root + references/*.md. The literal-pin corpus below
@@ -1289,7 +1289,7 @@ assert_pin_unique "sev(rev): Verdict-Criteria summary REJECT line is threshold-d
 assert_pin_unique "sev(rev): Verdict-Criteria summary APPROVE-with-notes line is threshold-driven (mirror of rule 6)" 'Only findings below the verdict threshold → APPROVE with notes' "$ST_REV"
 # #425: agent_overrides `iterations: "first-only"` roster scoping. The engine's Phase 3.1
 # exclusion (skills/review/SKILL.md) and the Step-2.6 shadow-not-scoped boundary
-# (skills/review-and-fix/SKILL.md) are prose-driven dispatch contracts, pinned per the
+# (skills/review-and-fix/references/shadow-review.md) are prose-driven dispatch contracts, pinned per the
 # suite's SKILL.md convention. The shadow-not-scoped sentence is a behavioral-fix pin routed
 # through assert_pin_red_under: deleting the sentence must go RED (a thinned shadow is the
 # regression this exists to catch).
@@ -2434,7 +2434,7 @@ assert_pin_red_under "#510 final self-audit: caller fixes require another indepe
 # definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
 # value. Mutation deletes the sentence's line; the pin must flip PASS->FAIL (a thinned shadow is
-# the regression). $ST_RAF (skills/review-and-fix/SKILL.md) was set far above and persists.
+# the regression). $ST_RAF (the root+references bundle MAXI_BUNDLE; the pinned sentence lives in references/shadow-review.md) was set far above and persists.
 assert_pin_red_under "#425(raf): shadow-not-scoped sentence is operative (thinning the shadow goes RED)" \
   'the shadow always dispatches the **full** expected roster above regardless of any' \
   's/dispatches the \*\*full\*\* expected roster above regardless of any/dispatches a reduced roster on some/' "$ST_RAF"
@@ -18903,7 +18903,7 @@ rm -rf "$ETSC2_REPO"
 # (the parser). Both sites must carry it; a targeted edit to either turns RED.
 ETSY_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 ETSY_ETSH="$LIB/efficiency-trace.sh"
-assert_eq "et-synth(T5): fix-commit subject literal present in SKILL.md item 6 (producer site)" "yes" \
+assert_eq "et-synth(T5): fix-commit subject literal present in fixing.md item 6 (producer site)" "yes" \
   "$([ "$(pin_count 'fix: address review findings (iteration' "$ETSY_RAF")" -ge 1 ] && echo yes || echo no)"
 assert_eq "et-synth(T5): fix-commit subject literal present in efficiency-trace.sh (parser site)" "yes" \
   "$([ "$(pin_count 'fix: address review findings (iteration' "$ETSY_ETSH")" -ge 1 ] && echo yes || echo no)"
@@ -18914,7 +18914,7 @@ assert_pin_red_on_removal "et-synth(T5): editing the commit-subject literal in e
 # no-deferral instruction and prove the pin catches the guarded regression — a
 # mutation that re-authorizes deferring the Write (the exact bug AC1 fixes) while
 # leaving the framing clause ("fused to this fix-commit moment") intact.
-assert_pin_red_under "et-synth(T1): SKILL.md item 6 operative no-deferral clause flips RED when deferral is re-authorized" \
+assert_pin_red_under "et-synth(T1): fixing.md item 6 operative no-deferral clause flips RED when deferral is re-authorized" \
   'do not defer this Write to a later "persist" step' \
   's/do not defer this Write to a later "persist" step/you may defer this Write to a later persist step/' \
   "$ETSY_RAF"
