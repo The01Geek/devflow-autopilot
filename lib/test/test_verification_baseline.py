@@ -1718,5 +1718,171 @@ class Pr531Iter1FixLoopTests(_TmpDirTestCase):
                 self.assertIn(f.name, keys, f"{type(rec).__name__}.{f.name} missing from to_dict")
 
 
+class Pr531Iter2ShadowFixTests(_TmpDirTestCase):
+    """Regression tests for the PR #531 early-shadow findings (iteration 2)."""
+
+    # --- Shadow Critical: SECRET_SHORT_U ReDoS on quote-dense colon-less input. -
+    def test_secret_short_u_no_redos_on_quote_dense_input(self) -> None:
+        import time as _t
+        for payload in ("-u " + '"a"' * 200, "-u " + "'a'" * 200, "id -u " + '"x"' * 200):
+            t0 = _t.monotonic()
+            vb._binding_identity(payload)
+            self.assertLess(_t.monotonic() - t0, 0.5, f"ReDoS on {payload[:12]!r}")
+
+    def test_secret_value_no_redos_defense_in_depth(self) -> None:
+        import time as _t
+        t0 = _t.monotonic()
+        vb._binding_identity('TOKEN=' + '"a"' * 300)
+        self.assertLess(_t.monotonic() - t0, 0.5)
+        # Behavior preserved: adjacent concatenation still redacts whole.
+        b = vb._binding_identity('TOKEN="abc"def lib/test/run.sh')
+        self.assertNotIn("def", b.redacted_display.replace("<env:TOKEN>", ""))
+
+    # --- Shadow Critical: real Claude Code tool-rejection is a denial, not a
+    #     launch; incidental in-output denial words don't reclassify a launch. --
+    def _auth(self, text: str, is_error: bool, exit_code=None, terminal=True) -> str:
+        result = {"is_error": is_error, "content": text}
+        ev = {"exit_code": exit_code, "terminal_signal_present": terminal}
+        return vb._classify_authorization_start(result, ev)
+
+    def test_real_tool_rejection_is_denied_not_launch(self) -> None:
+        rej = "The user doesn't want to proceed with this tool use. The tool use was rejected."
+        self.assertEqual(self._auth(rej, is_error=True), vb.START_DENIED_PRE)
+        # Even if the harness did not flag is_error, the harness-specific string wins.
+        self.assertEqual(self._auth(rej, is_error=False), vb.START_DENIED_PRE)
+
+    def test_incidental_denial_word_deep_in_output_is_not_denial(self) -> None:
+        # A failing test whose traceback mentions "Permission denied" far into the
+        # output must NOT be reclassified as a pre-start denial.
+        deep = "collecting tests\n" + ("x" * 600) + "\nPermissionError: [Errno 13] Permission denied"
+        self.assertEqual(self._auth(deep, is_error=True), vb.START_CONFIRMED_RESULT_MISSING)
+
+    def test_leading_denial_word_still_classifies_denied(self) -> None:
+        self.assertEqual(self._auth("Permission denied: cannot run", is_error=True), vb.START_DENIED_PRE)
+
+    def test_exit_code_beats_incidental_rejection_words(self) -> None:
+        self.assertEqual(
+            self._auth("the tool use was rejected earlier; exit code 0", is_error=True, exit_code=0),
+            vb.START_CONFIRMED_TERMINAL)
+
+    # --- Shadow Important: SECRET_ENV_ASSIGNMENT must not fire on PATH=/PATTERN=. -
+    def test_env_secret_keyword_suffix_anchored(self) -> None:
+        for benign in ('PATH="/a:/b" x', 'PATTERN="*.py" x', 'KEYWORDS="a b" x', 'PASSTHROUGH=1 x'):
+            b = vb._binding_identity(benign)
+            self.assertFalse(b.secret_affected, f"{benign!r} must not be secret-affected")
+        for real in ('GITHUB_TOKEN=abc x', 'APIKEY=abc x', 'API_KEY=abc x', 'MY_PAT=abc x',
+                     'PASSWORD=abc x', 'AWS_SECRET_ACCESS_KEY=abc x'):
+            b = vb._binding_identity(real)
+            self.assertTrue(b.secret_affected, f"{real!r} must be secret-affected")
+            self.assertNotIn("abc", b.redacted_display)
+
+    # --- Shadow finding: a group with no explicit lifecycle is not a candidate. -
+    def test_no_explicit_lifecycle_is_not_candidate(self) -> None:
+        a = make_launch("a", lifecycle_id="", start_auth=START_CONFIRMED_RESULT_MISSING,
+                        started="2026-07-16T01:01:00Z", finished="2026-07-16T01:02:00Z")
+        b = make_launch("b", lifecycle_id="", start_auth=START_CONFIRMED_TERMINAL,
+                        started="2026-07-16T01:03:00Z", finished="2026-07-16T01:04:00Z")
+        rel, _conf = vb._classify_relationship([a, b])
+        self.assertNotEqual(rel, REL_CANDIDATE_TRANSPORT_RETRY)
+
+    # --- Shadow Medium: read_cloud_census must verify snapshot_hash. ----------
+    def _write_snapshot(self, rows, tamper: bool = False) -> Path:
+        import hashlib as _h
+        payload = json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        h = _h.sha256(payload).hexdigest()
+        if tamper:
+            rows = rows + [{"workflow_file": "x", "job": "y", "run_id": 9, "run_attempt": 1,
+                            "started_at": None, "status": "completed", "conclusion": "success"}]
+        snap = {"schema_version": 1, "snapshot_hash": h, "query_time": "t",
+                "pagination_complete": True, "repository": "o/r", "rows": rows}
+        p = Path(self.out) / "snap.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(snap), encoding="utf-8")
+        return p
+
+    def test_read_cloud_census_rejects_tampered_rows(self) -> None:
+        p = self._write_snapshot([{"workflow_file": "a", "job": "b", "run_id": 1, "run_attempt": 1,
+                                   "started_at": None, "status": "completed", "conclusion": "success"}], tamper=True)
+        doc, reason = vb.read_cloud_census(p)
+        self.assertIsNone(doc)
+        self.assertIn("hash", reason.lower())
+
+    def test_read_cloud_census_accepts_intact_rows(self) -> None:
+        p = self._write_snapshot([{"workflow_file": "a", "job": "b", "run_id": 1, "run_attempt": 1,
+                                   "started_at": None, "status": "completed", "conclusion": "success"}])
+        doc, reason = vb.read_cloud_census(p)
+        self.assertIsNotNone(doc)
+        self.assertEqual(reason, "ok")
+
+    # --- Shadow Medium: an all-malformed-rows census is unavailable, breadcrumbed. -
+    def test_all_malformed_rows_census_is_unavailable(self) -> None:
+        snapshot = {"schema_version": 1, "snapshot_hash": "h", "query_time": "t",
+                    "pagination_complete": True, "repository": "o/r",
+                    "rows": ["not-a-dict", 123, None]}
+        import io as _io
+        buf = _io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            rows, cov = vb.build_cloud_census(snapshot, {})
+        self.assertTrue(cov["unavailable"])
+        self.assertEqual(cov.get("malformed_row_count"), 3)
+        self.assertIn("malformed", buf.getvalue().lower())
+
+    def test_partly_malformed_rows_census_stays_available_with_count(self) -> None:
+        cm = load_cloud_mappings(REGISTRY)
+        snapshot = {"schema_version": 1, "snapshot_hash": "h", "query_time": "t",
+                    "pagination_complete": True, "repository": "o/r",
+                    "rows": ["bad", {"workflow_file": ".github/workflows/devflow-implement.yml",
+                                     "job": "claude", "run_id": 1, "run_attempt": 1,
+                                     "started_at": "2026-07-16T01:00:00Z", "status": "completed",
+                                     "conclusion": "success"}]}
+        rows, cov = vb.build_cloud_census(snapshot, cm)
+        self.assertFalse(cov["unavailable"])
+        self.assertEqual(cov.get("malformed_row_count"), 1)
+        self.assertEqual(len(rows), 1)
+
+    # --- Shadow Medium: a partially-corrupt stop-attempts log fails closed on
+    #     the consistency-check (empty-transcript) arm. -----------------------
+    def test_partial_corrupt_stop_attempts_beside_empty_transcript_fails_closed(self) -> None:
+        write_manifest(self.manifests, "s-pc")
+        d = self.bundles / "s-pc"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "metadata.json").write_text(json.dumps({"schema_version": 2}), encoding="utf-8")
+        (d / "transcript.jsonl").write_bytes(b"")
+        (d / "stop-attempts.jsonl").write_text(
+            json.dumps({"result": "captured", "transcript_bytes": 0}) + "\n{corrupt line\n", encoding="utf-8")
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        rows = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
+        self.assertEqual(rows[0].source_status, SOURCE_IMPORT_FAILED)
+
+    # --- Shadow documented_falsehood: manual_review.json carries the TTL fields. -
+    def test_manual_review_artifact_carries_ttl_fields(self) -> None:
+        write_manifest(self.manifests, "s1")
+        write_bundle(self.bundles, "s1", transcript(user("/devflow:implement 527")))
+        main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles),
+              "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        run = sorted(self.out.iterdir())[-1]
+        mr = json.loads((run / "manual_review.json").read_text(encoding="utf-8"))
+        for field in ("created_at", "source_snapshot_hash", "expires_at"):
+            self.assertIn(field, mr, f"manual_review.json missing {field}")
+
+    # --- Shadow Medium: exporter drops corrupt/id-less runs, folds into
+    #     pagination_complete, and counts them (not silently omitted). --------
+    def test_exporter_drops_corrupt_runs_and_marks_incomplete(self) -> None:
+        exp = _load_export_census()
+        runs = ["not-a-dict", {"path": "wf", "run_attempt": 1},  # id-less
+                {"id": 7, "path": "wf", "name": "W", "run_attempt": 1,
+                 "created_at": "c", "conclusion": "success", "status": "completed"}]
+        jobs = {7: [{"name": "job", "started_at": "s", "completed_at": "e",
+                     "conclusion": "success", "status": "completed"}]}
+        import io as _io
+        buf = _io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            snap = exp.build_snapshot("o/r", ["wf"], "a", "b", runs, jobs, "t", True)
+        self.assertFalse(snap["pagination_complete"])  # dropped runs => not complete
+        self.assertEqual(snap["dropped_run_count"], 2)
+        self.assertEqual(snap["row_count"], 1)
+        self.assertIn("dropped", buf.getvalue().lower())
+
+
 if __name__ == "__main__":
     unittest.main()

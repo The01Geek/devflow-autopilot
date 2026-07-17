@@ -53,15 +53,27 @@ def build_snapshot(repo: str, workflow_set: list[str], closed_after: str, closed
     conclusion, status, html_url. No transcript text, no secrets, no source paths.
     """
     rows: list[dict[str, Any]] = []
+    dropped_runs = 0
+    dropped_jobs = 0
     for run in runs:
         if not isinstance(run, dict):
+            # A corrupt/API-shifted run never vanishes from the census silently:
+            # count it so a shape drift does not shrink the denominator while the
+            # snapshot self-certifies complete (PR #531 early-shadow — the
+            # analyzer's sibling reader already counts malformed rows; the
+            # producer must too).
+            dropped_runs += 1
             continue
         run_id = run.get("id")
+        if run_id is None:
+            dropped_runs += 1
+            continue
         wf_path = run.get("path") or run.get("workflow_file")
         wf_name = run.get("name")
         attempt = run.get("run_attempt", 1)
         for job in jobs_by_run.get(run_id, []):
             if not isinstance(job, dict):
+                dropped_jobs += 1
                 continue
             rows.append({
                 "workflow_file": wf_path,
@@ -92,13 +104,27 @@ def build_snapshot(repo: str, workflow_set: list[str], closed_after: str, closed
                 "run_status": run.get("status"),
                 "html_url": job.get("html_url") or run.get("html_url"),
             })
+    if dropped_runs or dropped_jobs:
+        print(
+            f"devflow census-export: dropped {dropped_runs} malformed/id-less run(s) "
+            f"and {dropped_jobs} malformed job(s) from the census",
+            file=sys.stderr,
+        )
     rows_payload = json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("utf-8")
     snapshot_hash = hashlib.sha256(rows_payload).hexdigest()
+    # A malformed run/job dropped from the census means the row set is not a
+    # complete view of the queried window: fold it into pagination_complete so the
+    # analyzer reads the snapshot as unavailable rather than a clean partial
+    # (PR #531 early-shadow: a corrupt API shape silently shrank the denominator
+    # while the snapshot still self-certified complete).
+    complete = bool(pagination_complete) and dropped_runs == 0 and dropped_jobs == 0
     return {
         "schema_version": SNAPSHOT_SCHEMA,
         "snapshot_hash": snapshot_hash,
         "query_time": query_time,
-        "pagination_complete": bool(pagination_complete),
+        "pagination_complete": complete,
+        "dropped_run_count": dropped_runs,
+        "dropped_job_count": dropped_jobs,
         "repository": repo,
         "workflow_set": workflow_set,
         "closed_window": {"created_after": closed_after, "created_before": closed_before},

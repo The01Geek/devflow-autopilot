@@ -219,9 +219,27 @@ NON_VERIFICATION_HEADS = frozenset(
 # line in real shell, so redacting to EOL is the faithful, fail-closed
 # reading (PR #531 iteration-1 re-gate finding 1 — the \S fallback used to
 # stop at the first in-quote space and leak the tail).
-_SECRET_VALUE = r"((?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|\S)+)"
+# The bare-char alternative EXCLUDES quotes (`[^\s\"']`), so a quote can only
+# be consumed by the quoted alternative — the segmentation is unambiguous and
+# the match is linear. Admitting a quote into BOTH the quoted chunk and the
+# bare fallback made a quote-dense run exponentially backtrack when a required
+# trailing token (SECRET_SHORT_U's `:`) was absent (PR #531 early-shadow: a
+# ~40-quote `-u` command hung _redact_secrets on attacker-shaped transcript
+# text). Defense-in-depth: _SECRET_VALUE's own uses have no required suffix so
+# they never backtracked, but the quote-exclusion is applied here too.
+_SECRET_VALUE = r"((?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|[^\s\"'])+)"
 SECRET_ENV_ASSIGNMENT = re.compile(
-    r"\b([A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|PASS|PAT|CREDENTIAL|PRIVATE_KEY)[A-Z0-9_]*)=" + _SECRET_VALUE,
+    # The keyword must be a SUFFIX of the variable name (name ends in the
+    # keyword, immediately before `=`), not merely a substring. The old
+    # `[A-Z0-9_]*KEYWORD[A-Z0-9_]*` form false-positived on `PATH=` (PAT),
+    # `PATTERN=` (PAT), `KEYWORDS=` (KEY) — ubiquitous in this repo's stub
+    # transcripts, blinding the baseline for the most common launch shape
+    # (PR #531 early-shadow). Suffix-anchoring keeps the real names
+    # (GITHUB_TOKEN, APIKEY, API_KEY, MY_PAT, AWS_SECRET_ACCESS_KEY all END
+    # in a keyword) while rejecting the collision words above. Over-redaction
+    # of a rare name that merely ends in a keyword (COMPASS=) stays the safe
+    # direction (partial confidence, no leak).
+    r"\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|PAT|PASS|KEY))=" + _SECRET_VALUE,
     re.IGNORECASE,
 )
 SECRET_FLAG = re.compile(
@@ -234,19 +252,19 @@ SECRET_FLAG = re.compile(
     r"(?:[ =])" + _SECRET_VALUE,
     re.IGNORECASE,
 )
-# curl-style short-flag credentials: `-u user:pass` (colon required, so a bare
-# `-u` boolean flag — e.g. `sort -u` — never matches). The colon requirement
-# keeps the false-positive rate near zero while closing the raw-credential leak.
+# curl-style short-flag credentials: `-u user:pass`. The value halves get the
+# same quoted-whole / unterminated-to-EOL treatment as _SECRET_VALUE, with
+# quotes EXCLUDED from the bare-char classes so the required trailing `:`
+# cannot trigger exponential backtracking on a quote-dense colon-less operand
+# (PR #531 early-shadow ReDoS). The separator is OPTIONAL so curl's compact
+# `-uuser:pass` is covered, and the lookbehind keeps `-u` inside `--user`-style
+# long flags from firing. A colon is required, so a bare `-u` with a colon-free
+# operand (`sort -u file.txt`) never matches; a `-u` operand that DOES contain
+# a colon (`sort -u a:b`) is over-redacted — the safe direction (partial
+# confidence, no leak), not the credential-only match the old comment claimed.
 SECRET_SHORT_U = re.compile(
-    # Both halves get the same quoted-whole (and unterminated-to-EOL) treatment
-    # as _SECRET_VALUE (`-u user:"pass word"` and `-u "user name":pass` are
-    # ordinary curl). The separator is OPTIONAL so curl's compact attached
-    # spelling `-uuser:pass` is covered too, and the lookbehind keeps `-u`
-    # inside `--user`-style long flags (or `x-u`) from false-positiving
-    # (PR #531 iteration-1 re-gate finding 2). A bare boolean `-u` (sort -u)
-    # never matches: the credential's `:` is required.
     r"(?<![\w-])(-u[ =]?)"
-    r"((?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|[^\s:])+:(?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|\S)+)"
+    r"((?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|[^\s:\"'])+:(?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|[^\s\"'])+)"
 )
 SECRET_URL = re.compile(r"(https?://)[^/\s:@]+:[^/\s:@]+@")
 BEARER_TOKEN = re.compile(r"(Bearer\s+)([A-Za-z0-9._\-+/=]+)", re.IGNORECASE)
@@ -274,10 +292,12 @@ def _count_input_bytes(stats: "dict | None", n: int) -> None:
     self-measurement tool under-reporting its own measured input by orders of
     magnitude (issue #527 review finding). Only successfully-read content is
     counted (an unreadable file contributes no bytes because none were read).
-    A source read more than once counts each read (e.g. a transcript is read
-    at classification time and again at extraction time): the figure measures
-    real read I/O, not the deduplicated corpus size — a deliberate, disclosed
-    reading (PR #531 iteration-1 note)."""
+    A transcript read more than once counts each read (it is read at
+    classification time and again at extraction time): the figure measures real
+    transcript read I/O, not the deduplicated corpus size. The registry, read
+    twice per run (load_registry + load_cloud_mappings), is the one exception —
+    it is counted ONCE by size in main() (see the "counted once" note there), so
+    this is not an unqualified "every read" universal (PR #531 early-shadow)."""
     if stats is not None:
         stats["input_bytes"] = stats.get("input_bytes", 0) + n
 
@@ -1127,7 +1147,7 @@ def _import_failed(bundle: Path, stats: "dict | None" = None) -> "bool | None":
     return False
 
 
-def _stop_attempts_state(bundle: Path, stats: "dict | None" = None) -> "tuple[str, list[int]]":
+def _stop_attempts_state(bundle: Path, stats: "dict | None" = None) -> "tuple[str, list[int | None]]":
     """Read stop-attempts.jsonl in the writer's real shape.
 
     Returns (state, captured_byte_claims) where state is one of:
@@ -1148,6 +1168,7 @@ def _stop_attempts_state(bundle: Path, stats: "dict | None" = None) -> "tuple[st
     _count_input_bytes(stats, len(text.encode("utf-8")))
     nonblank = 0
     parsed = 0
+    corrupt = 0
     claims: list["int | None"] = []
     captured = False
     for line in text.splitlines():
@@ -1157,8 +1178,10 @@ def _stop_attempts_state(bundle: Path, stats: "dict | None" = None) -> "tuple[st
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
+            corrupt += 1
             continue
         if not isinstance(entry, dict):
+            corrupt += 1
             continue
         parsed += 1
         if entry.get("result") == "captured":
@@ -1180,6 +1203,13 @@ def _stop_attempts_state(bundle: Path, stats: "dict | None" = None) -> "tuple[st
         # Valid UTF-8 but wholly JSON-corrupt: the failure log is unusable.
         return "unreadable", []
     if captured:
+        # A corrupt line ALONGSIDE valid captured entries is an unestablishable
+        # claim: it could have been a >0-byte capture the reader cannot see, so
+        # the byte-consistency check must fail closed rather than proceed on the
+        # parseable subset (PR #531 early-shadow: a 0-byte-transcript + one valid
+        # {captured, bytes:0} + one corrupt line read as clean SOURCE_AVAILABLE).
+        if corrupt:
+            claims.append(None)
         return "captured", claims
     return "uncaptured", []
 
@@ -1368,16 +1398,31 @@ def _classify_authorization_start(result: dict | None, ev: dict | None) -> str:
     # launch out of the counts (issue #527 review finding).
     if ev and ev.get("exit_code") is not None:
         return START_CONFIRMED_TERMINAL
+    # Scan only a BOUNDED PREFIX for denial/cancel signals: the harness's own
+    # rejection/denial message LEADS the result, whereas an incidental
+    # "Permission denied" in a deep traceback or a "1 aborted" test summary sits
+    # LATER in a real command's own output — the early-shadow finding that a
+    # failing pytest with a PermissionError was misclassified denied. Anchoring
+    # to the prefix keeps the structured leading signal and ignores incidental
+    # deep-output words.
+    prefix = text[:400]
+    # Claude Code's own tool-rejection message is harness-specific text that never
+    # appears as a real command's output, so it is a denial regardless of the
+    # is_error flag: a rejected tool use never started a process and must not be
+    # counted as a launch (the previous regex matched none of these strings, so a
+    # real rejection fell through to RESULT_MISSING and inflated the launch count
+    # — PR #531 early-shadow Critical).
+    if re.search(r"tool use was rejected|does(?:n't| not) want to proceed with this tool", prefix, re.IGNORECASE):
+        return START_DENIED_PRE
     # Pre-start denial and cancellation are ERROR results with no terminal exit
-    # code. Gate BOTH on is_error (as the denied branch always has): a
-    # successful command's stdout can contain these words incidentally, and only
-    # a structured error signal — not a substring anywhere in output — may drop
-    # a request from the launch counts.
+    # code. Gate the generic words on is_error (a successful command's stdout can
+    # contain them incidentally): only a structured error signal, in the leading
+    # prefix, may drop a request from the launch counts.
     if result.get("is_error"):
-        if re.search(r"permission\s+denied|not\s+allowed|was\s+not\s+granted", text, re.IGNORECASE):
+        if re.search(r"permission\s+denied|not\s+allowed|was\s+not\s+granted|user rejected", prefix, re.IGNORECASE):
             return START_DENIED_PRE
         # A result that indicates cancellation (e.g. "command was cancelled").
-        if re.search(r"\bcancel\w*|\binterrupt\w*|\babort\w*", text, re.IGNORECASE):
+        if re.search(r"\bcancel\w*|\binterrupt\w*|\babort\w*", prefix, re.IGNORECASE):
             return START_CANCELLED_PRE
     # Terminal result text but no parsed exit code -> result missing.
     if ev and ev.get("terminal_signal_present"):
@@ -1664,8 +1709,10 @@ def _extract_from_lifecycle(events, root, end_idx, sid, consumer):
                     # across every launch would let a future in-place mutation of
                     # one launch's workspace_state alias into all of them, directly
                     # under the coverage gate _classify_relationship keys on
-                    # (PR #531 iteration-1, type-design note).
-                    workspace_state=dict(ws),
+                    # (PR #531 iteration-1, type-design note). The nested
+                    # covered_roots LIST is copied too (a bare dict(ws) is shallow
+                    # and would still alias that list — PR #531 early-shadow).
+                    workspace_state={**ws, "covered_roots": list(ws.get("covered_roots", []))},
                     result_presence=result is not None,
                     exit_evidence=ev,
                     skipped_check_evidence=None,
@@ -1769,6 +1816,14 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     if len(lifecycles) > 1:
         # Distinct lifecycle IDs -> independent (cannot be transport-retry).
         return REL_INDEPENDENT_LIFECYCLE, CONFIDENCE_PARTIAL
+    # A transport-retry candidate requires the SAME EXPLICIT lifecycle. If any
+    # member carries no lifecycle_id, there is no explicit shared lifecycle to
+    # key on, so the group cannot be a candidate — it is unclassifiable, never a
+    # candidate by the empty-set falling through the len>1 check above (PR #531
+    # early-shadow: Wave-1 extraction always sets a lifecycle_id, but a direct
+    # construction / future adapter could produce None-lifecycle members).
+    if len(lifecycles) != 1 or any(not m.lifecycle_id for m in members):
+        return REL_UNCLASSIFIABLE, CONFIDENCE_AMBIGUOUS
     # Same lifecycle, repeated binding -> candidate transport-retry only if ALL
     # requirements hold; else unclassifiable. The single ``ws_matching`` check
     # (every member has complete coverage AND all share the same covered-roots
@@ -2108,6 +2163,20 @@ def read_cloud_census(snapshot_path: Path) -> "tuple[dict[str, Any] | None, str]
         return None, "not a JSON object"
     if doc.get("schema_version") != CLOUD_SNAPSHOT_SCHEMA:
         return None, f"schema_version != {CLOUD_SNAPSHOT_SCHEMA}"
+    # Verify the recorded snapshot_hash over `rows` — the exporter computes it as
+    # sha256 of the compact-serialized rows (build_snapshot), and the docs call
+    # the snapshot "immutable". Without this check a snapshot whose rows were
+    # hand-edited, truncated by a partial copy, or corrupted after export passed
+    # as fully available and its stale hash even seeded the deterministic sample
+    # (PR #531 early-shadow: the integrity mechanism existed on the producer side
+    # but the consumer's enforcement half was missing — fail-open on exactly the
+    # tampered input the hash exists to detect). A mismatch reads unavailable.
+    rows = doc.get("rows")
+    recorded = doc.get("snapshot_hash")
+    if isinstance(rows, list) and isinstance(recorded, str):
+        actual = _sha256_hex(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        if actual != recorded:
+            return None, "snapshot_hash mismatch (rows altered since export)"
     return doc, "ok"
 
 
@@ -2245,6 +2314,21 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
         position += 1
     if malformed_rows:
         coverage["malformed_row_count"] = malformed_rows
+        # Surface the dropped-row count on stderr, mirroring load_cloud_mappings'
+        # dropped-entry breadcrumb — a count buried only inside the JSON artifact
+        # is not loud degradation (PR #531 early-shadow).
+        print(
+            f"devflow verification-baseline: cloud census dropped {malformed_rows} "
+            "malformed row(s) (non-dict); the denominator excludes them",
+            file=sys.stderr,
+        )
+        # An ALL-malformed row set (rows present but none usable) is a broken
+        # snapshot, not a genuinely agent-less window: collapse to unavailable so
+        # a corrupt census is never read as a clean zero-eligibility measurement.
+        if not rows:
+            coverage["available"] = False
+            coverage["unavailable"] = True
+            coverage["reason"] = f"all {malformed_rows} snapshot row(s) malformed"
     # Cloud rows report census/eligibility/missingness ONLY — no launch/duration/
     # relationship/retry-candidate claims are made here (cloud launch analysis is
     # excluded in Wave 1).
@@ -2592,7 +2676,18 @@ def main(argv: "list[str] | None" = None) -> int:
     _atomic_write(out_subdir / "verification_baseline.json", payload)
     _atomic_write(out_subdir / "report.md", report.encode("utf-8"))
     # Manual-review artifact (initially empty adjudication; reviewers fill it).
-    _atomic_write(out_subdir / "manual_review.json", json.dumps(sample, indent=2, sort_keys=True).encode("utf-8"))
+    # Carry the same created_at/source_snapshot_hash/expires_at the docstring and
+    # docs promise for EVERY artifact — the sensitive manual-review file must also
+    # carry the TTL/expiry so `--cleanup` and the retention promise hold for it
+    # (PR #531 early-shadow: the promise was stated for all artifacts but two of
+    # the three fields were absent from manual_review.json).
+    manual_review_doc = {
+        "created_at": created_at,
+        "source_snapshot_hash": snapshot_hash,
+        "expires_at": expires_at,
+        **sample,
+    }
+    _atomic_write(out_subdir / "manual_review.json", json.dumps(manual_review_doc, indent=2, sort_keys=True).encode("utf-8"))
 
     print(f"devflow verification-baseline: wrote {out_subdir}/verification_baseline.json + report.md")
     print(f"  eligible lifecycles: {metrics['eligible_lifecycles']} | actual launches: {metrics['local_actual_launches']} | candidate retries: {metrics['candidate_retries']} | unclassifiable: {metrics['unclassifiable_groups']}")

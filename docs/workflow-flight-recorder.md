@@ -207,14 +207,23 @@ window, produced by `scripts/export-workflow-lifecycle-census.py` (the sole
 networked step, explicit-invocation-only) independently of execution files. The
 snapshot records its hash, query time, pagination completeness, workflow/job
 identity, run ID and attempt, and created/started/completed timestamps plus
-conclusion. An absent or incomplete cloud census makes cloud coverage
-`unavailable`, never zero. Cloud eligibility comes from trusted workflow/job
-identity via the registry's additive `cloud_mappings` section (an allowlisted
-workflow-file + job identity + exact agent job name + routed command/consumer +
-scheduled/started agent-step evidence — a skipped job, which never ran its agent
-step, is ineligible); non-agent jobs are ineligible by omission. Cloud rows
-report census, eligibility, and source missingness only — no launch, duration,
-relationship, or retry-candidate claims.
+conclusion. The reader recomputes and verifies the recorded `snapshot_hash` over
+the row set, so a snapshot altered after export reads `unavailable` rather than
+trusted; a malformed or id-less run dropped at export time folds into
+`pagination_complete=false` (and is counted, not silently omitted), so a
+shape-drifted census never self-certifies complete. An absent or incomplete
+cloud census makes cloud coverage `unavailable`, never zero. Cloud eligibility
+comes from trusted workflow/job identity via the registry's additive
+`cloud_mappings` section (an allowlisted workflow-file + job identity + exact
+agent job name + routed command/consumer + scheduled/started agent-step evidence
+— a skipped job, which never ran its agent step, is ineligible); non-agent jobs
+are ineligible by omission. Because the census is job-level, `devflow.yml`'s
+`command` job — which multiplexes `/devflow:review`, `/devflow:review-and-fix`,
+and `/devflow:pr-description` — has all its runs attributed to consumer `review`
+as a Wave-1 approximation (`consumer_approximate: true` in the mapping), so
+stratification must not treat that job's consumer attribution as exact. Cloud
+rows report census, eligibility, and source missingness only — no launch,
+duration, relationship, or retry-candidate claims.
 
 ### Verification requests and process launches (local-native only)
 
