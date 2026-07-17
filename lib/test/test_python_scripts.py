@@ -61,6 +61,7 @@ match_deferrals = _load('match_deferrals', SCRIPTS / 'match-deferrals.py')
 resolve_review_overrides = _load(
     'resolve_review_overrides', SCRIPTS / 'resolve-review-overrides.py')
 stale_prose_lint = _load('stale_prose_lint', SCRIPTS / 'stale-prose-lint.py')
+issue_audit_state = _load('issue_audit_state', SCRIPTS / 'issue-audit-state.py')
 
 
 PASS = 0
@@ -3557,6 +3558,54 @@ assert_eq("#434: a C-quoted non-ASCII path is decoded back to real text",
           {'café.md': {1: 'prose'}},
           stale_prose_lint.parse_diff(
               '--- a/x\n+++ "b/caf\\303\\251.md"\n@@ -0,0 +1,1 @@\n+prose\n'))
+
+print()
+print("issue-audit-state: the motivating regression (issue #546)")
+
+# The named test-first regression. State holds a `VERDICT: REVISE` round on digest
+# D1 plus a subsequently recorded revision; the draft file's bytes now hash to
+# D2 != D1 and no further round completed. `approve` mode must refuse.
+#
+# This is the exact shape of the incident that motivated extracting the lifecycle
+# out of prose: revised draft bytes proceeding toward presentation after a REVISE
+# verdict, with no clean audit verdict on those exact bytes.
+_REGRESSION_STATE = {
+    'schema_version': issue_audit_state.SCHEMA_VERSION,
+    'slug': 'motivating-regression',
+    'nonce': 'a1b2c3d4e5f60718',
+    'reinit_forced': False,
+    'revision_ordinal': 1,
+    'automatic_reaudits_used': 0,
+    'user_rounds_used': 0,
+    'rounds': [{
+        'round': 1,
+        'attempts': [{'arm': 'file', 'digest': 'D1', 'body_digest': 'B1',
+                      'sentinel_open': None, 'sentinel_close': None}],
+        'no_parseable_retry_used': False,
+        'unreadable_retry_used': False,
+        'outcome': 'REVISE',
+        'findings_count': 2,
+        'consumer_dimensions_appended': False,
+        'embed_markers': [],
+        'degraded': False,
+    }],
+    'revisions': [{'ordinal': 1, 'after_round': 1}],
+    'overrides': [],
+    'creation': None,
+}
+
+_regression = issue_audit_state.evaluate_eligibility(
+    _REGRESSION_STATE, 'approve', current_digest='D2')
+
+assert_eq("#546 eligibility_unaudited_revision_regression: REVISE on D1 + a recorded "
+          "revision, approve mode, draft now hashes to D2 -> not-eligible",
+          'not-eligible', _regression['answer'])
+assert_eq("#546 eligibility_unaudited_revision_regression: the refusal reason is "
+          "unaudited-revision",
+          'unaudited-revision', _regression['reason'])
+assert_eq("#546 eligibility_unaudited_revision_regression: a refused answer issues "
+          "no eligibility token",
+          None, _regression['token'])
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
