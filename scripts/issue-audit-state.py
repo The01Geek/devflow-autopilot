@@ -293,11 +293,12 @@ TRANSITIONS = (
          result='illegal-draft-binding', reason='binding-nonbound-not-absolute'),
 
     # write-failure (issue #562) — a canonical-draft overwrite that failed to land at
-    # the bound path is recorded, so the post-revision `approve` ground can refuse bytes
-    # a recorded revision has staled but that never landed.
+    # the bound path is recorded, so `latest_revision_landed` reports the latest revision
+    # as unlanded and the presentation renders from the in-context revision bytes rather
+    # than the stale file. (The dispatch write-path cross-check is a separate, strict
+    # enforcement deferred to the skill-side follow-up; no dead row is declared for it
+    # here.)
     _row('write-failure', 'recorded', result='write-failure-recorded'),
-    _row('write-failure', 'dispatch-path-mismatch', legal=False,
-         result='illegal-dispatch', reason='write-path-mismatch'),
 )
 
 
@@ -352,7 +353,7 @@ _TRANSITION_REASONS = (
     'no-epoch-to-attest', 'attestation-already-recorded',
     # issue #562 draft-binding / write-failure legality breadcrumbs
     'binding-already-recorded', 'binding-path-not-absolute', 'binding-tier-missing',
-    'binding-tier-unknown', 'binding-nonbound-not-absolute', 'write-path-mismatch',
+    'binding-tier-unknown', 'binding-nonbound-not-absolute',
 )
 _ALL_REASONS = set(_ELIGIBILITY_REASONS) | set(_TRANSITION_REASONS)
 
@@ -416,14 +417,18 @@ def state_path(slug, root=None):
 
 
 def _is_bound_path(p):
-    """True iff `p` is a non-empty absolute path string with no embedded newline.
+    """True iff `p` is a non-empty absolute path string with no embedded newline or CR.
 
     The binding is recorded and compared as an opaque string (Windows-safe, #275/#295):
     the tool never execs a `.sh` helper and never touches the filesystem to validate it.
     Absoluteness is the one structural check — a relative bound path would resolve
     differently at each write site and defeat the whole point of a bound root. An
-    embedded newline is rejected too: `recorded verbatim` means no normalization, not
-    acceptance of record-splitting bytes that could forge a second field on readback.
+    embedded newline OR carriage return is rejected: `recorded verbatim` means no
+    normalization, not acceptance of record-splitting bytes that could forge a second
+    field on readback. A space is NOT rejected — a real absolute path legitimately
+    contains one (e.g. macOS `/Users/jo/My Repos/...`), so consumers of the space-
+    delimited query lines must extract path fields by their `key=` anchor, never by a
+    positional whitespace split.
     """
     return (isinstance(p, str) and bool(p) and os.path.isabs(p)
             and '\n' not in p and '\r' not in p)
@@ -861,47 +866,70 @@ def _binding(state):
 
 
 def _bound_path(state):
-    """The absolute bound draft path, or None when unbound. `_validate` proved it
-    absolute at load, so callers may use it as the draft source without re-checking."""
+    """The absolute bound draft ROOT, or None when unbound. `_validate` proved it
+    absolute at load. This is the root the display and `bound_root` report and the tier
+    token classifies — NOT the draft file itself (see `_bound_draft_file`)."""
     b = _binding(state)
     return b['path'] if b else None
 
 
-def _all_file_dispatch_digests(state):
-    """Every recorded file-arm dispatch digest, in record order (a generator).
+def _bound_draft_file(state, slug):
+    """The absolute bound canonical draft FILE, or None when unbound.
 
-    A file-arm dispatch record is a landed write at the bound path (the skill writes the
-    canonical file, confirms it landed, then dispatches on that file), so its digest is
-    the evidence a revision's bytes landed. A generator so a membership test against it
-    short-circuits at the first match rather than materializing every digest.
+    The binding records the bound *root* (`_bound_path`); the canonical draft file is
+    that root joined with the fixed `.devflow/tmp/issue-draft-<slug>.md` subpath — the
+    same path the skill writes and displays. The digest / eligibility / body-emitting
+    readers resolve THIS from the recorded binding so a compacted context that hands a
+    drifted `--draft-file` cannot redirect them; they fall back to the caller-supplied
+    `--draft-file` only on an unbound run.
     """
-    for rnd in state['rounds']:
-        for att in rnd['attempts']:
-            if att['arm'] == 'file':
-                yield att.get('digest')
+    root = _bound_path(state)
+    if root is None:
+        return None
+    return str(Path(root) / '.devflow' / 'tmp' / f'issue-draft-{slug}.md')
 
 
 def latest_revision_landed(state):
     """True when the latest recorded revision's bytes have landed at the bound path.
 
     Vacuously true when no revision is recorded (nothing is unlanded). Otherwise the
-    latest revision counts as landed once a subsequent recorded landed write at the
+    latest revision counts as landed once a **subsequent** recorded landed write at the
     bound path (a round-initiating file-arm dispatch record qualifies) carries a digest
     equal to that revision's recorded stdin digest — the clearing predicate that lets a
     recovered run re-enter the full file-arm contract (issue #562).
 
-    A revision recorded with NO stdin digest (a legacy/embedded-epoch revision) cannot
-    be proven landed from recorded facts, so it fails closed to `not landed` — the
-    presentation then renders from the in-context revision bytes and omits the note,
-    the conservative choice.
+    Two fail-closed conditions, both load-bearing:
+      - A recorded overwrite failure for the latest revision (its ordinal in
+        `write_failures`) means the bound file does NOT hold the revised bytes, so the
+        revision has NOT landed — even if its stdin digest coincidentally equals some
+        earlier audited dispatch's digest (the user revised back to bytes a prior round
+        already saw). Without this the write-failure log and this predicate would be
+        disconnected and a known-failed write could still read as landed.
+      - The matching dispatch must be **subsequent** — recorded in a round whose number
+        is greater than the revision's `after_round` — so a *predating* dispatch that
+        happens to share the digest never satisfies the clearing predicate. A revision
+        with NO stdin digest (a legacy/embed-epoch revision) cannot be proven landed and
+        fails closed to `not landed`, the conservative presentation choice.
     """
     revs = state['revisions']
     if not revs:
         return True
-    want = revs[-1].get('stdin_digest')
+    latest = revs[-1]
+    # The latest revision's ordinal is len(revs) (the 1..N chain). A recorded overwrite
+    # failure for it means it never landed.
+    if len(revs) in (state.get('write_failures') or []):
+        return False
+    want = latest.get('stdin_digest')
     if not want:
         return False
-    return want in _all_file_dispatch_digests(state)
+    after = latest.get('after_round', 0)
+    for rnd in state['rounds']:
+        if rnd['round'] <= after:
+            continue  # only a write recorded AFTER the revision proves it landed
+        for att in rnd['attempts']:
+            if att['arm'] == 'file' and att.get('digest') == want:
+                return True
+    return False
 
 
 def evaluate_triggers(state):
@@ -1757,10 +1785,11 @@ def cmd_record_draft_binding(args):
     """Record the tiered draft-root binding, once per run (issue #562).
 
     The first landed canonical-draft write binds one absolute root for the rest of the
-    run. Recorded two-rooted: the bound absolute path, its tier token, and the non-bound
-    root (absolute when a resolver-answered tier-1 main root and a divergent tier-2
-    worktree root both exist; absent otherwise). Immutable — a second record is illegal,
-    the forced-reinit path staying the only route to a fresh binding.
+    run. Recorded two-rooted: the bound absolute ROOT (the readers join
+    `.devflow/tmp/issue-draft-<slug>.md` onto it — see `_bound_draft_file`), its tier
+    token, and the non-bound root (absolute when a resolver-answered tier-1 main root and
+    a divergent tier-2 worktree root both exist; absent otherwise). Immutable — a second
+    record is illegal, the forced-reinit path staying the only route to a fresh binding.
     """
     doc = _load_for_mutation('record-draft-binding', args.slug, args.nonce)
     if doc.get('draft_binding') is not None:
@@ -1805,10 +1834,12 @@ def cmd_record_draft_binding(args):
 def cmd_record_write_failure(args):
     """Record a canonical-draft overwrite that failed to land at the bound path (#562).
 
-    Each entry names the revision ordinal whose overwrite failed. The post-revision
-    `approve` ground already refuses byte-identical-but-revised bytes via _revision_postdates,
-    but recording the failure explicitly makes the degraded state auditable and lets the
-    skill decide the presentation source (in-context bytes vs the stale file).
+    Each entry names the revision ordinal whose overwrite failed. `latest_revision_landed`
+    reads this log: a recorded failure for the latest revision's ordinal makes it report
+    unlanded, so the skill renders the presentation from the in-context revision bytes
+    rather than the stale file — even when the revised bytes coincidentally hash to some
+    earlier audited dispatch's digest. (The `approve` eligibility ground refuses the same
+    write-failure shape independently, via `_revision_postdates`.)
     """
     doc = _load_for_mutation('record-write-failure', args.slug, args.nonce)
     doc.setdefault('write_failures', []).append(args.ordinal)
@@ -2042,11 +2073,11 @@ def cmd_emit_body(args):
     except StateError as exc:
         _fail('emit-body', str(exc))
     # issue #562: resolve the draft file from the recorded binding when one exists — the
-    # bound path is the single source of truth for which file is canonical, so a compacted
+    # bound root is the single source of truth for which file is canonical, so a compacted
     # context that hands a drifted --draft-file cannot redirect the emit. Fall back to the
     # caller-supplied --draft-file only on an unbound run (an embed/inline epoch that never
     # bound a canonical file).
-    source = _bound_path(doc) or args.draft_file
+    source = _bound_draft_file(doc, args.slug) or args.draft_file
     try:
         raw = Path(source).read_bytes()
         digest = hash_bytes(raw)
@@ -2134,10 +2165,10 @@ def cmd_query_eligibility(args):
         return
     digest = None
     digest_failed = False
-    # issue #562: prefer the recorded bound path over the caller's --draft-file, so a
-    # compacted context cannot drift which file eligibility grounds on. Fall back to
+    # issue #562: prefer the recorded bound draft file over the caller's --draft-file, so
+    # a compacted context cannot drift which file eligibility grounds on. Fall back to
     # --draft-file only when unbound.
-    source = _bound_path(state) or args.draft_file
+    source = _bound_draft_file(state, args.slug) or args.draft_file
     if source:
         try:
             digest = hash_file(source)
@@ -2172,9 +2203,9 @@ def cmd_query_summary(args):
         state = None
     digest = None
     digest_failed = False
-    # issue #562: prefer the recorded bound path (consistency with query-eligibility,
+    # issue #562: prefer the recorded bound draft file (consistency with query-eligibility,
     # whose derivation this summary shares) over the caller's --draft-file.
-    source = _bound_path(state) or args.draft_file
+    source = _bound_draft_file(state, args.slug) or args.draft_file
     if source:
         try:
             digest = hash_file(source)
@@ -2191,11 +2222,13 @@ def cmd_query_summary(args):
     markers = ','.join(f['markers']) if f['markers'] else 'none'
     # issue #562: the tool emits the bound root + the bound-tier TOKEN; the skill derives
     # the human `draft bound to worktree root` marker from `bound_tier=worktree-root`.
-    # A space-containing marker value is deliberately NOT emitted here — every summary
-    # field is a single space-free token so field extraction stays unambiguous.
-    # These render BEFORE `attestation`: attestation is the contractually-trailing final
-    # field (the skill and the #546 suite anchor `attestation=<token>$` to end-of-line),
-    # so nothing may follow it.
+    # A space-containing marker value is deliberately NOT emitted here. bound_root itself
+    # can contain a space (a real absolute path may — see _is_bound_path), so consumers
+    # extract each field by its `key=` anchor, never by a positional whitespace split;
+    # bound_tier and attestation stay space-free tokens found that way. These render
+    # BEFORE `attestation`: attestation is the contractually-trailing final field (the
+    # skill and the #546 suite anchor `attestation=<token>$` to end-of-line), so nothing
+    # may follow it.
     print(f'state={f["state"]} findings_count={fc} '
           f'revisions_applied={f["revisions_applied"]} verdict={f["verdict"] or "none"} '
           f'rounds_run={f["rounds_run"]} '
@@ -2285,8 +2318,8 @@ def main():
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
     s.add_argument('--path', required=True,
-                   help='The absolute path whose write landed (the bound draft root '
-                        "join .devflow/tmp/issue-draft-<slug>.md's directory root).")
+                   help='The absolute root directory under which the canonical draft '
+                        '.devflow/tmp/issue-draft-<slug>.md was written (the landed root).')
     s.add_argument('--tier', help='The bound-tier token: main-root or worktree-root.')
     s.add_argument('--non-bound-root',
                    help='The divergent non-bound root, absolute, when both a '

@@ -42711,6 +42711,39 @@ if [ -d "$DB_SB" ]; then
       --non-bound-root rel > /dev/null 2> .dv-nbr; printf '%s' "$?" > .dv-nbr-rc
     # record-write-failure records an ordinal at the bound path.
     python3 "$IAS" record-write-failure db --nonce "$N" --ordinal 1 > .db-wf
+    # query-draft-binding on a foreign nonce: exit 0 (query contract), fail-closed token.
+    python3 "$IAS" query-draft-binding db --nonce badnonce > .db-fn 2>/dev/null
+    printf '%s' "$?" > .db-fn-rc
+    # record-revision --stdin-digest producer: the emitted line carries the digest, and an
+    # empty stdin fails loud (a fresh run so the revision has a round to attach to).
+    python3 "$IAS" init dr > /dev/null 2>&1
+    NR="$(python3 "$IAS" query-nonce dr | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch dr --nonce "$NR" --round 1 --arm file \
+      --draft-file d.md > /dev/null 2>&1
+    OIDR="$(git hash-object --stdin --no-filters < d.md)"
+    python3 "$IAS" record-return dr --nonce "$NR" --round 1 --verdict REVISE \
+      --carriage-object-id "$OIDR" > /dev/null 2>&1
+    printf 'revised bytes\n' | python3 "$IAS" record-revision dr --nonce "$NR" \
+      --after-round 1 --stdin-digest > .dr-sd 2>&1
+    printf '' | python3 "$IAS" record-revision dr --nonce "$NR" --after-round 1 \
+      --stdin-digest > /dev/null 2> .dr-empty; printf '%s' "$?" > .dr-empty-rc
+    # Bound-path source override: bind a root, put the canonical draft under it, and prove
+    # emit-body reads the BOUND file, not a drifted --draft-file (the anti-drift property).
+    python3 "$IAS" init do > /dev/null 2>&1
+    NO="$(python3 "$IAS" query-nonce do | sed 's/nonce=//')"
+    BR="$DB_SB/boundroot"
+    mkdir -p "$BR/.devflow/tmp"
+    printf '# Draft title\n\nBOUND BODY\n' > "$BR/.devflow/tmp/issue-draft-do.md"
+    printf '# Draft title\n\nDRIFTED BODY\n' > drift.md
+    python3 "$IAS" record-draft-binding do --nonce "$NO" --path "$BR" --tier main-root \
+      > /dev/null 2>&1
+    python3 "$IAS" record-dispatch do --nonce "$NO" --round 1 --arm file \
+      --draft-file "$BR/.devflow/tmp/issue-draft-do.md" > /dev/null 2>&1
+    OIDO="$(git hash-object --stdin --no-filters < "$BR/.devflow/tmp/issue-draft-do.md")"
+    python3 "$IAS" record-return do --nonce "$NO" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OIDO" > /dev/null 2>&1
+    # emit-body is handed the DRIFTED file, but must emit the BOUND file's body.
+    python3 "$IAS" emit-body do --nonce "$NO" --draft-file drift.md > .do-body 2>/dev/null
     # A REAL linked worktree: bind its own toplevel and confirm the query round-trips.
     git branch -q wt-562 2>/dev/null
     if git worktree add -q ../wt562 wt-562 2>/dev/null; then
@@ -42744,6 +42777,20 @@ if [ -d "$DB_SB" ]; then
     "1" "$(grep -c 'binding-nonbound-not-absolute' "$DB_SB/.dv-nbr" 2>/dev/null)"
   assert_eq "#562 draft_binding_cli_rows: record-write-failure records the ordinal at the bound path" \
     "write_failure_recorded ordinal=1 count=1" "$(cat "$DB_SB/.db-wf" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: query-draft-binding on a foreign nonce keeps the query exit-0 contract" \
+    "0" "$(cat "$DB_SB/.db-fn-rc" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: ... and answers the fail-closed foreign-nonce token" \
+    "1" "$(grep -c '^bound=none .* reason=foreign-nonce$' "$DB_SB/.db-fn" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: record-revision --stdin-digest emits the recorded digest" \
+    "1" "$(grep -cE '^ordinal=1 stdin_digest=[0-9a-f]+$' "$DB_SB/.dr-sd" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: record-revision --stdin-digest with empty stdin fails non-zero" \
+    "1" "$(cat "$DB_SB/.dr-empty-rc" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: ... named by the no-bytes breadcrumb" \
+    "1" "$(grep -c 'no revised bytes were received on stdin' "$DB_SB/.dr-empty" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: emit-body reads the BOUND file, not a drifted --draft-file (anti-drift)" \
+    "1" "$(grep -c '^BOUND BODY$' "$DB_SB/.do-body" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: ... and does NOT emit the drifted file's body" \
+    "0" "$(grep -c 'DRIFTED BODY' "$DB_SB/.do-body" 2>/dev/null)"
   # The real-worktree row runs only when `git worktree add` is available on the host.
   if [ -s "$DB_SB/.db-wt" ]; then
     assert_eq "#562 draft_binding_cli_rows: a REAL linked worktree binds its own toplevel and the query round-trips" \

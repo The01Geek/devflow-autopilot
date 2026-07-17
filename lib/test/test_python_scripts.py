@@ -3661,7 +3661,6 @@ _TRANSITION_ROWS = [
     ('draft-binding', 'nonbound-not-absolute', False),
     # issue #562 write-failure rows
     ('write-failure', 'recorded', True),
-    ('write-failure', 'dispatch-path-mismatch', False),
 ]
 
 # table_test_lockstep_count — the exact-count lockstep. Derived from the module's own
@@ -3876,6 +3875,24 @@ _nodigest = _state([_round(1, 'file', 'FILE', 'D1')], revisions=(1,))
 assert_eq("#562 latest_revision_landed: a revision with no recorded stdin_digest fails "
           "closed to not landed",
           False, issue_audit_state.latest_revision_landed(_nodigest))
+# write_failures wiring: a recorded overwrite failure for the latest revision's ordinal
+# makes it NOT landed even when its stdin_digest coincidentally equals a later dispatch
+# digest (the user revised back to bytes a round already saw).
+_wf_notlanded = _state([_round(1, 'file', 'FILE', 'D1'), _round(2, 'file', 'FILE', 'D2')])
+_wf_notlanded['revisions'] = [{'ordinal': 1, 'after_round': 1, 'floor_round': 1,
+                               'stdin_digest': 'D2'}]
+_wf_notlanded['write_failures'] = [1]
+assert_eq("#562 latest_revision_landed: a recorded write-failure for the latest "
+          "revision's ordinal reports NOT landed even when the digest matches a later "
+          "dispatch (the write-failure log and the predicate are wired together)",
+          False, issue_audit_state.latest_revision_landed(_wf_notlanded))
+# Ordering: a PREDATING file-arm dispatch that shares the digest does not count as landed.
+_pre = _state([_round(1, 'file', 'FILE', 'D2')])
+_pre['revisions'] = [{'ordinal': 1, 'after_round': 1, 'floor_round': 1,
+                      'stdin_digest': 'D2'}]
+assert_eq("#562 latest_revision_landed: a file-arm dispatch that PREDATES the revision "
+          "(round <= after_round) does not satisfy the subsequent-write clearing predicate",
+          False, issue_audit_state.latest_revision_landed(_pre))
 
 # summary_fields — the bound root + tier surface the display marker derives from.
 _bound_wt = dict(_state([_round(1, 'file', 'FILE', 'D1')]),
@@ -3895,6 +3912,15 @@ assert_eq("#562 _binding_line: a bound run answers bound path + tier + non-bound
           'bound=/wt/root tier=worktree-root non_bound_root=/main/root '
           'latest_revision_landed=yes',
           issue_audit_state._binding_line(_bound_wt))
+# _bound_draft_file — the readers join the fixed draft subpath onto the bound root, so a
+# drifted --draft-file cannot redirect them; unbound derives None (fall back to caller).
+assert_eq("#562 _bound_draft_file: joins .devflow/tmp/issue-draft-<slug>.md onto the "
+          "bound root",
+          '/wt/root/.devflow/tmp/issue-draft-topic.md',
+          issue_audit_state._bound_draft_file(_bound_wt, 'topic'))
+assert_eq("#562 _bound_draft_file: unbound state derives None (readers fall back to "
+          "--draft-file)",
+          None, issue_audit_state._bound_draft_file(_state([]), 'topic'))
 assert_eq("#546 eligibility_grounds_table: the inline arm's verdict-less terminal -> "
           "no-verdict-round",
           ('not-eligible', 'no-verdict-round'),
@@ -4161,6 +4187,14 @@ _malformed('#562 write_failures is not a list',
            dict(_GOOD, write_failures={}))
 _malformed('#562 a write_failures entry is not an integer',
            dict(_GOOD, write_failures=['x']))
+_malformed('#562 a revision stdin_digest present but empty (valid-falsy, rejected)',
+           dict(_GOOD, rounds=[_round(1, 'file', 'FILE')],
+                revisions=[{'ordinal': 1, 'after_round': 1, 'floor_round': 1,
+                            'stdin_digest': ''}]))
+_malformed('#562 a revision stdin_digest present but not a string',
+           dict(_GOOD, rounds=[_round(1, 'file', 'FILE')],
+                revisions=[{'ordinal': 1, 'after_round': 1, 'floor_round': 1,
+                            'stdin_digest': 7}]))
 # Valid-falsy / absence controls: an absent binding and an empty write_failures list are
 # BOTH valid (an unbound run), never malformed.
 assert_eq("#562 malformed-state matrix (absence control): absent draft_binding + empty "
