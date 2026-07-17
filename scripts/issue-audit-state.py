@@ -93,6 +93,15 @@ _EVENTS = (
 _ARMS = ('file', 'embed', 'inline')
 _VERDICTS = ('FILE', 'REVISE', 'DRAFT-UNREADABLE')
 _ROUND_OUTCOMES = ('FILE', 'REVISE', 'no-verdict')
+# The post-adjudication verdict a completed round may carry (issue #548). Distinct from the
+# raw auditor `--verdict` (`_VERDICTS`), which stays recorded as provenance: adjudication is
+# the orchestrator's reconciled judgment over the round's findings, and a lifecycle input is
+# accepted only when this verdict and the unresolved-must-revise count agree. `DRAFT-UNREADABLE`
+# is not an adjudicated verdict — it names an unread draft, which carries no findings.
+_ADJUDICATED_VERDICTS = ('FILE', 'REVISE')
+# The literal a round records for its unresolved-must-revise count when the count could not be
+# established (unknown is not zero — an unestablished count is never collapsed onto 0).
+_UNESTABLISHED = 'unestablished'
 # The closed set of return classifications. `classify_return` is validated against it, so a
 # renamed classification fails loudly instead of routing a live return to a rule that no
 # longer matches.
@@ -576,6 +585,26 @@ def _validate(doc, slug):
             if mk not in _EMBED_MARKER_TOKENS:
                 raise StateError(f'round {num} names an embed marker outside the '
                                  f'canonical set: {mk!r}')
+        # Post-adjudication payload (issue #548). T1, convergence, and the summary line
+        # read these, so a hand-corrupted value must fail closed HERE — a bogus
+        # adjudicated verdict or a negative count would otherwise reach the offer/convergence
+        # decision as if established (unknown is not zero: an unestablished count is the
+        # literal _UNESTABLISHED, never a coerced 0).
+        av = rnd.get('adjudicated_verdict')
+        if av is not None and av not in _ADJUDICATED_VERDICTS:
+            raise StateError(f'round {num} names an adjudicated verdict outside the '
+                             f'canonical set: {av!r}')
+        for ckey in ('must_revise_count', 'advisory_count', 'invalid_count'):
+            cval = rnd.get(ckey)
+            if cval is not None and (not isinstance(cval, int) or isinstance(cval, bool)
+                                     or cval < 0):
+                raise StateError(f'round {num} {ckey} {cval!r} is not a non-negative '
+                                 f'integer')
+        umr = rnd.get('unresolved_must_revise')
+        if umr is not None and umr != _UNESTABLISHED and (
+                not isinstance(umr, int) or isinstance(umr, bool) or umr < 0):
+            raise StateError(f'round {num} unresolved_must_revise {umr!r} is not a '
+                             f'non-negative integer or the literal {_UNESTABLISHED!r}')
     for ov in doc['overrides']:
         if not isinstance(ov, dict) or ov.get('kind') not in _OVERRIDE_KINDS:
             raise StateError('an override record names a kind outside the canonical set')
@@ -760,30 +789,75 @@ def _revision_postdates(state, rnd):
     return any(rev.get('after_round', 0) >= rnd['round'] for rev in state['revisions'])
 
 
+def _unresolved_int(rnd):
+    """The round's adjudicated unresolved-must-revise count as a concrete int, else None.
+
+    `None` covers every case that is NOT a settled non-negative integer: a round that was
+    never adjudicated (`unresolved_must_revise is None`) and one adjudicated but
+    unestablished (the literal `_UNESTABLISHED`). A bool is not an int here (Python's
+    `isinstance(True, int)` is True), so it is excluded explicitly.
+    """
+    v = rnd.get('unresolved_must_revise')
+    if isinstance(v, bool) or not isinstance(v, int):
+        return None
+    return v
+
+
 def evaluate_triggers(state):
     """T1/T2, evaluated from recorded state.
 
-    T1 holds when the most recent completed round's verdict is `VERDICT: REVISE`.
-    T2 holds in three cases: when a revision record postdates the last completed
-    round's record; when the last completed round hit the verdict-less (`no-verdict`)
-    terminal (the content is effectively unaudited); and whenever state is
-    unestablishable (unknown is not zero: an unreadable state means the content is
-    effectively unaudited, so the boundary offer must fire rather than be silently
-    skipped).
+    T1 (issue #548) consumes the latest completed round's POST-ADJUDICATION unresolved
+    must-revise count, never the raw `VERDICT: REVISE` token: it holds only when at least
+    one verified unresolved must-revise finding remains (a settled count ≥ 1). An
+    un-adjudicated or unestablished count does NOT hold T1 — a *verified* finding is
+    required — while T2's fail-closed coverage catches the unknown-state cases.
+    T2 is UNCHANGED: it holds when a revision record postdates the last completed round's
+    record; when the last completed round hit the verdict-less (`no-verdict`) terminal (the
+    content is effectively unaudited); and whenever state is unestablishable (unknown is not
+    zero: an unreadable state means the content is effectively unaudited, so the boundary
+    offer must fire rather than be silently skipped).
     """
     if state is None:
         return {'t1': False, 't2': True, 'reason': 'state-unestablished'}
     last = last_completed(state)
     if last is None:
         return {'t1': False, 't2': False, 'reason': None}
-    t1 = last.get('outcome') == 'REVISE'
+    u = _unresolved_int(last)
+    t1 = u is not None and u >= 1
     t2 = _revision_postdates(state, last)
     if last.get('outcome') == 'no-verdict':
-        # The verdict-less terminal: T1 does not hold (there is no REVISE), but the
-        # content is effectively unaudited, so T2 is treated as holding and the
-        # boundary offer fires naming the state.
+        # The verdict-less terminal: T1 does not hold (there is no adjudicated must-revise
+        # finding on an unaudited round), but the content is effectively unaudited, so T2 is
+        # treated as holding and the boundary offer fires naming the state.
         t2 = True
     return {'t1': t1, 't2': t2, 'reason': None}
+
+
+def evaluate_convergence(state):
+    """Whether the run has converged (issue #548).
+
+    A converged run's final accepted, post-adjudication verdict is `VERDICT: FILE` with
+    ZERO unresolved must-revise axis-attributable findings, within the existing automatic
+    audit budget. Advisory and invalid/unverified findings do not block convergence. A
+    final round that is un-adjudicated, or whose unresolved-must-revise count is
+    unestablished, is NOT converged (unknown is not zero); unestablishable state is not
+    converged either.
+    """
+    if state is None:
+        return {'converged': False, 'reason': 'state-unestablished'}
+    last = last_completed(state)
+    if last is None:
+        return {'converged': False, 'reason': 'no-completed-round'}
+    if last.get('adjudicated_verdict') is None:
+        return {'converged': False, 'reason': 'unadjudicated'}
+    u = _unresolved_int(last)
+    if u is None:
+        # Adjudicated but the count is the literal _UNESTABLISHED (or otherwise not a
+        # settled int): unknown is not zero, so this is not a converged run.
+        return {'converged': False, 'reason': 'unresolved-unestablished'}
+    converged = last.get('adjudicated_verdict') == 'FILE' and u == 0
+    return {'converged': converged,
+            'reason': None if converged else 'unresolved-must-revise-remain'}
 
 
 def issue_token(nonce, ground, key):
@@ -1074,6 +1148,10 @@ _SUMMARY_FIELDS = (
     'state', 'findings_count', 'revisions_applied', 'verdict', 'rounds_run',
     'consumer_dimensions_appended', 'degraded', 'user_declined', 'cap_reached',
     'markers', 'token', 'stale_token', 'reinit_forced', 'attestation',
+    # Post-adjudication actionability of the LATEST completed round (issue #548): the
+    # adjudicated verdict, the per-class counts, and the unresolved-must-revise count.
+    'adjudicated_verdict', 'must_revise', 'advisory', 'invalid',
+    'unresolved_must_revise',
 )
 
 
@@ -1104,7 +1182,8 @@ def summary_fields(state, current_digest=None, digest_failed=False):
                         verdict=None, rounds_run=0, consumer_dimensions_appended=False,
                         degraded=False, user_declined=False, cap_reached=False,
                         markers=[], token=None, stale_token=False, reinit_forced=False,
-                        attestation=None)
+                        attestation=None, adjudicated_verdict=None, must_revise=None,
+                        advisory=None, invalid=None, unresolved_must_revise=None)
     done = completed_rounds(state)
     # Cumulative across every round this run: "how many things did the auditors
     # collectively flag", not merely the last round's tally.
@@ -1178,6 +1257,14 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # mismatch is surfaced here, not only in record-creation-attestation's own
         # output): 'match' | 'mismatch' | 'attestation-unavailable' | 'none'.
         attestation=(state.get('creation') or {}).get('attestation') or 'none',
+        # Post-adjudication actionability of the LATEST completed round (issue #548). Read
+        # from that round only — the observables the reader checks against the artifact are
+        # the final round's, not a cumulative sum. `None` on every field until adjudicated.
+        adjudicated_verdict=(last.get('adjudicated_verdict') if last else None),
+        must_revise=(last.get('must_revise_count') if last else None),
+        advisory=(last.get('advisory_count') if last else None),
+        invalid=(last.get('invalid_count') if last else None),
+        unresolved_must_revise=(last.get('unresolved_must_revise') if last else None),
     )
 
 
@@ -1400,7 +1487,13 @@ def cmd_record_dispatch(args):
         rnd = {'round': args.round, 'attempts': [], 'no_parseable_retry_used': False,
                'unreadable_retry_used': False, 'outcome': None, 'findings_count': None,
                'consumer_dimensions_appended': False, 'embed_markers': [],
-               'degraded': False}
+               'degraded': False,
+               # Post-adjudication payload (issue #548), filled by record-adjudication after
+               # the round is accepted. `None` = not yet adjudicated (distinct from an
+               # adjudicated-but-unestablished count, which is the literal _UNESTABLISHED).
+               'adjudicated_verdict': None, 'must_revise_count': None,
+               'advisory_count': None, 'invalid_count': None,
+               'unresolved_must_revise': None}
         doc['rounds'].append(rnd)
     elif rnd.get('outcome') is not None:
         _fail('record-dispatch', f'round {args.round} is already closed with outcome '
@@ -1505,6 +1598,74 @@ def cmd_record_return(args):
     except StateError as exc:
         _fail('record-return', str(exc))
     print(f'classification={cls} outcome={rnd["outcome"] or "pending"}')
+
+
+def cmd_record_adjudication(args):
+    """Record the post-adjudication actionability payload for a completed round (issue #548).
+
+    Round acceptance and carriage validation remain record-return's completion boundary;
+    this call records the orchestrator's reconciled judgment (the per-class counts and the
+    unresolved-must-revise count) AFTER that boundary, before any T1/convergence/summary
+    query. The raw auditor verdict stays recorded as provenance; a raw token never
+    substitutes for adjudication, so the state owner accepts this payload only when the
+    adjudicated verdict and the unresolved-must-revise count agree.
+    """
+    doc = _load_for_mutation('record-adjudication', args.slug, args.nonce)
+    rnd = _find_round(doc, args.round)
+    if rnd is None:
+        _fail('record-adjudication', f'no round {args.round} recorded; an adjudication '
+                                     'cannot precede its dispatch and return')
+    if rnd.get('outcome') not in ('FILE', 'REVISE'):
+        # Only an accepted FILE/REVISE round carries findings to adjudicate — a no-verdict
+        # or still-open round has none.
+        _fail('record-adjudication', f'round {args.round} is not an accepted, completed '
+                                     f'round (outcome {rnd.get("outcome")!r}); only a '
+                                     f'FILE/REVISE round carries findings to adjudicate')
+    for name, val in (('--must-revise', args.must_revise),
+                      ('--advisory', args.advisory), ('--invalid', args.invalid)):
+        if val < 0:
+            _fail('record-adjudication', f'{name} {val} is negative; an actionability '
+                                         'count cannot be')
+    raw = args.unresolved_must_revise
+    if raw == _UNESTABLISHED:
+        unresolved = _UNESTABLISHED
+    else:
+        try:
+            unresolved = int(raw)
+        except ValueError:
+            _fail('record-adjudication', f'--unresolved-must-revise {raw!r} is neither a '
+                                         f'non-negative integer nor the literal '
+                                         f'{_UNESTABLISHED!r}')
+        if unresolved < 0:
+            _fail('record-adjudication', f'--unresolved-must-revise {unresolved} is '
+                                         f'negative; unknown is the literal '
+                                         f'{_UNESTABLISHED!r}, never a negative count')
+    # Agreement — only decidable when the count is a settled integer. An unestablished count
+    # names an unknown, so it agrees with neither verdict and is not rejected here (the
+    # convergence/T1 queries treat it as not-established, never as zero).
+    if isinstance(unresolved, int):
+        if args.verdict == 'FILE' and unresolved != 0:
+            _fail('record-adjudication', f'adjudicated verdict FILE disagrees with '
+                                         f'unresolved must-revise count {unresolved}: a '
+                                         f'FILE verdict requires zero unresolved must-revise '
+                                         f'findings')
+        if args.verdict == 'REVISE' and unresolved < 1:
+            _fail('record-adjudication', f'adjudicated verdict REVISE disagrees with '
+                                         f'unresolved must-revise count {unresolved}: a '
+                                         f'REVISE verdict requires at least one verified '
+                                         f'unresolved must-revise finding')
+    rnd['adjudicated_verdict'] = args.verdict
+    rnd['must_revise_count'] = args.must_revise
+    rnd['advisory_count'] = args.advisory
+    rnd['invalid_count'] = args.invalid
+    rnd['unresolved_must_revise'] = unresolved
+    try:
+        save_state(doc, args.slug)
+    except StateError as exc:
+        _fail('record-adjudication', str(exc))
+    print(f'adjudicated={args.verdict} unresolved={unresolved} '
+          f'must_revise={args.must_revise} advisory={args.advisory} '
+          f'invalid={args.invalid}')
 
 
 def _carriage_ok(attempt, args):
@@ -1832,6 +1993,18 @@ def cmd_query_triggers(args):
           f't2={"hold" if t["t2"] else "not-hold"} reason={reason}')
 
 
+def cmd_query_convergence(args):
+    state = _query_state(args.slug)
+    if state is not None and state['nonce'] != args.nonce:
+        # Fail closed like the sibling queries, naming the cause: a foreign caller cannot
+        # read a converged verdict off another run's state.
+        print('converged=no reason=foreign-nonce')
+        return
+    c = evaluate_convergence(state)
+    reason = c['reason'] or ''
+    print(f'converged={"yes" if c["converged"] else "no"} reason={reason}')
+
+
 def cmd_query_eligibility(args):
     state = _query_state(args.slug)
     if state is not None and state['nonce'] != args.nonce:
@@ -1887,6 +2060,13 @@ def cmd_query_summary(args):
     fc = 'none' if f['findings_count'] is None else str(f['findings_count'])
     token = f['token'] or ('stale-token' if f['stale_token'] else 'none')
     markers = ','.join(f['markers']) if f['markers'] else 'none'
+    # The post-adjudication actionability fields render `none` before adjudication and
+    # `unestablished` when the count could not be established (unknown is not zero).
+    adj_v = f['adjudicated_verdict'] or 'none'
+    mr = 'none' if f['must_revise'] is None else str(f['must_revise'])
+    adv = 'none' if f['advisory'] is None else str(f['advisory'])
+    inv = 'none' if f['invalid'] is None else str(f['invalid'])
+    umr = 'none' if f['unresolved_must_revise'] is None else str(f['unresolved_must_revise'])
     print(f'state={f["state"]} findings_count={fc} '
           f'revisions_applied={f["revisions_applied"]} verdict={f["verdict"] or "none"} '
           f'rounds_run={f["rounds_run"]} '
@@ -1894,6 +2074,10 @@ def cmd_query_summary(args):
           f'degraded={_yn(f["degraded"])} user_declined={_yn(f["user_declined"])} '
           f'cap_reached={_yn(f["cap_reached"])} markers={markers} token={token} '
           f'reinit_forced={_yn(f["reinit_forced"])} '
+          # Post-adjudication actionability fields precede `attestation` so that field stays
+          # the trailing token the #546 CLI pins anchor on (`attestation=…$`).
+          f'adjudicated_verdict={adj_v} must_revise={mr} advisory={adv} invalid={inv} '
+          f'unresolved_must_revise={umr} '
           f'attestation={f["attestation"] or "none"}')
 
 
@@ -1957,6 +2141,26 @@ def main():
     s.add_argument('--carriage-sentinel-open')
     s.add_argument('--carriage-sentinel-close')
     s.set_defaults(func=cmd_record_return)
+
+    s = sub.add_parser('record-adjudication',
+                       help='Record a completed round\'s post-adjudication actionability '
+                            'payload (issue #548).')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--verdict', choices=_ADJUDICATED_VERDICTS, required=True,
+                   help='The adjudicated verdict (FILE or REVISE); the raw auditor token '
+                        'stays recorded separately as provenance.')
+    s.add_argument('--must-revise', type=int, required=True,
+                   help='Count of verified must-revise findings.')
+    s.add_argument('--advisory', type=int, required=True,
+                   help='Count of advisory findings.')
+    s.add_argument('--invalid', type=int, required=True,
+                   help='Count of invalid/unverified findings.')
+    s.add_argument('--unresolved-must-revise', required=True,
+                   help="A non-negative integer, or the literal 'unestablished' when the "
+                        'count could not be established (unknown is not zero).')
+    s.set_defaults(func=cmd_record_adjudication)
 
     s = sub.add_parser('record-revision', help='Record that the draft was revised.')
     s.add_argument('slug')
@@ -2038,6 +2242,13 @@ def main():
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
     s.set_defaults(func=cmd_query_triggers)
+
+    s = sub.add_parser('query-convergence',
+                       help='Whether the run has converged (issue #548): final adjudicated '
+                            'VERDICT: FILE with zero unresolved must-revise findings.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.set_defaults(func=cmd_query_convergence)
 
     s = sub.add_parser('query-eligibility', help='Presentation eligibility in approve or '
                                                  'iterate mode.')
