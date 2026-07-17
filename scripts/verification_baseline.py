@@ -2486,14 +2486,10 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     ws_matching = ws_complete and len(ws_roots) == 1
     if not ws_matching:
         return REL_UNCLASSIFIABLE, CONFIDENCE_AMBIGUOUS
-    # Forward-looking guard (issue #527 review, disclosure note): members here
-    # are LAUNCHES, which Wave-1 extraction creates only for
-    # START_CONFIRMED_TERMINAL / START_CONFIRMED_RESULT_MISSING — so the
-    # DENIED/CANCELLED/UNKNOWN arms below cannot match today. They are kept so
-    # a future adapter that admits other start classes into launches still
-    # counts them as prior-missing evidence instead of silently weakening this
-    # candidate requirement.
-    # "PRIOR missing/cancelled response" is an ordering requirement, not a
+    # A candidate needs affirmative prior missing-result evidence. A future
+    # adapter may admit denied, cancelled, or unknown starts into launches, but
+    # those states do not prove a missing response and must fail closed.
+    # "PRIOR missing response" is an ordering requirement, not a
     # set-membership one (PR #531 iteration-1): the missing response must
     # precede a relaunch, so the evidence must sit on a member that is NOT the
     # temporally last launch. A group whose ONLY missing response is the final
@@ -2517,7 +2513,7 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
         order = sorted(range(len(members)), key=lambda i: (keys[i], i))
         ordered = [members[i] for i in order]
     has_prior_missing = any(
-        m.start_authorization in (START_DENIED_PRE, START_CANCELLED_PRE, START_CONFIRMED_RESULT_MISSING, START_UNKNOWN)
+        m.start_authorization == START_CONFIRMED_RESULT_MISSING
         or m.result_presence is False
         for m in ordered[:-1]
     )
@@ -2540,7 +2536,7 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     if len(bounded) >= 2:
         for idx, m in enumerate(ordered[:-1]):
             missing_shape = (
-                m.start_authorization in (START_DENIED_PRE, START_CANCELLED_PRE, START_CONFIRMED_RESULT_MISSING, START_UNKNOWN)
+                m.start_authorization == START_CONFIRMED_RESULT_MISSING
                 or m.result_presence is False
             )  # same predicate as has_prior_missing above — the pair is ITS pair
             if missing_shape:

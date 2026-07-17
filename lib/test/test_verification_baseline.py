@@ -90,7 +90,7 @@ COMPATIBILITY_FIXTURE_OWNERS = {
     "Unicode and spaced paths": "test_verification_baseline.py::test_unicode_and_spaced_paths_process_normally",
     "Linux/macOS/WSL/Git Bash/MSYS2": "test_verification_baseline.py::test_platform_and_repository_manifest_shapes_process_normally",
     "local native sessions": "test_verification_baseline.py::test_relationship_end_to_end",
-    "cloud execution files": "test_verification_baseline.py::test_cloud_execution_file_is_not_analyzer_input_without_snapshot_flag",
+    "cloud execution files": "test_verification_baseline.py::test_main_with_valid_cloud_census",
     "missing tool results": "test_verification_baseline.py::test_authorization_start_classes",
     "compaction": "test_verification_baseline.py::test_compaction_event_mid_lifecycle_is_tolerated",
     "cancellation": "test_verification_baseline.py::test_authorization_start_classes",
@@ -485,6 +485,15 @@ class CandidateFailsClosedTests(unittest.TestCase):
         # Pin the resulting class too (a misroute into a wrong-but-non-candidate
         # class must not pass — same discipline as the five sibling mutations).
         self.assertEqual(groups[0].relationship, REL_UNCLASSIFIABLE)
+
+    def test_every_non_missing_start_class_fails_closed_for_candidates(self) -> None:
+        """Only a prior missing result can support the candidate-retry rule."""
+        for start_class in (value for value in START_CLASSES if value != START_CONFIRMED_RESULT_MISSING):
+            with self.subTest(start_class=start_class):
+                a, b = candidate_pair()
+                a = dataclasses.replace(a, start_authorization=start_class)
+                groups = group_launches([a, b])
+                self.assertNotEqual(groups[0].relationship, REL_CANDIDATE_TRANSPORT_RETRY)
 
     def test_mutation_boundary_removed(self) -> None:
         a, b = candidate_pair()
@@ -3245,8 +3254,8 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
     def test_platform_and_repository_manifest_shapes_process_normally(self) -> None:
         """Platform and repository topology paths are opaque analyzer evidence."""
         shapes = {
-            "nested": ("/repo/vendor/nested", "/repo/vendor/nested", "/repo/.git"),
-            "shallow": ("/repo", "/repo", "/repo/.git"),
+            "nested": ("/repo/vendor/nested", "/repo", "/repo/.git"),
+            "shallow": ("/repo", "/repo", "/repo/.git/shallow"),
             "linux": ("/home/dev/repo", "/home/dev/repo", "/home/dev/repo/.git"),
             "macos": ("/Users/dev/repo", "/Users/dev/repo", "/Users/dev/repo/.git"),
             "wsl": ("/mnt/c/Users/dev/repo", "/mnt/c/Users/dev/repo", "/mnt/c/Users/dev/repo/.git"),
@@ -3257,12 +3266,15 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
             sid = f"s-{name}"
             doc_manifest = manifest(sid)
             doc_manifest.update({"cwd": cwd, "repository_root": repository_root, "storage_root": storage_root})
+            if name == "shallow":
+                doc_manifest["git"]["is_shallow"] = True
             (self.manifests / f"{sid}.json").write_text(json.dumps(doc_manifest), encoding="utf-8")
             write_bundle(self.bundles, sid, transcript(user("/devflow:implement 527")))
         rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
         self.assertEqual(rc, 0)
         doc = json.loads((sorted(self.out.iterdir())[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
         self.assertEqual(doc["metrics"]["eligible_lifecycles"], len(shapes))
+        self.assertEqual({row["identity"]["session_id"] for row in doc["census"]["local"]}, {f"s-{name}" for name in shapes})
 
     def test_compatibility_fixture_inventory_names_every_matrix_row(self) -> None:
         self.assertEqual(set(COMPATIBILITY_FIXTURE_OWNERS), {
