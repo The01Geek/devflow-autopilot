@@ -848,14 +848,15 @@ def evaluate_convergence(state):
     last = last_completed(state)
     if last is None:
         return {'converged': False, 'reason': 'no-completed-round'}
-    if last.get('adjudicated_verdict') is None:
+    adjudicated = last.get('adjudicated_verdict')
+    if adjudicated is None:
         return {'converged': False, 'reason': 'unadjudicated'}
     u = _unresolved_int(last)
     if u is None:
         # Adjudicated but the count is the literal _UNESTABLISHED (or otherwise not a
         # settled int): unknown is not zero, so this is not a converged run.
         return {'converged': False, 'reason': 'unresolved-unestablished'}
-    converged = last.get('adjudicated_verdict') == 'FILE' and u == 0
+    converged = adjudicated == 'FILE' and u == 0
     return {'converged': converged,
             'reason': None if converged else 'unresolved-must-revise-remain'}
 
