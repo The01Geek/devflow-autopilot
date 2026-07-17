@@ -1,0 +1,45 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-17T21:55:00Z",
+  "fix_commit_sha": "3e8337bd6dba376a6426d5f5847aebbe11e37923",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "promoted",
+  "promotion_provenance": "park-calibration-post-shadow",
+  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": "intentional"},
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "sub-step-5 two-part obligation pins only the stem; item-6-in-progress half unpinned", "defect_signature": {"file": "lib/test/run.sh", "line_range": [12390, 12395], "kind": "test-coverage-gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "fallback-block coupled-mirror slug clause unpinned (Step 2 half was pinned)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [12390, 12395], "kind": "test-coverage-gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "line-38 cosmetic framing clauses unpinned", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [38, 38], "kind": "test-coverage-gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "S-1", "decision": "applied", "commit": "3e8337bd6dba376a6426d5f5847aebbe11e37923"},
+    {"finding_id": "S-3", "decision": "applied", "commit": "3e8337bd6dba376a6426d5f5847aebbe11e37923"},
+    {"finding_id": "S-2", "decision": "advisory", "source_file": "skills/create-issue/SKILL.md", "claim_text": "line-38 cosmetic framing clauses unpinned", "skip_category": "advisory-parked", "evidence": "cosmetic framing anchored by the AC3 nearest-equivalents pin at sentence level; #242 per-site (not per-word) granularity"}
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 8, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 90, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD); runs green in CI"}]},
+  "telemetry": "unavailable",
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "shadow": {
+    "ran_at": "2026-07-17T21:50:00Z",
+    "reviewed_sha": "3e8337bd6dba376a6426d5f5847aebbe11e37923",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": "intentional",
+    "phase3_findings": [
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "sub-step-5 item-6-in-progress half unpinned (fixed in promoted iter-2)"},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "fallback-block coupled-mirror slug clause unpinned (fixed in promoted iter-2)"},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "line-38 cosmetic framing clauses unpinned (parked advisory)"}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 3, "overlap_with_iter_N": 0, "new": 3, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": true,
+    "post_shadow_delta_review": "clean — bounded blinded pr-test-analyzer over a726900..HEAD (two test-pin additions) found no Critical/Important; reviewed_sha advanced to HEAD 3e8337bd"
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-17T21:40:00Z",
+  "fix_commit_sha": "a726900b0f29292a7bfd701425219d305794d402",
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "Step 2 slug-amendment clause (Edit 4) is unpinned; a per-clause revert turns no pin RED, violating AC7 per-site completeness",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          12377,
+          12421
+        ],
+        "kind": "test-coverage-gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "state-file slug-binding sub-clauses unpinned (paragraph already anchored by two pins; only surgical sub-clause revert escapes)",
+      "defect_signature": {
+        "file": "skills/create-issue/SKILL.md",
+        "line_range": [
+          42,
+          42
+        ],
+        "kind": "test-coverage-gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "tool-path-no-read-back item-6 evidence relies on the conversation record (weakest secondary link); not a fail-open since explicit approval is the primary gate",
+      "defect_signature": {
+        "file": "skills/create-issue/SKILL.md",
+        "line_range": [
+          307,
+          307
+        ],
+        "kind": "advisory-note"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "a726900b0f29292a7bfd701425219d305794d402"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "advisory",
+      "source_file": "skills/create-issue/SKILL.md",
+      "claim_text": "state-file slug sub-clauses unpinned",
+      "skip_category": "advisory-parked",
+      "evidence": "paragraph anchored by 2 pins; whole-paragraph deletion caught; only a surgical sub-clause revert escapes — low value vs. pin churn"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "advisory",
+      "source_file": "skills/create-issue/SKILL.md",
+      "claim_text": "tool-path-no-read-back weakest secondary evidence link",
+      "skip_category": "advisory-parked",
+      "evidence": "not a fail-open — explicit in-conversation approval is the primary gate, independent of the state file / read-back"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 4,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 90,
+    "skipped_checks": [
+      {
+        "check": "#434 stale-prose self-scan",
+        "kind": "blocking-gate",
+        "reason": "working tree dirty (grades committed HEAD); runs green in CI"
+      }
+    ]
+  },
+  "telemetry": "unavailable",
+  "base_checkpoint": {
+    "token": "UP_TO_DATE",
+    "behind_by": null
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": false
+  }
+}
