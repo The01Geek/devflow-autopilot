@@ -8109,29 +8109,65 @@ assert_pin_red_on_removal "#184: deleting the negative-scope type literal turns 
   'explicit surface exclusions' "$IMPL_SKILL"
 assert_pin_red_on_removal "#184: deleting the policy-referencing type literal turns its pin RED" \
   'Policy-referencing claims in ACs' "$IMPL_SKILL"
-# ── issue #254: Phase 1.6 gains Pass 4 — declared sequencing-dependency claims.
+# ── issue #547 RED: early declared-dependency preflight helper ──────────────
+# The gate must distinguish explicit dependency declarations from ordinary
+# provenance references before Phase 1 touches a branch.  Keep this executable
+# contract beside the legacy #254 pins while the procedure moves to §1.3.5.
+P547D="$(mktemp -d)"
+mkdir -p "$P547D/bin"
+cat > "$P547D/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+case "${3:-}" in
+  10) printf '%s\n' OPEN ;;
+  11) printf '%s\n' CLOSED ;;
+  12) printf '%s\n' MERGED ;;
+  13) exit 1 ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$P547D/bin/gh"
+printf '%s\n' 'Blocked by #10 — prerequisite' > "$P547D/open.md"
+printf '%s\n' 'Depends on #11 and #12' > "$P547D/landed.md"
+printf '%s\n' 'Related work: #10 is provenance only' > "$P547D/provenance.md"
+printf '%s\n' '## Dependencies' '- #13 — unresolved' > "$P547D/unresolved.md"
+P547_HELPER="$LIB/../scripts/preflight.py"
+P547_OPEN="$(PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies --body-file "$P547D/open.md" 2>/dev/null)"; P547_OPEN_RC=$?
+P547_LANDED="$(PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies --body-file "$P547D/landed.md" 2>/dev/null)"; P547_LANDED_RC=$?
+P547_PROVENANCE="$(PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies --body-file "$P547D/provenance.md" 2>/dev/null)"; P547_PROVENANCE_RC=$?
+P547_UNRESOLVED="$(PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies --body-file "$P547D/unresolved.md" 2>/dev/null)"; P547_UNRESOLVED_RC=$?
+assert_eq "#547 RED: OPEN dependency blocks before branch setup" "BLOCKED 10" "$P547_OPEN"
+assert_eq "#547 RED: OPEN dependency returns the blocked exit class" "2" "$P547_OPEN_RC"
+assert_eq "#547 RED: closed and merged dependencies proceed" "PROCEED 11,12" "$P547_LANDED"
+assert_eq "#547 RED: landed dependencies return success" "0" "$P547_LANDED_RC"
+assert_eq "#547 RED: provenance references are not dependencies" "PROCEED" "$P547_PROVENANCE"
+assert_eq "#547 RED: provenance references return success" "0" "$P547_PROVENANCE_RC"
+assert_eq "#547 RED: unresolvable dependency is unavailable" "UNAVAILABLE 13" "$P547_UNRESOLVED"
+assert_eq "#547 RED: unresolvable dependency returns unavailable exit class" "3" "$P547_UNRESOLVED_RC"
+rm -rf "$P547D"
+
+# ── issue #254: declared sequencing-dependency vocabulary stays coupled. ───
 # An issue stating it "must merge after #N" is verified deterministically: each
 # declared dependency's state is read via gh issue view; all-closed records a
 # confirmation note, an OPEN (or unresolvable) dependency routes to the Blocked
 # path with the 👎 outcome reaction. Pin the pass heading removal-proof, and the
 # two operative contracts (the state read and the Blocked-on-open path).
-assert_pin_red_on_removal "#254: deleting the Pass 4 dependency-claims heading turns its pin RED" \
-  'Declared sequencing-dependency claims' "$IMPL_SKILL"
-assert_pin_unique "#254: Pass 4 checks each declared dependency's state via gh issue view" \
-  "gh issue view N --json state,title --jq '.state'" "$IMPL_SKILL"
-assert_pin_unique "#254: Pass 4 routes an OPEN declared dependency to the Blocked path" \
-  'issue-claim audit (dependency): declared dependency #N is still OPEN' "$IMPL_SKILL"
+assert_pin_red_on_removal "#254: deleting the early dependency preflight heading turns its pin RED" \
+  'Early declared-dependency preflight' "$IMPL_SKILL"
+assert_pin_unique "#254: Phase 1 invokes the extracted dependency preflight helper" \
+  'preflight.py dependencies --issue $ISSUE_NUMBER' "$IMPL_SKILL"
+assert_pin_unique "#254: Phase 1 routes an OPEN dependency to the Blocked path" \
+  'The named dependencies are still open' "$IMPL_SKILL"
 # Review iter 3: the unresolvable-dependency → Blocked arm is the most safety-relevant
 # route (fail-closed on a `gh issue view` failure that says nothing about state); pin it
 # removal-proof too, not just the heading and the OPEN arm.
-assert_pin_unique "#254: Pass 4 fails closed (Blocked) when a declared dependency cannot be resolved" \
-  'issue-claim audit (dependency): could not resolve declared dependency #N state' "$IMPL_SKILL"
+assert_pin_unique "#254: Phase 1 fails closed when a declared dependency cannot be resolved" \
+  'Never treat this as a clean dependency set' "$IMPL_SKILL"
 # Review iter (PR #255): `gh issue view` returns MERGED (not CLOSED) for a merged PR
 # dependency — the satisfied case. Pin the operative clause that a landed prerequisite is
 # CLOSED **or** MERGED so a later edit cannot silently drop MERGED and mis-Block a merged
 # prerequisite (the fail-closed-but-wrong direction the review flagged).
-assert_pin_unique "#254: Pass 4 treats a MERGED dependency as satisfied (landed = CLOSED or MERGED)" \
-  'when it is `CLOSED` **or** `MERGED`' "$IMPL_SKILL"
+assert_pin_unique "#254: helper recognizes CLOSED and MERGED as landed states" \
+  'state in {"OPEN", "CLOSED", "MERGED"}' "$LIB/../scripts/preflight.py"
 # ── issue #346 (+ #350): Phase 1.6 gains Pass 5 — execution-capability claims. ─
 # A cloud-tier bot implement run whose credential is the built-in GITHUB_TOKEN
 # fallback (DEVFLOW_APP_ID empty) cannot push .github/workflows/, so an AC that is
@@ -12482,10 +12518,10 @@ assert_pin_unique "#446 AC1: issue-template Dependencies entry form is the Block
   'Blocked by #N — <one-line reason it must land first>' "$CI446_TMPL"
 assert_pin_unique "#446 AC2: issue-template bottom skeleton mirrors the Dependencies section (above Problem Statement)" \
   '(include this section, above Problem Statement, ONLY when a prerequisite is still open at' "$CI446_TMPL"
-# Coupled producer↔consumer contract: the template's dependency vocabulary and phase-1 Pass 4's
+# Coupled producer↔consumer contract: the template's dependency vocabulary and the extracted
 # recognized forms are pinned together — RED if either side's heading or phrasing drifts.
-assert_eq "#446: template Dependencies vocabulary matches phase-1 Pass 4's recognized forms (producer/consumer coupled)" "yes" \
-  "$(grep -qF '## Dependencies' "$CI446_TMPL" && grep -qF 'Blocked by #N' "$CI446_TMPL" && grep -qF '## Dependencies' "$CI446_P1" && grep -qiF 'blocked by #N' "$CI446_P1" && echo yes || echo no)"  # raw-guard-ok: compound coupled producer/consumer vocabulary check across template + Pass 4
+assert_eq "#446: template Dependencies vocabulary matches the extracted preflight recognizer (producer/consumer coupled)" "yes" \
+  "$(grep -qF '## Dependencies' "$CI446_TMPL" && grep -qF 'Blocked by #N' "$CI446_TMPL" && grep -qF 'DEPENDENCY_HEADING' "$LIB/../scripts/preflight.py" && grep -qF 'blocked by' "$LIB/../scripts/preflight.py" && echo yes || echo no)"  # raw-guard-ok: compound coupled producer/consumer vocabulary check across template + helper
 # AC4 — phase-4 Phase 4.0 renders ## Dependencies above Problem Statement (Sections-in-order
 # list + the render bullet + the heredoc line).
 assert_pin_unique "#446 AC4: phase-4 Phase 4.0 Sections-in-order list leads with ## Dependencies" \

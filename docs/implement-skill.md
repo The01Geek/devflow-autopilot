@@ -2,6 +2,13 @@
 
 **Skill:** `skills/implement/phases/phase-2-implement.md` (Phase 2.3, *Implement*) — the detailed phase procedure read at phase entry by the thin `skills/implement/SKILL.md` orchestrator
 
+## Early Phase 1 dependency preflight
+
+After workpad hydration, Phase 1 runs the declared-dependency preflight before
+any branch checkout, creation, checkpoint merge, or push. An open or
+unresolvable dependency terminalizes the workpad as Blocked; Phase 1.6 keeps
+the other audit passes without re-running this gate.
+
 The `/devflow:implement` orchestrator runs a set of mandatory **sweeps** in Phase 2.3, after writing the
 code and before running tests. Each sweep closes a class of blast-radius bug that survives `git diff`
 review because nothing is *syntactically* broken — the affected lines still compile, parse, or run;

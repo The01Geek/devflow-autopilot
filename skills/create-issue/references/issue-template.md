@@ -52,7 +52,7 @@ Blocked by #N — <one-line reason it must land first>
 ```
 
 Both the `## Dependencies` heading and the `Blocked by #N` phrasing are exactly the forms
-`/devflow:implement` Phase 1 Pass 4 recognizes as a declared sequencing dependency, so the
+`/devflow:implement` early Phase 1 dependency preflight recognizes as a declared sequencing dependency, so the
 existing implement gate consumes this section with **no recognizer change** — it blocks an
 implement run while any listed prerequisite is still open (and fails closed on an
 unresolvable reference). Omit the section entirely when no prerequisite is open — exactly as
@@ -63,7 +63,7 @@ Keep this section distinct from the two other "dependency"-flavored surfaces, or
 will file entries in the wrong one:
 
 - **`## Dependencies` (this section)** — cross-issue **ordering**: another issue/PR that must
-  land before this work can start. This is the only surface Pass 4 reads.
+land before this work can start. This is the only surface the early dependency preflight reads.
 - **`## 🚫 Blocked`** — unresolved **decisions**, not ordering (see below).
 - **`Technical Context` → `Dependencies` bullet** — the **service/module/library** this
   depends on, not another issue.

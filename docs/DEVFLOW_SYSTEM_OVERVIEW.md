@@ -437,6 +437,15 @@ Doc paths are configurable (`docs.internal`, `docs.external`, `docs.release_note
 
 ---
 
+## Phase 1 dependency preflight
+
+`/devflow:implement` hydrates its workpad before running an extracted
+declared-dependency preflight. The preflight runs before branch adoption,
+creation, base reconciliation, and push; open or unresolvable dependencies end
+the run Blocked without a new branch side effect. The cloud implementation
+requires both the vendored `scripts/preflight.py` helper and its explicit
+`devflow-implement.yml` allowlist grant.
+
 ## 11. Deep dive: `/devflow:create-issue`
 
 Turns a rough user story / bug report / feature idea into a well-structured GitHub issue.
