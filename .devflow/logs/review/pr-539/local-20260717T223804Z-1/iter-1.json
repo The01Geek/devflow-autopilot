@@ -36,5 +36,28 @@
   "cap_drops": {"count": 0, "by_category": {}},
   "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 180, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD) — runs live in CI"}]},
   "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
-  "telemetry": "unavailable"
+  "telemetry": "unavailable",
+  "shadow": {
+    "ran_at": "2026-07-17T23:05:00Z",
+    "reviewed_sha": "4e0044ad",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "trigger": "early (engine_self_modifying, after iteration 1)",
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "SF1: iter-1 fix comment 'not a variable named RAF_EXPECTED_REFS' is false; run.sh defines RAF_EXPECTED_REFS at line 31841", "defect_signature": {"file": "lib/test/modules/review-and-fix-contract.sh", "line_range": [66, 67], "kind": "documented_falsehood"}, "new": true},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "SF6: iter-1 Measured-cell pins match whole row; vacuous if a measured value equals its ceiling (matches Value column)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [31913, 31921], "kind": "vacuous-guard-on-value-collision"}, "new": true},
+      {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "SF2: net-reduction prose figures (33,256/33,134) unpinned", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [84, 87], "kind": "test_gap"}, "new": true},
+      {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "SF3: duplicate separator comment from merge", "defect_signature": {"file": "lib/test/run.sh", "line_range": [41454, 41455], "kind": "merge_artifact"}, "new": true},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "SF5: max-step label shadow-review.md not pinned", "defect_signature": {"file": "lib/test/run.sh", "line_range": [31920, 31921], "kind": "label-not-pinned"}, "new": true}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 5, "overlap_with_iter_1": 0, "new": 5, "new_critical": 0, "new_important": 2},
+    "over_grade_gate": "clean: SF1 (real convention-desync risk) and SF6 (real fail-open-at-boundary) both correctly Important; no over-grade demotion",
+    "promoted_to_iter_next": true
+  }
 }

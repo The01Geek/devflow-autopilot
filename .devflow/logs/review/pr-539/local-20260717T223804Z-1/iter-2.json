@@ -1,0 +1,35 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-17T23:10:00Z",
+  "fix_commit_sha": "22390148",
+  "fix_files": ["docs/review-and-fix-budget.md", "lib/test/modules/review-and-fix-contract.sh", "lib/test/run.sh"],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "promoted-iter (Phase 1+2 skipped)"
+  },
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "SF1 promoted from early shadow: correct false 'not a variable named RAF_EXPECTED_REFS' comment", "defect_signature": {"file": "lib/test/modules/review-and-fix-contract.sh", "line_range": [66, 67], "kind": "documented_falsehood"}, "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "SF6 promoted: rework Measured-cell pins to column-positional adjacency match (collision-proof)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [31913, 31921], "kind": "vacuous-guard-on-value-collision"}, "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "SF2: pin net-reduction figure", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [84, 84], "kind": "test_gap"}, "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "SF3: remove duplicate separator", "defect_signature": {"file": "lib/test/run.sh", "line_range": [41454, 41455], "kind": "merge_artifact"}, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "SF5: pin max-step reference label", "defect_signature": {"file": "lib/test/run.sh", "line_range": [31920, 31921], "kind": "label-not-pinned"}, "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "SF1", "decision": "applied", "commit": "22390148"},
+    {"finding_id": "SF6", "decision": "applied", "commit": "22390148", "note": "mutation-checked: column-positional pin RED on the ceiling-collision case"},
+    {"finding_id": "SF2", "decision": "applied", "commit": "22390148"},
+    {"finding_id": "SF3", "decision": "applied", "commit": "22390148"},
+    {"finding_id": "SF5", "decision": "applied", "commit": "22390148"}
+  ],
+  "convergence_inputs": {"fixes_applied": 5, "fix_diff_lines": 38, "new_corroborated_critical_count": 0, "product_code_fixes": 0, "note": "entire delta is test-pin/comment/doc — Step 4.5 conditions 1-2 satisfied (0 product-code fixes)"},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 185, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD) — runs live in CI"}]},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "telemetry": "unavailable"
+}
