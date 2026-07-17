@@ -2504,6 +2504,22 @@ printf 'ACRU_START sentinel\nalpha\nbeta\nnoise line\nACRU_END sentinel\n' > "$A
 assert_eq "#536 ERE dialect (through the helper): an ERE-only alternation ^(alpha|beta)$ matches both lines as the ERE defines" \
   "PASS|" "$(_acru_probe assert_count_red_under 'erealt' 'ACRU_START sentinel' 'ACRU_END sentinel' '^(alpha|beta)$' -eq 2 's/^alpha$/REMOVED/' "$ACRU_ERE2")"
 rm -f "$ACRU_ERE2"
+# (b, mutated-copy site) The two tests above BOTH return before or without a verdict-flipping
+# dependence on the SECOND count site — the mutated-copy count (step 7): `erelit` returns at
+# the real-file bound (step 3, before step 7), and `erealt`'s mutated ERE count (1) and BRE
+# count (0) BOTH violate its `-eq 2` bound, so a BRE regression isolated to step 7 would not
+# flip its verdict. This arm pins step 7's dialect directly: with an ERE `^(alpha|beta)$` and
+# a `-le 1` bound, the real slice (one `alpha`) counts 1 ≤ 1 (satisfies, step 3 passes), and
+# the mutation turns `noise` into `beta` so the MUTATED slice counts 2 under ERE → violates
+# `-le 1` → PASS. Under a step-7-only `grep -cE`→`grep -c` regression the mutated slice's
+# literal-`(alpha|beta)` count is 0 ≤ 1 (satisfies) → BOUND-NOT-BREACHED, flipping `PASS|`
+# RED — so the mutated-copy count site is dialect-pinned too, closing the "any count site"
+# claim above.
+ACRU_ERE3="$(probe_tmp '#536 ERE mutated-slice-site fixture')"
+printf 'ACRU_START sentinel\nalpha\nnoise line\nACRU_END sentinel\n' > "$ACRU_ERE3"
+assert_eq "#536 ERE dialect (through the helper, step 7): the MUTATED-slice count honors ERE — a step-7-only grep -c regression flips this PASS to BOUND-NOT-BREACHED" \
+  "PASS|" "$(_acru_probe assert_count_red_under 'erestep7' 'ACRU_START sentinel' 'ACRU_END sentinel' '^(alpha|beta)$' -le 1 's/^noise line$/beta/' "$ACRU_ERE3")"
+rm -f "$ACRU_ERE3"
 rm -f "$ACRU_FX"
 # Issue #500 parked-class sweep contract pins. These stay below the
 # assert_pin_red_under definition so the behavioral mutations below execute.
