@@ -1,0 +1,64 @@
+{
+  "iter": 3,
+  "started_at": "2026-07-17T03:45:00Z",
+  "fix_commit_sha": "60a187516573bb0015b8ec9b2aabb8bbbc427830",
+  "fix_files": ["scripts/issue-audit-state.py", "lib/test/run.sh", "lib/test/test_python_scripts.py", "skills/create-issue/SKILL.md"],
+  "loop_role": "fix",
+  "sweep_defs_read": ["iteration-3 full-path sweeps: 2.3.0 changed-contract (base-merge .devflow/config.json inspected — no consumed contract), 2.3.0c operand-trace on after-round validation, 2.3.4a self-authored-claim on the softened transition-table header"],
+  "sweep_evidence": {"status": "run", "selection": "guards + prose + tests delta; operands traced to producers; base-merge re-ran the suite (8420/0, no skip)"},
+  "test_first_gate": [
+    {"decision": "test-first", "command": "python3 lib/test/test_python_scripts.py + run.sh iter3_hardening_rows", "result": "new rows written first (lockstep extended for the 2 new TRANSITIONS rows); RED via lockstep count mismatch until the module rows landed; GREEN after (714 py, 8419 then 8420 suite)", "evidence": "after-round bounds, forward-only attestation, epoch no-rebind, premature cap refusal, negative findings, reinit_forced shape, init load-detail, slug CLI seam"}
+  ],
+  "checklist": [
+    {"id": "VC-1", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "absolute_claim:issue-audit-state.py:slug-path-escape-fails-before-unlink", "reused_from_iter_prev": false},
+    {"id": "VC-2", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:issue-audit-state.py:revision-ordinal-chain-contiguous", "reused_from_iter_prev": false},
+    {"id": "VC-3", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:issue-audit-state.py:summary-digest-failed-suppresses-stale-token", "reused_from_iter_prev": false},
+    {"id": "VC-4", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:issue-audit-state.py:attestation-bare-token-roundtrip", "reused_from_iter_prev": false},
+    {"id": "VC-5", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:issue-audit-state.py:next-actions-match-skill-obey-set", "reused_from_iter_prev": false},
+    {"id": "VC-6", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:issue-audit-state.py:findings-count-accepted-classifications-only", "reused_from_iter_prev": false},
+    {"id": "VC-7", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:issue-audit-state.py:emit-body-hashes-to-epoch-body-digest", "reused_from_iter_prev": false},
+    {"id": "VC-8", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "absolute_claim:issue-audit-state.py:open-round-awaiting-return-not-proceed", "reused_from_iter_prev": false},
+    {"id": "VC-9", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:issue-audit-state.py:validate-pending-closed-set", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": ["devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": true, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "record-revision --after-round caller-trusted; a value below the last completed round fails the event-ordering staleness guard OPEN", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1143, 1155], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "_repo_root swallows git failure silently, re-anchoring state to cwd with no breadcrumb", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [292, 306], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "negative --findings-count accepted, corrupting the cumulative summary tally", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1113, 1115], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "severity-calibrated"},
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "SKILL.md:294 still instructs --body-file - pipe form its own reference bans (self-contradicting diff)", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [294, 294], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "garbled shadow_round_rows header; --prior-unreadable parenthetical wording", "defect_signature": {"file": "lib/test/run.sh", "line_range": null, "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "init load-error detail branch untested", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [932, 946], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "unsafe-slug refusal at the cmd_init CLI seam untested", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [955, 961], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Important", "description": "record-creation-attestation re-runnable (mismatch overwritable); record-creation-epoch rebind discards recorded mismatch", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1207, 1249], "kind": "type_design"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "reinit_forced unvalidated; TRANSITIONS single-source-of-truth claim overstated; _DigestError name private", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [509, 512], "kind": "type_design"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "cap-reached unconditional set (premature record burns rounds)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1090, 1105], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "creation under a digest-bound override on revised bytes always attests mismatch (false alarm on a sanctioned path)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1223, 1249], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "G1-after-round", "decision": "applied", "commit": "60a18751", "evidence": "validated against recorded facts (floor = last completed round, ceiling = last recorded); refusal breadcrumb names the fail-open shape; CLI rows drive low/high/truthful"},
+    {"finding_id": "G2-body-file-drift", "decision": "applied", "commit": "60a18751", "evidence": "SKILL.md:294 reworded to --body-file <path> direct via writing-skills subagent; zero pins affected"},
+    {"finding_id": "G3-repo-root-breadcrumb", "decision": "applied", "commit": "60a18751"},
+    {"finding_id": "G4-negative-findings", "decision": "severity-calibrated", "source_file": "scripts/issue-audit-state.py", "claim_text": "negative findings-count corrupts summary tally", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "over-grade shape 2: sole observable impact is the diagnostic summary tally (no gate consumes findings_count); fixed anyway (mutation refusal + _validate non-negative + matrix row)"},
+    {"finding_id": "G5-attestation-forward-only", "decision": "severity-calibrated", "source_file": "scripts/issue-audit-state.py", "claim_text": "attestation overwritable / epoch rebind discards mismatch", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "the overwrite requires an explicit second mutation by the same orchestrator - the AC-disclosed invoke-and-obey residual class; fail direction is weakened evidence, not silent gate corruption; fixed anyway (forward-only guards + 2 TRANSITIONS rows + lockstep + CLI rows)"},
+    {"finding_id": "G6-reinit-forced-shape", "decision": "applied", "commit": "60a18751"},
+    {"finding_id": "G7-cap-guard", "decision": "applied", "commit": "60a18751"},
+    {"finding_id": "G8-init-detail-row", "decision": "applied", "commit": "60a18751"},
+    {"finding_id": "G9-slug-seam-row", "decision": "applied", "commit": "60a18751"},
+    {"finding_id": "G10-comment-fixes", "decision": "applied", "commit": "60a18751"},
+    {"finding_id": "G11-digest-error-name", "decision": "deferred", "source_file": "scripts/issue-audit-state.py", "claim_text": "_DigestError underscore-private across a public boundary", "skip_category": "uncategorized", "evidence": "naming style; tests load the module by file so the name is reachable; rename churn not worth a loop iteration"},
+    {"finding_id": "G12-override-attest-false-alarm", "decision": "deferred", "source_file": "scripts/issue-audit-state.py", "claim_text": "digest-bound-override creation attests mismatch on revised bytes", "skip_category": "uncategorized", "evidence": "adjacent to the deferred EOL-attestation refinement; the attestation is disclosed post-hoc best-effort, surfaced-not-fatal; folded into the same follow-up candidate"}
+  ],
+  "convergence_inputs": {"fixes_applied": 8, "fix_diff_lines": 120, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UPDATED", "behind_by": 1},
+  "stale_prose_check": {"result": "exit 0, 0 STALE"},
+  "verification_evidence": {"command": "bash lib/test/run.sh (post-merge re-run) + ruff", "result": "pass", "duration_s": 200, "skipped_checks": []},
+  "telemetry": {
+    "phase_1": {"calls": 1, "tokens": 98509, "wall_clock_s": 105},
+    "phase_2": {"calls": 8, "tokens": 482000, "wall_clock_s": 40},
+    "phase_3": {"calls": 5, "tokens": 431000, "wall_clock_s": 385},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 5, "webfetches": 0},
+    "phase_4_x": {"calls": 1, "tokens": 70215, "wall_clock_s": 70}
+  }
+}
