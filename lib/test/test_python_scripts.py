@@ -4073,6 +4073,42 @@ assert_eq("#546 iter5: ... while a revision-postdated file-arm epoch still refus
               _state([_round(1, 'file', 'FILE')], revisions=(1,)),
               'approve', None)['reason'])
 
+print()
+print("issue-audit-state: convergence-shadow hardening (issue #546, PR #552 shadow)")
+
+# The newest completed verdict-bearing round wins: a later REVISE round on the SAME
+# bytes invalidates an older clean FILE round (probe-confirmed fail-open otherwise).
+assert_eq("#546 conv-shadow: a later REVISE round invalidates an earlier clean FILE "
+          "round on unchanged bytes",
+          ('not-eligible', 'unaudited-revision'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([_round(1, 'file', 'FILE', 'D1'),
+                          _round(2, 'file', 'REVISE', 'D1')]),
+                  'approve', 'D1')))
+assert_eq("#546 conv-shadow: ... and a later clean FILE round still grounds eligibility",
+          'eligible',
+          issue_audit_state.evaluate_eligibility(
+              _state([_round(1, 'file', 'REVISE', 'D1'),
+                      _round(2, 'file', 'FILE', 'D1')]),
+              'approve', 'D1')['answer'])
+
+# The persisted pending domain is the WRITER's domain: a corrupted 'proceed' collapses
+# the file rather than walking the orchestrator past an unreturned audit.
+_malformed('a pending value outside the writer domain (proceed)',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', None), outcome=None,
+                                    pending='proceed')]))
+
+# A digest-bound override queried with no digest names the caller omission.
+assert_eq("#546 conv-shadow: a digest-bound override with no digest supplied names "
+          "no-digest-supplied, not stale-override",
+          'no-digest-supplied',
+          issue_audit_state.evaluate_eligibility(
+              _state([_round(1, 'file', 'REVISE', 'D1')],
+                     overrides=[{'kind': 'user-decline', 'surface': 't1t2-boundary',
+                                 'recorded_at_ordinal': 0, 'draft_digest': 'D1'}]),
+              'approve', None)['reason'])
+
 # (3) An unreadable/unhashable supplied draft refuses with the DISTINCT reason
 # draft-undigestible in approve mode — never misattributed as unaudited-revision,
 # and never eligible on any ground (fail closed, overrides included).

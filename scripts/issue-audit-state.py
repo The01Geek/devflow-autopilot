@@ -486,7 +486,13 @@ def _validate(doc, slug):
         # `pending` decides the next dispatch, so a hand-corrupted value outside the closed
         # answer set must fail closed here rather than reach the skill as an unroutable token.
         pend = rnd.get('pending')
-        if pend is not None and pend not in _NEXT_ACTIONS:
+        # The WRITER's domain, not the full answer vocabulary: record-return persists
+        # only the three dispatch-* retry tokens (or None). A hand-corrupted
+        # pending='proceed' would otherwise walk the orchestrator past an audit it
+        # never received.
+        if pend is not None and pend not in ('dispatch-embed-retry',
+                                             'dispatch-retry-same-arm',
+                                             'dispatch-inline-degraded'):
             raise StateError(f'round {num} names a pending action outside the canonical '
                              f'set: {pend!r}')
         for mk in rnd.get('embed_markers', []):
@@ -719,7 +725,7 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
 
     Reason precedence when several could apply is decided, not incidental:
       state-unestablished > draft-undigestible > no-verdict-round > stale-override >
-      unaudited-revision.
+      no-digest-supplied > unaudited-revision.
     """
     if mode not in ('approve', 'iterate'):
         # The mode is a closed vocabulary like every other: an off-set value must
@@ -745,8 +751,13 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
 
     clean = None
     for rnd in reversed(completed_rounds(state)):
+        # The clean ground requires the NEWEST completed verdict-bearing round to be
+        # FILE: a later completed REVISE round on the same bytes invalidates an older
+        # clean verdict (probe-confirmed fail-open otherwise — the newest verdict wins).
         if rnd.get('outcome') == 'FILE':
             clean = rnd
+            break
+        if rnd.get('outcome') == 'REVISE':
             break
 
     if clean is not None:
@@ -772,6 +783,12 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
     if last is None or last.get('outcome') == 'no-verdict':
         return _no('no-verdict-round')
     if state['overrides']:
+        if current_digest is None and any(
+                ov.get('draft_digest') for ov in state['overrides']
+                if ov.get('recorded_at_ordinal') == revision_ordinal(state)):
+            # A digest-bound override queried with NO digest was never compared:
+            # nothing went stale — the caller omitted the draft file.
+            return _no('no-digest-supplied')
         return _no('stale-override')
     if current_digest is None and clean is not None:
         arm = clean['attempts'][-1]['arm']
@@ -1039,9 +1056,11 @@ def cmd_record_dispatch(args):
         attempt['sentinel_close'] = f'AUDIT-{tag}-CLOSE'
     rnd = _find_round(doc, args.round)
     if rnd is None:
-        if doc['rounds'] and args.round <= doc['rounds'][-1]['round']:
+        expected = (doc['rounds'][-1]['round'] + 1) if doc['rounds'] else args.round
+        if doc['rounds'] and args.round != expected:
             _fail('record-dispatch', f'round {args.round} is out of order (the last '
-                                     f'recorded round is {doc["rounds"][-1]["round"]})')
+                                     f'recorded round is {doc["rounds"][-1]["round"]}; '
+                                     f'the next round is {expected})')
         # A new round cannot open while an earlier one is still open: two concurrently
         # open rounds would let a later verdict close the wrong round's accounting, and
         # every budget/retry counter is per-round.
@@ -1082,6 +1101,14 @@ def cmd_record_dispatch(args):
         # digest/sentinels silently become the carriage comparand.
         _fail('record-dispatch', f'round {args.round} is open awaiting its return; a '
                                  f're-dispatch was not requested')
+    elif args.arm != {'dispatch-embed-retry': 'embed',
+                      'dispatch-inline-degraded': 'inline',
+                      'dispatch-retry-same-arm': rnd['attempts'][-1]['arm']
+                      }[rnd['pending']]:
+        # The pending action names the arm the retry was routed to; a mismatched arm
+        # would silently switch the carriage comparand class mid-round.
+        _fail('record-dispatch', f'the pending action {rnd["pending"]} does not permit '
+                                 f'a dispatch on the {args.arm} arm')
     # This dispatch consumes any pending retry action: between this dispatch and its
     # record-return, next-action must answer round-open-awaiting-return, never re-issue
     # the already-spent retry (a duplicate dispatch would append a second attempt whose
@@ -1312,27 +1339,27 @@ def cmd_record_creation_attestation(args):
         status = 'attestation-unavailable'
     else:
         data = sys.stdin.buffer.read()
-        if not data:
-            # A fetch that produced nothing is reported as attestation-unavailable,
-            # never as a pass.
-            status = 'attestation-unavailable'
-        else:
+        # Empty fetched bytes are COMPARED, not laundered into unavailable: an empty
+        # created body from a successful fetch is exactly the empty-bodied-issue
+        # failure the posting guard exists to catch, and the recorded digest makes the
+        # compare well-defined either way. A genuinely failed fetch is the explicit
+        # --attestation-unavailable flag, never inferred from emptiness.
+        try:
+            got = hash_bytes(data)
+        except _DigestError as exc:
+            _fail('record-creation-attestation', str(exc))
+        status = 'match' if got == doc['creation']['body_only_digest'] else 'mismatch'
+        if status == 'mismatch' and data.endswith(b'\n'):
+            # Bounded, disclosed tolerance: gh/jq fetch framing appends exactly one
+            # trailing newline the posted bytes never carried. Retry the compare
+            # with ONE trailing newline stripped; anything else stays a mismatch.
             try:
-                got = hash_bytes(data)
-            except _DigestError as exc:
-                _fail('record-creation-attestation', str(exc))
-            status = 'match' if got == doc['creation']['body_only_digest'] else 'mismatch'
-            if status == 'mismatch' and data.endswith(b'\n'):
-                # Bounded, disclosed tolerance: gh/jq fetch framing appends exactly one
-                # trailing newline the posted bytes never carried. Retry the compare
-                # with ONE trailing newline stripped; anything else stays a mismatch.
-                try:
-                    if hash_bytes(data[:-1]) == doc['creation']['body_only_digest']:
-                        status = 'match'
-                        print('record-creation-attestation: matched modulo the '
-                              "fetch's single trailing newline", file=sys.stderr)
-                except _DigestError:
-                    pass
+                if hash_bytes(data[:-1]) == doc['creation']['body_only_digest']:
+                    status = 'match'
+                    print('record-creation-attestation: matched modulo the '
+                          "fetch's single trailing newline", file=sys.stderr)
+            except _DigestError:
+                pass
     # Stored as the BARE status token — the summary field renders it verbatim into the
     # single-line key=value surface, so a nested object here would corrupt that line.
     doc['creation']['attestation'] = status

@@ -41576,7 +41576,9 @@ fi
 # the automatic-budget arm. classify_return is unit-driven in test_python_scripts.py; what is
 # driven HERE is next_action's answer, which no python row covered.
 #
-# Every one of the tool's seven answer tokens is driven here. Two of them were dead code when
+# Seven of the tool's eight answer tokens are driven here; the eighth,
+# round-open-awaiting-return, is driven by illegal_transition_rows and
+# shadow_round_rows below. Two of the driven arms were dead code when
 # the cutover's pin reconciliation first drove this surface, and the rows below are the
 # regression guard for both — each was a real defect the deleted #522 prose pin had been the
 # only thing nominally protecting, so a cutover that deleted the pin without driving the arm
@@ -41624,6 +41626,10 @@ if [ -d "$NA_SB" ]; then
     # The inline arm past both defined retries closes the round verdict-less rather than
     # looping — the termination invariant.
     NT="$(python3 "$IAS" init nt | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch nt --nonce "$NT" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-return nt --nonce "$NT" --round 1 --carriage-object-id "$OID" > /dev/null
+    # first no-parseable -> retry the SAME arm; a second -> the inline degraded arm
+    # (the retry-arm binding refuses a shortcut straight to inline)
     python3 "$IAS" record-dispatch nt --nonce "$NT" --round 1 --arm file --draft-file d.md > /dev/null
     python3 "$IAS" record-return nt --nonce "$NT" --round 1 --carriage-object-id "$OID" > /dev/null
     python3 "$IAS" record-dispatch nt --nonce "$NT" --round 1 --arm inline < d.md > /dev/null
@@ -42200,6 +42206,73 @@ if [ -d "$I5_SB" ]; then
   assert_eq "#546 iter5_hardening_rows: cap-reached at the ceiling is accepted (accept side)" \
     "0" "$(cat "$I5_SB/.i5-cap-ok-rc" 2>/dev/null)"
   rm -rf "$I5_SB"
+fi
+
+# conv_shadow_rows (#546, PR #552 convergence shadow) — the shadow-pass guards: the
+# retry-arm binding, dense round numbering, the honest empty-fetch compare, the
+# unpersistable-state mutation breadcrumb, and query-nonce's happy-path recovery.
+CS_SB="$(git_sandbox '#546 conv_shadow_rows')"
+if [ -d "$CS_SB" ]; then
+  (
+    cd "$CS_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+
+    # retry-arm binding: a pending embed retry refuses a file-arm dispatch
+    N="$(python3 "$IAS" init cs | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch cs --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return cs --nonce "$N" --round 1 --verdict DRAFT-UNREADABLE \
+      > /dev/null 2>&1
+    python3 "$IAS" record-dispatch cs --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2> .cs-armbind; printf '%s' "$?" > .cs-armbind-rc
+
+    # dense round numbering: after round 1 closes, round 7 refuses
+    N2="$(python3 "$IAS" init cs2 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch cs2 --nonce "$N2" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return cs2 --nonce "$N2" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-dispatch cs2 --nonce "$N2" --round 7 --arm file \
+      --draft-file draft.md > /dev/null 2> .cs-sparse; printf '%s' "$?" > .cs-sparse-rc
+
+    # honest empty-fetch compare: zero fetched bytes attest MISMATCH (the recorded
+    # digest is non-empty), never attestation-unavailable
+    N3="$(python3 "$IAS" init cs3 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch cs3 --nonce "$N3" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return cs3 --nonce "$N3" --round 1 --verdict FILE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch cs3 --nonce "$N3" --round 1 > /dev/null 2>&1
+    printf '' | python3 "$IAS" record-creation-attestation cs3 --nonce "$N3" > .cs-empty 2>&1
+
+    # unpersistable state: a read-only .devflow/tmp makes the mutation exit non-zero
+    # with the named breadcrumb, and a QUERY still answers (read-only contract)
+    chmod 555 .devflow/tmp
+    python3 "$IAS" record-revision cs3 --nonce "$N3" --after-round 1 \
+      > /dev/null 2> .cs-nopersist; printf '%s' "$?" > .cs-nopersist-rc
+    python3 "$IAS" query-triggers cs3 --nonce "$N3" > .cs-nopersist-query 2>/dev/null
+    chmod 755 .devflow/tmp
+
+    # query-nonce happy path: the minted nonce round-trips exactly
+    printf 'nonce=%s\n' "$N3" > .cs-nonce-expected
+    python3 "$IAS" query-nonce cs3 > .cs-nonce-got 2>/dev/null
+  )
+  assert_eq "#546 conv_shadow_rows: a pending embed retry refuses a file-arm dispatch (arm binding)" \
+    "1" "$(grep -c 'does not permit a dispatch on the file arm' "$CS_SB/.cs-armbind" 2>/dev/null)"
+  assert_eq "#546 conv_shadow_rows: a sparse round number refuses (dense numbering)" \
+    "1" "$(grep -c 'the next round is 2' "$CS_SB/.cs-sparse" 2>/dev/null)"
+  assert_eq "#546 conv_shadow_rows: zero fetched bytes attest mismatch, never laundered into unavailable" \
+    "attestation=mismatch" "$(cat "$CS_SB/.cs-empty" 2>/dev/null)"
+  assert_eq "#546 conv_shadow_rows: an unpersistable state exits non-zero with the named breadcrumb" \
+    "1:1" "$(cat "$CS_SB/.cs-nopersist-rc" 2>/dev/null):$(grep -c 'could not persist state' "$CS_SB/.cs-nopersist" 2>/dev/null)"
+  assert_eq "#546 conv_shadow_rows: ... while a query still answers after the persistence failure" \
+    "1" "$(grep -c 't1=' "$CS_SB/.cs-nopersist-query" 2>/dev/null)"
+  assert_eq "#546 conv_shadow_rows: query-nonce round-trips the minted nonce exactly" \
+    "$(cat "$CS_SB/.cs-nonce-expected" 2>/dev/null)" "$(cat "$CS_SB/.cs-nonce-got" 2>/dev/null)"
+  rm -rf "$CS_SB"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
