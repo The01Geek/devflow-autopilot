@@ -1412,7 +1412,13 @@ class ExporterSubprocessTests(_TmpDirTestCase):
         self.assertEqual(rc, 0)
         snap = json.loads(out.read_text(encoding="utf-8"))
         self.assertFalse(snap["pagination_complete"])
-        self.assertIn("pagination incomplete", buf.getvalue())
+        # Reconciled with the reworded warning (PR #531 review-and-fix iter-1):
+        # the message now names WHICH cause fired, because "pagination
+        # incomplete" alone misdiagnosed a clean-transport dropped-row census.
+        # Still pins the two things this test is about — the warning fires, and
+        # it attributes the degradation to the transport failure the stub caused.
+        self.assertIn("snapshot incomplete", buf.getvalue())
+        self.assertIn("transport failure", buf.getvalue())
 
 
 class Pr531Iter1FixLoopTests(_TmpDirTestCase):
@@ -2018,6 +2024,42 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
                     self.assertNotIn(leak, stripped,
                                      f"secret fragment {leak!r} survived in {b.redacted_display!r}")
 
+    # --- Blinded fix-delta gate: the FIRST attempt at the escape fix routed the
+    #     halves alternative of SECRET_SHORT_U through the new escape-aware
+    #     chunks but left its two WHOLE-OPERAND-quoted siblings, one line away,
+    #     on the old escape-blind classes — so `-u "user:pa\"ss"` still leaked
+    #     the tail into redacted_display AND the digest with secret_affected
+    #     True, falsifying the very "fixed for the whole class" claim. The
+    #     original test only drove the unquoted `-u` shape, so the gap shipped
+    #     un-pinned; this is that missing pin. ---------------------------------
+    def test_short_u_quoted_operand_with_escapes_fully_redacted(self) -> None:
+        for command, leak in (
+            (r'curl -u "user:pa\"ss" rest', "ss"),      # escaped quote inside dquotes
+            (r"curl -u 'user:pa\'ss' rest", "ss"),      # POSIX adjacent concatenation
+            (r'curl -u "user:pa\ ss" rest', "ss"),      # escaped space inside dquotes
+            (r'curl -u "us\"er:pass" rest', "pass"),    # escape in the USER half
+        ):
+            with self.subTest(command=command):
+                b = vb._binding_identity(command)
+                self.assertTrue(b.secret_affected)
+                self.assertIn("flag:u", b.secret_slots)
+                stripped = b.redacted_display.replace("<flag:u>", "")
+                self.assertNotIn(leak, stripped,
+                                 f"secret fragment {leak!r} survived in {b.redacted_display!r}")
+
+    def test_short_u_quoted_operand_negative_controls(self) -> None:
+        # Positive controls for the guard above: it must not over-fire. A bare
+        # `sort -u` with a colon-free operand is not a credential, and the
+        # already-covered plain quoted spellings must still redact whole.
+        self.assertFalse(vb._binding_identity("sort -u lib/test/run.sh").secret_affected)
+        for command in ('curl -u "user:pass" https://example.invalid/',
+                        "curl -u 'user:pass' https://example.invalid/",
+                        'curl -u"user:pass" https://example.invalid/'):
+            with self.subTest(command=command):
+                b = vb._binding_identity(command)
+                self.assertTrue(b.secret_affected)
+                self.assertNotIn("pass", b.redacted_display.replace("<flag:u>", ""))
+
     def test_escaped_value_redaction_is_not_redos_prone(self) -> None:
         # The escape alternative must not re-admit the backtracking pair the
         # quote-exclusion closed: a backslash is consumable by exactly ONE
@@ -2080,6 +2122,57 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
             snap = exp.build_snapshot("o/r", [], "a", "b", runs, jobs, "t", complete)
         self.assertEqual(snap["dropped_run_count"], 1)
         self.assertFalse(snap["pagination_complete"])
+
+    # --- Shadow Important: the owning-lifecycle eligibility state is the value
+    #     the VC-2 fix exists to make visible, but it was smuggled through the
+    #     untyped `provenance` bag with a silent `or "unrecorded"` fallback on
+    #     read — so a future call site that forgot it, or a renamed key, would
+    #     degrade silently into the same bucket as a genuine omission. Every
+    #     other taxonomy value on this class is _require_member-validated at
+    #     construction; this one asserted its invariant in prose only. --------
+    def test_owning_lifecycle_eligibility_state_is_a_validated_field(self) -> None:
+        a, _b = candidate_pair()
+        self.assertIn(a.owning_lifecycle_eligibility_state, vb.ELIGIBILITY_STATES)
+        # An invalid value is a loud ValueError at the producer, not a silent row.
+        with self.assertRaises(ValueError):
+            dataclasses.replace(a, owning_lifecycle_eligibility_state="typo_state")
+        # It reaches the serialized output (the surface a reader consumes).
+        self.assertIn("owning_lifecycle_eligibility_state", a.to_dict())
+
+    # --- Shadow Important: main() reported the FETCH-level pagination_complete
+    #     local, not the value build_snapshot recorded (which folds in dropped
+    #     rows). So a dropped-row census printed "pagination_complete=True" while
+    #     the artifact it had just written said false, and the "the operator must
+    #     see it" warning never fired — the loud-degradation contract left
+    #     half-closed at the reporting boundary. ------------------------------
+    def test_export_main_reports_the_recorded_completeness_not_the_fetch_local(self) -> None:
+        exp = _load_export_census()
+        calls = {"n": 0}
+
+        def fake_gh_json(gh, args):
+            calls["n"] += 1
+            if "jobs" in " ".join(args):
+                return {"jobs": [], "total_count": 0}
+            if calls["n"] == 1:
+                return {"workflow_runs": ["not-a-dict", {
+                    "id": 7, "path": "wf.yml", "name": "W", "run_attempt": 1,
+                    "created_at": "c", "conclusion": "success", "status": "completed"}]}
+            return {"workflow_runs": []}
+
+        exp._gh_json = fake_gh_json
+        out = Path(self.tmp) / "snap.json"
+        err, sout = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(sout):
+            rc = exp.main(["--repo", "o/r", "--workflows", "wf.yml",
+                           "--created-after", "a", "--created-before", "b",
+                           "--out", str(out)])
+        self.assertEqual(rc, 0)
+        recorded = json.loads(out.read_text(encoding="utf-8"))["pagination_complete"]
+        self.assertFalse(recorded, "the artifact must record the dropped row as incomplete")
+        self.assertNotIn("pagination_complete=True", sout.getvalue(),
+                         "stdout contradicted the artifact it just wrote")
+        self.assertIn("WARNING", err.getvalue(),
+                      "dropped-row degradation was silent — the operator must see it")
 
     # --- Phase-2 VC-33 FAIL: consumer_approximate is dropped by its only
     #     reader, so a stratifier cannot tell devflow.yml's multiplexed

@@ -312,12 +312,34 @@ SECRET_FLAG = re.compile(
 # would let one spelling regress silently): `-u user:pa\ ss` is one operand, and
 # the escape-blind bare classes leaked the `ss` tail (PR #531 review-and-fix
 # iter-1, Phase-2 VC-6 FAIL — same class as the env/--flag leak).
+# The two WHOLE-OPERAND-quoted alternatives must carry the same escape-awareness
+# and the same adjacent-concatenation consume as the halves alternative below.
+# Giving it to the halves alternative ALONE left these two siblings of the same
+# regex on the old escape-blind classes, so `-u "user:pa\"ss"` matched only
+# through the unescaped `\"` and leaked the `ss"` tail into redacted_display AND
+# the digest with secret_affected=True — the very "fixed for the whole class,
+# not the one cited spelling" claim, falsified in the sibling alternative one
+# line away (PR #531 review-and-fix iter-1, blinded fix-delta gate).
+#
+# The dquoted operand processes `\"`; the squoted one does NOT (backslash is
+# literal in POSIX single quotes, and the first `'` closes), so they are
+# deliberately asymmetric rather than uniformly "escape-aware" — a symmetric
+# rule would misread the shell. Both then take a TAIL of ordinary chunks so
+# POSIX adjacent concatenation (`'user:pa\'ss'`, one shell word) is consumed to
+# the word boundary instead of stopping at the first closing quote. An
+# unterminated trailing quote consumes to EOL, matching the existing
+# unterminated-quote reading (in real shell the open quote does swallow the
+# rest). Each half's class excludes its own terminator, so every character has
+# exactly one parse path and the match stays linear.
+_SHORT_U_DQ = r"\"(?:\\[\s\S]|[^\"':\\])*:(?:\\[\s\S]|[^\"\\])*(?:\"|$)"
+_SHORT_U_SQ = r"'[^':]*:[^']*(?:'|$)"
+_SHORT_U_TAIL = r"(?:" + _ESC_CHUNK + r"|" + _DQ_CHUNK + r"|" + _SQ_CHUNK + r"|[^\s\"'\\])*"
 SECRET_SHORT_U = re.compile(
     r"(?<![\w-])(-u[ =]?)"
     r"("
-    r"\"[^\"':]*:[^\"]*(?:\"|$)"
-    r"|'[^\"':]*:[^']*(?:'|$)"
-    r"|(?:" + _ESC_CHUNK + r"|" + _DQ_CHUNK + r"|" + _SQ_CHUNK + r"|[^\s:\"'\\])+"
+    + _SHORT_U_DQ + _SHORT_U_TAIL
+    + r"|" + _SHORT_U_SQ + _SHORT_U_TAIL
+    + r"|(?:" + _ESC_CHUNK + r"|" + _DQ_CHUNK + r"|" + _SQ_CHUNK + r"|[^\s:\"'\\])+"
     r":(?:" + _ESC_CHUNK + r"|" + _DQ_CHUNK + r"|" + _SQ_CHUNK + r"|[^\s\"'\\])+"
     r")"
 )
@@ -768,11 +790,23 @@ class VerificationProcessLaunch:
     exit_evidence: dict | None
     skipped_check_evidence: dict | None
     provenance: dict
+    # The eligibility state of the census row this launch was extracted from.
+    # A REAL validated field, not a `provenance` dict key: this is the value the
+    # numerator/denominator visibility fix exists to publish, so a call site that
+    # forgot it — or a renamed key — must be a loud ValueError at the producer,
+    # not a silent collapse into an "unrecorded" bucket indistinguishable from a
+    # genuine omission. Every other taxonomy value on this class is
+    # _require_member-validated; asserting this one's invariant in prose while
+    # leaving it in an unvalidated bag is the stringly-typed hazard this module's
+    # own comments warn against (PR #531 review-and-fix iter-1, shadow).
+    owning_lifecycle_eligibility_state: str = ELIGIBILITY_UNKNOWN
     retrigger_evidence: bool = False  # explicit iteration/checkpoint/post-fix/base-merge/human-retrigger; Wave 1 extraction never sets this True (no markers extracted), but the field carries the guard the candidate classification requires.
     schema_version: int = VERIFICATION_PROCESS_LAUNCH_SCHEMA
 
     def __post_init__(self) -> None:
         _require_member("VerificationProcessLaunch.start_authorization", self.start_authorization, START_CLASSES)
+        _require_member("VerificationProcessLaunch.owning_lifecycle_eligibility_state",
+                        self.owning_lifecycle_eligibility_state, ELIGIBILITY_STATES)
         if not isinstance(self.retrigger_evidence, bool):
             # The load-bearing no-retrigger guard must be a real bool — a truthy
             # string ("false") silently flipping candidates to intentional_rerun
@@ -800,6 +834,7 @@ class VerificationProcessLaunch:
             "exit_evidence": self.exit_evidence,
             "skipped_check_evidence": self.skipped_check_evidence,
             "provenance": self.provenance,
+            "owning_lifecycle_eligibility_state": self.owning_lifecycle_eligibility_state,
             "retrigger_evidence": self.retrigger_evidence,
         }
 
@@ -1804,21 +1839,21 @@ def _extract_from_lifecycle(events, root, end_idx, sid, consumer, eligibility_st
                     result_presence=result is not None,
                     exit_evidence=ev,
                     skipped_check_evidence=None,
-                    # Carry the OWNING row's eligibility state onto the launch.
-                    # This filter admits any source_available local row, with no
-                    # eligibility check, so an ineligible-but-importable row's
-                    # launches land in the numerator while its own row sits in
-                    # the confirmed_ineligible bucket — a launch counted with
-                    # nothing behind it in the eligible denominator (PR #531
-                    # review-and-fix iter-1, Phase-2 VC-2 FAIL). Wave 1 does not
-                    # change which launches are counted (that is a numerator-
-                    # policy decision for the issue owner, not this fix loop);
-                    # it makes the composition VISIBLE — metrics tally launches
-                    # by this state, so an incoherent ratio is readable rather
-                    # than silent. "Never silently omitted" cuts both ways: the
-                    # row is not dropped, and neither is the discrepancy.
-                    provenance={"session_id": sid, "event_index": event.index,
-                                "lifecycle_eligibility_state": eligibility_state},
+                    provenance={"session_id": sid, "event_index": event.index},
+                    # The OWNING row's eligibility state. Extraction admits any
+                    # source_available local row with no eligibility check, so an
+                    # ineligible-but-importable row's launches land in the
+                    # numerator while its own row sits in the confirmed_ineligible
+                    # bucket — a launch counted with nothing behind it in the
+                    # eligible denominator (PR #531 review-and-fix iter-1,
+                    # Phase-2 VC-2 FAIL). Wave 1 does not change WHICH launches
+                    # are counted (a numerator-policy decision for the issue
+                    # owner, not this fix loop); it makes the composition
+                    # VISIBLE — metrics tally launches by this state, so an
+                    # incoherent ratio is readable rather than silent. "Never
+                    # silently omitted" cuts both ways: the row is not dropped,
+                    # and neither is the discrepancy.
+                    owning_lifecycle_eligibility_state=eligibility_state,
                 ))
     return requests, launches
 
@@ -2123,9 +2158,8 @@ def compute_metrics(
     # discrepancy readable instead of silent; a non-zero non-eligible tally is
     # the signal that the ratio is not a clean fraction.
     launches_by_eligibility = count_into(
-        (str(launch.provenance.get("lifecycle_eligibility_state") or "unrecorded")
-         for launch in actual_launches),
-        ELIGIBILITY_STATES + ("unrecorded",),
+        (launch.owning_lifecycle_eligibility_state for launch in actual_launches),
+        ELIGIBILITY_STATES,
     )
     return {
         "census_rows": len(rows),

@@ -333,14 +333,33 @@ def main(argv: "list[str] | None" = None) -> int:
     payload = json.dumps(snapshot, indent=2, sort_keys=True).encode("utf-8")
     out_path = Path(args.out)
     _atomic_write(out_path, payload)
-    print(f"devflow census-export: wrote {out_path} (rows={snapshot['row_count']} pagination_complete={pagination_complete} hash={snapshot['snapshot_hash'][:12]})")
-    if not pagination_complete:
-        # Loud degradation: the snapshot is INCOMPLETE (a transport failure or a
-        # truncated page). The analyzer reads this as cloud coverage 'unavailable'
-        # (never a partial-as-complete census), so exit 0 is intentional — the
-        # degraded snapshot is still usable — but the operator must see it (issue
-        # #527 review). The in-file `pagination_complete: false` is the durable record.
-        print("devflow census-export: WARNING — pagination incomplete; the snapshot is partial and the analyzer will read cloud coverage as unavailable", file=sys.stderr)
+    # Report the RECORDED value, not the fetch-level local. build_snapshot folds
+    # dropped rows into the flag it writes (`complete = pagination_complete and
+    # dropped_runs == 0 and dropped_jobs == 0`), so a dropped-row census made
+    # this line print `pagination_complete=True` while the artifact it had just
+    # written said false — stdout contradicting its own file — AND took the
+    # `if not pagination_complete` branch as false, so the degradation the
+    # comment below calls "the operator must see it" was silent on exactly the
+    # path that needed it. Reading the snapshot keeps the reported value and the
+    # durable record the same operand by construction, rather than two
+    # derivations that can disagree (PR #531 review-and-fix iter-1, shadow).
+    recorded_complete = snapshot["pagination_complete"]
+    print(f"devflow census-export: wrote {out_path} (rows={snapshot['row_count']} pagination_complete={recorded_complete} hash={snapshot['snapshot_hash'][:12]})")
+    if not recorded_complete:
+        # Loud degradation: the snapshot is INCOMPLETE (a transport failure, a
+        # truncated page, or a dropped malformed row). The analyzer reads this as
+        # cloud coverage 'unavailable' (never a partial-as-complete census), so
+        # exit 0 is intentional — the degraded snapshot is still usable — but the
+        # operator must see it (issue #527 review). The in-file
+        # `pagination_complete: false` is the durable record. Name WHICH cause
+        # fired: the counts are already on the snapshot, and "pagination
+        # incomplete" alone misdiagnoses a clean-transport dropped-row census.
+        print(
+            "devflow census-export: WARNING — snapshot incomplete (transport failure, truncated page, "
+            f"or {snapshot['dropped_run_count']} dropped run(s) / {snapshot['dropped_job_count']} dropped job(s)); "
+            "the snapshot is partial and the analyzer will read cloud coverage as unavailable",
+            file=sys.stderr,
+        )
     return 0
 
 
