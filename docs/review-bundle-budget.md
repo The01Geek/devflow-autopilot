@@ -7,12 +7,20 @@ budget contract later changes are held to.
 
 ## How these numbers are measured
 
-- **Words are `wc -w`.** This is load-bearing, not incidental: `wc -w` is the only method that
-  reproduces the pre-split baseline of **33,827 words** that issue #529 states, and it disagrees
-  with Python's `str.split()` by ~10 words on this bundle. With AC3's headroom in the low double
-  digits, the counting method decides the verdict — during the #529 implementation the
-  `str.split()` figure reported a PASS on a path that `wc -w` scored as a 6-word FAIL. Measure with
-  `wc -w`.
+- **Words are `LC_ALL=C wc -w`.** The locale is part of the method, not decoration. `wc -w` splits
+  on whitespace, but *which* codepoints are whitespace is locale-dependent: under a UTF-8 locale,
+  BSD `wc` (macOS) treats the `≠` (U+2260) in the root's `rc≠0` prose as a word separator and scores
+  `rc≠0` as **two** words; under `LC_ALL=C` it is one. That one character class is worth +12 words on
+  the complete bundle. Every figure on this page before 2026-07-17 was measured with a bare `wc -w`
+  on macOS in a UTF-8 locale, so it reproduced at one desk and nowhere else — CI counted the same
+  bytes, got the C-locale figure, and the AC4 reconciliation went red against a record that was
+  never wrong about the bundle, only about the host. `LC_ALL=C` fixes the method to the reading BSD
+  and GNU `wc` agree on (in the C locale both are byte-wise `isspace`, which POSIX mandates).
+  Measure with `LC_ALL=C wc -w`.
+- **A corollary worth keeping:** under `LC_ALL=C`, `wc -w` and Python's `str.split()` agree exactly
+  (28,687 on the default path). The "these two methods disagree by ~10 words, so the method decides
+  the verdict" warning this page used to carry was describing the locale artifact above, not a real
+  property of the two counters.
 - **Bytes** are `wc -c`; **lines** are `wc -l`.
 - **Approximate tokens** are `ceil(bytes / 4)` — the same heuristic
   [`docs/workflow-flight-recorder.md`](workflow-flight-recorder.md) uses, and explicitly *not*
@@ -21,8 +29,13 @@ budget contract later changes are held to.
   reads, each paying its own rounding. The two conventions differ by a token or three on the
   multiplied rows; on an explicitly approximate heuristic that is noise, but the rows are
   reproducible only against the stated convention.
-- **Baseline ("before")** is `origin/main` at the split: `skills/review/SKILL.md` +
-  `.devflow/prompt-extensions/review.md`.
+- **Baseline ("before")** is `origin/main` at the split — rev `4e2ae406`: `skills/review/SKILL.md` +
+  `.devflow/prompt-extensions/review.md`, together 237,113 B. Issue #529 states this baseline as
+  **33,827 words**; that is the same bytes counted in a UTF-8 locale (the `≠` artifact above).
+  Re-measured under the pinned method it is **33,815 words**, and that is the figure this page and
+  `lib/test/run.sh` use — a reduction whose two operands were counted differently is not a
+  measurement. The baseline is frozen: a historical measurement cannot change, so only the *after*
+  half is re-measured each run.
 
 ## The bundle
 
@@ -44,10 +57,10 @@ budget contract later changes are held to.
 
 | Row | Before — lines / words / bytes / ~tokens | After — lines / words / bytes / ~tokens |
 |---|---|---|
-| Root (`skills/review/SKILL.md`) | 1,559 / 33,390 / 233,903 / 58,476 | 375 / 7,790 / 52,285 / 13,072 |
-| Complete bundle | 1,604 / 33,827 / 237,113 / 59,279 | 1,681 / 34,904 / 245,296 / 61,324 |
-| Default per-pass unique path | 1,604 / 33,827 / 237,113 / 59,279 | 1,543 / 28,697 / 202,614 / 50,654 |
-| Max incremental phase read | 1,559 / 33,390 / 233,903 / 58,476 | 245 / 6,057 / 42,753 / 10,689 |
+| Root (`skills/review/SKILL.md`) | 1,559 / 33,378 / 233,903 / 58,476 | 375 / 7,787 / 52,285 / 13,072 |
+| Complete bundle | 1,604 / 33,815 / 237,113 / 59,279 | 1,681 / 34,892 / 245,296 / 61,324 |
+| Default per-pass unique path | 1,604 / 33,815 / 237,113 / 59,279 | 1,543 / 28,687 / 202,614 / 50,654 |
+| Max incremental phase read | 1,559 / 33,378 / 233,903 / 58,476 | 245 / 6,051 / 42,753 / 10,689 |
 | Consumer extension (shipped repo copy) | 45 / 437 / 3,210 / 803 | 45 / 438 / 3,239 / 810 |
 
 **Formulas and included paths**
@@ -57,13 +70,13 @@ budget contract later changes are held to.
   against baseline (+1,077 words); see *Justified growth* below.
 - **Default per-pass unique path** — root + shipped extension + each source a pass requires when
   **no blocker fast path** and **no stale-prose predicate** holds, each counted **exactly once**:
-  the six always/standalone references, *excluding* the three gated ones (6,207 words). This is the
+  the six always/standalone references, *excluding* the three gated ones (6,205 words). This is the
   conservative reading — it counts `phase-4-4-github-post.md`, which a standalone pass loads and a
   `/devflow:review-and-fix` pass does not, so the review-and-fix default path is *smaller* still
-  (27,702 words). **This metric makes no retained-context claim**: it counts what a pass must read,
+  (27,692 words). **This metric makes no retained-context claim**: it counts what a pass must read,
   not what stays resident.
 - **Max incremental phase read** — the largest single reference **by words** (`phase-4-verdict.md`,
-  6,057). By *bytes* the largest is `phase-3-agents.md` (43,397 B) — the two maxima are different
+  6,051). By *bytes* the largest is `phase-3-agents.md` (43,397 B) — the two maxima are different
   files, so the metric names which one it maximizes rather than implying a single "biggest phase".
 - **Consumer extension** — reported as its **own additive row**, never summed into the ceilings.
   This table measures the *shipped repo copy*; a live consumer's
@@ -73,13 +86,13 @@ budget contract later changes are held to.
 
 | Contract | Ceiling | Measured | Margin |
 |---|---|---|---|
-| Root + shipped extension (AC2) | ≤ 8,500 words | **8,228** | 272 |
-| Reduction vs the 33,827 baseline (AC2) | ≥ 25,327 words | **25,599** | 272 |
-| Default per-pass unique path (AC3) | ≤ 28,700 words | **28,697** | 3 |
+| Root + shipped extension (AC2) | ≤ 8,500 words | **8,225** | 275 |
+| Reduction vs the 33,815 baseline (AC2) | ≥ 25,327 words | **25,590** | 263 |
+| Default per-pass unique path (AC3) | ≤ 28,700 words | **28,687** | 13 |
 
 AC3's margin is **thin by construction** — the ceiling sits just above what the split can achieve.
 Adding words to the root or to any non-gated reference spends that margin directly. Re-measure with
-`wc -w` before adding prose to either.
+`LC_ALL=C wc -w` before adding prose to either.
 
 ### The AC3 metric is not the shipped default
 
@@ -90,8 +103,8 @@ than the gated one:
 
 | Path | Gating | Measured | vs the 28,700 ceiling |
 |---|---|---|---|
-| AC3 default path (no stale-prose predicate) | **gates this repo** | 28,697 | 3 under |
-| Shipped-default path (stale-lint gate at its `true` default) | *non-gating — recorded only* | **30,956** | **2,256 OVER** |
+| AC3 default path (no stale-prose predicate) | **gates this repo** | 28,687 | 13 under |
+| Shipped-default path (stale-lint gate at its `true` default) | *non-gating — recorded only* | **30,944** | **2,244 OVER** |
 
 AC3 is implemented **as written**: its literal wording governs the gate, and the number above it is the
 one the suite asserts. This second row is published so that the gap between the metric's *name* and the
@@ -155,7 +168,7 @@ The **complete bundle** grows by **1,077 words / 8,183 bytes** against baseline.
 expected cost of the split and is stated rather than hidden: the root gained the bundle-identity
 contract, the boundary contract, and the routing table (~960 words), and each reference carries a
 start/end boundary marker pair. The growth buys the AC3 reduction — the gated references
-(6,207 words: blocker fast path, stale-prose lint, stale-prose adjudication) leave the default path
+(6,205 words: blocker fast path, stale-prose lint, stale-prose adjudication) leave the default path
 entirely, so *every* execution-weighted row above falls even though the static total rises.
 
 Per [`docs/workflow-flight-recorder.md`](workflow-flight-recorder.md), justified growth is **a
