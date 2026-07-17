@@ -1,0 +1,152 @@
+<!-- devflow:review-ref phase=1 file=skills/review/phases/phase-1-checklist.md start -->
+## Phase 1: Verification Checklist Generation
+
+Output: `Phase 1/4: Generating verification checklist...`
+
+**Skip this entire phase (and Phase 2) when Phase 0.5 set `checklist_skipped = "intentional"`** (small_diff AND config_only). Proceed directly to Phase 3. The verdict rule in 4.2 distinguishes this intentional skip from a checklist-gen failure.
+
+### 1.1 Determine batching
+
+Count the changed files. If 10 or fewer, launch one checklist-generator agent. If more than 10, split into batches of 10 (in the Phase 0.3 document order) and launch one agent per batch.
+
+**Hand off each batch's slice by file reference, not inline content — the `{DIFF_PATH}` pattern Phase 3 already uses, extended to Phase 1.** The slice content must never transit the orchestrator's context (that inline transit is the cost this removes — it was re-paid on every engine pass, including every shadow). So author each batch's slice as a **file on disk** and pass the generator its *path*:
+
+- **Single batch (≤10 files):** pass the cached full diff path `.devflow/tmp/review/<slug>/<run-id>/diff.patch` (from Phase 0.2) directly — **write no slice file.** There is only one batch, so its slice *is* the full diff.
+- **Multiple batches (>10 files):** author each batch's slice from the **already-cached `diff.patch`** (never a fresh `git`/`gh` fetch — no `git` object access, so a shallow consumer checkout is unaffected). Because Phase 0.3 derived the file list by reading `diff.patch`'s `^diff --git` headers **in document order**, batch _k_ (1-based) is exactly the _k_-th run of 10 `diff --git` sections — a numeric range, so the extraction takes **no per-file filename arguments** — its only operand is the fixed run-scoped `diff.patch` path, so no changed-file path is ever passed and paths with spaces cannot break quoting. For batch _k_, with `s=(k-1)*10+1` and `e=k*10`, extract sections _s_ through _e_ with `awk`, **redirecting** its stdout into a run-scoped slice file beside the cached diff — shell-only, and because the extraction is redirected to the file rather than piped through `tee`, the slice content never enters the orchestrator's context:
+
+  ```bash
+  awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .devflow/tmp/review/<slug>/<run-id>/diff.patch > .devflow/tmp/review/<slug>/<run-id>/batch-1.patch && test -s .devflow/tmp/review/<slug>/<run-id>/batch-1.patch && echo "slice-ok: batch-1" || echo "slice-failed: batch-1 — dispatch the full diff.patch path for this batch"
+  ```
+
+  (`awk` is a granted head and an **in-workspace `>` redirect of a granted head** is a permitted shape — Phase 4.5's `> .devflow/tmp/…/iter-1.json` is the precedent — so it adds **no** allowlist entry. This deliberately does **not** reuse Phase 0.2's `| tee` form: Phase 0.2 needs the diff on stdout for Phase 1 consumption, whereas here the generator Reads the slice by *path*, so a `tee` would only echo the slice to stdout — which the Bash tool returns into the orchestrator's context, the exact per-pass transit this change removes.)
+
+**Fail-closed fallback (guard-class 2).** `awk` is not a preflight-guaranteed tool, so a batch's slice is usable only when the authoring command **both** exited 0 **and** left a non-empty file — which is why the fence above is an `&&`-chain: the slice is gated on `awk`'s **own exit status** first, and the `test -s` non-empty check (a **bash builtin** — never another PATH tool) second. Gate on the exit status, never on the output shape alone: `test -s` answers "is the file non-empty?", which admits strictly more than "did `awk` write the whole slice?" — a partial write (`ENOSPC`, quota, a killed `awk`) leaves a **non-empty but truncated** slice that a size-only check waves through, and the batch would then review a thinned surface with the missing files silently unrepresented. **On `slice-failed` — a non-zero `awk`/redirect exit, or a missing/empty slice — fall back to passing the full `diff.patch` path for that batch** (coverage preserved, savings forfeited), and record the fallback in the run's telemetry notes (`step_2_6`/`phase_1` in `/devflow:review-and-fix`; chat in standalone). A fallback batch relies on the generator's retained scope instruction (generate items only for this batch's listed files) so the full diff cannot inflate cross-batch duplicates.
+
+The residual window this leaves is narrow and named: a write error that `awk` itself neither reports nor exits non-zero on would still yield a truncated slice. The claim the mechanism supports is therefore *"a slice-authoring failure the shell can observe routes to the full diff"* — not an unqualified "never a thinned review surface."
+
+Tell each batch which other files are being handled by sibling batches so it does not generate items for them.
+
+Merge the resulting checklists by concatenating all items. If batching ran (>1 batch), proceed to **Phase 1.5: Dedup** before renumbering. If only one batch ran, renumber IDs sequentially (`VC-1`, `VC-2`, ...) and skip Phase 1.5.
+
+**In-batch sanity dedup** still applies before Phase 1.5 hands the array off:
+1. **Same-claim dedup**: drop items that make the same claim about the same `source_file`. "Same claim" = same defect/contract under scrutiny, not identical wording (e.g., the same path/format assertion appears in both batches → keep one). When Phase 1.5 runs, this is mostly a no-op — the deduper agent does the heavy lifting via `claim_signature`.
+2. **Cross-cutting theme dedup**: cross-cutting checks that apply repo-wide — e.g. license/SPDX header conventions, naming or branding rules, `.gitignore` anchoring — should appear at most once each in the merged list, not once per batch. The category for these is "api_contract" by convention.
+
+### 1.1.5 Cap and prioritize
+
+If the merged-and-deduped checklist's item count exceeds **100**, sort by priority and keep the top 100:
+1. Items whose claim cites an issue acceptance criterion (highest yield — these failing means the PR doesn't deliver the feature).
+2. `absolute_claim` items (a diff-added universal the reviewer must *falsify* by constructing the offending input — the highest-value target precisely because reading it confirms nothing; see `agents/checklist-generator.md`).
+3. `dependency_interaction` items (cross-boundary contracts — highest drift risk).
+4. `test_mock_alignment` items (mocks-vs-real divergence is a classic PR-killer).
+5. `api_contract` items.
+6. `data_format_assumption` items.
+
+Drop items below the cap. This is a cost cap: every checklist item triggers a verifier subagent in Phase 2. Real-world runs on medium PRs have produced 150+ items when generators are exhaustive on doc-heavy diffs, but the load-bearing signal (cross-boundary contracts, mock-vs-real divergence, issue acceptance) is usually captured well within 100. Announce the cap in chat: `Capped checklist at 100 of {N} items (dropped {M} items by category: dependency_interaction: K1, api_contract: K2, ...; priority kept: issue-acceptance, dependency_interaction, ...).` so the human reader knows which categories took the hit, not just that coverage was truncated. (In `/devflow:review-and-fix` mode the same data also lands in the workpad's `cap_drops` block and the report's `## Coverage` section; in standalone `/devflow:review` runs the chat announcement is the only surface.)
+
+**Record what was dropped.** When the cap fires, summarize the dropped items by category so the orchestrator can surface coverage gaps in the final report (and the fix-loop wrapper can record it in the workpad — see `cap_drops` in `/devflow:review-and-fix`'s workpad schema). Compute and return alongside the truncated checklist:
+
+```json
+{
+  "count": M,
+  "by_category": {
+    "dependency_interaction": K1,
+    "api_contract": K2,
+    "test_mock_alignment": K3,
+    "data_format_assumption": K4,
+    "...": "..."
+  }
+}
+```
+
+where `M` is the total dropped count (`N - 100`) and the per-category counts sum to `M`. If the cap did not fire, return `{"count": 0, "by_category": {}}`. The orchestrator stores this for the report's `## Coverage` section in `/devflow:review-and-fix` and for the chat announcement in standalone `/devflow:review` runs.
+
+### 1.2 Launch checklist-generator agent(s)
+
+Use the **Agent tool** with `subagent_type: "devflow:checklist-generator"`. First resolve overrides for the agents about to be dispatched (`devflow:checklist-generator`) per **Per-Subagent Model/Effort Overrides** above, and dispatch through the materialized `--agents` block when one applies.
+
+Pass the following prompt — carrying the slice's **file path** (from Phase 1.1), never the inline diff content:
+```
+The diff you must analyze is cached on disk. Read it directly with your Read tool — it is NOT inlined here.
+
+Diff path: {SLICE_PATH}
+  (In a >1-batch run this is your batch's slice — only your batch's files. On the fail-closed fallback, or in a single-batch run, it is the full cached diff `.devflow/tmp/review/<slug>/<run-id>/diff.patch`.)
+
+Changed files to analyze:
+{paste the file list here}
+
+Generate the verification checklist ONLY for the changed files listed above — even if the diff at that path contains other files (a fallback slice is the full diff). Return the JSON array in a ```json code fence.
+```
+Substitute `{SLICE_PATH}` with the batch's slice path (`.devflow/tmp/review/<slug>/<run-id>/batch-<k>.patch`), or the full `diff.patch` path on a single-batch run or the Phase 1.1 fail-closed fallback. In a >1-batch run, also name the sibling batches' files (per Phase 1.1) so this batch does not generate items for them.
+
+**If `issue_context` is not empty**, append this to the prompt:
+
+```
+The following GitHub issue describes the intended behavior for this PR. In addition to code-correctness items, include checklist items that verify the PR implements the key requirements from the issue's summary and desired behavior sections. Focus on functional requirements — not stylistic suggestions or background context in the issue.
+
+<issue>
+Title: {issue_title}
+Body (first 200 lines):
+{truncated_issue_body}
+</issue>
+```
+
+**If the caller is `/devflow:review-and-fix` on iteration N≥2** (the fix-loop wrapper supplies `prior_checklist` from `iter-<N-1>.json`), append this to the prompt:
+
+```
+This is iteration N (N≥2) of an auto-fix loop. The previous iteration's verification checklist is supplied below. Operate in variance-recovery mode per your agent contract (Step 2b):
+
+- Generate claims NOT already present in the prior checklist (dedup against `claim_signature`).
+- Prioritize claim categories that are underrepresented in the prior iteration.
+- The goal is variance recovery — surfacing what a second-look pass would catch — NOT re-litigation of items already considered.
+
+Return an empty JSON array `[]` if a second pass surfaces nothing new.
+
+<prior_checklist iteration="N-1">
+{paste the iter-(N-1) checklist JSON — id, category, claim, source_file, claim_signature, verdict}
+</prior_checklist>
+```
+
+### 1.3 Parse the checklist
+
+Extract the JSON array from the agent's response (look for the ```json code fence).
+
+If the agent fails or returns malformed JSON, retry once. If it fails again, log: "Verification checklist generation failed. Proceeding with existing agents only." Set a `checklist_skipped` flag and skip to Phase 3.
+
+Store the parsed checklist items for Phase 1.5 (if batched) or Phase 2 (if single-batch).
+
+Output: `Generated {N} verification checklist items.`
+
+---
+
+## Phase 1.5: Dedup (only when Phase 1 ran in >1 batch)
+
+When Phase 1 ran a single generator batch, skip this phase entirely — there are no cross-batch duplicates to resolve.
+
+When Phase 1 ran in 2+ batches, dedupe via the `devflow:checklist-deduper` agent instead of manually. Manual cross-batch dedup is bias-prone (real-run telemetry: orchestrator collapsing ~70 items to ~40 by hand consistently dropped 3–6 legitimate distinct items per run).
+
+Output: `Phase 1.5/4: Deduping checklist across {B} batches...`
+
+### 1.5.1 Launch the deduper agent
+
+Use the **Agent tool** with `subagent_type: "devflow:checklist-deduper"`. Resolve overrides for `devflow:checklist-deduper` per **Per-Subagent Model/Effort Overrides** above and dispatch through the materialized `--agents` block when one applies.
+
+Concatenate the raw checklist items from all batches into a single JSON array. Preserve each item's original `id` and tag it with its source batch so traceability survives the merge — prefix each `id` with `batch{K}:` (e.g. `batch1:VC-3`, `batch2:VC-1`) before passing to the deduper.
+
+Pass the following prompt:
+```
+Here is the concatenated raw checklist from {B} generator batches. Merge duplicates per your dedup rules and return the deduped JSON array. Preserve `merged_from` provenance on every surviving item.
+
+<raw_checklist>
+{paste the JSON array of all items from all batches, with batch-prefixed ids}
+</raw_checklist>
+```
+
+### 1.5.2 Parse the deduped checklist
+
+Extract the JSON array from the deduper's response (look for the ```json code fence). The output array uses fresh sequential IDs (`VC-1`, `VC-2`, ...) and records `merged_from` on each item.
+
+If the deduper agent fails or returns malformed JSON, retry once. If it fails again, fall back to manual cross-batch dedup using the **In-batch sanity dedup** rules from Phase 1.1 and continue — do NOT block the engine on dedup failure.
+
+Output: `Deduped to {N_after} of {N_before} items.`
+<!-- devflow:review-ref phase=1 file=skills/review/phases/phase-1-checklist.md end -->
