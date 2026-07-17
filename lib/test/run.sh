@@ -41661,6 +41661,41 @@ if [ -d "$I3_SB" ]; then
   rm -rf "$I3_SB"
 fi
 
+# iter4_variance_rows (#546, PR #552 review round 4) — the two mutation-path guards the
+# round-4 variance pass showed were covered only at the _validate layer: the record-return
+# negative findings-count refusal, and _repo_root's anchor-fallback breadcrumb.
+I4_SB="$(git_sandbox '#546 iter4_variance_rows')"
+if [ -d "$I4_SB" ]; then
+  (
+    cd "$I4_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+    N="$(python3 "$IAS" init i4 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i4 --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i4 --nonce "$N" --round 1 --verdict FILE \
+      --findings-count -1 --carriage-object-id "$OID" > /dev/null 2> .i4-neg; printf '%s' "$?" > .i4-neg-rc
+
+    # anchor-fallback breadcrumb: no git on PATH and no enclosing repo -> init still
+    # works (cwd anchor) but breadcrumbs the selection change to stderr
+    mkdir -p nogit-bin nogit-cwd
+    ln -sf "$(command -v python3)" nogit-bin/python3
+    ( cd nogit-cwd && PATH="$I4_SB/nogit-bin" python3 "$IAS" init fb > ../.i4-fb-out 2> ../.i4-fb-err )
+    ls nogit-cwd/.devflow/tmp > .i4-fb-files 2>/dev/null
+  )
+  assert_eq "#546 iter4_variance_rows: a negative --findings-count refuses at the mutation seam" \
+    "1" "$(cat "$I4_SB/.i4-neg-rc" 2>/dev/null)"
+  assert_eq "#546 iter4_variance_rows: ... with the named breadcrumb" \
+    "1" "$(grep -c 'is negative' "$I4_SB/.i4-neg" 2>/dev/null)"
+  assert_eq "#546 iter4_variance_rows: with git unresolvable the anchor falls back to cwd WITH the selection breadcrumb" \
+    "1" "$(grep -c 'anchoring state to the current directory' "$I4_SB/.i4-fb-err" 2>/dev/null)"
+  assert_eq "#546 iter4_variance_rows: ... and the state file lands under the cwd anchor" \
+    "issue-audit-state-fb.json" "$(cat "$I4_SB/.i4-fb-files" 2>/dev/null)"
+  rm -rf "$I4_SB"
+fi
+
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
