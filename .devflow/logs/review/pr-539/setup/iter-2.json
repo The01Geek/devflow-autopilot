@@ -1,0 +1,15 @@
+{
+  "iter": 2,
+  "fix_commit_sha": "9fd497913d812ba4db3c45eb15e5379371398071",
+  "fix_files": [
+    ".changeset/issue-475-harness-side-cost-floor.md",
+    "docs/cloud-setup.md",
+    "docs/efficiency-trace.md",
+    "docs/implement-skill.md",
+    "lib/efficiency-trace.sh",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
