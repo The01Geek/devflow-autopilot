@@ -4021,8 +4021,9 @@ assert_pin_unique "rcv: step 0 fail-soft path" \
 # a sed -E mutation re-introduces the named bug and the pin is observed PASS->FAIL, so a
 # framing-only pin that stayed green under the operative half-revert is caught mechanically.
 #
-# Presence pins: the 17 named contract sentences, the three-arm classifier structure, and two
-# defensive out-of-set pins (AC10 no-subject stop + the guard-class-2 fail-open sentence).
+# Presence pins: the 17 named contract sentences, the three-arm classifier structure, and
+# defensive out-of-set pins (AC10 no-subject stop, the guard-class-2 fail-open sentence, and the
+# arm-2 bare-token corroboration gate).
 assert_pin_unique "rcv/#545 P-carveout: preflight scoped to direct invocation, loop governs otherwise" \
   'and this preflight is not consulted' "$RECV_SKILL"
 assert_pin_unique "rcv/#545 P-nocmd: neither-context run executes no preflight command" \
@@ -4066,6 +4067,12 @@ assert_pin_unique "rcv/#545 P-nosubject: no PR + no feedback + no checkout bindi
   'and the skill stops and asks for the subject instead of triaging' "$RECV_SKILL"
 assert_pin_unique "rcv/#545 P-guardclass2: fact statuses derived with builtins, non-preflight tool fails open" \
   'a missing tool would fail open and stamp a fact' "$RECV_SKILL"
+# P-arm2corrob (issue #545 shadow, pr-test-analyzer): pin the arm-2 bare-leading-token
+# corroboration REQUIREMENT itself, not only its disjointness consequence — P-corroborate fires
+# only when the feedback names paths, so without this pin a paraphrase dropping the corroboration
+# gate would bind a wrong PR as `established` in path-less feedback, uncaught.
+assert_pin_unique "rcv/#545 P-arm2corrob: a bare leading-token binding needs independent corroboration to be established" \
+  'only when corroborated by an independent channel' "$RECV_SKILL"
 #
 # Behavioral-fix mutation evidence (15): each sed -E mutation re-introduces the named bug.
 assert_pin_red_under "rcv/#545 P-carveout-mp: deleting the loop-governs clause (double-establishment bug)" \
@@ -4134,22 +4141,33 @@ pf545_cmd_lines() {  # file -> non-blank, non-comment command lines inside the s
 pf545_cmd_count() {  # count of ALL command lines in the section's bash fences (non-vacuity)
   pf545_cmd_lines "$1" | grep -c . || true
 }
-# Illegal = any fenced command line whose head is NOT in the AC5 permitted read-only set.
-# The set is broader than git/gh: AC5 also permits the extension loader and the threshold
-# read, both invoked via the portable ${CLAUDE_SKILL_DIR:-…}/…/scripts/<helper> anchor — so
-# the helper basename is always PATH-PREFIXED (a "/" precedes it). The exemption is anchored to
-# that "/<basename>" path form (not a bare substring), so a mutating command that merely NAMES
-# a helper (e.g. `rm -f config-get.sh`, with no leading slash) is NOT exempted and is counted
-# illegal. Every OTHER head — a git/gh WRITE subcommand (push/checkout/merge/…), or any
-# non-git/gh command (rm/curl/python3/sed -i/…) — survives both filters and is counted illegal,
-# so the membership check enforces AC5's "and from nothing else" for every head, not only
-# git/gh-prefixed ones (issue #545 review: the git/gh-only scope failed open against the
-# section's own "every command head" contract; the fix-delta gate then flagged the unanchored
-# helper-basename exemption as a residual fail-open, tightened here to the path-anchored form).
+# Illegal = any fenced command SEGMENT whose leading token is NOT in the AC5 permitted read-only
+# set. Two shape defenses make this an every-head check rather than a line-head check (issue #545
+# review + shadow): (1) trailing ` #…` comments are stripped first (the fence's descriptive
+# comments carry punctuation like `;` that would otherwise read as command separators); (2) each
+# line is split into command segments on the shell operators that begin a new command (`&&`,
+# `||`, `;`, and a pipe), so a mutator CHAINED after a permitted read (`git fetch && git reset`,
+# `git rev-parse HEAD ; git push`) is caught, not just a standalone illegal head. The AC5 set is
+# broader than git/gh: it also permits the extension loader and the threshold read, invoked via
+# the portable ${CLAUDE_SKILL_DIR:-…}/…/scripts/<helper> anchor — so the helper exemption is
+# HEAD-anchored to the segment's leading `[path/]<helper>` token, NOT a substring anywhere on the
+# line. Thus a mutator that merely NAMES a helper (`rm -f config-get.sh`) or takes its PATH as an
+# ARGUMENT (`sed -i … scripts/config-get.sh`, `rm -f scripts/config-get.sh`) is not exempted and
+# is counted illegal, while the real leading-token invocation is. Every git/gh WRITE subcommand
+# (push/checkout/merge/…) and every non-git/gh command (rm/curl/python3/…) survives all filters
+# and is illegal, enforcing AC5's "and from nothing else" for every segment head. (Accepted
+# bound: this is a drift guard over trusted, human-authored read-only prose — it does not model
+# heredocs, command substitutions, or nested subshells, shapes that do not occur in a read-only
+# preflight fence; over-flagging a genuinely non-AC5 read like a piped `| grep` is the fail-CLOSED
+# direction and is correct per AC5.)
 pf545_illegal_count() {
   pf545_cmd_lines "$1" \
+    | sed -E 's/[[:space:]]+#.*$//' \
+    | awk '{ gsub(/[[:space:]]*(&&|\|\||;|\|)[[:space:]]*/, "\n"); print }' \
+    | sed -E 's/^[[:space:]]+//' \
+    | grep -vE '^(#|$)' \
     | grep -vE '^(git fetch|git rev-parse|git status|git merge-base|git rev-list|gh pr view|gh issue view)([[:space:]]|$)' \
-    | grep -vE '/load-prompt-extension\.sh|/config-get\.sh' \
+    | grep -vE '^([^[:space:]]*/)?(load-prompt-extension\.sh|config-get\.sh)([[:space:]]|$)' \
     | grep -c . || true
 }
 assert_eq "rcv/#545 read-only detector: Reception Preflight section carries fenced commands (non-vacuous)" \
@@ -4201,6 +4219,34 @@ if [ "$PF545_INJ3" != "/dev/null" ]; then
   assert_eq "rcv/#545 read-only detector positive control 3: mutating 'rm -f config-get.sh' (names a helper) turns the scan RED" \
     "yes" "$([ "$(pf545_illegal_count "$PF545_INJ3")" -ge 1 ] && echo yes || echo no)"
   rm -f "$PF545_INJ3"
+fi
+# Fourth positive control: a mutator CHAINED after a permitted read on one fenced line (a
+# compound command) must turn the scan RED — proves the per-segment split, not just a line-head
+# check (issue #545 shadow: compound-line fail-open).
+PF545_INJ4="$(probe_tmp 'rcv/#545 read-only detector compound-line positive control setup')"
+if [ "$PF545_INJ4" != "/dev/null" ]; then
+  awk '
+    {print}
+    /^## Reception Preflight$/{inpf=1}
+    inpf && /^```bash$/ && !seen {print "git fetch && git reset --hard origin/main"; seen=1}
+  ' "$RECV_SKILL" > "$PF545_INJ4"
+  assert_eq "rcv/#545 read-only detector positive control 4: 'git fetch && git reset --hard' (chained mutator) turns the scan RED" \
+    "yes" "$([ "$(pf545_illegal_count "$PF545_INJ4")" -ge 1 ] && echo yes || echo no)"
+  rm -f "$PF545_INJ4"
+fi
+# Fifth positive control: a mutator that takes a helper PATH as an ARGUMENT (not as the leading
+# invocation token) must turn the scan RED — proves the helper exemption is head-anchored, not a
+# substring match anywhere on the line (issue #545 shadow: argument-position exemption fail-open).
+PF545_INJ5="$(probe_tmp 'rcv/#545 read-only detector helper-arg-position positive control setup')"
+if [ "$PF545_INJ5" != "/dev/null" ]; then
+  awk '
+    {print}
+    /^## Reception Preflight$/{inpf=1}
+    inpf && /^```bash$/ && !seen {print "sed -i s/a/b/ scripts/config-get.sh"; seen=1}
+  ' "$RECV_SKILL" > "$PF545_INJ5"
+  assert_eq "rcv/#545 read-only detector positive control 5: 'sed -i … scripts/config-get.sh' (helper path as argument) turns the scan RED" \
+    "yes" "$([ "$(pf545_illegal_count "$PF545_INJ5")" -ge 1 ] && echo yes || echo no)"
+  rm -f "$PF545_INJ5"
 fi
 
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
