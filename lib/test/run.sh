@@ -2373,6 +2373,9 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
 _acru_probe() {  # name assertion-fn args... -> echoes "<verdict>|<token>" for a self-test
   local verdict token _path
   { read -r verdict; read -r token; read -r _path; } < <(probe_two_line "$@")
+  rm -f "$_path"   # probe_two_line deliberately does NOT unlink (the AC mandates it, so the
+                   # FAIL-tally self-test can count ^FAIL$ against the still-present file); the
+                   # caller cleans up its own probe once it has read verdict+token+path.
   printf '%s|%s' "$verdict" "$token"
 }
 # A canonical fixture: a fenced block with exactly two MATCH lines between START and END.
@@ -2435,14 +2438,17 @@ assert_eq "#536 MUTATION-ERROR: a malformed mutation program records FAIL (no sp
 assert_eq "#536 MUTATION-NOOP: a no-op mutation records FAIL (never a vacuous pass)" \
   "FAIL|MUTATION-NOOP" "$(_acru_probe assert_count_red_under 'noop' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/ZZZ_NEVER_MATCHES/x/' "$ACRU_FX")"
 # ── The FAIL-tally self-test: a token that swallowed its own verdict line cannot pass
-# unnoticed. Drive the ANCHOR-COLLAPSE arm through probe_two_line AGAINST AN ISOLATED
-# RESULTS_FILE, then assert that file holds exactly one `^FAIL$` line (the bare verdict) —
-# the cause token sits on the line below and must NOT be counted as a second FAIL. ──
-ACRU_TALLY="$(mktemp)"
-RESULTS_FILE="$ACRU_TALLY" assert_count_red_under 'tally' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/ACRU_START sentinel/ACRU_START_GONE/' "$ACRU_FX" >/dev/null 2>&1
-assert_eq "#536 the two-line protocol leaves exactly one ^FAIL$ line in the tally (the cause token does not swallow its verdict)" \
-  "1" "$(grep -c '^FAIL$' "$ACRU_TALLY")"
-rm -f "$ACRU_TALLY"
+# unnoticed. Drive the ANCHOR-COLLAPSE arm THROUGH probe_two_line (which, per the AC, does
+# NOT unlink the probe — so this self-test can count `^FAIL$` against the still-present
+# file), then assert exactly one `^FAIL$` line (the bare verdict) — the cause token sits on
+# the line below and must NOT be counted as a second FAIL. ──
+ACRU_TALLY_OUT="$(probe_two_line assert_count_red_under 'tally' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/ACRU_START sentinel/ACRU_START_GONE/' "$ACRU_FX")"
+{ read -r ACRU_T_V; read -r ACRU_T_TOK; read -r ACRU_T_PATH; } <<< "$ACRU_TALLY_OUT"
+assert_eq "#536 FAIL-tally (via probe_two_line): the ANCHOR-COLLAPSE verdict is FAIL" "FAIL" "$ACRU_T_V"
+assert_eq "#536 FAIL-tally (via probe_two_line): the cause token is ANCHOR-COLLAPSE" "ANCHOR-COLLAPSE" "$ACRU_T_TOK"
+assert_eq "#536 the two-line protocol leaves exactly one ^FAIL$ line in the tally (the cause token on the next line does not swallow its verdict)" \
+  "1" "$(grep -c '^FAIL$' "$ACRU_T_PATH")"
+rm -f "$ACRU_T_PATH"
 # ── ERE-vs-BRE migration contract: the silent-conversion hazard. A PATTERN whose parens
 # are LITERAL (`Devflow Review (auto-trigger)`) counts differently as a BRE (1, parens
 # literal) than as an ERE (0, parens open a group). The helper's PATTERN is an ERE, so an
