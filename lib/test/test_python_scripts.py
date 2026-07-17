@@ -3980,6 +3980,33 @@ assert_eq("#546 draft_undigestible_rows: the summary never renders a live token 
           (lambda f: (f['token'], f['stale_token']))(
               issue_audit_state.summary_fields(_clean_file, None, digest_failed=True)))
 
+# summary_schema_rows — `summary_fields` answers on two INDEPENDENT branches
+# (state-unestablished and ok). The query surface renders the returned mapping key by key,
+# so a field added to one branch and forgotten on the other is a KeyError at a surface whose
+# contract is always-exit-0 — a two-class-contract violation, not a cosmetic slip. Both
+# branches are routed through the single `_summary` constructor, which fails loudly at the
+# call. These rows pin BOTH halves: that the two live branches actually agree, and that the
+# constructor is a real guard (a non-tautological positive control — it rejects the drift it
+# exists to catch, rather than merely existing).
+assert_eq("#546 summary_schema_rows: the two summary_fields branches answer with the "
+          "IDENTICAL field set (a KeyError at the query surface otherwise)",
+          sorted(issue_audit_state.summary_fields(None)),
+          sorted(issue_audit_state.summary_fields(_clean_file, 'D1')))
+assert_eq("#546 summary_schema_rows: ... and that field set is exactly _SUMMARY_FIELDS",
+          sorted(issue_audit_state._SUMMARY_FIELDS),
+          sorted(issue_audit_state.summary_fields(None)))
+# Positive control for the two rows above: the constructor REJECTS a branch that drops a
+# field, so their agreement is enforced rather than coincidental.
+assert_raises("#546 summary_schema_rows: _summary rejects a branch that OMITS a field",
+              AssertionError,
+              lambda: issue_audit_state._summary(
+                  **{k: None for k in issue_audit_state._SUMMARY_FIELDS[:-1]}))
+assert_raises("#546 summary_schema_rows: _summary rejects a branch that adds an UNKNOWN "
+              "field (a typo'd key would otherwise render as a silently missing field)",
+              AssertionError,
+              lambda: issue_audit_state._summary(
+                  **{k: None for k in issue_audit_state._SUMMARY_FIELDS}, bogus_field=1))
+
 print()
 print("issue-audit-state: shadow-round hardening (issue #546, PR #552 shadow review)")
 

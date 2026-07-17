@@ -22,14 +22,15 @@ bump: patch
   identity still holds (byte-digest equality on file-arm epochs; revision ordering on the
   embed and inline arms, where no trustworthy canonical file exists), or on an explicitly
   recorded override that has not been invalidated by a later revision. Every `eligible`
-  answer carries a deterministic, digest-bound eligibility token that the audit summary
+  answer carries a deterministic eligibility token bound to the answering digest or
+  revision ordinal — whichever ground answered — that the audit summary
   line quotes verbatim, so a presentation whose summary lacks the matching current token is
   detectable in the transcript. This **narrows** the prose-compliance gap the motivating
   incident exposed — it does not close it, because no in-process component can force an
   orchestrator that never invokes it (issue #546, PR #552).
 
 - Issue creation is bound to the audited bytes: on file-arm epochs the posted body is
-  sourced from the gated canonical draft through the tool's body-emitting query, and every
+  sourced from the gated canonical draft through the tool's gated body emitter, and every
   creation is followed by a best-effort attestation that hashes the created issue's fetched
   body against the recorded body-only digest. A mismatch is surfaced in the reported outcome
   and the audit-summary fields (post-hoc detection — creation is not rolled back), and a

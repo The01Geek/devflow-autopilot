@@ -73,6 +73,18 @@ _EVENTS = (
     'init', 'dispatch', 'return', 'revision', 'override', 'degraded',
     'creation-epoch', 'creation-attestation',
 )
+# These are bare-string tuples, not Enums — a deliberate, recorded trade-off (raised on
+# PR #552 and deferred). The cost is real but narrow: because arms and verdicts are both
+# plain `str`, a TRANSPOSED `classify_return(arm, verdict)` is not a type error. It does not
+# fail open, though — a transposed call takes the verdict-not-in-_VERDICTS path and answers
+# `no-parseable-verdict`, the same fail-CLOSED retry token an unreadable return earns, and
+# every live caller passes these positionally from _validate'd state that already proved each
+# field is in its canonical set. The benefit kept: these tuples ARE the vocabulary the
+# import-time transition-table assert checks every row against, and membership tests
+# (`x not in _ARMS`) read directly against the JSON state file's bare strings with no
+# serialization layer. Revisit if either changes: (a) a caller starts passing an arm/verdict
+# that did NOT come through _validate (e.g. a new CLI flag read straight into classify_return),
+# or (b) a transposition ever survives to a wrong ANSWER rather than the closed retry token.
 _ARMS = ('file', 'embed', 'inline')
 _VERDICTS = ('FILE', 'REVISE', 'DRAFT-UNREADABLE')
 _ROUND_OUTCOMES = ('FILE', 'REVISE', 'no-verdict')
@@ -127,6 +139,20 @@ _USER_ROUND_CAP = 3
 # One row per transition. The verdict-on-arm rows are consulted at runtime by
 # _legality(); the other events' rows are the audited record of each cmd_* guard,
 # kept honest by the tests' count-and-content lockstep rather than by a runtime read.
+#
+# This table is deliberately NOT a "single source of truth", and nothing here claims it is
+# — read the split above literally. Only the verdict-on-arm rows decide anything at runtime;
+# every other row is DOCUMENTATION of a guard that is hand-coded imperatively in its cmd_*
+# function. Known, accepted limitation (raised on PR #552 and kept): a cmd_* guard edited
+# without its row (or vice versa) can silently disagree, and the lockstep does not catch it
+# — the lockstep checks table-vs-registry consistency, not table-vs-cmd_*-behavior.
+# It is accepted rather than fixed because the fail-direction is bounded: the guards ARE the
+# enforcement, so a drifted row cannot admit a wrong value, corrupt state, or skip a guard —
+# it can only mislead a reader. That is a docs-accuracy risk, not a fail-open one.
+# Revisit if any of these change: (a) a non-verdict-on-arm row acquires a runtime reader (at
+# which point drift stops being cosmetic and this table must become authoritative for it),
+# (b) a drift between a row and its guard actually reaches main, or (c) the cmd_* guards are
+# reworked such that consulting legal/reason from the rows stops being a rewrite of each one.
 # Every row names the tokens it references; the import-time
 # assert below rejects any token outside its canonical set, so a renamed arm, verdict,
 # marker, override kind or reason token fails the import loudly instead of silently
@@ -339,6 +365,16 @@ def state_path(slug, root=None):
 
 # ── Digests ────────────────────────────────────────────────────────────────────
 
+class _DigestError(Exception):
+    """Raised by every digest helper below when a digest cannot be established.
+
+    Defined ahead of its first raise: the raises are all inside function bodies, so a
+    later definition would still bind at call time, but a reader auditing whether the
+    fail-closed digest paths are real should not have to scroll past the raise to find
+    the type.
+    """
+
+
 def hash_bytes(data):
     """Hash bytes with `git hash-object --stdin --no-filters`.
 
@@ -358,10 +394,6 @@ def hash_bytes(data):
     except OSError as exc:
         raise _DigestError(f'could not execute git: {exc}') from exc
     return r.stdout.decode('ascii', 'replace').strip()
-
-
-class _DigestError(Exception):
-    pass
 
 
 def hash_file(path):
@@ -540,8 +572,26 @@ def _validate(doc, slug):
     if creation is not None:
         if not isinstance(creation, dict):
             raise StateError('the creation record is not an object')
-        if 'body_only_digest' not in creation:
-            raise StateError('the creation record is missing its body_only_digest')
+        # Shape-checked exactly like the sibling round/override/revision records. The
+        # digest is the attestation's comparand: a non-string one does NOT crash the
+        # compare, it silently loses it (`got == <non-str>` is False), so a corrupted
+        # record would render a confident `attestation=mismatch` about a comparison
+        # that never meaningfully happened — a guard failing open as misattribution
+        # rather than closed. epoch_round/epoch_arm have no reader today, but they are
+        # checked here on the same rule the sibling records follow: a later consumer
+        # must inherit a validated record, not an unvalidated hole.
+        digest = creation.get('body_only_digest')
+        if not isinstance(digest, str) or not digest:
+            raise StateError('the creation record body_only_digest is missing or not a '
+                             'non-empty string')
+        epoch_round = creation.get('epoch_round')
+        if not isinstance(epoch_round, int) or isinstance(epoch_round, bool):
+            raise StateError(f'the creation record epoch_round {epoch_round!r} is not an '
+                             f'integer')
+        epoch_arm = creation.get('epoch_arm')
+        if epoch_arm not in _ARMS:
+            raise StateError(f'the creation record names an epoch arm outside the '
+                             f'canonical set: {epoch_arm!r}')
         att = creation.get('attestation')
         if att is not None and att not in _ATTESTATIONS:
             raise StateError(f'the creation record names an attestation status outside '
@@ -811,6 +861,19 @@ def _yes(state, ground, key):
             'token': issue_token(state['nonce'], ground, key), 'key': key}
 
 
+# The eligibility result is an UNTAGGED union of three shapes, discriminated by `answer`:
+#   eligible    -> ground + token + key      (from _yes)
+#   iterate-ok  -> ordinal                   (from the iterate branch above)
+#   not-eligible-> reason                    (from _no)
+# The variant-only keys (`key`, `ordinal`) are therefore absent on the other variants, and
+# reading one off the wrong variant is a KeyError rather than a type error. Recorded as an
+# accepted trade-off (raised on PR #552), NOT a live defect: every read of a variant-only key
+# sits inside an arm that already discriminated on `answer` — see cmd_query_eligibility, whose
+# `ordinal`/`key` reads are each guarded by their own answer check — and the suite drives all
+# three variants. The discrimination is enforced by convention, not by the type; a dataclass
+# or tagged union would make the illegal read unrepresentable. Revisit if a consumer reads a
+# variant-only key OUTSIDE an answer-discriminated arm, or if a fourth variant is added (three
+# is where hand-discrimination is still auditable at a glance).
 def _no(reason):
     # Every refusal carries a machine-readable reason from the canonical set: the skill
     # routes on these tokens, so an unlisted one is a refusal it cannot act on.
@@ -893,6 +956,31 @@ def route_arm(write_landed, hash_ok, prior_unreadable):
     return 'file', None
 
 
+# The audit-summary field set, named once. `summary_fields` answers on two independent
+# branches (state-unestablished and ok), and the query surface renders the returned mapping
+# key-by-key — so a field added to one branch and forgotten on the other is a KeyError at
+# that surface, i.e. a query that cannot answer. Queries are contractually always-exit-0, so
+# that is a two-class-contract violation, not a cosmetic slip. `_summary` is the ONE
+# constructor both branches go through: it fails loudly, at the call, on a missing or unknown
+# field, so the two branches cannot drift apart silently.
+_SUMMARY_FIELDS = (
+    'state', 'findings_count', 'revisions_applied', 'verdict', 'rounds_run',
+    'consumer_dimensions_appended', 'degraded', 'user_declined', 'cap_reached',
+    'markers', 'token', 'stale_token', 'reinit_forced', 'attestation',
+)
+
+
+def _summary(**fields):
+    missing = [k for k in _SUMMARY_FIELDS if k not in fields]
+    unknown = [k for k in fields if k not in _SUMMARY_FIELDS]
+    _require(not missing and not unknown,
+             f'issue-audit-state: the audit-summary field set is fixed by _SUMMARY_FIELDS; '
+             f'this branch omits {missing!r} and adds {unknown!r}. Every summary_fields '
+             f'branch must answer with exactly the same fields, or the query surface that '
+             f'renders them raises KeyError on the branch that forgot one.')
+    return {k: fields[k] for k in _SUMMARY_FIELDS}
+
+
 def summary_fields(state, current_digest=None, digest_failed=False):
     """The audit-summary-line field set, derived from recorded state.
 
@@ -904,11 +992,11 @@ def summary_fields(state, current_digest=None, digest_failed=False):
     pre-revision token fail to match.
     """
     if state is None:
-        return {'state': 'unestablished', 'findings_count': None, 'revisions_applied': 0,
-                'verdict': None, 'rounds_run': 0, 'consumer_dimensions_appended': False,
-                'degraded': False, 'user_declined': False, 'cap_reached': False,
-                'markers': [], 'token': None, 'stale_token': False, 'reinit_forced': False,
-                'attestation': None}
+        return _summary(state='unestablished', findings_count=None, revisions_applied=0,
+                        verdict=None, rounds_run=0, consumer_dimensions_appended=False,
+                        degraded=False, user_declined=False, cap_reached=False,
+                        markers=[], token=None, stale_token=False, reinit_forced=False,
+                        attestation=None)
     done = completed_rounds(state)
     # Cumulative across every round this run: "how many things did the auditors
     # collectively flag", not merely the last round's tally.
@@ -942,26 +1030,26 @@ def summary_fields(state, current_digest=None, digest_failed=False):
                 # that invalidation needs no digest comparison, so the stale marker
                 # stays honest even when no draft file was supplied.
                 stale = False
-    return {
-        'state': 'ok',
-        'findings_count': sum(counts) if counts else None,
-        'revisions_applied': revision_ordinal(state),
-        'verdict': last.get('outcome') if last else None,
-        'rounds_run': len(state['rounds']),
-        'consumer_dimensions_appended': any(
+    return _summary(
+        state='ok',
+        findings_count=sum(counts) if counts else None,
+        revisions_applied=revision_ordinal(state),
+        verdict=last.get('outcome') if last else None,
+        rounds_run=len(state['rounds']),
+        consumer_dimensions_appended=any(
             r.get('consumer_dimensions_appended') for r in state['rounds']),
-        'degraded': any(r.get('degraded') for r in state['rounds']),
-        'user_declined': any(o['kind'] == 'user-decline' for o in state['overrides']),
-        'cap_reached': any(o['kind'] == 'cap-reached' for o in state['overrides']),
-        'markers': [_EMBED_MARKER_TEXT[m] for m in markers],
-        'token': token,
-        'stale_token': stale,
-        'reinit_forced': bool(state.get('reinit_forced')),
+        degraded=any(r.get('degraded') for r in state['rounds']),
+        user_declined=any(o['kind'] == 'user-decline' for o in state['overrides']),
+        cap_reached=any(o['kind'] == 'cap-reached' for o in state['overrides']),
+        markers=[_EMBED_MARKER_TEXT[m] for m in markers],
+        token=token,
+        stale_token=stale,
+        reinit_forced=bool(state.get('reinit_forced')),
         # The creation-attestation status is part of the audit-summary field set (a
         # mismatch is surfaced here, not only in record-creation-attestation's own
         # output): 'match' | 'mismatch' | 'attestation-unavailable' | 'none'.
-        'attestation': (state.get('creation') or {}).get('attestation') or 'none',
-    }
+        attestation=(state.get('creation') or {}).get('attestation') or 'none',
+    )
 
 
 # ── Command implementations ────────────────────────────────────────────────────
@@ -1388,8 +1476,9 @@ def cmd_emit_body(args):
                            f'not-eligible ({elig["reason"]})')
     body = split_body(raw)
     if not body:
-        # Exit 0 with empty stdout is the gate's REFUSAL signature; an eligible draft
-        # with an empty body below its title must fail loudly instead of stalling the
+        # Emitting an empty body on exit 0 would be indistinguishable from a successful
+        # emit; an eligible draft with an empty body below its title must fail loudly
+        # (the refusal signature: non-zero with EMPTY stdout) instead of stalling the
         # posting recipe undiagnosably.
         _fail('emit-body', 'the audited draft has an empty body below its title')
     sys.stdout.buffer.write(body)

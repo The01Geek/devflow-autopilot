@@ -504,7 +504,8 @@ Create the issue **directly**, sourcing the body from the **single presentation 
 same bytes the user approved. Which source that is depends on the epoch's arm:
 
 **On a file-arm epoch**, the body comes from the gated canonical file, via the state owner's
-`emit-body` query. **Do not pipe it into `gh`**:
+gated `emit-body` emitter (it is neither a query nor a mutation: unlike a query it does not
+always exit 0 — it refuses with a non-zero exit and empty stdout). **Do not pipe it into `gh`**:
 
 ```bash
 # WRONG — a refused emit-body exits non-zero with EMPTY stdout, and without pipefail

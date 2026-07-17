@@ -41502,6 +41502,93 @@ if [ -d "$RI_SB" ]; then
   rm -rf "$RI_SB"
 fi
 
+# init_foreign_nonce_rows — the ('init','foreign-nonce',False) row, driven behaviorally at the
+# CLI. Its two sibling branches (no-file, over-rounds-unforced) are CLI-driven above; before
+# this block, foreign-nonce was covered only by the table/registry metadata lockstep, which
+# asserts the ROW exists, never that cmd_init's guard actually refuses. The risk it pins is a
+# silent budget reset for a foreign run that happens to share a slug.
+#
+# The fixture carries ZERO recorded rounds ON PURPOSE, and the block ATTRIBUTES the rejection:
+#  * zero rounds means the over-rounds-unforced guard CANNOT be what rejects (it is gated on
+#    `existing['rounds']`), so a green assert here cannot be that sibling guard firing;
+#  * the state file exists and is readable, so the no-file branch cannot be it either;
+#  * the assert pins the foreign-nonce guard's OWN breadcrumb, not a bare non-zero exit — a
+#    bare exit-code assert would stay green against a mutant that disabled this very guard;
+#  * a POSITIVE CONTROL on the same fixture (same slug, same file, CORRECT nonce) exits 0,
+#    proving the fixture is otherwise valid and would succeed but for the foreign nonce.
+FN_SB="$(git_sandbox '#546 init_foreign_nonce_rows')"
+if [ -d "$FN_SB" ]; then
+  (
+    cd "$FN_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    N="$(python3 "$IAS" init fn < /dev/null | sed 's/nonce=//')"
+    printf '%s\n' "$N" > .fn-nonce
+    # The refusal, attributed by its own breadcrumb.
+    python3 "$IAS" init fn --nonce "foreign-$N" < /dev/null > .fn-foreign 2>&1 \
+      && printf 'EXITED-ZERO\n' >> .fn-foreign
+    # The budget-reset risk: the refusal must leave the incumbent run's nonce untouched.
+    python3 "$IAS" query-nonce fn < /dev/null > .fn-after 2>&1
+    # POSITIVE CONTROL on the same fixture: the correct nonce is accepted.
+    python3 "$IAS" init fn --nonce "$N" < /dev/null > .fn-control 2>&1 \
+      || printf 'CONTROL-REJECTED\n' >> .fn-control
+  )
+  assert_eq "#546 init_foreign_nonce_rows: a foreign nonce over an existing readable state is refused" \
+    "0" "$(grep -c 'EXITED-ZERO' "$FN_SB/.fn-foreign" 2>/dev/null)"
+  assert_eq "#546 init_foreign_nonce_rows: ... and the refusal is attributed to the foreign-run guard by its own breadcrumb" \
+    "1" "$(grep -c 'refusing to re-init a foreign run' "$FN_SB/.fn-foreign" 2>/dev/null)"
+  assert_eq "#546 init_foreign_nonce_rows: ... and the incumbent run's nonce survives the refusal (no silent budget reset)" \
+    "nonce=$(cat "$FN_SB/.fn-nonce" 2>/dev/null)" "$(cat "$FN_SB/.fn-after" 2>/dev/null)"
+  assert_eq "#546 init_foreign_nonce_rows: positive control — the SAME fixture accepts its own nonce, so the refusal above is not an unrelated precondition" \
+    "0" "$(grep -c 'CONTROL-REJECTED' "$FN_SB/.fn-control" 2>/dev/null)"
+  rm -rf "$FN_SB"
+fi
+
+# embed_arm_emit_rows — the embed-arm weaker-identity emit, driven end-to-end. The file-arm
+# emit round-trips through creation_binding_rows above, but the embed arm — where the module
+# header discloses the gate "cannot byte-bind what it emits" — had no end-to-end drive at all.
+# This block pins that DISCLOSED residual as observed behavior, so a future claim that the
+# embed arm byte-binds has a live counter-example, and so the residual cannot silently widen.
+EA_SB="$(git_sandbox '#546 embed_arm_emit_rows')"
+if [ -d "$EA_SB" ]; then
+  (
+    cd "$EA_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nEmbed body.\n' > d.md
+    N="$(python3 "$IAS" init ea < /dev/null | sed 's/nonce=//')"
+    # The embed arm takes the draft bytes on stdin (there is no trustworthy file to point at).
+    D="$(python3 "$IAS" record-dispatch ea --nonce "$N" --round 1 --arm embed \
+           --marker digest-unrecorded < d.md)"
+    # Carriage on this arm is the sentinel pair, not an object ID.
+    SO="$(printf '%s' "$D" | tr ' ' '\n' | sed -n 's/^sentinel_open=//p')"
+    SC="$(printf '%s' "$D" | tr ' ' '\n' | sed -n 's/^sentinel_close=//p')"
+    python3 "$IAS" record-return ea --nonce "$N" --round 1 --verdict FILE --findings-count 0 \
+      --carriage-sentinel-open "$SO" --carriage-sentinel-close "$SC" < /dev/null > /dev/null
+    python3 "$IAS" record-creation-epoch ea --nonce "$N" --round 1 < /dev/null > /dev/null
+    python3 "$IAS" emit-body ea --nonce "$N" --draft-file d.md < /dev/null > .ea-body 2>&1
+    python3 "$IAS" query-eligibility ea --nonce "$N" --mode approve --draft-file d.md \
+      < /dev/null > .ea-elig 2>&1
+    # The disclosed residual, made observable: swapping the draft's bytes does NOT refuse the
+    # emit on this arm (the ground is event ordering, not byte identity) — which is exactly
+    # why the post-hoc creation attestation is the detection surface for it. The attestation
+    # below is the other half: it MUST catch the swap the emit could not.
+    printf '# T\n\nSWAPPED body.\n' > d.md
+    python3 "$IAS" emit-body ea --nonce "$N" --draft-file d.md < /dev/null > .ea-swapped 2>&1
+    printf 'SWAPPED body.\n' | python3 "$IAS" record-creation-attestation ea --nonce "$N" \
+      > .ea-att 2>&1
+  )
+  assert_eq "#546 embed_arm_emit_rows: an embed-arm epoch emits the audited body" \
+    "Embed body." "$(cat "$EA_SB/.ea-body" 2>/dev/null)"
+  assert_eq "#546 embed_arm_emit_rows: ... on the event-ordering ground, keyed by the revision ordinal (NOT a digest)" \
+    "1" "$(grep -c 'eligible=yes ground=event-ordering .*key=0' "$EA_SB/.ea-elig" 2>/dev/null)"
+  assert_eq "#546 embed_arm_emit_rows: the disclosed residual — swapped draft bytes still emit, because this arm cannot byte-bind" \
+    "SWAPPED body." "$(cat "$EA_SB/.ea-swapped" 2>/dev/null)"
+  assert_eq "#546 embed_arm_emit_rows: ... and the post-hoc attestation is the detection surface that catches that swap" \
+    "attestation=mismatch" "$(cat "$EA_SB/.ea-att" 2>/dev/null)"
+  rm -rf "$EA_SB"
+fi
+
 # creation_binding_rows — the attestation is honest: match, mismatch, and a failed fetch
 # reported as attestation-unavailable, never as a pass.
 CB_SB="$(git_sandbox '#546 creation_binding_rows')"
@@ -41517,7 +41604,7 @@ if [ -d "$CB_SB" ]; then
     python3 "$IAS" record-return cb --nonce "$N" --round 1 --verdict FILE \
       --findings-count 0 --carriage-object-id "$OID" > /dev/null
     python3 "$IAS" record-creation-epoch cb --nonce "$N" --round 1 > /dev/null
-    # The body-emitting query's bytes hash to the recorded body-only digest (round-trip).
+    # The gated body emitter's bytes hash to the recorded body-only digest (round-trip).
     python3 "$IAS" emit-body cb --nonce "$N" --draft-file d.md \
       | python3 "$IAS" record-creation-attestation cb --nonce "$N" > .cb-match
     # The attestation is forward-only (round-3 hardening): the mismatch and
