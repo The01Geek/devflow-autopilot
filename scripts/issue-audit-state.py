@@ -67,6 +67,12 @@ if sys.version_info < (3, 11):
     )
     raise SystemExit(1)
 
+# Bumped 1 → 2 for issue #562: the additive `draft_binding` / `write_failures` /
+# revision-`stdin_digest` fields. The bump is deliberate even though those fields are
+# additive-optional — a pre-change v1 state file answers through the existing
+# schema-version-mismatch fail-closed matrix row (#546's matrix; no new versioning
+# discipline is invented), forcing a re-init of any in-flight v1 run. Blast radius is
+# small: these state files are ephemeral per-run scratch under .devflow/tmp/.
 SCHEMA_VERSION = 2
 
 # ── Canonical token sets ────────────────────────────────────────────────────────
@@ -904,7 +910,16 @@ def latest_revision_landed(state):
         revision has NOT landed — even if its stdin digest coincidentally equals some
         earlier audited dispatch's digest (the user revised back to bytes a prior round
         already saw). Without this the write-failure log and this predicate would be
-        disconnected and a known-failed write could still read as landed.
+        disconnected and a known-failed write could still read as landed. This check is
+        deliberately checked BEFORE the clearing scan, so a recorded write-failure is
+        **terminal for that ordinal**: the general clearing clause above does NOT re-fire
+        for it — not even a genuinely subsequent matching dispatch clears a write-failed
+        ordinal (the flag stays `not landed` until a *fresh* revision without a recorded
+        failure supersedes it). This flag governs presentation source only; the `approve`
+        eligibility ground recovers independently through its fresh-clean-round staleness
+        gate (`_revision_postdates`): a subsequent clean round that no revision postdates
+        re-enables the eligibility ground, so a recovered run still re-enters file-sourced
+        creation there even while this flag stays conservatively `not landed`.
       - The matching dispatch must be **subsequent** — recorded in a round whose number
         is greater than the revision's `after_round` — so a *predating* dispatch that
         happens to share the digest never satisfies the clearing predicate. A revision
@@ -1842,6 +1857,15 @@ def cmd_record_write_failure(args):
     write-failure shape independently, via `_revision_postdates`.)
     """
     doc = _load_for_mutation('record-write-failure', args.slug, args.nonce)
+    # DEFERRED (issue #562 review, Suggestion): `--ordinal` is intentionally NOT validated
+    # against the current revision chain here. A bogus/non-latest ordinal is recorded and
+    # reported as success — but the effect is bounded and fails safe: `latest_revision_landed`
+    # only consults `len(revs)`, and the `approve` eligibility gate backstops independently
+    # via `_revision_postdates`, so a mis-supplied ordinal is a silent no-op, never a
+    # fail-open. Strict chain-validation is withheld deliberately because the valid range is
+    # not settled — a canonical-write failure at a round-initiating (non-revision) site is
+    # also conceptually recordable here — so a `1..len(revisions)` guard risks over-rejecting
+    # a legitimate entry. Revisit if a non-revision write-failure consumer is added.
     doc.setdefault('write_failures', []).append(args.ordinal)
     try:
         save_state(doc, args.slug)
@@ -1860,6 +1884,10 @@ def _binding_line(state):
     """
     b = _binding(state) if state is not None else None
     if not b:
+        # `latest_revision_landed=yes` here is vacuous by construction, NOT a dropped
+        # `latest_revision_landed(state)` call: an unbound run is an embed/inline epoch
+        # that never bound a canonical file, so there is no bound-path write that could
+        # fail to land. The bound branch below emits the real predicate.
         return 'bound=none tier=none non_bound_root=none latest_revision_landed=yes'
     return (f'bound={b["path"]} tier={b["tier"]} '
             f'non_bound_root={b["non_bound_root"] or "none"} '
@@ -1877,6 +1905,14 @@ def cmd_query_draft_binding(args):
         # Reuse the unbound answer shape (never drift a second copy) + the reason.
         print(f'{_binding_line(None)} reason=foreign-nonce')
         return
+    # DEFERRED (issue #562 review, Suggestion): a genuinely-unbound run and an unestablished
+    # (corrupt/unreadable) state both answer the identical fail-closed `bound=none …` token —
+    # `_query_state` collapses "no state file" and "state failed validation" to the same None
+    # (a pre-existing property shared by every sibling query). Distinguishing them with a
+    # `reason=state-unestablished` clause would require reworking that shared `_query_state`
+    # contract to signal absent-vs-corrupt to all callers, out of proportion for this
+    # state-owner foundation. Both cases are correct and fail-closed today (bound=none);
+    # revisit as a shared-query-surface seam if the caller needs the distinction.
     print(_binding_line(state))
 
 

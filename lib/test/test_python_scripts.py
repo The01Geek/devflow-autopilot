@@ -3886,6 +3886,27 @@ assert_eq("#562 latest_revision_landed: a recorded write-failure for the latest 
           "revision's ordinal reports NOT landed even when the digest matches a later "
           "dispatch (the write-failure log and the predicate are wired together)",
           False, issue_audit_state.latest_revision_landed(_wf_notlanded))
+# Two-revision keying: `len(revs) in write_failures` targets the LATEST ordinal, not any
+# recorded one. Rounds 1-3 (round 3 lands DB, matching revision 2's stdin_digest); two
+# revisions (ordinals 1, 2). A write-failure on the EARLIER ordinal (1) must NOT report the
+# latest (2) unlanded, and one on the LATEST ordinal (2) must — the single-revision
+# _wf_notlanded row above cannot tell "keys on len(revs)" from "keys on any entry".
+_two_revs = [{'ordinal': 1, 'after_round': 1, 'floor_round': 1, 'stdin_digest': 'DA'},
+             {'ordinal': 2, 'after_round': 2, 'floor_round': 2, 'stdin_digest': 'DB'}]
+_wf_earlier = _state([_round(1, 'file', 'FILE', 'D1'), _round(2, 'file', 'FILE', 'D2'),
+                      _round(3, 'file', 'FILE', 'DB')])
+_wf_earlier['revisions'] = [dict(r) for r in _two_revs]
+_wf_earlier['write_failures'] = [1]
+assert_eq("#562 latest_revision_landed: a write-failure on an EARLIER revision's ordinal "
+          "does not block the latest (len(revs)=2 not in [1]; round 3 lands DB) -> landed",
+          True, issue_audit_state.latest_revision_landed(_wf_earlier))
+_wf_latest = _state([_round(1, 'file', 'FILE', 'D1'), _round(2, 'file', 'FILE', 'D2'),
+                     _round(3, 'file', 'FILE', 'DB')])
+_wf_latest['revisions'] = [dict(r) for r in _two_revs]
+_wf_latest['write_failures'] = [2]
+assert_eq("#562 latest_revision_landed: a write-failure on the LATEST ordinal (len(revs)=2) "
+          "reports NOT landed even with a subsequent matching dispatch (keys on the latest)",
+          False, issue_audit_state.latest_revision_landed(_wf_latest))
 # Ordering: a PREDATING file-arm dispatch that shares the digest does not count as landed.
 _pre = _state([_round(1, 'file', 'FILE', 'D2')])
 _pre['revisions'] = [{'ordinal': 1, 'after_round': 1, 'floor_round': 1,
