@@ -214,7 +214,12 @@ NON_VERIFICATION_HEADS = frozenset(
 # single shell word) is consumed to the word boundary, never split at the
 # closing quote (PR #531 iteration-1 gate: the quoted-first alternation
 # stopped at the close and leaked the concatenated remainder).
-_SECRET_VALUE = r"((?:\"[^\"]*\"|'[^']*'|\S)+)"
+# Each quoted chunk closes at its matching quote OR at end-of-string: an
+# opening quote with no close (typo, truncation) swallows the rest of the
+# line in real shell, so redacting to EOL is the faithful, fail-closed
+# reading (PR #531 iteration-1 re-gate finding 1 — the \S fallback used to
+# stop at the first in-quote space and leak the tail).
+_SECRET_VALUE = r"((?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|\S)+)"
 SECRET_ENV_ASSIGNMENT = re.compile(
     r"\b([A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|PASS|PAT|CREDENTIAL|PRIVATE_KEY)[A-Z0-9_]*)=" + _SECRET_VALUE,
     re.IGNORECASE,
@@ -233,10 +238,15 @@ SECRET_FLAG = re.compile(
 # `-u` boolean flag — e.g. `sort -u` — never matches). The colon requirement
 # keeps the false-positive rate near zero while closing the raw-credential leak.
 SECRET_SHORT_U = re.compile(
-    # The password half gets the same quoted-whole treatment as _SECRET_VALUE
-    # (`-u user:"pass word"` is ordinary curl; a \S+ tail split the quoted
-    # password at its first space — PR #531 iteration-1 gate finding).
-    r"(-u[ =])([^\s:]+:(?:\"[^\"]*\"|'[^']*'|\S)+)"
+    # Both halves get the same quoted-whole (and unterminated-to-EOL) treatment
+    # as _SECRET_VALUE (`-u user:"pass word"` and `-u "user name":pass` are
+    # ordinary curl). The separator is OPTIONAL so curl's compact attached
+    # spelling `-uuser:pass` is covered too, and the lookbehind keeps `-u`
+    # inside `--user`-style long flags (or `x-u`) from false-positiving
+    # (PR #531 iteration-1 re-gate finding 2). A bare boolean `-u` (sort -u)
+    # never matches: the credential's `:` is required.
+    r"(?<![\w-])(-u[ =]?)"
+    r"((?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|[^\s:])+:(?:\"[^\"]*(?:\"|$)|'[^']*(?:'|$)|\S)+)"
 )
 SECRET_URL = re.compile(r"(https?://)[^/\s:@]+:[^/\s:@]+@")
 BEARER_TOKEN = re.compile(r"(Bearer\s+)([A-Za-z0-9._\-+/=]+)", re.IGNORECASE)
@@ -1160,7 +1170,9 @@ def _stop_attempts_state(bundle: Path, stats: "dict | None" = None) -> "tuple[st
             # contradiction" — the unknown-is-not-zero collapse (PR #531
             # iteration-1 gate finding 5). bool is excluded (bool ⊂ int would
             # admit True as byte-count 1).
-            if isinstance(tb, int) and not isinstance(tb, bool):
+            # The writer emits len(raw) >= 0, so a negative int is corrupt
+            # exactly like a string/bool claim — unestablishable (None).
+            if isinstance(tb, int) and not isinstance(tb, bool) and tb >= 0:
                 claims.append(tb)
             else:
                 claims.append(None)

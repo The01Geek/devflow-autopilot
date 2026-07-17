@@ -1536,6 +1536,38 @@ class Pr531Iter1FixLoopTests(_TmpDirTestCase):
         self.assertTrue(b2.secret_affected)
         self.assertNotIn("tail", b2.redacted_display.replace("<flag:--token>", "").replace("flag:", ""))
 
+    def test_unterminated_quote_secret_consumes_to_end(self) -> None:
+        # Re-gate finding 1: an opening quote with no close (typo, truncation)
+        # must consume to end-of-string — in shell the open quote DOES swallow
+        # the rest, so redacting to EOL is the faithful (and safe) reading.
+        b = vb._binding_identity('TOKEN="secret with spaces that got truncated mid-valu')
+        self.assertTrue(b.secret_affected)
+        for fragment in ("with spaces", "truncated", "mid-valu"):
+            self.assertNotIn(fragment, b.redacted_display)
+
+    def test_attached_short_u_credential_redacted(self) -> None:
+        # Re-gate finding 2: curl's compact attached spelling -uuser:pass.
+        b = vb._binding_identity("curl -uuser:pass https://example.invalid/")
+        self.assertTrue(b.secret_affected)
+        self.assertNotIn("user:pass", b.redacted_display)
+        # Quoted user half with a space.
+        b2 = vb._binding_identity('curl -u "user name":pass https://example.invalid/')
+        self.assertTrue(b2.secret_affected)
+        self.assertNotIn(":pass", b2.redacted_display)
+        # --user long flag and bare `sort -u` must NOT false-positive.
+        b3 = vb._binding_identity("sort -u lib/test/run.sh")
+        self.assertFalse(b3.secret_affected)
+
+    def test_negative_byte_claim_is_unestablishable(self) -> None:
+        # Re-gate finding 3: the writer emits len(raw) >= 0, so a negative int
+        # is corrupt exactly like a string claim — unestablishable, fails closed.
+        write_manifest(self.manifests, "s-neg-tb")
+        write_bundle(self.bundles, "s-neg-tb", b"",
+                     stop_attempts=[{"result": "captured", "transcript_bytes": -5}])
+        rows = build_local_census(self.manifests, wfr.load_registry(REGISTRY))
+        rows = vb.join_local_imports(rows, self.bundles, 64 * 1024 * 1024)
+        self.assertEqual(rows[0].source_status, SOURCE_IMPORT_FAILED)
+
     def test_short_u_quoted_password_with_space_fully_redacted(self) -> None:
         b = vb._binding_identity('curl -u user:"pass word" https://example.invalid/')
         self.assertTrue(b.secret_affected)
