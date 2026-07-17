@@ -4099,8 +4099,18 @@ assert_pin_unique 'rcv/#545 P-hm-match: head-match `match` arm is a SHA string-e
   '`match` when the SHA printed by `git rev-parse HEAD` is string-equal to the PR head SHA' "$RECV_SKILL"
 assert_pin_unique 'rcv/#545 P-hm-mismatch: head-match `mismatch` arm requires a NON-shallow repo' \
   '`mismatch` when the ancestry command exits 1 and `git rev-parse --is-shallow-repository` printed `false`' "$RECV_SKILL"
+# Additional review-found contract guards: pin the positive direct-invocation establishment
+# criterion, both halves of the local-diff exclusion, and the completion-time authority boundary.
+assert_pin_unique "rcv/#545 P-direct-established: only an explicit invocation record establishes direct context" \
+  'A direct invocation is positively established only by an explicit invocation record visible in the current run transcript' "$RECV_SKILL"
+assert_pin_unique "rcv/#545 P-scope-server: a local diff is never the PR-bound scope source" \
+  'a locally-computed diff is never the PR-bound scope source' "$RECV_SKILL"
+assert_pin_unique "rcv/#545 P-contradiction-server: locally-diffed paths never feed the contradiction check" \
+  'a locally-diffed path list never feeds the contradiction check' "$RECV_SKILL"
+assert_pin_unique "rcv/#545 P-completion-boundary: preflight makes no completion-time claim" \
+  'the preflight adds no completion-time claim' "$RECV_SKILL"
 #
-# Behavioral-fix mutation evidence (15): each sed -E mutation re-introduces the named bug.
+# Behavioral-fix mutation evidence (17): each sed -E mutation re-introduces the named bug.
 assert_pin_red_under "rcv/#545 P-carveout-mp: deleting the loop-governs clause (double-establishment bug)" \
   'and this preflight is not consulted' \
   's/and this preflight is not consulted//' "$RECV_SKILL"
@@ -4208,24 +4218,42 @@ pf545_cmd_count() {  # count of ALL command lines in the section's bash fences (
 # heredocs, a shape that does not occur in a read-only preflight fence; over-flagging a genuinely
 # non-AC5 read like a piped `| grep` is the fail-CLOSED direction and is correct per AC5.)
 pf545_illegal_count() {
-  pf545_cmd_lines "$1" \
-    | sed -E 's/[[:space:]]+#.*$//' \
-    | awk '{
-        gsub(/[[:space:]]*(&&|\|\||;|\|)[[:space:]]*/, "\n")
-        gsub(/\$\(/, "\n"); gsub(/\)/, " ")
-        out = ""; open = 0
-        for (i = 1; i <= length($0); i++) {
-          c = substr($0, i, 1)
-          if (c == "`") { out = out (open ? " " : "\n"); open = 1 - open } else out = out c
-        }
-        print out
-      }' \
-    | sed -E 's/^[[:space:]]+//' \
-    | grep -vE '^(#|$)' \
-    | grep -vE '^(git fetch|git rev-parse|git status|git merge-base|git rev-list|gh pr view|gh issue view)([[:space:]]|$)' \
-    | grep -vE '^([^[:space:]]*/)?(load-prompt-extension\.sh|config-get\.sh)([[:space:]]|$)' \
-    | awk 'END{print NR}'
+  local count
+  count="$(
+    set -o pipefail
+    pf545_cmd_lines "$1" \
+      | sed -E 's/[[:space:]]+#.*$//' \
+      | awk '{
+          gsub(/[[:space:]]*(&&|\|\||;|\|)[[:space:]]*/, "\n")
+          gsub(/\$\(/, "\n"); gsub(/\)/, " ")
+          out = ""; open = 0
+          for (i = 1; i <= length($0); i++) {
+            c = substr($0, i, 1)
+            if (c == "`") { out = out (open ? " " : "\n"); open = 1 - open } else out = out c
+          }
+          print out
+        }' \
+      | sed -E 's/^[[:space:]]+//' \
+      | { grep -vE '^(#|$)' || [ "$?" -eq 1 ]; } \
+      | { grep -vE '^(git fetch|git rev-parse|git status|git merge-base|git rev-list|gh pr view|gh issue view)([[:space:]]|$)' || [ "$?" -eq 1 ]; } \
+      | { grep -vE '^([^[:space:]]*/)?(load-prompt-extension\.sh|config-get\.sh)([[:space:]]|$)' || [ "$?" -eq 1 ]; } \
+      | awk 'END{print NR}'
+  )" || return 1
+  printf '%s\n' "$count"
 }
+# A private pipeline stage failure must reject the scan rather than letting the terminal counter
+# launder it into a clean zero. Shadowing sed makes the first private transform fail while the
+# final awk remains healthy, reproducing the exact fail-open this guard protects against.
+pf545_stage_failure_probe="$({
+  sed() { return 2; }
+  if pf545_stage_failure_output="$(pf545_illegal_count "$RECV_SKILL")"; then
+    printf 'accepted:%s\n' "$pf545_stage_failure_output"
+  else
+    printf 'rejected:%s\n' "$pf545_stage_failure_output"
+  fi
+})"
+assert_eq "rcv/#545 read-only detector: a private pipeline-stage failure rejects the scan" \
+  "rejected:" "$pf545_stage_failure_probe"
 assert_eq "rcv/#545 read-only detector: Reception Preflight section carries fenced commands (non-vacuous)" \
   "yes" "$([ "$(pf545_cmd_count "$RECV_SKILL")" -ge 1 ] && echo yes || echo no)"
 assert_eq "rcv/#545 read-only detector: every preflight fenced command head is in the AC5 read-only set" \
