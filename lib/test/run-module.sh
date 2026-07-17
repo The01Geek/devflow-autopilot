@@ -72,7 +72,7 @@ cleanup() {
 trap cleanup EXIT
 
 SELECTOR_STDERR="$(mktemp)" || selector_error "could not allocate selector diagnostics"
-MODULE_PATH="$(python3 - "$REGISTRY" "$MODULE_ID" "$REPO_ROOT" 2>"$SELECTOR_STDERR" <<'PY'
+MODULE_SELECTION="$(python3 - "$REGISTRY" "$MODULE_ID" "$REPO_ROOT" 2>"$SELECTOR_STDERR" <<'PY'
 from __future__ import annotations
 
 import json
@@ -125,7 +125,7 @@ if not isinstance(modules, dict) or not modules:
 allowed_root = (repo_root / "lib/test/modules").resolve()
 
 
-def resolve_mapping(registered_id: str, mapping: object) -> Path:
+def resolve_mapping(registered_id: str, mapping: object) -> tuple[Path, int]:
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", registered_id):
         selector_error(f"registry contains invalid module id {registered_id!r}")
     if not isinstance(mapping, dict):
@@ -151,7 +151,17 @@ def resolve_mapping(registered_id: str, mapping: object) -> Path:
             f"mapping for {registered_id!r}: module path is not a readable file: "
             f"{module_path_value}"
         )
-    return module_path
+    minimum_assertions = mapping.get("minimum_assertions")
+    if (
+        type(minimum_assertions) is not int
+        or minimum_assertions < 1
+        or minimum_assertions > 1_000_000
+    ):
+        selector_error(
+            f"mapping for {registered_id!r}: minimum_assertions must be an integer "
+            "from 1 to 1000000"
+        )
+    return module_path, minimum_assertions
 
 
 resolved_modules = {
@@ -162,7 +172,9 @@ if module_id not in resolved_modules:
     available = ", ".join(sorted(resolved_modules))
     selector_error(f"unknown test module {module_id!r}; available: {available}")
 
-print(resolved_modules[module_id])
+selected_path, selected_minimum = resolved_modules[module_id]
+print(selected_path)
+print(selected_minimum)
 PY
 )"
 SELECTOR_RC=$?
@@ -172,6 +184,12 @@ if [ "$SELECTOR_RC" -ne 0 ]; then
 fi
 rm -f "$SELECTOR_STDERR"
 SELECTOR_STDERR=""
+case "$MODULE_SELECTION" in
+  *$'\n'*) ;;
+  *) selector_error "selected mapping did not provide path and assertion floor" ;;
+esac
+MODULE_PATH="${MODULE_SELECTION%%$'\n'*}"
+MIN_ASSERTIONS="${MODULE_SELECTION#*$'\n'}"
 
 # No log directory or module-side effect exists before the exact selection above succeeds.
 mkdir -p "$LOG_DIR" || selector_error "could not create log directory: $LOG_DIR"
@@ -236,7 +254,10 @@ done < "$RESULTS_FILE"
 EXTRA_FAIL_COUNT=0
 [ "$INVALID_RESULT_COUNT" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 [ "$MODULE_RC" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
-if [ "$((PASS_COUNT + ASSERT_FAIL_COUNT))" -eq 0 ]; then
+ASSERTION_COUNT=$((PASS_COUNT + ASSERT_FAIL_COUNT))
+if [ "$ASSERTION_COUNT" -eq 0 ]; then
+  EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
+elif [ "$ASSERTION_COUNT" -lt "$MIN_ASSERTIONS" ]; then
   EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 fi
 FAIL_COUNT=$((ASSERT_FAIL_COUNT + EXTRA_FAIL_COUNT))
@@ -254,8 +275,11 @@ FAIL_COUNT=$((ASSERT_FAIL_COUNT + EXTRA_FAIL_COUNT))
     if [ "$MODULE_RC" -ne 0 ]; then
       printf '  - module process exited with status %s\n' "$MODULE_RC"
     fi
-    if [ "$((PASS_COUNT + ASSERT_FAIL_COUNT))" -eq 0 ]; then
+    if [ "$ASSERTION_COUNT" -eq 0 ]; then
       printf '  - module executed zero assertions\n'
+    elif [ "$ASSERTION_COUNT" -lt "$MIN_ASSERTIONS" ]; then
+      printf '  - module executed %s assertions; minimum is %s\n' \
+        "$ASSERTION_COUNT" "$MIN_ASSERTIONS"
     fi
   fi
   printf 'Log: %s\n' "$LOG_FILE"

@@ -85,6 +85,15 @@ class ModuleRunnerTests(unittest.TestCase):
         (self.modules_dir / name).write_text(body, encoding="utf-8")
 
     def _write_registry(self, modules: object) -> None:
+        if isinstance(modules, dict):
+            modules = {
+                module_id: (
+                    {**mapping, "minimum_assertions": mapping.get("minimum_assertions", 1)}
+                    if isinstance(mapping, dict)
+                    else mapping
+                )
+                for module_id, mapping in modules.items()
+            }
         document = {
             "schema_version": 1,
             "workflows": {"placeholder": {}},
@@ -170,7 +179,10 @@ class ModuleRunnerTests(unittest.TestCase):
                     "schema_version": 1,
                     "workflows": {"placeholder": {}},
                     "test_modules": {
-                        "alternate": {"path": "lib/test/modules/sample.sh"}
+                        "alternate": {
+                            "path": "lib/test/modules/sample.sh",
+                            "minimum_assertions": 1,
+                        }
                     },
                 }
             ),
@@ -244,6 +256,39 @@ class ModuleRunnerTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("mapping for 'broken' must be an object", result.stderr)
+        self.assertFalse(self.marker.exists())
+
+    def test_missing_assertion_floor_invalidates_registry(self) -> None:
+        registry = self.scripts_dir / "workflow-flight-recorder-registry.json"
+        registry.write_text(
+            '{"schema_version":1,"test_modules":{'
+            '"sample":{"path":"lib/test/modules/sample.sh"}}}',
+            encoding="utf-8",
+        )
+
+        result = self._run("sample")
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn(
+            "minimum_assertions must be an integer from 1 to 1000000",
+            result.stderr,
+        )
+        self.assertFalse(self.marker.exists())
+
+    def test_oversized_assertion_floor_invalidates_registry(self) -> None:
+        self._write_registry(
+            {
+                "sample": {
+                    "path": "lib/test/modules/sample.sh",
+                    "minimum_assertions": 10**100,
+                }
+            }
+        )
+
+        result = self._run("sample")
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("minimum_assertions must be an integer from 1 to 1000000", result.stderr)
         self.assertFalse(self.marker.exists())
 
     def test_invalid_sibling_module_id_invalidates_whole_registry(self) -> None:
@@ -363,6 +408,22 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("Module invalid-tally: 1 passed, 1 failed", result.stdout)
         self.assertIn("assertion tally contained 1 invalid record(s)", result.stdout)
+
+    def test_selected_module_below_assertion_floor_cannot_report_green(self) -> None:
+        self._write_registry(
+            {
+                "sample": {
+                    "path": "lib/test/modules/sample.sh",
+                    "minimum_assertions": 2,
+                }
+            }
+        )
+
+        result = self._run("sample")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Module sample: 1 passed, 1 failed", result.stdout)
+        self.assertIn("module executed 1 assertions; minimum is 2", result.stdout)
 
     def _run_with_fake_directory_mktemp(
         self, fake_directory_result: str
@@ -516,6 +577,12 @@ class ModuleRunnerTests(unittest.TestCase):
             registry["test_modules"]["workflow-flight-recorder"]["path"],
             "lib/test/modules/workflow-flight-recorder.sh",
         )
+        self.assertEqual(
+            registry["test_modules"]["workflow-flight-recorder"][
+                "minimum_assertions"
+            ],
+            66,
+        )
         module = ROOT / "lib/test/modules/workflow-flight-recorder.sh"
         self.assertTrue(module.is_file())
         run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
@@ -523,6 +590,8 @@ class ModuleRunnerTests(unittest.TestCase):
             'devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh"',
             run_text,
         )
+        self.assertIn('"workflow-flight-recorder" 66', run_text)
+        self.assertIn("FAIL=$((FAIL + MODULE_FAIL))", run_text)
         self.assertIn('python3 "$LIB/test/test_module_runner.py"', run_text)
         self.assertNotIn('IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"', run_text)
         module_text = module.read_text(encoding="utf-8")

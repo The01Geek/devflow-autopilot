@@ -22,6 +22,9 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
         module_body: str | None,
         *,
         initial_results: str = "",
+        module_failures_are_directory: bool = False,
+        minimum_assertions: int | str = 1,
+        report_boundary_rc: bool = False,
         report_marker: bool = False,
         results_are_directory: bool = False,
     ) -> subprocess.CompletedProcess[str]:
@@ -36,13 +39,22 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
                 if results_are_directory
                 else f"printf '%s' {initial_results!r} > {str(root / 'results')!r}\n"
             )
+            module_failures_setup = (
+                'mkdir "$MODULE_FAILURES_FILE"\n'
+                if module_failures_are_directory
+                else '> "$MODULE_FAILURES_FILE"\n'
+            )
             driver_text = (
                 "#!/usr/bin/env bash\n"
                 f"RESULTS_FILE={root / 'results'}\n"
+                f"MODULE_FAILURES_FILE={root / 'module-failures'}\n"
                 f"MODULE_MARKER={root / 'module-marker'}\n"
                 + results_setup
+                + module_failures_setup
                 + f'. "{HARNESS}"\n'
-                + f'devflow_run_full_suite_module "{module}" "sample"\n'
+                + f'if devflow_run_full_suite_module "{module}" "sample" {minimum_assertions}; '
+                + "then BOUNDARY_RC=0; else BOUNDARY_RC=$?; fi\n"
+                + ('echo "BOUNDARY_RC:$BOUNDARY_RC"\n' if report_boundary_rc else "")
                 + (
                     'if [ -e "$MODULE_MARKER" ]; then echo MODULE_SOURCED; '
                     "else echo MODULE_NOT_SOURCED; fi\n"
@@ -50,6 +62,8 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
                     else ""
                 )
                 + 'if [ -f "$RESULTS_FILE" ]; then cat "$RESULTS_FILE"; fi\n'
+                + 'if [ -f "$MODULE_FAILURES_FILE" ]; then '
+                + 'sed "s/^/BOUNDARY:/" "$MODULE_FAILURES_FILE"; fi\n'
             )
             driver.write_text(driver_text, encoding="utf-8")
             return subprocess.run(
@@ -70,28 +84,73 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
         result = self._run(None)
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("FAIL", result.stdout.splitlines())
+        self.assertIn("BOUNDARY:FAIL", result.stdout.splitlines())
         self.assertIn("missing or unreadable", result.stderr)
 
     def test_module_exit_records_failure_and_keeps_driver_alive(self) -> None:
         result = self._run("exit 7\n")
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("FAIL", result.stdout.splitlines())
+        self.assertIn("BOUNDARY:FAIL", result.stdout.splitlines())
         self.assertIn("exited with status 7", result.stderr)
 
     def test_zero_assertion_module_records_failure(self) -> None:
         result = self._run(":\n")
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("FAIL", result.stdout.splitlines())
+        self.assertIn("BOUNDARY:FAIL", result.stdout.splitlines())
         self.assertIn("executed zero assertions", result.stderr)
+
+    def test_module_below_assertion_floor_records_boundary_failure(self) -> None:
+        result = self._run(
+            'printf "PASS\\n" >> "$RESULTS_FILE"\n', minimum_assertions=2
+        )
+
+        self.assertIn("BOUNDARY:FAIL", result.stdout.splitlines())
+        self.assertIn("executed 1 assertions; minimum is 2", result.stderr)
+
+    def test_oversized_assertion_floor_fails_closed_without_arithmetic(self) -> None:
+        result = self._run(
+            'printf "PASS\\n" >> "$RESULTS_FILE"\n',
+            minimum_assertions=10**100,
+        )
+
+        self.assertIn("BOUNDARY:FAIL", result.stdout.splitlines())
+        self.assertIn("invalid minimum assertion count", result.stderr)
+
+    def test_padded_zero_assertion_floor_fails_closed(self) -> None:
+        result = self._run(
+            'printf "PASS\\n" >> "$RESULTS_FILE"\n', minimum_assertions="00"
+        )
+
+        self.assertIn("BOUNDARY:FAIL", result.stdout.splitlines())
+        self.assertIn("invalid minimum assertion count: 00", result.stderr)
+
+    def test_module_cannot_sabotage_private_boundary_failure_channel(self) -> None:
+        result = self._run(
+            'if [ -n "${MODULE_FAILURES_FILE+x}" ]; then '
+            'rm -f "$MODULE_FAILURES_FILE"; mkdir "$MODULE_FAILURES_FILE"; fi\n'
+            'printf "PASS\\n" >> "$RESULTS_FILE"\nexit 7\n'
+        )
+
+        self.assertIn("BOUNDARY:FAIL", result.stdout.splitlines())
+        self.assertIn("exited with status 7", result.stderr)
+
+    def test_unavailable_boundary_failure_channel_returns_nonzero(self) -> None:
+        result = self._run(
+            "exit 7\n",
+            module_failures_are_directory=True,
+            report_boundary_rc=True,
+        )
+
+        self.assertIn("BOUNDARY_RC:1", result.stdout.splitlines())
+        self.assertIn("could not record boundary failure", result.stderr)
 
     def test_unbound_variable_records_process_failure_even_for_permissive_caller(self) -> None:
         result = self._run('printf "%s\\n" "$UNBOUND_MODULE_VALUE"\n')
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("FAIL", result.stdout.splitlines())
+        self.assertIn("BOUNDARY:FAIL", result.stdout.splitlines())
         self.assertIn("exited with status", result.stderr)
 
     def test_unreadable_tally_before_module_execution_fails_closed(self) -> None:
@@ -115,6 +174,7 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
 
         self.assertIn("result tally unreadable after module execution", result.stderr)
         self.assertIn("MODULE_SOURCED", result.stdout.splitlines())
+        self.assertIn("BOUNDARY:FAIL", result.stdout.splitlines())
 
     def test_invalid_tally_before_module_execution_fails_closed(self) -> None:
         result = self._run(

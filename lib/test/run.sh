@@ -64,6 +64,7 @@ fi
 # render-report.sh blocks, sourced in subshells to contain their `set -e` — are
 # counted in the final tally too. Counting in-memory would silently drop them.
 RESULTS_FILE="$(mktemp)"
+MODULE_FAILURES_FILE="$(mktemp)"
 # SKIPS_FILE is the skip tally's backing file (issue #456), the SKIP sibling of
 # RESULTS_FILE: the skip() helper appends one `kind<TAB>name<TAB>reason` line per
 # self-skipping check, and SKIP is derived from it with `grep -c` — the same counter
@@ -72,7 +73,7 @@ RESULTS_FILE="$(mktemp)"
 # SKIP introduces no new tool into the selection) — so a gate that self-skips is visible in
 # the summary and can never be mistaken for a clean pass. The renderer is lib/test/summary.sh.
 SKIPS_FILE="$(mktemp)"
-trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE"' EXIT   # protect RESULTS_FILE/SKIPS_FILE immediately; widened below once the bundle temp exists
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"' EXIT   # protect tally files immediately; widened below once the bundle temp exists
 # shellcheck source=lib/test/summary.sh disable=SC1091
 . "$LIB/test/summary.sh"
 # shellcheck source=lib/test/module-harness.sh disable=SC1091
@@ -141,7 +142,7 @@ IMPL_PHASE_STEMS="phase-1-setup phase-2-implement phase-3-review phase-4-documen
 # separately at the call site since it performs the actual append.
 _impl_bundle_member_usable() { [ -r "$1" ] && [ -s "$1" ]; }
 IMPL_SKILL_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the implement-skill bundle temp" >&2; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
 # Build the member list as an ARRAY (not a space-joined string) so a checkout path
 # containing a space is preserved rather than word-split — the stems in IMPL_PHASE_STEMS
 # are space-free identifiers, but $LIB (the checkout dir) is not guaranteed to be.
@@ -7197,7 +7198,7 @@ ECH="$LIB/test/extract-command-heads.py"
 E363=
 E484=
 E484="$(mktemp -d)" || { echo "FAIL  #484: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"; rm -rf "$E363" "$E484"' EXIT
 
 # Heads deliberately left ungranted on the implement profile, each with a rationale:
 #   gh pr checkout — the inline engine is already on the branch; checking out a PR
@@ -31286,7 +31287,7 @@ echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
 # is worth: it must cover EVERY prose-invoked head, or the audit is green over a gap.
 ECH="$LIB/test/extract-command-heads.py"
 E363="$(mktemp -d)" || { echo "FAIL  #363: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"; rm -rf "$E363" "$E484"' EXIT
 
 assert_eq "#363 extractor helper exists" "yes" "$([ -f "$ECH" ] && echo yes || echo no)"
 
@@ -32368,7 +32369,7 @@ echo "#363 scripts/summarize-ci-checks.sh (adversarial input-shape matrix, gh st
 # extraction would silently coerce into a passing result (the #312 bug class).
 SCC="$LIB/../scripts/summarize-ci-checks.sh"
 S363="$(mktemp -d)" || { echo "FAIL  #363 scc: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484" "$S363"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"; rm -rf "$E363" "$E484" "$S363"' EXIT
 
 assert_eq "#363 summarize-ci-checks.sh exists and is executable" "yes" \
   "$([ -x "$SCC" ] && echo yes || echo no)"
@@ -32599,7 +32600,7 @@ echo "#363 observability: ::warning:: on denials + permission_denials_count plum
 # ────────────────────────────────────────────────────────────────────────────
 SED_SH="$LIB/../scripts/surface-execution-diagnostics.sh"
 D363="$(mktemp -d)" || { echo "FAIL  #363 diag: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
 
 _diag_run() {  # execution-file-json -> stdout+stderr; GITHUB_OUTPUT at $D363/out
   : > "$D363/out"
@@ -40902,10 +40903,13 @@ assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda
 
 # The selected runner resolves this module from the registry before sourcing any
 # test body. The full suite uses a fail-closed boundary at the historical point:
-# a missing, crashing, or zero-assertion module records a suite failure and the
-# terminal summary still renders.
-devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh" \
-  "workflow-flight-recorder"
+# a missing, crashing, malformed-tally, or below-floor module records a suite
+# failure through an independent boundary tally.
+if ! devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh" \
+  "workflow-flight-recorder" 66; then
+  printf 'ERROR: workflow-flight-recorder boundary could not record its result\n'
+  exit 1
+fi
 
 # These integration tests live outside the module whose registration and source
 # boundary they pin, so deleting that boundary cannot delete the test execution.
@@ -40921,6 +40925,7 @@ assert_eq "test module full-suite boundary: focused Python tests pass" "0" "$MOD
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
+MODULE_FAIL=$(grep -c '^FAIL$' "$MODULE_FAILURES_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
 # PASS/FAIL above — a self-skipping check appended one line to it via skip(). This is the
 # authoritative K the renderer prints; SKIPS_FILE is read by the renderer only to list each
@@ -40953,6 +40958,12 @@ if ! devflow_tally_is_derivable "$FAIL"; then
   printf 'ERROR: FAIL tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
   exit 1
 fi
+if ! devflow_tally_is_derivable "$MODULE_FAIL"; then
+  printf 'ERROR: module-boundary FAIL tally underivable from %s — refusing to render a summary over it\n' \
+    "$MODULE_FAILURES_FILE"
+  exit 1
+fi
+FAIL=$((FAIL + MODULE_FAIL))
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"
