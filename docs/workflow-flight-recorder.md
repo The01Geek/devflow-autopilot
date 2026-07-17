@@ -358,7 +358,11 @@ report generation use deterministic Python standard-library code with no
 model/provider call, network access, shell, plugin, or tool-enabled analyst; the
 census export is the sole networked step and writes only the immutable Actions
 metadata snapshot. Performance reporting includes analyzer wall time, peak
-memory, input bytes, output bytes, lifecycle count, event count,
+memory, input bytes, output bytes, lifecycle count, event count (events parsed
+at extraction across local transcripts — cloud sources carry no native events),
+no-root-occurrence count (available transcripts in which no registered
+occurrence was detected — registry drift or a detection regression, surfaced in
+the artifact so numerator blindness is never silent),
 skipped/unsupported source count, and extraction-failure count (extraction
 failures are tallied separately from the other unsupported-source producers, so
 an analyzer-side defect degrading every transcript is visible in the artifact

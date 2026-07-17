@@ -458,6 +458,9 @@ class CandidateFailsClosedTests(unittest.TestCase):
         a = dataclasses.replace(a, start_authorization=START_CONFIRMED_TERMINAL)  # no prior missing response
         groups = group_launches([a, b])
         self.assertNotEqual(groups[0].relationship, REL_CANDIDATE_TRANSPORT_RETRY)
+        # Pin the resulting class too (a misroute into a wrong-but-non-candidate
+        # class must not pass — same discipline as the five sibling mutations).
+        self.assertEqual(groups[0].relationship, REL_UNCLASSIFIABLE)
 
     def test_mutation_boundary_removed(self) -> None:
         a, b = candidate_pair()
@@ -726,6 +729,9 @@ class ReviewFixFollowupTests(unittest.TestCase):
             m.timing["duration_ms"] = None
         groups = group_launches([a, b])
         self.assertNotEqual(groups[0].relationship, REL_CANDIDATE_TRANSPORT_RETRY)
+        # Pin the resulting class too (a misroute into a wrong-but-non-candidate
+        # class must not pass — same discipline as the five sibling mutations).
+        self.assertEqual(groups[0].relationship, REL_UNCLASSIFIABLE)
 
 
 def _load_export_census():
@@ -2729,6 +2735,350 @@ class Pr531StandaloneReviewFindingsTests(_TmpDirTestCase):
         annots = vb.VerificationBaseline.__annotations__
         self.assertEqual(annots["verification_process_launches"], "list[VerificationProcessLaunch]")
         self.assertEqual(annots["relationship_groups"], "list[RelationshipGroup]")
+
+
+# --------------------------------------------------------------------------- #
+# PR #531 review-and-fix local iteration (post-approve fix pass): the phantom
+# env: slot on attached --flag=value, loud load_cloud_mappings degradation,
+# instrumented no-root-occurrence, read-gated cloud-census byte accounting,
+# AC #64 event_count, AC #61 symlink rejection at discovered-file opens, the
+# registry agent_step producer key, block-list tool_result content (the real
+# native shape), the empty-successful-result START_UNKNOWN arm, and the AC #63
+# compatibility fixtures (Unicode/spaced paths, compaction, interleaved
+# concurrent lifecycles, detached/no-remote manifest git shape).
+# --------------------------------------------------------------------------- #
+class Pr531RafLocalIter1Tests(_TmpDirTestCase):
+    def _run_doc(self, sid: str, transcript_bytes: bytes) -> dict:
+        write_manifest(self.manifests, sid)
+        write_bundle(self.bundles, sid, transcript_bytes)
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        runs = sorted(self.out.iterdir())
+        return json.loads((runs[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+
+    # CR-1: SECRET_ENV_ASSIGNMENT's word-boundary must not treat the hyphen
+    # inside an attached-form --flag=value as an env-name start; the phantom
+    # env: slot mislabels the redaction provenance in the serialized artifact.
+    def test_attached_flag_value_has_no_phantom_env_slot(self) -> None:
+        b = vb._binding_identity("--api-key=secretval lib/test/run.sh")
+        self.assertTrue(b.secret_affected)
+        self.assertEqual([s for s in b.secret_slots if s.startswith("env:")], [])
+        self.assertIn("flag:api-key", b.secret_slots)
+        b2 = vb._binding_identity("--auth-token=abc lib/test/run.sh")
+        self.assertEqual([s for s in b2.secret_slots if s.startswith("env:")], [])
+        self.assertIn("flag:auth-token", b2.secret_slots)
+        # Positive control: a genuine env assignment still yields the env slot.
+        b3 = vb._binding_identity("API_KEY=x lib/test/run.sh")
+        self.assertIn("env:API_KEY", b3.secret_slots)
+        # Negative control: a non-secret flag stays untouched.
+        b4 = vb._binding_identity("--pattern=foo lib/test/run.sh")
+        self.assertFalse(b4.secret_affected)
+
+    # SF-2: an unreadable or non-object registry is a LOUD degradation, not a
+    # silent {} indistinguishable from a genuinely absent section.
+    def test_load_cloud_mappings_unreadable_registry_is_loud(self) -> None:
+        d = Path(self.tmp) / "regdir"
+        d.mkdir()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            out = vb.load_cloud_mappings(d)
+        self.assertEqual(out, {})
+        self.assertIn("unreadable", err.getvalue())
+
+    def test_load_cloud_mappings_nonobject_registry_is_loud(self) -> None:
+        p = Path(self.tmp) / "reg.json"
+        p.write_text("[]", encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            out = vb.load_cloud_mappings(p)
+        self.assertEqual(out, {})
+        self.assertIn("not a JSON object", err.getvalue())
+
+    def test_load_cloud_mappings_corrupt_json_is_loud(self) -> None:
+        p = Path(self.tmp) / "reg2.json"
+        p.write_text("{", encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            out = vb.load_cloud_mappings(p)
+        self.assertEqual(out, {})
+        self.assertIn("unreadable", err.getvalue())
+
+    # SF-1: an available transcript in which no registered root occurrence is
+    # detected is a manifest<->transcript<->registry inconsistency; it must be
+    # counted, row-attributed, and loud — never a bare `continue`.
+    def test_no_root_occurrence_is_instrumented(self) -> None:
+        sid = "s-noroot"
+        b = transcript(
+            user("just chatting, no workflow invocation"),
+            bash_call("echo hi", "t1"),
+            tool_result("t1", "ok; exit code 0"),
+        )
+        write_manifest(self.manifests, sid)
+        write_bundle(self.bundles, sid, b)
+        registry = wfr.load_registry(REGISTRY)
+        stats: dict = {}
+        rows = vb.build_local_census(self.manifests, registry, stats)
+        rows = vb.join_local_imports(rows, self.bundles, vb.DEFAULT_MAX_SOURCE_BYTES, stats)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            _reqs, launches, rows2 = vb.extract_verification_lifecycles(rows, self.bundles, registry, vb.DEFAULT_MAX_SOURCE_BYTES, stats)
+        self.assertEqual(launches, [])
+        self.assertEqual(rows2[0].provenance.get("extraction_error"), "no_root_occurrence")
+        self.assertEqual(stats.get("no_occurrence_count"), 1)
+        self.assertIn("no root occurrence", err.getvalue())
+        # The row stays source_available: the transcript itself was fine.
+        self.assertEqual(rows2[0].source_status, SOURCE_AVAILABLE)
+
+    def test_no_occurrence_count_surfaces_in_performance(self) -> None:
+        sid = "s-noroot2"
+        b = transcript(user("nothing registered here"), bash_call("echo hi", "t1"), tool_result("t1", "ok; exit code 0"))
+        doc = self._run_doc(sid, b)
+        self.assertEqual(doc["performance"]["no_occurrence_count"], 1)
+
+    # CA-1: cloud-census bytes are counted only after a successful read, inside
+    # read_cloud_census — an unreadable snapshot contributes no bytes, keeping
+    # _count_input_bytes' "none were read" universal true.
+    def test_cloud_census_bytes_counted_only_on_successful_read(self) -> None:
+        p = Path(self.tmp) / "snap.json"
+        payload = json.dumps({"schema_version": 1, "rows": []})
+        # Give the snapshot a valid recorded hash so the read succeeds end-to-end.
+        rows: list = []
+        h = hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        payload = json.dumps({"schema_version": 1, "rows": rows, "snapshot_hash": h})
+        p.write_text(payload, encoding="utf-8")
+        stats = {"input_bytes": 0}
+        doc, reason = vb.read_cloud_census(p, stats)
+        self.assertEqual(reason, "ok")
+        self.assertEqual(stats["input_bytes"], len(payload.encode("utf-8")))
+        d = Path(self.tmp) / "snapdir"
+        d.mkdir()
+        stats2 = {"input_bytes": 0}
+        doc2, reason2 = vb.read_cloud_census(d, stats2)
+        self.assertIsNone(doc2)
+        self.assertIn("unreadable", reason2)
+        self.assertEqual(stats2["input_bytes"], 0)
+
+    # AC #64: performance reporting includes event count — the analyzer parses
+    # every extracted transcript's events, so the value is knowable and emitted.
+    def test_event_count_populated_from_extraction(self) -> None:
+        sid = "s-events"
+        b = transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "t1"),
+            tool_result("t1", "ok; exit code 0"),
+        )
+        doc = self._run_doc(sid, b)
+        self.assertEqual(doc["performance"]["event_count"], 3)
+
+    # AC #61: a symlinked manifest discovered under the admitted root is
+    # rejected before opening (never followed), surfaced as an unknown-manifest
+    # denominator row plus a loud breadcrumb.
+    def test_symlinked_manifest_is_rejected_not_followed(self) -> None:
+        outside = Path(self.tmp) / "outside-secret.json"
+        outside.write_text(json.dumps(manifest("s-out")), encoding="utf-8")
+        link = self.manifests / "s-link.json"
+        link.symlink_to(outside)
+        registry = wfr.load_registry(REGISTRY)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rows = vb.build_local_census(self.manifests, registry, None)
+        self.assertEqual(len(rows), 1)
+        self.assertIn("symlink", err.getvalue())
+        # The target was never parsed: the row is the unknown-manifest shape,
+        # not a row carrying the outside manifest's session id.
+        self.assertNotEqual(rows[0].identity.get("session_id"), "s-out")
+
+    def test_symlinked_transcript_is_rejected_not_followed(self) -> None:
+        sid = "s-symt"
+        write_bundle(self.bundles, sid, transcript(user("/devflow:implement 527")))
+        outside = Path(self.tmp) / "outside-transcript.jsonl"
+        outside.write_bytes(transcript(user("/devflow:implement 527")))
+        t = self.bundles / sid / "transcript.jsonl"
+        t.unlink()
+        t.symlink_to(outside)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            status = vb._classify_source_status(self.bundles / sid, vb.DEFAULT_MAX_SOURCE_BYTES)
+        self.assertEqual(status, SOURCE_UNREADABLE)
+        self.assertIn("symlink", err.getvalue())
+
+    def test_symlinked_metadata_is_rejected_not_followed(self) -> None:
+        sid = "s-symm"
+        write_bundle(self.bundles, sid, transcript(user("/devflow:implement 527")))
+        outside = Path(self.tmp) / "outside-meta.json"
+        outside.write_text(json.dumps({"schema_version": 2, "session_id": sid}), encoding="utf-8")
+        m = self.bundles / sid / "metadata.json"
+        m.unlink()
+        m.symlink_to(outside)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            status = vb._classify_source_status(self.bundles / sid, vb.DEFAULT_MAX_SOURCE_BYTES)
+        self.assertEqual(status, SOURCE_UNREADABLE)
+        self.assertIn("symlink", err.getvalue())
+
+    def test_symlinked_bundle_dir_is_rejected(self) -> None:
+        sid = "s-symd"
+        real = Path(self.tmp) / "outside-bundle"
+        real.mkdir()
+        (real / "transcript.jsonl").write_bytes(transcript(user("/devflow:implement 527")))
+        (real / "metadata.json").write_text(json.dumps({"schema_version": 2, "session_id": sid}), encoding="utf-8")
+        link = self.bundles / sid
+        link.symlink_to(real, target_is_directory=True)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            status = vb._classify_source_status(self.bundles / sid, vb.DEFAULT_MAX_SOURCE_BYTES)
+        self.assertEqual(status, SOURCE_UNREADABLE)
+        self.assertIn("symlink", err.getvalue())
+
+    # VC-34: agent_step is a producer key naming the real step id (`claude`,
+    # the id of the `Run Claude Code` step) in every mapped workflow — never
+    # the action package name, which names no step.
+    def test_registry_agent_step_names_the_real_step_id(self) -> None:
+        doc = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        entries = doc["cloud_mappings"]["agent_jobs"]
+        self.assertEqual(len(entries), 3)
+        for entry in entries:
+            self.assertEqual(entry["agent_step"], "claude")
+        # The id exists in each mapped workflow file (the producer side).
+        for wf in {e["workflow_file"] for e in entries} | {".github/workflows/devflow-runner.yml"}:
+            text = (ROOT / wf).read_text(encoding="utf-8")
+            if wf.endswith("devflow-review.yml"):
+                continue  # its agent job lives in devflow-runner.yml (nested)
+            self.assertIn("id: claude", text)
+
+    # PT-1: the list-of-blocks tool_result content shape (the dominant native
+    # transcript shape) drives the same joins as the plain-string shape.
+    def test_block_list_tool_result_content_classifies_identically(self) -> None:
+        def tool_result_blocks(tuid: str, text: str, is_error: bool = False) -> dict:
+            return {
+                "type": "user",
+                "timestamp": "2026-07-16T01:02:00Z",
+                "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": tuid, "is_error": is_error,
+                                                          "content": [{"type": "text", "text": text}]}]},
+            }
+        ws = "head main\nindex clean\nsubmodule none\ntracked 5\nuntracked 0\nignored node_modules/"
+        b = transcript(
+            user("/devflow:implement 527"),
+            bash_call("git status --ignored", "tu-git"),
+            tool_result_blocks("tu-git", ws),
+            bash_call("lib/test/run.sh", "t-blocks"),
+            tool_result_blocks("t-blocks", "All good; exit code 0"),
+        )
+        doc = self._run_doc("s-blocks", b)
+        starts = {r["tool_use_id"]: r["authorization_start"] for r in doc["verification_requests"]}
+        self.assertEqual(starts["t-blocks"], START_CONFIRMED_TERMINAL)
+        launches = doc["verification_process_launches"]
+        self.assertEqual({launch["tool_use_id"] for launch in launches}, {"t-blocks"})
+        # Workspace coverage came from the block-list git status result.
+        self.assertEqual(launches[0]["workspace_state"]["coverage"], "complete")
+
+    # PT-2: a present, non-error result with EMPTY content is START_UNKNOWN and
+    # never a confirmed launch — an empty success must not inflate the numerator.
+    def test_empty_successful_result_is_start_unknown(self) -> None:
+        b = transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "t-empty"),
+            tool_result("t-empty", ""),
+        )
+        doc = self._run_doc("s-empty", b)
+        starts = {r["tool_use_id"]: r["authorization_start"] for r in doc["verification_requests"]}
+        self.assertEqual(starts["t-empty"], START_UNKNOWN)
+        self.assertEqual([launch["tool_use_id"] for launch in doc["verification_process_launches"]], [])
+
+    # AC #63: Unicode + spaced admitted paths.
+    def test_unicode_and_spaced_paths_process_normally(self) -> None:
+        base = Path(self.tmp) / "unicodé dir"
+        manifests = base / "man ifests"
+        bundles = base / "bün dles"
+        out = base / "out püt"
+        manifests.mkdir(parents=True)
+        bundles.mkdir(parents=True)
+        # ASCII session id (the recorder's ids are UUIDs and non-conforming ids
+        # are SAFE_ID-rejected by design); the Unicode/space coverage is the PATHS.
+        sid = "s-unicode-paths"
+        write_manifest(manifests, sid)
+        write_bundle(bundles, sid, transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "t1"),
+            tool_result("t1", "ok; exit code 0"),
+        ))
+        rc = main(["--manifests-dir", str(manifests), "--bundles-dir", str(bundles), "--registry", str(REGISTRY), "--out-dir", str(out)])
+        self.assertEqual(rc, 0)
+        runs = sorted(out.iterdir())
+        doc = json.loads((runs[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(doc["verification_process_launches"]), 1)
+
+    # AC #63: a compaction boundary event mid-lifecycle is tolerated.
+    def test_compaction_event_mid_lifecycle_is_tolerated(self) -> None:
+        b = transcript(
+            user("/devflow:implement 527"),
+            {"type": "compact_boundary", "timestamp": "2026-07-16T01:00:30Z"},
+            bash_call("lib/test/run.sh", "t1"),
+            tool_result("t1", "ok; exit code 0"),
+        )
+        doc = self._run_doc("s-compact", b)
+        self.assertEqual(len(doc["verification_process_launches"]), 1)
+
+    # AC #63: two lifecycles in ONE transcript — extraction scopes to the
+    # manifest consumer's root occurrence and never attributes the sibling
+    # lifecycle's launches to it.
+    def test_concurrent_lifecycles_in_one_transcript_scope_correctly(self) -> None:
+        b = transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "t-impl"),
+            tool_result("t-impl", "ok; exit code 0"),
+            user("/devflow:review 531", timestamp="2026-07-16T02:00:00Z"),
+            bash_call("lib/test/run.sh", "t-review", timestamp="2026-07-16T02:01:00Z"),
+            tool_result("t-review", "ok; exit code 0", timestamp="2026-07-16T02:02:00Z"),
+        )
+        doc = self._run_doc("s-two", b)
+        launch_ids = {launch["tool_use_id"] for launch in doc["verification_process_launches"]}
+        # The manifest's consumer is implement -> only the implement span's launch.
+        self.assertEqual(launch_ids, {"t-impl"})
+
+    # AC #63: a detached-HEAD / no-remote manifest git shape still processes.
+    def test_detached_no_remote_manifest_processes(self) -> None:
+        sid = "s-detached"
+        doc_manifest = manifest(sid)
+        doc_manifest["git"] = {"head_sha": "abc", "branch": None, "dirty_tree": False}
+        (self.manifests / f"{sid}.json").write_text(json.dumps(doc_manifest), encoding="utf-8")
+        write_bundle(self.bundles, sid, transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "t1"),
+            tool_result("t1", "ok; exit code 0"),
+        ))
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        runs = sorted(self.out.iterdir())
+        doc = json.loads((runs[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(doc["verification_process_launches"]), 1)
+
+    # TD-1: the source/source_status pair is guarded in BOTH directions —
+    # reassigning `source` re-validates the already-bound source_status.
+    def test_source_reassignment_revalidates_pair(self) -> None:
+        row = vb.EligibleLifecycle(
+            source=vb.SOURCE_LOCAL, surrogate_id="sr-1", consumer="implement",
+            subject={}, identity={}, eligibility_state=ELIGIBILITY_CONFIRMED,
+            eligibility_evidence="exact_user_command", host_profile=None,
+            source_status=SOURCE_AVAILABLE, provenance={},
+        )
+        with self.assertRaises(ValueError):
+            row.source = vb.SOURCE_CLOUD  # local-domain status on a cloud row
+        self.assertEqual(row.source, vb.SOURCE_LOCAL)
+
+    # FP-4: the exact join arm requires the same source event AND the same
+    # tool_use — one assistant event can carry multiple Bash tool_uses.
+    def test_join_exact_requires_same_tool_use(self) -> None:
+        a = make_launch("a")
+        b = dataclasses.replace(make_launch("b"), source_event_id=a.source_event_id)
+        # Same source event, different tool_use ids -> not exact via that arm
+        # (falls to the lifecycle+digest arm: same lifecycle + same digest -> exact
+        # there, so vary the digest to isolate the source-event arm).
+        b = dataclasses.replace(b, binding=dataclasses.replace(b.binding, digest=hashlib.sha256(b"other").hexdigest()))
+        self.assertNotEqual(join_confidence(a, b), CONFIDENCE_EXACT)
+        # Same source event AND same tool_use id -> exact.
+        c = dataclasses.replace(make_launch("c"), source_event_id=a.source_event_id, tool_use_id=a.tool_use_id)
+        self.assertEqual(join_confidence(a, c), CONFIDENCE_EXACT)
 
 
 if __name__ == "__main__":

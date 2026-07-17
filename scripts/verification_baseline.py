@@ -26,10 +26,11 @@ tool input, stdout/stderr, secrets, redacted displays, and source paths never
 enter model prompts, errors, logs, telemetry, workflow artifacts, PR comments,
 or tracked .devflow/logs/**. The report cites source-event IDs only.
 
-Sibling helpers in workflow_flight_recorder (_atomic_write, _timestamp_ms,
-_utc_timestamp) are re-implemented here rather than imported, to keep this
-analyzer decoupled from the recorder's private surface and to guarantee the
-no-subprocess/no-git contract by construction.
+Sibling helpers in workflow_flight_recorder are re-implemented locally rather
+than imported (`_atomic_write` literally; the recorder's timestamp helpers via
+this module's own `_parse_iso_ms`/`_ms_to_iso`/`_now_iso` equivalents), to keep
+this analyzer decoupled from the recorder's private surface and to guarantee
+the no-subprocess/no-git contract by construction.
 """
 
 from __future__ import annotations
@@ -272,7 +273,14 @@ SECRET_ENV_ASSIGNMENT = re.compile(
     # SECRETS) without re-admitting the collision words: PATH/PATTERN/KEYWORDS
     # end in a NON-`S` char after the keyword prefix, so `S?=` still rejects
     # them (PR #531 iteration-2 fix-delta gate: suffix-anchoring dropped plurals).
-    r"\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|PAT|PASS|KEY)S?)=" + _SECRET_VALUE,
+    # `(?<![-\w])` (not `\b`): a bare word-boundary treats the hyphen->letter
+    # transition inside an attached-form flag (`--api-key=v`) as a boundary, so
+    # the env pattern matched the interior `key=v` segment and appended a
+    # phantom `env:KEY` slot beside the real `flag:api-key` one — mislabeling
+    # the redaction provenance in the serialized artifact (PR #531
+    # review-and-fix local iteration; no leak, the value was still redacted).
+    # The lookbehind refuses an env-name start preceded by `-` or a word char.
+    r"(?<![-\w])([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|PAT|PASS|KEY)S?)=" + _SECRET_VALUE,
     re.IGNORECASE,
 )
 SECRET_FLAG = re.compile(
@@ -785,6 +793,20 @@ class EligibleLifecycle:
         __init__ (dataclasses assign fields in declaration order)."""
         if name == "source_status":
             self._require_valid_source_status(value)
+        elif name == "source" and "source_status" in self.__dict__:
+            # Symmetric guard (PR #531 review-and-fix local iteration): the
+            # cross-field invariant was enforced only on the source_status
+            # side, so reassigning ``source`` after construction could leave a
+            # local-domain status on a cloud row with no error — exactly the
+            # inconsistent state the docstring says is impossible "for every
+            # assignment path". Re-validate the already-bound status against
+            # the NEW source before the assignment lands (no live call site
+            # reassigns source; this closes the latent path by construction).
+            allowed_status = (
+                LOCAL_SOURCE_STATUSES if value == SOURCE_LOCAL
+                else (CLOUD_SOURCE_AVAILABLE, SOURCE_UNAVAILABLE)
+            )
+            _require_member("EligibleLifecycle.source_status", self.source_status, allowed_status)
         object.__setattr__(self, name, value)
 
     def set_source_status(self, value: str) -> None:
@@ -981,8 +1003,9 @@ class RelationshipGroup:
 def load_cloud_mappings(registry_path: Path) -> dict[str, dict[str, object]]:
     """Return {(workflow_file, job): agent_job_entry} from the registry's
     additive cloud_mappings section. Returns {} when the section is absent
-    (cloud census is optional; silent, by design) OR when it is present but
-    malformed/wrong-schema. Both yield an empty table, so a present snapshot then
+    (cloud census is optional; silent, by design), when it is present but
+    malformed/wrong-schema, OR when the registry itself is unreadable/corrupt
+    or not a JSON object (both also loud). Both yield an empty table, so a present snapshot then
     builds an all-ineligible cloud census reported as available — but a
     present-but-malformed section additionally emits a stderr breadcrumb, so an
     operator misconfiguration is a LOUD degradation distinguishable from a
@@ -992,11 +1015,27 @@ def load_cloud_mappings(registry_path: Path) -> dict[str, dict[str, object]]:
     error rather than a runtime hazard."""
     try:
         document = json.loads(registry_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         # UnicodeDecodeError is a ValueError, not an OSError — without it a
         # non-UTF-8 registry aborts the analyzer instead of degrading (#527).
+        # An unreadable/corrupt registry is a strictly WORSE misconfiguration
+        # than a malformed section, so it takes the same loud-degradation arm
+        # (PR #531 review-and-fix local iteration: the silent {} here
+        # contradicted this function's own documented loud contract — narrow
+        # today because load_registry has just succeeded on the same path in
+        # main(), but full-width for any future caller without that preface).
+        print(
+            "devflow verification-baseline: registry unreadable/corrupt for cloud_mappings "
+            f"({type(exc).__name__}); cloud jobs will read ineligible. Fix or restore the registry.",
+            file=sys.stderr,
+        )
         return {}
     if not isinstance(document, dict):
+        print(
+            "devflow verification-baseline: registry top level is not a JSON object; "
+            "cloud_mappings unavailable — cloud jobs will read ineligible. Fix the registry.",
+            file=sys.stderr,
+        )
         return {}
     mappings = document.get("cloud_mappings")
     if mappings is None:
@@ -1092,6 +1131,21 @@ def build_local_census(manifests_dir: Path, registry: dict, stats: "dict | None"
         return rows
     manifest_files = sorted(p for p in manifests_dir.iterdir() if p.is_file() and p.suffix == ".json")
     for position, path in enumerate(manifest_files):
+        if path.is_symlink():
+            # AC #61: reject symlinks before opening. The top-level dirs route
+            # through _validate_admitted_path, but files DISCOVERED under them
+            # are agent-writable at runtime — a planted symlink must never be
+            # followed to an out-of-root read (PR #531 review-and-fix local
+            # iteration). The row is still counted (unknown-manifest shape:
+            # unknown is not zero), with a loud breadcrumb.
+            print(
+                f"devflow verification-baseline: rejecting symlinked manifest {path.name} "
+                "(AC #61: symlinks under admitted roots are never followed); "
+                "counted as an unknown-manifest row",
+                file=sys.stderr,
+            )
+            rows.append(_unknown_manifest_row(path, position))
+            continue
         try:
             raw = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -1260,9 +1314,26 @@ def join_local_imports(rows: list[EligibleLifecycle], bundles_dir: Path, max_byt
 def _classify_source_status(bundle: Path, max_bytes: int, stats: "dict | None" = None) -> str:
     if not bundle.exists() or not bundle.is_dir():
         return SOURCE_ELIGIBLE_NOT_IMPORTED
+    if bundle.is_symlink():
+        # AC #61: a symlinked bundle directory redirects every child read
+        # out of the admitted root — reject before opening anything under it
+        # (PR #531 review-and-fix local iteration).
+        print(
+            f"devflow verification-baseline: rejecting symlinked bundle dir {bundle.name} "
+            "(AC #61: symlinks under admitted roots are never followed)",
+            file=sys.stderr,
+        )
+        return SOURCE_UNREADABLE
     metadata = bundle / "metadata.json"
     transcript = bundle / "transcript.jsonl"
     if metadata.exists():
+        if metadata.is_symlink():
+            print(
+                f"devflow verification-baseline: rejecting symlinked metadata.json in {bundle.name} "
+                "(AC #61: symlinks under admitted roots are never followed)",
+                file=sys.stderr,
+            )
+            return SOURCE_UNREADABLE
         try:
             meta_text = metadata.read_text(encoding="utf-8")
             _count_input_bytes(stats, len(meta_text.encode("utf-8")))
@@ -1295,6 +1366,15 @@ def _classify_source_status(bundle: Path, max_bytes: int, stats: "dict | None" =
         if state in ("uncaptured", "captured"):
             return SOURCE_IMPORT_FAILED
         return SOURCE_MISSING
+    if transcript.is_symlink():
+        # AC #61: never follow a symlinked transcript (same class as the
+        # metadata/bundle-dir rejections above).
+        print(
+            f"devflow verification-baseline: rejecting symlinked transcript.jsonl in {bundle.name} "
+            "(AC #61: symlinks under admitted roots are never followed)",
+            file=sys.stderr,
+        )
+        return SOURCE_UNREADABLE
     try:
         size = transcript.stat().st_size
     except OSError:
@@ -1405,6 +1485,15 @@ def _stop_attempts_state(bundle: Path, stats: "dict | None" = None) -> "tuple[st
     attempts = bundle / "stop-attempts.jsonl"
     if not attempts.exists():
         return "none", []
+    if attempts.is_symlink():
+        # AC #61: never follow a symlinked stop-attempts log (same class as
+        # the other discovered-file rejections).
+        print(
+            f"devflow verification-baseline: rejecting symlinked stop-attempts.jsonl in {bundle.name} "
+            "(AC #61: symlinks under admitted roots are never followed)",
+            file=sys.stderr,
+        )
+        return "unreadable", []
     try:
         text = attempts.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
@@ -1783,6 +1872,17 @@ def extract_verification_lifecycles(
             continue
         bundle = bundles_dir / sid
         transcript = bundle / "transcript.jsonl"
+        if bundle.is_symlink() or transcript.is_symlink():
+            # AC #61 re-check at the second read (classification already
+            # rejected symlinks, but the extraction read is a separate open —
+            # a swap between the two must not be followed either).
+            print(
+                f"devflow verification-baseline: rejecting symlinked transcript path for session {sid} "
+                "at extraction (AC #61: symlinks under admitted roots are never followed)",
+                file=sys.stderr,
+            )
+            row.set_source_status(SOURCE_UNREADABLE)
+            continue
         try:
             raw = transcript.read_bytes()
         except OSError:
@@ -1802,14 +1902,51 @@ def extract_verification_lifecycles(
             continue
         if stats is not None:
             stats["extraction_attempted_count"] = stats.get("extraction_attempted_count", 0) + 1
+            # AC #64: performance reporting includes event count. Tallied at
+            # the extraction parse (each extracted transcript's events counted
+            # once); cloud sources carry no native events, so this is the
+            # analyzer's whole parsed-event corpus (PR #531 review-and-fix
+            # local iteration — the field was unconditionally null before).
+            stats["event_count"] = stats.get("event_count", 0) + len(events)
         try:
             occurrences = wfr.detect_occurrences(events, registry)
             # Use the manifest's consumer to scope the root occurrence; fall back
             # to the first top-level occurrence of any registered workflow.
             root = _select_root_occurrence(occurrences, row.consumer)
             if root is None:
+                # A source-available transcript in which no registered root
+                # occurrence is detected is a manifest<->transcript<->registry
+                # INCONSISTENCY (the census row exists only because a start
+                # manifest recorded a registered invocation), the same failure
+                # class as the exception arm below: registry first-message-form
+                # drift, a detect_occurrences regression, or a de-registered
+                # form would zero the NUMERATOR corpus-wide while the report
+                # read a clean 0 at exit 0 — "unknown is not zero" broken at
+                # the numerator (PR #531 review-and-fix local iteration). Count
+                # it, attribute it on the row, and say so; the row itself stays
+                # source_available (the transcript is fine — detection is not).
+                row.provenance["extraction_error"] = "no_root_occurrence"
+                if stats is not None:
+                    stats["no_occurrence_count"] = stats.get("no_occurrence_count", 0) + 1
+                print(
+                    f"devflow verification-baseline: no root occurrence detected in an available "
+                    f"transcript (session {sid}) — registry drift or occurrence-detection "
+                    "regression?; row counted, launches not extracted",
+                    file=sys.stderr,
+                )
                 continue
             end_idx = root.end_event if root.end_event is not None else (len(events) - 1)
+            if root.end_event is None:
+                # An open-ended lifecycle is bounded by the NEXT top-level
+                # occurrence's start: without this, a transcript carrying two
+                # lifecycles (AC #63's concurrent-lifecycles row) attributed
+                # the sibling lifecycle's launches to this row's consumer
+                # (PR #531 review-and-fix local iteration, caught by the new
+                # concurrent-lifecycles fixture).
+                later_starts = [o.start_event for o in occurrences
+                                if o.mode == "top-level" and o.start_event > root.start_event]
+                if later_starts:
+                    end_idx = min(later_starts) - 1
             row.provenance["lifecycle_id"] = f"{sid}\x1f{root.occurrence_id}"
             reqs, launches_in = _extract_from_lifecycle(events, root, end_idx, sid, row.consumer,
                                                         row.eligibility_state)
@@ -2018,7 +2155,16 @@ def join_confidence(launch_a: VerificationProcessLaunch, launch_b: VerificationP
     documented as deliberate, not dead-by-accident)."""
     # Only explicit lifecycle + source-event identity produces exact; guessed
     # joins are forbidden.
-    if launch_a.source_event_id and launch_b.source_event_id and launch_a.source_event_id == launch_b.source_event_id:
+    # The exact arm requires the same source event AND the same tool_use: one
+    # assistant event can carry multiple Bash tool_uses, and _source_event_id
+    # is event-scoped, so a bare source_event_id match would join two DIFFERENT
+    # commands from one message as exact — bypassing the secret-affected
+    # carve-out below (PR #531 review-and-fix local iteration; unreachable in
+    # Wave 1's per-tool_use extraction, but this is the pinned reference
+    # implementation for future cross-source adapters).
+    if (launch_a.source_event_id and launch_b.source_event_id
+            and launch_a.source_event_id == launch_b.source_event_id
+            and launch_a.tool_use_id == launch_b.tool_use_id):
         return CONFIDENCE_EXACT
     if launch_a.lifecycle_id and launch_b.lifecycle_id and launch_a.lifecycle_id == launch_b.lifecycle_id:
         if launch_a.binding.digest == launch_b.binding.digest:
@@ -2460,7 +2606,7 @@ def _duration_bucket(ms: Any) -> "str | None":
 CLOUD_SNAPSHOT_SCHEMA = 1
 
 
-def read_cloud_census(snapshot_path: Path) -> "tuple[dict[str, Any] | None, str]":
+def read_cloud_census(snapshot_path: Path, stats: "dict | None" = None) -> "tuple[dict[str, Any] | None, str]":
     """Read an explicit Actions run/job census snapshot.
 
     Returns ``(doc, reason)``: ``doc`` is the parsed snapshot or ``None`` when it
@@ -2473,10 +2619,22 @@ def read_cloud_census(snapshot_path: Path) -> "tuple[dict[str, Any] | None, str]
     if snapshot_path is None:
         return None, "absent"
     try:
-        doc = json.loads(snapshot_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        text = snapshot_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
         # UnicodeDecodeError: a non-UTF-8 snapshot is an unreadable census
-        # (coverage unavailable), never an analyzer abort (#527 review).
+        # (coverage unavailable), never an analyzer abort (#527 review). A
+        # failed read contributes NO input bytes — this is what keeps
+        # _count_input_bytes' "none were read" universal true for the cloud
+        # snapshot too (PR #531 review-and-fix local iteration: main()
+        # previously stat()-counted the size whether or not the read
+        # succeeded, the one arm contradicting the docstring's universal).
+        return None, f"unreadable/corrupt ({type(exc).__name__})"
+    # Successfully-read content is counted here (actual bytes read, not a stat
+    # size), matching every sibling reader's convention.
+    _count_input_bytes(stats, len(text.encode("utf-8")))
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError as exc:
         return None, f"unreadable/corrupt ({type(exc).__name__})"
     if not isinstance(doc, dict):
         return None, "not a JSON object"
@@ -2936,16 +3094,12 @@ def main(argv: "list[str] | None" = None) -> int:
     if args.cloud_census:
         try:
             cloud_path = _validate_admitted_path(args.cloud_census, must_exist=True)
-            cloud_snapshot, cloud_reason = read_cloud_census(cloud_path)
-            try:
-                _count_input_bytes(stats, cloud_path.stat().st_size)
-            except OSError as exc:
-                # Same breadcrumb rule as the registry stat above — this scope
-                # already prints diagnostics for the cloud-census arms just
-                # below, so a silent stat failure here was the one gap.
-                print(f"devflow verification-baseline: could not stat {cloud_path} for input-byte "
-                      f"accounting ({type(exc).__name__}); input_bytes undercounts by that file",
-                      file=sys.stderr)
+            # Byte accounting moved INTO read_cloud_census (counted only after a
+            # successful read, as actual bytes read) so _count_input_bytes'
+            # "none were read" universal holds for this reader too (PR #531
+            # review-and-fix local iteration; the old stat()-size count here
+            # charged unreadable snapshots their full size).
+            cloud_snapshot, cloud_reason = read_cloud_census(cloud_path, stats)
             if cloud_snapshot is None and cloud_reason != "absent":
                 # Distinguish a corrupt/schema-mismatch file from a missing flag so an
                 # operator who passed --cloud-census can tell why coverage is unavailable.
@@ -2977,7 +3131,16 @@ def main(argv: "list[str] | None" = None) -> int:
         "input_bytes": stats["input_bytes"],
         "output_bytes": None,  # filled after serialization
         "lifecycle_count": len(all_rows),
-        "event_count": None,  # not aggregated across sources in Wave 1 (per-source only)
+        # AC #64: events parsed at extraction across local transcripts (cloud
+        # sources carry no native events). 0 is factual here — it means zero
+        # events were parsed, not "unknown" (the tally rides the same stats
+        # dict as every other counter).
+        "event_count": stats.get("event_count", 0),
+        # A source-available transcript in which no registered root occurrence
+        # was detected (registry drift / detection regression — see the
+        # extraction site's no_root_occurrence arm): surfaced in the artifact
+        # so numerator blindness is visible, not just on stderr.
+        "no_occurrence_count": stats.get("no_occurrence_count", 0),
         "skipped_unsupported_source_count": sum(1 for r in all_rows if r.source_status in (SOURCE_UNSUPPORTED, SOURCE_UNREADABLE)),
         # Extraction failures are counted separately from the other
         # source_unsupported producers so a systemic analyzer defect (every
