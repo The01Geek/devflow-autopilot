@@ -31,9 +31,12 @@ TWO-CLASS CLI CONTRACT (the skill branches on exactly this):
   * `emit-body` is neither: it is a gated emitter. It exits 0 with the audited body
     bytes when eligibility grounds them, and non-zero with EMPTY stdout otherwise —
     so on the file-identity ground a caller that ignores the exit code cannot post an
-    unaudited body. On the event-ordering and override grounds the gate refuses bytes
-    a recorded revision has staled, but it cannot byte-bind what it emits (those
-    grounds record no trustworthy digest — the disclosed weaker identity); the
+    unaudited body. A file-arm override is digest-bound too (`record-override` requires
+    the draft there), so that ground byte-binds what it emits exactly as file-identity
+    does. On the event-ordering ground, and on an override recorded over an embed/inline
+    epoch, the gate refuses bytes a recorded revision has staled but cannot byte-bind
+    what it emits (those grounds record no trustworthy digest, because no trustworthy
+    canonical file exists to record one from — the disclosed weaker identity); the
     post-hoc creation attestation is the detection surface for that residual.
 
 WINDOWS-SAFETY (#275/#295): this module never executes a `.sh` helper ([WinError 193])
@@ -1119,13 +1122,12 @@ def cmd_init(args):
                           'automatic budget silently)')
         # The attestation is forward-only tamper evidence: record-creation-epoch and
         # record-creation-attestation both refuse to overwrite a recorded match/mismatch,
-        # using this same exemption set. Re-init discards the whole document, so without
-        # this third guard --force walked past both of them and query-summary then
+        # through this same shared accessor. Re-init discards the whole document, so
+        # without this third guard --force walked past both of them and query-summary then
         # rendered `attestation=none` — which the skill defines as "before any creation
         # attempt", indistinguishable from never-attempted. Unknown is not zero, and a
         # wiped mismatch must never read as an absent one.
-        if (existing.get('creation') or {}).get('attestation') not in (
-                None, 'attestation-unavailable'):
+        if _attestation_frozen(existing):
             _fail('init', 'a creation attestation is already recorded for this run; '
                           're-initialising would discard that forward-only tamper '
                           'evidence and render the summary as though no creation had '
@@ -1163,6 +1165,55 @@ def _load_for_mutation(prefix, slug, nonce):
     return doc
 
 
+def _attestation_frozen(doc):
+    """True once the creation attestation is forward-only tamper evidence.
+
+    The exemption set is the whole rule: `None` (nothing attested yet) and
+    `attestation-unavailable` (the honest unknown — a failed fetch, which is NOT
+    evidence about the body and so may be re-attested). Any other recorded value is a
+    real comparison result (`match`/`mismatch`) and is frozen: overwriting it would
+    discard the tamper evidence.
+
+    One accessor, three callers — `init`'s re-init guard, `record-creation-epoch`'s
+    rebind guard, and `record-creation-attestation`'s re-attest guard. They were three
+    copy-pasted predicates that had to agree by hand: this repo's dominant defect class
+    is exactly that shape (a coupled invariant whose mirror sites silently drift), and a
+    single site that admits one extra value re-opens the wipe the other two refuse.
+    """
+    return (doc.get('creation') or {}).get('attestation') not in (
+        None, 'attestation-unavailable')
+
+
+def _permitted_retry_arms(rnd):
+    """The arms a pending retry action permits, as a tuple.
+
+    The pending action names the arm the retry was routed to; a mismatched arm would
+    silently switch the carriage comparand class mid-round, so the set is closed.
+
+    `dispatch-retry-same-arm` on a FILE-arm round additionally permits the embed arm.
+    The canonical file can become unhashable between the return and the retry — the
+    concurrent-overwrite/delete race this design contemplates and that `route_arm`
+    exists to answer — and `query-arm` then routes the retry to embed. Without this
+    escalation the run DEADLOCKS with no legal next call: the embed dispatch the tool
+    itself just prescribed is refused as an illegal transition, the file dispatch
+    cannot read the file, `query-next-action` re-answers the same spent token forever,
+    and the skill is forbidden from improvising around an illegal transition or routing
+    it to the unavailable fallback. The escalation is never silent — the embed arm
+    requires `--marker` (enforced at the call site), so the entry cause is recorded in
+    `embed_markers` and rendered in the audit summary, which is exactly how the sibling
+    `dispatch-embed-retry` escalation already reports itself. It is deliberately NOT
+    extended to an inline-arm round: inline is the terminal degraded arm, so there is
+    nothing to escalate to.
+    """
+    same = rnd['attempts'][-1]['arm']
+    permitted = {'dispatch-embed-retry': ('embed',),
+                 'dispatch-inline-degraded': ('inline',),
+                 'dispatch-retry-same-arm': (same,)}[rnd['pending']]
+    if rnd['pending'] == 'dispatch-retry-same-arm' and same == 'file':
+        permitted = permitted + ('embed',)
+    return permitted
+
+
 def cmd_record_dispatch(args):
     doc = _load_for_mutation('record-dispatch', args.slug, args.nonce)
     if args.arm == 'file':
@@ -1173,7 +1224,16 @@ def cmd_record_dispatch(args):
         except OSError as exc:
             _fail('record-dispatch', f'could not read draft file {args.draft_file}: {exc}')
     else:
-        data = sys.stdin.buffer.read()
+        try:
+            data = sys.stdin.buffer.read()
+        except OSError as exc:
+            # The sibling draft-file read above routes its OSError through _fail; stdin is
+            # the same external input and gets the same treatment. Unguarded, a closed or
+            # broken fd 0 (plausible from the skill's shell-pipeline recipes) escapes as a
+            # raw traceback — breaking the mutation contract (non-zero WITH a named
+            # breadcrumb) the caller parses, and handing its stderr classification a
+            # Python traceback rather than one of this tool's own vocabulary strings.
+            _fail('record-dispatch', f'could not read draft bytes from stdin: {exc}')
         if not data:
             _fail('record-dispatch', f'the {args.arm} arm requires the draft bytes on '
                                      'stdin; received none')
@@ -1237,10 +1297,7 @@ def cmd_record_dispatch(args):
         # digest/sentinels silently become the carriage comparand.
         _fail('record-dispatch', f'round {args.round} is open awaiting its return; a '
                                  f're-dispatch was not requested')
-    elif args.arm != {'dispatch-embed-retry': 'embed',
-                      'dispatch-inline-degraded': 'inline',
-                      'dispatch-retry-same-arm': rnd['attempts'][-1]['arm']
-                      }[rnd['pending']]:
+    elif args.arm not in _permitted_retry_arms(rnd):
         # The pending action names the arm the retry was routed to; a mismatched arm
         # would silently switch the carriage comparand class mid-round.
         _fail('record-dispatch', f'the pending action {rnd["pending"]} does not permit '
@@ -1463,8 +1520,7 @@ def cmd_record_creation_epoch(args):
     if rnd.get('outcome') is None:
         _fail('record-creation-epoch', f'round {args.round} is still open; creation '
                                        'can only bind a completed round')
-    if (doc.get('creation') or {}).get('attestation') not in (None,
-                                                               'attestation-unavailable'):
+    if _attestation_frozen(doc):
         # attestation-unavailable is NOT tamper evidence (it is the honest unknown), so
         # a corrective retry may re-bind past it; match/mismatch stay frozen.
         _fail('record-creation-epoch',
@@ -1485,14 +1541,23 @@ def cmd_record_creation_attestation(args):
     if not doc.get('creation'):
         _fail('record-creation-attestation', 'no creation epoch is recorded; there is '
                                              'nothing to attest against')
-    if doc['creation'].get('attestation') not in (None, 'attestation-unavailable'):
+    if _attestation_frozen(doc):
         _fail('record-creation-attestation',
               'an attestation is already recorded for this epoch; the attestation is '
               'forward-only tamper evidence and cannot be overwritten')
     if args.attestation_unavailable:
         status = 'attestation-unavailable'
     else:
-        data = sys.stdin.buffer.read()
+        try:
+            data = sys.stdin.buffer.read()
+        except OSError as exc:
+            # Fail with the named breadcrumb rather than a raw traceback: this command IS
+            # the tamper-detection surface, so a crash here would leave the run with no
+            # attestation record at all — rendering `attestation=none` ("before any
+            # creation attempt"), the never-attempted misattribution that
+            # `attestation-unavailable` exists to prevent.
+            _fail('record-creation-attestation',
+                  f'could not read the fetched body from stdin: {exc}')
         # Empty fetched bytes are COMPARED, not laundered into unavailable: an empty
         # created body from a successful fetch is exactly the empty-bodied-issue
         # failure the posting guard exists to catch, and the recorded digest makes the

@@ -42533,6 +42533,79 @@ PY
   rm -rf "$OP_SB"
 fi
 
+# retry_arm_deadlock_rows (#546, PR #552 iteration-3 review) — the same-arm retry must
+# be satisfiable when the canonical file goes unhashable between the return and the
+# retry. query-arm routes that to embed; without the escalation record-dispatch refused
+# the arm the tool itself just prescribed, the file arm could not read the file, and
+# next-action re-answered the same spent token forever — a run with NO legal next call,
+# which the skill is forbidden from improvising around. The negative rows keep the
+# escalation scoped: it is file->embed only, and it never goes unmarked.
+RD_SB="$(git_sandbox '#546 retry_arm_deadlock_rows')"
+if [ -d "$RD_SB" ]; then
+  (
+    cd "$RD_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+
+    # the deadlock: file-arm round -> no-parseable-verdict -> draft becomes unhashable
+    N="$(python3 "$IAS" init rd | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch rd --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return rd --nonce "$N" --round 1 > /dev/null 2>&1
+    python3 "$IAS" query-next-action rd --nonce "$N" --round 1 > .rd-pending 2>&1
+    rm -f draft.md
+    python3 "$IAS" query-arm rd --nonce "$N" --write-landed yes --draft-file draft.md \
+      > .rd-arm 2> /dev/null
+    # obey query-arm verbatim — this is the call that used to deadlock
+    printf '# T\n\nbody\n' | python3 "$IAS" record-dispatch rd --nonce "$N" --round 1 \
+      --arm embed --marker digest-unrecorded > .rd-escalate 2>&1
+    printf '%s' "$?" > .rd-escalate-rc
+
+    # negative: inline is NOT permitted by a same-arm retry (stdin supplied, so the
+    # arm guard is what refuses — not the missing-bytes check)
+    N2="$(python3 "$IAS" init rd2 | sed 's/nonce=//')"
+    printf '# T\n\nb\n' > d2.md
+    python3 "$IAS" record-dispatch rd2 --nonce "$N2" --round 1 --arm file \
+      --draft-file d2.md > /dev/null 2>&1
+    python3 "$IAS" record-return rd2 --nonce "$N2" --round 1 > /dev/null 2>&1
+    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd2 --nonce "$N2" --round 1 \
+      --arm inline > /dev/null 2> .rd-inline; printf '%s' "$?" > .rd-inline-rc
+
+    # negative: an EMBED-arm round's same-arm retry gains no file escalation — the
+    # carve-out is file->embed only, never the reverse
+    N3="$(python3 "$IAS" init rd3 | sed 's/nonce=//')"
+    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd3 --nonce "$N3" --round 1 \
+      --arm embed --marker write-failed > /dev/null 2>&1
+    python3 "$IAS" record-return rd3 --nonce "$N3" --round 1 > /dev/null 2>&1
+    python3 "$IAS" record-dispatch rd3 --nonce "$N3" --round 1 --arm file \
+      --draft-file d2.md > /dev/null 2> .rd-embedround; printf '%s' "$?" > .rd-embedround-rc
+
+    # negative: the escalation never goes unmarked (it must stay recorded evidence)
+    N4="$(python3 "$IAS" init rd4 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch rd4 --nonce "$N4" --round 1 --arm file \
+      --draft-file d2.md > /dev/null 2>&1
+    python3 "$IAS" record-return rd4 --nonce "$N4" --round 1 > /dev/null 2>&1
+    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd4 --nonce "$N4" --round 1 \
+      --arm embed > /dev/null 2> .rd-nomarker; printf '%s' "$?" > .rd-nomarker-rc
+  )
+  assert_eq "#546 retry_arm_deadlock_rows: a no-parseable-verdict completion leaves a same-arm retry pending (setup control)" \
+    "action=dispatch-retry-same-arm" "$(cat "$RD_SB/.rd-pending" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: an unhashable draft routes the retry to the embed arm (setup control)" \
+    "arm=embed marker=digest-unrecorded" "$(cat "$RD_SB/.rd-arm" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: the embed arm query-arm prescribed is ACCEPTED (no deadlock)" \
+    "0" "$(cat "$RD_SB/.rd-escalate-rc" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: ... and the escalation is recorded on the round, never silent" \
+    "1" "$(grep -c 'arm=embed' "$RD_SB/.rd-escalate" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: a same-arm retry still refuses the inline arm" \
+    "1:1" "$(cat "$RD_SB/.rd-inline-rc" 2>/dev/null):$(grep -c 'does not permit a dispatch on the inline arm' "$RD_SB/.rd-inline" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: an embed round's same-arm retry gains no file escalation (scoped file->embed only)" \
+    "1:1" "$(cat "$RD_SB/.rd-embedround-rc" 2>/dev/null):$(grep -c 'does not permit a dispatch on the file arm' "$RD_SB/.rd-embedround" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: the escalated embed dispatch still requires its cause marker" \
+    "1:1" "$(cat "$RD_SB/.rd-nomarker-rc" 2>/dev/null):$(grep -c 'requires --marker naming the entry cause' "$RD_SB/.rd-nomarker" 2>/dev/null)"
+  rm -rf "$RD_SB"
+fi
+
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
