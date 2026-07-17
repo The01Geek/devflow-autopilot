@@ -3785,6 +3785,138 @@ assert_pin_unique "#464 AC7: overview §11 documents the two new create-issue se
 assert_pin_unique "#464 AC6: overview §11 records the deliberate Stage-B auditor-side deferral" \
   'extending the audit seams into Stage B is a separate change' "$CI464_OVERVIEW"
 
+# ── issue #559: Revision-delta verification — coverage guard + prose pins ──
+#    The shared "Revision-delta verification" procedure is stated once in the
+#    create-issue skill and referenced by every revise-and-re-gate sentence. This
+#    guard is the PERSISTENT wiring enforcement (not a one-shot enumeration): it
+#    whitespace-normalizes the skill and classifies EVERY `no-options gate`
+#    occurrence into wired-site hit / definition-block occurrence / enumerated
+#    non-command allowlist entry, RED on any unresolved occurrence, and RED when the
+#    wired-site bin is empty (zero-hit floor). A gate-mentioning revise sentence
+#    added/moved/reworded — or a novel-verb variant — arrives RED until wired or
+#    knowingly allowlisted. Reuses the #312/#443 create-issue file var CI312_SKILL
+#    and the #465 §11 doc var OG_OVERVIEW_DOC.
+CI559_SKILL="$CI312_SKILL"
+CI559_OVERVIEW="$OG_OVERVIEW_DOC"
+
+# ci559_classify FILE -> prints "bin1=N bin2=N bin3=N unresolved=N" on stdout
+# (per-unresolved diagnostics to stderr). The two key phrases, the by-name
+# reference token, the per-hit adjacency window, the definition-block heading, and
+# the enumerated non-command allowlist (the 5 drafting-time explanatory
+# `no-options gate` mentions) are all defined verbatim below.
+ci559_classify() {  # skill-file -> summary line on stdout
+  python3 - "$1" <<'PY'
+import sys, re
+src = open(sys.argv[1], encoding='utf-8').read()
+norm = re.sub(r'\s+', ' ', src)
+TARGET = 'no-options gate'
+KEY_PREFIXES = ['re-run the Step 3 ', 're-run the ']   # the two key phrases (prefix + TARGET)
+REF = 'Revision-delta verification'                    # the by-name procedure reference
+WINDOW = 64                                            # per-hit adjacency window
+DEF_HEAD = '### Revision-delta verification'           # definition-block heading
+ALLOW = [                                              # enumerated non-command allowlist
+    'pass the **no-options gate**',
+    're-pass the no-options gate',
+    'no-options gate (Step 3) still governs',
+    'Draft the issue and pass the no-options gate',
+    'no-options gate passes',
+]
+ds = norm.find(DEF_HEAD)
+de = -1 if ds == -1 else norm.find('### ', ds + len(DEF_HEAD))
+if ds != -1 and de == -1:
+    de = len(norm)
+allow_idx = set()
+for e in ALLOW:
+    off = e.find(TARGET); start = 0
+    while True:
+        p = norm.find(e, start)
+        if p == -1: break
+        allow_idx.add(p + off); start = p + 1
+L = len(TARGET)
+bin1 = bin2 = bin3 = unresolved = 0
+i = 0
+while True:
+    idx = norm.find(TARGET, i)
+    if idx == -1: break
+    i = idx + 1; end = idx + L
+    if ds != -1 and ds <= idx < de:       # bin 2: definition-block occurrence
+        bin2 += 1; continue
+    is_kp = any(idx-len(p) >= 0 and norm[idx-len(p):idx] == p for p in KEY_PREFIXES)
+    if is_kp:                             # bin 1 candidate: a key-phrase occurrence
+        if REF in norm[end:end+WINDOW]:
+            bin1 += 1
+        else:                            # a wired site missing its adjacent reference
+            unresolved += 1
+            sys.stderr.write('UNRESOLVED-KEYPHRASE: ...%s...\n' % norm[max(0,idx-25):end+WINDOW])
+        continue
+    if idx in allow_idx:                  # bin 3: enumerated non-command allowlist entry
+        bin3 += 1; continue
+    unresolved += 1                       # anything else is unresolved -> RED
+    sys.stderr.write('UNRESOLVED-OTHER: ...%s...\n' % norm[max(0,idx-25):end+25])
+print('bin1=%d bin2=%d bin3=%d unresolved=%d' % (bin1, bin2, bin3, unresolved))
+PY
+}
+
+# Extract the integer value of field $2 from a "binN=.. unresolved=.." summary. The
+# second stage strips the `name=` prefix rather than re-greping for digits — a field
+# whose NAME carries a digit (`bin1`) would otherwise make `grep -oE '[0-9]+'` emit the
+# name's digit too (`bin1=6` -> `1` and `6`), breaking the numeric test downstream.
+ci559_field() { printf '%s' "$1" | grep -oE "$2=[0-9]+" | sed -E 's/.*=//'; }
+
+CI559_SUM="$(ci559_classify "$CI559_SKILL" 2>/dev/null)"
+CI559_B1="$(ci559_field "$CI559_SUM" bin1)"
+CI559_U="$(ci559_field "$CI559_SUM" unresolved)"
+# Total classification: no `no-options gate` occurrence is left unresolved.
+assert_eq "#559: every no-options gate occurrence is classified (0 unresolved)" "0" "$CI559_U"
+# Zero-hit floor: the wired-site bin is non-empty — a restructure that eliminates
+# every wired site is a loud failure, never a vacuous green.
+assert_eq "#559: zero-hit floor — the wired-site bin is non-empty" "ok" \
+  "$([ "${CI559_B1:-0}" -ge 1 ] && echo ok || echo empty)"
+# Planted-defect positive control: an unwired key-phrase sentence planted in a
+# mutated copy is an UNRESOLVED occurrence — the guard's detection claim exercised,
+# not attested (recorded observed RED in the PR).
+CI559_PLANT="$(probe_tmp '#559 planted-defect setup')" || CI559_PLANT=/dev/null
+{ cat "$CI559_SKILL"; printf '\nThen re-run the Step 3 no-options gate and stop.\n'; } > "$CI559_PLANT"
+assert_eq "#559: planted-defect positive control — an unwired key-phrase sentence is unresolved (guard RED)" \
+  "1" "$(ci559_field "$(ci559_classify "$CI559_PLANT" 2>/dev/null)" unresolved)"
+rm -f "$CI559_PLANT"
+# Novel-verb control: a revise sentence phrased with a different verb ('pass the
+# revised draft through the no-options gate') is unresolved until wired/allowlisted
+# — total classification closes the variant-verb gap.
+CI559_NOVEL="$(probe_tmp '#559 novel-verb setup')" || CI559_NOVEL=/dev/null
+printf 'x pass the revised draft through the no-options gate now.\n' > "$CI559_NOVEL"
+assert_eq "#559: total classification flags a novel-verb gate mention as unresolved" \
+  "1" "$(ci559_field "$(ci559_classify "$CI559_NOVEL" 2>/dev/null)" unresolved)"
+rm -f "$CI559_NOVEL"
+
+# Prose pins (AC 14). The always-run trigger sentence is a behavioral-fix pin:
+# removing the "at every revision event" qualifier re-introduces the #555-class
+# regression (a revision reaching filing with only the no-options gate), so it is
+# expressed through assert_pin_red_under with a mutation that strips that qualifier.
+assert_pin_red_under "#559: always-run trigger carries the at-every-revision-event qualifier" \
+  'runs **at every revision event** — before any re-audit dispatch at that site and before any presentation of the revised draft' \
+  's/at every revision event/sometimes/' "$CI559_SKILL"
+# The remaining new load-bearing sentences carry surface-presence pins.
+assert_pin_unique "#559: the Revision-delta verification procedure is stated once as a named block" \
+  '### Revision-delta verification (shared procedure — referenced by every revise-and-re-gate site)' "$CI559_SKILL"
+assert_pin_unique "#559: per-class walk records one entry per class, else a stated falsifiable zero" \
+  "one compact entry per class — the class's enumerated items, else a stated falsifiable zero" "$CI559_SKILL"
+assert_pin_unique "#559: an all-zeros walk ends the batch's work at the walk record" \
+  "An all-zeros walk ends the batch's work at the walk record." "$CI559_SKILL"
+assert_pin_unique "#559: the inline fix loop walks the fix and terminates on an all-zeros walk" \
+  'walk the fix as its own edit-batch; a batch whose walk is all-zeros ends the loop.' "$CI559_SKILL"
+assert_pin_unique "#559: closing evidence line — enumerated/verified/fixed format literal" \
+  'revision-delta check: <N> enumerated, <V> verified, <F> fixed' "$CI559_SKILL"
+assert_pin_unique "#559: closing evidence line — no-verifiable-delta format literal" \
+  'revision-delta check: no verifiable delta' "$CI559_SKILL"
+assert_pin_unique "#559: the five per-site evidence-line anchors are enumerated" \
+  "at Step 3.5 item 5, immediately after that item's gate re-run; at Step 3.5 item 6, immediately before the initial Step 3.6 dispatch's pre-dispatch draft write" "$CI559_SKILL"
+# SYSTEM_OVERVIEW §11 documents the procedure in both revise-loop descriptions (AC 13).
+assert_pin_unique "#559: overview §11 (Step 3.5 loop) documents the Revision-delta verification procedure" \
+  "walks the revision's edit-batch delta across six classes" "$CI559_OVERVIEW"
+assert_pin_unique "#559: overview §11 (Step 3.6/Step 4 loop) documents the Revision-delta verification procedure" \
+  "runs the shared **Revision-delta verification** procedure over the revision's delta" "$CI559_OVERVIEW"
+
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
 # regardless of that iteration's verdict (including REJECT), feeding new blinded
