@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNNER_SOURCE = ROOT / "lib/test/run-module.sh"
 HARNESS_SOURCE = ROOT / "lib/test/module-harness.sh"
 WORKFLOW_MODULE_SOURCE = ROOT / "lib/test/modules/workflow-flight-recorder.sh"
+REVIEW_AND_FIX_MODULE_SOURCE = ROOT / "lib/test/modules/review-and-fix-contract.sh"
 
 
 class ModuleRunnerTests(unittest.TestCase):
@@ -192,6 +193,45 @@ class ModuleRunnerTests(unittest.TestCase):
             self.assertRegex(
                 result.stdout,
                 r"Module workflow-flight-recorder: [0-9]+ passed, 0 failed",
+            )
+            self.assertTrue(list(Path(log_dir).iterdir()))
+
+    def test_review_and_fix_contract_module_runs_green_through_the_real_runner(self) -> None:
+        """The documented local RAF path uses the real registry and module API."""
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        floor = registry["test_modules"]["review-and-fix-contract"][
+            "minimum_assertions"
+        ]
+        environment = os.environ.copy()
+        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        with tempfile.TemporaryDirectory() as log_dir:
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER_SOURCE),
+                    "--log-dir",
+                    log_dir,
+                    "review-and-fix-contract",
+                ],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(
+                result.returncode,
+                0,
+                result.stdout[-4000:] + result.stderr[-4000:],
+            )
+            self.assertIn(
+                f"Module review-and-fix-contract: {floor} passed, 0 failed",
+                result.stdout,
             )
             self.assertTrue(list(Path(log_dir).iterdir()))
 
@@ -865,6 +905,49 @@ class ModuleRunnerTests(unittest.TestCase):
             "IMPL_SKILL_BUNDLE",
         ):
             self.assertIn(f'_suite_tmp_file "${temp_file}"', run_text)
+
+    def test_repository_registry_maps_the_review_and_fix_contract_module(self) -> None:
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        mapping = registry["test_modules"]["review-and-fix-contract"]
+        self.assertEqual(
+            mapping["path"], "lib/test/modules/review-and-fix-contract.sh"
+        )
+        floor = mapping["minimum_assertions"]
+        self.assertIsInstance(floor, int)
+        self.assertGreater(floor, 0)
+        self.assertTrue(REVIEW_AND_FIX_MODULE_SOURCE.is_file())
+
+        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'devflow_run_full_suite_module "$LIB/test/modules/review-and-fix-contract.sh"',
+            run_text,
+        )
+        floor_match = re.search(
+            r'"review-and-fix-contract" ([0-9]+); then', run_text
+        )
+        self.assertIsNotNone(floor_match)
+        self.assertEqual(int(floor_match.group(1)), floor)
+        self.assertIn('python3 "$LIB/test/test_module_runner.py"', run_text)
+
+        module_text = REVIEW_AND_FIX_MODULE_SOURCE.read_text(encoding="utf-8")
+        self.assertTrue(
+            module_text.startswith(
+                "# SPDX-FileCopyrightText: 2026 Daniel Radman\n"
+                "# SPDX-License-Identifier: MIT\n"
+            )
+        )
+        self.assertIn("Contract: the caller sets LIB and RESULTS_FILE", module_text)
+        self.assertNotIn('python3 "$LIB/test/test_module_runner.py"', module_text)
+        self.assertNotIn("devflow_run_full_suite_module", module_text)
+        self.assertIn("review-and-fix-contract.inventory.md", module_text)
+        self.assertIn(
+            "lib/test/modules/review-and-fix-contract.sh",
+            (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"),
+        )
 
 
 if __name__ == "__main__":

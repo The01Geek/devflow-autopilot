@@ -4,6 +4,67 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.8] — 2026-07-17
+
+### Changed
+Add a focused review-and-fix contract test module for local iteration while preserving complete-suite verification.
+
+## [2.15.7] — 2026-07-17
+
+### Changed
+### Changed
+
+- `/devflow:create-issue`'s fresh-context audit lifecycle is now owned by a bundled, tested
+  state-owner CLI (`scripts/issue-audit-state.py`) instead of procedural prose in the skill.
+  The tool validates every transition, enforces the ported budgets and bounded retries,
+  computes and compares all draft-identity digests, generates and checks the carriage
+  evidence, evaluates the user-chosen-round offer triggers, decides presentation
+  eligibility, and emits the audit-summary fields from recorded state. Observable
+  lifecycle semantics are ported, not redesigned. The skill keeps the audit *reasoning* —
+  the audit-prompt template, dimension checklist, information diet, out-of-bounds lists
+  and extension forwarding — plus the subagent dispatch, the `VERDICT:` token parse, the
+  draft-file writes and every user interaction; issue posting stays skill-side too.
+  Run state persists to `.devflow/tmp/issue-audit-state-<slug>.json`, replacing the
+  markdown event log (issue #546, PR #552).
+
+- Presentation eligibility is now a real gate rather than a prose rule: only the current
+  draft counts as audited, grounded on a completed clean-verdict round whose recorded
+  identity still holds (byte-digest equality on file-arm epochs; revision ordering on the
+  embed and inline arms, where no trustworthy canonical file exists), or on an explicitly
+  recorded override that has not been invalidated by a later revision. Every `eligible`
+  answer carries a deterministic eligibility token bound to the answering digest or
+  revision ordinal — whichever ground answered — that the audit summary
+  line quotes verbatim, so a presentation whose summary lacks the matching current token is
+  detectable in the transcript. This **narrows** the prose-compliance gap the motivating
+  incident exposed — it does not close it, because no in-process component can force an
+  orchestrator that never invokes it (issue #546, PR #552).
+
+- Issue creation is bound to the audited bytes: on file-arm epochs the posted body is
+  sourced from the gated canonical draft through the tool's gated body emitter, and every
+  creation is followed by a best-effort attestation that hashes the created issue's fetched
+  body against the recorded body-only digest. On file-arm epochs that digest is bound to the
+  bytes actually posted (`record-creation-epoch --draft-file`), so a legitimate "file anyway"
+  override filing — where the current draft was revised past the audited round — attests
+  `match` against a faithfully-created issue instead of a structurally-guaranteed false
+  `mismatch`; embed/inline epochs keep the audited round body as the comparand, where the
+  attestation remains the detection surface for their disclosed weaker identity. A mismatch is
+  surfaced in the reported outcome and the audit-summary fields (post-hoc detection — creation
+  is not rolled back), and a failed fetch is reported as attestation-unavailable, never as a
+  pass (issue #546, PR #552).
+
+- On hosts where the state owner cannot run (an absent interpreter, a denied invocation, an
+  unpersistable state file), the skill now routes to a named, bounded fallback lifecycle —
+  one audit round, findings kept in-chat, a single continue/decline choice, and the distinct
+  `state-owner unavailable` marker on the audit summary line — rather than the full prose
+  state machine it used to fall back to. This is an acknowledged behavior change on such
+  hosts. The existing `degraded` marker keeps its current meaning (the inline audit arm)
+  (issue #546, PR #552).
+
+## [2.15.6] — 2026-07-17
+
+### Added
+- **Offline verification-launch baseline analyzer (Wave 1).** Adds `scripts/verification_baseline.py`, a read-only, pure-stdlib, no-subprocess/no-network analyzer that builds a source-provenanced baseline of actual verification launches from local native transcript events plus a local + cloud lifecycle census (eligibility + source missingness), with conservative transport-retry candidate classification (`single` / `candidate_transport_retry` / `intentional_rerun_evidence` / `independent_lifecycle` / `unclassifiable`) and a deterministic SHA-256-seeded manual-review sample; adds `scripts/export-workflow-lifecycle-census.py` (the sole networked, explicit-invocation census-export step) and `lib/test/test_verification_baseline.py`; and extends the workflow-flight-recorder registry with the `review` first-message forms and a versioned `cloud_mappings` section. Cloud launch analysis is excluded in Wave 1 (no durable redacted execution-event source without changing workflows); cloud rows are census/missingness-only. Baseline output is `schema_version: 2`: `metrics.eligible_lifecycles` counts confirmed + provisional lifecycles (it previously counted every census row, confirmed-ineligible included), with the row total moved to the new `metrics.census_rows`, and `metrics.local_actual_launches_by_lifecycle_eligibility` publishes the numerator's composition so a launch attributed to a non-eligible lifecycle is visible rather than silent. Secret redaction additionally covers space-padded `--flag = value` / `--flag= value` separator spellings (previously the value could survive redaction in the local-only record), and the analyzer's record types enforce their taxonomy invariants across the row lifetime (any `source_status` assignment is re-validated) and are held typed until serialization. (#531)
+
 ## [2.15.5] — 2026-07-17
 
 ### Changed
