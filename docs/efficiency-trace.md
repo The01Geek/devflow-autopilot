@@ -11,6 +11,15 @@ Phase-2 checklist verifiers, re-run across as many iterations as the configurabl
 doc records *why* the run now emits a durable effectiveness record, what that record contains, and
 how each subagent earns its verdict.
 
+> **Related measurement substrate.** The offline verification-launch baseline
+> (`scripts/verification_baseline.py`, issue #527 Wave 1; see
+> [`docs/workflow-flight-recorder.md`](workflow-flight-recorder.md#verification-launch-baseline-wave-1))
+> is a sibling measurement: it baselines actual verification-command launches
+> (transport-retry candidates, intentional reruns, independent lifecycles) from
+> local native transcripts plus a local + cloud lifecycle census, reusing the
+> same unknown-is-not-zero and source-provenance discipline. It measures
+> verification-launch cost, not subagent effectiveness.
+
 ## The problem this closes
 
 The per-iteration workpads under `.devflow/tmp/review/<slug>/<run-id>/iter-<N>.json` (run-scoped, so
