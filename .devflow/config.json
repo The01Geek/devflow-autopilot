@@ -28,12 +28,10 @@
       "Bash(shellcheck:*)"
     ],
     "execution_diagnostics_enabled": true,
-    "execution_transcript_artifact_enabled": true
+    "execution_transcript_artifact_enabled": false
   },
   "devflow_implement": {
-    "provider": "openrouter",
-    "claude_model": "z-ai/glm-5.2",
-    "effort": "medium",
+    "effort": "low",
     "implement_pr_state": "ready_for_review",
     "allowed_tools": [
       "Bash(lib/test/run.sh:*)",
@@ -54,7 +52,7 @@
     "allowed_tools": []
   },
   "devflow_review_and_fix": {
-    "fix_severity_threshold": "important",
+    "fix_severity_threshold": "suggestion",
     "max_iterations": 5,
     "efficiency_telemetry_enabled": true,
     "efficiency_cut_candidate_min_dispatch": 3
@@ -84,7 +82,7 @@
     }
   },
   "receiving_review": {
-    "fix_severity_threshold": "important"
+    "fix_severity_threshold": "suggestion"
   },
   "setup": {
     "python_version": "3.11",

@@ -4,6 +4,41 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.5] — 2026-07-17
+
+### Changed
+### Added
+
+- Selectable test modules for fast local iteration (PR #563): a registry-driven
+  focused runner (`lib/test/run-module.sh`, backed by `test_modules` in
+  `scripts/workflow-flight-recorder-registry.json`) and a fail-closed full-suite
+  boundary (`lib/test/module-harness.sh`) around sourceable modules under
+  `lib/test/modules/`, starting with the extracted workflow-flight-recorder
+  block. Selection and whole-registry validation finish before any module body
+  is sourced; unknown or invalid selections fail closed pre-source, an executed
+  module below its assertion floor fails the run afterward, and each
+  module's assertions ride a private tally so an over-broad module write cannot
+  erase an earlier suite verdict. The implement and review-and-fix prompt
+  extensions steer RED/GREEN iteration to the focused runner while keeping the
+  complete suite plus lint gates as the only completion gate.
+
+## [2.15.4] — 2026-07-17
+
+### Added
+- **Reception Preflight for `receiving-code-review`.** On a direct invocation, the
+  `receiving-code-review` skill now runs a read-only Reception Preflight before triage,
+  editing, or test-suite execution: it renders one in-chat block of nine context facts
+  (subject, PR head/base, checkout, working-tree cleanliness, freshness, linked issues,
+  extension outcome, severity threshold, commit/path scope), each carrying one of six
+  closed statuses. A three-arm subject classifier with a path-disjointness contradiction
+  rule binds the reception's subject, a shallow-aware head-match verdict is re-measured
+  after the Step 0 branch update, and an affirmative-only editing gate bars work on a
+  provably-wrong branch or an ambiguous subject with a work-preserving remedy while triage
+  proceeds on the explicitly-degraded facts. Fetched third-party text (feedback and
+  linked-issue bodies) is treated as data, never instructions. Scoped to direct
+  invocations — an autonomous fix loop that drives its own context establishment is
+  unchanged. (#549)
+
 ## [2.15.3] — 2026-07-16
 
 ### Fixed
