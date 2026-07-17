@@ -1095,6 +1095,28 @@ class Issue527ReviewFixTests(_TmpDirTestCase):
         self.assertTrue(complete)  # short page → complete under the heuristic
         self.assertIn("no usable total_count", err.getvalue())
 
+    def test_fetch_runs_boolean_total_count_is_treated_as_absent(self) -> None:
+        # bool is an int subclass, so a shape-drifted total_count=True must NOT
+        # be read as 1 and used as a real denominator (which, with >1 run, would
+        # spuriously mark the window incomplete — or, worse, fail open). It is
+        # excluded like any non-int and routed to the breadcrumb arm (#62/#98
+        # operand-contract shape; PR #531 fix-delta gate).
+        export = _load_export_census()
+
+        def fake_gh_json(gh, args):
+            if "jobs" in " ".join(args):
+                return {"jobs": [], "total_count": 0}
+            return {"total_count": True,  # bool, not a usable count
+                    "workflow_runs": [{"id": i, "path": ".github/workflows/x.yml", "name": "X"} for i in range(5)]}
+
+        export._gh_json = fake_gh_json
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            runs, _jobs, complete = export.fetch_runs_and_jobs("gh", "o/r", [], "2026-07-01", "2026-08-01")
+        self.assertEqual(len(runs), 5)
+        self.assertTrue(complete)  # bool total_count ignored → short-page heuristic, not 5<1
+        self.assertIn("no usable total_count", err.getvalue())
+
     def test_fetch_jobs_missing_total_count_emits_breadcrumb(self) -> None:
         # A jobs endpoint that omits total_count on the final short page must
         # leave a breadcrumb that the completeness check was inapplicable rather

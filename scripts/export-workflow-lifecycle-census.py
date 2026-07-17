@@ -266,7 +266,11 @@ def fetch_runs_and_jobs(gh: str, repo: str, workflows: list[str], created_after:
             # check is inapplicable, so fall back to the short-page heuristic and
             # leave a breadcrumb that completeness could not be cross-checked.
             total = doc.get("total_count")
-            if isinstance(total, int):
+            # `bool` is an `int` subclass in Python, so a shape-drifted
+            # `total_count: true` would read as 1 and fail OPEN (mark a genuinely
+            # undercounted window complete) — exclude it so the missing-operand
+            # breadcrumb arm handles it instead (#62/#98 operand-contract shape).
+            if isinstance(total, int) and not isinstance(total, bool):
                 if fetched_runs < total:
                     pagination_complete = False
             else:
@@ -326,7 +330,7 @@ def fetch_runs_and_jobs(gh: str, repo: str, workflows: list[str], created_after:
                 # missing-operand shape (PR #531 shadow, silent-failure-hunter:
                 # job truncation was undetectable — and unremarked — without a
                 # usable total_count).
-                if isinstance(total, int):
+                if isinstance(total, int) and not isinstance(total, bool):
                     if len(collected) < total:
                         truncated = True
                 else:
