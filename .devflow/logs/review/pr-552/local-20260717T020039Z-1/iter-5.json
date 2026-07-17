@@ -1,0 +1,53 @@
+{
+  "iter": 5,
+  "started_at": "2026-07-17T04:50:00Z",
+  "fix_commit_sha": "ee8f83c7a764564ff25760e526912df1eebd1ff8",
+  "fix_files": ["scripts/issue-audit-state.py", "lib/test/run.sh", "lib/test/test_python_scripts.py", "skills/create-issue/SKILL.md"],
+  "loop_role": "fix",
+  "sweep_defs_read": ["full-path sweeps on the iteration-5 delta (guards + prose): 2.3.0c operand-trace on the funding/arm-binding/attestation guards; 2.3.4a on new comments"],
+  "sweep_evidence": {"status": "run", "selection": "guard-heavy delta; operands traced to producers by the Step 3.5 gate (two rounds); prose via writing-skills subagents"},
+  "test_first_gate": [{"decision": "test-first", "command": "python3 lib/test/test_python_scripts.py + run.sh blocks", "result": "new rows RED before implementation (funding/marker/no-digest/empty-body/newline-bound), GREEN after; suite 8496/0 then 8506/0 after conv-shadow fixes", "evidence": "iter5_hardening_rows + conv_shadow_rows + shadow-round python rows"}],
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": true, "engine_self_modifying": true, "checklist_skipped": "intentional"},
+  "phase3_findings": [],
+  "fix_decisions": [
+    {"finding_id": "iter5-applied-set", "decision": "applied", "commit": "1883a981 + 6a08e5da + ee8f83c7", "evidence": "funding gate; unrequested-re-dispatch refusal; embed marker requirement; no-digest-supplied reason; emit-body empty-body refusal; attestation fetch recipe + bounded newline tolerance; DRAFT-UNREADABLE retry-marker recipe; foreign-nonce naming in triggers/summary; attestation-unavailable re-attestable; open-round epoch refusal; newest-verdict-wins eligibility; pending writer-domain validation; retry-arm binding; dense round numbering; honest empty-fetch compare; unpersistable-state + query-nonce rows; run.sh token-count comment falsehood fix"},
+    {"finding_id": "F-exitcode-class", "decision": "deferred", "source_file": "scripts/issue-audit-state.py", "claim_text": "distinct exit codes / machine class token for illegal-vs-environmental mutation failures", "skip_category": "uncategorized", "evidence": "the original run's recorded deferral (workpad: _fail's code param + _TRANSITION_REASONS tokens); an interface redesign re-raised by two later passes; blast radius bounded per the hunter's own analysis (fail-open direction reaches only the fallback's one-round user-elected path); follow-up candidate"},
+    {"finding_id": "F-attestation-pending-token", "decision": "deferred", "source_file": "scripts/issue-audit-state.py", "claim_text": "attestation=pending distinct from none once an epoch exists", "skip_category": "uncategorized", "evidence": "summary vocabulary + SKILL enum widening; diagnostic-only; follow-up candidate"},
+    {"finding_id": "F-embed-template-ambiguity", "decision": "deferred", "source_file": "skills/create-issue/SKILL.md", "claim_text": "audit-prompt template does not mark file-arm-only sentences for the embed arm", "skip_category": "uncategorized", "evidence": "the embed-arm section governs substitution; ambiguity-grade, prose-only"},
+    {"finding_id": "F-query-arm-marker-conflation", "decision": "deferred", "source_file": "scripts/issue-audit-state.py", "claim_text": "query-arm foreign-nonce answer borrows the digest-unrecorded marker token", "skip_category": "uncategorized", "evidence": "reason=foreign-nonce is the documented discriminator in the answer shape; a marker-less refusal shape is a vocabulary change; follow-up candidate"}
+  ],
+  "convergence_inputs": {"fixes_applied": 17, "fix_diff_lines": 260, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UPDATED", "behind_by": 12},
+  "stale_prose_check": {"result": "0 STALE at every commit"},
+  "verification_evidence": {"command": "bash lib/test/run.sh (+ ruff)", "result": "pass", "duration_s": 200, "skipped_checks": []},
+  "shadow": {
+    "ran_at": "2026-07-17T05:20:00Z",
+    "reviewed_sha": "6a08e5da703903fac9adc29205c01cfd15ae4113",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:type-design-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:type-design-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [{"note": "convergence-time shadow at 6a08e5da: 29-item checklist (28 PASS, 1 claim-quality FAIL), new findings: newest-verdict-wins eligibility hole (probe-confirmed), run.sh token-count comment falsehood, pending-domain validation, retry-arm binding (x2 corroborated), park-promoted test gaps (unpersistable-save, query-nonce) - ALL FIXED in ee8f83c7"}],
+    "phase2_fails": [{"id": "VC-2", "note": "claim-quality: marker pin location (lives in the python test run.sh drives)"}],
+    "comparison": {"shadow_total": 15, "overlap_with_iter_N": 4, "new": 11, "new_critical": 0, "new_important": 6},
+    "promoted_to_iter_next": false
+  },
+  "post_shadow": {
+    "hand_fix_commit": "ee8f83c7a764564ff25760e526912df1eebd1ff8",
+    "bounded_re_review": {
+      "run_id": "local-20260717T061000Z-1",
+      "reviewed_sha": "ee8f83c7a764564ff25760e526912df1eebd1ff8",
+      "coverage": "full",
+      "checklist": "12 of 12 PASS (newest-verdict-wins and the newline bound verified by execution)",
+      "verdict": "not clean - two diff-added comment falsehoods (emit-body refusal-exit-code wording; the query-matrix every-query-class universal with query-arm undriven), one Important-5 test row (query-summary foreign-nonce), medium load-time-validation/creation-record hardening residuals, suggestions",
+      "disposition": "severity-aware exit -> soft-proceed: every residual confidently non-Critical (comment accuracy + hand-corruption resilience polish; behavioral contracts verified correct by execution); surfaced in the issue workpad reflections and the PR body, not silently resolved"
+    }
+  },
+  "telemetry": {"phase_3": {"calls": 5, "tokens": 511000, "wall_clock_s": 320}, "step_2_6": {"calls": 40, "tokens": 2100000, "wall_clock_s": 1500}, "phase_4_x": {"calls": 3, "tokens": 260000, "wall_clock_s": 400}}
+}
