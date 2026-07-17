@@ -2139,9 +2139,15 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
         import subprocess as _sp
 
         write_manifest(self.manifests, "s-offline")
+        # bash_call is (command, tool_use_id) — passing them swapped made the
+        # fixture's command the literal "t1", so the run extracted 0 launches and
+        # this test drove a near-empty path while its comment claimed to cover
+        # launch extraction. A negative assertion over code that never runs is
+        # the vacuity this test exists to avoid, so the fixture must actually
+        # reach the analyzer's real work (asserted below).
         write_bundle(self.bundles, "s-offline",
                      transcript(user("/devflow:implement #1"),
-                                bash_call("t1", "pytest tests/"),
+                                bash_call("pytest tests/", "t1"),
                                 tool_result("t1", "exit code 0")))
         spawned: list[str] = []
 
@@ -2151,17 +2157,23 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
                 raise AssertionError(f"analyzer spawned a process via {name}: {a!r}")
             return _boom
 
-        # Every primitive that can start a process, not just the spelled-out
-        # ones the grep pins enumerate — os.system/popen/exec*/spawn*/fork,
-        # subprocess.*, and multiprocessing. Patched on the MODULES, so a
-        # dynamically-imported reference (importlib.import_module("subpro"+"cess")
-        # returns this same module object) is tripwired too — which is exactly
-        # the evasion the textual pins cannot see.
+        # The process-spawning primitives reachable through the stdlib module
+        # objects, which is strictly more than the spelled-out forms the grep
+        # pins enumerate. Patched on the MODULES, so a dynamically-imported
+        # reference (importlib.import_module("subpro"+"cess") returns this same
+        # module object) is tripwired too — exactly the evasion the textual pins
+        # cannot see. NOT exhaustive, and deliberately not claimed to be: a
+        # ctypes-mediated direct libc system()/execve() bypasses every module
+        # object and so is out of this mechanism's reach. The claim this test
+        # supports is "no spawn through the stdlib process APIs", not "no spawn
+        # by any means" — overclaiming here would be the same documented
+        # falsehood the engine grades elsewhere in this diff.
         targets = [
             (_sp, "run"), (_sp, "Popen"), (_sp, "call"), (_sp, "check_call"),
             (_sp, "check_output"), (_sp, "getoutput"),
             (os, "system"), (os, "popen"), (os, "execv"), (os, "execve"),
-            (os, "execvp"), (os, "posix_spawn"), (os, "fork"),
+            (os, "execvp"), (os, "execvpe"), (os, "posix_spawn"),
+            (os, "posix_spawnp"), (os, "fork"), (os, "forkpty"),
             (multiprocessing, "Process"),
         ]
         with contextlib.ExitStack() as stack:
@@ -2174,6 +2186,18 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
                        "--registry", str(REGISTRY), "--out-dir", str(out)])
         self.assertEqual(rc, 0)
         self.assertEqual(spawned, [], f"analyzer spawned process(es): {spawned}")
+        # Positive control: prove the run actually did the analyzer's work
+        # rather than passing because it never reached the code that could
+        # spawn. Without this a fixture regression (a mis-built transcript, a
+        # renamed key) silently degrades the test to a near-no-op that still
+        # reports a clean "no spawn" — the exact vacuity a negative assertion
+        # over an unexercised path produces.
+        run_dir = sorted(out.iterdir())[-1]
+        baseline = json.loads((run_dir / "verification_baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(baseline["metrics"]["local_actual_launches"], 1,
+                         "fixture did not reach launch extraction — the no-spawn assertion would be vacuous")
+        self.assertTrue(baseline["verification_process_launches"],
+                        "no launches extracted; the spawn-free path under test was not exercised")
 
     # --- Shadow Important: the owning-lifecycle eligibility state is the value
     #     the VC-2 fix exists to make visible, but it was smuggled through the
