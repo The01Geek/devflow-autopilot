@@ -22,7 +22,7 @@ type: Changed
   fixed member's re-raise as a preserved parking), so an earlier-iteration parked re-raise no longer
   slips into Decide outcome 2. Operands are read from additive workpad records only — a
   `parking_evidence {basis, failing_input, source, finding_ref}` object on the rationale-bearing
-  `fix_decisions` rows, a `park_calibration.evidence_comparisons[]` block per pair, and a new
+  `fix_decisions` rows, one `park_calibration.evidence_comparisons[]` record per pair, and a new
   `tools_unavailable` value in the `step25_classification` enum — never from conversational memory.
   Healthy corroboration stays retrospective-clean via a note-kind preservation sentinel that the
   Loop-Exit backstop and Decide outcome 1 recognize as gate-completion; a fail-closed degradation
