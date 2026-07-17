@@ -8320,7 +8320,7 @@ assert_pin_unique "#377 w3-triage-carveout-intact: §3.2 #193 stale-AC carve-out
 # drift-guarded fix-loop mapping table, ignore-aware command forms, a termination rule, and the
 # verify half of a fix-authoring test-first gate; Step 3 gains the gate itself and Step 4.5 gains
 # one defining clause. The acceptance-criterion-bearing operative clauses below are pinned through assert_pin_red_under
-# (default file $MAXI_SKILL = skills/review-and-fix/SKILL.md). The retained #377 Wave-3 pins
+# (default file $MAXI_SKILL = the reassembled thin-root + references/*.md bundle, MAXI_BUNDLE). The retained #377 Wave-3 pins
 # (operative / frequency / delta-scope / trigger-gating / gate-umbrella / evidence-routing /
 # finding-disposition) stay above; the obsolete per-sweep-reference and negative-tail pins were
 # removed with the enumeration.
@@ -19993,12 +19993,17 @@ assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md uncond
 #     #530 — the whole point of the split) silently regresses. Pin each positively so a drop goes
 #     RED at the desk. `assert_pin_unique` cannot pass on zero matches, so it is non-vacuous by
 #     construction (each `"<field>":` literal appears exactly once in the reassembled bundle).
-assert_pin_unique "#530/#539 resume-state: current_step nav field present in schema" \
-  '"current_step":' "$MAXI_SKILL"
-assert_pin_unique "#530/#539 resume-state: current_substep nav field present in schema" \
-  '"current_substep":' "$MAXI_SKILL"
-assert_pin_unique "#530/#539 resume-state: pending_dispatch nav field present in schema" \
-  '"pending_dispatch":' "$MAXI_SKILL"
+# Scope the presence check to the ### Schema fence itself, not the whole bundle: a future
+# edit that RELOCATED a nav field out of the schema block into prose elsewhere would keep a
+# bundle-wide grep green while silently desyncing the schema from ITER_EXPECTED_FIELDS via the
+# `-Ev` subtraction above (issue #539 shadow, pr-test-analyzer). LR_SCHEMA_ALL is LR_SCHEMA
+# without the `-Ev` exclusion — exactly the schema-block field set — so asserting each nav field
+# is a member goes RED on a drop OR a relocation-out-of-block, the tighter guard the comment claims.
+LR_SCHEMA_ALL="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | sort -u)"
+for _navf in current_step current_substep pending_dispatch; do
+  assert_eq "#530/#539 resume-state: $_navf nav field present in the ### Schema block (not just the bundle)" "yes" \
+    "$(printf '%s\n' "$LR_SCHEMA_ALL" | grep -qx "$_navf" && echo yes || echo no)"
+done
 
 # (6) --self-check NEVER ABORTS on an unparseable iter file (issue #170 AC: every
 #     new path exits 0 on an unparseable iter-N.json). The script runs under
@@ -31287,7 +31292,7 @@ RAF_BUDGET_DOC="$LIB/../docs/review-and-fix-budget.md"
 assert_eq "#530 budget: checked-in budget table exists" "yes" \
   "$([ -f "$RAF_BUDGET_DOC" ] && echo yes || echo no)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,207 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,212 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
