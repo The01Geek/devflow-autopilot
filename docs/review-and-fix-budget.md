@@ -15,8 +15,8 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 > below (always the python3 word counter — see Counting method; never a bare `wc -w`) and
 > reconcile this table against the growth-delta figure pinned in `lib/test/run.sh` whenever the
 > root or a reference changes; the `#530 budget` guard binds the ceiling constants, the Measured
-> cells, and the cumulative-path and growth-delta cells to live measurements, so a stale one of
-> those goes RED at the desk.
+> cells, the cumulative-path / growth-delta / net-reduction figures, and the max-step reference
+> label to live measurements, so a stale one of those goes RED at the desk.
 
 ## Counting method & formulas
 

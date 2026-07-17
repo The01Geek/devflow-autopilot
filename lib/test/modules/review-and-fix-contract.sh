@@ -63,8 +63,11 @@ for _rm in "${_raf_bundle_members[@]}"; do
     echo FAIL >> "$RESULTS_FILE"
   fi
 done
-# 9 = thin root + 8 references (the same 8-name set run.sh's #530 budget block pins; run.sh
-# names them via a glob + a remote 8-name pin, not a variable named RAF_EXPECTED_REFS).
+# 9 = thin root + 8 references. run.sh's #530 budget block pins the SAME 8-name set in its own
+# `RAF_EXPECTED_REFS` variable (~line 31841) — keep the two lists in lockstep. (run.sh's
+# MAXI_BUNDLE assembles its bundle via a `references/*.md` glob; this module instead builds from
+# the fixed RAF_EXPECTED_REFS list above, so its deletion guard is the per-member check, not a
+# shrinking glob — but the authoritative 8-name set is coupled to run.sh's RAF_EXPECTED_REFS.)
 assert_eq "raf module: bundle assembled all 9 members (thin root + 8 references)" "9" \
   "${#_raf_bundle_members[@]}"
 

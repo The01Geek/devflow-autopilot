@@ -31821,9 +31821,10 @@ _raf_words() { python3 -c 'import sys; print(len(open(sys.argv[1],"rb").read().s
 RAF_ROOT_W=$(_raf_words "$LIB/../skills/review-and-fix/SKILL.md")
 RAF_EXT_W=$(_raf_words "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
 RAF_MAXREF_W=0
+RAF_MAXREF_NAME=""
 RAF_REFS_SUM_W=0
 for f in "$LIB/../skills/review-and-fix/references"/*.md; do
-  w=$(_raf_words "$f"); [ "$w" -gt "$RAF_MAXREF_W" ] && RAF_MAXREF_W="$w"
+  w=$(_raf_words "$f"); [ "$w" -gt "$RAF_MAXREF_W" ] && { RAF_MAXREF_W="$w"; RAF_MAXREF_NAME="${f##*/}"; }
   RAF_REFS_SUM_W=$((RAF_REFS_SUM_W + w))
 done
 # Fail closed if the references glob matched nothing: RAF_MAXREF_W would stay 0 and the peak
@@ -31906,19 +31907,41 @@ assert_eq "#530 budget: pinned growth delta is arithmetically true (measured cum
 # #539 review (silent-failure-hunter/code-reviewer/pr-test-analyzer): bind the three doc
 # "Measured" cells to the same live counts, closing the stale-Measured-cell class the
 # maintainer note now claims coverage of (previously only the cumulative cell + growth delta
-# were bound, so a stale Measured cell shipped desk-green). Same non-vacuous case-match as the
-# cumulative pin: a wrong cell won't contain `| <measured> |` after comma-strip → RED. Each row
-# is grepped by its unique ceilings-table label, and its Value and Measured columns differ, so
-# `| <measured> |` cannot collide with the ceiling constant.
+# were bound, so a stale Measured cell shipped desk-green).
+# Column-positional match (#539 shadow, silent-failure-hunter): pin the ceiling AND the measured
+# value in their ADJACENT columns — `| <ceiling> | <measured> |` — not a lone `| <measured> |`.
+# A whole-row `| <measured> |` match would pass VACUOUSLY the moment a measured count equals its
+# ceiling (e.g. root grows to exactly 3000): it would then match the Value/ceiling cell and go
+# green even against a stale Measured cell — reopening the stale-cell hole precisely at the
+# boundary. The adjacency pattern cannot collide: a stale Measured cell breaks the pair → RED,
+# and it fails closed (missing row → empty → no match → RED).
 _raf_root_row="$(grep -F '| Plugin root ≤' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#530 budget: doc root Measured cell matches fresh measurement ($RAF_ROOT_W)" "yes" \
-  "$(case "${_raf_root_row//,/}" in *"| $RAF_ROOT_W |"*) echo yes;; *) echo no;; esac)"
+  "$(case "${_raf_root_row//,/}" in *"| $RAF_ROOT_CEIL | $RAF_ROOT_W |"*) echo yes;; *) echo no;; esac)"
 _raf_load_row="$(grep -F 'Root + live extension (initial load) ≤' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#530 budget: doc initial-load Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
-  "$(case "${_raf_load_row//,/}" in *"| $((RAF_ROOT_W+RAF_EXT_W)) |"*) echo yes;; *) echo no;; esac)"
+  "$(case "${_raf_load_row//,/}" in *"| $RAF_LOAD_CEIL | $((RAF_ROOT_W+RAF_EXT_W)) |"*) echo yes;; *) echo no;; esac)"
 _raf_maxstep_row="$(grep -F 'Root + extension + max active step ≤' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#530 budget: doc max-step Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)))" "yes" \
-  "$(case "${_raf_maxstep_row//,/}" in *"| $((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)) |"*) echo yes;; *) echo no;; esac)"
+  "$(case "${_raf_maxstep_row//,/}" in *"| $RAF_MAXSTEP_CEIL | $((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)) |"*) echo yes;; *) echo no;; esac)"
+# #539 shadow (code-reviewer): bind the primary net-mandatory-reduction figure to the live
+# measurement so the "Net mandatory-prompt reduction" bullet cannot go stale while the Measured
+# cells it summarizes are re-measured. The extension addend cancels, so the reduction equals the
+# frozen monolith (36201) minus the live root; a stale bullet no longer contains the fresh figure → RED.
+_raf_reduction_row="$(grep -F 'net reduction of' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc net-reduction figure matches fresh measurement ($((36201 - RAF_ROOT_W)))" "yes" \
+  "$(case "${_raf_reduction_row//,/}" in *"net reduction of $((36201 - RAF_ROOT_W)) words"*) echo yes;; *) echo no;; esac)"
+# #539 shadow (pr-test-analyzer): the max-step Measured cell's PROSE LABEL names the largest
+# reference (shadow-review.md). The numeric pin above catches a stale count, but not a stale
+# label if a different reference ever grows largest. Bind the label to the actual max-words
+# reference so a re-measure that fixes only the number can't leave the name wrong.
+assert_eq "#530 budget: shadow-review.md is the largest reference (doc max-step label is live)" "shadow-review.md" \
+  "$RAF_MAXREF_NAME"
+# The label lives in the AFTER — maximum active step table row (not the ceilings row grepped
+# above), which spells out `root + extension + <largest reference>`.
+_raf_maxstep_after_row="$(grep -F '| **AFTER** — maximum active step |' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc max-step row names the actual largest reference ($RAF_MAXREF_NAME)" "yes" \
+  "$(case "$_raf_maxstep_after_row" in *"$RAF_MAXREF_NAME"*) echo yes;; *) echo no;; esac)"
 
 # ── #530 pressure tests (AC16): the split preserves every named control-flow scenario ──
 # Each scenario's operative behavioral literal must survive the split AND land in the
@@ -41451,7 +41474,6 @@ assert_pin_unique "#497 AC12 overview names topic-priming" \
 assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda" \
   'a **prompt-composition attestation**' "$I497_OVERVIEW"
 
-# ────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────
 # The selected runner resolves this module from the registry before sourcing any
 # test body. The full suite uses a fail-closed boundary at the historical point:
