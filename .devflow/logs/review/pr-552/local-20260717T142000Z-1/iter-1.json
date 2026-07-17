@@ -1,0 +1,104 @@
+{
+  "iter": 1,
+  "loop_role": "fix",
+  "started_at": "2026-07-17T14:20:00Z",
+  "fix_commit_sha": "8aeb477703d9aa91aeaa0c9db1fdfffeaea5f20b",
+  "fix_files": [
+    "scripts/issue-audit-state.py",
+    "lib/test/test_python_scripts.py",
+    "lib/test/run.sh",
+    "skills/create-issue/SKILL.md"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:requesting-code-review", "severity": "Critical", "description": "Step 4 decline-surface lifecycle deadlock (step4-offer / step4-approval-after-exhausted-offer never recorded)", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [289, 292], "kind": "logic_error"}, "corroboration_count": 4, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "override-ground eligibility token renders token=none instead of stale-token (fail-open detectability)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1064, 1083], "kind": "logic_error"}, "corroboration_count": 4, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "transition-token assert comments claim marker/override-kind coverage the assert cannot provide (documented_falsehood, 2 sites)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [159, 272], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "hash_bytes accepts empty git object id on rc 0; override ground compares empty-to-empty as a match (fail-open)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [399, 791], "kind": "api_misuse"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Important", "description": "_validate omits shape checks for the per-round routing booleans (fail-open of exactly-one-per-round bound)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [492, 536], "kind": "type_design"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "SKILL.md fallback misroutes caller-input-validation breadcrumbs to the state-owner-unavailable fallback", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [254, 259], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "record-degraded/record-dispatch degraded-arm sketches omit the required --round", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [252, 263], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "reinit_forced launderable by a legal echo re-init after --force", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1121, 1149], "kind": "security"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "vacuous ordinal-chain negative test + untested read-boundary after_round<floor_round fail-open gate; rounds_run value untested (false reconciliation-table claim); override-ground token staling untested", "defect_signature": {"file": "lib/test/run.sh", "line_range": [3581, 41465], "kind": "test_gap"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "no-verdict-does-not-shadow-older-FILE behavior untested either way (pinned current behavior)", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [843, 885], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "missing-file adversarial matrix row not driven across query classes", "defect_signature": {"file": "lib/test/run.sh", "line_range": [41435, 41435], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F1-deadlock", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "F2-token-staling", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "F3-transition-comment-falsehood", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "F4-empty-digest-failopen", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "F5-retry-bool-failopen", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "F6-fallback-routing", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "F7-degraded-round-flag", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "F8-reinit-sticky", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "CA3-triggers-docstring", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "VC5-init-example", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "T1-rounds-run-test", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "T2-vacuous-and-readboundary-test", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "T3-missing-file-matrix", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "T4-noverdict-shadow-pin", "decision": "applied", "commit": "8aeb4777"},
+    {"finding_id": "VC2-noverdict-behavior", "decision": "pushed_back", "source_file": "scripts/issue-audit-state.py", "claim_text": "a no-verdict round should invalidate an older clean FILE round on unchanged bytes", "skip_category": "claim-quality", "evidence": "The behavior is defensible: the clean-scan breaks on REVISE (a positive needs-changes signal) but falls through no-verdict (an inconclusive re-audit, not a revocation); the bytes were genuinely cleanly audited in the FILE round and no revision invalidated them. The AC's 'until a later round completes with a verdict' addresses the no-prior-clean case. Pinned the current behavior with a test (T4) in both directions rather than changing it."},
+    {"finding_id": "SFH3-attestation-errored", "decision": "deferred", "source_file": "skills/create-issue/SKILL.md", "claim_text": "a post-fetch attestation tool error renders attestation=none, indistinguishable from never-attempted", "skip_category": "uncategorized", "evidence": "Real but narrow post-hoc observability edge (creation already succeeded; fetch succeeded but the attestation tool call itself errored). Distinguishing attestation=errored from =none needs a new summary token (design surface); low-impact relative to the fix-loop's cost. Advisory for the maintainer."},
+    {"finding_id": "TD2-retry-token-4site-literal", "decision": "deferred", "source_file": "scripts/issue-audit-state.py", "claim_text": "the three dispatch-* retry tokens are hand-enumerated in four uncoupled sites with no binding assert", "skip_category": "uncategorized", "evidence": "Maintainability nit (coupled-mirror). Extracting a _DISPATCH_RETRY_ACTIONS constant touches four working sites; the module already discloses the mirror-drift class. Advisory, not fixed in-loop to avoid churn."},
+    {"finding_id": "TD3-stateerror-discrimination", "decision": "deferred", "source_file": "scripts/issue-audit-state.py", "claim_text": "StateError under-discriminates absent-vs-corrupt, forcing cmd_init to inspect message text", "skip_category": "uncategorized", "evidence": "Low-severity design wrinkle; works via message inspection today. A subclass/attribute is polish. Advisory."},
+    {"finding_id": "VC16-reinit-summary-prose", "decision": "deferred", "source_file": "skills/create-issue/SKILL.md", "claim_text": "the summary-line prose does not mention reinit_forced", "skip_category": "uncategorized", "evidence": "Very minor doc-completeness; the tool emits reinit_forced regardless and the prose already lists the principal fields. Deferred."}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 14,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UPDATED", "behind_by": 1},
+  "verification_evidence": {
+    "command": "lib/test/run.sh (+ ruff check, shellcheck --severity=warning)",
+    "result": "pass",
+    "duration_s": 260,
+    "skipped_checks": [
+      {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty at run time (grades committed HEAD); runs in CI on a clean checkout with fetch-depth 0. stale-prose-lint on the committed diff reports 0 STALE rows."}
+    ]
+  },
+  "telemetry": "unavailable",
+  "shadow": {
+    "ran_at": "2026-07-17T14:20:00Z",
+    "reviewed_sha": "8aeb477703d9aa91aeaa0c9db1fdfffeaea5f20b",
+    "trigger": "engine_self_modifying early trigger after iteration 1",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:type-design-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:type-design-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "kind": "documented_falsehood", "description": "iteration-1 F6 regression: state-file read/parse failure on a mutation unrouted; 'complete by construction' false", "new": true},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "kind": "logic_error", "description": "attestation=none vs never-attempted (corroborates iter-1 SFH-3)", "new": false},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "kind": "vacuous_test", "description": "vacuous creation-attestation malformed row (sibling of iter-1 de-vacuumed ordinal row)", "new": true},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "kind": "test_gap", "description": "epoch_round/epoch_arm + empty-draft_digest untested", "new": true},
+      {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "kind": "type_design", "description": "pending-action vocabulary uncoupled (corroborates iter-1 TD-2)", "new": false},
+      {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "kind": "type_design", "description": "ordinal/round both bare int (not live)", "new": true},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "kind": "comment_drift", "description": "no-digest-supplied remedy prose true-but-incomplete", "new": true}
+    ],
+    "phase2_fails": [],
+    "clean_reviewers": ["devflow:code-reviewer", "devflow:comment-analyzer", "devflow:requesting-code-review"],
+    "comparison": {"shadow_total": 7, "overlap_with_iter_1": 2, "new": 5, "new_critical": 0, "new_important": 2},
+    "over_grade_calibration": "SFH attestation=none (diagnostic-only, fails visibly) calibrated Important->Suggestion with recorded evidence; the two Important promote-drivers (F6 documented_falsehood, vacuous test) are non-demotable/observable — not over-graded",
+    "promoted_to_iter_next": true
+  }
+}

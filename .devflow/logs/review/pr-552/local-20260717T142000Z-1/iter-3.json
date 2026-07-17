@@ -1,0 +1,24 @@
+{
+  "iter": 3,
+  "loop_role": "fix",
+  "started_at": "2026-07-17T14:20:00Z",
+  "fix_commit_sha": "49a5f7ef",
+  "fix_files": ["skills/create-issue/SKILL.md"],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": true, "engine_self_modifying": true, "detect_all_audit": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "step3.5-delta-gate", "severity": "Important", "description": "iteration-2 F6 extension still incomplete: enumerated only physical load failures; the _validate schema-corruption StateError family (routed via _load_for_mutation) left implicit; findings_count=-1 corruption breadcrumb textually adjacent to Route B's argument example", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [261, 261], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "DG2-schema-corruption-routing", "decision": "applied", "commit": "49a5f7ef", "note": "Reworded class 2 as a principle (any load-time StateError except nonce mismatch -> environmental) covering physical + schema-corruption; added the Route-B discriminator (on-disk state vs current CLI argument); broadened Route A to transition-legality refusals. Verified complete by category against the tool's full _fail/StateError taxonomy."}
+  ],
+  "convergence": "converged after iteration 3: iteration-3 delta is SKILL.md prose only (zero product-code changes since the iter-2 delta gate cleared all code); the routing partition is now complete-by-principle. Routing completeness re-verified by category by the orchestrator rather than a further agent (the routing surface is prose, infinitely refinable; category-verification ends the enumeration regress).",
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "verification_evidence": {
+    "command": "lib/test/run.sh (+ ruff, shellcheck, stale-prose-lint)",
+    "result": "pass",
+    "duration_s": 270,
+    "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty at run time; verified 0 STALE on committed HEAD 49a5f7ef; runs in CI on a clean checkout"}]
+  },
+  "telemetry": "unavailable"
+}

@@ -1,0 +1,37 @@
+{
+  "iter": 2,
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "started_at": "2026-07-17T14:20:00Z",
+  "fix_commit_sha": "545e30ca",
+  "fix_files": ["skills/create-issue/SKILL.md", "lib/test/test_python_scripts.py"],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": true, "engine_self_modifying": true, "detect_all_audit": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "iteration-1 F6 regression: narrowing class 2 left a state-file read/parse failure on a mutation unrouted; 'complete by construction' claim false (documented_falsehood)", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [261, 263], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "post-fetch attestation tool-failure renders attestation=none (indistinguishable from never-attempted); corroborates iter-1 SFH-3", "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [304, 308], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "severity-calibrated"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "vacuous creation-attestation malformed test (rejected by epoch_round precondition, never reaching the attestation guard it names — sibling of the iter-1-de-vacuumed ordinal row); attestation field has a live reader", "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [4130, 4131], "kind": "vacuous_test"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "epoch_round/epoch_arm creation sub-guards + iter-1 F4 empty-draft_digest guard untested", "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [4023, 4100], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "pending-action vocabulary un-named/un-asserted across 4 sites (corroborates iter-1 deferred TD-2); latent, no current behavior change", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [543, 545], "kind": "type_design"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "SH-F6-state-read-routing", "decision": "applied", "commit": "545e30ca"},
+    {"finding_id": "SH-attestation-errored-note", "decision": "applied", "commit": "545e30ca"},
+    {"finding_id": "SH-vacuous-attestation-test", "decision": "applied", "commit": "545e30ca"},
+    {"finding_id": "SH-epoch-and-draftdigest-coverage", "decision": "applied", "commit": "545e30ca"},
+    {"finding_id": "SH-attestation-none-severity", "decision": "severity-calibrated", "source_file": "skills/create-issue/SKILL.md", "claim_text": "post-fetch attestation tool-failure renders attestation=none", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "over-grade shape 2 (diagnostic-only): the observable fail-direction is a summary-line FIELD showing the wrong value on a rare post-fetch-error path; the tool exits non-zero with its own breadcrumb (fails visibly), no state corruption, no wrong gate, and the issue is already created. Fixed the cheap prose note anyway (corroborated x2) but the blast radius is diagnostic, not behavioral."},
+    {"finding_id": "SH-TD2-pending-vocabulary", "decision": "deferred", "source_file": "scripts/issue-audit-state.py", "claim_text": "the pending-action / dispatch-* retry vocabulary is un-named and un-asserted across four sites", "skip_category": "uncategorized", "evidence": "Latent coupling nit (no current behavior change — all four sites are consistent in shipped code); corroborates iteration-1 TD-2 which was deferred. Extracting a _PENDING_ACTIONS constant + import assert is a maintainability refactor touching four working sites; the module already discloses the mirror-drift class. Advisory."},
+    {"finding_id": "SH-int-type-ordinals", "decision": "deferred", "source_file": "scripts/issue-audit-state.py", "claim_text": "ordinal-space and round-number are both bare int with no distinguishing type", "skip_category": "uncategorized", "evidence": "Not a live defect (never cross-compared; _validate range-checks each). Minor disclosed-trade-off note. Advisory."},
+    {"finding_id": "SH-comment-no-digest-supplied", "decision": "deferred", "source_file": "skills/create-issue/SKILL.md", "claim_text": "the no-digest-supplied remedy prose names only the file-arm cause, not the override-epoch cause", "skip_category": "claim-quality", "evidence": "True-but-incomplete (not a documented_falsehood per the reviewer): the prescribed remedy (re-issue with --draft-file) is correct for BOTH causes, and the skill's own recipe always passes --draft-file, so the file-arm cause is the realistic one. Optional per the reviewer; left advisory to avoid unrelated-prose churn."}
+  ],
+  "shadow_of_iter": 1,
+  "convergence_inputs": {"fixes_applied": 4, "fix_diff_lines_code": 0, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "verification_evidence": {
+    "command": "lib/test/run.sh (+ ruff, shellcheck)",
+    "result": "pass",
+    "duration_s": 270,
+    "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty at run time; verified 0 STALE on committed HEAD; runs in CI on a clean checkout"}]
+  },
+  "telemetry": "unavailable"
+}
