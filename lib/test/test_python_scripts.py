@@ -3652,6 +3652,16 @@ _TRANSITION_ROWS = [
     ('creation-attestation', 'no-epoch-recorded', False),
     ('creation-attestation', 'already-recorded', False),
     ('creation-epoch', 'rebind-after-attestation', False),
+    # issue #562 draft-binding rows
+    ('draft-binding', 'first-landed-write', True),
+    ('draft-binding', 'already-recorded', False),
+    ('draft-binding', 'bound-path-not-absolute', False),
+    ('draft-binding', 'tier-missing', False),
+    ('draft-binding', 'tier-unknown', False),
+    ('draft-binding', 'nonbound-not-absolute', False),
+    # issue #562 write-failure rows
+    ('write-failure', 'recorded', True),
+    ('write-failure', 'dispatch-path-mismatch', False),
 ]
 
 # table_test_lockstep_count — the exact-count lockstep. Derived from the module's own
@@ -3803,6 +3813,88 @@ assert_eq("#546 eligibility_grounds_table: fresh init, zero rounds -> no-verdict
           ('not-eligible', 'no-verdict-round'),
           (lambda r: (r['answer'], r['reason']))(
               issue_audit_state.evaluate_eligibility(_state([]), 'approve', 'D1')))
+
+
+print()
+print("issue-audit-state: tiered draft-root binding (issue #562)")
+
+# _is_bound_path — the absolute-path/single-line validator reused by the binding record
+# and _validate.
+for p, ok in [('/abs/path', True), ('rel/path', False), ('', False), (None, False),
+              (7, False), ('/a\nb', False), ('/a\rb', False)]:
+    assert_eq(f"#562 _is_bound_path({p!r})", ok, issue_audit_state._is_bound_path(p))
+
+# post_revision_write_failure_rows — THE motivating defect reproduced then fixed. A clean
+# file-arm FILE round on D1, a recorded revision that postdates it, and the bound file
+# STILL holding the byte-identical D1 bytes (its overwrite failed): byte-digest equality
+# holds, but the bytes were revised away. Pre-#562 this answered `eligible` (the fail-open
+# the closure removes); it must now answer not-eligible / unaudited-revision.
+_wf_state = _state([_round(1, 'file', 'FILE', 'D1')], revisions=(1,))
+assert_eq("#562 post_revision_write_failure_rows: a postdating revision whose overwrite "
+          "FAILED (file still holds the clean D1 bytes) refuses as unaudited-revision, "
+          "never eligible on the stale byte-identity",
+          ('not-eligible', 'unaudited-revision'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(_wf_state, 'approve', 'D1')))
+# The recovery/clearing side: once the revision LANDS and a fresh clean FILE round is
+# recorded on the new bytes, the newest clean round grounds eligibility again.
+_recovered = _state([_round(1, 'file', 'FILE', 'D1'), _round(2, 'file', 'FILE', 'D2')],
+                    revisions=(1,))
+assert_eq("#562 post_revision_write_failure_rows: after the revision lands and a fresh "
+          "clean round is recorded, eligibility re-enters the file-identity ground",
+          ('eligible', 'file-identity'),
+          (lambda r: (r['answer'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(_recovered, 'approve', 'D2')))
+# Control: a clean file-arm round with NO postdating revision still grounds file-identity
+# (the closure narrows nothing on the ordinary happy path).
+assert_eq("#562 post_revision_write_failure_rows (control): a clean round with no "
+          "postdating revision still grounds file-identity on matching bytes",
+          ('eligible', 'file-identity'),
+          (lambda r: (r['answer'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([_round(1, 'file', 'FILE', 'D1')]), 'approve', 'D1')))
+
+# latest_revision_landed — the clearing predicate over recorded facts.
+assert_eq("#562 latest_revision_landed: no revisions -> vacuously landed",
+          True, issue_audit_state.latest_revision_landed(_state([_round(1, 'file', 'FILE')])))
+# A revision carrying a stdin_digest that no later file-arm dispatch digest matches: not landed.
+_unlanded = _state([_round(1, 'file', 'FILE', 'D1')])
+_unlanded['revisions'] = [{'ordinal': 1, 'after_round': 1, 'floor_round': 1,
+                           'stdin_digest': 'D2'}]
+assert_eq("#562 latest_revision_landed: a revision whose stdin_digest matches no later "
+          "landed dispatch digest -> not landed",
+          False, issue_audit_state.latest_revision_landed(_unlanded))
+# ... and once a later file-arm dispatch records that digest, it counts as landed.
+_landed = _state([_round(1, 'file', 'FILE', 'D1'), _round(2, 'file', 'FILE', 'D2')])
+_landed['revisions'] = [{'ordinal': 1, 'after_round': 1, 'floor_round': 1,
+                         'stdin_digest': 'D2'}]
+assert_eq("#562 latest_revision_landed: a later landed dispatch digest equal to the "
+          "revision's stdin_digest -> landed (the clearing predicate)",
+          True, issue_audit_state.latest_revision_landed(_landed))
+# A revision with no stdin_digest (legacy/embed epoch) fails closed to not-landed.
+_nodigest = _state([_round(1, 'file', 'FILE', 'D1')], revisions=(1,))
+assert_eq("#562 latest_revision_landed: a revision with no recorded stdin_digest fails "
+          "closed to not landed",
+          False, issue_audit_state.latest_revision_landed(_nodigest))
+
+# summary_fields — the bound root + tier surface the display marker derives from.
+_bound_wt = dict(_state([_round(1, 'file', 'FILE', 'D1')]),
+                 draft_binding={'path': '/wt/root', 'tier': 'worktree-root',
+                                'non_bound_root': '/main/root'})
+_sf = issue_audit_state.summary_fields(_bound_wt, 'D1')
+assert_eq("#562 summary_fields: a worktree-root binding surfaces bound_root + bound_tier",
+          ('/wt/root', 'worktree-root'), (_sf['bound_root'], _sf['bound_tier']))
+_sf_none = issue_audit_state.summary_fields(_state([_round(1, 'file', 'FILE', 'D1')]), 'D1')
+assert_eq("#562 summary_fields: an unbound run surfaces bound_root=None bound_tier=None",
+          (None, None), (_sf_none['bound_root'], _sf_none['bound_tier']))
+# _binding_line — the query answer shape, incl. the fail-closed unbound token.
+assert_eq("#562 _binding_line: unbound state answers the fail-closed bound=none token",
+          'bound=none tier=none non_bound_root=none latest_revision_landed=yes',
+          issue_audit_state._binding_line(_state([])))
+assert_eq("#562 _binding_line: a bound run answers bound path + tier + non-bound root",
+          'bound=/wt/root tier=worktree-root non_bound_root=/main/root '
+          'latest_revision_landed=yes',
+          issue_audit_state._binding_line(_bound_wt))
 assert_eq("#546 eligibility_grounds_table: the inline arm's verdict-less terminal -> "
           "no-verdict-round",
           ('not-eligible', 'no-verdict-round'),
@@ -4046,6 +4138,40 @@ _malformed('a round missing a required key', dict(_GOOD, rounds=[{'round': 1}]))
 assert_eq("#546 malformed-state matrix (valid-falsy control): an empty rounds list is "
           "valid state, not a malformed shape",
           's', issue_audit_state._validate(dict(_GOOD), 's')['slug'])
+
+# issue #562: the draft-binding + write-failure fields, widened into the same matrix.
+_malformed('#562 draft_binding is not an object',
+           dict(_GOOD, draft_binding='x'))
+_malformed('#562 draft_binding path is not absolute',
+           dict(_GOOD, draft_binding={'path': 'rel/x', 'tier': 'main-root',
+                                       'non_bound_root': None}))
+_malformed('#562 draft_binding path carries an embedded newline',
+           dict(_GOOD, draft_binding={'path': '/a\nb', 'tier': 'main-root',
+                                       'non_bound_root': None}))
+_malformed('#562 draft_binding path is empty (valid-falsy, rejected)',
+           dict(_GOOD, draft_binding={'path': '', 'tier': 'main-root',
+                                      'non_bound_root': None}))
+_malformed('#562 draft_binding tier outside the canonical set',
+           dict(_GOOD, draft_binding={'path': '/a', 'tier': 'bogus',
+                                      'non_bound_root': None}))
+_malformed('#562 draft_binding non_bound_root present but not absolute',
+           dict(_GOOD, draft_binding={'path': '/a', 'tier': 'main-root',
+                                      'non_bound_root': 'rel'}))
+_malformed('#562 write_failures is not a list',
+           dict(_GOOD, write_failures={}))
+_malformed('#562 a write_failures entry is not an integer',
+           dict(_GOOD, write_failures=['x']))
+# Valid-falsy / absence controls: an absent binding and an empty write_failures list are
+# BOTH valid (an unbound run), never malformed.
+assert_eq("#562 malformed-state matrix (absence control): absent draft_binding + empty "
+          "write_failures validate (an unbound run)",
+          's', issue_audit_state._validate(
+              dict(_GOOD, draft_binding=None, write_failures=[]), 's')['slug'])
+assert_eq("#562 malformed-state matrix: a well-formed worktree-root binding validates",
+          'worktree-root', issue_audit_state._validate(
+              dict(_GOOD, draft_binding={'path': '/wt', 'tier': 'worktree-root',
+                                         'non_bound_root': '/main'}),
+              's')['draft_binding']['tier'])
 
 print()
 print("issue-audit-state: review-round hardening (issue #546, PR #552 review)")

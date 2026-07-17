@@ -42675,6 +42675,84 @@ if [ -d "$I6_SB" ]; then
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
+# issue #562: the tiered draft-root binding, CLI-level. record-draft-binding round-trip
+# (re-queried in a FRESH process so nothing rests on in-context memory), the once-per-run
+# and validation breadcrumbs, record-write-failure, and a REAL linked-worktree binding.
+DB_SB="$(git_sandbox '#562 draft_binding_cli_rows')"
+if [ -d "$DB_SB" ]; then
+  (
+    cd "$DB_SB" || exit 1
+    git init -q .
+    git config user.email t@t; git config user.name t
+    mkdir -p .devflow/tmp
+    printf '# T\n\nB\n' > d.md
+    git add -A > /dev/null 2>&1; git commit -qm init > /dev/null 2>&1
+    N="$(python3 "$IAS" init db | sed 's/nonce=//')"
+    # Unbound query first: the fail-closed bound=none token.
+    python3 "$IAS" query-draft-binding db --nonce "$N" > .db-unbound
+    # Record a worktree-root binding with a divergent non-bound main root.
+    python3 "$IAS" record-draft-binding db --nonce "$N" \
+      --path "$DB_SB" --tier worktree-root --non-bound-root /main/root > .db-rec
+    # Re-query in a FRESH process (no in-context memory).
+    python3 "$IAS" query-draft-binding db --nonce "$N" > .db-bound
+    # A second binding is illegal.
+    python3 "$IAS" record-draft-binding db --nonce "$N" --path /x --tier main-root \
+      > /dev/null 2> .db-second; printf '%s' "$?" > .db-second-rc
+    # Validation breadcrumbs (fail closed).
+    python3 "$IAS" init dv > /dev/null 2>&1
+    NV="$(python3 "$IAS" query-nonce dv | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding dv --nonce "$NV" --path rel/x --tier main-root \
+      > /dev/null 2> .dv-relpath; printf '%s' "$?" > .dv-relpath-rc
+    python3 "$IAS" record-draft-binding dv --nonce "$NV" --path /a --tier bogus \
+      > /dev/null 2> .dv-tier; printf '%s' "$?" > .dv-tier-rc
+    python3 "$IAS" record-draft-binding dv --nonce "$NV" --path /a \
+      > /dev/null 2> .dv-notier; printf '%s' "$?" > .dv-notier-rc
+    python3 "$IAS" record-draft-binding dv --nonce "$NV" --path /a --tier main-root \
+      --non-bound-root rel > /dev/null 2> .dv-nbr; printf '%s' "$?" > .dv-nbr-rc
+    # record-write-failure records an ordinal at the bound path.
+    python3 "$IAS" record-write-failure db --nonce "$N" --ordinal 1 > .db-wf
+    # A REAL linked worktree: bind its own toplevel and confirm the query round-trips.
+    git branch -q wt-562 2>/dev/null
+    if git worktree add -q ../wt562 wt-562 2>/dev/null; then
+      WT="$(cd ../wt562 && pwd)"
+      ( cd ../wt562 && mkdir -p .devflow/tmp
+        NW="$(python3 "$IAS" init wtb | sed 's/nonce=//')"
+        python3 "$IAS" record-draft-binding wtb --nonce "$NW" \
+          --path "$WT" --tier worktree-root > /dev/null
+        python3 "$IAS" query-draft-binding wtb --nonce "$NW" ) > "$DB_SB/.db-wt"
+    fi
+  )
+  assert_eq "#562 draft_binding_cli_rows: an unbound run answers the fail-closed bound=none token" \
+    "bound=none tier=none non_bound_root=none latest_revision_landed=yes" \
+    "$(cat "$DB_SB/.db-unbound" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: a worktree-root binding round-trips (fresh process) with its non-bound root" \
+    "bound=$DB_SB tier=worktree-root non_bound_root=/main/root latest_revision_landed=yes" \
+    "$(cat "$DB_SB/.db-bound" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: a second record-draft-binding is illegal (exit non-zero)" \
+    "1" "$(cat "$DB_SB/.db-second-rc" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: ... named by the binding-already-recorded breadcrumb" \
+    "1" "$(grep -c 'binding-already-recorded' "$DB_SB/.db-second" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: a non-absolute bound path is refused (fail closed)" \
+    "1" "$(cat "$DB_SB/.dv-relpath-rc" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: ... named by the binding-path-not-absolute breadcrumb" \
+    "1" "$(grep -c 'binding-path-not-absolute' "$DB_SB/.dv-relpath" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: an unknown tier token is refused" \
+    "1" "$(grep -c 'binding-tier-unknown' "$DB_SB/.dv-tier" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: a missing tier token is refused" \
+    "1" "$(grep -c 'binding-tier-missing' "$DB_SB/.dv-notier" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: a non-absolute non-bound root is refused" \
+    "1" "$(grep -c 'binding-nonbound-not-absolute' "$DB_SB/.dv-nbr" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: record-write-failure records the ordinal at the bound path" \
+    "write_failure_recorded ordinal=1 count=1" "$(cat "$DB_SB/.db-wf" 2>/dev/null)"
+  # The real-worktree row runs only when `git worktree add` is available on the host.
+  if [ -s "$DB_SB/.db-wt" ]; then
+    assert_eq "#562 draft_binding_cli_rows: a REAL linked worktree binds its own toplevel and the query round-trips" \
+      "yes" "$(grep -qF 'tier=worktree-root' "$DB_SB/.db-wt" && echo yes || echo no)"
+  fi
+  git -C "$DB_SB" worktree remove -f ../wt562 > /dev/null 2>&1 || true
+  rm -rf "$DB_SB" "$DB_SB/../wt562"
+fi
+
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
