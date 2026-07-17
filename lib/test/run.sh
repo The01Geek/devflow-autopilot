@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: MIT
 # Tests for the lib/ jq filters and bash helpers. Run from repo root:
 #   bash lib/test/run.sh
+# During iteration, registered modules can run independently without executing
+# this file's global setup:
+#   bash lib/test/run-module.sh workflow-flight-recorder
 #
 # Each test asserts a specific load-bearing invariant. A failure here means a
 # downstream regression in the /devflow:retrospective-weekly orchestrator or the
@@ -61,6 +64,7 @@ fi
 # render-report.sh blocks, sourced in subshells to contain their `set -e` — are
 # counted in the final tally too. Counting in-memory would silently drop them.
 RESULTS_FILE="$(mktemp)"
+MODULE_FAILURES_FILE="$(mktemp)"
 # SKIPS_FILE is the skip tally's backing file (issue #456), the SKIP sibling of
 # RESULTS_FILE: the skip() helper appends one `kind<TAB>name<TAB>reason` line per
 # self-skipping check, and SKIP is derived from it with `grep -c` — the same counter
@@ -69,9 +73,11 @@ RESULTS_FILE="$(mktemp)"
 # SKIP introduces no new tool into the selection) — so a gate that self-skips is visible in
 # the summary and can never be mistaken for a clean pass. The renderer is lib/test/summary.sh.
 SKIPS_FILE="$(mktemp)"
-trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE"' EXIT   # protect RESULTS_FILE/SKIPS_FILE immediately; widened below once the bundle temp exists
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"' EXIT   # protect tally files immediately; widened below once the bundle temp exists
 # shellcheck source=lib/test/summary.sh disable=SC1091
 . "$LIB/test/summary.sh"
+# shellcheck source=lib/test/module-harness.sh disable=SC1091
+. "$LIB/test/module-harness.sh"
 
 # SKIP_HELPER_REGION_BEGIN — the SOLE `printf '  NOTE ` skip-emit lives inside skip();
 # the #456 meta-assertion below asserts no other NOTE emit appears in this file outside
@@ -136,7 +142,7 @@ IMPL_PHASE_STEMS="phase-1-setup phase-2-implement phase-3-review phase-4-documen
 # separately at the call site since it performs the actual append.
 _impl_bundle_member_usable() { [ -r "$1" ] && [ -s "$1" ]; }
 IMPL_SKILL_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the implement-skill bundle temp" >&2; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
 # Build the member list as an ARRAY (not a space-joined string) so a checkout path
 # containing a space is preserved rather than word-split — the stems in IMPL_PHASE_STEMS
 # are space-free identifiers, but $LIB (the checkout dir) is not guaranteed to be.
@@ -3648,8 +3654,8 @@ assert_pin_unique "#467 C3: quality-checklist mirror for the trust-boundary clos
   'transitive source/exec/import closure of its entry points' "$CI312_TMPL"
 # Cluster D — Move 2a introduction trigger (template) + waiver-non-conforming clause; the
 # three-site best-effort-parser widening (CLAUDE.md, implement Phase 2.4, review-and-fix
-# fix-delta gate); extension sharpening (whole-file dimension count held at 8 — 7 base + #464's
-# dimension; #467 added none, matching the D3 guard below). The six-shape
+# fix-delta gate); extension sharpening (whole-file dimension count held at 9 after the
+# deployment-variance dimension added on main; #467 added none, matching the D3 guard below). The six-shape
 # SIXSHAPE_SET lockstep pins above stay green — the widening references the set, never restates it.
 assert_pin_unique "#467 D1: Move 2a carries the introduction trigger" \
   'Move 2a also fires on *introduction*, not only on narrowing' "$CI312_TMPL"
@@ -3663,10 +3669,12 @@ assert_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mut
   'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$MAXI_SKILL"
 assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
   'input-type analogue** for the widened surfaces' "$CI443_EXT"
-# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 8 after
-# issue #464 (merged) appended the "Mutation evidence for behavioral-fix pins" dimension; #467
+# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 9 after
+# issue #464 appended the mutation-evidence dimension and main added deployment variance; #467
 # sharpened the existing case-matrix bullet in place, adding no row.
-assert_eq "#467 D3: create-issue extension is 8 dimension bullets (7 base + #464's dimension; #467 added none)" "8" \
+assert_pin_unique "base-update: create-issue extension carries the deployment-variance dimension" \
+  'Deployment-variance silence.' "$CI443_EXT"
+assert_eq "#467 D3: create-issue extension is 9 dimension bullets (deployment variance reconciled)" "9" \
   "$(grep -c '^- \*\*' "$CI443_EXT")"
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
@@ -7192,7 +7200,7 @@ ECH="$LIB/test/extract-command-heads.py"
 E363=
 E484=
 E484="$(mktemp -d)" || { echo "FAIL  #484: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484"' EXIT
 
 # Heads deliberately left ungranted on the implement profile, each with a rationale:
 #   gh pr checkout — the inline engine is already on the branch; checking out a PR
@@ -25800,6 +25808,38 @@ WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `.devflow/prompt-e
 # The evidence marker literal the routing evidence-contract writes and the gate criterion matches.
 WSR_MARK='Writing-skills evidence:'
 
+# #563 focused-module guidance is repo-local prompt behavior: a known module may
+# accelerate RED/GREEN, but it must never replace the complete verification gate.
+# Mutation-prove both load-bearing directions on each operative workflow surface.
+assert_pin_red_under "#563 implement extension selects the focused runner for RED/GREEN" \
+  'use `bash lib/test/run-module.sh <module-id>` for RED/GREEN iteration.' \
+  's|use `bash lib/test/run-module\.sh <module-id>` for RED/GREEN iteration\.|use `bash lib/test/run.sh` for RED/GREEN iteration.|' "$WSR_IMPL"
+assert_pin_red_under "#563 review-and-fix extension selects the focused runner for RED/GREEN" \
+  'use `bash lib/test/run-module.sh <module-id>` for the RED/GREEN loop.' \
+  's|use `bash lib/test/run-module\.sh <module-id>` for the RED/GREEN loop\.|use `bash lib/test/run.sh` for the RED/GREEN loop.|' "$WSR_RAF"
+assert_pin_red_under "#563 implement extension keeps the full suite as the completion gate" \
+  'A focused result is never a completion gate.' \
+  's/A focused result is never a completion gate\./A focused result may be used as a completion gate./' "$WSR_IMPL"
+assert_pin_red_under "#563 review-and-fix extension keeps the full suite as the review gate" \
+  'A focused result never discharges a review/fix gate.' \
+  's|A focused result never discharges a review/fix gate\.|A focused result may discharge a review/fix gate.|' "$WSR_RAF"
+for _WSR_FOCUSED_POLICY in "$WSR_IMPL" "$WSR_RAF"; do
+  _WSR_FOCUSED_NAME="${_WSR_FOCUSED_POLICY##*/}"
+  assert_pin_red_under "#563 $_WSR_FOCUSED_NAME records the explicitly selected module ID" \
+    'Explicitly record the selected ID and' \
+    's/Explicitly record the selected ID and/Use the selected ID and/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#563 $_WSR_FOCUSED_NAME prohibits automatic changed-file routing" \
+    'Do not infer or automate changed-file-to-module routing.' \
+    's/Do not infer or automate changed-file-to-module routing\./Infer changed-file-to-module routing automatically./' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#563 $_WSR_FOCUSED_NAME retains every repository lint gate" \
+    'plus every lint gate required by `CLAUDE.md`' \
+    's/ plus every lint gate required by `CLAUDE\.md`//' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#563 $_WSR_FOCUSED_NAME rejects nonempty skips as clean" \
+    'A nonempty skip tally is not clean.' \
+    's/A nonempty skip tally is not clean\./A nonempty skip tally may be clean./' "$_WSR_FOCUSED_POLICY"
+done
+unset _WSR_FOCUSED_POLICY _WSR_FOCUSED_NAME
+
 # (a) implement.md routing-rule operative sentence.
 assert_pin_unique "#506 implement.md carries the prompt-surface routing operative sentence" \
   'the orchestrator dispatches a context-isolated Agent-tool subagent whose prompt instructs' "$WSR_IMPL"
@@ -31281,7 +31321,7 @@ echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
 # is worth: it must cover EVERY prose-invoked head, or the audit is green over a gap.
 ECH="$LIB/test/extract-command-heads.py"
 E363="$(mktemp -d)" || { echo "FAIL  #363: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484"' EXIT
 
 assert_eq "#363 extractor helper exists" "yes" "$([ -f "$ECH" ] && echo yes || echo no)"
 
@@ -32363,7 +32403,7 @@ echo "#363 scripts/summarize-ci-checks.sh (adversarial input-shape matrix, gh st
 # extraction would silently coerce into a passing result (the #312 bug class).
 SCC="$LIB/../scripts/summarize-ci-checks.sh"
 S363="$(mktemp -d)" || { echo "FAIL  #363 scc: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484" "$S363"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484" "$S363"' EXIT
 
 assert_eq "#363 summarize-ci-checks.sh exists and is executable" "yes" \
   "$([ -x "$SCC" ] && echo yes || echo no)"
@@ -32594,7 +32634,7 @@ echo "#363 observability: ::warning:: on denials + permission_denials_count plum
 # ────────────────────────────────────────────────────────────────────────────
 SED_SH="$LIB/../scripts/surface-execution-diagnostics.sh"
 D363="$(mktemp -d)" || { echo "FAIL  #363 diag: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
 
 _diag_run() {  # execution-file-json -> stdout+stderr; GITHUB_OUTPUT at $D363/out
   : > "$D363/out"
@@ -38884,8 +38924,9 @@ assert_eq "#456 both #434 self-scan arms are blocking-gate skips through skip()"
 # ci.yml: the lib+python test job's checkout sets fetch-depth: 0 so origin/main resolves.
 assert_eq "#456 ci.yml: the 'lib + python tests' job checkout sets fetch-depth: 0" "yes" \
   "$(awk '/^    name: lib \+ python tests/{intest=1; next} /^  [a-z]/{intest=0} intest && /fetch-depth: 0/{f=1} END{print (f?"yes":"no")}' "$LIB/../.github/workflows/ci.yml")"
-assert_eq "#456 ci.yml: lib/test/summary.sh is added to the shellcheck lint scope" "yes" \
-  "$(grep -qF 'shellcheck --severity=warning -e SC1091 lib/test/summary.sh' "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
+assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck scope" "yes" \
+  "$(grep -qF 'lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh' \
+       "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
 #
 # review-and-fix: verification_evidence gains a skipped_checks list, and the not-a-clean-pass
 # clause stays repo-agnostic (names no lib/test/run.sh / lib + python tests / --flag).
@@ -40894,196 +40935,28 @@ assert_pin_unique "#497 AC12 overview names topic-priming" \
 assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda" \
   'a **prompt-composition attestation**' "$I497_OVERVIEW"
 
-# ────────────────────────────────────────────────────────────────────────────
-echo "workflow flight recorder: native inventory, explicit import, and constrained analysis"
-# ────────────────────────────────────────────────────────────────────────────
-IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"
-IFR_INVENTORY="$LIB/../scripts/inventory-workflow-transcripts.py"
-IFR_IMPORT="$LIB/../scripts/import-workflow-transcript.py"
-IFR_ANALYZE="$LIB/../scripts/analyze-implement-runs.py"
-IFR_PROMPT="$LIB/../scripts/prompts/implement-flight-recorder-analysis.md"
-WFR_PROMPT="$LIB/../scripts/prompts/workflow-flight-recorder-analysis.md"
-IFR_SETTINGS_FIXTURE="$LIB/test/fixtures/workflow-flight-recorder-settings.local.json"
-IFR_ROOT="$(mktemp -d)"
-IFR_PROJECTS="$IFR_ROOT/native-projects"
-mkdir -p "$IFR_ROOT/nested" "$IFR_PROJECTS" "$IFR_ROOT/skills/implement/phases" \
-  "$IFR_ROOT/skills/review" "$IFR_ROOT/skills/review-and-fix" "$IFR_ROOT/skills/docs"
-git -C "$IFR_ROOT" init -q
-printf '%s\n' '# implement' > "$IFR_ROOT/skills/implement/SKILL.md"
-printf '%s\n' '# phase one' > "$IFR_ROOT/skills/implement/phases/phase-1.md"
-printf '%s\n' '# review' > "$IFR_ROOT/skills/review/SKILL.md"
-printf '%s\n' '# review fix' > "$IFR_ROOT/skills/review-and-fix/SKILL.md"
-printf '%s\n' '# docs' > "$IFR_ROOT/skills/docs/SKILL.md"
+# The selected runner resolves this module from the registry before sourcing any
+# test body. The full suite uses a fail-closed boundary at the historical point:
+# a missing, crashing, malformed-tally, or below-floor module records a suite
+# failure through an independent boundary tally.
+# The registry and this full-suite call share the same lower-bound contract;
+# test_module_runner.py parses this operand and rejects any coupling drift.
+if ! devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh" \
+  "workflow-flight-recorder" 68; then
+  printf 'ERROR: workflow-flight-recorder boundary could not record its result\n'
+  exit 1
+fi
 
-IFR_TRANSCRIPT="$IFR_PROJECTS/sid-a.jsonl"
-IFR_PAYLOAD="$(jq -cn --arg sid sid-a --arg transcript "$IFR_TRANSCRIPT" --arg cwd "$IFR_ROOT/nested" \
-  '{session_id:$sid,transcript_path:$transcript,cwd:$cwd,user_prompt:"/devflow:implement 123",model:"claude-start-model",effort:"high"}')"
-printf '%s' "$IFR_PAYLOAD" | python3 "$IFR_MANIFEST" 2>"$IFR_ROOT/manifest.err"
-IFR_MANIFEST_FILE="$IFR_ROOT/.devflow/tmp/workflow-manifests/sid-a.json"
-IFR_BUNDLE="$(cd "$IFR_ROOT" && pwd -P)/.devflow/tmp/workflow-runs/sid-a"
-assert_eq "flight recorder: UserPromptSubmit observation writes only the start manifest" "yes" \
-  "$([ -f "$IFR_MANIFEST_FILE" ] && [ ! -e "$IFR_BUNDLE" ] && echo yes || echo no)"
-
-printf '%s\n' \
-  "$(jq -cn --arg cwd "$IFR_ROOT/nested" '{type:"user",timestamp:"2026-07-15T19:00:00Z",cwd:$cwd,message:{role:"user",content:"/devflow:implement 123"}}')" \
-  "$(jq -cn --arg cwd "$IFR_ROOT/nested" '{type:"assistant",timestamp:"2026-07-15T19:01:00Z",cwd:$cwd,message:{role:"assistant",content:"working"}}')" \
-  "$(jq -cn --arg cwd "$IFR_ROOT/nested" '{type:"assistant",timestamp:"2026-07-15T19:02:00Z",cwd:$cwd,message:{role:"assistant",content:"ISSUE-525-NATIVE-FINAL-TAIL"}}')" \
-  > "$IFR_TRANSCRIPT"
-IFR_INVENTORY_JSON="$(python3 "$IFR_INVENTORY" --json --claude-projects-root "$IFR_PROJECTS" --repo-root "$IFR_ROOT")"
-assert_eq "flight recorder: read-only inventory finds the native session" "sid-a" \
-  "$(printf '%s' "$IFR_INVENTORY_JSON" | jq -r '.sessions[0].session_id')"
-assert_eq "flight recorder: inventory reports the start manifest without importing" "present:not_imported" \
-  "$(printf '%s' "$IFR_INVENTORY_JSON" | jq -r '.sessions[0] | .manifest_status + ":" + .import_status')"
-assert_eq "flight recorder: observation and inventory create no transcript bundle" "no" \
-  "$([ -e "$IFR_BUNDLE" ] && echo yes || echo no)"
-
-python3 "$IFR_IMPORT" sid-a --claude-projects-root "$IFR_PROJECTS" --repo-root "$IFR_ROOT" \
-  > "$IFR_ROOT/import-path"
-assert_eq "flight recorder: explicit import creates the generalized bundle" "yes" \
-  "$([ -f "$IFR_BUNDLE/transcript.jsonl" ] && [ -f "$IFR_BUNDLE/metadata.json" ] && \
-      [ -f "$IFR_BUNDLE/occurrences.json" ] && [ -f "$IFR_BUNDLE/event-summary.json" ] && \
-      [ -f "$IFR_BUNDLE/stop-attempts.jsonl" ] && [ -f "$IFR_BUNDLE/prompt-surfaces.json" ] && echo yes || echo no)"
-assert_eq "flight recorder: imported transcript retains the native final tail" "yes" \
-  "$(grep -qF 'ISSUE-525-NATIVE-FINAL-TAIL' "$IFR_BUNDLE/transcript.jsonl" && echo yes || echo no)"
-assert_eq "flight recorder: nested payload cwd resolves the repository root" "$(cd "$IFR_ROOT" && pwd -P)" \
-  "$(jq -r '.repository_root' "$IFR_BUNDLE/metadata.json")"
-assert_eq "flight recorder: issue number comes from the inventoried user invocation" "123" \
-  "$(jq -r '.[0].subject.number' "$IFR_BUNDLE/occurrences.json")"
-assert_eq "flight recorder: prompt manifest records always/phase/nested load classes" "always,nested,phase" \
-  "$(jq -r '[.surfaces[].load_class] | unique | join(",")' "$IFR_BUNDLE/prompt-surfaces.json")"
-assert_eq "flight recorder: prompt manifest labels its approximate-token heuristic" "true" \
-  "$(jq -r '.token_estimate | contains("heuristic, not API-reported")' "$IFR_BUNDLE/prompt-surfaces.json")"
-assert_eq "flight recorder: each prompt surface has path/count/hash attribution" "true" \
-  "$(jq -r 'all(.surfaces[]; (.path|type)=="string" and (.bytes|type)=="number" and (.lines|type)=="number" and (.words|type)=="number" and (.approx_tokens|type)=="number" and (.sha256|test("^[0-9a-f]{64}$")))' "$IFR_BUNDLE/prompt-surfaces.json")"
-IFR_FP1="$(jq -r '.[0].prompt_fingerprint' "$IFR_BUNDLE/occurrences.json")"
-
-# A later explicit import refreshes the same bundle from the longer native source.
-printf '%s\n' "$(jq -cn --arg cwd "$IFR_ROOT/nested" '{type:"assistant",timestamp:"2026-07-15T19:03:00Z",cwd:$cwd,message:{role:"assistant",content:"native append after observation"}}')" >> "$IFR_TRANSCRIPT"
-printf '%s\n' '# one more prompt byte after UserPromptSubmit' >> "$IFR_ROOT/skills/implement/SKILL.md"
-python3 "$IFR_IMPORT" sid-a --claude-projects-root "$IFR_PROJECTS" --repo-root "$IFR_ROOT" >/dev/null
-assert_eq "flight recorder: repeated import refreshes rather than duplicates" "4" \
-  "$(wc -l < "$IFR_BUNDLE/transcript.jsonl" | tr -d ' ')"
-assert_eq "flight recorder: repeated import appends one compact attempt" "2" \
-  "$(wc -l < "$IFR_BUNDLE/stop-attempts.jsonl" | tr -d ' ')"
-assert_eq "flight recorder: start-manifest prompt fingerprint wins at import" "$IFR_FP1" \
-  "$(jq -r '.[0].prompt_fingerprint' "$IFR_BUNDLE/occurrences.json")"
-assert_eq "flight recorder: import attempts identify the explicit source" "true" \
-  "$(jq -s 'all(.[]; .source == "explicit_import")' "$IFR_BUNDLE/stop-attempts.jsonl")"
-
-assert_eq "flight recorder: configured recorder hook is UserPromptSubmit" "yes" \
-  "$(jq -e '[.hooks.UserPromptSubmit[].hooks[].command] | any(contains("capture-workflow-manifest.py"))' \
-      "$IFR_SETTINGS_FIXTURE" >/dev/null && echo yes || echo no)"
-assert_eq "flight recorder: local recorder fixture has no Stop command" "no" \
-  "$(jq -r '.hooks.Stop[]?.hooks[]?.command // empty' "$IFR_SETTINGS_FIXTURE" | \
-      grep -Eq 'capture-(implement-session|workflow-manifest)\.py' && echo yes || echo no)"
-IFR_STOP_EXAMPLE="$(awk '/^- \*`Stop` hook \(local-tier only\)\.\*/ { found=1 } found { print } found && /^  > \*\*Note/ { exit }' "$LIB/../docs/efficiency-trace.md")"
-assert_eq "flight recorder: documented local Stop example has no recorder command" "no" \
-  "$(printf '%s' "$IFR_STOP_EXAMPLE" | grep -Eq 'capture-(implement-session|workflow-manifest)\.py' && echo yes || echo no)"
-
-# Claude command markup is accepted only in a user message.
-printf '%s\n' "$(jq -cn --arg cwd "$IFR_ROOT" '{type:"user",timestamp:"2026-07-15T20:00:00Z",cwd:$cwd,message:{role:"user",content:"<command-message>devflow:implement</command-message><command-args>456</command-args>"}}')" > "$IFR_PROJECTS/sid-markup.jsonl"
-python3 "$IFR_IMPORT" sid-markup --claude-projects-root "$IFR_PROJECTS" --repo-root "$IFR_ROOT" >/dev/null
-assert_eq "flight recorder: user command-markup invocation is recognized" "456" \
-  "$(jq -r '.[0].subject.number' "$IFR_ROOT/.devflow/tmp/workflow-runs/sid-markup/occurrences.json")"
-
-# Prompt contract: pin the scientific and human-gated controls that deterministic
-# driver validation cannot infer from model prose.
-for IFR_PIN in \
-  'Observed bottlenecks' 'Hypotheses' 'timestamps and event identifiers' \
-  'Unknown evidence remains `unknown`, never zero' 'timings `approximate`' \
-  'at least two distinct supplied session ids' 'For one run, emit no issue blocks' \
-  'external `writing-skills` skill from the Superpowers plugin' 'before/after lines, words, bytes, and approximate tokens' \
-  'net reduction by default; justified growth allowed' \
-  'prompt growth as a warning' 'not a blocker' \
-  'do not edit files, write to GitHub, execute experiments' \
-  '<!-- DEVFLOW_REPORT_BEGIN -->' '<!-- DEVFLOW_REPORT_END -->' \
-  '<!-- DEVFLOW_ISSUE_BEGIN slug=<safe-slug> runs=<sid1>,<sid2>[,<sid3>] -->' \
-  '<!-- DEVFLOW_ISSUE_END -->'; do
-  assert_eq "flight recorder prompt: carries '$IFR_PIN'" "1" "$(grep -cF "$IFR_PIN" "$IFR_PROMPT")"
-done
-
-for WFR_PIN in \
-  'A session is one Claude Code transcript; an occurrence is one registered workflow' \
-  'Multiple occurrences in one session are not independent' \
-  'top-level' 'nested' 'timing, model, and effort fact is observed, approximate,' \
-  'Unknown is `unknown`, never zero' 'event indexes' 'Do not dump transcripts' \
-  'Calculate recurrence separately per mode' 'explicit human decision' \
-  'external `writing-skills` skill from the Superpowers plugin' \
-  'before/after lines, words, bytes, and approximate tokens' \
-  'default to net reduction' 'justified prompt growth as a warning' \
-  'Do not edit files, write to GitHub' '<!-- DEVFLOW_REPORT_BEGIN -->' \
-  '<!-- DEVFLOW_ISSUE_BEGIN slug=<safe-slug> runs=<sid1>,<sid2>[,<sid3>] -->'; do
-  assert_eq "workflow recorder prompt: carries '$WFR_PIN'" "1" "$(grep -qF "$WFR_PIN" "$WFR_PROMPT" && echo 1 || echo 0)"
-done
-
-# Analyzer uses a fake Claude binary: no model/network call occurs in the suite.
-IFR_FAKE="$IFR_ROOT/fake-claude"
-printf '%s\n' '#!/usr/bin/env bash' \
-  'printf '\''%s\n'\'' "$@" > "$FAKE_ARGS"' \
-  'printf '\''%s\n'\'' "$FAKE_OUTPUT"' \
-  'exit "${FAKE_RC:-0}"' > "$IFR_FAKE"
-chmod +x "$IFR_FAKE"
-IFR_ARGS="$IFR_ROOT/fake-args"
-IFR_REPORT='<!-- DEVFLOW_REPORT_BEGIN -->
-# One-run report
-<!-- DEVFLOW_REPORT_END -->'
-(cd "$IFR_ROOT" && DEVFLOW_CLAUDE_BIN="$IFR_FAKE" FAKE_ARGS="$IFR_ARGS" FAKE_OUTPUT="$IFR_REPORT" \
-  python3 "$IFR_ANALYZE" --acknowledge-provider-access latest >/dev/null)
-assert_eq "flight recorder analyzer: latest writes only the selected run report" "yes" \
-  "$([ -f "$IFR_ROOT/.devflow/tmp/workflow-runs/sid-markup/run-report.md" ] && echo yes || echo no)"
-assert_eq "flight recorder analyzer: launch enables safe mode" "1" "$(grep -cFx -- '--safe-mode' "$IFR_ARGS")"
-assert_eq "flight recorder analyzer: launch uses print mode" "1" "$(grep -cFx -- '--print' "$IFR_ARGS")"
-assert_eq "flight recorder analyzer: launch denies permission prompts" "1" "$(grep -cFx -- 'dontAsk' "$IFR_ARGS")"
-assert_eq "flight recorder analyzer: allowlist contains only read-only tools" "1" "$(grep -cFx -- 'Read,Grep,Glob' "$IFR_ARGS")"
-assert_eq "flight recorder analyzer: no write/edit/bash/web tool is granted" "no" \
-  "$(grep -Eq '^(Write|Edit|Bash|Web|MCP|GitHub)$' "$IFR_ARGS" && echo yes || echo no)"
-
-# Form a comparable three-run cohort from safe local fixtures.
-IFR_COHORT_FP="$(jq -r '.[0].prompt_fingerprint' "$IFR_BUNDLE/occurrences.json")"
-for IFR_SID in sid-b sid-c; do
-  mkdir -p "$IFR_ROOT/.devflow/tmp/implement-runs/$IFR_SID"
-  cp "$IFR_BUNDLE/transcript.jsonl" "$IFR_ROOT/.devflow/tmp/implement-runs/$IFR_SID/transcript.jsonl"
-  jq -n --arg sid "$IFR_SID" --arg fp "$IFR_COHORT_FP" \
-    '{schema_version:1,session_id:$sid,issue_number:123,prompt_fingerprint:$fp,captured_at:"2026-07-15T00:00:00Z"}' \
-    > "$IFR_ROOT/.devflow/tmp/implement-runs/$IFR_SID/metadata.json"
-done
-jq '.captured_at="2026-07-15T00:00:02Z"' \
-  "$IFR_BUNDLE/metadata.json" > "$IFR_ROOT/sid-a-metadata"
-mv "$IFR_ROOT/sid-a-metadata" "$IFR_BUNDLE/metadata.json"
-# sid-markup is newer but is deliberately made invalid for discovery, leaving the
-# intended three-run cohort as the newest valid comparable set.
-rm -f "$IFR_ROOT/.devflow/tmp/workflow-runs/sid-markup/transcript.jsonl"
-IFR_COHORT_REPORT='<!-- DEVFLOW_REPORT_BEGIN -->
-# Cohort report
-<!-- DEVFLOW_REPORT_END -->
-<!-- DEVFLOW_ISSUE_BEGIN slug=repeated-read runs=sid-a,sid-b -->
-# Repeated read
-<!-- DEVFLOW_ISSUE_END -->'
-(cd "$IFR_ROOT" && DEVFLOW_CLAUDE_BIN="$IFR_FAKE" FAKE_ARGS="$IFR_ARGS" FAKE_OUTPUT="$IFR_COHORT_REPORT" \
-  python3 "$IFR_ANALYZE" --acknowledge-provider-access --last 3 > "$IFR_ROOT/analysis-path")
-IFR_ANALYSIS="$(cat "$IFR_ROOT/analysis-path")"
-assert_eq "flight recorder analyzer: comparable cohort writes a comparison report" "yes" \
-  "$([ -f "$IFR_ANALYSIS/comparison-report.md" ] && echo yes || echo no)"
-assert_eq "flight recorder analyzer: two supporting runs create one safe issue draft" "yes" \
-  "$([ -f "$IFR_ANALYSIS/issue-drafts/repeated-read.md" ] && echo yes || echo no)"
-assert_eq "flight recorder analyzer: cohort manifest contains no transcript content" "no" \
-  "$(grep -qF '/devflow:implement' "$IFR_ANALYSIS/cohort.json" && echo yes || echo no)"
-
-# A single-run issue block is rejected and cannot replace the prior valid report.
-IFR_PRIOR_REPORT="$(cat "$IFR_BUNDLE/run-report.md" 2>/dev/null || true)"
-(cd "$IFR_ROOT" && DEVFLOW_CLAUDE_BIN="$IFR_FAKE" FAKE_ARGS="$IFR_ARGS" FAKE_OUTPUT="$IFR_COHORT_REPORT" \
-  python3 "$IFR_ANALYZE" --acknowledge-provider-access sid-a >/dev/null 2>"$IFR_ROOT/single-issue.err")
-IFR_SINGLE_RC=$?
-assert_eq "flight recorder analyzer: a single-run issue block is rejected" "1" "$IFR_SINGLE_RC"
-assert_eq "flight recorder analyzer: rejected output publishes no replacement report" "$IFR_PRIOR_REPORT" \
-  "$(cat "$IFR_BUNDLE/run-report.md" 2>/dev/null || true)"
-
-python3 "$LIB/test/test_workflow_flight_recorder.py" >"$IFR_ROOT/recorder-unit.out" 2>&1
-assert_eq "workflow recorder: focused Python tests pass" "0" "$?"
-python3 "$LIB/test/test_workflow_analyzer.py" >"$IFR_ROOT/analyzer-unit.out" 2>&1
-assert_eq "workflow analyzer: focused Python tests pass" "0" "$?"
-
-rm -rf "$IFR_ROOT"
+# These integration tests live outside the module whose registration and source
+# boundary they pin, so deleting that boundary cannot delete the test execution.
+MODULE_RUNNER_OUT="$(python3 "$LIB/test/test_module_runner.py" 2>&1)"
+MODULE_RUNNER_RC=$?
+assert_eq "test module runner: focused Python tests pass" "0" "$MODULE_RUNNER_RC"
+[ "$MODULE_RUNNER_RC" -eq 0 ] || while IFS= read -r _mr_line || [ -n "$_mr_line" ]; do printf '    %s\n' "$_mr_line"; done <<< "$MODULE_RUNNER_OUT"
+MODULE_HARNESS_OUT="$(python3 "$LIB/test/test_module_harness.py" 2>&1)"
+MODULE_HARNESS_RC=$?
+assert_eq "test module full-suite boundary: focused Python tests pass" "0" "$MODULE_HARNESS_RC"
+[ "$MODULE_HARNESS_RC" -eq 0 ] || while IFS= read -r _mh_line || [ -n "$_mh_line" ]; do printf '    %s\n' "$_mh_line"; done <<< "$MODULE_HARNESS_OUT"
 
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
@@ -41118,6 +40991,10 @@ if ! devflow_tally_is_derivable "$PASS"; then
 fi
 if ! devflow_tally_is_derivable "$FAIL"; then
   printf 'ERROR: FAIL tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
+  exit 1
+fi
+if ! FAIL="$(devflow_fold_module_failures "$FAIL")"; then
+  printf 'ERROR: module-boundary FAIL tally underivable from %s — refusing to render a summary over it\n' "$MODULE_FAILURES_FILE"
   exit 1
 fi
 
