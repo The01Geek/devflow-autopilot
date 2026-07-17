@@ -1,0 +1,57 @@
+{
+  "iter": 3,
+  "started_at": "2026-07-17T03:42:00Z",
+  "fix_commit_sha": "4461a18e",
+  "reconcile_commit_sha": "7339707e",
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "fix_files": [
+    "lib/efficiency-trace.sh",
+    "lib/test/run.sh",
+    "docs/review-and-fix-budget.md"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional (promoted iter: inputs are the convergence-shadow Phase 1+2+3 result)"
+  },
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "efficiency-trace.sh SHARED FIX-COMMIT SUBJECT CONTRACT producer path -> references/fixing.md", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [302, 302], "kind": "convention-violation"}, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "run.sh 8221/8493/18900 stale location comments -> references/fixing.md / MAXI_BUNDLE", "defect_signature": {"file": "lib/test/run.sh", "line_range": [8221, 18900], "kind": "test_gap"}, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "budget.md tokens formula wording half-up -> Python round() half-to-even", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [34, 34], "kind": "doc_inconsistency"}, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "CS-1-efftrace", "decision": "applied", "commit": "4461a18e"},
+    {"finding_id": "CS-2-runsh-comments", "decision": "applied", "commit": "4461a18e"},
+    {"finding_id": "CS-3-budget-wording", "decision": "applied", "commit": "4461a18e"},
+    {"finding_id": "CS-4-claudemd-51", "decision": "severity-calibrated", "source_file": "CLAUDE.md", "claim_text": "SKILL.md Step 3 routes new pins through it", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "conceptual cross-reference naming skill+step; discoverable via the root routing table (SKILL.md Step-routing maps 3 -> references/fixing.md); editing CLAUDE.md requires revise-claude-md (would stall a background loop); not a precise edit-target pointer -> advisory, recorded not fixed"},
+    {"finding_id": "CS-5-phase2impl-140", "decision": "severity-calibrated", "source_file": "skills/implement/phases/phase-2-implement.md", "claim_text": "same discipline as the mutation-check rule in SKILL.md (Step 3)", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "conceptual 'same discipline as' cross-reference naming skill+step; discoverable; editing a phase reference invokes writing-skills discipline -> advisory"},
+    {"finding_id": "CS-6-reviewskill-959", "decision": "severity-calibrated", "source_file": "skills/review/SKILL.md", "claim_text": "see SKILL.md's per-iteration {N} / expected-roster rule in SKILL.md", "original_severity": "Suggestion", "calibrated_severity": "advisory", "evidence": "reviewer itself framed as 'softer skill-level references, discoverable via the root routing table'; editing another skill's SKILL.md body invokes writing-skills -> advisory"},
+    {"finding_id": "CS-7-refbody-onepin", "decision": "advisory", "source_file": "skills/review-and-fix/references/shadow-review.md", "claim_text": "large-reference body one-pin-deep", "skip_category": "uncategorized", "evidence": "reviewer explicitly framed as 'residual, not a regression'; inherent to prose pinning; MAXI_BUNDLE preserves all prior coverage; no specific actionable clause"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 8,
+    "critical_important_code_fixes": 0,
+    "new_corroborated_critical_count": 0,
+    "note": "iter-3 fixes are comment/doc-wording only (efficiency-trace.sh comment, run.sh comments, budget doc wording) + a comment reword for a stale-prose count-lock false positive; ZERO product/runtime code -> convergence conditions 1+2 satisfied"
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "stale_prose_check": "rc=1 initially (count-lock false positive on 'Step 3 item 3b'); reconciled in-iteration by rewording to 'item 3b of Step 3' (commit 7339707e); re-check rc=0 clean",
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 150,
+    "skipped_checks": [
+      {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty during run (grades committed HEAD; runs live on CI clean checkout)"}
+    ]
+  },
+  "sweep_defs_read": ["skills/implement/phases/phase-2-implement.md: coupled-mirror prose (2.3.0/2.3.0a)"],
+  "sweep_evidence": {"status": "ran", "notes": "repo-wide class-sweep for stale 'review-and-fix/SKILL.md Step N / item N' pointers; fixed precise action/edit-target pointers, calibrated conceptual cross-references to advisory; CHANGELOG.md historical mentions deliberately NOT rewritten (point-in-time records)"},
+  "test_first_gate": [],
+  "telemetry": "unavailable"
+}

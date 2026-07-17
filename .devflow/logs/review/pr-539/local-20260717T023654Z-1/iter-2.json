@@ -57,5 +57,29 @@
   "sweep_defs_read": ["skills/implement/phases/phase-2-implement.md: coupled-mirror prose (2.3.0/2.3.0a), self-authored-claim drift (2.3.4a)"],
   "sweep_evidence": {"status": "ran", "notes": "broken_xref class-sweep across all reference files found a 3rd sibling (fixing.md:100) the shadow missed; depth-relative markdown-link sweep confirmed loop-exit.md:201 the only such link; coupled-mirror sweep reconciled budget doc + run.sh growth pin (+1,212); no new stale xrefs introduced"},
   "test_first_gate": [{"decision": "test-pin tightening (nav-field schema-block scope)", "command": "copy-based mutation: remove pending_dispatch from ### Schema block", "result": "RED confirmed (field absent from LR_SCHEMA_ALL -> assert_eq no != yes)", "evidence": "mutation-proven the tightened pin catches relocation-out-of-block; restored copy"}],
-  "telemetry": "unavailable"
+  "telemetry": "unavailable",
+  "shadow": {
+    "ran_at": "2026-07-17T03:40:00Z",
+    "trigger": "convergence-time (promoted iter 2)",
+    "reviewed_sha": "bedce035",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:code-reviewer", "severity": "Important", "description": "lib/efficiency-trace.sh:302 SHARED FIX-COMMIT SUBJECT CONTRACT names producer as SKILL.md Step 3 item 6; moved to references/fixing.md (paired mirror docs/efficiency-trace.md was updated, this half missed)", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [302, 305], "kind": "convention-violation"}},
+      {"agent": "devflow:code-reviewer", "severity": "Important", "description": "CLAUDE.md:51 conceptual pointer 'SKILL.md Step 3 routes new pins'", "defect_signature": {"file": "CLAUDE.md", "line_range": [51, 51], "kind": "convention-violation"}},
+      {"agent": "devflow:code-reviewer", "severity": "Important", "description": "phase-2-implement.md:140 'mutation-check rule in SKILL.md (Step 3)'", "defect_signature": {"file": "skills/implement/phases/phase-2-implement.md", "line_range": [140, 140], "kind": "convention-violation"}},
+      {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "run.sh:8221 + run.sh:18900 stale $MAXI_SKILL / item 6 producer comments", "defect_signature": {"file": "lib/test/run.sh", "line_range": [8221, 18900], "kind": "test_gap"}},
+      {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "review/SKILL.md:959 soft conceptual pointers", "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [959, 959], "kind": "convention-violation"}},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "budget.md tokens formula wording 'half up' vs Python round() half-to-even (corroborates code-reviewer)", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [34, 64], "kind": "doc_inconsistency"}}
+    ],
+    "phase2_fails": [],
+    "over_grade_calibration": "code-reviewer graded 3 pointer sites Important; Over-grade calibration applied: efficiency-trace.sh is genuinely Important (explicitly-labeled coupled two-site invariant with an 'Edit item 6 in the SAME commit' action pointer, paired mirror already updated) -> fixed; run.sh comments + budget wording are in-PR-file Suggestions -> fixed; CLAUDE.md:51 / phase-2-implement.md:140 / review/SKILL.md:959 are conceptual 'see review-and-fix SKILL.md Step N' cross-references that name skill+step and remain discoverable via the root routing table, and editing them invokes CLAUDE.md/writing-skills governance -> severity-calibrated to advisory (recorded, not fixed)",
+    "comparison": {"shadow_total": 6, "overlap_with_iter_2": 0, "new": 6, "new_critical": 0, "new_important": 3},
+    "promoted_to_iter_next": true
+  }
 }
