@@ -2203,12 +2203,12 @@ probe_two_line() {  # assertion-fn args... -> prints verdict, cause-token, probe
 # from assert_pin_red_under.
 assert_count_red_under() {  # name start end pattern op bound mutation [file]
   local name="$1" start="$2" end="$3" pattern="$4" op="$5" bound="$6" mutation="$7" file="${8:-$MAXI_SKILL}"
-  local pat_rc start_count start_match start_line ln m end_line
+  local pat_rc anchor_rc breach_rc start_count start_match start_line ln m end_line
   local slice mut mut_start_count mut_start_match mut_start_line mut_ln mut_end_line count mut_count
 
   # OP is spliced into `[ count OP bound ]` — validate it is one of the five integer
   # comparators so a caller value cannot inject a different test builtin. An invalid OP is a
-  # caller contract error (not one of the eight contract FAIL arms); it still writes a bare
+  # caller contract error (not one of the nine contract FAIL arms); it still writes a bare
   # FAIL + token so the tally stays whole-line honest.
   case "$op" in
     -eq|-le|-lt|-ge|-gt) ;;
@@ -2226,7 +2226,18 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # ── 1. Anchor gate on the REAL file (grep only — never exercises sed). ──
   # START must match exactly one line. (The slice command's OWN rc in step 2 establishes
   # the measurement; this gate does NOT stand in for the slice — it greps the whole file.)
-  start_count="$(grep -cE -- "$start" "$file" 2>/dev/null)" || start_count=""
+  # `grep -cE` rc: 0 = one-or-more matches, 1 = zero matches (a legitimate "matched no line"
+  # that ANCHOR-UNESTABLISHED reports), >= 2 = a broken/wrong-dialect anchor ERE. Distinguish
+  # the broken-regex case with its OWN token so a caller who typos an anchor regex is told the
+  # regex is broken, not that it "didn't match one line" (folding rc>=2 into the empty-count
+  # ANCHOR-UNESTABLISHED path — the pre-fix behavior — mis-diagnosed a malformed anchor).
+  start_count="$(grep -cE -- "$start" "$file" 2>/dev/null)"; anchor_rc=$?
+  if [ "$anchor_rc" -ge 2 ]; then
+    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-PATTERN-ERROR >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         ANCHOR-PATTERN-ERROR — START anchor grep exited with status %s (a malformed or wrong-dialect ERE), not a match count\n         start: %s\n         file: %s\n' \
+      "$name" "$anchor_rc" "$start" "$file" >&2
+    return 0
+  fi
   if [ "$start_count" != "1" ]; then
     echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-UNESTABLISHED >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         ANCHOR-UNESTABLISHED — START must match exactly one line (got: %s)\n         start: %s\n         file: %s\n' \
@@ -2239,7 +2250,17 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   start_line="${start_match%%:*}"
   # END must match at least one line AFTER the START line (END-uniqueness is NOT required).
   # Derived by grep line numbers + bash arithmetic — still no sed — so a sed-absent host's
-  # anchor gate cannot stand in for the slice it never ran.
+  # anchor gate cannot stand in for the slice it never ran. A malformed END ERE (grep rc>=2)
+  # is a broken anchor regex, NOT an honest "no END after START" — split it out with the same
+  # ANCHOR-PATTERN-ERROR token as START above (the while-loop below cannot tell them apart:
+  # a grep error and a genuine zero-match both yield no lines).
+  grep -cE -- "$end" "$file" >/dev/null 2>&1; anchor_rc=$?
+  if [ "$anchor_rc" -ge 2 ]; then
+    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-PATTERN-ERROR >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         ANCHOR-PATTERN-ERROR — END anchor grep exited with status %s (a malformed or wrong-dialect ERE), not a match count\n         end: %s\n         file: %s\n' \
+      "$name" "$anchor_rc" "$end" "$file" >&2
+    return 0
+  fi
   end_line=""
   while IFS= read -r ln; do
     [ -n "$ln" ] || continue
@@ -2337,7 +2358,8 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # ── 7. Slice + count on the MUTATED copy (same command/rc discipline as step 2). ──
   if ! sed -n "${mut_start_line},${mut_end_line}p" "$mut" > "$slice" 2>/dev/null; then
     echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
-    printf '  FAIL  %s\n         COUNT-UNESTABLISHED — mutated slice command (sed) exited non-zero\n' "$name" >&2
+    printf '  FAIL  %s\n         COUNT-UNESTABLISHED — mutated slice command (sed) exited non-zero; the count is unestablished, not zero\n         mutation: %s\n         file: %s\n' \
+      "$name" "$mutation" "$file" >&2
     rm -f "$slice" "$mut"; return 0
   fi
   mut_count="$(grep -cE -- "$pattern" "$slice" 2>/dev/null)"; pat_rc=$?
@@ -2350,16 +2372,25 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   case "$mut_count" in
     ''|*[!0-9]*)
       echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
-      printf '  FAIL  %s\n         COUNT-UNESTABLISHED — mutated count is non-numeric or empty (got: %s)\n' \
-        "$name" "${mut_count:-<empty>}" >&2
+      printf '  FAIL  %s\n         COUNT-UNESTABLISHED — mutated count is non-numeric or empty (got: %s)\n         mutation: %s\n         file: %s\n' \
+        "$name" "${mut_count:-<empty>}" "$mutation" "$file" >&2
       rm -f "$slice" "$mut"; return 0
     ;;
   esac
 
   # ── 8. Mutated-file bound: the mutation must make the count VIOLATE OP BOUND (the
   # `after` conjunct). The SAME comparison as step 3 (a correct unmutated file cannot fail
-  # the helper by construction). If the mutated count still satisfies → BOUND-NOT-BREACHED. ──
-  if [ "$mut_count" "$op" "$bound" ] 2>/dev/null; then
+  # the helper by construction). Capture the comparison's OWN rc rather than branching on
+  # `if [ … ]` directly, and fail closed the same way step 3 does: step 3 wraps the test in
+  # `! [ … ]`, so an errored `[ ]` (rc>=2, swallowed by 2>/dev/null) routes to its FAIL arm.
+  # Only a clean rc 1 (a genuine bound violation) proceeds to PASS here; rc 0 (still satisfies
+  # → BOUND-NOT-BREACHED) AND rc>=2 (an errored comparison) both fail closed to
+  # BOUND-NOT-BREACHED, never falling through to a spurious PASS. Unreachable today (mut_count
+  # is proven numeric at step 7, op and bound are validated upstream) — defense-in-depth so the
+  # two mirror comparisons fail in the same direction. A bare `!`-invert is NOT the fix: it
+  # would route the errored rc>=2 to PASS (fail-open, worse), so the rc is captured explicitly. ──
+  [ "$mut_count" "$op" "$bound" ] 2>/dev/null; breach_rc=$?
+  if [ "$breach_rc" -ne 1 ]; then
     echo FAIL >> "$RESULTS_FILE"; echo BOUND-NOT-BREACHED >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         BOUND-NOT-BREACHED — mutated count %s still satisfies %s %s (the mutation did not breach the bound)\n         mutation: %s\n' \
       "$name" "$mut_count" "$op" "$bound" "$mutation" >&2
@@ -2391,7 +2422,8 @@ printf 'ACRU_START sentinel\nMATCH the operative guard lives here\nMATCH a secon
 # (violates -eq 2). The helper is observed firing on the regression it targets.
 assert_eq "#536 assert_count_red_under: PASS — real count satisfies -eq 2 AND mutation breaches it" \
   "PASS|" "$(_acru_probe assert_count_red_under 'pass' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/^MATCH a second operative line$/REMOVED/' "$ACRU_FX")"
-# ── 10 FAIL arms, one per way a conjunct fails ──
+# ── FAIL arms — one per distinct way a conjunct or anchor check fails (some tokens are
+# exercised by more than one fixture, so the arm count exceeds the distinct-token count) ──
 # Real file already violates the bound: count is 2 but the bound is -eq 3.
 assert_eq "#536 BOUND-VIOLATED-ON-REAL-FILE: real count fails the bound before any mutation" \
   "FAIL|BOUND-VIOLATED-ON-REAL-FILE" "$(_acru_probe assert_count_red_under 'realbad' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 3 's/^MATCH a second operative line$/REMOVED/' "$ACRU_FX")"
@@ -2404,6 +2436,13 @@ assert_eq "#536 BOUND-NOT-BREACHED: mutation changes the file but leaves the cou
 # -eq 2); this design catches it as ANCHOR-COLLAPSE — the #480 vacuity reproduced as a test.
 assert_eq "#536 ANCHOR-COLLAPSE: a mutation that destroys the START anchor cannot masquerade as the operative regression" \
   "FAIL|ANCHOR-COLLAPSE" "$(_acru_probe assert_count_red_under 'collapse' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/ACRU_START sentinel/ACRU_START_GONE/' "$ACRU_FX")"
+# Mutation collapses the range via the END anchor (step 6b — the START-intact case the START
+# collapse above does not exercise): the mutation renames the END anchor while leaving START
+# unique, so the mutated range has no END after START and extracts nothing. Against a naive
+# implementation this also reports PASS (count 0 violates -eq 2); this design catches it as
+# ANCHOR-COLLAPSE through the END-side guard, closing the #480 vacuity from the END direction.
+assert_eq "#536 ANCHOR-COLLAPSE (END): a mutation that destroys the END anchor while START stays unique is caught by step 6b" \
+  "FAIL|ANCHOR-COLLAPSE" "$(_acru_probe assert_count_red_under 'collapse_end' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/ACRU_END sentinel/ACRU_END_GONE/' "$ACRU_FX")"
 # START unmatched: START matches zero lines.
 assert_eq "#536 ANCHOR-UNESTABLISHED: START matching zero lines fails naming the anchor" \
   "FAIL|ANCHOR-UNESTABLISHED" "$(_acru_probe assert_count_red_under 'nstart' 'ACRU_NO_SUCH_START' 'ACRU_END sentinel' 'MATCH' -eq 2 's/x/x/' "$ACRU_FX")"
@@ -2422,6 +2461,18 @@ printf 'ACRU_END sentinel\nACRU_START sentinel\nMATCH one\nMATCH two\n' > "$ACRU
 assert_eq "#536 ANCHOR-UNESTABLISHED: an END before START does not close the range (no END AFTER START)" \
   "FAIL|ANCHOR-UNESTABLISHED" "$(_acru_probe assert_count_red_under 'earlyend' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/x/x/' "$ACRU_EARLYEND")"
 rm -f "$ACRU_EARLYEND"
+# ANCHOR-PATTERN-ERROR (START): a malformed START ERE (unbalanced `[`) makes the anchor grep
+# exit rc>=2, which must report a broken anchor regex — NOT be laundered into the empty-count
+# ANCHOR-UNESTABLISHED "didn't match one line" path. The mutation is never reached (step 1
+# returns first), so any non-empty program suffices.
+assert_eq "#536 ANCHOR-PATTERN-ERROR: a malformed START ERE reports a broken anchor regex, not a zero-match" \
+  "FAIL|ANCHOR-PATTERN-ERROR" "$(_acru_probe assert_count_red_under 'badstart' 'ACRU_START[unclosed' 'ACRU_END sentinel' 'MATCH' -eq 2 's/x/x/' "$ACRU_FX")"
+# ANCHOR-PATTERN-ERROR (END): START is well-formed (passes step 1) but the END ERE is malformed,
+# so the END pre-check grep exits rc>=2 → ANCHOR-PATTERN-ERROR rather than the while-loop's
+# ANCHOR-UNESTABLISHED "no END after START" (a grep error and a genuine zero-match are
+# indistinguishable to the while loop, so the pre-check must split them).
+assert_eq "#536 ANCHOR-PATTERN-ERROR: a malformed END ERE (START well-formed) reports a broken anchor regex, not a no-END-after-START" \
+  "FAIL|ANCHOR-PATTERN-ERROR" "$(_acru_probe assert_count_red_under 'badend' 'ACRU_START sentinel' 'ACRU_END[unclosed' 'MATCH' -eq 2 's/x/x/' "$ACRU_FX")"
 # COUNT-UNESTABLISHED: the slice command (sed) is unavailable, so the slice rc fails while the
 # anchor gate (a grep-only whole-file check) still passes cleanly — the exact missing-tool
 # shape the measurement must not collapse onto 0. Shadow `sed` to fail inside a subshell.
@@ -2434,6 +2485,36 @@ ACRU_UNEST="$(probe_tmp '#536 unestablished-count probe')"
 assert_eq "#536 COUNT-UNESTABLISHED: with sed unavailable the slice fails while the anchor gate still passes" \
   "FAIL|COUNT-UNESTABLISHED" "$_acru_v|$_acru_t"
 rm -f "$ACRU_UNEST"
+# COUNT-UNESTABLISHED at STEP 7 (the MUTATED-slice site, distinct code path from the step-2
+# arm above): the unest test above shadows sed to fail on EVERY call, so it returns at step 2
+# (the real-file slice) before step 7 ever runs. Drive the step-7 path directly with a
+# call-counting sed shadow that lets the real-file slice (call 1) and the mutation (call 2)
+# succeed, then fails ONLY the mutated-slice sed (call 3) — so the mutated count is
+# unestablished (not zero) and step 7 records COUNT-UNESTABLISHED. (White-box: this pins the
+# helper's three-sed-call happy path to step 7; a refactor changing that call sequence would
+# need this counter updated.)
+ACRU_STEP7="$(probe_tmp '#536 step7 count-unestablished probe')"
+ACRU_SEDCTR="$(probe_tmp '#536 step7 sed-call counter')"; printf '0\n' > "$ACRU_SEDCTR"
+(
+  sed() {   # fail only the 3rd sed call (step-7 mutated slice); calls 1-2 run the real sed
+    local n; n="$(cat "$ACRU_SEDCTR")"; n=$((n + 1)); printf '%s\n' "$n" > "$ACRU_SEDCTR"
+    [ "$n" -ge 3 ] && return 1
+    command sed "$@"
+  }
+  RESULTS_FILE="$ACRU_STEP7" >/dev/null assert_count_red_under 'step7unest' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/^MATCH a second operative line$/REMOVED/' "$ACRU_FX" 2>/dev/null
+)
+{ read -r _acru_v; read -r _acru_t; } < "$ACRU_STEP7"
+assert_eq "#536 COUNT-UNESTABLISHED (step 7): the MUTATED slice sed failing after a clean real-file slice is unestablished, not zero" \
+  "FAIL|COUNT-UNESTABLISHED" "$_acru_v|$_acru_t"
+rm -f "$ACRU_STEP7" "$ACRU_SEDCTR"
+# DEFERRED (review PR #553, Suggestion 2): the step-7 PATTERN-ERROR and non-numeric-count arms
+# have no dedicated self-test. WHY: they mirror step 2 over the SAME pattern, which step 2
+# validates FIRST — a malformed/wrong-dialect pattern errors at step 2, and a numeric grep -c
+# is numeric at both sites — so NO black-box fixture reaches step 7 with a step-2-clean pattern
+# that then breaks at step 7. A white-box test would have to shadow grep and pin the helper's
+# exact internal grep-call index (8th call), which rots on any refactor touching an earlier grep
+# and pins implementation shape rather than behavior. REVISIT if step 7 ever counts a DIFFERENT
+# pattern than step 2 (then the two sites diverge and a black-box fixture becomes possible).
 # PATTERN-ERROR: the PATTERN is a malformed ERE (unbalanced `[`) → counting grep exits rc>=2.
 assert_eq "#536 PATTERN-ERROR: a malformed ERE reports a broken pattern, not zero matches" \
   "FAIL|PATTERN-ERROR" "$(_acru_probe assert_count_red_under 'badpat' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH[unclosed' -eq 2 's/^noise line$/CHANGED/' "$ACRU_FX")"
