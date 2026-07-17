@@ -2429,21 +2429,37 @@ assert_pin_unique "#557: shadow-review documents the evidence gate" \
   '### Evidence-aware post-shadow grading of parked findings (issue #557)' "$LIB/../docs/shadow-review.md"
 assert_pin_unique "#557: system overview documents the evidence gate" \
   '**Evidence-aware post-shadow grading of parked findings (issue #557).**' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
-# AC9(i): the fail-closed arm's operative sentence — deleting it re-introduces the
-# silent-preservation regression, so the pin must flip PASS->FAIL under that mutation.
-assert_pin_red_under "#557: fail-closed-to-promotion sentence is operative (silent-preservation regression goes RED)" \
-  'silent preservation and a silent skip are each non-conforming' \
-  's/silent preservation and a silent skip are each non-conforming//' "$ST_RAF"
-# AC9(ii): the equivalent-only qualifier — deleting it re-opens blanket equal-or-lower-severity
-# suppression (preservation on severity alone), the regression this issue forbids.
-assert_pin_red_under "#557: equivalent-only qualifier is operative (blanket-severity-suppression goes RED)" \
-  'A same-or-lower re-raise severity alone never preserves parking' \
-  's/A same-or-lower re-raise severity alone never preserves parking//' "$ST_RAF"
-# AC9(iii): the survived-unfixed reconciliation clause in the overlap rule — deleting it re-admits
-# a fixed-then-regressed member's re-raise as a preserved parking (the stale-parking regression).
-assert_pin_red_under "#557: survived-unfixed reconciliation clause is operative (stale-parking preservation goes RED)" \
-  'any member that did not survive unfixed' \
-  's/any member that did not survive unfixed//' "$ST_RAF"
+# Condition (c) anchored-rationale operative rule and condition (b) normalization —
+# load-bearing preserve-arm sub-rules; pinned present so a silent removal turns the desk RED.
+assert_pin_unique "#557: condition (c) — a Yes-downgrade row at/above FIX_THRESHOLD with null source fails (c)" \
+  'A Yes-downgrade row at or above `$FIX_THRESHOLD` with null `source` **fails (c)**' "$ST_RAF"
+assert_pin_unique "#557: condition (b) component-wise severity normalization is present" \
+  'split the persisted label on `/`, map each component case-insensitively' "$ST_RAF"
+# AC9(i): silent-preservation regression. The OPERATIVE guard is the disposition routing
+# ("every other outcome → the mis-grade path → promotion"), NOT the trailing fail-closed
+# restatement (a self-deletion of that restatement leaves the routing intact, so it would be a
+# framing pin). The mutation re-introduces the regression by inverting BOTH the routing
+# (→ "Preserve parking for every other outcome") AND the fail-closed restatement
+# (→ "silent preservation is conforming"), so a pair that should promote is silently preserved.
+assert_pin_red_under "#557: fail-closed-to-promotion routing is operative (silent-preservation regression goes RED)" \
+  '**Take the existing mis-grade path** for **every other outcome**' \
+  's/\*\*Take the existing mis-grade path\*\* for \*\*every other outcome\*\*/Preserve parking for every other outcome/; s/silent preservation and a silent skip are each non-conforming/silent preservation is conforming/' "$ST_RAF"
+# AC9(ii): blanket equal-or-lower-severity-suppression regression. The OPERATIVE guard is
+# condition (a) — preservation requires EVERY paired re-raise to be `equivalent`, so severity
+# alone never preserves. The mutation re-introduces the regression by weakening condition (a)
+# to a severity-only test AND flipping its restatement to "severity alone preserves parking",
+# breaking both clauses that forbid severity-only preservation.
+assert_pin_red_under "#557: condition (a) equivalent-requirement is operative (blanket-severity-suppression goes RED)" \
+  '*every* shadow finding paired to it classifies **equivalent**' \
+  's/\*every\* shadow finding paired to it classifies \*\*equivalent\*\*/at least one paired re-raise is at or below the parked severity/; s/A same-or-lower re-raise severity alone never preserves parking/A same-or-lower re-raise severity alone preserves parking/' "$ST_RAF"
+# AC9(iii): stale-parking preservation regression (a fixed-then-regressed member's re-raise
+# read as corroboration). The OPERATIVE guard is the reconciled population's "minus any member
+# that did not survive unfixed" set operation. The mutation re-introduces the regression by
+# flipping the population to INCLUDE later-fixed members ("plus every member …") AND flipping
+# the appositive ("is excluded" → "is included"), so both enforcers of the exclusion are broken.
+assert_pin_red_under "#557: survived-unfixed reconciliation is operative (stale-parking preservation goes RED)" \
+  '**minus** any member that did not survive unfixed' \
+  's/\*\*minus\*\* any member that did not survive unfixed/**plus** every member including later-fixed ones/; s/is \*\*excluded\*\*, so the overlap rule/is included, so the overlap rule/' "$ST_RAF"
 # #425 shadow-not-scoped behavioral-fix pin (placed here, below the assert_pin_red_under
 # definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
