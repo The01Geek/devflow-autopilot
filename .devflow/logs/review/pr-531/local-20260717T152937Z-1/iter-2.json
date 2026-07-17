@@ -1,0 +1,57 @@
+{
+  "iter": 2,
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "fix_commit_sha": "8d239a8b",
+  "fix_files": [
+    "CLAUDE.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "docs/workflow-flight-recorder.md",
+    "lib/test/run.sh",
+    "lib/test/test_verification_baseline.py",
+    "scripts/export-workflow-lifecycle-census.py",
+    "scripts/verification_baseline.py"
+  ],
+  "status": "INTERRUPTED-BY-TOKEN-LIMIT — committed+pushed mid-iteration",
+  "applied": [
+    "SFP-1 Critical command_head redacted (e2e regression tests)",
+    "SFP-2 newline delimiter",
+    "SFP-3 SAFE_ID ./.. rejection",
+    "SFP-4 cleanup symlink guards",
+    "b2:VC-4 adjacent-boundary residual",
+    "SSF-1 identityless cloud rows loud+collapse",
+    "SSF-4 durable symlink reason",
+    "SSF-3 expires_at breadcrumb + ttl>=0",
+    "SSF-2 run_attempt null",
+    "SSF-5 filter field alignment",
+    "CC-1 six gh-callers (run.sh loop + CLAUDE.md + overview, #366 carve-out)",
+    "STD-1 header falsehood",
+    "SCA-1 docs class enumeration",
+    "SFP-7 baseline_snapshot_hash name",
+    "STD-2 eligibility_state guard",
+    "STD-3 result_presence guard",
+    "STD-4/TD-2 members tuple+cardinality (park-calibration promotion)",
+    "quoted Bearer",
+    "interval-bounded missing-pair tie",
+    "ISO window validation",
+    "SPT-1/2/3/4 tests",
+    "AC63 coverage map + legacy fixture",
+    "SFP fail-open error-phrasing disclosure",
+    "SFP-5 ws-matching Wave-1 scope disclosure (code+docs)"
+  ],
+  "verification_evidence": {
+    "command": "python3 lib/test/test_verification_baseline.py",
+    "result": "pass 214/214",
+    "pending": [
+      "iteration-2 mutation checks (M16-M22 planned: command_head redaction off, newline delimiter revert, .. rejection off, cleanup symlink guard off, adjacent bounding off, identityless arm off, interval-pair revert)",
+      "full bash lib/test/run.sh re-run",
+      "shellcheck+ruff",
+      "3a comment re-sweep on iter-2 delta",
+      "Step 3.5 blinded fix-delta gate over 8d239a8b",
+      "convergence shadow (Step 2.6) before any APPROVE-family verdict",
+      "Loop Exit: efficiency-trace --persist, final report, then pr-fix-cycle Step 6 (gh pr ready + CI check)"
+    ],
+    "resume_note": "Loop position: iteration 2 (promoted, 2/5) fixes applied+committed (8d239a8b) but NOT yet verified beyond the python file. Resume at Step 3 item 4 (full suite), then mutations, then Step 3.5 gate, then Step 4.5 -> convergence shadow -> Loop Exit -> mark PR ready + confirm CI. PR #531 is DRAFT; branch pushed current; RUN_ID local-20260717T152937Z-1; MAX_ITERS 5; FIX_THRESHOLD important. Iter-1 shadow block holds reviewed_sha 777fa55b, verdict REJECT, promoted_to_iter_next true."
+  },
+  "telemetry": "unavailable"
+}

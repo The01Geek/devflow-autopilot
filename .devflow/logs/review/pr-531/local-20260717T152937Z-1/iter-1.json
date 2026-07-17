@@ -70,6 +70,23 @@
     "test-first gate RED run surfaced a real unfiled defect: open-ended root occurrence swept sibling lifecycle's launches (concurrent-lifecycles AC #63) — fixed + mutation-checked",
     "M4 mutation first reported OK inside a compound script; re-run in isolation confirmed RED — recorded, not laundered"
   ],
+  "shadow": {
+    "trigger": "early (engine_self_modifying, iteration 1 routed to fixes, convergence-time shadow had not run)",
+    "ran_at": "2026-07-17T17:55:00Z",
+    "reviewed_sha": "777fa55bc28ad1616e7de6a918e2143e6237c099",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review", "devflow:type-design-analyzer", "devflow:pr-test-analyzer"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:requesting-code-review", "devflow:type-design-analyzer", "devflow:pr-test-analyzer"],
+    "reason": null,
+    "checklist_skipped": null,
+    "checklist_note": "52 generated -> 48 deduped; 5 lite PASS run by orchestrator; 9 fix-delta claims fresh-verified by checklist-verifier agents (8 PASS, 1 FAIL: b2:VC-4 adjacent-boundary residual); 34 remaining survivors map 1:1 onto claim signatures iteration 1's Phase 2 verified PASS against code unchanged since — recorded as narrow reuse on the checklist axis (DEVIATION from a fully-fresh shadow Phase 2, reviewer-roster blinding unaffected)",
+    "phase3_findings": "see shadow-phase3.json + shadow-critic.json + final-pass findings (SFP-1 Critical command_head raw-secret persistence; SFP-2 newline delimiter; SFP-3 SAFE_ID ..; SFP-4 cleanup symlinks; SFP-5 vacuous ws pre/post; SFP-6 AC63 platform rows; SFP-7 baseline_snapshot_hash doc name; + suggestions)",
+    "phase2_fails": [{"id": "b2:VC-4", "claim": "end_idx fallback correct for the residual case", "evidence": "adjacent occurrences (zero-event gap) leave end_event None (strict > at wfr:522, terminal arm requires no next_boundary) -> len(events)-1 fallback swallows the later occurrence's span"}],
+    "comparison": {"shadow_total": 24, "overlap_with_iter_N": 3, "new": 21, "new_critical": 1, "new_important": 12},
+    "promoted_to_iter_next": true
+  },
   "telemetry": {
     "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 60},
     "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 10},
