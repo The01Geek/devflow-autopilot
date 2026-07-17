@@ -217,6 +217,7 @@ def fetch_runs_and_jobs(gh: str, repo: str, workflows: list[str], created_after:
     incomplete (the analyzer then reads cloud coverage as unavailable, never zero).
     """
     runs: list[dict] = []
+    fetched_runs = 0  # unfiltered count actually returned by the API, for the total_count cross-check
     page = 1
     per_page = 100
     pagination_complete = True
@@ -252,7 +253,26 @@ def fetch_runs_and_jobs(gh: str, repo: str, workflows: list[str], created_after:
         filtered = [r for r in page_runs
                     if not isinstance(r, dict) or _matches_workflow_set(r, workflows)] if workflows else list(page_runs)
         runs.extend(filtered)
+        fetched_runs += len(page_runs)
         if len(page_runs) < per_page:
+            # Last (partial) page. Cross-check total_count the SAME way the jobs
+            # loop below does (the sibling guard this PR added): if the API
+            # reported more runs than we actually fetched, an intermediate short
+            # or transiently-empty page ended the loop early — mark incomplete
+            # rather than trust a partial run set presented as a complete window
+            # (PR #531 shadow, silent-failure-hunter: the runs loop had only the
+            # short-page heuristic while the jobs loop cross-checked total_count).
+            # When the runs endpoint omits total_count (or returns it non-int) the
+            # check is inapplicable, so fall back to the short-page heuristic and
+            # leave a breadcrumb that completeness could not be cross-checked.
+            total = doc.get("total_count")
+            if isinstance(total, int):
+                if fetched_runs < total:
+                    pagination_complete = False
+            else:
+                print("devflow census-export: runs endpoint reported no usable total_count; "
+                      "run-pagination completeness rests on the short-page heuristic alone",
+                      file=sys.stderr)
             break
         page += 1
         if page > 200:  # hard cap; a real closed window is bounded
@@ -300,9 +320,19 @@ def fetch_runs_and_jobs(gh: str, repo: str, workflows: list[str], created_after:
             if len(page_jobs) < per_page:
                 # Last (partial) page. If the API told us a total and we have
                 # fewer, something was dropped — mark incomplete rather than trust
-                # a short census.
-                if isinstance(total, int) and len(collected) < total:
-                    truncated = True
+                # a short census. When the jobs endpoint omits total_count (or
+                # returns it non-int) the completeness check is INAPPLICABLE, so
+                # leave a breadcrumb rather than fail open silently on the
+                # missing-operand shape (PR #531 shadow, silent-failure-hunter:
+                # job truncation was undetectable — and unremarked — without a
+                # usable total_count).
+                if isinstance(total, int):
+                    if len(collected) < total:
+                        truncated = True
+                else:
+                    print(f"devflow census-export: jobs endpoint for run {run_id} reported no "
+                          "usable total_count; job-pagination completeness rests on the short-page "
+                          "heuristic alone", file=sys.stderr)
                 break
             jpage += 1
             if jpage > 200:  # hard cap; a real run's job count is bounded

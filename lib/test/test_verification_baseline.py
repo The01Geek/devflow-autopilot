@@ -1055,6 +1055,91 @@ class Issue527ReviewFixTests(_TmpDirTestCase):
         self.assertEqual(len(jobs_by_run[7]), 150)  # data retained
         self.assertFalse(complete)  # but marked incomplete (150 < 200)
 
+    def test_fetch_runs_total_count_undercount_marks_incomplete(self) -> None:
+        # Sibling of the jobs-undercount guard: a short/empty intermediate runs
+        # page ends the loop early, but the API's total_count says more runs
+        # exist — the census must mark itself incomplete rather than present a
+        # partial run set as a complete window (PR #531 shadow, silent-failure-
+        # hunter: the runs loop lacked the jobs loop's total_count cross-check).
+        export = _load_export_census()
+
+        def fake_gh_json(gh, args):
+            if "jobs" in " ".join(args):
+                return {"jobs": [], "total_count": 0}
+            # A single short page of 5 runs, but total_count=42 — an intermediate
+            # page came back short and ended the loop before the window drained.
+            return {"total_count": 42,
+                    "workflow_runs": [{"id": i, "path": ".github/workflows/x.yml", "name": "X"} for i in range(5)]}
+
+        export._gh_json = fake_gh_json
+        runs, _jobs, complete = export.fetch_runs_and_jobs("gh", "o/r", [], "2026-07-01", "2026-08-01")
+        self.assertEqual(len(runs), 5)   # data retained
+        self.assertFalse(complete)       # but marked incomplete (5 < 42)
+
+    def test_fetch_runs_missing_total_count_falls_back_to_short_page(self) -> None:
+        # When the runs endpoint omits total_count, completeness rests on the
+        # short-page heuristic and a breadcrumb is emitted — the missing-operand
+        # shape must not silently fail open unremarked (PR #531 shadow,
+        # silent-failure-hunter, runs-side sibling of the jobs breadcrumb).
+        export = _load_export_census()
+
+        def fake_gh_json(gh, args):
+            if "jobs" in " ".join(args):
+                return {"jobs": [], "total_count": 0}
+            return {"workflow_runs": [{"id": 1, "path": ".github/workflows/x.yml", "name": "X"}]}  # no total_count
+
+        export._gh_json = fake_gh_json
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            _runs, _jobs, complete = export.fetch_runs_and_jobs("gh", "o/r", [], "2026-07-01", "2026-08-01")
+        self.assertTrue(complete)  # short page → complete under the heuristic
+        self.assertIn("no usable total_count", err.getvalue())
+
+    def test_fetch_jobs_missing_total_count_emits_breadcrumb(self) -> None:
+        # A jobs endpoint that omits total_count on the final short page must
+        # leave a breadcrumb that the completeness check was inapplicable rather
+        # than fail open unremarked (PR #531 shadow, silent-failure-hunter).
+        export = _load_export_census()
+
+        def fake_gh_json(gh, args):
+            joined = " ".join(args)
+            if "/actions/runs/7/jobs" in joined:
+                return {"jobs": [{"name": "j0"}]}  # short page, NO total_count
+            return {"total_count": 1,
+                    "workflow_runs": [{"id": 7, "path": ".github/workflows/x.yml", "name": "X"}]}
+
+        export._gh_json = fake_gh_json
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            _runs, jobs_by_run, complete = export.fetch_runs_and_jobs("gh", "o/r", [], "2026-07-01", "2026-08-01")
+        self.assertEqual(len(jobs_by_run[7]), 1)  # data retained
+        self.assertTrue(complete)                 # short page → complete
+        self.assertIn("no usable total_count", err.getvalue())
+
+    def test_main_workflows_filter_matched_zero_runs_warns(self) -> None:
+        # A non-empty --workflows filter that matches zero of the fully-fetched
+        # runs must emit the loud "matched 0" degradation (a typo'd path would
+        # otherwise read as a genuine empty window) (PR #531 shadow,
+        # pr-test-analyzer: untested loud-degradation branch).
+        export = _load_export_census()
+
+        def fake_gh_json(gh, args):
+            if "jobs" in " ".join(args):
+                return {"jobs": [], "total_count": 0}
+            return {"total_count": 1,
+                    "workflow_runs": [{"id": 7, "path": ".github/workflows/other.yml", "name": "Other"}]}
+
+        export._gh_json = fake_gh_json
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "census-matched0.json"
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = export.main(["--repo", "o/r", "--workflows", ".github/workflows/nope.yml",
+                                  "--created-after", "2026-07-01", "--created-before", "2026-08-01",
+                                  "--out", str(out)])
+        self.assertEqual(rc, 0)
+        self.assertIn("matched 0", err.getvalue())
+
     def test_validate_admitted_path_rejects_symlink_escape(self) -> None:
         # Plant a symlink under .devflow/tmp pointing outside the repo root and
         # assert it is rejected (the function's headline security promise).
@@ -3447,27 +3532,35 @@ class Pr531RafLocalIter2Tests(_TmpDirTestCase):
     # SPT-1: the all-attempts-failed WARNING fires when every attempted
     # transcript fails, and does NOT fire when one succeeds (the dilution fix).
     def test_all_attempts_failed_warning_both_directions(self) -> None:
-        bad = b'{"type": "user", "message": {"role": "user", "content": []}}\n'
         sid = "s-warnall"
         write_manifest(self.manifests, sid)
-        write_bundle(self.bundles, sid, bad)
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            with mock.patch.object(vb, "extract_verification_lifecycles", side_effect=lambda rows, *a, **k: ([], [], [r for r in rows])) as _:
-                pass
-        # Direction 1: force every attempted extraction to fail via a transcript
-        # whose events raise inside extraction (registered occurrence present,
-        # then a malformed message body at extraction depth).
-        evil = transcript(
+        # Direction 1: a healthy transcript with a real registered occurrence, so
+        # extraction is ATTEMPTED (parse succeeds -> extraction_attempted_count++),
+        # with the extraction step itself forced to raise for every row. That
+        # drives extraction_failure_count == extraction_attempted_count, and the
+        # all-attempts-failed degradation WARNING must ACTUALLY FIRE.
+        #
+        # The lever is a patch on the REAL _extract_from_lifecycle (raising),
+        # NOT a mock of the whole extractor: the attempted/failure tallies live
+        # inside extract_verification_lifecycles via its `stats` arg, so mocking
+        # the extractor wholesale (the abandoned scaffolding this replaces) never
+        # increments either counter and the warning never fires — which is
+        # exactly why the prior Direction 1 asserted only rc==0 and was vacuous
+        # (PR #531 shadow, pr-test-analyzer: vacuous positive arm — the positive
+        # arm did not even set up the all-failed condition it claimed to test).
+        write_bundle(self.bundles, sid, transcript(
             user("/devflow:implement 527"),
-            {"type": "assistant", "timestamp": "2026-07-16T01:01:00Z", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": None}]}},
-        )
-        write_bundle(self.bundles, sid, evil)
+            bash_call("lib/test/run.sh", "t1"),
+            tool_result("t1", "ok; exit code 0"),
+        ))
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+            with mock.patch.object(vb, "_extract_from_lifecycle", side_effect=RuntimeError("forced extraction failure")):
+                rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
         self.assertEqual(rc, 0)
-        # Direction 2: a healthy sibling suppresses the warning.
+        self.assertIn("failed for EVERY", err.getvalue())
+        # Direction 2: a healthy sibling (extraction NOT forced to fail)
+        # suppresses the warning.
         sid2 = "s-warnok"
         write_manifest(self.manifests, sid2)
         write_bundle(self.bundles, sid2, transcript(
