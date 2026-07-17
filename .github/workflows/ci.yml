@@ -72,9 +72,9 @@ jobs:
           git ls-files '*.sh' | grep -v '^lib/test/' \
             | xargs -r shellcheck --severity=warning -e SC1091
           # lib/test/ is excluded above (the gh-stub fixtures are not shipped code), but
-          # These lib/test files are shipped code sourced by the suite (harness,
-          # runner, renderer, and registered test modules) rather than fixtures,
-          # so they are added explicitly rather than shipping unlinted.
+          # These lib/test files are shipped code (the sourced harness/renderer/
+          # module and the standalone focused runner) rather than fixtures, so
+          # they are added explicitly rather than shipping unlinted.
           shellcheck --severity=warning -e SC1091 \
             lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh \
             lib/test/modules/workflow-flight-recorder.sh

@@ -207,7 +207,10 @@ MIN_ASSERTIONS="${MODULE_SELECTION#*$'\n'}"
 # elif and silently skip the assertion-floor gate — a fail-open).
 [ -n "$MODULE_PATH" ] || selector_error "selected mapping resolved an empty module path"
 case "$MIN_ASSERTIONS" in
-  ''|*[!0-9]*) selector_error "selected mapping did not provide a numeric assertion floor" ;;
+  # Same accepted set as the harness sibling: digits only, fewer than 8 chars
+  # (the selector's cap is 1,000,000 = 7 digits; an unbounded digit string
+  # would overflow the later [ -lt ] comparison — the fail-open this closes).
+  ''|*[!0-9]*|????????*) selector_error "selected mapping did not provide a numeric assertion floor" ;;
 esac
 
 # No log directory or module-side effect exists before the exact selection above succeeds.

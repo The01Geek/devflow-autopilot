@@ -166,6 +166,8 @@ class ModuleRunnerTests(unittest.TestCase):
         # RESULTS_FILE, assert_eq, sourced harness) satisfies the module's
         # actual needs — the full suite exercises the module only through the
         # harness boundary, not through this runner.
+        environment = os.environ.copy()
+        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
         with tempfile.TemporaryDirectory() as log_dir:
             result = subprocess.run(
                 [
@@ -176,6 +178,7 @@ class ModuleRunnerTests(unittest.TestCase):
                     "workflow-flight-recorder",
                 ],
                 cwd=ROOT,
+                env=environment,
                 text=True,
                 capture_output=True,
                 check=False,
@@ -211,12 +214,27 @@ class ModuleRunnerTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        result = self._run_args(
-            "--registry",
-            "custom/reg.json",
-            "--log-dir",
-            "custom-logs",
-            "sample",
+        # Run from a SUBDIRECTORY cwd so REPO_ROOT-anchoring is distinguishable
+        # from cwd-anchoring on every platform (with cwd == repo root the two
+        # coincide except behind macOS's /var symlink).
+        environment = os.environ.copy()
+        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        environment["SOURCE_MARKER"] = str(self.marker)
+        result = subprocess.run(
+            [
+                "bash",
+                str(self.runner),
+                "--registry",
+                "custom/reg.json",
+                "--log-dir",
+                "custom-logs",
+                "sample",
+            ],
+            cwd=custom_dir,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
         )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -224,6 +242,7 @@ class ModuleRunnerTests(unittest.TestCase):
         # Compare physical paths: the runner resolves REPO_ROOT with pwd -P,
         # while the sandbox root may sit behind a symlink (macOS /var -> /private/var).
         self.assertEqual(log.parent, (self.root / "custom-logs").resolve())
+        self.assertFalse((custom_dir / "custom-logs").exists())
         self.assertTrue(log.is_file())
 
     def test_unknown_selector_fails_before_any_module_body_or_log(self) -> None:

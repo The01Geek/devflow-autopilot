@@ -42,13 +42,20 @@ case "$IFR_ROOT" in
 esac
 if [ "$IFR_ROOT_VALID" -ne 1 ]; then
   # A directory mktemp allocated but validation rejected would otherwise be
-  # orphaned. Remove it only when it is a real, non-symlink directory that
-  # still matches the requested prefix — never follow a symlink escape.
+  # orphaned. Remove it only when the suffix is a single path component (the
+  # same containment test the validation applies — a multi-component suffix
+  # can resolve outside the prefix via `..` or an intermediate symlink) and
+  # the leaf is a real, non-symlink directory.
   case "$IFR_ROOT" in
     "$IFR_PREFIX"?*)
-      if [ -d "$IFR_ROOT" ] && [ ! -L "$IFR_ROOT" ]; then
-        rm -rf "$IFR_ROOT"
-      fi
+      case "${IFR_ROOT#"$IFR_PREFIX"}" in
+        */*) ;;
+        *)
+          if [ -d "$IFR_ROOT" ] && [ ! -L "$IFR_ROOT" ]; then
+            rm -rf "$IFR_ROOT"
+          fi
+          ;;
+      esac
       ;;
   esac
   printf 'could not allocate workflow-flight-recorder workspace\n' >&2
