@@ -75,7 +75,8 @@ jobs:
           # These lib/test files are shipped orchestration/rendering code rather than
           # fixtures, so they are added explicitly rather than shipping unlinted.
           shellcheck --severity=warning -e SC1091 \
-            lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh
+            lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh \
+            lib/test/modules/workflow-flight-recorder.sh
 
       # actionlint validates workflow syntax and runs shellcheck over run: blocks.
       # SHELLCHECK_OPTS mirrors the severity policy; SC2034 is excluded because

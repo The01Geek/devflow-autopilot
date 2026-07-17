@@ -17,6 +17,34 @@ HARNESS = ROOT / "lib/test/module-harness.sh"
 
 
 class FullSuiteModuleHarnessTests(unittest.TestCase):
+    def _run_support_driver(self, driver_body: str) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            driver = root / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                f"RESULTS_FILE={root / 'results'}\n"
+                f"MODULE_FAILURES_FILE={root / 'module-failures'}\n"
+                f"SKIPS_FILE={root / 'skips'}\n"
+                '> "$RESULTS_FILE"\n'
+                '> "$MODULE_FAILURES_FILE"\n'
+                '> "$SKIPS_FILE"\n'
+                "assert_eq() {\n"
+                '  if [ "$2" = "$3" ]; then printf "PASS\\n" >> "$RESULTS_FILE";\n'
+                '  else printf "FAIL\\n" >> "$RESULTS_FILE"; fi\n'
+                "}\n"
+                f'. "{HARNESS}"\n'
+                + driver_body,
+                encoding="utf-8",
+            )
+            return subprocess.run(
+                ["bash", str(driver)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
     def _run(
         self,
         module_body: str | None,
@@ -37,7 +65,7 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
             results_setup = (
                 f"mkdir {root / 'results'}\n"
                 if results_are_directory
-                else f"printf '%s' {initial_results!r} > {str(root / 'results')!r}\n"
+                else f"printf '%b' {initial_results!r} > {str(root / 'results')!r}\n"
             )
             module_failures_setup = (
                 'mkdir "$MODULE_FAILURES_FILE"\n'
@@ -80,6 +108,63 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.splitlines(), ["PASS"])
 
+    def test_module_cannot_rewrite_prior_suite_verdicts(self) -> None:
+        result = self._run(
+            'printf "PASS\\n" > "$RESULTS_FILE"\n', initial_results="FAIL\n"
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ["FAIL", "PASS"])
+
+    def test_boundary_failure_is_folded_into_terminal_failure_count(self) -> None:
+        result = self._run_support_driver(
+            'MODULE="$RESULTS_FILE.missing"\n'
+            'devflow_run_full_suite_module "$MODULE" "missing" 1\n'
+            'FAIL="$(devflow_fold_module_failures 0)" || exit 3\n'
+            'printf "terminal failures: %s\\n" "$FAIL"\n'
+            '[ "$FAIL" -eq 0 ]\n'
+        )
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("terminal failures: 1", result.stdout)
+
+    def test_module_failure_fold_fails_closed_when_tally_is_unreadable(self) -> None:
+        result = self._run_support_driver(
+            'rm -f "$MODULE_FAILURES_FILE"\n'
+            'mkdir "$MODULE_FAILURES_FILE"\n'
+            'if devflow_fold_module_failures 0; then echo FOLD_OPEN; else echo FOLD_CLOSED; fi\n'
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("FOLD_CLOSED", result.stdout.splitlines())
+
+    def test_module_failure_fold_rejects_malformed_records(self) -> None:
+        result = self._run_support_driver(
+            'printf "PASS\\n" > "$MODULE_FAILURES_FILE"\n'
+            'if devflow_fold_module_failures 0; then echo FOLD_OPEN; else echo FOLD_CLOSED; fi\n'
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("FOLD_CLOSED", result.stdout.splitlines())
+
+    def test_focused_python_failure_prints_captured_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            failing_test = root / "failing.py"
+            captured = root / "captured.out"
+            failing_test.write_text(
+                'raise RuntimeError("diagnostic sentinel")\n', encoding="utf-8"
+            )
+            result = self._run_support_driver(
+                f'devflow_run_focused_python_test "focused fixture" "{failing_test}" '
+                f'"{captured}"\n'
+                'cat "$RESULTS_FILE"\n'
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("RuntimeError: diagnostic sentinel", result.stdout)
+        self.assertIn("FAIL", result.stdout.splitlines())
+
     def test_missing_module_records_failure_and_keeps_driver_alive(self) -> None:
         result = self._run(None)
 
@@ -117,6 +202,17 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
 
         self.assertIn("BOUNDARY:FAIL", result.stdout.splitlines())
         self.assertIn("invalid minimum assertion count", result.stderr)
+
+    def test_numeric_assertion_floor_bounds_fail_closed(self) -> None:
+        for floor in (0, 1_000_001):
+            with self.subTest(floor=floor):
+                result = self._run(
+                    'printf "PASS\\n" >> "$RESULTS_FILE"\n',
+                    minimum_assertions=floor,
+                )
+
+                self.assertIn("BOUNDARY:FAIL", result.stdout.splitlines())
+                self.assertIn("invalid minimum assertion count", result.stderr)
 
     def test_padded_zero_assertion_floor_fails_closed(self) -> None:
         result = self._run(

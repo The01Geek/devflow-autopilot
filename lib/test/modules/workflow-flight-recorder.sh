@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
+# shellcheck shell=bash
 # Sourceable workflow-flight-recorder test module.
 # Contract: the caller sets LIB and RESULTS_FILE and defines assert_eq.
 # The module owns all other fixtures and removes its temporary workspace.
@@ -214,9 +215,11 @@ assert_eq "flight recorder analyzer: a single-run issue block is rejected" "1" "
 assert_eq "flight recorder analyzer: rejected output publishes no replacement report" "$IFR_PRIOR_REPORT" \
   "$(cat "$IFR_BUNDLE/run-report.md" 2>/dev/null || true)"
 
-python3 "$LIB/test/test_workflow_flight_recorder.py" >"$IFR_ROOT/recorder-unit.out" 2>&1
-assert_eq "workflow recorder: focused Python tests pass" "0" "$?"
-python3 "$LIB/test/test_workflow_analyzer.py" >"$IFR_ROOT/analyzer-unit.out" 2>&1
-assert_eq "workflow analyzer: focused Python tests pass" "0" "$?"
+devflow_run_focused_python_test \
+  "workflow recorder: focused Python tests pass" \
+  "$LIB/test/test_workflow_flight_recorder.py" "$IFR_ROOT/recorder-unit.out"
+devflow_run_focused_python_test \
+  "workflow analyzer: focused Python tests pass" \
+  "$LIB/test/test_workflow_analyzer.py" "$IFR_ROOT/analyzer-unit.out"
 
 rm -rf "$IFR_ROOT"

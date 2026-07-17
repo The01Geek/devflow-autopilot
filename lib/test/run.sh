@@ -7198,7 +7198,7 @@ ECH="$LIB/test/extract-command-heads.py"
 E363=
 E484=
 E484="$(mktemp -d)" || { echo "FAIL  #484: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"; rm -rf "$E363" "$E484"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484"' EXIT
 
 # Heads deliberately left ungranted on the implement profile, each with a rationale:
 #   gh pr checkout — the inline engine is already on the branch; checking out a PR
@@ -25806,6 +25806,22 @@ WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `.devflow/prompt-e
 # The evidence marker literal the routing evidence-contract writes and the gate criterion matches.
 WSR_MARK='Writing-skills evidence:'
 
+# #563 focused-module guidance is repo-local prompt behavior: a known module may
+# accelerate RED/GREEN, but it must never replace the complete verification gate.
+# Mutation-prove both load-bearing directions on each operative workflow surface.
+assert_pin_red_under "#563 implement extension selects the focused runner for RED/GREEN" \
+  'use `bash lib/test/run-module.sh <module-id>` for RED/GREEN iteration.' \
+  's|use `bash lib/test/run-module\.sh <module-id>` for RED/GREEN iteration\.|use `bash lib/test/run.sh` for RED/GREEN iteration.|' "$WSR_IMPL"
+assert_pin_red_under "#563 review-and-fix extension selects the focused runner for RED/GREEN" \
+  'use `bash lib/test/run-module.sh <module-id>` for the RED/GREEN loop.' \
+  's|use `bash lib/test/run-module\.sh <module-id>` for the RED/GREEN loop\.|use `bash lib/test/run.sh` for the RED/GREEN loop.|' "$WSR_RAF"
+assert_pin_red_under "#563 implement extension keeps the full suite as the completion gate" \
+  'A focused result is never a completion gate.' \
+  's/A focused result is never a completion gate\./A focused result may be used as a completion gate./' "$WSR_IMPL"
+assert_pin_red_under "#563 review-and-fix extension keeps the full suite as the review gate" \
+  'A focused result never discharges a review/fix gate.' \
+  's|A focused result never discharges a review/fix gate\.|A focused result may discharge a review/fix gate.|' "$WSR_RAF"
+
 # (a) implement.md routing-rule operative sentence.
 assert_pin_unique "#506 implement.md carries the prompt-surface routing operative sentence" \
   'the orchestrator dispatches a context-isolated Agent-tool subagent whose prompt instructs' "$WSR_IMPL"
@@ -31287,7 +31303,7 @@ echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
 # is worth: it must cover EVERY prose-invoked head, or the audit is green over a gap.
 ECH="$LIB/test/extract-command-heads.py"
 E363="$(mktemp -d)" || { echo "FAIL  #363: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"; rm -rf "$E363" "$E484"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484"' EXIT
 
 assert_eq "#363 extractor helper exists" "yes" "$([ -f "$ECH" ] && echo yes || echo no)"
 
@@ -32369,7 +32385,7 @@ echo "#363 scripts/summarize-ci-checks.sh (adversarial input-shape matrix, gh st
 # extraction would silently coerce into a passing result (the #312 bug class).
 SCC="$LIB/../scripts/summarize-ci-checks.sh"
 S363="$(mktemp -d)" || { echo "FAIL  #363 scc: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"; rm -rf "$E363" "$E484" "$S363"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484" "$S363"' EXIT
 
 assert_eq "#363 summarize-ci-checks.sh exists and is executable" "yes" \
   "$([ -x "$SCC" ] && echo yes || echo no)"
@@ -32600,7 +32616,7 @@ echo "#363 observability: ::warning:: on denials + permission_denials_count plum
 # ────────────────────────────────────────────────────────────────────────────
 SED_SH="$LIB/../scripts/surface-execution-diagnostics.sh"
 D363="$(mktemp -d)" || { echo "FAIL  #363 diag: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
 
 _diag_run() {  # execution-file-json -> stdout+stderr; GITHUB_OUTPUT at $D363/out
   : > "$D363/out"
@@ -40905,6 +40921,8 @@ assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda
 # test body. The full suite uses a fail-closed boundary at the historical point:
 # a missing, crashing, malformed-tally, or below-floor module records a suite
 # failure through an independent boundary tally.
+# The registry and this full-suite call share the same lower-bound contract;
+# test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh" \
   "workflow-flight-recorder" 66; then
   printf 'ERROR: workflow-flight-recorder boundary could not record its result\n'
@@ -40925,7 +40943,6 @@ assert_eq "test module full-suite boundary: focused Python tests pass" "0" "$MOD
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
-MODULE_FAIL=$(grep -c '^FAIL$' "$MODULE_FAILURES_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
 # PASS/FAIL above — a self-skipping check appended one line to it via skip(). This is the
 # authoritative K the renderer prints; SKIPS_FILE is read by the renderer only to list each
@@ -40958,12 +40975,10 @@ if ! devflow_tally_is_derivable "$FAIL"; then
   printf 'ERROR: FAIL tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
   exit 1
 fi
-if ! devflow_tally_is_derivable "$MODULE_FAIL"; then
-  printf 'ERROR: module-boundary FAIL tally underivable from %s — refusing to render a summary over it\n' \
-    "$MODULE_FAILURES_FILE"
+if ! FAIL="$(devflow_fold_module_failures "$FAIL")"; then
+  printf 'ERROR: module-boundary FAIL tally underivable from %s — refusing to render a summary over it\n' "$MODULE_FAILURES_FILE"
   exit 1
 fi
-FAIL=$((FAIL + MODULE_FAIL))
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"

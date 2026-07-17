@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -19,6 +20,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER_SOURCE = ROOT / "lib/test/run-module.sh"
+HARNESS_SOURCE = ROOT / "lib/test/module-harness.sh"
 WORKFLOW_MODULE_SOURCE = ROOT / "lib/test/modules/workflow-flight-recorder.sh"
 
 
@@ -35,6 +37,8 @@ class ModuleRunnerTests(unittest.TestCase):
         self.runner = self.test_dir / "run-module.sh"
         if RUNNER_SOURCE.exists():
             shutil.copy2(RUNNER_SOURCE, self.runner)
+        if HARNESS_SOURCE.exists():
+            shutil.copy2(HARNESS_SOURCE, self.test_dir / "module-harness.sh")
 
         self.marker = self.root / "module-sourced"
         self._write_module(
@@ -141,6 +145,20 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertIn("sample assertion", log.read_text(encoding="utf-8"))
         self.assertIn("Module sample: 1 passed, 0 failed", result.stdout)
         self.assertIn(f"Log: {log}", result.stdout)
+
+    def test_repository_runner_supports_required_direct_invocation(self) -> None:
+        self.assertTrue(os.access(RUNNER_SOURCE, os.X_OK))
+
+        result = subprocess.run(
+            [str(RUNNER_SOURCE), "--help"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Usage:", result.stderr)
 
     def test_unknown_selector_fails_before_any_module_body_or_log(self) -> None:
         result = self._run("unknown")
@@ -275,6 +293,38 @@ class ModuleRunnerTests(unittest.TestCase):
         )
         self.assertFalse(self.marker.exists())
 
+    def test_nonpositive_and_noninteger_assertion_floors_invalidate_registry(self) -> None:
+        for floor in (0, -1, "1", True):
+            with self.subTest(floor=floor):
+                self._write_registry(
+                    {
+                        "sample": {
+                            "path": "lib/test/modules/sample.sh",
+                            "minimum_assertions": floor,
+                        }
+                    }
+                )
+
+                result = self._run("sample")
+
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn(
+                    "minimum_assertions must be an integer from 1 to 1000000",
+                    result.stderr,
+                )
+                self.assertFalse(self.marker.exists())
+
+    def test_nonobject_registry_shapes_fail_before_source(self) -> None:
+        registry = self.scripts_dir / "workflow-flight-recorder-registry.json"
+        for document in ([], {"schema_version": 1, "test_modules": []}):
+            with self.subTest(document=document):
+                registry.write_text(json.dumps(document), encoding="utf-8")
+
+                result = self._run("sample")
+
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertFalse(self.marker.exists())
+
     def test_oversized_assertion_floor_invalidates_registry(self) -> None:
         self._write_registry(
             {
@@ -349,6 +399,19 @@ class ModuleRunnerTests(unittest.TestCase):
         )
 
         result = self._run("directory")
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("module path is not a readable file", result.stderr)
+        self.assertFalse(self.marker.exists())
+
+    def test_unreadable_module_file_is_rejected_before_source(self) -> None:
+        module = self.modules_dir / "sample.sh"
+        module.chmod(0)
+        self.assertFalse(os.access(module, os.R_OK))
+        try:
+            result = self._run("sample")
+        finally:
+            module.chmod(0o600)
 
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("module path is not a readable file", result.stderr)
@@ -590,8 +653,17 @@ class ModuleRunnerTests(unittest.TestCase):
             'devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh"',
             run_text,
         )
-        self.assertIn('"workflow-flight-recorder" 66', run_text)
-        self.assertIn("FAIL=$((FAIL + MODULE_FAIL))", run_text)
+        floor_match = re.search(
+            r'"workflow-flight-recorder" ([0-9]+); then', run_text
+        )
+        self.assertIsNotNone(floor_match)
+        self.assertEqual(
+            int(floor_match.group(1)),
+            registry["test_modules"]["workflow-flight-recorder"][
+                "minimum_assertions"
+            ],
+        )
+        self.assertIn('FAIL="$(devflow_fold_module_failures "$FAIL")"', run_text)
         self.assertIn('python3 "$LIB/test/test_module_runner.py"', run_text)
         self.assertNotIn('IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"', run_text)
         module_text = module.read_text(encoding="utf-8")
@@ -606,10 +678,30 @@ class ModuleRunnerTests(unittest.TestCase):
             'IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"',
             module_text,
         )
+        self.assertEqual(module_text.count("devflow_run_focused_python_test"), 2)
         ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("lib/test/modules/workflow-flight-recorder.sh", ci_text)
         self.assertIn(
-            "lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh",
-            ci_text,
+            "The registry and this full-suite call share the same lower-bound contract",
+            run_text,
+        )
+        overview_text = (ROOT / "docs/DEVFLOW_SYSTEM_OVERVIEW.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "a failure recap whenever an assertion or module boundary fails",
+            overview_text,
+        )
+        trap_tail = run_text.split('IMPL_SKILL_BUNDLE="$(mktemp)"', maxsplit=1)[1]
+        result_tally_traps = [
+            line
+            for line in trap_tail.splitlines()
+            if line.startswith("trap ") and '"$RESULTS_FILE"' in line
+        ]
+        self.assertTrue(result_tally_traps)
+        self.assertTrue(
+            all('"$IMPL_SKILL_BUNDLE"' in line for line in result_tally_traps),
+            result_tally_traps,
         )
 
 

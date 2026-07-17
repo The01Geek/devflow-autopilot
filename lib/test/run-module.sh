@@ -13,6 +13,9 @@ REGISTRY="$REPO_ROOT/scripts/workflow-flight-recorder-registry.json"
 LOG_DIR="$REPO_ROOT/.devflow/tmp/test-module-logs"
 MODULE_ID=""
 
+# shellcheck source=lib/test/module-harness.sh disable=SC1091
+. "$TEST_DIR/module-harness.sh"
+
 usage() {
   printf 'Usage: bash lib/test/run-module.sh [--registry PATH] [--log-dir PATH] MODULE\n' >&2
 }
