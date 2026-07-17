@@ -868,18 +868,17 @@ def _bound_path(state):
 
 
 def _all_file_dispatch_digests(state):
-    """Every recorded file-arm dispatch digest, in record order.
+    """Every recorded file-arm dispatch digest, in record order (a generator).
 
     A file-arm dispatch record is a landed write at the bound path (the skill writes the
     canonical file, confirms it landed, then dispatches on that file), so its digest is
-    the evidence a revision's bytes landed.
+    the evidence a revision's bytes landed. A generator so a membership test against it
+    short-circuits at the first match rather than materializing every digest.
     """
-    out = []
     for rnd in state['rounds']:
         for att in rnd['attempts']:
             if att['arm'] == 'file':
-                out.append(att.get('digest'))
-    return out
+                yield att.get('digest')
 
 
 def latest_revision_landed(state):
@@ -1781,17 +1780,18 @@ def cmd_record_draft_binding(args):
         _fail('record-draft-binding',
               f'the bound-tier token {args.tier!r} is outside the canonical set '
               f'(binding-tier-unknown): one of {", ".join(_DRAFT_TIERS)}')
-    non_bound = args.non_bound_root
-    if non_bound is not None and non_bound != '' and not _is_bound_path(non_bound):
+    # An empty (or omitted) --non-bound-root is treated as "recorded absent" (the
+    # breadcrumb/no-answer/failed-.git-test arm), so the skill can pass it unconditionally;
+    # normalize once here.
+    non_bound = args.non_bound_root or None
+    if non_bound is not None and not _is_bound_path(non_bound):
         _fail('record-draft-binding',
               f'the non-bound root {non_bound!r} is present but not an absolute, '
               'single-line path (binding-nonbound-not-absolute)')
-    # An empty --non-bound-root string is treated as "recorded absent" (the
-    # breadcrumb/no-answer/failed-.git-test arm), so the skill can pass it unconditionally.
     doc['draft_binding'] = {
         'path': args.path,
         'tier': args.tier,
-        'non_bound_root': non_bound if (non_bound is not None and non_bound != '') else None,
+        'non_bound_root': non_bound,
     }
     try:
         save_state(doc, args.slug)
@@ -1830,10 +1830,9 @@ def _binding_line(state):
     b = _binding(state) if state is not None else None
     if not b:
         return 'bound=none tier=none non_bound_root=none latest_revision_landed=yes'
-    landed = 'yes' if latest_revision_landed(state) else 'no'
     return (f'bound={b["path"]} tier={b["tier"]} '
             f'non_bound_root={b["non_bound_root"] or "none"} '
-            f'latest_revision_landed={landed}')
+            f'latest_revision_landed={_yn(latest_revision_landed(state))}')
 
 
 def cmd_query_draft_binding(args):
@@ -1844,8 +1843,8 @@ def cmd_query_draft_binding(args):
     if state is not None and args.nonce and state.get('nonce') != args.nonce:
         sys.stderr.write('issue-audit-state.py query-draft-binding: nonce mismatch — '
                          'answering fail-closed\n')
-        print('bound=none tier=none non_bound_root=none latest_revision_landed=yes '
-              'reason=foreign-nonce')
+        # Reuse the unbound answer shape (never drift a second copy) + the reason.
+        print(f'{_binding_line(None)} reason=foreign-nonce')
         return
     print(_binding_line(state))
 
