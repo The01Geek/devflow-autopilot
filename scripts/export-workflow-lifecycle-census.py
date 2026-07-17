@@ -95,7 +95,11 @@ def build_snapshot(repo: str, workflow_set: list[str], closed_after: str, closed
             continue
         wf_path = run.get("path") or run.get("workflow_file")
         wf_name = run.get("name")
-        attempt = run.get("run_attempt", 1)
+        # Unknown stays unknown (never collapsed onto the real value 1): an
+        # absent run_attempt is recorded as null so a reader of the immutable
+        # snapshot can distinguish "attempt 1" from "attempt unestablished"
+        # (the repo's unknown-is-not-zero discipline; PR #531 early-shadow).
+        attempt = run.get("run_attempt")
         for job in jobs_by_run.get(run_id, []):
             if not isinstance(job, dict):
                 dropped_jobs += 1
@@ -310,8 +314,13 @@ def fetch_runs_and_jobs(gh: str, repo: str, workflows: list[str], created_after:
     return runs, jobs_by_run, pagination_complete
 
 
-def _matches_workflow_set(run: dict, workflows: list[str]) -> bool:
-    path = run.get("path") or ""
+def _matches_workflow_set(run: dict, workflows) -> bool:
+    # Reads the SAME field set build_snapshot resolves (path OR workflow_file,
+    # plus name): checking only path/name silently excluded from a --workflows
+    # filter a run the snapshot side would have accepted via the workflow_file
+    # alternate — a quiet denominator shrink with pagination_complete=True
+    # (PR #531 early-shadow, silent-failure finding 5).
+    path = run.get("path") or run.get("workflow_file") or ""
     name = run.get("name") or ""
     return any(wf in (path, name) for wf in workflows)
 
@@ -343,12 +352,28 @@ def _atomic_write(path: Path, data: bytes) -> None:
                 pass
 
 
+def _iso_window_bound(value: str) -> str:
+    """Validate a --created-after/--created-before bound is ISO-8601-shaped.
+
+    GitHub silently ignores a malformed `created` range filter, so an
+    unvalidated bound would make the snapshot self-record a closed_window it
+    does not actually have (PR #531 early-shadow). Shape check only (the API
+    accepts date or datetime forms); a malformed bound is a loud argparse
+    error, never a silently-open window."""
+    from datetime import datetime as _dt
+    try:
+        _dt.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"not an ISO-8601 timestamp/date: {value!r}") from exc
+    return value
+
+
 def main(argv: "list[str] | None" = None) -> int:
     parser = argparse.ArgumentParser(description="Export an immutable Actions run/job census snapshot (issue #527).")
     parser.add_argument("--repo", required=True, help="owner/repo to census")
     parser.add_argument("--workflows", default="", help="comma-separated workflow file paths/names to include (empty = all)")
-    parser.add_argument("--created-after", required=True, help="ISO-8601; runs created at or after")
-    parser.add_argument("--created-before", required=True, help="ISO-8601; runs created at or before (inclusive upper bound of the closed window)")
+    parser.add_argument("--created-after", required=True, type=_iso_window_bound, help="ISO-8601; runs created at or after")
+    parser.add_argument("--created-before", required=True, type=_iso_window_bound, help="ISO-8601; runs created at or before (inclusive upper bound of the closed window)")
     parser.add_argument("--out", required=True, help="output snapshot path")
     parser.add_argument("--gh", default=os.environ.get("DEVFLOW_GH") or "gh")
     args = parser.parse_args(argv)

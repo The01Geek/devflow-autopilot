@@ -448,7 +448,10 @@ SECRET_URL = re.compile(r"(https?://)" + _URL_USER + r":" + _URL_PASS + r"@")
 # leaving the one sibling escape-blind is exactly how the URL class survived
 # four rounds of sibling fixes. Its fail-direction was milder — the tail leaked
 # but secret_affected stayed True, so the carve-outs still fired.
-BEARER_TOKEN = re.compile(r"(Bearer\s+)((?:" + _ESC_CHUNK + r"|[A-Za-z0-9._\-+/=])+)", re.IGNORECASE)
+# Quoted-chunk alternatives included (PR #531 early-shadow): a QUOTED Bearer
+# value (`Bearer "abc"`) previously matched nothing and leaked raw with
+# secret_affected=False — the same untested-sibling shape as the URL class.
+BEARER_TOKEN = re.compile(r"(Bearer\s+)((?:" + _ESC_CHUNK + r"|" + _DQ_CHUNK + r"|" + _SQ_CHUNK + r"|[A-Za-z0-9._\-+/=])+)", re.IGNORECASE)
 
 DEFAULT_MANIFESTS_DIR = ".devflow/tmp/workflow-manifests"
 DEFAULT_BUNDLES_DIR = ".devflow/tmp/workflow-runs"
@@ -615,6 +618,16 @@ def _expires_at(created_iso: str, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> str
     try:
         created = datetime.fromisoformat(created_iso.replace("Z", "+00:00"))
     except ValueError:
+        # Latent (the only caller passes _now_iso() output, which always
+        # parses) — but the artifact's retention promise rides on expires_at,
+        # so a silent created==expires fallback was the one quiet degradation
+        # in a loud module (PR #531 early-shadow). Breadcrumb + unchanged
+        # return contract.
+        print(
+            f"devflow verification-baseline: expires_at could not be derived from "
+            f"unparseable created timestamp {created_iso!r}; artifact carries it unchanged",
+            file=sys.stderr,
+        )
         return created_iso
     return (created + timedelta(seconds=ttl_seconds)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
@@ -786,8 +799,11 @@ def _binding_identity(command: str) -> BindingIdentity:
 # (VerificationRequest, VerificationProcessLaunch, RelationshipGroup) are
 # frozen — nothing mutates them after construction. EligibleLifecycle is
 # deliberately NOT frozen: join_local_imports / extract_verification_lifecycles
-# mutate ``source_status`` in place (the left-join contract), so its invariants
-# are enforced at construction only. Literal[...] aliases were considered and
+# mutate ``source_status`` in place (the left-join contract) — so its taxonomy
+# invariants are re-validated on EVERY assignment via __setattr__ (source,
+# source_status, eligibility_state), not only at construction (the earlier
+# "construction only" sentence here was falsified by that very hardening —
+# PR #531 early-shadow, type-design finding 1). Literal[...] aliases were considered and
 # rejected: they would duplicate every enum literal already named by the
 # module-level constant tuples, creating coupled mirrors this repo's
 # conventions forbid — the __post_init__ checks validate against those same
@@ -870,6 +886,16 @@ class EligibleLifecycle:
             # latent path by construction.)
             _require_member("EligibleLifecycle.source", value, (SOURCE_LOCAL, SOURCE_CLOUD))
             self._require_status_in_source_domain(self.source_status, value)
+        elif name == "eligibility_state" and "eligibility_state" in self.__dict__:
+            # The third taxonomy field gets the same reassignment guard as its
+            # two siblings (PR #531 early-shadow, type-design finding 2): it
+            # feeds owning_lifecycle_eligibility_state's producer path at
+            # extraction, so a silent post-construction corruption here would
+            # detonate inside a VALIDATED field's constructor at a distance.
+            # (__post_init__ still validates the initial assignment; the
+            # __dict__ gate keeps dataclass __init__'s first write on that
+            # path.)
+            _require_member("EligibleLifecycle.eligibility_state", value, ELIGIBILITY_STATES)
         object.__setattr__(self, name, value)
 
     def set_source_status(self, value: str) -> None:
@@ -1003,6 +1029,16 @@ class VerificationProcessLaunch:
             raise ValueError(
                 f"VerificationProcessLaunch.retrigger_evidence must be bool; got {self.retrigger_evidence!r}"
             )
+        if self.result_presence is not None and not isinstance(self.result_presence, bool):
+            # Symmetric with retrigger_evidence (PR #531 early-shadow,
+            # type-design finding 3): result_presence feeds the same
+            # candidate classifier via an `is False` identity check — a
+            # stringly "False" fails CLOSED there (under-count, never a
+            # fabricated candidate), so this is uniformity of enforcement,
+            # not a live-bug fix.
+            raise ValueError(
+                f"VerificationProcessLaunch.result_presence must be bool or None; got {self.result_presence!r}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1031,7 +1067,11 @@ class VerificationProcessLaunch:
 @dataclass(frozen=True)
 class RelationshipGroup:
     group_id: str
-    members: list[str]  # launch_ids
+    # tuple (not list): the frozen record was only shallow-frozen with a list
+    # (group.members.append() succeeded), mirroring BindingIdentity.secret_slots'
+    # existing tuple precedent (PR #531 review + early-shadow re-raise — the
+    # park-calibration gate promoted iteration 1's parked grade).
+    members: tuple[str, ...]  # launch_ids
     relationship: str
     join_confidence: str
     workspace_state: dict
@@ -1044,12 +1084,22 @@ class RelationshipGroup:
     def __post_init__(self) -> None:
         _require_member("RelationshipGroup.relationship", self.relationship, RELATIONSHIP_CLASSES)
         _require_member("RelationshipGroup.join_confidence", self.join_confidence, CONFIDENCE_CLASSES)
+        # Relationship<->cardinality invariant, self-enforced at the record
+        # (previously producer-held control flow only): non-empty always;
+        # REL_SINGLE means exactly one member; every multi-member class means
+        # at least two.
+        if not self.members:
+            raise ValueError("RelationshipGroup.members must be non-empty")
+        if self.relationship == REL_SINGLE and len(self.members) != 1:
+            raise ValueError("RelationshipGroup: REL_SINGLE requires exactly one member")
+        if self.relationship != REL_SINGLE and len(self.members) < 2:
+            raise ValueError(f"RelationshipGroup: {self.relationship} requires >= 2 members")
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": self.schema_version,
             "group_id": self.group_id,
-            "members": self.members,
+            "members": list(self.members),
             "relationship": self.relationship,
             "join_confidence": self.join_confidence,
             "workspace_state": self.workspace_state,
@@ -1214,7 +1264,7 @@ def build_local_census(manifests_dir: Path, registry: dict, stats: "dict | None"
                 "counted as an unknown-manifest row",
                 file=sys.stderr,
             )
-            rows.append(_unknown_manifest_row(path, position))
+            rows.append(_unknown_manifest_row(path, position, reason="symlinked manifest rejected (AC #61: symlinks under admitted roots are never followed)"))
             continue
         try:
             raw = path.read_text(encoding="utf-8")
@@ -1241,7 +1291,11 @@ def build_local_census(manifests_dir: Path, registry: dict, stats: "dict | None"
     return rows
 
 
-def _unknown_manifest_row(path: Path, position: int) -> EligibleLifecycle:
+def _unknown_manifest_row(path: Path, position: int, reason: str = "manifest unreadable or malformed") -> EligibleLifecycle:
+    # `reason` is the DURABLE row-level attribution (stderr is ephemeral): a
+    # symlink rejection is a security-relevant event that must not read as
+    # "unreadable or malformed" in the artifact six months later (PR #531
+    # early-shadow, silent-failure finding 4).
     sid = _safe_session_id_from_name(path.stem)
     return EligibleLifecycle(
         source=SOURCE_LOCAL,
@@ -1250,20 +1304,32 @@ def _unknown_manifest_row(path: Path, position: int) -> EligibleLifecycle:
         subject=None,
         identity={"session_id": sid, "project_path": None, "started_at": None},
         eligibility_state=ELIGIBILITY_UNKNOWN,
-        eligibility_evidence="manifest unreadable or malformed",
+        eligibility_evidence=reason,
         host_profile=None,
         source_status=SOURCE_UNREADABLE,
         provenance={"manifest_session_id": sid},
     )
 
 
+def _safe_session_id(sid: object) -> str | None:
+    """Single admission predicate for session ids (AC #61). SAFE_ID's char
+    class admits `.`/`..` (both fullmatch `[A-Za-z0-9._-]+`), and a
+    manifest-supplied `..` session id joined onto bundles_dir escapes the
+    admitted root by one level — outside every symlink guard (PR #531
+    early-shadow final pass, Important). Reject the two path-navigation names
+    here, once, for every caller."""
+    if not isinstance(sid, str) or sid in (".", ".."):
+        return None
+    return sid if SAFE_ID.fullmatch(sid) else None
+
+
 def _safe_session_id_from_name(stem: str) -> str | None:
-    return stem if (isinstance(stem, str) and SAFE_ID.fullmatch(stem)) else None
+    return _safe_session_id(stem)
 
 
 def _local_row_from_manifest(doc: dict, path: Path, position: int, registry: dict) -> EligibleLifecycle:
     sid = doc.get("session_id") if isinstance(doc.get("session_id"), str) else _safe_session_id_from_name(path.stem)
-    sid = sid if (isinstance(sid, str) and SAFE_ID.fullmatch(sid)) else None
+    sid = _safe_session_id(sid)
     candidate = doc.get("candidate") if isinstance(doc.get("candidate"), dict) else {}
     workflow = candidate.get("workflow") if isinstance(candidate.get("workflow"), str) else None
     subject = candidate.get("subject") if isinstance(candidate.get("subject"), dict) else None
@@ -1683,7 +1749,8 @@ def _classify_simple_command(segment: str) -> str:
 
 
 def _split_top_level_segments(command: str) -> list[str]:
-    # Split on `&&` / `||` / `;` that occur OUTSIDE single/double quotes, so a
+    # Split on `&&` / `||` / `;` — AND unquoted newlines — that occur OUTSIDE
+    # single/double quotes, so a
     # delimiter inside a quoted argument (`git commit -m "refactor && pytest"`)
     # does not manufacture a spurious verification segment out of the quoted text
     # (issue #527 review finding — the quoted-delimiter false-positive that the
@@ -1728,7 +1795,14 @@ def _split_top_level_segments(command: str) -> list[str]:
             i += 1
             continue
         two = command[i : i + 2]
-        if two in ("&&", "||") or ch == ";":
+        if two in ("&&", "||") or ch in (";", "\n"):
+            # Unquoted `\n` is a top-level delimiter like `;`: multi-line Bash
+            # input is the COMMON transcript shape, and without this the
+            # second line's launch was silently classified into the first
+            # line's head (`cd repo\npytest` read other_command) — a
+            # systematic launch undercount, unlike the disclosed wrapper/
+            # pipeline gaps (PR #531 early-shadow final pass, Important). A
+            # quoted newline still never splits (quote state above).
             segments.append("".join(buf))
             buf = []
             i += 2 if two in ("&&", "||") else 1
@@ -1757,8 +1831,17 @@ def _classify_taxonomy(command: str) -> str:
 
 
 def _command_head(command: str) -> str:
+    # The head is derived from the REDACTED canonical, never the raw one:
+    # _strip_env_prefix returns the whole assignment token as the head in two
+    # shapes (a bare `TOKEN=v` whole command, and a `--password=v cmd` flag
+    # lead), so a raw-canonical head persisted raw secret material into
+    # command_head / metrics.command_heads while the same command's
+    # redacted_display and digest were carefully redacted — bypassing the whole
+    # pipeline (AC #51; PR #531 early-shadow final pass, Critical). Redacted,
+    # those shapes yield marker-bearing heads (`TOKEN=<env:TOKEN>`) instead.
     canonical = _canonical_command(command)
-    head = _strip_env_prefix(canonical)
+    redacted, _affected, _slots = _redact_secrets(canonical)
+    head = _strip_env_prefix(redacted)
     # Bound the head (local record only).
     return head[:120]
 
@@ -1847,6 +1930,15 @@ def _classify_authorization_start(result: dict | None, ev: dict | None) -> str:
         if re.search(r"\bcancel\w*|\binterrupt\w*|\babort\w*", prefix, re.IGNORECASE):
             return START_CANCELLED_PRE
     # Terminal result text but no parsed exit code -> result missing.
+    # DISCLOSED Wave-1 recognition bound (PR #531 early-shadow): an is_error
+    # result whose phrasing matches NEITHER denial/cancel set above falls
+    # through here — with terminal text it reads result_missing and COUNTS as
+    # a launch. That is deliberate: an unrecognized error phrasing may be a
+    # real launch that errored (counting keeps the baseline conservative
+    # toward over-counting launches, never fabricating retries — the
+    # candidate gates all sit downstream), and the denial/cancel sets are the
+    # harness's own structured leading phrases, extended as new ones are
+    # observed rather than guessed at.
     if ev and ev.get("terminal_signal_present"):
         return START_CONFIRMED_RESULT_MISSING
     return START_UNKNOWN
@@ -2033,9 +2125,25 @@ def extract_verification_lifecycles(
                 )
                 continue
             # end_event is None only when resolve_boundaries found no marker,
-            # no later boundary, and no later event — the single-lifecycle
-            # tail case, where the transcript end is the span end.
+            # end_event is None in two residual cases resolve_boundaries
+            # leaves open: (a) no marker, no later boundary, no later event —
+            # the single-lifecycle tail, where the transcript end is the span
+            # end; and (b) a later boundary EXISTS but is exactly adjacent
+            # (zero-event gap): wfr's next-boundary arm requires
+            # `next.start_event - 1 > start_event` (strict), and its
+            # terminal-stop arm requires NO next boundary, so neither fires
+            # (shadow Phase-2 FAIL b2:VC-4). In case (b) the len-1 fallback
+            # would swallow the later lifecycle's whole span, so bound by the
+            # same boundary-candidate set resolve_boundaries scans (top-level
+            # or same-workflow later starts) — an empty span (end == start)
+            # for the adjacent case, matching the producer's semantics.
             end_idx = root.end_event if root.end_event is not None else (len(events) - 1)
+            if root.end_event is None:
+                later_starts = [o.start_event for o in occurrences
+                                if o.start_event > root.start_event
+                                and (o.mode == "top-level" or o.workflow == root.workflow)]
+                if later_starts:
+                    end_idx = min(later_starts) - 1
             row.provenance["lifecycle_id"] = f"{sid}\x1f{root.occurrence_id}"
             reqs, launches_in = _extract_from_lifecycle(events, root, end_idx, sid, row.consumer,
                                                         row.eligibility_state)
@@ -2293,7 +2401,7 @@ def group_launches(launches: list[VerificationProcessLaunch]) -> list[Relationsh
         ws = _merge_workspace_state(members)
         groups.append(RelationshipGroup(
             group_id=_surrogate_id("grp", key, members[0].lifecycle_id or "multi"),
-            members=[m.launch_id for m in members],
+            members=tuple(m.launch_id for m in members),
             relationship=relationship,
             join_confidence=confidence,
             workspace_state=ws,
@@ -2363,6 +2471,16 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     # guard already fired above, so no-retrigger is guaranteed here; and
     # ws_matching is guaranteed True past the next return, so neither is restated
     # in the final candidate guard below.
+    # WAVE-1 SCOPE OF "MATCHING" (disclosed, not guessed at — PR #531
+    # early-shadow final pass): workspace_state is computed ONCE per lifecycle
+    # and copied onto every launch, so this check compares N copies of one
+    # per-lifecycle value — it establishes that the LIFECYCLE's workspace was
+    # completely enumerated, NOT a per-launch pre/post state comparison
+    # (launch-adjacent windows are Wave-2 work; Wave 1 has no per-launch
+    # enumeration evidence to compare). The gate is therefore coverage-of-
+    # enumeration, and the candidate class remains a MANUAL-REVIEW candidate,
+    # never an auto-proved duplicate. docs/workflow-flight-recorder.md states
+    # the same scope.
     ws_complete = all(m.workspace_state.get("coverage") == "complete" for m in members)
     ws_roots = {tuple(m.workspace_state.get("covered_roots", [])) for m in members}
     ws_matching = ws_complete and len(ws_roots) == 1
@@ -2412,7 +2530,25 @@ def _classify_relationship(members: list[VerificationProcessLaunch]) -> "tuple[s
     # the manual-review sample is where magnitude judgment happens. The doc
     # sentence in docs/workflow-flight-recorder.md states the same reading.
     bounded = [m for m in members if m.timing.get("started_at") and m.timing.get("finished_at")]
-    interval_bounded = len(bounded) >= 2
+    # The bounded-interval requirement is tied to the MISSING-RESPONSE PAIR,
+    # not any two bounded members: the retry interval that needs establishing
+    # is the one between the launch whose response went missing and its
+    # temporal successor — two other members being bounded says nothing about
+    # it (PR #531 early-shadow final pass). `ordered[:-1]` indexing mirrors
+    # the has_prior_missing scan above.
+    interval_bounded = False
+    if len(bounded) >= 2:
+        for idx, m in enumerate(ordered[:-1]):
+            missing_shape = (
+                m.start_authorization in (START_DENIED_PRE, START_CANCELLED_PRE, START_CONFIRMED_RESULT_MISSING, START_UNKNOWN)
+                or m.result_presence is False
+            )  # same predicate as has_prior_missing above — the pair is ITS pair
+            if missing_shape:
+                nxt = ordered[idx + 1]
+                if (m.timing.get("started_at") and m.timing.get("finished_at")
+                        and nxt.timing.get("started_at") and nxt.timing.get("finished_at")):
+                    interval_bounded = True
+                    break
     if has_prior_missing and interval_bounded:
         return REL_CANDIDATE_TRANSPORT_RETRY, CONFIDENCE_EXACT
     return REL_UNCLASSIFIABLE, CONFIDENCE_AMBIGUOUS
@@ -2784,6 +2920,7 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
         return rows, coverage
     position = 0
     malformed_rows = 0
+    identityless_rows = 0
     for raw in raw_rows:
         if not isinstance(raw, dict):
             # A corrupt/API-shifted row never vanishes from the denominator silently:
@@ -2792,7 +2929,18 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
             continue
         wf = raw.get("workflow_file")
         job = raw.get("job")
-        key = f"{wf}\x1f{job}" if (isinstance(wf, str) and isinstance(job, str)) else ""
+        if not (isinstance(wf, str) and isinstance(job, str)):
+            # A dict row with absent/non-string identity fields previously fell
+            # into the confirmed_ineligible arm ("job None not in
+            # cloud_mappings") — so an API field rename/omission read as a
+            # valid all-non-agent window, coverage available, no breadcrumb:
+            # broken-shape indistinguishable from genuinely agent-less
+            # (PR #531 early-shadow, silent-failure finding 1). Count them as
+            # their own class; an ALL-identityless set collapses to
+            # unavailable below like the all-malformed arm.
+            identityless_rows += 1
+            continue
+        key = f"{wf}\x1f{job}"
         mapping = cloud_mappings.get(key)
         repo = snapshot.get("repository") or raw.get("repository")
         run_id = raw.get("run_id")
@@ -2915,6 +3063,18 @@ def build_cloud_census(snapshot: dict[str, Any] | None, cloud_mappings: dict[str
             coverage["available"] = False
             coverage["unavailable"] = True
             coverage["reason"] = f"all {malformed_rows} snapshot row(s) malformed"
+    if identityless_rows:
+        coverage["identityless_row_count"] = identityless_rows
+        print(
+            f"devflow verification-baseline: cloud census dropped {identityless_rows} "
+            "identityless row(s) (absent/non-string workflow_file or job — API shape "
+            "drift or exporter regression?); the denominator excludes them",
+            file=sys.stderr,
+        )
+        if not rows:
+            coverage["available"] = False
+            coverage["unavailable"] = True
+            coverage["reason"] = f"all usable rows identityless ({identityless_rows})"
     # Cloud rows report census/eligibility/missingness ONLY — no launch/duration/
     # relationship/retry-candidate claims are made here (cloud launch analysis is
     # excluded in Wave 1).
@@ -3080,8 +3240,27 @@ def _cleanup(out_dir: Path) -> "tuple[int, int]":
     removed = 0
     failed = 0
     for child in sorted(out_dir.iterdir()):
+        if child.is_symlink():
+            # AC #61/#62: never FOLLOW a symlink during cleanup — is_dir()/
+            # is_file() both follow, so a link planted in the agent-writable
+            # out_dir pointing at a native source would have its TARGET's
+            # files unlinked (PR #531 early-shadow final pass, Important).
+            # Remove the link itself; the target is untouched.
+            try:
+                child.unlink()
+                removed += 1
+            except OSError:
+                failed += 1
+            continue
         if child.is_dir():
             for sub in sorted(child.iterdir()):
+                if sub.is_symlink():
+                    try:
+                        sub.unlink()
+                        removed += 1
+                    except OSError:
+                        failed += 1
+                    continue
                 if sub.is_file():
                     try:
                         sub.unlink()
@@ -3110,7 +3289,15 @@ def main(argv: "list[str] | None" = None) -> int:
     parser.add_argument("--cloud-census", default=DEFAULT_CLOUD_SNAPSHOT)
     parser.add_argument("--out-dir", default=DEFAULT_OUT_DIR)
     parser.add_argument("--max-source-bytes", type=int, default=DEFAULT_MAX_SOURCE_BYTES)
-    parser.add_argument("--ttl-seconds", type=int, default=DEFAULT_TTL_SECONDS)
+    def _nonneg_ttl(value: str) -> int:
+        # A negative TTL yields an expires_at in the past — an instantly
+        # "expired" 0600 artifact whose retention promise is nonsense.
+        # Reject at the CLI boundary (PR #531 early-shadow).
+        n = int(value)
+        if n < 0:
+            raise argparse.ArgumentTypeError(f"--ttl-seconds must be >= 0; got {n}")
+        return n
+    parser.add_argument("--ttl-seconds", type=_nonneg_ttl, default=DEFAULT_TTL_SECONDS)
     parser.add_argument("--cleanup", action="store_true", help="delete baseline + manual-review artifacts without touching native sources")
     args = parser.parse_args(argv)
 

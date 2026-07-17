@@ -2264,7 +2264,7 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
                     stack.enter_context(
                         mock.patch.object(mod, attr, tripwire(f"{mod.__name__}.{attr}")))
             out = Path(self.tmp) / "offline-out"
-            rc = main(["--manifests", str(self.manifests), "--bundles", str(self.bundles),
+            rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles),
                        "--registry", str(REGISTRY), "--out-dir", str(out)])
         self.assertEqual(rc, 0)
         self.assertEqual(spawned, [], f"analyzer spawned process(es): {spawned}")
@@ -2322,7 +2322,7 @@ class Pr531ReviewAndFixIter1Tests(_TmpDirTestCase):
         err, sout = io.StringIO(), io.StringIO()
         with contextlib.redirect_stderr(err), contextlib.redirect_stdout(sout):
             rc = exp.main(["--repo", "o/r", "--workflows", "wf.yml",
-                           "--created-after", "a", "--created-before", "b",
+                           "--created-after", "2026-07-01T00:00:00Z", "--created-before", "2026-07-16T00:00:00Z",
                            "--out", str(out)])
         self.assertEqual(rc, 0)
         recorded = json.loads(out.read_text(encoding="utf-8"))["pagination_complete"]
@@ -2985,6 +2985,30 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         self.assertEqual(starts["t-empty"], START_UNKNOWN)
         self.assertEqual([launch["tool_use_id"] for launch in doc["verification_process_launches"]], [])
 
+    # AC #63 coverage map (recorded so the platform rows are disclosed, not
+    # silently unmet): Unicode/spaced paths, compaction, concurrent
+    # lifecycles, detached/no-remote git shape, absent manifests, zero/multi
+    # launches, missing tool results, cancellation, and corrupted sources are
+    # covered in this file; LEGACY manifests are covered by the
+    # legacy/absent-metadata unsupported arm tests; linked worktrees, nested
+    # repositories, shallow clones, and the WSL/Git Bash/MSYS2 platform rows
+    # are exercised at the RECORDER layer (test_workflow_flight_recorder.py's
+    # worktree/detached/storage-root fixtures), which is where git runs — the
+    # analyzer never launches git (its whole input is the recorder's
+    # manifests/bundles), so those rows are structurally inapplicable to it
+    # beyond the manifest shapes already fixtured here.
+    def test_legacy_manifest_missing_candidate_is_counted_unknown(self) -> None:
+        # A legacy manifest (no candidate block, wrong schema_version) is a
+        # counted eligibility_unknown denominator row, never a crash or a drop.
+        (self.manifests / "legacy.json").write_text(json.dumps({"schema_version": 0, "session_id": "s-legacy"}), encoding="utf-8")
+        registry = wfr.load_registry(REGISTRY)
+        rows = vb.build_local_census(self.manifests, registry, None)
+        self.assertEqual(len(rows), 1)
+        # A parseable-but-candidate-less legacy manifest is honestly
+        # classified confirmed_ineligible (no invocation evidence), never
+        # dropped and never a crash.
+        self.assertEqual(rows[0].eligibility_state, vb.ELIGIBILITY_INELIGIBLE)
+
     # AC #63: Unicode + spaced admitted paths.
     def test_unicode_and_spaced_paths_process_normally(self) -> None:
         base = Path(self.tmp) / "unicodé dir"
@@ -3200,6 +3224,281 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         # Same source event AND same tool_use id -> exact.
         c = dataclasses.replace(make_launch("c"), source_event_id=a.source_event_id, tool_use_id=a.tool_use_id)
         self.assertEqual(join_confidence(a, c), CONFIDENCE_EXACT)
+
+
+# --------------------------------------------------------------------------- #
+# PR #531 review-and-fix local iteration 2 (early-shadow promotion): the
+# command_head raw-secret persistence (Critical, AC #51), newline as a
+# top-level delimiter, SAFE_ID dot-dot rejection, --cleanup symlink guards,
+# the adjacent-boundary residual, identityless cloud rows, durable symlink
+# reason, expires_at/TTL loudness, quoted Bearer values, the interval-pair
+# tie, run_attempt unknown-stays-null, window validation, and the type
+# guards the shadow re-raised.
+# --------------------------------------------------------------------------- #
+class Pr531RafLocalIter2Tests(_TmpDirTestCase):
+    # SFP-1 (Critical): the head is derived from the REDACTED canonical — a
+    # bare assignment command and a flag-leading command must never persist
+    # raw secret material in command_head.
+    def test_command_head_is_redacted(self) -> None:
+        self.assertNotIn("hunter2", vb._command_head("TOKEN=hunter2"))
+        self.assertNotIn("hunter2", vb._command_head("--password=hunter2 run.sh"))
+        # Control: a non-secret command head is unchanged.
+        self.assertEqual(vb._command_head("git status"), "git")
+        self.assertEqual(vb._command_head("TOKEN=x lib/test/run.sh"), "lib/test/run.sh")
+
+    def test_command_head_redacted_in_serialized_artifact(self) -> None:
+        b = transcript(
+            user("/devflow:implement 527"),
+            bash_call("--password=hunter2 run.sh", "t1"),
+            tool_result("t1", "ok; exit code 0"),
+        )
+        sid = "s-headsec"
+        write_manifest(self.manifests, sid)
+        write_bundle(self.bundles, sid, b)
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        runs = sorted(self.out.iterdir())
+        text = (runs[-1] / "verification_baseline.json").read_text(encoding="utf-8")
+        self.assertNotIn("hunter2", text)
+
+    # SFP-2: an unquoted newline is a top-level segment delimiter — multi-line
+    # commands (the common transcript shape) must not undercount launches.
+    def test_newline_is_a_top_level_delimiter(self) -> None:
+        self.assertEqual(vb._classify_taxonomy("cd repo\npytest"), vb.KIND_VERIFICATION)
+        # A QUOTED newline never splits.
+        self.assertEqual(vb._classify_taxonomy('git commit -m "line1\npytest"'), vb.KIND_OTHER_COMMAND)
+
+    # SFP-3: a manifest-supplied session id of "." or ".." never joins a path.
+    def test_dotdot_session_id_is_rejected(self) -> None:
+        for sid in (".", ".."):
+            doc = manifest("placeholder")
+            doc["session_id"] = sid
+            (self.manifests / "evil.json").write_text(json.dumps(doc), encoding="utf-8")
+            registry = wfr.load_registry(REGISTRY)
+            rows = vb.build_local_census(self.manifests, registry, None)
+            self.assertEqual(len(rows), 1)
+            self.assertIsNone(rows[0].identity.get("session_id"), sid)
+
+    # SFP-4: --cleanup never follows a symlink out of out_dir — the link is
+    # removed, its target untouched.
+    def test_cleanup_does_not_follow_symlinks(self) -> None:
+        outside = Path(self.tmp) / "native-source"
+        outside.mkdir()
+        victim = outside / "victim.txt"
+        victim.write_text("keep me", encoding="utf-8")
+        out_dir = Path(self.tmp) / "out-clean"
+        run_dir = out_dir / "run-1"
+        run_dir.mkdir(parents=True)
+        (run_dir / "real.json").write_text("{}", encoding="utf-8")
+        (run_dir / "link-dir").symlink_to(outside, target_is_directory=True)
+        (out_dir / "link-file").symlink_to(victim)
+        removed, failed = vb._cleanup(out_dir)
+        self.assertTrue(victim.exists(), "cleanup followed a symlink and deleted the target")
+        self.assertFalse((out_dir / "link-file").exists())
+        self.assertEqual(failed, 0)
+
+    # b2:VC-4 (shadow Phase-2 FAIL): adjacent occurrences (zero-event gap)
+    # must not swallow the later occurrence's span through the len-1 fallback.
+    def test_adjacent_occurrence_boundary_residual(self) -> None:
+        b = transcript(
+            user("/devflow:implement 527"),
+            user("/devflow:review 531", timestamp="2026-07-16T01:00:30Z"),
+            bash_call("lib/test/run.sh", "t-rev", timestamp="2026-07-16T01:01:00Z"),
+            tool_result("t-rev", "ok; exit code 0", timestamp="2026-07-16T01:02:00Z"),
+        )
+        doc = self._run_doc("s-adjacent", b)
+        # The manifest consumer is implement; the review lifecycle's launch
+        # must NOT be attributed to it.
+        self.assertEqual(doc["verification_process_launches"], [])
+
+    def _run_doc(self, sid: str, transcript_bytes: bytes) -> dict:
+        write_manifest(self.manifests, sid)
+        write_bundle(self.bundles, sid, transcript_bytes)
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        runs = sorted(self.out.iterdir())
+        return json.loads((runs[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+
+    # SSF-1: a dict cloud row with absent/non-string workflow_file/job is a
+    # LOUD identityless row, and an all-identityless census reads unavailable.
+    def test_identityless_cloud_rows_are_loud_and_collapse_coverage(self) -> None:
+        snapshot = {"schema_version": 1, "pagination_complete": True, "repository": "o/r",
+                    "rows": [{"workflow_file": None, "job": None, "run_id": 5}]}
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rows, coverage = vb.build_cloud_census(snapshot, {})
+        self.assertIn("identityless", err.getvalue())
+        self.assertTrue(coverage.get("unavailable"))
+        self.assertEqual(rows, [])
+
+    # SSF-4: the symlink-rejected manifest's DURABLE row reason names the
+    # symlink rejection, not "unreadable or malformed".
+    def test_symlinked_manifest_row_carries_symlink_reason(self) -> None:
+        outside = Path(self.tmp) / "out.json"
+        outside.write_text(json.dumps(manifest("s-x")), encoding="utf-8")
+        (self.manifests / "s-link.json").symlink_to(outside)
+        registry = wfr.load_registry(REGISTRY)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rows = vb.build_local_census(self.manifests, registry, None)
+        self.assertIn("symlink", rows[0].eligibility_evidence)
+
+    # SSF-3 / SPT-4: expires_at arithmetic is real, a custom TTL is honored,
+    # and a negative TTL is rejected at the CLI boundary.
+    def test_ttl_arithmetic_and_negative_rejection(self) -> None:
+        created = "2026-07-16T00:00:00Z"
+        self.assertEqual(vb._expires_at(created, 3600), "2026-07-16T01:00:00.000Z")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            out = vb._expires_at("not-a-timestamp", 3600)
+        self.assertEqual(out, "not-a-timestamp")
+        self.assertIn("expires_at", err.getvalue())
+        with self.assertRaises(SystemExit):
+            main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out), "--ttl-seconds", "-5"])
+
+    # Suggestion (shadow): a QUOTED Bearer value is redacted like its siblings.
+    def test_quoted_bearer_is_redacted(self) -> None:
+        b = vb._binding_identity('curl -H "Authorization: Bearer \\"abc.def\\"" x')
+        self.assertNotIn("abc.def", b.redacted_display)
+        b2 = vb._binding_identity("Bearer \"abc.def\" x")
+        self.assertNotIn("abc.def", b2.redacted_display)
+        self.assertTrue(b2.secret_affected)
+
+    # Suggestion (shadow): interval_bounded is tied to the missing-response
+    # member and its temporal successor, not any two bounded members.
+    def test_interval_bounded_requires_the_missing_pair(self) -> None:
+        a = make_launch("a", start_auth=START_CONFIRMED_RESULT_MISSING, started=None, finished=None)
+        a.timing["started_at"] = None
+        a.timing["finished_at"] = None
+        b = make_launch("b", start_auth=START_CONFIRMED_TERMINAL)
+        c = make_launch("c", start_auth=START_CONFIRMED_TERMINAL, started="2026-07-16T01:03:00Z", finished="2026-07-16T01:04:00Z")
+        groups = group_launches([a, b, c])
+        # b and c are bounded, but the missing-response member a is not: the
+        # retry interval cannot be established -> not a candidate.
+        self.assertNotEqual(groups[0].relationship, REL_CANDIDATE_TRANSPORT_RETRY)
+
+    # SSF-2: an absent run_attempt stays null in the exporter's row.
+    def test_run_attempt_unknown_stays_null(self) -> None:
+        import importlib.util as ilu
+        spec = ilu.spec_from_file_location("export_census2", ROOT / "scripts/export-workflow-lifecycle-census.py")
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        snap = mod.build_snapshot(
+            "o/r", [], "2026-07-01T00:00:00Z", "2026-07-16T00:00:00Z",
+            [{"id": 7, "path": ".github/workflows/x.yml", "name": "X"}],
+            {7: [{"name": "claude"}]}, "2026-07-16T00:00:00Z", True,
+        )
+        self.assertIsNone(snap["rows"][0]["run_attempt"])
+
+    # STD-2: eligibility_state is guarded on reassignment like its siblings.
+    def test_eligibility_state_reassignment_guarded(self) -> None:
+        row = vb.EligibleLifecycle(
+            source=vb.SOURCE_LOCAL, surrogate_id="sr-3", consumer="implement",
+            subject={}, identity={}, eligibility_state=ELIGIBILITY_CONFIRMED,
+            eligibility_evidence="exact_user_command", host_profile=None,
+            source_status=SOURCE_AVAILABLE, provenance={},
+        )
+        with self.assertRaises(ValueError):
+            row.eligibility_state = "bogus"
+        self.assertEqual(row.eligibility_state, ELIGIBILITY_CONFIRMED)
+
+    # STD-3: result_presence must be a real bool or None.
+    def test_result_presence_rejects_truthy_string(self) -> None:
+        with self.assertRaises(ValueError):
+            dataclasses.replace(make_launch("x"), result_presence="False")
+
+    # STD-4 (park-calibration: shadow re-raised iter-1's parked TD-2):
+    # RelationshipGroup.members is a tuple and cardinality is enforced.
+    def test_relationship_group_members_tuple_and_cardinality(self) -> None:
+        g = group_launches([make_launch("a")])[0]
+        self.assertIsInstance(g.members, tuple)
+        with self.assertRaises(ValueError):
+            dataclasses.replace(g, relationship=REL_SINGLE, members=("a", "b"))
+        with self.assertRaises(ValueError):
+            dataclasses.replace(g, members=())
+
+    # SSF-5: the --workflows filter reads the same field set build_snapshot
+    # resolves (path OR workflow_file OR name).
+    def test_workflow_filter_matches_workflow_file_alternate(self) -> None:
+        import importlib.util as ilu
+        spec = ilu.spec_from_file_location("export_census3", ROOT / "scripts/export-workflow-lifecycle-census.py")
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        run = {"id": 9, "workflow_file": ".github/workflows/y.yml", "name": None}
+        self.assertTrue(mod._matches_workflow_set(run, {".github/workflows/y.yml"}))
+
+    # Window validation: a malformed --created-after is rejected loudly.
+    def test_malformed_window_rejected(self) -> None:
+        import importlib.util as ilu
+        spec = ilu.spec_from_file_location("export_census4", ROOT / "scripts/export-workflow-lifecycle-census.py")
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with self.assertRaises(SystemExit):
+            mod.main(["--repo", "o/r", "--created-after", "yesterday", "--created-before", "2026-07-16T00:00:00Z", "--out", str(Path(self.tmp) / "s.json")])
+
+    # SPT-2: _bound_strings truncates over-limit values at any nesting depth
+    # in the serialized artifact.
+    def test_bound_strings_truncates_in_to_dict(self) -> None:
+        big = "x" * 20000
+        bounded = vb._bound_strings({"a": [{"b": big}]})
+        self.assertIn("<truncated>", bounded["a"][0]["b"])
+        self.assertLess(len(bounded["a"][0]["b"]), len(big))
+
+    # SPT-1: the all-attempts-failed WARNING fires when every attempted
+    # transcript fails, and does NOT fire when one succeeds (the dilution fix).
+    def test_all_attempts_failed_warning_both_directions(self) -> None:
+        bad = b'{"type": "user", "message": {"role": "user", "content": []}}\n'
+        sid = "s-warnall"
+        write_manifest(self.manifests, sid)
+        write_bundle(self.bundles, sid, bad)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            with mock.patch.object(vb, "extract_verification_lifecycles", side_effect=lambda rows, *a, **k: ([], [], [r for r in rows])) as _:
+                pass
+        # Direction 1: force every attempted extraction to fail via a transcript
+        # whose events raise inside extraction (registered occurrence present,
+        # then a malformed message body at extraction depth).
+        evil = transcript(
+            user("/devflow:implement 527"),
+            {"type": "assistant", "timestamp": "2026-07-16T01:01:00Z", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": None}]}},
+        )
+        write_bundle(self.bundles, sid, evil)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        # Direction 2: a healthy sibling suppresses the warning.
+        sid2 = "s-warnok"
+        write_manifest(self.manifests, sid2)
+        write_bundle(self.bundles, sid2, transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "t1"),
+            tool_result("t1", "ok; exit code 0"),
+        ))
+        err2 = io.StringIO()
+        with contextlib.redirect_stderr(err2):
+            rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        self.assertNotIn("failed for EVERY", err2.getvalue())
+
+    # SPT-3: a VALID cloud census flows through main() end-to-end.
+    def test_main_with_valid_cloud_census(self) -> None:
+        rows = [{"workflow_file": ".github/workflows/devflow-implement.yml", "job": "claude",
+                 "run_id": 3, "run_attempt": 1, "started_at": "2026-07-16T01:00:00Z",
+                 "status": "completed", "conclusion": "success"}]
+        h = hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        snap_path = Path(self.tmp) / "snap-valid.json"
+        snap_path.write_text(json.dumps({"schema_version": 1, "rows": rows, "snapshot_hash": h,
+                                         "pagination_complete": True, "repository": "o/r"}), encoding="utf-8")
+        sid = "s-cloudok"
+        write_manifest(self.manifests, sid)
+        write_bundle(self.bundles, sid, transcript(user("/devflow:implement 527")))
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out), "--cloud-census", str(snap_path)])
+        self.assertEqual(rc, 0)
+        runs = sorted(self.out.iterdir())
+        doc = json.loads((runs[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(doc["census"]["cloud"]), 1)
+        self.assertFalse(doc["cloud_coverage"]["unavailable"])
 
 
 if __name__ == "__main__":

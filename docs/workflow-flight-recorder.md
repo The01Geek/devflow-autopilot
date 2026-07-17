@@ -246,15 +246,24 @@ prompt text never become a predicted permission result.
 Each request and confirmed launch records source event ID, explicit lifecycle ID
 when present, tool-use ID, consumer skill (inferred only from classified
 first-message forms), command head, redacted display, safe binding identity,
-timing, result presence, exit evidence, skipped-check evidence, and source
-provenance. (Phase/checkpoint and skipped-check evidence are not extracted in
-Wave 1 and are left null — the fields exist on the records for a future
-adapter; no Wave-1 code parses a suite's skip lines.)
+timing, result presence, exit evidence, and source provenance;
+phase/checkpoint and skipped-check fields exist on the records but are null in
+Wave 1 (no Wave-1 code parses a suite's skip lines — they await a future
+adapter). Workspace-state "matching" across a candidate group is likewise
+Wave-1-scoped: workspace state is computed once per lifecycle from explicit
+enumeration results, so the candidate gate establishes complete enumeration
+coverage for the lifecycle — not a per-launch pre/post comparison
+(launch-adjacent windows are Wave-2 work), and the candidate class remains a
+manual-review candidate, never an auto-proved duplicate.
 Secret-bearing bindings persist
 no raw secret and no unkeyed digest of secret material for every recognized
 secret pattern class (env assignments including quoted values, `--flag`
-secrets including quoted values, `-u user:pass` credentials, URL credentials,
-Bearer tokens; a secret passed through a shape outside these classes is a
+secrets including quoted values and underscore/single-dash spellings,
+hyphen-named assignment tokens via the `assign:` fallback (`X-API-KEY=v`,
+`-Dapikey=v`), `-u user:pass` credentials, URL credentials, Bearer tokens
+including quoted values; a secret passed through a shape outside these
+classes — a bare positional password, a bespoke short flag other than `-u`,
+or an assignment value that itself begins with `<` — is a
 documented recognition limitation of Wave 1): commands are
 canonicalized and redacted before digesting, typed secret-slot markers and
 `secret_affected` are recorded, and a redacted digest alone cannot establish an
@@ -342,7 +351,8 @@ top duration decile with inclusive ties; all high-cost groups are reviewed plus
 `min(50, max(20, ceil(0.1 * remainder)))` remainder groups — additionally
 capped at the remainder population size (`min(…, len(remainder))`), so the
 sample never exceeds the groups that exist — selected by sorting
-`SHA-256(baseline_snapshot_hash || group_id)`. The sample publishes its seed,
+`SHA-256(source_snapshot_hash || group_id)` (the AC's "baseline snapshot
+hash" — published as the artifact's `seed`). The sample publishes its seed,
 eligible population, selected IDs, nonresponses, and adjudication totals;
 reviewers see cited source evidence without analyzer relationship labels and
 record `confirmed_retry_pattern`, `intentional_rerun`, or

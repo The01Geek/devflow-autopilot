@@ -27406,12 +27406,15 @@ DGH_BARE="$(grep -rnE '(^|[[:space:]`;|&(])gh[[:space:]]+(api|pr|issue|label|rep
   "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null \
   | grep -v '/test/' | grep -v 'resolve-gh\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE '(echo|printf) ' | grep -c . || true)"
 assert_eq "#245 peer-completeness: no non-comment bare gh <subcommand> call survives outside the resolver" "0" "$DGH_BARE"
-# Per-script Python routing pins: each of the five Python gh-callers reads the
+# Per-script Python routing pins: each of the six Python gh-callers reads the
 # documented DEVFLOW_GH override and keeps no bare-"gh" argv0 literal. T4/T8
 # exercise parse-acs.py dynamically; these static pins keep a revert in any of
 # the others (the silent-label-loss regression of #3493) from staying green.
-# export-workflow-lifecycle-census.py joined the set in PR #531 (issue #527).
-for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py export-workflow-lifecycle-census.py; do
+# export-workflow-lifecycle-census.py joined the set in PR #531 (issue #527);
+# build-experiment-records.py was the pre-existing sixth the PR #531
+# early-shadow completeness critic's independent enumeration surfaced
+# (grep -l DEVFLOW_GH over scripts/*.py) — the loop had under-counted it.
+for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py export-workflow-lifecycle-census.py build-experiment-records.py; do
   assert_eq "#245 python routing: $DGH_PY reads DEVFLOW_GH (or-\"gh\" form)" "1" \
     "$(grep -cF 'os.environ.get("DEVFLOW_GH") or "gh"' "$DGH_ROOT/scripts/$DGH_PY" || true)"
   assert_eq "#245 python routing: $DGH_PY keeps no bare-\"gh\" argv0 literal" "0" \
