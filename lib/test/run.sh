@@ -4017,13 +4017,14 @@ assert_pin_unique "rcv: step 0 fail-soft path" \
 # repo-agnostic (only generic git/gh/PR concepts — never a repo path or CI job name; the
 # existing #379(AC8) whole-file absence pins already cover this new prose, so no fresh
 # 'lib/test/run.sh' / 'lib + python tests' absence pin is added — the same precedent the #479
-# block cites). The 15 behavioral rules each also carry assert_pin_red_under mutation evidence:
+# block cites). The 17 behavioral rules each also carry assert_pin_red_under mutation evidence:
 # a sed -E mutation re-introduces the named bug and the pin is observed PASS->FAIL, so a
 # framing-only pin that stayed green under the operative half-revert is caught mechanically.
 #
 # Presence pins: the 17 named contract sentences, the three-arm classifier structure, and
-# defensive out-of-set pins (AC10 no-subject stop, the guard-class-2 fail-open sentence, and the
-# arm-2 bare-token corroboration gate).
+# defensive out-of-set pins (AC10 no-subject stop, the guard-class-2 fail-open sentence, the
+# arm-2 bare-token corroboration gate, the individual classifier/head-match arm definitions, and
+# the `stale`-vs-`missing` boundary).
 assert_pin_unique "rcv/#545 P-carveout: preflight scoped to direct invocation, loop governs otherwise" \
   'and this preflight is not consulted' "$RECV_SKILL"
 assert_pin_unique "rcv/#545 P-nocmd: neither-context run executes no preflight command" \
@@ -4073,6 +4074,31 @@ assert_pin_unique "rcv/#545 P-guardclass2: fact statuses derived with builtins, 
 # gate would bind a wrong PR as `established` in path-less feedback, uncaught.
 assert_pin_unique "rcv/#545 P-arm2corrob: a bare leading-token binding needs independent corroboration to be established" \
   'only when corroborated by an independent channel' "$RECV_SKILL"
+# P-gatebar (issue #545 review, pr-test-analyzer): P-gate pins only the never-bar HALF of the
+# editing gate and P-terminate only the ambiguous no-self-confirm consequence — so a paraphrase
+# dropping `or when the subject is ambiguous`, or weakening the `mismatch` bar to a warning,
+# would leave every other pin GREEN while deleting the feature's core safety behavior. Pin the
+# affirmative BAR condition itself.
+assert_pin_unique "rcv/#545 P-gatebar: the affirmative bar condition (mismatch, or an ambiguous subject)" \
+  'bars IMPLEMENT only when the subject is PR-bound and that verdict is `mismatch`, or when the subject is `ambiguous`' "$RECV_SKILL"
+# P-stale (issue #545 review): the six-status set is closed by AC3, but no rule assigns `stale` —
+# AC4 sends an unobservable head-match to `missing` and every AC8 degraded arm resolves elsewhere.
+# The prose therefore states the `stale`-vs-`missing` boundary explicitly; pin it, because a
+# paraphrase stamping the soft-sounding `stale` where `missing` is mandated is a fail-OPEN drift
+# (a degraded fact would stop reading as unestablished).
+assert_pin_unique "rcv/#545 P-stale: an unobservable/un-re-measured fact renders missing, never stale" \
+  'could not be observed or could not be re-measured renders `missing`, never `stale`' "$RECV_SKILL"
+# P-arm1/P-arm3 and P-hm-match/P-hm-mismatch (issue #545 review): the "exactly three arms"
+# framing pins are structural — they stay GREEN if an individual arm's DEFINITION is reworded.
+# Pin each arm the framing pins only count.
+assert_pin_unique "rcv/#545 P-arm1: classifier arm 1 (whole-argument number) definition" \
+  'the entire argument, after trimming surrounding whitespace, is a bare or `#`-prefixed number' "$RECV_SKILL"
+assert_pin_unique "rcv/#545 P-arm3: classifier arm 3 (checkout-derived) definition" \
+  'an argument-less `gh pr view` resolves the pull request that belongs to the current branch' "$RECV_SKILL"
+assert_pin_unique 'rcv/#545 P-hm-match: head-match `match` arm is a SHA string-equality, not a ref compare' \
+  '`match` when the SHA printed by `git rev-parse HEAD` is string-equal to the PR head SHA' "$RECV_SKILL"
+assert_pin_unique 'rcv/#545 P-hm-mismatch: head-match `mismatch` arm requires a NON-shallow repo' \
+  '`mismatch` when the ancestry command exits 1 and `git rev-parse --is-shallow-repository` printed `false`' "$RECV_SKILL"
 #
 # Behavioral-fix mutation evidence (15): each sed -E mutation re-introduces the named bug.
 assert_pin_red_under "rcv/#545 P-carveout-mp: deleting the loop-governs clause (double-establishment bug)" \
@@ -4120,6 +4146,12 @@ assert_pin_red_under "rcv/#545 P-terminate-mp: deleting never-self-confirm (non-
 assert_pin_red_under "rcv/#545 P-freshness-mp: deleting never-zero-behind (failed fetch reported in-sync)" \
   'both divergence measurements are recorded as unknown, never zero-behind' \
   's/, never zero-behind//' "$RECV_SKILL"
+assert_pin_red_under "rcv/#545 P-gatebar-mp: deleting the ambiguous bar (uncorroborated wrong-PR binding edits anyway)" \
+  'bars IMPLEMENT only when the subject is PR-bound and that verdict is `mismatch`, or when the subject is `ambiguous`' \
+  's/, or when the subject is `ambiguous`//' "$RECV_SKILL"
+assert_pin_red_under "rcv/#545 P-stale-mp: deleting never-stale (a degraded fact renders stale, not missing)" \
+  'could not be observed or could not be re-measured renders `missing`, never `stale`' \
+  's/, never `stale`//' "$RECV_SKILL"
 #
 # ── Reception Preflight read-only command allowlist detector (issue #545, AC5): every command
 # head inside a ```bash fence within the "## Reception Preflight" section must be a member of
@@ -4128,7 +4160,11 @@ assert_pin_red_under "rcv/#545 P-freshness-mp: deleting never-zero-behind (faile
 # lines (a renamed/removed or restructured section must never pass the membership check
 # vacuously). The awk/grep here operates on the SKILL text as test-harness scanning, not a
 # runtime selection — the guard-class-2 non-preflight-tool rule governs shipped code, not this
-# detector. Absorbs grep's no-match exit 1 with `|| true` so `set -u` never aborts a clean scan.
+# detector. Both counters below end in `awk 'END{print NR}'` rather than `grep -c . || true`: an
+# `|| true` tail cannot tell grep's benign no-match exit 1 from its ERROR exit 2, so a genuinely
+# broken scan would launder into a clean `0` (issue #545 review). `awk` counts the lines it was
+# fed and exits non-zero only on a real failure, which empties the substitution and turns the
+# assert RED — the fail-CLOSED direction, and no `|| true` mask.
 pf545_cmd_lines() {  # file -> non-blank, non-comment command lines inside the section's bash fences
   awk '
     $0 ~ /^## Reception Preflight$/ {inpf=1; next}
@@ -4139,15 +4175,27 @@ pf545_cmd_lines() {  # file -> non-blank, non-comment command lines inside the s
   ' "$1" | sed -E 's/^[[:space:]]+//' | grep -vE '^(#|$)'
 }
 pf545_cmd_count() {  # count of ALL command lines in the section's bash fences (non-vacuity)
-  pf545_cmd_lines "$1" | grep -c . || true
+  pf545_cmd_lines "$1" | awk 'END{print NR}'
 }
 # Illegal = any fenced command SEGMENT whose leading token is NOT in the AC5 permitted read-only
-# set. Two shape defenses make this an every-head check rather than a line-head check (issue #545
-# review + shadow): (1) trailing ` #…` comments are stripped first (the fence's descriptive
-# comments carry punctuation like `;` that would otherwise read as command separators); (2) each
-# line is split into command segments on the shell operators that begin a new command (`&&`,
-# `||`, `;`, and a pipe), so a mutator CHAINED after a permitted read (`git fetch && git reset`,
-# `git rev-parse HEAD ; git push`) is caught, not just a standalone illegal head. The AC5 set is
+# set. Three shape defenses make this an every-head check rather than a line-head check (issue
+# #545 review + shadow): (1) trailing ` #…` comments are stripped first (the fence's descriptive
+# comments carry punctuation like `;` and `(fact 3)` that would otherwise read as command
+# separators or substitutions); (2) each line is split into command segments on the shell
+# operators that begin a new command (`&&`, `||`, `;`, and a pipe), so a mutator CHAINED after a
+# permitted read (`git fetch && git reset`, `git rev-parse HEAD ; git push`) is caught, not just
+# a standalone illegal head; (3) a command SUBSTITUTION begins a new command, so its OPENER (`$(`
+# or an odd backtick) is a separator too — without this a mutator NESTED inside an otherwise-
+# permitted read (`git rev-parse $(git push)`, `` git status `gh pr merge` ``) would ride through
+# on the permitted outer head (issue #545 review). Opener and CLOSER are deliberately asymmetric:
+# an opener starts a segment (newline), a closer only RETURNS to the enclosing command and so
+# becomes a space, never a separator. Splitting on the closer instead would orphan the outer
+# command's remaining arguments into their own segment, whose first argument then reads as a bogus
+# command head — `git merge-base --is-ancestor $(git rev-parse HEAD) HEAD` would flag a phantom
+# `HEAD` command (observed: it turned the nested-read negative control below RED). Backticks are
+# symmetric in source, so they are walked character-wise, alternating open/close. A bare `(`
+# subshell is left intact and its head (`(cmd`) matches no allowlist entry — illegal, the
+# fail-CLOSED direction. The AC5 set is
 # broader than git/gh: it also permits the extension loader and the threshold read, invoked via
 # the portable ${CLAUDE_SKILL_DIR:-…}/…/scripts/<helper> anchor — so the helper exemption is
 # HEAD-anchored to the segment's leading `[path/]<helper>` token, NOT a substring anywhere on the
@@ -4157,18 +4205,26 @@ pf545_cmd_count() {  # count of ALL command lines in the section's bash fences (
 # (push/checkout/merge/…) and every non-git/gh command (rm/curl/python3/…) survives all filters
 # and is illegal, enforcing AC5's "and from nothing else" for every segment head. (Accepted
 # bound: this is a drift guard over trusted, human-authored read-only prose — it does not model
-# heredocs, command substitutions, or nested subshells, shapes that do not occur in a read-only
-# preflight fence; over-flagging a genuinely non-AC5 read like a piped `| grep` is the fail-CLOSED
-# direction and is correct per AC5.)
+# heredocs, a shape that does not occur in a read-only preflight fence; over-flagging a genuinely
+# non-AC5 read like a piped `| grep` is the fail-CLOSED direction and is correct per AC5.)
 pf545_illegal_count() {
   pf545_cmd_lines "$1" \
     | sed -E 's/[[:space:]]+#.*$//' \
-    | awk '{ gsub(/[[:space:]]*(&&|\|\||;|\|)[[:space:]]*/, "\n"); print }' \
+    | awk '{
+        gsub(/[[:space:]]*(&&|\|\||;|\|)[[:space:]]*/, "\n")
+        gsub(/\$\(/, "\n"); gsub(/\)/, " ")
+        out = ""; open = 0
+        for (i = 1; i <= length($0); i++) {
+          c = substr($0, i, 1)
+          if (c == "`") { out = out (open ? " " : "\n"); open = 1 - open } else out = out c
+        }
+        print out
+      }' \
     | sed -E 's/^[[:space:]]+//' \
     | grep -vE '^(#|$)' \
     | grep -vE '^(git fetch|git rev-parse|git status|git merge-base|git rev-list|gh pr view|gh issue view)([[:space:]]|$)' \
     | grep -vE '^([^[:space:]]*/)?(load-prompt-extension\.sh|config-get\.sh)([[:space:]]|$)' \
-    | grep -c . || true
+    | awk 'END{print NR}'
 }
 assert_eq "rcv/#545 read-only detector: Reception Preflight section carries fenced commands (non-vacuous)" \
   "yes" "$([ "$(pf545_cmd_count "$RECV_SKILL")" -ge 1 ] && echo yes || echo no)"
@@ -4247,6 +4303,53 @@ if [ "$PF545_INJ5" != "/dev/null" ]; then
   assert_eq "rcv/#545 read-only detector positive control 5: 'sed -i … scripts/config-get.sh' (helper path as argument) turns the scan RED" \
     "yes" "$([ "$(pf545_illegal_count "$PF545_INJ5")" -ge 1 ] && echo yes || echo no)"
   rm -f "$PF545_INJ5"
+fi
+# Sixth positive control: a mutator NESTED in a command substitution behind an otherwise-permitted
+# outer head must turn the scan RED — proves the segment split models `$(…)`, not just the `&&`/`;`
+# operators, so a permitted leading token cannot launder a write (issue #545 review).
+PF545_INJ6="$(probe_tmp 'rcv/#545 read-only detector command-substitution positive control setup')"
+if [ "$PF545_INJ6" != "/dev/null" ]; then
+  awk '
+    {print}
+    /^## Reception Preflight$/{inpf=1}
+    inpf && /^```bash$/ && !seen {print "git rev-parse $(gh pr checkout 999)"; seen=1}
+  ' "$RECV_SKILL" > "$PF545_INJ6"
+  assert_eq "rcv/#545 read-only detector positive control 6: 'git rev-parse \$(gh pr checkout 999)' (substitution escape) turns the scan RED" \
+    "yes" "$([ "$(pf545_illegal_count "$PF545_INJ6")" -ge 1 ] && echo yes || echo no)"
+  rm -f "$PF545_INJ6"
+fi
+# Seventh positive control: the BACKTICK substitution form must be caught too — backticks are
+# walked character-wise rather than gsub'd, so they need their own control (issue #545 review).
+PF545_INJ7="$(probe_tmp 'rcv/#545 read-only detector backtick-substitution positive control setup')"
+if [ "$PF545_INJ7" != "/dev/null" ]; then
+  awk '
+    {print}
+    /^## Reception Preflight$/{inpf=1}
+    inpf && /^```bash$/ && !seen {print "git status `gh pr merge 999`"; seen=1}
+  ' "$RECV_SKILL" > "$PF545_INJ7"
+  assert_eq "rcv/#545 read-only detector positive control 7: 'git status \`gh pr merge\`' (backtick escape) turns the scan RED" \
+    "yes" "$([ "$(pf545_illegal_count "$PF545_INJ7")" -ge 1 ] && echo yes || echo no)"
+  rm -f "$PF545_INJ7"
+fi
+# Negative control (the companion the positive controls above require): a legitimately-NESTED
+# permitted read, in BOTH substitution forms, must stay clean. Without this, controls 6/7 would
+# pass equally against a splitter that flags every substitution outright — the detector's
+# fail-closed direction would silently harden into "no substitution is ever permitted", and the
+# closer-orphans-trailing-arguments defect (see the splitter comment above) would go unnoticed.
+PF545_INJ8="$(probe_tmp 'rcv/#545 read-only detector nested-read negative control setup')"
+if [ "$PF545_INJ8" != "/dev/null" ]; then
+  awk '
+    {print}
+    /^## Reception Preflight$/{inpf=1}
+    inpf && /^```bash$/ && !seen {
+      print "git merge-base --is-ancestor $(git rev-parse HEAD) HEAD"
+      print "git rev-list --count `git rev-parse HEAD`..HEAD"
+      seen=1
+    }
+  ' "$RECV_SKILL" > "$PF545_INJ8"
+  assert_eq "rcv/#545 read-only detector negative control: nested permitted reads in both \$(…) and backtick form stay clean" \
+    "0" "$(pf545_illegal_count "$PF545_INJ8")"
+  rm -f "$PF545_INJ8"
 fi
 
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the

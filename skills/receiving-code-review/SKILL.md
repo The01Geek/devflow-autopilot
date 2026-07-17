@@ -54,6 +54,8 @@ The preflight renders **one in-chat block enumerating exactly these nine facts**
 
 Every fact line carries **exactly one of these six statuses** — complete by construction: `established`, `caller-supplied`, `missing`, `stale`, `ambiguous`, and `not-applicable`. A status describes observability; the value carries the observed content — the extension fact renders `established` with the value `none found` when the loader definitively reported no extension, and the threshold fact renders `established` with the default value and the source `default` when the key is absent. A fact **renders established only when its value was directly observed** from a command output or a file read in the current run — and, for the subject fact, only under a classifier arm whose conditions for `established` are met; a fact whose value was not so observed renders one of the other five statuses with a one-line reason.
 
+**Where `stale` applies.** `stale` denotes a value this run directly observed that a later in-run mutation superseded before it could be re-measured. The post-Step-0 refresh below re-measures every volatile fact, and every degraded arm resolves to another status — so no rule in this contract assigns `stale`, and **a fact whose value could not be observed or could not be re-measured renders `missing`, never `stale`**. The status stays in the closed set for a render that must carry a knowingly-superseded value rather than drop it; it is never a verdict and never an input to the editing gate.
+
 Block template (values illustrative; a real render substitutes observed content):
 
 ```
