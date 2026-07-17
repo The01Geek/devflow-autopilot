@@ -1406,20 +1406,22 @@ def _classify_authorization_start(result: dict | None, ev: dict | None) -> str:
     # to the prefix keeps the structured leading signal and ignores incidental
     # deep-output words.
     prefix = text[:400]
-    # Claude Code's own tool-rejection message is harness-specific text that never
-    # appears as a real command's output, so it is a denial regardless of the
-    # is_error flag: a rejected tool use never started a process and must not be
-    # counted as a launch (the previous regex matched none of these strings, so a
-    # real rejection fell through to RESULT_MISSING and inflated the launch count
-    # — PR #531 early-shadow Critical).
-    if re.search(r"tool use was rejected|does(?:n't| not) want to proceed with this tool", prefix, re.IGNORECASE):
-        return START_DENIED_PRE
     # Pre-start denial and cancellation are ERROR results with no terminal exit
-    # code. Gate the generic words on is_error (a successful command's stdout can
-    # contain them incidentally): only a structured error signal, in the leading
-    # prefix, may drop a request from the launch counts.
+    # code. Gate ALL the denial/cancel signals on is_error (a SUCCESSFUL command's
+    # stdout can echo any of these words — including the harness's own rejection
+    # phrasing, which appears verbatim in this repo's tests: a transcript of
+    # running them would otherwise drop a real launch): only a structured error
+    # signal, in the leading prefix, may drop a request from the launch counts. A
+    # genuine Claude Code tool rejection is always delivered with is_error set, so
+    # gating loses no real rejection while eliminating the successful-echo false
+    # positive (PR #531 early-shadow recognized the rejection strings; the
+    # iteration-2 fix-delta gate moved them under is_error).
     if result.get("is_error"):
-        if re.search(r"permission\s+denied|not\s+allowed|was\s+not\s+granted|user rejected", prefix, re.IGNORECASE):
+        if re.search(
+            r"permission\s+denied|not\s+allowed|was\s+not\s+granted|user rejected"
+            r"|tool use was rejected|does(?:n't| not) want to proceed with this tool",
+            prefix, re.IGNORECASE,
+        ):
             return START_DENIED_PRE
         # A result that indicates cancellation (e.g. "command was cancelled").
         if re.search(r"\bcancel\w*|\binterrupt\w*|\babort\w*", prefix, re.IGNORECASE):

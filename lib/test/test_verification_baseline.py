@@ -1747,9 +1747,16 @@ class Pr531Iter2ShadowFixTests(_TmpDirTestCase):
 
     def test_real_tool_rejection_is_denied_not_launch(self) -> None:
         rej = "The user doesn't want to proceed with this tool use. The tool use was rejected."
+        # A genuine Claude Code tool rejection is always delivered with is_error.
         self.assertEqual(self._auth(rej, is_error=True), vb.START_DENIED_PRE)
-        # Even if the harness did not flag is_error, the harness-specific string wins.
-        self.assertEqual(self._auth(rej, is_error=False), vb.START_DENIED_PRE)
+
+    def test_successful_command_echoing_rejection_phrase_is_a_launch(self) -> None:
+        # A SUCCESSFUL command (is_error False) whose own output merely quotes the
+        # rejection phrase — e.g. a transcript of running this repo's own tests,
+        # which contain the literal string — must NOT be dropped as a denial
+        # (fix-delta gate: the phrase check must be is_error-gated).
+        echo = "tool use was rejected"
+        self.assertEqual(self._auth(echo, is_error=False), vb.START_CONFIRMED_RESULT_MISSING)
 
     def test_incidental_denial_word_deep_in_output_is_not_denial(self) -> None:
         # A failing test whose traceback mentions "Permission denied" far into the
