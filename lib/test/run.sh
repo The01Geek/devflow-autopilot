@@ -42653,6 +42653,94 @@ PY
   rm -rf "$RD_SB"
 fi
 
+# iter6_seam_rows (#546, PR #552 review) — three CLI seams the review showed undriven:
+# the EMPTY-but-open stdin dispatch (a `< /dev/null` redirect is not a closed fd 0, so
+# the rd5 rows above never reach the received-none branch), the empty-object-id-on-exit-0
+# digest guard (a shimmed/broken git that "succeeds" silently — without the guard the ''
+# digest compares equal to another '' and grounds eligibility on unaudited bytes), and
+# query-summary's foreign-nonce coercion (every OTHER query class has a foreign-nonce row
+# above; the summary is the one an orchestrator reads fields from, so a foreign nonce
+# rendering state=ok with a live token would hand a hostile/stale run a presentable
+# answer). Each refusal is attributed by the guard's OWN breadcrumb and paired with a
+# positive control on the SAME fixture, so a green negative row cannot be an unrelated
+# precondition firing.
+I6_SB="$(git_sandbox '#546 iter6_seam_rows')"
+if [ -d "$I6_SB" ]; then
+  (
+    cd "$I6_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+
+    # (1) stdin OPEN but EMPTY: the received-none branch, distinct from the closed-fd
+    # AttributeError shape rd5 pins. The refusal must precede any state mutation, so
+    # the positive control can re-dispatch the SAME round on the same fixture.
+    N="$(python3 "$IAS" init i6a | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i6a --nonce "$N" --round 1 --arm embed \
+      --marker digest-unrecorded < /dev/null > /dev/null 2> .i6-empty; printf '%s' "$?" > .i6-empty-rc
+    printf '# T\n\nbody\n' | python3 "$IAS" record-dispatch i6a --nonce "$N" --round 1 \
+      --arm embed --marker digest-unrecorded > /dev/null 2>&1; printf '%s' "$?" > .i6-empty-ctl-rc
+
+    # (2) a git shim that answers hash-object with EMPTY stdout at exit 0 (every other
+    # subcommand delegates to the real git, so state anchoring still resolves). The
+    # digest guard must refuse — an empty '' object id must never read as a digest.
+    REAL_GIT="$(command -v git)"
+    mkdir -p stub-bin
+    {
+      printf '#!/bin/sh\n'
+      printf 'case "$1" in hash-object) exit 0 ;; esac\n'
+      printf 'exec "%s" "$@"\n' "$REAL_GIT"
+    } > stub-bin/git
+    chmod +x stub-bin/git
+    N2="$(python3 "$IAS" init i6b | sed 's/nonce=//')"
+    PATH="$I6_SB/stub-bin:$PATH" python3 "$IAS" record-dispatch i6b --nonce "$N2" \
+      --round 1 --arm file --draft-file draft.md > /dev/null 2> .i6-oid; printf '%s' "$?" > .i6-oid-rc
+    # positive control: the identical invocation without the shim succeeds.
+    python3 "$IAS" record-dispatch i6b --nonce "$N2" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1; printf '%s' "$?" > .i6-oid-ctl-rc
+
+    # (3) query-summary on a foreign nonce: exit 0 (query contract), the rendered line
+    # is the fail-closed unestablished shape with NO live token, and the stderr
+    # breadcrumb names the mismatch so it is not misread as a missing/corrupt record.
+    N3="$(python3 "$IAS" init i6c | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i6c --nonce "$N3" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i6c --nonce "$N3" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" query-summary i6c --nonce badnonce --draft-file draft.md \
+      > .i6-fn-sum 2> .i6-fn-err; printf '%s' "$?" > .i6-fn-rc
+    # positive control: the correct nonce on the SAME state renders ok + the live token.
+    python3 "$IAS" query-summary i6c --nonce "$N3" --draft-file draft.md \
+      > .i6-ok-sum 2>/dev/null
+  )
+  assert_eq "#546 iter6_seam_rows: an OPEN-but-EMPTY stdin refuses the embed dispatch non-zero" \
+    "1" "$(cat "$I6_SB/.i6-empty-rc" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: ... attributed to the received-none guard by its own breadcrumb" \
+    "1" "$(grep -c 'requires the draft bytes on stdin; received none' "$I6_SB/.i6-empty" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: positive control — the identical dispatch with non-empty stdin is accepted" \
+    "0" "$(cat "$I6_SB/.i6-empty-ctl-rc" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: a git shim answering hash-object empty-at-exit-0 refuses non-zero" \
+    "1" "$(cat "$I6_SB/.i6-oid-rc" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: ... attributed to the empty-object-id digest guard by its own breadcrumb" \
+    "1" "$(grep -c 'returned an empty object id on exit 0' "$I6_SB/.i6-oid" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: positive control — the identical dispatch without the shim is accepted" \
+    "0" "$(cat "$I6_SB/.i6-oid-ctl-rc" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: query-summary on a foreign nonce keeps the query exit-0 contract" \
+    "0" "$(cat "$I6_SB/.i6-fn-rc" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: ... and renders the fail-closed unestablished shape" \
+    "1" "$(grep -c '^state=unestablished ' "$I6_SB/.i6-fn-sum" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: ... with NO live token rendered for the foreign run" \
+    "1" "$(grep -c ' token=none ' "$I6_SB/.i6-fn-sum" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: ... and the stderr breadcrumb names the nonce mismatch, not a missing record" \
+    "1" "$(grep -c 'nonce mismatch for slug i6c' "$I6_SB/.i6-fn-err" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: positive control — the correct nonce on the SAME state renders state=ok" \
+    "1" "$(grep -c '^state=ok ' "$I6_SB/.i6-ok-sum" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: ... with the due live token rendered" \
+    "1" "$(grep -c ' token=eat_' "$I6_SB/.i6-ok-sum" 2>/dev/null)"
+  rm -rf "$I6_SB"
+fi
+
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)

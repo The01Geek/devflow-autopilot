@@ -3692,6 +3692,9 @@ for (landed, hash_ok, prior, want_arm, want_marker) in [
     (True, True, False, 'file', None),
     (False, True, False, 'embed', 'write-failed'),
     (True, False, False, 'embed', 'digest-unrecorded'),
+    # Both non-prior conditions false at once: the decided precedence tests
+    # write_landed BEFORE hash_ok, so the write-failed marker wins.
+    (False, False, False, 'embed', 'write-failed'),
     (True, True, True, 'embed', 'file-unreadable'),
     (False, False, True, 'embed', 'file-unreadable'),   # a prior unreadable wins
 ]:
@@ -3713,6 +3716,9 @@ for (arm, verdict, has_line, carriage, want) in [
     ('file', 'REVISE', True, True, 'accept-revise'),
     ('file', 'DRAFT-UNREADABLE', True, True, 'retry-embed'),
     ('embed', 'FILE', True, True, 'accept-file'),
+    ('embed', 'REVISE', True, True, 'accept-revise'),
+    ('inline', 'FILE', True, True, 'accept-file'),
+    ('inline', 'REVISE', True, True, 'accept-revise'),
     ('embed', 'DRAFT-UNREADABLE', True, True, 'no-parseable-verdict'),
     ('inline', 'DRAFT-UNREADABLE', True, True, 'no-parseable-verdict'),
     # carriage mismatched vs. absent — the same classification, fail closed
@@ -3816,6 +3822,18 @@ assert_eq("#546 eligibility_grounds_table: a newer no-verdict round does NOT sha
               issue_audit_state.evaluate_eligibility(
                   _state([_round(1, 'file', 'FILE', 'D1'),
                           _round(2, 'inline', 'no-verdict', 'D1')]), 'approve', 'D1')))
+# The embed-arm sibling of the interleaving above: eligibility grounds on event
+# ordering (no revision postdates the clean round), and the trailing no-verdict round
+# does not shadow it — while evaluate_triggers fires T2 on the same state (asserted in
+# t1_t2_rows below), the documented deliberate divergence: the boundary offer surfaces
+# the inconclusive re-audit instead of revoking the clean verdict.
+assert_eq("#546 eligibility_grounds_table: a newer no-verdict round does NOT shadow an "
+          "older clean EMBED round with no revision (event-ordering ground holds)",
+          ('eligible', 'event-ordering'),
+          (lambda r: (r['answer'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([_round(1, 'embed', 'FILE', 'D1'),
+                          _round(2, 'embed', 'no-verdict', 'D1')]), 'approve', None)))
 # ...but a newer REVISE round DOES invalidate the older clean FILE round (the contrast
 # that proves the no-verdict fall-through above is deliberate, not a scan bug).
 assert_eq("#546 eligibility_grounds_table: a newer REVISE round DOES invalidate an older "
@@ -3905,6 +3923,22 @@ assert_eq("#546 eligibility_token_rows: a staled OVERRIDE-ground token (no FILE 
 assert_eq("#546 eligibility_token_rows: ... and renders the distinct stale-token marker, "
           "not token=none (override-ground fail-open regression)",
           True, _ovr_staled_sf['stale_token'])
+# The NO-VERDICT-epoch sibling of the staled-override row above: refusal precedence
+# answers `no-verdict-round` before `stale-override` on a verdict-less epoch, so a
+# reason-keyed derivation never sees the staled override there and rendered
+# `token=none` (defined as "no token was ever issued") for a token that WAS issued and
+# later invalidated. The state-derived predicate (an override recorded at a
+# non-current ordinal) must render the distinct stale marker on this epoch too.
+_nv_stale_override = _state(
+    [_round(1, 'inline', 'no-verdict', 'D1')], revisions=(1,), overrides=[
+        {'kind': 'user-decline', 'surface': 'step4-offer', 'recorded_at_ordinal': 0,
+         'draft_digest': None}])
+_nv_sf = issue_audit_state.summary_fields(_nv_stale_override, 'D2')
+assert_eq("#546 eligibility_token_rows: a staled override token on a NO-VERDICT epoch "
+          "does not re-emit", None, _nv_sf['token'])
+assert_eq("#546 eligibility_token_rows: ... and renders stale-token, not token=none "
+          "(refusal precedence hides stale-override behind no-verdict-round there)",
+          True, _nv_sf['stale_token'])
 # The still-current override (a token IS live) must NOT render stale — guards against the
 # fix over-firing the marker on a legitimately-eligible override.
 _ovr_live_sf = issue_audit_state.summary_fields(_cur_override, 'D2')
@@ -4319,6 +4353,9 @@ assert_eq("#546 split_body_rows: a title-only draft yields an empty body",
           b'', _sb(b'# Title\n'))
 assert_eq("#546 split_body_rows: CRLF line endings are preserved byte-for-byte",
           b'body\r\nmore\r\n', _sb(b'# Title\r\n\r\nbody\r\nmore\r\n'))
+assert_eq("#546 split_body_rows: empty input returns the empty bytes unchanged "
+          "(the no-lines early return, never an index into an empty list)",
+          b'', _sb(b''))
 
 # (6) findings_count from a REFUSED completion (failed carriage / no parseable verdict)
 # is never recorded onto the round — an unproven tally must not leak into the summary.
@@ -4329,6 +4366,133 @@ assert_eq("#546 refused_return_rows: a refused completion classification is neve
           "accepted one", False,
           issue_audit_state.classify_return('file', 'FILE', True, False)
           in ('accept-file', 'accept-revise'))
+
+print()
+print("issue-audit-state: coverage-gap rows (issue #546, PR #552 review)")
+
+# (1) save_state's failed-persist cleanup: when os.replace cannot land (here the
+# target path is occupied by a directory), the failure surfaces as StateError with
+# the could-not-persist breadcrumb AND the partial .json.tmp is removed — a failed
+# persist never leaves a stray temp file in the evidence-bearing tmp directory.
+with tempfile.TemporaryDirectory() as _td:
+    _ss_root = Path(_td)
+    (_ss_root / '.devflow' / 'tmp' / 'issue-audit-state-s.json').mkdir(parents=True)
+    try:
+        issue_audit_state.save_state(_state([]), 's', root=_ss_root)
+        assert_eq("#546 save_state_cleanup_rows: a persist the OS refuses raises "
+                  "StateError", "raised StateError", "no exception raised")
+    except issue_audit_state.StateError as _e:
+        assert_eq("#546 save_state_cleanup_rows: a persist the OS refuses raises "
+                  "StateError with the could-not-persist breadcrumb",
+                  True, 'could not persist state' in str(_e))
+    assert_eq("#546 save_state_cleanup_rows: ... and no partial .json.tmp survives "
+              "the failed persist",
+              [], list((_ss_root / '.devflow' / 'tmp').glob('*.json.tmp')))
+
+# (2) The attestation trailing-newline tolerance swallows a _DigestError raised by
+# the SECOND (newline-stripped) hash: the compare stays a well-defined mismatch —
+# never an unhandled exception, which would leave the run with no attestation record
+# at all (rendering attestation=none, the never-attempted misattribution). Driven
+# with hash_bytes stubbed so the swallow itself is what the row exercises: the first
+# call establishes the mismatch, the retry raises.
+with tempfile.TemporaryDirectory() as _td:
+    _att_root = Path(_td)
+    _att_doc = _state([_round(1, 'file', 'FILE', 'D1')])
+    _att_doc['creation'] = {'epoch_round': 1, 'epoch_arm': 'file',
+                            'body_only_digest': 'BD1', 'attestation': None}
+    issue_audit_state.save_state(_att_doc, 's', root=_att_root)
+    _hash_calls = []
+
+    def _hash_stub(data):
+        _hash_calls.append(data)
+        if len(_hash_calls) > 1:
+            raise issue_audit_state._DigestError('stub: retry hash unavailable')
+        return 'NOT-BD1'
+
+    _orig_repo_root = issue_audit_state._repo_root
+    _orig_hash = issue_audit_state.hash_bytes
+    _orig_stdin = sys.stdin
+    _att_out = io.StringIO()
+    try:
+        issue_audit_state._repo_root = lambda: _att_root
+        issue_audit_state.hash_bytes = _hash_stub
+        sys.stdin = types.SimpleNamespace(buffer=io.BytesIO(b'fetched body\n'))
+        try:
+            with contextlib.redirect_stdout(_att_out), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                issue_audit_state.cmd_record_creation_attestation(
+                    argparse.Namespace(slug='s', nonce='n0',
+                                       attestation_unavailable=False))
+            _att_ended = 'returned'
+        except SystemExit as _e:
+            _att_ended = f'SystemExit({_e.code})'
+        except Exception as _e:
+            _att_ended = f'{type(_e).__name__}: {_e}'
+    finally:
+        issue_audit_state._repo_root = _orig_repo_root
+        issue_audit_state.hash_bytes = _orig_hash
+        sys.stdin = _orig_stdin
+    assert_eq("#546 attestation_swallow_rows: a _DigestError on the newline-stripped "
+              "retry hash is swallowed (the command completes)",
+              'returned', _att_ended)
+    assert_eq("#546 attestation_swallow_rows: ... the retry hash WAS attempted, so "
+              "the swallow (not a skipped tolerance) is what ran",
+              2, len(_hash_calls))
+    assert_eq("#546 attestation_swallow_rows: ... and the outcome stays the "
+              "well-defined mismatch",
+              'attestation=mismatch\n', _att_out.getvalue())
+    assert_eq("#546 attestation_swallow_rows: ... persisted as mismatch, never "
+              "half-recorded",
+              'mismatch',
+              issue_audit_state.load_state('s', root=_att_root)['creation']['attestation'])
+
+# (3) record-return's negative --findings-count guard fires its OWN breadcrumb (a
+# tally cannot be negative) before anything persists; findings-count 0 on the SAME
+# fixture is the valid-falsy positive control — a real zero is accepted and recorded.
+with tempfile.TemporaryDirectory() as _td:
+    _rr_root = Path(_td)
+    issue_audit_state.save_state(_state([_round(1, 'inline', None)]), 's', root=_rr_root)
+
+    def _rr_args(count):
+        return argparse.Namespace(slug='s', nonce='n0', round=1, verdict='FILE',
+                                  findings_count=count,
+                                  consumer_dimensions_appended=False,
+                                  carriage_object_id=None,
+                                  carriage_sentinel_open=None,
+                                  carriage_sentinel_close=None)
+
+    _orig_repo_root = issue_audit_state._repo_root
+    _rr_err = io.StringIO()
+    try:
+        issue_audit_state._repo_root = lambda: _rr_root
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(_rr_err):
+                issue_audit_state.cmd_record_return(_rr_args(-1))
+            _rr_code = None
+        except SystemExit as _e:
+            _rr_code = _e.code
+        assert_eq("#546 record_return_findings_rows: a negative findings count exits "
+                  "non-zero", 1, _rr_code)
+        assert_eq("#546 record_return_findings_rows: ... attributed to the "
+                  "negative-tally guard's own breadcrumb",
+                  True, 'is negative; a findings tally cannot be' in _rr_err.getvalue())
+        assert_eq("#546 record_return_findings_rows: ... and the refused return never "
+                  "persisted (the round is still open)",
+                  None,
+                  issue_audit_state.load_state('s', root=_rr_root)['rounds'][0]['outcome'])
+        _rr_out = io.StringIO()
+        with contextlib.redirect_stdout(_rr_out):
+            issue_audit_state.cmd_record_return(_rr_args(0))
+        assert_eq("#546 record_return_findings_rows: findings-count 0 on the same "
+                  "fixture is accepted (valid-falsy, a real zero)",
+                  'classification=accept-file outcome=FILE\n', _rr_out.getvalue())
+        assert_eq("#546 record_return_findings_rows: ... and the real zero is recorded",
+                  0,
+                  issue_audit_state.load_state(
+                      's', root=_rr_root)['rounds'][0]['findings_count'])
+    finally:
+        issue_audit_state._repo_root = _orig_repo_root
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

@@ -111,6 +111,10 @@ _RESULTS = _CLASSIFICATIONS + (
 # The three embed-arm entry markers, preserved verbatim from the prose this module
 # replaces. `lib/test/run.sh` pins the rendered text byte-for-byte: the audit summary
 # line carries whichever of these the run entered the embed arm under.
+# `digest-unrecorded`'s rendered text predates the cutover, while its trigger is now
+# "the tool's own hash of the draft file failed" (see route_arm) — the wording is
+# kept because marker strings are preserved verbatim by the extraction contract, and
+# a failed hash does leave the digest unrecorded, so the text stays literally true.
 _EMBED_MARKER_TOKENS = ('write-failed', 'file-unreadable', 'digest-unrecorded')
 _EMBED_MARKER_TEXT = {
     'write-failed': 'draft embedded (file write failed)',
@@ -460,7 +464,14 @@ def split_body(raw):
 # ── State I/O ──────────────────────────────────────────────────────────────────
 
 class StateError(Exception):
-    """A state file that cannot be trusted. Queries answer state-unestablished."""
+    """State that cannot be trusted or safely persisted.
+
+    Raised for three causes, deliberately sharing one fail-closed treatment (queries
+    answer state-unestablished; mutations exit non-zero with the breadcrumb): a state
+    file that cannot be trusted (unreadable, unparseable, foreign, or shape-invalid),
+    a slug that is not a safe path segment (refused before any filesystem I/O), and a
+    state document that could not be persisted.
+    """
 
 
 _REQUIRED_TOP = ('schema_version', 'slug', 'nonce', 'rounds', 'revisions', 'overrides')
@@ -881,6 +892,15 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
         # The clean ground requires the NEWEST completed verdict-bearing round to be
         # FILE: a later completed REVISE round on the same bytes invalidates an older
         # clean verdict (probe-confirmed fail-open otherwise — the newest verdict wins).
+        # The scan deliberately FALLS THROUGH a `no-verdict` round: an inconclusive
+        # re-audit is not a revocation, so a clean verdict on unchanged bytes (digest
+        # identity on the file arm; no later revision on embed/inline) still grounds
+        # eligibility. This diverges from evaluate_triggers on purpose — T2 treats the
+        # same trailing no-verdict round as "effectively unaudited" and fires the
+        # boundary offer, so the inconclusive re-audit is surfaced to the user rather
+        # than laundered, while eligibility on the previously-audited, unchanged bytes
+        # is not revoked by inconclusiveness alone. Pinned in both directions in the
+        # suite (no-verdict does not shadow; REVISE does).
         if rnd.get('outcome') == 'FILE':
             clean = rnd
             break
@@ -1108,11 +1128,21 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # TWO grounds can issue a token, so both must be able to stale it:
         #   - a clean FILE round (its token staled by a later revision), covered by the
         #     `any(outcome == 'FILE')` scan below; and
-        #   - a still-recorded override (staled by a later revision — eligibility then
-        #     refuses `stale-override`), which can exist on a REVISE/no-verdict epoch
-        #     with NO FILE round in `done` at all, so the FILE scan alone missed it and
-        #     rendered `token=none` — the override-ground fail-open this OR closes.
-        override_staled = elig.get('reason') == 'stale-override'
+        #   - a recorded override invalidated by a later revision, which can exist on a
+        #     REVISE or no-verdict epoch with NO FILE round in `done` at all, so the
+        #     FILE scan alone missed it and rendered `token=none` — the override-ground
+        #     fail-open this OR closes. Derived from STATE (an override recorded at a
+        #     non-current ordinal), not from the eligibility reason alone: refusal
+        #     precedence answers `no-verdict-round` before `stale-override` whenever
+        #     the last completed round is verdict-less, so on a no-verdict epoch the
+        #     reason never reads `stale-override` and a reason-only derivation rendered
+        #     `token=none` there. The reason stays OR-ed in for the current-ordinal
+        #     digest-mismatch case (a byte-distinct draft at the same ordinal), which
+        #     the ordinal predicate cannot see.
+        override_staled = (
+            elig.get('reason') == 'stale-override'
+            or any(ov.get('recorded_at_ordinal') != revision_ordinal(state)
+                   for ov in state['overrides']))
         stale = any(r.get('outcome') == 'FILE' for r in done)
         if stale and not override_staled and current_digest is None:
             # One carve-out, scoped to the FILE-round ground only (never the override
@@ -1693,6 +1723,11 @@ def cmd_record_creation_attestation(args):
             # Bounded, disclosed tolerance: gh/jq fetch framing appends exactly one
             # trailing newline the posted bytes never carried. Retry the compare
             # with ONE trailing newline stripped; anything else stays a mismatch.
+            # Accepted residual: server-side trailing-whitespace normalization, or a
+            # second framing newline, still renders a spurious `mismatch`. Widening
+            # the tolerance would blunt the tamper-evidence surface, and the false
+            # positive is loud and post-hoc (creation is never rolled back), so the
+            # one-byte bound is kept.
             try:
                 if hash_bytes(data[:-1]) == doc['creation']['body_only_digest']:
                     status = 'match'
