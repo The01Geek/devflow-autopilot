@@ -31,7 +31,7 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
   `bytes.split()` is byte-identical everywhere; on this corpus it equals BSD `LC_ALL=C wc -w`.
   Totals here can therefore differ by a few words from earlier unpinned measurements quoted in
   issue #530 (its 38,634-word baseline was a BSD-UTF-8 count of the same bytes).
-- **approx tokens = words × 1.3, rounded to the nearest whole number (half up)** (a coarse
+- **approx tokens = words × 1.3, rounded to the nearest whole number (Python `round()`, i.e. round half to even)** (a coarse
   English-prose estimate; stated as a formula, not a measured tokenizer count).
 - **BEFORE basis:** the pre-split monolith `SKILL.md` as of the split's base commit on `main`;
   the live-extension addend in the BEFORE always-loaded row is the *current* extension file

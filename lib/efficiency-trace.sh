@@ -299,7 +299,7 @@ SHADOW_SYNTH_EXPECTED_FIELDS="shadow_synthesized promoted_to_iter_next"
 #
 # SHARED FIX-COMMIT SUBJECT CONTRACT (coupled two-site invariant — issue #381):
 # the fix-commit subject template `fix: address review findings (iteration {N})`
-# is WRITTEN by skills/review-and-fix/SKILL.md Step 3 item 6 and PARSED here to
+# is WRITTEN by skills/review-and-fix/references/fixing.md Step 3 item 6 and PARSED here to
 # reconstruct the per-iteration records when the workpads were dropped. Both
 # sites must carry the identical literal; lib/test/run.sh pins both and a
 # targeted edit to either turns the suite RED. Changing the subject? Edit item 6

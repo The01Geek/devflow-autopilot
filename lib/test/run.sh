@@ -8218,7 +8218,8 @@ assert_pin_red_under "#376 w2-phase-five-kinds: phase-2-implement.md §2.3.4 ste
 # Two coupled skill edits, each new operative sentence pinned through assert_pin_red_under
 # (#375) with a mutation that removes ONLY that operative sentence — so a framing-only pin is
 # reported RED at the desk, per AC8. The default file for assert_pin_red_under is $MAXI_SKILL
-# (skills/review-and-fix/SKILL.md), so the Edit-1 (Step 3 item 3b) pins omit the file arg;
+# (the reassembled root+references bundle MAXI_BUNDLE; Step 3 item 3b now lives in
+# references/fixing.md within it), so the Edit-1 (Step 3 item 3b) pins omit the file arg;
 # the Edit-2 (§3.2) pins target phase-3-review.md by path so AC5's count assertion reads the
 # owning phase file, not the merged bundle.
 P3_FILE="$IMPL_PHASES_DIR/phase-3-review.md"
@@ -8490,7 +8491,8 @@ assert_pin_red_under "#478 AC10 step-4.5 clause: the recorded grade tallies unde
 
 # AC5 — routing-marker drift lint, driven from here with BOTH arms. Each closed-vocab marker present
 # in the §2.3 sweep bodies (phase-2-implement.md, "Sweep selection" preamble through "### 2.4 Test")
-# must have a mapping-table row in item 3b (skills/review-and-fix/SKILL.md, between the BEGIN/END
+# must have a mapping-table row in item 3b (skills/review-and-fix/references/fixing.md, read via the
+# $MAXI_SKILL bundle, between the BEGIN/END
 # fix-loop mapping table anchors). The lint echoes GREEN when every present marker is mapped, RED
 # when one is not. GREEN arm: the real files. RED arm: a scratch SKILL copy with every
 # '## Devflow Reflection' line stripped (including its mapping-table row) while the marker stays in
@@ -18897,7 +18899,7 @@ assert_eq "et-synth(T5): a TRUNCATED synthesized record still warns on its minim
 rm -rf "$ETSC2_REPO"
 
 # T5 → AC5: the fix-commit subject literal is a coupled TWO-SITE invariant —
-# skills/review-and-fix/SKILL.md item 6 (the producer) ↔ lib/efficiency-trace.sh
+# skills/review-and-fix/references/fixing.md item 6 (the producer) ↔ lib/efficiency-trace.sh
 # (the parser). Both sites must carry it; a targeted edit to either turns RED.
 ETSY_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 ETSY_ETSH="$LIB/efficiency-trace.sh"
