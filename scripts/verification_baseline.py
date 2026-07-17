@@ -2178,8 +2178,16 @@ def read_cloud_census(snapshot_path: Path) -> "tuple[dict[str, Any] | None, str]
     # but the consumer's enforcement half was missing — fail-open on exactly the
     # tampered input the hash exists to detect). A mismatch reads unavailable.
     rows = doc.get("rows")
-    recorded = doc.get("snapshot_hash")
-    if isinstance(rows, list) and isinstance(recorded, str):
+    if isinstance(rows, list):
+        # A rows-present snapshot's integrity is UNVERIFIABLE without a usable
+        # recorded hash: an absent/non-string snapshot_hash is a legitimate
+        # alteration shape (a hand-edit or partial copy that dropped the field),
+        # so the guard must fail CLOSED — a guard whose comparand can be absent
+        # must not pass on the absent case (CLAUDE.md; convergence-shadow: the
+        # iteration-2 hash check returned "ok" when the hash was stripped).
+        recorded = doc.get("snapshot_hash")
+        if not isinstance(recorded, str):
+            return None, "snapshot_hash absent/non-string with rows present (integrity unverifiable)"
         actual = _sha256_hex(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("utf-8"))
         if actual != recorded:
             return None, "snapshot_hash mismatch (rows altered since export)"

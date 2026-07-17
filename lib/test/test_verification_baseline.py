@@ -1793,6 +1793,9 @@ class Pr531Iter2ShadowFixTests(_TmpDirTestCase):
                         started="2026-07-16T01:03:00Z", finished="2026-07-16T01:04:00Z")
         rel, _conf = vb._classify_relationship([a, b])
         self.assertNotEqual(rel, REL_CANDIDATE_TRANSPORT_RETRY)
+        # Assert the exact resulting class, not just the negative (conv-shadow
+        # weak-assertion note): a no-explicit-lifecycle group is unclassifiable.
+        self.assertEqual(rel, REL_UNCLASSIFIABLE)
 
     # --- Shadow Medium: read_cloud_census must verify snapshot_hash. ----------
     def _write_snapshot(self, rows, tamper: bool = False) -> Path:
@@ -1822,6 +1825,26 @@ class Pr531Iter2ShadowFixTests(_TmpDirTestCase):
         doc, reason = vb.read_cloud_census(p)
         self.assertIsNotNone(doc)
         self.assertEqual(reason, "ok")
+
+    def test_read_cloud_census_rows_present_but_hash_absent_fails_closed(self) -> None:
+        # A rows-present snapshot whose snapshot_hash was stripped (or set
+        # non-string) is integrity-UNVERIFIABLE: the guard's comparand is absent,
+        # so it must fail CLOSED (unavailable), never return "ok" on unverified
+        # rows (convergence-shadow: the absent-comparand fail-open in the
+        # iteration-2 hash check).
+        rows = [{"workflow_file": "a", "job": "b", "run_id": 1, "run_attempt": 1,
+                 "started_at": None, "status": "completed", "conclusion": "success"}]
+        for bad_hash in (None, 123, [], {}):  # missing (None-drop below), or non-string
+            snap = {"schema_version": 1, "query_time": "t", "pagination_complete": True,
+                    "repository": "o/r", "rows": rows}
+            if bad_hash is not None:
+                snap["snapshot_hash"] = bad_hash
+            p = Path(self.out) / "snap-nohash.json"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(snap), encoding="utf-8")
+            doc, reason = vb.read_cloud_census(p)
+            self.assertIsNone(doc, f"bad_hash={bad_hash!r} must fail closed")
+            self.assertIn("hash", reason.lower())
 
     # --- Shadow Medium: an all-malformed-rows census is unavailable, breadcrumbed. -
     def test_all_malformed_rows_census_is_unavailable(self) -> None:
