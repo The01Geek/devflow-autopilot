@@ -19,7 +19,7 @@ _devflow_valid_result_count() {
 }
 
 devflow_run_focused_python_test() { # assertion-name script-path output-path
-  local assertion_name="$1" script_path="$2" output_path="$3" test_rc
+  local assertion_name="$1" script_path="$2" output_path="$3" test_rc _devflow_line
 
   # PYTHON_COLORS=0 keeps the captured diagnostics deterministic: a host that
   # forces color (FORCE_COLOR) would otherwise interleave ANSI codes into the

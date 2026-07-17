@@ -269,7 +269,9 @@ class ModuleRunnerTests(unittest.TestCase):
         result = self._run("sample")
 
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-        self.assertIn("did not define its contract functions", result.stderr)
+        self.assertIn(
+            "did not define devflow_run_focused_python_test", result.stderr
+        )
         self.assertFalse(self.marker.exists())
 
     def test_unknown_selector_fails_before_any_module_body_or_log(self) -> None:
@@ -516,19 +518,31 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertIn("module path is not a readable file", result.stderr)
         self.assertFalse(self.marker.exists())
 
-    @unittest.skipIf(os.geteuid() == 0, "root reads chmod-0 files; test needs a non-root euid")
     def test_unreadable_module_file_is_rejected_before_source(self) -> None:
         module = self.modules_dir / "sample.sh"
         module.chmod(0)
-        self.assertFalse(os.access(module, os.R_OK))
+        # Probe actual readability instead of euid, and assert the readability
+        # gate's correct-for-THIS-host behavior on every host — never a
+        # laundered skip (#456: unittest's skipIf reports OK/rc-0, which run.sh
+        # records as a clean pass). A euid-keyed skipIf also AttributeErrors at
+        # class-definition time on native Windows, where os.geteuid does not
+        # exist. Root and permission-less filesystems (native Windows) can read
+        # a chmod-0 file: there the `[ -r ]` gate must pass it straight through
+        # to normal sourcing; elsewhere it must reject before sourcing.
+        host_can_read_unreadable = os.access(module, os.R_OK)
         try:
             result = self._run("sample")
         finally:
             module.chmod(0o600)
 
-        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-        self.assertIn("module path is not a readable file", result.stderr)
-        self.assertFalse(self.marker.exists())
+        if host_can_read_unreadable:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(self.marker.is_file())
+            self.assertIn("Module sample: 1 passed, 0 failed", result.stdout)
+        else:
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn("module path is not a readable file", result.stderr)
+            self.assertFalse(self.marker.exists())
 
     def test_symlink_escape_is_rejected_by_canonical_path_confinement(self) -> None:
         escaped = self.root / "escaped.sh"

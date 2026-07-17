@@ -24,7 +24,7 @@ MODULE_ID=""
   exit 2
 }
 type devflow_run_focused_python_test >/dev/null 2>&1 || {
-  printf 'selector error: module-harness.sh did not define its contract functions\n' >&2
+  printf 'selector error: module-harness.sh did not define devflow_run_focused_python_test\n' >&2
   exit 2
 }
 
@@ -253,6 +253,15 @@ LOG_FILE="$(mktemp "$LOG_DIR/$MODULE_ID.log.XXXXXX")" || \
     value="${value//$'\r'/ }"
     value="${value//$'\n'/\\n}"
     printf '%s' "${value:-(empty)}"
+  }
+
+  # Enforce the module contract's no-self-skip rule on THIS tier too: without
+  # this stub a stray `skip` is a non-fatal rc-127 mid-module (no set -e), so
+  # the focused run would stay green while the full-suite boundary fails the
+  # same module closed — a focused-vs-full-suite verdict divergence.
+  skip() {
+    printf 'FATAL: modules may not self-skip (module contract) — keep skippable gates in the full suite\n' >&2
+    exit 1
   }
 
   assert_eq() {
