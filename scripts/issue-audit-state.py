@@ -49,6 +49,7 @@ import functools
 import hashlib
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -114,6 +115,7 @@ _NEXT_ACTIONS = (
 _ELIGIBILITY_REASONS = (
     'unaudited-revision', 'stale-override', 'no-verdict-round', 'state-unestablished',
     'foreign-nonce', 'no-revision-recorded', 'draft-undigestible',
+    'no-digest-supplied',
 )
 _GROUNDS = ('file-identity', 'event-ordering', 'override')
 
@@ -328,8 +330,7 @@ def state_path(slug, root=None):
     """
     # The slug keys a filesystem path (guard-class 2): an escaping shape would read,
     # write, and — worst — cold-start-DELETE outside .devflow/tmp. Fail closed.
-    import re as _re
-    if not _re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', slug or ''):
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', slug or ''):
         raise StateError(f'slug {slug!r} is not a safe path segment '
                          f'([A-Za-z0-9][A-Za-z0-9._-]*)')
     base = root if root is not None else (_repo_root() or Path.cwd())
@@ -772,6 +773,13 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
         return _no('no-verdict-round')
     if state['overrides']:
         return _no('stale-override')
+    if current_digest is None and clean is not None:
+        arm = clean['attempts'][-1]['arm']
+        if arm == 'file' and not _revision_postdates(state, clean):
+            # A file-arm clean epoch queried with NO digest supplied was never
+            # compared at all: refusing as unaudited-revision would assert a revision
+            # that may not exist. Name the real cause.
+            return _no('no-digest-supplied')
     return _no('unaudited-revision')
 
 
@@ -1050,6 +1058,15 @@ def cmd_record_dispatch(args):
         if (prev is not None and prev.get('outcome') == 'REVISE'
                 and doc.get('automatic_reaudits_used', 0) < _MAX_AUTOMATIC_REAUDITS):
             doc['automatic_reaudits_used'] = doc.get('automatic_reaudits_used', 0) + 1
+        # Round funding: every round past the initial one is funded by the automatic
+        # budget spent above or an accepted user-chosen offer (record-offer). Opening
+        # an unfunded round would hand the run re-audits the cap never sees.
+        if len(doc['rounds']) >= (1 + doc.get('automatic_reaudits_used', 0)
+                                  + doc.get('user_rounds_used', 0)):
+            _fail('record-dispatch',
+                  f'round {args.round} is not funded: the automatic budget is spent '
+                  f'and no accepted user-chosen round funds it (record-offer '
+                  f'--accepted first)')
         rnd = {'round': args.round, 'attempts': [], 'no_parseable_retry_used': False,
                'unreadable_retry_used': False, 'outcome': None, 'findings_count': None,
                'consumer_dimensions_appended': False, 'embed_markers': [],
@@ -1058,10 +1075,21 @@ def cmd_record_dispatch(args):
     elif rnd.get('outcome') is not None:
         _fail('record-dispatch', f'round {args.round} is already closed with outcome '
                                  f'{rnd["outcome"]!r}; a dispatch cannot reopen it')
+    elif rnd.get('pending') not in ('dispatch-embed-retry', 'dispatch-retry-same-arm',
+                                    'dispatch-inline-degraded'):
+        # An open round accepts a further dispatch only when a retry is actually
+        # pending: an unrequested re-dispatch would append a second attempt whose
+        # digest/sentinels silently become the carriage comparand.
+        _fail('record-dispatch', f'round {args.round} is open awaiting its return; a '
+                                 f're-dispatch was not requested')
     # This dispatch consumes any pending retry action: between this dispatch and its
     # record-return, next-action must answer round-open-awaiting-return, never re-issue
     # the already-spent retry (a duplicate dispatch would append a second attempt whose
     # digest/sentinels become the carriage comparand).
+    if args.arm == 'embed' and not args.marker:
+        # Every embed-arm entry carries its cause marker into the evidence surface; an
+        # unmarked embed attempt would lose the entry diagnosis forever.
+        _fail('record-dispatch', 'the embed arm requires --marker naming the entry cause')
     rnd['pending'] = None
     rnd['attempts'].append(attempt)
     if args.marker:
@@ -1288,6 +1316,17 @@ def cmd_record_creation_attestation(args):
             except _DigestError as exc:
                 _fail('record-creation-attestation', str(exc))
             status = 'match' if got == doc['creation']['body_only_digest'] else 'mismatch'
+            if status == 'mismatch' and data.endswith(b'\n'):
+                # Bounded, disclosed tolerance: gh/jq fetch framing appends exactly one
+                # trailing newline the posted bytes never carried. Retry the compare
+                # with ONE trailing newline stripped; anything else stays a mismatch.
+                try:
+                    if hash_bytes(data[:-1]) == doc['creation']['body_only_digest']:
+                        status = 'match'
+                        print('record-creation-attestation: matched modulo the '
+                              "fetch's single trailing newline", file=sys.stderr)
+                except _DigestError:
+                    pass
     # Stored as the BARE status token — the summary field renders it verbatim into the
     # single-line key=value surface, so a nested object here would corrupt that line.
     doc['creation']['attestation'] = status
@@ -1314,7 +1353,13 @@ def cmd_emit_body(args):
     if elig['answer'] != 'eligible':
         _fail('emit-body', 'refusing to emit an unaudited body: eligibility answered '
                            f'not-eligible ({elig["reason"]})')
-    sys.stdout.buffer.write(split_body(raw))
+    body = split_body(raw)
+    if not body:
+        # Exit 0 with empty stdout is the gate's REFUSAL signature; an eligible draft
+        # with an empty body below its title must fail loudly instead of stalling the
+        # posting recipe undiagnosably.
+        _fail('emit-body', 'the audited draft has an empty body below its title')
+    sys.stdout.buffer.write(body)
 
 
 def _query_state(slug):

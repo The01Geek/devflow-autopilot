@@ -4051,14 +4051,27 @@ assert_raises("#546 shadow-round: a slash-carrying slug raises StateError",
 print()
 print("issue-audit-state: iteration-3 hardening (issue #546, PR #552 review)")
 
-# after-round is validated against recorded facts: a value below the last completed
-# round (which would fail the event-ordering staleness guard OPEN) and a value above
-# the last recorded round are both refused; the truthful value is accepted.
+# State-shape hardening for the iteration-3 fields (the after-round bounds themselves
+# are driven at the CLI in run.sh's iter3_hardening_rows; these rows pin the sibling
+# _validate additions).
 _malformed('a negative findings_count',
            dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'), findings_count=-3)]))
 _malformed('a non-boolean reinit_forced', dict(_GOOD, reinit_forced='yes'))
 assert_eq("#546 iter3: _TRANSITION_REASONS gains attestation-already-recorded",
           True, 'attestation-already-recorded' in issue_audit_state._TRANSITION_REASONS)
+
+# iteration-5: the no-digest-supplied reason is distinct from unaudited-revision (a
+# file-arm clean epoch queried with no digest was never compared at all).
+assert_eq("#546 iter5: no digest supplied over a file-arm clean epoch names its own reason",
+          ('not-eligible', 'no-digest-supplied'),
+          (lambda r: (r['answer'], r['reason']))(
+              issue_audit_state.evaluate_eligibility(_clean_file, 'approve', None)))
+assert_eq("#546 iter5: ... while a revision-postdated file-arm epoch still refuses "
+          "unaudited-revision with no digest",
+          'unaudited-revision',
+          issue_audit_state.evaluate_eligibility(
+              _state([_round(1, 'file', 'FILE')], revisions=(1,)),
+              'approve', None)['reason'])
 
 # (3) An unreadable/unhashable supplied draft refuses with the DISTINCT reason
 # draft-undigestible in approve mode — never misattributed as unaudited-revision,

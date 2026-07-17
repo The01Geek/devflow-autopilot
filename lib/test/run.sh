@@ -41266,6 +41266,9 @@ if [ -d "$NA_SB" ]; then
     # guard: the counter was once never incremented, so this loop was unbounded.
     NB="$(python3 "$IAS" init nb | sed 's/nonce=//')"
     for R in 1 2 3; do
+      # Round 3 is past the automatic budget, so it must be FUNDED by an accepted
+      # user-chosen offer first (the round-funding gate refuses an unfunded open).
+      [ "$R" = 3 ] && python3 "$IAS" record-offer nb --nonce "$NB" --accepted > /dev/null
       python3 "$IAS" record-dispatch nb --nonce "$NB" --round "$R" --arm file \
         --draft-file d.md > /dev/null
       python3 "$IAS" record-return nb --nonce "$NB" --round "$R" --verdict REVISE \
@@ -41661,9 +41664,10 @@ if [ -d "$I3_SB" ]; then
   rm -rf "$I3_SB"
 fi
 
-# iter4_variance_rows (#546, PR #552 review round 4) — the two mutation-path guards the
-# round-4 variance pass showed were covered only at the _validate layer: the record-return
-# negative findings-count refusal, and _repo_root's anchor-fallback breadcrumb.
+# iter4_variance_rows (#546, PR #552 review round 4) — two seams the round-4 variance
+# pass showed untested at the CLI layer: the record-return negative findings-count
+# refusal (previously covered only at the _validate layer) and the previously-untested
+# _repo_root anchor-fallback stderr breadcrumb.
 I4_SB="$(git_sandbox '#546 iter4_variance_rows')"
 if [ -d "$I4_SB" ]; then
   (
@@ -41678,8 +41682,8 @@ if [ -d "$I4_SB" ]; then
     python3 "$IAS" record-return i4 --nonce "$N" --round 1 --verdict FILE \
       --findings-count -1 --carriage-object-id "$OID" > /dev/null 2> .i4-neg; printf '%s' "$?" > .i4-neg-rc
 
-    # anchor-fallback breadcrumb: no git on PATH and no enclosing repo -> init still
-    # works (cwd anchor) but breadcrumbs the selection change to stderr
+    # anchor-fallback breadcrumb: git unresolvable on PATH (the subprocess raises
+    # OSError) -> init still works (cwd anchor) but breadcrumbs the selection change
     mkdir -p nogit-bin nogit-cwd
     ln -sf "$(command -v python3)" nogit-bin/python3
     ( cd nogit-cwd && PATH="$I4_SB/nogit-bin" python3 "$IAS" init fb > ../.i4-fb-out 2> ../.i4-fb-err )
@@ -41694,6 +41698,97 @@ if [ -d "$I4_SB" ]; then
   assert_eq "#546 iter4_variance_rows: ... and the state file lands under the cwd anchor" \
     "issue-audit-state-fb.json" "$(cat "$I4_SB/.i4-fb-files" 2>/dev/null)"
   rm -rf "$I4_SB"
+fi
+
+# iter5_hardening_rows (#546, PR #552 review round 5) — the round-5 guards: the round-
+# funding gate, the unrequested-re-dispatch refusal, the embed marker requirement, the
+# no-digest-supplied eligibility reason, emit-body's empty-body refusal, the attestation
+# trailing-newline tolerance, and the cap-reached accept side.
+I5_SB="$(git_sandbox '#546 iter5_hardening_rows')"
+if [ -d "$I5_SB" ]; then
+  (
+    cd "$I5_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+
+    N="$(python3 "$IAS" init i5 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    # unrequested re-dispatch on the open round refuses
+    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2> .i5-redisp; printf '%s' "$?" > .i5-redisp-rc
+    python3 "$IAS" record-return i5 --nonce "$N" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    # round 2 is the automatic re-audit (funded); round 3 unfunded refuses
+    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 2 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i5 --nonce "$N" --round 2 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 3 --arm file \
+      --draft-file draft.md > /dev/null 2> .i5-unfunded; printf '%s' "$?" > .i5-unfunded-rc
+    # ... and an accepted offer funds it
+    python3 "$IAS" record-offer i5 --nonce "$N" --accepted > /dev/null 2>&1
+    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 3 --arm file \
+      --draft-file draft.md > .i5-funded 2>&1; printf '%s' "$?" > .i5-funded-rc
+
+    # embed dispatch without --marker refuses
+    N2="$(python3 "$IAS" init i5b | sed 's/nonce=//')"
+    printf 'x\n' | python3 "$IAS" record-dispatch i5b --nonce "$N2" --round 1 \
+      --arm embed > /dev/null 2> .i5-nomark; printf '%s' "$?" > .i5-nomark-rc
+
+    # no-digest-supplied: approve query with no --draft-file over a file-arm clean epoch
+    N3="$(python3 "$IAS" init i5c | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5c --nonce "$N3" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i5c --nonce "$N3" --round 1 --verdict FILE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" query-eligibility i5c --nonce "$N3" --mode approve > .i5-nodig 2>/dev/null
+
+    # emit-body on a title-only draft fails loudly (never exit-0-empty)
+    printf '# Only a title\n' > title-only.md
+    N4="$(python3 "$IAS" init i5d | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5d --nonce "$N4" --round 1 --arm file \
+      --draft-file title-only.md > /dev/null 2>&1
+    TOID="$(git hash-object --stdin --no-filters < title-only.md)"
+    python3 "$IAS" record-return i5d --nonce "$N4" --round 1 --verdict FILE \
+      --carriage-object-id "$TOID" > /dev/null 2>&1
+    python3 "$IAS" emit-body i5d --nonce "$N4" --draft-file title-only.md \
+      > .i5-empty-out 2> .i5-empty-err; printf '%s' "$?" > .i5-empty-rc
+
+    # attestation trailing-newline tolerance: body + one extra newline still matches,
+    # with the disclosed stderr note; two extra newlines stay a mismatch
+    python3 "$IAS" record-creation-epoch i5c --nonce "$N3" --round 1 > /dev/null 2>&1
+    { python3 "$IAS" emit-body i5c --nonce "$N3" --draft-file draft.md; printf '\n'; } \
+      | python3 "$IAS" record-creation-attestation i5c --nonce "$N3" > .i5-att-nl 2> .i5-att-nl-err
+
+    # cap-reached ACCEPT side: at the ceiling the cap record is legal
+    N5="$(python3 "$IAS" init i5e | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5e --nonce "$N5" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i5e --nonce "$N5" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    for _i in 1 2 3; do python3 "$IAS" record-offer i5e --nonce "$N5" --accepted > /dev/null 2>&1; done
+    python3 "$IAS" record-override i5e --nonce "$N5" --kind cap-reached > .i5-cap-ok 2>&1; printf '%s' "$?" > .i5-cap-ok-rc
+  )
+  assert_eq "#546 iter5_hardening_rows: an unrequested re-dispatch on an open round refuses" \
+    "1" "$(grep -c 'a re-dispatch was not requested' "$I5_SB/.i5-redisp" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: an unfunded round past the automatic budget refuses" \
+    "1" "$(grep -c 'is not funded' "$I5_SB/.i5-unfunded" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: an accepted offer funds the same round (accept side)" \
+    "0" "$(cat "$I5_SB/.i5-funded-rc" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: an embed dispatch without --marker refuses" \
+    "1" "$(grep -c 'requires --marker' "$I5_SB/.i5-nomark" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: approve with no draft file over a file-arm clean epoch names no-digest-supplied" \
+    "eligible=no reason=no-digest-supplied" "$(cat "$I5_SB/.i5-nodig" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: emit-body on a title-only draft fails loudly, never exit-0-empty" \
+    "1:1" "$(cat "$I5_SB/.i5-empty-rc" 2>/dev/null):$(grep -c 'empty body below its title' "$I5_SB/.i5-empty-err" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: one fetch-framing trailing newline still attests match (disclosed)" \
+    "attestation=match:1" "$(cat "$I5_SB/.i5-att-nl" 2>/dev/null):$(grep -c 'matched modulo' "$I5_SB/.i5-att-nl-err" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: cap-reached at the ceiling is accepted (accept side)" \
+    "0" "$(cat "$I5_SB/.i5-cap-ok-rc" 2>/dev/null)"
+  rm -rf "$I5_SB"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
