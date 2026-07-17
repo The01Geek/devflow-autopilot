@@ -232,7 +232,7 @@ Every loop step's authoritative procedure lives in a file under `skills/review-a
 | `2.5` — Pre-fix verification gate + Parked-class sweep | `references/pre-fix-gates.md` | Step 2 routed to a fix path (REJECT, a REJECT-driver, or an at-or-above-`$FIX_THRESHOLD` finding), **or** a tentative non-REJECT verdict carries parked findings needing the pre-shadow parked-class sweep |
 | `2.6` — Shadow review | `references/shadow-review.md` | a tentative non-REJECT verdict at convergence time, **or** the `engine_self_modifying` early-shadow trigger after iteration 1 |
 | `3` — Fix Findings | `references/fixing.md` | after the Step 2.5 gate resolves the effective fix set |
-| `3.5` — Fix-delta verification gate | `references/fix-delta-gate.md` | every iteration that committed a fix (unconditional; skipped on iter 1's no-prior-fix state) |
+| `3.5` — Fix-delta verification gate | `references/fix-delta-gate.md` | every iteration that committed a fix (unconditional; skipped only on a no-fix iteration) |
 | `4.5` — Convergence check | `references/convergence.md` | before looping back to Step 1, on iteration ≥ 2 |
 | `loop-exit` — Loop Exit | `references/loop-exit.md` | the loop terminates (converged, capped, or final REJECT) |
 

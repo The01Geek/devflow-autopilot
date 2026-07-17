@@ -19985,6 +19985,21 @@ LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za
 assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md unconditional schema fields" \
   "$LR_SCHEMA" "$LR_CONST"
 
+# (5b) #539 review (Suggestion, test_gap): the three #530 navigation stamps are subtracted
+#     from LR_SCHEMA by the `-Ev` filter above — correctly, since they are best-effort
+#     continuation operands, not effectiveness/cost telemetry. But that subtraction means a
+#     future edit that DROPS a nav field from the schema leaves LR_SCHEMA excluding a field that
+#     no longer appears, so the equality test stays GREEN and the durable-resume contract (issue
+#     #530 — the whole point of the split) silently regresses. Pin each positively so a drop goes
+#     RED at the desk. `assert_pin_unique` cannot pass on zero matches, so it is non-vacuous by
+#     construction (each `"<field>":` literal appears exactly once in the reassembled bundle).
+assert_pin_unique "#530/#539 resume-state: current_step nav field present in schema" \
+  '"current_step":' "$MAXI_SKILL"
+assert_pin_unique "#530/#539 resume-state: current_substep nav field present in schema" \
+  '"current_substep":' "$MAXI_SKILL"
+assert_pin_unique "#530/#539 resume-state: pending_dispatch nav field present in schema" \
+  '"pending_dispatch":' "$MAXI_SKILL"
+
 # (6) --self-check NEVER ABORTS on an unparseable iter file (issue #170 AC: every
 #     new path exits 0 on an unparseable iter-N.json). The script runs under
 #     `set -euo pipefail`, so a bare `missing=$(jq ...)` assignment would trip set -e
@@ -31272,7 +31287,7 @@ RAF_BUDGET_DOC="$LIB/../docs/review-and-fix-budget.md"
 assert_eq "#530 budget: checked-in budget table exists" "yes" \
   "$([ -f "$RAF_BUDGET_DOC" ] && echo yes || echo no)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,196 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +1,207 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -31371,6 +31386,14 @@ assert_pin_unique "#530 pressure(routing): root failure-map carries the error-ha
   '| `error-handling.md` | Contextual guidance' "$P530_ROOT"
 assert_eq "#530 pressure(routing): root names references/error-handling.md (contextual pointer)" "yes" \
   "$(grep_present "references/error-handling.md" "$P530_ROOT")"
+# #539 review (Suggestion, test_gap): error-handling.md's SET membership (the 8-name pin) and its
+# failure-map row are pinned above, but its GUIDANCE BODY had no content pin — a partial gutting of
+# the body (as opposed to a whole-file delete, which the 8-name set catches) shipped desk-green.
+# Pin one operative clause so the body cannot be silently emptied, symmetric with fixing.md's
+# P530_FIX content pin. (assert_pin_unique is non-vacuous: 0 matches → RED.)
+P530_ERRH="$LIB/../skills/review-and-fix/references/error-handling.md"
+assert_pin_unique "#530/#539 content: error-handling.md retains the engine-surface carve-out guidance" \
+  'an all-Markdown engine-surface PR is unambiguously a valid `review-and-fix` target' "$P530_ERRH"
 # #539 review (Important, test_gap): before this block ONLY the loop-control and error-handling
 # failure-map rows were pinned — the other six carried the load-bearing degradation outcomes
 # (STOP-before-mutation, not_verified, persistence backstop, non-convergence) with no operative
