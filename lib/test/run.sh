@@ -2443,6 +2443,15 @@ assert_eq "#536 MUTATION-ERROR: a malformed mutation program records FAIL (no sp
 # MUTATION-NOOP: the mutation matches nothing → byte-identical copy.
 assert_eq "#536 MUTATION-NOOP: a no-op mutation records FAIL (never a vacuous pass)" \
   "FAIL|MUTATION-NOOP" "$(_acru_probe assert_count_red_under 'noop' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/ZZZ_NEVER_MATCHES/x/' "$ACRU_FX")"
+# ── Caller-contract guards (INVALID-OP / INVALID-BOUND). These two FAIL-emitting arms guard
+# against a caller value being spliced into the `[ count OP bound ]` test builtin (an
+# injection guard), and — like every other FAIL arm — write a bare FAIL + distinct token, so
+# a broken `case` arm that let a bogus OP/BOUND through would go RED here. INVALID-OP: an OP
+# outside -eq/-le/-lt/-ge/-gt. INVALID-BOUND: a non-integer bound.
+assert_eq "#536 INVALID-OP: an OP outside the five integer comparators fails naming the caller contract" \
+  "FAIL|INVALID-OP" "$(_acru_probe assert_count_red_under 'badop' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' 'BOGUS' 2 's/x/x/' "$ACRU_FX")"
+assert_eq "#536 INVALID-BOUND: a non-integer bound fails naming the caller contract" \
+  "FAIL|INVALID-BOUND" "$(_acru_probe assert_count_red_under 'badbound' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 'notnum' 's/x/x/' "$ACRU_FX")"
 # ── The FAIL-tally self-test: a token that swallowed its own verdict line cannot pass
 # unnoticed. Drive the ANCHOR-COLLAPSE arm THROUGH probe_two_line (which, per the AC, does
 # NOT unlink the probe — so this self-test can count `^FAIL$` against the still-present
@@ -2459,13 +2468,15 @@ rm -f "$ACRU_T_PATH"
 # are LITERAL (`Devflow Review (auto-trigger)`) counts differently as a BRE (1, parens
 # literal) than as an ERE (0, parens open a group). The helper's PATTERN is an ERE, so an
 # ERE that counts 0 where the caller's old BRE counted 1 would satisfy a `-eq 0` bound,
-# report PASS forever, and guard nothing. This self-test fixes the ERE semantics so a future
-# migration can compare apples to apples: a metacharacter-free ERE counts the same as the
-# corresponding BRE, and a PATTERN using ERE-only group/quantifier syntax counts as the ERE
-# defines (not as a literal). Both halves use the SAME slice, so the comparison is on the
-# PATTERN dialect alone.
+# report PASS forever, and guard nothing. Two layers are pinned below: (a) the RAW-grep
+# demonstration that the dialects diverge at rc 0 with no error (the silent class a migrant
+# must guard against with the ERE==BRE equality check), and (b) the same PATTERNs driven
+# THROUGH assert_count_red_under so the helper's OWN dialect is pinned — a regression
+# swapping the helper's `grep -cE` to `grep -c` at any count site goes RED here (the
+# raw-grep asserts alone could not catch that, since they never exercise the helper).
 ACRU_ERE="$(probe_tmp '#536 ERE-semantics fixture')"
 printf 'ACRU_START sentinel\nDevflow Review (auto-trigger)\nACRU_END sentinel\n' > "$ACRU_ERE"
+# (a) RAW-grep demonstration of the silent-conversion hazard.
 # The literal string as a BRE (grep -c, no -E) counts 1 (parens literal).
 assert_eq "#536 ERE==BRE contract (baseline): a literal-paren string counts 1 as a BRE" \
   "1" "$(grep -c 'Devflow Review (auto-trigger)' "$ACRU_ERE" || true)"
@@ -2473,10 +2484,26 @@ assert_eq "#536 ERE==BRE contract (baseline): a literal-paren string counts 1 as
 # literal text) — the silent-conversion hazard, demonstrated at rc 0 (no error).
 assert_eq "#536 ERE==BRE contract (hazard): the same literal-paren string counts 0 as an ERE (rc 0, no error — the silent class)" \
   "0" "$(grep -cE 'Devflow Review (auto-trigger)' "$ACRU_ERE" || true)"
-# A metacharacter-free ERE (the `MATCH` already exercised above) is the safe conversion
-# class: it counts identically under -E and under BRE, so a migrated caller's bound carries
-# over unchanged. (Already asserted by the PASS arm above; recorded here as the contract.)
+# (b) The SAME literal-paren PATTERN driven THROUGH the helper: because the helper counts
+# with the ERE dialect, its real-file count is 0, which does NOT satisfy `-eq 1` → the helper
+# returns BOUND-VIOLATED-ON-REAL-FILE (before it ever applies the mutation). Were the helper
+# to regress to a BRE `grep -c`, the count would be 1 (`-eq 1` satisfied), it would proceed
+# past step 3, and this exact-token assertion would go RED — so this pins the helper's
+# dialect, which the raw-grep asserts above cannot.
+assert_eq "#536 ERE dialect (through the helper): a literal-paren PATTERN counts 0 as the helper's ERE, so -eq 1 is violated on the real file" \
+  "FAIL|BOUND-VIOLATED-ON-REAL-FILE" "$(_acru_probe assert_count_red_under 'erelit' 'ACRU_START sentinel' 'ACRU_END sentinel' 'Devflow Review (auto-trigger)' -eq 1 's/^Devflow Review .auto-trigger.$/REMOVED/' "$ACRU_ERE")"
 rm -f "$ACRU_ERE"
+# (b, positive) An ERE-only group/quantifier PATTERN counts as the ERE DEFINES (not as a
+# literal): `^(alpha|beta)$` matches both lines under ERE (count 2, satisfies -eq 2), and the
+# mutation removes one match → count 1 violates → PASS. Under a BRE regression the same
+# PATTERN's `(`/`|`/`)` are literal and match NEITHER line (count 0), so the real-file bound
+# `-eq 2` is violated and the helper would return FAIL — so `PASS|` goes RED under the
+# regression, pinning that the helper honors ERE group/alternation semantics.
+ACRU_ERE2="$(probe_tmp '#536 ERE-only-syntax fixture')"
+printf 'ACRU_START sentinel\nalpha\nbeta\nnoise line\nACRU_END sentinel\n' > "$ACRU_ERE2"
+assert_eq "#536 ERE dialect (through the helper): an ERE-only alternation ^(alpha|beta)$ matches both lines as the ERE defines" \
+  "PASS|" "$(_acru_probe assert_count_red_under 'erealt' 'ACRU_START sentinel' 'ACRU_END sentinel' '^(alpha|beta)$' -eq 2 's/^alpha$/REMOVED/' "$ACRU_ERE2")"
+rm -f "$ACRU_ERE2"
 rm -f "$ACRU_FX"
 # Issue #500 parked-class sweep contract pins. These stay below the
 # assert_pin_red_under definition so the behavioral mutations below execute.
