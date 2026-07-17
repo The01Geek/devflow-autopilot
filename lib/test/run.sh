@@ -31213,8 +31213,21 @@ assert_eq "#529 AC5: the reporter never gates the suite (exit 0 on every arm)" "
 # asserted over literals. Feeding the reporter two constants would only prove that
 # `after < before` for those constants and would stay green however much the real
 # bundle grew, leaving the justified-growth warning wired to nothing.
-RB_BASE_BYTES=$(git -C "$LIB/.." show origin/main:skills/review/SKILL.md 2>/dev/null | wc -c | tr -d ' ')
-RB_BASE_EXT_BYTES=$(git -C "$LIB/.." show origin/main:.devflow/prompt-extensions/review.md 2>/dev/null | wc -c | tr -d ' ')
+# ── The baseline is HISTORY, and must not be re-derived from a moving ref ─────
+# It was `git show origin/main:…` — correct only while origin/main was still the
+# pre-split monolith. The moment this work merges, origin/main IS the split: the
+# baseline collapses 237113 -> 55524, both decrease rows INVERT into a growth
+# warning, and because both operands stay non-empty and >0 they FAIL rather than
+# self-skip. Green in the PR, red on main and on every PR after it — the
+# changeset-pin consolidation hazard, in a required check.
+# The LIVE half that carries the anti-vacuity weight is the AFTER: it is re-measured
+# from the real member sets every run, so a bundle that grows past the baseline still
+# turns these red. Only the BEFORE is frozen, because a historical measurement cannot
+# change. The doc publishes the same number as its "before" column, and the growth pin
+# already uses this literal; the assertion below keeps code and record coupled.
+# The record publishes this same number as its "before" column; the record loop below
+# asserts they agree, so code and record cannot drift apart.
+RB_BASELINE_BYTES=237113
 # The AC5 rows measure the sets that REALLY execute, never the AC3 default set.
 RB_STANDALONE_BYTES=$(cat "${_rb_standalone[@]}" | wc -c | tr -d ' ')
 RB_RAF_BYTES=$(cat "${_rb_raf[@]}" | wc -c | tr -d ' ')
@@ -31264,52 +31277,51 @@ assert_eq "#529 AC5: the raf set really EXCLUDES the standalone-only reference (
 # reason — the doc was right and the comparand was wrong.
 RB_DOC="$LIB/../docs/review-bundle-budget.md"
 _rb_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
-while IFS='|' read -r _rbn _rbv; do
+# Each row asserts the figure AS THE RECORD SPELLS IT, not as a bare number anywhere
+# in the file. A bare match fails open two ways, both demonstrated: (1) the record is
+# dense with comma-grouped numbers, so a drifted value lands INSIDE an unrelated one —
+# a +427-byte edit to a gated reference moves growth to 8,610, a substring of the
+# published "−18,610", and the guard greens on the very scenario it exists for; (2) a
+# measured value that drifts ONTO its own ceiling (8,228 -> 8,500, 28,697 -> 28,700)
+# matches the ceiling literal sitting on the same line, so even row-anchoring cannot
+# separate them. The record's own spelling does: it BOLDS a measured value and leaves
+# ceilings plain, and it suffixes byte figures with their unit. Match that, and a
+# stale figure has nowhere to hide.
+_rb_ceil4() { echo $(( ($1 + 3) / 4 )); }
+_rb_growth_bytes=$(( $(cat "${_review_members[@]}" "$RB_EXT" | wc -c | tr -d ' ') - RB_BASELINE_BYTES ))
+_rb_shipped_w=$(cat "${_rb_standalone[@]}" | wc -w | tr -d ' ')
+while IFS='~' read -r _rbn _rbe; do
   [ -n "$_rbn" ] || continue
   assert_eq "#529 AC4: the budget record publishes the LIVE $_rbn (a stale constant cannot ship green)" "yes" \
-    "$(grep -qF -- "$(_rb_grouped "$_rbv")" "$RB_DOC" && echo yes || echo no)"
+    "$(grep -qF -- "$_rbe" "$RB_DOC" && echo yes || echo no)"
 done <<RECORD
-AC3 default-path words|$RB_DEFAULT_W
-AC2 root+extension words|$((RB_ROOT_W + RB_EXT_W))
-standalone execution-weighted bytes|$RB_STANDALONE_BYTES
-normal-plus-shadow execution-weighted bytes|$((RB_RAF_BYTES * 2))
-complete-bundle growth in bytes|$(( $(cat "${_review_members[@]}" "$RB_EXT" | wc -c | tr -d ' ') - 237113 ))
-shipped-default path words (the non-gating honest row)|$(cat "${_rb_standalone[@]}" | wc -w | tr -d ' ')
+pre-split baseline (the frozen "before" column)~$(_rb_grouped "$RB_BASELINE_BYTES") / $(_rb_grouped "$(_rb_ceil4 "$RB_BASELINE_BYTES")")
+AC3 default-path words~**$(_rb_grouped "$RB_DEFAULT_W")**
+AC2 root+extension words~**$(_rb_grouped "$((RB_ROOT_W + RB_EXT_W))")**
+standalone execution-weighted bytes~$(_rb_grouped "$RB_STANDALONE_BYTES") B
+normal-plus-shadow execution-weighted bytes (and its per-pass token rounding)~$(_rb_grouped "$((RB_RAF_BYTES * 2))") / $(_rb_grouped "$(( $(_rb_ceil4 "$RB_RAF_BYTES") * 2 ))")
+complete-bundle growth in bytes~$(_rb_grouped "$_rb_growth_bytes") bytes
+shipped-default path words (the non-gating honest row)~**$(_rb_grouped "$_rb_shipped_w")**
 RECORD
-# RB_BASE_EXT_BYTES is summed into the baseline below, where an empty value would
-# silently sum as 0 and UNDERSTATE the baseline — making a decrease easier to claim.
-# Its live twin RB_EXT_W already carries exactly this check; the baseline operand had
-# none, so both halves of every comparison are now proven measured before use.
-if [ -n "$RB_BASE_BYTES" ] && [ "$RB_BASE_BYTES" -gt 0 ] 2>/dev/null \
-   && [ -n "$RB_BASE_EXT_BYTES" ] && [ "$RB_BASE_EXT_BYTES" -gt 0 ] 2>/dev/null; then
-  RB_BASELINE=$((RB_BASE_BYTES + RB_BASE_EXT_BYTES))
-  # Captured once: the SAME emitted line is asserted to shrink AND to have been fed
-  # the standalone set. Re-invoking would let the two assertions diverge.
-  RB_SA_OUT="$("$RB_DBD" 'standalone execution-weighted bytes' "$RB_BASELINE" "$RB_STANDALONE_BYTES")"
-  RB_RAF_OUT="$("$RB_DBD" 'normal+shadow bytes' "$((RB_BASELINE * 2))" "$((RB_RAF_BYTES * 2))")"
-  assert_eq "#529 AC5: standalone execution-weighted traffic decreased against the LIVE baseline" "yes" \
-    "$(printf '%s' "$RB_SA_OUT" | grep -qF 'decreased by' && echo yes || echo no)"
-  assert_eq "#529 AC5: one normal-plus-shadow pass decreased against the LIVE baseline" "yes" \
-    "$(printf '%s' "$RB_RAF_OUT" | grep -qF 'decreased by' && echo yes || echo no)"
-  # THE original defect was the row being fed the AC3 default set. Asserting the
-  # CONSTRUCTION of _rb_standalone cannot catch that — it is larger by construction,
-  # so it proves nothing about what the row above actually passed. Assert the operand
-  # the reporter ECHOES instead: revert either row to the default bytes and this turns
-  # RED while "decreased by" stays green.
-  assert_eq "#529 AC5: the standalone row is FED the standalone set (not the AC3 default set — the original defect)" \
-    "yes" "$(printf '%s' "$RB_SA_OUT" | grep -qF "after $RB_STANDALONE_BYTES)" && echo yes || echo no)"
-  assert_eq "#529 AC5: the normal-plus-shadow row is FED the raf set, doubled" \
-    "yes" "$(printf '%s' "$RB_RAF_OUT" | grep -qF "after $((RB_RAF_BYTES * 2)))" && echo yes || echo no)"
-# The predicate above has TWO independent causes; a single message naming only the
-# first would assert a state the code observed to be false (and misclassify it). Each
-# cause gets its own arm, its own kind, and its own remedy.
-elif [ -z "$RB_BASE_BYTES" ] || [ "$RB_BASE_BYTES" -eq 0 ] 2>/dev/null; then
-  skip "#529 AC5 live execution-weighted comparison" host-capability \
-    "origin/main is unavailable, so the pre-split baseline could not be measured"
-else
-  skip "#529 AC5 live execution-weighted comparison" blocking-gate \
-    "origin/main resolved but its .devflow/prompt-extensions/review.md did not — the baseline extension path moved; re-point it"
-fi
+# Captured once: the SAME emitted line is asserted to shrink AND to have been fed the
+# standalone set. Re-invoking would let the two assertions diverge. No skip arm is
+# needed any more — the baseline is a frozen constant, so there is no external ref
+# whose absence could make this unmeasurable.
+RB_SA_OUT="$("$RB_DBD" 'standalone execution-weighted bytes' "$RB_BASELINE_BYTES" "$RB_STANDALONE_BYTES")"
+RB_RAF_OUT="$("$RB_DBD" 'normal+shadow bytes' "$((RB_BASELINE_BYTES * 2))" "$((RB_RAF_BYTES * 2))")"
+assert_eq "#529 AC5: standalone execution-weighted traffic decreased against the pre-split baseline" "yes" \
+  "$(printf '%s' "$RB_SA_OUT" | grep -qF 'decreased by' && echo yes || echo no)"
+assert_eq "#529 AC5: one normal-plus-shadow pass decreased against the pre-split baseline" "yes" \
+  "$(printf '%s' "$RB_RAF_OUT" | grep -qF 'decreased by' && echo yes || echo no)"
+# THE original defect was the row being fed the AC3 default set. Asserting the
+# CONSTRUCTION of _rb_standalone cannot catch that — it is larger by construction, so
+# it proves nothing about what the row above actually passed. Assert the operand the
+# reporter ECHOES instead: revert either row to the default bytes and this turns RED
+# while "decreased by" stays green.
+assert_eq "#529 AC5: the standalone row is FED the standalone set (not the AC3 default set — the original defect)" \
+  "yes" "$(printf '%s' "$RB_SA_OUT" | grep -qF "after $RB_STANDALONE_BYTES)" && echo yes || echo no)"
+assert_eq "#529 AC5: the normal-plus-shadow row is FED the raf set, doubled" \
+  "yes" "$(printf '%s' "$RB_RAF_OUT" | grep -qF "after $((RB_RAF_BYTES * 2)))" && echo yes || echo no)"
 
 # ── The extractor discriminates BETWEEN the two allowlists (it is not a
 # ── fail-always / pass-always stub): the same skill head is ungranted by one
