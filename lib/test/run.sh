@@ -42101,8 +42101,10 @@ if [ -d "$I3_SB" ]; then
     # Premature cap-reached. The fixture completes a round and binds the draft first, so
     # the two override PRECONDITIONS (a completed round exists; a file-arm epoch's
     # override is digest-bound — #546 override_precondition_rows) are both satisfied and
-    # the guard under test here is unambiguously the premature-ceiling one. Without the
-    # completed round this row passed on the wrong breadcrumb.
+    # the guard under test here is unambiguously the premature-ceiling one. The earlier
+    # zero-round fixture asserted this guard correctly while it was the only one on the
+    # path; once the preconditions landed they refused first, so the fixture had to gain
+    # a completed round to keep reaching the guard it is written to pin.
     N6="$(python3 "$IAS" init it6 | sed 's/nonce=//')"
     python3 "$IAS" record-dispatch it6 --nonce "$N6" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
@@ -42439,19 +42441,28 @@ PY
     # (3) token binding: two byte-distinct drafts, each with its own digest-bound
     # override at the SAME revision ordinal, must mint DIFFERENT tokens. Keying on the
     # ordinal alone collapsed them onto one token — the replay the token exposes.
-    for slug in op3a op3b; do
-      printf '# T\n\nbody for %s\n' "$slug" > "d-$slug.md"
-      NX="$(python3 "$IAS" init "$slug" | sed 's/nonce=//')"
-      OX="$(git hash-object --stdin --no-filters < "d-$slug.md")"
-      python3 "$IAS" record-dispatch "$slug" --nonce "$NX" --round 1 --arm file \
-        --draft-file "d-$slug.md" > /dev/null 2>&1
-      python3 "$IAS" record-return "$slug" --nonce "$NX" --round 1 --verdict REVISE \
-        --findings-count 1 --carriage-object-id "$OX" > /dev/null 2>&1
-      python3 "$IAS" record-override "$slug" --nonce "$NX" --kind user-decline \
-        --surface t1t2-boundary --draft-file "d-$slug.md" > /dev/null 2>&1
-      python3 "$IAS" query-eligibility "$slug" --nonce "$NX" --mode approve \
-        --draft-file "d-$slug.md" | sed -E 's/.*(token=[^ ]*).*/\1/' > ".op-tok-$slug"
-    done
+    #
+    # ONE slug, ONE nonce, deliberately: issue_token hashes '{nonce}:{ground}:{key}', so
+    # two slugs would mint two random nonces and the tokens would differ REGARDLESS of
+    # the key — the assert would pass with the key fix reverted, i.e. it would pin
+    # nothing. Same nonce + same ordinal isolates the key as the only free operand.
+    N3="$(python3 "$IAS" init op3 | sed 's/nonce=//')"
+    printf '# T\n\nbody A\n' > d-a.md
+    printf '# T\n\nbody B\n' > d-b.md
+    OA="$(git hash-object --stdin --no-filters < d-a.md)"
+    python3 "$IAS" record-dispatch op3 --nonce "$N3" --round 1 --arm file \
+      --draft-file d-a.md > /dev/null 2>&1
+    python3 "$IAS" record-return op3 --nonce "$N3" --round 1 --verdict REVISE \
+      --findings-count 1 --carriage-object-id "$OA" > /dev/null 2>&1
+    # two digest-bound overrides at the same ordinal (no revision between them)
+    python3 "$IAS" record-override op3 --nonce "$N3" --kind user-decline \
+      --surface t1t2-boundary --draft-file d-a.md > /dev/null 2>&1
+    python3 "$IAS" record-override op3 --nonce "$N3" --kind user-decline \
+      --surface t1t2-boundary --draft-file d-b.md > /dev/null 2>&1
+    python3 "$IAS" query-eligibility op3 --nonce "$N3" --mode approve \
+      --draft-file d-a.md | sed -E 's/.*(token=[^ ]*).*/\1/' > .op-tok-op3a
+    python3 "$IAS" query-eligibility op3 --nonce "$N3" --mode approve \
+      --draft-file d-b.md | sed -E 's/.*(token=[^ ]*).*/\1/' > .op-tok-op3b
 
     # (4) re-init must not discard forward-only creation tamper evidence.
     N4="$(python3 "$IAS" init op4 | sed 's/nonce=//')"
