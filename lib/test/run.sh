@@ -12411,6 +12411,14 @@ assert_pin_unique "#560 AC2: fallback names the fourth path-agnostic creation-ti
   'plus a fourth path-agnostic anchor at Step 4 sub-step 5' "$CI_SKILL_560"
 assert_pin_unique "#560 AC2: creation-time confirmation obligation sits at Step 4 sub-step 5" \
   're-confirm two things in the current conversation' "$CI_SKILL_560"
+# The creation-time re-check confirms BOTH halves (approval AND item-6-in-progress); pin the
+# item-6 half independently so dropping it does not ride green on the two-things stem pin.
+assert_pin_unique "#560 AC2: creation-time re-check confirms the item-6-in-progress half" \
+  'approved the rendered draft, and the active tracking mechanism shows item 6 in progress' "$CI_SKILL_560"
+# The fallback block carries the checklist-step half of the two-site slug-binding contract
+# (the Step 2 sentence carries the other half); pin this mirror so a one-sided revert goes RED.
+assert_pin_unique "#560 AC2: fallback block binds the slug scoped to the current invocation" \
+  'reusing the slug already bound by this skill invocation and binding a fresh one only when this invocation has bound none' "$CI_SKILL_560"
 assert_pin_unique "#560 AC2: fail-closed arm treats a bad state file as pipeline-paused" \
   'an absent, foreign-content, or unparseable state file is treated as pipeline-paused' "$CI_SKILL_560"
 assert_pin_unique "#560 AC2: read-only sandbox degrades to the re-post-in-current-turn rule" \
