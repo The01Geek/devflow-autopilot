@@ -42098,9 +42098,18 @@ if [ -d "$I3_SB" ]; then
     python3 "$IAS" record-creation-epoch it5 --nonce "$N5" --round 1 \
       > /dev/null 2> .i3-rebind; printf '%s' "$?" > .i3-rebind-rc
 
+    # Premature cap-reached. The fixture completes a round and binds the draft first, so
+    # the two override PRECONDITIONS (a completed round exists; a file-arm epoch's
+    # override is digest-bound — #546 override_precondition_rows) are both satisfied and
+    # the guard under test here is unambiguously the premature-ceiling one. Without the
+    # completed round this row passed on the wrong breadcrumb.
     N6="$(python3 "$IAS" init it6 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch it6 --nonce "$N6" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return it6 --nonce "$N6" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
     python3 "$IAS" record-override it6 --nonce "$N6" --kind cap-reached \
-      > /dev/null 2> .i3-cap; printf '%s' "$?" > .i3-cap-rc
+      --draft-file draft.md > /dev/null 2> .i3-cap; printf '%s' "$?" > .i3-cap-rc
 
     printf 'not json' > .devflow/tmp/issue-audit-state-it7.json
     python3 "$IAS" init it7 --nonce deadbeef > /dev/null 2> .i3-corrupt; printf '%s' "$?" > .i3-corrupt-rc
@@ -42233,7 +42242,13 @@ if [ -d "$I5_SB" ]; then
     python3 "$IAS" record-return i5e --nonce "$N5" --round 1 --verdict REVISE \
       --carriage-object-id "$OID" > /dev/null 2>&1
     for _i in 1 2 3; do python3 "$IAS" record-offer i5e --nonce "$N5" --accepted > /dev/null 2>&1; done
-    python3 "$IAS" record-override i5e --nonce "$N5" --kind cap-reached > .i5-cap-ok 2>&1; printf '%s' "$?" > .i5-cap-ok-rc
+    # --draft-file is required here because this epoch is a file-arm round: SKILL.md's
+    # boundary-offer rule says EVERY record-override call on a file-arm epoch binds the
+    # draft, and the tool now enforces it (#546 override_precondition_rows) rather than
+    # trusting the prose. An unbound override is never compared against the draft, so it
+    # would permit any bytes.
+    python3 "$IAS" record-override i5e --nonce "$N5" --kind cap-reached \
+      --draft-file draft.md > .i5-cap-ok 2>&1; printf '%s' "$?" > .i5-cap-ok-rc
 
     # bounded-tolerance negative control: TWO extra newlines stay a mismatch. Fresh slug
     # (the i5c epoch above is already attested match — forward-only).
@@ -42360,6 +42375,121 @@ if [ -d "$CS_SB" ]; then
   assert_eq "#546 conv_shadow_rows: query-nonce round-trips the minted nonce exactly" \
     "$(cat "$CS_SB/.cs-nonce-expected" 2>/dev/null)" "$(cat "$CS_SB/.cs-nonce-got" 2>/dev/null)"
   rm -rf "$CS_SB"
+fi
+
+# override_precondition_rows (#546, PR #552 early shadow) — the override ground's two
+# missing preconditions, each of which let `emit-body` emit a NEVER-AUDITED body at
+# exit 0 (the exact outcome the module exists to prevent), plus the token-binding and
+# re-init tamper-evidence guards the same pass surfaced.
+#
+# Each row drives the CLI end-to-end: the exploit is the test. Removing a guard in
+# scripts/issue-audit-state.py turns its row RED, because the row asserts the refusal —
+# and the emit rows additionally assert stdout is EMPTY, which is the refusal signature
+# a caller that ignores the exit code depends on.
+OP_SB="$(git_sandbox '#546 override_precondition_rows')"
+if [ -d "$OP_SB" ]; then
+  (
+    cd "$OP_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nAUDITED body\n' > draft.md
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+
+    # (1) zero completed rounds: nothing was ever audited, so there is no audit for an
+    # override to override. Write boundary must refuse.
+    N="$(python3 "$IAS" init op1 | sed 's/nonce=//')"
+    python3 "$IAS" record-override op1 --nonce "$N" --kind user-decline \
+      --surface t1t2-boundary > /dev/null 2> .op-noround; printf '%s' "$?" > .op-noround-rc
+
+    # (1b) read boundary: hand-plant the override the write guard refuses, proving a
+    # corrupt/older state file cannot smuggle it past the gate either.
+    python3 - <<'PY' > /dev/null 2>&1
+import json, pathlib
+p = pathlib.Path('.devflow/tmp/issue-audit-state-op1.json')
+d = json.loads(p.read_text())
+d['overrides'].append({'kind': 'user-decline', 'surface': 't1t2-boundary',
+                       'recorded_at_ordinal': 0, 'draft_digest': None})
+p.write_text(json.dumps(d))
+PY
+    python3 "$IAS" query-eligibility op1 --nonce "$N" --mode approve \
+      --draft-file draft.md > .op-planted-elig 2>&1
+    python3 "$IAS" emit-body op1 --nonce "$N" --draft-file draft.md \
+      > .op-planted-emit 2> /dev/null; printf '%s' "$?" > .op-planted-emit-rc
+
+    # (2) file-arm epoch + override with NO --draft-file: never compared against any
+    # bytes, so it would permit any draft. Write boundary must refuse.
+    N2="$(python3 "$IAS" init op2 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch op2 --nonce "$N2" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return op2 --nonce "$N2" --round 1 --verdict REVISE \
+      --findings-count 1 --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-override op2 --nonce "$N2" --kind user-decline \
+      --surface t1t2-boundary > /dev/null 2> .op-unbound; printf '%s' "$?" > .op-unbound-rc
+    # the bound form is still accepted (the guard refuses the unbound shape, not the kind)
+    python3 "$IAS" record-override op2 --nonce "$N2" --kind user-decline \
+      --surface t1t2-boundary --draft-file draft.md > /dev/null 2>&1
+    printf '%s' "$?" > .op-bound-rc
+    # tampered bytes under a bound override refuse, and emit-body stays silent
+    printf '# T\n\nNEVER AUDITED BYTES\n' > tampered.md
+    python3 "$IAS" query-eligibility op2 --nonce "$N2" --mode approve \
+      --draft-file tampered.md > .op-tampered-elig 2>&1
+    python3 "$IAS" emit-body op2 --nonce "$N2" --draft-file tampered.md \
+      > .op-tampered-emit 2> /dev/null; printf '%s' "$?" > .op-tampered-emit-rc
+
+    # (3) token binding: two byte-distinct drafts, each with its own digest-bound
+    # override at the SAME revision ordinal, must mint DIFFERENT tokens. Keying on the
+    # ordinal alone collapsed them onto one token — the replay the token exposes.
+    for slug in op3a op3b; do
+      printf '# T\n\nbody for %s\n' "$slug" > "d-$slug.md"
+      NX="$(python3 "$IAS" init "$slug" | sed 's/nonce=//')"
+      OX="$(git hash-object --stdin --no-filters < "d-$slug.md")"
+      python3 "$IAS" record-dispatch "$slug" --nonce "$NX" --round 1 --arm file \
+        --draft-file "d-$slug.md" > /dev/null 2>&1
+      python3 "$IAS" record-return "$slug" --nonce "$NX" --round 1 --verdict REVISE \
+        --findings-count 1 --carriage-object-id "$OX" > /dev/null 2>&1
+      python3 "$IAS" record-override "$slug" --nonce "$NX" --kind user-decline \
+        --surface t1t2-boundary --draft-file "d-$slug.md" > /dev/null 2>&1
+      python3 "$IAS" query-eligibility "$slug" --nonce "$NX" --mode approve \
+        --draft-file "d-$slug.md" | sed -E 's/.*(token=[^ ]*).*/\1/' > ".op-tok-$slug"
+    done
+
+    # (4) re-init must not discard forward-only creation tamper evidence.
+    N4="$(python3 "$IAS" init op4 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch op4 --nonce "$N4" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return op4 --nonce "$N4" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch op4 --nonce "$N4" --round 1 > /dev/null 2>&1
+    printf 'AUDITED body\n' | python3 "$IAS" record-creation-attestation op4 \
+      --nonce "$N4" > .op-attest 2>&1
+    python3 "$IAS" init op4 --nonce "$N4" --force > /dev/null 2> .op-reinit
+    printf '%s' "$?" > .op-reinit-rc
+  )
+  assert_eq "#546 override_precondition_rows: an override with no completed round refuses (nothing was audited)" \
+    "1:1" "$(cat "$OP_SB/.op-noround-rc" 2>/dev/null):$(grep -c 'no audit for an override to override' "$OP_SB/.op-noround" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: a hand-planted no-round override is not honoured at the read boundary" \
+    "eligible=no reason=no-verdict-round" "$(cat "$OP_SB/.op-planted-elig" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: ... and emit-body refuses it with the empty-stdout signature" \
+    "1:" "$(cat "$OP_SB/.op-planted-emit-rc" 2>/dev/null):$(cat "$OP_SB/.op-planted-emit" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: a digest-unbound override on a file-arm epoch refuses (it would permit any bytes)" \
+    "1:1" "$(cat "$OP_SB/.op-unbound-rc" 2>/dev/null):$(grep -c 'must bind the draft it permits' "$OP_SB/.op-unbound" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: ... while the digest-bound form is still accepted (positive control)" \
+    "0" "$(cat "$OP_SB/.op-bound-rc" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: tampered bytes under a bound override refuse" \
+    "eligible=no reason=stale-override" "$(cat "$OP_SB/.op-tampered-elig" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: ... and emit-body refuses them with the empty-stdout signature" \
+    "1:" "$(cat "$OP_SB/.op-tampered-emit-rc" 2>/dev/null):$(cat "$OP_SB/.op-tampered-emit" 2>/dev/null)"
+  # The token rows are a pair: each must be a real token (not empty — which would make
+  # the inequality assert vacuous), and the two must differ.
+  assert_eq "#546 override_precondition_rows: a digest-bound override mints a real token (guards the row below against vacuity)" \
+    "1" "$(grep -c '^token=eat_' "$OP_SB/.op-tok-op3a" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: byte-distinct drafts at the same ordinal mint DIFFERENT override tokens" \
+    "differ" "$( [ "$(cat "$OP_SB/.op-tok-op3a" 2>/dev/null)" != "$(cat "$OP_SB/.op-tok-op3b" 2>/dev/null)" ] && printf 'differ' || printf 'same' )"
+  assert_eq "#546 override_precondition_rows: the attestation was actually recorded (guards the row below against vacuity)" \
+    "attestation=match" "$(cat "$OP_SB/.op-attest" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: a forced re-init refuses to discard a recorded creation attestation" \
+    "1:1" "$(cat "$OP_SB/.op-reinit-rc" 2>/dev/null):$(grep -c 'forward-only tamper evidence' "$OP_SB/.op-reinit" 2>/dev/null)"
+  rm -rf "$OP_SB"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────

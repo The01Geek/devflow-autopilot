@@ -726,11 +726,13 @@ def evaluate_triggers(state):
 def issue_token(nonce, ground, key):
     """The deterministic eligibility token.
 
-    A pure function of the run nonce and the answering digest (or, on the
-    event-ordering ground, the answering revision ordinal), so repeated queries
-    re-emit an identical token while any change of the answering key produces a
-    different one. `hashlib` rather than git: the token is not a content hash and
-    the tool's only subprocess is git for object IDs.
+    A pure function of the run nonce and the answering key, so repeated queries
+    re-emit an identical token while any change of that key produces a different one.
+    The key is the operand that actually answered: the digest on the file-identity
+    ground and on a digest-bound (file-arm) override; the revision ordinal on the
+    event-ordering ground and on an override with no digest bound, where no
+    trustworthy canonical file exists to key on. `hashlib` rather than git: the token
+    is not a content hash and the tool's only subprocess is git for object IDs.
     """
     material = f'{nonce}:{ground}:{key}'.encode('utf-8')
     return 'eat_' + hashlib.sha256(material).hexdigest()[:16]
@@ -740,16 +742,35 @@ def _valid_override(state, current_digest):
     """The newest override still current, or None.
 
     An override is valid only while the revision ordinal recorded on it stays
-    current, and — on a file-arm epoch, where a digest was recorded — while that
-    digest still matches the draft. A later revision record invalidates every earlier
-    override, and a stale override never re-arms.
+    current, and — on a file-arm epoch — while the digest recorded on it still
+    matches the draft. A later revision record invalidates every earlier override,
+    and a stale override never re-arms.
+
+    Two preconditions fail CLOSED here, mirroring the guards `record-override`
+    applies at the write boundary. They are re-checked at this read boundary because
+    this is the gate: a hand-edited state file, or a record written by an older
+    build, must not smuggle an override past them.
+
+      - No completed round means nothing was ever audited, so there is no audit for
+        an override to override. Without this, `init` -> `record-override` alone
+        answered `eligible`, and `emit-body` emitted a never-audited body at exit 0.
+      - On a file-arm epoch an override carrying no digest was never compared against
+        any bytes, so honouring it would pass a draft the tool never inspected. An
+        absent comparand fails closed rather than skipping the comparison.
     """
+    epoch = last_completed(state)
+    if epoch is None:
+        return None
+    file_arm_epoch = epoch['attempts'][-1]['arm'] == 'file'
     now = revision_ordinal(state)
     for ov in reversed(state['overrides']):
         if ov.get('recorded_at_ordinal') != now:
             continue
         want = ov.get('draft_digest')
-        if want is not None and want != current_digest:
+        if want is None:
+            if file_arm_epoch:
+                continue
+        elif want != current_digest:
             continue
         return ov
     return None
@@ -825,7 +846,15 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
 
     ov = _valid_override(state, current_digest)
     if ov is not None:
-        return _yes(state, 'override', str(revision_ordinal(state)))
+        # Key on whichever operand actually answered, per issue_token's contract. A
+        # file-arm override is digest-bound (record-override enforces it), so the DIGEST
+        # answered and the token must name it: keying on the revision ordinal alone
+        # minted one identical token for byte-distinct drafts at the same ordinal —
+        # exactly the replay the token exists to expose. Where no digest is bound (an
+        # embed/inline epoch, which has no trustworthy canonical file), the ordinal is
+        # what answered and remains the key.
+        return _yes(state, 'override',
+                    ov.get('draft_digest') or str(revision_ordinal(state)))
 
     # Refusal precedence, decided (the docstring's tail, in the order checked below):
     # no-verdict-round > no-digest-supplied > stale-override > unaudited-revision.
@@ -1087,6 +1116,19 @@ def cmd_init(args):
             _fail('init', 'a same-run re-init over recorded rounds is an illegal '
                           'transition without --force (it would hand this run a fresh '
                           'automatic budget silently)')
+        # The attestation is forward-only tamper evidence: record-creation-epoch and
+        # record-creation-attestation both refuse to overwrite a recorded match/mismatch,
+        # using this same exemption set. Re-init discards the whole document, so without
+        # this third guard --force walked past both of them and query-summary then
+        # rendered `attestation=none` — which the skill defines as "before any creation
+        # attempt", indistinguishable from never-attempted. Unknown is not zero, and a
+        # wiped mismatch must never read as an absent one.
+        if (existing.get('creation') or {}).get('attestation') not in (
+                None, 'attestation-unavailable'):
+            _fail('init', 'a creation attestation is already recorded for this run; '
+                          're-initialising would discard that forward-only tamper '
+                          'evidence and render the summary as though no creation had '
+                          'been attempted')
         doc = _new_doc(args.slug, args.nonce)
         doc['reinit_forced'] = bool(existing['rounds'] and args.force)
     else:
@@ -1348,6 +1390,24 @@ def cmd_record_override(args):
     if args.kind == 'user-decline' and not args.surface:
         _fail('record-override', 'a user-decline override must name the surface it was '
                                  'recorded at')
+    # Validate the override against recorded facts, exactly as record-revision does with
+    # --after-round: an override grounds eligibility, so an operand this path accepts
+    # without checking is a gate that fails OPEN. Both kinds presuppose an audit — you
+    # cannot decline further auditing, or reach the round ceiling, before any round ran.
+    epoch = last_completed(doc)
+    if epoch is None:
+        _fail('record-override',
+              'no round has completed, so there is no audit for an override to '
+              'override: recording one here would ground eligibility on a draft the '
+              'tool never audited')
+    if epoch['attempts'][-1]['arm'] == 'file' and digest is None:
+        # --draft-file is optional in the argparse surface because the embed/inline arms
+        # have no trustworthy canonical file to bind. On a file-arm epoch one exists, so
+        # an unbound override would skip the byte comparison entirely and pass ANY bytes.
+        _fail('record-override',
+              'the current epoch is a file-arm round, so this override must bind the '
+              'draft it permits: pass --draft-file (an override with no recorded digest '
+              'is never compared against the draft, so it would permit any bytes)')
     doc['overrides'].append({'kind': args.kind, 'surface': args.surface,
                              'recorded_at_ordinal': len(doc['revisions']),
                              'draft_digest': digest})
