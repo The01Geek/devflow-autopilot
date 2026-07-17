@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: MIT
 # Tests for the lib/ jq filters and bash helpers. Run from repo root:
 #   bash lib/test/run.sh
+# During iteration, registered modules can run independently without executing
+# this file's global setup:
+#   bash lib/test/run-module.sh workflow-flight-recorder
 #
 # Each test asserts a specific load-bearing invariant. A failure here means a
 # downstream regression in the /devflow:retrospective-weekly orchestrator or the
@@ -61,6 +64,7 @@ fi
 # render-report.sh blocks, sourced in subshells to contain their `set -e` — are
 # counted in the final tally too. Counting in-memory would silently drop them.
 RESULTS_FILE="$(mktemp)"
+MODULE_FAILURES_FILE="$(mktemp)"
 # SKIPS_FILE is the skip tally's backing file (issue #456), the SKIP sibling of
 # RESULTS_FILE: the skip() helper appends one `kind<TAB>name<TAB>reason` line per
 # self-skipping check, and SKIP is derived from it with `grep -c` — the same counter
@@ -69,9 +73,11 @@ RESULTS_FILE="$(mktemp)"
 # SKIP introduces no new tool into the selection) — so a gate that self-skips is visible in
 # the summary and can never be mistaken for a clean pass. The renderer is lib/test/summary.sh.
 SKIPS_FILE="$(mktemp)"
-trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE"' EXIT   # protect RESULTS_FILE/SKIPS_FILE immediately; widened below once the bundle temp exists
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"' EXIT   # protect tally files immediately; widened below once the bundle temp exists
 # shellcheck source=lib/test/summary.sh disable=SC1091
 . "$LIB/test/summary.sh"
+# shellcheck source=lib/test/module-harness.sh disable=SC1091
+. "$LIB/test/module-harness.sh"
 
 # SKIP_HELPER_REGION_BEGIN — the SOLE `printf '  NOTE ` skip-emit lives inside skip();
 # the #456 meta-assertion below asserts no other NOTE emit appears in this file outside
@@ -154,6 +160,7 @@ _build_skill_bundle() {
   done
 }
 IMPL_SKILL_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the implement-skill bundle temp" >&2; exit 1; }
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
 # Build the member list as an ARRAY (not a space-joined string) so a checkout path
 # containing a space is preserved rather than word-split — the stems in IMPL_PHASE_STEMS
 # are space-free identifiers, but $LIB (the checkout dir) is not guaranteed to be.
@@ -185,7 +192,7 @@ REVIEW_GATED_PHASE_STEMS="phase-0-3-6-blocker-recheck phase-0-6-stale-prose-lint
 REVIEW_PHASE_STEMS="$REVIEW_DEFAULT_PHASE_STEMS $REVIEW_GATED_PHASE_STEMS"
 REVIEW_ROOT="$LIB/../skills/review/SKILL.md"
 REVIEW_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-skill bundle temp" >&2; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE" "$REVIEW_BUNDLE"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE" "$REVIEW_BUNDLE"' EXIT
 _review_members=("$REVIEW_ROOT")
 for _s in $REVIEW_PHASE_STEMS; do
   _review_members+=("$LIB/../skills/review/phases/${_s}.md")
@@ -1047,83 +1054,10 @@ assert_eq "deferred.labels: SKILL routes a failed label-apply to a durable workp
 # when deferred work was filed but no issue numbers were captured).
 assert_pin_unique "deferred.labels: SKILL Phase 4.0 surfaces an empty-issue-numbers capture" 'captured no issue numbers' "$DEF_SKILL"
 
-# ────────────────────────────────────────────────────────────────────────────
-echo "devflow_review_and_fix.max_iterations (schema + resolution)"
-# ────────────────────────────────────────────────────────────────────────────
-# The /devflow:review-and-fix fix-loop cap is read from config via config-get.sh
-# (default 5) and then clamped INLINE in skills/review-and-fix/SKILL.md: a value
-# below 1 → floor 1, a non-integer/empty/unparseable value (or a resolver failure)
-# → 5, with no upper bound. The clamp itself is prompt bash (not a script — AC3
-# mandates the SKILL read directly via config-get.sh), so we pin (a) the
-# schema/example contract, (b) the resolver read behavior that feeds the clamp,
-# and (c) the clamp logic via a function kept byte-aligned with the SKILL block.
-MAXI_SCHEMA="$LIB/../.devflow/config.schema.json"
-MAXI_EXAMPLE="$LIB/../.devflow/config.example.json"
-MAXI_PROP='.properties.devflow_review_and_fix.properties.max_iterations'
-assert_eq "max_iterations: schema type is integer" "integer" \
-  "$(jq -r "$MAXI_PROP.type" "$MAXI_SCHEMA")"
-assert_eq "max_iterations: schema minimum is 1" "1" \
-  "$(jq -r "$MAXI_PROP.minimum" "$MAXI_SCHEMA")"
-assert_eq "max_iterations: schema default is 5" "5" \
-  "$(jq -r "$MAXI_PROP.default" "$MAXI_SCHEMA")"
-assert_eq "max_iterations: schema has a non-empty description" "yes" \
-  "$(jq -e "$MAXI_PROP.description | type == \"string\" and (length > 0)" "$MAXI_SCHEMA" >/dev/null && echo yes || echo no)"
-assert_eq "max_iterations: example value matches schema default" \
-  "$(jq -r "$MAXI_PROP.default" "$MAXI_SCHEMA")" \
-  "$(jq -r '.devflow_review_and_fix.max_iterations' "$MAXI_EXAMPLE")"
-
-# Resolver-read behavior (the part the SKILL invokes; the clamp is downstream).
-MAXI_CFG="$(mktemp)"
-printf '%s' '{"devflow_review_and_fix":{"max_iterations":9}}' > "$MAXI_CFG"
-assert_eq "max_iterations: configured integer read back verbatim" "9" \
-  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
-# Key absent → resolver emits the default 5 (the no-config / unset case; AC: default 5).
-printf '%s' '{"devflow_review_and_fix":{}}' > "$MAXI_CFG"
-assert_eq "max_iterations: unset key → resolver default 5" "5" \
-  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
-assert_eq "max_iterations: missing config file → resolver default 5" "5" \
-  "$("$CG" .devflow_review_and_fix.max_iterations 5 /no/such/config.json)"
-# A below-floor value (0) and a non-integer ("abc") are passed through verbatim by
-# the resolver — the SKILL's inline clamp turns these into 1 and 5 respectively.
-printf '%s' '{"devflow_review_and_fix":{"max_iterations":0}}' > "$MAXI_CFG"
-assert_eq "max_iterations: below-floor value passed through to clamp (0)" "0" \
-  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
-printf '%s' '{"devflow_review_and_fix":{"max_iterations":"abc"}}' > "$MAXI_CFG"
-assert_eq "max_iterations: non-integer value passed through to clamp (abc)" "abc" \
-  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
-rm -f "$MAXI_CFG"
-
-# The SKILL's inline clamp, applied to the resolver output above. Mirrors the exact
-# logic in skills/review-and-fix/SKILL.md so the floor/fallback/no-upper-bound ACs
-# are exercised, not just asserted in prose. Keep byte-aligned with the SKILL block.
-maxi_clamp() {
-  local v="$1" rc="${2:-0}"
-  if [ "$rc" -ne 0 ] || ! printf '%s' "$v" | grep -Eq '^-?[0-9]+$'; then
-    printf '5\n'
-  elif [ "$v" -lt 1 ]; then
-    printf '1\n'
-  else
-    printf '%s\n' "$v"
-  fi
-}
-assert_eq "max_iterations clamp: valid value honored"          "9"  "$(maxi_clamp 9)"
-assert_eq "max_iterations clamp: large value honored (no cap)"  "42" "$(maxi_clamp 42)"
-assert_eq "max_iterations clamp: 0 → floor 1"                  "1"  "$(maxi_clamp 0)"
-assert_eq "max_iterations clamp: negative → floor 1"           "1"  "$(maxi_clamp -3)"
-assert_eq "max_iterations clamp: non-integer → 5"              "5"  "$(maxi_clamp abc)"
-assert_eq "max_iterations clamp: float → 5"                    "5"  "$(maxi_clamp 2.5)"
-assert_eq "max_iterations clamp: empty → 5"                    "5"  "$(maxi_clamp '')"
-assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_clamp '' 2)"
-
-# Drift guard: maxi_clamp above is a hand-maintained copy of the SKILL's inline
-# clamp, so the clamp assertions would keep passing even if the *shipped* clamp in
-# SKILL.md were edited. Pin the load-bearing tokens in the real SKILL so a change to
-# the regex (negative-aware), the below-1 floor, or the default-5 fallback fails here
-# instead of silently passing against the copy.
+# The focused review-and-fix contract module owns the max-iteration resolver and
+# clamp checks. The global suite keeps this path variable because later global
+# guard and mutation proofs still target the same shipped skill.
 MAXI_SKILL="$LIB/../skills/review-and-fix/SKILL.md"
-assert_pin_unique "max_iterations clamp: SKILL keeps the negative-aware integer regex" "'^-?[0-9]+\$'" "$MAXI_SKILL"
-assert_pin_unique "max_iterations clamp: SKILL keeps the below-1 floor" '"$MAX_ITERS" -lt 1' "$MAXI_SKILL"
-assert_pin_unique "max_iterations clamp: SKILL keeps the default-5 fallback" 'MAX_ITERS=5' "$MAXI_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "severity thresholds (schema + example + config-get resolution + SKILL pins) (#251)"
@@ -2172,6 +2106,465 @@ printf 'operative token a.c/[x] on this line\nunrelated framing line\n' > "$PRU_
 assert_eq "#375 assert_pin_red_under: a pinned literal carrying regex+sed-delimiter metachars round-trips (fixed-string match; mutation flips it PASS->FAIL)" \
   "PASS" "$(probe_assert assert_pin_red_under 'meta' 'a.c/[x]' '/a\.c/d' "$PRU_META")"
 rm -f "$PRU_META"
+# ── #536: probe_two_line — the two-line-verdict probe (count-shaped sibling of probe_assert).
+# assert_count_red_under (below) writes a bare verdict line plus, on FAIL, a DISTINCT cause
+# token on the FOLLOWING line, so the suite's whole-line tally (`grep -c '^FAIL$'`) still
+# counts the verdict while the cause is readable. probe_assert CANNOT serve that protocol:
+# it returns `tail -n 1 "$probe"` (exactly ONE line — under the two-line protocol that is the
+# TOKEN, leaving the verdict line unreachable) and then `rm -f "$probe"` deletes the probe
+# before a FAIL-tally self-test can count `^FAIL$` in it. probe_two_line instead prints the
+# verdict (line 1), the cause token (line 2), AND the probe PATH (line 3), and does NOT
+# unlink the probe — so a FAIL-tally self-test reads the path from line 3 and counts `^FAIL$`
+# against the still-present file. Lines are read with the `read` builtin (no non-preflight
+# mid-pipe), mirroring probe_assert's isolation discipline. On mktemp failure it prints a
+# distinct PROBE_MKTEMP_FAILED verdict (mirrors probe_assert) so the proof still goes RED
+# via the comparison, not a misleading mismatch.
+probe_two_line() {  # assertion-fn args... -> prints verdict, cause-token, probe-path (3 lines)
+  local probe; probe="$(mktemp)" || { printf 'PROBE_MKTEMP_FAILED\n\n\n'; return 0; }
+  RESULTS_FILE="$probe" "$@" >/dev/null 2>&1
+  local verdict token
+  { read -r verdict; read -r token; } < "$probe"
+  printf '%s\n%s\n%s\n' "${verdict:-}" "${token:-}" "$probe"
+  # Deliberately does NOT rm -f "$probe": the FAIL-tally self-test counts ^FAIL$ in it.
+}
+
+# assert_count_red_under (issue #536) — the count-shaped sibling of assert_pin_red_under.
+# A range-scoped COUNT guard proves it goes RED under a mutation AND cannot pass on a
+# collapsed range, closing the vacuity where a bare `sed RANGE | grep -c` count of 0 also
+# passes when the range extracts nothing at all (#480's hand-rolled remedy is the named
+# instance this primitive subsumes for FUTURE callers — this issue migrates NO existing
+# site; the #480 and #467 A3 hand-rolled siblings stay in place). PASS iff the count
+# satisfies `OP BOUND` on the real file AND violates it on the mutated copy. Every FAIL arm
+# writes the bare word FAIL on its own RESULTS_FILE line (so the whole-line tally
+# `grep -c '^FAIL$'` counts it) followed by a DISTINCT cause token on the next line (the
+# discharge surface probe_two_line reads).
+#
+#   assert_count_red_under NAME START END PATTERN OP BOUND MUTATION [FILE]
+#     START, END — EREs naming the slice range. START must match exactly one line (a
+#       repeated START mis-slices the range's beginning); END must match at least one line
+#       AFTER the START line (END-uniqueness is NOT required: the range closes at the first
+#       END after START — three real sites have a non-unique END, which a uniqueness
+#       precondition would force-FAIL). The slice is realized by LINE NUMBER
+#       (`sed -n "${start_line},${end_line}p"`) — equivalent to `sed -n '/START/,/END/p'`
+#       for a unique START and the first END after it, and free of regex-in-address
+#       delimiter hazards.
+#     PATTERN — an ERE; counted with `grep -cE` over the captured slice (NO PIPE — a missing
+#       mid-pipe tool returns rc=0 output 0, which would read as a real zero — so the
+#       counting grep's own rc survives to discharge the rc>=2 PATTERN-ERROR arm).
+#     OP — one of -eq -le -lt -ge -gt; BOUND a non-negative integer.
+#     MUTATION — a `sed -E` program applied to a scratch copy (must change the file — a
+#       no-op is rejected — and must not destroy an anchor, or the regression IS the
+#       collapse, not the operative change).
+#     FILE — defaults to $MAXI_SKILL (mirrors assert_pin_red_under).
+#
+# The measurement is established INDEPENDENTLY of the anchor check: the anchor gate greps
+# the whole file and never exercises sed, so with sed absent the anchor gate passes cleanly
+# while the slice silently yields 0. The helper therefore checks the slice command's OWN
+# return code and refuses a non-numeric/empty count with COUNT-UNESTABLISHED (CLAUDE.md's
+# unknown-is-not-zero rule: an unestablished count is never collapsed onto a real value).
+# Reuses probe_tmp for the scratch copies and the sed-rc + cmp -s no-op guards verbatim
+# from assert_pin_red_under.
+assert_count_red_under() {  # name start end pattern op bound mutation [file]
+  local name="$1" start="$2" end="$3" pattern="$4" op="$5" bound="$6" mutation="$7" file="${8:-$MAXI_SKILL}"
+  local pat_rc anchor_rc breach_rc start_count start_match start_line ln m end_line
+  local slice mut mut_start_count mut_start_match mut_start_line mut_ln mut_end_line count mut_count
+
+  # OP is spliced into `[ count OP bound ]` — validate it is one of the five integer
+  # comparators so a caller value cannot inject a different test builtin. An invalid OP is a
+  # caller contract error (not one of the nine contract FAIL arms); it still writes a bare
+  # FAIL + token so the tally stays whole-line honest.
+  case "$op" in
+    -eq|-le|-lt|-ge|-gt) ;;
+    *) echo FAIL >> "$RESULTS_FILE"; echo INVALID-OP >> "$RESULTS_FILE"
+       printf '  FAIL  %s\n         INVALID-OP — op must be one of -eq -le -lt -ge -gt (got: %s)\n' "$name" "$op" >&2
+       return 0 ;;
+  esac
+  # BOUND is spliced into the same `[ ]` — require a non-negative integer.
+  case "$bound" in
+    ''|*[!0-9]*) echo FAIL >> "$RESULTS_FILE"; echo INVALID-BOUND >> "$RESULTS_FILE"
+       printf '  FAIL  %s\n         INVALID-BOUND — bound must be a non-negative integer (got: %s)\n' "$name" "$bound" >&2
+       return 0 ;;
+  esac
+
+  # ── 1. Anchor gate on the REAL file (grep only — never exercises sed). ──
+  # START must match exactly one line. (The slice command's OWN rc in step 2 establishes
+  # the measurement; this gate does NOT stand in for the slice — it greps the whole file.)
+  # `grep -cE` rc: 0 = one-or-more matches, 1 = zero matches (a legitimate "matched no line"
+  # that ANCHOR-UNESTABLISHED reports), >= 2 = a broken/wrong-dialect anchor ERE. Distinguish
+  # the broken-regex case with its OWN token so a caller who typos an anchor regex is told the
+  # regex is broken, not that it "didn't match one line" (folding rc>=2 into the empty-count
+  # ANCHOR-UNESTABLISHED path — the pre-fix behavior — mis-diagnosed a malformed anchor).
+  start_count="$(grep -cE -- "$start" "$file" 2>/dev/null)"; anchor_rc=$?
+  if [ "$anchor_rc" -ge 2 ]; then
+    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-PATTERN-ERROR >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         ANCHOR-PATTERN-ERROR — START anchor grep exited with status %s (a malformed or wrong-dialect ERE), not a match count\n         start: %s\n         file: %s\n' \
+      "$name" "$anchor_rc" "$start" "$file" >&2
+    return 0
+  fi
+  if [ "$start_count" != "1" ]; then
+    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-UNESTABLISHED >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         ANCHOR-UNESTABLISHED — START must match exactly one line (got: %s)\n         start: %s\n         file: %s\n' \
+      "$name" "${start_count:-<unestablished>}" "$start" "$file" >&2
+    return 0
+  fi
+  # The START line number (the unique match). `${...%%:*}` keeps the part before the first
+  # ':', i.e. the line number, regardless of ':' inside the matched content (no cut/head).
+  start_match="$(grep -nE -- "$start" "$file" 2>/dev/null)" || true
+  start_line="${start_match%%:*}"
+  # END must match at least one line AFTER the START line (END-uniqueness is NOT required).
+  # Derived by grep line numbers + bash arithmetic — still no sed — so a sed-absent host's
+  # anchor gate cannot stand in for the slice it never ran. A malformed END ERE (grep rc>=2)
+  # is a broken anchor regex, NOT an honest "no END after START" — split it out with the same
+  # ANCHOR-PATTERN-ERROR token as START above (the while-loop below cannot tell them apart:
+  # a grep error and a genuine zero-match both yield no lines).
+  grep -cE -- "$end" "$file" >/dev/null 2>&1; anchor_rc=$?
+  if [ "$anchor_rc" -ge 2 ]; then
+    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-PATTERN-ERROR >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         ANCHOR-PATTERN-ERROR — END anchor grep exited with status %s (a malformed or wrong-dialect ERE), not a match count\n         end: %s\n         file: %s\n' \
+      "$name" "$anchor_rc" "$end" "$file" >&2
+    return 0
+  fi
+  end_line=""
+  while IFS= read -r ln; do
+    [ -n "$ln" ] || continue
+    m="${ln%%:*}"
+    [ "$m" -gt "$start_line" ] 2>/dev/null && { end_line="$m"; break; }
+  done < <(grep -nE -- "$end" "$file" 2>/dev/null)
+  if [ -z "$end_line" ]; then
+    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-UNESTABLISHED >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         ANCHOR-UNESTABLISHED — END must match at least one line after START (line %s)\n         end: %s\n         file: %s\n' \
+      "$name" "$start_line" "$end" "$file" >&2
+    return 0
+  fi
+
+  # ── 2. Slice + count on the REAL file (the slice command's OWN rc establishes the
+  # measurement, independent of the anchor gate above). Capture the slice to a probe_tmp
+  # scratch file — NO PIPE — so the counting grep's own rc survives. ──
+  slice="$(probe_tmp "$name (slice setup)")" || return 0
+  if ! sed -n "${start_line},${end_line}p" "$file" > "$slice" 2>/dev/null; then
+    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         COUNT-UNESTABLISHED — slice command (sed) exited non-zero; the count is unestablished, not zero\n         file: %s\n' "$name" "$file" >&2
+    rm -f "$slice"; return 0
+  fi
+  count="$(grep -cE -- "$pattern" "$slice" 2>/dev/null)"; pat_rc=$?
+  if [ "$pat_rc" -ge 2 ]; then
+    echo FAIL >> "$RESULTS_FILE"; echo PATTERN-ERROR >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         PATTERN-ERROR — counting grep exited with status %s (a malformed or wrong-dialect ERE), not zero matches\n         pattern: %s\n' \
+      "$name" "$pat_rc" "$pattern" >&2
+    rm -f "$slice"; return 0
+  fi
+  case "$count" in
+    ''|*[!0-9]*)
+      echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+      printf '  FAIL  %s\n         COUNT-UNESTABLISHED — count is non-numeric or empty (got: %s)\n         pattern: %s\n' \
+        "$name" "${count:-<empty>}" "$pattern" >&2
+      rm -f "$slice"; return 0
+    ;;
+  esac
+
+  # ── 3. Real-file bound: the count must SATISFY OP BOUND on the real file (the `before`
+  # conjunct — checked before the mutation, mirroring assert_pin_red_under's before-probe).
+  # A correct unmutated file cannot fail here by construction. ──
+  if ! [ "$count" "$op" "$bound" ] 2>/dev/null; then
+    echo FAIL >> "$RESULTS_FILE"; echo BOUND-VIOLATED-ON-REAL-FILE >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         BOUND-VIOLATED-ON-REAL-FILE — real count %s does not satisfy %s %s\n         file: %s\n' \
+      "$name" "$count" "$op" "$bound" "$file" >&2
+    rm -f "$slice"; return 0
+  fi
+
+  # ── 4. Mutation: apply the `sed -E` program to a scratch copy. Mirrors
+  # assert_pin_red_under's sed-rc guard (a malformed mutation errors, blanks the copy, and
+  # would read as a spurious transition — record MUTATION-ERROR instead). ──
+  mut="$(probe_tmp "$name (mutation setup)")" || { rm -f "$slice"; return 0; }
+  if ! sed -E "$mutation" "$file" > "$mut" 2>/dev/null; then
+    echo FAIL >> "$RESULTS_FILE"; echo MUTATION-ERROR >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         MUTATION-ERROR — mutation sed program errored (not a valid regression)\n         mutation: %s\n         file: %s\n' \
+      "$name" "$mutation" "$file" >&2
+    rm -f "$slice" "$mut"; return 0
+  fi
+  # ── 5. No-op mutation: a byte-identical copy changes nothing, so EVERY pin would pass
+  # vacuously — record MUTATION-NOOP (mirrors assert_pin_red_under's cmp -s guard). ──
+  if cmp -s "$file" "$mut"; then
+    echo FAIL >> "$RESULTS_FILE"; echo MUTATION-NOOP >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         MUTATION-NOOP — mutated copy byte-identical to original (a mutation that changes nothing is never a vacuous pass)\n         mutation: %s\n' \
+      "$name" "$mutation" >&2
+    rm -f "$slice" "$mut"; return 0
+  fi
+
+  # ── 6. Anchor re-check on the MUTATED copy — the criterion this design exists for.
+  # Without it, an anchor-drift mutation (rename START → range extracts nothing → count 0 →
+  # violates an -eq/-le bound) and an operative mutation both report PASS->FAIL, so the
+  # #480 vacuity re-enters through the count door. Re-establish START exactly-once and END
+  # after START on the mutated copy; if the mutation destroyed an anchor → ANCHOR-COLLAPSE. ──
+  mut_start_count="$(grep -cE -- "$start" "$mut" 2>/dev/null)" || mut_start_count=""
+  if [ "$mut_start_count" != "1" ]; then
+    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-COLLAPSE >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         ANCHOR-COLLAPSE — mutation destroyed the START anchor on the mutated copy (matches: %s); the regression is the collapse, not the operative change\n         mutation: %s\n' \
+      "$name" "${mut_start_count:-<unestablished>}" "$mutation" >&2
+    rm -f "$slice" "$mut"; return 0
+  fi
+  mut_start_match="$(grep -nE -- "$start" "$mut" 2>/dev/null)" || true
+  mut_start_line="${mut_start_match%%:*}"
+  mut_end_line=""
+  while IFS= read -r mut_ln; do
+    [ -n "$mut_ln" ] || continue
+    m="${mut_ln%%:*}"
+    [ "$m" -gt "$mut_start_line" ] 2>/dev/null && { mut_end_line="$m"; break; }
+  done < <(grep -nE -- "$end" "$mut" 2>/dev/null)
+  if [ -z "$mut_end_line" ]; then
+    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-COLLAPSE >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         ANCHOR-COLLAPSE — mutation destroyed the END anchor on the mutated copy (no END after START)\n         mutation: %s\n' \
+      "$name" "$mutation" >&2
+    rm -f "$slice" "$mut"; return 0
+  fi
+
+  # ── 7. Slice + count on the MUTATED copy (same command/rc discipline as step 2). ──
+  if ! sed -n "${mut_start_line},${mut_end_line}p" "$mut" > "$slice" 2>/dev/null; then
+    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         COUNT-UNESTABLISHED — mutated slice command (sed) exited non-zero; the count is unestablished, not zero\n         mutation: %s\n         file: %s\n' \
+      "$name" "$mutation" "$file" >&2
+    rm -f "$slice" "$mut"; return 0
+  fi
+  mut_count="$(grep -cE -- "$pattern" "$slice" 2>/dev/null)"; pat_rc=$?
+  if [ "$pat_rc" -ge 2 ]; then
+    echo FAIL >> "$RESULTS_FILE"; echo PATTERN-ERROR >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         PATTERN-ERROR — counting grep exited with status %s on the mutated slice\n         pattern: %s\n' \
+      "$name" "$pat_rc" "$pattern" >&2
+    rm -f "$slice" "$mut"; return 0
+  fi
+  case "$mut_count" in
+    ''|*[!0-9]*)
+      echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+      printf '  FAIL  %s\n         COUNT-UNESTABLISHED — mutated count is non-numeric or empty (got: %s)\n         mutation: %s\n         file: %s\n' \
+        "$name" "${mut_count:-<empty>}" "$mutation" "$file" >&2
+      rm -f "$slice" "$mut"; return 0
+    ;;
+  esac
+
+  # ── 8. Mutated-file bound: the mutation must make the count VIOLATE OP BOUND (the
+  # `after` conjunct). The SAME comparison as step 3 (a correct unmutated file cannot fail
+  # the helper by construction). Capture the comparison's OWN rc rather than branching on
+  # `if [ … ]` directly, and fail closed the same way step 3 does: step 3 wraps the test in
+  # `! [ … ]`, so an errored `[ ]` (rc>=2, swallowed by 2>/dev/null) routes to its FAIL arm.
+  # Only a clean rc 1 (a genuine bound violation) proceeds to PASS here; rc 0 (still satisfies
+  # → BOUND-NOT-BREACHED) AND rc>=2 (an errored comparison) both fail closed to
+  # BOUND-NOT-BREACHED, never falling through to a spurious PASS. Unreachable today (mut_count
+  # is proven numeric at step 7, op and bound are validated upstream) — defense-in-depth so the
+  # two mirror comparisons fail in the same direction. A bare `!`-invert is NOT the fix: it
+  # would route the errored rc>=2 to PASS (fail-open, worse), so the rc is captured explicitly. ──
+  [ "$mut_count" "$op" "$bound" ] 2>/dev/null; breach_rc=$?
+  if [ "$breach_rc" -ne 1 ]; then
+    echo FAIL >> "$RESULTS_FILE"; echo BOUND-NOT-BREACHED >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         BOUND-NOT-BREACHED — mutated count %s still satisfies %s %s (the mutation did not breach the bound)\n         mutation: %s\n' \
+      "$name" "$mut_count" "$op" "$bound" "$mutation" >&2
+    rm -f "$slice" "$mut"; return 0
+  fi
+
+  # ── 9. PASS: real count satisfies OP BOUND AND mutated count violates it. ──
+  echo PASS >> "$RESULTS_FILE"
+  printf '  PASS  %s (real count %s %s %s; mutated %s breaches)\n' "$name" "$count" "$op" "$bound" "$mut_count"
+  rm -f "$slice" "$mut"
+}
+# #536 self-tests (synthetic fixtures via probe_tmp, probed through probe_two_line so the
+# intentional REDs never reach the suite tally — the #375 precedent, extended to the
+# two-line protocol). Each arm asserts BOTH the bare verdict (line 1) and its distinct cause
+# token (line 2). probe_two_line emits verdict+token+path on three lines; `read` (bash
+# builtin — no non-preflight mid-pipe) pulls the first two.
+_acru_probe() {  # name assertion-fn args... -> echoes "<verdict>|<token>" for a self-test
+  local verdict token _path
+  { read -r verdict; read -r token; read -r _path; } < <(probe_two_line "$@")
+  rm -f "$_path"   # probe_two_line deliberately does NOT unlink (the AC mandates it, so the
+                   # FAIL-tally self-test can count ^FAIL$ against the still-present file); the
+                   # caller cleans up its own probe once it has read verdict+token+path.
+  printf '%s|%s' "$verdict" "$token"
+}
+# A canonical fixture: a fenced block with exactly two MATCH lines between START and END.
+ACRU_FX="$(probe_tmp '#536 assert_count_red_under fixture setup')"
+printf 'ACRU_START sentinel\nMATCH the operative guard lives here\nMATCH a second operative line\nnoise line\nACRU_END sentinel\n' > "$ACRU_FX"
+# PASS arm: real count is 2 (satisfies -eq 2), and the mutation deletes one MATCH line → 1
+# (violates -eq 2). The helper is observed firing on the regression it targets.
+assert_eq "#536 assert_count_red_under: PASS — real count satisfies -eq 2 AND mutation breaches it" \
+  "PASS|" "$(_acru_probe assert_count_red_under 'pass' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/^MATCH a second operative line$/REMOVED/' "$ACRU_FX")"
+# ── FAIL arms — one per distinct way a conjunct or anchor check fails (some tokens are
+# exercised by more than one fixture, so the arm count exceeds the distinct-token count) ──
+# Real file already violates the bound: count is 2 but the bound is -eq 3.
+assert_eq "#536 BOUND-VIOLATED-ON-REAL-FILE: real count fails the bound before any mutation" \
+  "FAIL|BOUND-VIOLATED-ON-REAL-FILE" "$(_acru_probe assert_count_red_under 'realbad' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 3 's/^MATCH a second operative line$/REMOVED/' "$ACRU_FX")"
+# Mutation leaves the count satisfying the bound: the mutation changes a noise line, not a
+# MATCH line, so the mutated count is still 2 (satisfies -eq 2) → BOUND-NOT-BREACHED.
+assert_eq "#536 BOUND-NOT-BREACHED: mutation changes the file but leaves the count satisfying the bound" \
+  "FAIL|BOUND-NOT-BREACHED" "$(_acru_probe assert_count_red_under 'notbreach' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/^noise line$/CHANGED/' "$ACRU_FX")"
+# Mutation collapses the range: the mutation renames the START anchor, so the mutated range
+# extracts nothing (count 0). Against a NAIVE implementation this reports PASS (0 violates
+# -eq 2); this design catches it as ANCHOR-COLLAPSE — the #480 vacuity reproduced as a test.
+assert_eq "#536 ANCHOR-COLLAPSE: a mutation that destroys the START anchor cannot masquerade as the operative regression" \
+  "FAIL|ANCHOR-COLLAPSE" "$(_acru_probe assert_count_red_under 'collapse' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/ACRU_START sentinel/ACRU_START_GONE/' "$ACRU_FX")"
+# Mutation collapses the range via the END anchor (step 6b — the START-intact case the START
+# collapse above does not exercise): the mutation renames the END anchor while leaving START
+# unique, so the mutated range has no END after START and extracts nothing. Against a naive
+# implementation this also reports PASS (count 0 violates -eq 2); this design catches it as
+# ANCHOR-COLLAPSE through the END-side guard, closing the #480 vacuity from the END direction.
+assert_eq "#536 ANCHOR-COLLAPSE (END): a mutation that destroys the END anchor while START stays unique is caught by step 6b" \
+  "FAIL|ANCHOR-COLLAPSE" "$(_acru_probe assert_count_red_under 'collapse_end' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/ACRU_END sentinel/ACRU_END_GONE/' "$ACRU_FX")"
+# START unmatched: START matches zero lines.
+assert_eq "#536 ANCHOR-UNESTABLISHED: START matching zero lines fails naming the anchor" \
+  "FAIL|ANCHOR-UNESTABLISHED" "$(_acru_probe assert_count_red_under 'nstart' 'ACRU_NO_SUCH_START' 'ACRU_END sentinel' 'MATCH' -eq 2 's/x/x/' "$ACRU_FX")"
+# START non-unique: START matches two lines.
+ACRU_DUP="$(probe_tmp '#536 duplicate-START fixture')"
+printf 'ACRU_START sentinel\nMATCH one\nACRU_START sentinel\nMATCH two\nACRU_END sentinel\n' > "$ACRU_DUP"
+assert_eq "#536 ANCHOR-UNESTABLISHED: a repeated START mis-slices the range (fails naming the anchor)" \
+  "FAIL|ANCHOR-UNESTABLISHED" "$(_acru_probe assert_count_red_under 'dupstart' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/x/x/' "$ACRU_DUP")"
+rm -f "$ACRU_DUP"
+# END never matches after START: END exists nowhere.
+assert_eq "#536 ANCHOR-UNESTABLISHED: END matching no line after START fails naming the anchor" \
+  "FAIL|ANCHOR-UNESTABLISHED" "$(_acru_probe assert_count_red_under 'nend' 'ACRU_START sentinel' 'ACRU_NO_SUCH_END' 'MATCH' -eq 2 's/x/x/' "$ACRU_FX")"
+# END exists ONLY before START (matches in the file but not after the START line).
+ACRU_EARLYEND="$(probe_tmp '#536 early-END fixture')"
+printf 'ACRU_END sentinel\nACRU_START sentinel\nMATCH one\nMATCH two\n' > "$ACRU_EARLYEND"
+assert_eq "#536 ANCHOR-UNESTABLISHED: an END before START does not close the range (no END AFTER START)" \
+  "FAIL|ANCHOR-UNESTABLISHED" "$(_acru_probe assert_count_red_under 'earlyend' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/x/x/' "$ACRU_EARLYEND")"
+rm -f "$ACRU_EARLYEND"
+# ANCHOR-PATTERN-ERROR (START): a malformed START ERE (unbalanced `[`) makes the anchor grep
+# exit rc>=2, which must report a broken anchor regex — NOT be laundered into the empty-count
+# ANCHOR-UNESTABLISHED "didn't match one line" path. The mutation is never reached (step 1
+# returns first), so any non-empty program suffices.
+assert_eq "#536 ANCHOR-PATTERN-ERROR: a malformed START ERE reports a broken anchor regex, not a zero-match" \
+  "FAIL|ANCHOR-PATTERN-ERROR" "$(_acru_probe assert_count_red_under 'badstart' 'ACRU_START[unclosed' 'ACRU_END sentinel' 'MATCH' -eq 2 's/x/x/' "$ACRU_FX")"
+# ANCHOR-PATTERN-ERROR (END): START is well-formed (passes step 1) but the END ERE is malformed,
+# so the END pre-check grep exits rc>=2 → ANCHOR-PATTERN-ERROR rather than the while-loop's
+# ANCHOR-UNESTABLISHED "no END after START" (a grep error and a genuine zero-match are
+# indistinguishable to the while loop, so the pre-check must split them).
+assert_eq "#536 ANCHOR-PATTERN-ERROR: a malformed END ERE (START well-formed) reports a broken anchor regex, not a no-END-after-START" \
+  "FAIL|ANCHOR-PATTERN-ERROR" "$(_acru_probe assert_count_red_under 'badend' 'ACRU_START sentinel' 'ACRU_END[unclosed' 'MATCH' -eq 2 's/x/x/' "$ACRU_FX")"
+# COUNT-UNESTABLISHED: the slice command (sed) is unavailable, so the slice rc fails while the
+# anchor gate (a grep-only whole-file check) still passes cleanly — the exact missing-tool
+# shape the measurement must not collapse onto 0. Shadow `sed` to fail inside a subshell.
+ACRU_UNEST="$(probe_tmp '#536 unestablished-count probe')"
+(
+  sed() { return 1; }   # shadow sed for this subshell so the slice command fails
+  RESULTS_FILE="$ACRU_UNEST" >/dev/null assert_count_red_under 'unest' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/x/x/' "$ACRU_FX" 2>/dev/null
+)
+{ read -r _acru_v; read -r _acru_t; } < "$ACRU_UNEST"
+assert_eq "#536 COUNT-UNESTABLISHED: with sed unavailable the slice fails while the anchor gate still passes" \
+  "FAIL|COUNT-UNESTABLISHED" "$_acru_v|$_acru_t"
+rm -f "$ACRU_UNEST"
+# COUNT-UNESTABLISHED at STEP 7 (the MUTATED-slice site, distinct code path from the step-2
+# arm above): the unest test above shadows sed to fail on EVERY call, so it returns at step 2
+# (the real-file slice) before step 7 ever runs. Drive the step-7 path directly with a
+# call-counting sed shadow that lets the real-file slice (call 1) and the mutation (call 2)
+# succeed, then fails ONLY the mutated-slice sed (call 3) — so the mutated count is
+# unestablished (not zero) and step 7 records COUNT-UNESTABLISHED. (White-box: this pins the
+# helper's three-sed-call happy path to step 7; a refactor changing that call sequence would
+# need this counter updated.)
+ACRU_STEP7="$(probe_tmp '#536 step7 count-unestablished probe')"
+ACRU_SEDCTR="$(probe_tmp '#536 step7 sed-call counter')"; printf '0\n' > "$ACRU_SEDCTR"
+(
+  sed() {   # fail only the 3rd sed call (step-7 mutated slice); calls 1-2 run the real sed
+    local n; n="$(cat "$ACRU_SEDCTR")"; n=$((n + 1)); printf '%s\n' "$n" > "$ACRU_SEDCTR"
+    [ "$n" -ge 3 ] && return 1
+    command sed "$@"
+  }
+  RESULTS_FILE="$ACRU_STEP7" >/dev/null assert_count_red_under 'step7unest' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/^MATCH a second operative line$/REMOVED/' "$ACRU_FX" 2>/dev/null
+)
+{ read -r _acru_v; read -r _acru_t; } < "$ACRU_STEP7"
+assert_eq "#536 COUNT-UNESTABLISHED (step 7): the MUTATED slice sed failing after a clean real-file slice is unestablished, not zero" \
+  "FAIL|COUNT-UNESTABLISHED" "$_acru_v|$_acru_t"
+rm -f "$ACRU_STEP7" "$ACRU_SEDCTR"
+# DEFERRED (review PR #553, Suggestion 2): the step-7 PATTERN-ERROR and non-numeric-count arms
+# have no dedicated self-test. WHY: they mirror step 2 over the SAME pattern, which step 2
+# validates FIRST — a malformed/wrong-dialect pattern errors at step 2, and a numeric grep -c
+# is numeric at both sites — so NO black-box fixture reaches step 7 with a step-2-clean pattern
+# that then breaks at step 7. A white-box test would have to shadow grep and pin the helper's
+# exact internal grep-call index, which rots on any refactor touching an earlier grep
+# and pins implementation shape rather than behavior. REVISIT if step 7 ever counts a DIFFERENT
+# pattern than step 2 (then the two sites diverge and a black-box fixture becomes possible).
+# PATTERN-ERROR: the PATTERN is a malformed ERE (unbalanced `[`) → counting grep exits rc>=2.
+assert_eq "#536 PATTERN-ERROR: a malformed ERE reports a broken pattern, not zero matches" \
+  "FAIL|PATTERN-ERROR" "$(_acru_probe assert_count_red_under 'badpat' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH[unclosed' -eq 2 's/^noise line$/CHANGED/' "$ACRU_FX")"
+# MUTATION-ERROR: the mutation sed program is malformed (unbalanced `[`).
+assert_eq "#536 MUTATION-ERROR: a malformed mutation program records FAIL (no spurious green from a blanked copy)" \
+  "FAIL|MUTATION-ERROR" "$(_acru_probe assert_count_red_under 'badmut' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 '/[/d' "$ACRU_FX")"
+# MUTATION-NOOP: the mutation matches nothing → byte-identical copy.
+assert_eq "#536 MUTATION-NOOP: a no-op mutation records FAIL (never a vacuous pass)" \
+  "FAIL|MUTATION-NOOP" "$(_acru_probe assert_count_red_under 'noop' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/ZZZ_NEVER_MATCHES/x/' "$ACRU_FX")"
+# ── Caller-contract guards (INVALID-OP / INVALID-BOUND). These two FAIL-emitting arms guard
+# against a caller value being spliced into the `[ count OP bound ]` test builtin (an
+# injection guard), and — like every other FAIL arm — write a bare FAIL + distinct token, so
+# a broken `case` arm that let a bogus OP/BOUND through would go RED here. INVALID-OP: an OP
+# outside -eq/-le/-lt/-ge/-gt. INVALID-BOUND: a non-integer bound.
+assert_eq "#536 INVALID-OP: an OP outside the five integer comparators fails naming the caller contract" \
+  "FAIL|INVALID-OP" "$(_acru_probe assert_count_red_under 'badop' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' 'BOGUS' 2 's/x/x/' "$ACRU_FX")"
+assert_eq "#536 INVALID-BOUND: a non-integer bound fails naming the caller contract" \
+  "FAIL|INVALID-BOUND" "$(_acru_probe assert_count_red_under 'badbound' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 'notnum' 's/x/x/' "$ACRU_FX")"
+# ── The FAIL-tally self-test: a token that swallowed its own verdict line cannot pass
+# unnoticed. Drive the ANCHOR-COLLAPSE arm THROUGH probe_two_line (which, per the AC, does
+# NOT unlink the probe — so this self-test can count `^FAIL$` against the still-present
+# file), then assert exactly one `^FAIL$` line (the bare verdict) — the cause token sits on
+# the line below and must NOT be counted as a second FAIL. ──
+ACRU_TALLY_OUT="$(probe_two_line assert_count_red_under 'tally' 'ACRU_START sentinel' 'ACRU_END sentinel' 'MATCH' -eq 2 's/ACRU_START sentinel/ACRU_START_GONE/' "$ACRU_FX")"
+{ read -r ACRU_T_V; read -r ACRU_T_TOK; read -r ACRU_T_PATH; } <<< "$ACRU_TALLY_OUT"
+assert_eq "#536 FAIL-tally (via probe_two_line): the ANCHOR-COLLAPSE verdict is FAIL" "FAIL" "$ACRU_T_V"
+assert_eq "#536 FAIL-tally (via probe_two_line): the cause token is ANCHOR-COLLAPSE" "ANCHOR-COLLAPSE" "$ACRU_T_TOK"
+assert_eq "#536 the two-line protocol leaves exactly one ^FAIL$ line in the tally (the cause token on the next line does not swallow its verdict)" \
+  "1" "$(grep -c '^FAIL$' "$ACRU_T_PATH")"
+rm -f "$ACRU_T_PATH"
+# ── ERE-vs-BRE migration contract: the silent-conversion hazard. A PATTERN whose parens
+# are LITERAL (`Devflow Review (auto-trigger)`) counts differently as a BRE (1, parens
+# literal) than as an ERE (0, parens open a group). The helper's PATTERN is an ERE, so an
+# ERE that counts 0 where the caller's old BRE counted 1 would satisfy a `-eq 0` bound,
+# report PASS forever, and guard nothing. Two layers are pinned below: (a) the RAW-grep
+# demonstration that the dialects diverge at rc 0 with no error (the silent class a migrant
+# must guard against with the ERE==BRE equality check), and (b) the same PATTERNs driven
+# THROUGH assert_count_red_under so the helper's OWN dialect is pinned — a regression
+# swapping the helper's `grep -cE` to `grep -c` at any count site goes RED here (the
+# raw-grep asserts alone could not catch that, since they never exercise the helper).
+ACRU_ERE="$(probe_tmp '#536 ERE-semantics fixture')"
+printf 'ACRU_START sentinel\nDevflow Review (auto-trigger)\nACRU_END sentinel\n' > "$ACRU_ERE"
+# (a) RAW-grep demonstration of the silent-conversion hazard.
+# The literal string as a BRE (grep -c, no -E) counts 1 (parens literal).
+assert_eq "#536 ERE==BRE contract (baseline): a literal-paren string counts 1 as a BRE" \
+  "1" "$(grep -c 'Devflow Review (auto-trigger)' "$ACRU_ERE" || true)"
+# The SAME string as an ERE (grep -cE) counts 0 (parens open a group that never matches the
+# literal text) — the silent-conversion hazard, demonstrated at rc 0 (no error).
+assert_eq "#536 ERE==BRE contract (hazard): the same literal-paren string counts 0 as an ERE (rc 0, no error — the silent class)" \
+  "0" "$(grep -cE 'Devflow Review (auto-trigger)' "$ACRU_ERE" || true)"
+# (b) The SAME literal-paren PATTERN driven THROUGH the helper: because the helper counts
+# with the ERE dialect, its real-file count is 0, which does NOT satisfy `-eq 1` → the helper
+# returns BOUND-VIOLATED-ON-REAL-FILE (before it ever applies the mutation). Were the helper
+# to regress to a BRE `grep -c`, the count would be 1 (`-eq 1` satisfied), it would proceed
+# past step 3, and this exact-token assertion would go RED — so this pins the helper's
+# dialect, which the raw-grep asserts above cannot.
+assert_eq "#536 ERE dialect (through the helper): a literal-paren PATTERN counts 0 as the helper's ERE, so -eq 1 is violated on the real file" \
+  "FAIL|BOUND-VIOLATED-ON-REAL-FILE" "$(_acru_probe assert_count_red_under 'erelit' 'ACRU_START sentinel' 'ACRU_END sentinel' 'Devflow Review (auto-trigger)' -eq 1 's/^Devflow Review .auto-trigger.$/REMOVED/' "$ACRU_ERE")"
+rm -f "$ACRU_ERE"
+# (b, positive) An ERE-only group/quantifier PATTERN counts as the ERE DEFINES (not as a
+# literal): `^(alpha|beta)$` matches both lines under ERE (count 2, satisfies -eq 2), and the
+# mutation removes one match → count 1 violates → PASS. Under a BRE regression the same
+# PATTERN's `(`/`|`/`)` are literal and match NEITHER line (count 0), so the real-file bound
+# `-eq 2` is violated and the helper would return FAIL — so `PASS|` goes RED under the
+# regression, pinning that the helper honors ERE group/alternation semantics.
+ACRU_ERE2="$(probe_tmp '#536 ERE-only-syntax fixture')"
+printf 'ACRU_START sentinel\nalpha\nbeta\nnoise line\nACRU_END sentinel\n' > "$ACRU_ERE2"
+assert_eq "#536 ERE dialect (through the helper): an ERE-only alternation ^(alpha|beta)$ matches both lines as the ERE defines" \
+  "PASS|" "$(_acru_probe assert_count_red_under 'erealt' 'ACRU_START sentinel' 'ACRU_END sentinel' '^(alpha|beta)$' -eq 2 's/^alpha$/REMOVED/' "$ACRU_ERE2")"
+rm -f "$ACRU_ERE2"
+# (b, mutated-copy site) The two tests above BOTH return before or without a verdict-flipping
+# dependence on the SECOND count site — the mutated-copy count (step 7): `erelit` returns at
+# the real-file bound (step 3, before step 7), and `erealt`'s mutated ERE count (1) and BRE
+# count (0) BOTH violate its `-eq 2` bound, so a BRE regression isolated to step 7 would not
+# flip its verdict. This arm pins step 7's dialect directly: with an ERE `^(alpha|beta)$` and
+# a `-le 1` bound, the real slice (one `alpha`) counts 1 ≤ 1 (satisfies, step 3 passes), and
+# the mutation turns `noise` into `beta` so the MUTATED slice counts 2 under ERE → violates
+# `-le 1` → PASS. Under a step-7-only `grep -cE`→`grep -c` regression the mutated slice's
+# literal-`(alpha|beta)` count is 0 ≤ 1 (satisfies) → BOUND-NOT-BREACHED, flipping `PASS|`
+# RED — so the mutated-copy count site is dialect-pinned too, closing the "any count site"
+# claim above.
+ACRU_ERE3="$(probe_tmp '#536 ERE mutated-slice-site fixture')"
+printf 'ACRU_START sentinel\nalpha\nnoise line\nACRU_END sentinel\n' > "$ACRU_ERE3"
+assert_eq "#536 ERE dialect (through the helper, step 7): the MUTATED-slice count honors ERE — a step-7-only grep -c regression flips this PASS to BOUND-NOT-BREACHED" \
+  "PASS|" "$(_acru_probe assert_count_red_under 'erestep7' 'ACRU_START sentinel' 'ACRU_END sentinel' '^(alpha|beta)$' -le 1 's/^noise line$/beta/' "$ACRU_ERE3")"
+rm -f "$ACRU_ERE3"
+rm -f "$ACRU_FX"
 # Issue #500 parked-class sweep contract pins. These stay below the
 # assert_pin_red_under definition so the behavioral mutations below execute.
 assert_pin_unique "#500: parked-class sweep contract heading is present" \
@@ -3269,15 +3662,25 @@ assert_pin_red_under "#443: on-disk drafting artifacts are declared out of bound
 assert_pin_red_under "#443: Step 3.6 dispatch waits for the completed result (synchronous)" \
   "wait for the subagent's completed result before proceeding" \
   's/completed result before proceeding//' "$CI443_SKILL"
-# Degraded arm (maps to the degraded-arm AC): removing the enumerated-failures gate turns the
-# attempt-first dispatch into a pre-detected skip.
-assert_pin_red_under "#443: degraded arm fires only on the enumerated failures (attempt-first)" \
-  'Fall to the degraded arm **only** on the enumerated failures' \
-  's/on the enumerated failures//' "$CI443_SKILL"
-# Re-audit offer in the Step 4 revision loop (maps to the revision-loop AC).
+# Degraded arm (maps to the degraded-arm AC). The #546 cutover moved this arm's ENTRY
+# classification into the tool (`query-next-action` answers `dispatch-inline-degraded`, driven
+# by run.sh's #546 next_action_budget_rows), so the old enumerated-failures literal is gone.
+# What did NOT move is the attempt-first discipline: no state owner can stop an orchestrator
+# from pre-detecting a nested context and skipping a dispatch it therefore never makes, so
+# this stays a prose-only guarantee and keeps its pin. The mutation excises the never-
+# pre-detect clause, re-introducing exactly that pre-detected skip.
+assert_pin_red_under "#443: degraded arm is attempt-first, never pre-detected" \
+  'never pre-detect a nested context and skip' \
+  's/never pre-detect a nested context and skip//' "$CI443_SKILL"
+# Re-audit offer in the Step 4 revision loop (maps to the revision-loop AC). Repointed by the
+# #546 cutover's delta 9, which reordered the loop so the offer resolves BEFORE the confirm/
+# edit approval question; the offer itself survives verbatim as a prose obligation (the tool
+# owns the ceiling, never whether the orchestrator asks). Inverting the offer into a skip
+# re-introduces the ship-an-unaudited-revision channel.
 assert_pin_red_under "#443: Step 4 revision loop offers a fresh re-audit" \
-  'ask whether to dispatch a fresh Step 3.6 audit of the revised draft' \
-  's/dispatch a fresh Step 3.6 audit//' "$CI443_SKILL"
+  '**offer a fresh re-audit** via the runner' \
+  's/\*\*offer a fresh re-audit\*\* via the runner/skip any re-audit and proceed via the runner/' \
+  "$CI443_SKILL"
 # Dispatch-time fresh re-load of the extension (maps to the forwarding-freshness AC): removing
 # the fresh re-load lets a compaction-evicted turn-one load silently drop consumer dimensions.
 assert_pin_red_under "#443: consumer audit dimensions are re-loaded FRESH at dispatch time" \
@@ -3311,10 +3714,22 @@ rm -f "$CI443_MUT"
 assert_pin_red_under "#443: bounded re-audit never deadlocks filing" \
   'the audit informs, it never deadlocks filing' 's/never deadlocks filing//' "$CI443_SKILL"
 # Mandatory never-silent audit summary line (maps to the audit-summary AC): the feature's
-# observability contract — a skipped/degraded audit must always render a summary line.
+# observability contract — a skipped/degraded audit must always render a summary line. The
+# #546 cutover moved the summary's FIELD SET to `query-summary` (a tool surface, driven by
+# run.sh's #546 cli_roundtrip_restricted_path) but the mandatory-render contract is prose and
+# survives the cutover with its pin: the tool can report the fields, it cannot make an
+# orchestrator render the line. Repointed to the amended wording ("the audit ran", not "it
+# ran"). The mutation excises the operative evidence clause.
 assert_pin_red_under "#443: audit summary line is the mandatory never-silent evidence" \
-  'the summary line is the evidence it ran and which arm it took' \
-  's/the evidence it ran and which arm it took//' "$CI443_SKILL"
+  'the summary line is the evidence the audit ran and which arm it took' \
+  's/the evidence the audit ran and which arm it took//' "$CI443_SKILL"
+# The two surviving halves of the same contract, pinned as surfaces (the AC requires the
+# summary-line contract sentence to survive the cutover): the line always renders, and a
+# skipped/degraded audit is never silent.
+assert_pin_unique "#443: the audit summary line always renders (even on a clean zero-findings FILE)" \
+  '**The audit summary line is mandatory and always renders**' "$CI443_SKILL"
+assert_pin_unique "#443: a skipped or degraded audit is never silent" \
+  'A skipped or degraded audit is **never silent**' "$CI443_SKILL"
 # Step 4 presentation gate (maps to the artifact-gate AC): the seam that makes Step 3.6
 # mandatory rather than skippable — removing the presence check lets an un-audited draft show.
 assert_pin_red_under "#443: Step 4 presentation gate confirms this run's audit artifact exists" \
@@ -3356,14 +3771,74 @@ assert_pin_unique "#443: audit summary renders the word degraded whenever the de
 # ── issue #522: Step 3.6 audits the canonical DRAFT FILE (not a hand-condensed copy), offers
 #    user-chosen audit rounds past the automatic cap, and Step 3.5 self-checks the audit
 #    dimensions. Same skill-contract mechanism as #443: pins over the rendered SKILL surface,
-#    no runtime code path in CI. Nine behavioral-fix pins in this block use assert_pin_red_under
-#    with a sed -E mutation that RE-INTRODUCES the named defect (each mutation excises or
-#    inverts the operative clause so its removal/inversion alone re-opens the guarded
-#    regression) — the four immediately below (pins 1/2 excise a clause, pins 3/4 invert/negate
-#    it: "is not on" → "is on"; "exactly these 2 offer triggers" → "no offer triggers"), plus
-#    the write-time-digest compare, the file-arm-routes-to-embed (unrecorded comparand), the
-#    write-landing-route, T1, and T2 behavioral-fix pins further down. The remaining #522 pins
-#    are surface-presence pins (assert_pin_unique, or pin_count>=1 for a marker that recurs).
+#    no runtime code path in CI.
+#
+#    ISSUE #546 CUTOVER — READ BEFORE ADDING A PIN HERE. The deterministic half of the Step
+#    3.6 lifecycle no longer lives in this prose: transition legality, round numbering, the
+#    automatic budget, retry bounds and their precedence, dispatch-arm routing, digest and
+#    sentinel generation and comparison, the T1/T2 triggers, override records, presentation
+#    eligibility, and the audit-summary field set are all owned by `scripts/issue-audit-state.py`.
+#    Every #522 pin whose literal asserted one of those guarantees was reconciled in the #546
+#    cutover: the guarantee is now driven as a TOOL test (the `#546` blocks in this file and in
+#    test_python_scripts.py), not asserted as a sentence a skill could silently paraphrase away.
+#    A pin deleted there is named at its replacement below. What SURVIVES here is the prose-only
+#    residue — the obligations no in-process tool can force on an orchestrator that simply never
+#    calls it (dispatch discipline, the information diet, the auditor's own instructions, the
+#    offers, the mandatory summary render) — plus the obey-the-tool contract itself, which is the
+#    seam the whole cutover rests on. Do not re-pin a tool-owned guarantee as prose: a prose pin
+#    over a value the tool decides is the coupled-mirror hazard, and the tool is the source of
+#    truth. Behavioral-fix pins here use assert_pin_red_under with a sed -E mutation that
+#    RE-INTRODUCES the named defect (excising or inverting the operative clause so its removal
+#    alone re-opens the guarded regression); the rest are surface-presence pins.
+#
+# (0) OBEY THE TOOL — the headline pin of the #546 cutover, and the one guarantee the tool
+#     provably cannot enforce on itself: `query-eligibility` can only answer the runs that call
+#     it (the skill's own "Honest scope of this gate" paragraph concedes this). The operative
+#     sentence is the one that binds PRESENTATION to the tool's answer; excising it alone
+#     re-introduces prose-decided eligibility — an orchestrator that is "certain the draft is
+#     clean" presenting on its own judgment, which is exactly issue #546's motivating
+#     regression. The surrounding sentences ("the lifecycle is owned by … not by this prose",
+#     "the tool's answer *is* the decision") are FRAMING: they describe the ownership without
+#     binding any act to an answer, so pinning one of them would stay GREEN under this mutation.
+assert_pin_red_under "#546: presentation eligibility is the tool's answer, never prose-decided" \
+  'is presented for approval only after `query-eligibility --mode approve` answers `eligible=yes`' \
+  's|\*\*A draft you are certain is clean is presented for approval only after `query-eligibility --mode approve` answers `eligible=yes`\.\*\* ||' \
+  "$CI443_SKILL"
+# The obey-the-tool contract's two supporting prose obligations (surfaces, not mutations): the
+# record-and-obey loop, and the closed prohibition on re-deriving a tool-owned decision.
+assert_pin_unique "#546: the step records each lifecycle event through the tool and obeys its answer" \
+  'records each lifecycle event through that tool and obeys the answer it returns' "$CI443_SKILL"
+assert_pin_unique "#546: no tool-owned decision is ever re-derived from this prose" \
+  'Never re-derive a transition, a budget, a retry bound, a dispatch arm, or eligibility from this prose' \
+  "$CI443_SKILL"
+# An illegal-transition rejection is NOT unavailability (SKILL.md's contract line). Without
+# this rule a rejected mutation routes to the `state-owner unavailable` fallback — turning the
+# tool's fail-closed refusal into a licence to improvise around it, which is the fail-open the
+# whole state-owner cutover exists to close.
+assert_pin_unique "#546: an illegal-transition rejection is not an unavailability signal" \
+  '**An illegal-transition rejection is NOT an unavailability signal.**' "$CI443_SKILL"
+assert_pin_unique "#546: an illegal transition never routes to the state-owner-unavailable fallback" \
+  'Never route an illegal transition to the `state-owner unavailable` fallback below' "$CI443_SKILL"
+# The `state-owner unavailable` fallback: its DISTINCT marker (distinct from `degraded`, which
+# keeps meaning the inline arm — the two never substitute, so the breadcrumb stays honest:
+# CLAUDE.md guard-class 2), its closed 2-class entry set, and its one-round/one-question bound.
+# The bare marker string recurs (6x in the fallback's own prose), so the marker is pinned via
+# its unique defining sentence rather than a bare-literal assert_pin_unique.
+assert_pin_unique "#546: the state-owner-unavailable fallback carries its own distinct summary marker" \
+  'The audit summary line carries the distinct marker **`state-owner unavailable`**' "$CI443_SKILL"
+assert_pin_unique "#546: the state-owner-unavailable marker is distinct from the degraded marker" \
+  'is **distinct from `degraded`**' "$CI443_SKILL"
+assert_pin_unique "#546: exactly 2 classes route to the state-owner-unavailable fallback" \
+  'Exactly **2 classes** route here, and nothing else' "$CI443_SKILL"
+assert_pin_unique "#546: the state-owner-unavailable fallback is bounded to one round and one question" \
+  'bounded to one round and one question' "$CI443_SKILL"
+# The fallback is never silent either (the AC's "a fallback lifecycle is never silent"), and it
+# never reconstructs a round's findings from memory.
+assert_pin_unique "#546: the state-owner-unavailable fallback still renders the mandatory summary line" \
+  'A fallback lifecycle is **never silent**' "$CI443_SKILL"
+assert_pin_unique "#546: a memory-reconstructed findings summary is never a legal discharge" \
+  '**A findings summary reconstructed from memory and presented as a round'"'"'s real findings is never a legal discharge.**' \
+  "$CI443_SKILL"
 # (1) Pre-dispatch canonical write — removing it re-opens the condensation-drift channel (the
 #     auditor audits a hand-condensed copy instead of the exact file the implementer reads).
 assert_pin_red_under "#522: Step 3.6 writes the canonical draft file before every dispatch" \
@@ -3379,46 +3854,73 @@ assert_pin_red_under "#522: audit prompt reads the draft file as the sole draft 
 assert_pin_red_under "#522: draft file is NOT on the file-arm out-of-bounds list" \
   'is **not** on the file-arm out-of-bounds list' \
   's/is \*\*not\*\* on the file-arm out-of-bounds list/is on the file-arm out-of-bounds list/' "$CI443_SKILL"
-# (4) Two-trigger user-chosen-rounds offer — deleting the trigger evaluation re-opens the
-#     ship-unconverged channel (the run proceeds to Step 4 without offering another round).
-assert_pin_red_under "#522: Step 3.6->4 boundary evaluates the two user-chosen-round triggers" \
-  'evaluate exactly these **2 offer triggers**' \
-  's/evaluate exactly these \*\*2 offer triggers\*\*/evaluate no offer triggers/' "$CI443_SKILL"
-# Surface-presence pins (no mutation obligation) for the following markers (the
-# write-landing-route / T1 / T2 behavioral-fix pins live further down).
-assert_eq "#522: embed arm carries the file-write-failed marker" "yes" \
-  "$([ "$(pin_count 'draft embedded (file write failed)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
-assert_eq "#522: embed arm carries the file-unreadable marker" "yes" \
-  "$([ "$(pin_count 'draft embedded (file unreadable)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
-# Distinct marker for the unrecorded-comparand entry path (iteration-2 re-gate: the write
-# actually landed there, so reusing the file-write-failed marker would be a misdirected
-# breadcrumb — CLAUDE.md guard-class-2). The distinct marker keeps the breadcrumb honest.
-assert_eq "#522: embed arm carries the distinct digest-unrecorded marker" "yes" \
-  "$([ "$(pin_count 'draft embedded (digest unrecorded)' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
-assert_pin_unique "#522: audit summary line states the total number of audit rounds run" \
-  'the total number of audit rounds run' "$CI443_SKILL"
+# (4) The user-chosen-rounds OFFER at the Step 3.6 → Step 4 boundary. #546 moved the trigger
+#     EVALUATION into the tool (`query-triggers` answers `t1=…  t2=…  reason=…`), so the old
+#     "evaluate exactly these **2 offer triggers**" literal is gone; T1, T2, and the
+#     unestablished-state arm are now driven as tool rows (test_python_scripts.py's #546
+#     t1_t2_rows — incl. "unestablished state -> T2 holds"; this file's #546
+#     cli_roundtrip_restricted_path T1 row and the stale-.md "T2 holds on unestablished state"
+#     row). What stays prose is WHETHER THE RUN ASKS — a tool can answer `t1=hold` all day and
+#     never make an orchestrator open its mouth. Inverting the offer into a silent proceed
+#     re-opens the ship-unconverged channel this boundary exists to close.
+assert_pin_red_under "#522: a held trigger offers one more audit round at the Step 3.6->4 boundary" \
+  'While **either** holds, **offer one more audit round via the runner' \
+  's/While \*\*either\*\* holds, \*\*offer one more audit round/While either holds, proceed to Step 4 without offering a round/' \
+  "$CI443_SKILL"
+# The offer's non-silent arms, which stay prose obligations on the orchestrator: a silent
+# non-response never dispatches and never proceeds (unknown is not consent), and the
+# unestablished-state reason is NAMED in the offer rather than collapsed onto "no trigger"
+# (unknown is not zero — CLAUDE.md's rule, and the tool's `reason=state-unestablished` is the
+# operand this prose must actually surface).
+assert_pin_unique "#522: the boundary offer names which trigger fired, and the unestablished state when unknown" \
+  'naming the unestablished state when `reason=state-unestablished` — unknown is not zero' \
+  "$CI443_SKILL"
+assert_pin_unique "#522: a silent non-response at the boundary offer never dispatches and never proceeds" \
+  '**pause and re-ask in the final chat message; never dispatch and never proceed on silence.**' \
+  "$CI443_SKILL"
+# The per-run ceiling is the tool's (`record-offer` refuses an accepted offer past
+# `_USER_ROUND_CAP`; driven by this file's #546 user_round_cap_rows), so the old
+# "User-chosen rounds are capped at 3 per run" prose literal is gone. The prose obligation that
+# REPLACED it — never count rounds yourself — is what keeps an orchestrator from re-deriving
+# the ceiling it just delegated, so it keeps a pin here.
+assert_pin_unique "#546: the tool owns the per-run offer ceiling; the run never counts rounds itself" \
+  'the tool owns the per-run ceiling and refuses an accepted offer past it, so **never count rounds yourself**' \
+  "$CI443_SKILL"
+# Audit-summary field surfaces. The FIELD SET is the tool's (`query-summary`), so the old
+# "the total number of audit rounds run" prose literal is gone (driven by this file's #546
+# cli_roundtrip_restricted_path summary row + the eligibility-token round-trip). What survives
+# is the prose obligation to render what the query reports rather than a recollected summary —
+# the misdirected-breadcrumb guard (CLAUDE.md guard-class 2) — plus each flag literal the
+# rendering site must carry.
+assert_pin_unique "#546: the summary line's fields are read from query-summary, never recollected" \
+  '**Do not assemble its fields from your own recollection of the run — read them from `query-summary`**' \
+  "$CI443_SKILL"
 assert_pin_unique "#522: audit summary carries the declined-further-audit phrase" \
   'user declined further audit' "$CI443_SKILL"
-assert_pin_unique "#522: user-chosen rounds are capped at 3 per run" \
-  'User-chosen rounds are capped at 3 per run' "$CI443_SKILL"
-assert_pin_unique "#522: audit event-log is the round record the user-chosen-rounds offer reads" \
-  'the round record the user-chosen-rounds offer reads' "$CI443_SKILL"
-assert_pin_unique "#522: unestablished event log treats trigger T2 as holding" \
-  'T2 below is treated as holding' "$CI443_SKILL"
 assert_pin_unique "#522: Step 3.5 self-checks the draft against the audit dimensions" \
   'Self-check the draft against the Step 3.6 audit dimensions' "$CI443_SKILL"
 assert_pin_unique "#522: Step 3.5 summary reports the dimension self-check (falsifiable zero)" \
   'no dimension-checklist finding' "$CI443_SKILL"
 # Template out-of-bounds ENUMERATION pin (closes the narration-vs-template drift the pin (3)
 # narration pin alone leaves open — a regression re-adding the draft to the audit-prompt
-# TEMPLATE's 3-file list would keep pin (3)'s narration sentence GREEN; this pins the
-# template's exact 3-reasoning-artifact list, so re-adding the draft there flips it RED).
-assert_pin_unique "#522: audit-prompt template out-of-bounds names exactly the 3 reasoning artifacts" \
-  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
-# Automatic budget unchanged (AC 'Automatic budget unchanged'): the user-chosen rounds must
-# not silently widen the automatic loop past one audit + one automatic re-audit.
-assert_pin_unique "#522: automatic budget stays one audit plus at most one automatic re-audit" \
-  'one audit plus **at most one** automatic re-audit' "$CI443_SKILL"
+# TEMPLATE's out-of-bounds list would keep pin (3)'s narration sentence GREEN; this pins the
+# template's exact reasoning-artifact list, so re-adding the draft there flips it RED).
+# #546 widened the list from 3 files to 4: the state owner's record `issue-audit-state-<slug>.json`
+# joined it, and the RETIRED `.md` event log stays named — a pre-cutover leftover on disk
+# re-anchors an auditor on prior verdicts exactly as the live file did, and this skill no longer
+# writes (or deletes) that path, so only the out-of-bounds declaration covers it.
+assert_pin_unique "#522: audit-prompt template out-of-bounds names exactly the 4 reasoning artifacts" \
+  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
+# The retired-.md rationale is itself pinned: it is the one out-of-bounds entry with no live
+# producer, so a future reader who "tidies" it away silently re-opens the re-anchoring channel.
+assert_pin_unique "#546: the retired .md event log stays declared out of bounds (pre-cutover leftovers re-anchor)" \
+  'The retired `.md` path stays named even though this skill no longer writes it' "$CI443_SKILL"
+# NOTE (#546): the "automatic budget stays one audit plus **at most one** automatic re-audit"
+# pin was DELETED here, not repointed — `_MAX_AUTOMATIC_REAUDITS` moved into the tool, so a
+# prose pin over it is exactly the coupled-mirror hazard the cutover removes. Its replacement
+# is next_action_budget_rows in this file's #546 block, which drives `query-next-action`'s
+# retry/budget arms directly — including the ceiling itself: three consecutive REVISE rounds
+# must yield one automatic re-audit and then fall through to the user-chosen-offer evaluation.
 # Coupled doc site (AC 'Coupled sites updated in the same change'): the §11 item 5 overview
 # must carry the new file-first contract, not the retired "only the rendered title and body".
 CI522_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
@@ -3428,15 +3930,23 @@ assert_pin_unique "#522: overview §11 item 5 describes the file-first sole-draf
 # operative anti-corruption contract): the auditor must return a full-content git hash-object
 # digest of the file it read so the orchestrator can compare and reject foreign bytes —
 # a full-content digest catches an interior overwrite that boundary-line sampling would miss.
+# AMENDED by #546: the instruction now names `git hash-object --no-filters`. The flag is
+# load-bearing, not cosmetic — the tool hashes via `git hash-object --stdin --no-filters` at
+# every site, and path-mode hashing applies clean/CRLF filters that diverge from stdin hashing
+# on the SAME bytes, so a filter-free auditor instruction is what makes the dispatch digest,
+# the auditor-quoted digest, and the eligibility digest agree on every host. Dropping the flag
+# would make a clean CRLF draft refuse as a false mismatch — driven by this file's #546
+# digest_filter_mode_rows (autocrlf + text=auto fixtures).
 assert_pin_unique "#522: file-arm carriage check returns a full-content git hash-object digest for identity compare" \
-  'run `git hash-object` on the draft file it read and quote the printed object ID verbatim in its return' "$CI443_SKILL"
+  'run `git hash-object --no-filters` on the draft file it read and quote the printed object ID verbatim in its return' "$CI443_SKILL"
 # Template-side git-hash-object instruction (iteration-4 review finding C: narration-vs-template
 # drift). The pin above pins the AUTHOR-FACING narration wording; the DISPATCHED audit-prompt
 # template carries its own copy (different wording), and a regression removing the template's
 # instruction leaves the narration pin GREEN while the auditor is no longer asked to hash —
 # silently disabling the whole identity check. Symmetric with the out-of-bounds template pin.
+# (AMENDED by #546 to `--no-filters`, for the digest_filter_mode_rows reason above.)
 assert_pin_unique "#522: audit-prompt template instructs the auditor to return a git hash-object digest" \
-  'run `git hash-object` on that draft file and quote the object ID it prints verbatim' "$CI443_SKILL"
+  'run `git hash-object --no-filters` on that draft file and quote the object ID it prints verbatim' "$CI443_SKILL"
 # Template-side DRAFT-UNREADABLE emit condition (iteration-4 review finding F): the only other
 # guard over this token is a non-discriminating pin_count>=1 that stays GREEN as long as the
 # token survives anywhere; this pins the template's operative emit-condition sentence so deleting
@@ -3447,109 +3957,144 @@ assert_pin_unique "#522: audit-prompt template states the DRAFT-UNREADABLE emit 
 # file-arm-only third verdict value — deleting this carve-out re-opens a spurious emit.
 assert_pin_unique "#522: degraded inline arm emits no VERDICT: DRAFT-UNREADABLE" \
   'emits **no `VERDICT: DRAFT-UNREADABLE`**' "$CI443_SKILL"
-# Embed-arm 4-file out-of-bounds list (the inverse of the file arm's 3-file list — re-adds
-# the draft path): symmetric with the file-arm template-enumeration pin above.
-assert_pin_unique "#522: embed arm out-of-bounds names exactly the 4 files (draft re-added)" \
-  'On this arm the out-of-bounds declaration names exactly these 4 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
-# Carriage COMPARE-AND-REJECT (the ENFORCEMENT half of the anti-corruption check — the auditor's
-# quote obligation is pinned above, but the orchestrator's string-compare-and-reject is what
-# actually rejects foreign bytes; deleting it makes the identity check decorative).
-# Behavioral-fix pin (iteration-4 review finding A, corroborated x3): the comparand MUST be the
-# write-time digest captured at dispatch, NEVER a compare-time re-hash of the on-disk file — a
-# re-hash sees the same foreign bytes the auditor did and passes a concurrent overwrite
-# vacuously, leaving the write-to-read race the check exists to close wide open. The mutation
-# reverts the comparand to "`git hash-object` of the file it wrote" (the compare-time re-hash),
-# re-introducing exactly that fail-open, so the pin goes RED.
-assert_pin_red_under "#522: file-arm compare uses the write-time digest, never a compare-time re-hash" \
-  'against the write-time digest recorded in the event log for this round' \
-  's/against the write-time digest recorded in the event log for this round/against the `git hash-object` of the file it wrote for this round/' "$CI443_SKILL"
-# Fail-CLOSED on missing evidence (iteration-4 review finding B): an absent/unparseable object ID
-# is treated as a failed completion, not just a mismatch — the guard must not pass on the inputs
-# where its evidence is missing.
-assert_pin_unique "#522: file-arm compare fails closed on an absent or unparseable object ID" \
-  'an absent or unparseable object ID in the return' "$CI443_SKILL"
-# Absent-comparand routing (iteration-4 shadow finding: split-anchor fail-open). The write-time
-# digest lives ONLY in the (cwd/worktree-anchored) event log, while the draft file is
-# main-root-anchored — the two roots can fail independently, so a landed draft write + failed
-# event-log write leaves the file-arm compare with no comparand. The routing is an IMPERATIVE
-# pre-dispatch check (confirm the digest was recorded, else route to embed), not a stated
-# invariant. Behavioral-fix pin: the mutation makes the file arm proceed regardless, re-opening
-# the compare-against-absent-comparand fail-open.
-assert_pin_red_under "#522: file-arm routes to the embed arm when its write-time comparand is unrecorded" \
-  'if it was not recorded, route to the write-failure embed arm instead' \
-  's/if it was not recorded, route to the write-failure embed arm instead/proceed on the file arm regardless/' "$CI443_SKILL"
-# Compare-time backstop (iteration-4 re-shadow finding: policy-without-mechanism). Symmetric to
-# the absent-object-ID arm — an absent recorded comparand at compare time is itself a failed
-# completion, so the compare can never be vacuously satisfied by a missing write-time digest.
-assert_pin_unique "#522: absent recorded write-time digest at compare time is a failed completion" \
-  'an absent or unreadable recorded write-time digest at compare time is itself a failed completion' "$CI443_SKILL"
-# Event-log RECORD producer (iteration-4 shadow gap: the compare's comparand producer). The
-# compare pin above asserts the orchestrator compares against the write-time digest recorded in
-# the event log; this pins that the event log actually RECORDS that digest at dispatch. Dropping
-# it leaves the identity check with no comparand while the consumer pin stays GREEN.
-assert_pin_unique "#522: event log records the write-time git hash-object digest at each file-arm dispatch" \
-  'git hash-object` of the dispatched `issue-draft-<slug>.md` on the file arm' "$CI443_SKILL"
-# T2 producer (iteration-4 shadow gap): the T2 behavioral pin verifies the temporal test, but
-# the producer — that the revision step writes a `revised after round N` record — is unpinned.
-# Dropping it leaves T2's postdates-test with nothing to fire on.
-assert_pin_unique "#522: revision step writes a revised-after-round-N event-log record" \
-  'record written **as part of the revision step itself**' "$CI443_SKILL"
-# Event-log delete-leftover-first precondition (iteration-4 convergence-shadow gap): the "log
-# contains only this run's rounds" invariant T1/T2 rest on. Dropping delete-first lets a stale
-# prior-run event log survive, so the postdates-test fires against foreign records.
-assert_pin_unique "#522: event log is deleted-leftover-first at the run's first dispatch" \
-  "deleted-leftover-first at the run's first dispatch" "$CI443_SKILL"
-# Round-initiating-sites enumeration (iteration-4 convergence-shadow gap): the canonical-write
-# pin guards the general instruction, but not that the enumeration names all four sites (the
-# symmetric surface to the out-of-bounds enumerations this block already pins).
-assert_pin_unique "#522: canonical write fires at exactly the 4 round-initiating sites" \
-  'at exactly these 4 round-initiating sites' "$CI443_SKILL"
-# Sub-step 3 summary marker enumeration lists all THREE embed-arm markers (iteration-4
-# convergence-shadow: the summary-rendering site omitted the digest-unrecorded marker the
-# embed-arm paragraph defines — the multi-state-contract drift Step 3.5's own check targets).
-assert_pin_unique "#522: sub-step 3 summary enumerates the digest-unrecorded embed marker" \
-  'or `draft embedded (digest unrecorded)` (one per embed-arm entry path)' "$CI443_SKILL"
-assert_pin_unique "#522: embed-arm orchestrator string-compares sentinels and rejects a mismatch" \
-  'string-compares them (bash builtins only, never a non-preflight PATH tool) against the dispatched values' "$CI443_SKILL"
-# Embed-arm auditor QUOTE obligation (iteration-4 review finding G): the compare pin above pins
-# the ENFORCEMENT half; this pins the half that PRODUCES the values compared. Deleting the
-# auditor's quote obligation makes the compare compare-against-nothing — the mirror of the
-# file-arm pair, which pins both the quote obligation and the compare.
+# Embed-arm out-of-bounds list (the inverse of the file arm's list — re-adds the draft path):
+# symmetric with the file-arm template-enumeration pin above. #546 widened it 4 → 5 files, in
+# lockstep with the file arm's 3 → 4: the state `.json` and the retired `.md` are both named.
+assert_pin_unique "#522: embed arm out-of-bounds names exactly the 5 files (draft re-added)" \
+  'On this arm the out-of-bounds declaration names exactly these 5 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
+# ── #546 RECONCILIATION: the carriage COMPARE, the event log, the retry bounds, and T1/T2.
+#
+# The #522 block used to pin, as prose, the whole deterministic half of the carriage/identity
+# check and the round record. Every one of those literals is gone from the skill, because the
+# ORCHESTRATOR no longer performs any of it — `issue-audit-state.py` does. The pins below are
+# the surviving prose residue only; each deleted pin's guarantee is named against the tool test
+# that now carries it, so the reconciliation is auditable rather than a silent drop:
+#
+#   deleted prose pin                                  → the tool test that now carries it
+#   ---------------------------------------------------------------------------------------
+#   compare uses the write-time digest, never a re-hash → py #546 carriage_evidence_rows
+#                                                         (+ #546 digest_filter_mode_rows here,
+#                                                          which proves the dispatch/auditor/
+#                                                          eligibility digests agree)
+#   compare fails closed on an absent/unparseable ID   → py #546 carriage_evidence_rows
+#                                                         ("carriage mismatched vs. absent — the
+#                                                          same classification, fail closed")
+#   absent recorded write-time digest at compare time  → py #546 carriage_evidence_rows (same
+#                                                         rows: absent evidence == mismatched)
+#   file arm routes to embed on unrecorded comparand   → py #546 arm_routing_rows
+#                                                         (hash_ok=False → embed/digest-unrecorded)
+#   the 3 embed markers (write-failed / file-unreadable → py #546 arm_routing_rows, which asserts
+#     / digest-unrecorded) + the summary's marker list    _EMBED_MARKER_TEXT byte-for-byte; the
+#                                                         summary re-emits them via query-summary
+#   event log records the write-time digest at dispatch → this file's #546
+#                                                         cli_roundtrip_restricted_path
+#                                                         (record-dispatch prints digest=)
+#   revision step writes a revised-after-round-N record → py #546 _TRANSITION_ROWS
+#                                                         (revision/after-completed-round legal,
+#                                                          revision/no-rounds-recorded illegal)
+#   event log is deleted-leftover-first at first dispatch→ this file's #546 reinit_force_rows
+#                                                         (the cold-start wipe `init` now owns)
+#   canonical write fires at exactly the 4 sites       → subsumed by the surviving pin (1) above
+#                                                         (the per-round pre-dispatch write
+#                                                          instruction — a within-round retry
+#                                                          reuses the round's write),
+#                                                         + `query-arm --write-landed`
+#   orchestrator string-compares sentinels, rejects     → py #546 carriage_evidence_rows
+#     a mismatch                                          (the tool owns the compare now)
+#   file-arm DRAFT-UNREADABLE re-dispatches once        → #546 next_action_budget_rows (below)
+#   embed-arm DRAFT-UNREADABLE never re-dispatches      → #546 next_action_budget_rows (below)
+#     to the file arm
+#   T1 fires on the last round's VERDICT: REVISE       → py #546 t1_t2_rows
+#   T2 fires when a revision postdates the last round  → py #546 t1_t2_rows
+#   audit summary states the total rounds run          → py #546 summary rounds_run
+#   user-chosen rounds capped at 3 per run             → #546 user_round_cap_rows (below)
+#   automatic budget = 1 audit + at most 1 re-audit    → #546 next_action_budget_rows (below)
+#                                                         (the ceiling is driven end-to-end)
+#
+# What CANNOT move to the tool, and therefore keeps a prose pin: the auditor's own instructions
+# (the tool never talks to the auditor), the orchestrator's obligation to FORWARD what the
+# auditor quoted instead of comparing or inventing it, and the observation the routing rests on.
+#
+# Forward-don't-compare (the file arm). The tool owns the comparison, so the orchestrator's only
+# remaining job is to hand over what it received verbatim — and, critically, to hand over
+# NOTHING when the auditor quoted nothing. Inventing an object ID would manufacture exactly the
+# proof the check exists to demand, and the tool would pass the manufactured evidence: this is
+# the one carriage fail-open the tool provably cannot close from the inside, which is why it
+# stays pinned as prose. The mutation excises the omit-when-absent rule.
+assert_pin_red_under "#546: an absent carriage object ID is forwarded as absent, never invented" \
+  'Omit `--carriage-object-id` when the return quoted none' \
+  's/Omit `--carriage-object-id` when the return quoted none — an absent value is evidence the tool needs, and inventing one would manufacture the proof the check exists to demand\.//' \
+  "$CI443_SKILL"
+assert_pin_unique "#546: the quoted object ID is forwarded verbatim and the tool's classification obeyed" \
+  '**Forward that quoted object ID verbatim to `record-return --carriage-object-id <the ID the auditor quoted>` and obey the classification the tool returns.**' \
+  "$CI443_SKILL"
+assert_pin_unique "#546: the orchestrator never compares the carriage digest itself" \
+  'Do not compare it yourself: the tool holds the write-time digest it recorded at dispatch and owns the comparison' \
+  "$CI443_SKILL"
+# The write-time-vs-re-hash RATIONALE survives in prose (as the "why" behind a tool behavior that
+# IS driven by py #546 carriage_evidence_rows). Pinned as a surface, not a mutation: the
+# mechanism is the tool's, so this sentence documents rather than decides.
+assert_pin_unique "#546: the tool compares against the dispatch-time digest, never a compare-time re-hash" \
+  'never a fresh compare-time re-hash of the on-disk file — a re-hash would see the same foreign bytes the auditor did and pass a concurrent overwrite vacuously' \
+  "$CI443_SKILL"
+# Forward-don't-compare (the embed arm) — the exact mirror, plus the half the tool cannot own:
+# the orchestrator must bracket the body with the tokens the TOOL generated. Choosing its own
+# tokens would compare against a value the tool never recorded, which the tool would then read
+# as a mismatch it can neither explain nor prevent.
+assert_pin_red_under "#546: the embed arm brackets the body with the tool-generated sentinels only" \
+  'Bracket the embedded body with **exactly those printed tokens** — never tokens you choose yourself' \
+  's/ — never tokens you choose yourself, which would compare against a value the tool never recorded//' \
+  "$CI443_SKILL"
+assert_pin_unique "#546: the quoted sentinel pair is forwarded and the tool's classification obeyed" \
+  '**Forward the quoted pair to `record-return --carriage-sentinel-open <quoted> --carriage-sentinel-close <quoted>` and obey the classification returned**' \
+  "$CI443_SKILL"
+# Embed-arm auditor QUOTE obligation (iteration-4 review finding G): the half that PRODUCES the
+# values the tool compares. Deleting the auditor's quote obligation makes the compare
+# compare-against-nothing — and this instruction lives in the dispatch prompt, a surface no tool
+# can reach, so it stays prose. (Its file-arm twin is the `--no-filters` hash pin above.)
 assert_pin_unique "#522: embed-arm auditor must quote both sentinels plus body boundary lines" \
   'quote both sentinels plus the body'\''s first and last lines verbatim' "$CI443_SKILL"
-# DRAFT-UNREADABLE recovery action (what makes the third verdict value non-terminal): a file-arm
-# unreadable draft re-dispatches once on the embed arm — deleting it strands the third value.
-assert_pin_unique "#522: file-arm DRAFT-UNREADABLE re-dispatches exactly once on the embed arm" \
-  '**re-dispatch exactly once on the embed arm**' "$CI443_SKILL"
-# DRAFT-UNREADABLE termination invariant (iteration-4 review finding D): an embed-arm
-# DRAFT-UNREADABLE is illegal and must NOT trigger a second file-arm re-dispatch — removing this
-# clause re-opens a potential re-dispatch loop (the loop-termination guard the re-dispatch pin
-# above does not itself cover).
-assert_pin_unique "#522: embed-arm DRAFT-UNREADABLE never triggers a second file-arm re-dispatch" \
-  '**never** a second file-arm re-dispatch' "$CI443_SKILL"
-# Write-landing route condition (issue #522 iteration-3 review I3): the read-only signal that
-# routes to the embed arm is a failed delete OR a write that did not land. Excising the
-# "OR a write that did not land" arm re-opens the fail-open where a fresh-slug read-only sandbox
-# lets `rm` succeed vacuously while the write still fails, sending an UNWRITTEN path down the
-# file arm (the auditor then reads a stale/absent file). Behavioral-fix pin: the mutation
-# removes the write-landing arm, so keying routing on the delete alone comes back.
-assert_pin_red_under "#522: embed-arm routing keys on a failed delete OR a write that did not land" \
-  'a failed delete OR a write that did not land' \
-  's/ OR a write that did not land//' "$CI443_SKILL"
-# Trigger T1 firing condition: the user-chosen-round offer fires when the most recent completed
-# audit round returned VERDICT: REVISE. Inverting REVISE->FILE makes T1 fire on the wrong
-# verdict (offering another round after a clean FILE and withholding it on an unconverged
-# REVISE) — the exact demonstrably-unconverged signal T1 exists to catch.
-assert_pin_red_under "#522: user-chosen offer trigger T1 fires on the last round's VERDICT: REVISE" \
-  'the most recent completed audit round returned `VERDICT: REVISE`' \
-  's/most recent completed audit round returned `VERDICT: REVISE`/most recent completed audit round returned `VERDICT: FILE`/' "$CI443_SKILL"
-# Trigger T2 firing condition: T2 holds when a `revised after round N` record POSTDATES the last
-# completed round's record in the event log (content no audit round has seen). Inverting
-# postdates->predates flips the temporal test so T2 never fires on genuinely-newer revisions —
-# re-opening the ship-unaudited-revision channel T2 closes.
-assert_pin_red_under "#522: user-chosen offer trigger T2 fires when a revision postdates the last round" \
-  '**postdates the last completed round' \
-  's/postdates/predates/' "$CI443_SKILL"
+# Write-landing OBSERVATION (issue #522 iteration-3 review I3, repointed by #546). The ROUTING
+# moved to `query-arm` (py #546 arm_routing_rows), but the routing's operand did not: whether
+# the write landed is an observation only the orchestrator can make, and `query-arm` is only as
+# honest as the `--write-landed` it is handed. The original fail-open is unchanged — on a fresh
+# `<slug>` with no leftover, a read-only sandbox lets `rm` succeed vacuously while the write
+# still fails, so an orchestrator that INFERS landing from the delete reports `--write-landed yes`
+# for an unwritten path and the tool routes it to the file arm on false evidence. The mutation
+# excises the confirm-explicitly rule, restoring exactly that inference.
+assert_pin_red_under "#522: write-landing is confirmed explicitly, never inferred from the delete" \
+  'rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails' \
+  's/ rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails//' \
+  "$CI443_SKILL"
+# ... and that the observation is REPORTED to the tool rather than acted on: the orchestrator
+# observes, the tool decides. This is the seam the arm-routing rows sit behind.
+assert_pin_unique "#546: the write-landing observation is reported to the tool, which decides the arm" \
+  'pass it as `--write-landed yes|no` to `query-arm`, which decides the arm' "$CI443_SKILL"
+assert_pin_unique "#546: the dispatch arm is the tool's answer, never the orchestrator's" \
+  '**The arm is the tool'\''s answer, never yours.**' "$CI443_SKILL"
+# Verdict EXTRACTION is LLM work; verdict CLASSIFICATION is not. The tool validates the token
+# fail-closed against its closed set (py #546 carriage_evidence_rows / classify_return), but it
+# can only classify what it is handed — so "omit --verdict on an unparseable return" and "never
+# pass a token the auditor did not emit" are prose obligations, the exact twin of the carriage
+# omit-when-absent rule above. Mapping an unparseable return onto a verdict is how a run
+# manufactures a clean FILE the auditor never returned.
+assert_pin_red_under "#546: an unparseable return is never mapped onto a verdict token" \
+  'Never map an unparseable return onto a verdict token yourself, and never pass a token the auditor did not emit' \
+  's/Never map an unparseable return onto a verdict token yourself, and never pass a token the auditor did not emit; the tool validates the token fail-closed against its closed set\.//' \
+  "$CI443_SKILL"
+assert_pin_unique "#546: the verdict token's absence is classified by the tool, not by the run" \
+  '**Omit `--verdict` entirely when the return carried no parseable `VERDICT:` line**' "$CI443_SKILL"
+# The next-action answer set is the tool's closed vocabulary, and the prose obligation is to obey
+# it verbatim. Pinned as a COUPLED PAIR with the tool: every token named here is driven by #546
+# next_action_budget_rows below, and the skill naming a token the tool cannot answer (or the tool
+# growing an arm the skill never obeys) is the drift this pin plus those rows catch together.
+assert_pin_unique "#546: query-next-action's answer is obeyed verbatim from its closed answer set" \
+  '**Obey the answer verbatim** — it is one of `dispatch-embed-retry`, `dispatch-retry-same-arm`, `dispatch-inline-degraded`, `proceed`, `revise-and-reaudit`, `revise-then-evaluate-offer`, `round-open-awaiting-return`, or `round-closed-no-verdict`' \
+  "$CI443_SKILL"
+# A finding can be wrong: the run verifies each against the code before acting. No tool can do
+# this — it is the one step in the loop that requires reading the repository.
+assert_pin_unique "#546: findings are verified against the code before any revise action" \
+  '**verify each finding against the code before acting** (a finding can be wrong)' "$CI443_SKILL"
 
 # ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
@@ -3683,8 +4228,8 @@ assert_pin_unique "#467 C3: quality-checklist mirror for the trust-boundary clos
   'transitive source/exec/import closure of its entry points' "$CI312_TMPL"
 # Cluster D — Move 2a introduction trigger (template) + waiver-non-conforming clause; the
 # three-site best-effort-parser widening (CLAUDE.md, implement Phase 2.4, review-and-fix
-# fix-delta gate); extension sharpening (whole-file dimension count held at 8 — 7 base + #464's
-# dimension; #467 added none, matching the D3 guard below). The six-shape
+# fix-delta gate); extension sharpening (whole-file dimension count held at 9 after the
+# deployment-variance dimension added on main; #467 added none, matching the D3 guard below). The six-shape
 # SIXSHAPE_SET lockstep pins above stay green — the widening references the set, never restates it.
 assert_pin_unique "#467 D1: Move 2a carries the introduction trigger" \
   'Move 2a also fires on *introduction*, not only on narrowing' "$CI312_TMPL"
@@ -3698,10 +4243,13 @@ assert_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mut
   'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$MAXI_SKILL"
 assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
   'input-type analogue** for the widened surfaces' "$CI443_EXT"
-# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 8 after
-# issue #464 (merged) appended the "Mutation evidence for behavioral-fix pins" dimension; #467
-# sharpened the existing case-matrix bullet in place, adding no row.
-assert_eq "#467 D3: create-issue extension is 8 dimension bullets (7 base + #464's dimension; #467 added none)" "8" \
+# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 9:
+# 7 base + #464's "Mutation evidence for behavioral-fix pins" dimension + the
+# "Deployment-variance silence" dimension main commit 760c0902 appended; #467 sharpened the
+# existing case-matrix bullet in place, adding no row.
+assert_pin_unique "base-update: create-issue extension carries the deployment-variance dimension" \
+  'Deployment-variance silence.' "$CI443_EXT"
+assert_eq "#467 D3: create-issue extension is 9 dimension bullets (7 base + #464's + 760c0902's deployment-variance dimension)" "9" \
   "$(grep -c '^- \*\*' "$CI443_EXT")"
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
@@ -7227,7 +7775,7 @@ ECH="$LIB/test/extract-command-heads.py"
 E363=
 E484=
 E484="$(mktemp -d)" || { echo "FAIL  #484: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484"' EXIT
 
 # Heads deliberately left ungranted on the implement profile, each with a rationale:
 #   gh pr checkout — the inline engine is already on the branch; checking out a PR
@@ -25835,6 +26383,38 @@ WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review/pha
 # The evidence marker literal the routing evidence-contract writes and the gate criterion matches.
 WSR_MARK='Writing-skills evidence:'
 
+# #563 focused-module guidance is repo-local prompt behavior: a known module may
+# accelerate RED/GREEN, but it must never replace the complete verification gate.
+# Mutation-prove both load-bearing directions on each operative workflow surface.
+assert_pin_red_under "#563 implement extension selects the focused runner for RED/GREEN" \
+  'use `bash lib/test/run-module.sh <module-id>` for RED/GREEN iteration.' \
+  's|use `bash lib/test/run-module\.sh <module-id>` for RED/GREEN iteration\.|use `bash lib/test/run.sh` for RED/GREEN iteration.|' "$WSR_IMPL"
+assert_pin_red_under "#563 review-and-fix extension selects the focused runner for RED/GREEN" \
+  'use `bash lib/test/run-module.sh <module-id>` for the RED/GREEN loop.' \
+  's|use `bash lib/test/run-module\.sh <module-id>` for the RED/GREEN loop\.|use `bash lib/test/run.sh` for the RED/GREEN loop.|' "$WSR_RAF"
+assert_pin_red_under "#563 implement extension keeps the full suite as the completion gate" \
+  'A focused result is never a completion gate.' \
+  's/A focused result is never a completion gate\./A focused result may be used as a completion gate./' "$WSR_IMPL"
+assert_pin_red_under "#563 review-and-fix extension keeps the full suite as the review gate" \
+  'A focused result never discharges a review/fix gate.' \
+  's|A focused result never discharges a review/fix gate\.|A focused result may discharge a review/fix gate.|' "$WSR_RAF"
+for _WSR_FOCUSED_POLICY in "$WSR_IMPL" "$WSR_RAF"; do
+  _WSR_FOCUSED_NAME="${_WSR_FOCUSED_POLICY##*/}"
+  assert_pin_red_under "#563 $_WSR_FOCUSED_NAME records the explicitly selected module ID" \
+    'Explicitly record the selected ID and' \
+    's/Explicitly record the selected ID and/Use the selected ID and/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#563 $_WSR_FOCUSED_NAME prohibits automatic changed-file routing" \
+    'Do not infer or automate changed-file-to-module routing.' \
+    's/Do not infer or automate changed-file-to-module routing\./Infer changed-file-to-module routing automatically./' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#563 $_WSR_FOCUSED_NAME retains every repository lint gate" \
+    'plus every lint gate required by `CLAUDE.md`' \
+    's/ plus every lint gate required by `CLAUDE\.md`//' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#563 $_WSR_FOCUSED_NAME rejects nonempty skips as clean" \
+    'A nonempty skip tally is not clean.' \
+    's/A nonempty skip tally is not clean\./A nonempty skip tally may be clean./' "$_WSR_FOCUSED_POLICY"
+done
+unset _WSR_FOCUSED_POLICY _WSR_FOCUSED_NAME
+
 # (a) implement.md routing-rule operative sentence.
 assert_pin_unique "#506 implement.md carries the prompt-surface routing operative sentence" \
   'the orchestrator dispatches a context-isolated Agent-tool subagent whose prompt instructs' "$WSR_IMPL"
@@ -27439,11 +28019,15 @@ DGH_BARE="$(grep -rnE '(^|[[:space:]`;|&(])gh[[:space:]]+(api|pr|issue|label|rep
   "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null \
   | grep -v '/test/' | grep -v 'resolve-gh\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE '(echo|printf) ' | grep -c . || true)"
 assert_eq "#245 peer-completeness: no non-comment bare gh <subcommand> call survives outside the resolver" "0" "$DGH_BARE"
-# Per-script Python routing pins: each of the four Python gh-callers reads the
+# Per-script Python routing pins: each of the six Python gh-callers reads the
 # documented DEVFLOW_GH override and keeps no bare-"gh" argv0 literal. T4/T8
 # exercise parse-acs.py dynamically; these static pins keep a revert in any of
-# the other three (the silent-label-loss regression of #3493) from staying green.
-for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py; do
+# the others (the silent-label-loss regression of #3493) from staying green.
+# export-workflow-lifecycle-census.py joined the set in PR #531 (issue #527);
+# build-experiment-records.py was the pre-existing sixth the PR #531
+# early-shadow completeness critic's independent enumeration surfaced
+# (grep -l DEVFLOW_GH over scripts/*.py) — the loop had under-counted it.
+for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py export-workflow-lifecycle-census.py build-experiment-records.py; do
   assert_eq "#245 python routing: $DGH_PY reads DEVFLOW_GH (or-\"gh\" form)" "1" \
     "$(grep -cF 'os.environ.get("DEVFLOW_GH") or "gh"' "$DGH_ROOT/scripts/$DGH_PY" || true)"
   assert_eq "#245 python routing: $DGH_PY keeps no bare-\"gh\" argv0 literal" "0" \
@@ -31317,7 +31901,7 @@ echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
 # is worth: it must cover EVERY prose-invoked head, or the audit is green over a gap.
 ECH="$LIB/test/extract-command-heads.py"
 E363="$(mktemp -d)" || { echo "FAIL  #363: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484"' EXIT
 
 assert_eq "#363 extractor helper exists" "yes" "$([ -f "$ECH" ] && echo yes || echo no)"
 
@@ -32866,7 +33450,7 @@ echo "#363 scripts/summarize-ci-checks.sh (adversarial input-shape matrix, gh st
 # extraction would silently coerce into a passing result (the #312 bug class).
 SCC="$LIB/../scripts/summarize-ci-checks.sh"
 S363="$(mktemp -d)" || { echo "FAIL  #363 scc: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484" "$S363"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484" "$S363"' EXIT
 
 assert_eq "#363 summarize-ci-checks.sh exists and is executable" "yes" \
   "$([ -x "$SCC" ] && echo yes || echo no)"
@@ -33097,7 +33681,7 @@ echo "#363 observability: ::warning:: on denials + permission_denials_count plum
 # ────────────────────────────────────────────────────────────────────────────
 SED_SH="$LIB/../scripts/surface-execution-diagnostics.sh"
 D363="$(mktemp -d)" || { echo "FAIL  #363 diag: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
 
 _diag_run() {  # execution-file-json -> stdout+stderr; GITHUB_OUTPUT at $D363/out
   : > "$D363/out"
@@ -39387,8 +39971,9 @@ assert_eq "#456 both #434 self-scan arms are blocking-gate skips through skip()"
 # ci.yml: the lib+python test job's checkout sets fetch-depth: 0 so origin/main resolves.
 assert_eq "#456 ci.yml: the 'lib + python tests' job checkout sets fetch-depth: 0" "yes" \
   "$(awk '/^    name: lib \+ python tests/{intest=1; next} /^  [a-z]/{intest=0} intest && /fetch-depth: 0/{f=1} END{print (f?"yes":"no")}' "$LIB/../.github/workflows/ci.yml")"
-assert_eq "#456 ci.yml: lib/test/summary.sh is added to the shellcheck lint scope" "yes" \
-  "$(grep -qF 'shellcheck --severity=warning -e SC1091 lib/test/summary.sh' "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
+assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck scope" "yes" \
+  "$(grep -qF 'lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh' \
+       "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
 #
 # review-and-fix: verification_evidence gains a skipped_checks list, and the not-a-clean-pass
 # clause stays repo-agnostic (names no lib/test/run.sh / lib + python tests / --flag).
@@ -39968,8 +40553,13 @@ git config --file "$CFG487" "http.https://github.com/.extraheader" \
 # (used by arms 2/3/4 to assert which token the refresher wrote).
 _a487_hdr() { git config --file "$CFG487" --get 'http.https://github.com/.extraheader' 2>/dev/null | sed 's/AUTHORIZATION: basic //' | openssl base64 -d -A 2>/dev/null; }
 
-# Arm 1 — missing inputs → clean exit 0 with a stderr breadcrumb.
-_a1_err="$(DEVFLOW_REFRESH_CONFIG_FILE="$D487/none" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
+# Arm 1 — missing inputs → clean exit 0 with a stderr breadcrumb. `DEVFLOW_APP_ID=` is
+# load-bearing: refresh-app-credentials.sh reads DEVFLOW_APP_ID from the ENVIRONMENT (not
+# the config file), so without this override a cloud run that has the App configured
+# (DEVFLOW_APP_ID set) would see a non-empty app_id, skip the `mint: DEVFLOW_APP_ID empty`
+# guard, and the assertion would fail — an environment-dependent test, not a real
+# regression. The empty assignment makes the "missing inputs" intent env-independent.
+_a1_err="$(DEVFLOW_APP_ID= DEVFLOW_REFRESH_CONFIG_FILE="$D487/none" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
   bash "$REFRESH_SH" cycle </dev/null 2>&1 1>/dev/null)"; _a1_rc=$?
 assert_eq "#487 arm1: missing inputs exits 0" "0" "$_a1_rc"
 assert_eq "#487 arm1: emits the SPECIFIC guard ::warning:: (DEVFLOW_APP_ID empty), not just any breadcrumb" "yes" \
@@ -41397,196 +41987,1660 @@ assert_pin_unique "#497 AC12 overview names topic-priming" \
 assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda" \
   'a **prompt-composition attestation**' "$I497_OVERVIEW"
 
+# The selected runner resolves this module from the registry before sourcing any
+# test body. The full suite uses a fail-closed boundary at the historical point:
+# a missing, crashing, malformed-tally, or below-floor module records a suite
+# failure through an independent boundary tally.
+# The registry and this full-suite call share the same lower-bound contract;
+# test_module_runner.py parses this operand and rejects any coupling drift.
+if ! devflow_run_full_suite_module "$LIB/test/modules/review-and-fix-contract.sh" \
+  "review-and-fix-contract" 66; then
+  printf 'ERROR: review-and-fix-contract boundary could not record its result\n'
+  exit 1
+fi
+
+if ! devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh" \
+  "workflow-flight-recorder" 68; then
+  printf 'ERROR: workflow-flight-recorder boundary could not record its result\n'
+  exit 1
+fi
+
+VB_ROOT="$(mktemp -d)"
+
 # ────────────────────────────────────────────────────────────────────────────
-echo "workflow flight recorder: native inventory, explicit import, and constrained analysis"
+echo "verification-launch baseline analyzer (issue #527, Wave 1)"
 # ────────────────────────────────────────────────────────────────────────────
-IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"
-IFR_INVENTORY="$LIB/../scripts/inventory-workflow-transcripts.py"
-IFR_IMPORT="$LIB/../scripts/import-workflow-transcript.py"
-IFR_ANALYZE="$LIB/../scripts/analyze-implement-runs.py"
-IFR_PROMPT="$LIB/../scripts/prompts/implement-flight-recorder-analysis.md"
-WFR_PROMPT="$LIB/../scripts/prompts/workflow-flight-recorder-analysis.md"
-IFR_SETTINGS_FIXTURE="$LIB/test/fixtures/workflow-flight-recorder-settings.local.json"
-IFR_ROOT="$(mktemp -d)"
-IFR_PROJECTS="$IFR_ROOT/native-projects"
-mkdir -p "$IFR_ROOT/nested" "$IFR_PROJECTS" "$IFR_ROOT/skills/implement/phases" \
-  "$IFR_ROOT/skills/review" "$IFR_ROOT/skills/review-and-fix" "$IFR_ROOT/skills/docs"
-git -C "$IFR_ROOT" init -q
-printf '%s\n' '# implement' > "$IFR_ROOT/skills/implement/SKILL.md"
-printf '%s\n' '# phase one' > "$IFR_ROOT/skills/implement/phases/phase-1.md"
-printf '%s\n' '# review' > "$IFR_ROOT/skills/review/SKILL.md"
-printf '%s\n' '# review fix' > "$IFR_ROOT/skills/review-and-fix/SKILL.md"
-printf '%s\n' '# docs' > "$IFR_ROOT/skills/docs/SKILL.md"
+python3 "$LIB/test/test_verification_baseline.py" >"$VB_ROOT/vb-unit.out" 2>&1
+assert_eq "verification baseline: focused Python tests pass" "0" "$?"
+# The analyzer is offline (AC #527-2: read-only, launches no verification
+# command and invokes no repository-provided executable) — no subprocess call
+# site in the module. (It imports workflow_flight_recorder, which itself uses
+# subprocess for read-only git; the analyzer never calls those functions.)
+assert_eq "verification baseline: analyzer invokes no subprocess" "0" \
+  "$(grep -cE 'subprocess\.(run|Popen|call|check_output|check_call)' "$LIB/../scripts/verification_baseline.py" || true)"
+# Widened evasion sweep (PR #531 review): the dotted-call pin alone is evadable
+# by `from subprocess import run`, `subprocess.getoutput`, `os.system`,
+# `os.popen`, or `pty.spawn` — none of which it matches. The module legitimately
+# imports no subprocess machinery at all, so pin the absence of every spelling.
+assert_eq "verification baseline: no subprocess import or shell-out spelling" "0" \
+  "$(grep -cE '(^|[^a-zA-Z_])(import subprocess|from subprocess import|os\.system|os\.popen|getoutput|check_output|pty\.spawn|import pty)' "$LIB/../scripts/verification_baseline.py" || true)"
+# Registry coupled pins (the test_workflow_flight_recorder registry test asserts
+# the 5-workflow set; these pin the #527 additions the analyzer depends on).
+assert_eq "verification baseline: registry has the review first-message forms" "1" \
+  "$(grep -cF '"/devflow:review", "/review"' "$LIB/../scripts/workflow-flight-recorder-registry.json" || true)"
+assert_eq "verification baseline: registry has the cloud_mappings section" "1" \
+  "$(grep -cF '"cloud_mappings"' "$LIB/../scripts/workflow-flight-recorder-registry.json" || true)"
 
-IFR_TRANSCRIPT="$IFR_PROJECTS/sid-a.jsonl"
-IFR_PAYLOAD="$(jq -cn --arg sid sid-a --arg transcript "$IFR_TRANSCRIPT" --arg cwd "$IFR_ROOT/nested" \
-  '{session_id:$sid,transcript_path:$transcript,cwd:$cwd,user_prompt:"/devflow:implement 123",model:"claude-start-model",effort:"high"}')"
-printf '%s' "$IFR_PAYLOAD" | python3 "$IFR_MANIFEST" 2>"$IFR_ROOT/manifest.err"
-IFR_MANIFEST_FILE="$IFR_ROOT/.devflow/tmp/workflow-manifests/sid-a.json"
-IFR_BUNDLE="$(cd "$IFR_ROOT" && pwd -P)/.devflow/tmp/workflow-runs/sid-a"
-assert_eq "flight recorder: UserPromptSubmit observation writes only the start manifest" "yes" \
-  "$([ -f "$IFR_MANIFEST_FILE" ] && [ ! -e "$IFR_BUNDLE" ] && echo yes || echo no)"
+rm -rf "$VB_ROOT"
 
-printf '%s\n' \
-  "$(jq -cn --arg cwd "$IFR_ROOT/nested" '{type:"user",timestamp:"2026-07-15T19:00:00Z",cwd:$cwd,message:{role:"user",content:"/devflow:implement 123"}}')" \
-  "$(jq -cn --arg cwd "$IFR_ROOT/nested" '{type:"assistant",timestamp:"2026-07-15T19:01:00Z",cwd:$cwd,message:{role:"assistant",content:"working"}}')" \
-  "$(jq -cn --arg cwd "$IFR_ROOT/nested" '{type:"assistant",timestamp:"2026-07-15T19:02:00Z",cwd:$cwd,message:{role:"assistant",content:"ISSUE-525-NATIVE-FINAL-TAIL"}}')" \
-  > "$IFR_TRANSCRIPT"
-IFR_INVENTORY_JSON="$(python3 "$IFR_INVENTORY" --json --claude-projects-root "$IFR_PROJECTS" --repo-root "$IFR_ROOT")"
-assert_eq "flight recorder: read-only inventory finds the native session" "sid-a" \
-  "$(printf '%s' "$IFR_INVENTORY_JSON" | jq -r '.sessions[0].session_id')"
-assert_eq "flight recorder: inventory reports the start manifest without importing" "present:not_imported" \
-  "$(printf '%s' "$IFR_INVENTORY_JSON" | jq -r '.sessions[0] | .manifest_status + ":" + .import_status')"
-assert_eq "flight recorder: observation and inventory create no transcript bundle" "no" \
-  "$([ -e "$IFR_BUNDLE" ] && echo yes || echo no)"
+# These integration tests live outside the module whose registration and source
+# boundary they pin, so deleting that boundary cannot delete the test execution.
+MODULE_RUNNER_OUT="$(python3 "$LIB/test/test_module_runner.py" 2>&1)"
+MODULE_RUNNER_RC=$?
+assert_eq "test module runner: focused Python tests pass" "0" "$MODULE_RUNNER_RC"
+[ "$MODULE_RUNNER_RC" -eq 0 ] || while IFS= read -r _mr_line || [ -n "$_mr_line" ]; do printf '    %s\n' "$_mr_line"; done <<< "$MODULE_RUNNER_OUT"
+MODULE_HARNESS_OUT="$(python3 "$LIB/test/test_module_harness.py" 2>&1)"
+MODULE_HARNESS_RC=$?
+assert_eq "test module full-suite boundary: focused Python tests pass" "0" "$MODULE_HARNESS_RC"
+[ "$MODULE_HARNESS_RC" -eq 0 ] || while IFS= read -r _mh_line || [ -n "$_mh_line" ]; do printf '    %s\n' "$_mh_line"; done <<< "$MODULE_HARNESS_OUT"
 
-python3 "$IFR_IMPORT" sid-a --claude-projects-root "$IFR_PROJECTS" --repo-root "$IFR_ROOT" \
-  > "$IFR_ROOT/import-path"
-assert_eq "flight recorder: explicit import creates the generalized bundle" "yes" \
-  "$([ -f "$IFR_BUNDLE/transcript.jsonl" ] && [ -f "$IFR_BUNDLE/metadata.json" ] && \
-      [ -f "$IFR_BUNDLE/occurrences.json" ] && [ -f "$IFR_BUNDLE/event-summary.json" ] && \
-      [ -f "$IFR_BUNDLE/stop-attempts.jsonl" ] && [ -f "$IFR_BUNDLE/prompt-surfaces.json" ] && echo yes || echo no)"
-assert_eq "flight recorder: imported transcript retains the native final tail" "yes" \
-  "$(grep -qF 'ISSUE-525-NATIVE-FINAL-TAIL' "$IFR_BUNDLE/transcript.jsonl" && echo yes || echo no)"
-assert_eq "flight recorder: nested payload cwd resolves the repository root" "$(cd "$IFR_ROOT" && pwd -P)" \
-  "$(jq -r '.repository_root' "$IFR_BUNDLE/metadata.json")"
-assert_eq "flight recorder: issue number comes from the inventoried user invocation" "123" \
-  "$(jq -r '.[0].subject.number' "$IFR_BUNDLE/occurrences.json")"
-assert_eq "flight recorder: prompt manifest records always/phase/nested load classes" "always,nested,phase" \
-  "$(jq -r '[.surfaces[].load_class] | unique | join(",")' "$IFR_BUNDLE/prompt-surfaces.json")"
-assert_eq "flight recorder: prompt manifest labels its approximate-token heuristic" "true" \
-  "$(jq -r '.token_estimate | contains("heuristic, not API-reported")' "$IFR_BUNDLE/prompt-surfaces.json")"
-assert_eq "flight recorder: each prompt surface has path/count/hash attribution" "true" \
-  "$(jq -r 'all(.surfaces[]; (.path|type)=="string" and (.bytes|type)=="number" and (.lines|type)=="number" and (.words|type)=="number" and (.approx_tokens|type)=="number" and (.sha256|test("^[0-9a-f]{64}$")))' "$IFR_BUNDLE/prompt-surfaces.json")"
-IFR_FP1="$(jq -r '.[0].prompt_fingerprint' "$IFR_BUNDLE/occurrences.json")"
+# ────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
+echo "issue #546: issue-audit-state.py — the create-issue audit-lifecycle state owner"
 
-# A later explicit import refreshes the same bundle from the longer native source.
-printf '%s\n' "$(jq -cn --arg cwd "$IFR_ROOT/nested" '{type:"assistant",timestamp:"2026-07-15T19:03:00Z",cwd:$cwd,message:{role:"assistant",content:"native append after observation"}}')" >> "$IFR_TRANSCRIPT"
-printf '%s\n' '# one more prompt byte after UserPromptSubmit' >> "$IFR_ROOT/skills/implement/SKILL.md"
-python3 "$IFR_IMPORT" sid-a --claude-projects-root "$IFR_PROJECTS" --repo-root "$IFR_ROOT" >/dev/null
-assert_eq "flight recorder: repeated import refreshes rather than duplicates" "4" \
-  "$(wc -l < "$IFR_BUNDLE/transcript.jsonl" | tr -d ' ')"
-assert_eq "flight recorder: repeated import appends one compact attempt" "2" \
-  "$(wc -l < "$IFR_BUNDLE/stop-attempts.jsonl" | tr -d ' ')"
-assert_eq "flight recorder: start-manifest prompt fingerprint wins at import" "$IFR_FP1" \
-  "$(jq -r '.[0].prompt_fingerprint' "$IFR_BUNDLE/occurrences.json")"
-assert_eq "flight recorder: import attempts identify the explicit source" "true" \
-  "$(jq -s 'all(.[]; .source == "explicit_import")' "$IFR_BUNDLE/stop-attempts.jsonl")"
+IAS="$LIB/../scripts/issue-audit-state.py"
 
-assert_eq "flight recorder: configured recorder hook is UserPromptSubmit" "yes" \
-  "$(jq -e '[.hooks.UserPromptSubmit[].hooks[].command] | any(contains("capture-workflow-manifest.py"))' \
-      "$IFR_SETTINGS_FIXTURE" >/dev/null && echo yes || echo no)"
-assert_eq "flight recorder: local recorder fixture has no Stop command" "no" \
-  "$(jq -r '.hooks.Stop[]?.hooks[]?.command // empty' "$IFR_SETTINGS_FIXTURE" | \
-      grep -Eq 'capture-(implement-session|workflow-manifest)\.py' && echo yes || echo no)"
-IFR_STOP_EXAMPLE="$(awk '/^- \*`Stop` hook \(local-tier only\)\.\*/ { found=1 } found { print } found && /^  > \*\*Note/ { exit }' "$LIB/../docs/efficiency-trace.md")"
-assert_eq "flight recorder: documented local Stop example has no recorder command" "no" \
-  "$(printf '%s' "$IFR_STOP_EXAMPLE" | grep -Eq 'capture-(implement-session|workflow-manifest)\.py' && echo yes || echo no)"
+# §11 coupled doc site: the overview must describe the TOOL-owned lifecycle, not the retired
+# prose state machine. Coupled with the SKILL cutover — a reader who trusts §11's description
+# of where the rules live would otherwise be sent to prose that no longer decides anything.
+IAS_OVERVIEW_546="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_pin_unique "#546: overview §11 states the lifecycle is tool-owned, not prose-owned" \
+  '**The lifecycle itself is owned by a tested state-owner CLI, not by prose (issue #546).**' \
+  "$IAS_OVERVIEW_546"
+assert_pin_unique "#546: overview §11 names the JSON state file that replaced the markdown event log" \
+  'persists to a cwd/worktree-anchored `.devflow/tmp/issue-audit-state-<slug>.json`, replacing the markdown event log' \
+  "$IAS_OVERVIEW_546"
+# Honest-claims discipline (CLAUDE.md §21): the gate NARROWS the prose-compliance gap. A future
+# edit that upgrades this to a closure claim is the overclaim this pin exists to catch.
+assert_pin_unique "#546: overview §11 keeps the narrows-never-closes honest-claims framing" \
+  'it does not close it, since no in-process component can force an orchestrator that never invokes it' \
+  "$IAS_OVERVIEW_546"
 
-# Claude command markup is accepted only in a user message.
-printf '%s\n' "$(jq -cn --arg cwd "$IFR_ROOT" '{type:"user",timestamp:"2026-07-15T20:00:00Z",cwd:$cwd,message:{role:"user",content:"<command-message>devflow:implement</command-message><command-args>456</command-args>"}}')" > "$IFR_PROJECTS/sid-markup.jsonl"
-python3 "$IFR_IMPORT" sid-markup --claude-projects-root "$IFR_PROJECTS" --repo-root "$IFR_ROOT" >/dev/null
-assert_eq "flight recorder: user command-markup invocation is recognized" "456" \
-  "$(jq -r '.[0].subject.number' "$IFR_ROOT/.devflow/tmp/workflow-runs/sid-markup/occurrences.json")"
+# help_surface_pin — pinned against the RENDERED --help output, whitespace-normalized.
+# Never a source grep on the argparse help= strings: those are concatenated across
+# adjacent literals, so a source pin would live on no single line (#375).
+# NO_COLOR/PYTHON_COLORS: argparse colorizes its help on python >= 3.13 when the
+# rendering path allows it, and the ANSI escapes would land INSIDE a pinned phrase and
+# fail the match on exactly the newer interpreters this repo supports.
+IAS_HELP_546="$(NO_COLOR=1 PYTHON_COLORS=0 python3 "$IAS" --help 2>&1 | tr -s '[:space:]' ' ')"
+assert_eq "#546 help_surface_pin: --help states the query exit-0 contract (rendered)" \
+  "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'Queries always exit 0 once the arguments parse and print a decided token' | grep -c .)"
+assert_eq "#546 help_surface_pin: --help states the mutation breadcrumb contract (rendered)" \
+  "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'mutations exit non-zero with a named breadcrumb' | grep -c .)"
+# The subcommand roster renders in the PARENT help (a subparser's own --help does not
+# repeat its help= string), so the mode enumeration is pinned there.
+assert_eq "#546 help_surface_pin: the eligibility query renders both decided modes" \
+  "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'Presentation eligibility in approve or iterate mode' | grep -c .)"
+assert_eq "#546 help_surface_pin: the gated emitter renders its refusal contract" \
+  "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'refuses with empty stdout when not eligible' | grep -c .)"
 
-# Prompt contract: pin the scientific and human-gated controls that deterministic
-# driver validation cannot infer from model prose.
-for IFR_PIN in \
-  'Observed bottlenecks' 'Hypotheses' 'timestamps and event identifiers' \
-  'Unknown evidence remains `unknown`, never zero' 'timings `approximate`' \
-  'at least two distinct supplied session ids' 'For one run, emit no issue blocks' \
-  'external `writing-skills` skill from the Superpowers plugin' 'before/after lines, words, bytes, and approximate tokens' \
-  'net reduction by default; justified growth allowed' \
-  'prompt growth as a warning' 'not a blocker' \
-  'do not edit files, write to GitHub, execute experiments' \
-  '<!-- DEVFLOW_REPORT_BEGIN -->' '<!-- DEVFLOW_REPORT_END -->' \
-  '<!-- DEVFLOW_ISSUE_BEGIN slug=<safe-slug> runs=<sid1>,<sid2>[,<sid3>] -->' \
-  '<!-- DEVFLOW_ISSUE_END -->'; do
-  assert_eq "flight recorder prompt: carries '$IFR_PIN'" "1" "$(grep -cF "$IFR_PIN" "$IFR_PROMPT")"
+# cli_roundtrip_restricted_path — the full lifecycle end-to-end under a PATH holding only
+# git and python3, proving no value that decides a selection or an emitted result is derived
+# through a non-preflight PATH tool (guard-class 2). Also asserts the run creates no file
+# besides the state JSON.
+IAS_SB="$(git_sandbox '#546 cli_roundtrip_restricted_path')"
+if [ -d "$IAS_SB" ]; then
+  (
+    cd "$IAS_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# Draft title\n\nBody line one.\nBody line two.\n' > draft.md
+
+    # A genuinely restricted PATH: a scratch bin dir holding symlinks to ONLY git and
+    # python3. Adding the DIRECTORIES those binaries live in would not restrict anything
+    # — git ships in /usr/bin, which also carries tr/sed/awk/wc AND (on macOS) an older
+    # system python3 that would shadow the real interpreter and silently answer the
+    # version guard instead of running the tool.
+    mkdir -p restricted-bin
+    ln -sf "$(command -v git)" restricted-bin/git
+    ln -sf "$(command -v python3)" restricted-bin/python3
+    RESTRICTED="$IAS_SB/restricted-bin"
+
+    NONCE="$(PATH="$RESTRICTED" python3 "$IAS" init rt | sed 's/nonce=//')"
+    printf 'nonce=%s\n' "$NONCE" > .rt-nonce
+
+    PATH="$RESTRICTED" python3 "$IAS" query-arm rt --nonce "$NONCE" \
+      --write-landed yes --draft-file draft.md > .rt-arm
+    PATH="$RESTRICTED" python3 "$IAS" record-dispatch rt --nonce "$NONCE" \
+      --round 1 --arm file --draft-file draft.md > .rt-dispatch
+    OID="$(PATH="$RESTRICTED" git hash-object --stdin --no-filters < draft.md)"
+    PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 1 \
+      --verdict REVISE --findings-count 2 --carriage-object-id "$OID" > .rt-return
+    PATH="$RESTRICTED" python3 "$IAS" query-next-action rt --nonce "$NONCE" --round 1 > .rt-next
+    PATH="$RESTRICTED" python3 "$IAS" query-triggers rt --nonce "$NONCE" > .rt-trig
+
+    # Revise the draft, record it, then assert approve mode refuses the unaudited bytes.
+    printf '# Draft title\n\nBody line one (revised).\nBody line two.\n' > draft.md
+    PATH="$RESTRICTED" python3 "$IAS" record-revision rt --nonce "$NONCE" --after-round 1 > .rt-rev
+    PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
+      --mode approve --draft-file draft.md > .rt-elig-bad
+    PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
+      --mode iterate --draft-file draft.md > .rt-elig-iter
+
+    # A clean round on the revised bytes, then approve mode must ground eligible.
+    PATH="$RESTRICTED" python3 "$IAS" record-dispatch rt --nonce "$NONCE" \
+      --round 2 --arm file --draft-file draft.md > /dev/null
+    OID2="$(PATH="$RESTRICTED" git hash-object --stdin --no-filters < draft.md)"
+    PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 2 \
+      --verdict FILE --findings-count 0 --carriage-object-id "$OID2" > /dev/null
+    PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
+      --mode approve --draft-file draft.md > .rt-elig-ok
+    PATH="$RESTRICTED" python3 "$IAS" query-summary rt --nonce "$NONCE" \
+      --draft-file draft.md > .rt-summary
+    PATH="$RESTRICTED" python3 "$IAS" emit-body rt --nonce "$NONCE" --draft-file draft.md > .rt-body
+    printf '%s\n' "$(ls .devflow/tmp)" > .rt-files
+  )
+
+  assert_eq "#546 cli_roundtrip_restricted_path: query-arm routes a landed write to the file arm" \
+    "arm=file marker=none" "$(cat "$IAS_SB/.rt-arm" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: a REVISE return classifies accept-revise" \
+    "classification=accept-revise outcome=REVISE" "$(cat "$IAS_SB/.rt-return" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: the automatic re-audit is the next action" \
+    "action=revise-and-reaudit" "$(cat "$IAS_SB/.rt-next" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: T1 holds after a REVISE round" \
+    "1" "$(grep -c 't1=hold' "$IAS_SB/.rt-trig" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: approve mode refuses just-revised, not-yet-re-audited bytes" \
+    "eligible=no reason=unaudited-revision" "$(cat "$IAS_SB/.rt-elig-bad" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: iterate mode answers ok for the same bytes" \
+    "iterate=ok ordinal=1" "$(cat "$IAS_SB/.rt-elig-iter" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: a clean round on the revised bytes grounds eligible" \
+    "1" "$(grep -c 'eligible=yes ground=file-identity' "$IAS_SB/.rt-elig-ok" 2>/dev/null)"
+  assert_eq "#546 cli_roundtrip_restricted_path: the summary carries the same token the eligibility answer issued" \
+    "$(sed -nE 's/.* token=([^ ]+).*/\1/p' "$IAS_SB/.rt-elig-ok" 2>/dev/null)" \
+    "$(sed -nE 's/.* token=([^ ]+) .*/\1/p' "$IAS_SB/.rt-summary" 2>/dev/null)"
+  # Positive control for the exact-compare above: an empty extraction on BOTH sides would
+  # pass vacuously (empty == empty), so pin the issued token non-empty independently.
+  assert_eq "#546 cli_roundtrip_restricted_path: the issued eligibility token is non-empty" \
+    "1" "$(sed -nE 's/.* token=([^ ]+).*/\1/p' "$IAS_SB/.rt-elig-ok" 2>/dev/null | grep -c .)"
+  assert_eq "#546 cli_roundtrip_restricted_path: emit-body emits the body below the title heading" \
+    "Body line one (revised).
+Body line two." "$(cat "$IAS_SB/.rt-body" 2>/dev/null)"
+  # The tool's own artifact population is exactly one file: the state JSON.
+  assert_eq "#546 cli_roundtrip_restricted_path: the run creates no file besides the state JSON" \
+    "issue-audit-state-rt.json" "$(cat "$IAS_SB/.rt-files" 2>/dev/null)"
+  rm -rf "$IAS_SB"
+fi
+
+# digest_filter_mode_rows — the content-filter fixtures. The tool hashes via
+# `git hash-object --stdin --no-filters` at EVERY compare site; the path-mode form applies
+# clean/CRLF filters and would return a different object ID for the same bytes under
+# `core.autocrlf=true` (and under `* text=auto`), so a dispatch digest and an eligibility
+# digest taken on an untouched CRLF draft would disagree and refuse a clean draft. Each row
+# asserts the dispatch digest, the digest the amended auditor instruction produces
+# (`git hash-object --no-filters`), and the eligibility digest agree byte-for-byte.
+for FILTER_MODE in autocrlf textauto; do
+  CRLF_SB="$(git_sandbox "#546 digest_filter_mode_rows ($FILTER_MODE)")"
+  [ -d "$CRLF_SB" ] || continue
+  (
+    cd "$CRLF_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    if [ "$FILTER_MODE" = autocrlf ]; then
+      git config core.autocrlf true
+    else
+      printf '* text=auto\n' > .gitattributes
+    fi
+    printf '# T\r\n\r\nCRLF body line.\r\n' > draft.md
+    NONCE="$(python3 "$IAS" init crlf | sed 's/nonce=//')"
+    # The dispatch digest, as the tool records it.
+    python3 "$IAS" record-dispatch crlf --nonce "$NONCE" --round 1 --arm file \
+      --draft-file draft.md | sed -E 's/.*digest=([0-9a-f]+) body_digest.*/\1/' > .crlf-dispatch
+    # The digest the AMENDED auditor instruction produces.
+    git hash-object --no-filters draft.md > .crlf-auditor
+    # The eligibility digest (the tool re-reads the file's bytes in binary and re-hashes).
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+    python3 "$IAS" record-return crlf --nonce "$NONCE" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" query-eligibility crlf --nonce "$NONCE" --mode approve \
+      --draft-file draft.md | sed -E 's/.*key=([0-9a-f]+).*/\1/' > .crlf-elig
+    # The path-mode form, recorded ONLY to show the divergence this rule exists to avoid.
+    git hash-object draft.md > .crlf-pathmode
+  )
+  assert_eq "#546 digest_filter_mode_rows ($FILTER_MODE): the dispatch digest and the amended auditor instruction agree" \
+    "$(cat "$CRLF_SB/.crlf-auditor" 2>/dev/null)" "$(cat "$CRLF_SB/.crlf-dispatch" 2>/dev/null)"
+  assert_eq "#546 digest_filter_mode_rows ($FILTER_MODE): the eligibility digest agrees with the dispatch digest" \
+    "$(cat "$CRLF_SB/.crlf-dispatch" 2>/dev/null)" "$(cat "$CRLF_SB/.crlf-elig" 2>/dev/null)"
+  assert_eq "#546 digest_filter_mode_rows ($FILTER_MODE): a clean CRLF draft grounds eligible (no filter-induced false mismatch)" \
+    "$(cat "$CRLF_SB/.crlf-auditor" 2>/dev/null)" "$(cat "$CRLF_SB/.crlf-elig" 2>/dev/null)"
+  rm -rf "$CRLF_SB"
 done
 
-for WFR_PIN in \
-  'A session is one Claude Code transcript; an occurrence is one registered workflow' \
-  'Multiple occurrences in one session are not independent' \
-  'top-level' 'nested' 'timing, model, and effort fact is observed, approximate,' \
-  'Unknown is `unknown`, never zero' 'event indexes' 'Do not dump transcripts' \
-  'Calculate recurrence separately per mode' 'explicit human decision' \
-  'external `writing-skills` skill from the Superpowers plugin' \
-  'before/after lines, words, bytes, and approximate tokens' \
-  'default to net reduction' 'justified prompt growth as a warning' \
-  'Do not edit files, write to GitHub' '<!-- DEVFLOW_REPORT_BEGIN -->' \
-  '<!-- DEVFLOW_ISSUE_BEGIN slug=<safe-slug> runs=<sid1>,<sid2>[,<sid3>] -->'; do
-  assert_eq "workflow recorder prompt: carries '$WFR_PIN'" "1" "$(grep -qF "$WFR_PIN" "$WFR_PROMPT" && echo 1 || echo 0)"
-done
+# The stale pre-cutover markdown event log is INERT: a leftover .md beside an absent JSON
+# reads as unestablished and is never parsed.
+MD_SB="$(git_sandbox '#546 stale pre-cutover .md event log is inert')"
+if [ -d "$MD_SB" ]; then
+  (
+    cd "$MD_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf 'round 1 dispatched (file arm), digest abc123\nrevised after round 1\n' \
+      > .devflow/tmp/issue-audit-state-legacy.md
+    python3 "$IAS" query-eligibility legacy --nonce whatever --mode approve > .md-elig 2>/dev/null
+    python3 "$IAS" query-triggers legacy --nonce whatever > .md-trig 2>/dev/null
+  )
+  assert_eq "#546 malformed-state matrix: a stale pre-cutover .md leftover is never read — state is unestablished" \
+    "eligible=no reason=state-unestablished" "$(cat "$MD_SB/.md-elig" 2>/dev/null)"
+  assert_eq "#546 malformed-state matrix: ... and T2 holds on unestablished state (unknown is not zero)" \
+    "1" "$(grep -c 't2=hold reason=state-unestablished' "$MD_SB/.md-trig" 2>/dev/null)"
+  rm -rf "$MD_SB"
+fi
 
-# Analyzer uses a fake Claude binary: no model/network call occurs in the suite.
-IFR_FAKE="$IFR_ROOT/fake-claude"
-printf '%s\n' '#!/usr/bin/env bash' \
-  'printf '\''%s\n'\'' "$@" > "$FAKE_ARGS"' \
-  'printf '\''%s\n'\'' "$FAKE_OUTPUT"' \
-  'exit "${FAKE_RC:-0}"' > "$IFR_FAKE"
-chmod +x "$IFR_FAKE"
-IFR_ARGS="$IFR_ROOT/fake-args"
-IFR_REPORT='<!-- DEVFLOW_REPORT_BEGIN -->
-# One-run report
-<!-- DEVFLOW_REPORT_END -->'
-(cd "$IFR_ROOT" && DEVFLOW_CLAUDE_BIN="$IFR_FAKE" FAKE_ARGS="$IFR_ARGS" FAKE_OUTPUT="$IFR_REPORT" \
-  python3 "$IFR_ANALYZE" --acknowledge-provider-access latest >/dev/null)
-assert_eq "flight recorder analyzer: latest writes only the selected run report" "yes" \
-  "$([ -f "$IFR_ROOT/.devflow/tmp/workflow-runs/sid-markup/run-report.md" ] && echo yes || echo no)"
-assert_eq "flight recorder analyzer: launch enables safe mode" "1" "$(grep -cFx -- '--safe-mode' "$IFR_ARGS")"
-assert_eq "flight recorder analyzer: launch uses print mode" "1" "$(grep -cFx -- '--print' "$IFR_ARGS")"
-assert_eq "flight recorder analyzer: launch denies permission prompts" "1" "$(grep -cFx -- 'dontAsk' "$IFR_ARGS")"
-assert_eq "flight recorder analyzer: allowlist contains only read-only tools" "1" "$(grep -cFx -- 'Read,Grep,Glob' "$IFR_ARGS")"
-assert_eq "flight recorder analyzer: no write/edit/bash/web tool is granted" "no" \
-  "$(grep -Eq '^(Write|Edit|Bash|Web|MCP|GitHub)$' "$IFR_ARGS" && echo yes || echo no)"
+# query_exit_contract_matrix — every query class against a malformed state file: exit 0 with
+# a fail-closed token, never a crash presented as a value. Mutations exit non-zero.
+QM_SB="$(git_sandbox '#546 query_exit_contract_matrix')"
+if [ -d "$QM_SB" ]; then
+  # `missing` is the AC-named row the matrix previously omitted: a genuinely ABSENT state
+  # file (load_state's FileNotFoundError branch) must answer every query class fail-closed
+  # at exit 0, exactly like the corrupt shapes — the `rm -f` arm guarantees no prior shape's
+  # file lingers in the reused sandbox.
+  for SHAPE in missing empty malformed array scalar; do
+    (
+      cd "$QM_SB" || exit 1
+      # git init is load-bearing, not boilerplate: state_path() anchors to the git root, so
+      # an un-init'd sandbox nested inside an outer repo resolves to the OUTER repo's path —
+      # the malformed file written here is then never read, and every row passes vacuously
+      # while exercising nothing.
+      git init -q . 2>/dev/null
+      mkdir -p .devflow/tmp
+      case "$SHAPE" in
+        missing)   rm -f .devflow/tmp/issue-audit-state-m.json ;;
+        empty)     : > .devflow/tmp/issue-audit-state-m.json ;;
+        malformed) printf '{not json' > .devflow/tmp/issue-audit-state-m.json ;;
+        array)     printf '[]' > .devflow/tmp/issue-audit-state-m.json ;;
+        scalar)    printf '"nope"' > .devflow/tmp/issue-audit-state-m.json ;;
+      esac
+      printf '# T\n\nB\n' > d.md
+      for Q in "query-eligibility m --nonce n --mode approve --draft-file d.md" \
+               "query-triggers m --nonce n" \
+               "query-next-action m --nonce n --round 1" \
+               "query-summary m --nonce n" \
+               "query-nonce m"; do
+        # shellcheck disable=SC2086
+        python3 "$IAS" $Q > /dev/null 2>&1 || printf '%s\n' "NONZERO: $Q" >> ".qm-$SHAPE"
+      done
+      python3 "$IAS" record-revision m --nonce n --after-round 1 > /dev/null 2>&1 \
+        && printf 'MUTATION-EXITED-ZERO\n' >> ".qm-mut-$SHAPE"
+    )
+    assert_eq "#546 query_exit_contract_matrix ($SHAPE): every query class exits 0 with a fail-closed answer" \
+      "" "$(cat "$QM_SB/.qm-$SHAPE" 2>/dev/null)"
+    assert_eq "#546 query_exit_contract_matrix ($SHAPE): a mutation against untrustworthy state exits non-zero" \
+      "" "$(cat "$QM_SB/.qm-mut-$SHAPE" 2>/dev/null)"
+  done
+  rm -rf "$QM_SB"
+fi
 
-# Form a comparable three-run cohort from safe local fixtures.
-IFR_COHORT_FP="$(jq -r '.[0].prompt_fingerprint' "$IFR_BUNDLE/occurrences.json")"
-for IFR_SID in sid-b sid-c; do
-  mkdir -p "$IFR_ROOT/.devflow/tmp/implement-runs/$IFR_SID"
-  cp "$IFR_BUNDLE/transcript.jsonl" "$IFR_ROOT/.devflow/tmp/implement-runs/$IFR_SID/transcript.jsonl"
-  jq -n --arg sid "$IFR_SID" --arg fp "$IFR_COHORT_FP" \
-    '{schema_version:1,session_id:$sid,issue_number:123,prompt_fingerprint:$fp,captured_at:"2026-07-15T00:00:00Z"}' \
-    > "$IFR_ROOT/.devflow/tmp/implement-runs/$IFR_SID/metadata.json"
-done
-jq '.captured_at="2026-07-15T00:00:02Z"' \
-  "$IFR_BUNDLE/metadata.json" > "$IFR_ROOT/sid-a-metadata"
-mv "$IFR_ROOT/sid-a-metadata" "$IFR_BUNDLE/metadata.json"
-# sid-markup is newer but is deliberately made invalid for discovery, leaving the
-# intended three-run cohort as the newest valid comparable set.
-rm -f "$IFR_ROOT/.devflow/tmp/workflow-runs/sid-markup/transcript.jsonl"
-IFR_COHORT_REPORT='<!-- DEVFLOW_REPORT_BEGIN -->
-# Cohort report
-<!-- DEVFLOW_REPORT_END -->
-<!-- DEVFLOW_ISSUE_BEGIN slug=repeated-read runs=sid-a,sid-b -->
-# Repeated read
-<!-- DEVFLOW_ISSUE_END -->'
-(cd "$IFR_ROOT" && DEVFLOW_CLAUDE_BIN="$IFR_FAKE" FAKE_ARGS="$IFR_ARGS" FAKE_OUTPUT="$IFR_COHORT_REPORT" \
-  python3 "$IFR_ANALYZE" --acknowledge-provider-access --last 3 > "$IFR_ROOT/analysis-path")
-IFR_ANALYSIS="$(cat "$IFR_ROOT/analysis-path")"
-assert_eq "flight recorder analyzer: comparable cohort writes a comparison report" "yes" \
-  "$([ -f "$IFR_ANALYSIS/comparison-report.md" ] && echo yes || echo no)"
-assert_eq "flight recorder analyzer: two supporting runs create one safe issue draft" "yes" \
-  "$([ -f "$IFR_ANALYSIS/issue-drafts/repeated-read.md" ] && echo yes || echo no)"
-assert_eq "flight recorder analyzer: cohort manifest contains no transcript content" "no" \
-  "$(grep -qF '/devflow:implement' "$IFR_ANALYSIS/cohort.json" && echo yes || echo no)"
+# reinit_force_rows — a same-run re-init over recorded rounds is illegal without --force;
+# forced is recorded and surfaces as reinit_forced; a cold start (no nonce) is the ported
+# delete-first wipe and raises no alarm.
+RI_SB="$(git_sandbox '#546 reinit_force_rows')"
+if [ -d "$RI_SB" ]; then
+  (
+    cd "$RI_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nB\n' > d.md
+    N="$(python3 "$IAS" init ri | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch ri --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" init ri --nonce "$N" > .ri-unforced 2>&1 && printf 'EXITED-ZERO\n' >> .ri-unforced
+    python3 "$IAS" init ri --nonce "$N" --force > /dev/null 2>&1
+    python3 "$IAS" query-summary ri --nonce "$N" > .ri-forced
+    # Sticky: the --force above wiped the rounds, so a LATER same-nonce re-init (no --force)
+    # is legal via the no-rounds echo path and must PRESERVE reinit_forced=yes — otherwise
+    # the budget-reset disclosure is launderable in two legal calls (issue #552 review I4).
+    python3 "$IAS" init ri --nonce "$N" > /dev/null 2>&1
+    python3 "$IAS" query-summary ri --nonce "$N" > .ri-sticky
+    # Cold start over the same slug: the ported delete-first wipe, no alarm, new nonce.
+    N2="$(python3 "$IAS" init ri | sed 's/nonce=//')"
+    [ "$N2" != "$N" ] && printf 'new-nonce\n' > .ri-cold
+    # A's now-foreign nonce is rejected after B's cold-start re-init.
+    python3 "$IAS" record-revision ri --nonce "$N" --after-round 1 > /dev/null 2>&1 \
+      || printf 'rejected\n' > .ri-foreign
+  )
+  assert_eq "#546 reinit_force_rows: a same-run re-init over recorded rounds is refused without --force" \
+    "0" "$(grep -c 'EXITED-ZERO' "$RI_SB/.ri-unforced" 2>/dev/null)"
+  assert_eq "#546 reinit_force_rows: ... and the refusal names the force requirement" \
+    "1" "$(grep -c 'illegal transition without --force' "$RI_SB/.ri-unforced" 2>/dev/null)"
+  assert_eq "#546 reinit_force_rows: a forced same-run re-init surfaces as reinit_forced=yes" \
+    "1" "$(grep -c 'reinit_forced=yes' "$RI_SB/.ri-forced" 2>/dev/null)"
+  assert_eq "#546 reinit_force_rows: a later same-nonce echo re-init PRESERVES reinit_forced=yes (not launderable)" \
+    "1" "$(grep -c 'reinit_forced=yes' "$RI_SB/.ri-sticky" 2>/dev/null)"
+  assert_eq "#546 reinit_force_rows: a cold-start re-init (no nonce) wipes and mints a new nonce, no alarm" \
+    "new-nonce" "$(cat "$RI_SB/.ri-cold" 2>/dev/null)"
+  assert_eq "#546 reinit_force_rows: after a foreign cold start, the prior run's nonce is rejected" \
+    "rejected" "$(cat "$RI_SB/.ri-foreign" 2>/dev/null)"
+  rm -rf "$RI_SB"
+fi
 
-# A single-run issue block is rejected and cannot replace the prior valid report.
-IFR_PRIOR_REPORT="$(cat "$IFR_BUNDLE/run-report.md" 2>/dev/null || true)"
-(cd "$IFR_ROOT" && DEVFLOW_CLAUDE_BIN="$IFR_FAKE" FAKE_ARGS="$IFR_ARGS" FAKE_OUTPUT="$IFR_COHORT_REPORT" \
-  python3 "$IFR_ANALYZE" --acknowledge-provider-access sid-a >/dev/null 2>"$IFR_ROOT/single-issue.err")
-IFR_SINGLE_RC=$?
-assert_eq "flight recorder analyzer: a single-run issue block is rejected" "1" "$IFR_SINGLE_RC"
-assert_eq "flight recorder analyzer: rejected output publishes no replacement report" "$IFR_PRIOR_REPORT" \
-  "$(cat "$IFR_BUNDLE/run-report.md" 2>/dev/null || true)"
+# init_foreign_nonce_rows — the ('init','foreign-nonce',False) row, driven behaviorally at the
+# CLI. Its two sibling branches (no-file, over-rounds-unforced) are CLI-driven above; before
+# this block, foreign-nonce was covered only by the table/registry metadata lockstep, which
+# asserts the ROW exists, never that cmd_init's guard actually refuses. The risk it pins is a
+# silent budget reset for a foreign run that happens to share a slug.
+#
+# The fixture carries ZERO recorded rounds ON PURPOSE, and the block ATTRIBUTES the rejection:
+#  * zero rounds means the over-rounds-unforced guard CANNOT be what rejects (it is gated on
+#    `existing['rounds']`), so a green assert here cannot be that sibling guard firing;
+#  * the state file exists and is readable, so the no-file branch cannot be it either;
+#  * the assert pins the foreign-nonce guard's OWN breadcrumb, not a bare non-zero exit — a
+#    bare exit-code assert would stay green against a mutant that disabled this very guard;
+#  * a POSITIVE CONTROL on the same fixture (same slug, same file, CORRECT nonce) exits 0,
+#    proving the fixture is otherwise valid and would succeed but for the foreign nonce.
+FN_SB="$(git_sandbox '#546 init_foreign_nonce_rows')"
+if [ -d "$FN_SB" ]; then
+  (
+    cd "$FN_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    N="$(python3 "$IAS" init fn < /dev/null | sed 's/nonce=//')"
+    printf '%s\n' "$N" > .fn-nonce
+    # The refusal, attributed by its own breadcrumb.
+    python3 "$IAS" init fn --nonce "foreign-$N" < /dev/null > .fn-foreign 2>&1 \
+      && printf 'EXITED-ZERO\n' >> .fn-foreign
+    # The budget-reset risk: the refusal must leave the incumbent run's nonce untouched.
+    python3 "$IAS" query-nonce fn < /dev/null > .fn-after 2>&1
+    # POSITIVE CONTROL on the same fixture: the correct nonce is accepted.
+    python3 "$IAS" init fn --nonce "$N" < /dev/null > .fn-control 2>&1 \
+      || printf 'CONTROL-REJECTED\n' >> .fn-control
+  )
+  assert_eq "#546 init_foreign_nonce_rows: a foreign nonce over an existing readable state is refused" \
+    "0" "$(grep -c 'EXITED-ZERO' "$FN_SB/.fn-foreign" 2>/dev/null)"
+  assert_eq "#546 init_foreign_nonce_rows: ... and the refusal is attributed to the foreign-run guard by its own breadcrumb" \
+    "1" "$(grep -c 'refusing to re-init a foreign run' "$FN_SB/.fn-foreign" 2>/dev/null)"
+  assert_eq "#546 init_foreign_nonce_rows: ... and the incumbent run's nonce survives the refusal (no silent budget reset)" \
+    "nonce=$(cat "$FN_SB/.fn-nonce" 2>/dev/null)" "$(cat "$FN_SB/.fn-after" 2>/dev/null)"
+  assert_eq "#546 init_foreign_nonce_rows: positive control — the SAME fixture accepts its own nonce, so the refusal above is not an unrelated precondition" \
+    "0" "$(grep -c 'CONTROL-REJECTED' "$FN_SB/.fn-control" 2>/dev/null)"
+  rm -rf "$FN_SB"
+fi
 
-python3 "$LIB/test/test_workflow_flight_recorder.py" >"$IFR_ROOT/recorder-unit.out" 2>&1
-assert_eq "workflow recorder: focused Python tests pass" "0" "$?"
-python3 "$LIB/test/test_workflow_analyzer.py" >"$IFR_ROOT/analyzer-unit.out" 2>&1
-assert_eq "workflow analyzer: focused Python tests pass" "0" "$?"
+# embed_arm_emit_rows — the embed-arm weaker-identity emit, driven end-to-end. The file-arm
+# emit round-trips through creation_binding_rows above, but the embed arm — where the module
+# header discloses the gate "cannot byte-bind what it emits" — had no end-to-end drive at all.
+# This block pins that DISCLOSED residual as observed behavior, so a future claim that the
+# embed arm byte-binds has a live counter-example, and so the residual cannot silently widen.
+EA_SB="$(git_sandbox '#546 embed_arm_emit_rows')"
+if [ -d "$EA_SB" ]; then
+  (
+    cd "$EA_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nEmbed body.\n' > d.md
+    N="$(python3 "$IAS" init ea < /dev/null | sed 's/nonce=//')"
+    # The embed arm takes the draft bytes on stdin (there is no trustworthy file to point at).
+    D="$(python3 "$IAS" record-dispatch ea --nonce "$N" --round 1 --arm embed \
+           --marker digest-unrecorded < d.md)"
+    # Carriage on this arm is the sentinel pair, not an object ID.
+    SO="$(printf '%s' "$D" | tr ' ' '\n' | sed -n 's/^sentinel_open=//p')"
+    SC="$(printf '%s' "$D" | tr ' ' '\n' | sed -n 's/^sentinel_close=//p')"
+    python3 "$IAS" record-return ea --nonce "$N" --round 1 --verdict FILE --findings-count 0 \
+      --carriage-sentinel-open "$SO" --carriage-sentinel-close "$SC" < /dev/null > /dev/null
+    python3 "$IAS" record-creation-epoch ea --nonce "$N" --round 1 < /dev/null > /dev/null
+    python3 "$IAS" emit-body ea --nonce "$N" --draft-file d.md < /dev/null > .ea-body 2>&1
+    python3 "$IAS" query-eligibility ea --nonce "$N" --mode approve --draft-file d.md \
+      < /dev/null > .ea-elig 2>&1
+    # The disclosed residual, made observable: swapping the draft's bytes does NOT refuse the
+    # emit on this arm (the ground is event ordering, not byte identity) — which is exactly
+    # why the post-hoc creation attestation is the detection surface for it. The attestation
+    # below is the other half: it MUST catch the swap the emit could not.
+    printf '# T\n\nSWAPPED body.\n' > d.md
+    python3 "$IAS" emit-body ea --nonce "$N" --draft-file d.md < /dev/null > .ea-swapped 2>&1
+    printf 'SWAPPED body.\n' | python3 "$IAS" record-creation-attestation ea --nonce "$N" \
+      > .ea-att 2>&1
+  )
+  assert_eq "#546 embed_arm_emit_rows: an embed-arm epoch emits the audited body" \
+    "Embed body." "$(cat "$EA_SB/.ea-body" 2>/dev/null)"
+  assert_eq "#546 embed_arm_emit_rows: ... on the event-ordering ground, keyed by the revision ordinal (NOT a digest)" \
+    "1" "$(grep -c 'eligible=yes ground=event-ordering .*key=0' "$EA_SB/.ea-elig" 2>/dev/null)"
+  assert_eq "#546 embed_arm_emit_rows: the disclosed residual — swapped draft bytes still emit, because this arm cannot byte-bind" \
+    "SWAPPED body." "$(cat "$EA_SB/.ea-swapped" 2>/dev/null)"
+  assert_eq "#546 embed_arm_emit_rows: ... and the post-hoc attestation is the detection surface that catches that swap" \
+    "attestation=mismatch" "$(cat "$EA_SB/.ea-att" 2>/dev/null)"
+  rm -rf "$EA_SB"
+fi
 
-rm -rf "$IFR_ROOT"
+# creation_binding_rows — the attestation is honest: match, mismatch, and a failed fetch
+# reported as attestation-unavailable, never as a pass.
+CB_SB="$(git_sandbox '#546 creation_binding_rows')"
+if [ -d "$CB_SB" ]; then
+  (
+    cd "$CB_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nThe body.\n' > d.md
+    N="$(python3 "$IAS" init cb | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch cb --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
+    OID="$(git hash-object --stdin --no-filters < d.md)"
+    python3 "$IAS" record-return cb --nonce "$N" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" record-creation-epoch cb --nonce "$N" --round 1 > /dev/null
+    # The gated body emitter's bytes hash to the recorded body-only digest (round-trip).
+    python3 "$IAS" emit-body cb --nonce "$N" --draft-file d.md \
+      | python3 "$IAS" record-creation-attestation cb --nonce "$N" > .cb-match
+    # The attestation is forward-only (round-3 hardening): the mismatch and
+    # fetch-failure arms each get their OWN epoch on a fresh slug.
+    for CASE in mm uv; do
+      NC="$(python3 "$IAS" init "cb$CASE" | sed 's/nonce=//')"
+      python3 "$IAS" record-dispatch "cb$CASE" --nonce "$NC" --round 1 --arm file --draft-file d.md > /dev/null
+      python3 "$IAS" record-return "cb$CASE" --nonce "$NC" --round 1 --verdict FILE \
+        --findings-count 0 --carriage-object-id "$OID" > /dev/null
+      python3 "$IAS" record-creation-epoch "cb$CASE" --nonce "$NC" --round 1 > /dev/null
+      printf '%s\n' "$NC" > ".cb-nonce-$CASE"
+    done
+    printf 'a different body entirely\n' \
+      | python3 "$IAS" record-creation-attestation cbmm --nonce "$(cat .cb-nonce-mm)" > .cb-mismatch
+    python3 "$IAS" record-creation-attestation cbuv --nonce "$(cat .cb-nonce-uv)" --attestation-unavailable > .cb-unavail
+  )
+  assert_eq "#546 creation_binding_rows: the emitted body attests clean against the recorded body-only digest" \
+    "attestation=match" "$(cat "$CB_SB/.cb-match" 2>/dev/null)"
+  assert_eq "#546 creation_binding_rows: a divergent created body is surfaced as a mismatch" \
+    "attestation=mismatch" "$(cat "$CB_SB/.cb-mismatch" 2>/dev/null)"
+  assert_eq "#546 creation_binding_rows: a failed fetch reports attestation-unavailable, never a pass" \
+    "attestation=attestation-unavailable" "$(cat "$CB_SB/.cb-unavail" 2>/dev/null)"
+  rm -rf "$CB_SB"
+fi
+
+# override_attestation_rows — a file-arm "file anyway" override over a REVISE verdict (PR #552
+# review, Important #1). The user revises the draft AFTER the audited round returned REVISE and
+# elects to file the revised bytes without another round. emit-body posts the CURRENT file
+# (D2); the creation epoch must bind the digest of THOSE posted bytes, not the audited round's
+# older bytes (D1) — otherwise the post-hoc attestation is a structurally-guaranteed `mismatch`
+# on a legitimate override filing that GitHub stored faithfully (a false tamper signal). The fix:
+# record-creation-epoch --draft-file binds the posted-file body digest. This block drives both
+# arms of the fix on the SAME scenario: WITH --draft-file attests `match` (correct), and WITHOUT
+# it reproduces the old false `mismatch` — so the assertion is a live positive control that the
+# --draft-file binding is what removes the false signal, not a tautology.
+OA_SB="$(git_sandbox '#546 override_attestation_rows')"
+if [ -d "$OA_SB" ]; then
+  (
+    cd "$OA_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    for SLUG in oafix oaold; do
+      printf '# T\n\nBody one.\n' > "d-$SLUG.md"
+      NS="$(python3 "$IAS" init "$SLUG" | sed 's/nonce=//')"
+      python3 "$IAS" record-dispatch "$SLUG" --nonce "$NS" --round 1 --arm file \
+        --draft-file "d-$SLUG.md" > /dev/null
+      OID1="$(git hash-object --stdin --no-filters < "d-$SLUG.md")"
+      # The audited round returns REVISE (not clean) on the original bytes.
+      python3 "$IAS" record-return "$SLUG" --nonce "$NS" --round 1 --verdict REVISE \
+        --findings-count 1 --carriage-object-id "$OID1" > /dev/null
+      # The user revises the draft file to new bytes (D2), then elects to file anyway.
+      printf '# T\n\nBody two, revised.\n' > "d-$SLUG.md"
+      python3 "$IAS" record-revision "$SLUG" --nonce "$NS" --after-round 1 > /dev/null
+      python3 "$IAS" record-override "$SLUG" --nonce "$NS" --kind user-decline \
+        --surface step4-approval-after-exhausted-offer --draft-file "d-$SLUG.md" > /dev/null
+      printf '%s' "$NS" > ".oa-nonce-$SLUG"
+    done
+    # eligibility grounds on the still-current override for the revised bytes.
+    python3 "$IAS" query-eligibility oafix --nonce "$(cat .oa-nonce-oafix)" --mode approve \
+      --draft-file d-oafix.md > .oa-elig 2>&1
+    # FIX arm: bind the epoch to the posted (revised) file, then attest the emitted body.
+    python3 "$IAS" record-creation-epoch oafix --nonce "$(cat .oa-nonce-oafix)" --round 1 \
+      --draft-file d-oafix.md > /dev/null
+    python3 "$IAS" emit-body oafix --nonce "$(cat .oa-nonce-oafix)" --draft-file d-oafix.md \
+      | python3 "$IAS" record-creation-attestation oafix --nonce "$(cat .oa-nonce-oafix)" > .oa-fix
+    # OLD arm (same scenario, no --draft-file): the epoch binds the audited round's older
+    # body, so the identical faithful post attests as a false mismatch.
+    python3 "$IAS" record-creation-epoch oaold --nonce "$(cat .oa-nonce-oaold)" --round 1 \
+      > /dev/null
+    python3 "$IAS" emit-body oaold --nonce "$(cat .oa-nonce-oaold)" --draft-file d-oaold.md \
+      | python3 "$IAS" record-creation-attestation oaold --nonce "$(cat .oa-nonce-oaold)" > .oa-old
+  )
+  assert_eq "#546 override_attestation_rows: a file-arm 'file anyway' override grounds eligibility on the revised bytes" \
+    "1" "$(grep -c 'eligible=yes ground=override' "$OA_SB/.oa-elig" 2>/dev/null)"
+  assert_eq "#546 override_attestation_rows: --draft-file binds the POSTED body, so a faithful override filing attests match (no false tamper signal)" \
+    "attestation=match" "$(cat "$OA_SB/.oa-fix" 2>/dev/null)"
+  assert_eq "#546 override_attestation_rows: positive control — WITHOUT --draft-file the epoch binds the audited round's older body, reproducing the old false mismatch" \
+    "attestation=mismatch" "$(cat "$OA_SB/.oa-old" 2>/dev/null)"
+  rm -rf "$OA_SB"
+fi
+
+# emit-body is the gated emitter: it refuses with EMPTY stdout so a caller that pipes it
+# into `gh issue create --body-file -` without pipefail cannot post an unaudited body.
+EB_SB="$(git_sandbox '#546 emit-body is gated')"
+if [ -d "$EB_SB" ]; then
+  (
+    cd "$EB_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nB\n' > d.md
+    N="$(python3 "$IAS" init eb | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch eb --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
+    OID="$(git hash-object --stdin --no-filters < d.md)"
+    python3 "$IAS" record-return eb --nonce "$N" --round 1 --verdict REVISE \
+      --findings-count 1 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" emit-body eb --nonce "$N" --draft-file d.md > .eb-out 2> .eb-err
+    printf 'rc=%s\n' "$?" > .eb-rc
+  )
+  assert_eq "#546 emit-body is gated: an unaudited draft is refused with a non-zero exit" \
+    "rc=1" "$(cat "$EB_SB/.eb-rc" 2>/dev/null)"
+  assert_eq "#546 emit-body is gated: ... and stdout is EMPTY, so an unguarded pipe cannot post an unaudited body" \
+    "" "$(cat "$EB_SB/.eb-out" 2>/dev/null)"
+  assert_eq "#546 emit-body is gated: ... and the refusal names the eligibility reason" \
+    "1" "$(grep -c 'refusing to emit an unaudited body' "$EB_SB/.eb-err" 2>/dev/null)"
+  rm -rf "$EB_SB"
+fi
+
+# next_action_budget_rows — the retry/budget arms of `query-next-action`, driven end-to-end
+# through the CLI. Added by the #546 pin reconciliation: these carry the guarantees the deleted
+# #522 prose pins used to assert — "file-arm DRAFT-UNREADABLE re-dispatches exactly once on the
+# embed arm", "an embed-arm DRAFT-UNREADABLE never triggers a second file-arm re-dispatch", and
+# the automatic-budget arm. classify_return is unit-driven in test_python_scripts.py; what is
+# driven HERE is next_action's answer, which no python row covered.
+#
+# Seven of the tool's eight answer tokens are driven here; the eighth,
+# round-open-awaiting-return, is driven by illegal_transition_rows and
+# shadow_round_rows below. Two of the driven arms were dead code when
+# the cutover's pin reconciliation first drove this surface, and the rows below are the
+# regression guard for both — each was a real defect the deleted #522 prose pin had been the
+# only thing nominally protecting, so a cutover that deleted the pin without driving the arm
+# would have shipped the guarantee enforced NOWHERE (not in prose, not in the tool):
+#   1. `revise-then-evaluate-offer` was unreachable: `_MAX_AUTOMATIC_REAUDITS` was compared
+#      against `automatic_reaudits_used`, but nothing ever incremented that counter, so the
+#      automatic re-audit loop was unbounded (four consecutive REVISE rounds all answered
+#      `revise-and-reaudit`). The counter is now spent where the round actually opens.
+#   2. `dispatch-retry-same-arm` was unreachable: `record-return` set `no_parseable_retry_used`
+#      and read it in the same branch, so the FIRST no-parseable-verdict return already looked
+#      like the second and skipped the same-arm retry. The flag is now read before it is set.
+NA_SB="$(git_sandbox '#546 next_action_budget_rows')"
+if [ -d "$NA_SB" ]; then
+  (
+    cd "$NA_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nB\n' > d.md
+    OID="$(git hash-object --stdin --no-filters < d.md)"
+
+    # A clean FILE round proceeds.
+    NF="$(python3 "$IAS" init nf | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch nf --nonce "$NF" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-return nf --nonce "$NF" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" query-next-action nf --nonce "$NF" --round 1 > .na-file
+
+    # The DRAFT-UNREADABLE chain, in one round: the file arm's unreadable draft re-dispatches
+    # ONCE on the embed arm; the embed arm's own DRAFT-UNREADABLE (an illegal verdict on that
+    # arm) must NOT re-dispatch to the file arm again — it routes to the inline degraded arm,
+    # which terminates the chain.
+    NU="$(python3 "$IAS" init nu | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch nu --nonce "$NU" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-return nu --nonce "$NU" --round 1 --verdict DRAFT-UNREADABLE \
+      --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" query-next-action nu --nonce "$NU" --round 1 > .na-unreadable-1
+    # The re-dispatch reuses the SAME round — no second round record.
+    python3 "$IAS" record-dispatch nu --nonce "$NU" --round 1 --arm embed \
+      --marker file-unreadable < d.md > /dev/null
+    python3 "$IAS" record-return nu --nonce "$NU" --round 1 --verdict DRAFT-UNREADABLE > /dev/null
+    python3 "$IAS" query-next-action nu --nonce "$NU" --round 1 > .na-unreadable-2
+    python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['rounds']))" \
+      .devflow/tmp/issue-audit-state-nu.json > .na-rounds
+
+    # The inline arm past both defined retries closes the round verdict-less rather than
+    # looping — the termination invariant.
+    NT="$(python3 "$IAS" init nt | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch nt --nonce "$NT" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-return nt --nonce "$NT" --round 1 --carriage-object-id "$OID" > /dev/null
+    # first no-parseable -> retry the SAME arm; a second -> the inline degraded arm
+    # (the retry-arm binding refuses a shortcut straight to inline)
+    python3 "$IAS" record-dispatch nt --nonce "$NT" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-return nt --nonce "$NT" --round 1 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" record-dispatch nt --nonce "$NT" --round 1 --arm inline < d.md > /dev/null
+    python3 "$IAS" record-return nt --nonce "$NT" --round 1 > /dev/null
+    python3 "$IAS" query-next-action nt --nonce "$NT" --round 1 > .na-terminal
+
+    # The AUTOMATIC BUDGET: one initial round plus AT MOST ONE automatic re-audit. Three
+    # consecutive REVISE rounds — the first must be offered the automatic re-audit, and
+    # every later one must fall through to the user-chosen-offer evaluation. Regression
+    # guard: the counter was once never incremented, so this loop was unbounded.
+    NB="$(python3 "$IAS" init nb | sed 's/nonce=//')"
+    for R in 1 2 3; do
+      # Round 3 is past the automatic budget, so it must be FUNDED by an accepted
+      # user-chosen offer first (the round-funding gate refuses an unfunded open).
+      [ "$R" = 3 ] && python3 "$IAS" record-offer nb --nonce "$NB" --accepted > /dev/null
+      python3 "$IAS" record-dispatch nb --nonce "$NB" --round "$R" --arm file \
+        --draft-file d.md > /dev/null
+      python3 "$IAS" record-return nb --nonce "$NB" --round "$R" --verdict REVISE \
+        --findings-count 1 --carriage-object-id "$OID" > /dev/null
+      python3 "$IAS" query-next-action nb --nonce "$NB" --round "$R" >> .na-budget
+    done
+
+    # The NO-PARSEABLE-VERDICT retry precedence: the FIRST such completion retries on the
+    # same arm; only the SECOND routes to the inline degraded arm. Regression guard: the
+    # retry flag was once set and read in one branch, so the first completion skipped the
+    # same-arm retry entirely.
+    NP="$(python3 "$IAS" init np | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch np --nonce "$NP" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-return np --nonce "$NP" --round 1 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" query-next-action np --nonce "$NP" --round 1 > .na-npv-1
+    python3 "$IAS" record-return np --nonce "$NP" --round 1 --carriage-object-id "$OID" > /dev/null
+    python3 "$IAS" query-next-action np --nonce "$NP" --round 1 > .na-npv-2
+  )
+  assert_eq "#546 next_action_budget_rows: a clean FILE round proceeds" \
+    "action=proceed" "$(cat "$NA_SB/.na-file" 2>/dev/null)"
+  assert_eq "#546 next_action_budget_rows: a file-arm DRAFT-UNREADABLE re-dispatches on the embed arm" \
+    "action=dispatch-embed-retry" "$(cat "$NA_SB/.na-unreadable-1" 2>/dev/null)"
+  # DRAFT-UNREADABLE is illegal on the embed arm (the auditor was handed the bytes inline, so
+  # it cannot truthfully report the draft unreadable), and is classified as that round's first
+  # no-parseable-verdict completion — which retries on the same arm. The guarantee this row
+  # carries is the one the deleted #522 pin protected: whatever it routes to, it is never a
+  # second file-arm re-dispatch, and the unreadable re-dispatch is spent (once per round).
+  assert_eq "#546 next_action_budget_rows: an embed-arm DRAFT-UNREADABLE never re-dispatches to the file arm" \
+    "action=dispatch-retry-same-arm" "$(cat "$NA_SB/.na-unreadable-2" 2>/dev/null)"
+  assert_eq "#546 next_action_budget_rows: the unreadable re-dispatch reuses the round — no second round record" \
+    "1" "$(cat "$NA_SB/.na-rounds" 2>/dev/null)"
+  assert_eq "#546 next_action_budget_rows: the inline arm past both defined retries closes the round verdict-less" \
+    "action=round-closed-no-verdict" "$(cat "$NA_SB/.na-terminal" 2>/dev/null)"
+  # The automatic budget is spent exactly once: the ceiling is enforced by the tool, so a
+  # REVISE loop always terminates into the offer evaluation rather than re-auditing forever.
+  assert_eq "#546 next_action_budget_rows: the automatic budget grants exactly one re-audit, then falls through to the offer" \
+    "action=revise-and-reaudit
+action=revise-then-evaluate-offer
+action=revise-then-evaluate-offer" "$(cat "$NA_SB/.na-budget" 2>/dev/null)"
+  assert_eq "#546 next_action_budget_rows: the FIRST no-parseable-verdict completion retries on the same arm" \
+    "action=dispatch-retry-same-arm" "$(cat "$NA_SB/.na-npv-1" 2>/dev/null)"
+  assert_eq "#546 next_action_budget_rows: only the SECOND no-parseable-verdict completion routes to the inline degraded arm" \
+    "action=dispatch-inline-degraded" "$(cat "$NA_SB/.na-npv-2" 2>/dev/null)"
+  rm -rf "$NA_SB"
+fi
+
+# user_round_cap_rows — the per-run user-chosen-round ceiling. Added by the #546 pin
+# reconciliation: this carries the guarantee the deleted #522 "User-chosen rounds are capped at
+# 3 per run" prose pin used to assert. The skill delegates the count outright ("the tool owns
+# the per-run ceiling … never count rounds yourself", pinned in the #522 block), so the ceiling
+# must actually refuse — an accepted offer past it exits NON-ZERO with a named breadcrumb, the
+# mutation contract, never a silent clamp an orchestrator could read as success.
+# The expected count is derived from the module's OWN constant, never transcribed by hand: a
+# literal 3 here would keep passing while the tool's cap drifted underneath it.
+UC_SB="$(git_sandbox '#546 user_round_cap_rows')"
+if [ -d "$UC_SB" ]; then
+  UC_CAP="$(python3 -c "import importlib.util,sys
+spec = importlib.util.spec_from_file_location('ias', sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(m._USER_ROUND_CAP)" "$IAS" 2>/dev/null)"
+  (
+    cd "$UC_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    N="$(python3 "$IAS" init uc | sed 's/nonce=//')"
+    # Accept exactly cap offers, then one more: the ceiling+1th must be refused.
+    I=0
+    while [ "$I" -lt "${UC_CAP:-3}" ]; do
+      python3 "$IAS" record-offer uc --nonce "$N" --accepted > /dev/null 2>&1 \
+        || printf 'REFUSED-EARLY at %s\n' "$I" >> .uc-early
+      I=$((I + 1))
+    done
+    python3 "$IAS" record-offer uc --nonce "$N" --accepted > .uc-over-out 2> .uc-over-err \
+      && printf 'EXITED-ZERO\n' >> .uc-over-out
+    # A DECLINED offer past the ceiling is not a round and is never refused — the cap governs
+    # accepted rounds only, so a decline can always be recorded (it is how the run proceeds).
+    python3 "$IAS" record-offer uc --nonce "$N" > /dev/null 2>&1 || printf 'DECLINE-REFUSED\n' > .uc-decline
+    python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['user_rounds_used'])" \
+      .devflow/tmp/issue-audit-state-uc.json > .uc-used
+  )
+  assert_eq "#546 user_round_cap_rows: the module exposes a per-run user-round cap" \
+    "1" "$([ -n "$UC_CAP" ] && echo 1 || echo 0)"
+  assert_eq "#546 user_round_cap_rows: every offer up to the ceiling is accepted" \
+    "" "$(cat "$UC_SB/.uc-early" 2>/dev/null)"
+  assert_eq "#546 user_round_cap_rows: an accepted offer past the ceiling exits non-zero, never a silent clamp" \
+    "" "$(cat "$UC_SB/.uc-over-out" 2>/dev/null)"
+  assert_eq "#546 user_round_cap_rows: ... and the refusal breadcrumb names the ceiling" \
+    "1" "$(grep -c "capped at ${UC_CAP:-3} per run" "$UC_SB/.uc-over-err" 2>/dev/null)"
+  assert_eq "#546 user_round_cap_rows: a DECLINED offer past the ceiling is never refused (the cap governs accepted rounds)" \
+    "" "$(cat "$UC_SB/.uc-decline" 2>/dev/null)"
+  # The refusal is not merely a non-zero exit: the refused offer must not have been counted
+  # either, or a retried offer would walk the counter past the ceiling one refusal at a time.
+  assert_eq "#546 user_round_cap_rows: a refused offer is not counted — the recorded state stops AT the ceiling" \
+    "${UC_CAP:-3}" "$(cat "$UC_SB/.uc-used" 2>/dev/null)"
+  rm -rf "$UC_SB"
+fi
+
+# illegal_transition_rows (#546, PR #552 review) — behavioral drives for the mutation-path
+# illegal-transition guards. The python-side _TRANSITION_ROWS lockstep is metadata-only
+# (it counts and content-matches the table); THESE rows prove each guard actually refuses
+# at the CLI, non-zero, with its own named breadcrumb — so a refactor that drops a guard
+# (e.g. the duplicate-return check, letting a second verdict overwrite a round's outcome)
+# goes RED here instead of shipping. Also drives the open-round fail-closed next-action
+# answer (round-open-awaiting-return, never `proceed`).
+IT_SB="$(git_sandbox '#546 illegal_transition_rows')"
+if [ -d "$IT_SB" ]; then
+  (
+    cd "$IT_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+    N="$(python3 "$IAS" init it | sed 's/nonce=//')"
+
+    # return before any dispatch
+    python3 "$IAS" record-return it --nonce "$N" --round 1 --verdict FILE \
+      > .it-r1-out 2> .it-r1-err; printf '%s' "$?" > .it-r1-rc
+
+    python3 "$IAS" record-dispatch it --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > .it-disp 2>&1
+
+    # open round: next-action answers the fail-closed awaiting token, never proceed
+    python3 "$IAS" query-next-action it --nonce "$N" --round 1 > .it-open-na 2>/dev/null
+
+    # a second round cannot open while round 1 is still open
+    python3 "$IAS" record-dispatch it --nonce "$N" --round 2 --arm file \
+      --draft-file draft.md > /dev/null 2> .it-open-err; printf '%s' "$?" > .it-open-rc
+
+    # revision with zero completed rounds is legal only after rounds exist; drive the
+    # zero-rounds guard in a SEPARATE fresh slug
+    N2="$(python3 "$IAS" init it2 | sed 's/nonce=//')"
+    python3 "$IAS" record-revision it2 --nonce "$N2" --after-round 0 \
+      > /dev/null 2> .it-rev-err; printf '%s' "$?" > .it-rev-rc
+
+    # creation-epoch with no such round / attestation with no epoch (fresh slug it2)
+    python3 "$IAS" record-creation-epoch it2 --nonce "$N2" --round 1 \
+      > /dev/null 2> .it-epoch-err; printf '%s' "$?" > .it-epoch-rc
+    printf 'x' | python3 "$IAS" record-creation-attestation it2 --nonce "$N2" \
+      > /dev/null 2> .it-att-err; printf '%s' "$?" > .it-att-rc
+
+    # close round 1 cleanly, then: duplicate return / dispatch reopening a closed round /
+    # out-of-order round number
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+    python3 "$IAS" record-return it --nonce "$N" --round 1 --verdict FILE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-return it --nonce "$N" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2> .it-dup-err; printf '%s' "$?" > .it-dup-rc
+    python3 "$IAS" record-dispatch it --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2> .it-reopen-err; printf '%s' "$?" > .it-reopen-rc
+    python3 "$IAS" record-dispatch it --nonce "$N" --round 0 --arm file \
+      --draft-file draft.md > /dev/null 2> .it-ooo-err; printf '%s' "$?" > .it-ooo-rc
+
+    # attestation-in-summary: with no creation epoch the summary reads attestation=none
+    python3 "$IAS" query-summary it --nonce "$N" > .it-summary 2>/dev/null
+
+    # end-to-end attestation surfacing: bind creation to round 1, attest with WRONG
+    # bytes, and the summary's trailing field must read the bare token (never a dict
+    # repr — the PR #552 fix-delta gate's Critical)
+    python3 "$IAS" record-creation-epoch it --nonce "$N" --round 1 > /dev/null 2>&1
+    printf 'entirely different bytes\n' | python3 "$IAS" record-creation-attestation it \
+      --nonce "$N" > .it-att-out 2>/dev/null
+    python3 "$IAS" query-summary it --nonce "$N" > .it-summary2 2>/dev/null
+
+    # findings-count gate: a REFUSED completion (absent carriage on the file arm)
+    # carrying --findings-count must NOT record the tally; a later clean retry that
+    # omits its own count leaves the summary at none, never the unproven 5
+    N3="$(python3 "$IAS" init it3 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch it3 --nonce "$N3" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return it3 --nonce "$N3" --round 1 --verdict FILE \
+      --findings-count 5 > /dev/null 2>&1   # no carriage id: refused, feeds retry accounting
+    # then CLOSE the round cleanly, omitting --findings-count: pre-fix behavior would
+    # surface the refused return's unproven 5 in the summary (the vacuity the fix-delta
+    # re-gate caught — an open round's count never reaches the summary either way)
+    OID3="$(git hash-object --stdin --no-filters < draft.md)"
+    python3 "$IAS" record-return it3 --nonce "$N3" --round 1 --verdict FILE \
+      --carriage-object-id "$OID3" > /dev/null 2>&1
+    python3 "$IAS" query-summary it3 --nonce "$N3" > .it-fc-summary 2>/dev/null
+
+    # draft-undigestible CLI seam: an unreadable --draft-file refuses with the distinct
+    # reason on stdout AND the named stderr breadcrumb (never unaudited-revision)
+    python3 "$IAS" query-eligibility it --nonce "$N" --mode approve \
+      --draft-file no-such-draft.md > .it-undig-out 2> .it-undig-err; printf '%s' "$?" > .it-undig-rc
+  )
+  assert_eq "#546 illegal_transition_rows: a return before any dispatch refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-r1-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the verdict-precedes-dispatch guard" \
+    "1" "$(grep -c 'cannot precede its dispatch' "$IT_SB/.it-r1-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: an open unreturned round answers round-open-awaiting-return, never proceed" \
+    "1" "$(grep -c 'round-open-awaiting-return' "$IT_SB/.it-open-na" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a dispatch while an earlier round is open refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-open-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the still-open guard" \
+    "1" "$(grep -c 'is still open' "$IT_SB/.it-open-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a revision with zero rounds refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-rev-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the nothing-to-revise guard" \
+    "1" "$(grep -c 'nothing to revise' "$IT_SB/.it-rev-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a creation epoch with no such round refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-epoch-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the no-round-to-bind guard" \
+    "1" "$(grep -c 'is recorded to bind' "$IT_SB/.it-epoch-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: an attestation with no epoch refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-att-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the nothing-to-attest guard" \
+    "1" "$(grep -c 'nothing to attest against' "$IT_SB/.it-att-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a duplicate return refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-dup-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the duplicate-return guard" \
+    "1" "$(grep -c 'duplicate return is illegal' "$IT_SB/.it-dup-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a dispatch cannot reopen a closed round" \
+    "1" "$(cat "$IT_SB/.it-reopen-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the already-closed guard" \
+    "1" "$(grep -c 'cannot reopen it' "$IT_SB/.it-reopen-err" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: an out-of-order round number refuses non-zero" \
+    "1" "$(cat "$IT_SB/.it-ooo-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... naming the out-of-order guard" \
+    "1" "$(grep -c 'is out of order' "$IT_SB/.it-ooo-err" 2>/dev/null)"
+  # attestation-in-summary: the status field is part of the rendered summary line
+  assert_eq "#546 illegal_transition_rows: query-summary surfaces the attestation field (none when no epoch)" \
+    "1" "$(grep -c 'attestation=none' "$IT_SB/.it-summary" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a mismatching attestation is surfaced end-to-end as the bare token" \
+    "1" "$(grep -c 'attestation=mismatch$' "$IT_SB/.it-summary2" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: record-creation-attestation reports the mismatch on its own output too" \
+    "attestation=mismatch" "$(cat "$IT_SB/.it-att-out" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: a refused completion's --findings-count is never recorded (clean close omitting its own count reads none, not the unproven 5)" \
+    "1" "$(grep -c 'findings_count=none' "$IT_SB/.it-fc-summary" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: an unreadable draft file refuses draft-undigestible at exit 0" \
+    "eligible=no reason=draft-undigestible:0" \
+    "$(cat "$IT_SB/.it-undig-out" 2>/dev/null):$(cat "$IT_SB/.it-undig-rc" 2>/dev/null)"
+  assert_eq "#546 illegal_transition_rows: ... with the named stderr breadcrumb" \
+    "1" "$(grep -c 'could not hash draft file' "$IT_SB/.it-undig-err" 2>/dev/null)"
+  rm -rf "$IT_SB"
+fi
+
+# shadow_round_rows (#546, PR #552 shadow review) — producer-side CLI drives for the
+# seams the blinded shadow pass showed were only covered against hand-built records: the embed-arm sentinel
+# carriage round-trip with the TOOL-generated sentinels, the record-override producer vs
+# the eligibility consumer, the per-query foreign-nonce fail-closed answers, query-arm's
+# recorded-fact read-back (without passing --prior-unreadable), record-degraded reaching the
+# summary, and the pending-cleared-at-dispatch next-action answer.
+SR_SB="$(git_sandbox '#546 shadow_round_rows')"
+if [ -d "$SR_SB" ]; then
+  (
+    cd "$SR_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+
+    # embed-arm sentinel round-trip: dispatch on stdin, capture the tool-generated pair
+    N="$(python3 "$IAS" init es | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch es --nonce "$N" --round 1 --arm embed \
+      --marker write-failed < draft.md > .sr-disp 2>&1
+    SO="$(sed -nE 's/.* sentinel_open=([^ ]+).*/\1/p' .sr-disp)"
+    SC="$(sed -nE 's/.* sentinel_close=([^ ]+).*/\1/p' .sr-disp)"
+    # mismatched sentinel first: refused (no outcome; retry accounting)
+    python3 "$IAS" record-return es --nonce "$N" --round 1 --verdict FILE \
+      --carriage-sentinel-open "WRONG" --carriage-sentinel-close "$SC" > .sr-bad 2>&1
+    # then the genuine pair: accepted, round closes FILE
+    python3 "$IAS" record-return es --nonce "$N" --round 1 --verdict FILE \
+      --carriage-sentinel-open "$SO" --carriage-sentinel-close "$SC" > .sr-good 2>&1
+    python3 "$IAS" query-triggers es --nonce "$N" > .sr-trig 2>/dev/null
+
+    # record-override producer -> eligibility consumer round-trip (file-arm epoch)
+    N2="$(python3 "$IAS" init ov | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch ov --nonce "$N2" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+    python3 "$IAS" record-return ov --nonce "$N2" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-override ov --nonce "$N2" --kind user-decline \
+      --surface t1t2-boundary --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" query-eligibility ov --nonce "$N2" --mode approve \
+      --draft-file draft.md > .sr-ov-elig 2>/dev/null
+    python3 "$IAS" record-revision ov --nonce "$N2" --after-round 1 > /dev/null 2>&1
+    python3 "$IAS" query-eligibility ov --nonce "$N2" --mode approve \
+      --draft-file draft.md > .sr-ov-stale 2>/dev/null
+
+    # foreign-nonce fail-closed answers, one per query class
+    python3 "$IAS" query-arm ov --nonce badnonce --write-landed yes \
+      --draft-file draft.md > .sr-fn-arm 2>/dev/null
+    python3 "$IAS" query-next-action ov --nonce badnonce --round 1 > .sr-fn-na 2>/dev/null
+    python3 "$IAS" query-eligibility ov --nonce badnonce --mode approve \
+      --draft-file draft.md > .sr-fn-elig 2>/dev/null
+
+    # recorded-fact read-back: a file-arm DRAFT-UNREADABLE return, then query-arm
+    # WITHOUT --prior-unreadable still routes embed/file-unreadable from state alone
+    N3="$(python3 "$IAS" init rb | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch rb --nonce "$N3" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return rb --nonce "$N3" --round 1 --verdict DRAFT-UNREADABLE \
+      > /dev/null 2>&1
+    python3 "$IAS" query-arm rb --nonce "$N3" --write-landed yes \
+      --draft-file draft.md > .sr-rb-arm 2>/dev/null
+    # pending-cleared-at-dispatch: record the embed retry dispatch, then next-action
+    # answers the awaiting token, never the already-spent retry action
+    python3 "$IAS" record-dispatch rb --nonce "$N3" --round 1 --arm embed \
+      --marker file-unreadable < draft.md > /dev/null 2>&1
+    python3 "$IAS" query-next-action rb --nonce "$N3" --round 1 > .sr-rb-na 2>/dev/null
+
+    # record-degraded reaches the summary
+    python3 "$IAS" record-degraded rb --nonce "$N3" --round 1 \
+      --reason no-subagent-tool > .sr-deg 2>&1
+    python3 "$IAS" query-summary rb --nonce "$N3" > .sr-deg-summary 2>/dev/null
+  )
+  assert_eq "#546 shadow_round_rows: a mismatched embed sentinel refuses the completion" \
+    "1" "$(grep -c 'classification=no-parseable-verdict' "$SR_SB/.sr-bad" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: the tool-generated sentinel pair round-trips to an accepted FILE close" \
+    "1" "$(grep -c 'outcome=FILE' "$SR_SB/.sr-good" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: ... confirmed closed via query-triggers (no pending offer trigger)" \
+    "1" "$(grep -c 't1=not-hold t2=not-hold' "$SR_SB/.sr-trig" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: a CLI-recorded override grounds eligibility (producer/consumer agree)" \
+    "1" "$(grep -c 'eligible=yes ground=override' "$SR_SB/.sr-ov-elig" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: a later revision stales the CLI-recorded override" \
+    "eligible=no reason=stale-override" "$(cat "$SR_SB/.sr-ov-stale" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: query-arm fails closed on a foreign nonce" \
+    "arm=embed marker=digest-unrecorded reason=foreign-nonce" "$(cat "$SR_SB/.sr-fn-arm" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: query-next-action fails closed on a foreign nonce" \
+    "action=round-closed-no-verdict reason=foreign-nonce" "$(cat "$SR_SB/.sr-fn-na" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: query-eligibility fails closed on a foreign nonce" \
+    "eligible=no reason=foreign-nonce" "$(cat "$SR_SB/.sr-fn-elig" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: query-arm reads the recorded DRAFT-UNREADABLE fact back from state (no caller flag)" \
+    "1" "$(grep -c 'arm=embed marker=file-unreadable' "$SR_SB/.sr-rb-arm" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: a recorded retry dispatch clears pending — next-action answers the awaiting token" \
+    "action=round-open-awaiting-return" "$(cat "$SR_SB/.sr-rb-na" 2>/dev/null)"
+  assert_eq "#546 shadow_round_rows: record-degraded surfaces in the summary" \
+    "1" "$(grep -c 'degraded=yes' "$SR_SB/.sr-deg-summary" 2>/dev/null)"
+  rm -rf "$SR_SB"
+fi
+
+# iter3_hardening_rows (#546, PR #552 review round 3) — CLI drives for the round-3 guards:
+# the after-round operand validation (the sole event-ordering invalidation evidence must
+# never fail open on a caller-supplied value), the forward-only attestation, the premature
+# cap-reached refusal, the init load-failure detail, and the unsafe-slug CLI seam.
+I3_SB="$(git_sandbox '#546 iter3_hardening_rows')"
+if [ -d "$I3_SB" ]; then
+  (
+    cd "$I3_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+
+    N4="$(python3 "$IAS" init it4 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch it4 --nonce "$N4" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return it4 --nonce "$N4" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 0 \
+      > /dev/null 2> .i3-ar-low; printf '%s' "$?" > .i3-ar-low-rc
+    python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 2 \
+      > /dev/null 2> .i3-ar-high; printf '%s' "$?" > .i3-ar-high-rc
+    python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 1 > .i3-ar-ok 2>&1
+
+    N5="$(python3 "$IAS" init it5 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch it5 --nonce "$N5" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return it5 --nonce "$N5" --round 1 --verdict FILE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch it5 --nonce "$N5" --round 1 > /dev/null 2>&1
+    printf 'other bytes\n' | python3 "$IAS" record-creation-attestation it5 \
+      --nonce "$N5" > /dev/null 2>&1
+    printf 'body\n' | python3 "$IAS" record-creation-attestation it5 \
+      --nonce "$N5" > /dev/null 2> .i3-att-again; printf '%s' "$?" > .i3-att-again-rc
+    python3 "$IAS" record-creation-epoch it5 --nonce "$N5" --round 1 \
+      > /dev/null 2> .i3-rebind; printf '%s' "$?" > .i3-rebind-rc
+
+    # Premature cap-reached. The fixture completes a round and binds the draft first, so
+    # the two override PRECONDITIONS (a completed round exists; a file-arm epoch's
+    # override is digest-bound — #546 override_precondition_rows) are both satisfied and
+    # the guard under test here is unambiguously the premature-ceiling one. The earlier
+    # zero-round fixture asserted this guard correctly while it was the only one on the
+    # path; once the preconditions landed they refused first, so the fixture had to gain
+    # a completed round to keep reaching the guard it is written to pin.
+    N6="$(python3 "$IAS" init it6 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch it6 --nonce "$N6" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return it6 --nonce "$N6" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-override it6 --nonce "$N6" --kind cap-reached \
+      --draft-file draft.md > /dev/null 2> .i3-cap; printf '%s' "$?" > .i3-cap-rc
+
+    printf 'not json' > .devflow/tmp/issue-audit-state-it7.json
+    python3 "$IAS" init it7 --nonce deadbeef > /dev/null 2> .i3-corrupt; printf '%s' "$?" > .i3-corrupt-rc
+
+    python3 "$IAS" init 'a/b' > /dev/null 2> .i3-slug; printf '%s' "$?" > .i3-slug-rc
+  )
+  assert_eq "#546 iter3_hardening_rows: an after-round below the last completed round refuses (the fail-open shape)" \
+    "1" "$(grep -c 'does not name a plausible round' "$I3_SB/.i3-ar-low" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: ... non-zero" "1" "$(cat "$I3_SB/.i3-ar-low-rc" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: an after-round above the last recorded round refuses" \
+    "1" "$(cat "$I3_SB/.i3-ar-high-rc" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: the truthful after-round is accepted" \
+    "ordinal=1" "$(cat "$I3_SB/.i3-ar-ok" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: a second attestation refuses (forward-only tamper evidence)" \
+    "1" "$(grep -c 'cannot be overwritten' "$I3_SB/.i3-att-again" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: an epoch re-bind after attestation refuses" \
+    "1" "$(grep -c 'silently discard that tamper evidence' "$I3_SB/.i3-rebind" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: a premature cap-reached override refuses" \
+    "1" "$(grep -c 'before the ceiling' "$I3_SB/.i3-cap" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: init --nonce over a corrupt state file names the load failure" \
+    "1" "$(grep -c 'the load failed' "$I3_SB/.i3-corrupt" 2>/dev/null)"
+  assert_eq "#546 iter3_hardening_rows: an unsafe slug refuses at the CLI seam with the named breadcrumb" \
+    "1" "$(grep -c 'not a safe path segment' "$I3_SB/.i3-slug" 2>/dev/null)"
+  rm -rf "$I3_SB"
+fi
+
+# iter4_variance_rows (#546, PR #552 review round 4) — two seams the round-4 variance
+# pass showed untested at the CLI layer: the record-return negative findings-count
+# refusal (previously covered only at the _validate layer) and the previously-untested
+# _repo_root anchor-fallback stderr breadcrumb.
+I4_SB="$(git_sandbox '#546 iter4_variance_rows')"
+if [ -d "$I4_SB" ]; then
+  (
+    cd "$I4_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+    N="$(python3 "$IAS" init i4 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i4 --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i4 --nonce "$N" --round 1 --verdict FILE \
+      --findings-count -1 --carriage-object-id "$OID" > /dev/null 2> .i4-neg; printf '%s' "$?" > .i4-neg-rc
+
+    # anchor-fallback breadcrumb: git unresolvable on PATH (the subprocess raises
+    # OSError) -> init still works (cwd anchor) but breadcrumbs the selection change
+    mkdir -p nogit-bin nogit-cwd
+    ln -sf "$(command -v python3)" nogit-bin/python3
+    ( cd nogit-cwd && PATH="$I4_SB/nogit-bin" python3 "$IAS" init fb > ../.i4-fb-out 2> ../.i4-fb-err )
+    ls nogit-cwd/.devflow/tmp > .i4-fb-files 2>/dev/null
+  )
+  assert_eq "#546 iter4_variance_rows: a negative --findings-count refuses at the mutation seam" \
+    "1" "$(cat "$I4_SB/.i4-neg-rc" 2>/dev/null)"
+  assert_eq "#546 iter4_variance_rows: ... with the named breadcrumb" \
+    "1" "$(grep -c 'is negative' "$I4_SB/.i4-neg" 2>/dev/null)"
+  assert_eq "#546 iter4_variance_rows: with git unresolvable the anchor falls back to cwd WITH the selection breadcrumb" \
+    "1" "$(grep -c 'anchoring state to the current directory' "$I4_SB/.i4-fb-err" 2>/dev/null)"
+  assert_eq "#546 iter4_variance_rows: ... and the state file lands under the cwd anchor" \
+    "issue-audit-state-fb.json" "$(cat "$I4_SB/.i4-fb-files" 2>/dev/null)"
+  rm -rf "$I4_SB"
+fi
+
+# iter5_hardening_rows (#546, PR #552 review round 5) — the round-5 guards: the round-
+# funding gate, the unrequested-re-dispatch refusal, the embed marker requirement, the
+# no-digest-supplied eligibility reason, emit-body's empty-body refusal, the attestation
+# trailing-newline tolerance, and the cap-reached accept side.
+I5_SB="$(git_sandbox '#546 iter5_hardening_rows')"
+if [ -d "$I5_SB" ]; then
+  (
+    cd "$I5_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+
+    N="$(python3 "$IAS" init i5 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    # unrequested re-dispatch on the open round refuses
+    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2> .i5-redisp; printf '%s' "$?" > .i5-redisp-rc
+    python3 "$IAS" record-return i5 --nonce "$N" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    # round 2 is the automatic re-audit (funded); round 3 unfunded refuses
+    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 2 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i5 --nonce "$N" --round 2 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 3 --arm file \
+      --draft-file draft.md > /dev/null 2> .i5-unfunded; printf '%s' "$?" > .i5-unfunded-rc
+    # ... and an accepted offer funds it
+    python3 "$IAS" record-offer i5 --nonce "$N" --accepted > /dev/null 2>&1
+    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 3 --arm file \
+      --draft-file draft.md > .i5-funded 2>&1; printf '%s' "$?" > .i5-funded-rc
+
+    # embed dispatch without --marker refuses
+    N2="$(python3 "$IAS" init i5b | sed 's/nonce=//')"
+    printf 'x\n' | python3 "$IAS" record-dispatch i5b --nonce "$N2" --round 1 \
+      --arm embed > /dev/null 2> .i5-nomark; printf '%s' "$?" > .i5-nomark-rc
+
+    # no-digest-supplied: approve query with no --draft-file over a file-arm clean epoch
+    N3="$(python3 "$IAS" init i5c | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5c --nonce "$N3" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i5c --nonce "$N3" --round 1 --verdict FILE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" query-eligibility i5c --nonce "$N3" --mode approve > .i5-nodig 2>/dev/null
+
+    # emit-body on a title-only draft fails loudly (never exit-0-empty)
+    printf '# Only a title\n' > title-only.md
+    N4="$(python3 "$IAS" init i5d | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5d --nonce "$N4" --round 1 --arm file \
+      --draft-file title-only.md > /dev/null 2>&1
+    TOID="$(git hash-object --stdin --no-filters < title-only.md)"
+    python3 "$IAS" record-return i5d --nonce "$N4" --round 1 --verdict FILE \
+      --carriage-object-id "$TOID" > /dev/null 2>&1
+    python3 "$IAS" emit-body i5d --nonce "$N4" --draft-file title-only.md \
+      > .i5-empty-out 2> .i5-empty-err; printf '%s' "$?" > .i5-empty-rc
+
+    # attestation trailing-newline tolerance: body + one extra newline still matches,
+    # with the disclosed stderr note; two extra newlines stay a mismatch
+    python3 "$IAS" record-creation-epoch i5c --nonce "$N3" --round 1 > /dev/null 2>&1
+    { python3 "$IAS" emit-body i5c --nonce "$N3" --draft-file draft.md; printf '\n'; } \
+      | python3 "$IAS" record-creation-attestation i5c --nonce "$N3" > .i5-att-nl 2> .i5-att-nl-err
+
+    # cap-reached ACCEPT side: at the ceiling the cap record is legal
+    N5="$(python3 "$IAS" init i5e | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5e --nonce "$N5" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i5e --nonce "$N5" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    for _i in 1 2 3; do python3 "$IAS" record-offer i5e --nonce "$N5" --accepted > /dev/null 2>&1; done
+    # --draft-file is required here because this epoch is a file-arm round: SKILL.md's
+    # boundary-offer rule says EVERY record-override call on a file-arm epoch binds the
+    # draft, and the tool now enforces it (#546 override_precondition_rows) rather than
+    # trusting the prose. An unbound override is never compared against the draft, so it
+    # would permit any bytes.
+    python3 "$IAS" record-override i5e --nonce "$N5" --kind cap-reached \
+      --draft-file draft.md > .i5-cap-ok 2>&1; printf '%s' "$?" > .i5-cap-ok-rc
+
+    # bounded-tolerance negative control: TWO extra newlines stay a mismatch. Fresh slug
+    # (the i5c epoch above is already attested match — forward-only).
+    N6="$(python3 "$IAS" init i5f | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5f --nonce "$N6" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i5f --nonce "$N6" --round 1 --verdict FILE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch i5f --nonce "$N6" --round 1 > /dev/null 2>&1
+    { python3 "$IAS" emit-body i5f --nonce "$N6" --draft-file draft.md; printf '\n\n'; } \
+      | python3 "$IAS" record-creation-attestation i5f --nonce "$N6" > .i5-att-nl2 2> .i5-att-nl2-err
+
+    # foreign-nonce trigger naming
+    python3 "$IAS" query-triggers i5f --nonce badnonce > .i5-fn-trig 2>/dev/null
+
+    # attestation-unavailable is re-attestable: record unavailable, then a corrective
+    # retry attests the genuine bytes to match
+    N7="$(python3 "$IAS" init i5g | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5g --nonce "$N7" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i5g --nonce "$N7" --round 1 --verdict FILE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch i5g --nonce "$N7" --round 1 > /dev/null 2>&1
+    python3 "$IAS" record-creation-attestation i5g --nonce "$N7" --attestation-unavailable > /dev/null 2>&1
+    python3 "$IAS" emit-body i5g --nonce "$N7" --draft-file draft.md \
+      | python3 "$IAS" record-creation-attestation i5g --nonce "$N7" > .i5-uv-reattest 2>&1
+
+    # creation cannot bind an open round
+    N8="$(python3 "$IAS" init i5h | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i5h --nonce "$N8" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch i5h --nonce "$N8" --round 1 \
+      > /dev/null 2> .i5-open-epoch; printf '%s' "$?" > .i5-open-epoch-rc
+  )
+  assert_eq "#546 iter5_hardening_rows: an unrequested re-dispatch on an open round refuses" \
+    "1" "$(grep -c 'a re-dispatch was not requested' "$I5_SB/.i5-redisp" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: an unfunded round past the automatic budget refuses" \
+    "1" "$(grep -c 'is not funded' "$I5_SB/.i5-unfunded" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: an accepted offer funds the same round (accept side)" \
+    "0" "$(cat "$I5_SB/.i5-funded-rc" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: an embed dispatch without --marker refuses" \
+    "1" "$(grep -c 'requires --marker' "$I5_SB/.i5-nomark" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: approve with no draft file over a file-arm clean epoch names no-digest-supplied" \
+    "eligible=no reason=no-digest-supplied" "$(cat "$I5_SB/.i5-nodig" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: emit-body on a title-only draft fails loudly, never exit-0-empty" \
+    "1:1" "$(cat "$I5_SB/.i5-empty-rc" 2>/dev/null):$(grep -c 'empty body below its title' "$I5_SB/.i5-empty-err" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: one fetch-framing trailing newline still attests match (disclosed)" \
+    "attestation=match:1" "$(cat "$I5_SB/.i5-att-nl" 2>/dev/null):$(grep -c 'matched modulo' "$I5_SB/.i5-att-nl-err" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: TWO extra newlines stay a mismatch (the tolerance is bounded to exactly one)" \
+    "attestation=mismatch:0" "$(cat "$I5_SB/.i5-att-nl2" 2>/dev/null):$(grep -c 'matched modulo' "$I5_SB/.i5-att-nl2-err" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: query-triggers names a foreign nonce instead of misattributing unestablished" \
+    "t1=not-hold t2=hold reason=foreign-nonce" "$(cat "$I5_SB/.i5-fn-trig" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: an attestation-unavailable record may be re-attested (it is the honest unknown, not tamper evidence)" \
+    "attestation=match" "$(cat "$I5_SB/.i5-uv-reattest" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: creation cannot bind an OPEN round" \
+    "1" "$(grep -c 'still open; creation can only bind' "$I5_SB/.i5-open-epoch" 2>/dev/null)"
+  assert_eq "#546 iter5_hardening_rows: cap-reached at the ceiling is accepted (accept side)" \
+    "0" "$(cat "$I5_SB/.i5-cap-ok-rc" 2>/dev/null)"
+  rm -rf "$I5_SB"
+fi
+
+# conv_shadow_rows (#546, PR #552 convergence shadow) — the shadow-pass guards: the
+# retry-arm binding, dense round numbering, the honest empty-fetch compare, the
+# unpersistable-state mutation breadcrumb, and query-nonce's happy-path recovery.
+CS_SB="$(git_sandbox '#546 conv_shadow_rows')"
+if [ -d "$CS_SB" ]; then
+  (
+    cd "$CS_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+
+    # retry-arm binding: a pending embed retry refuses a file-arm dispatch
+    N="$(python3 "$IAS" init cs | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch cs --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return cs --nonce "$N" --round 1 --verdict DRAFT-UNREADABLE \
+      > /dev/null 2>&1
+    python3 "$IAS" record-dispatch cs --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2> .cs-armbind; printf '%s' "$?" > .cs-armbind-rc
+
+    # dense round numbering: after round 1 closes, round 7 refuses
+    N2="$(python3 "$IAS" init cs2 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch cs2 --nonce "$N2" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return cs2 --nonce "$N2" --round 1 --verdict REVISE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-dispatch cs2 --nonce "$N2" --round 7 --arm file \
+      --draft-file draft.md > /dev/null 2> .cs-sparse; printf '%s' "$?" > .cs-sparse-rc
+
+    # honest empty-fetch compare: zero fetched bytes attest MISMATCH (the recorded
+    # digest is non-empty), never attestation-unavailable
+    N3="$(python3 "$IAS" init cs3 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch cs3 --nonce "$N3" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return cs3 --nonce "$N3" --round 1 --verdict FILE \
+      --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch cs3 --nonce "$N3" --round 1 > /dev/null 2>&1
+    printf '' | python3 "$IAS" record-creation-attestation cs3 --nonce "$N3" > .cs-empty 2>&1
+
+    # unpersistable state: a read-only .devflow/tmp makes the mutation exit non-zero
+    # with the named breadcrumb, and a QUERY still answers (read-only contract)
+    chmod 555 .devflow/tmp
+    python3 "$IAS" record-revision cs3 --nonce "$N3" --after-round 1 \
+      > /dev/null 2> .cs-nopersist; printf '%s' "$?" > .cs-nopersist-rc
+    python3 "$IAS" query-triggers cs3 --nonce "$N3" > .cs-nopersist-query 2>/dev/null
+    chmod 755 .devflow/tmp
+
+    # query-nonce happy path: the minted nonce round-trips exactly
+    printf 'nonce=%s\n' "$N3" > .cs-nonce-expected
+    python3 "$IAS" query-nonce cs3 > .cs-nonce-got 2>/dev/null
+  )
+  assert_eq "#546 conv_shadow_rows: a pending embed retry refuses a file-arm dispatch (arm binding)" \
+    "1" "$(grep -c 'does not permit a dispatch on the file arm' "$CS_SB/.cs-armbind" 2>/dev/null)"
+  assert_eq "#546 conv_shadow_rows: a sparse round number refuses (dense numbering)" \
+    "1" "$(grep -c 'the next round is 2' "$CS_SB/.cs-sparse" 2>/dev/null)"
+  assert_eq "#546 conv_shadow_rows: zero fetched bytes attest mismatch, never laundered into unavailable" \
+    "attestation=mismatch" "$(cat "$CS_SB/.cs-empty" 2>/dev/null)"
+  assert_eq "#546 conv_shadow_rows: an unpersistable state exits non-zero with the named breadcrumb" \
+    "1:1" "$(cat "$CS_SB/.cs-nopersist-rc" 2>/dev/null):$(grep -c 'could not persist state' "$CS_SB/.cs-nopersist" 2>/dev/null)"
+  assert_eq "#546 conv_shadow_rows: ... while a query still answers after the persistence failure" \
+    "1" "$(grep -c 't1=' "$CS_SB/.cs-nopersist-query" 2>/dev/null)"
+  assert_eq "#546 conv_shadow_rows: query-nonce round-trips the minted nonce exactly" \
+    "$(cat "$CS_SB/.cs-nonce-expected" 2>/dev/null)" "$(cat "$CS_SB/.cs-nonce-got" 2>/dev/null)"
+  rm -rf "$CS_SB"
+fi
+
+# override_precondition_rows (#546, PR #552 early shadow) — the override ground's two
+# missing preconditions, each of which let `emit-body` emit a NEVER-AUDITED body at
+# exit 0 (the exact outcome the module exists to prevent), plus the token-binding and
+# re-init tamper-evidence guards the same pass surfaced.
+#
+# Each row drives the CLI end-to-end: the exploit is the test. Removing a guard in
+# scripts/issue-audit-state.py turns its row RED, because the row asserts the refusal —
+# and the emit rows additionally assert stdout is EMPTY, which is the refusal signature
+# a caller that ignores the exit code depends on.
+OP_SB="$(git_sandbox '#546 override_precondition_rows')"
+if [ -d "$OP_SB" ]; then
+  (
+    cd "$OP_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nAUDITED body\n' > draft.md
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+
+    # (1) zero completed rounds: nothing was ever audited, so there is no audit for an
+    # override to override. Write boundary must refuse.
+    N="$(python3 "$IAS" init op1 | sed 's/nonce=//')"
+    python3 "$IAS" record-override op1 --nonce "$N" --kind user-decline \
+      --surface t1t2-boundary > /dev/null 2> .op-noround; printf '%s' "$?" > .op-noround-rc
+
+    # (1b) read boundary: hand-plant the override the write guard refuses, proving a
+    # corrupt/older state file cannot smuggle it past the gate either.
+    python3 - <<'PY' > /dev/null 2>&1
+import json, pathlib
+p = pathlib.Path('.devflow/tmp/issue-audit-state-op1.json')
+d = json.loads(p.read_text())
+d['overrides'].append({'kind': 'user-decline', 'surface': 't1t2-boundary',
+                       'recorded_at_ordinal': 0, 'draft_digest': None})
+p.write_text(json.dumps(d))
+PY
+    python3 "$IAS" query-eligibility op1 --nonce "$N" --mode approve \
+      --draft-file draft.md > .op-planted-elig 2>&1
+    python3 "$IAS" emit-body op1 --nonce "$N" --draft-file draft.md \
+      > .op-planted-emit 2> /dev/null; printf '%s' "$?" > .op-planted-emit-rc
+
+    # (2) file-arm epoch + override with NO --draft-file: never compared against any
+    # bytes, so it would permit any draft. Write boundary must refuse.
+    N2="$(python3 "$IAS" init op2 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch op2 --nonce "$N2" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return op2 --nonce "$N2" --round 1 --verdict REVISE \
+      --findings-count 1 --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-override op2 --nonce "$N2" --kind user-decline \
+      --surface t1t2-boundary > /dev/null 2> .op-unbound; printf '%s' "$?" > .op-unbound-rc
+    # the bound form is still accepted (the guard refuses the unbound shape, not the kind)
+    python3 "$IAS" record-override op2 --nonce "$N2" --kind user-decline \
+      --surface t1t2-boundary --draft-file draft.md > /dev/null 2>&1
+    printf '%s' "$?" > .op-bound-rc
+    # tampered bytes under a bound override refuse, and emit-body stays silent
+    printf '# T\n\nNEVER AUDITED BYTES\n' > tampered.md
+    python3 "$IAS" query-eligibility op2 --nonce "$N2" --mode approve \
+      --draft-file tampered.md > .op-tampered-elig 2>&1
+    python3 "$IAS" emit-body op2 --nonce "$N2" --draft-file tampered.md \
+      > .op-tampered-emit 2> /dev/null; printf '%s' "$?" > .op-tampered-emit-rc
+
+    # (2b) READ boundary for the digest-unbound precondition — the symmetric partner of
+    # (1b). The rows above drive only the WRITE boundary, and the tampered rows pin the
+    # pre-existing `want != current_digest` branch, NOT the `want is None` one. Without
+    # this row the read-boundary unbound check could be reverted with the whole block
+    # staying green while emit-body emitted arbitrary bytes from a pre-delta or
+    # hand-edited state file. Plant the unbound override the write guard refuses.
+    N2B="$(python3 "$IAS" init op2b | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch op2b --nonce "$N2B" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return op2b --nonce "$N2B" --round 1 --verdict REVISE \
+      --findings-count 1 --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 - <<'PY' > /dev/null 2>&1
+import json, pathlib
+p = pathlib.Path('.devflow/tmp/issue-audit-state-op2b.json')
+d = json.loads(p.read_text())
+d['overrides'].append({'kind': 'user-decline', 'surface': 't1t2-boundary',
+                       'recorded_at_ordinal': 0, 'draft_digest': None})
+p.write_text(json.dumps(d))
+PY
+    python3 "$IAS" query-eligibility op2b --nonce "$N2B" --mode approve \
+      --draft-file tampered.md > .op-unbound-read-elig 2>&1
+    python3 "$IAS" emit-body op2b --nonce "$N2B" --draft-file tampered.md \
+      > .op-unbound-read-emit 2> /dev/null; printf '%s' "$?" > .op-unbound-read-emit-rc
+
+    # (3) token binding: two byte-distinct drafts, each with its own digest-bound
+    # override at the SAME revision ordinal, must mint DIFFERENT tokens. Keying on the
+    # ordinal alone collapsed them onto one token — the replay the token exposes.
+    #
+    # ONE slug, ONE nonce, deliberately: issue_token hashes '{nonce}:{ground}:{key}', so
+    # two slugs would mint two random nonces and the tokens would differ REGARDLESS of
+    # the key — the assert would pass with the key fix reverted, i.e. it would pin
+    # nothing. Same nonce + same ordinal isolates the key as the only free operand.
+    N3="$(python3 "$IAS" init op3 | sed 's/nonce=//')"
+    printf '# T\n\nbody A\n' > d-a.md
+    printf '# T\n\nbody B\n' > d-b.md
+    OA="$(git hash-object --stdin --no-filters < d-a.md)"
+    python3 "$IAS" record-dispatch op3 --nonce "$N3" --round 1 --arm file \
+      --draft-file d-a.md > /dev/null 2>&1
+    python3 "$IAS" record-return op3 --nonce "$N3" --round 1 --verdict REVISE \
+      --findings-count 1 --carriage-object-id "$OA" > /dev/null 2>&1
+    # two digest-bound overrides at the same ordinal (no revision between them)
+    python3 "$IAS" record-override op3 --nonce "$N3" --kind user-decline \
+      --surface t1t2-boundary --draft-file d-a.md > /dev/null 2>&1
+    python3 "$IAS" record-override op3 --nonce "$N3" --kind user-decline \
+      --surface t1t2-boundary --draft-file d-b.md > /dev/null 2>&1
+    python3 "$IAS" query-eligibility op3 --nonce "$N3" --mode approve \
+      --draft-file d-a.md | sed -E 's/.*(token=[^ ]*).*/\1/' > .op-tok-op3a
+    python3 "$IAS" query-eligibility op3 --nonce "$N3" --mode approve \
+      --draft-file d-b.md | sed -E 's/.*(token=[^ ]*).*/\1/' > .op-tok-op3b
+
+    # (4) re-init must not discard forward-only creation tamper evidence.
+    N4="$(python3 "$IAS" init op4 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch op4 --nonce "$N4" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return op4 --nonce "$N4" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch op4 --nonce "$N4" --round 1 > /dev/null 2>&1
+    printf 'AUDITED body\n' | python3 "$IAS" record-creation-attestation op4 \
+      --nonce "$N4" > .op-attest 2>&1
+    python3 "$IAS" init op4 --nonce "$N4" --force > /dev/null 2> .op-reinit
+    printf '%s' "$?" > .op-reinit-rc
+  )
+  assert_eq "#546 override_precondition_rows: an override with no completed round refuses (nothing was audited)" \
+    "1:1" "$(cat "$OP_SB/.op-noround-rc" 2>/dev/null):$(grep -c 'no audit for an override to override' "$OP_SB/.op-noround" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: a hand-planted no-round override is not honoured at the read boundary" \
+    "eligible=no reason=no-verdict-round" "$(cat "$OP_SB/.op-planted-elig" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: ... and emit-body refuses it with the empty-stdout signature" \
+    "1:" "$(cat "$OP_SB/.op-planted-emit-rc" 2>/dev/null):$(cat "$OP_SB/.op-planted-emit" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: a digest-unbound override on a file-arm epoch refuses (it would permit any bytes)" \
+    "1:1" "$(cat "$OP_SB/.op-unbound-rc" 2>/dev/null):$(grep -c 'must bind the draft it permits' "$OP_SB/.op-unbound" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: ... while the digest-bound form is still accepted (positive control)" \
+    "0" "$(cat "$OP_SB/.op-bound-rc" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: tampered bytes under a bound override refuse" \
+    "eligible=no reason=stale-override" "$(cat "$OP_SB/.op-tampered-elig" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: ... and emit-body refuses them with the empty-stdout signature" \
+    "1:" "$(cat "$OP_SB/.op-tampered-emit-rc" 2>/dev/null):$(cat "$OP_SB/.op-tampered-emit" 2>/dev/null)"
+  # (2b) the read boundary for the unbound precondition: a hand-planted/pre-delta
+  # unbound override on a file-arm epoch must not be honoured either.
+  assert_eq "#546 override_precondition_rows: a hand-planted digest-unbound override on a file-arm epoch is not honoured at the read boundary" \
+    "1" "$(grep -c '^eligible=no ' "$OP_SB/.op-unbound-read-elig" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: ... and emit-body refuses it with the empty-stdout signature" \
+    "1:" "$(cat "$OP_SB/.op-unbound-read-emit-rc" 2>/dev/null):$(cat "$OP_SB/.op-unbound-read-emit" 2>/dev/null)"
+  # The token rows are a pair: each must be a real token (not empty — which would make
+  # the inequality assert vacuous), and the two must differ.
+  assert_eq "#546 override_precondition_rows: a digest-bound override mints a real token (guards the row below against vacuity)" \
+    "1" "$(grep -c '^token=eat_' "$OP_SB/.op-tok-op3a" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: byte-distinct drafts at the same ordinal mint DIFFERENT override tokens" \
+    "differ" "$( [ "$(cat "$OP_SB/.op-tok-op3a" 2>/dev/null)" != "$(cat "$OP_SB/.op-tok-op3b" 2>/dev/null)" ] && printf 'differ' || printf 'same' )"
+  assert_eq "#546 override_precondition_rows: the attestation was actually recorded (guards the row below against vacuity)" \
+    "attestation=match" "$(cat "$OP_SB/.op-attest" 2>/dev/null)"
+  assert_eq "#546 override_precondition_rows: a forced re-init refuses to discard a recorded creation attestation" \
+    "1:1" "$(cat "$OP_SB/.op-reinit-rc" 2>/dev/null):$(grep -c 'forward-only tamper evidence' "$OP_SB/.op-reinit" 2>/dev/null)"
+  rm -rf "$OP_SB"
+fi
+
+# retry_arm_deadlock_rows (#546, PR #552 iteration-3 review) — the same-arm retry must
+# be satisfiable when the canonical file goes unhashable between the return and the
+# retry. query-arm routes that to embed; without the escalation record-dispatch refused
+# the arm the tool itself just prescribed, the file arm could not read the file, and
+# next-action re-answered the same spent token forever — a run with NO legal next call,
+# which the skill is forbidden from improvising around. The negative rows keep the
+# escalation scoped: it is file->embed only, and it never goes unmarked.
+RD_SB="$(git_sandbox '#546 retry_arm_deadlock_rows')"
+if [ -d "$RD_SB" ]; then
+  (
+    cd "$RD_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+
+    # the deadlock: file-arm round -> no-parseable-verdict -> draft becomes unhashable
+    N="$(python3 "$IAS" init rd | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch rd --nonce "$N" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return rd --nonce "$N" --round 1 > /dev/null 2>&1
+    python3 "$IAS" query-next-action rd --nonce "$N" --round 1 > .rd-pending 2>&1
+    rm -f draft.md
+    python3 "$IAS" query-arm rd --nonce "$N" --write-landed yes --draft-file draft.md \
+      > .rd-arm 2> /dev/null
+    # obey query-arm verbatim — this is the call that used to deadlock
+    printf '# T\n\nbody\n' | python3 "$IAS" record-dispatch rd --nonce "$N" --round 1 \
+      --arm embed --marker digest-unrecorded > .rd-escalate 2>&1
+    printf '%s' "$?" > .rd-escalate-rc
+
+    # negative: inline is NOT permitted by a same-arm retry (stdin supplied, so the
+    # arm guard is what refuses — not the missing-bytes check)
+    N2="$(python3 "$IAS" init rd2 | sed 's/nonce=//')"
+    printf '# T\n\nb\n' > d2.md
+    python3 "$IAS" record-dispatch rd2 --nonce "$N2" --round 1 --arm file \
+      --draft-file d2.md > /dev/null 2>&1
+    python3 "$IAS" record-return rd2 --nonce "$N2" --round 1 > /dev/null 2>&1
+    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd2 --nonce "$N2" --round 1 \
+      --arm inline > /dev/null 2> .rd-inline; printf '%s' "$?" > .rd-inline-rc
+
+    # negative: an INLINE-arm round's same-arm retry gains NO embed escalation. This is
+    # the row that actually pins the scoping. Asserting that an embed round refuses the
+    # FILE arm would be vacuous — the escalation only ever appends 'embed', so no
+    # mutation of the scoping could permit 'file' and such a row would exercise only the
+    # pre-existing base guard. Dropping the `same == 'file'` condition instead widens the
+    # escalation to EVERY same-arm retry, and inline — the terminal degraded arm, which
+    # the docstring explicitly disclaims — is where that shows.
+    N3="$(python3 "$IAS" init rd3 | sed 's/nonce=//')"
+    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd3 --nonce "$N3" --round 1 \
+      --arm inline > /dev/null 2>&1
+    python3 "$IAS" record-return rd3 --nonce "$N3" --round 1 > /dev/null 2>&1
+    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd3 --nonce "$N3" --round 1 \
+      --arm embed --marker write-failed > /dev/null 2> .rd-inlineround
+    printf '%s' "$?" > .rd-inlineround-rc
+
+    # negative: the escalation never goes unmarked (it must stay recorded evidence)
+    N4="$(python3 "$IAS" init rd4 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch rd4 --nonce "$N4" --round 1 --arm file \
+      --draft-file d2.md > /dev/null 2>&1
+    python3 "$IAS" record-return rd4 --nonce "$N4" --round 1 > /dev/null 2>&1
+    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd4 --nonce "$N4" --round 1 \
+      --arm embed > /dev/null 2> .rd-nomarker; printf '%s' "$?" > .rd-nomarker-rc
+
+    # A CLOSED fd 0 (`0<&-`) must still produce the named breadcrumb, never a raw
+    # traceback. This is the absent-operand shape: CPython sets `sys.stdin = None` at
+    # startup, so the ATTRIBUTE access fails — an `except OSError` around the read is
+    # blind to it. Without these rows the guard could be "simplified" back to a bare
+    # except OSError and nothing would go RED while a traceback reached the caller's
+    # stderr classifier instead of one of this tool's vocabulary strings.
+    N5="$(python3 "$IAS" init rd5 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch rd5 --nonce "$N5" --round 1 --arm embed \
+      --marker write-failed 0<&- > /dev/null 2> .rd-nostdin
+    printf '%s' "$?" > .rd-nostdin-rc
+    # after_round's READ boundary — the sibling of the override read guard, found by the
+    # parked-class sweep. after_round is the SOLE invalidation evidence on the
+    # event-ordering ground, so a value below the floor fails that guard OPEN: a revised,
+    # never-audited draft answers eligible and emit-body emits it at exit 0. The write
+    # boundary refuses it; this proves the read boundary does too. The positive control
+    # keeps the fixture honest — a revision legitimately recorded while its round is
+    # still open carries floor 0 and must STILL be accepted.
+    N7="$(python3 "$IAS" init rd7 | sed 's/nonce=//')"
+    printf '# T\n\nORIG\n' > d7.md
+    printf '# T\n\nORIG\n' | python3 "$IAS" record-dispatch rd7 --nonce "$N7" --round 1 \
+      --arm embed --marker write-failed > /dev/null 2>&1
+    RD7_OPEN="$(python3 -c "import json,pathlib;print(json.loads(pathlib.Path('.devflow/tmp/issue-audit-state-rd7.json').read_text())['rounds'][0]['attempts'][-1]['sentinel_open'])")"
+    RD7_CLOSE="$(python3 -c "import json,pathlib;print(json.loads(pathlib.Path('.devflow/tmp/issue-audit-state-rd7.json').read_text())['rounds'][0]['attempts'][-1]['sentinel_close'])")"
+    python3 "$IAS" record-return rd7 --nonce "$N7" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-sentinel-open "$RD7_OPEN" \
+      --carriage-sentinel-close "$RD7_CLOSE" > /dev/null 2>&1
+    python3 "$IAS" record-revision rd7 --nonce "$N7" --after-round 1 > /dev/null 2>&1
+    printf '# T\n\nREVISED never audited\n' > d7.md
+    python3 - <<'PY' > /dev/null 2>&1
+import json, pathlib
+p = pathlib.Path('.devflow/tmp/issue-audit-state-rd7.json')
+d = json.loads(p.read_text())
+d['revisions'][0]['after_round'] = 0        # below the floor recorded with it
+p.write_text(json.dumps(d))
+PY
+    python3 "$IAS" query-eligibility rd7 --nonce "$N7" --mode approve \
+      --draft-file d7.md > .rd-afterround 2>/dev/null
+    python3 "$IAS" emit-body rd7 --nonce "$N7" --draft-file d7.md \
+      > .rd-afterround-emit 2>/dev/null; printf '%s' "$?" > .rd-afterround-emit-rc
+    # positive control: floor 0 is legitimate while the round is still open
+    N8="$(python3 "$IAS" init rd8 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch rd8 --nonce "$N8" --round 1 --arm file \
+      --draft-file d2.md > /dev/null 2>&1
+    python3 "$IAS" record-revision rd8 --nonce "$N8" --after-round 0 \
+      > .rd-floor0 2>&1; printf '%s' "$?" > .rd-floor0-rc
+
+    # the attestation twin: bind a real epoch first so the read is actually reached
+    N6="$(python3 "$IAS" init rd6 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch rd6 --nonce "$N6" --round 1 --arm file \
+      --draft-file d2.md > /dev/null 2>&1
+    D6="$(git hash-object --stdin --no-filters < d2.md)"
+    python3 "$IAS" record-return rd6 --nonce "$N6" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$D6" > /dev/null 2>&1
+    python3 "$IAS" record-creation-epoch rd6 --nonce "$N6" --round 1 > /dev/null 2>&1
+    python3 "$IAS" record-creation-attestation rd6 --nonce "$N6" 0<&- \
+      > /dev/null 2> .rd-nostdin-att; printf '%s' "$?" > .rd-nostdin-att-rc
+  )
+  assert_eq "#546 retry_arm_deadlock_rows: a no-parseable-verdict completion leaves a same-arm retry pending (setup control)" \
+    "action=dispatch-retry-same-arm" "$(cat "$RD_SB/.rd-pending" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: an unhashable draft routes the retry to the embed arm (setup control)" \
+    "arm=embed marker=digest-unrecorded" "$(cat "$RD_SB/.rd-arm" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: the embed arm query-arm prescribed is ACCEPTED (no deadlock)" \
+    "0" "$(cat "$RD_SB/.rd-escalate-rc" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: ... and the escalation is recorded on the round, never silent" \
+    "1" "$(grep -c 'arm=embed' "$RD_SB/.rd-escalate" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: a same-arm retry still refuses the inline arm" \
+    "1:1" "$(cat "$RD_SB/.rd-inline-rc" 2>/dev/null):$(grep -c 'does not permit a dispatch on the inline arm' "$RD_SB/.rd-inline" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: an INLINE round's same-arm retry gains no embed escalation (the scoping is file-only)" \
+    "1:1" "$(cat "$RD_SB/.rd-inlineround-rc" 2>/dev/null):$(grep -c 'does not permit a dispatch on the embed arm' "$RD_SB/.rd-inlineround" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: the escalated embed dispatch still requires its cause marker" \
+    "1:1" "$(cat "$RD_SB/.rd-nomarker-rc" 2>/dev/null):$(grep -c 'requires --marker naming the entry cause' "$RD_SB/.rd-nomarker" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: a CLOSED fd 0 names the breadcrumb on record-dispatch, never a traceback" \
+    "1:1" "$(cat "$RD_SB/.rd-nostdin-rc" 2>/dev/null):$(grep -c 'no stdin is attached (fd 0 is closed)' "$RD_SB/.rd-nostdin" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: ... and on record-creation-attestation, the tamper-detection surface" \
+    "1:1" "$(cat "$RD_SB/.rd-nostdin-att-rc" 2>/dev/null):$(grep -c 'no stdin is attached (fd 0 is closed)' "$RD_SB/.rd-nostdin-att" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: an after_round below its recorded floor is refused at the READ boundary (the event-ordering fail-open)" \
+    "eligible=no reason=state-unestablished" "$(cat "$RD_SB/.rd-afterround" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: ... and emit-body refuses it with the empty-stdout signature" \
+    "1:" "$(cat "$RD_SB/.rd-afterround-emit-rc" 2>/dev/null):$(cat "$RD_SB/.rd-afterround-emit" 2>/dev/null)"
+  assert_eq "#546 retry_arm_deadlock_rows: ... while a floor-0 revision recorded against a still-open round stays legal (positive control)" \
+    "0" "$(cat "$RD_SB/.rd-floor0-rc" 2>/dev/null)"
+  rm -rf "$RD_SB"
+fi
+
+# iter6_seam_rows (#546, PR #552 review) — three CLI seams the review showed undriven:
+# the EMPTY-but-open stdin dispatch (a `< /dev/null` redirect is not a closed fd 0, so
+# the rd5 rows above never reach the received-none branch), the empty-object-id-on-exit-0
+# digest guard (a shimmed/broken git that "succeeds" silently — without the guard the ''
+# digest compares equal to another '' and grounds eligibility on unaudited bytes), and
+# query-summary's foreign-nonce coercion (every OTHER query class has a foreign-nonce row
+# above; the summary is the one an orchestrator reads fields from, so a foreign nonce
+# rendering state=ok with a live token would hand a hostile/stale run a presentable
+# answer). Each refusal is attributed by the guard's OWN breadcrumb and paired with a
+# positive control on the SAME fixture, so a green negative row cannot be an unrelated
+# precondition firing.
+I6_SB="$(git_sandbox '#546 iter6_seam_rows')"
+if [ -d "$I6_SB" ]; then
+  (
+    cd "$I6_SB" || exit 1
+    git init -q . 2>/dev/null
+    mkdir -p .devflow/tmp
+    printf '# T\n\nbody\n' > draft.md
+    OID="$(git hash-object --stdin --no-filters < draft.md)"
+
+    # (1) stdin OPEN but EMPTY: the received-none branch, distinct from the closed-fd
+    # AttributeError shape rd5 pins. The refusal must precede any state mutation, so
+    # the positive control can re-dispatch the SAME round on the same fixture.
+    N="$(python3 "$IAS" init i6a | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i6a --nonce "$N" --round 1 --arm embed \
+      --marker digest-unrecorded < /dev/null > /dev/null 2> .i6-empty; printf '%s' "$?" > .i6-empty-rc
+    printf '# T\n\nbody\n' | python3 "$IAS" record-dispatch i6a --nonce "$N" --round 1 \
+      --arm embed --marker digest-unrecorded > /dev/null 2>&1; printf '%s' "$?" > .i6-empty-ctl-rc
+
+    # (2) a git shim that answers hash-object with EMPTY stdout at exit 0 (every other
+    # subcommand delegates to the real git, so state anchoring still resolves). The
+    # digest guard must refuse — an empty '' object id must never read as a digest.
+    REAL_GIT="$(command -v git)"
+    mkdir -p stub-bin
+    {
+      printf '#!/bin/sh\n'
+      printf 'case "$1" in hash-object) exit 0 ;; esac\n'
+      printf 'exec "%s" "$@"\n' "$REAL_GIT"
+    } > stub-bin/git
+    chmod +x stub-bin/git
+    N2="$(python3 "$IAS" init i6b | sed 's/nonce=//')"
+    PATH="$I6_SB/stub-bin:$PATH" python3 "$IAS" record-dispatch i6b --nonce "$N2" \
+      --round 1 --arm file --draft-file draft.md > /dev/null 2> .i6-oid; printf '%s' "$?" > .i6-oid-rc
+    # positive control: the identical invocation without the shim succeeds.
+    python3 "$IAS" record-dispatch i6b --nonce "$N2" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1; printf '%s' "$?" > .i6-oid-ctl-rc
+
+    # (3) query-summary on a foreign nonce: exit 0 (query contract), the rendered line
+    # is the fail-closed unestablished shape with NO live token, and the stderr
+    # breadcrumb names the mismatch so it is not misread as a missing/corrupt record.
+    N3="$(python3 "$IAS" init i6c | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch i6c --nonce "$N3" --round 1 --arm file \
+      --draft-file draft.md > /dev/null 2>&1
+    python3 "$IAS" record-return i6c --nonce "$N3" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OID" > /dev/null 2>&1
+    python3 "$IAS" query-summary i6c --nonce badnonce --draft-file draft.md \
+      > .i6-fn-sum 2> .i6-fn-err; printf '%s' "$?" > .i6-fn-rc
+    # positive control: the correct nonce on the SAME state renders ok + the live token.
+    python3 "$IAS" query-summary i6c --nonce "$N3" --draft-file draft.md \
+      > .i6-ok-sum 2>/dev/null
+  )
+  assert_eq "#546 iter6_seam_rows: an OPEN-but-EMPTY stdin refuses the embed dispatch non-zero" \
+    "1" "$(cat "$I6_SB/.i6-empty-rc" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: ... attributed to the received-none guard by its own breadcrumb" \
+    "1" "$(grep -c 'requires the draft bytes on stdin; received none' "$I6_SB/.i6-empty" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: positive control — the identical dispatch with non-empty stdin is accepted" \
+    "0" "$(cat "$I6_SB/.i6-empty-ctl-rc" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: a git shim answering hash-object empty-at-exit-0 refuses non-zero" \
+    "1" "$(cat "$I6_SB/.i6-oid-rc" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: ... attributed to the empty-object-id digest guard by its own breadcrumb" \
+    "1" "$(grep -c 'returned an empty object id on exit 0' "$I6_SB/.i6-oid" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: positive control — the identical dispatch without the shim is accepted" \
+    "0" "$(cat "$I6_SB/.i6-oid-ctl-rc" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: query-summary on a foreign nonce keeps the query exit-0 contract" \
+    "0" "$(cat "$I6_SB/.i6-fn-rc" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: ... and renders the fail-closed unestablished shape" \
+    "1" "$(grep -c '^state=unestablished ' "$I6_SB/.i6-fn-sum" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: ... with NO live token rendered for the foreign run" \
+    "1" "$(grep -c ' token=none ' "$I6_SB/.i6-fn-sum" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: ... and the stderr breadcrumb names the nonce mismatch, not a missing record" \
+    "1" "$(grep -c 'nonce mismatch for slug i6c' "$I6_SB/.i6-fn-err" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: positive control — the correct nonce on the SAME state renders state=ok" \
+    "1" "$(grep -c '^state=ok ' "$I6_SB/.i6-ok-sum" 2>/dev/null)"
+  assert_eq "#546 iter6_seam_rows: ... with the due live token rendered" \
+    "1" "$(grep -c ' token=eat_' "$I6_SB/.i6-ok-sum" 2>/dev/null)"
+  rm -rf "$I6_SB"
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
@@ -41623,10 +43677,13 @@ if ! devflow_tally_is_derivable "$FAIL"; then
   printf 'ERROR: FAIL tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
   exit 1
 fi
+if ! FAIL="$(devflow_fold_module_failures "$FAIL")"; then
+  printf 'ERROR: module-boundary FAIL tally underivable from %s — refusing to render a summary over it\n' "$MODULE_FAILURES_FILE"
+  exit 1
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"
-# ────────────────────────────────────────────────────────────────────────────
 PY_OUT="$(python3 "$(dirname "$0")/test_python_scripts.py" 2>&1)"
 PY_RC=$?
 PY_SUMMARY="$(echo "$PY_OUT" | awk '/passed,/ { p=$1; f=$3 } END { print p" "f }')"

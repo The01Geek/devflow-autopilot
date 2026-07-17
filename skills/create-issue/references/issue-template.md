@@ -500,10 +500,43 @@ to issue/PR 2 and misleads readers. For an ordinal, count, or list position, spe
 explicitly approved creating it (Step 4 of the calling skill). Never post a draft the user
 has not confirmed.
 
-Create the issue **directly** — pipe the rendered body to `gh` via stdin with a quoted
-heredoc so backticks and `$` in the markdown are not expanded. Do **not** source the body
-from a file with `--body-file` (the `.devflow/tmp/issue-draft-<slug>.md` preview copy from
-Step 4 is for the user's eyes only — never the posting source):
+Create the issue **directly**, sourcing the body from the **single presentation source** — the
+same bytes the user approved. Which source that is depends on the epoch's arm:
+
+**On a file-arm epoch**, the body comes from the gated canonical file, via the state owner's
+gated `emit-body` emitter (it is neither a query nor a mutation: unlike a query it does not
+always exit 0 — it refuses with a non-zero exit and empty stdout). **Do not pipe it into `gh`**:
+
+```bash
+# WRONG — a refused emit-body exits non-zero with EMPTY stdout, and without pipefail
+# `gh` still runs and creates an EMPTY-BODIED issue:
+#   python3 .../issue-audit-state.py emit-body "<slug>" ... | gh issue create --body-file -
+```
+
+Instead emit to a temp file, **guard it non-empty, and only then post** — so a refusal stops
+creation rather than filing an empty issue. Do this in **one single statement** (a shell
+variable assigned in one statement and read in a later statement of the same inline command is
+stripped by some runners' marshaling — the cross-statement hazard this repo bans), and go
+through a file rather than a `"$(…)"` capture: command substitution strips trailing newlines
+and a re-emitting `printf '%s\n'` re-adds exactly one, mutating the posted bytes against the
+recorded body-only digest (a false attestation mismatch). The file round-trip is **byte-exact**.
+Substitute `<main-root>` with the main working-tree root Step 4 sub-step 2 already resolved
+via `resolve-main-root.sh` (the root whose `.devflow/tmp` that sub-step already created —
+a cwd-relative `.devflow/tmp/` may not exist inside a linked worktree checkout). The
+guarded file is handed to `gh` directly via `--body-file <path>` — never re-piped through
+`cat`, whose absence (a non-preflight PATH tool) would feed `gh` empty stdin and create the
+empty-bodied issue the guard exists to prevent; this temp file IS the gated `emit-body`
+output, so the old never-`--body-file` rule (which banned the unaudited preview copy) does
+not apply to it:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py emit-body "<slug>" --nonce "<nonce>" --draft-file "<absolute issue-draft-<slug>.md path>" > "<main-root>/.devflow/tmp/issue-body-<slug>.md" && test -s "<main-root>/.devflow/tmp/issue-body-<slug>.md" && gh issue create --title "Action-oriented title here" --body-file "<main-root>/.devflow/tmp/issue-body-<slug>.md"
+```
+
+**On an embed- or inline-arm epoch** there is no trustworthy canonical file, so the body is
+re-emitted from context through a quoted heredoc (quoted so backticks and `$` in the markdown
+are not expanded). This is a **disclosed residual**, not the preferred path — the re-emission is
+not byte-identical-by-construction the way `emit-body` is:
 
 ```bash
 gh issue create --title "Action-oriented title here" --body-file - <<'BODY'

@@ -381,10 +381,33 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.registry = load_registry(REGISTRY)
 
-    def test_registry_has_the_expected_workflows(self) -> None:
+    def test_registry_has_the_initial_five_workflows(self) -> None:
         self.assertEqual(
             set(self.registry),
             {"implement", "create-issue", "receiving-code-review", "review-and-fix", "review"},
+        )
+
+    def test_additive_test_module_mapping_does_not_change_runtime_registry_behavior(self) -> None:
+        document = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        with_modules = document.copy()
+        without_modules = document.copy()
+        without_modules.pop("test_modules", None)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            with_path = root / "with-modules.json"
+            without_path = root / "without-modules.json"
+            with_path.write_text(json.dumps(with_modules), encoding="utf-8")
+            without_path.write_text(json.dumps(without_modules), encoding="utf-8")
+
+            registry_with_modules = load_registry(with_path)
+            registry_without_modules = load_registry(without_path)
+
+        self.assertEqual(registry_with_modules, registry_without_modules)
+        events = parse_events(transcript(user("/devflow:review-and-fix 565")))
+        self.assertEqual(
+            [item.workflow for item in detect_occurrences(events, registry_with_modules)],
+            [item.workflow for item in detect_occurrences(events, registry_without_modules)],
         )
 
     def test_review_surfaces_cover_the_whole_engine_bundle(self) -> None:
@@ -405,7 +428,7 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
             ("/devflow:create-issue improve local capture", "create-issue", {"kind": "topic", "value": "improve local capture"}),
             ("/devflow:receiving-code-review 42", "receiving-code-review", {"kind": "pull_request", "number": 42}),
             ("/devflow:review-and-fix #77", "review-and-fix", {"kind": "pull_request", "number": 77}),
-            ("/devflow:review #77", "review", {"kind": "pull_request", "number": 77}),
+            ("/devflow:review #88", "review", {"kind": "pull_request", "number": 88}),
         ]
         for command, workflow, subject in cases:
             with self.subTest(command=command):
@@ -421,7 +444,7 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
             ("/implement 520", "implement", {"kind": "issue", "number": 520}),
             ("/create-issue improve local capture", "create-issue", {"kind": "topic", "value": "improve local capture"}),
             ("/review-and-fix #77", "review-and-fix", {"kind": "pull_request", "number": 77}),
-            ("/review #77", "review", {"kind": "pull_request", "number": 77}),
+            ("/review #88", "review", {"kind": "pull_request", "number": 88}),
         ]
         for command, workflow, subject in cases:
             with self.subTest(command=command):
