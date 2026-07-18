@@ -22,4 +22,11 @@ section (inert until you activate this file):
 
 ## Audit dimensions
 - A repo-specific invariant every issue must respect, named with what would falsify it.
+
+Step 2 (the independent-derivation evidence-bundle sub-pass) reads an optional
+"## Evidence axes" section and appends it to the generic evidence-axis floor.
+Example section (inert until you activate this file):
+
+## Evidence axes
+- A repo-specific evidence axis every issue must record, named with what to check.
 -->
