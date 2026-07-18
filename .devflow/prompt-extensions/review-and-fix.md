@@ -12,6 +12,10 @@ interpreter-faithful-probe rule (PR #340's R7). Flag an instance of any shape as
 contract is a correctness defect), and require the fix to verify the *outcome*, not the
 precondition.
 
+> **Maintainer note (budget):** the shapes below retain principle/flag/fix, but their detailed
+> `#247`/`PR #340` reproduction walkthroughs were trimmed for prompt budget (issue #530) to at
+> most a one-line summary (some carry none). Full context: issue #247 / PR #340 history.
+
 ## Focused test modules accelerate fix iteration only
 
 Before choosing an iteration test, use the finding context or test plan to identify a candidate

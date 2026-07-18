@@ -1149,13 +1149,31 @@ assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_
 # instead of silently passing against the copy.
 # #530: review-and-fix is now a thin root + references/*.md. The literal-pin corpus below
 # targets the whole shipped bundle, so MAXI_SKILL/ST_RAF resolve against a byte-faithful
-# concatenation of the root + every reference (the pre-split content, reassembled), rebuilt
-# once per run. New #530 pins that must be file-specific pass an explicit reference-file arg.
+# concatenation of the shipped root + every reference (the whole POST-split skill surface,
+# NOT a reconstruction of the pre-split monolith: the split deliberately rewrote content, and
+# the reassembled surface exceeds the monolith by a documented split-growth delta (the
+# `review-and-fix-split-cumulative-growth` figure in docs/review-and-fix-budget.md, pinned live in
+# the #530 budget block below), rebuilt once per run. New #530 pins that must be file-specific
+# pass an explicit reference-file arg.
+# #539 review (Important 1, over-graded shape 3): this bundle is content-pinned selectively (the
+# ~40 operative pins below + the 15 #530 control-flow pins + the live word-budget arithmetic),
+# NOT by a full reassembled-bundle-vs-baseline byte diff. A full byte diff has no valid baseline
+# to run against — the monolith is not byte-preserved (there is a documented split-growth delta), so a
+# diff would either be permanently RED or require a frozen expected-bundle snapshot that just
+# relocates the pinning problem and rots on every legitimate edit. Word-count equality is not
+# content equality, so an equal-length reword of an UNPINNED operative sentence can still ship
+# desk-green; that residual coverage ceiling is accepted (the reviewer annotated it a suspected
+# over-grade, single-source, no Phase-2 FAIL) and closed incrementally by pinning load-bearing
+# sentences as they are identified, not by an infeasible whole-bundle byte diff.
 # The concat carries a `.md` suffix so pin-corpus-lint infers markdown comment syntax.
 MAXI_ROOT="$LIB/../skills/review-and-fix/SKILL.md"
 MAXI_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-and-fix bundle temp" >&2; exit 1; }
 _suite_tmp_file "$MAXI_BUNDLE"   # pre-rename path (covers an exit landing before the mv)
-mv "$MAXI_BUNDLE" "$MAXI_BUNDLE.md"; MAXI_BUNDLE="$MAXI_BUNDLE.md"
+# #539 review (Suggestion 1): guard the rename like the mktemp above. A failed mv would
+# leave $MAXI_BUNDLE pointing at a nonexistent .md path; the empty bundle then fails loudly
+# downstream (per-member FAILs) but with a misleading cause — surface the true cause here.
+mv "$MAXI_BUNDLE" "$MAXI_BUNDLE.md" || { echo "run.sh: could not rename the review-and-fix bundle temp to .md" >&2; exit 1; }
+MAXI_BUNDLE="$MAXI_BUNDLE.md"
 _suite_tmp_file "$MAXI_BUNDLE"   # the real .md path used for the rest of the run
 : > "$MAXI_BUNDLE"
 # Build the bundle through the SAME shared fail-closed builder the implement and review
@@ -1176,6 +1194,11 @@ _build_skill_bundle "review-and-fix" "$MAXI_BUNDLE" "${_maxi_members[@]}"
 assert_eq "#530/#539 review-and-fix bundle assembled all 9 members (thin root + 8 references)" "9" \
   "${#_maxi_members[@]}"
 MAXI_SKILL="$MAXI_BUNDLE"
+# max_iterations clamp presence pins (negative-aware regex, below-1 floor, default-5 fallback).
+# #539 review (Suggestion 5): these prove the tokens SURVIVE. assert_pin_red_under (the mutation
+# primitive that would prove a wiring regression — flipped comparison / dropped negative-awareness
+# / changed default — goes RED) is defined FAR LATER in this file than here, so the behavioral
+# mutation pins for this clamp live in the #530 pressure block below, after its definition.
 assert_pin_unique "max_iterations clamp: SKILL keeps the negative-aware integer regex" "'^-?[0-9]+\$'" "$MAXI_SKILL"
 assert_pin_unique "max_iterations clamp: SKILL keeps the below-1 floor" '"$MAX_ITERS" -lt 1' "$MAXI_SKILL"
 assert_pin_unique "max_iterations clamp: SKILL keeps the default-5 fallback" 'MAX_ITERS=5' "$MAXI_SKILL"
@@ -33193,21 +33216,43 @@ assert_eq "#530 budget: root + live extension (initial load) <= $RAF_LOAD_CEIL w
   "$([ "$((RAF_ROOT_W+RAF_EXT_W))" -le "$RAF_LOAD_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + extension + max active step <= $RAF_MAXSTEP_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)))" "yes" \
   "$([ "$((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W))" -le "$RAF_MAXSTEP_CEIL" ] && echo yes || echo no)"
+# #539 review (Important 2, over-graded shape 3): the peak-load ceiling above models
+# root + extension + the SINGLE largest reference, which is correct ONLY under the split's
+# single-residency premise — exactly one step reference resident at a time. Nothing above
+# measures that premise, so bind it to the two artifacts that STATE and ENFORCE it: (a) the
+# root's always-resident re-read contract that each reference is loaded on demand and not held
+# resident (the mechanism that keeps residency at one), and (b) the budget doc's explicit
+# statement of the peak assumption. If either drifts — a reference made resident, or the doc's
+# single-residency basis reworded away — the ceiling silently under-reports and this goes RED.
+# (Full runtime proof that no reference chain-loads a sibling is a prose property the suite
+# cannot execute; binding the stated + enforced premise is the achievable guard.)
+assert_pin_unique "#530/#539 budget: root enforces single-residency (reference loaded on demand, not held resident)" \
+  'loaded on demand, not held resident' "$LIB/../skills/review-and-fix/SKILL.md"
+assert_pin_unique "#530/#539 budget: doc states the peak single-residency assumption the ceiling depends on" \
+  'the peak when exactly one step reference is resident at a time' "$LIB/../docs/review-and-fix-budget.md"
 RAF_BUDGET_DOC="$LIB/../docs/review-and-fix-budget.md"
 assert_eq "#530 budget: checked-in budget table exists" "yes" \
   "$([ -f "$RAF_BUDGET_DOC" ] && echo yes || echo no)"
-# #539 review (Suggestion 2): bind each doc ceiling "Value" cell to the suite constant above.
-# The cells are comma-grouped (e.g. "3,000"); strip commas with pure-bash expansion (no
-# non-preflight PATH tool per CLAUDE.md) before matching so a re-grouping never masks a drift.
-# A ceiling edited in only one of the two files goes RED here.
+# Bind each doc ceiling to the suite constant above. The cells are comma-grouped (e.g.
+# "3,000"); strip commas with pure-bash expansion (no non-preflight PATH tool per CLAUDE.md)
+# before matching so a re-grouping never masks a drift. A ceiling edited in only one of the
+# two files goes RED here.
+# #539 review (Suggestion 4): match the ceilings-table LABEL column (`≤ <ceil> words |`), NOT
+# a bare `| <ceil> |`. The old bare form was satisfied by ANY doc cell equal to the ceiling —
+# including a Measured cell that happens to equal its ceiling — so it was nearly redundant with
+# the adjacent-column `| <ceil> | <measured> |` pins below and could pass vacuously at that
+# boundary. The `≤ <ceil> words |` form matches only the ceilings-summary-table label cell (the
+# prose maintainer note spells the same "≤ N words" but never with a trailing ` |`), giving this
+# check a distinct role: it asserts each ceiling is DOCUMENTED in the summary table's own row,
+# which the per-row Measured pins do not by themselves guarantee.
 _raf_doc_nocommas="$(< "$RAF_BUDGET_DOC")"
 _raf_doc_nocommas="${_raf_doc_nocommas//,/}"
 for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
-  assert_eq "#530 budget: doc table carries ceiling constant $_raf_ceil (bound to suite)" "yes" \
-    "$(case "$_raf_doc_nocommas" in *"| $_raf_ceil |"*) echo yes;; *) echo no;; esac)"
+  assert_eq "#530 budget: ceilings-table row documents ceiling constant $_raf_ceil (bound to suite)" "yes" \
+    "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +3,828 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +3,869 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -33288,15 +33333,43 @@ assert_pin_unique "#530 continuation: pending dispatch is stamped before every d
   'Immediately before every `Agent`/`Task`/`Skill` dispatch, also write `pending_dispatch:' "$P530_ROOT"
 assert_pin_unique "#530 continuation: pending dispatch clears only after parse and join" \
   'Clear it after the returned attempt is joined or dispositioned, including failure, timeout, exhausted-retry, and not-verified outcomes' "$P530_ROOT"
+# #539 review (Suggestion 3): the 15 pressure pins are presence pins — they catch a scenario's
+# operative sentence DISAPPEARING, but the reviewer asked the most load-bearing ones to also
+# prove they catch a behavioral REGRESSION that preserves the sentence's shape. Route the three
+# core loop-verdict scenarios (immediate-APPROVE arm, REJECT routing target, cap preservation)
+# through assert_pin_red_under with a targeted meaning-flip mutation on a COPY (route (a) — the
+# working tree is never touched): the mutation flips the verdict/routing/cap semantics and the
+# presence pin must go RED, proving the pin is anchored to the behavior, not merely the wording.
 # 1. immediate APPROVE — Step 2 clean-APPROVE arm (loop-control)
 assert_pin_unique "#530 pressure(immediate APPROVE): Step 2 clean-APPROVE arm in loop-control" \
   'tentative final verdict `APPROVE`' "$P530_LC"
+assert_pin_red_under "#530/#539 pressure(immediate APPROVE): clean-arm verdict flip goes RED" \
+  'tentative final verdict `APPROVE`' \
+  's/tentative final verdict `APPROVE`/tentative final verdict `REJECT`/' "$P530_LC"
 # 2. reject-fix-approve — REJECT routes to Step 2.5 (loop-control)
 assert_pin_unique "#530 pressure(reject-fix-approve): REJECT routes to Step 2.5 in loop-control" \
   'Engine verdict **REJECT** → continue to Step 2.5' "$P530_LC"
+assert_pin_red_under "#530/#539 pressure(reject-fix-approve): REJECT mis-routed to Step 2.6 goes RED" \
+  'Engine verdict **REJECT** → continue to Step 2.5' \
+  's/continue to Step 2\.5/continue to Step 2.6/' "$P530_LC"
 # 3. cap exit — the $MAX_ITERS cap is preserved (convergence)
 assert_pin_unique "#530 pressure(cap exit): the \$MAX_ITERS cap is preserved in convergence" \
   'The `$MAX_ITERS` cap, the REJECT paths, and the shadow triggers are unchanged.' "$P530_CV"
+assert_pin_red_under "#530/#539 pressure(cap exit): dropping the cap-unchanged guarantee goes RED" \
+  'The `$MAX_ITERS` cap, the REJECT paths, and the shadow triggers are unchanged.' \
+  's/shadow triggers are unchanged\./shadow triggers are removed./' "$P530_CV"
+# max_iterations clamp — behavioral mutation pins (#539 review Suggestion 5). The presence pins
+# for these three tokens live far above (they must be assert_pin_unique because this mutation
+# primitive is defined later in the file than they run); place the behavioral pins HERE, where the
+# primitive exists. Each mutation flips the clamp's actual behavior on a COPY (route (a), working
+# tree untouched) so the pinned token vanishes and the pin must go RED: the negative-aware `-?`
+# dropped from the regex, the `-lt` below-1 floor comparison flipped, the default 5 changed to 0.
+assert_pin_red_under "#539 max_iterations clamp: dropping negative-awareness from the regex goes RED" \
+  "'^-?[0-9]+\$'" 's/\^-\?\[/^[/' "$MAXI_SKILL"
+assert_pin_red_under "#539 max_iterations clamp: flipping the below-1 floor comparison goes RED" \
+  '"$MAX_ITERS" -lt 1' 's/-lt 1/-gt 1/' "$MAXI_SKILL"
+assert_pin_red_under "#539 max_iterations clamp: changing the default-5 fallback goes RED" \
+  'MAX_ITERS=5' 's/MAX_ITERS=5/MAX_ITERS=0/' "$MAXI_SKILL"
 # 4. shadow trigger (convergence-time fan-out) — shadow-review
 assert_pin_unique "#530 pressure(shadow trigger, convergence): parent-orchestrated fan-out in shadow-review" \
   '#### Run the shadow fan-out (parent-orchestrated)' "$P530_SH"
