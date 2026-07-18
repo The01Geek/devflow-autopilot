@@ -423,9 +423,9 @@ jobs:
   # properties; their simpler neighboring rows are the attribution disambiguators.
   #
   # OBSERVED 2026-07-18 UTC (issue #571): user-directed workflow_dispatch run
-  # 29622484994, implement-probe job 88020119742 (completed success before the
+  # 29623046995, implement-probe job 88021801138 (completed success before the
   # workflow's intentional cancel-probe cancellation), at
-  # 82ff8a1f97134958cc669299762a44728177df1c. An autonomous implement run cannot
+  # f2162d7683bc7a352fce4efce3f092e864aab8b9. An autonomous implement run cannot
   # discharge this evidence gate without explicit human direction. The execution-file
   # verdict table was:
   #   1 DENIED      2 PERMITTED   3 PERMITTED   4 DENIED
