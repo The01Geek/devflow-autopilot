@@ -4366,14 +4366,73 @@ assert_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mut
   'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$MAXI_SKILL"
 assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
   'input-type analogue** for the widened surfaces' "$CI443_EXT"
-# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 9:
-# 7 base + #464's "Mutation evidence for behavioral-fix pins" dimension + the
-# "Deployment-variance silence" dimension main commit 760c0902 appended; #467 sharpened the
-# existing case-matrix bullet in place, adding no row.
+# D3 count guard — the extension's dimension-bullet count is guard-locked. Since issue #548
+# added a separate `## Evidence axes` section (whose axis bullets are also `- **`), this guard
+# is scoped to the `## Audit dimensions` section ONLY (heading line to the next `## ` heading),
+# so future `## Evidence axes` edits do not re-break it. It is 9: 7 base + #464's "Mutation
+# evidence for behavioral-fix pins" dimension + the "Deployment-variance silence" dimension main
+# commit 760c0902 appended; #467 sharpened the existing case-matrix bullet in place, adding no row.
 assert_pin_unique "base-update: create-issue extension carries the deployment-variance dimension" \
   'Deployment-variance silence.' "$CI443_EXT"
-assert_eq "#467 D3: create-issue extension is 9 dimension bullets (7 base + #464's + 760c0902's deployment-variance dimension)" "9" \
-  "$(grep -c '^- \*\*' "$CI443_EXT")"
+assert_eq "#467 D3 (re-scoped by #548): create-issue extension ## Audit dimensions section is 9 dimension bullets" "9" \
+  "$(awk '/^## Audit dimensions/{f=1;next} /^## /{f=0} f' "$CI443_EXT" | grep -c '^- \*\*')"
+# #548 Guard-reconciliation: the new `## Evidence axes` section carries the four DevFlow axis
+# bullets, and the whole-file count is now 13 (9 dimensions + 4 axes) — the old whole-file guard
+# form would have broken here, which is exactly why it was re-scoped above.
+assert_eq "#548 Evidence-axes: create-issue extension ## Evidence axes section is 4 axis bullets" "4" \
+  "$(awk '/^## Evidence axes/{f=1;next} /^## /{f=0} f' "$CI443_EXT" | grep -c '^- \*\*')"
+
+# ── issue #548: evidence-bundle sub-pass + actionability/convergence contracts (prose pins).
+#    All surface-presence contract pins on new feature prose (assert_pin_unique) — NOT
+#    behavioral-fix pins, so no assert_pin_red_under mutation obligation attaches (matching the
+#    suite's precedent for this pin class; the #546/#548 state-owner behavior is covered
+#    behaviorally in lib/test/test_python_scripts.py and the CLI block below).
+assert_pin_unique "#548: evidence-bundle axis floor sentence" \
+  'covering **at minimum** these generic axes: authoritative producers and the values they emit' "$CI443_SKILL"
+assert_pin_unique "#548: entry-form — an axis with no entry is not a legal bundle state" \
+  'an axis with no entry is not a legal bundle state' "$CI443_SKILL"
+assert_pin_unique "#548: proportionality scope-inference clause" \
+  'N/A — checked: scope inference' "$CI443_SKILL"
+assert_pin_unique "#548: self-describing header sentence" \
+  'opens with a compact fixed header restating the three entry forms' "$CI443_SKILL"
+assert_pin_unique "#548: bundle-coverage gate fires at the same two sites" \
+  'The bundle-coverage gate fires at the **same two sites**' "$CI443_SKILL"
+assert_pin_unique "#548: bundle-currency three-triggers sentence" \
+  'additionally re-checks bundle currency against **three triggers**' "$CI443_SKILL"
+assert_pin_unique "#548: approach-fork (Recommended)-citation sentence" \
+  'one-line why cites at least one bundle entry by axis name' "$CI443_SKILL"
+assert_pin_unique "#548: unestablished-axes disclosure sentence" \
+  'discloses by name every effective-list axis that is' "$CI443_SKILL"
+assert_pin_unique "#548: no-citation-grade arm withholds the marking visibly" \
+  'marking and its rationale states that no citation-grade evidence exists' "$CI443_SKILL"
+assert_pin_unique "#548: heading-extraction rule (defined once, both hooks)" \
+  'duplicate same-heading sections are concatenated in file order' "$CI443_SKILL"
+assert_pin_unique "#548: dual-heading independence — each hook at its own site" \
+  'The two hooks are extracted independently at their own consumption sites' "$CI443_SKILL"
+assert_pin_unique "#548: loader-failure arm records the dedicated line" \
+  'consumer axes: unestablished — loader denied or failed' "$CI443_SKILL"
+assert_pin_unique "#548: ## Evidence axes forwarding sentence (SKILL contract, exact heading)" \
+  'appends any section headed exactly' "$CI443_SKILL"
+assert_pin_unique "#548: ## Evidence axes forwarding (live extension carries the exact heading)" \
+  '## Evidence axes' "$CI443_EXT"
+assert_pin_unique "#548: bounded actionability definitions (must-revise)" \
+  'a verified correctness, safety, implementability, unresolved-decision, or load-bearing-premise defect' "$CI443_SKILL"
+assert_pin_unique "#548: VERDICT: FILE may carry advisory findings" \
+  'may carry advisory findings' "$CI443_SKILL"
+assert_pin_unique "#548: VERDICT: REVISE requires a verified unresolved must-revise finding" \
+  'requires at least one verified unresolved must-revise finding' "$CI443_SKILL"
+assert_pin_unique "#548: Quiet-Killer becomes an assessed one-or-none slot" \
+  'report at most one qualifying Quiet Killer, or explicitly report' "$CI443_SKILL"
+assert_pin_unique "#548: post-adjudication T1 sentence" \
+  "T1 consumes the latest completed round's post-adjudication unresolved must-revise findings" "$CI443_SKILL"
+assert_pin_unique "#548: fail-closed T2 gains the unadjudicated-round arm" \
+  'T2 gains one new fail-closed arm (the `unadjudicated-round` arm)' "$CI443_SKILL"
+assert_pin_unique "#548: convergence-definition sentence" \
+  'a converged run is one whose final accepted, post-adjudication verdict is' "$CI443_SKILL"
+assert_pin_unique "#548: Step 3.5 summary reports the evidence bundle's coverage" \
+  "The summary additionally reports the evidence bundle's coverage" "$CI443_SKILL"
+assert_pin_unique "#548: Step 4 audit summary reports the bundle's coverage + actionability" \
+  "The Step 4 audit summary line reports the bundle's coverage" "$CI443_SKILL"
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
 #    Each pin is a behavioral-fix pin: its literal IS an operative sentence whose removal
@@ -11205,6 +11264,11 @@ assert_eq "scaffold-pe: emits a creation log line on a fresh scaffold (AC 9)" "y
 assert_eq "scaffold-pe: emitted create-issue example matches the committed copy (#443 coupled mirror)" \
   "$(cat "$LIB/../.devflow/prompt-extensions/create-issue.md.example")" \
   "$(cat "$SC_PE_DIR/create-issue.md.example")"
+# #548: the generated create-issue example carries the inert `## Evidence axes` sample (the
+# Step 2 evidence-bundle forwarding hook), mirroring the `## Audit dimensions` sample. Assert
+# the emitted example (driven by the generator, not just the committed copy) contains it.
+assert_eq "scaffold-pe: emitted create-issue example carries the inert ## Evidence axes sample (#548)" "yes" \
+  "$(grep -qF '## Evidence axes' "$SC_PE_DIR/create-issue.md.example" && echo yes || echo no)"
 
 # AC 7 + AC 9 (no-op half): a second run rewrites nothing (every example
 # byte-identical) and emits NO creation log line.
@@ -43066,7 +43130,14 @@ if [ -d "$IAS_SB" ]; then
     PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 1 \
       --verdict REVISE --findings-count 2 --carriage-object-id "$OID" > .rt-return
     PATH="$RESTRICTED" python3 "$IAS" query-next-action rt --nonce "$NONCE" --round 1 > .rt-next
+    # #548: adjudicate the REVISE round (2 unresolved must-revise) — T1 now consumes the
+    # post-adjudication unresolved count, so it holds only after this record, not on the raw
+    # REVISE token. Also capture the pre-adjudication convergence (unadjudicated) beforehand.
+    PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-preadj
+    PATH="$RESTRICTED" python3 "$IAS" record-adjudication rt --nonce "$NONCE" --round 1 \
+      --verdict REVISE --must-revise 2 --advisory 0 --invalid 0 --unresolved-must-revise 2 > .rt-adj
     PATH="$RESTRICTED" python3 "$IAS" query-triggers rt --nonce "$NONCE" > .rt-trig
+    PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-revise
 
     # Revise the draft, record it, then assert approve mode refuses the unaudited bytes.
     printf '# Draft title\n\nBody line one (revised).\nBody line two.\n' > draft.md
@@ -43082,6 +43153,16 @@ if [ -d "$IAS_SB" ]; then
     OID2="$(PATH="$RESTRICTED" git hash-object --stdin --no-filters < draft.md)"
     PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 2 \
       --verdict FILE --findings-count 0 --carriage-object-id "$OID2" > /dev/null
+    # #548: adjudicate the clean round (FILE, 0 unresolved must-revise) — the run now converges.
+    PATH="$RESTRICTED" python3 "$IAS" record-adjudication rt --nonce "$NONCE" --round 2 \
+      --verdict FILE --must-revise 0 --advisory 1 --invalid 0 --unresolved-must-revise 0 > /dev/null
+    PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-file
+    # #548: query-convergence must fail closed on a FOREIGN nonce over this SAME converged
+    # state — a foreign caller must never read a converged verdict off another run. Every
+    # sibling query class already has a foreign-nonce row; convergence was the one omitted.
+    # The `.rt-conv-file` assertion (correct nonce, converged=yes) is the positive control on
+    # the identical fixture, so this refusal cannot be an unrelated precondition firing.
+    PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce badnonce > .rt-conv-fn 2>/dev/null
     PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
       --mode approve --draft-file draft.md > .rt-elig-ok
     PATH="$RESTRICTED" python3 "$IAS" query-summary rt --nonce "$NONCE" \
@@ -43096,8 +43177,20 @@ if [ -d "$IAS_SB" ]; then
     "classification=accept-revise outcome=REVISE" "$(cat "$IAS_SB/.rt-return" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: the automatic re-audit is the next action" \
     "action=revise-and-reaudit" "$(cat "$IAS_SB/.rt-next" 2>/dev/null)"
-  assert_eq "#546 cli_roundtrip_restricted_path: T1 holds after a REVISE round" \
+  assert_eq "#548 cli_roundtrip_restricted_path: T1 holds after a REVISE round is ADJUDICATED (not on the raw token)" \
     "1" "$(grep -c 't1=hold' "$IAS_SB/.rt-trig" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: an un-adjudicated REVISE round is not converged" \
+    "converged=no reason=unadjudicated" "$(cat "$IAS_SB/.rt-conv-preadj" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: an adjudicated REVISE with unresolved must-revise is not converged" \
+    "converged=no reason=unresolved-must-revise-remain" "$(cat "$IAS_SB/.rt-conv-revise" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: adjudicated FILE with 0 unresolved converges" \
+    "converged=yes reason=" "$(cat "$IAS_SB/.rt-conv-file" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: query-convergence fails closed on a foreign nonce (never reads a converged verdict off another run)" \
+    "converged=no reason=foreign-nonce" "$(cat "$IAS_SB/.rt-conv-fn" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: query-summary RENDERS the latest round's adjudicated tokens at the CLI (round 2: FILE, 0 unresolved)" \
+    "1" "$(grep -c 'adjudicated_verdict=FILE must_revise=0 advisory=1 invalid=0 unresolved_must_revise=0' "$IAS_SB/.rt-summary" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: record-adjudication echoes the adjudicated payload" \
+    "adjudicated=REVISE unresolved=2 must_revise=2 advisory=0 invalid=0" "$(cat "$IAS_SB/.rt-adj" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: approve mode refuses just-revised, not-yet-re-audited bytes" \
     "eligible=no reason=unaudited-revision" "$(cat "$IAS_SB/.rt-elig-bad" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: iterate mode answers ok for the same bytes" \
