@@ -22,12 +22,15 @@ DEPENDENCY_HEADING = re.compile(r"^##\s+Dependencies\s*$", re.IGNORECASE)
 HEADING = re.compile(r"^#{1,6}\s+")
 ISSUE_REF = re.compile(r"#(\d+)")
 # Each declaration keyword may be followed by a run of additional numbers joined
-# by "and"/",", so a single declaration can name several dependencies:
-# `blocked by #10 and #11`, `depends on #1, #2`. The number run is captured by a
-# uniform `re.findall(ISSUE_REF, match.group(0))` over the whole matched span
-# rather than per-pattern capture groups (issue #547 Critical + Important #2) —
-# so no declaration form silently drops all but its first number.
-_NUMBER_RUN = r"#\d+(?:\s*(?:,|and)\s+#\d+)*"
+# by "and" / "," / ", and" (Oxford) / ";" / "&", so a single declaration can name
+# several dependencies: `blocked by #10 and #11`, `depends on #1, #2`,
+# `blocked by #10, and #11`. The number run is captured by a uniform
+# `re.findall(ISSUE_REF, match.group(0))` over the whole matched span rather than
+# per-pattern capture groups (issue #547 Critical + Important #2), so no
+# declaration form silently drops all but its first number. Each joiner still
+# requires a following `#\d+`, so an unrelated trailing `#N` after a non-joiner
+# word (`blocked by #10 — superseded by #999`) is not swept in.
+_NUMBER_RUN = r"#\d+(?:\s*(?:,\s*and\s+|,\s*|;\s*|&\s*|and\s+)#\d+)*"
 DECLARATIONS = tuple(
     re.compile(rf"\b{keyword}\s+{_NUMBER_RUN}", re.IGNORECASE)
     for keyword in (r"depends on", r"must merge after", r"blocked by", r"follow-up to")
@@ -81,7 +84,7 @@ def dependency_numbers(body: str) -> list[str]:
             for number in ISSUE_REF.findall(span):
                 add(number)
         if not spans and SOFT_KEYWORDS.search(line):
-            for number in ISSUE_REF.findall(line):
+            for number in dict.fromkeys(ISSUE_REF.findall(line)):
                 print(
                     f"preflight.py: unrecognized dependency-flavoured reference to "
                     f"#{number} — not a declared sequencing dependency; if it is one, "
@@ -95,14 +98,18 @@ def dependency_numbers(body: str) -> list[str]:
 def _gh_issue_view(number: object, field: str) -> str:
     """Run `gh issue view <number> --json <field> -q .<field>` and return stdout.
 
-    encoding="utf-8" so non-ASCII issue bodies decode; the caller owns the error
-    policy (issue_body raises, issue_state swallows).
+    encoding="utf-8" with errors="replace" so non-ASCII issue bodies decode and a
+    body carrying invalid UTF-8 bytes never raises UnicodeDecodeError (a ValueError
+    subclass none of the callers' except-clauses catch — it would otherwise escape
+    the {0,2,3} exit contract as a traceback/exit-1, issue #547 review). The caller
+    owns the error policy (issue_body raises, issue_state swallows).
     """
     result = subprocess.run(
         [GH, "issue", "view", str(number), "--json", field, "-q", f".{field}"],
         check=True,
         capture_output=True,
         encoding="utf-8",
+        errors="replace",
     )
     return result.stdout
 
@@ -126,7 +133,12 @@ def issue_state(number: str) -> str | None:
 def dependencies(args: argparse.Namespace) -> int:
     if args.body_file:
         try:
-            body = Path(args.body_file).read_text(encoding="utf-8")
+            # errors="replace": a body file with invalid UTF-8 bytes decodes to
+            # replacement chars and is still scanned for real #N declarations,
+            # rather than raising UnicodeDecodeError (a ValueError the `except
+            # OSError` below does not catch) and escaping the {0,2,3} exit
+            # contract as an exit-1 traceback (issue #547 review).
+            body = Path(args.body_file).read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
             print(f"preflight.py: could not read dependency body: {exc}", file=sys.stderr)
             print("UNAVAILABLE body", flush=True)

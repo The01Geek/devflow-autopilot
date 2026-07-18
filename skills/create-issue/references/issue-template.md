@@ -70,7 +70,7 @@ land before this work can start. This is the only surface the early dependency p
 
 A prerequisite that is **already closed at drafting time** is not listed here — record it as
 provenance in `Technical Context` instead (e.g. "builds on #M, merged"), never in this
-section, so producer and Pass-4 consumer agree on the open-at-drafting-time inclusion rule.
+section, so producer and the early-dependency-preflight consumer agree on the open-at-drafting-time inclusion rule.
 
 ### Problem Statement
 Why is this needed? Which user hits what pain.
