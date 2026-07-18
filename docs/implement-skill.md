@@ -139,7 +139,7 @@ re-introduces the named bug by deleting *only* the operative sentence, and the w
 operative alike), `assert_pin_red_under` reports a framing-only pin **RED** when it survives the operative
 mutation, so the operative-vs-framing distinction is enforced mechanically rather than by author
 diligence. The requirement lives at three co-equal homes — `phase-2-implement.md` §2.3 (the implement-path
-author), `skills/review-and-fix/SKILL.md`'s Step 3 mutation-check step (the fix-loop author), and
+author), `skills/review-and-fix/references/fixing.md`'s Step 3 mutation-check step (the fix-loop author), and
 `.devflow/prompt-extensions/implement.md` (this repo's operative policy) — and is scoped to
 **behavioral-fix** pins only, never to literal-constant, token-name, count-based, or absence pins where no
 operative-vs-framing distinction exists. Two mechanical suite guards (`lib/test/pin-corpus-lint.py`,

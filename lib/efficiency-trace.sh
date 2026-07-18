@@ -38,13 +38,13 @@
 # --mode and --self-check emit NOTHING and exit 0, and --persist derives no
 # record AND synthesizes no workpad (a synthesized workpad exists only to feed
 # the record — issue #381); the durable copy of REAL workpads is not
-# telemetry-gated — it runs on every writable run, mirroring the SKILL.md Loop
-# Exit split.
+# telemetry-gated — it runs on every writable run, mirroring the review-and-fix
+# Loop Exit (references/loop-exit.md) split.
 #
 # Best-effort: a missing dir, zero readable workpads, or an unreadable workpad
 # never aborts — every mode degrades gracefully and --persist/--self-check
-# always exit 0. The caller (SKILL.md Loop Exit, the Stop hook, the cloud
-# wrapper) must itself stay non-fatal.
+# always exit 0. The caller (the review-and-fix Loop Exit in references/loop-exit.md,
+# the Stop hook, the cloud wrapper) must itself stay non-fatal.
 #
 # Environment:
 #   DEVFLOW_CONFIG_FILE  override the config path (used by tests).
@@ -299,7 +299,7 @@ SHADOW_SYNTH_EXPECTED_FIELDS="shadow_synthesized promoted_to_iter_next"
 #
 # SHARED FIX-COMMIT SUBJECT CONTRACT (coupled two-site invariant — issue #381):
 # the fix-commit subject template `fix: address review findings (iteration {N})`
-# is WRITTEN by skills/review-and-fix/SKILL.md Step 3 item 6 and PARSED here to
+# is WRITTEN by skills/review-and-fix/references/fixing.md Step 3 item 6 and PARSED here to
 # reconstruct the per-iteration records when the workpads were dropped. Both
 # sites must carry the identical literal; lib/test/run.sh pins both and a
 # targeted edit to either turns the suite RED. Changing the subject? Edit item 6
@@ -673,7 +673,7 @@ synthesize_shadow_markers() {
 do_self_check() {
   # Silent when telemetry is disabled — there is no record to expect, so a
   # missing one is correct, not a gap. (Read-only runs are silent by caller
-  # construction: SKILL.md only invokes the self-check on writable runs.)
+  # construction: references/loop-exit.md only invokes the self-check on writable runs.)
   [ "$ENABLED" = "true" ] || return 0
   if [ -z "$WORKPAD_DIR" ] || [ -z "$SLUG" ]; then
     echo "::warning::efficiency-trace.sh --self-check requires --workpad-dir and --slug" >&2
@@ -890,7 +890,7 @@ persist_one() {
 
   # Durable workpad copy — NOT telemetry-gated (runs on every writable run).
   # Copies every *.json in the run dir (iter-*.json + deferrals.json), mirroring
-  # the SKILL.md Loop Exit durable-copy. Content-idempotent: the branch write's
+  # the review-and-fix Loop Exit durable-copy (references/loop-exit.md). Content-idempotent: the branch write's
   # tree-equality no-op guard emits no commit when the bytes are unchanged.
   durable="${_TELEMETRY_STAGE}/.devflow/logs/review/${slug}/${run_id}"
   if ! cp_err="$( { mkdir -p "$durable" && cp -p "$dir"/*.json "$durable"/; } 2>&1 )"; then
@@ -1028,7 +1028,7 @@ persist_one() {
 #                           (pr-description derives no record by design).
 #   GITHUB_RUN_ID / GITHUB_RUN_ATTEMPT  the run-id identity the record is keyed by:
 #                           <run-id> == ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}, the same
-#                           value skills/review-and-fix/SKILL.md's RUN_ID= line composes.
+#                           value skills/review-and-fix/references/loop-control.md's RUN_ID= line composes.
 #   GITHUB_WORKFLOW_REF     the path-pinned workflow identity (harness_cost.workflow).
 #
 # Telemetry-gated exactly as record derivation is (AC8); best-effort/exit-0 like every
