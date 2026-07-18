@@ -26,6 +26,7 @@ Usage:
     workpad.py new-body  ISSUE [--run-link V] [--branch V] [--marker M]
     workpad.py now
     workpad.py update    ISSUE [mutations...] [--marker M]
+    workpad.py handoff-state FILE --issue N --run-id ID --run-attempt ATTEMPT
 
 Subcommands that locate the workpad by its marker comment (`id`, `new-body`,
 `update`) accept `--marker` to target a non-default marker — /devflow:review
@@ -381,13 +382,12 @@ def cmd_status(args):
         # Scanned every page, no workpad — same benign exit 2 as `id`.
         sys.exit(2)
     body = c.get('body') or ''
-    m = _STATUS_VALUE_RE.search(body)
-    if not m:
+    if not _STATUS_VALUE_RE.search(body):
         sys.stderr.write(
             "workpad.py status: workpad found but no Status line in it\n"
         )
         sys.exit(1)
-    word = _strip_status_glyph(m.group(1).strip()).strip()
+    word = _status_word_from_body(body)
     if not word:
         sys.stderr.write(
             "workpad.py status: workpad Status line has no value\n"
@@ -610,6 +610,16 @@ def _strip_status_glyph(status: str) -> str:
         if s.startswith(g):
             return s[len(g):].lstrip()
     return s
+
+
+def _status_word_from_body(body: str) -> str:
+    """Return the live Status word (glyph-stripped, trimmed) from a workpad body,
+    or '' when there is no Status line. The single source of the "what is the live
+    Status word in this body" rule — `cmd_status`, `_apply_mutations`'s note-phase
+    resolution, and `cmd_update`'s `--expect-status` precondition all read it here
+    so glyph/whitespace handling can never drift between the reader and the checker."""
+    m = _STATUS_VALUE_RE.search(body)
+    return _strip_status_glyph(m.group(1).strip()).strip() if m else ''
 
 
 def _status_glyph(status: str) -> str:
@@ -1321,6 +1331,33 @@ def cmd_update(args):
         _fail('update body-fetch', e)
     body = r.stdout
 
+    # Hydration-race preconditions (issue #537, AC24). Phase 1 snapshots the workpad
+    # comment ID and the exact stripped Status word BEFORE resetting Status, then
+    # passes them here. We re-resolved the marker comment (above) and re-fetched its
+    # body — if the LIVE comment ID or Status word no longer matches the snapshot,
+    # the workpad was concurrently changed (a terminal backstop flip, a delete +
+    # recreate, an operator edit), so ABORT before any mutation/PATCH rather than
+    # overwrite the current state with a stale reset. Exit 4 = precondition mismatch
+    # (distinct from 1=structural/absent and the tick exit paths). A deleted-and-not-
+    # recreated workpad is already caught above (comment_id is None → exit 1).
+    if args.expect_comment_id is not None and str(comment_id) != str(args.expect_comment_id):
+        sys.stderr.write(
+            f"workpad.py update: precondition mismatch — expected comment id "
+            f"{args.expect_comment_id} but the live workpad is comment "
+            f"{comment_id} (concurrent delete/recreate). No mutation/PATCH made.\n"
+        )
+        sys.exit(4)
+    if args.expect_status is not None:
+        _live_word = _status_word_from_body(body)
+        if _live_word.lower() != args.expect_status.strip().lower():
+            sys.stderr.write(
+                f"workpad.py update: precondition mismatch — expected Status "
+                f"{args.expect_status!r} but the live workpad Status is "
+                f"{_live_word!r} (concurrent status change / terminal backstop "
+                f"transition). No mutation/PATCH made.\n"
+            )
+            sys.exit(4)
+
     # `failed_ticks` collects *volatile* per-row tick misses (see _TickMatchError):
     # the call still applies and PATCHes every other mutation, then exits non-zero
     # naming the ticks that did not land. A *structural* _UpdateError still aborts
@@ -1328,6 +1365,19 @@ def cmd_update(args):
     failed_ticks = []
     try:
         body = _apply_mutations(body, args, failed_ticks)
+    except _NoOpReplay:
+        # A checkpoint-only call whose every key already exists (issue #537, AC14):
+        # a pure replay. Do NOT refresh `Last updated` and do NOT PATCH — write the
+        # unchanged live body to stdout (so callers reading stdout still get the
+        # body) and exit 0. A replay COMBINED with any other mutation never reaches
+        # here (`_has_non_checkpoint_mutation` is true), so it applies that mutation
+        # once and PATCHes normally without duplicating the checkpoint.
+        sys.stderr.write(
+            "workpad.py update: checkpoint replay — all requested checkpoint "
+            "key(s) already present; no Last updated refresh, no PATCH.\n"
+        )
+        sys.stdout.write(body)
+        return
     except _UpdateError as e:
         sys.stderr.write(f"workpad.py update: {e}\n")
         # A structural failure aborts before any PATCH — but volatile tick misses
@@ -1581,6 +1631,249 @@ def _terminal_complete_gate(sections) -> list[str]:
     return non_pm + pm  # Plan has no post-merge concept; warn on every unticked row
 
 
+# ── Idempotent keyed checkpoints + offline handoff record (issue #537) ──────────
+#
+# Two independent additions that together make the /devflow:implement startup
+# lifecycle observable in the workpad:
+#
+#   * `update --checkpoint KEY TEXT` writes ONE timestamped ## Progress row that
+#     carries a hidden `<!-- devflow:checkpoint KEY -->` marker. A second call with
+#     the same KEY is an idempotent REPLAY (the marker is already present) and adds
+#     no duplicate row; a checkpoint-only replay whose every key already exists is a
+#     pure no-op — no `Last updated` refresh, no PATCH (see `_NoOpReplay`). The key
+#     grammar and the ## Progress structure are validated BEFORE any PATCH, so an
+#     invalid key / duplicate marker / marker-outside-Progress / absent-or-duplicate
+#     ## Progress / empty body is a structural failure that mutates nothing.
+#   * `handoff-state FILE …` validates the workflow-owned gate→claude handoff record
+#     OFFLINE (no gh, no network) and prints one of three origin tokens, degrading
+#     every malformed/mismatched shape to `unknown` with a targeted breadcrumb.
+# `\A…\Z` (not `^…$`): this grammar is the injection boundary for the HTML-comment
+# marker `<!-- devflow:checkpoint KEY -->`, and Python's `$` also matches just before a
+# single trailing newline — so `^…$` would admit a key like "gha:1:1:stage\n" and inject
+# a newline into the marker/Progress bullet. `\Z` matches only at the true end of string,
+# keeping the key strictly single-line.
+_CHECKPOINT_KEY_RE = re.compile(r'\A[A-Za-z0-9._:-]+\Z')
+
+
+def _checkpoint_marker(key: str) -> str:
+    """The hidden HTML-comment marker a checkpoint row carries so a replay can
+    detect the key without changing the visible timestamped-note rendering."""
+    return f'<!-- devflow:checkpoint {key} -->'
+
+
+class _NoOpReplay(Exception):
+    """Signals a checkpoint-only call whose every key already exists — a pure
+    replay. Raised by `_apply_mutations` BEFORE it mutates anything; `cmd_update`
+    catches it, writes the unchanged body to stdout, and exits 0 WITHOUT refreshing
+    `Last updated` and WITHOUT issuing a PATCH (the AC14 idempotency guarantee).
+    Deliberately NOT an `_UpdateError` subclass: it is a success no-op, not a
+    structural failure, so the structural `except _UpdateError` never captures it."""
+
+
+def _has_non_checkpoint_mutation(args) -> bool:
+    """True when the update carries at least one mutation OTHER than `--checkpoint`.
+
+    Drives the AC14 idempotency short-circuit: a checkpoint-only call whose keys are
+    all already present and that carries no other mutation is a pure no-op. A
+    `--checkpoint` combined with any of these still refreshes `Last updated` and
+    PATCHes once (and does not duplicate an existing checkpoint)."""
+    return any([
+        args.status, args.branch, args.run_link, args.pr_link,
+        args.tick_progress, args.tick_plan, args.tick_plan_n,
+        args.tick_ac, args.tick_ac_n, args.rewrite_ac,
+        args.replace_plan_file, args.replace_acs_file, args.set_reproduction_file,
+        args.note, args.reflection, args.reflection_file,
+        args.record_classification, args.reconcile_reproduction,
+    ])
+
+
+def _plan_checkpoints(body: str, checkpoint_reqs) -> list[tuple[str, str]]:
+    """Validate `--checkpoint` requests against `body` and return the (key, text)
+    pairs that must be INSERTED (their marker is absent). A request whose marker is
+    already present exactly once in ## Progress is an idempotent replay and is
+    omitted from the returned list. Raises `_UpdateError` (structural — no PATCH)
+    on every invalid shape, so validation completes before any mutation:
+
+      * a key not matching `[A-Za-z0-9._:-]+`,
+      * a key repeated within a single batch,
+      * an empty/whitespace-only body,
+      * zero or more-than-one `## Progress` section,
+      * a key marker present outside ## Progress,
+      * a key marker present more than once inside ## Progress."""
+    # 1. Key grammar — checked first so a bad key fails before any body inspection.
+    #    A key repeated within one batch is also structural: both copies would see
+    #    in_prog==0 (the body is read once, before any insert) and be appended, so
+    #    _apply_mutations would write the marker twice — wedging every future replay
+    #    of that key on the `in_prog > 1` check below. Reject it up front instead.
+    _seen_keys: set[str] = set()
+    for key, _text in checkpoint_reqs:
+        if not _CHECKPOINT_KEY_RE.match(key):
+            raise _UpdateError(
+                f"--checkpoint key {key!r} is invalid; keys must match "
+                f"[A-Za-z0-9._:-]+ . No PATCH was made."
+            )
+        if key in _seen_keys:
+            raise _UpdateError(
+                f"--checkpoint key {key!r} appears more than once in a single "
+                f"batch; keys must be unique per call. No PATCH was made."
+            )
+        _seen_keys.add(key)
+    # 2. Canonical ## Progress: non-empty body + exactly one Progress heading.
+    # Split the body's sections ONCE and both count and locate Progress from that
+    # single parse (rather than a separate finditer scan) — the canonical
+    # section-locating idiom the rest of the file uses.
+    if not body.strip():
+        raise _UpdateError(
+            "--checkpoint requires a canonical workpad body, but the body is "
+            "empty/whitespace-only. No PATCH was made."
+        )
+    _pre, _sections = _split_sections(body)
+    n_prog = sum(1 for h, _c in _sections if h.strip().lower() == '## progress')
+    if n_prog != 1:
+        raise _UpdateError(
+            f"--checkpoint requires exactly one '## Progress' section, but "
+            f"{n_prog} are present. No PATCH was made."
+        )
+    _pidx = _find_section(_sections, 'Progress')
+    prog_content = _sections[_pidx][1]
+    # 3. Per-key marker cardinality: absent (insert), once-in-Progress (replay),
+    #    or a structural failure (outside Progress / duplicate).
+    inserts: list[tuple[str, str]] = []
+    for key, text in checkpoint_reqs:
+        marker = _checkpoint_marker(key)
+        total = body.count(marker)
+        in_prog = prog_content.count(marker)
+        if total != in_prog:
+            raise _UpdateError(
+                f"--checkpoint key {key!r} marker appears outside the "
+                f"'## Progress' section. No PATCH was made."
+            )
+        if in_prog > 1:
+            raise _UpdateError(
+                f"--checkpoint key {key!r} marker appears {in_prog} times in "
+                f"'## Progress' (expected 0 or 1). No PATCH was made."
+            )
+        if in_prog == 0:
+            inserts.append((key, text))
+    return inserts
+
+
+_HANDOFF_ORIGINS = ('created-current-run', 'adopted-existing', 'unknown')
+
+
+def _handoff_unknown(reason: str):
+    """Print `unknown`, write a targeted stderr breadcrumb, and exit 0.
+
+    The single degradation chokepoint for `cmd_handoff_state` — every malformed,
+    mismatched, or unreadable record routes here, so provenance always degrades
+    VISIBLY to neutral (`unknown`) rather than blocking the run or guessing."""
+    sys.stderr.write(
+        f"workpad.py handoff-state: {reason}; resolving origin=unknown\n"
+    )
+    print('unknown')
+    sys.exit(0)
+
+
+def cmd_handoff_state(args):
+    """Validate the workflow-owned gate→claude handoff record OFFLINE and print the
+    resolved origin token (one of `created-current-run`, `adopted-existing`,
+    `unknown`). Always exits 0. No network access — a pure file read.
+
+    The record is a five-field JSON object: `schema_version` (int 1), `issue`
+    (int), `run_id` (digit string), `run_attempt` (digit string), and `origin`
+    (one of the three tokens). Every degraded shape — missing/unreadable/undecodable
+    file, malformed JSON, a non-object (array/scalar/null), an unsupported schema
+    version, a wrong field type, an issue/run identity mismatch, or an unrecognized
+    origin — resolves to `unknown` with a targeted breadcrumb (see AC4). A record
+    that validates cleanly but carries `origin: "unknown"` prints `unknown` with NO
+    breadcrumb (the explicit-unknown handoff, AC11), distinct from a degraded shape."""
+    p = Path(args.file)
+    try:
+        raw = p.read_text(encoding='utf-8')
+    except FileNotFoundError:
+        _handoff_unknown(f"record file not found: {p}")
+    except (OSError, UnicodeDecodeError) as e:
+        _handoff_unknown(f"record file unreadable/undecodable ({p}): {e}")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        _handoff_unknown(f"record is not valid JSON ({p}): {e}")
+    if not isinstance(data, dict):
+        _handoff_unknown(
+            f"record is not a JSON object (got {type(data).__name__})"
+        )
+    # schema_version — reject bools (isinstance(True, int) is True in Python) and
+    # any non-1 / non-int value as an unsupported/wrong-type version.
+    sv = data.get('schema_version')
+    if isinstance(sv, bool) or not isinstance(sv, int):
+        _handoff_unknown(f"schema_version must be integer 1 (got {sv!r})")
+    if sv != 1:
+        _handoff_unknown(f"unsupported schema_version {sv!r} (expected 1)")
+    # issue — int, matching the run's resolved issue.
+    iss = data.get('issue')
+    if isinstance(iss, bool) or not isinstance(iss, int):
+        _handoff_unknown(f"issue must be an integer (got {iss!r})")
+    if iss != args.issue:
+        _handoff_unknown(
+            f"issue mismatch: record {iss!r} != expected {args.issue!r}"
+        )
+    # run_id / run_attempt — digit strings, matching the current GitHub contexts.
+    rid = data.get('run_id')
+    if not isinstance(rid, str) or not rid.isdigit():
+        _handoff_unknown(f"run_id must be a digit string (got {rid!r})")
+    if rid != str(args.run_id):
+        _handoff_unknown(
+            f"run_id mismatch: record {rid!r} != expected {str(args.run_id)!r}"
+        )
+    rat = data.get('run_attempt')
+    if not isinstance(rat, str) or not rat.isdigit():
+        _handoff_unknown(f"run_attempt must be a digit string (got {rat!r})")
+    if rat != str(args.run_attempt):
+        _handoff_unknown(
+            f"run_attempt mismatch: record {rat!r} != "
+            f"expected {str(args.run_attempt)!r}"
+        )
+    # origin — must be one of the three tokens. An unrecognized value degrades to
+    # `unknown` (AC4); a valid `unknown` prints through cleanly below (AC11).
+    origin = data.get('origin')
+    if origin not in _HANDOFF_ORIGINS:
+        _handoff_unknown(f"origin {origin!r} not one of {_HANDOFF_ORIGINS}")
+    print(origin)
+    sys.exit(0)
+
+
+def _normalize_handoff_origin(gate: str) -> str:
+    """Normalize a gate-provided handoff token to exactly one of `_HANDOFF_ORIGINS`.
+
+    Any unrecognized value degrades to `unknown` — including the empty string a
+    partially-upgraded consumer emits (its gate job predates the `handoff` job output),
+    and any token the gate never wrote. The write-side counterpart to
+    `cmd_handoff_state`'s read-side `origin not in _HANDOFF_ORIGINS` degradation, sharing
+    the SAME `_HANDOFF_ORIGINS` vocabulary so producer and consumer cannot drift."""
+    return gate if gate in _HANDOFF_ORIGINS else 'unknown'
+
+
+def cmd_write_handoff_record(args):
+    """Write the five-field gate->claude handoff record (issue #537), normalizing the
+    gate-provided origin to one of `_HANDOFF_ORIGINS` first. Prints nothing.
+
+    The workflow-owned, gitignored, non-secret, advisory record that `cmd_handoff_state`
+    reads back offline. `origin` is normalized via `_normalize_handoff_origin` (an empty
+    or unrecognized gate token becomes `unknown`). A write/permission failure (or a
+    non-integer `issue`) raises — the workflow's `if ! python3 … ; then` wrapper turns
+    that into a best-effort ::warning::, and Phase 1 then degrades to unknown provenance
+    at read time. The JSON shape is the exact record `cmd_handoff_state` validates:
+    schema_version (int 1), issue (int), run_id/run_attempt (strings), origin (token)."""
+    origin = _normalize_handoff_origin(args.gate)
+    # Resolve the int BEFORE opening (truncating) the target, so a non-integer issue
+    # raises and the `if !` wrapper warns without leaving a zero-byte record behind.
+    issue = int(args.issue)
+    with open(args.file, 'w', encoding='utf-8') as fh:
+        json.dump({'schema_version': 1, 'issue': issue,
+                   'run_id': args.run_id, 'run_attempt': args.run_attempt,
+                   'origin': origin}, fh)
+
+
 def _apply_mutations(body: str, args, failed_ticks) -> str:
     """Apply all mutations from args and return the new body.
 
@@ -1597,6 +1890,20 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     # issue bodies; note bullets keep their time-only HH:MM:SS prefix).
     last_updated = now_dt.strftime('%Y-%m-%d %H:%M UTC')
     now_time = now_dt.strftime('%H:%M:%S')        # time-only for note bullets
+
+    # Idempotent keyed checkpoints (issue #537). Validate + plan them FIRST, before
+    # any body mutation, so an invalid key / malformed ## Progress structure is a
+    # structural failure that changes nothing (all-or-nothing). `checkpoint_inserts`
+    # holds only the keys whose marker is absent (a present marker is a replay and
+    # is skipped). A checkpoint-only call whose every key already exists AND that
+    # carries no other mutation is a pure no-op: raise `_NoOpReplay` here so
+    # `cmd_update` skips the `Last updated` refresh and the PATCH entirely.
+    checkpoint_reqs = getattr(args, 'checkpoint', None) or []
+    checkpoint_inserts: list[tuple[str, str]] = []
+    if checkpoint_reqs:
+        checkpoint_inserts = _plan_checkpoints(body, checkpoint_reqs)
+        if not checkpoint_inserts and not _has_non_checkpoint_mutation(args):
+            raise _NoOpReplay()
 
     # Front-matter mutations.
     if args.status:
@@ -1629,10 +1936,8 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     # post-mutation Status so a combined `--status X --note Y` call files the
     # note under X's phase (the status line was already rewritten above). Strip
     # the leading glyph so the phase lookup keys on the bare word ("Reviewing").
-    status_match = _STATUS_VALUE_RE.search(body)
-    current_phase = (
-        _strip_status_glyph(status_match.group(1).strip()) if status_match else None
-    )
+    _live_status = _status_word_from_body(body)
+    current_phase = _live_status or None
 
     # Section-level mutations.
     preamble, sections = _split_sections(body)
@@ -1777,13 +2082,21 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
                 sections, 'Acceptance Criteria', '## Reproduction', new_content,
             )
 
-    if args.note:
+    # Notes and checkpoint rows are both timestamped ## Progress bullets, so they
+    # share one Progress lookup + append loop (a checkpoint row is just a note whose
+    # text carries the hidden marker). `checkpoint_inserts` holds only absent keys
+    # (replays were dropped during planning), nested under the current phase like any
+    # note; args.note bullets append first, then the checkpoint rows.
+    progress_notes = list(args.note) + [
+        f'{text} {_checkpoint_marker(key)}' for key, text in checkpoint_inserts
+    ]
+    if progress_notes:
         idx = _find_section(sections, 'Progress')
         if idx is None:
             raise _UpdateError("section '## Progress' not found")
         heading, content = sections[idx]
         phase_label = _progress_phase_for_status(content, current_phase)
-        for text in args.note:
+        for text in progress_notes:
             content = _append_progress_note(content, text, now_time, phase_label)
         sections[idx] = (heading, content)
 
@@ -2071,8 +2384,59 @@ def main():
                         'present and unticked (a ticked row is preserved), and it '
                         'no-ops when the skeleton already matches. Run on every '
                         'Phase 1.3 entry.')
+    u.add_argument('--checkpoint', nargs=2, metavar=('KEY', 'TEXT'),
+                   action='append', default=[],
+                   help='Write one timestamped ## Progress row carrying a hidden '
+                        '"<!-- devflow:checkpoint KEY -->" marker (issue #537). '
+                        'Idempotent: a second call with the same KEY is a replay '
+                        'that adds no duplicate row. A checkpoint-only replay whose '
+                        'keys all exist makes no Last-updated refresh and no PATCH; '
+                        'combined with another mutation it applies that mutation '
+                        'once and does not duplicate the checkpoint. KEY must match '
+                        '[A-Za-z0-9._:-]+ . May be passed multiple times.')
+    u.add_argument('--expect-comment-id', default=None,
+                   help='Hydration-race precondition (issue #537, AC24): abort '
+                        'before any mutation/PATCH (exit 4) if the live workpad '
+                        'comment id differs from this value (concurrent '
+                        'delete/recreate).')
+    u.add_argument('--expect-status', default=None,
+                   help='Hydration-race precondition (issue #537, AC24): abort '
+                        'before any mutation/PATCH (exit 4) if the live workpad '
+                        'Status word differs from this value (concurrent status '
+                        'change / terminal backstop transition).')
     u.add_argument('--marker', default=None, help=_marker_help)
     u.set_defaults(func=cmd_update)
+
+    s = sub.add_parser(
+        'handoff-state',
+        help='Validate the offline gate->claude handoff record (issue #537) and '
+             'print one of created-current-run/adopted-existing/unknown. Always '
+             'exits 0; every degraded shape prints "unknown" with a breadcrumb. '
+             'No network access.',
+    )
+    s.add_argument('file', help='Path to the handoff JSON record.')
+    s.add_argument('--issue', type=int, required=True,
+                   help='The run\'s resolved issue number (identity check).')
+    s.add_argument('--run-id', required=True,
+                   help='The current GITHUB_RUN_ID (identity check).')
+    s.add_argument('--run-attempt', required=True,
+                   help='The current GITHUB_RUN_ATTEMPT (identity check).')
+    s.set_defaults(func=cmd_handoff_state)
+
+    w = sub.add_parser(
+        'write-handoff-record',
+        help='Write the offline gate->claude handoff record (issue #537), normalizing '
+             'the gate origin to one of created-current-run/adopted-existing/unknown '
+             '(empty or unrecognized -> unknown). The write-side counterpart to '
+             'handoff-state. Prints nothing; no network access.',
+    )
+    w.add_argument('file', help='Path to write the handoff JSON record.')
+    w.add_argument('issue', help="The run's resolved issue number (written as int).")
+    w.add_argument('run_id', help='The current GITHUB_RUN_ID (written as a string).')
+    w.add_argument('run_attempt',
+                   help='The current GITHUB_RUN_ATTEMPT (written as a string).')
+    w.add_argument('gate', help='The gate-provided handoff token to normalize.')
+    w.set_defaults(func=cmd_write_handoff_record)
 
     args = p.parse_args()
     args.func(args)

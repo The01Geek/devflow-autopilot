@@ -50,8 +50,54 @@ The workpad is created before the branch exists so the requester sees an acknowl
 ```bash
 ISSUE_NUMBER=$ARGUMENTS
 RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"   # "/actions/runs/" segment is literal; empty env (local run) → use a "_(local run)_" placeholder
-WORKPAD_ID=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id "$ISSUE_NUMBER" || true)
+# Branch on all THREE `workpad.py id` exit codes inline — reading the command's OWN
+# exit status in the if/elif chain (issue #284: never capture the exit status into a
+# variable read in a later statement, which some inline-bash runners drop).
+if WORKPAD_ID=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id "$ISSUE_NUMBER"); then
+  :   # exit 0 — a workpad exists; WORKPAD_ID holds its comment ID (resume arm below)
+elif [ "$?" -eq 2 ]; then
+  :   # exit 2 — scanned cleanly, no workpad: the ONLY create authorization (create arm)
+else
+  :   # exit 1 — gh-api/parse/transport failure: STOP, never create (issue #537 AC5)
+fi
 ```
+
+**Preserve `workpad.py id`'s three-way exit contract before any create decision (issue #537, AC5).** `id` exits **0** (found — `WORKPAD_ID` is the printed comment ID), **2** (scanned cleanly, no workpad — the *sole* create authorization), or **1** (a gh-api / parse / transport failure — the read did not complete). The `if … ; then … elif [ "$?" -eq 2 ]; then … else … fi` above reads the command's own exit status inline (never a captured `$?` in a later statement, issue #284) and branches on all three:
+
+- **Exit 0 (the `if` branch)** → a workpad exists; resume it (the non-empty-`WORKPAD_ID` arm below).
+- **Exit 2 (the `elif [ "$?" -eq 2 ]` branch)** → no workpad; create it (the create arm below). This is the **only** value that authorizes a create.
+- **Exit 1 (the `else` branch)** → the identity read **failed**. Do **NOT** create (a duplicate workpad is worse than a delayed one) and do **NOT** proceed as if absent: stop Phase 1 with a targeted diagnostic naming the failed `id` read, so a transient API/auth failure is never misread as "first run." (On the cloud tier the gate already posted the workpad, so a genuine exit-1 here is almost always transient — surface it rather than duplicating.)
+
+**Handoff-provenance + live-status triage (cloud tier, issue #537 — AC6/AC7/AC8–AC12).** On the cloud tier (`GITHUB_ACTIONS` set) the workflow wrote an advisory handoff record naming this run's provenance. Before resetting Status, read it and the live workpad status/body so lifecycle wording is truthful:
+
+1. **Resolve provenance** (offline, no network — always exits 0, degrades to `unknown`):
+   ```bash
+   HANDOFF=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py handoff-state ".devflow/tmp/implement-handoff-${ISSUE_NUMBER}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json" --issue "$ISSUE_NUMBER" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT")
+   ```
+   `HANDOFF` is one of `created-current-run` / `adopted-existing` / `unknown`. A missing/malformed record degrades to `unknown` (AC11) — never a resume guess. **Local runs do NOT read this record** (there is no cloud handoff); a local run selects wording from live status alone (AC12).
+2. **Read the live Status and body before any reset (AC6/AC7).** On the found arm (`id` exit 0), run `workpad.py status "$ISSUE_NUMBER"` and preserve its exit contract — **0** (recognized interim/terminal word, class printed), **1** (missing/empty/unrecognized Status — a content-shape failure), **2** (workpad disappeared between the identity and status reads — a race), **3** (gh/transport/auth failure). On **exit 1/2/3**, stop with a targeted diagnostic — reset no Status, mutate no body, create no comment. Then read the body with `workpad.py body "$WORKPAD_ID"`; a body-fetch failure likewise stops with a diagnostic and no mutation (AC7). Retain the observed **numeric comment ID** and the **exact stripped status word** — the hydration update below passes them as `--expect-comment-id`/`--expect-status` so a concurrent terminal flip or delete/recreate cannot be overwritten by this stale snapshot (AC24).
+3. **Select the hydration lifecycle event** from provenance × live status:
+
+   | Execution state | Lifecycle event (the `--note` wording) |
+   | --- | --- |
+   | Cloud `created-current-run`, gate-created workpad | `agent initialized; Phase 1 workpad hydrated` |
+   | Cloud `adopted-existing`, interim workpad | `/devflow:implement run resumed; Phase 1 workpad hydrated` |
+   | Cloud `adopted-existing`, terminal workpad | `/devflow:implement new run initialized from terminal workpad; Phase 1 workpad hydrated` |
+   | Cloud `unknown`, readable workpad | `agent initialized; workpad provenance unavailable; Phase 1 workpad hydrated` |
+   | Local, interim workpad | `/devflow:implement run resumed; Phase 1 workpad hydrated` |
+   | Local, terminal workpad | `/devflow:implement new run initialized from terminal workpad; Phase 1 workpad hydrated` |
+   | Cleanly-absent workpad (either tier) | the existing `/devflow:implement run started` seed, then `agent initialized; Phase 1 workpad hydrated` |
+
+   **`run resumed` is reserved for adoption of an *interim* workpad from an earlier execution** — a fresh same-run gate handoff (`created-current-run`) must NOT claim a resume (AC8). This is the whole point of issue #537: a normal first run said "run resumed" falsely.
+
+**Cloud startup checkpoints (issue #537, AC13/AC15/AC19).** On the cloud tier only, and only when the workpad carries a canonical `## Progress` section, timestamp two of the four startup boundaries here with the idempotent keyed-checkpoint API. Keys are `gha:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:<stage>` (both run id AND attempt, so a GitHub re-run gets fresh rows while a replay inside one attempt does not — AC15). The stage vocabulary is exactly the four tokens `gate-adopted` / `claude-invoke` / `phase1-entered` / `phase1-hydrated`.
+
+- **Entry checkpoint — AFTER the id/status/body triage passes and BEFORE the issue fetch (1.1) / AC parse (1.2):**
+  ```bash
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update "$ISSUE_NUMBER" --checkpoint "gha:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:phase1-entered" "agent entered Phase 1 setup; workpad triage passed"
+  ```
+  Best-effort: a checkpoint failure (or an old pinned helper lacking `--checkpoint`) warns and continues — it never blocks the run (AC16). A **legacy workpad lacking `## Progress`** makes this a structural no-op (the helper declines with no PATCH); warn, then follow the legacy-workpad migration below before recording hydration (AC13).
+- **Hydration checkpoint — combined with the existing Phase 1 hydration update below** (so it adds no extra standalone PATCH — AC19): append `--checkpoint "gha:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:phase1-hydrated" "<the selected lifecycle event>"` to that update, alongside `--expect-comment-id`/`--expect-status`.
 
 - **`WORKPAD_ID` empty (fresh issue — local-tier run with no `gate` job)** → Build the lean skeleton with the helper and create it, then mirror the issue's Acceptance Criteria into it:
   ```bash
@@ -67,11 +113,14 @@ WORKPAD_ID=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner rep
 - **`WORKPAD_ID` non-empty (resume — the normal cloud path, since `gate` pre-created it; or a re-run)** → Read the live body with `workpad.py body $WORKPAD_ID`. Treat its `## Progress` notes and `Devflow Reflection` as load-bearing context (see Workpad Reference). Reset for this run **and populate the Acceptance Criteria** (a `gate`-created workpad carries only a placeholder AC section, so always replace it):
   ```bash
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER \
+      --expect-comment-id "$WORKPAD_ID" --expect-status "<observed status word>" \
       --status Setup \
       --run-link "[View run]($RUN_URL)" \
       --replace-acs-file /tmp/acs-${ARGUMENTS}.md \
-      --note "/devflow:implement run resumed"
+      --checkpoint "gha:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:phase1-hydrated" "<selected lifecycle event>" \
+      --note "<selected lifecycle event>"
   ```
+  The `--note` (and the combined `phase1-hydrated` checkpoint text) is the **selected lifecycle event** from the provenance × live-status table above — **not** a hardcoded `/devflow:implement run resumed` (issue #537). Replace `<observed status word>` with the exact stripped Status word read in triage step 2 and `<selected lifecycle event>` with the row that matched; on the cloud tier the `--checkpoint`/`--expect-*` flags are included, on a local run drop them (local runs carry no cloud handoff/checkpoint keys — AC12). If the update **aborts with exit 4** (a precondition mismatch — the live comment ID or Status changed under you, e.g. a terminal backstop flip or a delete/recreate race), do NOT retry blindly: re-read the live workpad, re-run the triage, and re-select the wording against the *current* state (AC24).
   **Legacy-workpad migration (required):** a workpad created before run/PR links and the `## Progress` checklist existed won't have those lines. `--run-link`/`--pr-link` insert the missing header lines on their own, but `--tick-progress`/`--note` (used at every later phase boundary) will **abort the run** with `section '## Progress' not found` if the section is absent. So when resuming such a workpad you MUST seed a `## Progress` section before Phase 1.5 — `workpad.py body` the live comment, splice the `## Progress` checklist from the template above into the body (right after the front-matter, before `## Plan`), and `workpad.py patch $WORKPAD_ID <file>`. Do not leave it to chance: skip this and the first `--tick-progress`/`--note` call fails closed.
 
 After this step, every later phase boundary touches the workpad via `workpad.py update $ISSUE_NUMBER ...` — no `WORKPAD_ID` variable to track across calls.
