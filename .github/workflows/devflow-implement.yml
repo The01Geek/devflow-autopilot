@@ -127,6 +127,11 @@ jobs:
       should_run: ${{ steps.resolve.outputs.should_run }}
       number: ${{ steps.resolve.outputs.number }}
       duplicate: ${{ steps.dedupe.outputs.duplicate }}
+      # Workpad provenance for this run (issue #537, AC1): exactly one of
+      # created-current-run / adopted-existing / unknown, decided by the
+      # early-workpad step below. The claude job normalizes it into the
+      # ephemeral handoff record so Phase 1 can choose truthful lifecycle wording.
+      workpad_handoff: ${{ steps.early_workpad.outputs.handoff }}
     steps:
       - uses: actions/checkout@v6
       # Materialize the plugin into the workspace so the resolver/dedupe/react
@@ -256,37 +261,82 @@ jobs:
       # upstream `dedupe` step (this step only runs when duplicate != 'true');
       # the `id` guard can't be atomic on its own.
       - name: Create workpad (early acknowledgement)
+        id: early_workpad
         if: ${{ steps.resolve.outputs.should_run == 'true' && steps.dedupe.outputs.duplicate != 'true' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ steps.resolve.outputs.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          # AC1: initialize the provenance output to `unknown` BEFORE any fallible
+          # work, so every early exit (missing helper, a lookup failure, a create
+          # failure) leaves a well-formed neutral token rather than an empty output
+          # the claude job would then have to special-case. The three fallible arms
+          # below overwrite it only on a positively-observed outcome.
+          echo "handoff=unknown" >> "$GITHUB_OUTPUT"
           WP=.devflow/vendor/devflow/scripts/workpad.py
-          if [ ! -f "$WP" ]; then
-            echo "::warning::workpad.py not vendored at $WP; skipping early workpad (the claude job will create it)." >&2
+          CLS=.devflow/vendor/devflow/scripts/classify-id-exit.sh
+          if [ ! -f "$WP" ] || [ ! -f "$CLS" ]; then
+            echo "::warning::workpad.py not vendored at $WP (or classify-id-exit.sh at $CLS); skipping early workpad (the claude job will create it). handoff=unknown." >&2
             exit 0
           fi
-          # Skip CREATE if a workpad already exists (re-trigger / earlier run, incl.
-          # a stall-backstop auto-resume) so the claude job resumes it instead of
-          # getting a duplicate — but first deterministically refresh its Run: link
-          # to THIS run. Without this the link keeps pointing at the ORIGINAL run,
-          # so an operator watching a stalled/retried run can't click through to the
-          # currently-active job's logs. This write happens at the workflow (gate)
-          # level, so it lands regardless of whether the subsequent claude job goes
-          # on to execute Phase 1.3 — it is not conditioned on the duplicate-run
-          # outcome beyond this step's own existing if: gate. Best-effort, mirroring
-          # the create-failure path below: warn on failure and exit 0 regardless, so
-          # a workpad-update hiccup never fails the gate job or blocks the run.
-          if python3 "$WP" id "$NUMBER" >/dev/null 2>&1; then
+          # AC2: handle the THREE `workpad.py id` outcomes distinctly — exit 0 found,
+          # exit 2 cleanly absent (the SOLE create authorization), everything else
+          # (exit 1 unreadable, or a crash/127/segfault) → NO create. The old
+          # `if id …; then` collapsed every non-zero exit into one create branch, so a
+          # transient read failure could be misread as absence and attempt a DUPLICATE
+          # workpad. Read `id`'s OWN exit status inline (`|| id_exit=$?` — no intervening
+          # command, the fail-closed coupled twin of phase-1-setup.md §1.3's three-way
+          # form, never a cross-statement `$?` capture, issue #284) and let the
+          # suite-tested classify-id-exit.sh map that exit → a dispatch action. The
+          # exit→action mapping (the reorderable/invertible logic a presence-pin cannot
+          # catch) lives in the helper, driven per-arm from lib/test/run.sh; the arms
+          # below emit the provenance tokens. `create` is authorized on exit 2
+          # SPECIFICALLY and any unexpected code falls to `skip`, never a duplicate.
+          id_exit=0
+          python3 "$WP" id "$NUMBER" >/dev/null 2>&1 || id_exit=$?
+          case "$(bash "$CLS" "$id_exit")" in
+          adopt)
+            # Found: this is an ADOPTED existing workpad (a re-trigger / earlier run,
+            # incl. a stall-backstop auto-resume). Refresh its Run: link to THIS run so
+            # an operator watching a stalled/retried run can click through to the
+            # active job's logs, THEN record the gate-adopted startup checkpoint. These
+            # are two SEPARATE best-effort calls, not one combined update: the
+            # `--checkpoint` requires a canonical `## Progress` section, so a legacy
+            # workpad predating that checklist would make a combined call abort
+            # structurally and silently drop the Run-link refresh too (the gate has no
+            # legacy-migration path) — issue #537 review. Splitting adds one PATCH only
+            # on the adopted/resume path, never on a normal fresh run (which creates
+            # rather than adopts), so AC19's fresh-run write budget is unchanged.
             if ! python3 "$WP" update "$NUMBER" --run-link "[View run]($RUN_URL)"; then
               echo "::warning::early workpad Run-link refresh failed for #$NUMBER; the claude job will refresh it in Phase 1.3 instead." >&2
             fi
-            echo "Workpad already exists for #$NUMBER — refreshed Run link to this run; leaving the rest for the claude job to resume."
+            if ! python3 "$WP" update "$NUMBER" --checkpoint "gha:${RUN_ID}:${RUN_ATTEMPT}:gate-adopted" "trigger accepted; existing workpad adopted"; then
+              echo "::warning::gate-adopted checkpoint failed for #$NUMBER (a legacy workpad lacking ## Progress, or a transient error); the Run-link refresh above still landed." >&2
+            fi
+            echo "handoff=adopted-existing" >> "$GITHUB_OUTPUT"
+            echo "Workpad already exists for #$NUMBER — refreshed Run link + gate-adopted checkpoint; leaving the rest for the claude job to resume."
             exit 0
-          fi
+            ;;
+          create)
+            # Cleanly absent (id exit 2, the SOLE create authorization): fall through to
+            # the create block below.
+            :
+            ;;
+          *)
+            # `skip` — exit 1 (unreadable gh/API/parse failure) OR any unexpected
+            # non-{0,2} code (a killed/segfaulted/absent python3): do NOT create — a
+            # duplicate workpad is worse than a delayed one, and the claude job's Phase 1
+            # retries the read. handoff stays `unknown` (already emitted above).
+            echo "::warning::workpad.py id for #$NUMBER returned a non-absent exit (unreadable or unexpected); NOT creating a workpad to avoid a duplicate — the claude job will retry the read in Phase 1. handoff=unknown." >&2
+            exit 0
+            ;;
+          esac
+          # classify-id-exit.sh returned `create` (id exit 2): cleanly absent — create.
           BODY="$(mktemp)"
           # Deterministic label-based PRE-RENDER only: YAML cannot judge issue
           # content, so this trims the bug-only "reproduction captured" sub-item by
@@ -309,9 +359,13 @@ jobs:
           # operator gets a breadcrumb (mirrors the missing-workpad.py warning).
           if ! { python3 "$WP" new-body "$NUMBER" --run-link "[View run]($RUN_URL)" $REPRO_FLAG > "$BODY" \
                  && python3 "$WP" create "$NUMBER" "$BODY"; }; then
-            echo "::warning::early workpad create failed for #$NUMBER; the claude job will create it instead." >&2
+            echo "::warning::early workpad create failed for #$NUMBER; the claude job will create it instead. handoff=unknown." >&2
             exit 0
           fi
+          # AC1: a clean create is `created-current-run` — the gate observed no
+          # workpad and successfully created one, so Phase 1 will use fresh-run
+          # wording ("agent initialized"), never a false "run resumed".
+          echo "handoff=created-current-run" >> "$GITHUB_OUTPUT"
 
       # Duplicate notice: tell the requester their command was ignored because a
       # run for this issue/PR is already in flight. Best-effort. CRITICAL: the
@@ -420,6 +474,45 @@ jobs:
       - uses: ./.github/actions/vendor-plugin
         with:
           ref: ${{ needs.config.outputs.devflow_version }}
+
+      # Validate the vendored workpad helper AND write the ephemeral handoff record
+      # (issue #537). Runs AFTER vendor-materialization and BEFORE the action so a
+      # broken vendor tree fails loud here rather than launching an agent that
+      # cannot maintain its workpad (AC25), and so Phase 1 can read truthful
+      # provenance (AC3).
+      - name: Validate vendored workpad + write handoff record
+        env:
+          NUMBER: ${{ needs.gate.outputs.number }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          GATE_HANDOFF: ${{ needs.gate.outputs.workpad_handoff }}
+        run: |
+          set -euo pipefail
+          WP=.devflow/vendor/devflow/scripts/workpad.py
+          # AC25: incomplete-vendor guard. A committed plugin directory missing this
+          # helper would launch an agent that cannot maintain the workpad — a
+          # directory's presence is not proof the helper exists. Fail BEFORE the
+          # action with an actionable diagnostic.
+          if [ ! -f "$WP" ]; then
+            echo "::error::incomplete vendor: $WP is missing after materialization — the /devflow:implement agent cannot maintain its workpad. Check the committed .devflow/vendor/devflow tree, or the vendor-plugin fetch (devflow_version)." >&2
+            exit 1
+          fi
+          # AC3: normalize the gate provenance to exactly one of the three origin
+          # tokens (an empty value from a partially-upgraded consumer, or any
+          # unexpected string, becomes `unknown`) and write the five-field JSON
+          # handoff record. Workflow-owned, gitignored, non-secret, advisory — NOT
+          # passed through Claude action settings. The normalize + write is the
+          # suite-tested workpad.py `write-handoff-record` subcommand (the write-side
+          # counterpart to `handoff-state`, sharing its `_HANDOFF_ORIGINS` vocabulary so
+          # producer and consumer cannot drift) rather than inline heredoc Python, so
+          # the empty-string and bogus-value normalization paths are driven by
+          # lib/test/run.sh. A write failure degrades to `unknown` at read time
+          # (handoff-state), so the `if !` wrapper keeps it best-effort here.
+          mkdir -p .devflow/tmp
+          REC=".devflow/tmp/implement-handoff-${NUMBER}-${RUN_ID}-${RUN_ATTEMPT}.json"
+          if ! python3 "$WP" write-handoff-record "$REC" "$NUMBER" "$RUN_ID" "$RUN_ATTEMPT" "${GATE_HANDOFF:-}"; then
+            echo "::warning::could not write handoff record $REC; Phase 1 will degrade to unknown provenance." >&2
+          fi
 
       # Provision the runtime (Python / Node / pip cache / deps) from
       # `.devflow/config.json`'s `setup` block. The logic lives in the
@@ -803,6 +896,31 @@ jobs:
             elif [ -n "$_splice" ]; then
               echo "::notice::Composed plugin/marketplace entries beyond the baked baseline (describe-plugin-compose.sh unavailable): $_splice"
             fi
+          fi
+
+      # AC13 boundary 2 (issue #537): record the "Claude job provisioning complete"
+      # startup checkpoint immediately before the action, AFTER runtime provisioning
+      # and plugin composition, so its timestamp marks the actual action boundary.
+      # Best-effort: continue-on-error so a checkpoint hiccup (or an old pinned
+      # helper lacking --checkpoint) never blocks the run — it warns and continues.
+      # A standalone PATCH (one of the ≤2 the fresh-run write budget allows, AC19).
+      - name: Checkpoint — Claude job invoking agent
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          NUMBER: ${{ needs.gate.outputs.number }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          WP=.devflow/vendor/devflow/scripts/workpad.py
+          if [ ! -f "$WP" ]; then
+            echo "::warning::workpad.py not vendored at $WP; skipping claude-invoke checkpoint." >&2
+            exit 0
+          fi
+          if ! python3 "$WP" update "$NUMBER" \
+               --checkpoint "gha:${RUN_ID}:${RUN_ATTEMPT}:claude-invoke" "Claude job setup complete; invoking agent"; then
+            echo "::warning::claude-invoke checkpoint failed for #$NUMBER (old helper lacking --checkpoint, or a transient error); continuing." >&2
           fi
 
       - name: Run Claude Code
