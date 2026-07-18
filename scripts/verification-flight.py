@@ -124,10 +124,51 @@ _CHECKOUT_REQUIRED = (
 )
 
 
+def _validate_reason_code(
+    reason: str, exact: frozenset[str], prefixes: frozenset[str]
+) -> None:
+    """Fail-fast guard on a closed machine-code vocabulary.
+
+    `.reason` is a coupled machine code a distant assertion keys on, so a typo at
+    a raise site would build a valid-but-wrong error that only fails somewhere
+    far away. Validate at construction instead: a bare code must be a known
+    literal; a `prefix:detail` code must carry a known prefix. An unknown code is
+    a programming error and raises ValueError here, at the raise site.
+    """
+    head = reason.split(":", 1)[0] if ":" in reason else reason
+    known = prefixes if ":" in reason else exact
+    if head not in known:
+        raise ValueError(f"unknown reason code: {reason!r}")
+
+
 class DeclarationError(Exception):
     """An incomplete / non-hermetic declaration — reuse is disabled."""
 
+    # The closed reason vocabulary — coupled to the raise sites in _validate_*.
+    # A new raise site adds its code here in the same change (a construction-time
+    # ValueError otherwise catches the omission at the desk).
+    _EXACT_REASONS = frozenset({
+        "declaration_not_object",
+        "unknown_schema_version",
+        "profile_not_object",
+        "profile_argv_not_nonempty_list",
+        "profile_argv_not_all_strings",
+        "profile_cwd_not_nonempty_string",
+        "profile_environment_not_object",
+        "profile_toolchain_not_object",
+        "profile_dependencies_not_object",
+        "profile_output_roots_not_list",
+        "non_hermetic_profile",
+        "checkout_not_object",
+    })
+    _REASON_PREFIXES = frozenset({
+        "profile_missing_field",
+        "checkout_missing_field",
+        "checkout_incomplete_fingerprint",
+    })
+
     def __init__(self, reason: str):
+        _validate_reason_code(reason, self._EXACT_REASONS, self._REASON_PREFIXES)
         super().__init__(reason)
         self.reason = reason
 
@@ -239,7 +280,22 @@ class ReadError(Exception):
     """A flight file that is missing, empty, truncated, or malformed — a
     non-pass with an attributable reason, never inferred as terminal."""
 
+    # The closed reason vocabulary — coupled to the raise sites in _read_flight.
+    _EXACT_REASONS = frozenset({
+        "missing",
+        "empty",
+        "malformed_json",
+        "not_object",
+        "unknown_schema_version",
+        "missing_or_invalid_state",
+    })
+    _REASON_PREFIXES = frozenset({
+        "unreadable",
+        "missing_field",
+    })
+
     def __init__(self, reason: str):
+        _validate_reason_code(reason, self._EXACT_REASONS, self._REASON_PREFIXES)
         super().__init__(reason)
         self.reason = reason
 
@@ -563,11 +619,11 @@ def cmd_finish(args) -> int:
 
     # Terminal evidence on a `passed`/`failed` result is not inferred as a clean
     # end from mere presence — the evidence gate is the one place the whole helper
-    # decides a pass, so a *malformed* summary (a non-dict scalar/array, or an
-    # empty `{}` carrying no command/exit/result fields) is the same unknown class
-    # as an absent one and must NOT be recorded as `passed`: it becomes
-    # `incomplete` and blocks any automatic relaunch. Only a non-empty object
-    # counts as present terminal evidence.
+    # decides a pass, so an *unusable* summary (a non-dict scalar/array, or an
+    # empty object `{}` with no keys) is the same unknown class as an absent one
+    # and must NOT be recorded as `passed`: it becomes `incomplete` and blocks any
+    # automatic relaunch. The gate is non-emptiness only: any object with at least
+    # one key counts as present terminal evidence — no specific field is required.
     if args.result in ("passed", "failed") and not (isinstance(summary, dict) and summary):
         flight["state"] = "incomplete"
         flight["invalidation_reason"] = "missing_terminal_evidence"

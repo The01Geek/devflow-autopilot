@@ -21,6 +21,7 @@ import importlib.util
 import io
 import json
 import os
+import stat
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -173,6 +174,30 @@ class TestClaimAndAttach(Harness):
         _, st = self.run_cmd(["status", "--flight", owner["flight_key"], "--state-dir", self.state])
         self.assertEqual(st["token_digest"], "REDACTED")
 
+    def test_attach_to_passed_flight_consumes_prior_pass(self):
+        # The ledger's raison d'être: a later same-checkout caller attaches to a
+        # TERMINAL `passed` flight and consumes the prior pass — relaunch
+        # suppressed. (Every other attach test attaches to a still-`claimed`
+        # flight; this exercises the terminal-attach path the ledger exists for.)
+        _, owner = self.claim()
+        k, t = owner["flight_key"], owner["token"]
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--state-dir", self.state, "--logs-dir", self.logs])
+        # A later caller with the identical declaration attaches — no second owner.
+        code, att = self.claim()
+        self.assertEqual(code, vf.EXIT_OK)
+        self.assertEqual(att["role"], "attacher")
+        self.assertNotIn("token", att, "a terminal-attach must never mint a second owner token")
+        self.assertEqual(att["state"], "passed")
+        self.assertEqual(att["flight_key"], k)
+        self.assertTrue(
+            att["satisfies_verification"],
+            "attaching to a passed flight must report the consumable prior pass so the "
+            "caller can suppress relaunch",
+        )
+
 
 class TestDeclarationValidation(Harness):
     def test_non_hermetic_profile_rejected(self):
@@ -227,6 +252,28 @@ class TestCompareAndSwap(Harness):
         c2, out = self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
         self.assertEqual(c2, vf.EXIT_CAS_REJECT)
         self.assertIn("not_claimed", out["reason"])
+
+    def test_mark_running_records_supplied_owner_evidence(self):
+        # --evidence is recorded verbatim as owner_evidence (logical owner
+        # evidence the caller stamps immediately before launching its command).
+        _, owner = self.claim()
+        k, t = owner["flight_key"], owner["token"]
+        code, _ = self.run_cmd(["mark-running", "--flight", k, "--token", t,
+                                "--evidence", "pid=4242 launched run.sh",
+                                "--state-dir", self.state])
+        self.assertEqual(code, vf.EXIT_OK)
+        _, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+        self.assertEqual(st["state"], "running")
+        self.assertEqual(st["owner_evidence"], "pid=4242 launched run.sh")
+
+    def test_mark_running_records_default_owner_evidence(self):
+        # Without --evidence a non-empty default owner-evidence string is stored,
+        # never left null on a running handle.
+        _, owner = self.claim()
+        k, t = owner["flight_key"], owner["token"]
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        _, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+        self.assertEqual(st["owner_evidence"], "owner running verification command")
 
     def test_post_terminal_transition_rejected(self):
         _, owner = self.claim()
@@ -569,6 +616,119 @@ class TestNoExecutionContract(unittest.TestCase):
             set(vf.ALL_STATES),
             {"claimed", "running", "passed", "failed", "timed_out", "cancelled", "stale", "incomplete"},
         )
+
+
+class TestPermissionModes(Harness):
+    """The secrecy/atomicity posture: the flight file is owner-only 0o600 and the
+    state directory owner-only 0o700. A regression to a world-readable mode (the
+    owner token digest and full checkout fingerprint live in the file) must fail
+    here rather than pass CI. Portable across macOS/BSD + Linux via os.stat mode
+    bits (POSIX-only; a non-POSIX host would need a skip, but the suite is POSIX)."""
+
+    def test_flight_file_is_owner_only_0600(self):
+        _, owner = self.claim()
+        path = Path(self.state) / f"{owner['flight_key']}.json"
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        self.assertEqual(mode, 0o600, f"flight file must be 0o600, got {oct(mode)}")
+        # No group/other bits at all — a widen to world-readable trips this.
+        self.assertEqual(mode & 0o077, 0, f"flight file exposes group/other bits: {oct(mode)}")
+
+    def test_state_dir_is_owner_only_0700(self):
+        self.claim()
+        mode = stat.S_IMODE(os.stat(self.state).st_mode)
+        self.assertEqual(mode, 0o700, f"state dir must be 0o700, got {oct(mode)}")
+        self.assertEqual(mode & 0o077, 0, f"state dir exposes group/other bits: {oct(mode)}")
+
+
+class TestValidationReasonBranches(Harness):
+    """Every fail-closed _validate_profile / _validate_checkout reason branch,
+    driven by a malformed input and keyed on its EXACT reason literal. These
+    reasons are caller-keyable contract (they surface in the CLI JSON `reason`
+    field), so each is a tested shape — the adversarial input-shape matrix, not
+    the happy path."""
+
+    def _reason(self, decl_obj):
+        code, out = self.run_cmd(["claim", "--input-file", self._write(decl_obj),
+                                  "--state-dir", self.state, "--logs-dir", self.logs])
+        self.assertEqual(code, vf.EXIT_INVALID, f"expected EXIT_INVALID for {decl_obj!r}")
+        return out["reason"]
+
+    def test_declaration_not_object(self):
+        self.assertEqual(self._reason([1, 2, 3]), "declaration_not_object")
+
+    def test_profile_not_object(self):
+        d = _decl()
+        d["profile"] = "not-a-dict"
+        self.assertEqual(self._reason(d), "profile_not_object")
+
+    def test_profile_argv_not_all_strings(self):
+        self.assertEqual(self._reason(_decl(profile={"argv": ["run.sh", 5]})),
+                         "profile_argv_not_all_strings")
+
+    def test_profile_cwd_not_nonempty_string(self):
+        self.assertEqual(self._reason(_decl(profile={"cwd": ""})),
+                         "profile_cwd_not_nonempty_string")
+        self.assertEqual(self._reason(_decl(profile={"cwd": 5})),
+                         "profile_cwd_not_nonempty_string")
+
+    def test_profile_environment_not_object(self):
+        self.assertEqual(self._reason(_decl(profile={"environment": "x"})),
+                         "profile_environment_not_object")
+
+    def test_profile_toolchain_not_object(self):
+        self.assertEqual(self._reason(_decl(profile={"toolchain": []})),
+                         "profile_toolchain_not_object")
+
+    def test_profile_dependencies_not_object(self):
+        self.assertEqual(self._reason(_decl(profile={"dependencies": "x"})),
+                         "profile_dependencies_not_object")
+
+    def test_profile_output_roots_not_list(self):
+        self.assertEqual(self._reason(_decl(profile={"output_roots": "x"})),
+                         "profile_output_roots_not_list")
+
+    def test_checkout_not_object(self):
+        d = _decl()
+        d["checkout"] = "not-a-dict"
+        self.assertEqual(self._reason(d), "checkout_not_object")
+
+    def test_checkout_missing_field(self):
+        d = _decl()
+        del d["checkout"]["head"]
+        self.assertEqual(self._reason(d), "checkout_missing_field:head")
+
+
+class TestReasonVocabulary(unittest.TestCase):
+    """Construction-time validation of the closed .reason machine-code vocabulary.
+    A typo at a raise site builds a valid-but-wrong error that would only fail a
+    distant assertion; construction rejects an unknown code at the raise site."""
+
+    def test_declaration_error_known_codes_accepted(self):
+        # Bare literals and prefix:detail codes from real raise sites construct.
+        vf.DeclarationError("non_hermetic_profile")
+        vf.DeclarationError("profile_missing_field:toolchain")
+        vf.DeclarationError("checkout_incomplete_fingerprint:head")
+
+    def test_read_error_known_codes_accepted(self):
+        vf.ReadError("malformed_json")
+        vf.ReadError("missing_field:flight_key")
+        vf.ReadError("unreadable:OSError")
+
+    def test_declaration_error_unknown_bare_code_rejected(self):
+        with self.assertRaises(ValueError):
+            vf.DeclarationError("profile_not_an_object")  # typo of profile_not_object
+
+    def test_declaration_error_unknown_prefix_rejected(self):
+        with self.assertRaises(ValueError):
+            vf.DeclarationError("profile_missing_feild:toolchain")  # typo'd prefix
+
+    def test_read_error_unknown_bare_code_rejected(self):
+        with self.assertRaises(ValueError):
+            vf.ReadError("malfrmed_json")
+
+    def test_read_error_unknown_prefix_rejected(self):
+        with self.assertRaises(ValueError):
+            vf.ReadError("unreadble:OSError")  # typo'd prefix
 
 
 if __name__ == "__main__":
