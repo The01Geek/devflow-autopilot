@@ -585,8 +585,10 @@ real record carries, none of which is recoverable **from the fix commits**.
   breadcrumb naming the tried value. **`--persist` refreshes the base ref before synthesis selects
   any commit (issue #532):** when an `origin` remote is configured, it fetches `origin/<base>` into
   `refs/remotes/origin/<base>` (the remote-tracking **cache** only — it advances no local branch
-  ref, and this is separate from the telemetry-branch fetch, which touches only
-  `refs/remotes/origin/<telemetry-branch>`). The base branch name has a **single producer** in
+  ref at all; this is separate from the telemetry-branch handling, whose *fetch refspec* likewise
+  targets `refs/remotes/origin/<telemetry-branch>` but which then additionally fast-forwards its own
+  local ref `refs/heads/<telemetry-branch>` — the base-ref refresh has no such local-ref step).
+  The base branch name has a **single producer** in
   `lib/efficiency-trace.sh` — `do_persist` resolves `.base_branch` once and both the refresh and
   `synth_base_ref` consume that one resolution. This closes the misattribution window: before the
   refresh, a stale `origin/<base>` (shared across linked worktrees, which nobody pulls) widened

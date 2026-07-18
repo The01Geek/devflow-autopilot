@@ -500,7 +500,7 @@ synthesize_iter_workpads() {
   # caller that reaches synthesis without do_persist having seeded it (the sole
   # production path always seeds it); it is never `established`-by-accident here.
   if [ "${_DEVFLOW_BASE_REF_STATUS:-established}" = unestablished ]; then
-    echo "::warning::efficiency-trace.sh --persist: the base ref 'origin/${_DEVFLOW_BASE_BRANCH:-}' is UNESTABLISHED (its pre-synthesis refresh did not succeed — see the refresh warning above); commit selection is skipped, so no synthesized iter-*.json is written this run" >&2
+    echo "::warning::efficiency-trace.sh --persist: the base ref 'origin/${_DEVFLOW_BASE_BRANCH:-main}' is UNESTABLISHED (its pre-synthesis refresh did not succeed — see the refresh warning above); commit selection is skipped, so no synthesized iter-*.json is written this run" >&2
     return 3
   fi
   if ! base="$(synth_base_ref "$root")"; then
@@ -1307,8 +1307,8 @@ do_persist() {
   # `base` prefers `origin/<base_branch>` (synth_base_ref). Remote-tracking refs are
   # SHARED across linked worktrees, so a stale `origin/<base>` — which nothing on this
   # path refreshed — widens the range back into already-merged foreign history and
-  # attributes another PR's fix commits to THIS run (the 57/86-record corruption #532
-  # documents). This block refreshes `origin/<base>` into the remote-tracking cache
+  # attributes another PR's fix commits to THIS run (the synthesized-record
+  # misattribution #532 documents). This block refreshes `origin/<base>` into the remote-tracking cache
   # BEFORE any fork selects a commit, and records a two-valued status the synthesis
   # guard reads. It borrows the MECHANICAL shape of the telemetry-branch block above
   # (detect-remote → consult read-only → fetch into the cache → assert status AFTER
@@ -1351,7 +1351,16 @@ do_persist() {
     if _base_remote_line="$(GIT_TERMINAL_PROMPT=0 git -C "$root" ls-remote --heads origin "$_DEVFLOW_BASE_BRANCH" 2>/dev/null)"; then
       if [ -z "$_base_remote_line" ]; then
         _DEVFLOW_BASE_REF_STATUS=established           # established: remote carries no such branch — local base accepted
-        echo "efficiency-trace.sh --persist: base-ref refresh skipped — origin carries no branch '${_DEVFLOW_BASE_BRANCH}' (fresh adopter, or a deleted/renamed base); accepted the local base '${_DEVFLOW_BASE_BRANCH}' without a refresh" >&2
+        # The remote AUTHORITATIVELY carries no such branch, so any lingering
+        # refs/remotes/origin/<base> is a stale cache from a prior fetch (the base was
+        # deleted or renamed on origin). Prune it best-effort so synth_base_ref's
+        # `origin/<base>` iteration does NOT resolve to that stale tip and re-widen the
+        # range — without this, the "accepted the local base" breadcrumb would overclaim
+        # (synth_base_ref tries origin/<base> first). A no-op when no such cache ref
+        # exists (the fresh-adopter case). Best-effort: a failure to delete leaves the
+        # pre-existing behavior, never aborts (the whole helper is exit-0/best-effort).
+        git -C "$root" update-ref -d "refs/remotes/origin/${_DEVFLOW_BASE_BRANCH}" 2>/dev/null || true
+        echo "efficiency-trace.sh --persist: base-ref refresh skipped — origin carries no branch '${_DEVFLOW_BASE_BRANCH}' (fresh adopter, or a deleted/renamed base); pruned any stale remote-tracking cache and accepted the local base '${_DEVFLOW_BASE_BRANCH}' without a refresh" >&2
       elif GIT_TERMINAL_PROMPT=0 git -C "$root" fetch -q --no-tags origin "+${_DEVFLOW_BASE_BRANCH}:refs/remotes/origin/${_DEVFLOW_BASE_BRANCH}" 2>/dev/null; then
         _DEVFLOW_BASE_REF_STATUS=established           # established: refreshed origin/<base> into the remote-tracking cache
       else

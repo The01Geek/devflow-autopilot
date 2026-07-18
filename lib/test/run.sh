@@ -20424,6 +20424,72 @@ assert_pin_red_under "p3r-enum(R16): phase-3-review.md failed-search enumeration
   's/, a base ref left unestablished by a failed origin\/<base> refresh \(issue #532\), or a failed/ or a failed/' \
   "$LIB/../skills/implement/phases/phase-3-review.md"
 
+# et-fresh(R15) — the DISTINCT fetch-fail arm: ls-remote SUCCEEDS with output (the
+# branch exists on origin) but the subsequent `git fetch` FAILS → unestablished →
+# decline, with the arm's own "could not refresh" breadcrumb (textually distinct
+# from R2's ls-remote-query-fail "could not query origin" breadcrumb). Without this
+# fixture the ls-remote-succeeds-then-fetch-fails arm — the contended-lock / partial-
+# transfer residual the issue documents — is exercised by no test, and a mis-wire that
+# set it `established` would proceed against a possibly-stale ref while the suite
+# stayed green (the fail-open class #532 exists to close). The fetch is made to fail
+# by advertising a ref whose object origin cannot deliver: a builder pushes a foreign
+# `main`, its objects are then deleted from the bare origin, and this run's repo has
+# its OWN main (never fetched the foreign object) — so `ls-remote --heads origin main`
+# lists the ref while `git fetch +main:refs/remotes/origin/main` fails to transfer it.
+ETF15_ORIGIN="$(git_sandbox "et-fresh R15 origin")"; git -C "$ETF15_ORIGIN" init --bare -q
+ETF15_BLD="$(git_sandbox "et-fresh R15 builder")"
+git -C "$ETF15_BLD" init -q
+git -C "$ETF15_BLD" config user.email t@e.com; git -C "$ETF15_BLD" config user.name t
+printf f > "$ETF15_BLD/f"; git -C "$ETF15_BLD" add f; git -C "$ETF15_BLD" commit -qm foreign
+git -C "$ETF15_BLD" branch -M main; git -C "$ETF15_BLD" remote add origin "$ETF15_ORIGIN"; git -C "$ETF15_BLD" push -q origin main
+find "$ETF15_ORIGIN/objects" -type f -delete   # origin advertises main but can no longer deliver its object
+ETF15_REPO="$(git_sandbox "et-fresh R15 repo")"
+git -C "$ETF15_REPO" init -q
+git -C "$ETF15_REPO" config user.email t@e.com; git -C "$ETF15_REPO" config user.name t
+printf s > "$ETF15_REPO/s"; git -C "$ETF15_REPO" add s; git -C "$ETF15_REPO" commit -qm base
+git -C "$ETF15_REPO" branch -M main; git -C "$ETF15_REPO" remote add origin "$ETF15_ORIGIN"
+git -C "$ETF15_REPO" checkout -q -b feat
+printf a > "$ETF15_REPO/a"; git -C "$ETF15_REPO" add a
+git -C "$ETF15_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETF15_WPD="$ETF15_REPO/.devflow/tmp/review/pr-15/run-v"; mkdir -p "$ETF15_WPD"
+ETF15_ERR="$( ( cd "$ETF15_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF15_WPD" --slug pr-15 ) 2>&1 1>/dev/null )"; ETF15_RC=$?
+assert_eq "et-fresh(R15): fetch-fail arm exits 0" "0" "$ETF15_RC"
+assert_eq "et-fresh(R15): fetch-fail arm declines — NO iter-*.json written" "no" \
+  "$([ -e "$ETF15_WPD/iter-1.json" ] && echo yes || echo no)"
+assert_eq "et-fresh(R15): the DISTINCT fetch-fail breadcrumb ('could not refresh') fires" "yes" \
+  "$(printf '%s' "$ETF15_ERR" | grep -qF 'could not refresh' && echo yes || echo no)"
+assert_eq "et-fresh(R15): fetch-fail arm is NOT the ls-remote-query-fail arm (distinct breadcrumb)" "no" \
+  "$(printf '%s' "$ETF15_ERR" | grep -qF 'could not query origin for base' && echo yes || echo no)"
+rm -rf "$ETF15_ORIGIN" "$ETF15_BLD" "$ETF15_REPO"
+
+# et-fresh(R17) — empty ls-remote + a STALE refs/remotes/origin/<base> cache ref →
+# the arm prunes that stale cache so synth_base_ref's `origin/<base>` iteration cannot
+# resolve to it (which would re-widen the range and contradict the arm's "accepted the
+# local base" breadcrumb). Asserts the stale ref is gone after the run, synthesis still
+# proceeds, and the prune breadcrumb fires. (R13 covers the no-stale-cache case where the
+# prune is a no-op.)
+ETF17_ORIGIN="$(git_sandbox "et-fresh R17 origin")"; git -C "$ETF17_ORIGIN" init --bare -q
+ETF17_REPO="$(git_sandbox "et-fresh R17 repo")"
+git -C "$ETF17_REPO" init -q
+git -C "$ETF17_REPO" config user.email t@e.com; git -C "$ETF17_REPO" config user.name t
+git -C "$ETF17_REPO" commit --allow-empty -qm base; git -C "$ETF17_REPO" branch -M main
+git -C "$ETF17_REPO" remote add origin "$ETF17_ORIGIN"     # origin configured, but main NOT pushed (empty ls-remote)
+git -C "$ETF17_REPO" update-ref refs/remotes/origin/main "$(git -C "$ETF17_REPO" rev-parse HEAD)"   # stale cache ref
+git -C "$ETF17_REPO" checkout -q -b feat
+printf a > "$ETF17_REPO/a"; git -C "$ETF17_REPO" add a
+git -C "$ETF17_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETF17_OWN="$(git -C "$ETF17_REPO" rev-parse HEAD)"
+ETF17_WPD="$ETF17_REPO/.devflow/tmp/review/pr-17/run-p"; mkdir -p "$ETF17_WPD"
+ETF17_ERR="$( ( cd "$ETF17_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF17_WPD" --slug pr-17 ) 2>&1 1>/dev/null )"; ETF17_RC=$?
+assert_eq "et-fresh(R17): empty-ls-remote+stale-cache exits 0" "0" "$ETF17_RC"
+assert_eq "et-fresh(R17): the stale refs/remotes/origin/<base> cache ref is PRUNED" "yes" \
+  "$(git -C "$ETF17_REPO" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null 2>&1 && echo no || echo yes)"
+assert_eq "et-fresh(R17): synthesis still PROCEEDS against the local base and writes its record" "$ETF17_OWN" \
+  "$(jq -r '.fix_commit_sha' "$ETF17_WPD/iter-1.json" 2>/dev/null)"
+assert_eq "et-fresh(R17): the stale-cache-prune breadcrumb fires" "yes" \
+  "$(printf '%s' "$ETF17_ERR" | grep -qF 'pruned any stale remote-tracking cache' && echo yes || echo no)"
+rm -rf "$ETF17_ORIGIN" "$ETF17_REPO"
+
 # T5 → AC5: the fix-commit subject literal is a coupled TWO-SITE invariant —
 # skills/review-and-fix/SKILL.md item 6 (the producer) ↔ lib/efficiency-trace.sh
 # (the parser). Both sites must carry it; a targeted edit to either turns RED.
