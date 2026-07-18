@@ -8099,28 +8099,166 @@ IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
 REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 
-# #450 coupled-mirror pin: matcher-probe.yml's implement-probe job hand-copies
-# devflow-implement.yml's baked --allowed-tools TOOLS literal into its IMPLEMENT='…'
-# compose var (a deliberate second copy so the probe measures the REAL implement
-# profile, like the review probe's REVIEW literal). A drift between the two would make
-# the probe silently measure a stale profile, so assert comma-split token-list identity
-# (order + content) here — the repo's coupled-mirror discipline applied to the new mirror
-# site. The two literals are NOT byte-identical (the baked one is newline+indent-wrapped,
-# the probe copy single-line); the extractor flattens
-# both literals to comma-split tokens and compares order + content; it prints DRIFT (fail)
-# on any divergence and EXTRACT-FAIL if either literal can't be located.
-MPROBE_YML="$LIB/../.github/workflows/matcher-probe.yml"
-assert_eq "#450 pin: matcher-probe IMPLEMENT literal is token-synced with devflow-implement.yml TOOLS" "SYNCED" \
-  "$(python3 -c '
-import re,sys
-b=re.search(r"--allowed-tools\s*\n\s*\"(.*?)Bash\(tee:\*\)\$\{\{", open(sys.argv[1]).read(), re.S)
-p=re.search(r"IMPLEMENT=\x27(.*?)\x27", open(sys.argv[2]).read(), re.S)
-if not b or not p:
-    print("EXTRACT-FAIL"); sys.exit(0)
-bt=[t.strip() for t in (b.group(1)+"Bash(tee:*)").split(",") if t.strip()]
-pt=[t.strip() for t in p.group(1).split(",") if t.strip()]
-print("SYNCED" if bt==pt else "DRIFT")
-' "$IMPL_YML" "$MPROBE_YML")"
+# ── #561 capability-profile manifest generator (REPLACES the #450 token-sync pin) ──
+# The #450 coupled-mirror pin (matcher-probe IMPLEMENT ↔ devflow-implement.yml baked
+# TOOLS token-sync) is DELETED here under the coupled-invariant same-change rule: both
+# that equality AND the previously-unpinned review-tier equality (runner review ↔ probe
+# REVIEW) are now covered by lib/generate-capability-profiles.py --check, which byte-
+# compares every generated region (banner included) against lib/capability-profiles.json.
+# The generator is the single source of truth; run.sh drives its --check so the required
+# `lib + python tests` CI job gates every PR, and the same gate runs locally.
+CAPGEN="$LIB/generate-capability-profiles.py"
+CAPMUT="$LIB/test/cap-mutate.py"
+CAP_WF_DIR="$LIB/../.github/workflows"
+
+# T2/T10 — --check on the REAL committed tree is a clean pass: exit 0, empty stdout
+# (python3 as the leading token, per the AC). A drifted region turns THIS suite RED.
+CAP_CHECK_OUT="$(python3 "$CAPGEN" --check 2>/dev/null)"; CAP_CHECK_RC=$?
+assert_eq "#561 --check on the committed tree exits 0" "0" "$CAP_CHECK_RC"
+assert_eq "#561 --check on the committed tree prints empty stdout" "" "$CAP_CHECK_OUT"
+
+# T11 — the generator is python3 stdlib-only (imports no yaml module).
+assert_eq "#561 T11 generator imports no 'yaml' module (stdlib-only)" "0" \
+  "$(grep -c 'import yaml' "$CAPGEN")"
+
+# Build an isolated fixture mirroring the repo layout; the generator resolves its paths
+# from __file__, so a copy under <root>/lib runs against <root>/.github/workflows.
+_cap_fixture() {  # <root>
+  mkdir -p "$1/lib" "$1/.github/workflows"
+  cp "$CAPGEN" "$LIB/capability-profiles.json" "$LIB/review-profile.tokens" "$1/lib/"
+  cp "$CAP_WF_DIR/devflow-runner.yml" "$CAP_WF_DIR/devflow.yml" \
+     "$CAP_WF_DIR/devflow-implement.yml" "$CAP_WF_DIR/matcher-probe.yml" "$1/.github/workflows/"
+}
+_cap_wf_snap() { cat "$1/.github/workflows/"*.yml 2>/dev/null; }
+
+# Fail-closed matrix + planted-defect driver: apply a named mutation (the visible
+# "mutation command" per the behavioral-fix-pin evidence rule), run the generator in
+# <mode> (check|generate), and assert rc!=0 AND the stderr breadcrumb contains <substr>
+# AND (when <unchanged> is passed) the target workflow bytes are byte-unchanged.
+_cap_fail() {  # name mutation mode substr [unchanged]
+  local name="$1" mut="$2" mode="$3" sub="$4" chk="${5:-}" root rc before after v=yes
+  root="$(mktemp -d)" || { echo FAIL >> "$RESULTS_FILE"; printf '  FAIL  %s (mktemp)\n' "$name"; return; }
+  _cap_fixture "$root"
+  if ! python3 "$CAPMUT" "$root" "$mut" 2>"$root/.muterr"; then
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  %s (mutation itself failed: %s)\n' "$name" "$(cat "$root/.muterr")"
+    rm -rf "$root"; return
+  fi
+  before="$(_cap_wf_snap "$root")"
+  if [ "$mode" = check ]; then
+    python3 "$root/lib/generate-capability-profiles.py" --check >/dev/null 2>"$root/.err"; rc=$?
+  else
+    python3 "$root/lib/generate-capability-profiles.py" >/dev/null 2>"$root/.err"; rc=$?
+  fi
+  after="$(_cap_wf_snap "$root")"
+  [ "$rc" -ne 0 ] || v="no(rc=0, expected non-zero)"
+  grep -qF "$sub" "$root/.err" || v="no(breadcrumb '$sub' missing; stderr: $(tr '\n' '|' <"$root/.err"))"
+  if [ "$chk" = unchanged ] && [ "$before" != "$after" ]; then v="no(target bytes changed by a failed run)"; fi
+  assert_eq "$name" "yes" "$v"
+  rm -rf "$root"
+}
+
+# T6 — the 14-row manifest matrix (config-JSON-consumer six-shape convention + surface
+# rows). Each asserts non-zero + a defect-naming breadcrumb + target bytes unchanged.
+_cap_fail "#561 T6 manifest: top-level array"                 top-array          generate "top-level must be a JSON object" unchanged
+_cap_fail "#561 T6 manifest: top-level scalar"               top-scalar         generate "top-level must be a JSON object" unchanged
+_cap_fail "#561 T6 manifest: profiles missing"               profiles-missing   generate "'profiles' must be a JSON object" unchanged
+_cap_fail "#561 T6 manifest: profiles wrong-type"            profiles-wrongtype generate "'profiles' must be a JSON object" unchanged
+_cap_fail "#561 T6 manifest: unknown group reference"        unknown-group      generate "references unknown group" unchanged
+_cap_fail "#561 T6 manifest: duplicate resolved token"       dup-token          generate "duplicate resolved token" unchanged
+_cap_fail "#561 T6 manifest: empty resolved profile"         empty-profile      generate "empty token list" unchanged
+_cap_fail "#561 T6 manifest: valid-falsy node (group=false)" falsy-group        generate "must be a list" unchanged
+_cap_fail "#561 T6 manifest: manifest_version string-typed"  version-string     generate "'manifest_version' must be an integer" unchanged
+_cap_fail "#561 T6 manifest: review widens beyond the lock"  review-widen       generate "lib/review-profile.tokens" unchanged
+_cap_fail "#561 T6 manifest: review-profile lock absent"     lock-absent        generate "lock absent" unchanged
+_cap_fail "#561 T6 manifest: review leading tokens != Read,Glob,Grep" review-leading generate "leading-token contract" unchanged
+_cap_fail "#561 T6 manifest: malformed JSON"                 malformed-json     generate "malformed JSON" unchanged
+_cap_fail "#561 T6 manifest: manifest file absent"           manifest-absent    generate "manifest absent" unchanged
+# The review-widen row is also the reviewer-boundary planted defect: the added token is
+# named and the lock is named as the boundary (proving a group-content edit cannot widen
+# the reviewer silently).
+_cap_fail "#561 reviewer boundary: widening token is named in the breadcrumb" review-widen generate "Bash(WIDEN_REVIEWER:*)" unchanged
+
+# T7 — the 7-row region matrix (parser over hand-corruptible workflow text). Each asserts
+# non-zero + breadcrumb + the target files left byte-unchanged after the failed run.
+_cap_fail "#561 T7 region: anchor absent"                anchor-absent          generate "anchor REVIEW=' not found" unchanged
+_cap_fail "#561 T7 region: anchor duplicated"            anchor-duplicated      generate "is duplicated" unchanged
+_cap_fail "#561 T7 region: implement quote unterminated" implement-unterminated generate "unterminated quote or missing" unchanged
+_cap_fail "#561 T7 region: splice expression absent"     splice-absent          generate "unterminated quote or missing" unchanged
+_cap_fail "#561 T7 region: CRLF line ending in a region" crlf-in-region         generate "CRLF line ending" unchanged
+_cap_fail "#561 T7 region: target workflow file absent"  target-file-absent     generate "target workflow file absent" unchanged
+_cap_fail "#561 T7 region: banner present but malformed" banner-malformed       generate "banner line for this region is present but malformed" unchanged
+
+# T3 — planted-defect positive controls: one token deleted from EACH of the five
+# generated regions → --check RED naming that exact region.
+_cap_fail "#561 T3 planted: token deleted from runner-review region"   del-runner-review   check "region=runner-review"
+_cap_fail "#561 T3 planted: token deleted from command region"        del-command         check "region=command"
+_cap_fail "#561 T3 planted: token deleted from implement region"      del-implement       check "region=implement"
+_cap_fail "#561 T3 planted: token deleted from probe-review region"    del-probe-review    check "region=probe-review"
+_cap_fail "#561 T3 planted: token deleted from probe-implement region" del-probe-implement check "region=probe-implement"
+# T4 — a token added to the manifest without regenerating → --check RED.
+_cap_fail "#561 T4 planted: manifest token added without regenerating" manifest-add-nonreview check "region=command"
+# T5 — one banner checksum hex digit flipped → --check RED.
+_cap_fail "#561 T5 planted: banner checksum digit flipped" banner-flip check "region=runner-review"
+
+# T12 — directional --check output on a token HAND-ADDED to a generated region: the
+# stderr must name that exact workflow-side token AND print the add-to-manifest remedy
+# (steering away from blind regeneration, which would silently revert the grant).
+CAP_T12="$(mktemp -d)"; _cap_fixture "$CAP_T12"
+python3 "$CAPMUT" "$CAP_T12" region-add-token >/dev/null 2>&1
+python3 "$CAP_T12/lib/generate-capability-profiles.py" --check >/dev/null 2>"$CAP_T12/.err"; CAP_T12_RC=$?
+assert_eq "#561 T12 directional: --check rc non-zero on a hand-added region token" "yes" \
+  "$([ "$CAP_T12_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#561 T12 directional: --check names the exact workflow-side token" "yes" \
+  "$(grep -qF 'Bash(HANDADDED:*)' "$CAP_T12/.err" && echo yes || echo no)"
+assert_eq "#561 T12 directional: --check prints the add-to-manifest remedy (not blind regenerate)" "yes" \
+  "$(grep -qF 'add it to lib/capability-profiles.json' "$CAP_T12/.err" && echo yes || echo no)"
+rm -rf "$CAP_T12"
+
+# T1 — idempotency + locale/cwd determinism: strip the banners, generate under LC_ALL=C,
+# then generate again under a different LC_ALL AND cwd; cmp every workflow byte-identical.
+# Also assert the committed workflows equal the generator's output (committed == generated).
+CAP_IDEM="$(mktemp -d)"; _cap_fixture "$CAP_IDEM"
+python3 "$CAPMUT" "$CAP_IDEM" strip-banners >/dev/null 2>&1
+( cd "$CAP_IDEM" && LC_ALL=C python3 lib/generate-capability-profiles.py >/dev/null 2>&1 )
+mkdir -p "$CAP_IDEM/after1"; cp "$CAP_IDEM/.github/workflows/"*.yml "$CAP_IDEM/after1/"
+( cd "$CAP_IDEM/lib" && LC_ALL=C.UTF-8 python3 generate-capability-profiles.py >/dev/null 2>&1 ); CAP_IDEM_RC=$?
+assert_eq "#561 T1 second generation exits 0" "0" "$CAP_IDEM_RC"
+CAP_IDEM_V=yes
+for f in devflow-runner.yml devflow.yml devflow-implement.yml matcher-probe.yml; do
+  cmp -s "$CAP_IDEM/after1/$f" "$CAP_IDEM/.github/workflows/$f" || CAP_IDEM_V="no($f differs across runs)"
+done
+assert_eq "#561 T1 generator idempotent + locale/cwd-deterministic (cmp per file)" "yes" "$CAP_IDEM_V"
+CAP_IDEM_MATCH=yes
+for f in devflow-runner.yml devflow.yml devflow-implement.yml matcher-probe.yml; do
+  cmp -s "$CAP_IDEM/.github/workflows/$f" "$CAP_WF_DIR/$f" || CAP_IDEM_MATCH="no($f != committed)"
+done
+assert_eq "#561 committed workflows are byte-identical to the generator's output" "yes" "$CAP_IDEM_MATCH"
+rm -rf "$CAP_IDEM"
+
+# T8 — no-runtime-read: none of the 6 workflows reads policy from the manifest at run
+# time. The assertion greps for the two policy-source filenames in NON-COMMENT content
+# only (comment lines — the banner comments and the maintenance comments that now name
+# the manifest — are stripped first, so a workflow may reference the manifest in prose
+# without tripping this). A hit in run:/uses: content is an actual invocation. The
+# positive control proves it fires on an invocation line; the negative control proves a
+# comment line that DOES name the manifest is NOT flagged (comment-awareness).
+_cap_noncomment_hits() {  # <file> -> prints "yes" if a non-comment line names a policy source
+  grep -vE '^[[:space:]]*#' "$1" \
+    | grep -qE 'generate-capability-profiles\.py|capability-profiles\.json' && echo yes || echo no
+}
+CAP_RT_HITS=0
+for f in devflow.yml devflow-runner.yml devflow-implement.yml devflow-review.yml telemetry-push.yml matcher-probe.yml; do
+  [ "$(_cap_noncomment_hits "$CAP_WF_DIR/$f")" = yes ] && CAP_RT_HITS=$((CAP_RT_HITS+1))
+done
+assert_eq "#561 T8 no workflow reads policy from the manifest at run time (6 workflows, zero non-comment hits)" "0" "$CAP_RT_HITS"
+CAP_RT_POS="$(mktemp)"; printf '      - run: python3 lib/generate-capability-profiles.py --check\n' > "$CAP_RT_POS"
+assert_eq "#561 T8 assertion fires on a real invocation line (positive control)" "yes" \
+  "$(_cap_noncomment_hits "$CAP_RT_POS")"
+CAP_RT_NEG="$(mktemp)"; printf '              # see lib/capability-profiles.json — generated by generate-capability-profiles.py\n' > "$CAP_RT_NEG"
+assert_eq "#561 T8 assertion does NOT fire on a comment naming the manifest (negative control, comment-aware)" "no" \
+  "$(_cap_noncomment_hits "$CAP_RT_NEG")"
+rm -f "$CAP_RT_POS" "$CAP_RT_NEG"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "implement-profile head guard (#484)"
