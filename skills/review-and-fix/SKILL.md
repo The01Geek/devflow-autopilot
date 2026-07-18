@@ -83,7 +83,7 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
       "description": "...",
       "defect_signature": {"file": "src/example_pkg/foo.py", "line_range": [42, 47], "kind": "null_deref"},
       "corroboration_count": 2,
-      "step25_classification": "codebase | web_confirmed | web_refuted | web_inconclusive | over_budget",
+      "step25_classification": "codebase | web_confirmed | web_refuted | web_inconclusive | over_budget | tools_unavailable",
       "fix_decision": "applied | pushed_back | deferred | advisory | severity-calibrated"
     }
   ],
@@ -95,7 +95,13 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
       "source_file": "src/example_pkg/foo.py",
       "claim_text": "function returns None when input is empty",
       "skip_category": "claim-quality",
-      "evidence": "lines 200-220 of foo.py show the empty-input branch raises ValueError instead"
+      "evidence": "lines 200-220 of foo.py show the empty-input branch raises ValueError instead",
+      "parking_evidence": {
+        "basis": "the code handles the empty-input branch correctly; the claim misreads it",
+        "failing_input": "empty input to the function",
+        "source": "src/example_pkg/foo.py:200-220",
+        "finding_ref": {"iter": 1, "index": 1}
+      }
     },
     {
       "finding_id": "F-9",
@@ -103,7 +109,13 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
       "source_file": "src/example_pkg/bar.py",
       "claim_text": "race condition in concurrent writer",
       "skip_category": "already-tracked",
-      "evidence": "#42"
+      "evidence": "#42",
+      "parking_evidence": {
+        "basis": "a separate open issue already tracks this defect",
+        "failing_input": "the concurrent-writer race the finding describes",
+        "source": "#42",
+        "finding_ref": {"iter": 1, "index": 2}
+      }
     },
     {
       "finding_id": "F-11",
@@ -111,7 +123,13 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
       "source_file": "src/example_pkg/baz.py",
       "claim_text": "preexisting style violation on line 88",
       "skip_category": "out-of-scope",
-      "evidence": "git blame shows line 88 unchanged by this PR (last touched in commit 9abcdef, three months ago)"
+      "evidence": "git blame shows line 88 unchanged by this PR (last touched in commit 9abcdef, three months ago)",
+      "parking_evidence": {
+        "basis": "the flagged line is pre-existing code this PR's diff does not touch",
+        "failing_input": "the pre-existing style violation on line 88",
+        "source": "git blame: line 88 last touched in commit 9abcdef, three months ago",
+        "finding_ref": {"iter": 1, "index": 3}
+      }
     },
     {
       "finding_id": "F-13",
@@ -127,7 +145,13 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
       "source_file": "src/example_pkg/quux.py",
       "claim_text": "claim about a specific Postgres lock mode behavior",
       "skip_category": "advisory-parked",
-      "evidence": "Step 2.5 demoted this finding after WebFetch verification; refuted by https://www.postgresql.org/docs/current/explicit-locking.html"
+      "evidence": "Step 2.5 demoted this finding after WebFetch verification; refuted by https://www.postgresql.org/docs/current/explicit-locking.html",
+      "parking_evidence": {
+        "basis": "web verification refuted the claim against the canonical Postgres locking docs",
+        "failing_input": "the specific lock-mode interaction the finding asserted",
+        "source": "https://www.postgresql.org/docs/current/explicit-locking.html",
+        "finding_ref": {"iter": 1, "index": 4}
+      }
     },
     {
       "finding_id": "F-16",
@@ -163,7 +187,7 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
         "kind_literal": "unchecked_type",
         "sites_examined": ["src/example_pkg/quuz.py:40-72"],
         "new_siblings": [
-          {"finding_id": "F-18", "site": "src/example_pkg/quuz.py:63-66", "severity": "Suggestion", "disposition": "advisory", "marker": "parked-sibling: class-sweep"}
+          {"finding_id": "F-18", "site": "src/example_pkg/quuz.py:63-66", "severity": "Suggestion", "disposition": "advisory", "marker": "parked-sibling: class-sweep", "parking_evidence": {"basis": "parked by the parked-class sweep registration as a below-threshold sibling of class unchecked_type", "failing_input": null, "source": "src/example_pkg/quuz.py:63-66", "finding_ref": {"iter": 1, "index": 5}}}
         ]
       }
     ],
@@ -190,6 +214,19 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
       "new_important": 0
     },
     "promoted_to_iter_next": false
+  },
+  "park_calibration": {
+    "evidence_comparisons": [
+      {
+        "parked_finding_ref": {"iter": 1, "index": 4},
+        "parked_finding_id": "F-15",
+        "shadow_finding_index": 0, /* indexes THIS iteration's shadow.phase3_findings, shown here as the empty null-template above; in a real preservation run that array holds the paired re-raise at index 0 */
+        "relation": "equivalent",
+        "rationale": "shadow re-raises the same Postgres lock-mode claim on the same evidentiary basis, adding no new failing input",
+        "operands_present": true,
+        "disposition": "preserved"
+      }
+    ]
   },
   "telemetry": {
     "phase_0":    {"calls": 0, "tokens": 0,     "wall_clock_s": 1.2},

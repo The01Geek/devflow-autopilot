@@ -24,7 +24,6 @@ RAF_ROOT="${DEVFLOW_RAF_CONTRACT_ROOT:-${LIB%/lib}}"
 # root file is kept as RAF_SKILL_ROOT for the readability assertion.
 RAF_SKILL_ROOT="$RAF_ROOT/skills/review-and-fix/SKILL.md"
 RAF_REFS_DIR="$RAF_ROOT/skills/review-and-fix/references"
-RAF_REVIEW_SKILL="$RAF_ROOT/skills/review/SKILL.md"
 RAF_RECEIVING_SKILL="$RAF_ROOT/skills/receiving-code-review/SKILL.md"
 RAF_REQUESTING_SKILL="$RAF_ROOT/skills/requesting-code-review/SKILL.md"
 RAF_EXTENSION="$RAF_ROOT/.devflow/prompt-extensions/review-and-fix.md"
@@ -70,6 +69,19 @@ done
 # shrinking glob — but the authoritative 8-name set is coupled to run.sh's RAF_EXPECTED_REFS.)
 assert_eq "raf module: bundle assembled all 9 members (thin root + 8 references)" "9" \
   "${#_raf_bundle_members[@]}"
+
+# #529: the review engine is a thin root plus gated phase references, so an engine
+# contract sentence may live in ANY member of the bundle (the shadow-roster rule
+# below now sits in skills/review/phases/phase-3-agents.md, not the root). Pin
+# against the whole concatenated surface — root + phases/*.md — exactly as
+# lib/test/run.sh pins engine content against its $REVIEW_BUNDLE, so a sentence
+# that moves between references does not silently break its pin. Uniqueness (the
+# _raf_pin_unique "exactly one" contract) is preserved: the sentence appears once
+# across the bundle.
+RAF_REVIEW_BUNDLE="$_raf_tmp_root/review-engine-bundle.md"
+: > "$RAF_REVIEW_BUNDLE"
+cat "$RAF_ROOT/skills/review/SKILL.md" "$RAF_ROOT"/skills/review/phases/*.md \
+  >> "$RAF_REVIEW_BUNDLE" 2>/dev/null || :
 
 _raf_pin_count() { # literal file -> occurrence count, unreadable file is zero
   local literal="$1" file="$2" count
@@ -231,7 +243,7 @@ _raf_pin_unique "raf continuation: verification prescription is checked at its s
 _raf_pin_unique "raf continuation: expected handoff writes a pushback" \
   'the source of truth is recorded as a pushback' "$RAF_SKILL"
 _raf_pin_unique "raf continuation: recovery uses the full shadow roster" \
-  'keeps the full roster regardless of `iterations`' "$RAF_REVIEW_SKILL"
+  'keeps the full roster regardless of `iterations`' "$RAF_REVIEW_BUNDLE"
 _raf_pin_unique "raf prompt composition: exhaustive shadow rule" \
   'Block-presence gate (fail-closed on persistence, not just on value).' "$RAF_SKILL"
 _raf_pin_unique "raf prompt composition: unresolved provenance fails closed" \

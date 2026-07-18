@@ -4,6 +4,65 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.12] — 2026-07-17
+
+### Added
+- **`/devflow:create-issue` now verifies the content a revision itself introduces.** A new
+  shared **Revision-delta verification** procedure is stated once in `skills/create-issue/SKILL.md`
+  and referenced by every revise-and-re-gate site (Step 3.5's items 5 and 6, Step 3.6's `VERDICT:
+  REVISE` handling and its user-chosen rounds, and Step 4 sub-step 4's two revision sentences).
+  At every revision event it walks the edit-batch delta across six classes (mechanisms, lifecycle
+  rules, execution-tier assumptions, dependencies, universal guarantees, and a total-making
+  residual class), verifies each non-empty class against the code via the two existing Step 3.5
+  disciplines, fixes findings inline, and closes with a per-site evidence line — so audit rounds
+  are spent on genuinely fresh defects and a revision reaching filing on a declined re-audit has
+  had its delta walked and verified rather than only language-gated. A persistent `lib/test/run.sh`
+  coverage guard classifies every `no-options gate` occurrence into wired-site / definition-block /
+  allowlist bins and turns RED on any unwired revise sentence or an empty wired-site set. (#559)
+
+## [2.15.11] — 2026-07-17
+
+### Changed
+- **Split the `/devflow:review` engine into a thin orchestrator with gated phase references.** `skills/review/SKILL.md` was a 1,559-line monolith every caller read in full — standalone `/devflow:review`, `/devflow:review-and-fix` (normal *and* shadow passes), and `/devflow:implement`'s inline Phase 3 — so blocker recheck, stale-prose adjudication, reviewer dispatch, verdict, posting, and telemetry all competed with repository context before the active phase was even known. The root now retains only the shared state, cross-phase invariants, extension load, routing, and fail-closed entry; each phase's authoritative procedure lives in its own reference under `skills/review/phases/`, reached through an entry gate that re-derives the bundle's identity, reads the reference, and clears its boundary contract on **every** entry — including a Step 2.6 shadow entry. Behavior is unchanged: every existing predicate still decides what runs, and each phase's text is carried over verbatim apart from the divergences this PR records: two meaning-preserving rewords in `phase-1-checklist.md` (a checklist cap and a slice-authoring recipe, which the move re-presented to the stale-prose lint as newly-authored prose), one redundant sentence trimmed from `phase-0-setup.md` whose facts survive operatively earlier in that same file, and two net-new seam pointers that restore orderings the move had dropped.
+- **Conditional protocols now load only when their predicates hold.** The blocker-recheck fast path (a prior REJECT driven solely by carve-out blockers, standalone PR mode) and the stale-prose adjudication producer (PR mode) are separate references, so an ordinary pass never pays for them. That is what moves the numbers: the root drops from 33,378 to 7,787 words and root-plus-shipped-extension lands at 8,225. For the paths that really execute, a standalone review reads **18,610 bytes / ~4,653 tokens less** than the monolith, and one normal-plus-shadow pass **50,194 bytes / ~12,550 tokens less** — the shadow path gains more than twice the standalone saving because it also skips the standalone-only GitHub-post reference. The complete bundle grows by 1,077 words, which is stated rather than hidden: it is the cost of the identity and boundary contracts, and it is what buys the reduction on every path that actually runs. Note the stale-prose lint (`devflow_review.stale_prose.enabled`) is a gated reference but its gate **defaults on**, so an ordinary pass does read it and these figures count it. Full before/after table, formulas, included paths, and the ceiling the shipped default does not meet: `docs/review-bundle-budget.md`.
+- **A moved fence can no longer escape the command scans.** `extract-command-heads.py` and `extract-command-shapes.py` previously took a single file and **silently ignored** any others, exiting 0 — so scanning a root-plus-references bundle would have reported a clean pass while never reading the references. Both now take every source in one call, under the review, manual-command, and implement profiles. Grants are unchanged.
+- **Editing a Review phase reference is now covered by the same discipline as editing the skill.** The shared prompt-edit trigger list in `.devflow/prompt-extensions/implement.md`, `review.md`, and `review-and-fix.md` gains `skills/review/phases/*.md`; the existing `skills/*/SKILL.md` glob does not match a `phases/` path, so without it every future phase edit would have slipped the writing-skills routing rule and its review-time evidence gate. The recorder registry gains a standalone `review` entry and enumerates the references plus each outer extension on the review-and-fix and implement paths, so mutating a reference moves the right prompt fingerprint instead of none. (#529)
+
+## [2.15.10] — 2026-07-17
+
+### Changed
+- **Evidence-aware post-shadow grading of parked findings (`/devflow:review-and-fix`, issue #557).**
+  The Park-calibration gate no longer re-litigates a below-verdict-threshold shadow re-raise of
+  an already-parked finding on **severity alone** — the arm that burned promoted iterations (each
+  a full re-shadow) re-parking findings the shadow merely corroborated. After the shadow block is
+  recorded, the gate grades each re-raise↔parked-finding pair on **evidence**: the scoped
+  sweep-sibling carve-out is evaluated first (precedence), then each shadow finding pairing under
+  Phase 3.2 to the **parking-time record** of a member of the **reconciled parked population** (the
+  gate's three parked populations across all iterations, minus any member a later iteration applied
+  or promoted-and-fixed) receives exactly one of five relations — *equivalent / strengthened /
+  contradicted / materially different / ambiguous*. Parking is **preserved** only on positive
+  evidence equivalence from well-formed operands (every paired re-raise equivalent, at or below the
+  parked severity under a `major`≡`important`/`minor`≡`suggestion` label normalization, and — for a
+  rationale-bearing row at or above `$FIX_THRESHOLD` — an anchored rationale); every other outcome,
+  and any missing/malformed/unreadable operand, **fails closed to promotion** at the shadow
+  re-raise's severity. A single amendment to Step 2.6's novelty definition makes a paired re-raise
+  count as **overlap, not new** (the survived-unfixed reconciliation keeps it from ever claiming a
+  fixed member's re-raise as a preserved parking), so an earlier-iteration parked re-raise no longer
+  slips into Decide outcome 2. Operands are read from additive workpad records only — a
+  `parking_evidence {basis, failing_input, source, finding_ref}` object on the rationale-bearing
+  `fix_decisions` rows, one `park_calibration.evidence_comparisons[]` record per pair, and a new
+  `tools_unavailable` value in the `step25_classification` enum — never from conversational memory.
+  Healthy corroboration stays retrospective-clean via a note-kind preservation sentinel that the
+  Loop-Exit backstop and Decide outcome 1 recognize as gate-completion; a fail-closed degradation
+  surfaces as friction. The shared `/devflow:review` engine, `scripts/workpad.py`, and
+  `lib/fetch-pr-context.sh` are untouched. Documented in `docs/shadow-review.md` and
+  `docs/DEVFLOW_SYSTEM_OVERVIEW.md` §9.
+
+## [2.15.9] — 2026-07-17
+
+### Added
+- **Added `assert_count_red_under` — a range-scoped count guard that proves it goes RED under a mutation and cannot pass on a collapsed range.** The count-shaped sibling of `assert_pin_red_under`: it counts ERE matches between START/END anchors, asserts the count satisfies `OP BOUND` on the real file and violates it on the mutated copy, and establishes the measurement independently of the grep anchor gate (the slice `sed`'s own return code) so a missing-tool-mid-pipe zero is never collapsed onto a real value. Each FAIL arm writes a bare `FAIL` plus a distinct cause token on the following line (a two-line verdict protocol served by a new `probe_two_line` probe), and an anchor-collapse mutation cannot masquerade as the operative regression. Ships the primitive plus full self-test coverage of every contract arm; migrates no existing call site (the #480 and #467 A3 hand-rolled anchor siblings stay in place). (#553)
+
 ## [2.15.8] — 2026-07-17
 
 ### Changed
