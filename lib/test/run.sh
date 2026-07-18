@@ -9226,7 +9226,9 @@ assert_eq "#547/#572 catch-all: an unanticipated exception fails closed to UNAVA
 # contained — it escapes uncaught (empty stdout). Proves the exit-3 above is the
 # catch-all's doing, not vacuous. The working tree is never touched (copy only).
 P547C_MUT="$(mktemp -d)"
-python3 - "$P547C_HELPER" "$P547C_MUT/preflight.py" <<'PY'
+# Apply the strip as a CHECKED step: the writer aborts (assert n==1) if the anchor regex
+# ever stops matching after a reformat of the catch-all block. Capture its exit status.
+if python3 - "$P547C_HELPER" "$P547C_MUT/preflight.py" <<'PY' 2>/dev/null
 import re, sys
 src = open(sys.argv[1]).read()
 pat = re.compile(r"    try:\n        return args\.func\(args\)\n    except Exception.*?return UNAVAILABLE_EXIT\n", re.S)
@@ -9234,6 +9236,15 @@ new, n = pat.subn("    return args.func(args)\n", src)
 assert n == 1, f"expected exactly one main() catch-all block, replaced {n}"
 open(sys.argv[2], "w").write(new)
 PY
+then P547C_MUT_APPLIED=yes; else P547C_MUT_APPLIED=no; fi
+# Guard the escape check against a false-green: an empty mutated-run stdout reads as
+# "escaped", but an UNWRITTEN mutated file (writer aborted → _p547c_run loads a missing
+# path → empty stdout) produces the identical empty. So first prove the strip was really
+# applied — writer succeeded AND the copy exists AND its sole `except Exception` (the
+# catch-all) is gone — so the escape assertion below cannot pass on a mutation that never
+# ran (PR #572 review: mutation-vacuity hole).
+P547C_MUT_STRIPPED="$([ "$P547C_MUT_APPLIED" = yes ] && [ -f "$P547C_MUT/preflight.py" ] && ! grep -q 'except Exception' "$P547C_MUT/preflight.py" && echo yes || echo no)"
+assert_eq "#547/#572 catch-all mutation: the strip was actually applied (not an absent-file/no-op vacuity)" "yes" "$P547C_MUT_STRIPPED"
 P547C_MUT_OUT="$(_p547c_run "$P547C_MUT/preflight.py")"
 assert_eq "#547/#572 catch-all mutation: removing the catch-all lets the injected exception escape (contained→escaped)" "3->escaped" \
   "$P547C_OUT->$([ -z "$P547C_MUT_OUT" ] && echo escaped || echo "$P547C_MUT_OUT")"

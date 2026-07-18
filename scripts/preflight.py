@@ -219,9 +219,13 @@ def main() -> int:
         # An unanticipated exception would otherwise exit 1 — a fourth code
         # outside the {0,2,3} contract the §1.3.5 gate reads, which enumerates no
         # "other exit code" arm. Route it to UNAVAILABLE (never a silent PROCEED)
-        # so any failure stays inside the contract. SystemExit / argparse's own
-        # exit-2/3 are BaseException, not Exception, so they propagate untouched.
-        print(f"preflight.py: unexpected error: {exc}", file=sys.stderr)
+        # so any failure stays inside the contract. A SystemExit raised inside the
+        # try (argparse's own exits happen in parse_args() above it, and _Parser
+        # maps usage errors to UNAVAILABLE_EXIT) is BaseException, not Exception,
+        # so it would propagate untouched. Surface the exception TYPE, not just its
+        # payload, so a contained programming bug stays debuggable from the one
+        # stderr breadcrumb the gate leaves.
+        print(f"preflight.py: unexpected error: {type(exc).__name__}: {exc}", file=sys.stderr)
         print("UNAVAILABLE", flush=True)
         return UNAVAILABLE_EXIT
 
