@@ -44751,6 +44751,57 @@ if [ -d "$DB_SB" ]; then
   rm -rf "$DB_SB" "$DB_SB/../wt562"
 fi
 
+# ────────────────────────────────────────────────────────────────────────────
+# issue #569: the record-dispatch file-arm --write-path cross-check. When a run has bound a
+# canonical-draft root and the skill reports its landed write path, the tool cross-checks
+# that path against `<bound-root>/.devflow/tmp/issue-draft-<slug>.md` (the path it derives
+# from the recorded binding) and fails closed with `write-path-mismatch` on divergence. The
+# check is additive: an unbound run and a bound run that omits --write-path both proceed.
+WP_SB="$(git_sandbox '#569 write_path_crosscheck_rows')"
+if [ -d "$WP_SB" ]; then
+  (
+    cd "$WP_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nB\n' > d.md
+    # A bound run: the matching write-path is accepted; a drifted one is refused.
+    N="$(python3 "$IAS" init wp | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp --nonce "$N" --path "$WP_SB" --tier worktree-root > /dev/null
+    python3 "$IAS" record-dispatch wp --nonce "$N" --round 1 --arm file \
+      --write-path "$WP_SB/.devflow/tmp/issue-draft-wp.md" --draft-file d.md > .wp-match 2>&1
+    printf '%s' "$?" > .wp-match-rc
+    # A NEW run (a drifted write path under the same binding, round 1) is refused. The bound
+    # canonical file for slug wp2 is $WP_SB/.devflow/tmp/issue-draft-wp2.md; report a
+    # divergent /elsewhere path and expect the named breadcrumb + non-zero exit.
+    N2="$(python3 "$IAS" init wp2 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp2 --nonce "$N2" --path "$WP_SB" --tier worktree-root > /dev/null
+    python3 "$IAS" record-dispatch wp2 --nonce "$N2" --round 1 --arm file \
+      --write-path /elsewhere/.devflow/tmp/issue-draft-wp2.md --draft-file d.md \
+      > /dev/null 2> .wp-mismatch; printf '%s' "$?" > .wp-mismatch-rc
+    # A bound run that OMITS --write-path proceeds unchanged (the cross-check is additive).
+    N3="$(python3 "$IAS" init wp3 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp3 --nonce "$N3" --path "$WP_SB" --tier worktree-root > /dev/null
+    python3 "$IAS" record-dispatch wp3 --nonce "$N3" --round 1 --arm file \
+      --draft-file d.md > /dev/null 2>&1; printf '%s' "$?" > .wp-nowp-rc
+    # An UNBOUND run's file arm still dispatches (the binding-required half is deferred); the
+    # cross-check is scoped to a bound run, so no binding means no cross-check.
+    N4="$(python3 "$IAS" init wp4 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch wp4 --nonce "$N4" --round 1 --arm file \
+      --write-path /any/where.md --draft-file d.md > /dev/null 2>&1; printf '%s' "$?" > .wp-unbound-rc
+  )
+  assert_eq "#569 write_path_crosscheck_rows: a matching write-path is accepted (exit 0)" \
+    "0" "$(cat "$WP_SB/.wp-match-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: a drifted write-path is refused (exit non-zero)" \
+    "1" "$(cat "$WP_SB/.wp-mismatch-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... named by the write-path-mismatch breadcrumb" \
+    "1" "$(grep -c 'write-path-mismatch' "$WP_SB/.wp-mismatch" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: a bound run that omits --write-path proceeds (cross-check is additive)" \
+    "0" "$(cat "$WP_SB/.wp-nowp-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: an unbound file-arm dispatch still proceeds (binding-required half deferred)" \
+    "0" "$(cat "$WP_SB/.wp-unbound-rc" 2>/dev/null)"
+  rm -rf "$WP_SB"
+fi
+
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as

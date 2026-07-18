@@ -1693,6 +1693,29 @@ def cmd_record_dispatch(args):
     if args.arm == 'file':
         if not args.draft_file:
             _fail('record-dispatch', '--draft-file is required on the file arm')
+        # Tiered-draft-root binding cross-check (issue #569): when the run has bound a
+        # canonical-draft root (the first landed write records it via record-draft-binding)
+        # and the skill reports where its write landed via --write-path, the reported path
+        # MUST match the file the tool derives from the recorded binding
+        # (`<bound-root>/.devflow/tmp/issue-draft-<slug>.md`, via _bound_draft_file). A
+        # divergence is a strong signal that a compacted context drifted which file the
+        # dispatch audits, so fail closed with the write-path-mismatch breadcrumb rather
+        # than record an audit over a drifted path. The check is scoped to a bound run with
+        # a reported write path — an unbound run (an embed/inline epoch that never bound a
+        # canonical file) and a caller that omits --write-path both proceed unchanged, so
+        # the cross-check is additive, never a new mandatory field on the file arm.
+        #
+        # NOTE (issue #569 scope split): making the binding itself REQUIRED on every file-arm
+        # dispatch (fail-closed `binding-required-on-file-arm` when absent) is the strict half
+        # deferred to a follow-up — it ripples into every pre-binding file-arm unit test's
+        # bound-first reader setup and must land with that reconciliation, not this pass.
+        if doc.get('draft_binding') is not None and args.write_path:
+            expected_write_path = _bound_draft_file(doc, args.slug)
+            if args.write_path != expected_write_path:
+                _fail('record-dispatch',
+                      f'the reported write path {args.write_path!r} does not match the bound '
+                      f'canonical-draft file {expected_write_path!r} (write-path-mismatch): '
+                      'the file arm must write and audit the draft at the bound root')
         try:
             data = Path(args.draft_file).read_bytes()
         except OSError as exc:
@@ -2595,6 +2618,10 @@ def main():
     s.add_argument('--nonce', required=True)
     s.add_argument('--round', type=int, required=True)
     s.add_argument('--arm', choices=_ARMS, required=True)
+    s.add_argument('--write-path', help='Required on the file arm (issue #569): the '
+                   'absolute canonical-draft file path the skill observed its write land '
+                   'at, cross-checked against the recorded draft-root binding '
+                   '(write-path-mismatch on divergence).')
     s.add_argument('--draft-file', help='Required on the file arm; bytes on stdin '
                                         'otherwise.')
     s.add_argument('--marker', choices=_EMBED_MARKER_TOKENS,
