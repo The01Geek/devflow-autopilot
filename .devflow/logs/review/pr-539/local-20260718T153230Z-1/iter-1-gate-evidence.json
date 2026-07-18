@@ -1,0 +1,20 @@
+[
+  {
+    "decision": "test-first (RED before fix): hardened test_module_runner trap test — added REVIEW_BUNDLE/MAXI_BUNDLE registrations + singleton top-level `trap … EXIT` assertion",
+    "command": "python3 lib/test/test_module_runner.py (pre-fix)",
+    "result": "fail (RED observed: '_suite_tmp_file \"$REVIEW_BUNDLE\"' not found in run.sh — the live line-215 clobber bug; full log tool-results/b302oaqyo.txt)",
+    "evidence": "after converting run.sh:215 to the registry idiom the same test passes (GREEN: Ran 40 tests, OK). Singleton-assertion mutation proof: appending a second `trap 'rm -f \"$X\"' EXIT` to a COPY of run_text makes the extracted installer list != ['trap _suite_cleanup EXIT'] (observed RED in-REPL); positive control on the fixed text holds."
+  },
+  {
+    "decision": "test-first: new test_review_and_fix_reference_surfaces_resolve_to_the_shipped_files binds the required:false registry glob to disk",
+    "command": "python3 lib/test/test_workflow_flight_recorder.py",
+    "result": "pass (GREEN: Ran 52 tests, OK)",
+    "evidence": "mutation proof (in-REPL, on parsed copies): a typo'd glob ('reference/' for 'references/') yields 0 matching registry rows and an empty ROOT.glob resolution — both the len==1 row assertion and the 8-name resolution assertion go RED; positive control on the shipped registry/disk holds."
+  },
+  {
+    "decision": "no-automated-test arm: prose fixes (loop-control widening parenthetical + deictics, root terminal-map row, overview/shadow-review mirrors, budget-doc cells) — dry-trace verification",
+    "command": "grep sweeps + python3 re-measurement of every budget figure",
+    "result": "pass",
+    "evidence": "adversarial dry-trace: (a) VC-53 falsifying combo (verdict=critical, fix=important, Suggestion-chipped self-contradicting finding) — under the amended parenthetical the carve-out driver is now inside the effective fix set, so the universal holds; the pinned tagline literal at run.sh:1322 is unchanged; all three coupled mirrors (loop-control.md, DEVFLOW_SYSTEM_OVERVIEW.md:403, docs/shadow-review.md:20) updated in the same change. (b) VC-29: root table now carries APPROVE WITH UNRESOLVED SHADOW FINDINGS; initial load re-measured 5,493 <= 5,500. (c) budget cells recomputed with the suite's own counter and reconciled (root 3,209 / load 5,493 / max-step 16,754 / cumulative 42,379 / growth +3,894 / reduction 32,992); run.sh growth-warning pin literal updated same-commit."
+  }
+]
