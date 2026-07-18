@@ -382,13 +382,12 @@ def cmd_status(args):
         # Scanned every page, no workpad — same benign exit 2 as `id`.
         sys.exit(2)
     body = c.get('body') or ''
-    m = _STATUS_VALUE_RE.search(body)
-    if not m:
+    if not _STATUS_VALUE_RE.search(body):
         sys.stderr.write(
             "workpad.py status: workpad found but no Status line in it\n"
         )
         sys.exit(1)
-    word = _strip_status_glyph(m.group(1).strip()).strip()
+    word = _status_word_from_body(body)
     if not word:
         sys.stderr.write(
             "workpad.py status: workpad Status line has no value\n"
@@ -611,6 +610,16 @@ def _strip_status_glyph(status: str) -> str:
         if s.startswith(g):
             return s[len(g):].lstrip()
     return s
+
+
+def _status_word_from_body(body: str) -> str:
+    """Return the live Status word (glyph-stripped, trimmed) from a workpad body,
+    or '' when there is no Status line. The single source of the "what is the live
+    Status word in this body" rule — `cmd_status`, `_apply_mutations`'s note-phase
+    resolution, and `cmd_update`'s `--expect-status` precondition all read it here
+    so glyph/whitespace handling can never drift between the reader and the checker."""
+    m = _STATUS_VALUE_RE.search(body)
+    return _strip_status_glyph(m.group(1).strip()).strip() if m else ''
 
 
 def _status_glyph(status: str) -> str:
@@ -1339,8 +1348,7 @@ def cmd_update(args):
         )
         sys.exit(4)
     if args.expect_status is not None:
-        _sm = _STATUS_VALUE_RE.search(body)
-        _live_word = _strip_status_glyph(_sm.group(1).strip()).strip() if _sm else ''
+        _live_word = _status_word_from_body(body)
         if _live_word.lower() != args.expect_status.strip().lower():
             sys.stderr.write(
                 f"workpad.py update: precondition mismatch — expected Status "
@@ -1648,17 +1656,6 @@ def _checkpoint_marker(key: str) -> str:
     return f'<!-- devflow:checkpoint {key} -->'
 
 
-def _count_progress_headings(body: str) -> int:
-    """Count `## Progress` top-level headings in `body` (case-insensitive).
-
-    A checkpoint requires EXACTLY one canonical Progress section — 0 (legacy /
-    truncated workpad) and >1 (duplicate sections) are both structural failures."""
-    return sum(
-        1 for m in _SECTION_RE.finditer(body)
-        if m.group(1).strip().lower() == '## progress'
-    )
-
-
 class _NoOpReplay(Exception):
     """Signals a checkpoint-only call whose every key already exists — a pure
     replay. Raised by `_apply_mutations` BEFORE it mutates anything; `cmd_update`
@@ -1705,18 +1702,21 @@ def _plan_checkpoints(body: str, checkpoint_reqs) -> list[tuple[str, str]]:
                 f"[A-Za-z0-9._:-]+ . No PATCH was made."
             )
     # 2. Canonical ## Progress: non-empty body + exactly one Progress heading.
+    # Split the body's sections ONCE and both count and locate Progress from that
+    # single parse (rather than a separate finditer scan) — the canonical
+    # section-locating idiom the rest of the file uses.
     if not body.strip():
         raise _UpdateError(
             "--checkpoint requires a canonical workpad body, but the body is "
             "empty/whitespace-only. No PATCH was made."
         )
-    n_prog = _count_progress_headings(body)
+    _pre, _sections = _split_sections(body)
+    n_prog = sum(1 for h, _c in _sections if h.strip().lower() == '## progress')
     if n_prog != 1:
         raise _UpdateError(
             f"--checkpoint requires exactly one '## Progress' section, but "
             f"{n_prog} are present. No PATCH was made."
         )
-    _pre, _sections = _split_sections(body)
     _pidx = _find_section(_sections, 'Progress')
     prog_content = _sections[_pidx][1]
     # 3. Per-key marker cardinality: absent (insert), once-in-Progress (replay),
@@ -1887,10 +1887,8 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     # post-mutation Status so a combined `--status X --note Y` call files the
     # note under X's phase (the status line was already rewritten above). Strip
     # the leading glyph so the phase lookup keys on the bare word ("Reviewing").
-    status_match = _STATUS_VALUE_RE.search(body)
-    current_phase = (
-        _strip_status_glyph(status_match.group(1).strip()) if status_match else None
-    )
+    _live_status = _status_word_from_body(body)
+    current_phase = _live_status or None
 
     # Section-level mutations.
     preamble, sections = _split_sections(body)
@@ -2035,31 +2033,22 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
                 sections, 'Acceptance Criteria', '## Reproduction', new_content,
             )
 
-    if args.note:
+    # Notes and checkpoint rows are both timestamped ## Progress bullets, so they
+    # share one Progress lookup + append loop (a checkpoint row is just a note whose
+    # text carries the hidden marker). `checkpoint_inserts` holds only absent keys
+    # (replays were dropped during planning), nested under the current phase like any
+    # note; args.note bullets append first, then the checkpoint rows.
+    progress_notes = list(args.note) + [
+        f'{text} {_checkpoint_marker(key)}' for key, text in checkpoint_inserts
+    ]
+    if progress_notes:
         idx = _find_section(sections, 'Progress')
         if idx is None:
             raise _UpdateError("section '## Progress' not found")
         heading, content = sections[idx]
         phase_label = _progress_phase_for_status(content, current_phase)
-        for text in args.note:
+        for text in progress_notes:
             content = _append_progress_note(content, text, now_time, phase_label)
-        sections[idx] = (heading, content)
-
-    # Checkpoint insert rows (issue #537): one timestamped ## Progress note per
-    # absent key, each carrying its hidden `<!-- devflow:checkpoint KEY -->` marker
-    # so a later replay of the same key detects it and adds no duplicate. The keys
-    # to insert were validated + planned at the top (structural failures already
-    # raised there), so this only appends. Nested under the current lifecycle phase
-    # like any note.
-    if checkpoint_inserts:
-        idx = _find_section(sections, 'Progress')
-        if idx is None:
-            raise _UpdateError("section '## Progress' not found")
-        heading, content = sections[idx]
-        phase_label = _progress_phase_for_status(content, current_phase)
-        for key, text in checkpoint_inserts:
-            note_text = f'{text} {_checkpoint_marker(key)}'
-            content = _append_progress_note(content, note_text, now_time, phase_label)
         sections[idx] = (heading, content)
 
     if args.reflection or args.reflection_file:

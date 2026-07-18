@@ -4672,6 +4672,29 @@ _code, _err, _patched = _drive_cmd_update(
 assert_eq("#537 checkpoint AC13: legacy no-Progress body -> structural, no PATCH",
           (1, None), (_code, _patched))
 
+# AC16 (silent-drop guard): a checkpoint REPLAY combined with ANY other mutation flag
+# must NOT be treated as a pure no-op — otherwise that mutation is silently dropped.
+# This pins `_has_non_checkpoint_mutation` in sync with the mutation flags behaviorally:
+# if a flag is dropped from the enumeration, its row here raises _NoOpReplay and fails.
+# `_out` already carries the _CPKEY marker, so `--checkpoint _CPKEY` is a replay.
+_mut_flag_values = [
+    ("status", "Reviewing"), ("branch", "b"), ("run_link", "x"), ("pr_link", "x"),
+    ("tick_progress", ["Setup"]), ("tick_plan", ["step"]), ("tick_plan_n", [1]),
+    ("tick_ac", ["AC1"]), ("tick_ac_n", [1]), ("rewrite_ac", [["AC1", "AC1 tweak"]]),
+    ("note", ["n"]), ("reflection", ["r"]), ("record_classification", ["non-bug", "why"]),
+    ("reconcile_reproduction", "non-bug"),
+]
+for _fname, _fval in _mut_flag_values:
+    _raised = False
+    try:
+        apply_mut(_out, make_args(checkpoint=[[_CPKEY, "x"]], **{_fname: _fval}))
+    except workpad._NoOpReplay:
+        _raised = True
+    except (workpad._UpdateError, workpad._TickMatchError):
+        pass  # a structural/volatile outcome still means the flag was NOT a no-op
+    assert_eq(f"#537 AC16: checkpoint-replay + --{_fname} is NOT a silent no-op "
+              "(mutation recognized)", False, _raised)
+
 # ── --expect-comment-id / --expect-status hydration-race preconditions (AC24) ──
 # _drive_cmd_update stubs the live comment as id 7 with a 🚀 Setup body.
 _RACE_BODY = _CP_BODY  # id 7, Status 🚀 Setup
