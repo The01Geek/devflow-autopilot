@@ -9,6 +9,10 @@
 # docs/efficiency-trace.md. In adopter repos the scaffolder's .devflow/.gitignore
 # ignores only tmp/, so logs/ is tracked there without this negation.
 !/.devflow/logs/
+# Single-flight verification coordinator telemetry (issue #528) is LOCAL,
+# per-checkout diagnostics, not a relayed record (see docs/efficiency-trace.md) —
+# keep it out of the tree so a run's flight events are never committed.
+/.devflow/logs/verification-flight/
 # Committed config template + schema (shipped). The LIVE .devflow/config.json is
 # NOT re-included by a negation below, so the /.devflow/* rule above would ignore a
 # fresh one — but this repo TRACKS its config.json anyway: it was force-added with
