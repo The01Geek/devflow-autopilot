@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.16] — 2026-07-18
+
+### Changed
+- **Expanded the implement-tier permission-matcher probe to cover everyday command forms.** The repository-internal evidence table now measures redirects, heredocs, simple variable expansion, and leading environment assignments using execution-file verdicts. (#574)
+
 ## [2.15.15] — 2026-07-18
 
 ### Changed

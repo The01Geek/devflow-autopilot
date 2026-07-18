@@ -326,9 +326,30 @@ A cloud review used to have no ground truth about which commands it may run, nor
 
 **Granted heads are not enough — the matcher also denies composite SHAPES (issues #401, #455).** A statement every one of whose heads is granted is still refused when its *shape* is one the matcher rejects, and a refused command fails **silently**: it produces no output at all. `lib/test/extract-command-shapes.py` (driven by `lib/test/run.sh`) is the desk-time pin for that class, and it carries **one rule set per tool profile**, because the read-only `review` allowlist and the read-write `devflow-implement` allowlist are separate profiles with separately-probed behavior — a shape proven on one tier is *unproven* on the other:
 - **`--profile review` (default; rules R1–R4)** covers the whole Review bundle (`skills/review/SKILL.md` + `skills/review/phases/*.md`): a leading `VAR=value` assignment, a leading `cd`, a redirect (stdout or stderr) targeting `/tmp`, and an interpreter head (`python3`) are all denied in the review runner (evidence: run 29105381021 — 22 denials, no verdict). Probe-proven permitted alternatives: the Write tool into `.devflow/tmp/**`, `… | tee`, `tee <<'EOF'`, and repo-relative vendored-literal helper paths.
-- **`--profile implement` (rules IR1/IR2/IR3)** covers `skills/implement/SKILL.md` + `skills/implement/phases/*.md` (and, to keep the idiom uniform, `skills/create-issue/SKILL.md` + `skills/init/SKILL.md`): the implement matcher denies a `for` loop (IR1), a `while`/`until` loop (IR2), and a command substitution / `VAR="$(…)"` capture (IR3) **wrapping a label helper** (`ensure-label.sh` / `apply-labels.sh`) — measured as probe rows I4/I5/I6. It also proved the explicit vendored-literal grant *form* PERMITTED (row I2) and the config `*/basename` glob DENIED against a vendored-literal leading token (row I3), which is why `devflow-implement.yml`'s baked literal now grants `Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*)` / `…/ensure-label.sh:*)` explicitly. Row I1 (the unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor as leading token) is **not** lint-pinnable on either tier — every legitimate helper call keeps that portable anchor in source (#275) and resolves it at runtime — so it stays prose discipline.
+- **`--profile implement` (rules IR1/IR2/IR3)** covers `skills/implement/SKILL.md` + `skills/implement/phases/*.md` (and, to keep the idiom uniform, `skills/create-issue/SKILL.md` + `skills/init/SKILL.md`): the implement matcher denies a `for` loop (IR1), a `while`/`until` loop (IR2), and a command substitution / `VAR="$(…)"` capture (IR3) **wrapping a label helper** (`ensure-label.sh` / `apply-labels.sh`) — measured as probe rows 4/5/6. It also proved the explicit vendored-literal grant *form* PERMITTED (rows 2/3). Row 1 (the unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor as leading token) is **not** lint-pinnable on either tier — every legitimate helper call keeps that portable anchor in source (#275) and resolves it at runtime — so it stays prose discipline. Rows 8/9 now disambiguate non-label and redirect-free label captures; the former is permitted and the latter denied.
 
-**Known gap (stated, not hidden).** The implement rules deliberately exempt a `VAR=$(…)` capture of a **non-label** helper (the phase-4 fences read `deferred.labels` via `config-get.sh` that way, and Phase 3.1 reads the PR number via `gh pr view`), on the inference that the matcher descends into the substitution — but **no implement-tier probe row measures it**. `matcher-probe.yml` rows 8 (non-label capture) and 9 (redirect-free label capture) exist to settle it; until a human dispatch records them, the carve-out is an inference, not a measurement. That is why every label channel is built to fail **closed**: *no output at all* is recorded as a possible harness denial, never read as "no labels configured".
+**Recorded implement-probe table (issues #450, #455, and #571).** `.github/workflows/matcher-probe.yml` is repository-internal measurement infrastructure and `install.sh` does not ship it to consumer repositories. Rows 10–16 extend the existing evidence table with everyday ad-hoc command forms; they change neither the implement recipes nor `lib/test/extract-command-shapes.py`'s lint rules. Multi-operation statements such as `A; B` and `A && B` remain excluded because the shipped phase fences already exercise them, so another probe row would not isolate a new matcher property.
+
+| Row | Command shape | Observed verdict |
+|---:|---|---|
+| 1 | Unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor leading token | DENIED |
+| 2 | Vendored-literal `apply-labels.sh` leading token | PERMITTED |
+| 3 | Vendored-literal `ensure-label.sh` leading token | PERMITTED |
+| 4 | `for …; do helper; done` | DENIED |
+| 5 | Piped `while read` loop | DENIED |
+| 6 | `VAR="$(label-helper …)"` capture with `2>&1` | DENIED |
+| 7 | Plain granted command (positive control) | PERMITTED |
+| 8 | `VAR=$(non-label-helper …)` capture | PERMITTED |
+| 9 | Redirect-free `VAR="$(label-helper …)"` capture | DENIED |
+| 10 | Granted head with `> /tmp/f` | DENIED |
+| 11 | Granted head with `> .devflow/tmp/f` | PERMITTED |
+| 12 | Plain heredoc write through a granted head | PERMITTED |
+| 13 | Captured `VAR="$(cat <<'EOF' …)"` heredoc | PERMITTED |
+| 14 | `echo "$VAR"` simple expansion after a granted head | DENIED |
+| 15 | Literal leading `VAR=value` assignment | DENIED |
+| 16 | Computed leading `VAR="$(head)"` assignment | DENIED |
+
+The evidence of record is the user-directed API dispatch [run 29623046995](https://github.com/The01Geek/devflow-autopilot/actions/runs/29623046995), `implement-probe` job `88021801138`, at head `f2162d7683bc7a352fce4efce3f092e864aab8b9`. The job completed successfully; every row recorded `tool_use=yes`, rows 1–6 and 8–16 recorded `shape=ok`, row 7 recorded `shape=n/a`, and no row was REFORMULATED or UNATTEMPTED. The parent workflow was intentionally cancelled after that evidence job completed. An autonomous implement run cannot discharge this human-direction evidence gate by itself.
 
 **No-verdict observability.** Two independent halves signal a no-verdict run so a stalled review is diagnosable rather than a frozen `🚀 Reviewing` comment:
 - The **engine** stamps a terminal `❌` on its own progress comment on any path that reaches no verdict — not only a fatal mid-run error but also budget/turn exhaustion or repeated permission denials — flipping `Status` to `❌ Review failed` with a `REVIEW INCOMPLETE — <reason>` verdict line.
