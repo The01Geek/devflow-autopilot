@@ -5063,6 +5063,34 @@ assert_eq("#543 AC1: reachable_skills() are all classified",
 assert_eq("#543 AC1: every on-disk phase file of a classified skill is listed "
           "(a new reachable phase asset would go RED)",
           [], cwc.unlisted_phase_files())
+
+# AC1 guard failure branches — drive each with a monkeypatched module global and
+# restore, so the guard is proven non-vacuous (it fires on the drift it exists to
+# catch, not merely returns [] on the healthy tree).
+_cw_orig_edges = cwc.DISPATCH_EDGES
+_cw_orig_assets = cwc.SKILL_ASSETS
+_cw_orig_heads = cwc.REQUIRED_HELPER_HEADS
+try:
+    cwc.DISPATCH_EDGES = _cw_orig_edges + [{"from": "implement", "to": "nonesuch", "kind": "nested"}]
+    assert_eq("#543 AC1: an edge to an unclassified skill is caught",
+              True, any("nonesuch" in e for e in cwc.check_closure()))
+    cwc.DISPATCH_EDGES = _cw_orig_edges + [{"from": "implement", "to": "review", "kind": "boguskind"}]
+    assert_eq("#543 AC1: an edge with an unknown kind is caught",
+              True, any("boguskind" in e for e in cwc.check_closure()))
+    cwc.DISPATCH_EDGES = _cw_orig_edges
+    cwc.REQUIRED_HELPER_HEADS = {"implement": _cw_orig_heads["implement"]}
+    assert_eq("#543 AC1: REQUIRED_HELPER_HEADS profiles != ROOTS is caught",
+              True, any("REQUIRED_HELPER_HEADS profiles" in e for e in cwc.check_closure()))
+    cwc.REQUIRED_HELPER_HEADS = _cw_orig_heads
+    cwc.SKILL_ASSETS = dict(_cw_orig_assets)
+    cwc.SKILL_ASSETS["review"] = [a for a in _cw_orig_assets["review"] if "phase-3-agents" not in a]
+    assert_eq("#543 AC1: unlisted_phase_files flags an on-disk-but-unlisted phase "
+              "(guard bites — not vacuous)",
+              True, any("phase-3-agents" in e for e in cwc.unlisted_phase_files()))
+finally:
+    cwc.DISPATCH_EDGES = _cw_orig_edges
+    cwc.SKILL_ASSETS = _cw_orig_assets
+    cwc.REQUIRED_HELPER_HEADS = _cw_orig_heads
 assert_eq("#543 AC18: checked-in manifest matches the generated closure (verify)",
           0, cwc.main(["verify"]))
 assert_eq("#543 AC18: validator accepts the real checked-in manifest",
@@ -5169,6 +5197,37 @@ with tempfile.TemporaryDirectory() as _cw_base:
     assert_eq("#543 AC18 c17 HEAD_ABSENT", [vcwc.HEAD_ABSENT],
               _codes(_run(_valid_manifest(), profile_grants={"implement": set()})))
 
+    # Class 10 (WRONG_FIELD_TYPE) is emitted by several distinct triggers — cover
+    # the ones the single c10 fixture above did not, especially the protocol
+    # identity check (the contract's own version binding).
+    _m = _valid_manifest(); _m["protocol"] = "wrong-protocol"
+    assert_eq("#543 AC18 c10 protocol wrong value", True,
+              vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
+    _m = _valid_manifest(); _m["protocol"] = 5
+    assert_eq("#543 AC18 c10 protocol non-string", True,
+              vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
+    _m = _valid_manifest(); _m["legacy_profile_baseline"] = 5
+    assert_eq("#543 AC18 c10 legacy_profile_baseline non-string", True,
+              vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
+    _m = _valid_manifest(); _m["required_helper_heads"] = "notobj"
+    assert_eq("#543 AC18 c10 required_helper_heads non-object", True,
+              vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
+    _m = _valid_manifest(); _m["required_helper_heads"] = {"implement": "notalist"}
+    assert_eq("#543 AC18 c10 profile heads non-list", True,
+              vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
+    assert_eq("#543 AC18 c10 top-level number (non-object scalar)",
+              [vcwc.WRONG_FIELD_TYPE], _codes(_run(raw="5")))
+    # Class 12 also covers an absolute (non-escaping-but-unsafe) path.
+    _m = _valid_manifest(); _m["files"] = {"/etc/passwd": _good_hash}
+    assert_eq("#543 AC18 c12 absolute path", True,
+              vcwc.INVALID_PATH in _codes(_run(_m, expected_assets=())))
+    # Independent violations accumulate — the validator collects, it does not
+    # short-circuit after the first (only fatal load/shape errors stop early).
+    _m = _valid_manifest(); _m["bogus"] = 1; _m["files"] = {"scripts/foo.sh": "notahash"}
+    _mv = _codes(_run(_m))
+    assert_eq("#543 AC18 multi-violation accumulates (EXTRA_KEY + MALFORMED_DIGEST)",
+              True, vcwc.EXTRA_KEY in _mv and vcwc.MALFORMED_DIGEST in _mv)
+
     # Every one of the 17 classes is distinct and exercised above.
     _seen = {
         vcwc.ABSENT_FILE, vcwc.UNREADABLE_FILE, vcwc.INVALID_JSON, vcwc.TOP_LEVEL_ARRAY,
@@ -5178,6 +5237,16 @@ with tempfile.TemporaryDirectory() as _cw_base:
         vcwc.PROFILE_OMITTED, vcwc.HEAD_ABSENT,
     }
     assert_eq("#543 AC18: rejection matrix is closed at exactly 17 classes", 17, len(_seen))
+    # Bind "closed at 17" to the module, not to a hand-copied literal set: the 17
+    # driven classes must be exactly the module's defined rejection-code constants
+    # (a NAME = "NAME" string, upper-case). An 18th class added to validate() with
+    # a new constant fails this unless a matching fixture drives it into _seen.
+    _module_codes = {
+        v for k, v in vars(vcwc).items()
+        if isinstance(v, str) and k == v and k.isupper()
+    }
+    assert_eq("#543 AC18: the driven classes are exactly the module's defined codes",
+              _module_codes, _seen)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

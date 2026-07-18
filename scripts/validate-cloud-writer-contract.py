@@ -17,7 +17,7 @@ content binding, reachability binding, and profile check:
   7  MISSING_KEY           a required top-level key is absent
   8  EXTRA_KEY             an unexpected top-level key is present
   9  DUPLICATE_KEY         a key is duplicated in the JSON source
-  10 WRONG_FIELD_TYPE      a field has the wrong JSON type
+  10 WRONG_FIELD_TYPE      a field — or the top-level value — has the wrong JSON type
   11 MALFORMED_DIGEST      a files digest is not lowercase 64-hex
   12 INVALID_PATH          a files key is absolute or escapes the vendored root
   13 MISSING_ASSET         a listed file does not exist on disk
@@ -27,6 +27,17 @@ content binding, reachability binding, and profile check:
   17 HEAD_ABSENT           a required helper head is absent from that profile's grants
 
 Exit 0 == valid; exit 1 == one or more violations (each printed to stdout).
+
+Deployment note (the pre-agent wiring is AC19/AC20 of #543, deferred). The default
+(un-injected) dependency derivation resolves both the manifest's ``files`` (under
+``base_dir``) and the profile grants (from ``base_dir / <workflow>``) against the
+same ``base_dir``. In the *source* repository that is the repo root, which holds
+both ``scripts/``/``lib/`` and ``.github/workflows/``, so ``main([])`` works. In a
+*consumer* the helpers are vendored under ``.devflow/vendor/devflow/`` while the
+workflows live at the consumer repo root, so the two roots differ and the caller
+must inject ``base_dir`` / ``profile_grants`` explicitly. ``validate()`` takes all
+three as injectable parameters precisely so the pre-agent wiring can supply the
+right roots; do not rely on the default derivation from the vendored location.
 """
 from __future__ import annotations
 
@@ -272,14 +283,34 @@ def _load_contract_module():
     return cloud_writer_contract
 
 
-_GRANT_RE = re.compile(r"\.devflow/vendor/devflow/(?:scripts|lib)/[A-Za-z0-9._-]+")
+# A vendored helper is *granted* only as the leading token of a `Bash(...)` tool
+# spec — never a bare mention. Anchoring on `Bash(` is what keeps a vendored path
+# that appears only in a YAML comment or a shell assignment (e.g.
+# `CG=.devflow/vendor/devflow/scripts/config-get.sh`) from being counted as a
+# grant, which would make class 17 (HEAD_ABSENT) fail open. (The authoritative
+# comment-aware allowlist scoping is lib/test/extract-command-heads.py, wired by
+# the deferred grant-synchronization work, AC9 of #543.)
+_GRANT_RE = re.compile(
+    r"Bash\(\s*(\.devflow/vendor/devflow/(?:scripts|lib)/[A-Za-z0-9._-]+)"
+)
 
 
 def extract_profile_grants(workflow_path):
-    """Return the set of vendored helper leading tokens granted in a workflow file."""
+    """Return the set of vendored helper leading tokens granted in a workflow file.
+
+    Returns an empty set when the workflow cannot be read, emitting a stderr
+    breadcrumb naming the unreadable path so the resulting HEAD_ABSENT
+    violations are not misattributed to the manifest (unknown is not zero — the
+    grant source was unestablished, not empty).
+    """
     try:
         text = Path(workflow_path).read_text(encoding="utf-8")
-    except OSError:
+    except OSError as exc:
+        print(
+            f"cloud-writer-contract: could not read grant source {workflow_path}: "
+            f"{exc}; treating its granted heads as empty (HEAD_ABSENT will follow)",
+            file=sys.stderr,
+        )
         return set()
     return set(_GRANT_RE.findall(text))
 

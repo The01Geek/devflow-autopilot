@@ -24,8 +24,12 @@ It declares, as checked-in data:
   tokens the profile grants (the executable trust boundary).
 
 ``check_closure()`` is the AC1 guard: it fails when a root or a dispatch edge
-names a skill that is not classified in ``SKILL_ASSETS``, or when a classified
-asset does not exist on disk. ``build_manifest()`` renders the AC18
+names a skill that is not classified in ``SKILL_ASSETS``, when a dispatch edge
+carries an unknown ``kind``, when a classified asset (or a required helper's
+source file) does not exist on disk, when a ``phases/*.md`` file exists on disk
+under a classified skill but is not listed (the reverse-drift check), or when
+``REQUIRED_HELPER_HEADS`` and ``ROOTS`` name different profile sets.
+``build_manifest()`` renders the AC18
 ``devflow-cloud-writer-contract-v1`` manifest from this same data, so the manifest
 can never silently drift from the closure it claims to describe.
 """
@@ -76,6 +80,7 @@ ROOTS = {
 #   nested   — a Skill-tool invocation from within a skill
 #   inline   — the shared review engine executed inline under the caller's profile
 #   docs     — a documentation Agent-tool subagent
+DISPATCH_KINDS = frozenset({"direct", "nested", "inline", "docs"})
 DISPATCH_EDGES = [
     {"from": "implement", "to": "review", "kind": "inline"},
     {"from": "implement", "to": "review-and-fix", "kind": "nested"},
@@ -201,10 +206,29 @@ def check_closure():
     """AC1 guard. Return a list of human-readable violations (empty == OK).
 
     Fails when a reached skill is unclassified, when an edge/root names an
-    unknown skill, or when a classified asset file does not exist on disk.
+    unknown skill, when an edge carries an unknown ``kind``, when a classified
+    asset or a required helper's source file does not exist on disk, when a
+    ``phases/*.md`` file on disk under a classified skill is not listed (the
+    reverse-drift check), or when ``REQUIRED_HELPER_HEADS`` and ``ROOTS`` name
+    different profile sets.
     """
     errors = []
     classified = set(SKILL_ASSETS)
+
+    # Every dispatch edge's kind must be one of the classified reach kinds.
+    for edge in DISPATCH_EDGES:
+        if edge.get("kind") not in DISPATCH_KINDS:
+            errors.append(
+                f"dispatch edge {edge.get('from')}->{edge.get('to')} has unknown "
+                f"kind {edge.get('kind')!r} (not one of {sorted(DISPATCH_KINDS)})"
+            )
+
+    # REQUIRED_HELPER_HEADS must name exactly the ROOTS profile set.
+    if set(REQUIRED_HELPER_HEADS) != set(ROOTS):
+        errors.append(
+            "REQUIRED_HELPER_HEADS profiles "
+            f"{sorted(REQUIRED_HELPER_HEADS)} != ROOTS profiles {sorted(ROOTS)}"
+        )
 
     # Every root's entry skill must be classified.
     for rid, root in ROOTS.items():
@@ -239,6 +263,21 @@ def check_closure():
         for rel in assets:
             if not (REPO_ROOT / rel).is_file():
                 errors.append(f"classified asset for '{skill}' missing on disk: {rel}")
+
+    # Every required helper's source file must exist on disk, so `check` reports
+    # a rename/removal cleanly instead of `generate`/`verify` crashing with an
+    # uncaught FileNotFoundError from sha256_of().
+    for profile, heads in REQUIRED_HELPER_HEADS.items():
+        for token in heads:
+            try:
+                rel = _helper_source_path(token)
+            except ValueError as exc:
+                errors.append(f"profile '{profile}' helper token invalid: {exc}")
+                continue
+            if not (REPO_ROOT / rel).is_file():
+                errors.append(
+                    f"profile '{profile}' required helper missing on disk: {rel}"
+                )
 
     # Every phase file on disk under a classified skill's phases/ dir must be
     # listed. The listed-assets-exist check above is one-directional (it never
