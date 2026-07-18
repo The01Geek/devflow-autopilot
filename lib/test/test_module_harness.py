@@ -302,5 +302,195 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
         self.assertIn("MODULE_SOURCED", result.stdout.splitlines())
 
 
+class NamespacedModulePinHelperTests(unittest.TestCase):
+    """AC11/AC12: the shared devflow_module_* pin/count/mutation helpers."""
+
+    def _drive(self, body: str, *, tmpdir_name: str = "tmp") -> tuple[
+        subprocess.CompletedProcess[str], list[str], Path
+    ]:
+        # Runs BODY with RESULTS_FILE + a minimal assert_eq + the sourced harness,
+        # under a controlled TMPDIR so scratch-cleanup is observable. Returns the
+        # process, the RESULTS_FILE verdicts, and the controlled TMPDIR path.
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            controlled_tmp = root / tmpdir_name
+            controlled_tmp.mkdir()
+            results = root / "results"
+            driver = root / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                f'RESULTS_FILE="{results}"\n'
+                f'export TMPDIR="{controlled_tmp}"\n'
+                '> "$RESULTS_FILE"\n'
+                "assert_eq() {\n"
+                '  if [ "$2" = "$3" ]; then printf "PASS\\n" >> "$RESULTS_FILE";\n'
+                '  else printf "FAIL\\n" >> "$RESULTS_FILE"; fi\n'
+                "}\n"
+                f'. "{HARNESS}"\n'
+                + body,
+                encoding="utf-8",
+            )
+            process = subprocess.run(
+                ["bash", str(driver)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            verdicts = (
+                results.read_text(encoding="utf-8").split()
+                if results.exists()
+                else []
+            )
+            return process, verdicts, controlled_tmp
+
+    def test_pin_count_counts_fixed_string_occurrences(self) -> None:
+        process, _, _ = self._drive(
+            'F="$(mktemp)"; printf "alpha beta alpha\\nalpha\\n" > "$F"\n'
+            'C="$(devflow_module_pin_count "alpha" "$F")"; RC=$?\n'
+            'echo "COUNT:$C RC:$RC"\n'
+        )
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assertIn("COUNT:3 RC:0", process.stdout)
+
+    def test_pin_count_readable_zero_is_distinct_from_unestablished(self) -> None:
+        # A readable file with zero matches returns "0" (rc 0); unreadable input
+        # returns "unestablished" (rc 1), never "0" — so a zero-expected assertion
+        # PASSES on the readable-zero and turns RED on the unestablished input.
+        process, verdicts, _ = self._drive(
+            'F="$(mktemp)"; printf "nothing to see\\n" > "$F"\n'
+            'Z="$(devflow_module_pin_count "absent" "$F")"; ZRC=$?\n'
+            'echo "ZERO:$Z ZRC:$ZRC"\n'
+            'assert_eq "readable zero-match" "0" "$Z"\n'
+            'U="$(devflow_module_pin_count "absent" "/no/such/file")"; URC=$?\n'
+            'echo "UNREAD:$U URC:$URC"\n'
+            'assert_eq "unreadable is zero-RED" "0" "$U"\n'
+        )
+        self.assertIn("ZERO:0 ZRC:0", process.stdout)
+        self.assertIn("UNREAD:unestablished URC:1", process.stdout)
+        self.assertIn("unreadable file", process.stderr)
+        # readable-zero PASSes the zero-expected assertion; unreadable turns it RED.
+        self.assertEqual(verdicts, ["PASS", "FAIL"], process.stdout + process.stderr)
+
+    def _drive_with_fake_python3(self, python3_body: str, expect_stderr: str) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            fake = fake_bin / "python3"
+            fake.write_text("#!/usr/bin/env bash\n" + python3_body, encoding="utf-8")
+            fake.chmod(0o755)
+            results = root / "results"
+            fixture = root / "fixture"
+            fixture.write_text("literal literal\n", encoding="utf-8")
+            driver = root / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                f'RESULTS_FILE="{results}"\n'
+                f'export PATH="{fake_bin}:$PATH"\n'
+                '> "$RESULTS_FILE"\n'
+                "assert_eq() {\n"
+                '  if [ "$2" = "$3" ]; then printf "PASS\\n" >> "$RESULTS_FILE";\n'
+                '  else printf "FAIL\\n" >> "$RESULTS_FILE"; fi\n'
+                "}\n"
+                f'. "{HARNESS}"\n'
+                f'C="$(devflow_module_pin_count "literal" "{fixture}")"; RC=$?\n'
+                'echo "COUNT:$C RC:$RC"\n'
+                'assert_eq "zero-expected under fake python3" "0" "$C"\n',
+                encoding="utf-8",
+            )
+            process = subprocess.run(
+                ["bash", str(driver)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            verdicts = results.read_text(encoding="utf-8").split()
+        # Every unestablished-count row: the count is "unestablished" (never 0), the
+        # breadcrumb names the kind, and the zero-expected assertion turns RED.
+        self.assertIn("COUNT:unestablished RC:1", process.stdout)
+        self.assertIn(expect_stderr, process.stderr)
+        self.assertEqual(verdicts, ["FAIL"], process.stdout + process.stderr)
+
+    def test_pin_count_missing_or_failed_python3_is_unestablished(self) -> None:
+        # "missing Python" (command-not-found rc) and an interpreter fault both
+        # surface as a non-zero interpreter exit → unestablished, never 0.
+        self._drive_with_fake_python3("exit 127\n", "python3 counter failed")
+        self._drive_with_fake_python3("exit 1\n", "python3 counter failed")
+
+    def test_pin_count_malformed_output_is_unestablished(self) -> None:
+        self._drive_with_fake_python3(
+            'printf "not-a-number\\n"\nexit 0\n', "malformed counter output"
+        )
+
+    def test_pin_unique_passes_on_exactly_one_and_reds_otherwise(self) -> None:
+        process, verdicts, _ = self._drive(
+            'ONE="$(mktemp)"; printf "the marker line\\nother\\n" > "$ONE"\n'
+            'devflow_module_pin_unique "unique present" "the marker line" "$ONE"\n'
+            'TWO="$(mktemp)"; printf "dup\\ndup\\n" > "$TWO"\n'
+            'devflow_module_pin_unique "duplicated -> RED" "dup" "$TWO"\n'
+            'devflow_module_pin_unique "unreadable -> RED" "x" "/no/such/file"\n'
+        )
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assertEqual(verdicts, ["PASS", "FAIL", "FAIL"], process.stdout + process.stderr)
+
+    def test_pin_red_under_flips_on_operative_mutation_and_cleans_scratch(self) -> None:
+        process, verdicts, _ = self._drive(
+            'F="$(mktemp)"; printf "operative sentence here\\nkeep\\n" > "$F"\n'
+            '# Operative mutation removes the pinned sentence -> PASS->FAIL -> PASS.\n'
+            'devflow_module_pin_red_under "operative mutation flips" '
+            '"operative sentence here" "s/operative sentence here//" "$F"\n'
+            '# A no-op mutation is never a vacuous pass -> RED.\n'
+            'devflow_module_pin_red_under "noop mutation is RED" '
+            '"operative sentence here" "s/ZZZ_NEVER_MATCHES//" "$F"\n'
+            '# An unreadable file -> RED.\n'
+            'devflow_module_pin_red_under "unreadable is RED" '
+            '"x" "s/x//" "/no/such/file"\n'
+        )
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assertEqual(verdicts, ["PASS", "FAIL", "FAIL"], process.stdout + process.stderr)
+
+    def test_pin_red_under_removes_its_scratch_on_every_return_path(self) -> None:
+        # Run several return paths (flip, no-op, unreadable, sed-error) and confirm
+        # NO devflow-module-mut.* scratch survives in the controlled TMPDIR.
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            controlled_tmp = root / "tmp"
+            controlled_tmp.mkdir()
+            results = root / "results"
+            fixture = root / "fixture"
+            fixture.write_text("pinned line\nkeep\n", encoding="utf-8")
+            driver = root / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                f'RESULTS_FILE="{results}"\n'
+                f'export TMPDIR="{controlled_tmp}"\n'
+                '> "$RESULTS_FILE"\n'
+                "assert_eq() { printf 'PASS\\n' >> \"$RESULTS_FILE\"; }\n"
+                f'. "{HARNESS}"\n'
+                f'devflow_module_pin_red_under "flip" "pinned line" "s/pinned line//" "{fixture}"\n'
+                f'devflow_module_pin_red_under "noop" "pinned line" "s/NOPE//" "{fixture}"\n'
+                f'devflow_module_pin_red_under "unreadable" "x" "s/x//" "/no/such/file"\n'
+                f'devflow_module_pin_red_under "sederr" "pinned line" "s/(/" "{fixture}"\n',
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["bash", str(driver)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            leftover = sorted(
+                p.name for p in controlled_tmp.iterdir()
+            )
+        self.assertEqual(
+            [n for n in leftover if n.startswith("devflow-module-mut")],
+            [],
+            f"mutation scratch survived: {leftover}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
