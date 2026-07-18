@@ -410,6 +410,18 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
             [item.workflow for item in detect_occurrences(events, registry_without_modules)],
         )
 
+    def test_review_surfaces_cover_the_whole_engine_bundle(self) -> None:
+        # #529: the Review engine is a bundle — a root plus gated phase references.
+        # Every path that reaches the engine must enumerate the references too, or
+        # editing one changes no fingerprint and the recorder under-reports the
+        # prompt surface it actually loaded.
+        for workflow in ("review", "review-and-fix", "implement"):
+            globs = {item.glob for item in self.registry[workflow].surfaces}
+            with self.subTest(workflow=workflow):
+                self.assertIn("skills/review/SKILL.md", globs)
+                self.assertIn("skills/review/phases/*.md", globs)
+                self.assertIn(".devflow/prompt-extensions/review.md", globs)
+
     def test_each_user_command_creates_a_top_level_occurrence(self) -> None:
         cases = [
             ("/devflow:implement 520", "implement", {"kind": "issue", "number": 520}),
@@ -441,6 +453,36 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
                     [(item.workflow, item.mode, item.subject) for item in found],
                     [(workflow, "top-level", subject)],
                 )
+
+    def test_review_command_prefix_does_not_swallow_review_and_fix(self) -> None:
+        # #540: `review` is a token-prefix of `review-and-fix`, so their
+        # disambiguation rests on `_user_invocation` requiring whitespace between
+        # the command and its args — `/devflow:review` cannot match
+        # `/devflow:review-and-fix` because `-` is not that separator. Registry
+        # iteration order currently masks this (review-and-fix is enumerated
+        # before review, so it wins regardless of the separator), which makes the
+        # separator the *only* thing standing between a reorder and a silent
+        # misclassification. Pin it with review enumerated FIRST, so the guard
+        # under test is the `\s+` separator itself and a regression that makes it
+        # optional turns this RED (verified by mutation). The reversed ordering is
+        # a proper subset: it also proves the shorter command still classifies its
+        # own input, and the natural-order rows below add the short-form aliases.
+        review_first = {"review": self.registry["review"], **self.registry}
+        for registry, label in ((review_first, "review-first"), (self.registry, "natural")):
+            for command, workflow in (
+                ("/devflow:review-and-fix #77", "review-and-fix"),
+                ("/review-and-fix #77", "review-and-fix"),
+                ("/devflow:review #77", "review"),
+                ("/review #77", "review"),
+            ):
+                with self.subTest(order=label, command=command):
+                    found = detect_occurrences(
+                        parse_events(transcript(user(command))), registry
+                    )
+                    self.assertEqual(
+                        [(item.workflow, item.subject) for item in found],
+                        [(workflow, {"kind": "pull_request", "number": 77})],
+                    )
 
     def test_embedded_first_prompt_is_top_level_only_when_skill_call_corroborates(self) -> None:
         events = parse_events(
