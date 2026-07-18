@@ -17356,12 +17356,15 @@ for f in devflow devflow-implement devflow-review devflow-runner telemetry-push;
     "$(grep -cE '^[[:space:]]*runs-on:' "$WFF")" \
     "$(grep -cF "$_582_CANON" "$WFF")"
   # (c) Top-level `defaults: run: shell: bash`. The `defaults:` key is column-0
-  #     (top level) and its shell key nests at 4 spaces — distinct from the
-  #     8-space step-level `shell: bash` two of the five already carry.
-  assert_eq "#582: $f.yml declares a top-level 'defaults:' block" "1" \
+  #     (top level); the shell key nests at 4 spaces — distinct from the 8-space
+  #     step-level `shell: bash` two of the five already carry. Assert the exact
+  #     CONTIGUOUS `defaults:` → `  run:` → `    shell: bash` nesting (not two
+  #     independent line-counts, which would both pass on a malformed interleaving
+  #     — a column-0 `defaults:` and an unrelated 4-space `shell: bash` elsewhere).
+  assert_eq "#582: $f.yml declares exactly one top-level 'defaults:' block" "1" \
     "$(grep -c '^defaults:$' "$WFF")"
-  assert_eq "#582: $f.yml defaults.run.shell is bash" "1" \
-    "$(grep -c '^    shell: bash$' "$WFF")"
+  assert_eq "#582: $f.yml top-level defaults is the contiguous 'run: shell: bash' block" "1" \
+    "$(awk 'p2=="defaults:"&&p1=="  run:"&&$0=="    shell: bash"{c++}{p2=p1;p1=$0}END{print c+0}' "$WFF")"
 done
 # Positive control (AC12): a sed -E mutation rewriting the parameterized runs-on
 # expression back to a literal `runs-on: ubuntu-latest` turns the presence pin
