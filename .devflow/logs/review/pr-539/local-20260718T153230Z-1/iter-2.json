@@ -1,0 +1,12 @@
+{
+  "iter": 2,
+  "fix_commit_sha": "22390148f83898c462d2c569257330af53c135ca",
+  "fix_files": [
+    "docs/review-and-fix-budget.md",
+    "lib/test/modules/review-and-fix-contract.sh",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
