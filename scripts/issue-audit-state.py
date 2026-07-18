@@ -843,10 +843,12 @@ def evaluate_triggers(state):
     completed **REVISE** round has NOT been adjudicated yet (the pre-#548 raw-REVISE token used
     to fire the offer, so an un-adjudicated REVISE round must not silently drop it — the offer
     fires rather than being skipped, exactly the absent-comparand fail-closed the guard would
-    otherwise fail open on); and whenever state is unestablishable (unknown is not zero). The
-    reason is surfaced whenever T2 holds on an unknown state. An un-adjudicated *FILE* round is
-    NOT this case — its raw signal is clean and pre-#548 it fired no offer, so T2's behavior on
-    it is unchanged.
+    otherwise fail open on); and whenever state is unestablishable (unknown is not zero). A
+    naming `reason` is surfaced on exactly the three fail-closed arms that need one —
+    `state-unestablished`, `no-verdict-round`, and `unadjudicated-round` — and is `None` when
+    T2 holds purely because a revision postdates a known, audited last round (the offer fires,
+    but there is no anomaly to name). An un-adjudicated *FILE* round is NOT any of these — its
+    raw signal is clean and pre-#548 it fired no offer, so T2's behavior on it is unchanged.
     """
     if state is None:
         return {'t1': False, 't2': True, 'reason': 'state-unestablished'}

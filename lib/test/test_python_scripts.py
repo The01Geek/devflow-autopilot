@@ -3974,9 +3974,11 @@ assert_eq("#546 t1_t2_rows/state_unestablished_t2_holds: unestablished state -> 
           (False, True, 'state-unestablished'),
           (lambda t: (t['t1'], t['t2'], t['reason']))(
               issue_audit_state.evaluate_triggers(None)))
-assert_eq("#546 t1_t2_rows: the verdict-less terminal -> T1 does not hold, T2 does",
-          (False, True),
-          (lambda t: (t['t1'], t['t2']))(
+assert_eq("#548 t1_t2_rows: the verdict-less terminal -> T1 does not hold, T2 does, and the "
+          "reason is NAMED 'no-verdict-round' (pinning the reason arm, not just t1/t2 — a "
+          "regression dropping or mis-labeling that reason would otherwise ship green)",
+          (False, True, 'no-verdict-round'),
+          (lambda t: (t['t1'], t['t2'], t['reason']))(
               issue_audit_state.evaluate_triggers(
                   _state([_round(1, 'inline', 'no-verdict')]))))
 assert_eq("#546 t1_t2_rows: zero completed rounds -> neither trigger holds",
@@ -4678,6 +4680,8 @@ with tempfile.TemporaryDirectory() as _td:
     issue_audit_state.save_state(_state([_round(1, 'file', 'FILE')]), 's', root=_adj_root)
 
     for _name, _args, _needle in (
+        ('adjudicating a round that was never recorded rejects',
+         _adj_args(9, 'FILE', 0, 0, 0, '0'), 'no round 9 recorded'),
         ('FILE + nonzero unresolved rejects',
          _adj_args(1, 'FILE', 2, 0, 0, '2'), 'FILE verdict requires zero'),
         ('REVISE + zero unresolved rejects',
@@ -4689,6 +4693,11 @@ with tempfile.TemporaryDirectory() as _td:
         ('a non-int non-unestablished unresolved rejects',
          _adj_args(1, 'REVISE', 1, 0, 0, 'maybe'),
          "neither a non-negative integer nor the literal 'unestablished'"),
+        # A negative-INTEGER unresolved count is a distinct guard from the non-int string
+        # above: `int('-1')` parses, so it reaches the `unresolved < 0` arm, not the
+        # ValueError arm. Attribute it to that arm's OWN breadcrumb.
+        ('a negative-integer --unresolved-must-revise rejects',
+         _adj_args(1, 'REVISE', 1, 0, 0, '-1'), 'never a negative count'),
         ('unresolved exceeding must-revise rejects',
          _adj_args(1, 'REVISE', 1, 0, 0, '3'), 'exceeds the must-revise total'),
     ):
@@ -4720,6 +4729,46 @@ with tempfile.TemporaryDirectory() as _td:
               'unestablished',
               issue_audit_state.load_state(
                   's', root=_adj_root)['rounds'][0]['unresolved_must_revise'])
+
+    # A REVISE round with `--must-revise 0 --unresolved-must-revise unestablished` is a
+    # DECIDED design allowance, not a defect: the unestablished count bypasses the
+    # int-agreement/subset checks, so the mildly self-inconsistent pairing (a REVISE with
+    # zero must-revise findings) is accepted — and it fails toward the SAFE direction, since
+    # convergence/T1 both treat an unestablished count as not-established, never as zero.
+    # Pin the accept and the safe downstream so the allowance is a locked contract, not an
+    # accident a later int-agreement tightening could silently break.
+    issue_audit_state.save_state(_state([_round(1, 'file', 'REVISE')]), 's', root=_adj_root)
+    _code, _err = _drive_adj(_adj_root, _adj_args(1, 'REVISE', 0, 0, 0, 'unestablished'))
+    assert_eq("#548 record-adjudication accept: REVISE + must-revise 0 + 'unestablished' is "
+              "accepted (the agreement/subset checks are bypassed for an unknown count)",
+              None, _code)
+    _s4 = issue_audit_state.load_state('s', root=_adj_root)
+    assert_eq("#548 record-adjudication accept: ... and the (0, 'unestablished') pairing "
+              "persists verbatim",
+              (0, 'unestablished'),
+              (_s4['rounds'][0]['must_revise_count'],
+               _s4['rounds'][0]['unresolved_must_revise']))
+    assert_eq("#548 record-adjudication accept: ... and it fails SAFE — convergence reads it "
+              "not-converged with reason unresolved-unestablished, never a spurious converge",
+              (False, 'unresolved-unestablished'),
+              (lambda c: (c['converged'], c['reason']))(
+                  issue_audit_state.evaluate_convergence(_s4)))
+
+    # Re-adjudicating an ALREADY-adjudicated round is a PERMISSIVE overwrite with no
+    # illegal-transition guard (an asymmetry with the forward-only attestation rule). Pin
+    # that decided contract in both directions: the second call exits 0, and the recorded
+    # payload is REPLACED by the new values (not refused, not appended). Same fixture, so the
+    # accept above is the positive control that the round was already adjudicated.
+    _code, _err = _drive_adj(_adj_root, _adj_args(1, 'REVISE', 2, 0, 0, '2'))
+    assert_eq("#548 record-adjudication overwrite: re-adjudicating an adjudicated round is "
+              "accepted (permissive overwrite, no illegal-transition guard)", None, _code)
+    _s5 = issue_audit_state.load_state('s', root=_adj_root)
+    assert_eq("#548 record-adjudication overwrite: ... and the prior payload is REPLACED by "
+              "the new values (not appended or refused)",
+              ('REVISE', 2, 2),
+              (_s5['rounds'][0]['adjudicated_verdict'],
+               _s5['rounds'][0]['must_revise_count'],
+               _s5['rounds'][0]['unresolved_must_revise']))
 
 # #548 summary discriminates the LATEST completed round from an earlier one (a single-round
 # fixture cannot tell 'latest' from 'first'/'cumulative'/'open' apart).

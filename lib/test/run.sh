@@ -42578,6 +42578,12 @@ if [ -d "$IAS_SB" ]; then
     PATH="$RESTRICTED" python3 "$IAS" record-adjudication rt --nonce "$NONCE" --round 2 \
       --verdict FILE --must-revise 0 --advisory 1 --invalid 0 --unresolved-must-revise 0 > /dev/null
     PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-file
+    # #548: query-convergence must fail closed on a FOREIGN nonce over this SAME converged
+    # state — a foreign caller must never read a converged verdict off another run. Every
+    # sibling query class already has a foreign-nonce row; convergence was the one omitted.
+    # The `.rt-conv-file` assertion (correct nonce, converged=yes) is the positive control on
+    # the identical fixture, so this refusal cannot be an unrelated precondition firing.
+    PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce badnonce > .rt-conv-fn 2>/dev/null
     PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
       --mode approve --draft-file draft.md > .rt-elig-ok
     PATH="$RESTRICTED" python3 "$IAS" query-summary rt --nonce "$NONCE" \
@@ -42600,6 +42606,10 @@ if [ -d "$IAS_SB" ]; then
     "converged=no reason=unresolved-must-revise-remain" "$(cat "$IAS_SB/.rt-conv-revise" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: adjudicated FILE with 0 unresolved converges" \
     "converged=yes reason=" "$(cat "$IAS_SB/.rt-conv-file" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: query-convergence fails closed on a foreign nonce (never reads a converged verdict off another run)" \
+    "converged=no reason=foreign-nonce" "$(cat "$IAS_SB/.rt-conv-fn" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: query-summary RENDERS the latest round's adjudicated tokens at the CLI (round 2: FILE, 0 unresolved)" \
+    "1" "$(grep -c 'adjudicated_verdict=FILE must_revise=0 advisory=1 invalid=0 unresolved_must_revise=0' "$IAS_SB/.rt-summary" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: record-adjudication echoes the adjudicated payload" \
     "adjudicated=REVISE unresolved=2 must_revise=2 advisory=0 invalid=0" "$(cat "$IAS_SB/.rt-adj" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: approve mode refuses just-revised, not-yet-re-audited bytes" \
