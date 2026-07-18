@@ -73,7 +73,27 @@ MODULE_FAILURES_FILE="$(mktemp)"
 # SKIP introduces no new tool into the selection) — so a gate that self-skips is visible in
 # the summary and can never be mistaken for a clean pass. The renderer is lib/test/summary.sh.
 SKIPS_FILE="$(mktemp)"
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"' EXIT   # protect tally files immediately; widened below once the bundle temp exists
+# Whole-run temp cleanup is a single EXIT trap over an APPEND-ONLY registry: every whole-run
+# temp file/dir is registered at its creation site via _suite_tmp_file/_suite_tmp_dir. The
+# previous idiom — re-registering a longer `trap … EXIT` line at each later creation site —
+# REPLACES the whole handler each time, so any rewrite that forgot an earlier entry silently
+# un-covered it (PR #539 review: SKIPS_FILE and IMPL_SKILL_BUNDLE were dropped by later
+# rewrites and leaked on every run, and MAXI_BUNDLE was created ~31k lines before its trap
+# line, leaking on any early `exit 1` in between). Registered here, before the first
+# assertion, so no whole-run temp ever precedes its coverage.
+_SUITE_TMP_FILES=(); _SUITE_TMP_DIRS=()
+_suite_tmp_file() { _SUITE_TMP_FILES+=("$1"); }
+_suite_tmp_dir()  { _SUITE_TMP_DIRS+=("$1"); }
+_suite_cleanup() {
+  # Length guards keep the empty-array "${arr[@]}" expansions off bash 4.0–4.3's set -u trap.
+  [ "${#_SUITE_TMP_FILES[@]}" -gt 0 ] && rm -f "${_SUITE_TMP_FILES[@]}"
+  [ "${#_SUITE_TMP_DIRS[@]}" -gt 0 ] && rm -rf "${_SUITE_TMP_DIRS[@]}"
+  return 0
+}
+trap _suite_cleanup EXIT
+_suite_tmp_file "$RESULTS_FILE"
+_suite_tmp_file "$MODULE_FAILURES_FILE"
+_suite_tmp_file "$SKIPS_FILE"
 # shellcheck source=lib/test/summary.sh disable=SC1091
 . "$LIB/test/summary.sh"
 # shellcheck source=lib/test/module-harness.sh disable=SC1091
@@ -160,7 +180,7 @@ _build_skill_bundle() {
   done
 }
 IMPL_SKILL_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the implement-skill bundle temp" >&2; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
+_suite_tmp_file "$IMPL_SKILL_BUNDLE"
 # Build the member list as an ARRAY (not a space-joined string) so a checkout path
 # containing a space is preserved rather than word-split — the stems in IMPL_PHASE_STEMS
 # are space-free identifiers, but $LIB (the checkout dir) is not guaranteed to be.
@@ -192,7 +212,7 @@ REVIEW_GATED_PHASE_STEMS="phase-0-3-6-blocker-recheck phase-0-6-stale-prose-lint
 REVIEW_PHASE_STEMS="$REVIEW_DEFAULT_PHASE_STEMS $REVIEW_GATED_PHASE_STEMS"
 REVIEW_ROOT="$LIB/../skills/review/SKILL.md"
 REVIEW_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-skill bundle temp" >&2; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE" "$REVIEW_BUNDLE"' EXIT
+_suite_tmp_file "$REVIEW_BUNDLE"   # registry, never a fresh `trap … EXIT` (it would REPLACE _suite_cleanup)
 _review_members=("$REVIEW_ROOT")
 for _s in $REVIEW_PHASE_STEMS; do
   _review_members+=("$LIB/../skills/review/phases/${_s}.md")
@@ -1054,10 +1074,134 @@ assert_eq "deferred.labels: SKILL routes a failed label-apply to a durable workp
 # when deferred work was filed but no issue numbers were captured).
 assert_pin_unique "deferred.labels: SKILL Phase 4.0 surfaces an empty-issue-numbers capture" 'captured no issue numbers' "$DEF_SKILL"
 
-# The focused review-and-fix contract module owns the max-iteration resolver and
-# clamp checks. The global suite keeps this path variable because later global
-# guard and mutation proofs still target the same shipped skill.
-MAXI_SKILL="$LIB/../skills/review-and-fix/SKILL.md"
+# ────────────────────────────────────────────────────────────────────────────
+echo "devflow_review_and_fix.max_iterations (schema + resolution)"
+# ────────────────────────────────────────────────────────────────────────────
+# The /devflow:review-and-fix fix-loop cap is read from config via config-get.sh
+# (default 5) and then clamped INLINE in skills/review-and-fix/references/loop-control.md: a value
+# below 1 → floor 1, a non-integer/empty/unparseable value (or a resolver failure)
+# → 5, with no upper bound. The clamp itself is prompt bash (not a script — AC3
+# mandates the SKILL read directly via config-get.sh), so we pin (a) the
+# schema/example contract, (b) the resolver read behavior that feeds the clamp,
+# and (c) the clamp logic via a function kept byte-aligned with the SKILL block.
+MAXI_SCHEMA="$LIB/../.devflow/config.schema.json"
+MAXI_EXAMPLE="$LIB/../.devflow/config.example.json"
+MAXI_PROP='.properties.devflow_review_and_fix.properties.max_iterations'
+assert_eq "max_iterations: schema type is integer" "integer" \
+  "$(jq -r "$MAXI_PROP.type" "$MAXI_SCHEMA")"
+assert_eq "max_iterations: schema minimum is 1" "1" \
+  "$(jq -r "$MAXI_PROP.minimum" "$MAXI_SCHEMA")"
+assert_eq "max_iterations: schema default is 5" "5" \
+  "$(jq -r "$MAXI_PROP.default" "$MAXI_SCHEMA")"
+assert_eq "max_iterations: schema has a non-empty description" "yes" \
+  "$(jq -e "$MAXI_PROP.description | type == \"string\" and (length > 0)" "$MAXI_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "max_iterations: example value matches schema default" \
+  "$(jq -r "$MAXI_PROP.default" "$MAXI_SCHEMA")" \
+  "$(jq -r '.devflow_review_and_fix.max_iterations' "$MAXI_EXAMPLE")"
+
+# Resolver-read behavior (the part the SKILL invokes; the clamp is downstream).
+MAXI_CFG="$(probe_tmp 'max_iterations resolver fixture temp')"
+printf '%s' '{"devflow_review_and_fix":{"max_iterations":9}}' > "$MAXI_CFG"
+assert_eq "max_iterations: configured integer read back verbatim" "9" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
+# Key absent → resolver emits the default 5 (the no-config / unset case; AC: default 5).
+printf '%s' '{"devflow_review_and_fix":{}}' > "$MAXI_CFG"
+assert_eq "max_iterations: unset key → resolver default 5" "5" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
+assert_eq "max_iterations: missing config file → resolver default 5" "5" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 /no/such/config.json)"
+# A below-floor value (0) and a non-integer ("abc") are passed through verbatim by
+# the resolver — the review-and-fix inline clamp (references/loop-control.md) turns these into 1 and 5 respectively.
+printf '%s' '{"devflow_review_and_fix":{"max_iterations":0}}' > "$MAXI_CFG"
+assert_eq "max_iterations: below-floor value passed through to clamp (0)" "0" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
+printf '%s' '{"devflow_review_and_fix":{"max_iterations":"abc"}}' > "$MAXI_CFG"
+assert_eq "max_iterations: non-integer value passed through to clamp (abc)" "abc" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
+rm -f "$MAXI_CFG"
+
+# The review-and-fix inline clamp, applied to the resolver output above. Mirrors the exact
+# logic in skills/review-and-fix/references/loop-control.md so the floor/fallback/no-upper-bound ACs
+# are exercised, not just asserted in prose. Keep byte-aligned with the references/loop-control.md clamp block.
+maxi_clamp() {
+  local v="$1" rc="${2:-0}"
+  if [ "$rc" -ne 0 ] || ! printf '%s' "$v" | grep -Eq '^-?[0-9]+$'; then
+    printf '5\n'
+  elif [ "$v" -lt 1 ]; then
+    printf '1\n'
+  else
+    printf '%s\n' "$v"
+  fi
+}
+assert_eq "max_iterations clamp: valid value honored"          "9"  "$(maxi_clamp 9)"
+assert_eq "max_iterations clamp: large value honored (no cap)"  "42" "$(maxi_clamp 42)"
+assert_eq "max_iterations clamp: 0 → floor 1"                  "1"  "$(maxi_clamp 0)"
+assert_eq "max_iterations clamp: negative → floor 1"           "1"  "$(maxi_clamp -3)"
+assert_eq "max_iterations clamp: non-integer → 5"              "5"  "$(maxi_clamp abc)"
+assert_eq "max_iterations clamp: float → 5"                    "5"  "$(maxi_clamp 2.5)"
+assert_eq "max_iterations clamp: empty → 5"                    "5"  "$(maxi_clamp '')"
+assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_clamp '' 2)"
+
+# Drift guard: maxi_clamp above is a hand-maintained copy of the review-and-fix inline
+# clamp, so the clamp assertions would keep passing even if the *shipped* clamp in
+# references/loop-control.md were edited. Pin the load-bearing tokens in the real bundle so a change to
+# the regex (negative-aware), the below-1 floor, or the default-5 fallback fails here
+# instead of silently passing against the copy.
+# #530: review-and-fix is now a thin root + references/*.md. The literal-pin corpus below
+# targets the whole shipped bundle, so MAXI_SKILL/ST_RAF resolve against a byte-faithful
+# concatenation of the shipped root + every reference (the whole POST-split skill surface,
+# NOT a reconstruction of the pre-split monolith: the split deliberately rewrote content, and
+# the reassembled surface exceeds the monolith by a documented split-growth delta (the
+# `review-and-fix-split-cumulative-growth` figure in docs/review-and-fix-budget.md, pinned live in
+# the #530 budget block below), rebuilt once per run. New #530 pins that must be file-specific
+# pass an explicit reference-file arg.
+# #539 review (Important 1, over-graded shape 3): this bundle is content-pinned selectively (the
+# operative pins below + the #530 control-flow pressure pins + the live word-budget arithmetic),
+# NOT by a full reassembled-bundle-vs-baseline byte diff. A full byte diff has no valid baseline
+# to run against — the monolith is not byte-preserved (there is a documented split-growth delta), so a
+# diff would either be permanently RED or require a frozen expected-bundle snapshot that just
+# relocates the pinning problem and rots on every legitimate edit. Word-count equality is not
+# content equality, so an equal-length reword of an UNPINNED operative sentence can still ship
+# desk-green; that residual coverage ceiling is accepted (the reviewer annotated it a suspected
+# over-grade, single-source, no Phase-2 FAIL) and closed incrementally by pinning load-bearing
+# sentences as they are identified, not by an infeasible whole-bundle byte diff.
+# The concat carries a `.md` suffix so pin-corpus-lint infers markdown comment syntax.
+MAXI_ROOT="$LIB/../skills/review-and-fix/SKILL.md"
+MAXI_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-and-fix bundle temp" >&2; exit 1; }
+_suite_tmp_file "$MAXI_BUNDLE"   # pre-rename path (covers an exit landing before the mv)
+# #539 review (Suggestion 1): guard the rename like the mktemp above. A failed mv would
+# leave $MAXI_BUNDLE pointing at a nonexistent .md path; the empty bundle then fails loudly
+# downstream (per-member FAILs) but with a misleading cause — surface the true cause here.
+mv "$MAXI_BUNDLE" "$MAXI_BUNDLE.md" || { echo "run.sh: could not rename the review-and-fix bundle temp to .md" >&2; exit 1; }
+MAXI_BUNDLE="$MAXI_BUNDLE.md"
+_suite_tmp_file "$MAXI_BUNDLE"   # the real .md path used for the rest of the run
+: > "$MAXI_BUNDLE"
+# Build the bundle through the SAME shared fail-closed builder the implement and review
+# bundles use (_build_skill_bundle → _bundle_member_usable): a missing / empty / unreadable
+# member records a suite FAIL instead of silently dropping — a silent partial bundle would turn
+# the absence/count pins that read $MAXI_BUNDLE (e.g. the #456 grep-and-echo-no guard, LR_SCHEMA)
+# into vacuous passes. The array preserves a $LIB path containing a space.
+_maxi_members=("$MAXI_ROOT")
+for _mf in "$LIB/../skills/review-and-fix/references"/*.md; do _maxi_members+=("$_mf"); done
+_build_skill_bundle "review-and-fix" "$MAXI_BUNDLE" "${_maxi_members[@]}"
+# #539 review (Suggestion, fail-open-glob-shrink): the fail-closed _bundle_member_usable
+# predicate above catches a present-but-empty/unreadable member, but a FULLY DELETED reference
+# just shrinks the references/*.md glob — the loop would assemble a smaller bundle and every
+# $MAXI_BUNDLE pin would still pass against the surviving content. The exact 8-name set is pinned
+# in the #530 budget block, but that coupling is remote; assert the member count
+# adjacent to the build so a dropped reference is caught where the bundle is built. 9 = thin root
+# + 8 references (kept in lockstep with RAF_EXPECTED_REFS in the #530 budget block).
+assert_eq "#530/#539 review-and-fix bundle assembled all 9 members (thin root + 8 references)" "9" \
+  "${#_maxi_members[@]}"
+MAXI_SKILL="$MAXI_BUNDLE"
+# max_iterations clamp presence pins (negative-aware regex, below-1 floor, default-5 fallback).
+# #539 review (Suggestion 5): these prove the tokens SURVIVE. assert_pin_red_under (the mutation
+# primitive that would prove a wiring regression — flipped comparison / dropped negative-awareness
+# / changed default — goes RED) is defined FAR LATER in this file than here, so the behavioral
+# mutation pins for this clamp live in the #530 pressure block below, after its definition.
+assert_pin_unique "max_iterations clamp: SKILL keeps the negative-aware integer regex" "'^-?[0-9]+\$'" "$MAXI_SKILL"
+assert_pin_unique "max_iterations clamp: SKILL keeps the below-1 floor" '"$MAX_ITERS" -lt 1' "$MAXI_SKILL"
+assert_pin_unique "max_iterations clamp: SKILL keeps the default-5 fallback" 'MAX_ITERS=5' "$MAXI_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "severity thresholds (schema + example + config-get resolution + SKILL pins) (#251)"
@@ -1158,7 +1302,7 @@ assert_eq "sev e2e: receiving section configured value honored" "suggestion" "$(
 assert_eq "sev e2e: receiving section unset → default"      "critical"  "$(sev_resolve '{"receiving_review":{}}' .receiving_review.fix_severity_threshold critical)"
 
 # operative-sentence pins in the three SKILL.md files (the sentence carrying the behavior)
-ST_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+ST_RAF="$MAXI_BUNDLE"   # #530: root+references bundle (see MAXI_BUNDLE above)
 ST_REV="$REVIEW_BUNDLE"
 ST_RCV="$LIB/../skills/receiving-code-review/SKILL.md"
 # each SKILL reads its key via config-get.sh (already cloud-allowlisted — no new helper)
@@ -1204,7 +1348,7 @@ assert_pin_unique "sev(rev): Verdict-Criteria summary REJECT line is threshold-d
 assert_pin_unique "sev(rev): Verdict-Criteria summary APPROVE-with-notes line is threshold-driven (mirror of rule 6)" 'Only findings below the verdict threshold → APPROVE with notes' "$ST_REV"
 # #425: agent_overrides `iterations: "first-only"` roster scoping. The engine's Phase 3.1
 # exclusion (skills/review/SKILL.md) and the Step-2.6 shadow-not-scoped boundary
-# (skills/review-and-fix/SKILL.md) are prose-driven dispatch contracts, pinned per the
+# (skills/review-and-fix/references/shadow-review.md) are prose-driven dispatch contracts, pinned per the
 # suite's SKILL.md convention. The shadow-not-scoped sentence is a behavioral-fix pin routed
 # through assert_pin_red_under: deleting the sentence must go RED (a thinned shadow is the
 # regression this exists to catch).
@@ -2931,7 +3075,7 @@ assert_pin_red_under "#557: survived-unfixed reconciliation is operative (stale-
 # definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
 # value. Mutation deletes the sentence's line; the pin must flip PASS->FAIL (a thinned shadow is
-# the regression). $ST_RAF (skills/review-and-fix/SKILL.md) was set far above and persists.
+# the regression). $ST_RAF (the root+references bundle MAXI_BUNDLE; the pinned sentence lives in references/shadow-review.md) was set far above and persists.
 assert_pin_red_under "#425(raf): shadow-not-scoped sentence is operative (thinning the shadow goes RED)" \
   'the shadow always dispatches the **full** expected roster above regardless of any' \
   's/dispatches the \*\*full\*\* expected roster above regardless of any/dispatches a reduced roster on some/' "$ST_RAF"
@@ -3741,995 +3885,13 @@ assert_eq "#449: --no-reproduction help drops the retired 'label-agnostic gate j
 assert_eq "#449: --no-reproduction help states the recorded content classification (rendered)" \
   "1" "$(printf '%s' "$NOREPRO_HELP_449" | grep -oF -- 'recorded content classification is non-bug' | grep -c .)"
 
-# ── issue #443: the mandatory Step 3.6 fresh-context audit in /devflow:create-issue ──
-# The deliverable is agent-executed skill prose plus one tracked extension file; no runtime
-# code path executes in CI, so the automated boundary is the repo's skill-contract mechanism:
-# pins over the rendered SKILL surfaces. Each pinned literal below IS the operative contract
-# sentence itself (a self-contained skill-prose requirement, not a framing clause introducing
-# one), so there is no operative-vs-framing ambiguity for assert_pin_red_under to discriminate
-# here. It is still used over plain assert_pin_unique for its NON-VACUITY proof: each mutation
-# excises the operative requirement clause (the whole pinned sentence or a fragment of it),
-# re-introducing the guarded regression, so every pin is proven to flip PASS->FAIL when that
-# clause is removed, not merely to be present. (#375's framing-vs-operative discrimination is
-# exercised where the mutation deletes a DIFFERENT line than the pinned literal; here the
-# mutation targets the pinned sentence itself, so the flip is a presence-of-the-operative-clause
-# proof. The surface-presence pins that follow the mutation pins use plain assert_pin_unique.)
-CI443_SKILL="$LIB/../skills/create-issue/SKILL.md"
-CI443_EXT="$LIB/../.devflow/prompt-extensions/create-issue.md"
-# Verdict-line requirement (maps to the audit-prompt AC): removing "legal values are exactly"
-# guts the FILE/REVISE/DRAFT-UNREADABLE verdict contract (issue #522 widened it to three values).
-assert_pin_red_under "#443: Step 3.6 mandates the FILE/REVISE/DRAFT-UNREADABLE verdict line" \
-  'whose only three legal values are exactly' 's/legal values are exactly//' "$CI443_SKILL"
-assert_eq "#522: Step 3.6 names the VERDICT: DRAFT-UNREADABLE legal value" "yes" \
-  "$([ "$(pin_count 'VERDICT: DRAFT-UNREADABLE' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
-# Presence (not uniqueness): the FILE/REVISE verdict values recur across the template, the
-# summary example, and the act-on-the-verdict prose (the third value DRAFT-UNREADABLE is pinned
-# separately below) — the verdict-line CONTRACT is pinned uniquely above. Use
-# pin_count (>=1), NOT grep_present, whose call sites are meta-pinned to exactly two.
-assert_eq "#443: Step 3.6 names the VERDICT: FILE legal value" "yes" \
-  "$([ "$(pin_count 'VERDICT: FILE' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
-assert_eq "#443: Step 3.6 names the VERDICT: REVISE legal value" "yes" \
-  "$([ "$(pin_count 'VERDICT: REVISE' "$CI443_SKILL")" -ge 1 ] && echo yes || echo no)"
-# Information-diet exclusion clause (maps to the information-diet AC): removing it re-anchors
-# the auditor on the drafting context — the exact regression the fresh-context mechanism prevents.
-assert_pin_red_under "#443: audit prompt omits conversation, Step 1 findings, and the derivation artifact" \
-  'omits the drafting conversation, the Step 1 findings report, and the Step 2 derivation artifact' \
-  's/omits the drafting conversation//' "$CI443_SKILL"
-assert_pin_unique '#443: audit prompt refers to "the draft", never "your draft"' 'never "your draft"' "$CI443_SKILL"
-# Out-of-bounds on-disk artifacts (maps to the information-diet AC): the void clause is what
-# stops repository read access from silently re-anchoring the auditor on the drafter's reasoning.
-assert_pin_red_under "#443: on-disk drafting artifacts are declared out of bounds (findings void)" \
-  'any finding derived from those files is void' 's/derived from those files is void//' "$CI443_SKILL"
-# Synchronous-dispatch sentence (maps to the dispatch AC): removing the blocking-wait wording
-# lets a launch acknowledgment be misread as the auditor's return.
-assert_pin_red_under "#443: Step 3.6 dispatch waits for the completed result (synchronous)" \
-  "wait for the subagent's completed result before proceeding" \
-  's/completed result before proceeding//' "$CI443_SKILL"
-# Degraded arm (maps to the degraded-arm AC). The #546 cutover moved this arm's ENTRY
-# classification into the tool (`query-next-action` answers `dispatch-inline-degraded`, driven
-# by run.sh's #546 next_action_budget_rows), so the old enumerated-failures literal is gone.
-# What did NOT move is the attempt-first discipline: no state owner can stop an orchestrator
-# from pre-detecting a nested context and skipping a dispatch it therefore never makes, so
-# this stays a prose-only guarantee and keeps its pin. The mutation excises the never-
-# pre-detect clause, re-introducing exactly that pre-detected skip.
-assert_pin_red_under "#443: degraded arm is attempt-first, never pre-detected" \
-  'never pre-detect a nested context and skip' \
-  's/never pre-detect a nested context and skip//' "$CI443_SKILL"
-# Re-audit offer in the Step 4 revision loop (maps to the revision-loop AC). Repointed by the
-# #546 cutover's delta 9, which reordered the loop so the offer resolves BEFORE the confirm/
-# edit approval question; the offer itself survives verbatim as a prose obligation (the tool
-# owns the ceiling, never whether the orchestrator asks). Inverting the offer into a skip
-# re-introduces the ship-an-unaudited-revision channel.
-assert_pin_red_under "#443: Step 4 revision loop offers a fresh re-audit" \
-  '**offer a fresh re-audit** via the runner' \
-  's/\*\*offer a fresh re-audit\*\* via the runner/skip any re-audit and proceed via the runner/' \
-  "$CI443_SKILL"
-# Dispatch-time fresh re-load of the extension (maps to the forwarding-freshness AC): removing
-# the fresh re-load lets a compaction-evicted turn-one load silently drop consumer dimensions.
-assert_pin_red_under "#443: consumer audit dimensions are re-loaded FRESH at dispatch time" \
-  'extract from that **fresh** output any section headed exactly' \
-  's/any section headed exactly//' "$CI443_SKILL"
-# Forwarding-contract heading, pinned as a COUPLED PAIR (maps to the forwarding-contract and
-# extension-file ACs): the skill's forwarding sentence and this repo's live extension must both
-# carry the exact `## Audit dimensions` heading; either side drifting turns its pin RED.
-assert_pin_unique "#443: skill forwarding contract keys on the exact ## Audit dimensions heading" \
-  'headed exactly `## Audit dimensions`' "$CI443_SKILL"
-assert_pin_unique "#443: live create-issue extension carries the exact ## Audit dimensions heading" \
-  '## Audit dimensions' "$CI443_EXT"
-# Generic dimension checklist is consumer-agnostic (maps to the dimension-checklist AC).
-assert_pin_unique "#443: generic dimensions name host-OS variance without GNU coreutils" \
-  'hosts without GNU coreutils' "$CI443_SKILL"
-assert_pin_unique "#443: generic dimensions name execution-tier permission-allowlist variance" \
-  'including their differing permission allowlists' "$CI443_SKILL"
-# Reconciliation absence pin (maps to the reconciliation AC): the stale literal must be GONE from
-# the skill (it legitimately remains in CHANGELOG.md's historical entry, so this pin is FILE-scoped).
-assert_eq "#443: SKILL no longer carries the stale 'no-subagent, all-inline model' literal" \
-  "0" "$(pin_count 'no-subagent, all-inline model' "$CI443_SKILL")"
-# Non-vacuity proof: re-introducing the stale literal makes the absence guard's count non-zero,
-# so the guard actually catches the regression rather than passing vacuously.
-CI443_MUT="$(probe_tmp '#443 no-subagent reintroduction mutation')"
-sed -E '1s/^/REINTRODUCED no-subagent, all-inline model\n/' "$CI443_SKILL" > "$CI443_MUT"
-assert_eq "#443: absence guard catches a re-introduction of the stale literal (non-vacuous)" \
-  "1" "$(pin_count 'no-subagent, all-inline model' "$CI443_MUT")"
-rm -f "$CI443_MUT"
-# Anti-deadlock guarantee (maps to the VERDICT: REVISE / re-audit AC): removing it re-opens an
-# unbounded re-audit loop that could block issue filing.
-assert_pin_red_under "#443: bounded re-audit never deadlocks filing" \
-  'the audit informs, it never deadlocks filing' 's/never deadlocks filing//' "$CI443_SKILL"
-# Mandatory never-silent audit summary line (maps to the audit-summary AC): the feature's
-# observability contract — a skipped/degraded audit must always render a summary line. The
-# #546 cutover moved the summary's FIELD SET to `query-summary` (a tool surface, driven by
-# run.sh's #546 cli_roundtrip_restricted_path) but the mandatory-render contract is prose and
-# survives the cutover with its pin: the tool can report the fields, it cannot make an
-# orchestrator render the line. Repointed to the amended wording ("the audit ran", not "it
-# ran"). The mutation excises the operative evidence clause.
-assert_pin_red_under "#443: audit summary line is the mandatory never-silent evidence" \
-  'the summary line is the evidence the audit ran and which arm it took' \
-  's/the evidence the audit ran and which arm it took//' "$CI443_SKILL"
-# The two surviving halves of the same contract, pinned as surfaces (the AC requires the
-# summary-line contract sentence to survive the cutover): the line always renders, and a
-# skipped/degraded audit is never silent.
-assert_pin_unique "#443: the audit summary line always renders (even on a clean zero-findings FILE)" \
-  '**The audit summary line is mandatory and always renders**' "$CI443_SKILL"
-assert_pin_unique "#443: a skipped or degraded audit is never silent" \
-  'A skipped or degraded audit is **never silent**' "$CI443_SKILL"
-# Step 4 presentation gate (maps to the artifact-gate AC): the seam that makes Step 3.6
-# mandatory rather than skippable — removing the presence check lets an un-audited draft show.
-assert_pin_red_under "#443: Step 4 presentation gate confirms this run's audit artifact exists" \
-  'confirm `.devflow/tmp/issue-audit-<slug>.md` is present' \
-  's/is present//' "$CI443_SKILL"
-# Audit-artifact write with delete-leftover-first (maps to the artifact-gate AC): mirrors the
-# Step 2 derivation-artifact discipline so the gated file can only ever be this run's.
-assert_pin_red_under "#443: audit artifact deletes any same-slug leftover before writing" \
-  'deleting any same-slug leftover first' 's/deleting any same-slug leftover first//' "$CI443_SKILL"
-# Audit-prompt template surfaces (maps to the audit-prompt AC, which requires EACH surface
-# pinned here). These are surface-PRESENCE contracts — the template must carry each named
-# element — so plain assert_pin_unique is the honest primitive (a removed/duplicated surface
-# flips count away from 1 → RED); no operative-vs-framing distinction applies to a surface pin.
-assert_pin_unique "#443: audit prompt carries the adversarial mandate (no credit for good intent)" \
-  'no credit for good intent' "$CI443_SKILL"
-assert_pin_unique "#443: audit prompt carries the pre-mortem frame (write the autopsy)" \
-  'write the autopsy' "$CI443_SKILL"
-assert_pin_unique "#443: per-finding bar requires quoting the exact draft line attacked" \
-  'quote the exact draft line it attacks' "$CI443_SKILL"
-assert_pin_unique "#443: per-finding bar reports an unverifiable claim as unverifiable" \
-  'report an unverifiable claim as unverifiable rather than asserting it' "$CI443_SKILL"
-assert_pin_unique "#443: scope exclusions judge the draft at issue altitude" \
-  'judge the draft at **issue altitude**' "$CI443_SKILL"
-assert_pin_unique "#443: scope exclusions require a concrete trigger scenario per finding" \
-  'no finding without a concrete trigger scenario' "$CI443_SKILL"
-assert_pin_unique "#443: audit prompt caps findings at five" \
-  'at most five findings' "$CI443_SKILL"
-assert_pin_unique "#443: audit prompt reserves exactly one Quiet Killer slot" \
-  '"Quiet Killer"' "$CI443_SKILL"
-assert_pin_unique "#443: the empty 'no actionable findings' output is explicitly legal" \
-  'no actionable findings' "$CI443_SKILL"
-# Audit-summary required contents (maps to the audit-summary AC — the observability contract's
-# operative fields, distinct from the never-silent rationale clause pinned above).
-assert_pin_unique "#443: audit summary states whether a consumer audit-dimensions section was appended" \
-  'whether a consumer `## Audit dimensions` section was appended' "$CI443_SKILL"
-assert_pin_unique "#443: audit summary renders the word degraded whenever the degraded arm ran" \
-  'the word "degraded"' "$CI443_SKILL"
-
-# ── issue #522: Step 3.6 audits the canonical DRAFT FILE (not a hand-condensed copy), offers
-#    user-chosen audit rounds past the automatic cap, and Step 3.5 self-checks the audit
-#    dimensions. Same skill-contract mechanism as #443: pins over the rendered SKILL surface,
-#    no runtime code path in CI.
-#
-#    ISSUE #546 CUTOVER — READ BEFORE ADDING A PIN HERE. The deterministic half of the Step
-#    3.6 lifecycle no longer lives in this prose: transition legality, round numbering, the
-#    automatic budget, retry bounds and their precedence, dispatch-arm routing, digest and
-#    sentinel generation and comparison, the T1/T2 triggers, override records, presentation
-#    eligibility, and the audit-summary field set are all owned by `scripts/issue-audit-state.py`.
-#    Every #522 pin whose literal asserted one of those guarantees was reconciled in the #546
-#    cutover: the guarantee is now driven as a TOOL test (the `#546` blocks in this file and in
-#    test_python_scripts.py), not asserted as a sentence a skill could silently paraphrase away.
-#    A pin deleted there is named at its replacement below. What SURVIVES here is the prose-only
-#    residue — the obligations no in-process tool can force on an orchestrator that simply never
-#    calls it (dispatch discipline, the information diet, the auditor's own instructions, the
-#    offers, the mandatory summary render) — plus the obey-the-tool contract itself, which is the
-#    seam the whole cutover rests on. Do not re-pin a tool-owned guarantee as prose: a prose pin
-#    over a value the tool decides is the coupled-mirror hazard, and the tool is the source of
-#    truth. Behavioral-fix pins here use assert_pin_red_under with a sed -E mutation that
-#    RE-INTRODUCES the named defect (excising or inverting the operative clause so its removal
-#    alone re-opens the guarded regression); the rest are surface-presence pins.
-#
-# (0) OBEY THE TOOL — the headline pin of the #546 cutover, and the one guarantee the tool
-#     provably cannot enforce on itself: `query-eligibility` can only answer the runs that call
-#     it (the skill's own "Honest scope of this gate" paragraph concedes this). The operative
-#     sentence is the one that binds PRESENTATION to the tool's answer; excising it alone
-#     re-introduces prose-decided eligibility — an orchestrator that is "certain the draft is
-#     clean" presenting on its own judgment, which is exactly issue #546's motivating
-#     regression. The surrounding sentences ("the lifecycle is owned by … not by this prose",
-#     "the tool's answer *is* the decision") are FRAMING: they describe the ownership without
-#     binding any act to an answer, so pinning one of them would stay GREEN under this mutation.
-assert_pin_red_under "#546: presentation eligibility is the tool's answer, never prose-decided" \
-  'is presented for approval only after `query-eligibility --mode approve` answers `eligible=yes`' \
-  's|\*\*A draft you are certain is clean is presented for approval only after `query-eligibility --mode approve` answers `eligible=yes`\.\*\* ||' \
-  "$CI443_SKILL"
-# The obey-the-tool contract's two supporting prose obligations (surfaces, not mutations): the
-# record-and-obey loop, and the closed prohibition on re-deriving a tool-owned decision.
-assert_pin_unique "#546: the step records each lifecycle event through the tool and obeys its answer" \
-  'records each lifecycle event through that tool and obeys the answer it returns' "$CI443_SKILL"
-assert_pin_unique "#546: no tool-owned decision is ever re-derived from this prose" \
-  'Never re-derive a transition, a budget, a retry bound, a dispatch arm, or eligibility from this prose' \
-  "$CI443_SKILL"
-# An illegal-transition rejection is NOT unavailability (SKILL.md's contract line). Without
-# this rule a rejected mutation routes to the `state-owner unavailable` fallback — turning the
-# tool's fail-closed refusal into a licence to improvise around it, which is the fail-open the
-# whole state-owner cutover exists to close.
-assert_pin_unique "#546: an illegal-transition rejection is not an unavailability signal" \
-  '**An illegal-transition rejection is NOT an unavailability signal.**' "$CI443_SKILL"
-assert_pin_unique "#546: an illegal transition never routes to the state-owner-unavailable fallback" \
-  'Never route an illegal transition to the `state-owner unavailable` fallback below' "$CI443_SKILL"
-# The `state-owner unavailable` fallback: its DISTINCT marker (distinct from `degraded`, which
-# keeps meaning the inline arm — the two never substitute, so the breadcrumb stays honest:
-# CLAUDE.md guard-class 2), its closed 2-class entry set, and its one-round/one-question bound.
-# The bare marker string recurs (6x in the fallback's own prose), so the marker is pinned via
-# its unique defining sentence rather than a bare-literal assert_pin_unique.
-assert_pin_unique "#546: the state-owner-unavailable fallback carries its own distinct summary marker" \
-  'The audit summary line carries the distinct marker **`state-owner unavailable`**' "$CI443_SKILL"
-assert_pin_unique "#546: the state-owner-unavailable marker is distinct from the degraded marker" \
-  'is **distinct from `degraded`**' "$CI443_SKILL"
-assert_pin_unique "#546: exactly 2 classes route to the state-owner-unavailable fallback" \
-  'Exactly **2 classes** route here, and nothing else' "$CI443_SKILL"
-assert_pin_unique "#546: the state-owner-unavailable fallback is bounded to one round and one question" \
-  'bounded to one round and one question' "$CI443_SKILL"
-# The fallback is never silent either (the AC's "a fallback lifecycle is never silent"), and it
-# never reconstructs a round's findings from memory.
-assert_pin_unique "#546: the state-owner-unavailable fallback still renders the mandatory summary line" \
-  'A fallback lifecycle is **never silent**' "$CI443_SKILL"
-assert_pin_unique "#546: a memory-reconstructed findings summary is never a legal discharge" \
-  '**A findings summary reconstructed from memory and presented as a round'"'"'s real findings is never a legal discharge.**' \
-  "$CI443_SKILL"
-# (1) Pre-dispatch canonical write — removing it re-opens the condensation-drift channel (the
-#     auditor audits a hand-condensed copy instead of the exact file the implementer reads).
-assert_pin_red_under "#522: Step 3.6 writes the canonical draft file before every dispatch" \
-  'write the current rendered draft title + body to the canonical draft file' \
-  's/ to the canonical draft file//' "$CI443_SKILL"
-# (2) Read-the-file-as-sole-draft-source — removing it lets the auditor judge an embedded/
-#     remembered copy, re-opening the same condensation-drift channel.
-assert_pin_red_under "#522: audit prompt reads the draft file as the sole draft source" \
-  'Read the draft file `{absolute issue-draft-<slug>.md path}` as the sole draft source' \
-  's/as the sole draft source//' "$CI443_SKILL"
-# (3) Narrowed reasoning-artifacts-only out-of-bounds list — putting the draft back on the
-#     file-arm out-of-bounds list makes the artifact under audit unreadable to the auditor.
-assert_pin_red_under "#522: draft file is NOT on the file-arm out-of-bounds list" \
-  'is **not** on the file-arm out-of-bounds list' \
-  's/is \*\*not\*\* on the file-arm out-of-bounds list/is on the file-arm out-of-bounds list/' "$CI443_SKILL"
-# (4) The user-chosen-rounds OFFER at the Step 3.6 → Step 4 boundary. #546 moved the trigger
-#     EVALUATION into the tool (`query-triggers` answers `t1=…  t2=…  reason=…`), so the old
-#     "evaluate exactly these **2 offer triggers**" literal is gone; T1, T2, and the
-#     unestablished-state arm are now driven as tool rows (test_python_scripts.py's #546
-#     t1_t2_rows — incl. "unestablished state -> T2 holds"; this file's #546
-#     cli_roundtrip_restricted_path T1 row and the stale-.md "T2 holds on unestablished state"
-#     row). What stays prose is WHETHER THE RUN ASKS — a tool can answer `t1=hold` all day and
-#     never make an orchestrator open its mouth. Inverting the offer into a silent proceed
-#     re-opens the ship-unconverged channel this boundary exists to close.
-assert_pin_red_under "#522: a held trigger offers one more audit round at the Step 3.6->4 boundary" \
-  'While **either** holds, **offer one more audit round via the runner' \
-  's/While \*\*either\*\* holds, \*\*offer one more audit round/While either holds, proceed to Step 4 without offering a round/' \
-  "$CI443_SKILL"
-# The offer's non-silent arms, which stay prose obligations on the orchestrator: a silent
-# non-response never dispatches and never proceeds (unknown is not consent), and the
-# unestablished-state reason is NAMED in the offer rather than collapsed onto "no trigger"
-# (unknown is not zero — CLAUDE.md's rule, and the tool's `reason=state-unestablished` is the
-# operand this prose must actually surface).
-assert_pin_unique "#522: the boundary offer names which trigger fired, and the unestablished state when unknown" \
-  'naming the unestablished state when `reason=state-unestablished` — unknown is not zero' \
-  "$CI443_SKILL"
-assert_pin_unique "#522: a silent non-response at the boundary offer never dispatches and never proceeds" \
-  '**pause and re-ask in the final chat message; never dispatch and never proceed on silence.**' \
-  "$CI443_SKILL"
-# The per-run ceiling is the tool's (`record-offer` refuses an accepted offer past
-# `_USER_ROUND_CAP`; driven by this file's #546 user_round_cap_rows), so the old
-# "User-chosen rounds are capped at 3 per run" prose literal is gone. The prose obligation that
-# REPLACED it — never count rounds yourself — is what keeps an orchestrator from re-deriving
-# the ceiling it just delegated, so it keeps a pin here.
-assert_pin_unique "#546: the tool owns the per-run offer ceiling; the run never counts rounds itself" \
-  'the tool owns the per-run ceiling and refuses an accepted offer past it, so **never count rounds yourself**' \
-  "$CI443_SKILL"
-# Audit-summary field surfaces. The FIELD SET is the tool's (`query-summary`), so the old
-# "the total number of audit rounds run" prose literal is gone (driven by this file's #546
-# cli_roundtrip_restricted_path summary row + the eligibility-token round-trip). What survives
-# is the prose obligation to render what the query reports rather than a recollected summary —
-# the misdirected-breadcrumb guard (CLAUDE.md guard-class 2) — plus each flag literal the
-# rendering site must carry.
-assert_pin_unique "#546: the summary line's fields are read from query-summary, never recollected" \
-  '**Do not assemble its fields from your own recollection of the run — read them from `query-summary`**' \
-  "$CI443_SKILL"
-assert_pin_unique "#522: audit summary carries the declined-further-audit phrase" \
-  'user declined further audit' "$CI443_SKILL"
-assert_pin_unique "#522: Step 3.5 self-checks the draft against the audit dimensions" \
-  'Self-check the draft against the Step 3.6 audit dimensions' "$CI443_SKILL"
-assert_pin_unique "#522: Step 3.5 summary reports the dimension self-check (falsifiable zero)" \
-  'no dimension-checklist finding' "$CI443_SKILL"
-# Template out-of-bounds ENUMERATION pin (closes the narration-vs-template drift the pin (3)
-# narration pin alone leaves open — a regression re-adding the draft to the audit-prompt
-# TEMPLATE's out-of-bounds list would keep pin (3)'s narration sentence GREEN; this pins the
-# template's exact reasoning-artifact list, so re-adding the draft there flips it RED).
-# #546 widened the list from 3 files to 4: the state owner's record `issue-audit-state-<slug>.json`
-# joined it, and the RETIRED `.md` event log stays named — a pre-cutover leftover on disk
-# re-anchors an auditor on prior verdicts exactly as the live file did, and this skill no longer
-# writes (or deletes) that path, so only the out-of-bounds declaration covers it.
-assert_pin_unique "#522: audit-prompt template out-of-bounds names exactly the 4 reasoning artifacts" \
-  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
-# The retired-.md rationale is itself pinned: it is the one out-of-bounds entry with no live
-# producer, so a future reader who "tidies" it away silently re-opens the re-anchoring channel.
-assert_pin_unique "#546: the retired .md event log stays declared out of bounds (pre-cutover leftovers re-anchor)" \
-  'The retired `.md` path stays named even though this skill no longer writes it' "$CI443_SKILL"
-# NOTE (#546): the "automatic budget stays one audit plus **at most one** automatic re-audit"
-# pin was DELETED here, not repointed — `_MAX_AUTOMATIC_REAUDITS` moved into the tool, so a
-# prose pin over it is exactly the coupled-mirror hazard the cutover removes. Its replacement
-# is next_action_budget_rows in this file's #546 block, which drives `query-next-action`'s
-# retry/budget arms directly — including the ceiling itself: three consecutive REVISE rounds
-# must yield one automatic re-audit and then fall through to the user-chosen-offer evaluation.
-# Coupled doc site (AC 'Coupled sites updated in the same change'): the §11 item 5 overview
-# must carry the new file-first contract, not the retired "only the rendered title and body".
-CI522_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
-assert_pin_unique "#522: overview §11 item 5 describes the file-first sole-draft-source contract" \
-  'reads that file as the sole draft source' "$CI522_OVERVIEW"
-# File-arm carriage / identity check (closes the write-to-read race — the one uncovered
-# operative anti-corruption contract): the auditor must return a full-content git hash-object
-# digest of the file it read so the orchestrator can compare and reject foreign bytes —
-# a full-content digest catches an interior overwrite that boundary-line sampling would miss.
-# AMENDED by #546: the instruction now names `git hash-object --no-filters`. The flag is
-# load-bearing, not cosmetic — the tool hashes via `git hash-object --stdin --no-filters` at
-# every site, and path-mode hashing applies clean/CRLF filters that diverge from stdin hashing
-# on the SAME bytes, so a filter-free auditor instruction is what makes the dispatch digest,
-# the auditor-quoted digest, and the eligibility digest agree on every host. Dropping the flag
-# would make a clean CRLF draft refuse as a false mismatch — driven by this file's #546
-# digest_filter_mode_rows (autocrlf + text=auto fixtures).
-assert_pin_unique "#522: file-arm carriage check returns a full-content git hash-object digest for identity compare" \
-  'run `git hash-object --no-filters` on the draft file it read and quote the printed object ID verbatim in its return' "$CI443_SKILL"
-# Template-side git-hash-object instruction (iteration-4 review finding C: narration-vs-template
-# drift). The pin above pins the AUTHOR-FACING narration wording; the DISPATCHED audit-prompt
-# template carries its own copy (different wording), and a regression removing the template's
-# instruction leaves the narration pin GREEN while the auditor is no longer asked to hash —
-# silently disabling the whole identity check. Symmetric with the out-of-bounds template pin.
-# (AMENDED by #546 to `--no-filters`, for the digest_filter_mode_rows reason above.)
-assert_pin_unique "#522: audit-prompt template instructs the auditor to return a git hash-object digest" \
-  'run `git hash-object --no-filters` on that draft file and quote the object ID it prints verbatim' "$CI443_SKILL"
-# Template-side DRAFT-UNREADABLE emit condition (iteration-4 review finding F): the only other
-# guard over this token is a non-discriminating pin_count>=1 that stays GREEN as long as the
-# token survives anywhere; this pins the template's operative emit-condition sentence so deleting
-# the instruction that tells the auditor WHEN to produce the third verdict flips RED.
-assert_pin_unique "#522: audit-prompt template states the DRAFT-UNREADABLE emit condition" \
-  'If you cannot read the file, return **no findings** and end with' "$CI443_SKILL"
-# Degraded-arm carve-out: the inline arm has no subagent/file, so it must NOT emit the
-# file-arm-only third verdict value — deleting this carve-out re-opens a spurious emit.
-assert_pin_unique "#522: degraded inline arm emits no VERDICT: DRAFT-UNREADABLE" \
-  'emits **no `VERDICT: DRAFT-UNREADABLE`**' "$CI443_SKILL"
-# Embed-arm out-of-bounds list (the inverse of the file arm's list — re-adds the draft path):
-# symmetric with the file-arm template-enumeration pin above. #546 widened it 4 → 5 files, in
-# lockstep with the file arm's 3 → 4: the state `.json` and the retired `.md` are both named.
-assert_pin_unique "#522: embed arm out-of-bounds names exactly the 5 files (draft re-added)" \
-  'On this arm the out-of-bounds declaration names exactly these 5 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI443_SKILL"
-# ── #546 RECONCILIATION: the carriage COMPARE, the event log, the retry bounds, and T1/T2.
-#
-# The #522 block used to pin, as prose, the whole deterministic half of the carriage/identity
-# check and the round record. Every one of those literals is gone from the skill, because the
-# ORCHESTRATOR no longer performs any of it — `issue-audit-state.py` does. The pins below are
-# the surviving prose residue only; each deleted pin's guarantee is named against the tool test
-# that now carries it, so the reconciliation is auditable rather than a silent drop:
-#
-#   deleted prose pin                                  → the tool test that now carries it
-#   ---------------------------------------------------------------------------------------
-#   compare uses the write-time digest, never a re-hash → py #546 carriage_evidence_rows
-#                                                         (+ #546 digest_filter_mode_rows here,
-#                                                          which proves the dispatch/auditor/
-#                                                          eligibility digests agree)
-#   compare fails closed on an absent/unparseable ID   → py #546 carriage_evidence_rows
-#                                                         ("carriage mismatched vs. absent — the
-#                                                          same classification, fail closed")
-#   absent recorded write-time digest at compare time  → py #546 carriage_evidence_rows (same
-#                                                         rows: absent evidence == mismatched)
-#   file arm routes to embed on unrecorded comparand   → py #546 arm_routing_rows
-#                                                         (hash_ok=False → embed/digest-unrecorded)
-#   the 3 embed markers (write-failed / file-unreadable → py #546 arm_routing_rows, which asserts
-#     / digest-unrecorded) + the summary's marker list    _EMBED_MARKER_TEXT byte-for-byte; the
-#                                                         summary re-emits them via query-summary
-#   event log records the write-time digest at dispatch → this file's #546
-#                                                         cli_roundtrip_restricted_path
-#                                                         (record-dispatch prints digest=)
-#   revision step writes a revised-after-round-N record → py #546 _TRANSITION_ROWS
-#                                                         (revision/after-completed-round legal,
-#                                                          revision/no-rounds-recorded illegal)
-#   event log is deleted-leftover-first at first dispatch→ this file's #546 reinit_force_rows
-#                                                         (the cold-start wipe `init` now owns)
-#   canonical write fires at exactly the 4 sites       → subsumed by the surviving pin (1) above
-#                                                         (the per-round pre-dispatch write
-#                                                          instruction — a within-round retry
-#                                                          reuses the round's write),
-#                                                         + `query-arm --write-landed`
-#   orchestrator string-compares sentinels, rejects     → py #546 carriage_evidence_rows
-#     a mismatch                                          (the tool owns the compare now)
-#   file-arm DRAFT-UNREADABLE re-dispatches once        → #546 next_action_budget_rows (below)
-#   embed-arm DRAFT-UNREADABLE never re-dispatches      → #546 next_action_budget_rows (below)
-#     to the file arm
-#   T1 fires on the last round's VERDICT: REVISE       → py #546 t1_t2_rows
-#   T2 fires when a revision postdates the last round  → py #546 t1_t2_rows
-#   audit summary states the total rounds run          → py #546 summary rounds_run
-#   user-chosen rounds capped at 3 per run             → #546 user_round_cap_rows (below)
-#   automatic budget = 1 audit + at most 1 re-audit    → #546 next_action_budget_rows (below)
-#                                                         (the ceiling is driven end-to-end)
-#
-# What CANNOT move to the tool, and therefore keeps a prose pin: the auditor's own instructions
-# (the tool never talks to the auditor), the orchestrator's obligation to FORWARD what the
-# auditor quoted instead of comparing or inventing it, and the observation the routing rests on.
-#
-# Forward-don't-compare (the file arm). The tool owns the comparison, so the orchestrator's only
-# remaining job is to hand over what it received verbatim — and, critically, to hand over
-# NOTHING when the auditor quoted nothing. Inventing an object ID would manufacture exactly the
-# proof the check exists to demand, and the tool would pass the manufactured evidence: this is
-# the one carriage fail-open the tool provably cannot close from the inside, which is why it
-# stays pinned as prose. The mutation excises the omit-when-absent rule.
-assert_pin_red_under "#546: an absent carriage object ID is forwarded as absent, never invented" \
-  'Omit `--carriage-object-id` when the return quoted none' \
-  's/Omit `--carriage-object-id` when the return quoted none — an absent value is evidence the tool needs, and inventing one would manufacture the proof the check exists to demand\.//' \
-  "$CI443_SKILL"
-assert_pin_unique "#546: the quoted object ID is forwarded verbatim and the tool's classification obeyed" \
-  '**Forward that quoted object ID verbatim to `record-return --carriage-object-id <the ID the auditor quoted>` and obey the classification the tool returns.**' \
-  "$CI443_SKILL"
-assert_pin_unique "#546: the orchestrator never compares the carriage digest itself" \
-  'Do not compare it yourself: the tool holds the write-time digest it recorded at dispatch and owns the comparison' \
-  "$CI443_SKILL"
-# The write-time-vs-re-hash RATIONALE survives in prose (as the "why" behind a tool behavior that
-# IS driven by py #546 carriage_evidence_rows). Pinned as a surface, not a mutation: the
-# mechanism is the tool's, so this sentence documents rather than decides.
-assert_pin_unique "#546: the tool compares against the dispatch-time digest, never a compare-time re-hash" \
-  'never a fresh compare-time re-hash of the on-disk file — a re-hash would see the same foreign bytes the auditor did and pass a concurrent overwrite vacuously' \
-  "$CI443_SKILL"
-# Forward-don't-compare (the embed arm) — the exact mirror, plus the half the tool cannot own:
-# the orchestrator must bracket the body with the tokens the TOOL generated. Choosing its own
-# tokens would compare against a value the tool never recorded, which the tool would then read
-# as a mismatch it can neither explain nor prevent.
-assert_pin_red_under "#546: the embed arm brackets the body with the tool-generated sentinels only" \
-  'Bracket the embedded body with **exactly those printed tokens** — never tokens you choose yourself' \
-  's/ — never tokens you choose yourself, which would compare against a value the tool never recorded//' \
-  "$CI443_SKILL"
-assert_pin_unique "#546: the quoted sentinel pair is forwarded and the tool's classification obeyed" \
-  '**Forward the quoted pair to `record-return --carriage-sentinel-open <quoted> --carriage-sentinel-close <quoted>` and obey the classification returned**' \
-  "$CI443_SKILL"
-# Embed-arm auditor QUOTE obligation (iteration-4 review finding G): the half that PRODUCES the
-# values the tool compares. Deleting the auditor's quote obligation makes the compare
-# compare-against-nothing — and this instruction lives in the dispatch prompt, a surface no tool
-# can reach, so it stays prose. (Its file-arm twin is the `--no-filters` hash pin above.)
-assert_pin_unique "#522: embed-arm auditor must quote both sentinels plus body boundary lines" \
-  'quote both sentinels plus the body'\''s first and last lines verbatim' "$CI443_SKILL"
-# Write-landing OBSERVATION (issue #522 iteration-3 review I3, repointed by #546). The ROUTING
-# moved to `query-arm` (py #546 arm_routing_rows), but the routing's operand did not: whether
-# the write landed is an observation only the orchestrator can make, and `query-arm` is only as
-# honest as the `--write-landed` it is handed. The original fail-open is unchanged — on a fresh
-# `<slug>` with no leftover, a read-only sandbox lets `rm` succeed vacuously while the write
-# still fails, so an orchestrator that INFERS landing from the delete reports `--write-landed yes`
-# for an unwritten path and the tool routes it to the file arm on false evidence. The mutation
-# excises the confirm-explicitly rule, restoring exactly that inference.
-assert_pin_red_under "#522: write-landing is confirmed explicitly, never inferred from the delete" \
-  'rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails' \
-  's/ rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails//' \
-  "$CI443_SKILL"
-# ... and that the observation is REPORTED to the tool rather than acted on: the orchestrator
-# observes, the tool decides. This is the seam the arm-routing rows sit behind.
-assert_pin_unique "#546: the write-landing observation is reported to the tool, which decides the arm" \
-  'pass it as `--write-landed yes|no` to `query-arm`, which decides the arm' "$CI443_SKILL"
-assert_pin_unique "#546: the dispatch arm is the tool's answer, never the orchestrator's" \
-  '**The arm is the tool'\''s answer, never yours.**' "$CI443_SKILL"
-# Verdict EXTRACTION is LLM work; verdict CLASSIFICATION is not. The tool validates the token
-# fail-closed against its closed set (py #546 carriage_evidence_rows / classify_return), but it
-# can only classify what it is handed — so "omit --verdict on an unparseable return" and "never
-# pass a token the auditor did not emit" are prose obligations, the exact twin of the carriage
-# omit-when-absent rule above. Mapping an unparseable return onto a verdict is how a run
-# manufactures a clean FILE the auditor never returned.
-assert_pin_red_under "#546: an unparseable return is never mapped onto a verdict token" \
-  'Never map an unparseable return onto a verdict token yourself, and never pass a token the auditor did not emit' \
-  's/Never map an unparseable return onto a verdict token yourself, and never pass a token the auditor did not emit; the tool validates the token fail-closed against its closed set\.//' \
-  "$CI443_SKILL"
-assert_pin_unique "#546: the verdict token's absence is classified by the tool, not by the run" \
-  '**Omit `--verdict` entirely when the return carried no parseable `VERDICT:` line**' "$CI443_SKILL"
-# The next-action answer set is the tool's closed vocabulary, and the prose obligation is to obey
-# it verbatim. Pinned as a COUPLED PAIR with the tool: every token named here is driven by #546
-# next_action_budget_rows below, and the skill naming a token the tool cannot answer (or the tool
-# growing an arm the skill never obeys) is the drift this pin plus those rows catch together.
-assert_pin_unique "#546: query-next-action's answer is obeyed verbatim from its closed answer set" \
-  '**Obey the answer verbatim** — it is one of `dispatch-embed-retry`, `dispatch-retry-same-arm`, `dispatch-inline-degraded`, `proceed`, `revise-and-reaudit`, `revise-then-evaluate-offer`, `round-open-awaiting-return`, or `round-closed-no-verdict`' \
-  "$CI443_SKILL"
-# A finding can be wrong: the run verifies each against the code before acting. No tool can do
-# this — it is the one step in the loop that requires reading the repository.
-assert_pin_unique "#546: findings are verified against the code before any revise action" \
-  '**verify each finding against the code before acting** (a finding can be wrong)' "$CI443_SKILL"
-
-# ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
-#    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
-#    IS the operative contract sentence itself, so assert_pin_unique is the honest primitive
-#    (the #312 item-2 coupled-pair pattern). The template↔Step-3.5 coupled pair for the
-#    unstated-reliance class is pinned on BOTH sides so a one-sided edit goes RED.
-# Rule 1 — value-comparison type-semantics, template AC guidance + its checklist mirror.
-assert_pin_unique "#462 rule1: template AC guidance states value-comparison in observed-output terms" \
-  "A value-comparison AC states its comparison in the producing surface's observed-output" "$CI312_TMPL"
-assert_pin_unique "#462 rule1: verified arm requires the probe exercise the distinguishing boundary fixture" \
-  'and a probe **silent on the distinguishing axis' "$CI312_TMPL"
-assert_pin_unique "#462 rule1: obligation arm carries the execution-tier constraint (governs rule 3 too)" \
-  'implement-tier verification commands (this governs this value-comparison AC and the Step 3.5' "$CI312_TMPL"
-assert_pin_unique "#462 rule1: quality-checklist mirror line for the value-comparison rule" \
-  "Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms" "$CI312_TMPL"
-# Rule 1 also verified in the Step 3.5 steelman (the check that flags a non-conforming AC).
-assert_pin_unique "#462 rule1: Step 3.5 checks value-comparison ACs for observed-output grounding" \
-  'Value-comparison ACs are checked for observed-output grounding' "$CI312_SKILL"
-# Rule 2 — convention-matrix reconciliation + the `governing conventions consulted:` discharge
-# literal pinned in BOTH the Testing Strategy guidance AND its quality-checklist mirror.
-assert_pin_unique "#462 rule2: template Testing Strategy carries the convention-matrix reconciliation rule" \
-  'Reconcile an enumerated case matrix against governing conventions' "$CI312_TMPL"
-assert_pin_unique "#462 rule2: discharge literal in the Testing Strategy guidance" \
-  'governing conventions consulted: <sources cited by path' "$CI312_TMPL"
-assert_pin_unique "#462 rule2: discharge literal mirrored in the quality checklist" \
-  'a `governing conventions consulted:` discharge line bounded to' "$CI312_TMPL"
-# Rule 3 — unstated-mechanism-dependency, coupled template↔Step-3.5 pair + summary/zero arm.
-assert_pin_unique "#462 rule3 (coupled/template): template names the unstated-reliance premise class" \
-  'Unstated mechanism dependencies are a premise class too' "$CI312_TMPL"
-assert_pin_unique "#462 rule3 (coupled/SKILL): Step 3.5 gains the mandatory mechanism-dependency hunt" \
-  "Sweep the draft's own unstated mechanism dependencies (mandatory)" "$CI312_SKILL"
-assert_pin_unique "#462 rule3: Step 3.5 summary reports both new sweeps" \
-  'The summary additionally reports both new sweeps' "$CI312_SKILL"
-assert_pin_unique "#462 rule3: zero arm states the falsifiable no-dependencies claim, not a count" \
-  'the mechanism invokes no in-repo helpers, resolvers, or gates' "$CI312_SKILL"
-# Rule 3's template quality-checklist mirror pinned too (symmetry with rule 1's checklist pin) —
-# closes the coupled-mirror drift gap the pr-test-analyzer flagged: the checklist line can no
-# longer silently drift out of agreement with the premise-class prose it mirrors.
-assert_pin_unique "#462 rule3: quality-checklist mirror line for the unstated-mechanism-dependency rule" \
-  'are each resolved with a cited probe or an implementer-obligation AC' "$CI312_TMPL"
-# Step 3.6 — one consolidated generic dimension + the growth policy.
-assert_pin_unique "#462 dim: Step 3.6 generic checklist carries the consolidated authoring-discipline dimension" \
-  'Authoring-discipline defects** — three related shapes' "$CI312_SKILL"
-assert_pin_unique "#462 dim: Step 3.6 audit-prompt area states the finding-cap growth policy" \
-  'execution-blocking defect classes outrank authoring-discipline classes for the finding-cap slots' "$CI312_SKILL"
-# Extension — one consolidated DevFlow-specific sharpening.
-assert_pin_unique "#462 ext: live create-issue extension carries the consolidated DevFlow sharpening" \
-  'Authoring-discipline defects (DevFlow specifics, issue #462)' "$CI443_EXT"
-
-# ── issue #467: four create-issue authoring-discipline hardenings (prose + pins). Reuses the
-#    #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT). Each pinned literal
-#    is drawn verbatim from the operative contract prose (a whole sentence or a load-bearing
-#    fragment of one), so assert_pin_unique is the honest primitive — the pin catches removal or
-#    rewording of the contract prose, not a behavioral regression (the #312 coupled-pair pattern).
-#    The template<->Step-3.5 coupled pairs for the B1
-#    occurrence-count and C1 conditional-path premise classes are pinned on BOTH sides so a
-#    one-sided edit goes RED.
-# Cluster A — universal-claim rule (template AC guidance + checklist), Step 3.5 sweep + zero arm,
-# Step 3.6 dimension sharpening (generic checklist size guard-locked below).
-assert_pin_unique "#467 A1: template AC guidance carries the universal-claim rule" \
-  'about the system under change is grounded' "$CI312_TMPL"
-assert_pin_unique "#467 A1: universal-claim rule carries the claim-level positive-control obligation" \
-  'positive-control obligation** on the' "$CI312_TMPL"
-assert_pin_unique "#467 A1: quality-checklist mirror for the universal-claim rule" \
-  'Every universal quantifier ("never/always/each/every/all/cannot")' "$CI312_TMPL"
-assert_pin_unique "#467 A2: Step 3.5 runs the universal-quantifier sweep (same carve-out)" \
-  'Universal-quantifier sweep (mandatory' "$CI312_SKILL"
-assert_pin_unique "#467 A2: Step 3.5 item-6 summary states the falsifiable zero arm" \
-  'the draft carries no ungrounded universal quantifier' "$CI312_SKILL"
-assert_pin_unique "#467 A3: Step 3.6 Load-bearing-assumptions dimension names universal quantifiers" \
-  'including any **universal quantifier** the draft asserts' "$CI312_SKILL"
-# A3 count guard — the generic dimension checklist size is guard-locked (dimension-growth policy).
-# The count is 9 after issue #464 (merged) appended the "Adversarial third-party input" dimension;
-# #467 sharpened the "Load-bearing assumptions" dimension in place, adding no row (the growth-policy
-# carve-out #464 pins sanctions that single standalone addition). Pin BOTH sed anchors
-# present-and-unique so the count range stays bounded: a start-anchor drift already fails the count
-# RED (sed prints nothing -> count 0), but an *end*-anchor drift would let sed run to EOF while the
-# count coincidentally stays fixed, passing vacuously — these two pins turn either anchor's
-# rename/removal RED at the desk. The assert_pin_unique pins are UNANCHORED substring matches,
-# though, while the sed range keys on the LINE-START shape /^\*\*.../ — so a position-only drift
-# (an indent or prefix that keeps the substring but breaks ^** ) would slip the substring pins and
-# still let sed run to EOF while the count stays 9. The two assert_eq below close that residual hole
-# by binding each anchor to the exact ^** column-0 predicate sed uses, so the range can never
-# silently un-bound (rename, removal, OR position drift all go RED at the desk).
-assert_pin_unique "#467 A3: the generic-dimension-checklist sed START anchor is present and unique" \
-  '**Generic dimension checklist' "$CI312_SKILL"
-assert_pin_unique "#467 A3: the generic-dimension-checklist sed END anchor is present and unique" \
-  '**Dimension-list growth policy' "$CI312_SKILL"
-# Line-anchored anchor checks (close the position-drift hole the substring pins above cannot):
-# each heading must match the sed range's ^** column-0 shape exactly once.
-assert_eq "#467 A3: the generic-dimension-checklist sed START anchor matches at line-start exactly once" "1" \
-  "$(grep -c '^\*\*Generic dimension checklist' "$CI312_SKILL")"
-assert_eq "#467 A3: the generic-dimension-checklist sed END anchor matches at line-start exactly once" "1" \
-  "$(grep -c '^\*\*Dimension-list growth policy' "$CI312_SKILL")"
-assert_eq "#467 A3: Step 3.6 generic dimension checklist is 9 bullets (8 base + #464's dimension; #467 added none)" "9" \
-  "$(sed -n '/^\*\*Generic dimension checklist/,/^\*\*Dimension-list growth policy/p' "$CI312_SKILL" | grep -c '^- \*\*')"
-# Cluster B — occurrence-count premise class (coupled template<->Step-3.5) + checklist mirror; AC
-# mutual-consistency check (Step 3.5 + template AC guidance + checklist mirror).
-assert_pin_unique "#467 B1 (coupled/template): template names the occurrence-count/site-list premise class" \
-  'Occurrence counts and coupled-site lists are a premise class too' "$CI312_TMPL"
-assert_pin_unique "#467 B1 (coupled/SKILL): Step 3.5 mirrors the occurrence-count premise class" \
-  'Occurrence counts and coupled-site lists are checked the same way' "$CI312_SKILL"
-assert_pin_unique "#467 B1: quality-checklist mirror for the occurrence-count premise class" \
-  'Every in-repo occurrence count or coupled-site list is grounded by an executed whitespace-normalized search' "$CI312_TMPL"
-assert_pin_unique "#467 B2: Step 3.5 carries the AC mutual-consistency check" \
-  'AC mutual-consistency check (mandatory)' "$CI312_SKILL"
-assert_pin_unique "#467 B2: template AC guidance body carries the AC mutual-consistency rule" \
-  "No acceptance criterion forbids a surface another criterion's discharge must touch" "$CI312_TMPL"
-assert_pin_unique "#467 B2: quality-checklist mirror for the AC mutual-consistency check" \
-  'the ACs are mutually consistent' "$CI312_TMPL"
-# Cluster C — conditional-path (coupled template<->Step-3.5), stated-but-unbound (Step 3.5's item-4 clause),
-# trust-boundary closure (template AC guidance + Step 3.5 omission hunt).
-assert_pin_unique "#467 C1 (coupled/template): template premise method includes the gates on the path to X" \
-  'Verifying "the code does X" includes the gates on the path to X' "$CI312_TMPL"
-assert_pin_unique "#467 C1 (coupled/SKILL): Step 3.5 mirrors the conditional-path premise check" \
-  'A "code does X" premise is verified with its enclosing gates on the path to X' "$CI312_SKILL"
-assert_pin_unique "#467 C2: Step 3.5 unstated-dependency item extends to stated-but-unbound inputs" \
-  'Extend the sweep to stated-but-unbound inputs (mandatory)' "$CI312_SKILL"
-assert_pin_unique "#467 C3 (template): AC guidance carries the trust-boundary closure rule" \
-  'source / exec / import closure' "$CI312_TMPL"
-assert_pin_unique "#467 C3 (SKILL): Step 3.5 omission hunt carries the trust-boundary closure check" \
-  'trust-boundary closure check (mirroring the template' "$CI312_SKILL"
-# C1/C3 quality-checklist mirrors — pinned for parity with the A1/B1/B2 checklist-mirror pins
-# above (AC-E1: every new contract sentence in a pinned surface is presence-pinned), so a future
-# edit can no longer silently drop or reword the conditional-path / trust-boundary checklist rows
-# while their body rules stay pinned. Literals are unique to the checklist line (the C3 body pin
-# 'source / exec / import closure' is the spaced form; the checklist uses the no-space form below).
-assert_pin_unique "#467 C1: quality-checklist mirror for the conditional-path premise check" \
-  'enclosing gates/conditionals and their defaults on the path to X' "$CI312_TMPL"
-assert_pin_unique "#467 C3: quality-checklist mirror for the trust-boundary closure rule" \
-  'transitive source/exec/import closure of its entry points' "$CI312_TMPL"
-# Cluster D — Move 2a introduction trigger (template) + waiver-non-conforming clause; the
-# three-site best-effort-parser widening (CLAUDE.md, implement Phase 2.4, review-and-fix
-# fix-delta gate); extension sharpening (whole-file dimension count held at 9 after the
-# deployment-variance dimension added on main; #467 added none, matching the D3 guard below). The six-shape
-# SIXSHAPE_SET lockstep pins above stay green — the widening references the set, never restates it.
-assert_pin_unique "#467 D1: Move 2a carries the introduction trigger" \
-  'Move 2a also fires on *introduction*, not only on narrowing' "$CI312_TMPL"
-assert_pin_unique "#467 D1: introduction trigger names a blanket testing-scope waiver non-conforming" \
-  'blanket testing-scope waiver' "$CI312_TMPL"
-assert_pin_unique "#467 D2 (CLAUDE.md leg): best-effort-parser gotcha widened to mutable-markdown/external-format" \
-  'The governed surface is broader than config JSON' "$LIB/../CLAUDE.md"
-assert_pin_unique "#467 D2 (Phase 2.4 leg): dry-trace rule widened to mutable-markdown/external-format" \
-  'The governed surface is broader than config JSON' "$IMPL_SKILL_BUNDLE"
-assert_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mutable-markdown/external-format" \
-  'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$MAXI_SKILL"
-assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
-  'input-type analogue** for the widened surfaces' "$CI443_EXT"
-# D3 count guard — the extension's dimension-bullet count is guard-locked. Since issue #548
-# added a separate `## Evidence axes` section (whose axis bullets are also `- **`), this guard
-# is scoped to the `## Audit dimensions` section ONLY (heading line to the next `## ` heading),
-# so future `## Evidence axes` edits do not re-break it. It is 9: 7 base + #464's "Mutation
-# evidence for behavioral-fix pins" dimension + the "Deployment-variance silence" dimension main
-# commit 760c0902 appended; #467 sharpened the existing case-matrix bullet in place, adding no row.
-assert_pin_unique "base-update: create-issue extension carries the deployment-variance dimension" \
-  'Deployment-variance silence.' "$CI443_EXT"
-assert_eq "#467 D3 (re-scoped by #548): create-issue extension ## Audit dimensions section is 9 dimension bullets" "9" \
-  "$(awk '/^## Audit dimensions/{f=1;next} /^## /{f=0} f' "$CI443_EXT" | grep -c '^- \*\*')"
-# #548 Guard-reconciliation: the new `## Evidence axes` section carries the four DevFlow axis
-# bullets, and the whole-file count is now 13 (9 dimensions + 4 axes) — the old whole-file guard
-# form would have broken here, which is exactly why it was re-scoped above.
-assert_eq "#548 Evidence-axes: create-issue extension ## Evidence axes section is 4 axis bullets" "4" \
-  "$(awk '/^## Evidence axes/{f=1;next} /^## /{f=0} f' "$CI443_EXT" | grep -c '^- \*\*')"
-
-# ── issue #548: evidence-bundle sub-pass + actionability/convergence contracts (prose pins).
-#    All surface-presence contract pins on new feature prose (assert_pin_unique) — NOT
-#    behavioral-fix pins, so no assert_pin_red_under mutation obligation attaches (matching the
-#    suite's precedent for this pin class; the #546/#548 state-owner behavior is covered
-#    behaviorally in lib/test/test_python_scripts.py and the CLI block below).
-assert_pin_unique "#548: evidence-bundle axis floor sentence" \
-  'covering **at minimum** these generic axes: authoritative producers and the values they emit' "$CI443_SKILL"
-assert_pin_unique "#548: entry-form — an axis with no entry is not a legal bundle state" \
-  'an axis with no entry is not a legal bundle state' "$CI443_SKILL"
-assert_pin_unique "#548: proportionality scope-inference clause" \
-  'N/A — checked: scope inference' "$CI443_SKILL"
-assert_pin_unique "#548: self-describing header sentence" \
-  'opens with a compact fixed header restating the three entry forms' "$CI443_SKILL"
-assert_pin_unique "#548: bundle-coverage gate fires at the same two sites" \
-  'The bundle-coverage gate fires at the **same two sites**' "$CI443_SKILL"
-assert_pin_unique "#548: bundle-currency three-triggers sentence" \
-  'additionally re-checks bundle currency against **three triggers**' "$CI443_SKILL"
-assert_pin_unique "#548: approach-fork (Recommended)-citation sentence" \
-  'one-line why cites at least one bundle entry by axis name' "$CI443_SKILL"
-assert_pin_unique "#548: unestablished-axes disclosure sentence" \
-  'discloses by name every effective-list axis that is' "$CI443_SKILL"
-assert_pin_unique "#548: no-citation-grade arm withholds the marking visibly" \
-  'marking and its rationale states that no citation-grade evidence exists' "$CI443_SKILL"
-assert_pin_unique "#548: heading-extraction rule (defined once, both hooks)" \
-  'duplicate same-heading sections are concatenated in file order' "$CI443_SKILL"
-assert_pin_unique "#548: dual-heading independence — each hook at its own site" \
-  'The two hooks are extracted independently at their own consumption sites' "$CI443_SKILL"
-assert_pin_unique "#548: loader-failure arm records the dedicated line" \
-  'consumer axes: unestablished — loader denied or failed' "$CI443_SKILL"
-assert_pin_unique "#548: ## Evidence axes forwarding sentence (SKILL contract, exact heading)" \
-  'appends any section headed exactly' "$CI443_SKILL"
-assert_pin_unique "#548: ## Evidence axes forwarding (live extension carries the exact heading)" \
-  '## Evidence axes' "$CI443_EXT"
-assert_pin_unique "#548: bounded actionability definitions (must-revise)" \
-  'a verified correctness, safety, implementability, unresolved-decision, or load-bearing-premise defect' "$CI443_SKILL"
-assert_pin_unique "#548: VERDICT: FILE may carry advisory findings" \
-  'may carry advisory findings' "$CI443_SKILL"
-assert_pin_unique "#548: VERDICT: REVISE requires a verified unresolved must-revise finding" \
-  'requires at least one verified unresolved must-revise finding' "$CI443_SKILL"
-assert_pin_unique "#548: Quiet-Killer becomes an assessed one-or-none slot" \
-  'report at most one qualifying Quiet Killer, or explicitly report' "$CI443_SKILL"
-assert_pin_unique "#548: post-adjudication T1 sentence" \
-  "T1 consumes the latest completed round's post-adjudication unresolved must-revise findings" "$CI443_SKILL"
-assert_pin_unique "#548: fail-closed T2 gains the unadjudicated-round arm" \
-  'T2 gains one new fail-closed arm (the `unadjudicated-round` arm)' "$CI443_SKILL"
-assert_pin_unique "#548: convergence-definition sentence" \
-  'a converged run is one whose final accepted, post-adjudication verdict is' "$CI443_SKILL"
-assert_pin_unique "#548: Step 3.5 summary reports the evidence bundle's coverage" \
-  "The summary additionally reports the evidence bundle's coverage" "$CI443_SKILL"
-assert_pin_unique "#548: Step 4 audit summary reports the bundle's coverage + actionability" \
-  "The Step 4 audit summary line reports the bundle's coverage" "$CI443_SKILL"
-# ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
-#    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
-#    Each pin is a behavioral-fix pin: its literal IS an operative sentence whose removal
-#    re-introduces the unreconciled-contract gap, so it is expressed through assert_pin_red_under
-#    with a `sed -E` mutation that strips a load-bearing fragment of the operative sentence
-#    (framing-only survives → RED here). (a)–(d) pin the four coupled-mirror contract surfaces;
-#    (e)/(f) additionally pin the Step 3.5 target's scope-honesty and no-burden operative clauses
-#    (the "Scope honesty" / "No burden on non-contract issues" ACs), so every AC's operative prose
-#    maps to ≥1 assertion — the same bidirectional-orphan discipline this issue itself adds.
-# (a) Step 3.5 hunt gains the within-text contract-reconciliation target.
-assert_pin_red_under "#465 (a): Step 3.5 names the within-text multi-state-contract reconciliation target" \
-  'no summary or table form lists fewer causes for a state than the detailed per-state ACs' \
-  's/lists fewer causes for a state/REMOVED/' "$CI312_SKILL"
-# (b) Template Move 3 orphan sentence folds the enumerated-state→AC clause.
-assert_pin_red_under "#465 (b): template folds the every-enumerated-contract-state-maps-to-an-AC clause" \
-  'every state a multi-state contract enumerates' \
-  's/multi-state contract enumerates/CONTRACT/' "$CI312_TMPL"
-# (c) Prompt-extension Coupled-mirror-sites gains the source-reconciled-before-propagation sentence.
-assert_pin_red_under "#465 (c): extension sharpens Coupled mirror sites — source reconciled before propagation" \
-  'the source form must itself be internally reconciled before it is propagated' \
-  's/internally reconciled before it is propagated/IGNORED/' "$CI443_EXT"
-# (d) SYSTEM_OVERVIEW §11 Self-steelman enumeration reconciled to include the new target.
-assert_pin_red_under "#465 (d): SYSTEM_OVERVIEW §11 Self-steelman enumeration includes the new target" \
-  'unstated scope, and an unreconciled multi-state contract' \
-  's/an unreconciled multi-state contract/REMOVED/' "$OG_OVERVIEW_DOC"
-# (e) Step 3.5 target carries the scope-honesty operative clause ("Scope honesty" AC).
-assert_pin_red_under "#465 (e): Step 3.5 target scopes to the draft's own forms (no not-yet-written-implementation claim)" \
-  'makes **no** claim to catch a state that only a not-yet-written implementation will emit' \
-  's/not-yet-written implementation will emit/REMOVED/' "$CI312_SKILL"
-# (f) Step 3.5 target carries the no-burden-on-non-contract-issues operative clause ("No burden…" AC).
-assert_pin_red_under "#465 (f): Step 3.5 target draws no new hunt/question/revision on a non-contract draft" \
-  'a draft that states none draws no new hunt, question, or revision' \
-  's/draws no new hunt, question, or revision/REMOVED/' "$CI312_SKILL"
-# (g) Consumer-agnostic ABSENCE pin (the issue's Testing-Strategy coverage-dimension (e)).
-#     (a)–(f) are all positive-presence pins, so a future edit injecting a DevFlow-internal
-#     reference into a body that ships into consumer repos would pass them all. Assert the two
-#     consumer-installed create-issue bodies name no repo-internal test path / CI job name.
-#     `devflow_implement.allowed_tools` is deliberately NOT banned: it is a consumer-facing
-#     config key (consumers set it themselves), not a DevFlow-repo-internal token.
-for CI465_TOK in 'lib/test/run.sh' 'lib + python tests'; do
-  assert_eq "#465 (g): create-issue SKILL stays consumer-agnostic — no '$CI465_TOK'" \
-    "0" "$(pin_count "$CI465_TOK" "$CI312_SKILL")"
-  assert_eq "#465 (g): create-issue template stays consumer-agnostic — no '$CI465_TOK'" \
-    "0" "$(pin_count "$CI465_TOK" "$CI312_TMPL")"
-  # Non-vacuity proof: an absence pin over a token the detector could never match is a guard
-  # that cannot fail. Inject the token into a copy and confirm the SAME detector reports it —
-  # so the `0` above is evidence of a clean body, not of a blind grep. Asserted as a DELTA
-  # (injected count == clean count + 1), not as the absolute `1`: the absolute form silently
-  # depends on the source being clean, so a body that already carried the token would fail this
-  # proof with the message "injected token is NOT detected" — the exact inverse of what happened.
-  CI465_INJ="$(probe_tmp "#465 (g)-mp: '$CI465_TOK' injection setup")" || continue
-  { cat "$CI312_SKILL"; printf 'the pins live in %s (injected)\n' "$CI465_TOK"; } > "$CI465_INJ"
-  assert_eq "#465 (g)-mp: absence pin is non-vacuous — injecting '$CI465_TOK' raises the count by 1" \
-    "$(( $(pin_count "$CI465_TOK" "$CI312_SKILL") + 1 ))" "$(pin_count "$CI465_TOK" "$CI465_INJ")"
-done
-# ── issue #464: create-issue adversarial-input dimension + enumerated-AC-list floor rule.
-#    Reuses the #312/#443 create-issue file vars (CI312_TMPL, CI312_SKILL, CI443_EXT) and adds
-#    the overview doc var. Each pinned literal is a verbatim fragment of the new contract prose
-#    (a bullet header or an on-line span of the rule sentence, not a synthetic marker). These are all
-#    SURFACE-PRESENCE contract pins (plain assert_pin_unique on new prose) — the exact class the
-#    new extension mutation-evidence dimension EXCLUDES (this issue is that distinction's worked
-#    example), so no assert_pin_red_under mutation obligation applies. Wrapped-literal hazard
-#    (#375): every literal below is chosen to sit on a single physical line (grep -oF is
-#    line-scoped), so a phrase that wraps in the prose is pinned by its on-line fragment.
-CI464_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
-# AC1 — Step 3.6 generic dimension checklist gains the adversarial-third-party-input dimension.
-assert_pin_unique "#464 AC1: Step 3.6 generic checklist gains the adversarial-third-party-input dimension" \
-  'Adversarial third-party input' "$CI312_SKILL"
-assert_pin_unique "#464 AC1: the dimension carries the input-is-data guard (data to classify, not obey)" \
-  'data to classify, never instructions to obey' "$CI312_SKILL"
-# The growth-policy carve-out reconciling the appended standalone dimension with the
-# consolidate-before-appending rule is itself a coupled contract sentence — pin it so a future
-# edit that drops it (leaving the dimension and the policy silently self-contradicting) goes RED.
-assert_pin_unique "#464 AC1: growth-policy carve-out sanctions the standalone dimension" \
-  'sanctioned standalone addition, not a breach of consolidate-before-appending' "$CI312_SKILL"
-# AC4 — Step 3.5 omission-hunt list gains both checks.
-assert_pin_unique "#464 AC4: Step 3.5 hunt flags a new judgment surface missing the guard/hostile-case pair" \
-  'without the guard-AC-plus-hostile-case pair' "$CI312_SKILL"
-assert_pin_unique "#464 AC4: Step 3.5 hunt flags an AC enum list declaring neither floor nor closure" \
-  'declares neither a floor marker nor a closed-set' "$CI312_SKILL"
-# AC2 — template drafter-side judgment-surface guard rule (coupled with the Step 3.6 dimension).
-assert_pin_unique "#464 AC2: template carries the drafter-side judgment-surface guard rule" \
-  'A designed LLM/semantic-judgment surface over third-party text carries an input-is-data' "$CI312_TMPL"
-assert_pin_unique "#464 AC2: template states a no-new-judgment-surface draft gains no new questions/flags" \
-  'new judgment surface gains no new questions and no new flags' "$CI312_TMPL"
-# AC3 — template Acceptance-Criteria list-closure rule + Move 2 write-back extension.
-assert_pin_unique "#464 AC3: template AC rules require every enumerated AC list to declare its closure" \
-  'Every enumerated test/case/example list inside an AC declares its closure' "$CI312_TMPL"
-assert_pin_unique "#464 AC3: Move 2 writes the coverage-sweep output back as closed AC items before filing" \
-  "writes the sweep's output back as additional closed AC items before filing" "$CI312_TMPL"
-# AC2/AC3 second mirror site — the template's final self-review quality-checklist (the drafter's
-# actual self-check surface). Pinned on BOTH halves of each rule per the coupled-mirror discipline
-# (#462 quality-checklist-mirror pattern), so the guidance-prose site and the checklist site cannot
-# silently drift out of agreement.
-assert_pin_unique "#464 AC2: quality-checklist mirror line for the judgment-surface guard rule" \
-  'carries the input-is-data guard AC paired with a hostile-input' "$CI312_TMPL"
-assert_pin_unique "#464 AC3: quality-checklist mirror line for the enumerated-AC-list closure rule" \
-  'each floor-marked list has had Move 2' "$CI312_TMPL"
-# AC5 — extension gains the mutation-evidence dimension, scoping surface-presence pins OUT.
-assert_pin_unique "#464 AC5: extension gains the mutation-evidence dimension for behavioral-fix pins" \
-  'Mutation evidence for behavioral-fix pins (issue #464)' "$CI443_EXT"
-assert_pin_unique "#464 AC5: mutation-evidence dimension excludes surface-presence contract pins" \
-  'Surface-presence contract pins' "$CI443_EXT"
-# AC6/AC7 — overview §11 documents both seams and records the Stage-B auditor-side deferral.
-assert_pin_unique "#464 AC7: overview §11 documents the two new create-issue seams" \
-  'Adversarial-input dimension and enumerated-list floor rule (issue #464)' "$CI464_OVERVIEW"
-assert_pin_unique "#464 AC6: overview §11 records the deliberate Stage-B auditor-side deferral" \
-  'extending the audit seams into Stage B is a separate change' "$CI464_OVERVIEW"
-
-# ── issue #559: Revision-delta verification — coverage guard + prose pins ──
-#    The shared "Revision-delta verification" procedure is stated once in the
-#    create-issue skill and referenced by every revise-and-re-gate sentence. This
-#    guard is the PERSISTENT wiring enforcement (not a one-shot enumeration): it
-#    whitespace-normalizes the skill and classifies EVERY `no-options gate`
-#    occurrence into wired-site hit / definition-block occurrence / enumerated
-#    non-command allowlist entry, RED on any unresolved occurrence, and RED when the
-#    wired-site bin is empty (zero-hit floor). A gate-mentioning revise sentence
-#    added/moved/reworded — or a novel-verb variant — arrives RED until wired or
-#    knowingly allowlisted. Reuses the #312/#443 create-issue file var CI312_SKILL
-#    and the shared overview-doc var OG_OVERVIEW_DOC.
-CI559_SKILL="$CI312_SKILL"
-
-# ci559_classify FILE -> prints "bin1=N bin2=N bin3=N unresolved=N" on stdout
-# (per-unresolved diagnostics to stderr). The two key phrases, the by-name
-# reference token, the per-hit adjacency window, the definition-block heading, and
-# the enumerated non-command allowlist (the drafting-time explanatory
-# `no-options gate` mentions — the ALLOW list below is the source of truth for that
-# set) are all defined verbatim below.
-ci559_classify() {  # skill-file -> summary line on stdout
-  python3 - "$1" <<'PY'
-import sys, re
-src = open(sys.argv[1], encoding='utf-8').read()
-norm = re.sub(r'\s+', ' ', src)
-TARGET = 'no-options gate'
-KEY_PREFIXES = ['re-run the Step 3 ', 're-run the ']   # the two key phrases (prefix + TARGET)
-REF = 'Revision-delta verification'                    # the by-name procedure reference
-WINDOW = 64                                            # fixed fail-closed positional contract
-DEF_HEAD = '### Revision-delta verification'           # definition-block heading
-ALLOW = [                                              # full-context non-command allowlist
-    'Draft the issue and pass the **no-options gate** (Step 3)',
-    'Steelman the draft against the code, revise, and re-pass the no-options gate (Step 3.5)',
-    'the no-options gate (Step 3) still governs the final body',
-    '### Step 3: Draft the issue and pass the no-options gate',
-    'immediately after the no-options gate passes and before Step 4 presents anything',
-    'and neither is a clean no-options gate',
-]
-ds = norm.find(DEF_HEAD)
-de = -1 if ds == -1 else norm.find('### ', ds + len(DEF_HEAD))
-if ds != -1 and de == -1:
-    de = len(norm)
-allow_idx = set()
-for e in ALLOW:
-    off = e.find(TARGET); start = 0
-    while True:
-        p = norm.find(e, start)
-        if p == -1: break
-        allow_idx.add(p + off); start = p + 1
-L = len(TARGET)
-bin1 = bin2 = bin3 = unresolved = 0
-i = 0
-while True:
-    idx = norm.find(TARGET, i)
-    if idx == -1: break
-    i = idx + 1; end = idx + L
-    if ds != -1 and ds <= idx < de:       # bin 2: definition-block occurrence
-        bin2 += 1; continue
-    is_kp = any(idx-len(p) >= 0 and norm[idx-len(p):idx] == p for p in KEY_PREFIXES)
-    if is_kp:                             # bin 1 candidate: a key-phrase occurrence
-        if REF in norm[end:end+WINDOW]:
-            bin1 += 1
-        else:                            # a wired site missing its adjacent reference
-            unresolved += 1
-            sys.stderr.write('UNRESOLVED-KEYPHRASE: ...%s...\n' % norm[max(0,idx-25):end+WINDOW])
-        continue
-    if idx in allow_idx:                  # bin 3: enumerated non-command allowlist entry
-        bin3 += 1; continue
-    unresolved += 1                       # anything else is unresolved -> RED
-    sys.stderr.write('UNRESOLVED-OTHER: ...%s...\n' % norm[max(0,idx-25):end+25])
-print('bin1=%d bin2=%d bin3=%d unresolved=%d' % (bin1, bin2, bin3, unresolved))
-PY
-}
-
-# Extract the integer value of field $2 from a "binN=.. unresolved=.." summary with
-# bash builtins. This value decides assertions, so no grep/sed pipeline may silently
-# empty it when a non-preflight PATH tool is absent.
-ci559_field() {
-  local field
-  for field in $1; do
-    case "$field" in
-      "$2="*) printf '%s' "${field#*=}"; return 0 ;;
-    esac
-  done
-  return 1
-}
-
-CI559_SUM="$(ci559_classify "$CI559_SKILL")"
-CI559_B1="$(ci559_field "$CI559_SUM" bin1)"
-CI559_B2="$(ci559_field "$CI559_SUM" bin2)"
-CI559_U="$(ci559_field "$CI559_SUM" unresolved)"
-# Total classification: no `no-options gate` occurrence is left unresolved.
-assert_eq "#559: every no-options gate occurrence is classified (0 unresolved)" "0" "$CI559_U"
-# Zero-hit floor: the wired-site bin is non-empty — a restructure that eliminates
-# every wired site is a loud failure, never a vacuous green.
-assert_eq "#559: zero-hit floor — the wired-site bin is non-empty" "ok" \
-  "$([ "${CI559_B1:-0}" -ge 1 ] && echo ok || echo empty)"
-# The six canonical revise-and-re-gate sites and the one definition-block occurrence
-# are exact. These pins close whole-site deletion: deleting a complete command and its
-# adjacent reference cannot hide behind the non-empty floor or unresolved=0.
-assert_eq "#559: all six canonical revise-and-re-gate sites remain wired" "6" "$CI559_B1"
-assert_eq "#559: the definition block contributes exactly one classified occurrence" "1" "$CI559_B2"
-# Mutation rows intentionally use probe_tmp's suite-RED allocation contract rather
-# than `skip host-capability`: inability to allocate the proof means the detector was
-# not exercised, so reporting a skip would weaken the issue's planted-defect AC.
-# Planted-defect positive control: an unwired key-phrase sentence planted in a
-# mutated copy is an UNRESOLVED occurrence — the guard's detection claim exercised,
-# not attested (recorded observed RED in the PR).
-CI559_PLANT="$(probe_tmp '#559 planted-defect setup')" || CI559_PLANT=/dev/null
-{ cat "$CI559_SKILL"; printf '\nThen re-run the Step 3 no-options gate and stop.\n'; } > "$CI559_PLANT"
-assert_eq "#559: planted-defect positive control — an unwired key-phrase sentence is unresolved (guard RED)" \
-  "1" "$(ci559_field "$(ci559_classify "$CI559_PLANT")" unresolved)"
-rm -f "$CI559_PLANT"
-# Novel-verb control: a revise sentence phrased with a different verb ('pass the
-# revised draft through the no-options gate') is unresolved until wired/allowlisted
-# — total classification closes the variant-verb gap.
-CI559_NOVEL="$(probe_tmp '#559 novel-verb setup')" || CI559_NOVEL=/dev/null
-printf 'x pass the revised draft through the no-options gate now.\n' > "$CI559_NOVEL"
-assert_eq "#559: total classification flags a novel-verb gate mention as unresolved" \
-  "1" "$(ci559_field "$(ci559_classify "$CI559_NOVEL")" unresolved)"
-rm -f "$CI559_NOVEL"
-# Allowlist-collision control: the live explanatory `re-pass` wording is allowlisted
-# only in its full list-item context. Reusing the short phrase as a revision command
-# must remain unresolved rather than silently falling into bin 3.
-CI559_COLLIDE="$(probe_tmp '#559 allowlist-collision setup')" || CI559_COLLIDE=/dev/null
-printf 'Revise the draft and re-pass the no-options gate.\n' > "$CI559_COLLIDE"
-assert_eq "#559: a command reusing an allowlisted verb does not evade adjacency wiring" \
-  "1" "$(ci559_field "$(ci559_classify "$CI559_COLLIDE")" unresolved)"
-rm -f "$CI559_COLLIDE"
-
-# Input-shape matrix rows (issue #559 Testing Strategy — the mutable-markdown
-# malformed-shape matrix per CLAUDE.md's best-effort-parser convention: the guard is
-# a reader of agent-mutable markdown, so each degenerate input shape is asserted to
-# fail closed).
-# (a) Empty input → the wired-site bin is empty → the zero-hit floor goes RED.
-CI559_EMPTY="$(probe_tmp '#559 empty-input setup')" || CI559_EMPTY=/dev/null
-: > "$CI559_EMPTY"
-assert_eq "#559 shape: empty input → the wired-site bin is empty (zero-hit floor RED)" \
-  "0" "$(ci559_field "$(ci559_classify "$CI559_EMPTY")" bin1)"
-rm -f "$CI559_EMPTY"
-# (b) Absent target file → the classifier prints an empty summary, so the total-
-# classification assert compares "0" against "" and goes RED (fail-closed, never a
-# vacuous pass) — asserted here as the empty-summary signal that drives that RED.
-assert_eq "#559 shape: absent target file → empty summary (total-classification assert would go RED)" \
-  "" "$(ci559_field "$(ci559_classify /nonexistent/no-options-gate-file.md 2>/dev/null)" unresolved)"
-# (c) Allowlist-bin positive control: the enumerated non-command mentions land in
-# bin3 on the live skill. The exact count is deliberate, not a lower bound: every
-# allowlist entry must match one live occurrence so stale or duplicate exemptions
-# cannot accumulate and silently reclassify a future command.
-assert_eq "#559 shape: the enumerated allowlist mentions land in bin3 on the live skill" \
-  "6" "$(ci559_field "$CI559_SUM" bin3)"
-# (d) Boundary-hostile: a correctly-wired gate mention whose key phrase and by-name
-# reference are separated by a period-bearing path literal still classifies as a
-# wired site (unresolved=0), proving the contract is positional adjacency — not
-# sentence-boundary recovery, which a period-bearing path literal defeats (the reason
-# the wiring is adjacency-based).
-CI559_BND="$(probe_tmp '#559 boundary-hostile setup')" || CI559_BND=/dev/null
-printf 'x revise, then re-run the no-options gate (see e.g. lib/foo.sh). Then run **Revision-delta verification** now.\n' > "$CI559_BND"
-assert_eq "#559 shape: a period-bearing literal between the gate phrase and the reference still classifies as wired (adjacency, not sentence-boundary)" \
-  "0" "$(ci559_field "$(ci559_classify "$CI559_BND")" unresolved)"
-rm -f "$CI559_BND"
-
-# Prose pins (AC 14). The always-run trigger sentence is a behavioral-fix pin:
-# removing the "at every revision event" qualifier re-introduces the #555-class
-# regression (a revision reaching filing with only the no-options gate), so it is
-# expressed through assert_pin_red_under with a mutation that strips that qualifier.
-assert_pin_red_under "#559: always-run trigger carries the at-every-revision-event qualifier" \
-  'runs **at every revision event** — before any re-audit dispatch at that site and before any presentation of the revised draft' \
-  's/at every revision event/sometimes/' "$CI559_SKILL"
-# The remaining new load-bearing sentences carry surface-presence pins.
-assert_pin_unique "#559: the Revision-delta verification procedure is stated once as a named block" \
-  '### Revision-delta verification (shared procedure — referenced by every revise-and-re-gate site)' "$CI559_SKILL"
-assert_pin_unique "#559: per-class walk records one entry per class, else a stated falsifiable zero" \
-  "one compact entry per class — the class's enumerated items, else a stated falsifiable zero" "$CI559_SKILL"
-assert_pin_unique "#559: an all-zeros walk ends the batch's work at the walk record" \
-  "An all-zeros walk ends the batch's work at the walk record." "$CI559_SKILL"
-assert_pin_unique "#559: the inline fix loop walks the fix and terminates on an all-zeros walk" \
-  'walk the fix as its own edit-batch; a batch whose walk is all-zeros ends the loop.' "$CI559_SKILL"
-assert_pin_unique "#559: closing evidence line — enumerated/verified/fixed format literal" \
-  'revision-delta check: <N> enumerated, <V> verified, <F> fixed' "$CI559_SKILL"
-assert_pin_unique "#559: closing evidence line — no-verifiable-delta format literal" \
-  'revision-delta check: no verifiable delta' "$CI559_SKILL"
-assert_pin_unique "#559: the five per-site evidence-line anchors are enumerated" \
-  "at Step 3.5's item 5, immediately after that item's gate re-run; at Step 3.5's item 6, immediately before the initial Step 3.6 dispatch's pre-dispatch draft write" "$CI559_SKILL"
-# SYSTEM_OVERVIEW §11 documents the procedure in both revise-loop descriptions (AC 13).
-assert_pin_unique "#559: overview §11 (Step 3.5 loop) documents the Revision-delta verification procedure" \
-  "walks the revision's edit-batch delta across six classes" "$OG_OVERVIEW_DOC"
-assert_pin_unique "#559: overview §11 (Step 3.6/Step 4 loop) documents the Revision-delta verification procedure" \
-  "runs the shared **Revision-delta verification** procedure over the revision's delta" "$OG_OVERVIEW_DOC"
+# ── create-issue contract coverage (issues #443, #522, #546, #462, #467, #465,
+#    #464, #548, #559) is extracted into a focused, selectable module. It is
+#    executed by the full suite through the fail-closed module boundary below
+#    (see the devflow_run_full_suite_module call later in this file) and can be
+#    run alone with `bash lib/test/run-module.sh create-issue-contract`. Source:
+#    lib/test/modules/create-issue-contract.sh; provenance map:
+#    lib/test/modules/create-issue-contract.inventory.md.
 
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
@@ -5521,7 +4683,7 @@ assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the named-assertion
 # operative line; the mutation pattern is a metachar-free sub-phrase of that line, so it
 # addresses it cleanly. NOTE these are self-referential *dogfood* pins, not a demonstration of
 # assert_pin_red_under's discrimination over assert_pin_red_on_removal: two of the three targets
-# (phase-2-implement.md, review-and-fix/SKILL.md) hold the whole rule on a single markdown line,
+# (phase-2-implement.md, review-and-fix/references/fixing.md) hold the whole rule on a single markdown line,
 # so `/phrase/d` there IS a whole-line strip byte-equivalent to assert_pin_red_on_removal's
 # grep -vF (only $EXT_IMPL, hard-wrapped across lines, splits operative from framing). The
 # operative-vs-framing discrimination the primitive adds is proven by the synthetic 'op'/'frame'
@@ -5752,7 +4914,7 @@ assert_pin_unique "#236 (B) phase-3.3: bounded re-review re-runs the observabili
 #   (2) the Phase 3.3 seam authors .devflow/tmp scratch with the Write tool, not `>`;
 #   (3) a cloud claude-code-action denial is NOT the local-tier classifier and NOT license
 #       to leave the instrumented loop.
-# The (1) obligation lives in review-and-fix/SKILL.md ($MAXI_SKILL) and is ALSO restated for
+# The (1) obligation lives in review-and-fix/references/fixing.md ($MAXI_SKILL bundle) and is ALSO restated for
 # the inline driver at the implement Phase 3.3 seam (phases/phase-3-review.md, inside
 # $DEF_SKILL); (2)+(3) live at that seam too. Each behavioral operative sentence is pinned
 # removal-proof (assert_pin_red_on_removal, PASS->FAIL on a targeted half-revert) — including
@@ -8146,7 +7308,7 @@ ECH="$LIB/test/extract-command-heads.py"
 E363=
 E484=
 E484="$(mktemp -d)" || { echo "FAIL  #484: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484"' EXIT
+_suite_tmp_dir "$E484"
 
 # Heads deliberately left ungranted on the implement profile, each with a rationale:
 #   gh pr checkout — the inline engine is already on the branch; checking out a PR
@@ -8258,6 +7420,11 @@ assert_eq "#484 recursive roster includes nested implement phase files" "yes" \
   "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/implement/phases/phase-4-documentation.md" && echo yes || echo no)"
 assert_eq "#484 recursive roster includes the dispatched requesting-code-review skill" "yes" \
   "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/requesting-code-review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: roster membership assertion is scoped to the extractor input
+# #539 shadow (pr-test-analyzer): pin a review-and-fix references member too — a future
+# tightening of the find pattern (e.g. review* -> review) would silently drop all the
+# references from the implement-profile head audit while the two pins above stay green.
+assert_eq "#539 recursive roster includes the review-and-fix step references" "yes" \
+  "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/review-and-fix/references/loop-control.md" && echo yes || echo no)"  # raw-guard-ok: roster membership assertion is scoped to the extractor input
 assert_eq "#484 every implement-tier head is granted or withheld (zero ungranted real heads)" "" \
   "$(for f in $_impl_files; do _impl_ungranted "$f" "$IMPL_YML" implement-block; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
 
@@ -8265,14 +7432,18 @@ assert_pin_red_on_removal "#484 inline workpad shorthand must expand to the port
   'Every inline backtick instruction beginning with `workpad.py` in the phase references must be expanded before tool use' \
   "$LIB/../skills/implement/SKILL.md"
 
-# AC: review-and-fix/SKILL.md against devflow.yml's hoisted TOOLS — gh pr checkout is
-# granted there (the manual /devflow:review-and-fix path checks out the PR head), so
-# every head it emits is granted or suppressed.
-assert_eq "#484 every review-and-fix head is granted by devflow.yml TOOLS (gh pr checkout granted there)" "" \
-  "$(_manual_ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../.github/workflows/devflow.yml" tools-line | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+# AC (#484 + #530): the WHOLE review-and-fix bundle — thin root + every references/*.md —
+# against devflow.yml's hoisted TOOLS. $MAXI_SKILL is the root+references concatenation
+# (see its definition), so this is now a whole-bundle head scan on the manual tier rather
+# than the pre-#530 single-SKILL.md check. gh pr checkout is granted there (the manual
+# /devflow:review-and-fix path checks out the PR head at Step 0.5, in
+# references/loop-control.md — part of the scanned bundle), so every head
+# any bundle file emits is granted or suppressed.
+assert_eq "#484/#530 every review-and-fix bundle (root+references) head is granted by devflow.yml TOOLS" "" \
+  "$(_manual_ungranted "$MAXI_SKILL" "$LIB/../.github/workflows/devflow.yml" tools-line | sort -u | tr '\n' ' ' | sed 's/ *$//')"
 sed -E 's/, Bash\(gh pr checkout:\*\)//' "$LIB/../.github/workflows/devflow.yml" > "$E484/manual-no-checkout.yml"
 assert_eq "#484 manual gh pr checkout grant is removal-proof" "yes" \
-  "$(_manual_ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$E484/manual-no-checkout.yml" tools-line | grep -qxF 'gh pr checkout' && echo yes || echo no)"
+  "$(_manual_ungranted "$MAXI_SKILL" "$E484/manual-no-checkout.yml" tools-line | grep -qxF 'gh pr checkout' && echo yes || echo no)"
 
 # Skill-level recovery contracts: unit tests prove the helper behavior, while
 # these removal pins prove the orchestrator still requests a failure signal,
@@ -9485,7 +8656,8 @@ assert_pin_red_under "#376 w2-phase-five-kinds: phase-2-implement.md §2.3.4 ste
 # Two coupled skill edits, each new operative sentence pinned through assert_pin_red_under
 # (#375) with a mutation that removes ONLY that operative sentence — so a framing-only pin is
 # reported RED at the desk, per AC8. The default file for assert_pin_red_under is $MAXI_SKILL
-# (skills/review-and-fix/SKILL.md), so the Edit-1 (Step 3 item 3b) pins omit the file arg;
+# (the reassembled root+references bundle MAXI_BUNDLE; item 3b of Step 3 now lives in
+# references/fixing.md within it), so the Edit-1 (item 3b of Step 3) pins omit the file arg;
 # the Edit-2 (§3.2) pins target phase-3-review.md by path so AC5's count assertion reads the
 # owning phase file, not the merged bundle.
 P3_FILE="$IMPL_PHASES_DIR/phase-3-review.md"
@@ -9587,7 +8759,7 @@ assert_pin_unique "#377 w3-triage-carveout-intact: §3.2 #193 stale-AC carve-out
 # drift-guarded fix-loop mapping table, ignore-aware command forms, a termination rule, and the
 # verify half of a fix-authoring test-first gate; Step 3 gains the gate itself and Step 4.5 gains
 # one defining clause. The acceptance-criterion-bearing operative clauses below are pinned through assert_pin_red_under
-# (default file $MAXI_SKILL = skills/review-and-fix/SKILL.md). The retained #377 Wave-3 pins
+# (default file $MAXI_SKILL = the reassembled thin-root + references/*.md bundle, MAXI_BUNDLE). The retained #377 Wave-3 pins
 # (operative / frequency / delta-scope / trigger-gating / gate-umbrella / evidence-routing /
 # finding-disposition) stay above; the obsolete per-sweep-reference and negative-tail pins were
 # removed with the enumeration.
@@ -9757,7 +8929,8 @@ assert_pin_red_under "#478 AC10 step-4.5 clause: the recorded grade tallies unde
 
 # AC5 — routing-marker drift lint, driven from here with BOTH arms. Each closed-vocab marker present
 # in the §2.3 sweep bodies (phase-2-implement.md, "Sweep selection" preamble through "### 2.4 Test")
-# must have a mapping-table row in item 3b (skills/review-and-fix/SKILL.md, between the BEGIN/END
+# must have a mapping-table row in item 3b (skills/review-and-fix/references/fixing.md, read via the
+# $MAXI_SKILL bundle, between the BEGIN/END
 # fix-loop mapping table anchors). The lint echoes GREEN when every present marker is mapped, RED
 # when one is not. GREEN arm: the real files. RED arm: a scratch SKILL copy with every
 # '## Devflow Reflection' line stripped (including its mapping-table row) while the marker stays in
@@ -9780,8 +8953,8 @@ p478_sweep_bodies() {
 # a genuine dropped-row drift. (The BEGIN side was already fail-loud: no BEGIN -> empty table -> RED.)
 p478_maptable() {
   awk '
-    /BEGIN fix-loop mapping table/ { f=1; buf=""; next }
-    /END fix-loop mapping table/   { if (f) printf "%s", buf; f=0; next }
+    /fix-loop-mapping-table-start/ { f=1; buf=""; next }
+    /fix-loop-mapping-table-end/   { if (f) printf "%s", buf; f=0; next }
     f { buf = buf $0 "\n" }
   ' "$1"
 }
@@ -9833,7 +9006,7 @@ rm -f "$P478_MUT_DEST"
 # unmapped -> RED. This proves the routing lint's own END boundary fails LOUD on a rename/removal
 # rather than silently widening the table region to EOF and masking a real drift.
 P478_MUT_END="$(probe_tmp '#478 maptable END-anchor fail-closed setup')"
-grep -vF -- 'END fix-loop mapping table' "$MAXI_SKILL" > "$P478_MUT_END"
+grep -vF -- 'fix-loop-mapping-table-end' "$MAXI_SKILL" > "$P478_MUT_END"
 assert_eq "#478 maptable END-anchor fail-closed: removing the END anchor flips the routing lint RED (no silent widen to EOF)" \
   "RED" "$(p478_routing_lint "$P478_MUT_END" "$P478_P2")"
 rm -f "$P478_MUT_END"
@@ -11465,8 +10638,8 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   # The invocation line alone is half the contract — the step must also tell the
   # model to HONOR the helper's exit code (surface a non-zero exit, don't silently
   # proceed). Pin a BLOCK-UNIQUE fragment of that prose, NOT a generic one: the
-  # phrase "exits non-zero" recurs elsewhere in review/SKILL.md and
-  # review-and-fix/SKILL.md (their dismiss-stale / config-get prose), so a generic
+  # phrase "exits non-zero" recurs elsewhere in review/SKILL.md and the
+  # review-and-fix references (their dismiss-stale / config-get prose), so a generic
   # grep would false-pass for those two skills even if the prompt-extension block's
   # own exit-code prose were deleted. This fragment appears ONLY in the block, so
   # the guard goes red iff the block's exit-code handling is actually removed.
@@ -20618,11 +19791,11 @@ assert_eq "et-fresh(R18): the distinct 'could not be pruned' decline breadcrumb 
 rm -rf "$ETF18_ORIGIN" "$ETF18_REPO"
 
 # T5 → AC5: the fix-commit subject literal is a coupled TWO-SITE invariant —
-# skills/review-and-fix/SKILL.md item 6 (the producer) ↔ lib/efficiency-trace.sh
+# skills/review-and-fix/references/fixing.md item 6 (the producer) ↔ lib/efficiency-trace.sh
 # (the parser). Both sites must carry it; a targeted edit to either turns RED.
-ETSY_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+ETSY_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 ETSY_ETSH="$LIB/efficiency-trace.sh"
-assert_eq "et-synth(T5): fix-commit subject literal present in SKILL.md item 6 (producer site)" "yes" \
+assert_eq "et-synth(T5): fix-commit subject literal present in fixing.md item 6 (producer site)" "yes" \
   "$([ "$(pin_count 'fix: address review findings (iteration' "$ETSY_RAF")" -ge 1 ] && echo yes || echo no)"
 assert_eq "et-synth(T5): fix-commit subject literal present in efficiency-trace.sh (parser site)" "yes" \
   "$([ "$(pin_count 'fix: address review findings (iteration' "$ETSY_ETSH")" -ge 1 ] && echo yes || echo no)"
@@ -20633,7 +19806,7 @@ assert_pin_red_on_removal "et-synth(T5): editing the commit-subject literal in e
 # no-deferral instruction and prove the pin catches the guarded regression — a
 # mutation that re-authorizes deferring the Write (the exact bug AC1 fixes) while
 # leaving the framing clause ("fused to this fix-commit moment") intact.
-assert_pin_red_under "et-synth(T1): SKILL.md item 6 operative no-deferral clause flips RED when deferral is re-authorized" \
+assert_pin_red_under "et-synth(T1): fixing.md item 6 operative no-deferral clause flips RED when deferral is re-authorized" \
   'do not defer this Write to a later "persist" step' \
   's/do not defer this Write to a later "persist" step/you may defer this Write to a later persist step/' \
   "$ETSY_RAF"
@@ -21697,13 +20870,35 @@ rm -rf "$LR_SC_REPO"
 #     unconditional top-level fields in SKILL.md minus `shadow` and
 #     `parked_class_sweep` (convergence-only), `park_calibration`
 #     (convergence-only — written by the Step 2.6 evidence gate, issue #557),
-#     and `promotion_provenance` (conditional on promoted iterations) — all four
+#     `promotion_provenance` (conditional on promoted iterations), and the #530
+#     navigation stamps `current_step`/`current_substep`/`pending_dispatch`
+#     (best-effort continuation operands, not effectiveness/cost telemetry) — all
 #     are subtracted by the `-Ev` filter below. FAILs if an unconditional field is
 #     added/removed on either side.
 LR_CONST="$(grep -E '^ITER_EXPECTED_FIELDS=' "$LIB/efficiency-trace.sh" | sed -E 's/^ITER_EXPECTED_FIELDS=//; s/"//g' | tr ' ' '\n' | grep -v '^$' | sort -u)"
-LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|promotion_provenance|parked_class_sweep|park_calibration)$' | sort -u)"
+LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|promotion_provenance|parked_class_sweep|park_calibration|current_step|current_substep|pending_dispatch)$' | sort -u)"
 assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md unconditional schema fields" \
   "$LR_SCHEMA" "$LR_CONST"
+
+# (5b) #539 review (Suggestion, test_gap): the three #530 navigation stamps are subtracted
+#     from LR_SCHEMA by the `-Ev` filter above — correctly, since they are best-effort
+#     continuation operands, not effectiveness/cost telemetry. But that subtraction means a
+#     future edit that DROPS a nav field from the schema leaves LR_SCHEMA excluding a field that
+#     no longer appears, so the equality test stays GREEN and the durable-resume contract (issue
+#     #530 — the whole point of the split) silently regresses. Pin each positively so a drop goes
+#     RED at the desk. The `grep -qx` membership check below cannot pass on an absent field
+#     (empty membership -> "no" -> RED), so it is non-vacuous by construction.
+# Scope the presence check to the ### Schema fence itself, not the whole bundle: a future
+# edit that RELOCATED a nav field out of the schema block into prose elsewhere would keep a
+# bundle-wide grep green while silently desyncing the schema from ITER_EXPECTED_FIELDS via the
+# `-Ev` subtraction above (issue #539 shadow, pr-test-analyzer). LR_SCHEMA_ALL is LR_SCHEMA
+# without the `-Ev` exclusion — exactly the schema-block field set — so asserting each nav field
+# is a member goes RED on a drop OR a relocation-out-of-block, the tighter guard the comment claims.
+LR_SCHEMA_ALL="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | sort -u)"
+for _navf in current_step current_substep pending_dispatch; do
+  assert_eq "#530/#539 resume-state: $_navf nav field present in the ### Schema block (not just the bundle)" "yes" \
+    "$(printf '%s\n' "$LR_SCHEMA_ALL" | grep -qx "$_navf" && echo yes || echo no)"
+done
 
 # (6) --self-check NEVER ABORTS on an unparseable iter file (issue #170 AC: every
 #     new path exits 0 on an unparseable iter-N.json). The script runs under
@@ -22300,7 +21495,7 @@ rm -rf "$TB_MB_REPO"
 
 # Grep pins (AC1/AC19/AC22): the SKILL mirrors + workflows + docs carry the new
 # telemetry-branch contract; a revert turns the suite RED.
-TB_RAF="$LIB/../skills/review-and-fix/SKILL.md"; TB_REV="$REVIEW_BUNDLE"
+TB_RAF="$MAXI_BUNDLE"; TB_REV="$REVIEW_BUNDLE"   # #530: TB_RAF=root+references bundle
 assert_eq "tb(#441 AC1): review-and-fix Loop-Exit persists via --persist (single code path)" "yes" \
   "$([ "$(pin_count '/../../lib/efficiency-trace.sh --persist --workpad-dir ".devflow/tmp/review/<slug>/<run-id>" --slug "<slug>"' "$TB_RAF")" -ge 1 ] && echo yes || echo no)"
 assert_eq "tb(#441 AC1): review Phase 4.5 persists via --persist (unified store)" "yes" \
@@ -26975,7 +26170,7 @@ for a in $PRT_AGENTS; do
   # positively so a future edit that desyncs review-and-fix's example roster from the
   # engine's actual dispatch set turns this row red instead of shipping silently.
   assert_eq "#141 fix-loop skill references devflow:$a (review-and-fix roster rewired)" \
-    "yes" "$(grep -qF "devflow:$a" "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin
+    "yes" "$(grep -qF "devflow:$a" "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin. #539 review (Suggestion): scan the whole root+references bundle so roster prose migrating into a reference stays covered.
   assert_eq "#141 agents/$a.md frontmatter declares name: $a (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $a\$" "$FDROOT/agents/$a.md" && echo yes || echo no)"
   assert_eq "#141 resolver allowlists devflow:$a (override key resolves)" \
@@ -27189,7 +26384,7 @@ assert_eq "#142 resolver allowlists devflow:requesting-code-review (override key
 assert_eq "#142 config schema declares the devflow:requesting-code-review override key" \
   "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/.devflow/config.schema.json" && echo yes || echo no)"
 assert_eq "#142 fix-loop skill applies devflow:receiving-code-review principles (call-site rewired)" \
-  "yes" "$(grep -qF 'devflow:receiving-code-review' "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'devflow:receiving-code-review' appears twice in the target SKILL
+  "yes" "$(grep -qF 'devflow:receiving-code-review' "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'devflow:receiving-code-review' appears more than once in the root+references bundle (#539 review Suggestion: bundle, not thin root)
 
 # ── #506 prompt-surface edit routing evidence gate ───────────────────────────
 # Repo policy (extension-not-engine): editing a prompt-surface file (SKILL.md, an implement
@@ -27205,7 +26400,7 @@ WSR_RAF="$FDROOT/.devflow/prompt-extensions/review-and-fix.md"
 WSR_REV="$FDROOT/.devflow/prompt-extensions/review.md"
 WSR_CLAUDE="$FDROOT/CLAUDE.md"
 # The canonical trigger-glob list literal — must be byte-identical across all three extensions.
-WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review/phases/*.md`, `.devflow/prompt-extensions/*.md`'
+WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review/phases/*.md`, `skills/review-and-fix/references/*.md`, `.devflow/prompt-extensions/*.md`'
 # The evidence marker literal the routing evidence-contract writes and the gate criterion matches.
 WSR_MARK='Writing-skills evidence:'
 
@@ -32585,7 +31780,15 @@ _PCL_ARGS=( --lib "$LIB" --md "$DEF_SKILL" --md "$IMPL_SKILL_BUNDLE" --md "$REVI
   --var "MAXI_SKILL=$MAXI_SKILL" --var "DEF_SKILL=$DEF_SKILL"
   --var "IMPL_SKILL_BUNDLE=$IMPL_SKILL_BUNDLE"
   --var "REVIEW_BUNDLE=$REVIEW_BUNDLE" --var "REVIEW_ROOT=$REVIEW_ROOT"
-  --var "ST_RAF=$ST_RAF" --var "ST_REV=$ST_REV" --var "ST_RCV=$ST_RCV" )
+  --var "ST_RAF=$ST_RAF" --var "ST_REV=$ST_REV" --var "ST_RCV=$ST_RCV"
+  # #530: the review-and-fix pins now target the root+references bundle ($MAXI_BUNDLE).
+  # These vars all equal $MAXI_BUNDLE (some are defined later in run.sh than this line),
+  # so bind each to $MAXI_BUNDLE's value to keep their pins RESOLVABLE and under the
+  # pin-in-comment lint rather than silently exempt (the "reported, never skipped" contract).
+  --var "MAXI_BUNDLE=$MAXI_BUNDLE"
+  --var "ETSY_RAF=$MAXI_BUNDLE" --var "TB_RAF=$MAXI_BUNDLE" --var "SP_RAF=$MAXI_BUNDLE"
+  --var "RF_SKILL=$MAXI_BUNDLE" --var "UBC_RAF=$MAXI_BUNDLE" --var "RAF456=$MAXI_BUNDLE"
+  --var "I497_RAF=$MAXI_BUNDLE" )
 # (1) Real corpus: no pin literal collides with a comment of its target; a collision here is a
 # real defect to fix in this same PR (issue #375 AC). The scanner reports every unresolvable
 # call site on stderr (UNRESOLVED / UNRESOLVED-COUNT) — SURFACE that count to the run log rather
@@ -32808,7 +32011,7 @@ echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
 # is worth: it must cover EVERY prose-invoked head, or the audit is green over a gap.
 ECH="$LIB/test/extract-command-heads.py"
 E363="$(mktemp -d)" || { echo "FAIL  #363: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484"' EXIT
+_suite_tmp_dir "$E363"
 
 assert_eq "#363 extractor helper exists" "yes" "$([ -f "$ECH" ] && echo yes || echo no)"
 
@@ -32898,7 +32101,7 @@ assert_eq "#529 shapes scans every source in the bundle (a violation in a refere
 #     locale a byte >= 0x80 is not printable — so a token made entirely of non-ASCII
 #     (every spaced ` — `, ` → `, ` ⇒ `) contains no printable byte and GNU does not
 #     count it AT ALL, while BSD counts it as a word. On this bundle that is 595
-#     dropped words on the default path (28,687 BSD vs 28,092 GNU) — a 2% silent
+#     dropped words on the default path (28,688 BSD vs 28,093 GNU at this HEAD) — a 2% silent
 #     undercount, measured on CI, not theorised.
 #   * a UTF-8 locale: BSD `wc` treats the `≠` (U+2260) in the root's `rc≠0` prose as a
 #     word separator and scores `rc≠0` as TWO words; GNU does not. Worth +12 words.
@@ -33242,7 +32445,7 @@ _rb_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
 # dense with comma-grouped numbers, so a drifted value lands INSIDE an unrelated one —
 # a +427-byte edit to a gated reference moves growth to 8,610, a substring of the
 # published "−18,610", and the guard greens on the very scenario it exists for; (2) a
-# measured value that drifts ONTO its own ceiling (8,225 -> 8,500, 28,687 -> 28,700)
+# measured value that drifts ONTO its own ceiling (8,225 -> 8,500, 28,688 -> 28,700)
 # matches the ceiling literal sitting on the same line, so even row-anchoring cannot
 # separate them. The record's own spelling does: it BOLDS a measured value and leaves
 # ceilings plain, and it suffixes byte figures with their unit. Match that, and a
@@ -33488,6 +32691,364 @@ assert_eq "#401 skills/review/SKILL.md teaches no proven-denied command shape" "
   "$(python3 "$ECS" "${_review_members[@]}" 2>&1)"
 assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
   "$(python3 "$ECS" "${_review_members[@]}" >/dev/null 2>&1; echo $?)"
+
+# ── #530 review-and-fix bundle shape lint (thin root + every references/*.md) ──
+# review-and-fix carried NO extract-command-shapes.py coverage before the #530 split.
+# The APPLICABLE shape gate is the IMPLEMENT profile: review-and-fix is dispatched inline
+# by /devflow:implement Phase 3 (implement tier) and via the manual /devflow:review-and-fix
+# comment path (devflow.yml) — it is NEVER dispatched on the read-only cloud `review`
+# profile (devflow-runner.yml). The default profile of extract-command-shapes.py encodes
+# that read-only review-runner matcher (R1–R4), which legitimately denies leading-`VAR=…$(…)`
+# assignments (e.g. the loop-start `RUN_ID=`) and the unexpanded `${CLAUDE_SKILL_DIR:-…}`
+# anchor-as-leading-token + redirect — source forms review-and-fix relies on and that ARE
+# permitted on the tiers it actually runs on (the implement-profile lint below is clean).
+# So the whole bundle is shape-linted under `--profile implement` (root + every reference).
+# The manual-command (devflow.yml) tier's SHAPES are unprobed — matcher-probe.yml carries no
+# manual-command-tier shape-probe job (its review probe and implement-probe jobs cover the two
+# cloud allowlist tiers) — so the implement profile
+# stands in as the closest MEASURED proxy for the manual push path (probe-inference, not
+# measurement; if a shape denial ever surfaces there the real fix is a manual-probe job, not
+# more lint). The manual tier's HEADS are separately covered by the whole-bundle head scan
+# against devflow.yml above. Grants are unchanged — desk-time coverage only.
+for f in "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../skills/review-and-fix/references"/*.md; do
+  assert_eq "#530 review-and-fix shape-lint (implement profile): $(basename "$f") teaches no denied shape" "" \
+    "$(python3 "$ECS" --profile implement "$f" 2>&1)"
+done
+
+# ── #530 prompt-budget guard (AC3/AC4): the split keeps the thin root and its initial/peak
+# load under the documented ceilings; docs/review-and-fix-budget.md is the checked-in table.
+# wc is a test-harness tool here (not a shipped selection), consistent with the rest of run.sh.
+# The word counter is python3 bytes.split() — deliberately NOT wc -w — because wc -w
+# disagrees with itself across platforms on this corpus in BOTH locales (PR #539 rounds
+# 1 and 2): BSD wc under a UTF-8 locale (macOS default) splits words on some multibyte
+# punctuation (U+2260 ≠, present in several references) that glibc does not, and GNU wc
+# under LC_ALL=C counts only whitespace-runs containing a printable ASCII byte, so the
+# corpus's ubiquitous standalone em-dash tokens (" — ") count as words on macOS/BSD but
+# not on Linux CI (observed: cumulative 39,826 vs 39,053 for identical bytes). python3 is
+# a preflight prerequisite, and bytes.split() — ASCII-whitespace-delimited byte tokens —
+# is byte-identical everywhere (it equals BSD `LC_ALL=C wc -w` on this corpus). The budget
+# doc's Counting method names this same counter.
+_raf_words() { python3 -c 'import sys; print(len(open(sys.argv[1],"rb").read().split()))' "$1"; }
+RAF_ROOT_W=$(_raf_words "$LIB/../skills/review-and-fix/SKILL.md")
+RAF_EXT_W=$(_raf_words "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
+RAF_MAXREF_W=0
+RAF_MAXREF_NAME=""
+RAF_REFS_SUM_W=0
+for f in "$LIB/../skills/review-and-fix/references"/*.md; do
+  w=$(_raf_words "$f"); [ "$w" -gt "$RAF_MAXREF_W" ] && { RAF_MAXREF_W="$w"; RAF_MAXREF_NAME="${f##*/}"; }
+  RAF_REFS_SUM_W=$((RAF_REFS_SUM_W + w))
+done
+# Fail closed if the references glob matched nothing: RAF_MAXREF_W would stay 0 and the peak
+# assertion (root+ext+0) would pass VACUOUSLY while under-reporting. A healthy tree always has
+# 8 references (each with a positive wc), so 0 means the glob is empty / the dir is gone.
+assert_eq "#530 budget: at least one reference file was measured (references glob non-empty)" "yes" \
+  "$([ "$RAF_MAXREF_W" -gt 0 ] && echo yes || echo no)"
+# #539 review (Important): the reference SET was only incidentally asserted — every #530 loop
+# enumerates references/*.md by GLOB, so deleting a whole reference file (e.g.
+# error-handling.md, which carries no dedicated content pin) just shrinks the glob and ships
+# desk-green. Pin the exact expected set both ways: each expected name must exist, and no
+# unregistered references/*.md may appear (adding a reference must update this list — and with
+# it the budget table, the recorder registry, and the routing/marker surfaces the sibling #530
+# blocks assert).
+RAF_EXPECTED_REFS="convergence error-handling fix-delta-gate fixing loop-control loop-exit pre-fix-gates shadow-review"
+for _r in $RAF_EXPECTED_REFS; do
+  assert_eq "#530 budget: expected reference exists: references/${_r}.md" "yes" \
+    "$([ -f "$LIB/../skills/review-and-fix/references/${_r}.md" ] && echo yes || echo no)"
+done
+_raf_unexpected=""
+for f in "$LIB/../skills/review-and-fix/references"/*.md; do
+  _rb="$(basename "$f" .md)"
+  case " $RAF_EXPECTED_REFS " in
+    *" $_rb "*) : ;;
+    *) _raf_unexpected="$_raf_unexpected $_rb" ;;
+  esac
+done
+assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_raf_unexpected"
+# #539 review (Suggestion 2): the three ceilings are policy constants duplicated in this
+# suite and in docs/review-and-fix-budget.md's table. Name them ONCE here and (a) drive the
+# numeric checks below from the names, and (b) assert each doc "Value" cell equals the same
+# constant, so a ceiling changed on one side without the other turns the coupling RED instead
+# of the two artifacts silently disagreeing.
+RAF_ROOT_CEIL=3500
+RAF_LOAD_CEIL=5500
+RAF_MAXSTEP_CEIL=17000
+assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
+  "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
+assert_eq "#530 budget: root + live extension (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
+  "$([ "$((RAF_ROOT_W+RAF_EXT_W))" -le "$RAF_LOAD_CEIL" ] && echo yes || echo no)"
+assert_eq "#530 budget: root + extension + max active step <= $RAF_MAXSTEP_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)))" "yes" \
+  "$([ "$((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W))" -le "$RAF_MAXSTEP_CEIL" ] && echo yes || echo no)"
+# #539 review (Important 2, over-graded shape 3): the peak-load ceiling above models
+# root + extension + the SINGLE largest reference, which is correct ONLY under the split's
+# single-residency premise — exactly one step reference resident at a time. Nothing above
+# measures that premise, so bind it to the two artifacts that STATE and ENFORCE it: (a) the
+# root's always-resident re-read contract that each reference is loaded on demand and not held
+# resident (the mechanism that keeps residency at one), and (b) the budget doc's explicit
+# statement of the peak assumption. If either drifts — a reference made resident, or the doc's
+# single-residency basis reworded away — the ceiling silently under-reports and this goes RED.
+# (Full runtime proof that no reference chain-loads a sibling is a prose property the suite
+# cannot execute; binding the stated + enforced premise is the achievable guard.)
+assert_pin_unique "#530/#539 budget: root enforces single-residency (reference loaded on demand, not held resident)" \
+  'loaded on demand, not held resident' "$LIB/../skills/review-and-fix/SKILL.md"
+assert_pin_unique "#530/#539 budget: doc states the peak single-residency assumption the ceiling depends on" \
+  'the peak when exactly one step reference is resident at a time' "$LIB/../docs/review-and-fix-budget.md"
+RAF_BUDGET_DOC="$LIB/../docs/review-and-fix-budget.md"
+assert_eq "#530 budget: checked-in budget table exists" "yes" \
+  "$([ -f "$RAF_BUDGET_DOC" ] && echo yes || echo no)"
+# Bind each doc ceiling to the suite constant above. The cells are comma-grouped (e.g.
+# "3,000"); strip commas with pure-bash expansion (no non-preflight PATH tool per CLAUDE.md)
+# before matching so a re-grouping never masks a drift. A ceiling edited in only one of the
+# two files goes RED here.
+# #539 review (Suggestion 4): match the ceilings-table LABEL column (`≤ <ceil> words |`), NOT
+# a bare `| <ceil> |`. The old bare form was satisfied by ANY doc cell equal to the ceiling —
+# including a Measured cell that happens to equal its ceiling — so it was nearly redundant with
+# the adjacent-column `| <ceil> | <measured> |` pins below and could pass vacuously at that
+# boundary. The `≤ <ceil> words |` form matches only the ceilings-summary-table label cell (the
+# prose maintainer note spells the same "≤ N words" but never with a trailing ` |`), giving this
+# check a distinct role: it asserts each ceiling is DOCUMENTED in the summary table's own row,
+# which the per-row Measured pins do not by themselves guarantee.
+_raf_doc_nocommas="$(< "$RAF_BUDGET_DOC")"
+_raf_doc_nocommas="${_raf_doc_nocommas//,/}"
+for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
+  assert_eq "#530 budget: ceilings-table row documents ceiling constant $_raf_ceil (bound to suite)" "yes" \
+    "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
+done
+assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +3,913 words' "$RAF_BUDGET_DOC"
+# #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
+# measurement, not merely textually self-consistent — the pin above passed while the
+# cumulative cell was stale because it matches the doc's own number, not reality. Recompute
+# the normal-cumulative-path words (root + extension + Σ references, same _raf_words counter)
+# and require (a) the doc's cumulative cell to equal the fresh measurement and (b) the pinned
+# growth delta to equal that measurement minus (36201 + RAF_EXT_W). 36201 is the pre-split
+# monolith's _raf_words count at the split's documented pre-#557 fork point on main (the
+# BEFORE basis in docs/review-and-fix-budget.md — NOT the PR's literal merge-base, which
+# already contains #557 and reads higher) — immutable history, safe to freeze; the live extension term appears in both the cumulative and the baseline, so it
+# CANCELS: the growth arm tracks exactly root + Σ references − monolith, the doc's
+# "isolates the split" definition, and a future extension edit moves the cumulative cell
+# (arm a) without perturbing the growth figure (arm b). Any word change in the root or ANY
+# reference shifts both and turns them RED until the doc is re-measured.
+RAF_CUM_W=$((RAF_ROOT_W + RAF_EXT_W + RAF_REFS_SUM_W))
+_raf_cum_row="$(grep -F '| **AFTER** — normal cumulative path |' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc cumulative-path words cell matches fresh measurement ($RAF_CUM_W)" "yes" \
+  "$(case "${_raf_cum_row//,/}" in *"| $RAF_CUM_W |"*) echo yes;; *) echo no;; esac)"
+_raf_doc_growth="$(grep -F 'named justified-growth warning): +' "$RAF_BUDGET_DOC" | head -n 1 || true)"
+_raf_doc_growth="${_raf_doc_growth##*warning): +}"
+_raf_doc_growth="${_raf_doc_growth%% words*}"
+_raf_doc_growth="${_raf_doc_growth//,/}"
+assert_eq "#530 budget: pinned growth delta is arithmetically true (measured cumulative $RAF_CUM_W − frozen monolith 36201 − extension $RAF_EXT_W)" \
+  "$((RAF_CUM_W - 36201 - RAF_EXT_W))" "${_raf_doc_growth:-unparsed}"
+# #539 review (silent-failure-hunter/code-reviewer/pr-test-analyzer): bind the three doc
+# "Measured" cells to the same live counts, closing the stale-Measured-cell class the
+# maintainer note now claims coverage of (previously only the cumulative cell + growth delta
+# were bound, so a stale Measured cell shipped desk-green).
+# Column-positional match (#539 shadow, silent-failure-hunter): pin the ceiling AND the measured
+# value in their ADJACENT columns — `| <ceiling> | <measured> |` — not a lone `| <measured> |`.
+# A whole-row `| <measured> |` match would pass VACUOUSLY the moment a measured count equals its
+# ceiling (a measured cell drifting onto the ceiling value itself): it would then match the Value/ceiling cell and go
+# green even against a stale Measured cell — reopening the stale-cell hole precisely at the
+# boundary. The adjacency pattern cannot collide: a stale Measured cell breaks the pair → RED,
+# and it fails closed (missing row → empty → no match → RED).
+_raf_root_row="$(grep -F '| Plugin root ≤' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc root Measured cell matches fresh measurement ($RAF_ROOT_W)" "yes" \
+  "$(case "${_raf_root_row//,/}" in *"| $RAF_ROOT_CEIL | $RAF_ROOT_W |"*) echo yes;; *) echo no;; esac)"
+_raf_load_row="$(grep -F 'Root + live extension (initial load) ≤' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc initial-load Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
+  "$(case "${_raf_load_row//,/}" in *"| $RAF_LOAD_CEIL | $((RAF_ROOT_W+RAF_EXT_W)) |"*) echo yes;; *) echo no;; esac)"
+_raf_maxstep_row="$(grep -F 'Root + extension + max active step ≤' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc max-step Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)))" "yes" \
+  "$(case "${_raf_maxstep_row//,/}" in *"| $RAF_MAXSTEP_CEIL | $((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)) |"*) echo yes;; *) echo no;; esac)"
+# #539 shadow (code-reviewer): bind the primary net-mandatory-reduction figure to the live
+# measurement so the "Net mandatory-prompt reduction" bullet cannot go stale while the Measured
+# cells it summarizes are re-measured. The extension addend cancels, so the reduction equals the
+# frozen monolith (36201) minus the live root; a stale bullet no longer contains the fresh figure → RED.
+_raf_reduction_row="$(grep -F 'net reduction of' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc net-reduction figure matches fresh measurement ($((36201 - RAF_ROOT_W)))" "yes" \
+  "$(case "${_raf_reduction_row//,/}" in *"net reduction of $((36201 - RAF_ROOT_W)) words"*) echo yes;; *) echo no;; esac)"
+# #539 shadow (pr-test-analyzer): the max-step Measured cell's PROSE LABEL names the largest
+# reference (shadow-review.md). The numeric pin above catches a stale count, but not a stale
+# label if a different reference ever grows largest. Bind the label to the actual max-words
+# reference so a re-measure that fixes only the number can't leave the name wrong.
+assert_eq "#530 budget: shadow-review.md is the largest reference (doc max-step label is live)" "shadow-review.md" \
+  "$RAF_MAXREF_NAME"
+# The label lives in the AFTER — maximum active step table row (not the ceilings row grepped
+# above), which spells out `root + extension + <largest reference>`.
+_raf_maxstep_after_row="$(grep -F '| **AFTER** — maximum active step |' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc max-step row names the actual largest reference ($RAF_MAXREF_NAME)" "yes" \
+  "$(case "$_raf_maxstep_after_row" in *"$RAF_MAXREF_NAME"*) echo yes;; *) echo no;; esac)"
+
+# ── #530 pressure tests (AC16): the split preserves every named control-flow scenario ──
+# Each scenario's operative behavioral literal must survive the split AND land in the
+# correct reference file (asserted against the specific file, not the concat, so a
+# mis-placed move is RED), and the thin root's Step-routing table must name each routed
+# reference. This is the structural walkthrough that proves routing survived the split —
+# the regression net the architect flagged as more decisive than any single pin.
+P530_ROOT="$LIB/../skills/review-and-fix/SKILL.md"
+P530_LC="$LIB/../skills/review-and-fix/references/loop-control.md"
+P530_SH="$LIB/../skills/review-and-fix/references/shadow-review.md"
+P530_PFG="$LIB/../skills/review-and-fix/references/pre-fix-gates.md"
+P530_FDG="$LIB/../skills/review-and-fix/references/fix-delta-gate.md"
+P530_CV="$LIB/../skills/review-and-fix/references/convergence.md"
+P530_LE="$LIB/../skills/review-and-fix/references/loop-exit.md"
+assert_pin_unique "#530 continuation: loop-control has an explicit current_step route" \
+  '| `loop-control` — Iteration setup + Steps 0.5–2 | `references/loop-control.md` |' "$P530_ROOT"
+assert_pin_unique "#530 continuation: pending dispatch is stamped before every dispatch" \
+  'Immediately before every `Agent`/`Task`/`Skill` dispatch, also write `pending_dispatch:' "$P530_ROOT"
+assert_pin_unique "#530 continuation: pending dispatch clears only after parse and join" \
+  'Clear it after the returned attempt is joined or dispositioned, including failure, timeout, exhausted-retry, and not-verified outcomes' "$P530_ROOT"
+# #539 review (Suggestion 3): the numbered pressure pins are presence pins — they catch a scenario's
+# operative sentence DISAPPEARING, but the reviewer asked the most load-bearing ones to also
+# prove they catch a behavioral REGRESSION that preserves the sentence's shape. Route the three
+# core loop-verdict scenarios (immediate-APPROVE arm, REJECT routing target, cap preservation)
+# through assert_pin_red_under with a targeted meaning-flip mutation on a COPY (route (a) — the
+# working tree is never touched): the mutation flips the verdict/routing/cap semantics and the
+# presence pin must go RED, proving the pin is anchored to the behavior, not merely the wording.
+# 1. immediate APPROVE — Step 2 clean-APPROVE arm (loop-control)
+assert_pin_unique "#530 pressure(immediate APPROVE): Step 2 clean-APPROVE arm in loop-control" \
+  'tentative final verdict `APPROVE`' "$P530_LC"
+assert_pin_red_under "#530/#539 pressure(immediate APPROVE): clean-arm verdict flip goes RED" \
+  'tentative final verdict `APPROVE`' \
+  's/tentative final verdict `APPROVE`/tentative final verdict `REJECT`/' "$P530_LC"
+# 2. reject-fix-approve — REJECT routes to Step 2.5 (loop-control)
+assert_pin_unique "#530 pressure(reject-fix-approve): REJECT routes to Step 2.5 in loop-control" \
+  'Engine verdict **REJECT** → continue to Step 2.5' "$P530_LC"
+assert_pin_red_under "#530/#539 pressure(reject-fix-approve): REJECT mis-routed to Step 2.6 goes RED" \
+  'Engine verdict **REJECT** → continue to Step 2.5' \
+  's/continue to Step 2\.5/continue to Step 2.6/' "$P530_LC"
+# 3. cap exit — the $MAX_ITERS cap is preserved (convergence)
+assert_pin_unique "#530 pressure(cap exit): the \$MAX_ITERS cap is preserved in convergence" \
+  'The `$MAX_ITERS` cap, the REJECT paths, and the shadow triggers are unchanged.' "$P530_CV"
+assert_pin_red_under "#530/#539 pressure(cap exit): dropping the cap-unchanged guarantee goes RED" \
+  'The `$MAX_ITERS` cap, the REJECT paths, and the shadow triggers are unchanged.' \
+  's/shadow triggers are unchanged\./shadow triggers are removed./' "$P530_CV"
+# max_iterations clamp — behavioral mutation pins (#539 review Suggestion 5). The presence pins
+# for these three tokens live far above (they must be assert_pin_unique because this mutation
+# primitive is defined later in the file than they run); place the behavioral pins HERE, where the
+# primitive exists. Each mutation flips the clamp's actual behavior on a COPY (route (a), working
+# tree untouched) so the pinned token vanishes and the pin must go RED: the negative-aware `-?`
+# dropped from the regex, the `-lt` below-1 floor comparison flipped, the default 5 changed to 0.
+assert_pin_red_under "#539 max_iterations clamp: dropping negative-awareness from the regex goes RED" \
+  "'^-?[0-9]+\$'" 's/\^-\?\[/^[/' "$MAXI_SKILL"
+assert_pin_red_under "#539 max_iterations clamp: flipping the below-1 floor comparison goes RED" \
+  '"$MAX_ITERS" -lt 1' 's/-lt 1/-gt 1/' "$MAXI_SKILL"
+assert_pin_red_under "#539 max_iterations clamp: changing the default-5 fallback goes RED" \
+  'MAX_ITERS=5' 's/MAX_ITERS=5/MAX_ITERS=0/' "$MAXI_SKILL"
+# 4. shadow trigger (convergence-time fan-out) — shadow-review
+assert_pin_unique "#530 pressure(shadow trigger, convergence): parent-orchestrated fan-out in shadow-review" \
+  '#### Run the shadow fan-out (parent-orchestrated)' "$P530_SH"
+# 5. shadow trigger (early, engine_self_modifying after iter 1) — shadow-review
+assert_pin_unique "#530 pressure(shadow trigger, early engine_self_modifying): early trigger in shadow-review" \
+  '#### Early shadow trigger (`engine_self_modifying`, after iteration 1)' "$P530_SH"
+# 6. post-shadow edit gate — loop-exit
+assert_pin_unique "#530 pressure(post-shadow edit): post-shadow edit gate in loop-exit" \
+  'Post-shadow edit gate (no unreviewed final edits)' "$P530_LE"
+# 7. parked finding — parked-class sweep (pre-fix-gates)
+assert_pin_unique "#530 pressure(parked finding): parked-class sweep in pre-fix-gates" \
+  'Parked-class sweep (pre-shadow convergence gate)' "$P530_PFG"
+# 8/9. calibration — park-calibration + over-grade calibration gates (shadow-review)
+assert_pin_unique "#530 pressure(calibration, park): park-calibration gate in shadow-review" \
+  'Park-calibration gate (before any APPROVE-family conclusion)' "$P530_SH"
+assert_pin_unique "#530 pressure(calibration, over-grade): over-grade calibration gate in shadow-review" \
+  'Over-grade calibration gate (before any Decide outcome 2 promotion)' "$P530_SH"
+# 10. unreadable source — the fail-closed reference-loading contract (root)
+assert_pin_unique "#530 pressure(unreadable source): fail-closed reference-loading contract in root" \
+  'each degrades exactly as the engine already degrades' "$P530_ROOT"
+# 11. push — base-branch update checkpoint 3 (loop-exit)
+assert_pin_unique "#530 pressure(push): base-branch update checkpoint 3 in loop-exit" \
+  'Base-branch update checkpoint 3' "$P530_LE"
+# 12. persistence failure — persistence self-check backstop (loop-exit)
+assert_pin_unique "#530 pressure(persistence failure): persistence self-check in loop-exit" \
+  'Persistence self-check (Layer 2' "$P530_LE"
+# 13. inline recovery — the fused per-iteration emit that survives a dropped Loop Exit (root Lifecycle)
+assert_pin_unique "#530 pressure(inline recovery): fused per-iteration emit in root Lifecycle" \
+  'non-optional emit, fused to the fix commit' "$P530_ROOT"
+# 14. fix-delta gate present (fix-delta-gate) — the reject-fix regression net
+assert_pin_unique "#530 pressure(fix-delta): fix-delta verification gate in fix-delta-gate" \
+  'Fix-delta verification gate' "$P530_FDG"
+# 15. fixes applied (fixing) — #539 review: fixing.md (the largest reference) had no
+# file-targeted operative pin, so a partial content move OUT of it (full deletion is caught
+# by the 8-name set pin) shipped desk-green. Pin the fix-commit-fused iter-record Write —
+# the load-bearing contract that makes the per-iteration emit unloseable.
+P530_FIX="$LIB/../skills/review-and-fix/references/fixing.md"
+assert_pin_unique "#530 pressure(fix applied): fix-commit-fused iter record Write in fixing" \
+  'the workpad emit is fused to this fix-commit moment' "$P530_FIX"
+# Routing: the thin root's Step-routing table names every routed reference.
+for _r530 in pre-fix-gates shadow-review fixing fix-delta-gate convergence loop-exit loop-control; do
+  assert_eq "#530 pressure(routing): root Step-routing names references/$_r530.md" "yes" \
+    "$(grep_present "references/$_r530.md" "$P530_ROOT")"
+done
+# The contextual error-handling.md is NOT step-routed (it carries no loop step), so it is
+# absent from the routing loop above by design; pin its best-effort failure-map row and its
+# root pointer instead so the "every reference has a mapped outcome" invariant stays guarded.
+assert_pin_unique "#530 pressure(routing): root failure-map carries the loop-control.md STOP row" \
+  '| `loop-control.md` | The loop spine' "$P530_ROOT"
+assert_pin_unique "#530 pressure(routing): root failure-map carries the error-handling.md best-effort row" \
+  '| `error-handling.md` | Contextual guidance' "$P530_ROOT"
+assert_eq "#530 pressure(routing): root names references/error-handling.md (contextual pointer)" "yes" \
+  "$(grep_present "references/error-handling.md" "$P530_ROOT")"
+# #539 review (Suggestion, test_gap): error-handling.md's SET membership (the 8-name pin) and its
+# failure-map row are pinned above, but its GUIDANCE BODY had no content pin — a partial gutting of
+# the body (as opposed to a whole-file delete, which the 8-name set catches) shipped desk-green.
+# Pin one operative clause so the body cannot be silently emptied, symmetric with fixing.md's
+# P530_FIX content pin. (assert_pin_unique is non-vacuous: 0 matches → RED.)
+P530_ERRH="$LIB/../skills/review-and-fix/references/error-handling.md"
+assert_pin_unique "#530/#539 content: error-handling.md retains the engine-surface carve-out guidance" \
+  'an all-Markdown engine-surface PR is unambiguously a valid `review-and-fix` target' "$P530_ERRH"
+# #539 review (Important, test_gap): before this block ONLY the loop-control and error-handling
+# failure-map rows were pinned — the other six carried the load-bearing degradation outcomes
+# (STOP-before-mutation, not_verified, persistence backstop, non-convergence) with no operative
+# pin, so weakening any row body shipped desk-green. Pin each remaining row's operative outcome
+# clause against the root so a silent downgrade of the fail-closed contract goes RED at the desk.
+assert_pin_unique "#530/#539 failure-map: pre-fix-gates row STOPs before any mutation" \
+  '| `pre-fix-gates.md` | **STOP before any mutation.** No fix without gate coverage.' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: shadow-review row records not_verified (prohibits clean approve)" \
+  '| `shadow-review.md` | Record `shadow.coverage: "not_verified"`' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: fixing row STOPs before any mutation" \
+  '| `fixing.md` | **STOP before any mutation.** Never apply a fix blind.' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: fix-delta-gate row records a not-verified fix-delta outcome" \
+  '| `fix-delta-gate.md` | Record a not-verified fix-delta outcome' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: convergence row treats unreadable as a failed condition" \
+  '| `convergence.md` | Treat as "a convergence condition failed"' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: loop-exit row runs the persistence backstop directly" \
+  '| `loop-exit.md` | Run the persistence backstop directly' "$P530_ROOT"
+# #539 review (Suggestion 2, degradation-mapping-mismatch): the shadow-review unreadable row now
+# branches by trigger context — an EARLY engine_self_modifying trigger continues the loop rather
+# than terminating a non-converged loop early. Pin that branch so it cannot silently regress to a
+# blanket "proceed to Loop Exit".
+assert_pin_unique "#530/#539 failure-map: early engine_self_modifying shadow trigger continues the loop (not an early terminate)" \
+  'an **early** `engine_self_modifying` trigger (after iteration 1) instead continues the loop as in the `convergence.md` row' "$P530_ROOT"
+# #539 review (Suggestion 1, unverified-assumption): the always-resident re-read rule now defines
+# the ABSENT-operand path explicitly — fail closed, never fall back to conversational memory.
+assert_pin_unique "#530/#539 re-read rule: an absent durable operand fails closed, never falls back to recall" \
+  '**Absent operand → fail closed, never recall.**' "$P530_ROOT"
+# #539 review (Important 2): the runtime completeness-check contract sentence — the detection
+# rule that decides a reference is unreadable in the first place — was pinned nowhere; only its
+# per-file failure-map OUTCOMES were. A weakening edit (dropping the exactly-once/ordered
+# requirement, or the clause counting duplicated/reversed/noncanonical markers as unreadable)
+# would ship desk-green. Pin the two load-bearing phrases of Step 3's boundary rule.
+assert_pin_unique "#530/#539 completeness check: markers must each occur exactly once, in order" \
+  'each occurring exactly once, in that order' "$P530_ROOT"
+assert_pin_unique "#530/#539 completeness check: duplicated/reversed/noncanonical markers mean unreadable" \
+  'a **duplicated** marker, a **reversed** order (END before START), or a marker at a **noncanonical** position' "$P530_ROOT"
+# ── #530 (silent-failure review): pin the START/END markers the fail-closed Reference-loading
+# contract hinges on. The runtime completeness check treats a reference as unreadable unless its
+# first non-blank line is `# Reference: <title>` and its last non-blank line is the canonical
+# `<!-- END <name>.md -->` marker. Nothing else pins them, so a future edit that drops/mangles a
+# marker (or appends content after the END) would ship desk-green. Pin both edges per reference,
+# and (#539 review, Important 1, mirroring the #529 desk loop) count both markers: a duplicated
+# or interior marker keeps a valid first/last non-blank line, so the edge checks alone stay
+# green on exactly the shapes the runtime contract reads as unreadable.
+for _rf in "$LIB/../skills/review-and-fix/references"/*.md; do
+  _rb="$(basename "$_rf")"
+  assert_eq "#530 marker: references/$_rb first non-blank line is a canonical '# Reference:' heading" "yes" \
+    "$(grep -m1 -v '^[[:space:]]*$' "$_rf" | grep -q '^# Reference: ' && echo yes || echo no)"
+  # Extract the filename the END marker names and require it to equal this file's basename —
+  # this both asserts the marker is the last non-blank line AND that it names the right file.
+  assert_eq "#530 marker: references/$_rb last non-blank line is the canonical END marker naming it" "$_rb" \
+    "$(grep -v '^[[:space:]]*$' "$_rf" | tail -1 | sed -nE 's/^<!-- END (.+\.md) -->$/\1/p')"
+  assert_eq "#530 marker: references/$_rb carries exactly one Reference heading and one END marker (no duplicate)" "1|1" \
+    "$(grep -c '^# Reference: ' "$_rf" | tr -d ' ')|$(grep -cF -- '<!-- END ' "$_rf" | tr -d ' ')"
+done
 
 # ── Anti-vacuity: each rule flags its denied shape (fixtures under $E363's trap-cleaned dir).
 printf '%s\n' '```bash' 'M=x printf hi' '```' > "$E363/s-r1a.md"
@@ -34357,7 +33918,7 @@ echo "#363 scripts/summarize-ci-checks.sh (adversarial input-shape matrix, gh st
 # extraction would silently coerce into a passing result (the #312 bug class).
 SCC="$LIB/../scripts/summarize-ci-checks.sh"
 S363="$(mktemp -d)" || { echo "FAIL  #363 scc: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484" "$S363"' EXIT
+_suite_tmp_dir "$S363"
 
 assert_eq "#363 summarize-ci-checks.sh exists and is executable" "yes" \
   "$([ -x "$SCC" ] && echo yes || echo no)"
@@ -34588,7 +34149,7 @@ echo "#363 observability: ::warning:: on denials + permission_denials_count plum
 # ────────────────────────────────────────────────────────────────────────────
 SED_SH="$LIB/../scripts/surface-execution-diagnostics.sh"
 D363="$(mktemp -d)" || { echo "FAIL  #363 diag: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
+_suite_tmp_dir "$D363"
 
 _diag_run() {  # execution-file-json -> stdout+stderr; GITHUB_OUTPUT at $D363/out
   : > "$D363/out"
@@ -35824,7 +35385,7 @@ SP_SCHEMA="$LIB/../.devflow/config.schema.json"
 SP_EXAMPLE="$LIB/../.devflow/config.example.json"
 SP_CONFIG="$LIB/../.devflow/config.json"
 SP_REVIEW="$REVIEW_BUNDLE"
-SP_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+SP_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 SP_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
 SP_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 SP_CG="$LIB/../scripts/config-get.sh"
@@ -38493,7 +38054,7 @@ fi
 # operative addition, re-introducing the "not stamped / not recorded" state).
 ET_JQ="$LIB/efficiency-trace.jq"
 ET_SH="$LIB/efficiency-trace.sh"
-RF_SKILL="$LIB/../skills/review-and-fix/SKILL.md"
+RF_SKILL="$MAXI_BUNDLE"   # #530: root+references bundle
 DR_YML="$LIB/../.github/workflows/devflow-review.yml"
 OSP_SH="$LIB/open-state-pr.sh"
 
@@ -39241,7 +38802,7 @@ UBC_P1="$LIB/../skills/implement/phases/phase-1-setup.md"
 UBC_P2="$LIB/../skills/implement/phases/phase-2-implement.md"
 UBC_P3="$LIB/../skills/implement/phases/phase-3-review.md"
 UBC_P4="$LIB/../skills/implement/phases/phase-4-documentation.md"
-UBC_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+UBC_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 UBC_INVOKE='/../../scripts/update-branch-checkpoint.sh'
 assert_pin_unique "#448 ubc-call-sites: checkpoint 1 invokes the helper in phase-1-setup.md" "$UBC_INVOKE" "$UBC_P1"
 assert_pin_unique "#448 ubc-call-sites: checkpoint 2 invokes the helper in phase-3-review.md" "$UBC_INVOKE" "$UBC_P3"
@@ -40884,7 +40445,7 @@ assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck s
 #
 # review-and-fix: verification_evidence gains a skipped_checks list, and the not-a-clean-pass
 # clause stays repo-agnostic (names no lib/test/run.sh / lib + python tests / --flag).
-RAF456="$LIB/../skills/review-and-fix/SKILL.md"
+RAF456="$MAXI_BUNDLE"   # #530: root+references bundle
 assert_eq "#456 review-and-fix: verification_evidence documents a skipped_checks list" "yes" \
   "$(grep -qF 'skipped_checks' "$RAF456" && echo yes || echo no)"
 assert_eq "#456 review-and-fix: the not-a-clean-pass clause is present and repo-agnostic" "yes" \
@@ -42370,8 +41931,8 @@ done
 # assert_pin_unique (the sanctioned unique-literal guard, not a raw echo-driven grep).
 assert_pin_unique "#487 fail-fast prose: skills/implement/SKILL.md carries the expired-credential two-strikes rule" \
   'Expired-credential fail-fast (two strikes' "$LIB/../skills/implement/SKILL.md"
-assert_pin_unique "#487 fail-fast prose: skills/review-and-fix/SKILL.md carries the expired-credential two-strikes rule" \
-  'Expired-credential fail-fast (two strikes' "$LIB/../skills/review-and-fix/SKILL.md"
+assert_pin_unique "#487 fail-fast prose: review-and-fix loop-control reference carries the expired-credential two-strikes rule" \
+  'Expired-credential fail-fast (two strikes' "$LIB/../skills/review-and-fix/references/loop-control.md"
 # The compaction-immune sibling signal (the wrapper diagnostic literal) is named in the prose.
 assert_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
   'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"
@@ -42855,7 +42416,7 @@ assert_eq "#499 union: classifier-unavailable retry refuses the remote write" "n
 assert_eq "#499 union: classifier-unavailable refusal is breadcrumbed" "yes" "$(printf '%s' "$T499_U_C_ERR" | grep -qF 'could not classify a colliding telemetry blob' && echo yes || echo no)"
 rm -rf "$T499_U_ROOT"
 # ── #497 shadow prompt-composition attestation pins ──────────────────────────
-I497_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+I497_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 I497_SHADOW_DOC="$LIB/../docs/shadow-review.md"
 I497_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 
@@ -42894,6 +42455,7 @@ assert_pin_unique "#497 AC12 overview names topic-priming" \
 assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda" \
   'a **prompt-composition attestation**' "$I497_OVERVIEW"
 
+# ────────────────────────────────────────────────────────────────────────────
 # The selected runner resolves this module from the registry before sourcing any
 # test body. The full suite uses a fail-closed boundary at the historical point:
 # a missing, crashing, malformed-tally, or below-floor module records a suite
@@ -42901,8 +42463,17 @@ assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-and-fix-contract.sh" \
-  "review-and-fix-contract" 66; then
+  "review-and-fix-contract" 68; then
   printf 'ERROR: review-and-fix-contract boundary could not record its result\n'
+  exit 1
+fi
+
+# create-issue contract coverage (extracted from this file into a focused module).
+# The registry and this full-suite call share the same lower-bound contract;
+# test_module_runner.py parses this operand and rejects any coupling drift.
+if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
+  "create-issue-contract" 206; then
+  printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
 

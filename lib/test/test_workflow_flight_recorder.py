@@ -422,6 +422,37 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
                 self.assertIn("skills/review/phases/*.md", globs)
                 self.assertIn(".devflow/prompt-extensions/review.md", globs)
 
+    def test_review_and_fix_reference_surfaces_resolve_to_the_shipped_files(self) -> None:
+        # #530/#539: the references glob rides `required: false`, so a typo'd or
+        # stale glob would silently record ZERO surfaces (the census under-reports
+        # with no signal). Bind the registry rows to disk: the glob must be present
+        # under BOTH parents with load_class "reference", and must resolve to the
+        # eight shipped references — never an empty set.
+        reference_glob = "skills/review-and-fix/references/*.md"
+        for workflow in ("review-and-fix", "implement"):
+            with self.subTest(workflow=workflow):
+                rows = [
+                    item
+                    for item in self.registry[workflow].surfaces
+                    if item.glob == reference_glob
+                ]
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0].load_class, "reference")
+        resolved = sorted(path.name for path in ROOT.glob(reference_glob))
+        self.assertEqual(
+            resolved,
+            [
+                "convergence.md",
+                "error-handling.md",
+                "fix-delta-gate.md",
+                "fixing.md",
+                "loop-control.md",
+                "loop-exit.md",
+                "pre-fix-gates.md",
+                "shadow-review.md",
+            ],
+        )
+
     def test_each_user_command_creates_a_top_level_occurrence(self) -> None:
         cases = [
             ("/devflow:implement 520", "implement", {"kind": "issue", "number": 520}),
